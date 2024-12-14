@@ -181,7 +181,7 @@ pub fn custom_value_enum(input: TokenStream) -> TokenStream {
 ///
 /// This macro only supports structs with named fields and it will panic if applied to any other
 /// data type, including structs with no fields.
-#[proc_macro_derive(ConfigDisplay, attributes(debug_fmt, indent_nested))]
+#[proc_macro_derive(ConfigDisplay, attributes(debug_fmt, indent_nested, cfg_display_skip))]
 pub fn config_display(input: TokenStream) -> TokenStream {
     config::config_display(input)
 }

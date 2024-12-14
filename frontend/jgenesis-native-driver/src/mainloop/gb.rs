@@ -22,9 +22,8 @@ impl NativeGameBoyEmulator {
 
         self.reload_common_config(&config.common)?;
 
-        let emulator_config = config.to_emulator_config();
-        self.emulator.reload_config(&emulator_config);
-        self.config = emulator_config;
+        self.emulator.reload_config(&config.emulator_config);
+        self.config = config.emulator_config;
 
         // Config change could have changed target framerate (60 Hz hack)
         self.renderer.set_target_fps(self.emulator.target_fps());
@@ -59,7 +58,7 @@ pub fn create_gb(config: Box<GameBoyConfig>) -> NativeEmulatorResult<NativeGameB
 
     let mut save_writer = FsSaveWriter::new(save_path);
 
-    let emulator_config = config.to_emulator_config();
+    let emulator_config = config.emulator_config;
     let emulator = GameBoyEmulator::create(rom, emulator_config, &mut save_writer)?;
 
     let rom_title = file_name_no_ext(&config.common.rom_file_path)?;

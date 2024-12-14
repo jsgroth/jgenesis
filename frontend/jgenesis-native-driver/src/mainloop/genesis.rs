@@ -27,9 +27,8 @@ impl NativeGenesisEmulator {
 
         self.reload_common_config(&config.common)?;
 
-        let emulator_config = config.to_emulator_config();
-        self.emulator.reload_config(&emulator_config);
-        self.config = emulator_config;
+        self.emulator.reload_config(&config.emulator_config);
+        self.config = config.emulator_config;
 
         self.input_mapper.update_mappings(
             config.common.axis_deadzone,
@@ -53,9 +52,8 @@ impl NativeSegaCdEmulator {
 
         self.reload_common_config(&config.genesis.common)?;
 
-        let emulator_config = config.to_emulator_config();
-        self.emulator.reload_config(&emulator_config);
-        self.config = emulator_config;
+        self.emulator.reload_config(&config.emulator_config);
+        self.config = config.emulator_config;
 
         self.input_mapper.update_mappings(
             config.genesis.common.axis_deadzone,
@@ -120,9 +118,8 @@ impl Native32XEmulator {
 
         self.reload_common_config(&config.genesis.common)?;
 
-        let emulator_config = config.to_emulator_config();
-        self.emulator.reload_config(&emulator_config);
-        self.config = emulator_config;
+        self.emulator.reload_config(&config.emulator_config);
+        self.config = config.emulator_config;
 
         self.input_mapper.update_mappings(
             config.genesis.common.axis_deadzone,
@@ -155,7 +152,7 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
 
     let mut save_writer = FsSaveWriter::new(save_path);
 
-    let emulator_config = config.to_emulator_config();
+    let emulator_config = config.emulator_config;
     let emulator = GenesisEmulator::create(rom, emulator_config, &mut save_writer);
 
     let mut cartridge_title = emulator.cartridge_title();
@@ -215,7 +212,7 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
         source,
     })?;
 
-    let emulator_config = config.to_emulator_config();
+    let emulator_config = config.emulator_config;
     let emulator = SegaCdEmulator::create(
         bios,
         rom_path,
@@ -263,7 +260,7 @@ pub fn create_32x(config: Box<Sega32XConfig>) -> NativeEmulatorResult<Native32XE
 
     let mut save_writer = FsSaveWriter::new(save_path);
 
-    let emulator_config = config.to_emulator_config();
+    let emulator_config = config.emulator_config;
     let emulator =
         Sega32XEmulator::create(rom.into_boxed_slice(), emulator_config, &mut save_writer);
 

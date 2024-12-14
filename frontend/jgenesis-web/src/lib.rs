@@ -242,7 +242,7 @@ impl Renderer for QueuedFrame {
 #[allow(clippy::large_enum_variant)]
 enum Emulator {
     None(RandomNoiseGenerator),
-    SmsGg(SmsGgEmulator, SmsGgInputs, SmsGgHardware),
+    SmsGg(SmsGgEmulator, SmsGgInputs),
     Genesis(GenesisEmulator, GenesisInputs),
     SegaCd(SegaCdEmulator, GenesisInputs),
     Snes(SnesEmulator, SnesInputs),
@@ -264,7 +264,7 @@ impl Emulator {
                 noise_generator.randomize();
                 noise_generator.render(renderer).expect("Failed to render random noise");
             }
-            Self::SmsGg(emulator, inputs, _) => {
+            Self::SmsGg(emulator, inputs) => {
                 while emulator
                     .tick(renderer, audio_output, inputs, save_writer)
                     .expect("Emulator error")
@@ -326,7 +326,7 @@ impl Emulator {
     fn handle_window_event(&mut self, event: &WindowEvent) {
         match self {
             Self::None(..) => {}
-            Self::SmsGg(_, inputs, _) => {
+            Self::SmsGg(_, inputs) => {
                 handle_smsgg_input(inputs, event);
             }
             Self::Genesis(_, inputs) | Self::SegaCd(_, inputs) => {
@@ -341,8 +341,8 @@ impl Emulator {
     fn reload_config(&mut self, config: &WebConfig) {
         match self {
             Self::None(..) => {}
-            Self::SmsGg(emulator, _, hardware) => {
-                emulator.reload_config(&config.smsgg.to_emulator_config(*hardware));
+            Self::SmsGg(emulator, ..) => {
+                emulator.reload_config(&config.smsgg.to_emulator_config());
             }
             Self::Genesis(emulator, ..) => {
                 emulator.reload_config(&config.genesis.to_emulator_config());
@@ -849,10 +849,11 @@ fn open_emulator(
             };
             let emulator = SmsGgEmulator::create(
                 rom,
-                config_ref.borrow().smsgg.to_emulator_config(hardware),
+                hardware,
+                config_ref.borrow().smsgg.to_emulator_config(),
                 save_writer,
             );
-            Ok(Emulator::SmsGg(emulator, SmsGgInputs::default(), hardware))
+            Ok(Emulator::SmsGg(emulator, SmsGgInputs::default()))
         }
         "md" | "bin" => {
             js::showGenesisConfig();

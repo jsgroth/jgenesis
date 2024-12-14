@@ -1,5 +1,5 @@
 use crate::AppConfig;
-use gb_core::api::{GbAspectRatio, GbPalette, GbcColorCorrection};
+use gb_core::api::{GameBoyEmulatorConfig, GbAspectRatio, GbPalette, GbcColorCorrection};
 use jgenesis_native_driver::config::GameBoyConfig;
 use serde::{Deserialize, Serialize};
 
@@ -39,13 +39,15 @@ impl AppConfig {
         Box::new(GameBoyConfig {
             common: self.common_config(path),
             inputs: self.input.game_boy.clone(),
-            force_dmg_mode: self.game_boy.force_dmg_mode,
-            pretend_to_be_gba: self.game_boy.pretend_to_be_gba,
-            aspect_ratio: self.game_boy.aspect_ratio,
-            gb_palette: self.game_boy.gb_palette,
-            gb_custom_palette: self.game_boy.gb_custom_palette,
-            gbc_color_correction: self.game_boy.gbc_color_correction,
-            audio_60hz_hack: self.game_boy.audio_60hz_hack,
+            emulator_config: GameBoyEmulatorConfig {
+                force_dmg_mode: self.game_boy.force_dmg_mode,
+                pretend_to_be_gba: self.game_boy.pretend_to_be_gba,
+                aspect_ratio: self.game_boy.aspect_ratio,
+                gb_palette: self.game_boy.gb_palette,
+                gb_custom_palette: self.game_boy.gb_custom_palette,
+                gbc_color_correction: self.game_boy.gbc_color_correction,
+                audio_60hz_hack: self.game_boy.audio_60hz_hack,
+            },
         })
     }
 }

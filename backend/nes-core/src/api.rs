@@ -12,7 +12,7 @@ use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, FrameSize, PixelAspectRatio, Renderer, SaveWriter,
     TickEffect, TickResult, TimingMode,
 };
-use jgenesis_proc_macros::{EnumAll, EnumDisplay, PartialClone};
+use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, PartialClone};
 use std::fmt::{Debug, Display, Formatter};
 use std::mem;
 use thiserror::Error;
@@ -71,7 +71,7 @@ impl Display for Overscan {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, ConfigDisplay)]
 pub struct NesEmulatorConfig {
     /// Force timing mode to NTSC/PAL if set
     /// If None, timing mode will default based on iNES ROM header

@@ -14,7 +14,7 @@ use genesis_core::{GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, Renderer, SaveWriter, TickEffect, TickResult, TimingMode,
 };
-use jgenesis_proc_macros::{EnumAll, EnumDisplay, PartialClone};
+use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, PartialClone};
 use m68000_emu::M68000;
 use smsgg_core::psg::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use std::fmt::{Debug, Display};
@@ -42,8 +42,9 @@ pub enum S32XVideoOut {
     S32XOnly,
 }
 
-#[derive(Debug, Clone, Copy, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct Sega32XEmulatorConfig {
+    #[cfg_display_skip]
     pub genesis: GenesisEmulatorConfig,
     pub video_out: S32XVideoOut,
     pub pwm_enabled: bool,

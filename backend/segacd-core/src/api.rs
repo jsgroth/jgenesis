@@ -17,7 +17,7 @@ use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig, GenesisInputs, Gen
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, PartialClone, Renderer, SaveWriter, TickEffect, TimingMode,
 };
-use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
+use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, EnumFromStr};
 use m68000_emu::M68000;
 use smsgg_core::psg::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use std::fmt::{Debug, Display};
@@ -78,8 +78,9 @@ pub enum PcmInterpolation {
     CubicHermite,
 }
 
-#[derive(Debug, Clone, Copy, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct SegaCdEmulatorConfig {
+    #[cfg_display_skip]
     pub genesis: GenesisEmulatorConfig,
     pub pcm_interpolation: PcmInterpolation,
     pub enable_ram_cartridge: bool,

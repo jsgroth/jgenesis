@@ -14,7 +14,9 @@ use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, FrameSize, PartialClone, PixelAspectRatio, Renderer,
     SaveWriter, TickEffect, TimingMode,
 };
-use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
+use jgenesis_proc_macros::{
+    ConfigDisplay, EnumAll, EnumDisplay, EnumFromStr, FakeDecode, FakeEncode,
+};
 use std::fmt::{Debug, Display};
 use std::num::NonZeroU64;
 use std::{io, mem};
@@ -76,7 +78,7 @@ pub enum AudioInterpolationMode {
     Hermite,
 }
 
-#[derive(Debug, Clone, Copy, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct SnesEmulatorConfig {
     pub forced_timing_mode: Option<TimingMode>,
     pub aspect_ratio: SnesAspectRatio,

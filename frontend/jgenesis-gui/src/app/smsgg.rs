@@ -4,9 +4,8 @@ use crate::app::{App, OpenWindow};
 use crate::emuthread::EmuThreadStatus;
 use egui::{Context, Slider, Window};
 use jgenesis_common::frontend::TimingMode;
-use jgenesis_native_driver::config::{GgAspectRatio, SmsAspectRatio};
 use smsgg_core::psg::Sn76489Version;
-use smsgg_core::{SmsModel, SmsRegion};
+use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsModel, SmsRegion};
 use std::num::NonZeroU32;
 
 impl App {

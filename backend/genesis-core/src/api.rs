@@ -13,7 +13,7 @@ use jgenesis_common::frontend::{
     SaveWriter, TickEffect, TimingMode,
 };
 use jgenesis_common::num::GetBit;
-use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
+use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, EnumFromStr};
 use m68000_emu::M68000;
 use smsgg_core::psg::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use std::cmp;
@@ -135,7 +135,7 @@ impl GenesisRegion {
     }
 }
 
-#[derive(Debug, Clone, Copy, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct GenesisEmulatorConfig {
     pub p1_controller_type: GenesisControllerType,
     pub p2_controller_type: GenesisControllerType,

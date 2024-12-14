@@ -1,13 +1,12 @@
 use genesis_core::audio::LowPassFilter;
 use genesis_core::input::GenesisControllerType;
 use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig};
-use jgenesis_common::frontend::{PixelAspectRatio, TimingMode};
-use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
+use jgenesis_common::frontend::TimingMode;
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, PrescaleMode, RendererConfig, Scanlines,
     VSyncMode, WgpuBackend,
 };
-use smsgg_core::{SmsGgEmulatorConfig, SmsGgHardware, SmsModel, SmsRegion};
+use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsGgEmulatorConfig, SmsModel, SmsRegion};
 use snes_core::api::{AudioInterpolationMode, SnesAspectRatio, SnesEmulatorConfig};
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -15,42 +14,6 @@ use std::num::{NonZeroU32, NonZeroU64};
 use std::ops::Deref;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, EnumDisplay, EnumFromStr)]
-enum SmsAspectRatio {
-    #[default]
-    Ntsc,
-    Pal,
-    SquarePixels,
-}
-
-impl SmsAspectRatio {
-    fn to_pixel_aspect_ratio(self) -> PixelAspectRatio {
-        match self {
-            Self::Ntsc => PixelAspectRatio::try_from(smsgg_core::SMS_NTSC_ASPECT_RATIO).unwrap(),
-            Self::Pal => PixelAspectRatio::try_from(smsgg_core::SMS_PAL_ASPECT_RATIO).unwrap(),
-            Self::SquarePixels => PixelAspectRatio::SQUARE,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, EnumDisplay, EnumFromStr)]
-enum GameGearAspectRatio {
-    #[default]
-    GameGearLcd,
-    SquarePixels,
-}
-
-impl GameGearAspectRatio {
-    fn to_pixel_aspect_ratio(self) -> PixelAspectRatio {
-        match self {
-            Self::GameGearLcd => {
-                PixelAspectRatio::try_from(smsgg_core::GAME_GEAR_LCD_ASPECT_RATIO).unwrap()
-            }
-            Self::SquarePixels => PixelAspectRatio::SQUARE,
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommonWebConfig {
@@ -90,7 +53,7 @@ impl CommonWebConfig {
 pub struct SmsGgWebConfig {
     timing_mode: TimingMode,
     sms_aspect_ratio: SmsAspectRatio,
-    gg_aspect_ratio: GameGearAspectRatio,
+    gg_aspect_ratio: GgAspectRatio,
     region: SmsRegion,
     remove_sprite_limit: bool,
     sms_crop_vertical_border: bool,
@@ -103,10 +66,10 @@ impl Default for SmsGgWebConfig {
         Self {
             timing_mode: TimingMode::default(),
             sms_aspect_ratio: SmsAspectRatio::default(),
-            gg_aspect_ratio: GameGearAspectRatio::default(),
+            gg_aspect_ratio: GgAspectRatio::default(),
             region: SmsRegion::default(),
             remove_sprite_limit: false,
-            sms_crop_vertical_border: false,
+            sms_crop_vertical_border: true,
             sms_crop_left_border: false,
             fm_unit_enabled: true,
         }
@@ -114,18 +77,13 @@ impl Default for SmsGgWebConfig {
 }
 
 impl SmsGgWebConfig {
-    pub(crate) fn to_emulator_config(&self, hardware: SmsGgHardware) -> SmsGgEmulatorConfig {
-        let pixel_aspect_ratio = match hardware {
-            SmsGgHardware::MasterSystem => self.sms_aspect_ratio.to_pixel_aspect_ratio(),
-            SmsGgHardware::GameGear => self.gg_aspect_ratio.to_pixel_aspect_ratio(),
-        };
-
+    pub(crate) fn to_emulator_config(&self) -> SmsGgEmulatorConfig {
         SmsGgEmulatorConfig {
-            hardware,
             sms_timing_mode: self.timing_mode,
             sms_model: SmsModel::default(),
             forced_psg_version: None,
-            pixel_aspect_ratio: Some(pixel_aspect_ratio),
+            sms_aspect_ratio: self.sms_aspect_ratio,
+            gg_aspect_ratio: self.gg_aspect_ratio,
             sms_region: self.region,
             remove_sprite_limit: self.remove_sprite_limit,
             sms_crop_left_border: self.sms_crop_left_border,

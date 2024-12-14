@@ -23,10 +23,8 @@ impl NativeSmsGgEmulator {
 
         self.reload_common_config(&config.common)?;
 
-        let hardware = self.emulator.hardware();
-        let emulator_config = config.to_emulator_config(hardware);
-        self.emulator.reload_config(&emulator_config);
-        self.config = emulator_config;
+        self.emulator.reload_config(&config.emulator_config);
+        self.config = config.emulator_config;
 
         // Config change could have changed target framerate (NTSC vs. PAL)
         self.renderer.set_target_fps(self.emulator.target_fps());
@@ -67,15 +65,15 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
     let rom_title = file_name_no_ext(rom_path)?;
     let window_title = format!("smsgg - {rom_title}");
 
-    let emulator_config = config.to_emulator_config(hardware);
-    let emulator = SmsGgEmulator::create(rom, emulator_config, &mut save_writer);
+    let emulator_config = config.emulator_config;
+    let emulator = SmsGgEmulator::create(rom, hardware, emulator_config, &mut save_writer);
 
     NativeSmsGgEmulator::new(
         emulator,
         emulator_config,
         config.common,
         extension,
-        config::default_smsgg_window_size(hardware, config.sms_timing_mode),
+        config::default_smsgg_window_size(hardware, emulator_config.sms_timing_mode),
         &window_title,
         save_writer,
         save_state_path,

@@ -9,13 +9,15 @@ pub fn config_display(input: TokenStream) -> TokenStream {
         panic!("ConfigDisplay derive macro only applies to structs");
     };
 
-    assert!(
-        !struct_data.fields.is_empty(),
-        "ConfigDisplay derive macro only applies to structs with fields"
-    );
-
-    let writeln_statements: Vec<_> = struct_data
+    let fields: Vec<_> = struct_data
         .fields
+        .iter()
+        .filter(|&field| !field.attrs.iter().any(|attr| attr.path().is_ident("cfg_display_skip")))
+        .collect();
+
+    assert!(!fields.is_empty(), "ConfigDisplay derive macro only applies to structs with fields");
+
+    let writeln_statements: Vec<_> = fields
         .iter()
         .enumerate()
         .map(|(i, field)| {
@@ -59,7 +61,7 @@ pub fn config_display(input: TokenStream) -> TokenStream {
                 format_invocation
             };
 
-            if i == struct_data.fields.len() - 1 {
+            if i == fields.len() - 1 {
                 quote! {
                     ::std::write!(f, "{}", #format_invocation)
                 }

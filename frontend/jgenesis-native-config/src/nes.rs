@@ -1,7 +1,7 @@
 use crate::AppConfig;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::NesConfig;
-use nes_core::api::{NesAspectRatio, Overscan};
+use nes_core::api::{NesAspectRatio, NesEmulatorConfig, Overscan};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,14 +42,16 @@ impl AppConfig {
         Box::new(NesConfig {
             common: self.common_config(path),
             inputs: self.input.nes.clone(),
-            forced_timing_mode: self.nes.forced_timing_mode,
-            aspect_ratio: self.nes.aspect_ratio,
-            overscan: self.nes.overscan,
-            remove_sprite_limit: self.nes.remove_sprite_limit,
-            pal_black_border: self.nes.pal_black_border,
-            silence_ultrasonic_triangle_output: self.nes.silence_ultrasonic_triangle_output,
-            audio_refresh_rate_adjustment: self.nes.audio_60hz_hack,
-            allow_opposing_joypad_inputs: self.nes.allow_opposing_joypad_inputs,
+            emulator_config: NesEmulatorConfig {
+                forced_timing_mode: self.nes.forced_timing_mode,
+                aspect_ratio: self.nes.aspect_ratio,
+                overscan: self.nes.overscan,
+                remove_sprite_limit: self.nes.remove_sprite_limit,
+                pal_black_border: self.nes.pal_black_border,
+                silence_ultrasonic_triangle_output: self.nes.silence_ultrasonic_triangle_output,
+                audio_refresh_rate_adjustment: self.nes.audio_60hz_hack,
+                allow_opposing_joypad_inputs: self.nes.allow_opposing_joypad_inputs,
+            },
         })
     }
 }

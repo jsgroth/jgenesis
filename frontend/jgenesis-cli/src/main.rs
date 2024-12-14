@@ -9,9 +9,7 @@ use jgenesis_common::frontend::{EmulatorTrait, TimingMode};
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::common::ConfigSavePath;
 use jgenesis_native_driver::config::input::{NesControllerType, SnesControllerType};
-use jgenesis_native_driver::config::{
-    FullscreenMode, GgAspectRatio, HideMouseCursor, SmsAspectRatio,
-};
+use jgenesis_native_driver::config::{FullscreenMode, HideMouseCursor};
 use jgenesis_native_driver::input::MappableInputs;
 use jgenesis_native_driver::{NativeEmulator, NativeTickEffect};
 use jgenesis_proc_macros::{CustomValueEnum, EnumAll, EnumDisplay};
@@ -22,7 +20,7 @@ use nes_core::api::NesAspectRatio;
 use s32x_core::api::S32XVideoOut;
 use segacd_core::api::PcmInterpolation;
 use smsgg_core::psg::Sn76489Version;
-use smsgg_core::{SmsModel, SmsRegion};
+use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsModel, SmsRegion};
 use snes_core::api::{AudioInterpolationMode, SnesAspectRatio};
 use std::ffi::OsStr;
 use std::fmt::Debug;

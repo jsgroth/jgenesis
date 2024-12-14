@@ -5,6 +5,7 @@
 
 ## Improvements
 * GUI: When opening a game that requires a BIOS ROM or firmware ROM (e.g. any Sega CD game), if the BIOS/firmware ROM path is not configured, the error window now contains a button to configure the appropriate ROM path and immediately launch the game
+* (**SMS**) The "crop vertical borders" setting now defaults to enabled instead of disabled; unlike the left border, the vertical borders will only ever show the current backdrop color
 
 # v0.8.3
 

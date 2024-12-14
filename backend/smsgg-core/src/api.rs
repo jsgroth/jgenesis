@@ -12,7 +12,9 @@ use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, FrameSize, PartialClone, PixelAspectRatio, Renderer,
     SaveWriter, TickEffect, TimingMode,
 };
-use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
+use jgenesis_proc_macros::{
+    ConfigDisplay, EnumAll, EnumDisplay, EnumFromStr, FakeDecode, FakeEncode,
+};
 use std::fmt::{Debug, Display};
 use std::num::NonZeroU32;
 use std::ops::{Deref, DerefMut};
@@ -87,13 +89,61 @@ pub enum SmsRegion {
     Domestic,
 }
 
-#[derive(Debug, Clone, Copy, Encode, Decode)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr, EnumAll,
+)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum SmsAspectRatio {
+    #[default]
+    Ntsc,
+    Pal,
+    SquarePixels,
+    Stretched,
+}
+
+impl SmsAspectRatio {
+    pub(crate) fn to_pixel_aspect_ratio(self) -> Option<PixelAspectRatio> {
+        match self {
+            Self::Ntsc => Some(PixelAspectRatio::try_from(crate::SMS_NTSC_ASPECT_RATIO).unwrap()),
+            Self::Pal => Some(PixelAspectRatio::try_from(crate::SMS_PAL_ASPECT_RATIO).unwrap()),
+            Self::SquarePixels => Some(PixelAspectRatio::SQUARE),
+            Self::Stretched => None,
+        }
+    }
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr, EnumAll,
+)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum GgAspectRatio {
+    #[default]
+    GgLcd,
+    SquarePixels,
+    Stretched,
+}
+
+impl GgAspectRatio {
+    pub(crate) fn to_pixel_aspect_ratio(self) -> Option<PixelAspectRatio> {
+        match self {
+            Self::GgLcd => {
+                Some(PixelAspectRatio::try_from(crate::GAME_GEAR_LCD_ASPECT_RATIO).unwrap())
+            }
+            Self::SquarePixels => Some(PixelAspectRatio::SQUARE),
+            Self::Stretched => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct SmsGgEmulatorConfig {
-    pub hardware: SmsGgHardware,
     pub sms_timing_mode: TimingMode,
     pub sms_model: SmsModel,
     pub forced_psg_version: Option<Sn76489Version>,
-    pub pixel_aspect_ratio: Option<PixelAspectRatio>,
+    pub sms_aspect_ratio: SmsAspectRatio,
+    pub gg_aspect_ratio: GgAspectRatio,
     pub remove_sprite_limit: bool,
     pub sms_region: SmsRegion,
     pub sms_crop_vertical_border: bool,
@@ -132,13 +182,14 @@ impl SmsGgEmulator {
     #[must_use]
     pub fn create<S: SaveWriter>(
         rom: Vec<u8>,
+        hardware: SmsGgHardware,
         config: SmsGgEmulatorConfig,
         save_writer: &mut S,
     ) -> Self {
         let cartridge_ram = save_writer.load_bytes("sav").ok();
 
-        let vdp_version = determine_vdp_version(&config);
-        let psg_version = determine_psg_version(&config);
+        let vdp_version = determine_vdp_version(hardware, &config);
+        let psg_version = determine_psg_version(hardware, &config);
 
         log::info!("VDP version: {vdp_version:?}");
         log::info!("PSG version: {psg_version:?}");
@@ -154,13 +205,15 @@ impl SmsGgEmulator {
         let ym2413 =
             config.fm_sound_unit_enabled.then(|| ym_opll::new_ym2413(YM2413_CLOCK_INTERVAL));
 
+        let pixel_aspect_ratio = determine_aspect_ratio(hardware, &config);
+
         let timing_mode = vdp.timing_mode();
         Self {
             memory,
             z80,
             vdp,
             vdp_version,
-            pixel_aspect_ratio: config.pixel_aspect_ratio,
+            pixel_aspect_ratio,
             psg,
             ym2413,
             input,
@@ -238,8 +291,8 @@ fn init_z80(z80: &mut Z80) {
     z80.set_interrupt_mode(InterruptMode::Mode1);
 }
 
-fn determine_vdp_version(config: &SmsGgEmulatorConfig) -> VdpVersion {
-    match (config.hardware, config.sms_timing_mode, config.sms_model) {
+fn determine_vdp_version(hardware: SmsGgHardware, config: &SmsGgEmulatorConfig) -> VdpVersion {
+    match (hardware, config.sms_timing_mode, config.sms_model) {
         (SmsGgHardware::MasterSystem, TimingMode::Ntsc, SmsModel::Sms1) => {
             VdpVersion::NtscMasterSystem1
         }
@@ -256,11 +309,21 @@ fn determine_vdp_version(config: &SmsGgEmulatorConfig) -> VdpVersion {
     }
 }
 
-fn determine_psg_version(config: &SmsGgEmulatorConfig) -> Sn76489Version {
-    config.forced_psg_version.unwrap_or(match config.hardware {
+fn determine_psg_version(hardware: SmsGgHardware, config: &SmsGgEmulatorConfig) -> Sn76489Version {
+    config.forced_psg_version.unwrap_or(match hardware {
         SmsGgHardware::MasterSystem => Sn76489Version::MasterSystem2,
         SmsGgHardware::GameGear => Sn76489Version::Standard,
     })
+}
+
+fn determine_aspect_ratio(
+    hardware: SmsGgHardware,
+    config: &SmsGgEmulatorConfig,
+) -> Option<PixelAspectRatio> {
+    match hardware {
+        SmsGgHardware::MasterSystem => config.sms_aspect_ratio.to_pixel_aspect_ratio(),
+        SmsGgHardware::GameGear => config.gg_aspect_ratio.to_pixel_aspect_ratio(),
+    }
 }
 
 impl EmulatorTrait for SmsGgEmulator {
@@ -367,12 +430,13 @@ impl EmulatorTrait for SmsGgEmulator {
     fn reload_config(&mut self, config: &Self::Config) {
         self.config = *config;
 
-        self.vdp_version = determine_vdp_version(config);
+        let hardware = self.hardware();
+        self.vdp_version = determine_vdp_version(hardware, config);
         self.vdp.update_config(self.vdp_version, config);
 
-        self.psg.set_version(determine_psg_version(config));
+        self.psg.set_version(determine_psg_version(hardware, config));
 
-        self.pixel_aspect_ratio = config.pixel_aspect_ratio;
+        self.pixel_aspect_ratio = determine_aspect_ratio(hardware, config);
         self.input.set_region(config.sms_region);
         self.audio_resampler.update_timing_mode(self.vdp.timing_mode());
     }
