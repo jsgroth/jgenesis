@@ -915,11 +915,16 @@ impl Vdp {
                 self.state.frame_count += 1;
                 self.state.v_border_forgotten = false;
 
-                self.state.interlaced_frame = match self.registers.interlacing_mode {
+                let next_frame_interlaced = match self.registers.interlacing_mode {
                     InterlacingMode::Progressive => false,
                     InterlacingMode::Interlaced => !self.config.deinterlace,
                     InterlacingMode::InterlacedDouble => true,
                 };
+                if next_frame_interlaced && !self.state.interlaced_frame && !self.config.deinterlace
+                {
+                    self.prepare_frame_buffer_for_interlaced();
+                }
+                self.state.interlaced_frame = next_frame_interlaced;
 
                 // Top border length needs to be saved at start-of-frame in case there is a mid-frame swap between V28
                 // mode and V30 mode. Titan Overdrive 2 depends on this for the arcade scene
@@ -1051,6 +1056,20 @@ impl Vdp {
                 0x2 => self.cached_sprite_attributes[idx].update_second_word_msb(value),
                 0x3 => self.cached_sprite_attributes[idx].update_second_word_lsb(value),
                 _ => unreachable!("value & 0x3 is always <= 0x3"),
+            }
+        }
+    }
+
+    fn prepare_frame_buffer_for_interlaced(&mut self) {
+        // Duplicate every line to avoid a flickering frame if a game enables interlacing without
+        // first blanking the screen
+        let screen_width = self.screen_width();
+        let screen_height = self.screen_height();
+        for scanline in (0..screen_height).rev() {
+            for pixel in 0..screen_width {
+                let color = self.frame_buffer[(scanline * screen_width + pixel) as usize];
+                self.frame_buffer[((2 * scanline) * screen_width + pixel) as usize] = color;
+                self.frame_buffer[((2 * scanline + 1) * screen_width + pixel) as usize] = color;
             }
         }
     }
