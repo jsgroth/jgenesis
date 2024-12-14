@@ -53,15 +53,31 @@ wgpu = "22"
 xrandr = "0.2"
 zip = "2"
 
+[profile.dev.build-override]
+opt-level = 1
+
 [profile.dev-fast]
-# dev profile with debug symbols disabled, which results in significantly faster compile times
+# dev profile with a few adjustments for faster incremental compile times
 inherits = "dev"
+# disable debuginfo
 debug = false
+strip = "debuginfo"
 # set opt-level=1 because most of the emulators are unusably slow without optimizations
+opt-level = 1
+
+[profile.dev-fast.build-override]
+# build proc-macro crates with full optimizations
+opt-level = 3
+
+[profile.release]
+incremental = true
+
+[profile.release.build-override]
 opt-level = 1
 
 [profile.release-lto]
 inherits = "release"
+incremental = false
 lto = true
 codegen-units = 1
 panic = "abort"
