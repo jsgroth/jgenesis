@@ -10,6 +10,8 @@ pub struct SnesAppConfig {
     pub forced_timing_mode: Option<TimingMode>,
     #[serde(default)]
     pub aspect_ratio: SnesAspectRatio,
+    #[serde(default = "true_fn")]
+    pub deinterlace: bool,
     #[serde(default)]
     pub audio_interpolation: AudioInterpolationMode,
     #[serde(default)]
@@ -22,6 +24,10 @@ pub struct SnesAppConfig {
     pub dsp4_rom_path: Option<String>,
     pub st010_rom_path: Option<String>,
     pub st011_rom_path: Option<String>,
+}
+
+const fn true_fn() -> bool {
+    true
 }
 
 fn default_gsu_overclock() -> NonZeroU64 {
@@ -42,6 +48,7 @@ impl AppConfig {
             inputs: self.input.snes.clone(),
             forced_timing_mode: self.snes.forced_timing_mode,
             aspect_ratio: self.snes.aspect_ratio,
+            deinterlace: self.snes.deinterlace,
             audio_interpolation: self.snes.audio_interpolation,
             audio_60hz_hack: self.snes.audio_60hz_hack,
             gsu_overclock_factor: self.snes.gsu_overclock_factor,

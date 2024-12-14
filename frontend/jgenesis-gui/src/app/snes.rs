@@ -234,6 +234,15 @@ impl App {
                 self.state.help_text.insert(WINDOW, helptext::ASPECT_RATIO);
             }
 
+            ui.add_space(5.0);
+
+            let rect = ui
+                .checkbox(&mut self.config.snes.deinterlace, "Deinterlacing enabled")
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::DEINTERLACING);
+            }
+
             self.render_help_text(ui, WINDOW);
         });
         if !open {

@@ -200,6 +200,7 @@ impl SnesWebConfig {
         SnesEmulatorConfig {
             forced_timing_mode: None,
             aspect_ratio: self.aspect_ratio,
+            deinterlace: true,
             audio_interpolation: self.audio_interpolation,
             audio_60hz_hack: true,
             gsu_overclock_factor: NonZeroU64::new(1).unwrap(),

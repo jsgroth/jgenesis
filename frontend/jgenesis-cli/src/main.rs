@@ -281,6 +281,10 @@ struct Args {
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
     snes_aspect_ratio: Option<SnesAspectRatio>,
 
+    /// Deinterlace if a game enables interlaced rendering
+    #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
+    snes_deinterlace: Option<bool>,
+
     /// Audio interpolation mode
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
     snes_audio_interpolation: Option<AudioInterpolationMode>,
@@ -585,6 +589,7 @@ impl Args {
     fn apply_snes_overrides(&self, config: &mut AppConfig) {
         apply_overrides!(self, config.snes, [
             snes_aspect_ratio -> aspect_ratio,
+            snes_deinterlace -> deinterlace,
             snes_audio_interpolation -> audio_interpolation,
             snes_audio_60hz_hack -> audio_60hz_hack,
             gsu_overclock_factor,

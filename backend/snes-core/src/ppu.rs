@@ -4,6 +4,7 @@ mod colortable;
 mod debug;
 mod registers;
 
+use crate::api::SnesEmulatorConfig;
 use crate::ppu::registers::{
     AccessFlipflop, BgMode, BgScreenSize, BitsPerPixel, MidScanlineUpdate, Mode7OobBehavior,
     ObjPriorityMode, Registers, TileSize, VramIncrementMode,
@@ -360,6 +361,7 @@ pub struct Ppu {
     frame_buffer: FrameBuffer,
     sprite_buffer: Vec<SpriteData>,
     sprite_tile_buffer: Vec<SpriteTileData>,
+    deinterlace: bool,
 }
 
 // In actual hardware, PPU starts rendering pixels at H=22 / mclk=88
@@ -375,7 +377,7 @@ const RENDER_LINE_MCLK: u64 = 92;
 const END_RENDER_LINE_MCLK: u64 = RENDER_LINE_MCLK + 256 * 4 - 3 * 4;
 
 impl Ppu {
-    pub fn new(timing_mode: TimingMode) -> Self {
+    pub fn new(timing_mode: TimingMode, config: SnesEmulatorConfig) -> Self {
         Self {
             timing_mode,
             registers: Registers::new(),
@@ -387,6 +389,7 @@ impl Ppu {
             frame_buffer: FrameBuffer::new(),
             sprite_buffer: Vec::with_capacity(MAX_SPRITES_PER_LINE),
             sprite_tile_buffer: Vec::with_capacity(MAX_SPRITE_TILES_PER_LINE),
+            deinterlace: config.deinterlace,
         }
     }
 
@@ -418,6 +421,11 @@ impl Ppu {
                 || self.state.scanline == scanlines_per_frame + 1
             {
                 self.state.scanline = 0;
+
+                if !self.state.v_hi_res_frame && self.registers.interlaced && !self.deinterlace {
+                    self.fix_interlaced_frame_buffer();
+                }
+
                 // TODO wait until H=1?
                 self.state.odd_frame = !self.state.odd_frame;
                 self.state.last_rendered_scanline = None;
@@ -515,15 +523,22 @@ impl Ppu {
         if self.state.v_hi_res_frame && v_hi_res {
             // Vertical hi-res, 448px
             self.render_obj_layer(scanline, false);
-            self.render_bg_layers_to_buffer(2 * scanline - 1, hi_res_mode, bg_from_pixel);
-            self.render_scanline(2 * scanline - 1, hi_res_mode, screen_from_pixel);
 
-            if self.registers.pseudo_obj_hi_res {
-                self.render_obj_layer(scanline, true);
+            if self.deinterlace || !self.state.odd_frame {
+                // Render even line
+                self.render_bg_layers_to_buffer(2 * scanline - 1, hi_res_mode, bg_from_pixel);
+                self.render_scanline(2 * scanline - 1, hi_res_mode, screen_from_pixel);
             }
 
-            self.render_bg_layers_to_buffer(2 * scanline, hi_res_mode, bg_from_pixel);
-            self.render_scanline(2 * scanline, hi_res_mode, screen_from_pixel);
+            if self.deinterlace || self.state.odd_frame {
+                // Render odd line
+                if self.registers.pseudo_obj_hi_res {
+                    self.render_obj_layer(scanline, true);
+                }
+
+                self.render_bg_layers_to_buffer(2 * scanline, hi_res_mode, bg_from_pixel);
+                self.render_scanline(2 * scanline, hi_res_mode, screen_from_pixel);
+            }
         } else if !self.state.v_hi_res_frame && v_hi_res {
             // Probably should never happen - PPU is in 448px mode but interlacing was disabled at
             // start of frame
@@ -537,19 +552,28 @@ impl Ppu {
             self.render_scanline(scanline, hi_res_mode, screen_from_pixel);
         } else if self.state.v_hi_res_frame {
             // Interlacing was enabled at start of frame - duplicate lines
-            self.render_obj_layer(scanline, false);
-            self.render_bg_layers_to_buffer(scanline, hi_res_mode, bg_from_pixel);
-            self.render_scanline(2 * scanline - 1, hi_res_mode, screen_from_pixel);
-
-            if self.registers.interlaced && self.registers.pseudo_obj_hi_res {
-                self.render_obj_layer(scanline, true);
-                self.render_scanline(2 * scanline, hi_res_mode, screen_from_pixel);
+            if !self.deinterlace {
+                let odd_frame: u16 = self.state.odd_frame.into();
+                self.render_obj_layer(scanline, self.state.odd_frame);
+                self.render_bg_layers_to_buffer(scanline, hi_res_mode, screen_from_pixel);
+                self.render_scanline(2 * scanline - 1 + odd_frame, hi_res_mode, screen_from_pixel);
             } else {
-                self.duplicate_line(
-                    (2 * scanline - 1).into(),
-                    (2 * scanline).into(),
-                    screen_from_pixel.into(),
-                );
+                // Render even line
+                self.render_obj_layer(scanline, false);
+                self.render_bg_layers_to_buffer(scanline, hi_res_mode, bg_from_pixel);
+                self.render_scanline(2 * scanline - 1, hi_res_mode, screen_from_pixel);
+
+                // Duplicate to odd line, re-rendering OBJs if necessary
+                if self.registers.interlaced && self.registers.pseudo_obj_hi_res {
+                    self.render_obj_layer(scanline, true);
+                    self.render_scanline(2 * scanline, hi_res_mode, screen_from_pixel);
+                } else {
+                    self.duplicate_line(
+                        (2 * scanline - 1).into(),
+                        (2 * scanline).into(),
+                        screen_from_pixel.into(),
+                    );
+                }
             }
         } else {
             // Interlacing is disabled, render normally
@@ -1377,19 +1401,23 @@ impl Ppu {
                 } else {
                     last_rendered_scanline
                 };
-                for scanline in (1..=last_copy_line).rev() {
-                    let src_line_addr = 256 * u32::from(scanline - 1);
-                    let dest_line_addr = 512 * u32::from(scanline - 1);
-                    for pixel in (0..256).rev() {
-                        let color = self.frame_buffer[(src_line_addr + pixel) as usize];
-                        self.frame_buffer[(dest_line_addr + 2 * pixel) as usize] = color;
-                        self.frame_buffer[(dest_line_addr + 2 * pixel + 1) as usize] = color;
-                    }
-                }
+                self.frame_buffer_h256_to_h512(last_copy_line);
             }
         }
 
         self.state.h_hi_res_frame = true;
+    }
+
+    fn frame_buffer_h256_to_h512(&mut self, to_scanline: u16) {
+        for scanline in (1..=to_scanline).rev() {
+            let src_line_addr = 256 * u32::from(scanline - 1);
+            let dest_line_addr = 512 * u32::from(scanline - 1);
+            for pixel in (0..256).rev() {
+                let color = self.frame_buffer[(src_line_addr + pixel) as usize];
+                self.frame_buffer[(dest_line_addr + 2 * pixel) as usize] = color;
+                self.frame_buffer[(dest_line_addr + 2 * pixel + 1) as usize] = color;
+            }
+        }
     }
 
     fn set_in_frame_buffer(&mut self, scanline: u16, pixel: u16, color: Color) {
@@ -1405,6 +1433,43 @@ impl Ppu {
         for pixel in from_pixel..screen_width {
             self.frame_buffer[(to_row_addr + pixel) as usize] =
                 self.frame_buffer[(from_row_addr + pixel) as usize];
+        }
+    }
+
+    fn fix_interlaced_frame_buffer(&mut self) {
+        log::debug!("Just entered interlaced mode; rewriting frame buffer");
+
+        let v_display_size = self.registers.v_display_size.to_lines();
+
+        // Check if changed from H256px to H512px
+        let next_frame_h_hi_res =
+            self.registers.bg_mode.is_hi_res() || self.registers.pseudo_h_hi_res;
+        if !self.state.h_hi_res_frame && next_frame_h_hi_res {
+            log::debug!("Expanding previous frame from H256px to H512px");
+            self.frame_buffer_h256_to_h512(v_display_size);
+        }
+
+        log::debug!(
+            "Expanding previous frame from V{}px to V{}px; screen width H{}px",
+            v_display_size,
+            2 * v_display_size,
+            if next_frame_h_hi_res { HIRES_SCREEN_WIDTH } else { NORMAL_SCREEN_WIDTH }
+        );
+
+        // Duplicate lines to expand frame buffer from V224px to V448px (or V239px to V478px)
+        let screen_width = if next_frame_h_hi_res {
+            HIRES_SCREEN_WIDTH as u32
+        } else {
+            NORMAL_SCREEN_WIDTH as u32
+        };
+        for scanline in (1..=u32::from(v_display_size)).rev() {
+            let even_line = 2 * scanline - 1;
+            let odd_line = 2 * scanline;
+            for pixel in 0..screen_width {
+                let color = self.frame_buffer[(scanline * screen_width + pixel) as usize];
+                self.frame_buffer[(even_line * screen_width + pixel) as usize] = color;
+                self.frame_buffer[(odd_line * screen_width + pixel) as usize] = color;
+            }
         }
     }
 
@@ -1805,6 +1870,10 @@ impl Ppu {
             self.registers.latched_v_counter = v;
             self.registers.new_hv_latched = true;
         }
+    }
+
+    pub fn update_config(&mut self, config: SnesEmulatorConfig) {
+        self.deinterlace = config.deinterlace;
     }
 
     pub fn reset(&mut self) {

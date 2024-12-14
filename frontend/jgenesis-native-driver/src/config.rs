@@ -403,6 +403,7 @@ pub struct SnesConfig {
     pub inputs: SnesInputConfig,
     pub forced_timing_mode: Option<TimingMode>,
     pub aspect_ratio: SnesAspectRatio,
+    pub deinterlace: bool,
     pub audio_interpolation: AudioInterpolationMode,
     pub audio_60hz_hack: bool,
     pub gsu_overclock_factor: NonZeroU64,
@@ -419,6 +420,7 @@ impl SnesConfig {
         SnesEmulatorConfig {
             forced_timing_mode: self.forced_timing_mode,
             aspect_ratio: self.aspect_ratio,
+            deinterlace: self.deinterlace,
             audio_interpolation: self.audio_interpolation,
             audio_60hz_hack: self.audio_60hz_hack,
             gsu_overclock_factor: self.gsu_overclock_factor,

@@ -33,6 +33,14 @@ pub const ASPECT_RATIO: HelpText = HelpText {
     ],
 };
 
+pub const DEINTERLACING: HelpText = HelpText {
+    heading: "Deinterlacing",
+    text: &[
+        "If enabled and a game turns on interlaced display mode, render in progressive mode instead of interlaced.",
+        "In high-res interlaced mode (512x448i), this causes the PPU to render all 448 lines every frame (or 478 in 239-line mode).",
+    ],
+};
+
 pub const ADPCM_INTERPOLATION: HelpText = HelpText {
     heading: "ADPCM Sample Interpolation",
     text: &[

@@ -217,7 +217,7 @@ impl Cartridge {
             upd77c25::ST01X_RAM_LEN_BYTES
         } else if cartridge_type == CartridgeType::SuperFx {
             superfx::guess_ram_len(&rom)
-        } else if sram_header_byte == 0 {
+        } else if sram_header_byte == 0 || sram_header_byte > 21 {
             0
         } else {
             1 << (10 + sram_header_byte)

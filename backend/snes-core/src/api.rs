@@ -80,6 +80,7 @@ pub enum AudioInterpolationMode {
 pub struct SnesEmulatorConfig {
     pub forced_timing_mode: Option<TimingMode>,
     pub aspect_ratio: SnesAspectRatio,
+    pub deinterlace: bool,
     pub audio_interpolation: AudioInterpolationMode,
     pub audio_60hz_hack: bool,
     pub gsu_overclock_factor: NonZeroU64,
@@ -210,7 +211,7 @@ impl SnesEmulator {
 
         let timing_mode =
             config.forced_timing_mode.unwrap_or_else(|| memory.cartridge_timing_mode());
-        let ppu = Ppu::new(timing_mode);
+        let ppu = Ppu::new(timing_mode, config);
         let apu = Apu::new(timing_mode, config);
 
         log::info!("Running with timing/display mode {timing_mode}");
@@ -407,6 +408,7 @@ impl EmulatorTrait for SnesEmulator {
 
     fn reload_config(&mut self, config: &Self::Config) {
         self.aspect_ratio = config.aspect_ratio;
+        self.ppu.update_config(*config);
         self.apu.update_config(*config);
         self.memory.update_gsu_overclock_factor(config.gsu_overclock_factor);
 
