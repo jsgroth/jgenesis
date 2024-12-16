@@ -22,9 +22,8 @@ impl NativeGbaEmulator {
 
         self.reload_common_config(&config.common)?;
 
-        let emulator_config = config.to_emulator_config();
-        self.emulator.reload_config(&emulator_config);
-        self.config = emulator_config;
+        self.emulator.reload_config(&config.emulator_config);
+        self.config = config.emulator_config;
 
         self.input_mapper.update_mappings(
             config.common.axis_deadzone,
@@ -64,7 +63,7 @@ pub fn create_gba(config: Box<GameBoyAdvanceConfig>) -> NativeEmulatorResult<Nat
 
     let mut save_writer = FsSaveWriter::new(save_path);
 
-    let emulator_config = config.to_emulator_config();
+    let emulator_config = config.emulator_config;
     let emulator =
         GameBoyAdvanceEmulator::create(rom, bios_rom, emulator_config, &mut save_writer)?;
 

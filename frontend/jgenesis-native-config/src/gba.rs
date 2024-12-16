@@ -1,5 +1,5 @@
 use crate::AppConfig;
-use gba_core::api::GbaAspectRatio;
+use gba_core::api::{GbaAspectRatio, GbaEmulatorConfig};
 use jgenesis_native_driver::config::GameBoyAdvanceConfig;
 use serde::{Deserialize, Serialize};
 
@@ -25,8 +25,10 @@ impl AppConfig {
             common: self.common_config(path),
             inputs: self.input.gba.clone(),
             bios_path: self.game_boy_advance.bios_path.clone(),
-            aspect_ratio: self.game_boy_advance.aspect_ratio,
-            skip_bios_intro_animation: self.game_boy_advance.skip_bios_intro_animation,
+            emulator_config: GbaEmulatorConfig {
+                aspect_ratio: self.game_boy_advance.aspect_ratio,
+                skip_bios_intro_animation: self.game_boy_advance.skip_bios_intro_animation,
+            },
         })
     }
 }

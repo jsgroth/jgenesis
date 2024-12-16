@@ -15,7 +15,7 @@ use jgenesis_common::frontend::{
     AudioOutput, EmulatorTrait, PartialClone, PixelAspectRatio, Renderer, SaveWriter, TickEffect,
     TickResult,
 };
-use jgenesis_proc_macros::{EnumAll, EnumDisplay};
+use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay};
 use std::fmt::{Debug, Display};
 use std::mem;
 use thiserror::Error;
@@ -41,7 +41,7 @@ impl GbaAspectRatio {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, ConfigDisplay)]
 pub struct GbaEmulatorConfig {
     pub aspect_ratio: GbaAspectRatio,
     pub skip_bios_intro_animation: bool,
