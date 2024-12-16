@@ -223,7 +223,7 @@ fn create_horizontal_blur_pipeline(
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
             module: &shaders.identity,
-            entry_point: "vs_main",
+            entry_point: None,
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             buffers: &[],
         },
@@ -244,7 +244,7 @@ fn create_horizontal_blur_pipeline(
         },
         fragment: Some(wgpu::FragmentState {
             module: &shaders.hblur,
-            entry_point: fs_main,
+            entry_point: Some(fs_main),
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             targets: &[Some(wgpu::ColorTargetState {
                 format: output_texture.format(),
@@ -461,7 +461,7 @@ impl RenderingPipeline {
             layout: Some(&prescale_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shaders.identity,
-                entry_point: "vs_main",
+                entry_point: None,
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 buffers: &[],
             },
@@ -482,7 +482,7 @@ impl RenderingPipeline {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shaders.prescale,
-                entry_point: prescale_fs_main,
+                entry_point: Some(prescale_fs_main),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: scaled_texture.format(),
@@ -544,7 +544,7 @@ impl RenderingPipeline {
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shaders.render,
-                entry_point: "vs_main",
+                entry_point: None,
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 buffers: &[Vertex::buffer_layout()],
             },
@@ -565,7 +565,7 @@ impl RenderingPipeline {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shaders.render,
-                entry_point: "fs_main",
+                entry_point: None,
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_config.format,

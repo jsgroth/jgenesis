@@ -64,7 +64,7 @@ impl ModalRenderer {
             layout: None,
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
+                entry_point: None,
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 buffers: &[Vertex::LAYOUT],
             },
@@ -81,7 +81,7 @@ impl ModalRenderer {
             multisample: wgpu::MultisampleState::default(),
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: None,
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
