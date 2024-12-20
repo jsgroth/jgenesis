@@ -104,7 +104,7 @@ const fn default_audio_output_frequency() -> u64 {
 }
 
 const fn default_audio_hardware_queue_size() -> u16 {
-    256
+    512
 }
 
 const fn default_audio_buffer_size() -> u32 {
