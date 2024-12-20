@@ -693,7 +693,7 @@ fn collect_input(
             }
         }
 
-        jgenesis_common::sleep(Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(10));
     }
 }
 

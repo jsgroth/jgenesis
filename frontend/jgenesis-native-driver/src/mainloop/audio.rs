@@ -3,6 +3,7 @@ use jgenesis_common::audio::DynamicResamplingRate;
 use jgenesis_common::frontend::AudioOutput;
 use sdl2::AudioSubsystem;
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
+use std::thread;
 use std::time::Duration;
 use thiserror::Error;
 
@@ -167,7 +168,7 @@ impl AudioOutput for SdlAudioOutput {
             if self.audio_sync {
                 // Block until audio queue is not full
                 while self.audio_queue_len_samples() > audio_buffer_threshold {
-                    jgenesis_common::sleep(Duration::from_micros(250));
+                    thread::sleep(Duration::from_micros(250));
                 }
             } else if self.audio_queue_len_samples() > audio_buffer_threshold {
                 // Audio queue is full; drop samples

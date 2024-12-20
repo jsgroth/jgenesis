@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Debug;
 use std::time::Duration;
-use std::{cmp, iter};
+use std::{cmp, iter, thread};
 use thiserror::Error;
 use wgpu::util::DeviceExt;
 
@@ -960,7 +960,7 @@ impl FrameTimeTracker {
         let mut now = timeutils::current_time_nanos();
         let next_frame_time = self.last_frame_time_nanos + self.frame_interval_nanos;
         while now < next_frame_time {
-            jgenesis_common::sleep(Duration::from_micros(250));
+            thread::sleep(Duration::from_micros(250));
             now = timeutils::current_time_nanos();
         }
 

@@ -48,11 +48,11 @@ use std::error::Error;
 use std::ffi::NulError;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::LazyLock;
 use std::time::Duration;
+use std::{io, thread};
 use thiserror::Error;
 
 const MODAL_DURATION: Duration = Duration::from_secs(3);
@@ -570,7 +570,7 @@ where
 
         if !should_run_emulator {
             // Don't spin loop when the emulator is paused or rewinding
-            jgenesis_common::sleep(Duration::from_millis(1));
+            thread::sleep(Duration::from_millis(1));
         }
 
         Ok(None)
