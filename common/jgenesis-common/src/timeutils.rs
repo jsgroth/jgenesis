@@ -1,4 +1,6 @@
 use cfg_if::cfg_if;
+use std::thread;
+use std::time::Duration;
 use time::{Date, Month, Weekday};
 
 /// Read the time since the Unix epoch in nanoseconds. Will return 0 if the system-reported time is
@@ -15,6 +17,31 @@ pub fn current_time_nanos() -> u128 {
             use std::time::SystemTime;
 
             SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_nanos()
+        }
+    }
+}
+
+/// Sleep until at least the specified time. Returns the current time in nanoseconds after sleeping.
+///
+/// This implementation will try to sleep until 1ms before the target time and then it will busy
+/// wait until the target time. This is to work around the fact that `thread::sleep()` only guarantees
+/// that it will sleep _at least_ the specified duration, and it could sleep longer. Sleeping longer
+/// seems to be particularly common on Windows.
+///
+/// If the current time is already past the target time, this function will return immediately
+/// without sleeping.
+#[inline]
+#[allow(clippy::must_use_candidate)]
+pub fn sleep_until(time_nanos: u128) -> u128 {
+    loop {
+        let now = current_time_nanos();
+        if now >= time_nanos {
+            return now;
+        }
+
+        let duration = Duration::from_nanos((time_nanos - now) as u64);
+        if duration > Duration::from_millis(1) {
+            thread::sleep(duration - Duration::from_millis(1));
         }
     }
 }

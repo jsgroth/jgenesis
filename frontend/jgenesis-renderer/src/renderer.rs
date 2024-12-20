@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Debug;
 use std::time::Duration;
-use std::{cmp, iter, thread};
+use std::{cmp, iter};
 use thiserror::Error;
 use wgpu::util::DeviceExt;
 
@@ -957,15 +957,15 @@ impl FrameTimeTracker {
             return;
         }
 
-        let mut now = timeutils::current_time_nanos();
         let next_frame_time = self.last_frame_time_nanos + self.frame_interval_nanos;
-        while now < next_frame_time {
-            thread::sleep(Duration::from_micros(250));
-            now = timeutils::current_time_nanos();
-        }
+        let now = timeutils::sleep_until(next_frame_time);
+        self.last_frame_time_nanos += self.frame_interval_nanos;
 
-        while self.last_frame_time_nanos + self.frame_interval_nanos < now {
-            self.last_frame_time_nanos += self.frame_interval_nanos;
+        if now > self.last_frame_time_nanos
+            && (now - self.last_frame_time_nanos) > 5 * self.frame_interval_nanos
+        {
+            log::warn!("Frame time sync is more than 5 frames behind; catching up frame time");
+            self.last_frame_time_nanos = now;
         }
     }
 }
