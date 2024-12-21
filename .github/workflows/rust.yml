@@ -70,7 +70,7 @@ jobs:
         run: |
           cd frontend/jgenesis-web && cargo +nightly clippy --target wasm32-unknown-unknown
   linux-release-appimage:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v4
@@ -81,7 +81,7 @@ jobs:
 
       - name: Install system library dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y libsdl2-dev
+          sudo apt-get update && sudo apt upgrade -y && sudo apt-get install -y libsdl2-dev
 
       - name: Get latest cargo-packager version
         id: get-packager-version
