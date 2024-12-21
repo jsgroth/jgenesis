@@ -696,13 +696,16 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
                 self.memory.physical_medium.write_byte(address, value);
             }
             0xA00000..=0xA0FFFF => {
-                // Z80 memory map
-                // For 68k access, $8000-$FFFF mirrors $0000-$7FFF
-                <Self as z80_emu::BusInterface>::write_memory(
-                    self,
-                    (address & 0x7FFF) as u16,
-                    value,
-                );
+                // Z80 memory map; writable by the 68k only when the Z80 is removed from the bus
+                // and not reset
+                if self.memory.signals.z80_busack() {
+                    // For 68k access, $8000-$FFFF mirrors $0000-$7FFF
+                    <Self as z80_emu::BusInterface>::write_memory(
+                        self,
+                        (address & 0x7FFF) as u16,
+                        value,
+                    );
+                }
             }
             0xA10000..=0xA1001F => {
                 self.write_io_register(address, value);
@@ -796,9 +799,14 @@ impl<Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'_, Medium> {
                 self.memory.physical_medium.read_byte(address)
             }
             0xA00000..=0xA0FFFF => {
-                // Z80 memory map
-                // For 68k access, $8000-$FFFF mirrors $0000-$7FFF
-                <Self as z80_emu::BusInterface>::read_memory(self, (address & 0x7FFF) as u16)
+                // Z80 memory map; 68k can only access when the Z80 is running and removed from the bus
+                if self.memory.signals.z80_busack() {
+                    // For 68k access, $8000-$FFFF mirrors $0000-$7FFF
+                    <Self as z80_emu::BusInterface>::read_memory(self, (address & 0x7FFF) as u16)
+                } else {
+                    // MSB of open bus
+                    self.last_word_read.msb()
+                }
             }
             0xA10000..=0xA1001F => self.read_io_register(address),
             0xA11100..=0xA11101 => (self.read_busack_register() >> 8) as u8,
@@ -818,9 +826,15 @@ impl<Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'_, Medium> {
                 self.memory.physical_medium.read_word(address)
             }
             0xA00000..=0xA0FFFF => {
-                // All Z80 access is byte-size; word reads mirror the byte in both MSB and LSB
-                let byte = self.read_byte(address);
-                u16::from_le_bytes([byte, byte])
+                // Z80 memory map; 68k can only access when the Z80 is running and removed from the bus
+                if self.memory.signals.z80_busack() {
+                    // All Z80 access is byte-size; word reads mirror the byte in both MSB and LSB
+                    let byte = self.read_byte(address);
+                    u16::from_le_bytes([byte, byte])
+                } else {
+                    // MSB is open bus MSB, LSB is 0
+                    self.last_word_read & 0xFF00
+                }
             }
             0xA10000..=0xA1001F => self.read_io_register(address).into(),
             0xA11100..=0xA11101 => self.read_busack_register(),

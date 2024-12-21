@@ -7,6 +7,10 @@
 * GUI: When opening a game that requires a BIOS ROM or firmware ROM (e.g. any Sega CD game), if the BIOS/firmware ROM path is not configured, the error window now contains a button to configure the appropriate ROM path and immediately launch the game
 * (**SMS**) The "crop vertical borders" setting now defaults to enabled instead of disabled; unlike the left border, the vertical borders will only ever show the current backdrop color
 
+## Fixes
+* (Genesis) Fixed the 68000 incorrectly being allowed to access audio RAM while the Z80 is on the bus; this fixes freezing in _Joe & Mac_ (#144)
+* (Genesis) Fixed Z80 RESET not clearing the Z80's HALT status
+
 # v0.8.3
 
 ## New Features
@@ -28,7 +32,7 @@
 * GUI: The GUI window is now repainted immediately when a directory scan finishes, rather than requiring mouse movement or a keyboard input to trigger the repaint
 
 ## Fixes
-* (**32X**) Fixed the 68000 incorrectly being allowed to change the PWM timer interrupt interval via $A15130 writes; this fixes _Primal Rage_ having horribly broken sound effects
+* (**32X**) Fixed the 68000 incorrectly being allowed to change the PWM timer interrupt interval via \$A15130 writes; this fixes _Primal Rage_ having horribly broken sound effects
 * Fixed an input configuration bug that made it effectively impossible to correctly configure any gamepad where SDL reads digital buttons as analog axes, such as the 8BitDo M30 with its C and R buttons (#135)
 * Fixed some minor bugs in the common audio resampling code related to how low-pass filters are applied
 * CLI: For options that only accept a fixed set of possible values, the list of possible values in the help text is now auto-generated at compile time; this fixes at least one case where an option's help text listed a possible value that does not exist, and another case where an option's help text omitted a valid possible value
@@ -115,7 +119,7 @@
   * Fixed the DIVS instruction finishing way too quickly in some cases where the division overflows a signed 16-bit result but the CPU doesn't detect the overflow early
 * Fixed an off-by-one error in determining whether to set the sprite overflow flag in the VDP status register; this fixes flickering sprite graphics in Alex Kidd in the Enchanted Castle (#125)
   * This was a regression introduced in v0.6.1 as part of the changes to get Overdrive 2's textured cube effect working
-* Adjusted how writes to the controller CTRL registers ($A10009 / $A1000B) affect the controller's TH line; this fixes controls not working properly in Trouble Shooter (#110)
+* Adjusted how writes to the controller CTRL registers (\$A10009 / \$A1000B) affect the controller's TH line; this fixes controls not working properly in Trouble Shooter (#110)
 * Made it possible for games to read the VINT flag in the VDP status register as 1 slightly before the 68000 INT6 interrupt is raised; this fixes Tyrants: Fight Through Time and Ex-Mutants failing to boot (#127)
 * Implemented undocumented behavior regarding how the Z80 BIT instruction sets the S and P/V flags; this fixes missing audio in Ex-Mutants, which relies on this behavior in its audio driver code 
 * Implemented approximate emulation of memory refresh delay
@@ -124,7 +128,7 @@
 * Added SRAM mappings for several games that have SRAM in the cartridge but don't declare it in the cartridge header: NHL 96, Might and Magic, and Might and Magic III (#107 / #116 / #117)
 * Little-endian ROM images are now detected and byteswapped on load; this along with a custom ROM address mapping fixes Triple Play failing to boot (#112)
 * The emulator will now recognize the unconventionial region string "EUROPE" as meaning that the game only supports PAL/EU; this fixes Another World incorrectly defaulting to NTSC/US mode instead of PAL/EU (#122)
-* Unused bits in the Z80 BUSACK register ($A11100) now read approximate open bus instead of 0; this fixes Danny Sullivan's Indy Heat failing to boot (#120)
+* Unused bits in the Z80 BUSACK register (\$A11100) now read approximate open bus instead of 0; this fixes Danny Sullivan's Indy Heat failing to boot (#120)
 * Improved VDP DMA timing; this fixes corrupted graphics in OutRunners (#118)
 * The vertical interrupt is now delayed by one 68000 instruction if a game enables vertical interrupts while a vertical interrupt is pending; this fixes Sesame Street: Counting Cafe failing to boot (#119)
 * The Z80 BUSACK line now changes immediately in response to bus arbiter register writes instead of waiting for the next Z80 instruction time slot; this fixes the Arkagis Revolution demo failing to boot (#123)
