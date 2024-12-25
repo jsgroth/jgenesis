@@ -1,12 +1,11 @@
 use crate::config::{PreprocessShader, PrescaleMode, RendererConfig, Scanlines, WgpuBackend};
 use cfg_if::cfg_if;
-use jgenesis_common::frontend::{Color, FrameSize, PixelAspectRatio, Renderer};
+use jgenesis_common::frontend::{Color, DisplayArea, FrameSize, PixelAspectRatio, Renderer};
 use jgenesis_common::timeutils;
 use raw_window_handle::{HandleError, HasDisplayHandle, HasWindowHandle};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Debug;
-use std::time::Duration;
 use std::{cmp, iter};
 use thiserror::Error;
 use wgpu::util::DeviceExt;
@@ -757,14 +756,6 @@ fn compute_vertices(
         .collect()
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct DisplayArea {
-    pub width: u32,
-    pub height: u32,
-    pub x: u32,
-    pub y: u32,
-}
-
 fn determine_display_area(
     window_width: u32,
     window_height: u32,
@@ -1211,7 +1202,7 @@ impl<Window> WgpuRenderer<Window> {
     }
 
     #[cfg(feature = "ttf")]
-    pub fn add_modal(&mut self, text: String, duration: Duration) {
+    pub fn add_modal(&mut self, text: String, duration: std::time::Duration) {
         self.modal_renderer.add_modal(text, duration);
     }
 }

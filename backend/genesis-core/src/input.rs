@@ -2,33 +2,32 @@
 
 use crate::GenesisEmulatorConfig;
 use bincode::{Decode, Encode};
+use jgenesis_common::define_controller_inputs;
 use jgenesis_common::num::GetBit;
-use jgenesis_proc_macros::{EnumAll, EnumDisplay, define_controller_inputs};
+use jgenesis_proc_macros::{EnumAll, EnumDisplay};
 
 define_controller_inputs! {
-    enum GenesisButton {
-        Up,
-        Left,
-        Right,
-        Down,
-        A,
-        B,
-        C,
-        X,
-        Y,
-        Z,
-        Start,
-        Mode,
-    }
-
-    struct GenesisJoypadState {
-        buttons!
-    }
-
-    struct GenesisInputs {
-        p1: Player::One,
-        p2: Player::Two,
-    }
+    buttons: GenesisButton {
+        Up -> up,
+        Left -> left,
+        Right -> right,
+        Down -> down,
+        A -> a,
+        B -> b,
+        C -> c,
+        X -> x,
+        Y -> y,
+        Z -> z,
+        Start -> start,
+        Mode -> mode,
+    },
+    joypad: GenesisJoypadState,
+    inputs: GenesisInputs {
+        players: {
+            p1: Player::One,
+            p2: Player::Two,
+        },
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]

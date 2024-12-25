@@ -23,7 +23,7 @@ use crate::archive::ArchiveError;
 use crate::config::input::ButtonMappingVec;
 use crate::config::{CommonConfig, FullscreenMode, HideMouseCursor, WindowSize};
 use crate::fpstracker::FpsTracker;
-use crate::input::{CompactHotkey, Hotkey, HotkeyEvent, InputMapper, Joysticks, MappableInputs};
+use crate::input::{CompactHotkey, Hotkey, HotkeyEvent, InputMapper, Joysticks};
 use crate::mainloop::audio::SdlAudioOutput;
 use crate::mainloop::debug::{DebugRenderFn, DebuggerWindow};
 use crate::mainloop::rewind::Rewinder;
@@ -47,7 +47,6 @@ use std::cell::RefCell;
 use std::error::Error;
 use std::ffi::NulError;
 use std::fmt::Debug;
-use std::hash::Hash;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::LazyLock;
@@ -189,12 +188,12 @@ pub enum NativeTickEffect {
     Exit,
 }
 
-pub struct NativeEmulator<Inputs, Button, Config, Emulator> {
+pub struct NativeEmulator<Emulator: EmulatorTrait> {
     emulator: Emulator,
-    config: Config,
+    config: Emulator::Config,
     renderer: WgpuRenderer<Window>,
     audio_output: SdlAudioOutput,
-    input_mapper: InputMapper<Inputs, Button>,
+    input_mapper: InputMapper<Emulator::Inputs, Emulator::Button>,
     save_writer: FsSaveWriter,
     sdl: Sdl,
     event_pump: EventPump,
@@ -206,9 +205,7 @@ pub struct NativeEmulator<Inputs, Button, Config, Emulator> {
     rom_extension: String,
 }
 
-impl<Inputs, Button, Config, Emulator: EmulatorTrait>
-    NativeEmulator<Inputs, Button, Config, Emulator>
-{
+impl<Emulator: EmulatorTrait> NativeEmulator<Emulator> {
     fn reload_common_config(&mut self, config: &CommonConfig) -> Result<(), AudioError> {
         self.renderer.reload_config(config.renderer_config);
 
@@ -379,12 +376,9 @@ pub enum NativeEmulatorError {
 
 pub type NativeEmulatorResult<T> = Result<T, NativeEmulatorError>;
 
-// TODO simplify or generalize these trait bounds
-impl<Inputs, Button, Config, Emulator> NativeEmulator<Inputs, Button, Config, Emulator>
+impl<Emulator> NativeEmulator<Emulator>
 where
-    Inputs: Default + MappableInputs<Button>,
-    Button: Debug + Copy + Hash + Eq,
-    Emulator: EmulatorTrait<Inputs = Inputs, Config = Config>,
+    Emulator: EmulatorTrait,
 {
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -396,8 +390,8 @@ where
         window_title: &str,
         save_writer: FsSaveWriter,
         save_state_path: PathBuf,
-        button_mappings: &ButtonMappingVec<'_, Button>,
-        initial_inputs: Inputs,
+        button_mappings: &ButtonMappingVec<'_, Emulator::Button>,
+        initial_inputs: Emulator::Inputs,
         debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
     ) -> NativeEmulatorResult<Self> {
         let (sdl, video, audio, joystick, event_pump) = init_sdl(&common_config)?;

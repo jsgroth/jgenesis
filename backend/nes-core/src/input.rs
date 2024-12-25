@@ -1,26 +1,21 @@
 use bincode::{Decode, Encode};
+use jgenesis_common::define_controller_inputs;
+use jgenesis_common::frontend::{DisplayArea, FrameSize, MappableInputs};
 use jgenesis_common::input::Player;
-use jgenesis_proc_macros::define_controller_inputs;
 
 define_controller_inputs! {
-    enum NesButton {
-        Up,
-        Left,
-        Right,
-        Down,
-        A,
-        B,
-        Start,
-        Select,
-        #[on_console]
-        ZapperFire,
-        #[on_console]
-        ZapperForceOffscreen,
-    }
-
-    struct NesJoypadState {
-        buttons!
-    }
+    buttons: NesButton {
+        Up -> up,
+        Left -> left,
+        Right -> right,
+        Down -> down,
+        A -> a,
+        B -> b,
+        Start -> start,
+        Select -> select,
+    },
+    non_gamepad_buttons: [ZapperFire, ZapperForceOffscreen],
+    joypad: NesJoypadState,
 }
 
 impl NesButton {
@@ -100,9 +95,9 @@ pub struct NesInputs {
     pub p2: NesInputDevice,
 }
 
-impl NesInputs {
+impl MappableInputs<NesButton> for NesInputs {
     #[inline]
-    pub fn set_button(&mut self, button: NesButton, player: Player, pressed: bool) {
+    fn set_field(&mut self, button: NesButton, player: Player, pressed: bool) {
         match (button, player) {
             (NesButton::ZapperFire | NesButton::ZapperForceOffscreen, _) => {
                 if let NesInputDevice::Zapper(zapper_state) = &mut self.p2 {
@@ -119,6 +114,32 @@ impl NesInputs {
                     joypad_state.set_button(button, pressed);
                 }
             }
+        }
+    }
+
+    #[inline]
+    fn handle_mouse_motion(
+        &mut self,
+        x: i32,
+        y: i32,
+        frame_size: FrameSize,
+        display_area: DisplayArea,
+    ) {
+        if let NesInputDevice::Zapper(zapper_state) = &mut self.p2 {
+            zapper_state.position = jgenesis_common::input::viewport_position_to_frame_position(
+                x,
+                y,
+                frame_size,
+                display_area,
+            );
+            log::debug!("Set Zapper position to {:?}", zapper_state.position);
+        }
+    }
+
+    #[inline]
+    fn handle_mouse_leave(&mut self) {
+        if let NesInputDevice::Zapper(zapper_state) = &mut self.p2 {
+            zapper_state.position = None;
         }
     }
 }

@@ -2,30 +2,27 @@
 
 use crate::api::SmsRegion;
 use bincode::{Decode, Encode};
+use jgenesis_common::define_controller_inputs;
 use jgenesis_common::num::GetBit;
-use jgenesis_proc_macros::define_controller_inputs;
 
 define_controller_inputs! {
-    enum SmsGgButton {
-        Up,
-        Left,
-        Right,
-        Down,
-        Button1,
-        Button2,
-        #[on_console]
-        Pause,
-    }
-
-    struct SmsGgJoypadState {
-        buttons!
-    }
-
-    struct SmsGgInputs {
-        p1: Player::One,
-        p2: Player::Two,
-        pause: Button::Pause,
-    }
+    buttons: SmsGgButton {
+        Up -> up,
+        Left -> left,
+        Right -> right,
+        Down -> down,
+        Button1 -> button1,
+        Button2 -> button2,
+    },
+    non_gamepad_buttons: [Pause],
+    joypad: SmsGgJoypadState,
+    inputs: SmsGgInputs {
+        players: {
+            p1: Player::One,
+            p2: Player::Two,
+        },
+        buttons: [Pause -> pause],
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]

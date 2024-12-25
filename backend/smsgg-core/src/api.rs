@@ -6,7 +6,7 @@ use crate::input::InputState;
 use crate::memory::Memory;
 use crate::psg::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use crate::vdp::{Vdp, VdpBuffer, VdpTickEffect};
-use crate::{SmsGgInputs, VdpVersion, vdp};
+use crate::{SmsGgButton, SmsGgInputs, VdpVersion, vdp};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, FrameSize, PartialClone, PixelAspectRatio, Renderer,
@@ -327,6 +327,7 @@ fn determine_aspect_ratio(
 }
 
 impl EmulatorTrait for SmsGgEmulator {
+    type Button = SmsGgButton;
     type Inputs = SmsGgInputs;
     type Config = SmsGgEmulatorConfig;
 

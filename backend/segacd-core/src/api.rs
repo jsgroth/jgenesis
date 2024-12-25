@@ -8,7 +8,7 @@ use crate::rf5c164::Rf5c164;
 use bincode::{Decode, Encode};
 use cdrom::CdRomError;
 use cdrom::reader::{CdRom, CdRomFileFormat};
-use genesis_core::input::InputState;
+use genesis_core::input::{GenesisButton, InputState};
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::timing::CycleCounters;
 use genesis_core::vdp::{Vdp, VdpTickEffect};
@@ -336,6 +336,7 @@ impl SegaCdEmulator {
 }
 
 impl EmulatorTrait for SegaCdEmulator {
+    type Button = GenesisButton;
     type Inputs = GenesisInputs;
     type Config = SegaCdEmulatorConfig;
 

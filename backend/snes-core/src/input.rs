@@ -1,34 +1,25 @@
 use bincode::{Decode, Encode};
+use jgenesis_common::define_controller_inputs;
+use jgenesis_common::frontend::{DisplayArea, FrameSize, MappableInputs};
 use jgenesis_common::input::Player;
-use jgenesis_proc_macros::define_controller_inputs;
 
 define_controller_inputs! {
-    enum SnesButton {
-        Up,
-        Left,
-        Right,
-        Down,
-        A,
-        B,
-        X,
-        Y,
-        L,
-        R,
-        Start,
-        Select,
-        #[on_console]
-        SuperScopeFire,
-        #[on_console]
-        SuperScopeCursor,
-        #[on_console]
-        SuperScopePause,
-        #[on_console]
-        SuperScopeTurboToggle,
-    }
-
-    struct SnesJoypadState {
-        buttons!
-    }
+    buttons: SnesButton {
+        Up -> up,
+        Left -> left,
+        Right -> right,
+        Down -> down,
+        A -> a,
+        B -> b,
+        X -> x,
+        Y -> y,
+        L -> l,
+        R -> r,
+        Start -> start,
+        Select -> select,
+    },
+    non_gamepad_buttons: [SuperScopeFire, SuperScopeCursor, SuperScopePause, SuperScopeTurboToggle],
+    joypad: SnesJoypadState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,9 +131,9 @@ pub struct SnesInputs {
     pub p2: SnesInputDevice,
 }
 
-impl SnesInputs {
+impl MappableInputs<SnesButton> for SnesInputs {
     #[inline]
-    pub fn set_button(&mut self, button: SnesButton, player: Player, pressed: bool) {
+    fn set_field(&mut self, button: SnesButton, player: Player, pressed: bool) {
         if let Some(super_scope_button) = button.to_super_scope() {
             if let SnesInputDevice::SuperScope(super_scope_state) = &mut self.p2 {
                 super_scope_state.set_button(super_scope_button, pressed);
@@ -163,9 +154,29 @@ impl SnesInputs {
     }
 
     #[inline]
-    #[must_use]
-    pub fn with_button(mut self, button: SnesButton, player: Player, pressed: bool) -> Self {
-        self.set_button(button, player, pressed);
-        self
+    fn handle_mouse_motion(
+        &mut self,
+        x: i32,
+        y: i32,
+        frame_size: FrameSize,
+        display_area: DisplayArea,
+    ) {
+        if let SnesInputDevice::SuperScope(super_scope_state) = &mut self.p2 {
+            super_scope_state.position =
+                jgenesis_common::input::viewport_position_to_frame_position(
+                    x,
+                    y,
+                    frame_size,
+                    display_area,
+                );
+            log::debug!("Set Super Scope position to {:?}", super_scope_state.position);
+        }
+    }
+
+    #[inline]
+    fn handle_mouse_leave(&mut self) {
+        if let SnesInputDevice::SuperScope(super_scope_state) = &mut self.p2 {
+            super_scope_state.position = None;
+        }
     }
 }

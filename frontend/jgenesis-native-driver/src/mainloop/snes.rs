@@ -7,8 +7,8 @@ use jgenesis_common::frontend::EmulatorTrait;
 
 use crate::config::RomReadResult;
 use crate::config::input::SnesControllerType;
-use snes_core::api::{SnesEmulator, SnesEmulatorConfig};
-use snes_core::input::{SnesButton, SnesInputDevice, SnesInputs, SnesJoypadState, SuperScopeState};
+use snes_core::api::SnesEmulator;
+use snes_core::input::{SnesInputDevice, SnesInputs, SnesJoypadState, SuperScopeState};
 use std::path::Path;
 
 trait SnesControllerTypeExt {
@@ -24,8 +24,7 @@ impl SnesControllerTypeExt for SnesControllerType {
     }
 }
 
-pub type NativeSnesEmulator =
-    NativeEmulator<SnesInputs, SnesButton, SnesEmulatorConfig, SnesEmulator>;
+pub type NativeSnesEmulator = NativeEmulator<SnesEmulator>;
 
 pub const SUPPORTED_EXTENSIONS: &[&str] = &["sfc", "smc"];
 

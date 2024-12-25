@@ -3,13 +3,12 @@ use crate::config::RomReadResult;
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{debug, file_name_no_ext, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
-use gb_core::api::{GameBoyEmulator, GameBoyEmulatorConfig};
-use gb_core::inputs::{GameBoyButton, GameBoyInputs};
+use gb_core::api::GameBoyEmulator;
+use gb_core::inputs::GameBoyInputs;
 use jgenesis_common::frontend::EmulatorTrait;
 use std::path::Path;
 
-pub type NativeGameBoyEmulator =
-    NativeEmulator<GameBoyInputs, GameBoyButton, GameBoyEmulatorConfig, GameBoyEmulator>;
+pub type NativeGameBoyEmulator = NativeEmulator<GameBoyEmulator>;
 
 pub const SUPPORTED_EXTENSIONS: &[&str] = &["gb", "gbc"];
 
