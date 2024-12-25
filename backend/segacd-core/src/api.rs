@@ -534,10 +534,6 @@ impl EmulatorTrait for SegaCdEmulator {
             .expect("Hard reset should not cause an I/O error");
     }
 
-    fn timing_mode(&self) -> TimingMode {
-        self.timing_mode
-    }
-
     fn target_fps(&self) -> f64 {
         genesis_core::target_framerate(self.timing_mode)
     }

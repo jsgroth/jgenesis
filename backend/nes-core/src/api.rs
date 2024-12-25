@@ -377,12 +377,8 @@ impl EmulatorTrait for NesEmulator {
             .expect("Creation during hard reset should never fail");
     }
 
-    fn timing_mode(&self) -> TimingMode {
-        self.bus.mapper().timing_mode()
-    }
-
     fn target_fps(&self) -> f64 {
-        let timing_mode = self.timing_mode();
+        let timing_mode = self.bus.mapper().timing_mode();
         match (timing_mode, self.config.audio_refresh_rate_adjustment) {
             (TimingMode::Ntsc, true) => 60.0,
             (TimingMode::Ntsc, false) => audio::NTSC_NES_NATIVE_DISPLAY_RATE,

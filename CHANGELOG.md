@@ -6,10 +6,13 @@
 ## Improvements
 * GUI: When opening a game that requires a BIOS ROM or firmware ROM (e.g. any Sega CD game), if the BIOS/firmware ROM path is not configured, the error window now contains a button to configure the appropriate ROM path and immediately launch the game
 * (**SMS**) The "crop vertical borders" setting now defaults to enabled instead of disabled; unlike the left border, the vertical borders will only ever show the current backdrop color
+* Save state files are now internally compressed using zstd which should reduce save state file size by at least 50%, often by 70-80%
 
 ## Fixes
-* (Genesis) Fixed the 68000 incorrectly being allowed to access audio RAM while the Z80 is on the bus; this fixes freezing in _Joe & Mac_ (#144)
-* (Genesis) Fixed Z80 RESET not clearing the Z80's HALT status
+* (**Genesis**) Fixed the 68000 incorrectly being allowed to access audio RAM while the Z80 is on the bus; this fixes freezing in _Joe & Mac_ (#144)
+* (**Genesis**) Fixed Z80 RESET not clearing the Z80's HALT status
+* Fixed an issue with frame time sync that could have potentially caused slowdown when frame time sync was enabled
+* Save state files are now explicitly versioned, which fixes potential crashing when attempting to load an incompatible save state file from a different emulator version
 
 # v0.8.3
 

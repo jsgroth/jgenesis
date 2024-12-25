@@ -32,7 +32,7 @@ use crate::mainloop::state::SaveStatePaths;
 pub use audio::AudioError;
 use bincode::error::{DecodeError, EncodeError};
 use gb_core::api::GameBoyLoadError;
-use jgenesis_common::frontend::{EmulatorTrait, PartialClone, TickEffect};
+use jgenesis_common::frontend::{EmulatorTrait, TickEffect};
 use jgenesis_renderer::renderer;
 use jgenesis_renderer::renderer::{RendererError, WgpuRenderer};
 use nes_core::api::NesInitializationError;
@@ -137,28 +137,15 @@ struct HotkeyState<Emulator> {
     debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
 }
 
-impl<Emulator> HotkeyState<Emulator> {
-    fn update_save_state_path(&mut self, save_state_path: PathBuf) -> NativeEmulatorResult<()> {
-        if save_state_path == self.base_save_state_path {
-            return Ok(());
-        }
-
-        self.save_state_paths = state::init_paths(&save_state_path)?;
-        self.save_state_metadata = SaveStateMetadata::load(&self.save_state_paths);
-        self.base_save_state_path = save_state_path;
-
-        Ok(())
-    }
-}
-
-impl<Emulator: PartialClone> HotkeyState<Emulator> {
+impl<Emulator: EmulatorTrait> HotkeyState<Emulator> {
     fn new(
         common_config: &CommonConfig,
         save_state_path: PathBuf,
         debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
     ) -> NativeEmulatorResult<Self> {
         let save_state_paths = state::init_paths(&save_state_path)?;
-        let save_state_metadata = SaveStateMetadata::load(&save_state_paths);
+        let save_state_metadata =
+            SaveStateMetadata::load(&save_state_paths, Emulator::save_state_version());
 
         log::debug!("Save state paths: {save_state_paths:?}");
 
@@ -179,6 +166,19 @@ impl<Emulator: PartialClone> HotkeyState<Emulator> {
             window_scale_factor: common_config.window_scale_factor,
             debug_render_fn,
         })
+    }
+
+    fn update_save_state_path(&mut self, save_state_path: PathBuf) -> NativeEmulatorResult<()> {
+        if save_state_path == self.base_save_state_path {
+            return Ok(());
+        }
+
+        self.save_state_paths = state::init_paths(&save_state_path)?;
+        self.save_state_metadata =
+            SaveStateMetadata::load(&self.save_state_paths, Emulator::save_state_version());
+        self.base_save_state_path = save_state_path;
+
+        Ok(())
     }
 }
 
@@ -368,8 +368,16 @@ pub enum NativeEmulatorError {
     },
     #[error("Error saving state: {0}")]
     SaveState(#[from] EncodeError),
+    #[error("Error saving state: {0}")]
+    SaveStateIo(io::Error),
     #[error("Error loading state: {0}")]
     LoadState(#[from] DecodeError),
+    #[error("Error loading state: {0}")]
+    LoadStateIo(io::Error),
+    #[error("Save state begins with invalid prefix")]
+    LoadStatePrefixMismatch,
+    #[error("Save state version mismatch; expected {expected}, got {actual}")]
+    LoadStateVersionMismatch { expected: u16, actual: u16 },
     #[error("Error in emulation core: {0}")]
     Emulator(#[source] Box<dyn Error + Send + Sync + 'static>),
 }

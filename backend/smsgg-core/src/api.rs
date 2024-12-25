@@ -472,12 +472,8 @@ impl EmulatorTrait for SmsGgEmulator {
         self.frame_count = 0;
     }
 
-    fn timing_mode(&self) -> TimingMode {
-        self.vdp.timing_mode()
-    }
-
     fn target_fps(&self) -> f64 {
-        let timing_mode = self.timing_mode();
+        let timing_mode = self.vdp.timing_mode();
         let mclk_frequency = timing_mode.mclk_frequency();
         let scanlines_per_frame = match timing_mode {
             TimingMode::Ntsc => vdp::NTSC_SCANLINES_PER_FRAME,

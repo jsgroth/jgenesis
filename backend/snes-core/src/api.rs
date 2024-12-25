@@ -446,10 +446,6 @@ impl EmulatorTrait for SnesEmulator {
             .expect("Hard resetting should never fail to load");
     }
 
-    fn timing_mode(&self) -> TimingMode {
-        self.timing_mode
-    }
-
     fn target_fps(&self) -> f64 {
         match (self.timing_mode, self.emulator_config.audio_60hz_hack) {
             (TimingMode::Ntsc, true) => 60.0,

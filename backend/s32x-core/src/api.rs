@@ -309,10 +309,6 @@ impl EmulatorTrait for Sega32XEmulator {
         *self = Self::create(rom, self.config, save_writer);
     }
 
-    fn timing_mode(&self) -> TimingMode {
-        self.timing_mode
-    }
-
     fn target_fps(&self) -> f64 {
         genesis_core::target_framerate(self.timing_mode)
     }
