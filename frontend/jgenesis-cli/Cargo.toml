@@ -34,5 +34,10 @@ RUSTFLAGS='-C target-cpu=x86-64-v2' \
 JGENESIS_APPIMAGE_BUILD=1 \
 cargo build --profile release-lto"""
 
+[package.metadata.packager.appimage]
+# Including any Wayland-related libraries in the AppImage package can cause the app to fail to start on some distros,
+# such as Solus Plasma; having mismatched Wayland library versions seems to cause wgpu to fail to load graphics libraries
+excludedLibs = ["libwayland*"]
+
 [lints]
 workspace = true
