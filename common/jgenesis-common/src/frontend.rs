@@ -248,7 +248,11 @@ pub trait EmulatorTrait: Encode + Decode + PartialClone {
 
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S);
 
-    fn timing_mode(&self) -> TimingMode;
+    // All cores start at save state version 0; they can override this function when they need to change it
+    #[must_use]
+    fn save_state_version() -> u16 {
+        0
+    }
 
     fn target_fps(&self) -> f64;
 

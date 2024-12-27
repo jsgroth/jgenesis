@@ -12,6 +12,7 @@ use jgenesis_native_driver::{
     NativeGameBoyEmulator, NativeGenesisEmulator, NativeNesEmulator, NativeSegaCdEmulator,
     NativeSmsGgEmulator, NativeSnesEmulator, NativeTickEffect, SaveStateMetadata,
 };
+use jgenesis_proc_macros::MatchEachVariantMacro;
 use sdl2::EventPump;
 use sdl2::event::Event;
 use sdl2::joystick::{HatState, Joystick};
@@ -254,6 +255,7 @@ fn thread_run(ctx: EmuThreadContext) {
     }
 }
 
+#[derive(MatchEachVariantMacro)]
 enum GenericEmulator {
     SmsGg(NativeSmsGgEmulator),
     Genesis(NativeGenesisEmulator),
@@ -262,20 +264,6 @@ enum GenericEmulator {
     Nes(NativeNesEmulator),
     Snes(NativeSnesEmulator),
     GameBoy(NativeGameBoyEmulator),
-}
-
-macro_rules! match_each_emulator_variant {
-    ($value:expr, $emulator:ident => $expr:expr) => {
-        match $value {
-            GenericEmulator::SmsGg($emulator) => $expr,
-            GenericEmulator::Genesis($emulator) => $expr,
-            GenericEmulator::SegaCd($emulator) => $expr,
-            GenericEmulator::Sega32X($emulator) => $expr,
-            GenericEmulator::Nes($emulator) => $expr,
-            GenericEmulator::Snes($emulator) => $expr,
-            GenericEmulator::GameBoy($emulator) => $expr,
-        }
-    };
 }
 
 impl GenericEmulator {
@@ -336,45 +324,43 @@ impl GenericEmulator {
     }
 
     fn render_frame(&mut self) -> NativeEmulatorResult<Option<NativeTickEffect>> {
-        match_each_emulator_variant!(self, emulator => emulator.render_frame())
+        match_each_variant!(self, emulator => emulator.render_frame())
     }
 
     fn soft_reset(&mut self) {
-        match_each_emulator_variant!(self, emulator => emulator.soft_reset());
+        match_each_variant!(self, emulator => emulator.soft_reset());
     }
 
     fn hard_reset(&mut self) {
-        match_each_emulator_variant!(self, emulator => emulator.hard_reset());
+        match_each_variant!(self, emulator => emulator.hard_reset());
     }
 
     fn open_memory_viewer(&mut self) {
-        match_each_emulator_variant!(self, emulator => emulator.open_memory_viewer());
+        match_each_variant!(self, emulator => emulator.open_memory_viewer());
     }
 
     fn save_state(&mut self, slot: usize) {
-        if let Err(err) = match_each_emulator_variant!(self, emulator => emulator.save_state(slot))
-        {
+        if let Err(err) = match_each_variant!(self, emulator => emulator.save_state(slot)) {
             log::error!("Failed to save state to slot {slot}: {err}");
         }
     }
 
     fn load_state(&mut self, slot: usize) {
-        if let Err(err) = match_each_emulator_variant!(self, emulator => emulator.load_state(slot))
-        {
+        if let Err(err) = match_each_variant!(self, emulator => emulator.load_state(slot)) {
             log::error!("Failed to load state from slot {slot}: {err}");
         }
     }
 
     fn save_state_metadata(&self) -> SaveStateMetadata {
-        match_each_emulator_variant!(self, emulator => emulator.save_state_metadata().clone())
+        match_each_variant!(self, emulator => emulator.save_state_metadata().clone())
     }
 
     fn focus(&mut self) {
-        match_each_emulator_variant!(self, emulator => emulator.focus());
+        match_each_variant!(self, emulator => emulator.focus());
     }
 
     fn event_pump_and_joysticks_mut(&mut self) -> (&mut EventPump, &mut Joysticks) {
-        match_each_emulator_variant!(self, emulator => emulator.event_pump_and_joysticks_mut())
+        match_each_variant!(self, emulator => emulator.event_pump_and_joysticks_mut())
     }
 }
 

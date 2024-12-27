@@ -51,6 +51,7 @@ winit = "0.30"
 wgpu = "23"
 xrandr = "0.2"
 zip = "2"
+zstd = "0.13"
 
 [profile.dev.build-override]
 opt-level = 1

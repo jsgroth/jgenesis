@@ -17,7 +17,7 @@ use crate::{HardwareMode, audio, ppu};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, PixelAspectRatio, Renderer, SaveWriter, TickEffect,
-    TickResult, TimingMode,
+    TickResult,
 };
 use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, PartialClone};
 use std::fmt::{Debug, Display};
@@ -303,10 +303,6 @@ impl EmulatorTrait for GameBoyEmulator {
 
         *self = Self::create(rom, self.config, save_writer)
             .expect("Hard reset should never fail to load cartridge");
-    }
-
-    fn timing_mode(&self) -> TimingMode {
-        TimingMode::Ntsc
     }
 
     fn target_fps(&self) -> f64 {

@@ -5,11 +5,14 @@
 
 ## Improvements
 * GUI: When opening a game that requires a BIOS ROM or firmware ROM (e.g. any Sega CD game), if the BIOS/firmware ROM path is not configured, the error window now contains a button to configure the appropriate ROM path and immediately launch the game
+* Save state files are now internally compressed using zstd which should reduce save state file size by at least 50%, often by 70-80%
 * (**SMS**) The "crop vertical borders" setting now defaults to enabled instead of disabled; unlike the left border, the vertical borders will only ever show the current backdrop color
 
 ## Fixes
-* (Genesis) Fixed the 68000 incorrectly being allowed to access audio RAM while the Z80 is on the bus; this fixes freezing in _Joe & Mac_ (#144)
-* (Genesis) Fixed Z80 RESET not clearing the Z80's HALT status
+* (**Genesis**) Fixed the 68000 incorrectly being allowed to access audio RAM while the Z80 is on the bus; this fixes freezing in _Joe & Mac_ (#144)
+* (**Genesis**) Fixed Z80 RESET not clearing the Z80's HALT status
+* Fixed an issue with frame time sync that could have potentially caused slowdown when frame time sync was enabled
+* Save state files are now explicitly versioned, which fixes potential crashing when attempting to load an incompatible save state file from a different emulator version
 
 # v0.8.3
 
@@ -25,7 +28,7 @@
 * (**32X**) PWM chip audio output resampling now uses cubic interpolation rather than a filter that assumed a source frequency of 22 KHz; this should improve audio quality in games that use PWM sample rates other than 22 KHz (e.g. _After Burner Complete_ and _Space Harrier_)
 * Input mappings that use modifier keys (Shift / Ctrl / Alt) no longer distinguish between Left and Right versions of the modifier, e.g. Left Shift and Right Shift are now both treated as simply "Shift" for input mapping purposes (#139)
 * Redesigned most of the audio low-pass filters to explicitly target a cutoff frequency of about 15000 Hz with a stopband edge frequency of about 20000 Hz, which should further reduce resampling-related audio aliasing
-    * For performance reasons, NES and GB/GBC instead target a cutoff frequency of roughly 10000 Hz with a less steep attenuation slope past the cutoff frequency
+  * For performance reasons, NES and GB/GBC instead target a cutoff frequency of roughly 10000 Hz with a less steep attenuation slope past the cutoff frequency
 * Implemented a performance optimization in how audio low-pass filters are applied when running on CPUs that support x86_64 AVX and FMA instructions (which is almost every x86_64 CPU made in the last 10 years; AVX2 is not needed)
 * (**SMS / Game Gear / Genesis**) Improved video memory viewer UI so that it's now possible to view CRAM and VRAM simultaneously, as well as current VDP settings (captured once per frame at the beginning of VBlank)
 * Display scale factor / DPI is now taken into account when determining initial emulator window size in windowed mode
