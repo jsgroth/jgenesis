@@ -2,6 +2,7 @@ use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 use std::error::Error;
 use std::fmt::{Debug, Display};
+use std::hash::Hash;
 use std::num::NonZeroU32;
 
 #[repr(C)]
@@ -42,6 +43,14 @@ impl Default for Color {
 pub struct FrameSize {
     pub width: u32,
     pub height: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DisplayArea {
+    pub width: u32,
+    pub height: u32,
+    pub x: u32,
+    pub y: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Encode, Decode)]
@@ -155,6 +164,7 @@ pub trait PartialClone {
     fn partial_clone(&self) -> Self;
 }
 
+use crate::input::Player;
 pub use jgenesis_proc_macros::PartialClone;
 
 #[derive(
@@ -176,8 +186,25 @@ pub enum TickEffect {
 
 pub type TickResult<Err> = Result<TickEffect, Err>;
 
+pub trait MappableInputs<Button> {
+    fn set_field(&mut self, button: Button, player: Player, pressed: bool);
+
+    #[allow(unused_variables)]
+    fn handle_mouse_motion(
+        &mut self,
+        x: i32,
+        y: i32,
+        frame_size: FrameSize,
+        display_area: DisplayArea,
+    ) {
+    }
+
+    fn handle_mouse_leave(&mut self) {}
+}
+
 pub trait EmulatorTrait: Encode + Decode + PartialClone {
-    type Inputs;
+    type Button: Debug + Copy + Eq + Hash;
+    type Inputs: Default + MappableInputs<Self::Button>;
     type Config;
 
     type Err<RErr: Debug + Display + Send + Sync + 'static, AErr: Debug + Display + Send + Sync + 'static, SErr: Debug + Display + Send + Sync + 'static>: Error + Send + Sync + 'static;

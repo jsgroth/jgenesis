@@ -3,23 +3,29 @@
 use crate::interrupts::InterruptRegisters;
 use crate::sm83::InterruptType;
 use bincode::{Decode, Encode};
+use jgenesis_common::define_controller_inputs;
+use jgenesis_common::frontend::MappableInputs;
+use jgenesis_common::input::Player;
 use jgenesis_common::num::GetBit;
-use jgenesis_proc_macros::define_controller_inputs;
 
 define_controller_inputs! {
-    enum GameBoyButton {
-        Up,
-        Left,
-        Right,
-        Down,
-        A,
-        B,
-        Start,
-        Select,
-    }
+    buttons: GameBoyButton {
+        Up -> up,
+        Left -> left,
+        Right -> right,
+        Down -> down,
+        A -> a,
+        B -> b,
+        Start -> start,
+        Select -> select,
+    },
+    joypad: GameBoyInputs,
+}
 
-    struct GameBoyInputs {
-        buttons!
+impl MappableInputs<GameBoyButton> for GameBoyInputs {
+    #[inline]
+    fn set_field(&mut self, button: GameBoyButton, _player: Player, pressed: bool) {
+        self.set_button(button, pressed);
     }
 }
 

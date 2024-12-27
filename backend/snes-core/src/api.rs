@@ -3,7 +3,7 @@
 use crate::apu::{Apu, ApuTickEffect};
 use crate::audio::AudioResampler;
 use crate::bus::Bus;
-use crate::input::SnesInputs;
+use crate::input::{SnesButton, SnesInputs};
 use crate::memory::dma::{DmaStatus, DmaUnit};
 use crate::memory::{CpuInternalRegisters, Memory};
 use crate::ppu::{Ppu, PpuTickEffect};
@@ -276,6 +276,7 @@ impl SnesEmulator {
 }
 
 impl EmulatorTrait for SnesEmulator {
+    type Button = SnesButton;
     type Inputs = SnesInputs;
     type Config = SnesEmulatorConfig;
 

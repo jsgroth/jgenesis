@@ -3,17 +3,15 @@ use crate::config::{GenesisConfig, Sega32XConfig, SegaCdConfig};
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{NativeEmulatorError, debug, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
-use genesis_core::input::GenesisButton;
-use genesis_core::{GenesisEmulator, GenesisEmulatorConfig, GenesisInputs};
+use genesis_core::{GenesisEmulator, GenesisInputs};
 use jgenesis_common::frontend::EmulatorTrait;
-use s32x_core::api::{Sega32XEmulator, Sega32XEmulatorConfig};
+use s32x_core::api::Sega32XEmulator;
 use segacd_core::CdRomFileFormat;
-use segacd_core::api::{SegaCdEmulator, SegaCdEmulatorConfig, SegaCdLoadResult};
+use segacd_core::api::{SegaCdEmulator, SegaCdLoadResult};
 use std::fs;
 use std::path::Path;
 
-pub type NativeGenesisEmulator =
-    NativeEmulator<GenesisInputs, GenesisButton, GenesisEmulatorConfig, GenesisEmulator>;
+pub type NativeGenesisEmulator = NativeEmulator<GenesisEmulator>;
 
 pub const GENESIS_SUPPORTED_EXTENSIONS: &[&str] = &["md", "bin"];
 pub const S32X_SUPPORTED_EXTENSIONS: &[&str] = &["32x"];
@@ -40,8 +38,7 @@ impl NativeGenesisEmulator {
     }
 }
 
-pub type NativeSegaCdEmulator =
-    NativeEmulator<GenesisInputs, GenesisButton, SegaCdEmulatorConfig, SegaCdEmulator>;
+pub type NativeSegaCdEmulator = NativeEmulator<SegaCdEmulator>;
 
 impl NativeSegaCdEmulator {
     /// # Errors
@@ -106,8 +103,7 @@ impl NativeSegaCdEmulator {
     }
 }
 
-pub type Native32XEmulator =
-    NativeEmulator<GenesisInputs, GenesisButton, Sega32XEmulatorConfig, Sega32XEmulator>;
+pub type Native32XEmulator = NativeEmulator<Sega32XEmulator>;
 
 impl Native32XEmulator {
     /// # Errors

@@ -6,11 +6,10 @@ use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
 use jgenesis_common::frontend::EmulatorTrait;
 
 use crate::config::RomReadResult;
-use smsgg_core::{SmsGgButton, SmsGgEmulator, SmsGgEmulatorConfig, SmsGgHardware, SmsGgInputs};
+use smsgg_core::{SmsGgEmulator, SmsGgHardware, SmsGgInputs};
 use std::path::Path;
 
-pub type NativeSmsGgEmulator =
-    NativeEmulator<SmsGgInputs, SmsGgButton, SmsGgEmulatorConfig, SmsGgEmulator>;
+pub type NativeSmsGgEmulator = NativeEmulator<SmsGgEmulator>;
 
 pub const SUPPORTED_EXTENSIONS: &[&str] = &["sms", "gg"];
 

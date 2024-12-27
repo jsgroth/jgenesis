@@ -10,7 +10,6 @@ use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::common::ConfigSavePath;
 use jgenesis_native_driver::config::input::{NesControllerType, SnesControllerType};
 use jgenesis_native_driver::config::{FullscreenMode, HideMouseCursor};
-use jgenesis_native_driver::input::MappableInputs;
 use jgenesis_native_driver::{NativeEmulator, NativeTickEffect};
 use jgenesis_proc_macros::{CustomValueEnum, EnumAll, EnumDisplay};
 use jgenesis_renderer::config::{
@@ -25,7 +24,6 @@ use snes_core::api::{AudioInterpolationMode, SnesAspectRatio};
 use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::fs;
-use std::hash::Hash;
 use std::num::{NonZeroU32, NonZeroU64};
 use std::path::{Path, PathBuf};
 
@@ -828,15 +826,12 @@ fn run_gb(args: Args, config: AppConfig) -> anyhow::Result<()> {
     run_emulator(&mut emulator, &args)
 }
 
-// TODO simplify these trait bounds (required by load_state() definition)
-fn run_emulator<Inputs, Button, Config, Emulator>(
-    emulator: &mut NativeEmulator<Inputs, Button, Config, Emulator>,
+fn run_emulator<Emulator>(
+    emulator: &mut NativeEmulator<Emulator>,
     args: &Args,
 ) -> anyhow::Result<()>
 where
-    Inputs: Default + MappableInputs<Button>,
-    Button: Debug + Copy + Hash + Eq,
-    Emulator: EmulatorTrait<Inputs = Inputs, Config = Config>,
+    Emulator: EmulatorTrait,
 {
     if let Some(save_state_slot) = args.load_save_state {
         log::info!("Loading save state slot {save_state_slot} at launch");

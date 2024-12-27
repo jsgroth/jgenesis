@@ -4,7 +4,7 @@ use crate::bus::cartridge::CartridgeFileError;
 use crate::bus::{Bus, cartridge};
 use crate::cpu::CpuState;
 use crate::graphics::TimingModeGraphicsExt;
-use crate::input::NesInputs;
+use crate::input::{NesButton, NesInputs};
 use crate::ppu::PpuState;
 use crate::{apu, audio, cpu, graphics, ppu};
 use bincode::{Decode, Encode};
@@ -277,6 +277,7 @@ fn new_rgba_frame_buffer() -> Vec<Color> {
 }
 
 impl EmulatorTrait for NesEmulator {
+    type Button = NesButton;
     type Inputs = NesInputs;
     type Config = NesEmulatorConfig;
     type Err<

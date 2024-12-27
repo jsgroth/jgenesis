@@ -5,8 +5,8 @@ use crate::mainloop::{debug, file_name_no_ext, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
 use jgenesis_common::frontend::EmulatorTrait;
 
-use nes_core::api::{NesEmulator, NesEmulatorConfig};
-use nes_core::input::{NesButton, NesInputDevice, NesInputs, NesJoypadState, ZapperState};
+use nes_core::api::NesEmulator;
+use nes_core::input::{NesInputDevice, NesInputs, NesJoypadState, ZapperState};
 
 use crate::config::RomReadResult;
 use crate::config::input::NesControllerType;
@@ -25,7 +25,7 @@ impl NesControllerTypeExt for NesControllerType {
     }
 }
 
-pub type NativeNesEmulator = NativeEmulator<NesInputs, NesButton, NesEmulatorConfig, NesEmulator>;
+pub type NativeNesEmulator = NativeEmulator<NesEmulator>;
 
 pub const SUPPORTED_EXTENSIONS: &[&str] = &["nes"];
 

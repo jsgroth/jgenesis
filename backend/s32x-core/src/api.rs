@@ -5,7 +5,7 @@
 use crate::audio::Sega32XResampler;
 use crate::core::Sega32X;
 use bincode::{Decode, Encode};
-use genesis_core::input::InputState;
+use genesis_core::input::{GenesisButton, InputState};
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::timing::GenesisCycleCounters;
 use genesis_core::vdp::{Vdp, VdpTickEffect};
@@ -177,6 +177,7 @@ impl Sega32XEmulator {
 }
 
 impl EmulatorTrait for Sega32XEmulator {
+    type Button = GenesisButton;
     type Inputs = GenesisInputs;
     type Config = Sega32XEmulatorConfig;
     type Err<

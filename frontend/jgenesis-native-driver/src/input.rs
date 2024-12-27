@@ -1,22 +1,15 @@
 mod serialize;
 
 use arrayvec::ArrayVec;
-use gb_core::inputs::{GameBoyButton, GameBoyInputs};
-use genesis_core::GenesisInputs;
-use genesis_core::input::GenesisButton;
-use jgenesis_common::frontend::FrameSize;
+use jgenesis_common::frontend::{DisplayArea, FrameSize, MappableInputs};
 use jgenesis_common::input::Player;
 use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
-use jgenesis_renderer::renderer::DisplayArea;
-use nes_core::input::{NesButton, NesInputDevice, NesInputs};
 use rustc_hash::{FxHashMap, FxHashSet};
 use sdl2::event::{Event, WindowEvent};
 use sdl2::joystick::{HatState, Joystick};
 use sdl2::keyboard::Keycode;
 use sdl2::mouse::MouseButton;
 use sdl2::{IntegerOrSdlError, JoystickSubsystem};
-use smsgg_core::{SmsGgButton, SmsGgInputs};
-use snes_core::input::{SnesButton, SnesInputDevice, SnesInputs};
 use std::array;
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -331,126 +324,6 @@ impl Hotkey {
 pub enum GenericButton<Button> {
     Button(Button, Player),
     Hotkey(Hotkey),
-}
-
-pub trait MappableInputs<Button> {
-    fn set_field(&mut self, button: Button, player: Player, pressed: bool);
-
-    #[allow(unused_variables)]
-    fn handle_mouse_motion(
-        &mut self,
-        x: i32,
-        y: i32,
-        frame_size: FrameSize,
-        display_area: DisplayArea,
-    ) {
-    }
-
-    fn handle_mouse_leave(&mut self) {}
-}
-
-fn viewport_position_to_frame_position(
-    x: i32,
-    y: i32,
-    frame_size: FrameSize,
-    display_area: DisplayArea,
-) -> Option<(u16, u16)> {
-    let display_left = display_area.x as i32;
-    let display_right = display_left + display_area.width as i32;
-    let display_top = display_area.y as i32;
-    let display_bottom = display_top + display_area.height as i32;
-
-    if !(display_left..display_right).contains(&x) || !(display_top..display_bottom).contains(&y) {
-        return None;
-    }
-
-    let x: f64 = x.into();
-    let y: f64 = y.into();
-    let display_left: f64 = display_left.into();
-    let display_width: f64 = display_area.width.into();
-    let frame_width: f64 = frame_size.width.into();
-    let display_top: f64 = display_top.into();
-    let display_height: f64 = display_area.height.into();
-    let frame_height: f64 = frame_size.height.into();
-
-    let frame_x = ((x - display_left) * frame_width / display_width).round() as u16;
-    let frame_y = ((y - display_top) * frame_height / display_height).round() as u16;
-
-    log::trace!(
-        "Mapped mouse position ({x}, {y}) to ({frame_x}, {frame_y}) (frame size {frame_size:?}, display_area {display_area:?})"
-    );
-
-    Some((frame_x, frame_y))
-}
-
-impl MappableInputs<SmsGgButton> for SmsGgInputs {
-    fn set_field(&mut self, button: SmsGgButton, player: Player, pressed: bool) {
-        self.set_button(button, player, pressed);
-    }
-}
-
-impl MappableInputs<GenesisButton> for GenesisInputs {
-    fn set_field(&mut self, button: GenesisButton, player: Player, pressed: bool) {
-        self.set_button(button, player, pressed);
-    }
-}
-
-impl MappableInputs<NesButton> for NesInputs {
-    fn set_field(&mut self, button: NesButton, player: Player, pressed: bool) {
-        self.set_button(button, player, pressed);
-    }
-
-    fn handle_mouse_motion(
-        &mut self,
-        x: i32,
-        y: i32,
-        frame_size: FrameSize,
-        display_area: DisplayArea,
-    ) {
-        if let NesInputDevice::Zapper(zapper_state) = &mut self.p2 {
-            zapper_state.position =
-                viewport_position_to_frame_position(x, y, frame_size, display_area);
-            log::debug!("Set Zapper position to {:?}", zapper_state.position);
-        }
-    }
-
-    fn handle_mouse_leave(&mut self) {
-        if let NesInputDevice::Zapper(zapper_state) = &mut self.p2 {
-            zapper_state.position = None;
-        }
-    }
-}
-
-impl MappableInputs<SnesButton> for SnesInputs {
-    fn set_field(&mut self, button: SnesButton, player: Player, pressed: bool) {
-        self.set_button(button, player, pressed);
-    }
-
-    fn handle_mouse_motion(
-        &mut self,
-        x: i32,
-        y: i32,
-        frame_size: FrameSize,
-        display_area: DisplayArea,
-    ) {
-        if let SnesInputDevice::SuperScope(super_scope_state) = &mut self.p2 {
-            super_scope_state.position =
-                viewport_position_to_frame_position(x, y, frame_size, display_area);
-            log::debug!("Set Super Scope position to {:?}", super_scope_state.position);
-        }
-    }
-
-    fn handle_mouse_leave(&mut self) {
-        if let SnesInputDevice::SuperScope(super_scope_state) = &mut self.p2 {
-            super_scope_state.position = None;
-        }
-    }
-}
-
-impl MappableInputs<GameBoyButton> for GameBoyInputs {
-    fn set_field(&mut self, button: GameBoyButton, _player: Player, pressed: bool) {
-        self.set_button(button, pressed);
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -915,6 +788,7 @@ fn is_hat_direction_pressed(direction: HatDirection, state: HatState) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use smsgg_core::{SmsGgButton, SmsGgInputs};
     use std::mem;
 
     fn take_hotkey_events<I, B>(state: &mut InputMapperState<I, B>) -> Vec<HotkeyEvent> {

@@ -5,7 +5,7 @@ use crate::bus::Bus;
 use crate::cartridge::{Cartridge, SoftwareType};
 use crate::dma::DmaUnit;
 use crate::graphics::RgbaFrameBuffer;
-use crate::inputs::{GameBoyInputs, InputState};
+use crate::inputs::{GameBoyButton, GameBoyInputs, InputState};
 use crate::interrupts::InterruptRegisters;
 use crate::memory::Memory;
 use crate::ppu::Ppu;
@@ -186,6 +186,7 @@ impl GameBoyEmulator {
 }
 
 impl EmulatorTrait for GameBoyEmulator {
+    type Button = GameBoyButton;
     type Inputs = GameBoyInputs;
     type Config = GameBoyEmulatorConfig;
     type Err<

@@ -1,7 +1,7 @@
 //! Genesis public interface and main loop
 
 use crate::audio::{GenesisAudioResampler, LowPassFilter};
-use crate::input::{GenesisInputs, InputState};
+use crate::input::{GenesisButton, GenesisInputs, InputState};
 use crate::memory::{Cartridge, MainBus, MainBusSignals, MainBusWrites, Memory};
 use crate::timing::{CycleCounters, GenesisCycleCounters};
 use crate::vdp::{TimingModeExt, Vdp, VdpConfig, VdpTickEffect};
@@ -335,6 +335,7 @@ pub fn render_frame<R: Renderer>(
 }
 
 impl EmulatorTrait for GenesisEmulator {
+    type Button = GenesisButton;
     type Inputs = GenesisInputs;
     type Config = GenesisEmulatorConfig;
 
