@@ -6,14 +6,15 @@
 ## Improvements
 * GUI: When opening a game that requires a BIOS ROM or firmware ROM (e.g. any Sega CD game), if the BIOS/firmware ROM path is not configured, the error window now contains a button to configure the appropriate ROM path and immediately launch the game
 * Save state files are now internally compressed using zstd which should reduce save state file size by at least 50%, often by 70-80%
+* (**Genesis**) Slightly improved performance by optimizing VDP rendering code
 * (**SMS**) The "crop vertical borders" setting now defaults to enabled instead of disabled; unlike the left border, the vertical borders will only ever show the current backdrop color
 
 ## Fixes
 * (**Genesis**) Fixed the 68000 incorrectly being allowed to access audio RAM while the Z80 is on the bus; this fixes freezing in _Joe & Mac_ (#144)
 * (**Genesis**) Fixed Z80 RESET not clearing the Z80's HALT status
 * Linux: AppImage builds now exclude all Wayland-related system libraries during packaging; this fixes the emulator failing to launch in some distros, e.g. Solus Plasma (#143)
-* Fixed an issue with frame time sync that could have potentially caused slowdown when frame time sync was enabled
-* Save state files are now explicitly versioned, which fixes potential crashing when attempting to load an incompatible save state file from a different emulator version
+* Fixed an issue with frame time sync's implementation that could have potentially caused slowdown when frame time sync was enabled
+* Save state files are now explicitly versioned, which fixes potential crashing when attempting to load an incompatible save state file from a different version
 
 # v0.8.3
 

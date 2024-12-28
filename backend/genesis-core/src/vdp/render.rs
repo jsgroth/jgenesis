@@ -3,11 +3,16 @@ use crate::vdp::registers::{
     DebugRegister, HorizontalDisplaySize, HorizontalScrollMode, InterlacingMode, Plane,
     RIGHT_BORDER, Registers, ScrollSize, VerticalDisplaySize, VerticalScrollMode,
 };
-use crate::vdp::sprites::SpritePixel;
-use crate::vdp::{Cram, FrameBuffer, TimingModeExt, Vdp, Vram, Vsram, colors};
+use crate::vdp::{Cram, FrameBuffer, TilePixel, TimingModeExt, Vdp, Vram, Vsram, colors};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::GetBit;
-use std::cmp;
+use std::{array, cmp};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BgPlane {
+    A,
+    B,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RasterLine {
@@ -161,9 +166,9 @@ impl Vdp {
 
             // Clear sprite pixel buffer in case display is enabled during active display
             if interlaced_odd_line {
-                self.interlaced_sprite_buffers.pixels.fill(SpritePixel::default());
+                self.interlaced_sprite_buffers.pixels.fill(TilePixel::default());
             } else {
-                self.sprite_buffers.pixels.fill(SpritePixel::default());
+                self.sprite_buffers.pixels.fill(TilePixel::default());
             }
 
             return;
@@ -206,21 +211,50 @@ impl Vdp {
             }
         }
 
+        let Some(frame_buffer_row) = frame_buffer_row else { return };
+
         if raster_line.in_v_border && !self.state.v_border_forgotten && raster_line.line != 511 {
-            if let Some(frame_buffer_row) = frame_buffer_row {
-                self.render_vertical_border_line(scanline, frame_buffer_row, starting_pixel);
-            }
+            self.render_vertical_border_line(scanline, frame_buffer_row, starting_pixel);
             return;
         }
 
-        let Some(frame_buffer_row) = frame_buffer_row else { return };
+        let active_display_pixels =
+            self.latched_registers.horizontal_display_size.active_display_pixels();
+        let (fb_start_col, fb_end_col, fb_pixel_offset) = if self.config.render_horizontal_border {
+            let left_border: u32 =
+                self.latched_registers.horizontal_display_size.left_border().into();
+            let start_col =
+                if starting_pixel == 0 { 0 } else { u32::from(starting_pixel) + left_border };
+            let end_col = left_border + u32::from(active_display_pixels) + u32::from(RIGHT_BORDER);
 
-        self.render_pixels_in_scanline(
+            (start_col as i16, end_col as i16, left_border as i16)
+        } else {
+            (starting_pixel as i16, active_display_pixels as i16, 0)
+        };
+
+        self.render_bgs_to_buffer(raster_line.line, fb_start_col, fb_end_col, fb_pixel_offset);
+        self.render_window_to_buffer(raster_line.line, fb_start_col, fb_end_col, fb_pixel_offset);
+
+        self.merge_layers(
             raster_line,
-            starting_pixel,
             frame_buffer_row,
+            fb_start_col as u32,
+            fb_end_col as u32,
+            fb_pixel_offset,
             interlaced_odd_line,
         );
+
+        // TODO the left border should really be rendered after sprite tile fetching and reading
+        // H scroll values, but before rendering the background planes. Otherwise it uses the
+        // scroll B palettes from the current line instead of the previous line.
+        if self.config.render_horizontal_border {
+            self.render_left_border(
+                frame_buffer_row,
+                self.backdrop_color(),
+                self.state.last_h_scroll_a,
+                self.state.last_h_scroll_b,
+            );
+        }
     }
 
     fn fill_frame_buffer_row(&mut self, row: u32, starting_pixel: u16, color: u16) {
@@ -244,24 +278,14 @@ impl Vdp {
     }
 
     #[allow(clippy::identity_op)]
-    fn render_pixels_in_scanline(
+    fn render_bgs_to_buffer(
         &mut self,
-        raster_line: RasterLine,
-        starting_pixel: u16,
-        frame_buffer_row: u32,
-        interlaced_odd_line: bool,
+        raster_line: u16,
+        fb_start_col: i16,
+        fb_end_col: i16,
+        fb_pixel_offset: i16,
     ) {
-        let sprite_buffers = if interlaced_odd_line {
-            &self.interlaced_sprite_buffers
-        } else {
-            &self.sprite_buffers
-        };
-
-        let bg_color = self.backdrop_color();
-
-        let screen_width = self.screen_width();
-
-        let cell_height = self.latched_registers.interlacing_mode.cell_height();
+        let cell_height_shift = self.latched_registers.interlacing_mode.cell_height_shift();
         let v_scroll_size = self.latched_registers.vertical_scroll_size;
         let h_scroll_size = self.latched_registers.horizontal_scroll_size;
 
@@ -272,15 +296,16 @@ impl Vdp {
             (_, ScrollSize::Invalid) => (h_scroll_size.to_pixels(), 32 * 8),
             _ => (h_scroll_size.to_pixels(), v_scroll_size.to_pixels()),
         };
+        let h_scroll_size_cells = h_scroll_size_pixels / 8;
 
         let scroll_line_bit_mask = match self.latched_registers.interlacing_mode {
             InterlacingMode::Progressive | InterlacingMode::Interlaced => v_scroll_size_pixels - 1,
-            InterlacingMode::InterlacedDouble => ((v_scroll_size_pixels - 1) << 1) | 0x01,
+            InterlacingMode::InterlacedDouble => (v_scroll_size_pixels << 1) - 1,
         };
 
         let h_scroll_scanline = match self.latched_registers.interlacing_mode {
-            InterlacingMode::Progressive | InterlacingMode::Interlaced => raster_line.line,
-            InterlacingMode::InterlacedDouble => raster_line.line / 2,
+            InterlacingMode::Progressive | InterlacingMode::Interlaced => raster_line,
+            InterlacingMode::InterlacedDouble => raster_line / 2,
         };
         let (h_scroll_a, h_scroll_b) = read_h_scroll(
             &self.vram,
@@ -292,175 +317,215 @@ impl Vdp {
         self.state.last_h_scroll_a = h_scroll_a;
         self.state.last_h_scroll_b = h_scroll_b;
 
-        let mut scroll_a_nt_row = u16::MAX;
-        let mut scroll_a_nt_col = u16::MAX;
-        let mut scroll_a_nt_word = NameTableWord::default();
-
-        let mut scroll_b_nt_row = u16::MAX;
-        let mut scroll_b_nt_col = u16::MAX;
-        let mut scroll_b_nt_word = NameTableWord::default();
-
         let active_display_pixels =
             self.latched_registers.horizontal_display_size.active_display_pixels();
         let active_display_cells = active_display_pixels / 8;
 
-        let (start_col, end_col, pixel_offset) = if self.config.render_horizontal_border {
-            let left_border: u32 =
-                self.latched_registers.horizontal_display_size.left_border().into();
-            let start_col =
-                if starting_pixel == 0 { 0 } else { u32::from(starting_pixel) + left_border };
-            let end_col = left_border + u32::from(active_display_pixels) + u32::from(RIGHT_BORDER);
-
-            (start_col, end_col, left_border as i16)
-        } else {
-            (starting_pixel.into(), active_display_pixels.into(), 0)
-        };
-
-        for frame_buffer_col in start_col..end_col {
-            let pixel = frame_buffer_col as i16 - pixel_offset;
-
-            // If fine horizontal scroll is used (H scroll % 16 != 0), all columns are offset by the fine H scroll value
-            // for V scroll lookup purposes. The leftmost 1 to 15 pixels will display from column -1, then columns 0-19
-            // will display as normal after that (or columns 0-16 in H32 mode).
-            let h_cell_a = div_floor(pixel - (h_scroll_a & 15) as i16, 8);
-            let h_cell_b = div_floor(pixel - (h_scroll_b & 15) as i16, 8);
-
-            let (v_scroll_a, v_scroll_b) = read_v_scroll(
-                h_cell_a,
-                h_cell_b,
-                &self.vsram,
-                &self.latched_registers,
-                self.latched_full_screen_v_scroll,
-            );
-
-            let scrolled_scanline_a =
-                raster_line.line.wrapping_add(v_scroll_a) & scroll_line_bit_mask;
-            let scroll_a_v_cell = scrolled_scanline_a / cell_height;
-
-            let scrolled_scanline_b =
-                raster_line.line.wrapping_add(v_scroll_b) & scroll_line_bit_mask;
-            let scroll_b_v_cell = scrolled_scanline_b / cell_height;
-
-            let scrolled_pixel_a =
-                (pixel as u16).wrapping_sub(h_scroll_a) & (h_scroll_size_pixels - 1);
-            let scroll_a_h_cell = scrolled_pixel_a / 8;
-
-            let scrolled_pixel_b =
-                (pixel as u16).wrapping_sub(h_scroll_b) & (h_scroll_size_pixels - 1);
-            let scroll_b_h_cell = scrolled_pixel_b / 8;
-
-            if scroll_a_v_cell != scroll_a_nt_row || scroll_a_h_cell != scroll_a_nt_col {
-                scroll_a_nt_word = read_name_table_word(
-                    &self.vram,
+        for plane in [BgPlane::A, BgPlane::B] {
+            let (enabled, pixel_buffer, nametable_base_addr, h_scroll) = match plane {
+                BgPlane::A => (
+                    self.config.plane_a_enabled,
+                    &mut self.bg_buffers.plane_a_pixels,
                     self.latched_registers.scroll_a_base_nt_addr,
-                    h_scroll_size.into(),
-                    scroll_a_v_cell,
-                    scroll_a_h_cell,
-                );
-                scroll_a_nt_row = scroll_a_v_cell;
-                scroll_a_nt_col = scroll_a_h_cell;
+                    h_scroll_a,
+                ),
+                BgPlane::B => (
+                    self.config.plane_b_enabled,
+                    &mut self.bg_buffers.plane_b_pixels,
+                    self.latched_registers.scroll_b_base_nt_addr,
+                    h_scroll_b,
+                ),
+            };
+
+            if !enabled {
+                pixel_buffer.fill(TilePixel::default());
+                continue;
             }
 
-            if scroll_b_v_cell != scroll_b_nt_row || scroll_b_h_cell != scroll_b_nt_col {
-                scroll_b_nt_word = read_name_table_word(
-                    &self.vram,
-                    self.latched_registers.scroll_b_base_nt_addr,
-                    h_scroll_size.into(),
-                    scroll_b_v_cell,
-                    scroll_b_h_cell,
-                );
-                scroll_b_nt_row = scroll_b_v_cell;
-                scroll_b_nt_col = scroll_b_h_cell;
+            // The VDP renders in columns of 16 pixels
+            // If H scroll is not a multiple of 16, consider the remainder "fine H scroll"
+            let coarse_h_scroll = h_scroll & !15;
+            let fine_h_scroll = (h_scroll & 15) as i16;
 
-                if h_cell_b < active_display_cells as i16 {
-                    self.state.last_scroll_b_palettes[0] = self.state.last_scroll_b_palettes[1];
-                    self.state.last_scroll_b_palettes[1] = scroll_b_nt_word.palette;
+            // The VDP always renders one column partially or fully to the left of active display,
+            // column -1.
+            // If fine H scrolling is used, the leftmost 1 to 15 pixels in active display come from
+            // this column
+            let start_h_column =
+                if fine_h_scroll != 0 || self.config.render_horizontal_border { -1 } else { 0 };
+            let end_h_column = (active_display_cells / 2) as i16;
+
+            for h_column in start_h_column..end_h_column {
+                let v_scroll = read_v_scroll(
+                    &self.vsram,
+                    plane,
+                    h_column,
+                    &self.latched_registers,
+                    self.latched_full_screen_v_scroll,
+                );
+
+                let scrolled_scanline = raster_line.wrapping_add(v_scroll) & scroll_line_bit_mask;
+                let scrolled_v_cell = scrolled_scanline >> cell_height_shift;
+
+                let column_scrolled_pixel = ((16 * h_column) as u16).wrapping_sub(coarse_h_scroll);
+                let column_scrolled_h_cell = column_scrolled_pixel / 8;
+
+                // Each 16-pixel column consists of two 8-pixel cells
+                for h_cell_offset in 0..2 {
+                    let cell_fb_col =
+                        16 * h_column + 8 * h_cell_offset + fine_h_scroll + fb_pixel_offset;
+                    if cell_fb_col + 8 <= fb_start_col || cell_fb_col >= fb_end_col {
+                        continue;
+                    }
+
+                    let scrolled_h_cell = column_scrolled_h_cell.wrapping_add(h_cell_offset as u16)
+                        & (h_scroll_size_cells - 1);
+
+                    let nametable_word = read_name_table_word(
+                        &self.vram,
+                        nametable_base_addr,
+                        h_scroll_size.into(),
+                        scrolled_v_cell,
+                        scrolled_h_cell,
+                    );
+
+                    if plane == BgPlane::B {
+                        self.state.last_scroll_b_palettes[0] = self.state.last_scroll_b_palettes[1];
+                        self.state.last_scroll_b_palettes[1] = nametable_word.palette;
+                    }
+
+                    let colors = read_pattern_generator_row(&self.vram, PatternGeneratorRowArgs {
+                        vertical_flip: nametable_word.vertical_flip,
+                        horizontal_flip: nametable_word.horizontal_flip,
+                        pattern_generator: nametable_word.pattern_generator,
+                        row: scrolled_scanline,
+                        cell_height_shift,
+                    });
+
+                    for pixel_offset in 0..8 {
+                        let fb_col = cell_fb_col + pixel_offset;
+                        if !(fb_start_col..fb_end_col).contains(&fb_col) {
+                            continue;
+                        }
+
+                        pixel_buffer[fb_col as usize] = TilePixel {
+                            color: colors[pixel_offset as usize],
+                            palette: nametable_word.palette,
+                            priority: nametable_word.priority,
+                        };
+                    }
                 }
             }
+        }
+    }
 
-            let scroll_a_color_id = if self.config.plane_a_enabled {
-                read_pattern_generator(&self.vram, PatternGeneratorArgs {
-                    vertical_flip: scroll_a_nt_word.vertical_flip,
-                    horizontal_flip: scroll_a_nt_word.horizontal_flip,
-                    pattern_generator: scroll_a_nt_word.pattern_generator,
-                    row: scrolled_scanline_a,
-                    col: scrolled_pixel_a,
-                    cell_height,
-                })
+    fn render_window_to_buffer(
+        &mut self,
+        raster_line: u16,
+        fb_start_col: i16,
+        fb_end_col: i16,
+        fb_pixel_offset: i16,
+    ) {
+        if !self.config.window_enabled {
+            return;
+        }
+
+        let active_display_pixels =
+            self.latched_registers.horizontal_display_size.active_display_pixels();
+        let (window_start, window_end) = if self.latched_registers.is_line_in_v_window(raster_line)
+        {
+            (0, active_display_pixels)
+        } else {
+            self.latched_registers.window_h_range(active_display_pixels)
+        };
+
+        if window_start >= window_end {
+            // Window is empty on this line
+            return;
+        }
+
+        let window_start_cell = window_start / 8;
+        let window_end_cell = window_end / 8;
+        for h_cell in window_start_cell..window_end_cell {
+            let pixel = 8 * h_cell;
+            let cell_fb_col = (pixel as i16) + fb_pixel_offset;
+            if cell_fb_col + 8 <= fb_start_col || cell_fb_col >= fb_end_col {
+                continue;
+            }
+
+            let cell_height_shift = self.latched_registers.interlacing_mode.cell_height_shift();
+            let v_cell = raster_line >> cell_height_shift;
+
+            let nametable_word = read_name_table_word(
+                &self.vram,
+                self.latched_registers.window_base_nt_addr,
+                self.latched_registers.horizontal_display_size.window_width_cells(),
+                v_cell,
+                h_cell,
+            );
+
+            let colors = read_pattern_generator_row(&self.vram, PatternGeneratorRowArgs {
+                vertical_flip: nametable_word.vertical_flip,
+                horizontal_flip: nametable_word.horizontal_flip,
+                pattern_generator: nametable_word.pattern_generator,
+                row: raster_line,
+                cell_height_shift,
+            });
+
+            for pixel_offset in 0..8 {
+                let fb_col = cell_fb_col + pixel_offset;
+                if !(fb_start_col..fb_end_col).contains(&fb_col) {
+                    continue;
+                }
+
+                // Window replaces Plane A when enabled
+                self.bg_buffers.plane_a_pixels[fb_col as usize] = TilePixel {
+                    color: colors[pixel_offset as usize],
+                    palette: nametable_word.palette,
+                    priority: nametable_word.priority,
+                };
+            }
+        }
+    }
+
+    fn merge_layers(
+        &mut self,
+        raster_line: RasterLine,
+        frame_buffer_row: u32,
+        fb_start_col: u32,
+        fb_end_col: u32,
+        fb_pixel_offset: i16,
+        interlaced_odd_line: bool,
+    ) {
+        let sprite_buffers = if interlaced_odd_line {
+            &self.interlaced_sprite_buffers
+        } else {
+            &self.sprite_buffers
+        };
+
+        let bg_color = self.backdrop_color();
+
+        let screen_width = self.screen_width();
+        let active_display_pixels =
+            self.latched_registers.horizontal_display_size.active_display_pixels();
+
+        for frame_buffer_col in fb_start_col..fb_end_col {
+            let pixel = frame_buffer_col as i16 - fb_pixel_offset;
+
+            let sprite_pixel = if self.config.sprites_enabled {
+                sprite_buffers.pixels.get(pixel as usize).copied().unwrap_or(TilePixel::default())
             } else {
-                0
-            };
-            let scroll_b_color_id = if self.config.plane_b_enabled {
-                read_pattern_generator(&self.vram, PatternGeneratorArgs {
-                    vertical_flip: scroll_b_nt_word.vertical_flip,
-                    horizontal_flip: scroll_b_nt_word.horizontal_flip,
-                    pattern_generator: scroll_b_nt_word.pattern_generator,
-                    row: scrolled_scanline_b,
-                    col: scrolled_pixel_b,
-                    cell_height,
-                })
-            } else {
-                0
+                TilePixel::default()
             };
 
-            let in_window = self.config.window_enabled
-                && self.latched_registers.is_in_window(raster_line.line, pixel as u16);
-            let (window_priority, window_palette, window_color_id) = if in_window {
-                let window_v_cell = raster_line.line / cell_height;
-
-                let window_width_cells =
-                    self.latched_registers.horizontal_display_size.window_width_cells();
-                let window_pixel = (pixel as u16) & (window_width_cells * 8 - 1);
-                let window_h_cell = window_pixel / 8;
-
-                let window_nt_word = read_name_table_word(
-                    &self.vram,
-                    self.latched_registers.window_base_nt_addr,
-                    window_width_cells,
-                    window_v_cell,
-                    window_h_cell,
-                );
-                let window_color_id = read_pattern_generator(&self.vram, PatternGeneratorArgs {
-                    vertical_flip: window_nt_word.vertical_flip,
-                    horizontal_flip: window_nt_word.horizontal_flip,
-                    pattern_generator: window_nt_word.pattern_generator,
-                    row: raster_line.line,
-                    col: window_pixel,
-                    cell_height,
-                });
-                (window_nt_word.priority, window_nt_word.palette, window_color_id)
-            } else {
-                (false, 0, 0)
-            };
-
-            let SpritePixel {
-                palette: sprite_palette,
-                color_id: sprite_color_id,
-                priority: sprite_priority,
-            } = if self.config.sprites_enabled {
-                sprite_buffers.pixels.get(pixel as usize).copied().unwrap_or(SpritePixel::default())
-            } else {
-                SpritePixel { palette: 0, color_id: 0, priority: false }
-            };
-
-            let (scroll_a_priority, scroll_a_palette, scroll_a_color_id) = if in_window {
-                // Window replaces scroll A if this pixel is inside the window
-                (window_priority, window_palette, window_color_id)
-            } else {
-                (scroll_a_nt_word.priority, scroll_a_nt_word.palette, scroll_a_color_id)
-            };
+            let scroll_a_pixel = self.bg_buffers.plane_a_pixels[frame_buffer_col as usize];
+            let scroll_b_pixel = self.bg_buffers.plane_b_pixels[frame_buffer_col as usize];
 
             let (pixel_color, color_modifier) =
                 determine_pixel_color(&self.cram, self.debug_register, PixelColorArgs {
-                    sprite_priority,
-                    sprite_palette,
-                    sprite_color_id,
-                    scroll_a_priority,
-                    scroll_a_palette,
-                    scroll_a_color_id,
-                    scroll_b_priority: scroll_b_nt_word.priority,
-                    scroll_b_palette: scroll_b_nt_word.palette,
-                    scroll_b_color_id,
+                    sprite_pixel,
+                    scroll_a_pixel,
+                    scroll_b_pixel,
                     bg_color,
                     shadow_highlight_flag: self.latched_registers.shadow_highlight_flag,
                     in_h_border: !(0..active_display_pixels as i16).contains(&pixel),
@@ -476,10 +541,6 @@ impl Vdp {
                 screen_width,
                 self.config.emulate_non_linear_dac,
             );
-        }
-
-        if self.config.render_horizontal_border {
-            self.render_left_border(frame_buffer_row, bg_color, h_scroll_a, h_scroll_b);
         }
     }
 
@@ -762,18 +823,6 @@ impl Vdp {
     }
 }
 
-fn div_floor(a: i16, b: i16) -> i16 {
-    assert_ne!(b, 0);
-
-    if a == 0 {
-        0
-    } else if a.signum() == b.signum() || a % b == 0 {
-        a / b
-    } else {
-        a / b - 1
-    }
-}
-
 fn set_in_frame_buffer(
     frame_buffer: &mut FrameBuffer,
     row: u32,
@@ -793,35 +842,38 @@ fn set_in_frame_buffer(
 }
 
 fn read_v_scroll(
-    h_cell_a: i16,
-    h_cell_b: i16,
     vsram: &Vsram,
+    plane: BgPlane,
+    h_column: i16,
     registers: &Registers,
     latched_full_screen_v_scroll: (u16, u16),
-) -> (u16, u16) {
-    let (v_scroll_a, v_scroll_b) = match registers.vertical_scroll_mode {
-        VerticalScrollMode::FullScreen => latched_full_screen_v_scroll,
+) -> u16 {
+    let v_scroll = match registers.vertical_scroll_mode {
+        VerticalScrollMode::FullScreen => match plane {
+            BgPlane::A => latched_full_screen_v_scroll.0,
+            BgPlane::B => latched_full_screen_v_scroll.1,
+        },
         VerticalScrollMode::TwoCell => {
-            let v_scroll_a =
-                read_two_cell_v_scroll(h_cell_a, 0, vsram, registers.horizontal_display_size);
-            let v_scroll_b =
-                read_two_cell_v_scroll(h_cell_b, 2, vsram, registers.horizontal_display_size);
-            (v_scroll_a, v_scroll_b)
+            let offset = match plane {
+                BgPlane::A => 0,
+                BgPlane::B => 2,
+            };
+            read_two_cell_v_scroll(h_column, offset, vsram, registers.horizontal_display_size)
         }
     };
 
     let v_scroll_mask = registers.interlacing_mode.v_scroll_mask();
-    (v_scroll_a & v_scroll_mask, v_scroll_b & v_scroll_mask)
+    v_scroll & v_scroll_mask
 }
 
 fn read_two_cell_v_scroll(
-    h_cell: i16,
+    h_column: i16,
     offset: usize,
     vsram: &Vsram,
     h_display_size: HorizontalDisplaySize,
 ) -> u16 {
-    let active_display_cells = (h_display_size.active_display_pixels() / 8) as i16;
-    if h_cell < 0 {
+    let active_display_columns = (h_display_size.active_display_pixels() / 16) as i16;
+    if h_column < 0 {
         // Column -1 behaves weirdly.
         // In H40 mode, it uses a V scroll value of VSRAM[$4C] & VSRAM[$4E] for both backgrounds.
         // In H32 mode, it always uses a V scroll value of 0.
@@ -832,8 +884,8 @@ fn read_two_cell_v_scroll(
                 u16::from_be_bytes([vsram[0x4C] & vsram[0x4E], vsram[0x4D] & vsram[0x4F]])
             }
         }
-    } else if h_cell < active_display_cells {
-        let addr = 4 * (h_cell as usize / 2) + offset;
+    } else if h_column < active_display_columns {
+        let addr = 4 * (h_column as usize) + offset;
         u16::from_be_bytes([vsram[addr], vsram[addr + 1]])
     } else {
         0
@@ -895,34 +947,45 @@ fn read_name_table_word(
 }
 
 #[derive(Debug, Clone)]
-pub struct PatternGeneratorArgs {
+pub struct PatternGeneratorRowArgs {
     pub vertical_flip: bool,
     pub horizontal_flip: bool,
     pub pattern_generator: u16,
     pub row: u16,
-    pub col: u16,
-    pub cell_height: u16,
+    pub cell_height_shift: u16,
 }
 
 #[inline]
-pub fn read_pattern_generator(
+pub fn read_pattern_generator_row(
     vram: &Vram,
-    PatternGeneratorArgs {
+    PatternGeneratorRowArgs {
         vertical_flip,
         horizontal_flip,
         pattern_generator,
         row,
-        col,
-        cell_height,
-    }: PatternGeneratorArgs,
-) -> u8 {
-    let cell_row =
-        if vertical_flip { cell_height - 1 - (row % cell_height) } else { row % cell_height };
-    let cell_col = if horizontal_flip { 7 - (col % 8) } else { col % 8 };
+        cell_height_shift,
+    }: PatternGeneratorRowArgs,
+) -> [u8; 8] {
+    let cell_height = 1 << cell_height_shift;
+    let cell_row = if vertical_flip {
+        cell_height - 1 - (row & (cell_height - 1))
+    } else {
+        row & (cell_height - 1)
+    };
 
     let cell_addr = (4 * cell_height).wrapping_mul(pattern_generator);
-    let addr = (cell_addr + 4 * cell_row + (cell_col >> 1)) as usize;
-    (vram[addr] >> (4 - ((cell_col & 0x01) << 2))) & 0x0F
+    let row_addr = (cell_addr + 4 * cell_row) as usize;
+    let mut colors: [u8; 8] = array::from_fn(|i| {
+        let addr = row_addr + i / 2;
+        let byte = vram[addr];
+        (byte >> (((i & 1) ^ 1) << 2)) & 0x0F
+    });
+
+    if horizontal_flip {
+        colors.reverse();
+    }
+
+    colors
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -933,15 +996,9 @@ struct UnresolvedColor {
 }
 
 struct PixelColorArgs {
-    sprite_priority: bool,
-    sprite_palette: u8,
-    sprite_color_id: u8,
-    scroll_a_priority: bool,
-    scroll_a_palette: u8,
-    scroll_a_color_id: u8,
-    scroll_b_priority: bool,
-    scroll_b_palette: u8,
-    scroll_b_color_id: u8,
+    sprite_pixel: TilePixel,
+    scroll_a_pixel: TilePixel,
+    scroll_b_pixel: TilePixel,
     bg_color: u16,
     shadow_highlight_flag: bool,
     in_h_border: bool,
@@ -954,65 +1011,56 @@ fn determine_pixel_color(
     cram: &Cram,
     debug_register: DebugRegister,
     PixelColorArgs {
-        sprite_priority,
-        sprite_palette,
-        sprite_color_id,
-        scroll_a_priority,
-        scroll_a_palette,
-        scroll_a_color_id,
-        scroll_b_priority,
-        scroll_b_palette,
-        scroll_b_color_id,
+        sprite_pixel,
+        scroll_a_pixel,
+        scroll_b_pixel,
         bg_color,
         shadow_highlight_flag,
         in_h_border,
         in_v_border,
     }: PixelColorArgs,
 ) -> (u16, ColorModifier) {
-    let sprite_cram_idx = (sprite_palette << 4) | sprite_color_id;
-    let scroll_a_cram_idx = (scroll_a_palette << 4) | scroll_a_color_id;
-    let scroll_b_cram_idx = (scroll_b_palette << 4) | scroll_b_color_id;
+    let sprite_cram_idx = (sprite_pixel.palette << 4) | sprite_pixel.color;
+    let scroll_a_cram_idx = (scroll_a_pixel.palette << 4) | scroll_a_pixel.color;
+    let scroll_b_cram_idx = (scroll_b_pixel.palette << 4) | scroll_b_pixel.color;
 
-    if in_h_border {
+    if in_h_border || in_v_border || debug_register.display_disabled {
         let color = match debug_register.forced_plane {
             Plane::Background => bg_color,
-            Plane::Sprite => cram[0],
+            Plane::Sprite => {
+                let cram_idx = if in_h_border { 0 } else { sprite_cram_idx };
+                cram[cram_idx as usize]
+            }
             Plane::ScrollA => cram[scroll_a_cram_idx as usize],
             Plane::ScrollB => cram[scroll_b_cram_idx as usize],
         };
         return (color, ColorModifier::None);
     }
 
-    if debug_register.display_disabled || in_v_border {
-        let color = match debug_register.forced_plane {
-            Plane::Background => bg_color,
-            Plane::Sprite => cram[sprite_cram_idx as usize],
-            Plane::ScrollA => cram[scroll_a_cram_idx as usize],
-            Plane::ScrollB => cram[scroll_b_cram_idx as usize],
+    let mut modifier =
+        if shadow_highlight_flag && !scroll_a_pixel.priority && !scroll_b_pixel.priority {
+            // If shadow/highlight bit is set and all priority flags are 0, default modifier to shadow
+            ColorModifier::Shadow
+        } else {
+            ColorModifier::None
         };
-        return (color, ColorModifier::None);
-    };
 
-    let mut modifier = if shadow_highlight_flag && !scroll_a_priority && !scroll_b_priority {
-        // If shadow/highlight bit is set and all priority flags are 0, default modifier to shadow
-        ColorModifier::Shadow
-    } else {
-        ColorModifier::None
+    let sprite = UnresolvedColor {
+        palette: sprite_pixel.palette,
+        color_id: sprite_pixel.color,
+        is_sprite: true,
     };
-
-    let sprite =
-        UnresolvedColor { palette: sprite_palette, color_id: sprite_color_id, is_sprite: true };
     let scroll_a = UnresolvedColor {
-        palette: scroll_a_palette,
-        color_id: scroll_a_color_id,
+        palette: scroll_a_pixel.palette,
+        color_id: scroll_a_pixel.color,
         is_sprite: false,
     };
     let scroll_b = UnresolvedColor {
-        palette: scroll_b_palette,
-        color_id: scroll_b_color_id,
+        palette: scroll_b_pixel.palette,
+        color_id: scroll_b_pixel.color,
         is_sprite: false,
     };
-    let colors = match (sprite_priority, scroll_a_priority, scroll_b_priority) {
+    let colors = match (sprite_pixel.priority, scroll_a_pixel.priority, scroll_b_pixel.priority) {
         (false, false, false) | (true, false, false) | (true, true, false) | (true, true, true) => {
             [sprite, scroll_a, scroll_b]
         }
@@ -1040,6 +1088,9 @@ fn determine_pixel_color(
             }
         }
 
+        // If debug register is used to force a plane, the 6-bit color value from that plane masks
+        // the 6-bit color value of the frontmost pixel.
+        // Titan Overdrive 2 uses this extensively
         let cram_idx_mask = match debug_register.forced_plane {
             Plane::Background => 0x3F,
             Plane::Sprite => sprite_cram_idx,
@@ -1047,15 +1098,13 @@ fn determine_pixel_color(
             Plane::ScrollB => scroll_b_cram_idx,
         };
         let cram_idx = ((palette << 4) | color_id) & cram_idx_mask;
-
         let color = cram[cram_idx as usize];
+
         // Sprite color id 14 is never shadowed/highlighted, and neither is a sprite with the priority
         // bit set
-        let modifier = if is_sprite && (color_id == 14 || sprite_priority) {
-            ColorModifier::None
-        } else {
-            modifier
-        };
+        if is_sprite && (color_id == 14 || sprite_pixel.priority) {
+            modifier = ColorModifier::None;
+        }
 
         // Set alpha bit to indicate that the backdrop color was not used (needed by 32X)
         return (color | 0x8000, modifier);
@@ -1070,19 +1119,4 @@ fn determine_pixel_color(
 
     // Clear alpha bit to indicate that the backdrop color was used (needed by 32X)
     (fallback_color & 0x7FFF, modifier)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_div_floor() {
-        assert_eq!(div_floor(0, 5), 0);
-        assert_eq!(div_floor(8, 4), 2);
-        assert_eq!(div_floor(9, 4), 2);
-        assert_eq!(div_floor(-9, -4), 2);
-        assert_eq!(div_floor(-9, 4), -3);
-        assert_eq!(div_floor(-8, 4), -2);
-    }
 }

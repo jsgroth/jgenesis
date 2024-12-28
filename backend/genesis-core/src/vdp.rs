@@ -22,6 +22,7 @@ use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{Color, FrameSize, TimingMode};
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
+use std::array;
 use std::ops::{Deref, DerefMut};
 use z80_emu::traits::InterruptLine;
 
@@ -197,6 +198,28 @@ impl SpriteData {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
+struct TilePixel {
+    color: u8,
+    palette: u8,
+    priority: bool,
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+struct BgBuffers {
+    plane_a_pixels: [TilePixel; MAX_SCREEN_WIDTH],
+    plane_b_pixels: [TilePixel; MAX_SCREEN_WIDTH],
+}
+
+impl BgBuffers {
+    fn new() -> Self {
+        Self {
+            plane_a_pixels: array::from_fn(|_| TilePixel::default()),
+            plane_b_pixels: array::from_fn(|_| TilePixel::default()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VdpTickEffect {
     None,
@@ -320,6 +343,7 @@ pub struct Vdp {
     latched_full_screen_v_scroll: (u16, u16),
     cached_sprite_attributes: Box<[CachedSpriteData; MAX_SPRITES_PER_FRAME]>,
     latched_sprite_attributes: Box<[CachedSpriteData; MAX_SPRITES_PER_FRAME]>,
+    bg_buffers: Box<BgBuffers>,
     sprite_buffers: SpriteBuffers,
     interlaced_sprite_buffers: SpriteBuffers,
     config: VdpConfig,
@@ -351,6 +375,7 @@ impl Vdp {
                 .into_boxed_slice()
                 .try_into()
                 .unwrap(),
+            bg_buffers: Box::new(BgBuffers::new()),
             sprite_buffers: SpriteBuffers::new(),
             interlaced_sprite_buffers: SpriteBuffers::new(),
             config,

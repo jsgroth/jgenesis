@@ -1,6 +1,6 @@
 use crate::vdp::registers::{HorizontalDisplaySize, InterlacingMode};
-use crate::vdp::render::{PatternGeneratorArgs, RasterLine};
-use crate::vdp::{CachedSpriteData, SpriteData, Vdp, render};
+use crate::vdp::render::{PatternGeneratorRowArgs, RasterLine, read_pattern_generator_row};
+use crate::vdp::{CachedSpriteData, SpriteData, TilePixel, Vdp};
 use bincode::{Decode, Encode};
 
 // Sprites with X = $080 display at the left edge of the screen
@@ -63,19 +63,12 @@ impl SpriteState {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
-pub struct SpritePixel {
-    pub palette: u8,
-    pub color_id: u8,
-    pub priority: bool,
-}
-
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct SpriteBuffers {
     pub scanned_ids: Vec<u8>,
     pub sprites: Vec<SpriteData>,
     pub last_tile_addresses: Box<[u16; 40]>,
-    pub pixels: Box<[SpritePixel; 320]>,
+    pub pixels: Box<[TilePixel; 320]>,
 }
 
 impl SpriteBuffers {
@@ -84,7 +77,7 @@ impl SpriteBuffers {
             scanned_ids: Vec::with_capacity(20),
             sprites: Vec::with_capacity(20),
             last_tile_addresses: vec![0; 40].into_boxed_slice().try_into().unwrap(),
-            pixels: vec![SpritePixel::default(); 320].into_boxed_slice().try_into().unwrap(),
+            pixels: vec![TilePixel::default(); 320].into_boxed_slice().try_into().unwrap(),
         }
     }
 }
@@ -236,7 +229,7 @@ impl Vdp {
             &mut self.sprite_buffers
         };
 
-        buffers.pixels.fill(SpritePixel::default());
+        buffers.pixels.fill(TilePixel::default());
 
         let h_size = self.latched_registers.horizontal_display_size;
         let sprite_display_area =
@@ -250,7 +243,7 @@ impl Vdp {
 
         let interlacing_mode = self.latched_registers.interlacing_mode;
         let sprite_scanline = interlacing_mode.sprite_display_top() + raster_line.line;
-        let cell_height = interlacing_mode.cell_height();
+        let cell_height_shift = interlacing_mode.cell_height_shift();
 
         // Apply max sprite pixel per scanline limit.
         //
@@ -261,8 +254,8 @@ impl Vdp {
         // were skipped because display was disabled
         let max_sprite_pixels_per_line =
             h_size.max_sprite_pixels_per_line().saturating_sub(4 * half_tiles_not_fetched);
+        let max_sprite_tiles_per_line = max_sprite_pixels_per_line / 8;
 
-        let mut line_pixels = 0;
         let mut tiles_fetched = 0;
         let mut dot_overflow = false;
 
@@ -291,33 +284,14 @@ impl Vdp {
                 .wrapping_sub(sprite_y_position(sprite.v_position, interlacing_mode))
                 & 0x1F;
             let sprite_row = if sprite.vertical_flip {
-                (cell_height * v_size_cells - 1).wrapping_sub(sprite_row) & 0x1F
+                ((v_size_cells << cell_height_shift) - 1).wrapping_sub(sprite_row) & 0x1F
             } else {
                 sprite_row
             };
 
-            // Record what VRAM addresses were accessed during sprite tile fetching; this is needed for rendering the
-            // borders in Titan Overdrive 2
             for h_cell in 0..h_size_cells {
-                if tiles_fetched == buffers.last_tile_addresses.len() {
-                    // Hit the 40 tile / 320 pixel limit
-                    break;
-                }
-
-                let pattern_offset = h_cell * v_size_cells + sprite_row / cell_height;
-                let pattern_generator = sprite.pattern_generator.wrapping_add(pattern_offset);
-                let cell_addr = (4 * cell_height).wrapping_mul(pattern_generator);
-                let row_addr = cell_addr + 4 * (sprite_row % cell_height);
-
-                buffers.last_tile_addresses[tiles_fetched] = row_addr;
-                tiles_fetched += 1;
-            }
-
-            let sprite_width = 8 * h_size_cells;
-            let sprite_right = sprite.h_position + sprite_width;
-            for h_position in sprite.h_position..sprite_right {
-                line_pixels += 1;
-                if line_pixels > max_sprite_pixels_per_line {
+                if tiles_fetched == max_sprite_tiles_per_line {
+                    // Exceeded the 40 tile / 320 pixel limit (or 32 tile / 256 pixel in H32 mode)
                     self.sprite_state.overflow = true;
                     dot_overflow = true;
 
@@ -326,38 +300,61 @@ impl Vdp {
                     }
                 }
 
-                if !sprite_display_area.contains(&h_position) {
+                let cell_col = if sprite.horizontal_flip {
+                    u16::from(sprite.h_size_cells) - 1 - h_cell
+                } else {
+                    h_cell
+                };
+
+                let pattern_offset = cell_col * v_size_cells + (sprite_row >> cell_height_shift);
+                let pattern_generator = sprite.pattern_generator.wrapping_add(pattern_offset);
+                let cell_addr = (4_u16 << cell_height_shift).wrapping_mul(pattern_generator);
+                let cell_row = sprite_row & ((1 << cell_height_shift) - 1);
+                let row_addr = cell_addr + 4 * cell_row;
+
+                // Record what VRAM addresses were accessed during sprite tile fetching; this is needed for rendering the
+                // borders in Titan Overdrive 2
+                if tiles_fetched < max_sprite_tiles_per_line {
+                    buffers.last_tile_addresses[tiles_fetched as usize] = row_addr;
+                    tiles_fetched += 1;
+                }
+
+                let cell_left = sprite.h_position + 8 * h_cell;
+                let cell_right = cell_left + 8;
+                if cell_left >= sprite_display_area.end || cell_right <= sprite_display_area.start {
+                    // Tile is fully offscreen; don't bother fetching the pattern generator
                     continue;
                 }
 
-                let sprite_col = h_position - sprite.h_position;
-                let sprite_col = if sprite.horizontal_flip {
-                    8 * h_size_cells - 1 - sprite_col
-                } else {
-                    sprite_col
-                };
-
-                let pattern_offset = (sprite_col / 8) * v_size_cells + sprite_row / cell_height;
-                let color_id = render::read_pattern_generator(&self.vram, PatternGeneratorArgs {
+                let colors = read_pattern_generator_row(&self.vram, PatternGeneratorRowArgs {
                     vertical_flip: false,
-                    horizontal_flip: false,
-                    pattern_generator: sprite.pattern_generator.wrapping_add(pattern_offset),
-                    row: sprite_row % cell_height,
-                    col: sprite_col % 8,
-                    cell_height,
+                    horizontal_flip: sprite.horizontal_flip,
+                    pattern_generator,
+                    row: cell_row,
+                    cell_height_shift,
                 });
 
-                let pixel = h_position - SPRITE_H_DISPLAY_START;
-                if buffers.pixels[pixel as usize].color_id == 0 {
-                    // Transparent pixels are always overwritten, even if the current pixel is also transparent
-                    buffers.pixels[pixel as usize] = SpritePixel {
-                        palette: sprite.palette,
-                        color_id,
-                        priority: sprite.priority,
-                    };
-                } else {
-                    // Sprite collision; two non-transparent sprite pixels in the same position
-                    self.sprite_state.collision = true;
+                let cell_h_position = sprite.h_position + 8 * h_cell;
+                for pixel_offset in 0..8 {
+                    let h_position = cell_h_position + pixel_offset;
+                    if !sprite_display_area.contains(&h_position) {
+                        continue;
+                    }
+
+                    let pixel = h_position - SPRITE_H_DISPLAY_START;
+                    if buffers.pixels[pixel as usize].color == 0 {
+                        // Transparent pixels are always overwritten, even if the current pixel is also transparent
+                        // Overdrive 2 depends on this for the title screen effect where it masks
+                        // BG pixels using the palettes of transparent sprite pixels
+                        buffers.pixels[pixel as usize] = TilePixel {
+                            color: colors[pixel_offset as usize],
+                            palette: sprite.palette,
+                            priority: sprite.priority,
+                        };
+                    } else {
+                        // Sprite collision; two non-transparent sprite pixels in the same position
+                        self.sprite_state.collision = true;
+                    }
                 }
             }
         }

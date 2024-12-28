@@ -217,10 +217,14 @@ impl InterlacingMode {
     }
 
     pub const fn cell_height(self) -> u16 {
+        1 << self.cell_height_shift()
+    }
+
+    pub const fn cell_height_shift(self) -> u16 {
         match self {
             // Cells are 8x8 normally, 8x16 in interlaced 2x mode
-            Self::Progressive | Self::Interlaced => 8,
-            Self::InterlacedDouble => 16,
+            Self::Progressive | Self::Interlaced => 3,
+            Self::InterlacedDouble => 4,
         }
     }
 
@@ -297,11 +301,10 @@ impl Display for WindowHorizontalMode {
 }
 
 impl WindowHorizontalMode {
-    pub fn in_window(self, pixel: u16, window_x: u16) -> bool {
-        let cell = pixel / 8;
+    pub fn h_range(self, window_x: u16, active_display_pixels: u16) -> (u16, u16) {
         match self {
-            Self::LeftToCenter => cell < window_x,
-            Self::CenterToRight => cell >= window_x,
+            Self::LeftToCenter => (0, 8 * window_x),
+            Self::CenterToRight => (8 * window_x, active_display_pixels),
         }
     }
 }
@@ -683,9 +686,12 @@ impl Registers {
         }
     }
 
-    pub fn is_in_window(&self, scanline: u16, pixel: u16) -> bool {
-        self.window_horizontal_mode.in_window(pixel, self.window_x_position)
-            || self.window_vertical_mode.in_window(scanline, self.window_y_position)
+    pub fn is_line_in_v_window(&self, scanline: u16) -> bool {
+        self.window_vertical_mode.in_window(scanline, self.window_y_position)
+    }
+
+    pub fn window_h_range(&self, active_display_pixels: u16) -> (u16, u16) {
+        self.window_horizontal_mode.h_range(self.window_x_position, active_display_pixels)
     }
 
     pub fn dma_length(&self) -> u32 {
