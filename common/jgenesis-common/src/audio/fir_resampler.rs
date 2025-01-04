@@ -2,6 +2,9 @@ use crate::audio::{DEFAULT_OUTPUT_FREQUENCY, RESAMPLE_SCALING_FACTOR};
 use bincode::{Decode, Encode};
 use std::collections::VecDeque;
 
+// Very small value added/subtracted to avoid subnormal numbers appearing in the filters
+const TINY_VALUE: f64 = 1e-15;
+
 // This is different from VecDeque in that the samples are guaranteed to always be contiguous in
 // memory, which is important for performance when N is large
 #[derive(Debug, Clone, Encode, Decode)]
@@ -49,11 +52,15 @@ pub struct FirResampler<const LPF_TAPS: usize, const ZERO_PADDING: usize> {
     output: VecDeque<(f64, f64)>,
     sample_count_product: u64,
     output_frequency: u64,
+    original_source_frequency: f64,
     padded_scaled_source_frequency: u64,
     hpf_charge_factor: f64,
     hpf_capacitor_l: f64,
     hpf_capacitor_r: f64,
     lpf_coefficients: [f64; LPF_TAPS],
+    tiny_offset: f64,
+    tiny_offset_invert_interval: u32,
+    tiny_offset_invert_counter: u32,
 }
 
 impl<const LPF_TAPS: usize, const ZERO_PADDING: usize> FirResampler<LPF_TAPS, ZERO_PADDING> {
@@ -64,18 +71,25 @@ impl<const LPF_TAPS: usize, const ZERO_PADDING: usize> FirResampler<LPF_TAPS, ZE
         hpf_charge_factor: f64,
     ) -> Self {
         let padded_scaled_source_frequency = Self::pad_and_scale_frequency(source_frequency);
-        Self {
+        let mut resampler = Self {
             samples_l: RingBuffer::new(),
             samples_r: RingBuffer::new(),
             output: VecDeque::with_capacity((DEFAULT_OUTPUT_FREQUENCY / 30) as usize),
             sample_count_product: 0,
             output_frequency: DEFAULT_OUTPUT_FREQUENCY,
+            original_source_frequency: source_frequency,
             padded_scaled_source_frequency,
             hpf_charge_factor,
             hpf_capacitor_l: 0.0,
             hpf_capacitor_r: 0.0,
             lpf_coefficients,
-        }
+            tiny_offset: TINY_VALUE,
+            tiny_offset_invert_interval: 1,
+            tiny_offset_invert_counter: 1,
+        };
+
+        resampler.update_tiny_offset_invert_interval();
+        resampler
     }
 
     fn pad_and_scale_frequency(source_frequency: f64) -> u64 {
@@ -101,10 +115,24 @@ impl<const LPF_TAPS: usize, const ZERO_PADDING: usize> FirResampler<LPF_TAPS, ZE
 
     #[inline]
     pub fn collect_sample(&mut self, sample_l: f64, sample_r: f64) {
+        // Add a tiny offset to each incoming sample to prevent subnormal values, which can cause
+        // extremely poor performance.
+        // See https://www.earlevel.com/main/2019/04/19/floating-point-denormals/
+        let sample_l = sample_l + self.tiny_offset;
+        let sample_r = sample_r + self.tiny_offset;
+
         let sample_l =
             high_pass_filter(sample_l, self.hpf_charge_factor, &mut self.hpf_capacitor_l);
         let sample_r =
             high_pass_filter(sample_r, self.hpf_charge_factor, &mut self.hpf_capacitor_r);
+
+        // Every so often, alternate between adding and subtracting the tiny offset so that the HPF
+        // doesn't completely eliminate it
+        self.tiny_offset_invert_counter -= 1;
+        if self.tiny_offset_invert_counter == 0 {
+            self.tiny_offset = -self.tiny_offset;
+            self.tiny_offset_invert_counter = self.tiny_offset_invert_interval;
+        }
 
         self.buffer_sample(sample_l, sample_r);
         for _ in 0..ZERO_PADDING {
@@ -126,16 +154,26 @@ impl<const LPF_TAPS: usize, const ZERO_PADDING: usize> FirResampler<LPF_TAPS, ZE
     #[inline]
     pub fn update_output_frequency(&mut self, output_frequency: u64) {
         self.output_frequency = output_frequency;
+        self.update_tiny_offset_invert_interval();
     }
 
     #[inline]
     pub fn update_source_frequency(&mut self, source_frequency: f64) {
+        self.original_source_frequency = source_frequency;
         self.padded_scaled_source_frequency = Self::pad_and_scale_frequency(source_frequency);
+        self.update_tiny_offset_invert_interval();
     }
 
     #[inline]
     pub fn update_lpf_coefficients(&mut self, coefficients: [f64; LPF_TAPS]) {
         self.lpf_coefficients = coefficients;
+    }
+
+    fn update_tiny_offset_invert_interval(&mut self) {
+        // This doesn't need to be exact, only an approximation. This seems to work better than inverting
+        // the offset after every generated sample
+        self.tiny_offset_invert_interval =
+            (self.original_source_frequency / (self.output_frequency as f64)).ceil() as u32;
     }
 }
 
