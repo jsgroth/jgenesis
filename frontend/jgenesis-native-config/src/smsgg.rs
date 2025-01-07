@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use smsgg_core::psg::Sn76489Version;
 use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsGgEmulatorConfig, SmsModel, SmsRegion};
 use std::num::NonZeroU32;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SmsGgAppConfig {
@@ -49,7 +50,7 @@ impl Default for SmsGgAppConfig {
 
 impl AppConfig {
     #[must_use]
-    pub fn smsgg_config(&self, path: String) -> Box<SmsGgConfig> {
+    pub fn smsgg_config(&self, path: PathBuf) -> Box<SmsGgConfig> {
         Box::new(SmsGgConfig {
             common: self.common_config(path),
             inputs: self.input.smsgg.clone(),

@@ -6,6 +6,7 @@ use jgenesis_native_driver::config::{GenesisConfig, Sega32XConfig, SegaCdConfig}
 use s32x_core::api::{S32XVideoOut, Sega32XEmulatorConfig};
 use segacd_core::api::{PcmInterpolation, SegaCdEmulatorConfig};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GenesisAppConfig {
@@ -67,7 +68,7 @@ impl Default for GenesisAppConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SegaCdAppConfig {
-    pub bios_path: Option<String>,
+    pub bios_path: Option<PathBuf>,
     #[serde(default)]
     pub pcm_interpolation: PcmInterpolation,
     #[serde(default = "true_fn")]
@@ -102,7 +103,7 @@ impl Default for Sega32XAppConfig {
 
 impl AppConfig {
     #[must_use]
-    pub fn genesis_config(&self, path: String) -> Box<GenesisConfig> {
+    pub fn genesis_config(&self, path: PathBuf) -> Box<GenesisConfig> {
         Box::new(GenesisConfig {
             common: self.common_config(path),
             inputs: self.input.genesis.clone(),
@@ -136,7 +137,7 @@ impl AppConfig {
     }
 
     #[must_use]
-    pub fn sega_cd_config(&self, path: String) -> Box<SegaCdConfig> {
+    pub fn sega_cd_config(&self, path: PathBuf) -> Box<SegaCdConfig> {
         let genesis_config = *self.genesis_config(path);
         let genesis_emu_config = genesis_config.emulator_config;
         Box::new(SegaCdConfig {
@@ -155,7 +156,7 @@ impl AppConfig {
     }
 
     #[must_use]
-    pub fn sega_32x_config(&self, path: String) -> Box<Sega32XConfig> {
+    pub fn sega_32x_config(&self, path: PathBuf) -> Box<Sega32XConfig> {
         let genesis_config = *self.genesis_config(path);
         let genesis_emu_config = genesis_config.emulator_config;
         Box::new(Sega32XConfig {

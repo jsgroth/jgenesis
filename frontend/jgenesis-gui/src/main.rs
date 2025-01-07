@@ -9,12 +9,12 @@ use std::path::PathBuf;
 struct Args {
     /// Use a specific config file path instead of the default path of 'jgenesis-config.toml'
     #[arg(long = "config")]
-    config_path: Option<String>,
+    config_path: Option<PathBuf>,
 
     /// If set, the GUI will open this file immediately after starting up, and the GUI will exit
     /// when the emulator window is closed
     #[arg(long = "file-path", short = 'f')]
-    startup_file_path: Option<String>,
+    startup_file_path: Option<PathBuf>,
 
     /// In combination with -f, attempt to load the specified save state when launching the game.
     /// This arg has no effect if -f/--file-path is not set
@@ -82,14 +82,12 @@ fn main() -> eframe::Result<()> {
     #[cfg(all(unix, not(target_os = "macos")))]
     steam_deck_dpi_hack();
 
-    let config_path = args
-        .config_path
-        .as_ref()
-        .map_or_else(jgenesis_native_config::default_config_path, Into::<PathBuf>::into);
+    let config_path =
+        args.config_path.clone().unwrap_or_else(jgenesis_native_config::default_config_path);
     log::info!("Using config path '{}'", config_path.display());
 
     if let Some(file_path) = &args.startup_file_path {
-        log::info!("Will open file '{file_path}' after starting");
+        log::info!("Will open file '{}' after starting", file_path.display());
     }
 
     let options = NativeOptions {

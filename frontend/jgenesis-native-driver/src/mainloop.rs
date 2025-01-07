@@ -347,7 +347,7 @@ pub enum NativeEmulatorError {
     SegaCdNoBios,
     #[error("Error opening BIOS file at '{path}': {source}")]
     SegaCdBiosRead {
-        path: String,
+        path: PathBuf,
         #[source]
         source: io::Error,
     },
@@ -451,7 +451,7 @@ where
             video,
             hotkey_state,
             fps_tracker: FpsTracker::new(),
-            rom_path: common_config.rom_file_path.into(),
+            rom_path: common_config.rom_file_path,
             rom_extension,
         };
 

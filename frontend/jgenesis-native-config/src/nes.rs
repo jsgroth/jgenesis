@@ -3,6 +3,7 @@ use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::NesConfig;
 use nes_core::api::{NesAspectRatio, NesEmulatorConfig, Overscan};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NesAppConfig {
@@ -38,7 +39,7 @@ impl Default for NesAppConfig {
 
 impl AppConfig {
     #[must_use]
-    pub fn nes_config(&self, path: String) -> Box<NesConfig> {
+    pub fn nes_config(&self, path: PathBuf) -> Box<NesConfig> {
         Box::new(NesConfig {
             common: self.common_config(path),
             inputs: self.input.nes.clone(),

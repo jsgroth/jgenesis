@@ -57,7 +57,7 @@ struct Args {
 
     /// ROM file path
     #[arg(short = 'f', long)]
-    file_path: String,
+    file_path: PathBuf,
 
     /// Override default config file path (jgenesis-config.toml)
     #[arg(long = "config")]
@@ -199,7 +199,7 @@ struct Args {
 
     /// Sega CD BIOS path
     #[arg(short = 'b', long, help_heading = SCD_OPTIONS_HEADING)]
-    bios_path: Option<String>,
+    bios_path: Option<PathBuf>,
 
     /// Sega CD PCM sound chip interpolation
     #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
@@ -299,27 +299,27 @@ struct Args {
 
     /// Specify SNES DSP-1 ROM path (required for DSP-1 games)
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
-    dsp1_rom_path: Option<String>,
+    dsp1_rom_path: Option<PathBuf>,
 
     /// Specify SNES DSP-2 ROM path (required for DSP-2 games)
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
-    dsp2_rom_path: Option<String>,
+    dsp2_rom_path: Option<PathBuf>,
 
     /// Specify SNES DSP-3 ROM path (required for DSP-3 games)
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
-    dsp3_rom_path: Option<String>,
+    dsp3_rom_path: Option<PathBuf>,
 
     /// Specify SNES DSP-4 ROM path (required for DSP-4 games)
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
-    dsp4_rom_path: Option<String>,
+    dsp4_rom_path: Option<PathBuf>,
 
     /// Specify SNES ST010 ROM path (required for ST010 games)
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
-    st010_rom_path: Option<String>,
+    st010_rom_path: Option<PathBuf>,
 
     /// Specify SNES ST011 ROM path (required for ST011 games)
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
-    st011_rom_path: Option<String>,
+    st011_rom_path: Option<PathBuf>,
 
     /// Force DMG / original Game Boy mode in software with Game Boy Color support
     #[arg(long, help_heading = GB_OPTIONS_HEADING)]
@@ -712,7 +712,7 @@ fn main() -> anyhow::Result<()> {
                     .unwrap_or_else(|| {
                         panic!(
                             "No files with supported extensions found in .zip archive: {}",
-                            args.file_path
+                            args.file_path.display()
                         )
                     });
                     file_ext = zip_entry.extension;
@@ -725,7 +725,7 @@ fn main() -> anyhow::Result<()> {
                     .unwrap_or_else(|| {
                         panic!(
                             "No files with supported extensions found in .7z archive: {}",
-                            args.file_path
+                            args.file_path.display()
                         )
                     });
                     file_ext = zip_entry.extension;

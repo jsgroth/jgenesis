@@ -3,7 +3,7 @@ use jgenesis_native_config::RecentOpen;
 use regex::Regex;
 use std::collections::HashSet;
 use std::ffi::OsStr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::Sender;
@@ -68,7 +68,7 @@ impl Console {
 
 #[derive(Debug, Clone)]
 pub struct RomMetadata {
-    pub full_path: String,
+    pub full_path: PathBuf,
     pub file_name_no_ext: String,
     pub console: Console,
     pub file_size: u64,
@@ -109,10 +109,10 @@ pub fn build(rom_search_dirs: &[String]) -> Vec<RomMetadata> {
             let cue_directory = path.parent()?;
             let cue_contents = fs::read_to_string(path).ok()?;
 
-            let file_names = parse_bin_file_names(&cue_contents)
-                .filter_map(|file_name| cue_directory.join(file_name).to_str().map(String::from))
+            let file_paths = parse_bin_file_names(&cue_contents)
+                .map(|file_name| cue_directory.join(file_name))
                 .collect::<Vec<_>>();
-            Some(file_names)
+            Some(file_paths)
         })
         .flatten()
         .collect::<HashSet<_>>();
@@ -130,7 +130,6 @@ pub fn read_metadata(path: &Path) -> Option<RomMetadata> {
 }
 
 fn process_file(file_name: &str, path: &Path, metadata: fs::Metadata) -> Option<RomMetadata> {
-    let full_path = path.to_str().map(String::from)?;
     let file_name_no_ext = Path::new(&file_name).with_extension("").to_string_lossy().to_string();
     let extension = Path::new(&file_name).extension().and_then(OsStr::to_str)?;
 
@@ -143,7 +142,12 @@ fn process_file(file_name: &str, path: &Path, metadata: fs::Metadata) -> Option<
             .ok()
             .flatten()?;
             let console = Console::from_extension(&zip_entry.extension)?;
-            Some(RomMetadata { full_path, file_name_no_ext, console, file_size: zip_entry.size })
+            Some(RomMetadata {
+                full_path: path.into(),
+                file_name_no_ext,
+                console,
+                file_size: zip_entry.size,
+            })
         }
         "7z" => {
             let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_7z(
@@ -153,21 +157,26 @@ fn process_file(file_name: &str, path: &Path, metadata: fs::Metadata) -> Option<
             .ok()
             .flatten()?;
             let console = Console::from_extension(&zip_entry.extension)?;
-            Some(RomMetadata { full_path, file_name_no_ext, console, file_size: zip_entry.size })
+            Some(RomMetadata {
+                full_path: path.into(),
+                file_name_no_ext,
+                console,
+                file_size: zip_entry.size,
+            })
         }
         _ => {
             let console = Console::from_extension(extension)?;
             let file_size = match extension {
-                "cue" => sega_cd_file_size(&full_path).ok()?,
+                "cue" => sega_cd_file_size(path).ok()?,
                 _ => metadata.len(),
             };
 
-            Some(RomMetadata { full_path, file_name_no_ext, console, file_size })
+            Some(RomMetadata { full_path: path.into(), file_name_no_ext, console, file_size })
         }
     }
 }
 
-fn sega_cd_file_size(cue_path: &str) -> io::Result<u64> {
+fn sega_cd_file_size(cue_path: &Path) -> io::Result<u64> {
     let cue_contents = fs::read_to_string(cue_path)?;
     let cue_directory =
         Path::new(cue_path).parent().expect("Valid file should always have a parent dir");

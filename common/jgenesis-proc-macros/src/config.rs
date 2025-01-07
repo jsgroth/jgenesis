@@ -39,11 +39,24 @@ pub fn config_display(input: TokenStream) -> TokenStream {
                 }
                 _ => false,
             };
+            let is_path = field.attrs.iter().any(|attr| attr.path().is_ident("cfg_display_path"));
+
             let format_invocation = if is_option {
                 let none_str = format!("  {field_ident}: <None>");
+
+                let field_display = if is_path {
+                    quote! { f.display() }
+                } else {
+                    quote! { f }
+                };
+
                 quote! {
-                    self.#field_ident.as_ref().map(|f| format!(#fmt_string, f))
+                    self.#field_ident.as_ref().map(|f| format!(#fmt_string, #field_display))
                         .unwrap_or_else(|| #none_str.into())
+                }
+            } else if is_path {
+                quote! {
+                    format!(#fmt_string, self.#field_ident.display())
                 }
             } else {
                 quote! {

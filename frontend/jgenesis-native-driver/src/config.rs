@@ -98,7 +98,8 @@ pub(crate) struct RomReadResult {
 
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct CommonConfig {
-    pub rom_file_path: String,
+    #[cfg_display_path]
+    pub rom_file_path: PathBuf,
     pub audio_output_frequency: u64,
     pub audio_sync: bool,
     pub audio_dynamic_resampling_ratio: bool,
@@ -185,7 +186,8 @@ pub struct SegaCdConfig {
     pub genesis: GenesisConfig,
     #[indent_nested]
     pub emulator_config: SegaCdEmulatorConfig,
-    pub bios_file_path: Option<String>,
+    #[cfg_display_path]
+    pub bios_file_path: Option<PathBuf>,
     pub run_without_disc: bool,
 }
 
@@ -215,12 +217,18 @@ pub struct SnesConfig {
     pub inputs: SnesInputConfig,
     #[indent_nested]
     pub emulator_config: SnesEmulatorConfig,
-    pub dsp1_rom_path: Option<String>,
-    pub dsp2_rom_path: Option<String>,
-    pub dsp3_rom_path: Option<String>,
-    pub dsp4_rom_path: Option<String>,
-    pub st010_rom_path: Option<String>,
-    pub st011_rom_path: Option<String>,
+    #[cfg_display_path]
+    pub dsp1_rom_path: Option<PathBuf>,
+    #[cfg_display_path]
+    pub dsp2_rom_path: Option<PathBuf>,
+    #[cfg_display_path]
+    pub dsp3_rom_path: Option<PathBuf>,
+    #[cfg_display_path]
+    pub dsp4_rom_path: Option<PathBuf>,
+    #[cfg_display_path]
+    pub st010_rom_path: Option<PathBuf>,
+    #[cfg_display_path]
+    pub st011_rom_path: Option<PathBuf>,
 }
 
 impl SnesConfig {
@@ -236,8 +244,8 @@ impl SnesConfig {
     }
 }
 
-fn coprocessor_read_fn(path: String) -> Box<CoprocessorRomFn> {
-    Box::new(move || fs::read(&path).map_err(|err| (err, path.clone())))
+fn coprocessor_read_fn(path: PathBuf) -> Box<CoprocessorRomFn> {
+    Box::new(move || fs::read(&path).map_err(|err| (err, path.display().to_string())))
 }
 
 #[derive(Debug, Clone, ConfigDisplay)]

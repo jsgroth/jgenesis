@@ -4,6 +4,7 @@ use jgenesis_native_driver::config::SnesConfig;
 use serde::{Deserialize, Serialize};
 use snes_core::api::{AudioInterpolationMode, SnesAspectRatio, SnesEmulatorConfig};
 use std::num::NonZeroU64;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnesAppConfig {
@@ -18,12 +19,12 @@ pub struct SnesAppConfig {
     pub audio_60hz_hack: bool,
     #[serde(default = "default_gsu_overclock")]
     pub gsu_overclock_factor: NonZeroU64,
-    pub dsp1_rom_path: Option<String>,
-    pub dsp2_rom_path: Option<String>,
-    pub dsp3_rom_path: Option<String>,
-    pub dsp4_rom_path: Option<String>,
-    pub st010_rom_path: Option<String>,
-    pub st011_rom_path: Option<String>,
+    pub dsp1_rom_path: Option<PathBuf>,
+    pub dsp2_rom_path: Option<PathBuf>,
+    pub dsp3_rom_path: Option<PathBuf>,
+    pub dsp4_rom_path: Option<PathBuf>,
+    pub st010_rom_path: Option<PathBuf>,
+    pub st011_rom_path: Option<PathBuf>,
 }
 
 const fn true_fn() -> bool {
@@ -42,7 +43,7 @@ impl Default for SnesAppConfig {
 
 impl AppConfig {
     #[must_use]
-    pub fn snes_config(&self, path: String) -> Box<SnesConfig> {
+    pub fn snes_config(&self, path: PathBuf) -> Box<SnesConfig> {
         Box::new(SnesConfig {
             common: self.common_config(path),
             inputs: self.input.snes.clone(),

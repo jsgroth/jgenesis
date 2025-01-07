@@ -2,6 +2,7 @@ use crate::AppConfig;
 use gb_core::api::{GameBoyEmulatorConfig, GbAspectRatio, GbPalette, GbcColorCorrection};
 use jgenesis_native_driver::config::GameBoyConfig;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GameBoyAppConfig {
@@ -35,7 +36,7 @@ impl Default for GameBoyAppConfig {
 
 impl AppConfig {
     #[must_use]
-    pub fn gb_config(&self, path: String) -> Box<GameBoyConfig> {
+    pub fn gb_config(&self, path: PathBuf) -> Box<GameBoyConfig> {
         Box::new(GameBoyConfig {
             common: self.common_config(path),
             inputs: self.input.game_boy.clone(),

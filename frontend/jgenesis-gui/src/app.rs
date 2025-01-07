@@ -135,7 +135,7 @@ struct HelpText {
 }
 
 struct AppState {
-    current_file_path: String,
+    current_file_path: PathBuf,
     open_windows: HashSet<OpenWindow>,
     help_text: HashMap<OpenWindow, HelpText>,
     input_mapping_sets: HashMap<OpenWindow, InputMappingSet>,
@@ -168,7 +168,7 @@ impl AppState {
     fn from_config(config: &AppConfig) -> Self {
         let recent_open_list = romlist::from_recent_opens(&config.recent_open_list);
         Self {
-            current_file_path: String::new(),
+            current_file_path: PathBuf::new(),
             open_windows: HashSet::new(),
             help_text: HashMap::new(),
             input_mapping_sets: HashMap::new(),
@@ -256,7 +256,7 @@ impl<T: Copy + FromStr> Widget for NumericTextEdit<'_, T> {
 
 #[derive(Debug, Clone)]
 pub struct LoadAtStartup {
-    pub file_path: String,
+    pub file_path: PathBuf,
     pub load_state_slot: Option<usize>,
 }
 
@@ -326,18 +326,17 @@ impl App {
         }
         let Some(path) = file_dialog.pick_file() else { return };
 
-        let Some(path_str) = path.to_str().map(String::from) else { return };
-        self.launch_emulator(path_str, console);
+        self.launch_emulator(path, console);
     }
 
-    fn launch_emulator(&mut self, path: String, console: Option<Console>) {
+    fn launch_emulator(&mut self, path: PathBuf, console: Option<Console>) {
         self.state.current_file_path.clone_from(&path);
 
         let console = match console {
             Some(console) => console,
             None => {
                 let Some(metadata) = romlist::read_metadata(Path::new(&path)) else {
-                    log::error!("Unable to detect compatible file at path: '{path}'");
+                    log::error!("Unable to detect compatible file at path: '{}'", path.display());
                     self.emu_thread.clear_waiting_for_first_command();
                     return;
                 };

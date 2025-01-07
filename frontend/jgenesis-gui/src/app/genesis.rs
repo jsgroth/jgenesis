@@ -9,6 +9,7 @@ use jgenesis_common::frontend::TimingMode;
 use rfd::FileDialog;
 use s32x_core::api::S32XVideoOut;
 use segacd_core::api::PcmInterpolation;
+use std::path::PathBuf;
 
 impl App {
     pub(super) fn render_genesis_general_settings(&mut self, ctx: &Context) {
@@ -92,8 +93,8 @@ impl App {
                                 .config
                                 .sega_cd
                                 .bios_path
-                                .as_ref()
-                                .map_or("<None>", String::as_str);
+                                .as_deref()
+                                .map_or("<None>".into(), |path| path.display().to_string());
                             if ui.button(bios_path_str).clicked() {
                                 if let Some(bios_path) = pick_scd_bios_path() {
                                     self.config.sega_cd.bios_path = Some(bios_path);
@@ -455,11 +456,6 @@ impl App {
     }
 }
 
-fn pick_scd_bios_path() -> Option<String> {
-    let path = FileDialog::new()
-        .add_filter("bin", &["bin"])
-        .add_filter("All Types", &["*"])
-        .pick_file()?;
-
-    path.to_str().map(String::from)
+fn pick_scd_bios_path() -> Option<PathBuf> {
+    FileDialog::new().add_filter("bin", &["bin"]).add_filter("All Types", &["*"]).pick_file()
 }

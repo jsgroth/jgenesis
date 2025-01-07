@@ -84,8 +84,8 @@ impl Console {
 
 #[derive(Debug, Clone)]
 pub enum EmuThreadCommand {
-    Run { console: Console, config: Box<AppConfig>, file_path: String },
-    ReloadConfig(Box<AppConfig>, String),
+    Run { console: Console, config: Box<AppConfig>, file_path: PathBuf },
+    ReloadConfig(Box<AppConfig>, PathBuf),
     StopEmulator,
     CollectInput { axis_deadzone: i16 },
     SoftReset,
@@ -270,7 +270,7 @@ impl GenericEmulator {
     fn create(
         console: Console,
         config: Box<AppConfig>,
-        path: String,
+        path: PathBuf,
     ) -> NativeEmulatorResult<Self> {
         let emulator = match console {
             Console::MasterSystem | Console::GameGear => {
@@ -297,7 +297,7 @@ impl GenericEmulator {
         Ok(emulator)
     }
 
-    fn reload_config(&mut self, config: Box<AppConfig>, path: String) -> Result<(), AudioError> {
+    fn reload_config(&mut self, config: Box<AppConfig>, path: PathBuf) -> Result<(), AudioError> {
         match self {
             Self::SmsGg(emulator) => emulator.reload_smsgg_config(config.smsgg_config(path)),
             Self::Genesis(emulator) => emulator.reload_genesis_config(config.genesis_config(path)),
