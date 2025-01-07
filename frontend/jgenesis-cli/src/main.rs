@@ -61,7 +61,7 @@ struct Args {
 
     /// Override default config file path (jgenesis-config.toml)
     #[arg(long = "config")]
-    config_path_override: Option<String>,
+    config_path_override: Option<PathBuf>,
 
     /// Attempt to load the specified save state slot during startup. Takes priority over --load-recent-state-at-launch
     #[arg(long, value_name = "SLOT")]
@@ -461,6 +461,24 @@ macro_rules! apply_path_overrides {
 }
 
 impl Args {
+    fn fix_appimage_relative_paths(mut self) -> Self {
+        self.file_path = jgenesis_common::fix_appimage_relative_path(self.file_path);
+
+        fix_optional_relative_path(&mut self.config_path_override);
+        fix_optional_relative_path(&mut self.custom_save_path);
+        fix_optional_relative_path(&mut self.custom_state_path);
+
+        fix_optional_relative_path(&mut self.bios_path);
+        fix_optional_relative_path(&mut self.dsp1_rom_path);
+        fix_optional_relative_path(&mut self.dsp2_rom_path);
+        fix_optional_relative_path(&mut self.dsp3_rom_path);
+        fix_optional_relative_path(&mut self.dsp4_rom_path);
+        fix_optional_relative_path(&mut self.st010_rom_path);
+        fix_optional_relative_path(&mut self.st011_rom_path);
+
+        self
+    }
+
     fn apply_overrides(&self, config: &mut AppConfig) {
         self.apply_common_overrides(config);
         self.apply_smsgg_overrides(config);
@@ -683,6 +701,11 @@ impl Args {
     }
 }
 
+fn fix_optional_relative_path(option: &mut Option<PathBuf>) {
+    let Some(path) = option.take() else { return };
+    *option = Some(jgenesis_common::fix_appimage_relative_path(path));
+}
+
 fn try_determine_scale_factor() -> Option<f32> {
     let sdl_ctx = sdl2::init().ok()?;
     let video = sdl_ctx.video().ok()?;
@@ -695,7 +718,7 @@ fn main() -> anyhow::Result<()> {
     )
     .init();
 
-    let args = Args::parse();
+    let args = Args::parse().fix_appimage_relative_paths();
 
     let hardware = match args.hardware {
         Some(hardware) => hardware,
@@ -754,7 +777,7 @@ fn main() -> anyhow::Result<()> {
     let config_path = args
         .config_path_override
         .clone()
-        .map_or_else(jgenesis_native_config::default_config_path, PathBuf::from);
+        .unwrap_or_else(jgenesis_native_config::default_config_path);
     log::info!("Loading config from '{}'", config_path.display());
 
     let config_str = fs::read_to_string(&config_path).unwrap_or_else(|err| {

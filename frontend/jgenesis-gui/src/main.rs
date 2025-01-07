@@ -23,6 +23,19 @@ struct Args {
 }
 
 impl Args {
+    fn fix_appimage_relative_paths(mut self) -> Self {
+        if let Some(config_path) = self.config_path {
+            self.config_path = Some(jgenesis_common::fix_appimage_relative_path(config_path));
+        }
+
+        if let Some(startup_file_path) = self.startup_file_path {
+            self.startup_file_path =
+                Some(jgenesis_common::fix_appimage_relative_path(startup_file_path));
+        }
+
+        self
+    }
+
     fn load_at_startup(&self) -> Option<LoadAtStartup> {
         self.startup_file_path.as_ref().map(|file_path| LoadAtStartup {
             file_path: file_path.clone(),
@@ -77,7 +90,7 @@ fn main() -> eframe::Result<()> {
     )
     .init();
 
-    let args = Args::parse();
+    let args = Args::parse().fix_appimage_relative_paths();
 
     #[cfg(all(unix, not(target_os = "macos")))]
     steam_deck_dpi_hack();
