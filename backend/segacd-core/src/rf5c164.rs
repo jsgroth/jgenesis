@@ -27,9 +27,9 @@ impl InterpolationBuffer {
     }
 
     fn push(&mut self, sample: i8) {
-        self.buffer[0] = self.buffer[1];
-        self.buffer[1] = self.buffer[2];
-        self.buffer[2] = self.buffer[3];
+        for i in 0..3 {
+            self.buffer[i] = self.buffer[i + 1];
+        }
         self.buffer[3] = sample;
     }
 
@@ -81,11 +81,17 @@ struct Channel {
 }
 
 impl Channel {
-    fn enable(&mut self) {
+    fn enable(&mut self, waveform_ram: &WaveformRam) {
         if !self.enabled {
             self.current_address = u32::from(self.start_address) << ADDRESS_DECIMAL_BITS;
             self.interpolation_buffer.clear();
             self.enabled = true;
+
+            // Immediately read the first sample when a channel is enabled; otherwise it will get skipped
+            let first_sample = waveform_ram[self.start_address as usize];
+            if first_sample != 0xFF {
+                self.interpolation_buffer.push(sign_magnitude_to_pcm(first_sample));
+            }
         }
     }
 
@@ -349,7 +355,7 @@ impl Rf5c164 {
                     if value.bit(i as u8) {
                         channel.disable();
                     } else {
-                        channel.enable();
+                        channel.enable(&self.waveform_ram);
                     }
                 }
             }
