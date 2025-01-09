@@ -5,6 +5,7 @@
 
 ## Improvements
 * GUI: When opening a game that requires a BIOS ROM or firmware ROM (e.g. any Sega CD game), if the BIOS/firmware ROM path is not configured, the error window now contains a button to configure the appropriate ROM path and immediately launch the game
+* CLI: If no config file exists, the CLI will now write out the default config to the config path so that it can be edited manually if desired
 * Save state files are now internally compressed using zstd which should reduce save state file size by at least 50%, often by 70-80%
 * (**Genesis**) Slightly improved performance by optimizing VDP rendering and tile fetching code
 * (**SMS**) The "crop vertical borders" video setting now defaults to enabled instead of disabled; unlike the left border, the vertical borders will only ever show the current backdrop color

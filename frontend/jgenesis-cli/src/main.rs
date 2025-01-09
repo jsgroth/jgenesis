@@ -722,54 +722,7 @@ fn main() -> anyhow::Result<()> {
 
     let hardware = match args.hardware {
         Some(hardware) => hardware,
-        None => {
-            let file_path = Path::new(&args.file_path);
-            let mut file_ext: String =
-                file_path.extension().and_then(OsStr::to_str).unwrap_or("").into();
-            match file_ext.as_str() {
-                "zip" => {
-                    let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_zip(
-                        file_path,
-                        jgenesis_native_driver::all_supported_extensions(),
-                    )?
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "No files with supported extensions found in .zip archive: {}",
-                            args.file_path.display()
-                        )
-                    });
-                    file_ext = zip_entry.extension;
-                }
-                "7z" => {
-                    let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_7z(
-                        file_path,
-                        jgenesis_native_driver::all_supported_extensions(),
-                    )?
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "No files with supported extensions found in .7z archive: {}",
-                            args.file_path.display()
-                        )
-                    });
-                    file_ext = zip_entry.extension;
-                }
-                _ => {}
-            }
-
-            match file_ext.as_str() {
-                "sms" | "gg" => Hardware::MasterSystem,
-                "md" | "bin" => Hardware::Genesis,
-                "cue" | "chd" => Hardware::SegaCd,
-                "32x" => Hardware::Sega32X,
-                "nes" => Hardware::Nes,
-                "sfc" | "smc" => Hardware::Snes,
-                "gb" | "gbc" => Hardware::GameBoy,
-                _ => {
-                    log::warn!("Unrecognized file extension: '{file_ext}' defaulting to Genesis");
-                    Hardware::Genesis
-                }
-            }
-        }
+        None => guess_hardware(&args)?,
     };
 
     log::info!("Running with hardware {hardware}");
@@ -789,6 +742,21 @@ fn main() -> anyhow::Result<()> {
         log::error!("Unable to deserialize config file at '{}': {err}", config_path.display());
         AppConfig::default()
     });
+
+    // Persist default config if the file doesn't exist
+    if let Ok(config_file_exists) = fs::exists(&config_path) {
+        if !config_file_exists {
+            let config_str = toml::to_string_pretty(&config)?;
+            log::info!("Persisting default config to '{}'", config_path.display());
+            if let Err(err) = fs::write(&config_path, &config_str) {
+                log::error!(
+                    "Error serializing default config file to '{}': {err}",
+                    config_path.display()
+                );
+            }
+        }
+    }
+
     if let Some(migrated_config) = jgenesis_native_config::migrate_config(&config, &config_str) {
         config = migrated_config;
     }
@@ -804,6 +772,54 @@ fn main() -> anyhow::Result<()> {
         Hardware::Snes => run_snes(args, config),
         Hardware::GameBoy => run_gb(args, config),
     }
+}
+
+fn guess_hardware(args: &Args) -> anyhow::Result<Hardware> {
+    let file_path = Path::new(&args.file_path);
+    let mut file_ext: String = file_path.extension().and_then(OsStr::to_str).unwrap_or("").into();
+    match file_ext.as_str() {
+        "zip" => {
+            let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_zip(
+                file_path,
+                jgenesis_native_driver::all_supported_extensions(),
+            )?
+            .unwrap_or_else(|| {
+                panic!(
+                    "No files with supported extensions found in .zip archive: {}",
+                    args.file_path.display()
+                )
+            });
+            file_ext = zip_entry.extension;
+        }
+        "7z" => {
+            let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_7z(
+                file_path,
+                jgenesis_native_driver::all_supported_extensions(),
+            )?
+            .unwrap_or_else(|| {
+                panic!(
+                    "No files with supported extensions found in .7z archive: {}",
+                    args.file_path.display()
+                )
+            });
+            file_ext = zip_entry.extension;
+        }
+        _ => {}
+    }
+
+    Ok(match file_ext.as_str() {
+        "sms" | "gg" => Hardware::MasterSystem,
+        "md" | "bin" => Hardware::Genesis,
+        "cue" | "chd" => Hardware::SegaCd,
+        "32x" => Hardware::Sega32X,
+        "nes" => Hardware::Nes,
+        "sfc" | "smc" => Hardware::Snes,
+        "gb" | "gbc" => Hardware::GameBoy,
+        _ => {
+            log::warn!("Unrecognized file extension: '{file_ext}' defaulting to Genesis");
+            Hardware::Genesis
+        }
+    })
 }
 
 fn run_sms(args: Args, config: AppConfig) -> anyhow::Result<()> {
