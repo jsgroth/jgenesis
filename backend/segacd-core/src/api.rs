@@ -76,6 +76,7 @@ pub enum PcmInterpolation {
     None,
     Linear,
     CubicHermite,
+    QuinticHermite,
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]

@@ -397,6 +397,11 @@ impl App {
                             PcmInterpolation::CubicHermite,
                             "Cubic",
                         );
+                        ui.radio_value(
+                            &mut self.config.sega_cd.pcm_interpolation,
+                            PcmInterpolation::QuinticHermite,
+                            "Quintic",
+                        );
                     });
                 })
                 .response

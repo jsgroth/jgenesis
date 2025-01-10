@@ -18,7 +18,7 @@ type WaveformRam = [u8; WAVEFORM_RAM_LEN];
 
 #[derive(Debug, Clone, Default, Encode, Decode)]
 struct InterpolationBuffer {
-    buffer: [i8; 4],
+    buffer: [i8; 6],
 }
 
 impl InterpolationBuffer {
@@ -27,20 +27,24 @@ impl InterpolationBuffer {
     }
 
     fn push(&mut self, sample: i8) {
-        for i in 0..3 {
+        for i in 0..5 {
             self.buffer[i] = self.buffer[i + 1];
         }
-        self.buffer[3] = sample;
+        self.buffer[5] = sample;
     }
 
     fn sample(&self, interpolation: PcmInterpolation, current_address: u32) -> f64 {
         match interpolation {
-            PcmInterpolation::None => self.buffer[3].into(),
+            PcmInterpolation::None => self.buffer[5].into(),
             PcmInterpolation::Linear => {
-                interpolate_linear(self.buffer[2], self.buffer[3], interpolation_x(current_address))
+                interpolate_linear(self.buffer[4], self.buffer[5], interpolation_x(current_address))
             }
-            PcmInterpolation::CubicHermite => {
-                interpolate_cubic(self.buffer, interpolation_x(current_address))
+            PcmInterpolation::CubicHermite => interpolate_cubic(
+                [self.buffer[2], self.buffer[3], self.buffer[4], self.buffer[5]],
+                interpolation_x(current_address),
+            ),
+            PcmInterpolation::QuinticHermite => {
+                interpolate_quintic(self.buffer, interpolation_x(current_address))
             }
         }
     }
@@ -63,6 +67,29 @@ fn interpolate_cubic(samples: [i8; 4], x: f64) -> f64 {
     // Clamp to [-127, 126] because samples are sign+magnitude, not signed 8-bit
     // +127 is not a valid sample value because 0xFF is the loop end marker
     result.clamp(-127.0, 126.0)
+}
+
+// Based on the 6-point 5th-order Hermite algorithm from https://yehar.com/blog/wp-content/uploads/2009/08/deip.pdf
+// Assuming that Rust/LLVM will optimize these constant floating-point divisions into multiplications,
+// which it does seem to do based on experimentation in Compiler Explorer
+fn interpolate_quintic(samples: [i8; 6], x: f64) -> f64 {
+    let [ym2, ym1, y0, y1, y2, y3] = samples.map(f64::from);
+
+    let eighthym2 = 1.0 / 8.0 * ym2;
+    let eleventwentyfourthy2 = 11.0 / 24.0 * y2;
+    let twelfthy3 = 1.0 / 12.0 * y3;
+
+    let c0 = y0;
+    let c1 = 1.0 / 12.0 * (ym2 - y2) + 2.0 / 3.0 * (y1 - ym1);
+    let c2 = 13.0 / 12.0 * ym1 - 25.0 / 12.0 * y0 + 3.0 / 2.0 * y1 - eleventwentyfourthy2
+        + twelfthy3
+        - eighthym2;
+    let c3 = 5.0 / 12.0 * y0 - 7.0 / 12.0 * y1 + 7.0 / 24.0 * y2 - 1.0 / 24.0 * (ym2 + ym1 + y3);
+    let c4 =
+        eighthym2 - 7.0 / 12.0 * ym1 + 13.0 / 12.0 * y0 - y1 + eleventwentyfourthy2 - twelfthy3;
+    let c5 = 1.0 / 24.0 * (y3 - ym2) + 5.0 / 24.0 * (ym1 - y2) + 5.0 / 12.0 * (y1 - y0);
+
+    ((((c5 * x + c4) * x + c3) * x + c2) * x + c1) * x + c0
 }
 
 #[derive(Debug, Clone, Default, Encode, Decode)]
