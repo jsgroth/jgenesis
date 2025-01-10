@@ -89,7 +89,8 @@ fn interpolate_quintic(samples: [i8; 6], x: f64) -> f64 {
         eighthym2 - 7.0 / 12.0 * ym1 + 13.0 / 12.0 * y0 - y1 + eleventwentyfourthy2 - twelfthy3;
     let c5 = 1.0 / 24.0 * (y3 - ym2) + 5.0 / 24.0 * (ym1 - y2) + 5.0 / 12.0 * (y1 - y0);
 
-    ((((c5 * x + c4) * x + c3) * x + c2) * x + c1) * x + c0
+    let result = ((((c5 * x + c4) * x + c3) * x + c2) * x + c1) * x + c0;
+    result.clamp(-127.0, 126.0)
 }
 
 #[derive(Debug, Clone, Default, Encode, Decode)]
