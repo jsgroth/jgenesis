@@ -9,6 +9,7 @@ use jgenesis_common::frontend::TimingMode;
 use rfd::FileDialog;
 use s32x_core::api::S32XVideoOut;
 use segacd_core::api::PcmInterpolation;
+use std::num::NonZeroU16;
 use std::path::PathBuf;
 
 impl App {
@@ -154,6 +155,40 @@ impl App {
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::M68K_CLOCK_DIVIDER);
+            }
+
+            ui.add_space(5.0);
+            let rect = ui
+                .group(|ui| {
+                    ui.label("Sega CD disc drive speed (low compatibility)");
+
+                    ui.horizontal(|ui| {
+                        ui.radio_value(
+                            &mut self.config.sega_cd.disc_drive_speed,
+                            NonZeroU16::new(1).unwrap(),
+                            "1x (Native)",
+                        );
+                        ui.radio_value(
+                            &mut self.config.sega_cd.disc_drive_speed,
+                            NonZeroU16::new(2).unwrap(),
+                            "2x",
+                        );
+                        ui.radio_value(
+                            &mut self.config.sega_cd.disc_drive_speed,
+                            NonZeroU16::new(3).unwrap(),
+                            "3x",
+                        );
+                        ui.radio_value(
+                            &mut self.config.sega_cd.disc_drive_speed,
+                            NonZeroU16::new(4).unwrap(),
+                            "4x",
+                        );
+                    });
+                })
+                .response
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::SCD_DRIVE_SPEED);
             }
 
             self.render_help_text(ui, WINDOW);

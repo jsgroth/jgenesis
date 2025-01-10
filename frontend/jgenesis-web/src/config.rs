@@ -6,11 +6,12 @@ use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, PrescaleMode, RendererConfig, Scanlines,
     VSyncMode, WgpuBackend,
 };
+use segacd_core::api::{PcmInterpolation, SegaCdEmulatorConfig};
 use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsGgEmulatorConfig, SmsModel, SmsRegion};
 use snes_core::api::{AudioInterpolationMode, SnesAspectRatio, SnesEmulatorConfig};
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::num::{NonZeroU32, NonZeroU64};
+use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 use std::ops::Deref;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
@@ -172,6 +173,20 @@ pub struct WebConfig {
     pub smsgg: SmsGgWebConfig,
     pub genesis: GenesisWebConfig,
     pub snes: SnesWebConfig,
+}
+
+impl WebConfig {
+    pub fn to_sega_cd_config(&self) -> SegaCdEmulatorConfig {
+        SegaCdEmulatorConfig {
+            genesis: self.genesis.to_emulator_config(),
+            pcm_interpolation: PcmInterpolation::CubicHermite,
+            enable_ram_cartridge: true,
+            load_disc_into_ram: true,
+            disc_drive_speed: NonZeroU16::new(1).unwrap(),
+            pcm_enabled: true,
+            cd_audio_enabled: true,
+        }
+    }
 }
 
 #[wasm_bindgen]

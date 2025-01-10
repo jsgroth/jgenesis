@@ -24,7 +24,7 @@ use snes_core::api::{AudioInterpolationMode, SnesAspectRatio};
 use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::fs;
-use std::num::{NonZeroU32, NonZeroU64};
+use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumAll, EnumDisplay, CustomValueEnum)]
@@ -208,6 +208,10 @@ struct Args {
     /// Enable Sega CD RAM cartridge mapping
     #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
     enable_ram_cartridge: Option<bool>,
+
+    /// Set the CD-ROM drive speed when reading data tracks (1 = native speed)
+    #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
+    scd_drive_speed: Option<NonZeroU16>,
 
     /// Run the Sega CD emulator with no disc
     #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
@@ -569,6 +573,7 @@ impl Args {
             enable_ram_cartridge,
             scd_pcm_interpolation -> pcm_interpolation,
             scd_load_disc_into_ram -> load_disc_into_ram,
+            scd_drive_speed -> disc_drive_speed,
             scd_pcm_enabled -> pcm_enabled,
             scd_cd_da_enabled -> cd_audio_enabled,
         ]);

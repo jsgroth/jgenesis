@@ -2,6 +2,7 @@
 
 ## New Features
 * (**Genesis / SNES**) Added a new video setting to disable deinterlacing in the handful of games that use interlaced display modes (e.g. _Sonic the Hedgehog 2_ in 2P Vs. mode, _Air Strike Patrol_ in mission briefing screens)
+* (**Sega CD**) Added an option to increase the disc drive speed when reading data tracks (#138)
 * (**Sega CD**) Added an audio enhancement setting to apply quintic (5th-order) Hermite interpolation to PCM chip channels, which in some cases produces slightly cleaner audio than cubic Hermite interpolation
 
 ## Improvements

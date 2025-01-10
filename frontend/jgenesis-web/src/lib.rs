@@ -17,7 +17,7 @@ use jgenesis_common::frontend::{
 };
 use jgenesis_renderer::renderer::{WgpuRenderer, WindowSize};
 use rfd::AsyncFileDialog;
-use segacd_core::api::{PcmInterpolation, SegaCdEmulator, SegaCdEmulatorConfig};
+use segacd_core::api::SegaCdEmulator;
 use smsgg_core::{SmsGgEmulator, SmsGgHardware, SmsGgInputs};
 use snes_core::api::{CoprocessorRoms, SnesEmulator};
 use snes_core::input::SnesInputs;
@@ -348,14 +348,7 @@ impl Emulator {
                 emulator.reload_config(&config.genesis.to_emulator_config());
             }
             Self::SegaCd(emulator, ..) => {
-                emulator.reload_config(&SegaCdEmulatorConfig {
-                    genesis: config.genesis.to_emulator_config(),
-                    pcm_interpolation: PcmInterpolation::default(),
-                    enable_ram_cartridge: true,
-                    load_disc_into_ram: true,
-                    pcm_enabled: true,
-                    cd_audio_enabled: true,
-                });
+                emulator.reload_config(&config.to_sega_cd_config());
             }
             Self::Snes(emulator, ..) => {
                 emulator.reload_config(&config.snes.to_emulator_config());
@@ -871,14 +864,7 @@ fn open_emulator(
             let emulator = SegaCdEmulator::create_in_memory(
                 bios,
                 rom,
-                SegaCdEmulatorConfig {
-                    genesis: config_ref.borrow().genesis.to_emulator_config(),
-                    pcm_interpolation: PcmInterpolation::default(),
-                    enable_ram_cartridge: true,
-                    load_disc_into_ram: true,
-                    pcm_enabled: true,
-                    cd_audio_enabled: true,
-                },
+                config_ref.borrow().to_sega_cd_config(),
                 save_writer,
             )?;
 

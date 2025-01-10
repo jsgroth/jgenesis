@@ -46,6 +46,14 @@ pub const M68K_CLOCK_DIVIDER: HelpText = HelpText {
     ],
 };
 
+pub const SCD_DRIVE_SPEED: HelpText = HelpText {
+    heading: "Sega CD Disc Drive Speed",
+    text: &[
+        "Optionally increase the speed of the Sega CD's CD-ROM drive when reading data tracks. This may shorten loading times in some games.",
+        "Warning: Increasing the drive speed is VERY likely to cause major glitches, particularly in games that play FMVs or animated cutscenes. Overclocking the sub CPU may improve compatibility with some games.",
+    ],
+};
+
 pub const ASPECT_RATIO: HelpText = HelpText {
     heading: "Aspect Ratio",
     text: &[

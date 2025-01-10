@@ -1,7 +1,7 @@
 //! Sega CD's physical drive, which documentation refers to as the CDD
 
-use crate::api::SegaCdLoadResult;
-use crate::cddrive::cdc::Rchip;
+use crate::api::{SegaCdEmulatorConfig, SegaCdLoadResult};
+use crate::cddrive::cdc::{Rchip, RchipDmaArgs};
 use bincode::{Decode, Encode};
 use cdrom::cdtime::CdTime;
 use cdrom::cue::{Track, TrackType};
@@ -28,6 +28,8 @@ const MAX_FADER_VOLUME: u16 = 1 << 10;
 // Fast-forward / rewind should skip at roughly 100x playback speed
 const FAST_FORWARD_SECONDS: u8 = 1;
 const FAST_FORWARD_FRAMES: u8 = 25;
+
+const DIVIDER_75HZ: u16 = 44100 / 75;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -185,10 +187,12 @@ pub struct CdDrive {
     loaded_audio_sector: bool,
     fader_volume: u16,
     current_volume: u16,
+    divider_75hz: u16,
+    data_speed: u16,
 }
 
 impl CdDrive {
-    pub(super) fn new(disc: Option<CdRom>) -> Self {
+    pub(super) fn new(disc: Option<CdRom>, config: &SegaCdEmulatorConfig) -> Self {
         Self {
             disc,
             sector_buffer: Box::new(array::from_fn(|_| 0)),
@@ -201,6 +205,8 @@ impl CdDrive {
             loaded_audio_sector: false,
             fader_volume: 0,
             current_volume: 0,
+            divider_75hz: DIVIDER_75HZ,
+            data_speed: config.disc_drive_speed.get(),
         }
     }
 
@@ -572,6 +578,17 @@ impl CdDrive {
         self.status
     }
 
+    fn reading_data_track(&self) -> bool {
+        match self.state {
+            State::Playing(current_time) => self.disc.as_ref().is_some_and(|disc| {
+                disc.cue()
+                    .find_track_by_time(current_time)
+                    .is_some_and(|track| track.track_type == TrackType::Data)
+            }),
+            _ => false,
+        }
+    }
+
     pub fn playing_audio(&self) -> bool {
         match self.state {
             State::Playing(current_time) => {
@@ -592,45 +609,64 @@ impl CdDrive {
         log::trace!("Fader volume set to {:03X}", self.fader_volume);
     }
 
-    pub fn update_audio_sample(&mut self) -> (f64, f64) {
-        // Adjust current volume towards fader volume
-        match self.current_volume.cmp(&self.fader_volume) {
-            Ordering::Less => {
-                self.current_volume += 1;
+    pub fn clock_44100hz(
+        &mut self,
+        rchip: &mut Rchip,
+        mut rchip_dma_args: RchipDmaArgs<'_>,
+    ) -> SegaCdLoadResult<(f64, f64)> {
+        self.adjust_fader_volume();
+
+        let audio_sample = self.sample_audio().unwrap_or((0.0, 0.0));
+
+        let divider_decrement = if self.reading_data_track() { self.data_speed } else { 1 };
+        for _ in 0..divider_decrement {
+            self.divider_75hz -= 1;
+            if self.divider_75hz == 0 {
+                self.divider_75hz = DIVIDER_75HZ;
+                self.clock_75hz(rchip)?;
+                rchip.clock_75hz();
+            } else {
+                rchip.clock_44100hz(rchip_dma_args.reborrow());
             }
-            Ordering::Greater => {
-                self.current_volume -= 1;
-            }
-            Ordering::Equal => {}
         }
 
-        let (sample_l, sample_r) = if self.playing_audio() {
-            let idx = self.audio_sample_idx as usize;
+        Ok(audio_sample)
+    }
 
-            let sample_l =
-                i16::from_le_bytes([self.sector_buffer[idx], self.sector_buffer[idx + 1]]);
-            let sample_r =
-                i16::from_le_bytes([self.sector_buffer[idx + 2], self.sector_buffer[idx + 3]]);
+    fn adjust_fader_volume(&mut self) {
+        match self.current_volume.cmp(&self.fader_volume) {
+            Ordering::Less => self.current_volume += 1,
+            Ordering::Greater => self.current_volume -= 1,
+            Ordering::Equal => {}
+        }
+    }
 
-            let fader_multiplier = fader_volume_multiplier(self.current_volume);
-
-            let sample_l = fader_multiplier * f64::from(sample_l) / -f64::from(i16::MIN);
-            let sample_r = fader_multiplier * f64::from(sample_r) / -f64::from(i16::MIN);
-
-            (sample_l, sample_r)
-        } else {
-            (0.0, 0.0)
+    fn sample_audio(&mut self) -> Option<(f64, f64)> {
+        if !self.playing_audio() {
+            self.audio_sample_idx = 0;
+            return None;
         };
+
+        let idx = self.audio_sample_idx as usize;
+
+        let sample_l = i16::from_le_bytes([self.sector_buffer[idx], self.sector_buffer[idx + 1]]);
+        let sample_r =
+            i16::from_le_bytes([self.sector_buffer[idx + 2], self.sector_buffer[idx + 3]]);
+
+        let fader_multiplier = fader_volume_multiplier(self.current_volume);
+
+        let sample_l = fader_multiplier * f64::from(sample_l) / -f64::from(i16::MIN);
+        let sample_r = fader_multiplier * f64::from(sample_r) / -f64::from(i16::MIN);
 
         self.audio_sample_idx =
             (self.audio_sample_idx + BYTES_PER_AUDIO_SAMPLE) % cdrom::BYTES_PER_SECTOR as u16;
 
-        (sample_l, sample_r)
+        Some((sample_l, sample_r))
     }
 
-    pub fn clock(&mut self, rchip: &mut Rchip) -> SegaCdLoadResult<()> {
-        // It is a bug if clock() is called when audio index is not 0; update_audio_sample() must
-        // be called before clock() on the cycle when both are called
+    fn clock_75hz(&mut self, rchip: &mut Rchip) -> SegaCdLoadResult<()> {
+        // It is a bug if clock_75hz() is called when audio index is not 0; sample_audio() must
+        // be called before clock_75hz() on the cycle when both are called
         assert_eq!(self.audio_sample_idx, 0);
 
         // CDD interrupt fires once every 1/75 of a second
@@ -882,6 +918,10 @@ impl CdDrive {
         self.state = State::TrayOpening { auto_close: true };
 
         Ok(())
+    }
+
+    pub fn reload_config(&mut self, config: &SegaCdEmulatorConfig) {
+        self.data_speed = config.disc_drive_speed.get();
     }
 }
 

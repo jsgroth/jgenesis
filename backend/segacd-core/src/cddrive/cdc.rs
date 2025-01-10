@@ -69,6 +69,24 @@ impl Default for DeviceDestination {
     }
 }
 
+pub struct RchipDmaArgs<'a> {
+    pub word_ram: &'a mut WordRam,
+    pub prg_ram: &'a mut [u8; memory::PRG_RAM_LEN],
+    pub prg_ram_accessible: bool,
+    pub pcm: &'a mut Rf5c164,
+}
+
+impl RchipDmaArgs<'_> {
+    pub fn reborrow(&mut self) -> RchipDmaArgs<'_> {
+        RchipDmaArgs {
+            word_ram: &mut *self.word_ram,
+            prg_ram: &mut *self.prg_ram,
+            prg_ram_accessible: self.prg_ram_accessible,
+            pcm: &mut *self.pcm,
+        }
+    }
+}
+
 // The LC8951, which the documentation describes as a "Real-Time Error Correction and Host Interface
 // Processor".
 //
@@ -619,15 +637,9 @@ impl Rchip {
         self.transfer_end_interrupt_pending = true;
     }
 
-    pub fn clock_44100hz(
-        &mut self,
-        word_ram: &mut WordRam,
-        prg_ram: &mut [u8; memory::PRG_RAM_LEN],
-        prg_ram_accessible: bool,
-        pcm: &mut Rf5c164,
-    ) {
+    pub fn clock_44100hz(&mut self, dma_args: RchipDmaArgs<'_>) {
         if self.data_transfer_in_progress && self.device_destination.is_dma() {
-            self.progress_dma(word_ram, prg_ram, prg_ram_accessible, pcm);
+            self.progress_dma(dma_args);
         }
 
         // Based on mcd-verificator, DECI automatically clears about 40% of the way through a 75Hz frame
@@ -650,10 +662,7 @@ impl Rchip {
 
     fn progress_dma(
         &mut self,
-        word_ram: &mut WordRam,
-        prg_ram: &mut [u8; memory::PRG_RAM_LEN],
-        prg_ram_accessible: bool,
-        pcm: &mut Rf5c164,
+        RchipDmaArgs { word_ram, prg_ram, prg_ram_accessible, pcm }: RchipDmaArgs<'_>,
     ) {
         if self.device_destination == DeviceDestination::PrgRam && !prg_ram_accessible {
             log::trace!("CDC DMA to PRG RAM is halted because sub CPU is removed from the bus");

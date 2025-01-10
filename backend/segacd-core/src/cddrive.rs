@@ -3,7 +3,8 @@
 pub mod cdc;
 pub mod cdd;
 
-use crate::api::SegaCdLoadResult;
+use crate::api::{SegaCdEmulatorConfig, SegaCdLoadResult};
+use crate::cddrive::cdc::RchipDmaArgs;
 use crate::memory::wordram::WordRam;
 use crate::rf5c164::Rf5c164;
 use crate::{api, memory};
@@ -17,13 +18,6 @@ use std::array;
 
 const SEGA_CD_MCLK_FREQUENCY: u64 = api::SEGA_CD_MASTER_CLOCK_RATE;
 const CD_DA_FREQUENCY: u64 = 44100;
-const CD_75HZ_DIVIDER: u16 = 44100 / 75;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PrescalerEvent {
-    SampleAudio,
-    SampleAudioAndClockCdd,
-}
 
 // The CD drive's master clock is not actually derived from the Sega CD's master clock, but it's
 // much easier to emulate by pretending that it is
@@ -31,30 +25,23 @@ enum PrescalerEvent {
 struct CdPrescaler {
     sega_cd_mclk_cycles: u64,
     drive_cycle_product: u64,
-    divider_75hz: u16,
 }
 
 impl CdPrescaler {
     fn new() -> Self {
-        Self { sega_cd_mclk_cycles: 0, drive_cycle_product: 0, divider_75hz: CD_75HZ_DIVIDER }
+        Self { sega_cd_mclk_cycles: 0, drive_cycle_product: 0 }
     }
 
     fn tick(
         &mut self,
         sega_cd_mclk_cycles: u64,
-        mut callback: impl FnMut(PrescalerEvent) -> SegaCdLoadResult<()>,
+        mut callback: impl FnMut() -> SegaCdLoadResult<()>,
     ) -> SegaCdLoadResult<()> {
         self.drive_cycle_product += sega_cd_mclk_cycles * CD_DA_FREQUENCY;
 
         while self.drive_cycle_product >= SEGA_CD_MCLK_FREQUENCY {
             self.drive_cycle_product -= SEGA_CD_MCLK_FREQUENCY;
-            self.divider_75hz -= 1;
-            if self.divider_75hz == 0 {
-                self.divider_75hz = CD_75HZ_DIVIDER;
-                callback(PrescalerEvent::SampleAudioAndClockCdd)?;
-            } else {
-                callback(PrescalerEvent::SampleAudio)?;
-            }
+            callback()?;
         }
 
         Ok(())
@@ -71,9 +58,9 @@ pub struct CdController {
 }
 
 impl CdController {
-    pub fn new(disc: Option<CdRom>) -> Self {
+    pub fn new(disc: Option<CdRom>, config: &SegaCdEmulatorConfig) -> Self {
         Self {
-            drive: CdDrive::new(disc),
+            drive: CdDrive::new(disc, config),
             rchip: Rchip::new(),
             sector_buffer: array::from_fn(|_| 0),
             prescaler: CdPrescaler::new(),
@@ -89,22 +76,13 @@ impl CdController {
         pcm: &mut Rf5c164,
         mut audio_callback: impl FnMut(f64, f64),
     ) -> SegaCdLoadResult<()> {
-        self.prescaler.tick(mclk_cycles, |event| {
-            let (sample_l, sample_r) = match event {
-                PrescalerEvent::SampleAudio => {
-                    let (sample_l, sample_r) = self.drive.update_audio_sample();
-                    self.rchip.clock_44100hz(word_ram, prg_ram, prg_ram_accessible, pcm);
-
-                    (sample_l, sample_r)
-                }
-                PrescalerEvent::SampleAudioAndClockCdd => {
-                    let (sample_l, sample_r) = self.drive.update_audio_sample();
-                    self.drive.clock(&mut self.rchip)?;
-                    self.rchip.clock_75hz();
-
-                    (sample_l, sample_r)
-                }
-            };
+        self.prescaler.tick(mclk_cycles, || {
+            let (sample_l, sample_r) = self.drive.clock_44100hz(&mut self.rchip, RchipDmaArgs {
+                word_ram,
+                prg_ram,
+                prg_ram_accessible,
+                pcm,
+            })?;
 
             audio_callback(sample_l, sample_r);
 

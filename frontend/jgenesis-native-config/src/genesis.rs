@@ -6,6 +6,7 @@ use jgenesis_native_driver::config::{GenesisConfig, Sega32XConfig, SegaCdConfig}
 use s32x_core::api::{S32XVideoOut, Sega32XEmulatorConfig};
 use segacd_core::api::{PcmInterpolation, SegaCdEmulatorConfig};
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroU16;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,10 +76,16 @@ pub struct SegaCdAppConfig {
     pub enable_ram_cartridge: bool,
     #[serde(default)]
     pub load_disc_into_ram: bool,
+    #[serde(default = "default_drive_speed")]
+    pub disc_drive_speed: NonZeroU16,
     #[serde(default = "true_fn")]
     pub pcm_enabled: bool,
     #[serde(default = "true_fn")]
     pub cd_audio_enabled: bool,
+}
+
+fn default_drive_speed() -> NonZeroU16 {
+    NonZeroU16::new(1).unwrap()
 }
 
 impl Default for SegaCdAppConfig {
@@ -149,6 +156,7 @@ impl AppConfig {
                 pcm_interpolation: self.sega_cd.pcm_interpolation,
                 enable_ram_cartridge: self.sega_cd.enable_ram_cartridge,
                 load_disc_into_ram: self.sega_cd.load_disc_into_ram,
+                disc_drive_speed: self.sega_cd.disc_drive_speed,
                 pcm_enabled: self.sega_cd.pcm_enabled,
                 cd_audio_enabled: self.sega_cd.cd_audio_enabled,
             },

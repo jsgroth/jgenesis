@@ -13,7 +13,7 @@ use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::timing::CycleCounters;
 use genesis_core::vdp::{Vdp, VdpTickEffect};
 use genesis_core::ym2612::{Ym2612, YmTickEffect};
-use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
+use genesis_core::{GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, PartialClone, Renderer, SaveWriter, TickEffect, TimingMode,
 };
@@ -21,6 +21,7 @@ use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, EnumFromStr};
 use m68000_emu::M68000;
 use smsgg_core::psg::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use std::fmt::{Debug, Display};
+use std::num::NonZeroU16;
 use std::path::Path;
 use thiserror::Error;
 use z80_emu::Z80;
@@ -86,6 +87,7 @@ pub struct SegaCdEmulatorConfig {
     pub pcm_interpolation: PcmInterpolation,
     pub enable_ram_cartridge: bool,
     pub load_disc_into_ram: bool,
+    pub disc_drive_speed: NonZeroU16,
     pub pcm_enabled: bool,
     pub cd_audio_enabled: bool,
 }
@@ -106,15 +108,12 @@ pub struct SegaCdEmulator {
     audio_resampler: AudioResampler,
     timing_mode: TimingMode,
     main_bus_writes: MainBusWrites,
-    aspect_ratio: GenesisAspectRatio,
-    adjust_aspect_ratio_in_2x_resolution: bool,
     disc_title: String,
     cycles: SegaCdCycleCounters,
     sega_cd_mclk_cycles: u64,
     sega_cd_mclk_cycle_product: u64,
     sub_cpu_wait_cycles: u64,
     sub_cpu_pending_intack: Option<u8>,
-    load_disc_into_ram: bool,
     config: SegaCdEmulatorConfig,
 }
 
@@ -195,14 +194,8 @@ impl SegaCdEmulator {
 
         let initial_backup_ram = save_writer.load_bytes("sav").ok();
         let initial_ram_cartridge = save_writer.load_bytes("ramc").ok();
-        let mut sega_cd = SegaCd::new(
-            bios,
-            disc,
-            initial_backup_ram,
-            initial_ram_cartridge,
-            emulator_config.enable_ram_cartridge,
-            emulator_config.genesis.forced_region,
-        )?;
+        let mut sega_cd =
+            SegaCd::new(bios, disc, initial_backup_ram, initial_ram_cartridge, &emulator_config)?;
         let disc_title = sega_cd.disc_title()?.unwrap_or("(no disc)".into());
 
         let memory = Memory::new(sega_cd);
@@ -244,17 +237,12 @@ impl SegaCdEmulator {
             audio_resampler,
             timing_mode,
             main_bus_writes: MainBusWrites::new(),
-            aspect_ratio: emulator_config.genesis.aspect_ratio,
-            adjust_aspect_ratio_in_2x_resolution: emulator_config
-                .genesis
-                .adjust_aspect_ratio_in_2x_resolution,
             disc_title,
             cycles: SegaCdCycleCounters::new(emulator_config.genesis.clamped_m68k_divider()),
             sega_cd_mclk_cycles: 0,
             sega_cd_mclk_cycle_product: 0,
             sub_cpu_wait_cycles: 0,
             sub_cpu_pending_intack: None,
-            load_disc_into_ram: emulator_config.load_disc_into_ram,
             config: emulator_config,
         };
 
@@ -292,8 +280,8 @@ impl SegaCdEmulator {
     fn render_frame<R: Renderer>(&self, renderer: &mut R) -> Result<(), R::Err> {
         genesis_core::render_frame(
             &self.vdp,
-            self.aspect_ratio,
-            self.adjust_aspect_ratio_in_2x_resolution,
+            self.config.genesis.aspect_ratio,
+            self.config.genesis.adjust_aspect_ratio_in_2x_resolution,
             renderer,
         )
     }
@@ -317,7 +305,7 @@ impl SegaCdEmulator {
         format: CdRomFileFormat,
     ) -> SegaCdLoadResult<()> {
         let sega_cd = self.memory.medium_mut();
-        sega_cd.change_disc(rom_path, format, self.load_disc_into_ram)?;
+        sega_cd.change_disc(rom_path, format, self.config.load_disc_into_ram)?;
         self.disc_title = sega_cd.disc_title()?.unwrap_or_else(|| "(no disc)".into());
 
         Ok(())
@@ -494,9 +482,6 @@ impl EmulatorTrait for SegaCdEmulator {
     }
 
     fn reload_config(&mut self, config: &Self::Config) {
-        self.aspect_ratio = config.genesis.aspect_ratio;
-        self.adjust_aspect_ratio_in_2x_resolution =
-            config.genesis.adjust_aspect_ratio_in_2x_resolution;
         self.vdp.reload_config(config.genesis.to_vdp_config());
         self.ym2612.reload_config(config.genesis);
         self.pcm.reload_config(config);
@@ -505,8 +490,7 @@ impl EmulatorTrait for SegaCdEmulator {
         self.cycles.update_m68k_divider(config.genesis.clamped_m68k_divider());
 
         let sega_cd = self.memory.medium_mut();
-        sega_cd.set_forced_region(config.genesis.forced_region);
-        sega_cd.set_enable_ram_cartridge(config.enable_ram_cartridge);
+        sega_cd.reload_config(config);
 
         self.config = *config;
     }
