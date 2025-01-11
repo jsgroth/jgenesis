@@ -44,7 +44,7 @@ pub enum S32XVideoOut {
 
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct Sega32XEmulatorConfig {
-    #[cfg_display_skip]
+    #[cfg_display(skip)]
     pub genesis: GenesisEmulatorConfig,
     pub video_out: S32XVideoOut,
     pub pwm_enabled: bool,

@@ -82,7 +82,7 @@ pub enum PcmInterpolation {
 
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct SegaCdEmulatorConfig {
-    #[cfg_display_skip]
+    #[cfg_display(skip)]
     pub genesis: GenesisEmulatorConfig,
     pub pcm_interpolation: PcmInterpolation,
     pub enable_ram_cartridge: bool,

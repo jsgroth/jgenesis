@@ -95,7 +95,7 @@ pub fn custom_value_enum(input: TokenStream) -> TokenStream {
 /// assert_eq!(s, "config: \n  foo: 5\n  bar: asdf".to_owned());
 /// ```
 ///
-/// The `#[debug_fmt]` attribute can be used to indicate that a field should be formatted using its
+/// The `#[cfg_display(debug_fmt)]` attribute can be used to indicate that a field should be formatted using its
 /// `std::fmt::Debug` implementation rather than its `std::fmt::Display` implementation. For example:
 /// ```
 /// use jgenesis_proc_macros::ConfigDisplay;
@@ -106,7 +106,7 @@ pub fn custom_value_enum(input: TokenStream) -> TokenStream {
 /// #[derive(ConfigDisplay)]
 /// struct Config {
 ///     bar: bool,
-///     #[debug_fmt]
+///     #[cfg_display(debug_fmt)]
 ///     baz: NotDisplay,
 /// }
 ///
@@ -123,7 +123,7 @@ pub fn custom_value_enum(input: TokenStream) -> TokenStream {
 /// assert_eq!(s, "config: \n  bar: true\n  baz: NotDisplay(\"fdsa\")");
 /// ```
 ///
-/// The `#[indent_nested]` attribute allows indenting when printing a field that also implements
+/// The `#[cfg_display(indent_nested)]` attribute allows indenting when printing a field that also implements
 /// the `Display` trait through this macro:
 /// ```
 /// use jgenesis_proc_macros::ConfigDisplay;
@@ -136,7 +136,7 @@ pub fn custom_value_enum(input: TokenStream) -> TokenStream {
 /// #[derive(ConfigDisplay)]
 /// struct Outer {
 ///     bar: u32,
-///     #[indent_nested]
+///     #[cfg_display(indent_nested)]
 ///     inner: Inner,
 ///     baz: u32,
 /// }
@@ -180,10 +180,7 @@ pub fn custom_value_enum(input: TokenStream) -> TokenStream {
 ///
 /// This macro only supports structs with named fields and it will panic if applied to any other
 /// data type, including structs with no fields.
-#[proc_macro_derive(
-    ConfigDisplay,
-    attributes(debug_fmt, indent_nested, cfg_display_skip, cfg_display_path)
-)]
+#[proc_macro_derive(ConfigDisplay, attributes(cfg_display))]
 pub fn config_display(input: TokenStream) -> TokenStream {
     config::config_display(input)
 }

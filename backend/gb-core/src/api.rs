@@ -86,7 +86,7 @@ pub struct GameBoyEmulatorConfig {
     pub pretend_to_be_gba: bool,
     pub aspect_ratio: GbAspectRatio,
     pub gb_palette: GbPalette,
-    #[debug_fmt]
+    #[cfg_display(debug_fmt)]
     pub gb_custom_palette: [(u8, u8, u8); 4],
     pub gbc_color_correction: GbcColorCorrection,
     pub audio_60hz_hack: bool,

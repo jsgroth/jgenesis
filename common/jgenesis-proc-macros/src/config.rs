@@ -1,6 +1,43 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{Data, DeriveInput, Type, parse_quote};
+use syn::{Data, DeriveInput, Field, Type, parse_quote};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CfgDisplayAttr {
+    DebugFormat,
+    IndentNested,
+    Skip,
+    Path,
+}
+
+fn parse_cfg_display_attrs(field: &Field) -> Vec<CfgDisplayAttr> {
+    let Some(cfg_display_attr) =
+        field.attrs.iter().find(|attr| attr.path().is_ident("cfg_display"))
+    else {
+        return vec![];
+    };
+
+    let mut attrs = Vec::new();
+    cfg_display_attr
+        .parse_nested_meta(|meta| {
+            if meta.path.is_ident("debug_fmt") {
+                attrs.push(CfgDisplayAttr::DebugFormat);
+            } else if meta.path.is_ident("indent_nested") {
+                attrs.push(CfgDisplayAttr::IndentNested);
+            } else if meta.path.is_ident("skip") {
+                attrs.push(CfgDisplayAttr::Skip);
+            } else if meta.path.is_ident("path") {
+                attrs.push(CfgDisplayAttr::Path);
+            } else {
+                return Err(meta.error("Invalid cfg_display meta"));
+            }
+
+            Ok(())
+        })
+        .expect("Failed to parse cfg_display field attribute");
+
+    attrs
+}
 
 pub fn config_display(input: TokenStream) -> TokenStream {
     let input: DeriveInput = syn::parse(input).expect("Unable to parse input");
@@ -12,7 +49,8 @@ pub fn config_display(input: TokenStream) -> TokenStream {
     let fields: Vec<_> = struct_data
         .fields
         .iter()
-        .filter(|&field| !field.attrs.iter().any(|attr| attr.path().is_ident("cfg_display_skip")))
+        .map(|field| (field, parse_cfg_display_attrs(field)))
+        .filter(|(_, attrs)| !attrs.contains(&CfgDisplayAttr::Skip))
         .collect();
 
     assert!(!fields.is_empty(), "ConfigDisplay derive macro only applies to structs with fields");
@@ -20,12 +58,12 @@ pub fn config_display(input: TokenStream) -> TokenStream {
     let writeln_statements: Vec<_> = fields
         .iter()
         .enumerate()
-        .map(|(i, field)| {
+        .map(|(i, (field, attrs))| {
             let Some(field_ident) = &field.ident else {
                 panic!("ConfigDisplay derive macro only supports structs with named fields");
             };
 
-            let debug_fmt = field.attrs.iter().any(|attr| attr.path().is_ident("debug_fmt"));
+            let debug_fmt = attrs.contains(&CfgDisplayAttr::DebugFormat);
             let fmt_string = if debug_fmt {
                 format!("  {field_ident}: {{:?}}")
             } else {
@@ -39,7 +77,7 @@ pub fn config_display(input: TokenStream) -> TokenStream {
                 }
                 _ => false,
             };
-            let is_path = field.attrs.iter().any(|attr| attr.path().is_ident("cfg_display_path"));
+            let is_path = attrs.contains(&CfgDisplayAttr::Path);
 
             let format_invocation = if is_option {
                 let none_str = format!("  {field_ident}: <None>");
@@ -64,8 +102,7 @@ pub fn config_display(input: TokenStream) -> TokenStream {
                 }
             };
 
-            let indent_nested =
-                field.attrs.iter().any(|attr| attr.path().is_ident("indent_nested"));
+            let indent_nested = attrs.contains(&CfgDisplayAttr::IndentNested);
             let format_invocation = if indent_nested {
                 quote! {
                     #format_invocation.replace("\n  ", "\n    ")
