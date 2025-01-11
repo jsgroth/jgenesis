@@ -654,7 +654,10 @@ impl PhysicalMedium for SegaCd {
                 // Sega CD registers
                 self.read_main_cpu_register_byte(address)
             }
-            _ => todo!("read byte: {address:06X}"),
+            _ => {
+                log::error!("Main read byte: {address:06X}");
+                0xFF
+            }
         }
     }
 
@@ -700,7 +703,10 @@ impl PhysicalMedium for SegaCd {
                 // Sega CD registers
                 self.read_main_cpu_register_word(address)
             }
-            _ => todo!("read word: {address:06X}"),
+            _ => {
+                log::error!("Main read word: {address:06X}");
+                0xFFFF
+            }
         }
     }
 
@@ -736,7 +742,7 @@ impl PhysicalMedium for SegaCd {
             0xA12000..=0xA1202F => {
                 self.write_main_cpu_register_byte(address, value);
             }
-            _ => todo!("write byte: {address:06X}, {value:02X}"),
+            _ => log::error!("Main write byte: {address:06X}, {value:02X}"),
         }
     }
 
@@ -767,7 +773,7 @@ impl PhysicalMedium for SegaCd {
             0xA12000..=0xA1202F => {
                 self.write_main_cpu_register_word(address, value);
             }
-            _ => todo!("write word: {address:06X}, {value:04X}"),
+            _ => log::error!("Main write word: {address:06X}, {value:04X}"),
         }
     }
 
@@ -1291,7 +1297,10 @@ impl BusInterface for SubBus<'_> {
                 // Sub CPU registers; canonically located at $FF8000-$FF81FF, but mirrored throughout the range
                 self.read_register_byte(address)
             }
-            _ => todo!("sub bus read byte {address:06X}"),
+            _ => {
+                log::error!("Sub bus read byte {address:06X}");
+                0xFF
+            }
         }
     }
 
@@ -1326,7 +1335,10 @@ impl BusInterface for SubBus<'_> {
                 // Sub CPU registers; canonically located at $FF8000-$FF81FF, but mirrored throughout the range
                 self.read_register_word(address)
             }
-            _ => todo!("sub bus read word {address:06X}"),
+            _ => {
+                log::error!("Sub bus read word {address:06X}");
+                0xFFFF
+            }
         }
     }
 
@@ -1361,7 +1373,7 @@ impl BusInterface for SubBus<'_> {
                 // Sub CPU registers; canonically located at $FF8000-$FF81FF, but mirrored throughout the range
                 self.write_register_byte(address, value);
             }
-            _ => todo!("sub bus read byte {address:06X} {value:02X}"),
+            _ => log::error!("Sub bus write byte {address:06X} {value:02X}"),
         }
     }
 
@@ -1398,7 +1410,7 @@ impl BusInterface for SubBus<'_> {
                 // Sub CPU registers; canonically located at $FF8000-$FF81FF, but mirrored throughout the range
                 self.write_register_word(address, value);
             }
-            _ => todo!("sub bus read word {address:06X} {value:04X}"),
+            _ => log::error!("Sub bus write word {address:06X} {value:04X}"),
         }
     }
 
