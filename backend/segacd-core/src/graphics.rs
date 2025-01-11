@@ -9,7 +9,7 @@ use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, U16Ext};
 use std::array;
 
-const SUB_CPU_DIVIDER: u32 = crate::api::SUB_CPU_DIVIDER as u32;
+const SUB_CPU_DIVIDER: u32 = crate::api::DEFAULT_SUB_CPU_DIVIDER as u32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum StampSizeDots {

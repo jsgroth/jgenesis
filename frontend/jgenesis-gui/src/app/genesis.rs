@@ -2,14 +2,15 @@ mod helptext;
 
 use crate::app::{App, Console, OpenWindow};
 use crate::emuthread::EmuThreadStatus;
-use egui::{Context, Slider, Window};
+use crate::widgets::OverclockSlider;
+use egui::{Context, Window};
 use genesis_core::audio::LowPassFilter;
 use genesis_core::{GenesisAspectRatio, GenesisRegion};
 use jgenesis_common::frontend::TimingMode;
 use rfd::FileDialog;
 use s32x_core::api::S32XVideoOut;
 use segacd_core::api::PcmInterpolation;
-use std::num::NonZeroU16;
+use std::num::{NonZeroU16, NonZeroU64};
 use std::path::PathBuf;
 
 impl App {
@@ -116,7 +117,7 @@ impl App {
             let rect = ui
                 .checkbox(
                     &mut self.config.sega_cd.enable_ram_cartridge,
-                    "Enable Sega CD RAM cartridge",
+                    "(Sega CD) Enable RAM cartridge",
                 )
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
@@ -127,7 +128,7 @@ impl App {
             let rect = ui
                 .checkbox(
                     &mut self.config.sega_cd.load_disc_into_ram,
-                    "(Sega CD) Load CD-ROM images into RAM at startup",
+                    "(Sega CD) Load CD-ROM images into host RAM at startup",
                 )
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
@@ -135,27 +136,37 @@ impl App {
             }
 
             ui.add_space(5.0);
-            let rect = ui
-                .group(|ui| {
-                    ui.label("Genesis 68000 clock divider");
-                    ui.add(Slider::new(&mut self.config.genesis.m68k_clock_divider, 1..=7));
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    let rect = ui
+                        .add(OverclockSlider {
+                            label: "Genesis 68000 clock divider",
+                            current_value: &mut self.config.genesis.m68k_clock_divider,
+                            range: 1..=7,
+                            master_clock: genesis_core::audio::NTSC_GENESIS_MCLK_FREQUENCY,
+                            default_divider: genesis_core::timing::NATIVE_M68K_DIVIDER as f64,
+                        })
+                        .interact_rect;
+                    if ui.rect_contains_pointer(rect) {
+                        self.state.help_text.insert(WINDOW, helptext::M68K_CLOCK_DIVIDER);
+                    }
+                });
 
-                    let effective_speed_ratio = 100.0
-                        * genesis_core::timing::NATIVE_M68K_DIVIDER as f64
-                        / self.config.genesis.m68k_clock_divider as f64;
-                    let effective_speed_mhz = genesis_core::audio::NTSC_GENESIS_MCLK_FREQUENCY
-                        / self.config.genesis.m68k_clock_divider as f64
-                        / 1_000_000.0;
-                    ui.label(format!(
-                        "Effective speed: {effective_speed_mhz:.2} MHz ({}%)",
-                        effective_speed_ratio.round()
-                    ));
-                })
-                .response
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::M68K_CLOCK_DIVIDER);
-            }
+                ui.vertical(|ui| {
+                    let rect = ui
+                        .add(OverclockSlider {
+                            label: "Sega CD sub 68000 clock divider",
+                            current_value: &mut self.config.sega_cd.sub_cpu_divider,
+                            range: NonZeroU64::new(1).unwrap()..=NonZeroU64::new(4).unwrap(),
+                            master_clock: segacd_core::api::SEGA_CD_MASTER_CLOCK_RATE as f64,
+                            default_divider: segacd_core::api::DEFAULT_SUB_CPU_DIVIDER as f64,
+                        })
+                        .interact_rect;
+                    if ui.rect_contains_pointer(rect) {
+                        self.state.help_text.insert(WINDOW, helptext::SCD_SUB_CPU_DIVIDER);
+                    }
+                });
+            });
 
             ui.add_space(5.0);
             let rect = ui

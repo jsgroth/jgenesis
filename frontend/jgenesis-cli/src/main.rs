@@ -213,6 +213,11 @@ struct Args {
     #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
     scd_drive_speed: Option<NonZeroU16>,
 
+    /// Optionally decrease the Sega CD sub CPU's clock divider (1-4, with 4 being actual hardware speed).
+    /// Lower divider = higher CPU clock speed
+    #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
+    scd_sub_cpu_divider: Option<NonZeroU64>,
+
     /// Run the Sega CD emulator with no disc
     #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
     scd_no_disc: bool,
@@ -574,6 +579,7 @@ impl Args {
             scd_pcm_interpolation -> pcm_interpolation,
             scd_load_disc_into_ram -> load_disc_into_ram,
             scd_drive_speed -> disc_drive_speed,
+            scd_sub_cpu_divider -> sub_cpu_divider,
             scd_pcm_enabled -> pcm_enabled,
             scd_cd_da_enabled -> cd_audio_enabled,
         ]);

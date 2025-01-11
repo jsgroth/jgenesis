@@ -7,13 +7,13 @@ mod romlist;
 mod smsgg;
 mod snes;
 
-use crate::app::common::SavePathSelect;
 use crate::app::input::{GenericButton, InputMappingSet};
 use crate::app::nes::OverscanState;
 use crate::app::romlist::{RomListThreadHandle, RomMetadata};
 use crate::app::snes::HandledError;
 use crate::emuthread;
 use crate::emuthread::{EmuThreadCommand, EmuThreadHandle, EmuThreadStatus};
+use crate::widgets::SavePathSelect;
 use eframe::Frame;
 use egui::panel::TopBottomSide;
 use egui::{

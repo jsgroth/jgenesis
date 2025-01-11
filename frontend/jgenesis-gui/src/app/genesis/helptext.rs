@@ -46,6 +46,15 @@ pub const M68K_CLOCK_DIVIDER: HelpText = HelpText {
     ],
 };
 
+pub const SCD_SUB_CPU_DIVIDER: HelpText = HelpText {
+    heading: "Sega CD 68000 Clock Divider",
+    text: &[
+        "Optionally overclock the Sega CD sub CPU by reducing the master clock divider.",
+        "Overclocking can cause major glitches. Some games may additionally require overclocking the main CPU when the sub CPU is overclocked.",
+        "Note that a clock divider lower than 3 may significantly increase the emulator's CPU usage.",
+    ],
+};
+
 pub const SCD_DRIVE_SPEED: HelpText = HelpText {
     heading: "Sega CD Disc Drive Speed",
     text: &[

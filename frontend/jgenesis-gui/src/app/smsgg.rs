@@ -2,7 +2,8 @@ mod helptext;
 
 use crate::app::{App, OpenWindow};
 use crate::emuthread::EmuThreadStatus;
-use egui::{Context, Slider, Window};
+use crate::widgets::OverclockSlider;
+use egui::{Context, Window};
 use jgenesis_common::frontend::TimingMode;
 use smsgg_core::psg::Sn76489Version;
 use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsModel, SmsRegion};
@@ -64,17 +65,13 @@ impl App {
                 self.state.help_text.insert(WINDOW, helptext::REGION);
             }
 
-            let rect = ui.group(|ui| {
-                ui.label("Z80 clock divider");
-
-                let min_divider = NonZeroU32::new(1).unwrap();
-                let max_divider = NonZeroU32::new(smsgg_core::NATIVE_Z80_DIVIDER).unwrap();
-                ui.add(Slider::new(&mut self.config.smsgg.z80_divider, min_divider..=max_divider));
-
-                let estimated_clock_speed = 53.693_175 / f64::from(self.config.smsgg.z80_divider.get());
-                let estimated_ratio = (100.0 * f64::from(smsgg_core::NATIVE_Z80_DIVIDER) / f64::from(self.config.smsgg.z80_divider.get())).round();
-                ui.label(format!("Effective speed: {estimated_clock_speed:.2} MHz ({estimated_ratio}%)"));
-            }).response.interact_rect;
+            let rect = ui.add(OverclockSlider {
+                label: "Z80 clock divider",
+                current_value: &mut self.config.smsgg.z80_divider,
+                range: NonZeroU32::new(1).unwrap()..=NonZeroU32::new(15).unwrap(),
+                master_clock: smsgg_core::audio::NTSC_MCLK_FREQUENCY,
+                default_divider: smsgg_core::NATIVE_Z80_DIVIDER.into(),
+            }).interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::Z80_OVERCLOCK);
             }

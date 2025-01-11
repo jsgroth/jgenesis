@@ -2318,6 +2318,7 @@ dependencies = [
  "egui-sdl2-platform",
  "egui-wgpu",
  "egui_extras",
+ "emath",
  "env_logger",
  "gb-core",
  "genesis-core",

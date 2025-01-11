@@ -183,6 +183,7 @@ impl WebConfig {
             enable_ram_cartridge: true,
             load_disc_into_ram: true,
             disc_drive_speed: NonZeroU16::new(1).unwrap(),
+            sub_cpu_divider: NonZeroU64::new(segacd_core::api::DEFAULT_SUB_CPU_DIVIDER).unwrap(),
             pcm_enabled: true,
             cd_audio_enabled: true,
         }

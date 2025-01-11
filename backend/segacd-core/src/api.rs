@@ -21,16 +21,16 @@ use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, EnumFromStr};
 use m68000_emu::M68000;
 use smsgg_core::psg::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use std::fmt::{Debug, Display};
-use std::num::NonZeroU16;
+use std::num::{NonZeroU16, NonZeroU64};
 use std::path::Path;
 use thiserror::Error;
 use z80_emu::Z80;
 
-pub(crate) const SUB_CPU_DIVIDER: u64 = 4;
+pub const DEFAULT_SUB_CPU_DIVIDER: u64 = 4;
 
 const NTSC_GENESIS_MASTER_CLOCK_RATE: u64 = 53_693_175;
 const PAL_GENESIS_MASTER_CLOCK_RATE: u64 = 53_203_424;
-pub(crate) const SEGA_CD_MASTER_CLOCK_RATE: u64 = 50_000_000;
+pub const SEGA_CD_MASTER_CLOCK_RATE: u64 = 50_000_000;
 
 const BIOS_LEN: usize = memory::BIOS_LEN;
 
@@ -88,6 +88,7 @@ pub struct SegaCdEmulatorConfig {
     pub enable_ram_cartridge: bool,
     pub load_disc_into_ram: bool,
     pub disc_drive_speed: NonZeroU16,
+    pub sub_cpu_divider: NonZeroU64,
     pub pcm_enabled: bool,
     pub cd_audio_enabled: bool,
 }
@@ -112,6 +113,7 @@ pub struct SegaCdEmulator {
     cycles: SegaCdCycleCounters,
     sega_cd_mclk_cycles: u64,
     sega_cd_mclk_cycle_product: u64,
+    sub_cpu_divider: u64,
     sub_cpu_wait_cycles: u64,
     sub_cpu_pending_intack: Option<u8>,
     config: SegaCdEmulatorConfig,
@@ -241,6 +243,7 @@ impl SegaCdEmulator {
             cycles: SegaCdCycleCounters::new(emulator_config.genesis.clamped_m68k_divider()),
             sega_cd_mclk_cycles: 0,
             sega_cd_mclk_cycle_product: 0,
+            sub_cpu_divider: emulator_config.sub_cpu_divider.get(),
             sub_cpu_wait_cycles: 0,
             sub_cpu_pending_intack: None,
             config: emulator_config,
@@ -392,9 +395,23 @@ impl EmulatorTrait for SegaCdEmulator {
         let prev_scd_mclk_cycles = self.sega_cd_mclk_cycles;
         self.sega_cd_mclk_cycles += scd_mclk_elapsed;
 
-        let sub_cpu_cycles =
-            self.sega_cd_mclk_cycles / SUB_CPU_DIVIDER - prev_scd_mclk_cycles / SUB_CPU_DIVIDER;
+        let pcm_cycles = self.sega_cd_mclk_cycles / DEFAULT_SUB_CPU_DIVIDER
+            - prev_scd_mclk_cycles / DEFAULT_SUB_CPU_DIVIDER;
         let elapsed_scd_mclk_cycles = self.sega_cd_mclk_cycles - prev_scd_mclk_cycles;
+
+        // This match seems silly, but it avoids doing an integer division for the common dividers
+        // of 1-4. Dividers higher than 4 can only be set via the CLI or by manually editing config
+        // (and underclocking probably won't work well anyway)
+        let sub_cpu_cycles = match self.sub_cpu_divider {
+            DEFAULT_SUB_CPU_DIVIDER => pcm_cycles,
+            3 => self.sega_cd_mclk_cycles / 3 - prev_scd_mclk_cycles / 3,
+            2 => (self.sega_cd_mclk_cycles >> 1) - (prev_scd_mclk_cycles >> 1),
+            1 => elapsed_scd_mclk_cycles,
+            _ => {
+                self.sega_cd_mclk_cycles / self.sub_cpu_divider
+                    - prev_scd_mclk_cycles / self.sub_cpu_divider
+            }
+        };
 
         // Disc drive and timer/stopwatch
         let sega_cd = self.memory.medium_mut();
@@ -440,7 +457,7 @@ impl EmulatorTrait for SegaCdEmulator {
         }
 
         // RF5C164
-        self.pcm.tick(sub_cpu_cycles, |(pcm_sample_l, pcm_sample_r)| {
+        self.pcm.tick(pcm_cycles, |(pcm_sample_l, pcm_sample_r)| {
             self.audio_resampler.collect_pcm_sample(pcm_sample_l, pcm_sample_r);
         });
 
@@ -488,6 +505,7 @@ impl EmulatorTrait for SegaCdEmulator {
         self.input.reload_config(config.genesis);
         self.audio_resampler.reload_config(*config);
         self.cycles.update_m68k_divider(config.genesis.clamped_m68k_divider());
+        self.sub_cpu_divider = config.sub_cpu_divider.get();
 
         let sega_cd = self.memory.medium_mut();
         sega_cd.reload_config(config);

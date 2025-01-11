@@ -6,7 +6,7 @@ use jgenesis_native_driver::config::{GenesisConfig, Sega32XConfig, SegaCdConfig}
 use s32x_core::api::{S32XVideoOut, Sega32XEmulatorConfig};
 use segacd_core::api::{PcmInterpolation, SegaCdEmulatorConfig};
 use serde::{Deserialize, Serialize};
-use std::num::NonZeroU16;
+use std::num::{NonZeroU16, NonZeroU64};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,6 +78,8 @@ pub struct SegaCdAppConfig {
     pub load_disc_into_ram: bool,
     #[serde(default = "default_drive_speed")]
     pub disc_drive_speed: NonZeroU16,
+    #[serde(default = "default_sub_divider")]
+    pub sub_cpu_divider: NonZeroU64,
     #[serde(default = "true_fn")]
     pub pcm_enabled: bool,
     #[serde(default = "true_fn")]
@@ -86,6 +88,10 @@ pub struct SegaCdAppConfig {
 
 fn default_drive_speed() -> NonZeroU16 {
     NonZeroU16::new(1).unwrap()
+}
+
+fn default_sub_divider() -> NonZeroU64 {
+    NonZeroU64::new(segacd_core::api::DEFAULT_SUB_CPU_DIVIDER).unwrap()
 }
 
 impl Default for SegaCdAppConfig {
@@ -157,6 +163,7 @@ impl AppConfig {
                 enable_ram_cartridge: self.sega_cd.enable_ram_cartridge,
                 load_disc_into_ram: self.sega_cd.load_disc_into_ram,
                 disc_drive_speed: self.sega_cd.disc_drive_speed,
+                sub_cpu_divider: self.sega_cd.sub_cpu_divider,
                 pcm_enabled: self.sega_cd.pcm_enabled,
                 cd_audio_enabled: self.sega_cd.cd_audio_enabled,
             },

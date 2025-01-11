@@ -27,6 +27,7 @@ eframe = { workspace = true }
 egui = { workspace = true }
 egui_extras = { workspace = true }
 egui-wgpu = { workspace = true }
+emath = { workspace = true }
 env_logger = { workspace = true }
 log = { workspace = true, features = ["release_max_level_info"] }
 pollster = { workspace = true }
