@@ -8,11 +8,13 @@ use std::array;
 // Divider of sub CPU cycles
 const RF5C164_DIVIDER: u64 = 384;
 
-const ADDRESS_DECIMAL_BITS: u32 = 11;
-const ADDRESS_DECIMAL_MASK: u32 = (1 << ADDRESS_DECIMAL_BITS) - 1;
+const ADDRESS_FRACT_BITS: u32 = 11;
+const ADDRESS_FRACT_MASK: u32 = (1 << ADDRESS_FRACT_BITS) - 1;
 
 const WAVEFORM_RAM_LEN: usize = 64 * 1024;
 const WAVEFORM_ADDRESS_MASK: u32 = WAVEFORM_RAM_LEN as u32 - 1;
+
+const ADDRESS_FIXED_POINT_MASK: u32 = (1 << (16 + ADDRESS_FRACT_BITS)) - 1;
 
 type WaveformRam = [u8; WAVEFORM_RAM_LEN];
 
@@ -51,7 +53,7 @@ impl InterpolationBuffer {
 }
 
 fn interpolation_x(address: u32) -> f64 {
-    f64::from(address & ADDRESS_DECIMAL_MASK) / f64::from(1 << ADDRESS_DECIMAL_BITS)
+    f64::from(address & ADDRESS_FRACT_MASK) / f64::from(1 << ADDRESS_FRACT_BITS)
 }
 
 fn interpolate_linear(y0: i8, y1: i8, x: f64) -> f64 {
@@ -61,12 +63,14 @@ fn interpolate_linear(y0: i8, y1: i8, x: f64) -> f64 {
     y0 * (1.0 - x) + y1 * x
 }
 
+// Clamp to [-127, 126] because samples are sign+magnitude, not signed 8-bit
+// +127 is not a valid sample value because 0xFF is the loop end marker
+const MIN_SAMPLE: f64 = -127.0;
+const MAX_SAMPLE: f64 = 126.0;
+
 fn interpolate_cubic(samples: [i8; 4], x: f64) -> f64 {
     let result = jgenesis_common::audio::interpolate_cubic_hermite(samples.map(f64::from), x);
-
-    // Clamp to [-127, 126] because samples are sign+magnitude, not signed 8-bit
-    // +127 is not a valid sample value because 0xFF is the loop end marker
-    result.clamp(-127.0, 126.0)
+    result.clamp(MIN_SAMPLE, MAX_SAMPLE)
 }
 
 // Based on the 6-point 5th-order Hermite algorithm from https://yehar.com/blog/wp-content/uploads/2009/08/deip.pdf
@@ -90,7 +94,7 @@ fn interpolate_quintic(samples: [i8; 6], x: f64) -> f64 {
     let c5 = 1.0 / 24.0 * (y3 - ym2) + 5.0 / 24.0 * (ym1 - y2) + 5.0 / 12.0 * (y1 - y0);
 
     let result = ((((c5 * x + c4) * x + c3) * x + c2) * x + c1) * x + c0;
-    result.clamp(-127.0, 126.0)
+    result.clamp(MIN_SAMPLE, MAX_SAMPLE)
 }
 
 #[derive(Debug, Clone, Default, Encode, Decode)]
@@ -111,7 +115,7 @@ struct Channel {
 impl Channel {
     fn enable(&mut self, waveform_ram: &WaveformRam) {
         if !self.enabled {
-            self.current_address = u32::from(self.start_address) << ADDRESS_DECIMAL_BITS;
+            self.current_address = u32::from(self.start_address) << ADDRESS_FRACT_BITS;
             self.interpolation_buffer.clear();
             self.enabled = true;
 
@@ -135,33 +139,51 @@ impl Channel {
         let address_increment: u32 = self.address_increment.into();
         let incremented_address = self.current_address + address_increment;
 
-        // TODO is it correct to step 1-by-1 when the address increment is greater than (1 << 11)?
-        // How does this interact with looping?
-        let mut address = self.current_address >> ADDRESS_DECIMAL_BITS;
-        let steps = (incremented_address >> ADDRESS_DECIMAL_BITS) - address;
-        for _ in 0..steps {
+        let mut address = self.current_address >> ADDRESS_FRACT_BITS;
+        let steps = (incremented_address >> ADDRESS_FRACT_BITS) - address;
+        if steps == 0 {
+            // Only the fractional bits changed; no new samples read
+            self.current_address = incremented_address & ADDRESS_FIXED_POINT_MASK;
+            return;
+        }
+
+        // All steps but last
+        for _ in 0..steps - 1 {
             address = (address + 1) & WAVEFORM_ADDRESS_MASK;
             let sample = waveform_ram[address as usize];
             if sample == 0xFF {
-                // Loop signal; jump to start of loop and immediately read the next sample
-                address = self.loop_address.into();
-
-                let loop_start_sample = waveform_ram[address as usize];
-                if loop_start_sample == 0xFF {
-                    // Infinite loop
-                    // TODO what does actual hardware do when there's an infinite loop?
-                    self.interpolation_buffer.push(0);
-                } else {
-                    self.interpolation_buffer.push(sign_magnitude_to_pcm(loop_start_sample));
-                }
-            } else {
-                self.interpolation_buffer.push(sign_magnitude_to_pcm(sample));
+                // Loop signal
+                // Actual hardware would skip over this, so just ignore it.
+                // This shouldn't really happen in practice unless a game puts multiple loop markers
+                // at the end of a sample while playing at >32552 Hz to guarantee that the chip
+                // doesn't miss the loop.
+                continue;
             }
+
+            self.interpolation_buffer.push(sign_magnitude_to_pcm(sample));
+        }
+
+        // Last step
+        address = (address + 1) & WAVEFORM_ADDRESS_MASK;
+        let sample = waveform_ram[address as usize];
+        if sample == 0xFF {
+            // Loop signal; jump to start of loop and immediately read the next sample
+            address = self.loop_address.into();
+            let loop_start_sample = waveform_ram[self.loop_address as usize];
+            if loop_start_sample == 0xFF {
+                // Infinite loop
+                // TODO what does actual hardware do when there's an infinite loop?
+                self.interpolation_buffer.push(0);
+            } else {
+                self.interpolation_buffer.push(sign_magnitude_to_pcm(loop_start_sample));
+            }
+        } else {
+            self.interpolation_buffer.push(sign_magnitude_to_pcm(sample));
         }
 
         let new_address_int = address & WAVEFORM_ADDRESS_MASK;
-        let new_address_fract = incremented_address & ADDRESS_DECIMAL_MASK;
-        self.current_address = (new_address_int << ADDRESS_DECIMAL_BITS) | new_address_fract;
+        let new_address_fract = incremented_address & ADDRESS_FRACT_MASK;
+        self.current_address = (new_address_int << ADDRESS_FRACT_BITS) | new_address_fract;
     }
 
     fn sample(&self, interpolation: PcmInterpolation) -> (f64, f64) {
@@ -281,7 +303,7 @@ impl Rf5c164 {
         let channel_idx = (address & 0xF) >> 1;
         let channel = &self.channels[channel_idx as usize];
         let channel_address = if channel.enabled {
-            (channel.current_address >> ADDRESS_DECIMAL_BITS) as u16
+            (channel.current_address >> ADDRESS_FRACT_BITS) as u16
         } else {
             channel.start_address
         };

@@ -3,8 +3,9 @@
 ## New Features
 * (**Genesis / SNES**) Added a new video setting to disable deinterlacing in the handful of games that use interlaced display modes (e.g. _Sonic the Hedgehog 2_ in 2P Vs. mode, _Ys III_ (Genesis) with the in-game "Int Mode" option enabled,  _Air Strike Patrol_ in mission briefing screens)
 * (**Sega CD**) Added an audio setting for whether to apply low-pass filtering to CD audio track playback, which defaults to disabled
-* (**Sega CD**) Added an option to increase the disc drive speed when reading data tracks (#138)
 * (**Sega CD**) Added an option to overclock the sub CPU by decreasing the master clock divider (#138)
+* (**Sega CD**) Added an option to increase the disc drive speed when reading data tracks (#138)
+  * This has low compatibility, but it can shorten loading times in some games. Compatibility is _slightly_ higher when the sub CPU is overclocked
 * (**Sega CD**) Added an audio enhancement setting to apply quintic (5th-order) Hermite interpolation to PCM chip channels, which in some cases produces slightly cleaner audio than cubic Hermite interpolation
 
 ## Improvements
@@ -18,11 +19,12 @@
 * (**Genesis**) Fixed the 68000 incorrectly being allowed to access audio RAM while the Z80 is on the bus; this fixes freezing in _Joe & Mac_ (#144)
 * (**Genesis**) Fixed Z80 RESET not clearing the Z80's HALT status
 * (**Sega CD**) Fixed a regression introduced in v0.8.3 that caused PCM chip channels to skip the first sample after being enabled (this made little-to-no audible difference in practice because the first sample is usually 0)
+* (**Sega CD**) Fixed slightly inaccurate emulation of PCM chip looping behavior at sample rates higher than 0x0800 / 32552 Hz
 * (**Sega CD**) Unmapped/unknown address accesses will now log an error instead of crashing the emulator
 * Fixed a performance bug in the audio resampling code that could have caused intermittent extremely poor performance due to performing arithmetic on subnormal floating-point numbers, which can apparently be up to 100 times slower than normal floating-point arithmetic (#135)
 * Linux: AppImage builds now exclude all Wayland-related system libraries during packaging; this fixes the emulator failing to launch in some distros, e.g. Solus Plasma (#143)
 * Linux: AppImage builds now interpret relative paths in command-line arguments as being relative to the original working directory where the AppImage was launched from, not the AppImage internal runner directory (#147)
-* Fixed an issue with frame time sync's implementation that could have potentially caused slowdown when frame time sync was enabled
+* Adjusted frame time sync's sleep implementation to fix frame time sync potentially causing slowdown
 * Save state files are now explicitly versioned, which fixes potential crashing when attempting to load an incompatible save state file from a different version
 
 # v0.8.3
