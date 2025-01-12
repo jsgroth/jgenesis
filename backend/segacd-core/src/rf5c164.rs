@@ -186,24 +186,25 @@ impl Channel {
         self.current_address = (new_address_int << ADDRESS_FRACT_BITS) | new_address_fract;
     }
 
-    fn sample(&self, interpolation: PcmInterpolation) -> (f64, f64) {
+    fn sample(&self, interpolation: PcmInterpolation) -> (i32, i32) {
         if !self.enabled {
-            return (0.0, 0.0);
+            return (0, 0);
         }
 
         let sample = self.interpolation_buffer.sample(interpolation, self.current_address);
+        let sign = sample.signum() as i32;
+        let magnitude = sample.abs();
 
         // Apply volume
-        let amplified = sample * f64::from(self.master_volume);
+        let amplified = magnitude * f64::from(self.master_volume);
         let panned_l = amplified * f64::from(self.l_volume);
         let panned_r = amplified * f64::from(self.r_volume);
 
-        // Drop the lowest 5 bits and scale so that one channel at max amplitude is +/- 0.25
-        let sign = sample.signum();
-        let magnitude_l = panned_l.abs();
-        let magnitude_r = panned_r.abs();
-        let output_l = sign * f64::from((magnitude_l.round() as u32) >> 5) / f64::from(u16::MAX);
-        let output_r = sign * f64::from((magnitude_r.round() as u32) >> 5) / f64::from(u16::MAX);
+        // Drop the lowest 5 bits and apply sign
+        // Per the RF5C164 datasheet, the truncation is done purely on the magnitude, before taking
+        // sign into account
+        let output_l = sign * ((panned_l.round() as i32) >> 5);
+        let output_r = sign * ((panned_r.round() as i32) >> 5);
 
         (output_l, output_r)
     }
@@ -442,11 +443,19 @@ impl Rf5c164 {
             .channels
             .iter()
             .map(|channel| channel.sample(self.interpolation))
-            .fold((0.0, 0.0), |(sum_l, sum_r), (sample_l, sample_r)| {
+            .fold((0, 0), |(sum_l, sum_r), (sample_l, sample_r)| {
                 (sum_l + sample_l, sum_r + sample_r)
             });
 
-        (sample_l.clamp(-1.0, 1.0), sample_r.clamp(-1.0, 1.0))
+        // Individual channel samples are effectively signed 15-bit after applying volume (and
+        // dropping the lowest 5 bits)
+        // Mixed output is clamped to signed 16-bit
+        let sample_l = sample_l.clamp(i16::MIN.into(), i16::MAX.into());
+        let sample_r = sample_r.clamp(i16::MIN.into(), i16::MAX.into());
+
+        let sample_l = f64::from(sample_l) / -f64::from(i16::MIN);
+        let sample_r = f64::from(sample_r) / -f64::from(i16::MIN);
+        (sample_l, sample_r)
     }
 
     pub fn reload_config(&mut self, config: &SegaCdEmulatorConfig) {
