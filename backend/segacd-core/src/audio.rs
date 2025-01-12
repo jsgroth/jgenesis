@@ -32,7 +32,7 @@ type CdResampler = FirResampler<{ constants::CD_LPF_TAPS }, { constants::CD_ZERO
 trait LpfExt {
     fn pcm_coefficients(self) -> &'static [f64; constants::PCM_LPF_TAPS];
 
-    fn cd_coefficients(self) -> &'static [f64; constants::CD_LPF_TAPS];
+    fn cd_coefficients(self, low_pass_cd_da: bool) -> &'static [f64; constants::CD_LPF_TAPS];
 }
 
 impl LpfExt for LowPassFilter {
@@ -45,7 +45,11 @@ impl LpfExt for LowPassFilter {
         }
     }
 
-    fn cd_coefficients(self) -> &'static [f64; constants::CD_LPF_TAPS] {
+    fn cd_coefficients(self, low_pass_cd_da: bool) -> &'static [f64; constants::CD_LPF_TAPS] {
+        if !low_pass_cd_da {
+            return &constants::CD_SHARP_LPF_COEFFICIENTS;
+        }
+
         match self {
             Self::Sharp => &constants::CD_SHARP_LPF_COEFFICIENTS,
             Self::Moderate => &constants::CD_MID_LPF_COEFFICIENTS,
@@ -89,7 +93,7 @@ impl AudioResampler {
         let psg_resampler =
             smsgg_core::audio::new_psg_resampler(genesis_mclk_frequency, *lpf.psg_coefficients());
         let pcm_resampler = new_pcm_resampler(lpf.pcm_coefficients());
-        let cd_resampler = new_cd_resampler(lpf.cd_coefficients());
+        let cd_resampler = new_cd_resampler(lpf.cd_coefficients(config.low_pass_cd_da));
 
         Self {
             ym2612_resampler,
@@ -175,7 +179,7 @@ impl AudioResampler {
         self.ym2612_resampler.update_lpf_coefficients(*lpf.ym2612_coefficients());
         self.psg_resampler.update_lpf_coefficients(*lpf.psg_coefficients());
         self.pcm_resampler.update_lpf_coefficients(*lpf.pcm_coefficients());
-        self.cd_resampler.update_lpf_coefficients(*lpf.cd_coefficients());
+        self.cd_resampler.update_lpf_coefficients(*lpf.cd_coefficients(config.low_pass_cd_da));
     }
 
     pub fn update_output_frequency(&mut self, output_frequency: u64) {

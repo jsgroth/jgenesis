@@ -89,6 +89,7 @@ pub struct SegaCdEmulatorConfig {
     pub load_disc_into_ram: bool,
     pub disc_drive_speed: NonZeroU16,
     pub sub_cpu_divider: NonZeroU64,
+    pub low_pass_cd_da: bool,
     pub pcm_enabled: bool,
     pub cd_audio_enabled: bool,
 }

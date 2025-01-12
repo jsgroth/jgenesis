@@ -226,6 +226,10 @@ struct Args {
     #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
     scd_load_disc_into_ram: Option<bool>,
 
+    /// Whether to apply low-pass filtering to CD-DA playback
+    #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
+    scd_low_pass_cd_da: Option<bool>,
+
     /// Enable audio from the RF5C164 PCM chip
     #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
     scd_pcm_enabled: Option<bool>,
@@ -580,6 +584,7 @@ impl Args {
             scd_load_disc_into_ram -> load_disc_into_ram,
             scd_drive_speed -> disc_drive_speed,
             scd_sub_cpu_divider -> sub_cpu_divider,
+            scd_low_pass_cd_da -> low_pass_cd_da,
             scd_pcm_enabled -> pcm_enabled,
             scd_cd_da_enabled -> cd_audio_enabled,
         ]);

@@ -423,6 +423,18 @@ impl App {
                 self.state.help_text.insert(WINDOW, helptext::LOW_PASS_FILTER);
             }
 
+            ui.add_space(5.0);
+            let rect = ui
+                .checkbox(
+                    &mut self.config.sega_cd.low_pass_cd_da,
+                    "(Sega CD) Apply low-pass filter to CD-DA playback",
+                )
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::LOW_PASS_CD_DA);
+            }
+
+            ui.add_space(5.0);
             let rect = ui
                 .group(|ui| {
                     ui.label("Sega CD PCM chip interpolation");

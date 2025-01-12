@@ -184,6 +184,7 @@ impl WebConfig {
             load_disc_into_ram: true,
             disc_drive_speed: NonZeroU16::new(1).unwrap(),
             sub_cpu_divider: NonZeroU64::new(segacd_core::api::DEFAULT_SUB_CPU_DIVIDER).unwrap(),
+            low_pass_cd_da: false,
             pcm_enabled: true,
             cd_audio_enabled: true,
         }
