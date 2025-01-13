@@ -9,8 +9,8 @@ use crate::ppu::PpuState;
 use crate::{apu, audio, cpu, graphics, ppu};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorTrait, FrameSize, PixelAspectRatio, Renderer, SaveWriter,
-    TickEffect, TickResult, TimingMode,
+    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FrameSize, PixelAspectRatio, Renderer,
+    SaveWriter, TickEffect, TickResult, TimingMode,
 };
 use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, PartialClone};
 use std::fmt::{Debug, Display, Formatter};
@@ -94,6 +94,8 @@ pub struct NesEmulatorConfig {
     /// simultaneously, e.g. Zelda 2 and Battletoads
     pub allow_opposing_joypad_inputs: bool,
 }
+
+impl EmulatorConfigTrait for NesEmulatorConfig {}
 
 #[derive(Debug, Error)]
 pub enum NesError<RErr, AErr, SErr> {

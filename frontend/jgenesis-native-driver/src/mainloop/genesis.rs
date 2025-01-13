@@ -4,7 +4,6 @@ use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{NativeEmulatorError, debug, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
 use genesis_core::{GenesisEmulator, GenesisInputs};
-use jgenesis_common::frontend::EmulatorTrait;
 use s32x_core::api::Sega32XEmulator;
 use segacd_core::CdRomFileFormat;
 use segacd_core::api::{SegaCdEmulator, SegaCdLoadResult};
@@ -25,8 +24,7 @@ impl NativeGenesisEmulator {
 
         self.reload_common_config(&config.common)?;
 
-        self.emulator.reload_config(&config.emulator_config);
-        self.config = config.emulator_config;
+        self.update_emulator_config(&config.emulator_config);
 
         self.input_mapper.update_mappings(
             config.common.axis_deadzone,
@@ -49,8 +47,7 @@ impl NativeSegaCdEmulator {
 
         self.reload_common_config(&config.genesis.common)?;
 
-        self.emulator.reload_config(&config.emulator_config);
-        self.config = config.emulator_config;
+        self.update_emulator_config(&config.emulator_config);
 
         self.input_mapper.update_mappings(
             config.genesis.common.axis_deadzone,
@@ -114,8 +111,7 @@ impl Native32XEmulator {
 
         self.reload_common_config(&config.genesis.common)?;
 
-        self.emulator.reload_config(&config.emulator_config);
-        self.config = config.emulator_config;
+        self.update_emulator_config(&config.emulator_config);
 
         self.input_mapper.update_mappings(
             config.genesis.common.axis_deadzone,

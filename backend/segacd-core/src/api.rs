@@ -15,7 +15,8 @@ use genesis_core::vdp::{Vdp, VdpTickEffect};
 use genesis_core::ym2612::{Ym2612, YmTickEffect};
 use genesis_core::{GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorTrait, PartialClone, Renderer, SaveWriter, TickEffect, TimingMode,
+    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, PartialClone, Renderer, SaveWriter,
+    TickEffect, TimingMode,
 };
 use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, EnumFromStr};
 use m68000_emu::M68000;
@@ -92,6 +93,17 @@ pub struct SegaCdEmulatorConfig {
     pub low_pass_cd_da: bool,
     pub pcm_enabled: bool,
     pub cd_audio_enabled: bool,
+}
+
+impl EmulatorConfigTrait for SegaCdEmulatorConfig {
+    fn with_overclocking_disabled(&self) -> Self {
+        Self {
+            genesis: self.genesis.with_overclocking_disabled(),
+            disc_drive_speed: NonZeroU16::new(1).unwrap(),
+            sub_cpu_divider: NonZeroU64::new(DEFAULT_SUB_CPU_DIVIDER).unwrap(),
+            ..*self
+        }
+    }
 }
 
 #[derive(Debug, Encode, Decode, PartialClone)]

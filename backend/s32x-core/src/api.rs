@@ -12,7 +12,8 @@ use genesis_core::vdp::{Vdp, VdpTickEffect};
 use genesis_core::ym2612::{Ym2612, YmTickEffect};
 use genesis_core::{GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorTrait, Renderer, SaveWriter, TickEffect, TickResult, TimingMode,
+    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, Renderer, SaveWriter, TickEffect,
+    TickResult, TimingMode,
 };
 use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, PartialClone};
 use m68000_emu::M68000;
@@ -48,6 +49,12 @@ pub struct Sega32XEmulatorConfig {
     pub genesis: GenesisEmulatorConfig,
     pub video_out: S32XVideoOut,
     pub pwm_enabled: bool,
+}
+
+impl EmulatorConfigTrait for Sega32XEmulatorConfig {
+    fn with_overclocking_disabled(&self) -> Self {
+        Self { genesis: self.genesis.with_overclocking_disabled(), ..*self }
+    }
 }
 
 macro_rules! new_main_bus {

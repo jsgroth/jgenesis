@@ -202,10 +202,17 @@ pub trait MappableInputs<Button> {
     fn handle_mouse_leave(&mut self) {}
 }
 
+pub trait EmulatorConfigTrait: Clone {
+    #[must_use]
+    fn with_overclocking_disabled(&self) -> Self {
+        self.clone()
+    }
+}
+
 pub trait EmulatorTrait: Encode + Decode + PartialClone {
     type Button: Debug + Copy + Eq + Hash;
     type Inputs: Default + MappableInputs<Self::Button>;
-    type Config;
+    type Config: EmulatorConfigTrait;
 
     type Err<RErr: Debug + Display + Send + Sync + 'static, AErr: Debug + Display + Send + Sync + 'static, SErr: Debug + Display + Send + Sync + 'static>: Error + Send + Sync + 'static;
 

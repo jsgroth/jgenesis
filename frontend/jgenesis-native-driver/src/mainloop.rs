@@ -32,7 +32,7 @@ use crate::mainloop::state::SaveStatePaths;
 pub use audio::AudioError;
 use bincode::error::{DecodeError, EncodeError};
 use gb_core::api::GameBoyLoadError;
-use jgenesis_common::frontend::{EmulatorTrait, TickEffect};
+use jgenesis_common::frontend::{EmulatorConfigTrait, EmulatorTrait, TickEffect};
 use jgenesis_renderer::renderer;
 use jgenesis_renderer::renderer::{RendererError, WgpuRenderer};
 use nes_core::api::NesInitializationError;
@@ -132,6 +132,7 @@ struct HotkeyState<Emulator> {
     should_step_frame: bool,
     fast_forward_multiplier: u64,
     rewinder: Rewinder<Emulator>,
+    overclocking_enabled: bool,
     debugger_window: Option<DebuggerWindow<Emulator>>,
     window_scale_factor: Option<f32>,
     debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
@@ -162,6 +163,7 @@ impl<Emulator: EmulatorTrait> HotkeyState<Emulator> {
             rewinder: Rewinder::new(Duration::from_secs(
                 common_config.rewind_buffer_length_seconds,
             )),
+            overclocking_enabled: true,
             debugger_window: None,
             window_scale_factor: common_config.window_scale_factor,
             debug_render_fn,
@@ -190,6 +192,9 @@ pub enum NativeTickEffect {
 
 pub struct NativeEmulator<Emulator: EmulatorTrait> {
     emulator: Emulator,
+    // Config sent from the frontend
+    raw_config: Emulator::Config,
+    // Config with overclocking maybe forcibly disabled due to hotkey state
     config: Emulator::Config,
     renderer: WgpuRenderer<Window>,
     audio_output: SdlAudioOutput,
@@ -440,6 +445,7 @@ where
 
         let mut emulator = Self {
             emulator,
+            raw_config: emulator_config.clone(),
             config: emulator_config,
             renderer,
             audio_output,
@@ -696,107 +702,100 @@ where
         match hotkey {
             CompactHotkey::PowerOff => return Ok(Some(HotkeyEffect::PowerOff)),
             CompactHotkey::Exit => return Ok(Some(HotkeyEffect::Exit)),
-            CompactHotkey::ToggleFullscreen => {
-                self.renderer
-                    .toggle_fullscreen(self.hotkey_state.fullscreen_mode)
-                    .map_err(NativeEmulatorError::SdlSetFullscreen)?;
-                self.sdl.mouse().show_cursor(
-                    !self.hotkey_state.hide_mouse_cursor.should_hide(self.renderer.is_fullscreen()),
-                );
-            }
-            CompactHotkey::SaveState | CompactHotkey::SaveStateSlot(..) => {
-                let slot = match hotkey {
-                    CompactHotkey::SaveState => self.hotkey_state.save_state_slot,
-                    CompactHotkey::SaveStateSlot(slot) => slot,
-                    _ => unreachable!("nested match expressions"),
-                };
-                self.save_state(slot)?;
-                log::info!(
-                    "Saved state to slot {slot} in '{}'",
-                    self.hotkey_state.save_state_paths[slot].display()
-                );
-            }
-            CompactHotkey::LoadState | CompactHotkey::LoadStateSlot(..) => {
-                let slot = match hotkey {
-                    CompactHotkey::LoadState => self.hotkey_state.save_state_slot,
-                    CompactHotkey::LoadStateSlot(slot) => slot,
-                    _ => unreachable!("nested match expressions"),
-                };
-
-                match self.load_state(slot) {
-                    Ok(()) => {
-                        log::info!(
-                            "Loaded state from slot {slot} in '{}'",
-                            self.hotkey_state.save_state_paths[slot].display()
-                        );
-                    }
-                    Err(err) => {
-                        log::error!(
-                            "Error loading save state from slot {slot} in '{}': {err}",
-                            self.hotkey_state.save_state_paths[slot].display()
-                        );
-                    }
-                }
-            }
-            CompactHotkey::SoftReset => {
-                self.emulator.soft_reset();
-            }
-            CompactHotkey::HardReset => {
-                self.emulator.hard_reset(&mut self.save_writer);
-            }
-            CompactHotkey::NextSaveStateSlot => {
-                self.hotkey_state.save_state_slot =
-                    (self.hotkey_state.save_state_slot + 1) % SAVE_STATE_SLOTS;
-                self.renderer.add_modal(
-                    format!("Selected save state slot {}", self.hotkey_state.save_state_slot),
-                    MODAL_DURATION,
-                );
-            }
-            CompactHotkey::PrevSaveStateSlot => {
-                self.hotkey_state.save_state_slot = if self.hotkey_state.save_state_slot == 0 {
-                    state::SAVE_STATE_SLOTS - 1
-                } else {
-                    self.hotkey_state.save_state_slot - 1
-                };
-                self.renderer.add_modal(
-                    format!("Selected save state slot {}", self.hotkey_state.save_state_slot),
-                    MODAL_DURATION,
-                );
-            }
+            CompactHotkey::ToggleFullscreen => self.toggle_fullscreen()?,
+            CompactHotkey::SaveState => self.save_state(self.hotkey_state.save_state_slot)?,
+            CompactHotkey::SaveStateSlot(slot) => self.save_state(slot)?,
+            CompactHotkey::LoadState => self.hotkey_load_state(None),
+            CompactHotkey::LoadStateSlot(slot) => self.hotkey_load_state(Some(slot)),
+            CompactHotkey::SoftReset => self.emulator.soft_reset(),
+            CompactHotkey::HardReset => self.emulator.hard_reset(&mut self.save_writer),
+            CompactHotkey::NextSaveStateSlot => self.next_save_state_slot(),
+            CompactHotkey::PrevSaveStateSlot => self.prev_save_state_slot(),
             CompactHotkey::Pause => {
                 self.hotkey_state.paused = !self.hotkey_state.paused;
             }
             CompactHotkey::StepFrame => {
                 self.hotkey_state.should_step_frame = true;
             }
-            CompactHotkey::FastForward => {
-                let multiplier = self.hotkey_state.fast_forward_multiplier;
-                self.renderer.set_speed_multiplier(multiplier);
-                self.audio_output.set_speed_multiplier(multiplier);
-            }
-            CompactHotkey::Rewind => {
-                self.hotkey_state.rewinder.start_rewinding();
-            }
-            CompactHotkey::OpenDebugger => {
-                if self.hotkey_state.debugger_window.is_none() {
-                    let debug_render_fn = (self.hotkey_state.debug_render_fn)();
-                    match DebuggerWindow::new(
-                        &self.video,
-                        self.hotkey_state.window_scale_factor,
-                        debug_render_fn,
-                    ) {
-                        Ok(debugger_window) => {
-                            self.hotkey_state.debugger_window = Some(debugger_window);
-                        }
-                        Err(err) => {
-                            log::error!("Error opening debugger window: {err}");
-                        }
-                    }
-                }
-            }
+            CompactHotkey::FastForward => self.enable_fast_forward(),
+            CompactHotkey::Rewind => self.hotkey_state.rewinder.start_rewinding(),
+            CompactHotkey::ToggleOverclocking => self.toggle_overclocking(),
+            CompactHotkey::OpenDebugger => self.open_memory_viewer(),
         }
 
         Ok(None)
+    }
+
+    fn toggle_fullscreen(&mut self) -> NativeEmulatorResult<()> {
+        self.renderer
+            .toggle_fullscreen(self.hotkey_state.fullscreen_mode)
+            .map_err(NativeEmulatorError::SdlSetFullscreen)?;
+        self.sdl.mouse().show_cursor(
+            !self.hotkey_state.hide_mouse_cursor.should_hide(self.renderer.is_fullscreen()),
+        );
+
+        Ok(())
+    }
+
+    fn hotkey_load_state(&mut self, slot: Option<usize>) {
+        let slot = slot.unwrap_or(self.hotkey_state.save_state_slot);
+
+        if let Err(err) = self.load_state(slot) {
+            log::error!(
+                "Error loading save state from slot {slot} in '{}': {err}",
+                self.hotkey_state.save_state_paths[slot].display()
+            );
+        }
+    }
+
+    fn next_save_state_slot(&mut self) {
+        self.hotkey_state.save_state_slot =
+            (self.hotkey_state.save_state_slot + 1) % SAVE_STATE_SLOTS;
+        self.renderer.add_modal(
+            format!("Selected save state slot {}", self.hotkey_state.save_state_slot),
+            MODAL_DURATION,
+        );
+    }
+
+    fn prev_save_state_slot(&mut self) {
+        self.hotkey_state.save_state_slot = if self.hotkey_state.save_state_slot == 0 {
+            SAVE_STATE_SLOTS - 1
+        } else {
+            self.hotkey_state.save_state_slot - 1
+        };
+        self.renderer.add_modal(
+            format!("Selected save state slot {}", self.hotkey_state.save_state_slot),
+            MODAL_DURATION,
+        );
+    }
+
+    fn enable_fast_forward(&mut self) {
+        let multiplier = self.hotkey_state.fast_forward_multiplier;
+        self.renderer.set_speed_multiplier(multiplier);
+        self.audio_output.set_speed_multiplier(multiplier);
+    }
+
+    fn toggle_overclocking(&mut self) {
+        self.hotkey_state.overclocking_enabled = !self.hotkey_state.overclocking_enabled;
+        self.update_emulator_config(&self.raw_config.clone());
+
+        let modal_text = if self.hotkey_state.overclocking_enabled {
+            "Overclocking enabled"
+        } else {
+            "Overclocking disabled"
+        };
+        self.renderer.add_modal(modal_text.into(), MODAL_DURATION);
+    }
+
+    fn update_emulator_config(&mut self, config: &Emulator::Config) {
+        self.raw_config = config.clone();
+        self.config = if self.hotkey_state.overclocking_enabled {
+            self.raw_config.clone()
+        } else {
+            self.raw_config.with_overclocking_disabled()
+        };
+
+        self.emulator.reload_config(&self.config);
     }
 }
 

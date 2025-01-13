@@ -1,16 +1,19 @@
 # Next Release
 
 ## New Features
-* (**Genesis / SNES**) Added a new video setting to disable deinterlacing in the handful of games that use interlaced display modes (e.g. _Sonic the Hedgehog 2_ in 2P Vs. mode, _Ys III_ (Genesis) with the in-game "Int Mode" option enabled,  _Air Strike Patrol_ in mission briefing screens)
+* (**Genesis / **SNES**) Added a new video setting to disable deinterlacing in the handful of games that use interlaced display modes (e.g. _Sonic the Hedgehog 2_ in 2P Vs. mode, _Ys III_ (Genesis) with the in-game "Int Mode" option enabled,  _Air Strike Patrol_ in mission briefing screens)
+  * Deinterlacing enabled matches the behavior in previous versions: normal-resolution interlaced modes display the same as progressive mode, and high-res interlaced modes make the graphics processor render all 448/480 lines every frame
 * (**Sega CD**) Added an audio setting for whether to apply low-pass filtering to CD audio track playback, which defaults to disabled
 * (**Sega CD**) Added an option to overclock the sub CPU by decreasing the master clock divider (#138)
 * (**Sega CD**) Added an option to increase the disc drive speed when reading data tracks (#138)
-  * This has low compatibility, but it can shorten loading times in some games. Compatibility is _slightly_ higher when the sub CPU is overclocked
+  * This has low compatibility but can shorten loading times in some games. Compatibility is _slightly_ higher when the sub CPU is overclocked
 * (**Sega CD**) Added an audio enhancement setting to apply quintic (5th-order) Hermite interpolation to PCM chip channels, which in some cases produces slightly cleaner audio than cubic Hermite interpolation
+* Added a new hotkey to quickly toggle whether overclocking settings are enabled, for the systems that support overclocking (this includes Sega CD's new drive speed setting)
+  * This is mainly useful for Sega CD, where increasing the drive speed can shorten loading times during gameplay but almost always breaks FMVs and animated cutscenes
 
 ## Improvements
 * GUI: When opening a game that requires a BIOS ROM or firmware ROM (e.g. any Sega CD game), if the BIOS/firmware ROM path is not configured, the error window now contains a button to configure the appropriate ROM path and immediately launch the game
-* CLI: If no config file exists, the CLI will now write out the default config to the config path so that it can be edited manually if desired
+* CLI: If no config file exists, the CLI will now attempt to write out the default config to the config path so that it can be edited manually if desired
 * Save state files are now internally compressed using zstd which should reduce save state file size by at least 50%, often by 70-80%
 * (**Genesis**) Slightly improved performance by optimizing VDP rendering and tile fetching code
 * (**SMS**) The "crop vertical borders" video setting now defaults to enabled instead of disabled; unlike the left border, the vertical borders will only ever show the current backdrop color
@@ -24,7 +27,7 @@
 * Fixed a performance bug in the audio resampling code that could have caused intermittent extremely poor performance due to performing arithmetic on subnormal floating-point numbers, which can apparently be up to 100 times slower than normal floating-point arithmetic (#135)
 * Linux: AppImage builds now exclude all Wayland-related system libraries during packaging; this fixes the emulator failing to launch in some distros, e.g. Solus Plasma (#143)
 * Linux: AppImage builds now interpret relative paths in command-line arguments as being relative to the original working directory where the AppImage was launched from, not the AppImage internal runner directory (#147)
-* Adjusted frame time sync's sleep implementation to fix frame time sync potentially causing slowdown
+* Adjusted frame time sync's sleep implementation to fix frame time sync potentially causing slowdown on some platforms
 * Save state files are now explicitly versioned, which fixes potential crashing when attempting to load an incompatible save state file from a different version
 
 # v0.8.3

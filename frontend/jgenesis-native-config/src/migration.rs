@@ -85,6 +85,10 @@ pub fn migrate_config(config: &AppConfig, config_str: &str) -> Option<AppConfig>
         migrate_config_0_8_3(&mut new_config, config_str);
     }
 
+    if old_version < SemVer::new(0, 8, 4) {
+        migrate_config_0_8_4(&mut new_config);
+    }
+
     new_config.config_version = Some(current_config_version().into());
 
     Some(new_config)
@@ -152,4 +156,10 @@ fn migrate_config_0_8_3(config: &mut AppConfig, config_str: &str) {
 fn stringify_mapping(mapping: &[GenericInput]) -> String {
     let strings: Vec<_> = mapping.iter().map(GenericInput::to_string).collect();
     strings.join(" + ")
+}
+
+fn migrate_config_0_8_4(config: &mut AppConfig) {
+    // New hotkey ToggleOverclocking
+    config.input.hotkeys.mapping_1.toggle_overclocking =
+        HotkeyConfig::default().mapping_1.toggle_overclocking;
 }

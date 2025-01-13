@@ -707,6 +707,7 @@ define_hotkey_mapping!(
     step_frame: StepFrame default N,
     fast_forward: FastForward default Tab,
     rewind: Rewind default Backquote,
+    toggle_overclocking: ToggleOverclocking default Semicolon,
     open_debugger: OpenDebugger default Quote,
     save_state_slot_0: SaveStateSlot0 default none,
     save_state_slot_1: SaveStateSlot1 default none,

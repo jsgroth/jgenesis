@@ -9,8 +9,8 @@ use crate::ym2612::{Ym2612, YmTickEffect};
 use crate::{GenesisControllerType, audio, timing, vdp};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorTrait, FrameSize, PartialClone, PixelAspectRatio, Renderer,
-    SaveWriter, TickEffect, TimingMode,
+    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FrameSize, PartialClone,
+    PixelAspectRatio, Renderer, SaveWriter, TickEffect, TimingMode,
 };
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, EnumFromStr};
@@ -189,6 +189,12 @@ impl GenesisEmulatorConfig {
             );
         }
         NonZeroU64::new(clamped_divider).unwrap()
+    }
+}
+
+impl EmulatorConfigTrait for GenesisEmulatorConfig {
+    fn with_overclocking_disabled(&self) -> Self {
+        Self { m68k_clock_divider: timing::NATIVE_M68K_DIVIDER, ..*self }
     }
 }
 

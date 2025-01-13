@@ -16,8 +16,8 @@ use crate::timer::GbTimer;
 use crate::{HardwareMode, audio, ppu};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorTrait, PixelAspectRatio, Renderer, SaveWriter, TickEffect,
-    TickResult,
+    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, PixelAspectRatio, Renderer, SaveWriter,
+    TickEffect, TickResult,
 };
 use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, PartialClone};
 use std::fmt::{Debug, Display};
@@ -91,6 +91,8 @@ pub struct GameBoyEmulatorConfig {
     pub gbc_color_correction: GbcColorCorrection,
     pub audio_60hz_hack: bool,
 }
+
+impl EmulatorConfigTrait for GameBoyEmulatorConfig {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BackgroundTileMap {

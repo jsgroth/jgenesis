@@ -9,8 +9,8 @@ use crate::vdp::{Vdp, VdpBuffer, VdpTickEffect};
 use crate::{SmsGgButton, SmsGgInputs, VdpVersion, vdp};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorTrait, FrameSize, PartialClone, PixelAspectRatio, Renderer,
-    SaveWriter, TickEffect, TimingMode,
+    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FrameSize, PartialClone,
+    PixelAspectRatio, Renderer, SaveWriter, TickEffect, TimingMode,
 };
 use jgenesis_proc_macros::{
     ConfigDisplay, EnumAll, EnumDisplay, EnumFromStr, FakeDecode, FakeEncode,
@@ -151,6 +151,12 @@ pub struct SmsGgEmulatorConfig {
     pub gg_use_sms_resolution: bool,
     pub fm_sound_unit_enabled: bool,
     pub z80_divider: NonZeroU32,
+}
+
+impl EmulatorConfigTrait for SmsGgEmulatorConfig {
+    fn with_overclocking_disabled(&self) -> Self {
+        Self { z80_divider: NonZeroU32::new(crate::NATIVE_Z80_DIVIDER).unwrap(), ..*self }
+    }
 }
 
 #[derive(Debug, Clone, Encode, Decode, PartialClone)]

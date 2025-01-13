@@ -38,8 +38,7 @@ impl NativeNesEmulator {
 
         self.reload_common_config(&config.common)?;
 
-        self.emulator.reload_config(&config.emulator_config);
-        self.config = config.emulator_config;
+        self.update_emulator_config(&config.emulator_config);
 
         // Config change could have changed target framerate (50/60 Hz hack)
         self.renderer.set_target_fps(self.emulator.target_fps());

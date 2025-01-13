@@ -232,6 +232,7 @@ pub enum Hotkey {
     StepFrame,
     FastForward,
     Rewind,
+    ToggleOverclocking,
     OpenDebugger,
     SaveState,
     LoadState,
@@ -276,6 +277,7 @@ pub enum CompactHotkey {
     StepFrame,
     FastForward,
     Rewind,
+    ToggleOverclocking,
     OpenDebugger,
 }
 
@@ -295,6 +297,7 @@ impl Hotkey {
             Self::StepFrame => CompactHotkey::StepFrame,
             Self::FastForward => CompactHotkey::FastForward,
             Self::Rewind => CompactHotkey::Rewind,
+            Self::ToggleOverclocking => CompactHotkey::ToggleOverclocking,
             Self::OpenDebugger => CompactHotkey::OpenDebugger,
             Self::SaveStateSlot0 => CompactHotkey::SaveStateSlot(0),
             Self::SaveStateSlot1 => CompactHotkey::SaveStateSlot(1),
