@@ -1,7 +1,7 @@
 # Next Release
 
 ## New Features
-* (**Genesis / **SNES**) Added a new video setting to disable deinterlacing in the handful of games that use interlaced display modes (e.g. _Sonic the Hedgehog 2_ in 2P Vs. mode, _Ys III_ (Genesis) with the in-game "Int Mode" option enabled,  _Air Strike Patrol_ in mission briefing screens)
+* (**Genesis** / **SNES**) Added a new video setting to disable deinterlacing in the handful of games that use interlaced display modes (e.g. _Sonic the Hedgehog 2_ in 2P Vs. mode, _Ys III_ (Genesis) with the in-game "Int Mode" option enabled,  _Air Strike Patrol_ in mission briefing screens)
   * Deinterlacing enabled matches the behavior in previous versions: normal-resolution interlaced modes display the same as progressive mode, and high-res interlaced modes make the graphics processor render all 448/480 lines every frame
 * (**Sega CD**) Added an audio setting for whether to apply low-pass filtering to CD audio track playback, which defaults to disabled
 * (**Sega CD**) Added an option to overclock the sub CPU by decreasing the master clock divider (#138)
@@ -27,6 +27,8 @@
 * Fixed a performance bug in the audio resampling code that could have caused intermittent extremely poor performance due to performing arithmetic on subnormal floating-point numbers, which can apparently be up to 100 times slower than normal floating-point arithmetic (#135)
 * Linux: AppImage builds now exclude all Wayland-related system libraries during packaging; this fixes the emulator failing to launch in some distros, e.g. Solus Plasma (#143)
 * Linux: AppImage builds now interpret relative paths in command-line arguments as being relative to the original working directory where the AppImage was launched from, not the AppImage internal runner directory (#147)
+* Linux/BSD CLI: For these platforms only and for the CLI only, reverted the change to estimate window scale factor because `SDL_GetDisplayDPI` does not return reliable values on Linux/BSD
+  * This does not affect the GUI which still passes along the scale factor determined by eframe/winit
 * Adjusted frame time sync's sleep implementation to fix frame time sync potentially causing slowdown on some platforms
 * Save state files are now explicitly versioned, which fixes potential crashing when attempting to load an incompatible save state file from a different version
 

@@ -725,7 +725,7 @@ fn fix_optional_relative_path(option: &mut Option<PathBuf>) {
 fn try_determine_scale_factor() -> Option<f32> {
     let sdl_ctx = sdl2::init().ok()?;
     let video = sdl_ctx.video().ok()?;
-    jgenesis_native_driver::determine_scale_factor(&video, None)
+    jgenesis_native_driver::guess_sdl2_scale_factor(&video, None)
 }
 
 fn main() -> anyhow::Result<()> {
