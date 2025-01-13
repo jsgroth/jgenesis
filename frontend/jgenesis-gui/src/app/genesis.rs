@@ -392,6 +392,7 @@ impl App {
                 self.state.help_text.insert(WINDOW, helptext::YM2612_LADDER_EFFECT);
             }
 
+            ui.add_space(5.0);
             let rect = ui
                 .group(|ui| {
                     ui.label("Low-pass filter");
@@ -440,26 +441,18 @@ impl App {
                     ui.label("Sega CD PCM chip interpolation");
 
                     ui.horizontal(|ui| {
-                        ui.radio_value(
-                            &mut self.config.sega_cd.pcm_interpolation,
-                            PcmInterpolation::None,
-                            "None",
-                        );
-                        ui.radio_value(
-                            &mut self.config.sega_cd.pcm_interpolation,
-                            PcmInterpolation::Linear,
-                            "Linear",
-                        );
-                        ui.radio_value(
-                            &mut self.config.sega_cd.pcm_interpolation,
-                            PcmInterpolation::CubicHermite,
-                            "Cubic",
-                        );
-                        ui.radio_value(
-                            &mut self.config.sega_cd.pcm_interpolation,
-                            PcmInterpolation::QuinticHermite,
-                            "Quintic",
-                        );
+                        for (value, label) in [
+                            (PcmInterpolation::None, "None"),
+                            (PcmInterpolation::Linear, "Linear"),
+                            (PcmInterpolation::CubicHermite, "Cubic"),
+                            (PcmInterpolation::QuinticHermite, "Quintic"),
+                        ] {
+                            ui.radio_value(
+                                &mut self.config.sega_cd.pcm_interpolation,
+                                value,
+                                label,
+                            );
+                        }
                     });
                 })
                 .response
@@ -472,14 +465,24 @@ impl App {
                 .group(|ui| {
                     ui.label("Enabled sound sources");
 
-                    ui.checkbox(&mut self.config.genesis.ym2612_enabled, "YM2612 FM chip");
-                    ui.checkbox(&mut self.config.genesis.psg_enabled, "SN76489 PSG chip");
-                    ui.checkbox(&mut self.config.sega_cd.pcm_enabled, "RF5C164 PCM chip (Sega CD)");
-                    ui.checkbox(
-                        &mut self.config.sega_cd.cd_audio_enabled,
-                        "CD-DA playback (Sega CD)",
-                    );
-                    ui.checkbox(&mut self.config.sega_32x.pwm_enabled, "PWM chip (32X)");
+                    ui.horizontal(|ui| {
+                        ui.checkbox(
+                            &mut self.config.genesis.ym2612_enabled,
+                            "YM2612 FM synth chip",
+                        );
+                        ui.checkbox(&mut self.config.genesis.psg_enabled, "SN76489 PSG chip");
+                    });
+                    ui.horizontal(|ui| {
+                        ui.checkbox(
+                            &mut self.config.sega_cd.pcm_enabled,
+                            "(Sega CD) RF5C164 PCM chip",
+                        );
+                        ui.checkbox(
+                            &mut self.config.sega_cd.cd_audio_enabled,
+                            "(Sega CD) CD-DA playback",
+                        );
+                    });
+                    ui.checkbox(&mut self.config.sega_32x.pwm_enabled, "(32X) PWM chip");
                 })
                 .response
                 .interact_rect;
