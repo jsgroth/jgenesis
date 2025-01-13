@@ -780,9 +780,9 @@ where
         self.update_emulator_config(&self.raw_config.clone());
 
         let modal_text = if self.hotkey_state.overclocking_enabled {
-            "Overclocking enabled"
+            "Overclocking settings enabled"
         } else {
-            "Overclocking disabled"
+            "Overclocking settings disabled"
         };
         self.renderer.add_modal(modal_text.into(), MODAL_DURATION);
     }
