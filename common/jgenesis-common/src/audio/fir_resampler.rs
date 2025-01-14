@@ -3,7 +3,7 @@ use bincode::{Decode, Encode};
 use std::collections::VecDeque;
 
 // Very small value added/subtracted to avoid subnormal numbers appearing in the filters
-const TINY_VALUE: f64 = 1e-15;
+const TINY_VALUE: f64 = 1e-50;
 
 // This is different from VecDeque in that the samples are guaranteed to always be contiguous in
 // memory, which is important for performance when N is large

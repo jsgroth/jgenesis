@@ -1,6 +1,6 @@
 #![allow(clippy::excessive_precision)]
 
-pub const PCM_HPF_CHARGE_FACTOR: f64 = 0.9946028448191855;
+pub const PCM_HPF_CHARGE_FACTOR: f64 = 1.0;
 
 pub const PCM_LPF_TAPS: usize = 61;
 
@@ -263,7 +263,7 @@ pub const PCM_VSOFT_LPF_COEFFICIENTS: [f64; PCM_LPF_TAPS] = [
     0.0005365744706938545,
 ];
 
-pub const CD_HPF_CHARGE_FACTOR: f64 = 0.9960133089108504;
+pub const CD_HPF_CHARGE_FACTOR: f64 = 1.0;
 
 pub const CD_LPF_TAPS: usize = 65;
 
