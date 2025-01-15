@@ -7,6 +7,7 @@ use cdrom::cdtime::CdTime;
 use cdrom::cue::{Track, TrackType};
 use cdrom::reader::{CdRom, CdRomFileFormat};
 use genesis_core::GenesisRegion;
+use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::PartialClone;
 use regex::Regex;
 use std::cmp::Ordering;
@@ -930,10 +931,19 @@ fn fader_volume_multiplier(volume: u16) -> f64 {
     static LOOKUP_TABLE: LazyLock<[f64; 1025]> = LazyLock::new(|| {
         let mut lookup_table = [0.0; 1025];
 
-        // For every volume, multiplier is (Bits 9-2)/256
-        // The fader appears to use a linear scale, not logarithmic
+        // The fader appears to use a linear scale, not logarithmic.
+        //
+        // Based on LC7883 documentation:
+        //   For every volume >3, multiplier is (Bits 9-2)/256
+        //   For volumes 1-3, multiplier is (Bit 1)/512 + (Bit 0)/1024. This matches the dB values in LC7883 docs
+        //   For volume 0, multiplier is 0 (i.e. attenuation -inf)
         for (i, value) in lookup_table.iter_mut().enumerate() {
-            *value = (i >> 2) as f64 / 256.0;
+            *value = match i {
+                0 => 0.0,
+                1..=3 => f64::from(i.bit(1)) / 512.0 + f64::from(i.bit(0)) / 1024.0,
+                4..=1024 => (i >> 2) as f64 / 256.0,
+                _ => unreachable!("array len is 1025"),
+            };
         }
 
         lookup_table
