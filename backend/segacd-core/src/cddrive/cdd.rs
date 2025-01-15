@@ -7,7 +7,6 @@ use cdrom::cdtime::CdTime;
 use cdrom::cue::{Track, TrackType};
 use cdrom::reader::{CdRom, CdRomFileFormat};
 use genesis_core::GenesisRegion;
-use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::PartialClone;
 use regex::Regex;
 use std::cmp::Ordering;
@@ -939,8 +938,7 @@ fn fader_volume_multiplier(volume: u16) -> f64 {
         //   For volume 0, multiplier is 0 (i.e. attenuation -inf)
         for (i, value) in lookup_table.iter_mut().enumerate() {
             *value = match i {
-                0 => 0.0,
-                1..=3 => f64::from(i.bit(1)) / 512.0 + f64::from(i.bit(0)) / 1024.0,
+                0..=3 => i as f64 / 1024.0,
                 4..=1024 => (i >> 2) as f64 / 256.0,
                 _ => unreachable!("array len is 1025"),
             };
