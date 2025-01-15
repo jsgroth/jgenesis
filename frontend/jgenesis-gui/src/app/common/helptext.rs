@@ -125,5 +125,6 @@ pub const AUDIO_GAIN: HelpText = HelpText {
     text: &[
         "Optionally configure a gain value to apply to final mixed audio output.",
         "Positive values increase volume and negative values decrease volume. Can be an integer or decimal value.",
+        "Setting this too high can cause audio distortion.",
     ],
 };
