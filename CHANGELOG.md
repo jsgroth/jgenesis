@@ -12,6 +12,8 @@
   * This is mainly useful for Sega CD, where increasing the drive speed can shorten loading times during gameplay but almost always breaks FMVs and animated cutscenes
 
 ## Improvements
+* (**Genesis** / **Sega CD** / **32X**) Improved quality of non-default low-pass filter options
+  * There is also a new "Hardware" option that targets a cutoff frequency of about 3390 Hz
 * GUI: When opening a game that requires a BIOS ROM or firmware ROM (e.g. any Sega CD game), if the BIOS/firmware ROM path is not configured, the error window now contains a button to configure the appropriate ROM path and immediately launch the game
 * CLI: If no config file exists, the CLI will now attempt to write out the default config to the config path so that it can be edited manually if desired
 * Save state files are now internally compressed using zstd which should reduce save state file size by at least 50%, often by 70-80%

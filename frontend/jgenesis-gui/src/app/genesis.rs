@@ -397,26 +397,15 @@ impl App {
                 .group(|ui| {
                     ui.label("Low-pass filter");
 
-                    ui.radio_value(
-                        &mut self.config.genesis.low_pass_filter,
-                        LowPassFilter::Sharp,
-                        "Sharp (~15000 Hz cutoff)",
-                    );
-                    ui.radio_value(
-                        &mut self.config.genesis.low_pass_filter,
-                        LowPassFilter::Moderate,
-                        "Moderate (~10000 Hz cutoff)",
-                    );
-                    ui.radio_value(
-                        &mut self.config.genesis.low_pass_filter,
-                        LowPassFilter::Soft,
-                        "Soft (~8000 Hz cutoff)",
-                    );
-                    ui.radio_value(
-                        &mut self.config.genesis.low_pass_filter,
-                        LowPassFilter::VerySoft,
-                        "Very soft (~5000 Hz cutoff)",
-                    );
+                    for (value, label) in [
+                        (LowPassFilter::Sharp, "Sharp (~15000 Hz cutoff)"),
+                        (LowPassFilter::Moderate, "Moderate (~10000 Hz cutoff)"),
+                        (LowPassFilter::Soft, "Soft (~7500 Hz cutoff)"),
+                        (LowPassFilter::VerySoft, "Very soft (~5000 Hz cutoff)"),
+                        (LowPassFilter::Hardware, "Hardware (~3390 Hz cutoff)"),
+                    ] {
+                        ui.radio_value(&mut self.config.genesis.low_pass_filter, value, label);
+                    }
                 })
                 .response
                 .interact_rect;

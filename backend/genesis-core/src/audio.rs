@@ -23,15 +23,17 @@ pub type Ym2612Resampler =
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum LowPassFilter {
-    #[default]
     // Roughly 15000 Hz cutoff
     Sharp,
     // Roughly 10000 Hz cutoff
+    #[default]
     Moderate,
-    // Roughly 8000 Hz cutoff
+    // Roughly 7500 Hz cutoff
     Soft,
     // Roughly 5000 Hz cutoff
     VerySoft,
+    // Roughly 3390 Hz cutoff
+    Hardware,
 }
 
 impl LowPassFilter {
@@ -43,6 +45,7 @@ impl LowPassFilter {
             Self::Moderate => &smsgg_core::audio::constants::PSG_MID_LPF_COEFFICIENTS,
             Self::Soft => &smsgg_core::audio::constants::PSG_SOFT_LPF_COEFFICIENTS,
             Self::VerySoft => &smsgg_core::audio::constants::PSG_VSOFT_LPF_COEFFICIENTS,
+            Self::Hardware => &smsgg_core::audio::constants::PSG_HARDWARE_LPF_COEFFICIENTS,
         }
     }
 
@@ -54,6 +57,7 @@ impl LowPassFilter {
             Self::Moderate => &constants::YM2612_MID_LPF_COEFFICIENTS,
             Self::Soft => &constants::YM2612_SOFT_LPF_COEFFICIENTS,
             Self::VerySoft => &constants::YM2612_VSOFT_LPF_COEFFICIENTS,
+            Self::Hardware => &constants::YM2612_HARDWARE_LPF_COEFFICIENTS,
         }
     }
 }

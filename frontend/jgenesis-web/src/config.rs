@@ -141,7 +141,7 @@ impl GenesisWebConfig {
             backdrop_enabled: true,
             quantize_ym2612_output: true,
             emulate_ym2612_ladder_effect: true,
-            low_pass_filter: LowPassFilter::Moderate,
+            low_pass_filter: LowPassFilter::default(),
             ym2612_enabled: true,
             psg_enabled: true,
         }
