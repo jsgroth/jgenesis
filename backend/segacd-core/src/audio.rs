@@ -6,7 +6,7 @@ mod constants;
 
 use crate::api::SegaCdEmulatorConfig;
 use bincode::{Decode, Encode};
-use genesis_core::audio::{LowPassFilter, Ym2612Resampler};
+use genesis_core::audio::Ym2612Resampler;
 use jgenesis_common::audio::FirResampler;
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
 use smsgg_core::audio::PsgResampler;
@@ -29,43 +29,21 @@ const CD_COEFFICIENT: f64 = 0.44668359215096315;
 type PcmResampler = FirResampler<{ constants::PCM_LPF_TAPS }, { constants::PCM_ZERO_PADDING }>;
 type CdResampler = FirResampler<{ constants::CD_LPF_TAPS }, { constants::CD_ZERO_PADDING }>;
 
-trait LpfExt {
-    fn pcm_coefficients(self) -> &'static [f64; constants::PCM_LPF_TAPS];
-
-    fn cd_coefficients(self, low_pass_cd_da: bool) -> &'static [f64; constants::CD_LPF_TAPS];
-}
-
-impl LpfExt for LowPassFilter {
-    fn pcm_coefficients(self) -> &'static [f64; constants::PCM_LPF_TAPS] {
-        match self {
-            Self::Sharp => &constants::PCM_SHARP_LPF_COEFFICIENTS,
-            Self::Moderate => &constants::PCM_MID_LPF_COEFFICIENTS,
-            Self::Soft => &constants::PCM_SOFT_LPF_COEFFICIENTS,
-            Self::VerySoft => &constants::PCM_VSOFT_LPF_COEFFICIENTS,
-        }
-    }
-
-    fn cd_coefficients(self, low_pass_cd_da: bool) -> &'static [f64; constants::CD_LPF_TAPS] {
-        if !low_pass_cd_da {
-            return &constants::CD_SHARP_LPF_COEFFICIENTS;
-        }
-
-        match self {
-            Self::Sharp => &constants::CD_SHARP_LPF_COEFFICIENTS,
-            Self::Moderate => &constants::CD_MID_LPF_COEFFICIENTS,
-            Self::Soft => &constants::CD_SOFT_LPF_COEFFICIENTS,
-            Self::VerySoft => &constants::CD_VSOFT_LPF_COEFFICIENTS,
-        }
-    }
-}
-
-fn new_pcm_resampler(lpf_coefficients: &[f64; constants::PCM_LPF_TAPS]) -> PcmResampler {
+fn new_pcm_resampler() -> PcmResampler {
     let pcm_frequency = SEGA_CD_MCLK_FREQUENCY / 4.0 / 384.0;
-    PcmResampler::new(pcm_frequency, *lpf_coefficients, constants::PCM_HPF_CHARGE_FACTOR)
+    PcmResampler::new(
+        pcm_frequency,
+        constants::PCM_SHARP_LPF_COEFFICIENTS,
+        constants::PCM_HPF_CHARGE_FACTOR,
+    )
 }
 
-fn new_cd_resampler(lpf_coefficients: &[f64; constants::CD_LPF_TAPS]) -> CdResampler {
-    CdResampler::new(CD_DA_FREQUENCY, *lpf_coefficients, constants::CD_HPF_CHARGE_FACTOR)
+fn new_cd_resampler() -> CdResampler {
+    CdResampler::new(
+        CD_DA_FREQUENCY,
+        constants::CD_SHARP_LPF_COEFFICIENTS,
+        constants::CD_HPF_CHARGE_FACTOR,
+    )
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -87,13 +65,10 @@ impl AudioResampler {
             TimingMode::Pal => PAL_GENESIS_MCLK_FREQUENCY,
         };
 
-        let lpf = config.genesis.low_pass_filter;
-        let ym2612_resampler =
-            genesis_core::audio::new_ym2612_resampler(genesis_mclk_frequency, lpf);
-        let psg_resampler =
-            smsgg_core::audio::new_psg_resampler(genesis_mclk_frequency, *lpf.psg_coefficients());
-        let pcm_resampler = new_pcm_resampler(lpf.pcm_coefficients());
-        let cd_resampler = new_cd_resampler(lpf.cd_coefficients(config.low_pass_cd_da));
+        let ym2612_resampler = genesis_core::audio::new_ym2612_resampler(genesis_mclk_frequency);
+        let psg_resampler = smsgg_core::audio::new_psg_resampler(genesis_mclk_frequency);
+        let pcm_resampler = new_pcm_resampler();
+        let cd_resampler = new_cd_resampler();
 
         Self {
             ym2612_resampler,
@@ -174,12 +149,6 @@ impl AudioResampler {
         self.psg_enabled = config.genesis.psg_enabled;
         self.pcm_enabled = config.pcm_enabled;
         self.cd_enabled = config.cd_audio_enabled;
-
-        let lpf = config.genesis.low_pass_filter;
-        self.ym2612_resampler.update_lpf_coefficients(*lpf.ym2612_coefficients());
-        self.psg_resampler.update_lpf_coefficients(*lpf.psg_coefficients());
-        self.pcm_resampler.update_lpf_coefficients(*lpf.pcm_coefficients());
-        self.cd_resampler.update_lpf_coefficients(*lpf.cd_coefficients(config.low_pass_cd_da));
     }
 
     pub fn update_output_frequency(&mut self, output_frequency: u64) {

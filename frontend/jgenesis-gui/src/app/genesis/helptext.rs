@@ -143,22 +143,6 @@ pub const YM2612_LADDER_EFFECT: HelpText = HelpText {
     ],
 };
 
-pub const LOW_PASS_FILTER: HelpText = HelpText {
-    heading: "Low-Pass Filter",
-    text: &[
-        "Configure which low-pass filter to use on audio output.",
-        "Some Genesis hardware models had low-pass filters with low cutoff frequencies, which makes the audio sound softer and somewhat muffled. Some game audio is designed around a lower cutoff frequency.",
-    ],
-};
-
-pub const LOW_PASS_CD_DA: HelpText = HelpText {
-    heading: "Apply Low-Pass Filter to CD-DA",
-    text: &[
-        "Configure whether to apply low-pass filtering to Sega CD's CD-DA playback.",
-        "In actual hardware, the Genesis low-pass filter may or may not be used for Sega CD audio output depending on how it is connected.",
-    ],
-};
-
 pub const SCD_PCM_INTERPOLATION: HelpText = HelpText {
     heading: "Sega CD PCM interpolation",
     text: &[

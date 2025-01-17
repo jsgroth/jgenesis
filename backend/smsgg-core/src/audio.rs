@@ -25,12 +25,13 @@ impl TimingModeExt for TimingMode {
 pub type PsgResampler = FirResampler<{ constants::PSG_LPF_TAPS }, 0>;
 
 #[must_use]
-pub fn new_psg_resampler(
-    console_mclk_frequency: f64,
-    lpf_coefficients: [f64; constants::PSG_LPF_TAPS],
-) -> PsgResampler {
+pub fn new_psg_resampler(console_mclk_frequency: f64) -> PsgResampler {
     let psg_frequency = compute_psg_frequency(console_mclk_frequency);
-    PsgResampler::new(psg_frequency, lpf_coefficients, constants::PSG_HPF_CHARGE_FACTOR)
+    PsgResampler::new(
+        psg_frequency,
+        constants::PSG_SHARP_LPF_COEFFICIENTS,
+        constants::PSG_HPF_CHARGE_FACTOR,
+    )
 }
 
 fn compute_psg_frequency(console_mclk_frequency: f64) -> f64 {
@@ -44,8 +45,7 @@ pub(crate) struct AudioResampler {
 
 impl AudioResampler {
     pub fn new(timing_mode: TimingMode) -> Self {
-        let psg_resampler =
-            new_psg_resampler(timing_mode.mclk_frequency(), constants::PSG_SHARP_LPF_COEFFICIENTS);
+        let psg_resampler = new_psg_resampler(timing_mode.mclk_frequency());
         Self { psg_resampler }
     }
 

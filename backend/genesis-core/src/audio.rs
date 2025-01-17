@@ -6,7 +6,6 @@ use crate::GenesisEmulatorConfig;
 use bincode::{Decode, Encode};
 use jgenesis_common::audio::FirResampler;
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
-use jgenesis_proc_macros::{EnumAll, EnumDisplay};
 use smsgg_core::audio::PsgResampler;
 use std::cmp;
 
@@ -19,51 +18,12 @@ pub const PSG_COEFFICIENT: f64 = 0.44668359215096315;
 pub type Ym2612Resampler =
     FirResampler<{ constants::YM2612_LPF_TAPS }, { constants::YM2612_ZERO_PADDING }>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum LowPassFilter {
-    #[default]
-    // Roughly 15000 Hz cutoff
-    Sharp,
-    // Roughly 10000 Hz cutoff
-    Moderate,
-    // Roughly 8000 Hz cutoff
-    Soft,
-    // Roughly 5000 Hz cutoff
-    VerySoft,
-}
-
-impl LowPassFilter {
-    #[inline]
-    #[must_use]
-    pub fn psg_coefficients(self) -> &'static [f64; smsgg_core::audio::constants::PSG_LPF_TAPS] {
-        match self {
-            Self::Sharp => &smsgg_core::audio::constants::PSG_SHARP_LPF_COEFFICIENTS,
-            Self::Moderate => &smsgg_core::audio::constants::PSG_MID_LPF_COEFFICIENTS,
-            Self::Soft => &smsgg_core::audio::constants::PSG_SOFT_LPF_COEFFICIENTS,
-            Self::VerySoft => &smsgg_core::audio::constants::PSG_VSOFT_LPF_COEFFICIENTS,
-        }
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn ym2612_coefficients(self) -> &'static [f64; constants::YM2612_LPF_TAPS] {
-        match self {
-            Self::Sharp => &constants::YM2612_SHARP_LPF_COEFFICIENTS,
-            Self::Moderate => &constants::YM2612_MID_LPF_COEFFICIENTS,
-            Self::Soft => &constants::YM2612_SOFT_LPF_COEFFICIENTS,
-            Self::VerySoft => &constants::YM2612_VSOFT_LPF_COEFFICIENTS,
-        }
-    }
-}
-
 #[must_use]
-pub fn new_ym2612_resampler(genesis_mclk_frequency: f64, lpf: LowPassFilter) -> Ym2612Resampler {
+pub fn new_ym2612_resampler(genesis_mclk_frequency: f64) -> Ym2612Resampler {
     let ym2612_frequency = genesis_mclk_frequency / 7.0 / 6.0 / 24.0;
     Ym2612Resampler::new(
         ym2612_frequency,
-        *lpf.ym2612_coefficients(),
+        constants::YM2612_SHARP_LPF_COEFFICIENTS,
         constants::YM2612_HPF_CHARGE_FACTOR,
     )
 }
@@ -84,10 +44,8 @@ impl GenesisAudioResampler {
             TimingMode::Pal => PAL_GENESIS_MCLK_FREQUENCY,
         };
 
-        let lpf = config.low_pass_filter;
-        let ym2612_resampler = new_ym2612_resampler(genesis_mclk_frequency, lpf);
-        let psg_resampler =
-            smsgg_core::audio::new_psg_resampler(genesis_mclk_frequency, *lpf.psg_coefficients());
+        let ym2612_resampler = new_ym2612_resampler(genesis_mclk_frequency);
+        let psg_resampler = smsgg_core::audio::new_psg_resampler(genesis_mclk_frequency);
 
         Self {
             ym2612_resampler,
@@ -140,10 +98,6 @@ impl GenesisAudioResampler {
     pub fn reload_config(&mut self, config: GenesisEmulatorConfig) {
         self.ym2612_enabled = config.ym2612_enabled;
         self.psg_enabled = config.psg_enabled;
-
-        let lpf = config.low_pass_filter;
-        self.ym2612_resampler.update_lpf_coefficients(*lpf.ym2612_coefficients());
-        self.psg_resampler.update_lpf_coefficients(*lpf.psg_coefficients());
     }
 
     pub fn update_output_frequency(&mut self, output_frequency: u64) {

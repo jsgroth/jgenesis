@@ -4,7 +4,6 @@ use crate::app::{App, Console, OpenWindow};
 use crate::emuthread::EmuThreadStatus;
 use crate::widgets::OverclockSlider;
 use egui::{Context, Window};
-use genesis_core::audio::LowPassFilter;
 use genesis_core::{GenesisAspectRatio, GenesisRegion};
 use jgenesis_common::frontend::TimingMode;
 use rfd::FileDialog;
@@ -390,49 +389,6 @@ impl App {
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::YM2612_LADDER_EFFECT);
-            }
-
-            ui.add_space(5.0);
-            let rect = ui
-                .group(|ui| {
-                    ui.label("Low-pass filter");
-
-                    ui.radio_value(
-                        &mut self.config.genesis.low_pass_filter,
-                        LowPassFilter::Sharp,
-                        "Sharp (~15000 Hz cutoff)",
-                    );
-                    ui.radio_value(
-                        &mut self.config.genesis.low_pass_filter,
-                        LowPassFilter::Moderate,
-                        "Moderate (~10000 Hz cutoff)",
-                    );
-                    ui.radio_value(
-                        &mut self.config.genesis.low_pass_filter,
-                        LowPassFilter::Soft,
-                        "Soft (~8000 Hz cutoff)",
-                    );
-                    ui.radio_value(
-                        &mut self.config.genesis.low_pass_filter,
-                        LowPassFilter::VerySoft,
-                        "Very soft (~5000 Hz cutoff)",
-                    );
-                })
-                .response
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::LOW_PASS_FILTER);
-            }
-
-            ui.add_space(5.0);
-            let rect = ui
-                .checkbox(
-                    &mut self.config.sega_cd.low_pass_cd_da,
-                    "(Sega CD) Apply low-pass filter to CD-DA playback",
-                )
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::LOW_PASS_CD_DA);
             }
 
             ui.add_space(5.0);
