@@ -42,7 +42,6 @@ impl LpfExt for LowPassFilter {
             Self::Moderate => &constants::PCM_MID_LPF_COEFFICIENTS,
             Self::Soft => &constants::PCM_SOFT_LPF_COEFFICIENTS,
             Self::VerySoft => &constants::PCM_VSOFT_LPF_COEFFICIENTS,
-            Self::Hardware => &constants::PCM_HARDWARE_LPF_COEFFICIENTS,
         }
     }
 
@@ -56,7 +55,6 @@ impl LpfExt for LowPassFilter {
             Self::Moderate => &constants::CD_MID_LPF_COEFFICIENTS,
             Self::Soft => &constants::CD_SOFT_LPF_COEFFICIENTS,
             Self::VerySoft => &constants::CD_VSOFT_LPF_COEFFICIENTS,
-            Self::Hardware => &constants::CD_HARDWARE_LPF_COEFFICIENTS,
         }
     }
 }

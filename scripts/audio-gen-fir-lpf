@@ -9,29 +9,27 @@ function retval = parsearg (arglist, n)
     retval = textscan(arg_str, "%f"){1};
 endfunction
 
-if nargin < 4
+if nargin < 3
     printf('Generate a low-pass filter and plot the frequency response\n');
-    printf('  ARGS: Fs N Fc Fp\n');
+    printf('  ARGS: Fs N f1\n');
     printf('    Fs: source frequency (Hz)\n');
     printf('    N: number of taps\n');
-    printf('    Fc: cutoff frequency (Hz)\n');
-    printf('    Fp: stopband edge frequency (Hz)\n');
+    printf('    f1: cutoff frequency (Hz)\n');
     exit(1);
 endif
 
 arglist = argv();
 Fs = parsearg(arglist, 1);
 N = parsearg(arglist, 2);
-Fc = parsearg(arglist, 3);
-Fp = parsearg(arglist, 4);
+f1 = parsearg(arglist, 3);
 
-f = [0 Fc Fp (Fs / 2)] / (Fs / 2);
-filter = firls(N - 1, f, [1 1 0 0]);
+f = [f1] / (Fs / 2);
+filter = fir1(N - 1, f, 'low');
 csvwrite('lpf.csv', filter);
 
 figure;
 plot((-0.5:1/4096:0.5-1/4096)*Fs,20*log10(abs(fftshift(fft(filter,4096)))));
-axis([0 40000 -80 20]);
+axis([0 30000 -60 20]);
 title('Filter Frequency Response');
 grid on;
 

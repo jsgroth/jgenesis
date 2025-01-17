@@ -147,7 +147,7 @@ pub const LOW_PASS_FILTER: HelpText = HelpText {
     heading: "Low-Pass Filter",
     text: &[
         "Configure which low-pass filter to use on audio output.",
-        "Actual hardware has a low-pass filter with a very low cutoff frequency, which makes the audio sound softer and somewhat muffled. Some game audio is designed around a lower cutoff frequency.",
+        "Some Genesis hardware models had low-pass filters with low cutoff frequencies, which makes the audio sound softer and somewhat muffled. Some game audio is designed around a lower cutoff frequency.",
     ],
 };
 

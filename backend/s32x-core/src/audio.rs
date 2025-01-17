@@ -23,7 +23,6 @@ impl LowPassFilterExt for LowPassFilter {
             Self::Moderate => &constants::PWM_MID_LPF_COEFFICIENTS,
             Self::Soft => &constants::PWM_SOFT_LPF_COEFFICIENTS,
             Self::VerySoft => &constants::PWM_VSOFT_LPF_COEFFICIENTS,
-            Self::Hardware => &constants::PWM_HARDWARE_LPF_COEFFICIENTS,
         }
     }
 }
