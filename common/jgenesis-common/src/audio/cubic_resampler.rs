@@ -1,10 +1,10 @@
 use crate::audio::{
-    DEFAULT_OUTPUT_FREQUENCY, RESAMPLE_SCALING_FACTOR, interpolate_cubic_hermite_4p,
+    DEFAULT_OUTPUT_FREQUENCY, RESAMPLE_SCALING_FACTOR, interpolate_cubic_hermite_6p,
 };
 use bincode::{Decode, Encode};
 use std::collections::VecDeque;
 
-const BUFFER_LEN: usize = 4;
+const BUFFER_LEN: usize = 6;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct CubicResampler {
@@ -55,7 +55,7 @@ impl CubicResampler {
                 self.input_samples_r.pop_front();
             }
 
-            // Having fewer than 4 samples in the buffers _shouldn't_ happen, but don't crash if it does
+            // Having fewer than N samples in the buffers _shouldn't_ happen, but don't crash if it does
             while self.input_samples_l.len() < BUFFER_LEN {
                 self.input_samples_l.push_back(0.0);
             }
@@ -65,15 +65,15 @@ impl CubicResampler {
 
             let x = (self.scaled_x_counter as f64) / (scaled_output_frequency as f64);
             let output_l =
-                interpolate_cubic_hermite_4p(first_four_samples(&self.input_samples_l), x)
+                interpolate_cubic_hermite_6p(first_six_samples(&self.input_samples_l), x)
                     .clamp(-1.0, 1.0);
             let output_r =
-                interpolate_cubic_hermite_4p(first_four_samples(&self.input_samples_r), x)
+                interpolate_cubic_hermite_6p(first_six_samples(&self.input_samples_r), x)
                     .clamp(-1.0, 1.0);
             self.output_samples.push_back((output_l, output_r));
         }
 
-        // Having more than 5 samples in the buffers here also _shouldn't_ happen, but do something reasonable if it does
+        // Having more than N+1 samples in the buffers here also _shouldn't_ happen, but do something reasonable if it does
         while self.input_samples_l.len() > BUFFER_LEN + 1 {
             self.input_samples_l.pop_front();
         }
@@ -120,8 +120,8 @@ impl CubicResampler {
     }
 }
 
-fn first_four_samples(buffer: &VecDeque<f64>) -> [f64; 4] {
-    [buffer[0], buffer[1], buffer[2], buffer[3]]
+fn first_six_samples(buffer: &VecDeque<f64>) -> [f64; 6] {
+    [buffer[0], buffer[1], buffer[2], buffer[3], buffer[4], buffer[5]]
 }
 
 fn scale_source_frequency(source_frequency: f64) -> u64 {
