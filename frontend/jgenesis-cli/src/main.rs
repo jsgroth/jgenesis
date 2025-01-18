@@ -11,7 +11,7 @@ use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::common::ConfigSavePath;
 use jgenesis_native_driver::config::input::{NesControllerType, SnesControllerType};
 use jgenesis_native_driver::config::{FullscreenMode, HideMouseCursor};
-use jgenesis_native_driver::{NativeEmulator, NativeTickEffect};
+use jgenesis_native_driver::{NativeEmulator, NativeTickEffect, extensions};
 use jgenesis_proc_macros::{CustomValueEnum, EnumAll, EnumDisplay};
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, Scanlines, VSyncMode, WgpuBackend,
@@ -813,7 +813,7 @@ fn guess_hardware(args: &Args) -> anyhow::Result<Hardware> {
         "zip" => {
             let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_zip(
                 file_path,
-                jgenesis_native_driver::all_supported_extensions(),
+                &extensions::ALL_CARTRIDGE_BASED,
             )?
             .unwrap_or_else(|| {
                 panic!(
@@ -826,7 +826,7 @@ fn guess_hardware(args: &Args) -> anyhow::Result<Hardware> {
         "7z" => {
             let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_7z(
                 file_path,
-                jgenesis_native_driver::all_supported_extensions(),
+                &extensions::ALL_CARTRIDGE_BASED,
             )?
             .unwrap_or_else(|| {
                 panic!(
@@ -839,18 +839,24 @@ fn guess_hardware(args: &Args) -> anyhow::Result<Hardware> {
         _ => {}
     }
 
-    Ok(match file_ext.as_str() {
-        "sms" | "gg" => Hardware::MasterSystem,
-        "md" | "bin" => Hardware::Genesis,
-        "cue" | "chd" => Hardware::SegaCd,
-        "32x" => Hardware::Sega32X,
-        "nes" => Hardware::Nes,
-        "sfc" | "smc" => Hardware::Snes,
-        "gb" | "gbc" => Hardware::GameBoy,
-        _ => {
-            log::warn!("Unrecognized file extension: '{file_ext}' defaulting to Genesis");
-            Hardware::Genesis
-        }
+    let file_ext_str = file_ext.as_str();
+    Ok(if extensions::SMSGG.contains(&file_ext_str) {
+        Hardware::MasterSystem
+    } else if extensions::GENESIS.contains(&file_ext_str) {
+        Hardware::Genesis
+    } else if extensions::SEGA_CD.contains(&file_ext_str) {
+        Hardware::SegaCd
+    } else if extensions::SEGA_32X.contains(&file_ext_str) {
+        Hardware::Sega32X
+    } else if extensions::NES.contains(&file_ext_str) {
+        Hardware::Nes
+    } else if extensions::SNES.contains(&file_ext_str) {
+        Hardware::Snes
+    } else if extensions::GB_GBC.contains(&file_ext_str) {
+        Hardware::GameBoy
+    } else {
+        log::warn!("Unrecognized file extension: '{file_ext}' defaulting to Genesis");
+        Hardware::Genesis
     })
 }
 

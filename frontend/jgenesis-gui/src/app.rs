@@ -23,8 +23,8 @@ use egui::{
 };
 use egui_extras::{Column, TableBuilder};
 use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen};
-use jgenesis_native_driver::NativeEmulatorError;
 use jgenesis_native_driver::config::HideMouseCursor;
+use jgenesis_native_driver::{NativeEmulatorError, extensions};
 use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::Scanlines;
 use rfd::FileDialog;
@@ -316,7 +316,7 @@ impl App {
                     console.supported_extensions().iter().copied().chain(["zip", "7z"]).collect();
                 file_dialog.add_filter(console.display_str(), &extensions)
             }
-            None => file_dialog.add_filter("Supported Files", romlist::ALL_EXTENSIONS),
+            None => file_dialog.add_filter("Supported Files", &extensions::ALL_PLUS_ARCHIVES),
         };
 
         file_dialog = file_dialog.add_filter("All Files", &["*"]);

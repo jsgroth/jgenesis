@@ -1,7 +1,8 @@
 use crate::app::Console;
 use jgenesis_native_config::RecentOpen;
+use jgenesis_native_driver::extensions;
 use regex::Regex;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -10,31 +11,28 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, LazyLock, Mutex, mpsc};
 use std::{fs, io, thread};
 
-pub const ALL_EXTENSIONS: &[&str] =
-    &["sms", "gg", "md", "bin", "cue", "chd", "32x", "nes", "sfc", "smc", "gb", "gbc", "zip", "7z"];
-
-const SMSGG_EXTENSIONS: &[&str] = &["sms", "gg"];
-const GENESIS_EXTENSIONS: &[&str] = &["md", "bin"];
-const SCD_EXTENSIONS: &[&str] = &["cue", "chd"];
-const S32X_EXTENSIONS: &[&str] = &["32x"];
-const NES_EXTENSIONS: &[&str] = &["nes"];
-const SNES_EXTENSIONS: &[&str] = &["sfc", "smc"];
-const GB_EXTENSIONS: &[&str] = &["gb", "gbc"];
+fn build_extension_lookup() -> HashMap<&'static str, Console> {
+    [
+        (extensions::MASTER_SYSTEM, Console::MasterSystem),
+        (extensions::GAME_GEAR, Console::GameGear),
+        (extensions::GENESIS, Console::Genesis),
+        (extensions::SEGA_CD, Console::SegaCd),
+        (extensions::SEGA_32X, Console::Sega32X),
+        (extensions::NES, Console::Nes),
+        (extensions::SNES, Console::Snes),
+        (extensions::GAME_BOY, Console::GameBoy),
+        (extensions::GAME_BOY_COLOR, Console::GameBoyColor),
+    ]
+    .into_iter()
+    .flat_map(|(extensions, console)| extensions.iter().map(move |&extension| (extension, console)))
+    .collect()
+}
 
 impl Console {
     fn from_extension(extension: &str) -> Option<Self> {
-        match extension {
-            "sms" => Some(Self::MasterSystem),
-            "gg" => Some(Self::GameGear),
-            "md" | "bin" => Some(Self::Genesis),
-            "cue" | "chd" => Some(Self::SegaCd),
-            "32x" => Some(Self::Sega32X),
-            "nes" => Some(Self::Nes),
-            "sfc" | "smc" => Some(Self::Snes),
-            "gb" => Some(Self::GameBoy),
-            "gbc" => Some(Self::GameBoyColor),
-            _ => None,
-        }
+        static LOOKUP: LazyLock<HashMap<&'static str, Console>> =
+            LazyLock::new(build_extension_lookup);
+        LOOKUP.get(&extension).copied()
     }
 
     #[must_use]
@@ -55,13 +53,13 @@ impl Console {
     #[must_use]
     pub fn supported_extensions(self) -> &'static [&'static str] {
         match self {
-            Self::MasterSystem | Self::GameGear => SMSGG_EXTENSIONS,
-            Self::Genesis => GENESIS_EXTENSIONS,
-            Self::SegaCd => SCD_EXTENSIONS,
-            Self::Sega32X => S32X_EXTENSIONS,
-            Self::Nes => NES_EXTENSIONS,
-            Self::Snes => SNES_EXTENSIONS,
-            Self::GameBoy | Self::GameBoyColor => GB_EXTENSIONS,
+            Self::MasterSystem | Self::GameGear => &extensions::SMSGG,
+            Self::Genesis => extensions::GENESIS,
+            Self::SegaCd => extensions::SEGA_CD,
+            Self::Sega32X => extensions::SEGA_32X,
+            Self::Nes => extensions::NES,
+            Self::Snes => extensions::SNES,
+            Self::GameBoy | Self::GameBoyColor => &extensions::GB_GBC,
         }
     }
 }
@@ -137,7 +135,7 @@ fn process_file(file_name: &str, path: &Path, metadata: fs::Metadata) -> Option<
         "zip" => {
             let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_zip(
                 path,
-                jgenesis_native_driver::all_supported_extensions(),
+                &extensions::ALL_CARTRIDGE_BASED,
             )
             .ok()
             .flatten()?;
@@ -152,7 +150,7 @@ fn process_file(file_name: &str, path: &Path, metadata: fs::Metadata) -> Option<
         "7z" => {
             let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_7z(
                 path,
-                jgenesis_native_driver::all_supported_extensions(),
+                &extensions::ALL_CARTRIDGE_BASED,
             )
             .ok()
             .flatten()?;

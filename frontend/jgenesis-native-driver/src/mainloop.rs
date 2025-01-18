@@ -49,7 +49,6 @@ use std::ffi::NulError;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::LazyLock;
 use std::time::Duration;
 use std::{io, thread};
 use thiserror::Error;
@@ -865,21 +864,3 @@ macro_rules! bincode_config {
 }
 
 use bincode_config;
-
-#[must_use]
-pub fn all_supported_extensions() -> &'static [&'static str] {
-    static EXTENSIONS: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
-        let mut extensions = Vec::new();
-
-        extensions.extend(gb::SUPPORTED_EXTENSIONS);
-        extensions.extend(genesis::GENESIS_SUPPORTED_EXTENSIONS);
-        extensions.extend(genesis::S32X_SUPPORTED_EXTENSIONS);
-        extensions.extend(nes::SUPPORTED_EXTENSIONS);
-        extensions.extend(smsgg::SUPPORTED_EXTENSIONS);
-        extensions.extend(snes::SUPPORTED_EXTENSIONS);
-
-        extensions
-    });
-
-    &EXTENSIONS
-}
