@@ -244,8 +244,9 @@ impl EmulatorTrait for Sega32XEmulator {
 
         while self.cycles.should_tick_psg() {
             if self.psg.tick() == Sn76489TickEffect::Clocked {
-                let (sample_l, sample_r) = self.psg.sample();
-                self.audio_resampler.collect_psg_sample(sample_l, sample_r);
+                // PSG output is mono in Genesis; stereo output is only for Game Gear
+                let (psg_sample, _) = self.psg.sample();
+                self.audio_resampler.collect_psg_sample(psg_sample);
             }
             self.cycles.decrement_psg();
         }

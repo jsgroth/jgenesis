@@ -1,5 +1,5 @@
 use genesis_core::input::GenesisControllerType;
-use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig};
+use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig, GenesisLowPassFilter};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, PrescaleMode, RendererConfig, Scanlines,
@@ -100,6 +100,7 @@ pub struct GenesisWebConfig {
     aspect_ratio: GenesisAspectRatio,
     remove_sprite_limits: bool,
     emulate_non_linear_vdp_dac: bool,
+    low_pass: GenesisLowPassFilter,
     render_vertical_border: bool,
     render_horizontal_border: bool,
     m68k_divider: u64,
@@ -111,6 +112,7 @@ impl Default for GenesisWebConfig {
             aspect_ratio: GenesisAspectRatio::default(),
             remove_sprite_limits: false,
             emulate_non_linear_vdp_dac: false,
+            low_pass: GenesisLowPassFilter::default(),
             render_vertical_border: false,
             render_horizontal_border: false,
             m68k_divider: genesis_core::timing::NATIVE_M68K_DIVIDER,
@@ -140,6 +142,7 @@ impl GenesisWebConfig {
             backdrop_enabled: true,
             quantize_ym2612_output: true,
             emulate_ym2612_ladder_effect: true,
+            low_pass: self.low_pass,
             ym2612_enabled: true,
             psg_enabled: true,
         }
@@ -266,6 +269,14 @@ impl WebConfigRef {
 
     pub fn set_genesis_emulate_non_linear_dac(&self, emulate_non_linear_dac: bool) {
         self.borrow_mut().genesis.emulate_non_linear_vdp_dac = emulate_non_linear_dac;
+    }
+
+    pub fn set_genesis_emulate_low_pass(&self, emulate_low_pass: bool) {
+        self.borrow_mut().genesis.low_pass = if emulate_low_pass {
+            GenesisLowPassFilter::Model1Va2
+        } else {
+            GenesisLowPassFilter::None
+        };
     }
 
     pub fn set_genesis_render_vertical_border(&self, render_vertical_border: bool) {

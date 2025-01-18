@@ -1,5 +1,7 @@
 use crate::AppConfig;
-use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig, GenesisRegion};
+use genesis_core::{
+    GenesisAspectRatio, GenesisEmulatorConfig, GenesisLowPassFilter, GenesisRegion,
+};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::{GenesisConfig, Sega32XConfig, SegaCdConfig};
 use s32x_core::api::{S32XVideoOut, Sega32XEmulatorConfig};
@@ -44,6 +46,8 @@ pub struct GenesisAppConfig {
     pub quantize_ym2612_output: bool,
     #[serde(default = "true_fn")]
     pub emulate_ym2612_ladder_effect: bool,
+    #[serde(default)]
+    pub low_pass: GenesisLowPassFilter,
     #[serde(default = "true_fn")]
     pub ym2612_enabled: bool,
     #[serde(default = "true_fn")]
@@ -141,6 +145,7 @@ impl AppConfig {
                 backdrop_enabled: self.genesis.backdrop_enabled,
                 quantize_ym2612_output: self.genesis.quantize_ym2612_output,
                 emulate_ym2612_ladder_effect: self.genesis.emulate_ym2612_ladder_effect,
+                low_pass: self.genesis.low_pass,
                 ym2612_enabled: self.genesis.ym2612_enabled,
                 psg_enabled: self.genesis.psg_enabled,
             },

@@ -135,6 +135,15 @@ impl GenesisRegion {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumAll, EnumDisplay)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum GenesisLowPassFilter {
+    None,
+    #[default]
+    Model1Va2,
+}
+
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct GenesisEmulatorConfig {
     pub p1_controller_type: GenesisControllerType,
@@ -156,6 +165,7 @@ pub struct GenesisEmulatorConfig {
     pub backdrop_enabled: bool,
     pub quantize_ym2612_output: bool,
     pub emulate_ym2612_ladder_effect: bool,
+    pub low_pass: GenesisLowPassFilter,
     pub ym2612_enabled: bool,
     pub psg_enabled: bool,
 }
@@ -401,8 +411,9 @@ impl EmulatorTrait for GenesisEmulator {
 
         while self.cycles.should_tick_psg() {
             if self.psg.tick() == Sn76489TickEffect::Clocked {
-                let (psg_sample_l, psg_sample_r) = self.psg.sample();
-                self.audio_resampler.collect_psg_sample(psg_sample_l, psg_sample_r);
+                // PSG only has mono output in the Genesis; stereo output is only for Game Gear
+                let (psg_sample, _) = self.psg.sample();
+                self.audio_resampler.collect_psg_sample(psg_sample);
             }
 
             self.cycles.decrement_psg();

@@ -2,7 +2,7 @@ mod constants;
 
 use crate::api::Sega32XEmulatorConfig;
 use bincode::{Decode, Encode};
-use genesis_core::audio::Ym2612Resampler;
+use genesis_core::audio::{GenesisAudioFilter, Ym2612Resampler};
 use jgenesis_common::audio::{CubicResampler, DEFAULT_OUTPUT_FREQUENCY, FirResampler};
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
 use smsgg_core::audio::PsgResampler;
@@ -58,6 +58,7 @@ impl PwmResampler {
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Sega32XResampler {
+    gen_filter: GenesisAudioFilter,
     ym2612_resampler: Ym2612Resampler,
     psg_resampler: PsgResampler,
     pwm_resampler: PwmResampler,
@@ -74,6 +75,7 @@ impl Sega32XResampler {
         };
 
         Self {
+            gen_filter: GenesisAudioFilter::new(config.genesis.low_pass),
             ym2612_resampler: genesis_core::audio::new_ym2612_resampler(genesis_mclk_frequency),
             psg_resampler: smsgg_core::audio::new_psg_resampler(genesis_mclk_frequency),
             pwm_resampler: PwmResampler::new(),
@@ -84,11 +86,13 @@ impl Sega32XResampler {
     }
 
     pub fn collect_ym2612_sample(&mut self, sample_l: f64, sample_r: f64) {
+        let (sample_l, sample_r) = self.gen_filter.filter_ym2612((sample_l, sample_r));
         self.ym2612_resampler.collect_sample(sample_l, sample_r);
     }
 
-    pub fn collect_psg_sample(&mut self, sample_l: f64, sample_r: f64) {
-        self.psg_resampler.collect_sample(sample_l, sample_r);
+    pub fn collect_psg_sample(&mut self, sample: f64) {
+        let sample = self.gen_filter.filter_psg(sample);
+        self.psg_resampler.collect_sample(sample, sample);
     }
 
     pub fn pwm_resampler_mut(&mut self) -> &mut PwmResampler {
@@ -131,6 +135,8 @@ impl Sega32XResampler {
         self.ym2612_enabled = config.genesis.ym2612_enabled;
         self.psg_enabled = config.genesis.psg_enabled;
         self.pwm_enabled = config.pwm_enabled;
+
+        self.gen_filter.reload_config(&config.genesis);
     }
 
     pub fn update_output_frequency(&mut self, output_frequency: u64) {

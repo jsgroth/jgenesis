@@ -257,6 +257,11 @@
                     </div>
 
                     <div>
+                        <input type="checkbox" id="genesis-emulate-low-pass" checked>
+                        <label for="genesis-emulate-low-pass">Emulate 3.39 KHz low-pass filter</label>
+                    </div>
+
+                    <div>
                         <input type="checkbox" id="genesis-render-vertical-border">
                         <label for="genesis-render-vertical-border">Render vertical border</label>
                     </div>
@@ -457,6 +462,10 @@
 
             document.getElementById("genesis-emulate-non-linear-dac").addEventListener("click", (event) => {
                 config.set_genesis_emulate_non_linear_dac(event.target.checked);
+            });
+
+            document.getElementById("genesis-emulate-low-pass").addEventListener("click", (event) => {
+                config.set_genesis_emulate_low_pass(event.target.checked);
             });
 
             document.getElementById("genesis-render-vertical-border").addEventListener("click", (event) => {

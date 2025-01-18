@@ -2,9 +2,10 @@
 
 mod constants;
 
-use crate::GenesisEmulatorConfig;
+use crate::{GenesisEmulatorConfig, GenesisLowPassFilter};
 use bincode::{Decode, Encode};
 use jgenesis_common::audio::FirResampler;
+use jgenesis_common::audio::iir::FirstOrderIirFilter;
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
 use smsgg_core::audio::PsgResampler;
 use std::cmp;
@@ -28,8 +29,73 @@ pub fn new_ym2612_resampler(genesis_mclk_frequency: f64) -> Ym2612Resampler {
     )
 }
 
+#[must_use]
+pub fn new_ym2612_low_pass() -> FirstOrderIirFilter {
+    // Filter targets 3390 Hz with a source frequency of 53267 Hz
+    FirstOrderIirFilter::new(&[0.1684983368367697, 0.1684983368367697], &[1.0, -0.6630033263264605])
+}
+
+#[must_use]
+pub fn new_psg_low_pass() -> FirstOrderIirFilter {
+    // Filter targets 3390 Hz with a source frequency of 223721 Hz
+    FirstOrderIirFilter::new(&[0.04547345635121703, 0.04547345635121703], &[
+        1.0,
+        -0.9090530872975658,
+    ])
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct GenesisAudioFilter {
+    low_pass_setting: GenesisLowPassFilter,
+    ym2612_low_pass_l: FirstOrderIirFilter,
+    ym2612_low_pass_r: FirstOrderIirFilter,
+    psg_low_pass: FirstOrderIirFilter,
+}
+
+impl GenesisAudioFilter {
+    #[must_use]
+    pub fn new(low_pass: GenesisLowPassFilter) -> Self {
+        Self {
+            low_pass_setting: low_pass,
+            ym2612_low_pass_l: new_ym2612_low_pass(),
+            ym2612_low_pass_r: new_ym2612_low_pass(),
+            psg_low_pass: new_psg_low_pass(),
+        }
+    }
+
+    #[must_use]
+    pub fn filter_ym2612(&mut self, (sample_l, sample_r): (f64, f64)) -> (f64, f64) {
+        if self.low_pass_setting != GenesisLowPassFilter::Model1Va2 {
+            return (sample_l, sample_r);
+        }
+
+        (self.ym2612_low_pass_l.filter(sample_l), self.ym2612_low_pass_r.filter(sample_r))
+    }
+
+    #[must_use]
+    pub fn filter_psg(&mut self, sample: f64) -> f64 {
+        if self.low_pass_setting != GenesisLowPassFilter::Model1Va2 {
+            return sample;
+        }
+
+        self.psg_low_pass.filter(sample)
+    }
+
+    pub fn reload_config(&mut self, config: &GenesisEmulatorConfig) {
+        if self.low_pass_setting == config.low_pass {
+            return;
+        }
+
+        self.low_pass_setting = config.low_pass;
+        self.ym2612_low_pass_l.reset();
+        self.ym2612_low_pass_r.reset();
+        self.psg_low_pass.reset();
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct GenesisAudioResampler {
+    filter: GenesisAudioFilter,
     ym2612_resampler: Ym2612Resampler,
     psg_resampler: PsgResampler,
     ym2612_enabled: bool,
@@ -48,6 +114,7 @@ impl GenesisAudioResampler {
         let psg_resampler = smsgg_core::audio::new_psg_resampler(genesis_mclk_frequency);
 
         Self {
+            filter: GenesisAudioFilter::new(config.low_pass),
             ym2612_resampler,
             psg_resampler,
             ym2612_enabled: config.ym2612_enabled,
@@ -56,11 +123,13 @@ impl GenesisAudioResampler {
     }
 
     pub fn collect_ym2612_sample(&mut self, sample_l: f64, sample_r: f64) {
+        let (sample_l, sample_r) = self.filter.filter_ym2612((sample_l, sample_r));
         self.ym2612_resampler.collect_sample(sample_l, sample_r);
     }
 
-    pub fn collect_psg_sample(&mut self, sample_l: f64, sample_r: f64) {
-        self.psg_resampler.collect_sample(sample_l, sample_r);
+    pub fn collect_psg_sample(&mut self, sample: f64) {
+        let sample = self.filter.filter_psg(sample);
+        self.psg_resampler.collect_sample(sample, sample);
     }
 
     /// Push all samples that are ready to the given audio output.
@@ -98,6 +167,8 @@ impl GenesisAudioResampler {
     pub fn reload_config(&mut self, config: GenesisEmulatorConfig) {
         self.ym2612_enabled = config.ym2612_enabled;
         self.psg_enabled = config.psg_enabled;
+
+        self.filter.reload_config(&config);
     }
 
     pub fn update_output_frequency(&mut self, output_frequency: u64) {

@@ -4,7 +4,7 @@ use crate::app::{App, Console, OpenWindow};
 use crate::emuthread::EmuThreadStatus;
 use crate::widgets::OverclockSlider;
 use egui::{Context, Window};
-use genesis_core::{GenesisAspectRatio, GenesisRegion};
+use genesis_core::{GenesisAspectRatio, GenesisLowPassFilter, GenesisRegion};
 use jgenesis_common::frontend::TimingMode;
 use rfd::FileDialog;
 use s32x_core::api::S32XVideoOut;
@@ -390,6 +390,14 @@ impl App {
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::YM2612_LADDER_EFFECT);
             }
+
+            let mut low_pass = self.config.genesis.low_pass == GenesisLowPassFilter::Model1Va2;
+            let rect = ui.checkbox(&mut low_pass, "Emulate 3.39 KHz low-pass filter").interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::LOW_PASS);
+            }
+            self.config.genesis.low_pass =
+                if low_pass { GenesisLowPassFilter::Model1Va2 } else { GenesisLowPassFilter::None };
 
             ui.add_space(5.0);
             let rect = ui

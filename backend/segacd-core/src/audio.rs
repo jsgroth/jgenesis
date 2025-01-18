@@ -6,7 +6,7 @@ mod constants;
 
 use crate::api::SegaCdEmulatorConfig;
 use bincode::{Decode, Encode};
-use genesis_core::audio::Ym2612Resampler;
+use genesis_core::audio::{GenesisAudioFilter, Ym2612Resampler};
 use jgenesis_common::audio::FirResampler;
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
 use smsgg_core::audio::PsgResampler;
@@ -48,6 +48,7 @@ fn new_cd_resampler() -> CdResampler {
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct AudioResampler {
+    gen_filter: GenesisAudioFilter,
     ym2612_resampler: Ym2612Resampler,
     psg_resampler: PsgResampler,
     pcm_resampler: PcmResampler,
@@ -71,6 +72,7 @@ impl AudioResampler {
         let cd_resampler = new_cd_resampler();
 
         Self {
+            gen_filter: GenesisAudioFilter::new(config.genesis.low_pass),
             ym2612_resampler,
             psg_resampler,
             pcm_resampler,
@@ -83,11 +85,13 @@ impl AudioResampler {
     }
 
     pub fn collect_ym2612_sample(&mut self, sample_l: f64, sample_r: f64) {
+        let (sample_l, sample_r) = self.gen_filter.filter_ym2612((sample_l, sample_r));
         self.ym2612_resampler.collect_sample(sample_l, sample_r);
     }
 
-    pub fn collect_psg_sample(&mut self, sample_l: f64, sample_r: f64) {
-        self.psg_resampler.collect_sample(sample_l, sample_r);
+    pub fn collect_psg_sample(&mut self, sample: f64) {
+        let sample = self.gen_filter.filter_psg(sample);
+        self.psg_resampler.collect_sample(sample, sample);
     }
 
     pub fn collect_pcm_sample(&mut self, sample_l: f64, sample_r: f64) {
@@ -149,6 +153,8 @@ impl AudioResampler {
         self.psg_enabled = config.genesis.psg_enabled;
         self.pcm_enabled = config.pcm_enabled;
         self.cd_enabled = config.cd_audio_enabled;
+
+        self.gen_filter.reload_config(&config.genesis);
     }
 
     pub fn update_output_frequency(&mut self, output_frequency: u64) {

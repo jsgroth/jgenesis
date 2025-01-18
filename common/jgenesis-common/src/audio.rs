@@ -1,5 +1,6 @@
 mod cubic_resampler;
 mod fir_resampler;
+pub mod iir;
 
 pub use cubic_resampler::CubicResampler;
 pub use fir_resampler::FirResampler;

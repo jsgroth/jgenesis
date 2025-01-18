@@ -3,7 +3,9 @@
 use clap::Parser;
 use env_logger::Env;
 use gb_core::api::{GbAspectRatio, GbPalette, GbcColorCorrection};
-use genesis_core::{GenesisAspectRatio, GenesisControllerType, GenesisRegion};
+use genesis_core::{
+    GenesisAspectRatio, GenesisControllerType, GenesisLowPassFilter, GenesisRegion,
+};
 use jgenesis_common::frontend::{EmulatorTrait, TimingMode};
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::common::ConfigSavePath;
@@ -163,6 +165,10 @@ struct Args {
     /// Emulate the YM2612 "ladder effect"
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
     emulate_ym2612_ladder_effect: Option<bool>,
+
+    /// Audio low-pass filter setting
+    #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
+    genesis_low_pass: Option<GenesisLowPassFilter>,
 
     /// Enable audio from the YM2612 FM chip
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
@@ -553,6 +559,7 @@ impl Args {
             genesis_render_horizontal_border -> render_horizontal_border,
             quantize_ym2612_output,
             emulate_ym2612_ladder_effect,
+            genesis_low_pass -> low_pass,
             ym2612_enabled,
             genesis_psg_enabled -> psg_enabled,
             genesis_aspect_ratio -> aspect_ratio,

@@ -143,6 +143,14 @@ pub const YM2612_LADDER_EFFECT: HelpText = HelpText {
     ],
 };
 
+pub const LOW_PASS: HelpText = HelpText {
+    heading: "Low-Pass Filter",
+    text: &[
+        "If enabled, apply a 3.39 KHz low-pass filter to audio output. This should be similar to the filter found in early Model 1 consoles.",
+        "Low-pass filtering makes the audio sound softer and somewhat muffled. Some game audio is designed around this effect.",
+    ],
+};
+
 pub const SCD_PCM_INTERPOLATION: HelpText = HelpText {
     heading: "Sega CD PCM interpolation",
     text: &[

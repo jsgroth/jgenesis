@@ -454,8 +454,9 @@ impl EmulatorTrait for SegaCdEmulator {
         // PSG
         while self.cycles.should_tick_psg() {
             if self.psg.tick() == Sn76489TickEffect::Clocked {
-                let (psg_sample_l, psg_sample_r) = self.psg.sample();
-                self.audio_resampler.collect_psg_sample(psg_sample_l, psg_sample_r);
+                // PSG output is mono in Genesis; stereo output is only for Game Gear
+                let (psg_sample, _) = self.psg.sample();
+                self.audio_resampler.collect_psg_sample(psg_sample);
             }
             self.cycles.decrement_psg();
         }
