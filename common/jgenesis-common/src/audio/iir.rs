@@ -34,8 +34,8 @@ impl<const N: usize> IirFilter<N> {
             - iter::zip(&self.a, &self.prev_outputs).map(|(&coeff, &n)| coeff * n).sum::<f64>();
 
         for i in (1..N).rev() {
-            self.prev_samples[i] = self.prev_samples[i + 1];
-            self.prev_outputs[i] = self.prev_outputs[i + 1];
+            self.prev_samples[i] = self.prev_samples[i - 1];
+            self.prev_outputs[i] = self.prev_outputs[i - 1];
         }
         self.prev_samples[0] = sample;
         self.prev_outputs[0] = output;

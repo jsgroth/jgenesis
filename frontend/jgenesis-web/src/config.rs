@@ -5,7 +5,7 @@ use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, PrescaleMode, RendererConfig, Scanlines,
     VSyncMode, WgpuBackend,
 };
-use segacd_core::api::{PcmInterpolation, SegaCdEmulatorConfig};
+use segacd_core::api::{PcmInterpolation, PcmLowPassFilter, SegaCdEmulatorConfig};
 use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsGgEmulatorConfig, SmsModel, SmsRegion};
 use snes_core::api::{AudioInterpolationMode, SnesAspectRatio, SnesEmulatorConfig};
 use std::cell::RefCell;
@@ -185,7 +185,9 @@ impl WebConfig {
             load_disc_into_ram: true,
             disc_drive_speed: NonZeroU16::new(1).unwrap(),
             sub_cpu_divider: NonZeroU64::new(segacd_core::api::DEFAULT_SUB_CPU_DIVIDER).unwrap(),
-            low_pass_cd_da: false,
+            pcm_low_pass: PcmLowPassFilter::default(),
+            apply_genesis_lpf_to_pcm: false,
+            apply_genesis_lpf_to_cd_da: false,
             pcm_enabled: true,
             cd_audio_enabled: true,
         }

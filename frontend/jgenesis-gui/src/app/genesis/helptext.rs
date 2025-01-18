@@ -143,11 +143,27 @@ pub const YM2612_LADDER_EFFECT: HelpText = HelpText {
     ],
 };
 
-pub const LOW_PASS: HelpText = HelpText {
-    heading: "Low-Pass Filter",
+pub const GENESIS_LOW_PASS: HelpText = HelpText {
+    heading: "Genesis Low-Pass Filter",
     text: &[
         "If enabled, apply a 3.39 KHz low-pass filter to audio output. This should be similar to the filter found in early Model 1 consoles.",
         "Low-pass filtering makes the audio sound softer and somewhat muffled. Some game audio is designed around this effect.",
+    ],
+};
+
+pub const PCM_LOW_PASS: HelpText = HelpText {
+    heading: "Sega CD PCM Low-Pass Filter",
+    text: &[
+        "If enabled, apply a 7.97 KHz low-pass filter to PCM chip audio output.",
+        "This may not be accurate to actual hardware, but it produces a significantly cleaner sound than not low-pass filtering.",
+    ],
+};
+
+pub const SCD_GEN_LOW_PASS: HelpText = HelpText {
+    heading: "Apply Genesis LPF to Sega CD",
+    text: &[
+        "Choose whether to apply the 3.39 KHz Genesis low-pass filter to Sega CD audio output. This can be configured independently for the PCM chip and CD-DA.",
+        "In actual hardware, Sega CD audio output may or may not pass through the Genesis low-pass filter depending on where the Sega CD audio output is connected.",
     ],
 };
 

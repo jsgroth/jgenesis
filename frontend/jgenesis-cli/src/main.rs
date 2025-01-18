@@ -18,7 +18,7 @@ use jgenesis_renderer::config::{
 };
 use nes_core::api::NesAspectRatio;
 use s32x_core::api::S32XVideoOut;
-use segacd_core::api::PcmInterpolation;
+use segacd_core::api::{PcmInterpolation, PcmLowPassFilter};
 use smsgg_core::psg::Sn76489Version;
 use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsModel, SmsRegion};
 use snes_core::api::{AudioInterpolationMode, SnesAspectRatio};
@@ -227,9 +227,17 @@ struct Args {
     #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
     scd_load_disc_into_ram: Option<bool>,
 
-    /// Whether to apply low-pass filtering to CD-DA playback
+    /// PCM chip low-pass filter setting
     #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
-    scd_low_pass_cd_da: Option<bool>,
+    scd_pcm_low_pass: Option<PcmLowPassFilter>,
+
+    /// Whether to apply the Genesis low-pass filter to PCM chip output
+    #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
+    scd_apply_gen_lpf_to_pcm: Option<bool>,
+
+    /// Whether to apply the Genesis low-pass filter to CD-DA playback
+    #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
+    scd_apply_gen_lpf_to_cd_da: Option<bool>,
 
     /// Enable audio from the RF5C164 PCM chip
     #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
@@ -585,7 +593,9 @@ impl Args {
             scd_load_disc_into_ram -> load_disc_into_ram,
             scd_drive_speed -> disc_drive_speed,
             scd_sub_cpu_divider -> sub_cpu_divider,
-            scd_low_pass_cd_da -> low_pass_cd_da,
+            scd_pcm_low_pass -> pcm_low_pass,
+            scd_apply_gen_lpf_to_pcm -> apply_genesis_lpf_to_pcm,
+            scd_apply_gen_lpf_to_cd_da -> apply_genesis_lpf_to_cd_da,
             scd_pcm_enabled -> pcm_enabled,
             scd_cd_da_enabled -> cd_audio_enabled,
         ]);

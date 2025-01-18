@@ -8,7 +8,7 @@ use genesis_core::{GenesisAspectRatio, GenesisLowPassFilter, GenesisRegion};
 use jgenesis_common::frontend::TimingMode;
 use rfd::FileDialog;
 use s32x_core::api::S32XVideoOut;
-use segacd_core::api::PcmInterpolation;
+use segacd_core::api::{PcmInterpolation, PcmLowPassFilter};
 use std::num::{NonZeroU16, NonZeroU64};
 use std::path::PathBuf;
 
@@ -391,13 +391,53 @@ impl App {
                 self.state.help_text.insert(WINDOW, helptext::YM2612_LADDER_EFFECT);
             }
 
-            let mut low_pass = self.config.genesis.low_pass == GenesisLowPassFilter::Model1Va2;
-            let rect = ui.checkbox(&mut low_pass, "Emulate 3.39 KHz low-pass filter").interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::LOW_PASS);
-            }
-            self.config.genesis.low_pass =
-                if low_pass { GenesisLowPassFilter::Model1Va2 } else { GenesisLowPassFilter::None };
+            ui.group(|ui| {
+                ui.label("Low-pass filtering");
+
+                let mut gen_low_pass =
+                    self.config.genesis.low_pass == GenesisLowPassFilter::Model1Va2;
+                let rect = ui
+                    .checkbox(&mut gen_low_pass, "Emulate 3.39 KHz low-pass filter")
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::GENESIS_LOW_PASS);
+                }
+                self.config.genesis.low_pass = if gen_low_pass {
+                    GenesisLowPassFilter::Model1Va2
+                } else {
+                    GenesisLowPassFilter::None
+                };
+
+                let mut pcm_low_pass = self.config.sega_cd.pcm_low_pass == PcmLowPassFilter::SegaCd;
+                let rect = ui
+                    .checkbox(
+                        &mut pcm_low_pass,
+                        "(Sega CD) Apply 8 KHz low-pass filter to PCM chip",
+                    )
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::PCM_LOW_PASS);
+                }
+                self.config.sega_cd.pcm_low_pass =
+                    if pcm_low_pass { PcmLowPassFilter::SegaCd } else { PcmLowPassFilter::None };
+
+                let rect = ui
+                    .add_enabled_ui(gen_low_pass, |ui| {
+                        ui.checkbox(
+                            &mut self.config.sega_cd.apply_genesis_lpf_to_pcm,
+                            "(Sega CD) Apply Genesis low-pass filter to PCM chip",
+                        );
+                        ui.checkbox(
+                            &mut self.config.sega_cd.apply_genesis_lpf_to_cd_da,
+                            "(Sega CD) Apply Genesis low-pass filter to CD-DA",
+                        );
+                    })
+                    .response
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::SCD_GEN_LOW_PASS);
+                }
+            });
 
             ui.add_space(5.0);
             let rect = ui

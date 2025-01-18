@@ -86,10 +86,7 @@ impl GenesisAudioFilter {
             return;
         }
 
-        self.low_pass_setting = config.low_pass;
-        self.ym2612_low_pass_l.reset();
-        self.ym2612_low_pass_r.reset();
-        self.psg_low_pass.reset();
+        *self = Self::new(config.low_pass);
     }
 }
 

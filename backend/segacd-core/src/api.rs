@@ -81,6 +81,17 @@ pub enum PcmInterpolation {
     QuinticHermite,
 }
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr, EnumAll,
+)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum PcmLowPassFilter {
+    None,
+    #[default]
+    SegaCd,
+}
+
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct SegaCdEmulatorConfig {
     #[cfg_display(skip)]
@@ -90,7 +101,9 @@ pub struct SegaCdEmulatorConfig {
     pub load_disc_into_ram: bool,
     pub disc_drive_speed: NonZeroU16,
     pub sub_cpu_divider: NonZeroU64,
-    pub low_pass_cd_da: bool,
+    pub pcm_low_pass: PcmLowPassFilter,
+    pub apply_genesis_lpf_to_pcm: bool,
+    pub apply_genesis_lpf_to_cd_da: bool,
     pub pcm_enabled: bool,
     pub cd_audio_enabled: bool,
 }

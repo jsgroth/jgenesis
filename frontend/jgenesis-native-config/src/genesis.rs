@@ -5,7 +5,7 @@ use genesis_core::{
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::{GenesisConfig, Sega32XConfig, SegaCdConfig};
 use s32x_core::api::{S32XVideoOut, Sega32XEmulatorConfig};
-use segacd_core::api::{PcmInterpolation, SegaCdEmulatorConfig};
+use segacd_core::api::{PcmInterpolation, PcmLowPassFilter, SegaCdEmulatorConfig};
 use serde::{Deserialize, Serialize};
 use std::num::{NonZeroU16, NonZeroU64};
 use std::path::PathBuf;
@@ -82,7 +82,11 @@ pub struct SegaCdAppConfig {
     #[serde(default = "default_sub_divider")]
     pub sub_cpu_divider: NonZeroU64,
     #[serde(default)]
-    pub low_pass_cd_da: bool,
+    pub pcm_low_pass: PcmLowPassFilter,
+    #[serde(default)]
+    pub apply_genesis_lpf_to_pcm: bool,
+    #[serde(default)]
+    pub apply_genesis_lpf_to_cd_da: bool,
     #[serde(default = "true_fn")]
     pub pcm_enabled: bool,
     #[serde(default = "true_fn")]
@@ -167,7 +171,9 @@ impl AppConfig {
                 load_disc_into_ram: self.sega_cd.load_disc_into_ram,
                 disc_drive_speed: self.sega_cd.disc_drive_speed,
                 sub_cpu_divider: self.sega_cd.sub_cpu_divider,
-                low_pass_cd_da: self.sega_cd.low_pass_cd_da,
+                pcm_low_pass: self.sega_cd.pcm_low_pass,
+                apply_genesis_lpf_to_pcm: self.sega_cd.apply_genesis_lpf_to_pcm,
+                apply_genesis_lpf_to_cd_da: self.sega_cd.apply_genesis_lpf_to_cd_da,
                 pcm_enabled: self.sega_cd.pcm_enabled,
                 cd_audio_enabled: self.sega_cd.cd_audio_enabled,
             },
