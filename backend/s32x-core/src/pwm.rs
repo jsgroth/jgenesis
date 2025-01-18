@@ -165,8 +165,8 @@ impl PwmChip {
             cycle_register: 0,
             l_fifo: PwmFifo::new(),
             r_fifo: PwmFifo::new(),
-            l_output: U12_MASK,
-            r_output: U12_MASK,
+            l_output: 0,
+            r_output: 0,
             cycle_counter: U12_MASK.into(),
             off_cycle_counter: U12_MASK.into(),
             timer_counter: 16,
@@ -284,16 +284,6 @@ impl PwmChip {
         (u16::from(self.l_fifo.is_full()) << 15) | (u16::from(self.l_fifo.is_empty()) << 14)
     }
 
-    // 68000: $A15134
-    // SH-2: $4034
-    fn write_l_fifo(&mut self, value: u16) {
-        let sample = value.wrapping_sub(1) & U12_MASK;
-        self.l_fifo.push(sample);
-
-        log::trace!("L pulse width FIFO write: {value:04X}");
-        log::trace!("  Effective wave height: {sample}");
-    }
-
     // 68000: $A15136
     // SH-2: $4036
     fn read_r_fifo_status(&self) -> u16 {
@@ -309,10 +299,20 @@ impl PwmChip {
         (u16::from(full) << 15) | (u16::from(empty) << 14)
     }
 
+    // 68000: $A15134
+    // SH-2: $4034
+    fn write_l_fifo(&mut self, value: u16) {
+        let sample = value & U12_MASK;
+        self.l_fifo.push(sample);
+
+        log::trace!("L pulse width FIFO write: {value:04X}");
+        log::trace!("  Effective wave height: {sample}");
+    }
+
     // 68000: $A15136
     // SH-2: $4036
     fn write_r_fifo(&mut self, value: u16) {
-        let sample = value.wrapping_sub(1) & U12_MASK;
+        let sample = value & U12_MASK;
         self.r_fifo.push(sample);
 
         log::trace!("R pulse width FIFO write: {value:04X}");
@@ -322,7 +322,7 @@ impl PwmChip {
     // 68000: $A15138
     // SH-2: $4038
     fn write_mono_fifo(&mut self, value: u16) {
-        let sample = value.wrapping_sub(1) & U12_MASK;
+        let sample = value & U12_MASK;
         self.l_fifo.push(sample);
         self.r_fifo.push(sample);
 
@@ -339,15 +339,17 @@ fn compute_sample_rate(genesis_mclk_frequency: f64, cycle_register: u16) -> f64 
     genesis_mclk_frequency * 3.0 / 7.0 / f64::from(cycle_register.wrapping_sub(1) & U12_MASK)
 }
 
-fn pulse_width_to_f64(pulse_width: u16, cycle_register: u16) -> f64 {
+fn pulse_width_to_f64(sample: u16, cycle_register: u16) -> f64 {
     if cycle_register == 1 {
         return 0.0;
     }
 
-    // Treat the pulse width as a sample on a scale from 0 to (cycle_register - 1) and map that to [-1, 1]
+    // Treat the pulse width as a sample on a scale from 0 to (cycle_register - 1) and map that to [0, 1]
+    let pulse_width = sample.wrapping_sub(1) & U12_MASK;
     let max_width = cycle_register.wrapping_sub(1) & U12_MASK;
     let clamped_width = cmp::min(pulse_width, max_width);
 
+    // TODO this is wrong - should treat PWM output as unsigned and maybe high-pass filter to shift the center to 0
     let divisor = 0.5 * f64::from(max_width);
     (f64::from(clamped_width) - divisor) / divisor
 }
