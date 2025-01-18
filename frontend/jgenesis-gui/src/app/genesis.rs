@@ -461,8 +461,8 @@ impl App {
                         for (value, label) in [
                             (PcmInterpolation::None, "None"),
                             (PcmInterpolation::Linear, "Linear"),
-                            (PcmInterpolation::CubicHermite, "Cubic"),
-                            (PcmInterpolation::QuinticHermite, "Quintic"),
+                            (PcmInterpolation::CubicHermite, "4-point Cubic"),
+                            (PcmInterpolation::CubicHermite6Point, "6-point Cubic"),
                         ] {
                             ui.radio_value(
                                 &mut self.config.sega_cd.pcm_interpolation,

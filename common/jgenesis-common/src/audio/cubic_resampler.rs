@@ -1,4 +1,6 @@
-use crate::audio::{DEFAULT_OUTPUT_FREQUENCY, RESAMPLE_SCALING_FACTOR, interpolate_cubic_hermite};
+use crate::audio::{
+    DEFAULT_OUTPUT_FREQUENCY, RESAMPLE_SCALING_FACTOR, interpolate_cubic_hermite_4p,
+};
 use bincode::{Decode, Encode};
 use std::collections::VecDeque;
 
@@ -44,8 +46,8 @@ impl CubicResampler {
             }
 
             let x = (self.scaled_x_counter as f64) / (scaled_output_frequency as f64);
-            let output_l = interpolate_cubic_hermite(self.input_samples_l, x).clamp(-1.0, 1.0);
-            let output_r = interpolate_cubic_hermite(self.input_samples_r, x).clamp(-1.0, 1.0);
+            let output_l = interpolate_cubic_hermite_4p(self.input_samples_l, x).clamp(-1.0, 1.0);
+            let output_r = interpolate_cubic_hermite_4p(self.input_samples_r, x).clamp(-1.0, 1.0);
             self.output_samples.push_back((output_l, output_r));
         }
     }

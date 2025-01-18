@@ -180,7 +180,7 @@ pub const SCD_PCM_INTERPOLATION: HelpText = HelpText {
     text: &[
         "Choose the method used to interpolate when a PCM sound chip channel is partway between samples.",
         "Not interpolating is more accurate to hardware but tends to cause significant audio aliasing in PCM chip audio output.",
-        "In terms of quality, generally quintic is better than cubic is better than linear, but higher-quality interpolation may sound more muffled at low sample rates.",
+        "In terms of quality, generally 6-point cubic is best and linear is worst, but higher-quality interpolation may sound more muffled at low sample rates.",
     ],
 };
 

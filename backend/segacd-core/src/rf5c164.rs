@@ -41,12 +41,12 @@ impl InterpolationBuffer {
             PcmInterpolation::Linear => {
                 interpolate_linear(self.buffer[4], self.buffer[5], interpolation_x(current_address))
             }
-            PcmInterpolation::CubicHermite => interpolate_cubic(
-                [self.buffer[2], self.buffer[3], self.buffer[4], self.buffer[5]],
+            PcmInterpolation::CubicHermite => interpolate_cubic_4p(
+                self.buffer[2..6].try_into().unwrap(),
                 interpolation_x(current_address),
             ),
-            PcmInterpolation::QuinticHermite => {
-                interpolate_quintic(self.buffer, interpolation_x(current_address))
+            PcmInterpolation::CubicHermite6Point => {
+                interpolate_cubic_6p(self.buffer, interpolation_x(current_address))
             }
         }
     }
@@ -68,32 +68,13 @@ fn interpolate_linear(y0: i8, y1: i8, x: f64) -> f64 {
 const MIN_SAMPLE: f64 = -127.0;
 const MAX_SAMPLE: f64 = 126.0;
 
-fn interpolate_cubic(samples: [i8; 4], x: f64) -> f64 {
-    let result = jgenesis_common::audio::interpolate_cubic_hermite(samples.map(f64::from), x);
+fn interpolate_cubic_4p(samples: [i8; 4], x: f64) -> f64 {
+    let result = jgenesis_common::audio::interpolate_cubic_hermite_4p(samples.map(f64::from), x);
     result.clamp(MIN_SAMPLE, MAX_SAMPLE)
 }
 
-// Based on the 6-point 5th-order Hermite algorithm from https://yehar.com/blog/wp-content/uploads/2009/08/deip.pdf
-// Assuming that Rust/LLVM will optimize these constant floating-point divisions into multiplications,
-// which it does seem to do based on experimentation in Compiler Explorer
-fn interpolate_quintic(samples: [i8; 6], x: f64) -> f64 {
-    let [ym2, ym1, y0, y1, y2, y3] = samples.map(f64::from);
-
-    let eighthym2 = 1.0 / 8.0 * ym2;
-    let eleventwentyfourthy2 = 11.0 / 24.0 * y2;
-    let twelfthy3 = 1.0 / 12.0 * y3;
-
-    let c0 = y0;
-    let c1 = 1.0 / 12.0 * (ym2 - y2) + 2.0 / 3.0 * (y1 - ym1);
-    let c2 = 13.0 / 12.0 * ym1 - 25.0 / 12.0 * y0 + 3.0 / 2.0 * y1 - eleventwentyfourthy2
-        + twelfthy3
-        - eighthym2;
-    let c3 = 5.0 / 12.0 * y0 - 7.0 / 12.0 * y1 + 7.0 / 24.0 * y2 - 1.0 / 24.0 * (ym2 + ym1 + y3);
-    let c4 =
-        eighthym2 - 7.0 / 12.0 * ym1 + 13.0 / 12.0 * y0 - y1 + eleventwentyfourthy2 - twelfthy3;
-    let c5 = 1.0 / 24.0 * (y3 - ym2) + 5.0 / 24.0 * (ym1 - y2) + 5.0 / 12.0 * (y1 - y0);
-
-    let result = ((((c5 * x + c4) * x + c3) * x + c2) * x + c1) * x + c0;
+fn interpolate_cubic_6p(samples: [i8; 6], x: f64) -> f64 {
+    let result = jgenesis_common::audio::interpolate_cubic_hermite_6p(samples.map(f64::from), x);
     result.clamp(MIN_SAMPLE, MAX_SAMPLE)
 }
 

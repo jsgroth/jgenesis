@@ -10,7 +10,7 @@
 * (**Sega CD**) Added an option to overclock the sub CPU by decreasing the master clock divider (#138)
 * (**Sega CD**) Added an option to increase the disc drive speed when reading data tracks (#138)
   * This has low compatibility but can shorten loading times in some games. Compatibility is _slightly_ higher when the sub CPU is overclocked
-* (**Sega CD**) Added an audio enhancement setting to apply quintic (5th-order) Hermite interpolation to PCM chip channels, which in some cases produces slightly cleaner audio than cubic Hermite interpolation
+* (**Sega CD**) Added an additional PCM chip interpolation option for 6-point cubic Hermite interpolation, which in some cases produces a slightly cleaner sound than 4-point cubic Hermite (the existing setting)
 * Added a new hotkey to quickly toggle whether overclocking settings are enabled, for the systems that support overclocking (this includes Sega CD's new drive speed setting)
   * This is mainly useful for Sega CD, where increasing the drive speed can shorten loading times during gameplay but almost always breaks FMVs and animated cutscenes
 

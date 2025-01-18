@@ -12,11 +12,25 @@ const RESAMPLE_SCALING_FACTOR: u64 = 1_000_000_000;
 
 // Based on https://yehar.com/blog/wp-content/uploads/2009/08/deip.pdf
 #[must_use]
-pub fn interpolate_cubic_hermite([y0, y1, y2, y3]: [f64; 4], x: f64) -> f64 {
-    let c0 = y1;
-    let c1 = 0.5 * (y2 - y0);
-    let c2 = y0 - 2.5 * y1 + 2.0 * y2 - 0.5 * y3;
-    let c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+pub fn interpolate_cubic_hermite_4p([ym1, y0, y1, y2]: [f64; 4], x: f64) -> f64 {
+    let c0 = y0;
+    let c1 = 0.5 * (y1 - ym1);
+    let c2 = ym1 - 2.5 * y0 + 2.0 * y1 - 0.5 * y2;
+    let c3 = 0.5 * (y2 - ym1) + 1.5 * (y0 - y1);
+
+    ((c3 * x + c2) * x + c1) * x + c0
+}
+
+// Based on https://yehar.com/blog/wp-content/uploads/2009/08/deip.pdf
+// Assuming that Rust/LLVM will optimize these constant floating-point divisions into multiplications,
+// which it does seem to do based on experimentation in Compiler Explorer
+#[must_use]
+pub fn interpolate_cubic_hermite_6p([ym2, ym1, y0, y1, y2, y3]: [f64; 6], x: f64) -> f64 {
+    let c0 = y0;
+    let c1 = 1.0 / 12.0 * (ym2 - y2) + 2.0 / 3.0 * (y1 - ym1);
+    let c2 = 5.0 / 4.0 * ym1 - 7.0 / 3.0 * y0 + 5.0 / 3.0 * y1 - 1.0 / 2.0 * y2 + 1.0 / 12.0 * y3
+        - 1.0 / 6.0 * ym2;
+    let c3 = 1.0 / 12.0 * (ym2 - y3) + 7.0 / 12.0 * (y2 - ym1) + 4.0 / 3.0 * (y0 - y1);
 
     ((c3 * x + c2) * x + c1) * x + c0
 }
