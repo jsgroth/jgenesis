@@ -48,6 +48,7 @@ pub struct Sega32XEmulatorConfig {
     #[cfg_display(skip)]
     pub genesis: GenesisEmulatorConfig,
     pub video_out: S32XVideoOut,
+    pub apply_genesis_lpf_to_pwm: bool,
     pub pwm_enabled: bool,
 }
 

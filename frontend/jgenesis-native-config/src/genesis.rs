@@ -111,6 +111,8 @@ impl Default for SegaCdAppConfig {
 pub struct Sega32XAppConfig {
     #[serde(default)]
     pub video_out: S32XVideoOut,
+    #[serde(default)]
+    pub apply_genesis_lpf_to_pwm: bool,
     #[serde(default = "true_fn")]
     pub pwm_enabled: bool,
 }
@@ -189,6 +191,7 @@ impl AppConfig {
             emulator_config: Sega32XEmulatorConfig {
                 genesis: genesis_emu_config,
                 video_out: self.sega_32x.video_out,
+                apply_genesis_lpf_to_pwm: self.sega_32x.apply_genesis_lpf_to_pwm,
                 pwm_enabled: self.sega_32x.pwm_enabled,
             },
         })

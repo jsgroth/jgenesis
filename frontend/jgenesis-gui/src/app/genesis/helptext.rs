@@ -167,6 +167,14 @@ pub const SCD_GEN_LOW_PASS: HelpText = HelpText {
     ],
 };
 
+pub const S32X_GEN_LOW_PASS: HelpText = HelpText {
+    heading: "Apply Genesis LPF to 32X",
+    text: &[
+        "Choose whether to apply the 3.39 KHz Genesis low-pass filter to 32X PWM audio output.",
+        "In actual hardware, 32X audio output may or may not pass through the Genesis low-pass filter depending on where the 32X audio output is connected.",
+    ],
+};
+
 pub const SCD_PCM_INTERPOLATION: HelpText = HelpText {
     heading: "Sega CD PCM interpolation",
     text: &[

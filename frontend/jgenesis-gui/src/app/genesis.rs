@@ -437,6 +437,19 @@ impl App {
                 if ui.rect_contains_pointer(rect) {
                     self.state.help_text.insert(WINDOW, helptext::SCD_GEN_LOW_PASS);
                 }
+
+                let rect = ui
+                    .add_enabled_ui(gen_low_pass, |ui| {
+                        ui.checkbox(
+                            &mut self.config.sega_32x.apply_genesis_lpf_to_pwm,
+                            "(32X) Apply Genesis low-pass filter to PWM chip",
+                        );
+                    })
+                    .response
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::S32X_GEN_LOW_PASS);
+                }
             });
 
             ui.add_space(5.0);

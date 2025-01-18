@@ -251,6 +251,10 @@ struct Args {
     #[arg(long, help_heading = S32X_OPTIONS_HEADING)]
     s32x_video_out: Option<S32XVideoOut>,
 
+    /// Configure whether PWM chip output uses the Genesis low-pass filter
+    #[arg(long, help_heading = S32X_OPTIONS_HEADING)]
+    s32x_apply_gen_lpf_to_pwm: Option<bool>,
+
     /// Enable audio from the 32X PWM chip
     #[arg(long, help_heading = S32X_OPTIONS_HEADING)]
     s32x_pwm_enabled: Option<bool>,
@@ -604,6 +608,7 @@ impl Args {
     fn apply_32x_overrides(&self, config: &mut AppConfig) {
         apply_overrides!(self, config.sega_32x, [
             s32x_video_out -> video_out,
+            s32x_apply_gen_lpf_to_pwm -> apply_genesis_lpf_to_pwm,
             s32x_pwm_enabled -> pwm_enabled,
         ]);
     }

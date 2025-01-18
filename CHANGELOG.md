@@ -1,9 +1,12 @@
 # Next Release
 
 ## New Features
+* (**Genesis** / **Sega CD** / **32X**) Replaced the low-pass filtering settings added in v0.8.3 with a new set of options that are hopefully higher-quality
+  * New option to apply a first-order 3.39 KHz low-pass filter to Genesis audio output; this is **ON** by default (biggest change from previous default settings)
+  * New option to apply a second-order 7.97 KHz low-pass filter to Sega CD PCM audio output; this is **ON** by default
+  * New options to individually configure whether the Genesis low-pass filter is applied to Sega CD and 32X audio output; these are all **OFF** by default
 * (**Genesis** / **SNES**) Added a new video setting to disable deinterlacing in the handful of games that use interlaced display modes (e.g. _Sonic the Hedgehog 2_ in 2P Vs. mode, _Ys III_ (Genesis) with the in-game "Int Mode" option enabled,  _Air Strike Patrol_ in mission briefing screens)
   * Deinterlacing enabled matches the behavior in previous versions: normal-resolution interlaced modes display the same as progressive mode, and high-res interlaced modes make the graphics processor render all 448/480 lines every frame
-* (**Sega CD**) Added an audio setting for whether to apply low-pass filtering to CD audio track playback, which defaults to disabled
 * (**Sega CD**) Added an option to overclock the sub CPU by decreasing the master clock divider (#138)
 * (**Sega CD**) Added an option to increase the disc drive speed when reading data tracks (#138)
   * This has low compatibility but can shorten loading times in some games. Compatibility is _slightly_ higher when the sub CPU is overclocked

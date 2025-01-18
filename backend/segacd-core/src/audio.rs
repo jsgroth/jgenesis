@@ -106,23 +106,30 @@ impl SegaCdAudioFilter {
             sample_r = self.pcm_8khz_lpf_r.filter(sample_r);
         }
 
-        if self.apply_gen_lpf_to_pcm && self.gen_low_pass_setting == GenesisLowPassFilter::Model1Va2
-        {
-            sample_l = self.pcm_gen_lpf_l.filter(sample_l);
-            sample_r = self.pcm_gen_lpf_r.filter(sample_r);
+        if self.apply_gen_lpf_to_pcm {
+            match self.gen_low_pass_setting {
+                GenesisLowPassFilter::Model1Va2 => {
+                    sample_l = self.pcm_gen_lpf_l.filter(sample_l);
+                    sample_r = self.pcm_gen_lpf_r.filter(sample_r);
+                }
+                GenesisLowPassFilter::None => {}
+            }
         }
 
         (sample_l, sample_r)
     }
 
     fn filter_cd_da(&mut self, (sample_l, sample_r): (f64, f64)) -> (f64, f64) {
-        if !self.apply_gen_lpf_to_cd_da
-            || self.gen_low_pass_setting != GenesisLowPassFilter::Model1Va2
-        {
+        if !self.apply_gen_lpf_to_cd_da {
             return (sample_l, sample_r);
         }
 
-        (self.cd_da_gen_lpf_l.filter(sample_l), self.cd_da_gen_lpf_r.filter(sample_r))
+        match self.gen_low_pass_setting {
+            GenesisLowPassFilter::Model1Va2 => {
+                (self.cd_da_gen_lpf_l.filter(sample_l), self.cd_da_gen_lpf_r.filter(sample_r))
+            }
+            GenesisLowPassFilter::None => (sample_l, sample_r),
+        }
     }
 
     fn reload_config(&mut self, config: &SegaCdEmulatorConfig) {
