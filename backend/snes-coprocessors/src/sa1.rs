@@ -16,6 +16,7 @@ use crate::sa1::timer::Sa1Timer;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::PartialClone;
+use std::cmp;
 use wdc65816_emu::core::Wdc65816;
 
 const IRAM_LEN: usize = 2 * 1024;
@@ -31,6 +32,7 @@ macro_rules! new_sa1_bus {
             mmc: &mut $self.mmc,
             registers: &mut $self.registers,
             timer: &mut $self.timer,
+            bwram_wait_cycles: 0,
         }
     };
 }
@@ -42,6 +44,7 @@ pub struct Sa1 {
     iram: Box<Iram>,
     bwram: Box<[u8]>,
     cpu: Wdc65816,
+    bwram_wait_cycles: u64,
     mmc: Sa1Mmc,
     registers: Sa1Registers,
     timer: Sa1Timer,
@@ -56,6 +59,7 @@ impl Sa1 {
             iram: vec![0; IRAM_LEN].into_boxed_slice().try_into().unwrap(),
             bwram: sram,
             cpu: Wdc65816::new(),
+            bwram_wait_cycles: 0,
             mmc: Sa1Mmc::new(),
             registers: Sa1Registers::new(),
             timer: Sa1Timer::new(timing_mode),
@@ -85,13 +89,20 @@ impl Sa1 {
     /// This method will panic if `master_cycles_elapsed` is not a multiple of 2.
     pub fn tick(&mut self, master_cycles_elapsed: u64) {
         assert_eq!(master_cycles_elapsed % 2, 0);
+
+        // 10.74 MHz clock, SNES mclk / 2
         let sa1_cycles = master_cycles_elapsed / 2;
+
+        let spent_wait_cycles = cmp::min(sa1_cycles, self.bwram_wait_cycles);
+        let cpu_cycles = sa1_cycles - spent_wait_cycles;
+        self.bwram_wait_cycles -= spent_wait_cycles;
 
         if !self.registers.cpu_halted() {
             let mut bus = new_sa1_bus!(self);
-            for _ in 0..sa1_cycles {
+            for _ in 0..cpu_cycles {
                 self.cpu.tick(&mut bus);
             }
+            self.bwram_wait_cycles += bus.bwram_wait_cycles;
         }
 
         if self.registers.dma_state != DmaState::Idle {

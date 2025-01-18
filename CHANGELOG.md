@@ -20,6 +20,8 @@
 * Save state files are now internally compressed using zstd which should reduce save state file size by at least 50%, often by 70-80%
 * (**Genesis**) Slightly improved performance by optimizing VDP rendering and tile fetching code
 * (**SMS**) The "crop vertical borders" video setting now defaults to enabled instead of disabled; unlike the left border, the vertical borders will only ever show the current backdrop color
+* (**SNES**) In games that use the SA-1 coprocessor, the SA-1 CPU now gets a wait cycle every time it accesses SA-1 BW-RAM, similar to actual hardware
+  * The SA-1 CPU still runs faster than actual hardware in some cases because bus conflict wait cycles are not emulated
 * Frontends now recognize .gen as a file extension for Genesis / Mega Drive ROM images (#149)
 
 ## Fixes

@@ -107,6 +107,7 @@ pub struct Sa1Bus<'a> {
     pub mmc: &'a mut Sa1Mmc,
     pub registers: &'a mut Sa1Registers,
     pub timer: &'a mut Sa1Timer,
+    pub bwram_wait_cycles: u64,
 }
 
 impl BusInterface for Sa1Bus<'_> {
@@ -143,6 +144,8 @@ impl BusInterface for Sa1Bus<'_> {
             }
             (0x00..=0x3F | 0x80..=0xBF, 0x6000..=0x7FFF) => {
                 // BW-RAM 8KB block
+                self.bwram_wait_cycles += 1;
+
                 match self.mmc.sa1_bwram_source {
                     BwramMapSource::Normal => {
                         let bwram_addr = ((self.mmc.sa1_bwram_base_addr & 0x3E000)
@@ -158,11 +161,15 @@ impl BusInterface for Sa1Bus<'_> {
             }
             (0x40..=0x4F, _) => {
                 // BW-RAM in full
+                self.bwram_wait_cycles += 1;
+
                 let bwram_addr = (address as usize) & (self.bwram.len() - 1);
                 self.bwram[bwram_addr]
             }
             (0x60..=0x6F, _) => {
                 // BW-RAM bitmap view
+                self.bwram_wait_cycles += 1;
+
                 read_bwram_bitmap(address, self.mmc, self.bwram)
             }
             _ => 0,
@@ -188,6 +195,8 @@ impl BusInterface for Sa1Bus<'_> {
             }
             (0x00..=0x3F | 0x80..=0xBF, 0x6000..=0x7FFF) => {
                 // BW-RAM 8KB block
+                self.bwram_wait_cycles += 1;
+
                 match self.mmc.sa1_bwram_source {
                     BwramMapSource::Normal => {
                         let bwram_addr = ((self.mmc.sa1_bwram_base_addr & 0x3E000)
@@ -205,6 +214,8 @@ impl BusInterface for Sa1Bus<'_> {
             }
             (0x40..=0x4F, _) => {
                 // BW-RAM in full (256KB max, mirrored every 4 banks)
+                self.bwram_wait_cycles += 1;
+
                 let bwram_addr = (address as usize) & (self.bwram.len() - 1);
                 if self.registers.can_write_bwram(bwram_addr as u32) {
                     self.bwram[bwram_addr] = value;
@@ -212,6 +223,8 @@ impl BusInterface for Sa1Bus<'_> {
             }
             (0x60..=0x6F, _) => {
                 // BW-RAM bitmap view
+                self.bwram_wait_cycles += 1;
+
                 write_bwram_bitmap(address, value, self.mmc, self.bwram);
             }
             _ => {}
