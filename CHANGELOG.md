@@ -20,6 +20,7 @@
 * Save state files are now internally compressed using zstd which should reduce save state file size by at least 50%, often by 70-80%
 * (**Genesis**) Slightly improved performance by optimizing VDP rendering and tile fetching code
 * (**SMS**) The "crop vertical borders" video setting now defaults to enabled instead of disabled; unlike the left border, the vertical borders will only ever show the current backdrop color
+* Frontends now recognize .gen as a file extension for Genesis / Mega Drive ROM images (#149)
 
 ## Fixes
 * (**Genesis**) Fixed the 68000 incorrectly being allowed to access audio RAM while the Z80 is on the bus; this fixes freezing in _Joe & Mac_ (#144)
