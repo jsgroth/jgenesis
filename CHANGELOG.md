@@ -34,6 +34,7 @@
 * (**Sega CD**) Fixed inaccurate emulation of CD-DA fader volumes 1-3 out of 1024 (should be 50-60 dB of attenuation instead of complete silence)
 * (**Sega CD**) Unmapped/unknown address accesses will now log an error instead of crashing the emulator
 * (**32X**) Fixed a major bug in the PWM resampling code that caused PWM audio output to sound significantly more poppy and crackly than it's supposed to
+* (**GB**) Implemented an obscure behavior where pulse channels should output a constant 0 after power-on until after the first phase increment; this fixes missing voice samples in _Daiku no Gen-san - Robot Teikoku no Yabou_ (#151)
 * (**GB**) Fixed an edge case related to LYC writes at the beginning of a line not triggering the LY=LYC STAT interrupt under certain conditions; this fixes glitchy graphics on the title screen of the _SQRKZ_ homebrew (#154)
 * (**GB**) Fixed a slight timing issue with VRAM blocking during PPU mode 3 that caused graphical glitches in the _Stunt Race FX GB_ homebrew (#153)
 * (**GB**) The contents of OBJ palette RAM are now randomized at power-on (#152)

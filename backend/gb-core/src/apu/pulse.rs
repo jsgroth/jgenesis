@@ -1,4 +1,4 @@
-use crate::apu::components::{Envelope, PulseTimer, StandardLengthCounter};
+use crate::apu::components::{Envelope, PulseTimer, StandardLengthCounter, TimerTickEffect};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 
@@ -159,6 +159,8 @@ pub struct PulseChannel {
     timer: PulseTimer,
     channel_enabled: bool,
     dac_enabled: bool,
+    just_powered_on: bool,
+    suppress_output: bool,
 }
 
 impl PulseChannel {
@@ -171,6 +173,8 @@ impl PulseChannel {
             timer: PulseTimer::new(),
             channel_enabled: false,
             dac_enabled: false,
+            just_powered_on: true,
+            suppress_output: true,
         }
     }
 
@@ -187,7 +191,16 @@ impl PulseChannel {
     }
 
     pub fn tick_m_cycle(&mut self) {
-        self.timer.tick_m_cycle();
+        // Obscure behavior: After power-on, pulse channels do not progress through their duty
+        // cycles until after the first trigger
+        if self.just_powered_on {
+            return;
+        }
+
+        // More obscure behavior: After power-on, pulse channels output a constant 0 until after
+        // the first phase increment
+        let tick = self.timer.tick_m_cycle();
+        self.suppress_output &= tick != TimerTickEffect::Clocked;
     }
 
     pub fn sample(&self) -> Option<u8> {
@@ -195,7 +208,7 @@ impl PulseChannel {
             return None;
         }
 
-        if !self.channel_enabled {
+        if !self.channel_enabled || self.suppress_output {
             return Some(0);
         }
 
@@ -274,6 +287,7 @@ impl PulseChannel {
         if value.bit(7) {
             // Channel triggered
             self.channel_enabled = true;
+            self.just_powered_on = false;
 
             self.length_counter.trigger(frame_sequencer_step);
             self.envelope.trigger();
