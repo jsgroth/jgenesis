@@ -265,7 +265,15 @@ impl PulseChannel {
 
     pub fn write_register_3(&mut self, value: u8) {
         // NR13/NR23: Pulse frequency low bits
+        let just_reloaded = self.timer.just_reloaded();
         self.timer.write_frequency_low(value);
+
+        // If the timer just reloaded, update the counter to the new period.
+        // This is a hack to work around the fact that the write actually occurred mid-M-cycle, but
+        // the emulator is processing it post-M-cycle
+        if just_reloaded {
+            self.timer.trigger();
+        }
 
         log::trace!("NRx3 write");
         log::trace!("  Timer frequency: {}", self.timer.frequency());
@@ -277,6 +285,7 @@ impl PulseChannel {
 
     pub fn write_register_4(&mut self, value: u8, frame_sequencer_step: u8) {
         // NR14/NR24: Pulse frequency high bits + length counter enabled + trigger
+        let timer_just_reloaded = self.timer.just_reloaded();
         self.timer.write_frequency_high(value);
         self.length_counter.set_enabled(
             value.bit(6),
@@ -284,10 +293,16 @@ impl PulseChannel {
             &mut self.channel_enabled,
         );
 
+        // If the timer just reloaded, update the counter to the new period.
+        // This is a hack to work around the fact that the write actually occurred mid-M-cycle, but
+        // the emulator is processing it post-M-cycle
+        if timer_just_reloaded {
+            self.timer.trigger();
+        }
+
         if value.bit(7) {
             // Channel triggered
             self.channel_enabled = true;
-            self.just_powered_on = false;
 
             self.length_counter.trigger(frame_sequencer_step);
             self.envelope.trigger();
@@ -295,6 +310,13 @@ impl PulseChannel {
             self.sweep.trigger(self.timer, &mut self.channel_enabled);
 
             self.channel_enabled &= self.dac_enabled;
+
+            if self.just_powered_on {
+                // Not sure this is accurate, but adding a 1-cycle delay to the first phase increment
+                // after power-on fixes voice samples in Keitai Denjuu Telefang
+                self.timer.counter += 1;
+            }
+            self.just_powered_on = false;
         }
 
         log::trace!("NRx4 write");

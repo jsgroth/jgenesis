@@ -35,6 +35,7 @@
 * (**Sega CD**) Unmapped/unknown address accesses will now log an error instead of crashing the emulator
 * (**32X**) Fixed a major bug in the PWM resampling code that caused PWM audio output to sound significantly more poppy and crackly than it's supposed to
 * (**GB**) Implemented an obscure behavior where pulse channels should output a constant 0 after power-on until after the first phase increment; this fixes missing voice samples in _Daiku no Gen-san - Robot Teikoku no Yabou_ (#151)
+* (**GB**) Fixed a bug related to the pulse channel phase counter reloading on the same cycle as a frequency change via NR13/NR14/NR23/NR24; this combined with the above change fixes missing voice samples in _Keitai Denjuu Telefang_ (#47)
 * (**GB**) Fixed an edge case related to LYC writes at the beginning of a line not triggering the LY=LYC STAT interrupt under certain conditions; this fixes glitchy graphics on the title screen of the _SQRKZ_ homebrew (#154)
 * (**GB**) Fixed a slight timing issue with VRAM blocking during PPU mode 3 that caused graphical glitches in the _Stunt Race FX GB_ homebrew (#153)
 * (**GB**) The contents of OBJ palette RAM are now randomized at power-on (#152)
