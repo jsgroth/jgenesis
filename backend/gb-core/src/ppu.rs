@@ -447,11 +447,14 @@ impl Ppu {
     }
 
     fn cpu_can_access_vram(&self) -> bool {
-        // Allow access even during mode 3 if dot == 80.
+        // Allow access even during mode 3 if dot <= 84.
         // Because of how the CPU and PPU are executed, a write at dot == 80 would have occurred
         // on dot 78 (single-speed) or dot 79 (double-speed) on actual hardware and would not have
-        // been blocked
-        self.state.mode != PpuMode::Rendering || self.state.dot == OAM_SCAN_DOTS
+        // been blocked.
+        // Allowing writes on dots 81-84 (probably 81-83 in actual hardware) is a hack to fix
+        // what seems to be a timing issue elsewhere, possibly interrupt-related. The Stunt Race FX
+        // demo depends on allowing these through
+        self.state.mode != PpuMode::Rendering || self.state.dot <= OAM_SCAN_DOTS + 4
     }
 
     pub fn mode(&self) -> PpuMode {
