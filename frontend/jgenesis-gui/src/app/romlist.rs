@@ -98,9 +98,7 @@ pub fn build(rom_search_dirs: &[String]) -> Vec<RomMetadata> {
     // Remove any files that are referenced in .cue files
     let cd_bin_file_names = metadata
         .iter()
-        .filter(|metadata| {
-            Path::new(&metadata.full_path).extension().and_then(OsStr::to_str) == Some("cue")
-        })
+        .filter(|metadata| extensions::from_path(&metadata.full_path).as_deref() == Some("cue"))
         .filter_map(|metadata| {
             let path = Path::new(&metadata.full_path);
 
@@ -128,10 +126,10 @@ pub fn read_metadata(path: &Path) -> Option<RomMetadata> {
 }
 
 fn process_file(file_name: &str, path: &Path, metadata: fs::Metadata) -> Option<RomMetadata> {
-    let file_name_no_ext = Path::new(&file_name).with_extension("").to_string_lossy().to_string();
-    let extension = Path::new(&file_name).extension().and_then(OsStr::to_str)?;
+    let file_name_no_ext = Path::new(file_name).with_extension("").to_string_lossy().to_string();
+    let extension = extensions::from_path(file_name)?;
 
-    match extension {
+    match extension.as_str() {
         "zip" => {
             let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_zip(
                 path,
@@ -139,6 +137,7 @@ fn process_file(file_name: &str, path: &Path, metadata: fs::Metadata) -> Option<
             )
             .ok()
             .flatten()?;
+
             let console = Console::from_extension(&zip_entry.extension)?;
             Some(RomMetadata {
                 full_path: path.into(),
@@ -163,8 +162,8 @@ fn process_file(file_name: &str, path: &Path, metadata: fs::Metadata) -> Option<
             })
         }
         _ => {
-            let console = Console::from_extension(extension)?;
-            let file_size = match extension {
+            let console = Console::from_extension(&extension)?;
+            let file_size = match extension.as_str() {
                 "cue" => sega_cd_file_size(path).ok()?,
                 _ => metadata.len(),
             };
@@ -209,7 +208,7 @@ pub fn from_recent_opens(recent_opens: &[RecentOpen]) -> Vec<RomMetadata> {
                 path.with_extension("").file_name()?.to_string_lossy().to_string();
             let metadata = fs::metadata(path).ok()?;
 
-            let file_size = match path.extension().and_then(OsStr::to_str) {
+            let file_size = match extensions::from_path(path).as_deref() {
                 Some("cue") => sega_cd_file_size(path_str).ok()?,
                 _ => metadata.len(),
             };

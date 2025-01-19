@@ -1,3 +1,5 @@
+use std::ffi::OsStr;
+use std::path::Path;
 use std::sync::LazyLock;
 
 pub const MASTER_SYSTEM: &[&str] = &["sms"];
@@ -33,3 +35,12 @@ pub static ALL: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
 
 pub static ALL_PLUS_ARCHIVES: LazyLock<Vec<&'static str>> =
     LazyLock::new(|| ALL.clone().into_iter().chain(SUPPORTED_ARCHIVES.iter().copied()).collect());
+
+#[must_use]
+pub fn from_path<P: AsRef<Path>>(path: P) -> Option<String> {
+    fn inner(path: &Path) -> Option<String> {
+        path.extension().map(OsStr::to_ascii_lowercase).and_then(|s| s.to_str().map(String::from))
+    }
+
+    inner(path.as_ref())
+}

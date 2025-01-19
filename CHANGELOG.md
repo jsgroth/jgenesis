@@ -23,6 +23,7 @@
 * (**SNES**) In games that use the SA-1 coprocessor, the SA-1 CPU now gets a wait cycle every time it accesses SA-1 BW-RAM, similar to actual hardware
   * The SA-1 CPU still runs faster than actual hardware in some cases because bus conflict wait cycles are not emulated
 * Frontends now recognize .gen as a file extension for Genesis / Mega Drive ROM images (#149)
+* Frontends should now correctly handle files with uppercase file extensions
 
 ## Fixes
 * (**Genesis**) Fixed the 68000 incorrectly being allowed to access audio RAM while the Z80 is on the bus; this fixes freezing in _Joe & Mac_ (#144)
@@ -32,6 +33,9 @@
 * (**Sega CD**) Fixed inaccurate emulation of CD-DA fader volumes 1-3 out of 1024 (should be 50-60 dB of attenuation instead of complete silence)
 * (**Sega CD**) Unmapped/unknown address accesses will now log an error instead of crashing the emulator
 * (**32X**) Fixed a major bug in the PWM resampling code that caused PWM audio output to sound significantly more poppy and crackly than it's supposed to
+* (**GB**) Fixed an edge case related to LYC writes at the beginning of a line not triggering the LY=LYC STAT interrupt under certain conditions; this fixes glitchy graphics on the title screen of the _SQRKZ_ homebrew (#154)
+* (**GB**) Fixed a slight timing issue with VRAM blocking during PPU mode 3 that caused graphical glitches in the _Stunt Race FX GB_ homebrew (#153)
+* (**GB**) The contents of OBJ palette RAM are now randomized at power-on (#152)
 * Fixed a performance bug in the audio resampling code that could have caused intermittent extremely poor performance due to performing arithmetic on subnormal floating-point numbers, which can apparently be up to 100 times slower than normal floating-point arithmetic (#135)
 * Linux: AppImage builds now exclude all Wayland-related system libraries during packaging; this fixes the emulator failing to launch in some distros, e.g. Solus Plasma (#143)
 * Linux: AppImage builds now interpret relative paths in command-line arguments as being relative to the original working directory where the AppImage was launched from, not the AppImage internal runner directory (#147)

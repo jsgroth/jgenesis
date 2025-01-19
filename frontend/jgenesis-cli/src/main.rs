@@ -22,7 +22,6 @@ use segacd_core::api::{PcmInterpolation, PcmLowPassFilter};
 use smsgg_core::psg::Sn76489Version;
 use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsModel, SmsRegion};
 use snes_core::api::{AudioInterpolationMode, SnesAspectRatio};
-use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::fs;
 use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
@@ -808,7 +807,9 @@ fn main() -> anyhow::Result<()> {
 
 fn guess_hardware(args: &Args) -> anyhow::Result<Hardware> {
     let file_path = Path::new(&args.file_path);
-    let mut file_ext: String = file_path.extension().and_then(OsStr::to_str).unwrap_or("").into();
+
+    let mut file_ext = extensions::from_path(file_path).unwrap_or_default();
+
     match file_ext.as_str() {
         "zip" => {
             let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_zip(
