@@ -134,7 +134,7 @@ impl Cartridge {
         let checksum = CRC.checksum(&rom_bytes);
         log::info!("ROM CRC32: {checksum:08X}");
 
-        let mut rom_bytes = ensure_big_endian(rom_bytes);
+        let mut rom_bytes = ensure_rom_in_expected_format(rom_bytes);
 
         let region = forced_region.unwrap_or_else(|| {
             GenesisRegion::from_rom(&rom_bytes).unwrap_or_else(|| {
@@ -232,6 +232,39 @@ impl Cartridge {
     }
 }
 
+fn ensure_rom_in_expected_format(rom: Vec<u8>) -> Vec<u8> {
+    let rom = remove_copier_header(rom);
+    let rom = deinterleave_rom(rom);
+    ensure_big_endian(rom)
+}
+
+fn remove_copier_header(rom: Vec<u8>) -> Vec<u8> {
+    // Some older ROMs contain a useless 512-byte copier header; remove it if present
+    if rom.len() & 0x3FF != 0x200 {
+        // ROM length is not off by 512 from a reasonable number
+        return rom;
+    }
+
+    // TMSS header is normally at $100-$103, would be at $303-$304 with the 512-byte header
+    let tmss_header = &rom[0x300..0x304];
+
+    // Interleaved header bytes are normally at $80-$81 for even and $2080-$2081 for odd
+    let interleaved_tmss_even = &rom[0x0280..0x0282];
+    let interleaved_tmss_odd = &rom[0x2280..0x2282];
+
+    if tmss_header != b"SEGA"
+        && tmss_header != b"ESAG"
+        && !(interleaved_tmss_even == b"EA" && interleaved_tmss_odd == b"SG")
+    {
+        // Removing the copier header would not produce a valid TMSS header
+        return rom;
+    }
+
+    log::info!("ROM image appears to have a 512-byte copier header; removing it");
+
+    rom.into_iter().skip(512).collect()
+}
+
 fn ensure_big_endian(mut rom: Vec<u8>) -> Vec<u8> {
     // Every licensed game contains the ASCII string "SEGA" at $100-$104 in ROM
     // If the string "ESAG" is detected there, byteswap the ROM
@@ -244,6 +277,38 @@ fn ensure_big_endian(mut rom: Vec<u8>) -> Vec<u8> {
     }
 
     rom
+}
+
+fn deinterleave_rom(rom: Vec<u8>) -> Vec<u8> {
+    // Some older ROM images, usually with the .smd file extension, are interleaved.
+    // This format consists of 16KB blocks where each block contains 8KB of even bytes followed by
+    // 8KB of odd bytes.
+    if rom.len() % (16 * 1024) != 0 {
+        // Interleaved ROM sizes should always be a multiple of 16KB
+        return rom;
+    }
+
+    if &rom[0x100..0x104] == b"SEGA" || &rom[0x100..0x104] == b"ESAG" {
+        // ROM image already contains valid TMSS text; don't try to deinterleave
+        return rom;
+    }
+
+    if &rom[0x0080..0x0082] != b"EA" || &rom[0x2080..0x2082] != b"SG" {
+        // Deinterleaving would not produce valid TMSS text; don't try to deinterleave
+        return rom;
+    }
+
+    log::info!("ROM image appears to be interleaved; deinterleaving it");
+
+    let mut deinterleaved = vec![0; rom.len()];
+    for block_addr in (0..rom.len()).step_by(0x4000) {
+        for i in 0..0x2000 {
+            deinterleaved[block_addr + 2 * i] = rom[block_addr + 0x2000 + i];
+            deinterleaved[block_addr + 2 * i + 1] = rom[block_addr + i];
+        }
+    }
+
+    deinterleaved
 }
 
 #[must_use]

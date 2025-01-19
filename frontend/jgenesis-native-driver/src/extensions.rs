@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 
 pub const MASTER_SYSTEM: &[&str] = &["sms"];
 pub const GAME_GEAR: &[&str] = &["gg"];
-pub const GENESIS: &[&str] = &["gen", "md", "bin"];
+pub const GENESIS: &[&str] = &["gen", "md", "bin", "smd"];
 pub const SEGA_CD: &[&str] = &["cue", "chd"];
 pub const SEGA_32X: &[&str] = &["32x"];
 pub const NES: &[&str] = &["nes"];

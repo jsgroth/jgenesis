@@ -760,7 +760,8 @@ fn run_event_loop(event_loop: EventLoop<JgenesisUserEvent>, mut state: AppState)
 
 async fn open_file(event_loop_proxy: EventLoopProxy<JgenesisUserEvent>) {
     let file = AsyncFileDialog::new()
-        .add_filter("sms/gg/md", &["sms", "gg", "gen", "md", "bin", "sfc", "smc"])
+        .add_filter("Supported Files", &["sms", "gg", "gen", "md", "bin", "smd", "sfc", "smc"])
+        .add_filter("All Types", &["*"])
         .pick_file()
         .await;
     let Some(file) = file else { return };
@@ -848,7 +849,7 @@ fn open_emulator(
             );
             Ok(Emulator::SmsGg(emulator, SmsGgInputs::default()))
         }
-        "gen" | "md" | "bin" => {
+        "gen" | "md" | "bin" | "smd" => {
             js::showGenesisConfig();
 
             let emulator = GenesisEmulator::create(
