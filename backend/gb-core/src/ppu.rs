@@ -495,6 +495,7 @@ impl Ppu {
         &mut self,
         address: u16,
         value: u8,
+        speed: CpuSpeed,
         interrupt_registers: &mut InterruptRegisters,
     ) {
         log::trace!(
@@ -510,7 +511,7 @@ impl Ppu {
             0x43 => self.registers.write_scx(value),
             // LY, not writable
             0x44 => {}
-            0x45 => self.registers.write_lyc(value),
+            0x45 => self.write_lyc(value, speed),
             0x47 => self.registers.write_bgp(value),
             0x48 => self.registers.write_obp0(value),
             0x49 => self.registers.write_obp1(value),
@@ -556,6 +557,18 @@ impl Ppu {
         }
 
         self.registers.write_stat(value);
+    }
+
+    fn write_lyc(&mut self, value: u8, speed: CpuSpeed) {
+        self.registers.write_lyc(value);
+
+        // If changing LYC would cause the STAT interrupt line to go from high to low, immediately
+        // pull it low.
+        // This fixes graphical glitches in SQRKZ, where it sometimes changes LYC from 141 to 142
+        // on line=142 dot=0, and the LY=LYC STAT interrupt should trigger almost immediately.
+        // TODO timing around the LY=LYC interrupt is iffy in general - improve this
+        let stat_interrupt_line = self.stat_interrupt_line(speed);
+        self.state.prev_stat_interrupt_line &= stat_interrupt_line;
     }
 }
 
