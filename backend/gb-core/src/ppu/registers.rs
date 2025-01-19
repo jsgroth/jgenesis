@@ -1,9 +1,9 @@
 use crate::ppu::{PpuMode, State};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
-use std::array;
 use std::fmt::{Display, Formatter};
 use std::ops::Index;
+use std::{array, iter};
 
 pub const TILE_MAP_AREA_0: u16 = 0x1800;
 pub const TILE_MAP_AREA_1: u16 = 0x1C00;
@@ -275,12 +275,19 @@ impl Index<usize> for CgbPaletteRam {
 }
 
 impl CgbPaletteRam {
-    pub fn new() -> Self {
-        Self {
-            ram: vec![0; PALETTE_RAM_LEN].into_boxed_slice().try_into().unwrap(),
-            data_port_address: 0,
-            data_port_auto_increment: false,
-        }
+    fn new(initial_ram: Box<[u8; PALETTE_RAM_LEN]>) -> Self {
+        Self { ram: initial_ram, data_port_address: 0, data_port_auto_increment: false }
+    }
+
+    pub fn new_bg() -> Self {
+        // BG palette RAM should be intialized to all white (0xFFFF)
+        Self::new(vec![0xFF; PALETTE_RAM_LEN].into_boxed_slice().try_into().unwrap())
+    }
+
+    pub fn new_obj() -> Self {
+        // OBJ palette RAM contents are undefined at power-on and even after boot ROM runs
+        let initial_ram: Vec<u8> = iter::repeat_with(rand::random).take(PALETTE_RAM_LEN).collect();
+        Self::new(initial_ram.into_boxed_slice().try_into().unwrap())
     }
 
     pub fn read_data_port_address(&self) -> u8 {
