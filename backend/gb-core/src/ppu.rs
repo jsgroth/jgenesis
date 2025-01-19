@@ -198,20 +198,20 @@ pub struct Ppu {
 }
 
 macro_rules! cgb_only_read {
-    ($ppu:ident.$($op:tt)*) => {
+    ($ppu:ident => $op:expr) => {
         match $ppu.hardware_mode {
             HardwareMode::Dmg => 0xFF,
-            HardwareMode::Cgb => $ppu.$($op)*,
+            HardwareMode::Cgb => $op,
         }
-    }
+    };
 }
 
 macro_rules! cgb_only_write {
-    ($ppu:ident.$($op:tt)*) => {
+    ($ppu:ident => $op:expr) => {
         if $ppu.hardware_mode == HardwareMode::Cgb {
-            $ppu.$($op)*;
+            $op;
         }
-    }
+    };
 }
 
 impl Ppu {
@@ -475,12 +475,14 @@ impl Ppu {
             0x49 => self.registers.read_obp1(),
             0x4A => self.registers.window_y,
             0x4B => self.registers.window_x,
-            0x4F => cgb_only_read!(self.registers.read_vbk()),
-            0x68 => cgb_only_read!(self.bg_palette_ram.read_data_port_address()),
-            0x69 => cgb_only_read!(self.bg_palette_ram.read_data_port(self.cpu_can_access_vram())),
-            0x6A => cgb_only_read!(self.sprite_palette_ram.read_data_port_address()),
+            0x4F => cgb_only_read!(self => self.registers.read_vbk()),
+            0x68 => cgb_only_read!(self => self.bg_palette_ram.read_data_port_address()),
+            0x69 => {
+                cgb_only_read!(self => self.bg_palette_ram.read_data_port(self.cpu_can_access_vram()))
+            }
+            0x6A => cgb_only_read!(self => self.sprite_palette_ram.read_data_port_address()),
             0x6B => {
-                cgb_only_read!(self.sprite_palette_ram.read_data_port(self.cpu_can_access_vram()))
+                cgb_only_read!(self => self.sprite_palette_ram.read_data_port(self.cpu_can_access_vram()))
             }
             _ => {
                 log::warn!("PPU register read {address:04X}");
@@ -514,14 +516,14 @@ impl Ppu {
             0x49 => self.registers.write_obp1(value),
             0x4A => self.registers.write_wy(value),
             0x4B => self.registers.write_wx(value),
-            0x4F => cgb_only_write!(self.registers.write_vbk(value)),
-            0x68 => cgb_only_write!(self.bg_palette_ram.write_data_port_address(value)),
+            0x4F => cgb_only_write!(self => self.registers.write_vbk(value)),
+            0x68 => cgb_only_write!(self => self.bg_palette_ram.write_data_port_address(value)),
             0x69 => cgb_only_write!(
-                self.bg_palette_ram.write_data_port(value, self.cpu_can_access_vram())
+                self => self.bg_palette_ram.write_data_port(value, self.cpu_can_access_vram())
             ),
-            0x6A => cgb_only_write!(self.sprite_palette_ram.write_data_port_address(value)),
+            0x6A => cgb_only_write!(self => self.sprite_palette_ram.write_data_port_address(value)),
             0x6B => cgb_only_write!(
-                self.sprite_palette_ram.write_data_port(value, self.cpu_can_access_vram())
+                self => self.sprite_palette_ram.write_data_port(value, self.cpu_can_access_vram())
             ),
             _ => log::warn!("PPU register write {address:04X} {value:02X}"),
         }
