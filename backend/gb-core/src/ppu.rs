@@ -567,8 +567,10 @@ impl Ppu {
         // This fixes graphical glitches in SQRKZ, where it sometimes changes LYC from 141 to 142
         // on line=142 dot=0, and the LY=LYC STAT interrupt should trigger almost immediately.
         // TODO timing around the LY=LYC interrupt is iffy in general - improve this
-        let stat_interrupt_line = self.stat_interrupt_line(speed);
-        self.state.prev_stat_interrupt_line &= stat_interrupt_line;
+        if value == self.state.scanline && self.state.dot == 0 {
+            let stat_interrupt_line = self.stat_interrupt_line(speed);
+            self.state.prev_stat_interrupt_line &= stat_interrupt_line;
+        }
     }
 }
 
