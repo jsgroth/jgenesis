@@ -16,11 +16,11 @@ def main():
 
     beta = kaiser_beta(args.sba)
     taps = args.n * (2 * args.nz + 1)
-    if taps % 2 == 0:
-        taps += 1
     coefficients = firwin(
         taps, 1 / args.n - (args.bs / 24000) / args.n, window=("kaiser", beta)
     )
+
+    print(f"{taps} taps")
 
     with open(args.o, "w") as f:
         right_half_coeffs = coefficients[int(len(coefficients) / 2) :]
