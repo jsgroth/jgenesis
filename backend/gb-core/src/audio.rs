@@ -1,33 +1,42 @@
-mod constants;
-
 use bincode::{Decode, Encode};
-use jgenesis_common::audio::FirResampler;
+use jgenesis_common::audio::iir::FirstOrderIirFilter;
+use jgenesis_common::audio::sinc::PerformanceSincResampler;
 use jgenesis_common::frontend::AudioOutput;
-
-type GbApuResampler = FirResampler<{ constants::LPF_TAPS }, 0>;
 
 pub const GB_APU_FREQUENCY: f64 = 1_048_576.0;
 
-fn new_gb_apu_resampler(source_frequency: f64) -> GbApuResampler {
-    FirResampler::new(source_frequency, constants::LPF_COEFFICIENTS, constants::HPF_CHARGE_FACTOR)
+fn new_dc_offset_filter() -> FirstOrderIirFilter {
+    // Butterworth high-pass with cutoff frequency 5 Hz and source frequency 1048576 Hz
+    FirstOrderIirFilter::new(&[0.9999850199432726, -0.9999850199432726], &[
+        1.0,
+        -0.9999700398865453,
+    ])
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct GameBoyResampler {
-    resampler: GbApuResampler,
+    dc_offset_filter_l: FirstOrderIirFilter,
+    dc_offset_filter_r: FirstOrderIirFilter,
+    resampler: PerformanceSincResampler<2>,
 }
 
 impl GameBoyResampler {
     pub fn new(audio_60hz_hack: bool) -> Self {
-        Self { resampler: new_gb_apu_resampler(gb_source_frequency(audio_60hz_hack)) }
+        Self {
+            dc_offset_filter_l: new_dc_offset_filter(),
+            dc_offset_filter_r: new_dc_offset_filter(),
+            resampler: PerformanceSincResampler::new(gb_source_frequency(audio_60hz_hack), 48000.0),
+        }
     }
 
     pub fn collect_sample(&mut self, sample_l: f64, sample_r: f64) {
-        self.resampler.collect_sample(sample_l, sample_r);
+        let sample_l = self.dc_offset_filter_l.filter(sample_l);
+        let sample_r = self.dc_offset_filter_r.filter(sample_r);
+        self.resampler.collect([sample_l, sample_r]);
     }
 
     pub fn output_samples<A: AudioOutput>(&mut self, audio_output: &mut A) -> Result<(), A::Err> {
-        while let Some((sample_l, sample_r)) = self.resampler.output_buffer_pop_front() {
+        while let Some([sample_l, sample_r]) = self.resampler.output_buffer_pop_front() {
             audio_output.push_sample(sample_l, sample_r)?;
         }
 
@@ -39,7 +48,7 @@ impl GameBoyResampler {
     }
 
     pub fn update_output_frequency(&mut self, output_frequency: u64) {
-        self.resampler.update_output_frequency(output_frequency);
+        self.resampler.update_output_frequency(output_frequency as f64);
     }
 }
 

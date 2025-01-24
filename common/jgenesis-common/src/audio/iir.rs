@@ -8,11 +8,15 @@ pub struct IirFilter<const N: usize> {
     a: [f64; N],
     prev_samples: [f64; N],
     prev_outputs: [f64; N],
+    tiny_offset: f64,
 }
 
 impl<const N: usize> IirFilter<N> {
+    /// # Panics
+    ///
+    /// Will panic if the const generic `N` is zero, or if either of the coefficients arrays is not
+    /// length `N + 1`.
     #[must_use]
-    #[allow(clippy::missing_panics_doc)]
     pub fn new(b: &[f64], a: &[f64]) -> Self {
         assert!(N > 0);
         assert_eq!(b.len(), N + 1);
@@ -24,11 +28,16 @@ impl<const N: usize> IirFilter<N> {
             a: a[1..].try_into().unwrap(),
             prev_samples: array::from_fn(|_| 0.0),
             prev_outputs: array::from_fn(|_| 0.0),
+            tiny_offset: 1e-30,
         }
     }
 
     #[must_use]
     pub fn filter(&mut self, sample: f64) -> f64 {
+        // Hack to avoid the filter getting stuck at a subnormal value
+        let sample = sample + self.tiny_offset;
+        self.tiny_offset = -self.tiny_offset;
+
         let output = self.b0 * sample
             + iter::zip(&self.b, &self.prev_samples).map(|(&coeff, &n)| coeff * n).sum::<f64>()
             - iter::zip(&self.a, &self.prev_outputs).map(|(&coeff, &n)| coeff * n).sum::<f64>();

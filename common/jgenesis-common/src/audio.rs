@@ -1,9 +1,8 @@
 mod cubic_resampler;
-mod fir_resampler;
 pub mod iir;
+pub mod sinc;
 
 pub use cubic_resampler::CubicResampler;
-pub use fir_resampler::FirResampler;
 
 pub const DEFAULT_OUTPUT_FREQUENCY: u64 = 48000;
 

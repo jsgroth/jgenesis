@@ -1,9 +1,8 @@
 //! Master System / Game Gear audio resampling code
 
-pub mod constants;
-
 use bincode::{Decode, Encode};
-use jgenesis_common::audio::FirResampler;
+use jgenesis_common::audio::iir::FirstOrderIirFilter;
+use jgenesis_common::audio::sinc::PerformanceSincResampler;
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
 
 pub const NTSC_MCLK_FREQUENCY: f64 = 53_693_175.0;
@@ -22,31 +21,33 @@ impl TimingModeExt for TimingMode {
     }
 }
 
-pub type PsgResampler = FirResampler<{ constants::PSG_LPF_TAPS }, 0>;
-
-#[must_use]
-pub fn new_psg_resampler(console_mclk_frequency: f64) -> PsgResampler {
-    let psg_frequency = compute_psg_frequency(console_mclk_frequency);
-    PsgResampler::new(
-        psg_frequency,
-        constants::PSG_SHARP_LPF_COEFFICIENTS,
-        constants::PSG_HPF_CHARGE_FACTOR,
-    )
-}
-
 fn compute_psg_frequency(console_mclk_frequency: f64) -> f64 {
     console_mclk_frequency / 15.0 / 16.0
 }
 
+#[must_use]
+pub fn new_psg_dc_offset() -> FirstOrderIirFilter {
+    // Butterworth high-pass with cutoff frequency 5 Hz, source frequency 223721 Hz
+    FirstOrderIirFilter::new(&[0.999929792817883, -0.999929792817883], &[1.0, -0.9998595856357659])
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub(crate) struct AudioResampler {
-    psg_resampler: PsgResampler,
+    dc_offset_l: FirstOrderIirFilter,
+    dc_offset_r: FirstOrderIirFilter,
+    psg_resampler: PerformanceSincResampler<2>,
 }
 
 impl AudioResampler {
     pub fn new(timing_mode: TimingMode) -> Self {
-        let psg_resampler = new_psg_resampler(timing_mode.mclk_frequency());
-        Self { psg_resampler }
+        Self {
+            dc_offset_l: new_psg_dc_offset(),
+            dc_offset_r: new_psg_dc_offset(),
+            psg_resampler: PerformanceSincResampler::new(
+                compute_psg_frequency(timing_mode.mclk_frequency()),
+                48000.0,
+            ),
+        }
     }
 
     pub fn update_timing_mode(&mut self, timing_mode: TimingMode) {
@@ -55,11 +56,13 @@ impl AudioResampler {
     }
 
     pub fn collect_sample(&mut self, sample_l: f64, sample_r: f64) {
-        self.psg_resampler.collect_sample(sample_l, sample_r);
+        let sample_l = self.dc_offset_l.filter(sample_l);
+        let sample_r = self.dc_offset_r.filter(sample_r);
+        self.psg_resampler.collect([sample_l, sample_r]);
     }
 
     pub fn output_samples<A: AudioOutput>(&mut self, audio_output: &mut A) -> Result<(), A::Err> {
-        while let Some((sample_l, sample_r)) = self.psg_resampler.output_buffer_pop_front() {
+        while let Some([sample_l, sample_r]) = self.psg_resampler.output_buffer_pop_front() {
             audio_output.push_sample(sample_l, sample_r)?;
         }
 
@@ -67,6 +70,6 @@ impl AudioResampler {
     }
 
     pub fn update_output_frequency(&mut self, output_frequency: u64) {
-        self.psg_resampler.update_output_frequency(output_frequency);
+        self.psg_resampler.update_output_frequency(output_frequency as f64);
     }
 }

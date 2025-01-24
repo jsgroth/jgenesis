@@ -1,9 +1,8 @@
 #![allow(clippy::excessive_precision)]
 
-mod constants;
-
 use bincode::{Decode, Encode};
-use jgenesis_common::audio::FirResampler;
+use jgenesis_common::audio::iir::FirstOrderIirFilter;
+use jgenesis_common::audio::sinc::PerformanceSincResampler;
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
 
 // 236.25MHz / 11 / 12
@@ -45,13 +44,6 @@ impl TimingModeAudioExt for TimingMode {
     }
 }
 
-type NesResampler = FirResampler<{ constants::LPF_TAPS }, 0>;
-
-fn new_nes_resampler(timing_mode: TimingMode, apply_refresh_rate_adjustment: bool) -> NesResampler {
-    let source_frequency = compute_source_frequency(timing_mode, apply_refresh_rate_adjustment);
-    NesResampler::new(source_frequency, constants::LPF_COEFFICIENTS, constants::HPF_CHARGE_FACTOR)
-}
-
 fn compute_source_frequency(timing_mode: TimingMode, apply_refresh_rate_adjustment: bool) -> f64 {
     let refresh_rate_multiplier = if apply_refresh_rate_adjustment {
         timing_mode.refresh_rate_multiplier() * 60.0 / timing_mode.nes_native_display_rate()
@@ -62,27 +54,41 @@ fn compute_source_frequency(timing_mode: TimingMode, apply_refresh_rate_adjustme
     timing_mode.nes_audio_frequency() * refresh_rate_multiplier
 }
 
+fn new_dc_offset_filter() -> FirstOrderIirFilter {
+    // Butterworth high-pass with cutoff frequency 5 Hz, source frequency 1789772 Hz
+    FirstOrderIirFilter::new(&[0.9999912235642162, -0.9999912235642162], &[
+        1.0,
+        -0.9999824471284324,
+    ])
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct AudioResampler {
     timing_mode: TimingMode,
-    resampler: NesResampler,
+    dc_offset_filter: FirstOrderIirFilter,
+    resampler: PerformanceSincResampler<1>,
 }
 
 impl AudioResampler {
     pub fn new(timing_mode: TimingMode, apply_refresh_rate_adjustment: bool) -> Self {
         Self {
             timing_mode,
-            resampler: new_nes_resampler(timing_mode, apply_refresh_rate_adjustment),
+            dc_offset_filter: new_dc_offset_filter(),
+            resampler: PerformanceSincResampler::new(
+                compute_source_frequency(timing_mode, apply_refresh_rate_adjustment),
+                48000.0,
+            ),
         }
     }
 
     pub fn collect_sample(&mut self, sample: f64) {
-        self.resampler.collect_sample(sample, sample);
+        let sample = self.dc_offset_filter.filter(sample);
+        self.resampler.collect([sample]);
     }
 
     pub fn output_samples<A: AudioOutput>(&mut self, audio_output: &mut A) -> Result<(), A::Err> {
-        while let Some((sample_l, sample_r)) = self.resampler.output_buffer_pop_front() {
-            audio_output.push_sample(sample_l, sample_r)?;
+        while let Some([sample]) = self.resampler.output_buffer_pop_front() {
+            audio_output.push_sample(sample, sample)?;
         }
 
         Ok(())
@@ -96,6 +102,6 @@ impl AudioResampler {
     }
 
     pub fn update_output_frequency(&mut self, output_frequency: u64) {
-        self.resampler.update_output_frequency(output_frequency);
+        self.resampler.update_output_frequency(output_frequency as f64);
     }
 }
