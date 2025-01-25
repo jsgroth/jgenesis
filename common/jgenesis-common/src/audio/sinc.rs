@@ -12,7 +12,7 @@ use std::{array, iter};
 const LINEAR_INTERPOLATION_BITS: u32 = 10;
 
 pub trait SincKernel {
-    fn fir() -> &'static [f64];
+    fn fir() -> &'static [f32];
 
     fn oversample_factor() -> u32;
 }
@@ -21,7 +21,7 @@ pub trait SincKernel {
 pub struct Quality;
 
 impl SincKernel for Quality {
-    fn fir() -> &'static [f64] {
+    fn fir() -> &'static [f32] {
         quality::SINC_KERNEL
     }
 
@@ -34,7 +34,7 @@ impl SincKernel for Quality {
 pub struct Performance;
 
 impl SincKernel for Performance {
-    fn fir() -> &'static [f64] {
+    fn fir() -> &'static [f32] {
         performance::SINC_KERNEL
     }
 
@@ -189,7 +189,7 @@ fn estimate_required_samples<Kernel: SincKernel>(ratio: f64) -> usize {
 }
 
 fn sum_wing<const CHANNELS: usize>(
-    fir: &[f64],
+    fir: &[f32],
     mut interpolation_idx: u64,
     step: u64,
     input_access: impl Fn(usize) -> [f64; CHANNELS],
@@ -208,7 +208,10 @@ fn sum_wing<const CHANNELS: usize>(
         // going to be the bottleneck here, not calculation throughput
         let linear_factor = (interpolation_idx & ((1 << LINEAR_INTERPOLATION_BITS) - 1)) as f64
             / f64::from(1 << LINEAR_INTERPOLATION_BITS);
-        let multiplier = fir[fir_idx] + linear_factor * (fir[fir_idx + 1] - fir[fir_idx]);
+
+        let coefficient: f64 = fir[fir_idx].into();
+        let next_coeff: f64 = fir[fir_idx + 1].into();
+        let multiplier = coefficient + linear_factor * (next_coeff - coefficient);
 
         let in_samples = input_access(i);
         for ch in 0..CHANNELS {
