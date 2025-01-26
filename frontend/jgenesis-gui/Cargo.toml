@@ -43,10 +43,11 @@ xrandr = { workspace = true }
 
 [package.metadata.packager]
 icons = ["../32x32.png"]
+# Nightly toolchain used because of -Ztune-cpu codegen arg
 before-packaging-command = """
-RUSTFLAGS='-C target-cpu=x86-64-v2' \
+RUSTFLAGS='-C target-cpu=x86-64-v2 -Z tune-cpu=x86-64-v3' \
 JGENESIS_APPIMAGE_BUILD=1 \
-cargo build --profile release-lto"""
+cargo +nightly build --profile release-lto"""
 
 [package.metadata.packager.appimage]
 # Including any Wayland-related libraries in the AppImage package can cause the app to fail to start on some distros,
