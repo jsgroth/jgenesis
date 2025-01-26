@@ -142,9 +142,13 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y mingw-w64
 
-      - name: Install Windows x64 Rust build target
+      - name: Install Windows x64 Rust build target (stable)
         run: |
           rustup target add x86_64-pc-windows-gnu
+
+      - name: Install Windows x64 Rust build target (nightly)
+        run: |
+          rustup target add --toolchain nightly x86_64-pc-windows-gnu
 
       - name: Download & extract Windows SDL2 libraries
         run: |
