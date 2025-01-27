@@ -25,12 +25,21 @@ const SH2_EXECUTION_SLICE_LEN: u64 = 10;
 
 const SDRAM_LEN_WORDS: usize = 256 * 1024 / 2;
 
-pub type Sdram = [u16; SDRAM_LEN_WORDS];
-
 #[derive(Debug, Clone, Default, Encode, Decode)]
 pub struct SerialInterface {
     pub master_to_slave: Option<u8>,
     pub slave_to_master: Option<u8>,
+}
+
+#[derive(Debug, PartialClone, Encode, Decode)]
+pub struct Sega32XBus {
+    #[partial_clone(partial)]
+    pub cartridge: Cartridge,
+    pub vdp: Vdp,
+    pub pwm: PwmChip,
+    pub registers: SystemRegisters,
+    pub sdram: BoxedWordArray<SDRAM_LEN_WORDS>,
+    pub serial: SerialInterface,
 }
 
 #[derive(Debug, PartialClone, Encode, Decode)]
@@ -42,13 +51,8 @@ pub struct Sega32X {
     master_cycles: u64,
     slave_cycles: u64,
     #[partial_clone(partial)]
-    pub cartridge: Cartridge,
-    pub vdp: Vdp,
-    pub pwm: PwmChip,
-    pub registers: SystemRegisters,
+    pub s32x_bus: Sega32XBus,
     pub m68k_vectors: Box<M68kVectors>,
-    pub sdram: BoxedWordArray<SDRAM_LEN_WORDS>,
-    pub serial: SerialInterface,
     pub region: GenesisRegion,
 }
 
@@ -69,36 +73,27 @@ impl Sega32X {
             global_cycles: 0,
             master_cycles: 0,
             slave_cycles: 0,
-            cartridge,
-            vdp: Vdp::new(timing_mode, config.video_out),
-            pwm: PwmChip::new(timing_mode),
-            registers: SystemRegisters::new(),
+            s32x_bus: Sega32XBus {
+                cartridge,
+                vdp: Vdp::new(timing_mode, config.video_out),
+                pwm: PwmChip::new(timing_mode),
+                registers: SystemRegisters::new(),
+                sdram: BoxedWordArray::new(),
+                serial: SerialInterface::default(),
+            },
             m68k_vectors: bootrom::M68K_VECTORS.to_vec().into_boxed_slice().try_into().unwrap(),
-            sdram: BoxedWordArray::new(),
-            serial: SerialInterface::default(),
             region,
         }
     }
 
     pub fn tick(&mut self, mclk_cycles: u64, pwm_resampler: &mut PwmResampler) {
-        self.vdp.tick(mclk_cycles, &mut self.registers);
+        self.s32x_bus.vdp.tick(mclk_cycles, &mut self.s32x_bus.registers);
 
         // SH-2 clock speed is exactly 3x the 68000 clock speed
         self.mclk_counter += mclk_cycles;
         let elapsed_sh2_cycles = self.mclk_counter * SH2_MULTIPLIER / M68K_DIVIDER;
         self.mclk_counter -= elapsed_sh2_cycles * M68K_DIVIDER / SH2_MULTIPLIER;
         self.global_cycles += elapsed_sh2_cycles;
-
-        let mut bus = Sh2Bus {
-            which: WhichCpu::Master,
-            cartridge: &mut self.cartridge,
-            vdp: &mut self.vdp,
-            pwm: &mut self.pwm,
-            registers: &mut self.registers,
-            sdram: &mut self.sdram,
-            serial: &mut self.serial,
-            cycle_counter: 0,
-        };
 
         // Brutal Unleashed: Above the Claw requires fairly close synchronization to prevent
         // the game from freezing due to the master SH-2 missing a communication port write from
@@ -113,8 +108,11 @@ impl Sega32X {
             // to the port (which it does almost immediately)
             if self.slave_cycles < self.global_cycles {
                 while self.slave_cycles <= self.master_cycles {
-                    bus.which = WhichCpu::Slave;
-                    bus.cycle_counter = self.slave_cycles;
+                    let mut bus = Sh2Bus {
+                        s32x_bus: &mut self.s32x_bus,
+                        which: WhichCpu::Slave,
+                        cycle_counter: self.slave_cycles,
+                    };
                     self.sh2_slave.execute(SH2_EXECUTION_SLICE_LEN, &mut bus);
                     self.slave_cycles = bus.cycle_counter + SH2_EXECUTION_SLICE_LEN;
                 }
@@ -122,32 +120,53 @@ impl Sega32X {
 
             if self.master_cycles < self.global_cycles {
                 while self.master_cycles <= self.slave_cycles {
-                    bus.which = WhichCpu::Master;
-                    bus.cycle_counter = self.master_cycles;
+                    let mut bus = Sh2Bus {
+                        s32x_bus: &mut self.s32x_bus,
+                        which: WhichCpu::Master,
+                        cycle_counter: self.master_cycles,
+                    };
                     self.sh2_master.execute(SH2_EXECUTION_SLICE_LEN, &mut bus);
                     self.master_cycles = bus.cycle_counter + SH2_EXECUTION_SLICE_LEN;
                 }
             }
         }
 
-        bus.which = WhichCpu::Master;
-        self.sh2_master.tick_peripherals(elapsed_sh2_cycles, &mut bus);
+        self.sh2_master.tick_peripherals(elapsed_sh2_cycles, &mut Sh2Bus {
+            s32x_bus: &mut self.s32x_bus,
+            which: WhichCpu::Master,
+            cycle_counter: 0,
+        });
 
-        bus.which = WhichCpu::Slave;
-        self.sh2_slave.tick_peripherals(elapsed_sh2_cycles, &mut bus);
+        self.sh2_slave.tick_peripherals(elapsed_sh2_cycles, &mut Sh2Bus {
+            s32x_bus: &mut self.s32x_bus,
+            which: WhichCpu::Slave,
+            cycle_counter: 0,
+        });
 
-        self.pwm.tick(elapsed_sh2_cycles, &mut self.registers, pwm_resampler);
+        self.s32x_bus.pwm.tick(elapsed_sh2_cycles, &mut self.s32x_bus.registers, pwm_resampler);
     }
 
     pub fn take_rom_from(&mut self, other: &mut Self) {
-        self.cartridge.rom.0 = mem::take(&mut other.cartridge.rom.0);
+        self.s32x_bus.cartridge.rom.0 = mem::take(&mut other.s32x_bus.cartridge.rom.0);
     }
 
     pub fn reload_config(&mut self, config: Sega32XEmulatorConfig) {
-        self.vdp.update_video_out(config.video_out);
+        self.s32x_bus.vdp.update_video_out(config.video_out);
     }
 
     pub fn reset(&mut self) {
-        self.registers.reset();
+        self.s32x_bus.registers.reset();
+    }
+
+    pub fn vdp(&mut self) -> &mut Vdp {
+        &mut self.s32x_bus.vdp
+    }
+
+    pub fn cartridge(&self) -> &Cartridge {
+        &self.s32x_bus.cartridge
+    }
+
+    pub fn cartridge_mut(&mut self) -> &mut Cartridge {
+        &mut self.s32x_bus.cartridge
     }
 }
