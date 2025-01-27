@@ -736,6 +736,15 @@ impl Ppu {
         // Mode 7 tile map is always 128x128
         const TILE_MAP_SIZE_PIXELS: i32 = 128 * 8;
 
+        fn clip_to_i11(value: i32) -> i32 {
+            (value << (32 - 11)) >> (32 - 11)
+        }
+
+        // Several Mode 7 intermediate results truncate the lowest 6 bits
+        fn truncate_intermediate(value: i32) -> i32 {
+            value & !0x3F
+        }
+
         // Affine transformation parameters (fixed point, 1/256 pixel units)
         let m7a: i32 = (self.registers.mode_7_parameter_a as i16).into();
         let m7b: i32 = (self.registers.mode_7_parameter_b as i16).into();
@@ -766,16 +775,27 @@ impl Ppu {
             let screen_x: i32 = (if h_flip { 255 - pixel } else { pixel }).into();
             let screen_y: i32 = (if v_flip { 255 - base_y } else { base_y }).into();
 
-            // Perform the following matrix transformation:
+            // Perform the following matrix transformation (logically):
             //   [ vram_x ] = [ m7a  m7b ] * [ screen_x + m7hofs - m7x ] + [ m7x ]
             //   [ vram_y ]   [ m7c  m7d ]   [ screen_y + m7vofs - m7y ]   [ m7y ]
             // m7a/m7b/m7c/m7d are in 1/256 pixel units, so the multiplication result is also in
             // 1/256 pixel units, and m7x/m7y need to be converted for the addition
-            let scrolled_x = screen_x + h_scroll - m7x;
-            let scrolled_y = screen_y + v_scroll - m7y;
 
-            let mut tile_map_x = m7a * scrolled_x + m7b * scrolled_y + (m7x << 8);
-            let mut tile_map_y = m7c * scrolled_x + m7d * scrolled_y + (m7y << 8);
+            // Accurate clipping and truncating are important for some games
+            // e.g. Tiny Toon Adventures: Wacky Sports Challenge, the birdman event
+            let scrolled_center_x = clip_to_i11(h_scroll - m7x);
+            let scrolled_center_y = clip_to_i11(v_scroll - m7y);
+
+            let mut tile_map_x = truncate_intermediate(m7a * scrolled_center_x)
+                + m7a * screen_x
+                + truncate_intermediate(m7b * scrolled_center_y)
+                + truncate_intermediate(m7b * screen_y)
+                + (m7x << 8);
+            let mut tile_map_y = truncate_intermediate(m7c * scrolled_center_x)
+                + m7c * screen_x
+                + truncate_intermediate(m7d * scrolled_center_y)
+                + truncate_intermediate(m7d * screen_y)
+                + (m7y << 8);
 
             // Convert back from 1/256 pixel units to pixel units
             tile_map_x >>= 8;
