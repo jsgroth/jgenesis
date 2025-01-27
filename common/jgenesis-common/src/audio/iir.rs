@@ -35,6 +35,7 @@ impl<const N: usize> IirFilter<N> {
     #[must_use]
     pub fn filter(&mut self, sample: f64) -> f64 {
         // Hack to avoid the filter getting stuck at a subnormal value
+        // See <https://www.earlevel.com/main/2019/04/19/floating-point-denormals/>
         let sample = sample + self.tiny_offset;
         self.tiny_offset = -self.tiny_offset;
 

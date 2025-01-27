@@ -24,7 +24,7 @@ def main():
     )
     print(list(coefficients))
 
-    w, h = freqz(coefficients)
+    w, h = freqz(coefficients, worN=1 << 20)
 
     figure = plt.figure()
     axes = figure.add_subplot(

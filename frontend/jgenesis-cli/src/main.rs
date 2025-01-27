@@ -2,7 +2,7 @@
 
 use clap::Parser;
 use env_logger::Env;
-use gb_core::api::{GbAspectRatio, GbPalette, GbcColorCorrection};
+use gb_core::api::{GbAspectRatio, GbAudioResampler, GbPalette, GbcColorCorrection};
 use genesis_core::{
     GenesisAspectRatio, GenesisControllerType, GenesisLowPassFilter, GenesisRegion,
 };
@@ -16,7 +16,7 @@ use jgenesis_proc_macros::{CustomValueEnum, EnumAll, EnumDisplay};
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, Scanlines, VSyncMode, WgpuBackend,
 };
-use nes_core::api::NesAspectRatio;
+use nes_core::api::{NesAspectRatio, NesAudioResampler};
 use s32x_core::api::S32XVideoOut;
 use segacd_core::api::{PcmInterpolation, PcmLowPassFilter};
 use smsgg_core::psg::Sn76489Version;
@@ -294,6 +294,10 @@ struct Args {
     #[arg(long, help_heading = NES_OPTIONS_HEADING)]
     nes_silence_ultrasonic_triangle: Option<bool>,
 
+    /// Audio resampling algorithm
+    #[arg(long, help_heading = NES_OPTIONS_HEADING)]
+    nes_audio_resampler: Option<NesAudioResampler>,
+
     /// Enable hack that times NES audio sync to 60Hz NTSC / 50Hz PAL instead of ~60.099Hz NTSC / ~50.007Hz PAL
     #[arg(long, help_heading = NES_OPTIONS_HEADING)]
     nes_audio_60hz_hack: Option<bool>,
@@ -366,6 +370,10 @@ struct Args {
     #[arg(long, help_heading = GB_OPTIONS_HEADING)]
     gbc_color_correction: Option<GbcColorCorrection>,
 
+    /// Audio resampling algorithm
+    #[arg(long, help_heading = GB_OPTIONS_HEADING)]
+    gb_audio_resampler: Option<GbAudioResampler>,
+
     /// Target 60 FPS instead of ~59.73 FPS
     #[arg(long, help_heading = GB_OPTIONS_HEADING)]
     gb_audio_60hz_hack: Option<bool>,
@@ -433,6 +441,10 @@ struct Args {
     /// Enable audio sync
     #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
     audio_sync: Option<bool>,
+
+    /// Enable audio dynamic resampling ratio
+    #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
+    audio_dynamic_resampling_ratio: Option<bool>,
 
     /// Audio hardware queue size in samples
     #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
@@ -618,6 +630,7 @@ impl Args {
             nes_pal_black_border -> pal_black_border,
             nes_allow_opposing_inputs -> allow_opposing_joypad_inputs,
             nes_silence_ultrasonic_triangle -> silence_ultrasonic_triangle_output,
+            nes_audio_resampler -> audio_resampler,
             nes_audio_60hz_hack -> audio_60hz_hack,
         ]);
 
@@ -661,6 +674,7 @@ impl Args {
             gb_aspect_ratio -> aspect_ratio,
             gb_palette,
             gbc_color_correction,
+            gb_audio_resampler -> audio_resampler,
             gb_audio_60hz_hack -> audio_60hz_hack,
         ]);
     }
@@ -711,6 +725,7 @@ impl Args {
         apply_overrides!(self, config.common, [
             audio_output_frequency,
             audio_sync,
+            audio_dynamic_resampling_ratio,
             audio_hardware_queue_size,
             audio_buffer_size,
             audio_gain_db,

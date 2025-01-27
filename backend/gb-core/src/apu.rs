@@ -112,7 +112,7 @@ impl Apu {
             stereo_control: StereoControl::new(),
             frame_sequencer_step: 0,
             previous_div_bit: false,
-            resampler: GameBoyResampler::new(config.audio_60hz_hack),
+            resampler: GameBoyResampler::new(&config),
         }
     }
 
@@ -325,7 +325,7 @@ impl Apu {
     }
 
     pub fn reload_config(&mut self, config: GameBoyEmulatorConfig) {
-        self.resampler.update_audio_60hz_hack(config.audio_60hz_hack);
+        self.resampler.reload_config(&config);
     }
 
     pub fn update_output_frequency(&mut self, output_frequency: u64) {
