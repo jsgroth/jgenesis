@@ -6,6 +6,7 @@ use crate::registers::Access;
 use genesis_core::GenesisRegion;
 use genesis_core::memory::PhysicalMedium;
 use jgenesis_common::num::{GetBit, U16Ext};
+use sh2_emu::Sh2;
 use sh2_emu::bus::BusInterface;
 use std::array;
 
@@ -400,11 +401,26 @@ pub enum WhichCpu {
     Slave,
 }
 
+impl WhichCpu {
+    pub fn other(self) -> Self {
+        match self {
+            Self::Master => Self::Slave,
+            Self::Slave => Self::Master,
+        }
+    }
+}
+
+pub struct OtherCpu<'other> {
+    pub cpu: &'other mut Sh2,
+    pub cycle_counter: &'other mut u64,
+}
+
 // SH-2 memory map
-pub struct Sh2Bus<'a> {
-    pub s32x_bus: &'a mut Sega32XBus,
+pub struct Sh2Bus<'bus, 'other> {
+    pub s32x_bus: &'bus mut Sega32XBus,
     pub which: WhichCpu,
     pub cycle_counter: u64,
+    pub other_sh2: Option<OtherCpu<'other>>,
 }
 
 // $00000000-$00003FFF: Boot ROM
@@ -455,7 +471,30 @@ const SH2_VDP_CYCLES: u64 = 4;
 const SH2_SDRAM_READ_CYCLES: u64 = 11;
 const SH2_SDRAM_WRITE_CYCLES: u64 = 1;
 
-impl BusInterface for Sh2Bus<'_> {
+impl Sh2Bus<'_, '_> {
+    fn sync_if_comm_port_accessed(&mut self, address: u32) {
+        // $00004020-$0000402F are the communication ports
+        if !(0x4020..0x4030).contains(&address) {
+            return;
+        }
+
+        let Some(OtherCpu { cpu, cycle_counter }) = &mut self.other_sh2 else { return };
+
+        let mut bus = Sh2Bus {
+            s32x_bus: &mut *self.s32x_bus,
+            which: self.which.other(),
+            cycle_counter: **cycle_counter,
+            other_sh2: None,
+        };
+
+        while bus.cycle_counter < self.cycle_counter {
+            cpu.execute(1, &mut bus);
+        }
+        **cycle_counter = bus.cycle_counter;
+    }
+}
+
+impl BusInterface for Sh2Bus<'_, '_> {
     #[inline]
     fn read_byte(&mut self, address: u32) -> u8 {
         self.cycle_counter += 1;
@@ -478,12 +517,11 @@ impl BusInterface for Sh2Bus<'_> {
             },
             SH2_SYSTEM_REGISTERS_START..=SH2_SYSTEM_REGISTERS_END => {
                 log::trace!("SH-2 {:?} read byte {address:08X}", self.which);
-                let value = self.s32x_bus.registers.sh2_read(
-                    address & !1,
-                    self.which,
-                    &self.s32x_bus.vdp,
-                    self.cycle_counter,
-                );
+
+                self.sync_if_comm_port_accessed(address);
+
+                let value =
+                    self.s32x_bus.registers.sh2_read(address & !1, self.which, &self.s32x_bus.vdp);
                 if !address.bit(0) { value.msb() } else { value.lsb() }
             }
             SH2_VDP_START..=SH2_VDP_END => {
@@ -546,12 +584,10 @@ impl BusInterface for Sh2Bus<'_> {
             },
             SH2_SYSTEM_REGISTERS_START..=SH2_SYSTEM_REGISTERS_END => {
                 log::trace!("SH-2 {:?} read word {address:08X}", self.which);
-                self.s32x_bus.registers.sh2_read(
-                    address,
-                    self.which,
-                    &self.s32x_bus.vdp,
-                    self.cycle_counter,
-                )
+
+                self.sync_if_comm_port_accessed(address);
+
+                self.s32x_bus.registers.sh2_read(address, self.which, &self.s32x_bus.vdp)
             }
             SH2_PWM_START..=SH2_PWM_END => {
                 log::trace!("SH-2 {:?} PWM register read {address:08X}", self.which);
@@ -626,18 +662,13 @@ impl BusInterface for Sh2Bus<'_> {
                 if log::log_enabled!(log::Level::Trace) && !(0x4020..0x4030).contains(&address) {
                     log::trace!("SH-2 {:?} read longword {address:08X}", self.which);
                 }
-                let high = self.s32x_bus.registers.sh2_read(
-                    address,
-                    self.which,
-                    &self.s32x_bus.vdp,
-                    self.cycle_counter,
-                );
-                let low = self.s32x_bus.registers.sh2_read(
-                    address | 2,
-                    self.which,
-                    &self.s32x_bus.vdp,
-                    self.cycle_counter,
-                );
+
+                self.sync_if_comm_port_accessed(address);
+
+                let high =
+                    self.s32x_bus.registers.sh2_read(address, self.which, &self.s32x_bus.vdp);
+                let low =
+                    self.s32x_bus.registers.sh2_read(address | 2, self.which, &self.s32x_bus.vdp);
                 (u32::from(high) << 16) | u32::from(low)
             }
             SH2_VDP_START..=SH2_VDP_END => {
@@ -717,12 +748,14 @@ impl BusInterface for Sh2Bus<'_> {
             }
             SH2_SYSTEM_REGISTERS_START..=SH2_SYSTEM_REGISTERS_END => {
                 log::trace!("SH-2 {:?} byte write {address:08X} {value:02X}", self.which);
+
+                self.sync_if_comm_port_accessed(address);
+
                 self.s32x_bus.registers.sh2_write_byte(
                     address,
                     value,
                     self.which,
                     &mut self.s32x_bus.vdp,
-                    self.cycle_counter,
                 );
             }
             SH2_VDP_START..=SH2_VDP_END => {
@@ -792,12 +825,14 @@ impl BusInterface for Sh2Bus<'_> {
             }
             SH2_SYSTEM_REGISTERS_START..=SH2_SYSTEM_REGISTERS_END => {
                 log::trace!("SH-2 {:?} word write {address:08X} {value:04X}", self.which);
+
+                self.sync_if_comm_port_accessed(address);
+
                 self.s32x_bus.registers.sh2_write(
                     address,
                     value,
                     self.which,
                     &mut self.s32x_bus.vdp,
-                    self.cycle_counter,
                 );
             }
             SH2_PWM_START..=SH2_PWM_END => {
@@ -871,19 +906,20 @@ impl BusInterface for Sh2Bus<'_> {
             }
             SH2_SYSTEM_REGISTERS_START..=SH2_SYSTEM_REGISTERS_END => {
                 log::trace!("SH-2 {:?} longword write {address:08X} {value:08X}", self.which);
+
+                self.sync_if_comm_port_accessed(address);
+
                 self.s32x_bus.registers.sh2_write(
                     address,
                     (value >> 16) as u16,
                     self.which,
                     &mut self.s32x_bus.vdp,
-                    self.cycle_counter,
                 );
                 self.s32x_bus.registers.sh2_write(
                     address | 2,
                     value as u16,
                     self.which,
                     &mut self.s32x_bus.vdp,
-                    self.cycle_counter,
                 );
             }
             SH2_VDP_START..=SH2_VDP_END => {
@@ -986,6 +1022,11 @@ impl BusInterface for Sh2Bus<'_> {
             WhichCpu::Master => self.s32x_bus.serial.master_to_slave = Some(value),
             WhichCpu::Slave => self.s32x_bus.serial.slave_to_master = Some(value),
         }
+    }
+
+    #[inline]
+    fn increment_cycle_counter(&mut self, cycles: u64) {
+        self.cycle_counter += cycles;
     }
 }
 

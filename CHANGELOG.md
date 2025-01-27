@@ -36,6 +36,7 @@
 * (**Sega CD**) Fixed inaccurate emulation of CD-DA fader volumes 1-3 out of 1024 (should be 50-60 dB of attenuation instead of complete silence)
 * (**Sega CD**) Unmapped/unknown address accesses will now log an error instead of crashing the emulator
 * (**32X**) Fixed a major bug in the PWM resampling code that caused PWM audio output to sound significantly more poppy and crackly than it's supposed to
+* (**32X**) Fixed a bug around synchronizing SH-2 accesses to 32X communication ports that could have caused writes to be skipped in some cases; this fixes random freezing in _Sonic Robo Blast 32X_ (#160)
 * (**GB**) Implemented an obscure behavior where pulse channels should output a constant 0 after power-on until after the first phase increment; this fixes missing voice samples in _Daiku no Gen-san - Robot Teikoku no Yabou_ (#151)
 * (**GB**) Fixed a bug related to the pulse channel phase counter reloading on the same cycle as a frequency change via NR13/NR14/NR23/NR24; this combined with the above change fixes missing voice samples in _Keitai Denjuu Telefang_ (#47)
 * (**GB**) Fixed an edge case related to LYC writes at the beginning of a line not triggering the LY=LYC STAT interrupt under certain conditions; this fixes glitchy graphics on the title screen of the _SQRKZ_ homebrew (#154)

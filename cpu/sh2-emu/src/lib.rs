@@ -90,6 +90,8 @@ impl Sh2 {
 
         if bus.reset() {
             self.reset_pending = true;
+            // TODO how long does a reset take?
+            bus.increment_cycle_counter(5);
             return;
         }
 
@@ -115,6 +117,9 @@ impl Sh2 {
                 self.registers.pc,
                 self.registers.gpr[SP]
             );
+
+            // TODO how long should this take?
+            bus.increment_cycle_counter(5);
 
             return;
         }
@@ -185,6 +190,7 @@ impl Sh2 {
         }
 
         instructions::decode(opcode)(self, opcode, bus);
+        bus.increment_cycle_counter(1);
     }
 
     /// Advance internal peripherals by `system_cycles`, specifically the watchdog timer (WDT) and
@@ -363,6 +369,9 @@ impl Sh2 {
         self.registers.pc = self.read_longword(vector_addr, bus);
         self.registers.next_pc = self.registers.pc.wrapping_add(2);
         self.registers.next_op_in_delay_slot = false;
+
+        // TODO how long does it take to handle an interrupt?
+        bus.increment_cycle_counter(5);
 
         log::debug!(
             "[{}] Handled interrupt of level {interrupt_level} with vector number {vector_number}, jumped to {:08X}",

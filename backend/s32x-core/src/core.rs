@@ -4,7 +4,7 @@ use crate::api::Sega32XEmulatorConfig;
 use crate::audio::PwmResampler;
 use crate::bootrom;
 use crate::bootrom::M68kVectors;
-use crate::bus::{Sh2Bus, WhichCpu};
+use crate::bus::{OtherCpu, Sh2Bus, WhichCpu};
 use crate::cartridge::Cartridge;
 use crate::pwm::PwmChip;
 use crate::registers::SystemRegisters;
@@ -20,8 +20,8 @@ use std::mem;
 const M68K_DIVIDER: u64 = timing::NATIVE_M68K_DIVIDER;
 const SH2_MULTIPLIER: u64 = 3;
 
-// Only execute SH-2 instructions in batches of at least 10 for slightly better performance
-const SH2_EXECUTION_SLICE_LEN: u64 = 10;
+// Only execute SH-2 instructions in batches of at least 30 for slightly better performance
+const SH2_EXECUTION_SLICE_LEN: u64 = 30;
 
 const SDRAM_LEN_WORDS: usize = 256 * 1024 / 2;
 
@@ -107,26 +107,36 @@ impl Sega32X {
             // and both SH-2s need to see that write before the master SH-2 writes a different value
             // to the port (which it does almost immediately)
             if self.slave_cycles < self.global_cycles {
-                while self.slave_cycles <= self.master_cycles {
+                let master_cycles_at_start = self.master_cycles;
+                while self.slave_cycles <= master_cycles_at_start {
                     let mut bus = Sh2Bus {
                         s32x_bus: &mut self.s32x_bus,
                         which: WhichCpu::Slave,
                         cycle_counter: self.slave_cycles,
+                        other_sh2: Some(OtherCpu {
+                            cpu: &mut self.sh2_master,
+                            cycle_counter: &mut self.master_cycles,
+                        }),
                     };
                     self.sh2_slave.execute(SH2_EXECUTION_SLICE_LEN, &mut bus);
-                    self.slave_cycles = bus.cycle_counter + SH2_EXECUTION_SLICE_LEN;
+                    self.slave_cycles = bus.cycle_counter;
                 }
             }
 
             if self.master_cycles < self.global_cycles {
-                while self.master_cycles <= self.slave_cycles {
+                let slave_cycles_at_start = self.slave_cycles;
+                while self.master_cycles <= slave_cycles_at_start {
                     let mut bus = Sh2Bus {
                         s32x_bus: &mut self.s32x_bus,
                         which: WhichCpu::Master,
                         cycle_counter: self.master_cycles,
+                        other_sh2: Some(OtherCpu {
+                            cpu: &mut self.sh2_slave,
+                            cycle_counter: &mut self.slave_cycles,
+                        }),
                     };
                     self.sh2_master.execute(SH2_EXECUTION_SLICE_LEN, &mut bus);
-                    self.master_cycles = bus.cycle_counter + SH2_EXECUTION_SLICE_LEN;
+                    self.master_cycles = bus.cycle_counter;
                 }
             }
         }
@@ -135,12 +145,14 @@ impl Sega32X {
             s32x_bus: &mut self.s32x_bus,
             which: WhichCpu::Master,
             cycle_counter: 0,
+            other_sh2: None,
         });
 
         self.sh2_slave.tick_peripherals(elapsed_sh2_cycles, &mut Sh2Bus {
             s32x_bus: &mut self.s32x_bus,
             which: WhichCpu::Slave,
             cycle_counter: 0,
+            other_sh2: None,
         });
 
         self.s32x_bus.pwm.tick(elapsed_sh2_cycles, &mut self.s32x_bus.registers, pwm_resampler);
