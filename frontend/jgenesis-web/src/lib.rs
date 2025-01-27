@@ -64,8 +64,9 @@ impl AudioOutput for WebAudioOutput {
             let _ = self.audio_ctx.resume();
         }
 
-        self.audio_queue.push_if_space(sample_l as f32).map_err(|err| format!("{err:?}"))?;
-        self.audio_queue.push_if_space(sample_r as f32).map_err(|err| format!("{err:?}"))?;
+        self.audio_queue
+            .push_if_space((sample_l as f32, sample_r as f32))
+            .map_err(|err| format!("{err:?}"))?;
         Ok(())
     }
 }
