@@ -15,7 +15,8 @@
   * This is mainly useful for Sega CD, where increasing the drive speed can shorten loading times during gameplay but almost always breaks FMVs and animated cutscenes
 
 ## Improvements
-* Audio resampling code has been rewritten to use the windowed sinc interpolation algorithm, which is much higher quality than the previous resampling implementation and also more performant in most cases
+* Audio resampling code has been rewritten to use the windowed sinc interpolation algorithm, which is much higher quality than the previous resampling implementation at a relatively low performance cost (for most emulated systems)
+  * Windowed sinc interpolation can be very performance-intensive for NES and GB/GBC audio resampling, so these two systems have a new audio setting to choose between windowed sinc interpolation and the old resampling algorithm (low-pass filter followed by nearest neighbor interpolation)
 * GUI: When opening a game that requires a BIOS ROM or firmware ROM (e.g. any Sega CD game), if the BIOS/firmware ROM path is not configured, the error window now contains a button to configure the appropriate ROM path and immediately launch the game
 * CLI: If no config file exists, the CLI will now attempt to write out the default config to the config path so that it can be edited manually if desired
 * Save state files are now internally compressed using zstd which should reduce save state file size by at least 50%, often by 70-80%

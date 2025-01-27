@@ -17,24 +17,26 @@ def main():
     beta = kaiser_beta(args.sba)
     taps = args.n * (2 * args.nz + 1)
     coefficients = firwin(
-        taps, 1 / args.n - (args.bs / 24000) / args.n, window=("kaiser", beta)
+        taps, (args.fc / (args.cutoff_denominator_freq / 2)) / args.n, window=("kaiser", beta)
     )
 
     print(f"{taps} taps")
 
     with open(args.o, "w") as f:
-        right_half_coeffs = coefficients[int(len(coefficients) / 2) :]
-        for coefficient in right_half_coeffs:
+        coeffs_to_write = coefficients
+        if not args.write_full:
+            coeffs_to_write = coefficients[int(len(coefficients) / 2) :]
+        for coefficient in coeffs_to_write:
             f.write(f"{coefficient},\n")
 
-    w, h = freqz(coefficients, worN=2**18)
+    w, h = freqz(coefficients, worN=1 << 20)
 
     figure = plt.figure()
     axes = figure.add_subplot(
         title="Filter Frequency Response",
         xlabel="Frequency (Hz)",
         ylabel="Gain (dB)",
-        xlim=(0, args.fs),
+        xlim=(0, min(args.fs, 4 * args.fc)),
         ylim=(-(args.sba + 20), 20),
     )
     axes.grid(visible=True)
@@ -75,11 +77,18 @@ def parse_args():
         help="Source frequency for plotting (Hz) (default=48000)",
     )
     arg_parser.add_argument(
-        "-bs",
-        default=4000,
+        "-fc",
+        default=20000,
         type=float,
         required=False,
-        help="Transition band size for a 48000 Hz signal (Hz) (default=4000)",
+        help="Cutoff frequency (Hz) (default=20000)",
+    )
+    arg_parser.add_argument(
+        "--cutoff-denominator-freq",
+        default=48000,
+        type=float,
+        required=False,
+        help="Denominator when computing cutoff value (Hz) (default=48000)"
     )
     arg_parser.add_argument(
         "-o",
@@ -87,6 +96,12 @@ def parse_args():
         type=str,
         required=False,
         help="Output file (default=kaiser-fir.txt)",
+    )
+    arg_parser.add_argument(
+        "--write-full",
+        action="store_true",
+        required=False,
+        help="Write out the entire filter instead of only the right half",
     )
     return arg_parser.parse_args()
 

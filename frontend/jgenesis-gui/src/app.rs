@@ -116,6 +116,7 @@ enum OpenWindow {
     GenesisAudio,
     NesAudio,
     SnesAudio,
+    GameBoyAudio,
     GeneralInput,
     SmsGgInput,
     GenesisInput,
@@ -788,6 +789,11 @@ impl App {
                 self.state.open_windows.insert(OpenWindow::SnesAudio);
                 ui.close_menu();
             }
+
+            if ui.button("Game Boy").clicked() {
+                self.state.open_windows.insert(OpenWindow::GameBoyAudio);
+                ui.close_menu();
+            }
         });
     }
 
@@ -987,6 +993,44 @@ impl App {
         });
     }
 
+    fn render_windows(&mut self, ctx: &Context) {
+        let open_windows: Vec<_> = self.state.open_windows.iter().copied().collect();
+        for open_window in open_windows {
+            match open_window {
+                OpenWindow::SmsGgGeneral => self.render_smsgg_general_settings(ctx),
+                OpenWindow::GenesisGeneral => self.render_genesis_general_settings(ctx),
+                OpenWindow::NesGeneral => self.render_nes_general_settings(ctx),
+                OpenWindow::SnesGeneral => self.render_snes_general_settings(ctx),
+                OpenWindow::GameBoyGeneral => self.render_gb_general_settings(ctx),
+                OpenWindow::Synchronization => self.render_sync_settings(ctx),
+                OpenWindow::Paths => self.render_path_settings(ctx),
+                OpenWindow::Interface => self.render_interface_settings(ctx),
+                OpenWindow::CommonVideo => self.render_common_video_settings(ctx),
+                OpenWindow::SmsGgVideo => self.render_smsgg_video_settings(ctx),
+                OpenWindow::GenesisVideo => self.render_genesis_video_settings(ctx),
+                OpenWindow::NesVideo => self.render_nes_video_settings(ctx),
+                OpenWindow::SnesVideo => self.render_snes_video_settings(ctx),
+                OpenWindow::GameBoyVideo => self.render_gb_video_settings(ctx),
+                OpenWindow::CommonAudio => self.render_common_audio_settings(ctx),
+                OpenWindow::SmsGgAudio => self.render_smsgg_audio_settings(ctx),
+                OpenWindow::GenesisAudio => self.render_genesis_audio_settings(ctx),
+                OpenWindow::NesAudio => self.render_nes_audio_settings(ctx),
+                OpenWindow::SnesAudio => self.render_snes_audio_settings(ctx),
+                OpenWindow::GameBoyAudio => self.render_gb_audio_settings(ctx),
+                OpenWindow::GeneralInput => self.render_general_input_settings(ctx),
+                OpenWindow::SmsGgInput => self.render_smsgg_input_settings(ctx),
+                OpenWindow::GenesisInput => self.render_genesis_input_settings(ctx),
+                OpenWindow::NesInput => self.render_nes_input_settings(ctx),
+                OpenWindow::NesPeripherals => self.render_nes_peripheral_settings(ctx),
+                OpenWindow::SnesInput => self.render_snes_input_settings(ctx),
+                OpenWindow::SnesPeripherals => self.render_snes_peripheral_settings(ctx),
+                OpenWindow::GameBoyInput => self.render_gb_input_settings(ctx),
+                OpenWindow::Hotkeys => self.render_hotkey_settings(ctx),
+                OpenWindow::About => self.render_about(ctx),
+            }
+        }
+    }
+
     fn render_help_text(&mut self, ui: &mut Ui, window: OpenWindow) {
         let Some(help_text) = self.state.help_text.get(&window) else { return };
 
@@ -1122,39 +1166,7 @@ impl eframe::App for App {
         self.render_menu(ctx);
         self.render_central_panel(ctx);
 
-        for open_window in self.state.open_windows.clone() {
-            match open_window {
-                OpenWindow::SmsGgGeneral => self.render_smsgg_general_settings(ctx),
-                OpenWindow::GenesisGeneral => self.render_genesis_general_settings(ctx),
-                OpenWindow::NesGeneral => self.render_nes_general_settings(ctx),
-                OpenWindow::SnesGeneral => self.render_snes_general_settings(ctx),
-                OpenWindow::GameBoyGeneral => self.render_gb_general_settings(ctx),
-                OpenWindow::Synchronization => self.render_sync_settings(ctx),
-                OpenWindow::Paths => self.render_path_settings(ctx),
-                OpenWindow::Interface => self.render_interface_settings(ctx),
-                OpenWindow::CommonVideo => self.render_common_video_settings(ctx),
-                OpenWindow::SmsGgVideo => self.render_smsgg_video_settings(ctx),
-                OpenWindow::GenesisVideo => self.render_genesis_video_settings(ctx),
-                OpenWindow::NesVideo => self.render_nes_video_settings(ctx),
-                OpenWindow::SnesVideo => self.render_snes_video_settings(ctx),
-                OpenWindow::GameBoyVideo => self.render_gb_video_settings(ctx),
-                OpenWindow::CommonAudio => self.render_common_audio_settings(ctx),
-                OpenWindow::SmsGgAudio => self.render_smsgg_audio_settings(ctx),
-                OpenWindow::GenesisAudio => self.render_genesis_audio_settings(ctx),
-                OpenWindow::NesAudio => self.render_nes_audio_settings(ctx),
-                OpenWindow::SnesAudio => self.render_snes_audio_settings(ctx),
-                OpenWindow::GeneralInput => self.render_general_input_settings(ctx),
-                OpenWindow::SmsGgInput => self.render_smsgg_input_settings(ctx),
-                OpenWindow::GenesisInput => self.render_genesis_input_settings(ctx),
-                OpenWindow::NesInput => self.render_nes_input_settings(ctx),
-                OpenWindow::NesPeripherals => self.render_nes_peripheral_settings(ctx),
-                OpenWindow::SnesInput => self.render_snes_input_settings(ctx),
-                OpenWindow::SnesPeripherals => self.render_snes_peripheral_settings(ctx),
-                OpenWindow::GameBoyInput => self.render_gb_input_settings(ctx),
-                OpenWindow::Hotkeys => self.render_hotkey_settings(ctx),
-                OpenWindow::About => self.render_about(ctx),
-            }
-        }
+        self.render_windows(ctx);
 
         if prev_config != self.config {
             self.state.display_scanlines_warning = should_display_scanlines_warning(&self.config);
@@ -1180,6 +1192,7 @@ fn should_reload_config(prev_config: &AppConfig, new_config: &AppConfig) -> bool
         list_filters: ListFilters::default(),
         rom_search_dirs: vec![],
         recent_open_list: vec![],
+        egui_theme: EguiTheme::default(),
         ..prev_config.clone()
     };
 
@@ -1187,6 +1200,7 @@ fn should_reload_config(prev_config: &AppConfig, new_config: &AppConfig) -> bool
         list_filters: ListFilters::default(),
         rom_search_dirs: vec![],
         recent_open_list: vec![],
+        egui_theme: EguiTheme::default(),
         ..new_config.clone()
     };
 

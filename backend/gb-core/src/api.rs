@@ -80,6 +80,15 @@ pub enum GbcColorCorrection {
     GbaLcd,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum GbAudioResampler {
+    #[default]
+    LowPassNearestNeighbor,
+    WindowedSinc,
+}
+
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct GameBoyEmulatorConfig {
     pub force_dmg_mode: bool,
@@ -89,6 +98,7 @@ pub struct GameBoyEmulatorConfig {
     #[cfg_display(debug_fmt)]
     pub gb_custom_palette: [(u8, u8, u8); 4],
     pub gbc_color_correction: GbcColorCorrection,
+    pub audio_resampler: GbAudioResampler,
     pub audio_60hz_hack: bool,
 }
 

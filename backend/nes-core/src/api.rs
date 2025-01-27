@@ -71,6 +71,15 @@ impl Display for Overscan {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum NesAudioResampler {
+    #[default]
+    LowPassNearestNeighbor,
+    WindowedSinc,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, ConfigDisplay)]
 pub struct NesEmulatorConfig {
     /// Force timing mode to NTSC/PAL if set
@@ -87,6 +96,7 @@ pub struct NesEmulatorConfig {
     pub pal_black_border: bool,
     /// If true, silence the triangle wave channel when it is outputting a wave at ultrasonic frequency
     pub silence_ultrasonic_triangle_output: bool,
+    pub audio_resampler: NesAudioResampler,
     /// If true, adjust audio frequency so that audio sync times to 60Hz NTSC / 50Hz PAL
     pub audio_refresh_rate_adjustment: bool,
     /// Whether to allow simultaneous left+right and up+down joypad inputs.
@@ -159,7 +169,7 @@ impl NesEmulator {
             apu_state,
             config,
             rgba_frame_buffer: new_rgba_frame_buffer(),
-            audio_resampler: AudioResampler::new(timing_mode, config.audio_refresh_rate_adjustment),
+            audio_resampler: AudioResampler::new(timing_mode, &config),
             raw_rom_bytes: rom_bytes,
         })
     }
@@ -352,8 +362,7 @@ impl EmulatorTrait for NesEmulator {
         self.config = *config;
 
         self.bus.reload_config(*config);
-        self.audio_resampler
-            .set_apply_refresh_rate_adjustment(config.audio_refresh_rate_adjustment);
+        self.audio_resampler.reload_config(config);
     }
 
     fn take_rom_from(&mut self, other: &mut Self) {

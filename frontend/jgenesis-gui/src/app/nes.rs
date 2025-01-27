@@ -6,7 +6,7 @@ use eframe::emath::Align;
 use eframe::epaint::Color32;
 use egui::{Context, Layout, Window};
 use jgenesis_common::frontend::TimingMode;
-use nes_core::api::{NesAspectRatio, Overscan};
+use nes_core::api::{NesAspectRatio, NesAudioResampler, Overscan};
 
 pub struct OverscanState {
     top_text: String,
@@ -250,6 +250,28 @@ impl App {
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::AUDIO_TIMING_HACK);
+            }
+
+            ui.add_space(5.0);
+            let rect = ui
+                .group(|ui| {
+                    ui.label("Audio resampling algorithm");
+
+                    ui.radio_value(
+                        &mut self.config.nes.audio_resampler,
+                        NesAudioResampler::LowPassNearestNeighbor,
+                        "Low-pass filter + nearest neighbor (Faster)",
+                    );
+                    ui.radio_value(
+                        &mut self.config.nes.audio_resampler,
+                        NesAudioResampler::WindowedSinc,
+                        "Windowed sinc interpolation (Higher quality)",
+                    );
+                })
+                .response
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::AUDIO_RESAMPLING);
             }
 
             self.render_help_text(ui, WINDOW);

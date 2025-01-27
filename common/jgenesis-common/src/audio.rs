@@ -1,4 +1,5 @@
 mod cubic_resampler;
+pub mod fir_resampler;
 pub mod iir;
 pub mod sinc;
 

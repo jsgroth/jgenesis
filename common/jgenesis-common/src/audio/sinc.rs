@@ -82,6 +82,7 @@ impl<const CHANNELS: usize, Kernel: SincKernel> SincResampler<CHANNELS, Kernel> 
         resampler
     }
 
+    #[inline]
     pub fn collect(&mut self, samples: [f64; CHANNELS]) {
         self.input.push_back(samples);
 
@@ -133,11 +134,13 @@ impl<const CHANNELS: usize, Kernel: SincKernel> SincResampler<CHANNELS, Kernel> 
         self.output.push_back(array::from_fn(|ch| volume * (l_sum[ch] + r_sum[ch])));
     }
 
+    #[inline]
     #[must_use]
     pub fn output_buffer_len(&self) -> usize {
         self.output.len()
     }
 
+    #[inline]
     #[must_use]
     pub fn output_buffer_pop_front(&mut self) -> Option<[f64; CHANNELS]> {
         self.output.pop_front()
