@@ -73,7 +73,12 @@ impl PwmAudioFilter {
             return (sample_l, sample_r);
         }
 
-        (self.pwm_lpf_l.filter(sample_l), self.pwm_lpf_r.filter(sample_r))
+        match self.gen_low_pass_setting {
+            GenesisLowPassFilter::Model1Va2 => {
+                (self.pwm_lpf_l.filter(sample_l), self.pwm_lpf_r.filter(sample_r))
+            }
+            GenesisLowPassFilter::None => (sample_l, sample_r),
+        }
     }
 
     fn reload_config(&mut self, config: &Sega32XEmulatorConfig) {
