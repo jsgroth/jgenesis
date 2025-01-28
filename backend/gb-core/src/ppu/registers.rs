@@ -276,7 +276,7 @@ impl Index<usize> for CgbPaletteRam {
 
 impl CgbPaletteRam {
     fn new(initial_ram: Box<[u8; PALETTE_RAM_LEN]>) -> Self {
-        Self { ram: initial_ram, data_port_address: 0, data_port_auto_increment: false }
+        Self { ram: initial_ram, data_port_address: 0, data_port_auto_increment: true }
     }
 
     pub fn new_bg() -> Self {
