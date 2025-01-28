@@ -357,6 +357,15 @@ impl Ppu {
             } else {
                 self.state.frame_complete = true;
             }
+
+            // Obscure behavior: If the mode 2 STAT interrupt is enabled, it will trigger a STAT
+            // interrupt on line 144 around the same time that VBlank starts.
+            //
+            // GB Video Player (https://github.com/LIJI32/GBVideoPlayer) depends on this because
+            // it uses the Mode 2 STAT interrupt and expects it to trigger 145 times per frame, not 144
+            if !self.state.prev_stat_interrupt_line && self.registers.mode_2_interrupt_enabled {
+                interrupt_registers.set_flag(InterruptType::LcdStatus);
+            }
         }
 
         let stat_interrupt_line = self.stat_interrupt_line(cpu_speed);

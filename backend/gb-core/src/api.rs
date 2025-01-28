@@ -136,7 +136,7 @@ impl GameBoyEmulator {
     ///
     /// This function will return an error if it cannot load the ROM (e.g. unsupported mapper).
     pub fn create<S: SaveWriter>(
-        rom: Vec<u8>,
+        mut rom: Vec<u8>,
         config: GameBoyEmulatorConfig,
         save_writer: &mut S,
     ) -> Result<Self, GameBoyLoadError> {
@@ -149,6 +149,8 @@ impl GameBoyEmulator {
         let ppu = Ppu::new(hardware_mode, &rom);
 
         let initial_sram = save_writer.load_bytes("sav").ok();
+
+        jgenesis_common::rom::mirror_to_next_power_of_two(&mut rom);
         let cartridge = Cartridge::create(rom.into_boxed_slice(), initial_sram, save_writer)?;
 
         log::info!("Running with hardware mode {hardware_mode}");
