@@ -275,7 +275,7 @@ impl Ppu {
         } else if !self.state.previously_enabled {
             self.state.previously_enabled = true;
 
-            // Restarting the PPU at dot 4 instead of 0 fixes graphical glitches in GBMusicPlayer2
+            // Restarting the PPU at dot 4 instead of 0 fixes graphical glitches in GBVideoPlayer2
             self.state.dot = 4;
 
             // When the PPU is re-enabled, the next frame is not displayed
