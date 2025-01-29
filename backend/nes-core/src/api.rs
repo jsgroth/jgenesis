@@ -75,8 +75,8 @@ impl Display for Overscan {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum NesAudioResampler {
-    #[default]
     LowPassNearestNeighbor,
+    #[default]
     WindowedSinc,
 }
 
