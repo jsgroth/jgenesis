@@ -376,6 +376,10 @@ const RENDER_LINE_MCLK: u64 = 92;
 // in Wild Guns
 const END_RENDER_LINE_MCLK: u64 = RENDER_LINE_MCLK + 256 * 4 - 3 * 4;
 
+// Latch Mode 7 registers a bit before rendering starts
+// Battle Clash depends on this to avoid a glitchy line where the screen transitions from Mode 1 to Mode 7
+const MODE_7_LATCH_MCLK: u64 = 40;
+
 impl Ppu {
     pub fn new(timing_mode: TimingMode, config: SnesEmulatorConfig) -> Self {
         Self {
@@ -395,7 +399,7 @@ impl Ppu {
 
     #[must_use]
     pub fn tick(&mut self, master_cycles: u64) -> PpuTickEffect {
-        let prev_scanline_mclks = self.state.scanline_master_cycles;
+        let mut prev_scanline_mclks = self.state.scanline_master_cycles;
         let new_scanline_mclks = self.state.scanline_master_cycles + master_cycles;
         self.state.scanline_master_cycles = new_scanline_mclks;
 
@@ -408,6 +412,9 @@ impl Ppu {
         if new_scanline_mclks >= mclks_per_scanline {
             self.state.scanline += 1;
             self.state.scanline_master_cycles = new_scanline_mclks - mclks_per_scanline;
+
+            // For later checks, act like the PPU was previously at the start of the new line
+            prev_scanline_mclks = 0;
 
             if self.state.pending_sprite_pixel_overflow {
                 self.state.pending_sprite_pixel_overflow = false;
@@ -438,11 +445,6 @@ impl Ppu {
                 }
             }
 
-            if is_active_scanline && self.state.scanline_master_cycles >= RENDER_LINE_MCLK {
-                // Crossed past H=22 on the next scanline; render line in full
-                self.render_current_line(0);
-            }
-
             if self.state.scanline == v_display_size + 1 {
                 // Reload OAM data port address at start of VBlank if not in forced blanking
                 if !self.registers.forced_blanking {
@@ -451,14 +453,23 @@ impl Ppu {
 
                 tick_effect = PpuTickEffect::FrameComplete;
             }
-        } else if is_active_scanline
+        }
+
+        if is_active_scanline
+            && prev_scanline_mclks < MODE_7_LATCH_MCLK
+            && new_scanline_mclks >= MODE_7_LATCH_MCLK
+        {
+            self.registers.latch_mode_7();
+        }
+
+        if is_active_scanline
             && prev_scanline_mclks < RENDER_LINE_MCLK
             && new_scanline_mclks >= RENDER_LINE_MCLK
         {
             // Just crossed H=22; render current line in full
             self.render_current_line(0);
-        } else if self.registers.mid_line_update.is_some()
-            && is_active_scanline
+        } else if is_active_scanline
+            && self.registers.mid_line_update.is_some()
             && (RENDER_LINE_MCLK..END_RENDER_LINE_MCLK).contains(&new_scanline_mclks)
         {
             // Between H=22 and H=276 and INIDISP or one of the scroll registers was just modified;
@@ -746,22 +757,22 @@ impl Ppu {
         }
 
         // Affine transformation parameters (fixed point, 1/256 pixel units)
-        let m7a: i32 = (self.registers.mode_7_parameter_a as i16).into();
-        let m7b: i32 = (self.registers.mode_7_parameter_b as i16).into();
-        let m7c: i32 = (self.registers.mode_7_parameter_c as i16).into();
-        let m7d: i32 = (self.registers.mode_7_parameter_d as i16).into();
+        let m7a: i32 = (self.registers.mode_7_latched.parameter_a as i16).into();
+        let m7b: i32 = (self.registers.mode_7_latched.parameter_b as i16).into();
+        let m7c: i32 = (self.registers.mode_7_latched.parameter_c as i16).into();
+        let m7d: i32 = (self.registers.mode_7_latched.parameter_d as i16).into();
 
         // Center of rotation
-        let m7x = sign_extend_13_bit(self.registers.mode_7_center_x);
-        let m7y = sign_extend_13_bit(self.registers.mode_7_center_y);
+        let m7x = sign_extend_13_bit(self.registers.mode_7_latched.center_x);
+        let m7y = sign_extend_13_bit(self.registers.mode_7_latched.center_y);
 
-        let h_scroll = sign_extend_13_bit(self.registers.mode_7_h_scroll);
-        let v_scroll = sign_extend_13_bit(self.registers.mode_7_v_scroll);
+        let h_scroll = sign_extend_13_bit(self.registers.mode_7_latched.h_scroll);
+        let v_scroll = sign_extend_13_bit(self.registers.mode_7_latched.v_scroll);
 
-        let h_flip = self.registers.mode_7_h_flip;
-        let v_flip = self.registers.mode_7_v_flip;
+        let h_flip = self.registers.mode_7_latched.h_flip;
+        let v_flip = self.registers.mode_7_latched.v_flip;
 
-        let oob_behavior = self.registers.mode_7_oob_behavior;
+        let oob_behavior = self.registers.mode_7_latched.oob_behavior;
 
         for pixel in from_pixel..NORMAL_SCREEN_WIDTH as u16 {
             let (base_y, mosaic_x) = self.apply_mosaic(0, scanline, pixel, HiResMode::None);

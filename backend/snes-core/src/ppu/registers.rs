@@ -464,6 +464,43 @@ pub enum MidScanlineUpdate {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
+pub struct Mode7Registers {
+    // M7SEL
+    pub h_flip: bool,
+    pub v_flip: bool,
+    pub oob_behavior: Mode7OobBehavior,
+    // M7A/M7B/M7C/M7D
+    pub parameter_a: u16,
+    pub parameter_b: u16,
+    pub parameter_c: u16,
+    pub parameter_d: u16,
+    // M7HOFS/M7VOFS
+    pub h_scroll: u16,
+    pub v_scroll: u16,
+    // M7X/M7Y
+    pub center_x: u16,
+    pub center_y: u16,
+}
+
+impl Mode7Registers {
+    fn new() -> Self {
+        Self {
+            h_flip: false,
+            v_flip: false,
+            oob_behavior: Mode7OobBehavior::default(),
+            parameter_a: 0xFFFF,
+            parameter_b: 0xFFFF,
+            parameter_c: 0,
+            parameter_d: 0,
+            h_scroll: 0,
+            v_scroll: 0,
+            center_x: 0,
+            center_y: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct Registers {
     // INIDISP
     pub forced_blanking: bool,
@@ -553,22 +590,10 @@ pub struct Registers {
     // CGDATA/RDCGRAM
     pub cgram_write_buffer: u8,
     pub cgram_flipflop: AccessFlipflop,
-    // M7SEL
-    pub mode_7_h_flip: bool,
-    pub mode_7_v_flip: bool,
-    pub mode_7_oob_behavior: Mode7OobBehavior,
-    // M7A/M7B/M7C/M7D
-    pub mode_7_parameter_a: u16,
-    pub mode_7_parameter_b: u16,
-    pub mode_7_parameter_c: u16,
-    pub mode_7_parameter_d: u16,
+    // Mode 7
+    pub mode_7: Mode7Registers,
+    pub mode_7_latched: Mode7Registers,
     pub mode_7_write_buffer: u8,
-    // M7HOFS/M7VOFS
-    pub mode_7_h_scroll: u16,
-    pub mode_7_v_scroll: u16,
-    // M7X/M7Y
-    pub mode_7_center_x: u16,
-    pub mode_7_center_y: u16,
     // PPU multiply unit (M7A/M7B)
     pub multiply_operand_l: i16,
     pub multiply_operand_r: i8,
@@ -654,18 +679,9 @@ impl Registers {
             cgram_address: 0,
             cgram_write_buffer: 0,
             cgram_flipflop: AccessFlipflop::default(),
-            mode_7_h_flip: false,
-            mode_7_v_flip: false,
-            mode_7_oob_behavior: Mode7OobBehavior::default(),
-            mode_7_parameter_a: 0xFFFF,
-            mode_7_parameter_b: 0xFFFF,
-            mode_7_parameter_c: 0,
-            mode_7_parameter_d: 0,
+            mode_7: Mode7Registers::new(),
+            mode_7_latched: Mode7Registers::new(),
             mode_7_write_buffer: 0,
-            mode_7_h_scroll: 0,
-            mode_7_v_scroll: 0,
-            mode_7_center_x: 0,
-            mode_7_center_y: 0,
             multiply_operand_l: !0,
             multiply_operand_r: !0,
             latched_h_counter: 0,
@@ -800,20 +816,20 @@ impl Registers {
         // BG1HOFS: BG1 horizontal scroll / M7HOFS: Mode 7 horizontal scroll
         self.write_bg_h_scroll(0, value);
 
-        self.mode_7_h_scroll = u16::from_le_bytes([self.mode_7_write_buffer, value]);
+        self.mode_7.h_scroll = u16::from_le_bytes([self.mode_7_write_buffer, value]);
         self.mode_7_write_buffer = value;
 
-        log::trace!("  Mode 7 H scroll: {:04X}", self.mode_7_h_scroll);
+        log::trace!("  Mode 7 H scroll: {:04X}", self.mode_7.h_scroll);
     }
 
     pub fn write_bg1vofs(&mut self, value: u8) {
         // BG1VOFS: BG1 vertical scroll / M7VOFS: Mode 7 vertical scroll
         self.write_bg_v_scroll(0, value);
 
-        self.mode_7_v_scroll = u16::from_le_bytes([self.mode_7_write_buffer, value]);
+        self.mode_7.v_scroll = u16::from_le_bytes([self.mode_7_write_buffer, value]);
         self.mode_7_write_buffer = value;
 
-        log::trace!("  Mode 7 V scroll: {:04X}", self.mode_7_v_scroll);
+        log::trace!("  Mode 7 V scroll: {:04X}", self.mode_7.v_scroll);
     }
 
     pub fn write_bg_h_scroll(&mut self, i: usize, value: u8) {
@@ -847,63 +863,63 @@ impl Registers {
 
     pub fn write_m7sel(&mut self, value: u8) {
         // M7SEL: Mode 7 settings
-        self.mode_7_h_flip = value.bit(0);
-        self.mode_7_v_flip = value.bit(1);
-        self.mode_7_oob_behavior = Mode7OobBehavior::from_byte(value);
+        self.mode_7.h_flip = value.bit(0);
+        self.mode_7.v_flip = value.bit(1);
+        self.mode_7.oob_behavior = Mode7OobBehavior::from_byte(value);
 
-        log::trace!("  Mode 7 H flip: {}", self.mode_7_h_flip);
-        log::trace!("  Mode 7 V flip: {}", self.mode_7_v_flip);
-        log::trace!("  Mode 7 OOB behavior: {:?}", self.mode_7_oob_behavior);
+        log::trace!("  Mode 7 H flip: {}", self.mode_7.h_flip);
+        log::trace!("  Mode 7 V flip: {}", self.mode_7.v_flip);
+        log::trace!("  Mode 7 OOB behavior: {:?}", self.mode_7.oob_behavior);
     }
 
     pub fn write_m7a(&mut self, value: u8) {
         // M7A: Mode 7 parameter A / multiply 16-bit operand
-        self.mode_7_parameter_a = u16::from_le_bytes([self.mode_7_write_buffer, value]);
+        self.mode_7.parameter_a = u16::from_le_bytes([self.mode_7_write_buffer, value]);
         self.multiply_operand_l = i16::from_le_bytes([self.mode_7_write_buffer, value]);
         self.mode_7_write_buffer = value;
 
-        log::trace!("  Mode 7 parameter A: {:04X}", self.mode_7_parameter_a);
+        log::trace!("  Mode 7 parameter A: {:04X}", self.mode_7.parameter_a);
     }
 
     pub fn write_m7b(&mut self, value: u8) {
         // M7B: Mode 7 parameter B / multiply 8-bit operand
-        self.mode_7_parameter_b = u16::from_le_bytes([self.mode_7_write_buffer, value]);
+        self.mode_7.parameter_b = u16::from_le_bytes([self.mode_7_write_buffer, value]);
         self.multiply_operand_r = value as i8;
         self.mode_7_write_buffer = value;
 
-        log::trace!("  Mode 7 parameter B: {:04X}", self.mode_7_parameter_b);
+        log::trace!("  Mode 7 parameter B: {:04X}", self.mode_7.parameter_b);
     }
 
     pub fn write_m7c(&mut self, value: u8) {
         // M7C: Mode 7 parameter C
-        self.mode_7_parameter_c = u16::from_le_bytes([self.mode_7_write_buffer, value]);
+        self.mode_7.parameter_c = u16::from_le_bytes([self.mode_7_write_buffer, value]);
         self.mode_7_write_buffer = value;
 
-        log::trace!("  Mode 7 parameter C: {:04X}", self.mode_7_parameter_c);
+        log::trace!("  Mode 7 parameter C: {:04X}", self.mode_7.parameter_c);
     }
 
     pub fn write_m7d(&mut self, value: u8) {
         // M7D: Mode 7 parameter D
-        self.mode_7_parameter_d = u16::from_le_bytes([self.mode_7_write_buffer, value]);
+        self.mode_7.parameter_d = u16::from_le_bytes([self.mode_7_write_buffer, value]);
         self.mode_7_write_buffer = value;
 
-        log::trace!("  Mode 7 parameter D: {:04X}", self.mode_7_parameter_d);
+        log::trace!("  Mode 7 parameter D: {:04X}", self.mode_7.parameter_d);
     }
 
     pub fn write_m7x(&mut self, value: u8) {
         // M7X: Mode 7 center X coordinate
-        self.mode_7_center_x = u16::from_le_bytes([self.mode_7_write_buffer, value]) & 0x1FFF;
+        self.mode_7.center_x = u16::from_le_bytes([self.mode_7_write_buffer, value]) & 0x1FFF;
         self.mode_7_write_buffer = value;
 
-        log::trace!("  Mode 7 center X: {:04X}", self.mode_7_center_x);
+        log::trace!("  Mode 7 center X: {:04X}", self.mode_7.center_x);
     }
 
     pub fn write_m7y(&mut self, value: u8) {
         // M7Y: Mode 7 center Y coordinate
-        self.mode_7_center_y = u16::from_le_bytes([self.mode_7_write_buffer, value]) & 0x1FFF;
+        self.mode_7.center_y = u16::from_le_bytes([self.mode_7_write_buffer, value]) & 0x1FFF;
         self.mode_7_write_buffer = value;
 
-        log::trace!("  Mode 7 center Y: {:04X}", self.mode_7_center_y);
+        log::trace!("  Mode 7 center Y: {:04X}", self.mode_7.center_y);
     }
 
     pub fn write_obsel(&mut self, value: u8) {
@@ -1199,6 +1215,10 @@ impl Registers {
             self.latched_v_counter = v_counter;
         }
         self.programmable_joypad_port = wrio;
+    }
+
+    pub fn latch_mode_7(&mut self) {
+        self.mode_7_latched = self.mode_7.clone();
     }
 
     #[allow(clippy::range_plus_one)]
