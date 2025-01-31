@@ -20,8 +20,8 @@ use std::mem;
 const M68K_DIVIDER: u64 = timing::NATIVE_M68K_DIVIDER;
 const SH2_MULTIPLIER: u64 = 3;
 
-// Only execute SH-2 instructions in batches of at least 30 for slightly better performance
-const SH2_EXECUTION_SLICE_LEN: u64 = 30;
+// Only execute SH-2 instructions in batches of at least 15 for slightly better performance
+const SH2_EXECUTION_SLICE_LEN: u64 = 15;
 
 const SDRAM_LEN_WORDS: usize = 256 * 1024 / 2;
 
