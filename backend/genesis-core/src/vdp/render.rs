@@ -394,13 +394,16 @@ impl Vdp {
                         self.state.last_scroll_b_palettes[1] = nametable_word.palette;
                     }
 
-                    let colors = read_pattern_generator_row(&self.vram, PatternGeneratorRowArgs {
-                        vertical_flip: nametable_word.vertical_flip,
-                        horizontal_flip: nametable_word.horizontal_flip,
-                        pattern_generator: nametable_word.pattern_generator,
-                        row: scrolled_scanline,
-                        cell_height_shift,
-                    });
+                    let colors = read_pattern_generator_row(
+                        &self.vram,
+                        PatternGeneratorRowArgs {
+                            vertical_flip: nametable_word.vertical_flip,
+                            horizontal_flip: nametable_word.horizontal_flip,
+                            pattern_generator: nametable_word.pattern_generator,
+                            row: scrolled_scanline,
+                            cell_height_shift,
+                        },
+                    );
 
                     for pixel_offset in 0..8 {
                         let fb_col = cell_fb_col + pixel_offset;
@@ -464,13 +467,16 @@ impl Vdp {
                 h_cell,
             );
 
-            let colors = read_pattern_generator_row(&self.vram, PatternGeneratorRowArgs {
-                vertical_flip: nametable_word.vertical_flip,
-                horizontal_flip: nametable_word.horizontal_flip,
-                pattern_generator: nametable_word.pattern_generator,
-                row: raster_line,
-                cell_height_shift,
-            });
+            let colors = read_pattern_generator_row(
+                &self.vram,
+                PatternGeneratorRowArgs {
+                    vertical_flip: nametable_word.vertical_flip,
+                    horizontal_flip: nametable_word.horizontal_flip,
+                    pattern_generator: nametable_word.pattern_generator,
+                    row: raster_line,
+                    cell_height_shift,
+                },
+            );
 
             for pixel_offset in 0..8 {
                 let fb_col = cell_fb_col + pixel_offset;
@@ -521,8 +527,10 @@ impl Vdp {
             let scroll_a_pixel = self.bg_buffers.plane_a_pixels[frame_buffer_col as usize];
             let scroll_b_pixel = self.bg_buffers.plane_b_pixels[frame_buffer_col as usize];
 
-            let (pixel_color, color_modifier) =
-                determine_pixel_color(&self.cram, self.debug_register, PixelColorArgs {
+            let (pixel_color, color_modifier) = determine_pixel_color(
+                &self.cram,
+                self.debug_register,
+                PixelColorArgs {
                     sprite_pixel,
                     scroll_a_pixel,
                     scroll_b_pixel,
@@ -530,7 +538,8 @@ impl Vdp {
                     shadow_highlight_flag: self.latched_registers.shadow_highlight_flag,
                     in_h_border: !(0..active_display_pixels as i16).contains(&pixel),
                     in_v_border: raster_line.in_v_border && !self.state.v_border_forgotten,
-                });
+                },
+            );
 
             set_in_frame_buffer(
                 &mut self.frame_buffer,

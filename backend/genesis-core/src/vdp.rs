@@ -1323,18 +1323,21 @@ mod tests {
     use super::*;
 
     fn new_vdp() -> Vdp {
-        Vdp::new(TimingMode::Ntsc, VdpConfig {
-            enforce_sprite_limits: true,
-            emulate_non_linear_dac: false,
-            deinterlace: true,
-            render_vertical_border: false,
-            render_horizontal_border: false,
-            plane_a_enabled: true,
-            plane_b_enabled: true,
-            window_enabled: true,
-            sprites_enabled: true,
-            backdrop_enabled: true,
-        })
+        Vdp::new(
+            TimingMode::Ntsc,
+            VdpConfig {
+                enforce_sprite_limits: true,
+                emulate_non_linear_dac: false,
+                deinterlace: true,
+                render_vertical_border: false,
+                render_horizontal_border: false,
+                plane_a_enabled: true,
+                plane_b_enabled: true,
+                window_enabled: true,
+                sprites_enabled: true,
+                backdrop_enabled: true,
+            },
+        )
     }
 
     #[test]

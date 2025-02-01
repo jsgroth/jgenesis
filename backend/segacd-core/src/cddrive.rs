@@ -77,12 +77,10 @@ impl CdController {
         mut audio_callback: impl FnMut(f64, f64),
     ) -> SegaCdLoadResult<()> {
         self.prescaler.tick(mclk_cycles, || {
-            let (sample_l, sample_r) = self.drive.clock_44100hz(&mut self.rchip, RchipDmaArgs {
-                word_ram,
-                prg_ram,
-                prg_ram_accessible,
-                pcm,
-            })?;
+            let (sample_l, sample_r) = self.drive.clock_44100hz(
+                &mut self.rchip,
+                RchipDmaArgs { word_ram, prg_ram, prg_ram_accessible, pcm },
+            )?;
 
             audio_callback(sample_l, sample_r);
 

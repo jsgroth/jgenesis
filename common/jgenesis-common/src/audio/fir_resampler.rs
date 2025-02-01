@@ -283,8 +283,9 @@ mod tests {
         buffer.push(12345.0);
         assert_eq!(buffer.idx, buffer.buffer.len() - N - 1);
         assert_eq!(buffer.len, N);
-        assert_eq!(&buffer.buffer[buffer.idx..buffer.idx + N], &[
-            12345.0, 56789.0, 54321.0, current[0]
-        ]);
+        assert_eq!(
+            &buffer.buffer[buffer.idx..buffer.idx + N],
+            &[12345.0, 56789.0, 54321.0, current[0]]
+        );
     }
 }

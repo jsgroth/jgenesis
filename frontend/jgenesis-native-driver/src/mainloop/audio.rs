@@ -119,11 +119,14 @@ fn open_audio_queue(
     config: &CommonConfig,
 ) -> Result<AudioQueue<f32>, AudioError> {
     let audio_queue = audio
-        .open_queue(None, &AudioSpecDesired {
-            freq: Some(config.audio_output_frequency as i32),
-            channels: Some(CHANNELS),
-            samples: Some(config.audio_hardware_queue_size),
-        })
+        .open_queue(
+            None,
+            &AudioSpecDesired {
+                freq: Some(config.audio_output_frequency as i32),
+                channels: Some(CHANNELS),
+                samples: Some(config.audio_hardware_queue_size),
+            },
+        )
         .map_err(AudioError::OpenQueue)?;
     audio_queue.resume();
 

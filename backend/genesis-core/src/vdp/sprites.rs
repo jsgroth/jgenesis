@@ -326,13 +326,16 @@ impl Vdp {
                     continue;
                 }
 
-                let colors = read_pattern_generator_row(&self.vram, PatternGeneratorRowArgs {
-                    vertical_flip: false,
-                    horizontal_flip: sprite.horizontal_flip,
-                    pattern_generator,
-                    row: cell_row,
-                    cell_height_shift,
-                });
+                let colors = read_pattern_generator_row(
+                    &self.vram,
+                    PatternGeneratorRowArgs {
+                        vertical_flip: false,
+                        horizontal_flip: sprite.horizontal_flip,
+                        pattern_generator,
+                        row: cell_row,
+                        cell_height_shift,
+                    },
+                );
 
                 let cell_h_position = sprite.h_position + 8 * h_cell;
                 for pixel_offset in 0..8 {

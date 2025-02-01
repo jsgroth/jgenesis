@@ -24,19 +24,18 @@ const CD_COEFFICIENT: f64 = 0.44668359215096315;
 
 fn new_pcm_8khz_low_pass() -> SecondOrderIirFilter {
     // Second-order Butterworth IIR filter targeting 7973 Hz cutoff with source frequency of 32552 Hz
-    SecondOrderIirFilter::new(&[0.28362508499709993, 0.5672501699941999, 0.28362508499709993], &[
-        1.0,
-        -0.03731874083716955,
-        0.17181908082556915,
-    ])
+    SecondOrderIirFilter::new(
+        &[0.28362508499709993, 0.5672501699941999, 0.28362508499709993],
+        &[1.0, -0.03731874083716955, 0.17181908082556915],
+    )
 }
 
 fn new_pcm_gen_low_pass() -> FirstOrderIirFilter {
     // First-order Butterworth IIR filter targeting 3390 Hz cutoff with source frequency of 32552 Hz
-    FirstOrderIirFilter::new(&[0.2533767724796169, 0.2533767724796169], &[
-        1.0,
-        -0.49324645504076625,
-    ])
+    FirstOrderIirFilter::new(
+        &[0.2533767724796169, 0.2533767724796169],
+        &[1.0, -0.49324645504076625],
+    )
 }
 
 fn new_cd_da_gen_low_pass() -> FirstOrderIirFilter {

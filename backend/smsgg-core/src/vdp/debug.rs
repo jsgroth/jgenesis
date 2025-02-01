@@ -47,51 +47,69 @@ impl Vdp {
     pub fn dump_registers(&self, mut callback: impl FnMut(u32, &[(&str, &str)])) {
         let mode_str = self.registers.mode.to_string();
 
-        callback(0, &[
-            ("Vertical scroll lock", bool_str(self.registers.vertical_scroll_lock)),
-            ("Horizontal scroll lock", bool_str(self.registers.horizontal_scroll_lock)),
-            ("Hide left column", bool_str(self.registers.hide_left_column)),
-            ("Horizontal interrupt enabled", bool_str(self.registers.line_interrupt_enabled)),
-            ("Shift sprites left", bool_str(self.registers.shift_sprites_left)),
-            ("M3", if self.registers.mode_bits[3] { "1" } else { "0" }),
-            ("M1", if self.registers.mode_bits[1] { "1" } else { "0" }),
-            ("Mode", &mode_str),
-        ]);
+        callback(
+            0,
+            &[
+                ("Vertical scroll lock", bool_str(self.registers.vertical_scroll_lock)),
+                ("Horizontal scroll lock", bool_str(self.registers.horizontal_scroll_lock)),
+                ("Hide left column", bool_str(self.registers.hide_left_column)),
+                ("Horizontal interrupt enabled", bool_str(self.registers.line_interrupt_enabled)),
+                ("Shift sprites left", bool_str(self.registers.shift_sprites_left)),
+                ("M3", if self.registers.mode_bits[3] { "1" } else { "0" }),
+                ("M1", if self.registers.mode_bits[1] { "1" } else { "0" }),
+                ("Mode", &mode_str),
+            ],
+        );
 
-        callback(1, &[
-            ("Display enabled", bool_str(self.registers.display_enabled)),
-            ("Vertical interrupt enabled", bool_str(self.registers.frame_interrupt_enabled)),
-            ("M0", if self.registers.mode_bits[0] { "1" } else { "0" }),
-            ("M2", if self.registers.mode_bits[2] { "1" } else { "0" }),
-            ("Mode", &mode_str),
-            ("Double sprite height", bool_str(self.registers.double_sprite_height)),
-            ("Double sprite size", bool_str(self.registers.double_sprite_size)),
-        ]);
+        callback(
+            1,
+            &[
+                ("Display enabled", bool_str(self.registers.display_enabled)),
+                ("Vertical interrupt enabled", bool_str(self.registers.frame_interrupt_enabled)),
+                ("M0", if self.registers.mode_bits[0] { "1" } else { "0" }),
+                ("M2", if self.registers.mode_bits[2] { "1" } else { "0" }),
+                ("Mode", &mode_str),
+                ("Double sprite height", bool_str(self.registers.double_sprite_height)),
+                ("Double sprite size", bool_str(self.registers.double_sprite_size)),
+            ],
+        );
 
-        callback(2, &[(
-            "Nametable address",
-            &format!("${:04X}", self.registers.base_name_table_address),
-        )]);
+        callback(
+            2,
+            &[("Nametable address", &format!("${:04X}", self.registers.base_name_table_address))],
+        );
 
-        callback(3, &[(
-            "Color table address (TMS9918)",
-            &format!("${:04X}", self.registers.color_table_address),
-        )]);
+        callback(
+            3,
+            &[(
+                "Color table address (TMS9918)",
+                &format!("${:04X}", self.registers.color_table_address),
+            )],
+        );
 
-        callback(4, &[(
-            "Pattern generator address (TMS9918)",
-            &format!("${:04X}", self.registers.pattern_generator_address),
-        )]);
+        callback(
+            4,
+            &[(
+                "Pattern generator address (TMS9918)",
+                &format!("${:04X}", self.registers.pattern_generator_address),
+            )],
+        );
 
-        callback(5, &[(
-            "Sprite attribute table address",
-            &format!("${:04X}", self.registers.base_sprite_table_address),
-        )]);
+        callback(
+            5,
+            &[(
+                "Sprite attribute table address",
+                &format!("${:04X}", self.registers.base_sprite_table_address),
+            )],
+        );
 
-        callback(6, &[(
-            "Sprite pattern generator address",
-            &format!("${:04X}", self.registers.base_sprite_pattern_address),
-        )]);
+        callback(
+            6,
+            &[(
+                "Sprite pattern generator address",
+                &format!("${:04X}", self.registers.base_sprite_pattern_address),
+            )],
+        );
 
         callback(7, &[("Backdrop color ID", &self.registers.backdrop_color.to_string())]);
 
@@ -99,10 +117,10 @@ impl Vdp {
 
         callback(9, &[("Vertical scroll", &self.registers.y_scroll.to_string())]);
 
-        callback(10, &[(
-            "HINT counter reload value",
-            &self.registers.line_counter_reload_value.to_string(),
-        )]);
+        callback(
+            10,
+            &[("HINT counter reload value", &self.registers.line_counter_reload_value.to_string())],
+        );
     }
 }
 

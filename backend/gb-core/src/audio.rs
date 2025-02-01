@@ -12,10 +12,10 @@ pub const GB_APU_FREQUENCY: f64 = 1_048_576.0;
 
 fn new_dc_offset_filter() -> FirstOrderIirFilter {
     // Butterworth high-pass with cutoff frequency 5 Hz and source frequency 1048576 Hz
-    FirstOrderIirFilter::new(&[0.9999850199432726, -0.9999850199432726], &[
-        1.0,
-        -0.9999700398865453,
-    ])
+    FirstOrderIirFilter::new(
+        &[0.9999850199432726, -0.9999850199432726],
+        &[1.0, -0.9999700398865453],
+    )
 }
 
 #[derive(Debug, Clone, Encode, Decode)]

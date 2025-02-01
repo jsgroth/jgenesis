@@ -141,19 +141,25 @@ impl Sega32X {
             }
         }
 
-        self.sh2_master.tick_peripherals(elapsed_sh2_cycles, &mut Sh2Bus {
-            s32x_bus: &mut self.s32x_bus,
-            which: WhichCpu::Master,
-            cycle_counter: 0,
-            other_sh2: None,
-        });
+        self.sh2_master.tick_peripherals(
+            elapsed_sh2_cycles,
+            &mut Sh2Bus {
+                s32x_bus: &mut self.s32x_bus,
+                which: WhichCpu::Master,
+                cycle_counter: 0,
+                other_sh2: None,
+            },
+        );
 
-        self.sh2_slave.tick_peripherals(elapsed_sh2_cycles, &mut Sh2Bus {
-            s32x_bus: &mut self.s32x_bus,
-            which: WhichCpu::Slave,
-            cycle_counter: 0,
-            other_sh2: None,
-        });
+        self.sh2_slave.tick_peripherals(
+            elapsed_sh2_cycles,
+            &mut Sh2Bus {
+                s32x_bus: &mut self.s32x_bus,
+                which: WhichCpu::Slave,
+                cycle_counter: 0,
+                other_sh2: None,
+            },
+        );
 
         self.s32x_bus.pwm.tick(elapsed_sh2_cycles, &mut self.s32x_bus.registers, pwm_resampler);
     }

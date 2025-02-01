@@ -17,10 +17,10 @@ const PWM_COEFFICIENT: f64 = 0.7943282347242815;
 
 fn new_pwm_48khz_low_pass() -> FirstOrderIirFilter {
     // First-order Butterworth IIR filter targeting 3390 Hz cutoff with source frequency of 48000 Hz
-    FirstOrderIirFilter::new(&[0.18406577751250913, 0.18406577751250913], &[
-        1.0,
-        -0.6318684449749816,
-    ])
+    FirstOrderIirFilter::new(
+        &[0.18406577751250913, 0.18406577751250913],
+        &[1.0, -0.6318684449749816],
+    )
 }
 
 fn new_pwm_44khz_low_pass() -> FirstOrderIirFilter {

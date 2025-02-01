@@ -61,10 +61,10 @@ fn compute_source_frequency(timing_mode: TimingMode, apply_refresh_rate_adjustme
 
 fn new_dc_offset_filter() -> FirstOrderIirFilter {
     // Butterworth high-pass with cutoff frequency 5 Hz, source frequency 1789772 Hz
-    FirstOrderIirFilter::new(&[0.9999912235642162, -0.9999912235642162], &[
-        1.0,
-        -0.9999824471284324,
-    ])
+    FirstOrderIirFilter::new(
+        &[0.9999912235642162, -0.9999912235642162],
+        &[1.0, -0.9999824471284324],
+    )
 }
 
 #[derive(Debug, Clone, Encode, Decode)]

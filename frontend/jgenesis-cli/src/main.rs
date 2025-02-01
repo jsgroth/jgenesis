@@ -657,14 +657,18 @@ impl Args {
             config.input.snes.p2_type = p2_controller_type;
         }
 
-        apply_path_overrides!(self, config.snes, [
-            dsp1_rom_path,
-            dsp2_rom_path,
-            dsp3_rom_path,
-            dsp4_rom_path,
-            st010_rom_path,
-            st011_rom_path,
-        ]);
+        apply_path_overrides!(
+            self,
+            config.snes,
+            [
+                dsp1_rom_path,
+                dsp2_rom_path,
+                dsp3_rom_path,
+                dsp4_rom_path,
+                st010_rom_path,
+                st011_rom_path,
+            ]
+        );
     }
 
     fn apply_gb_overrides(&self, config: &mut AppConfig) {
@@ -703,17 +707,21 @@ impl Args {
             config.common.launch_in_fullscreen = true;
         }
 
-        apply_overrides!(self, config.common, [
-            fullscreen_mode,
-            wgpu_backend,
-            vsync_mode,
-            frame_time_sync,
-            auto_prescale,
-            scanlines,
-            force_integer_height_scaling,
-            filter_mode,
-            preprocess_shader,
-        ]);
+        apply_overrides!(
+            self,
+            config.common,
+            [
+                fullscreen_mode,
+                wgpu_backend,
+                vsync_mode,
+                frame_time_sync,
+                auto_prescale,
+                scanlines,
+                force_integer_height_scaling,
+                filter_mode,
+                preprocess_shader,
+            ]
+        );
 
         if let Some(prescale_factor) = self.prescale_factor {
             config.common.prescale_factor =
@@ -722,21 +730,26 @@ impl Args {
     }
 
     fn apply_audio_overrides(&self, config: &mut AppConfig) {
-        apply_overrides!(self, config.common, [
-            audio_output_frequency,
-            audio_sync,
-            audio_dynamic_resampling_ratio,
-            audio_hardware_queue_size,
-            audio_buffer_size,
-            audio_gain_db,
-        ]);
+        apply_overrides!(
+            self,
+            config.common,
+            [
+                audio_output_frequency,
+                audio_sync,
+                audio_dynamic_resampling_ratio,
+                audio_hardware_queue_size,
+                audio_buffer_size,
+                audio_gain_db,
+            ]
+        );
     }
 
     fn apply_hotkey_overrides(&self, config: &mut AppConfig) {
-        apply_overrides!(self, config.common, [
-            fast_forward_multiplier,
-            rewind_buffer_length_seconds,
-        ]);
+        apply_overrides!(
+            self,
+            config.common,
+            [fast_forward_multiplier, rewind_buffer_length_seconds,]
+        );
 
         if self.load_save_state.is_some() {
             // Don't try to load a recent state if --load-save-state arg was passed

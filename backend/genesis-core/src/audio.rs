@@ -22,19 +22,19 @@ pub fn new_ym2612_low_pass() -> FirstOrderIirFilter {
 #[must_use]
 pub fn new_psg_low_pass() -> FirstOrderIirFilter {
     // Filter targets 3390 Hz with a source frequency of 223721 Hz
-    FirstOrderIirFilter::new(&[0.04547345635121703, 0.04547345635121703], &[
-        1.0,
-        -0.9090530872975658,
-    ])
+    FirstOrderIirFilter::new(
+        &[0.04547345635121703, 0.04547345635121703],
+        &[1.0, -0.9090530872975658],
+    )
 }
 
 #[must_use]
 pub fn new_ym2612_dc_offset() -> FirstOrderIirFilter {
     // Butterworth high-pass with cutoff frequency 5 Hz, source frequency 53267 Hz
-    FirstOrderIirFilter::new(&[0.9997051960585813, -0.9997051960585813], &[
-        1.0,
-        -0.9994103921171625,
-    ])
+    FirstOrderIirFilter::new(
+        &[0.9997051960585813, -0.9997051960585813],
+        &[1.0, -0.9994103921171625],
+    )
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
