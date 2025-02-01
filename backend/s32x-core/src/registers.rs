@@ -210,6 +210,10 @@ impl SystemRegisters {
         self.slave_interrupts.update_interrupt_level();
     }
 
+    pub fn either_h_interrupt_enabled(&self) -> bool {
+        self.master_interrupts.h_enabled || self.slave_interrupts.h_enabled
+    }
+
     pub fn notify_pwm_timer(&mut self) {
         self.master_interrupts.pwm_pending |= self.master_interrupts.pwm_enabled;
         self.slave_interrupts.pwm_pending |= self.slave_interrupts.pwm_enabled;

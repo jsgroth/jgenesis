@@ -37,4 +37,6 @@ pub trait BusInterface {
     fn serial_tx(&mut self, value: u8);
 
     fn increment_cycle_counter(&mut self, cycles: u64);
+
+    fn should_stop_execution(&self) -> bool;
 }

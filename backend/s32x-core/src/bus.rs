@@ -420,6 +420,7 @@ pub struct Sh2Bus<'bus, 'other> {
     pub s32x_bus: &'bus mut Sega32XBus,
     pub which: WhichCpu,
     pub cycle_counter: u64,
+    pub cycle_limit: u64,
     pub other_sh2: Option<OtherCpu<'other>>,
 }
 
@@ -484,6 +485,7 @@ impl Sh2Bus<'_, '_> {
             s32x_bus: &mut *self.s32x_bus,
             which: self.which.other(),
             cycle_counter: **cycle_counter,
+            cycle_limit: self.cycle_limit,
             other_sh2: None,
         };
 
@@ -1027,6 +1029,11 @@ impl BusInterface for Sh2Bus<'_, '_> {
     #[inline]
     fn increment_cycle_counter(&mut self, cycles: u64) {
         self.cycle_counter += cycles;
+    }
+
+    #[inline]
+    fn should_stop_execution(&self) -> bool {
+        self.cycle_counter >= self.cycle_limit
     }
 }
 

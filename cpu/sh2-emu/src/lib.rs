@@ -162,6 +162,9 @@ impl Sh2 {
 
         for _ in 0..ticks {
             self.execute_single_instruction(bus);
+            if bus.should_stop_execution() {
+                return;
+            }
         }
     }
 

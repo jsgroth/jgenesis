@@ -15,13 +15,13 @@ use jgenesis_common::boxedarray::BoxedWordArray;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::PartialClone;
 use sh2_emu::Sh2;
-use std::mem;
+use std::{cmp, mem};
 
 const M68K_DIVIDER: u64 = timing::NATIVE_M68K_DIVIDER;
 const SH2_MULTIPLIER: u64 = 3;
 
-// Only execute SH-2 instructions in batches of at least 15 for slightly better performance
-const SH2_EXECUTION_SLICE_LEN: u64 = 15;
+// Prefer to execute SH-2 instructions in longer chunks when possible for better performance
+const SH2_EXECUTION_SLICE_LEN: u64 = 50;
 
 const SDRAM_LEN_WORDS: usize = 256 * 1024 / 2;
 
@@ -86,82 +86,85 @@ impl Sega32X {
         }
     }
 
-    pub fn tick(&mut self, mclk_cycles: u64, pwm_resampler: &mut PwmResampler) {
-        self.s32x_bus.vdp.tick(mclk_cycles, &mut self.s32x_bus.registers);
+    pub fn tick(&mut self, mut total_mclk_cycles: u64, pwm_resampler: &mut PwmResampler) {
+        while total_mclk_cycles > 0 {
+            let h_interrupt_enabled = self.s32x_bus.registers.either_h_interrupt_enabled();
+            let mclk_till_next_vdp_event =
+                self.s32x_bus.vdp.mclk_cycles_until_next_event(h_interrupt_enabled);
+            let mclk_cycles = cmp::min(mclk_till_next_vdp_event, total_mclk_cycles);
+            total_mclk_cycles -= mclk_cycles;
 
-        // SH-2 clock speed is exactly 3x the 68000 clock speed
-        self.mclk_counter += mclk_cycles;
-        let elapsed_sh2_cycles = self.mclk_counter * SH2_MULTIPLIER / M68K_DIVIDER;
-        self.mclk_counter -= elapsed_sh2_cycles * M68K_DIVIDER / SH2_MULTIPLIER;
-        self.global_cycles += elapsed_sh2_cycles;
+            // SH-2 clock speed is exactly 3x the 68000 clock speed
+            self.mclk_counter += mclk_cycles;
+            let elapsed_sh2_cycles = self.mclk_counter / M68K_DIVIDER * SH2_MULTIPLIER;
+            self.mclk_counter -= elapsed_sh2_cycles * M68K_DIVIDER / SH2_MULTIPLIER;
+            self.global_cycles += elapsed_sh2_cycles;
 
-        // Brutal Unleashed: Above the Claw requires fairly close synchronization to prevent
-        // the game from freezing due to the master SH-2 missing a communication port write from
-        // the slave SH-2. After the slave SH-2 sees a specific value from the master SH-2, it
-        // writes to the communication port twice in quick succession, and the master SH-2 must
-        // read the first value before it's overwritten
-        while self.master_cycles < self.global_cycles || self.slave_cycles < self.global_cycles {
-            // Running the slave SH-2 before the master SH-2 fixes some of the Knuckles Chaotix
-            // prototype cartridges, which can freeze at boot otherwise.
-            // The 68000 writes to a communication port after it's done initializing the 32X VDP,
-            // and both SH-2s need to see that write before the master SH-2 writes a different value
-            // to the port (which it does almost immediately)
-            if self.slave_cycles < self.global_cycles {
-                let master_cycles_at_start = self.master_cycles;
-                while self.slave_cycles <= master_cycles_at_start {
-                    let mut bus = Sh2Bus {
-                        s32x_bus: &mut self.s32x_bus,
-                        which: WhichCpu::Slave,
-                        cycle_counter: self.slave_cycles,
-                        other_sh2: Some(OtherCpu {
-                            cpu: &mut self.sh2_master,
-                            cycle_counter: &mut self.master_cycles,
-                        }),
-                    };
-                    self.sh2_slave.execute(SH2_EXECUTION_SLICE_LEN, &mut bus);
-                    self.slave_cycles = bus.cycle_counter;
+            // Brutal Unleashed: Above the Claw requires fairly close synchronization to prevent
+            // the game from freezing due to the master SH-2 missing a communication port write from
+            // the slave SH-2. After the slave SH-2 sees a specific value from the master SH-2, it
+            // writes to the communication port twice in quick succession, and the master SH-2 must
+            // read the first value before it's overwritten
+            while self.master_cycles < self.global_cycles || self.slave_cycles < self.global_cycles
+            {
+                // Running the slave SH-2 before the master SH-2 fixes some of the Knuckles Chaotix
+                // prototype cartridges, which can freeze at boot otherwise.
+                // The 68000 writes to a communication port after it's done initializing the 32X VDP,
+                // and both SH-2s need to see that write before the master SH-2 writes a different value
+                // to the port (which it does almost immediately)
+                if self.slave_cycles < self.global_cycles {
+                    let master_cycles_at_start = self.master_cycles;
+                    while self.slave_cycles <= master_cycles_at_start {
+                        let mut bus = Sh2Bus {
+                            s32x_bus: &mut self.s32x_bus,
+                            which: WhichCpu::Slave,
+                            cycle_counter: self.slave_cycles,
+                            cycle_limit: self.global_cycles,
+                            other_sh2: Some(OtherCpu {
+                                cpu: &mut self.sh2_master,
+                                cycle_counter: &mut self.master_cycles,
+                            }),
+                        };
+                        self.sh2_slave.execute(SH2_EXECUTION_SLICE_LEN, &mut bus);
+                        self.slave_cycles = bus.cycle_counter;
+                    }
+                }
+
+                if self.master_cycles < self.global_cycles {
+                    let slave_cycles_at_start = self.slave_cycles;
+                    while self.master_cycles <= slave_cycles_at_start {
+                        let mut bus = Sh2Bus {
+                            s32x_bus: &mut self.s32x_bus,
+                            which: WhichCpu::Master,
+                            cycle_counter: self.master_cycles,
+                            cycle_limit: self.global_cycles,
+                            other_sh2: Some(OtherCpu {
+                                cpu: &mut self.sh2_slave,
+                                cycle_counter: &mut self.slave_cycles,
+                            }),
+                        };
+                        self.sh2_master.execute(SH2_EXECUTION_SLICE_LEN, &mut bus);
+                        self.master_cycles = bus.cycle_counter;
+                    }
                 }
             }
 
-            if self.master_cycles < self.global_cycles {
-                let slave_cycles_at_start = self.slave_cycles;
-                while self.master_cycles <= slave_cycles_at_start {
-                    let mut bus = Sh2Bus {
-                        s32x_bus: &mut self.s32x_bus,
-                        which: WhichCpu::Master,
-                        cycle_counter: self.master_cycles,
-                        other_sh2: Some(OtherCpu {
-                            cpu: &mut self.sh2_slave,
-                            cycle_counter: &mut self.slave_cycles,
-                        }),
-                    };
-                    self.sh2_master.execute(SH2_EXECUTION_SLICE_LEN, &mut bus);
-                    self.master_cycles = bus.cycle_counter;
-                }
-            }
-        }
-
-        self.sh2_master.tick_peripherals(
-            elapsed_sh2_cycles,
-            &mut Sh2Bus {
+            let mut peripherals_bus = Sh2Bus {
                 s32x_bus: &mut self.s32x_bus,
                 which: WhichCpu::Master,
                 cycle_counter: 0,
+                cycle_limit: 0,
                 other_sh2: None,
-            },
-        );
+            };
+            self.sh2_master.tick_peripherals(elapsed_sh2_cycles, &mut peripherals_bus);
 
-        self.sh2_slave.tick_peripherals(
-            elapsed_sh2_cycles,
-            &mut Sh2Bus {
-                s32x_bus: &mut self.s32x_bus,
-                which: WhichCpu::Slave,
-                cycle_counter: 0,
-                other_sh2: None,
-            },
-        );
+            peripherals_bus.which = WhichCpu::Slave;
+            self.sh2_slave.tick_peripherals(elapsed_sh2_cycles, &mut peripherals_bus);
 
-        self.s32x_bus.pwm.tick(elapsed_sh2_cycles, &mut self.s32x_bus.registers, pwm_resampler);
+            self.s32x_bus.vdp.tick(mclk_cycles, &mut self.s32x_bus.registers);
+
+            self.s32x_bus.pwm.tick(elapsed_sh2_cycles, &mut self.s32x_bus.registers, pwm_resampler);
+        }
     }
 
     pub fn take_rom_from(&mut self, other: &mut Self) {
