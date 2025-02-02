@@ -8,7 +8,7 @@ use genesis_core::memory::PhysicalMedium;
 use jgenesis_common::num::{GetBit, U16Ext};
 use sh2_emu::Sh2;
 use sh2_emu::bus::BusInterface;
-use std::array;
+use std::{array, cmp};
 
 const SDRAM_MASK: u32 = 0x3FFFF;
 
@@ -473,6 +473,11 @@ const SH2_SDRAM_READ_CYCLES: u64 = 11;
 const SH2_SDRAM_WRITE_CYCLES: u64 = 1;
 
 impl Sh2Bus<'_, '_> {
+    // Brutal Unleashed: Above the Claw requires fairly close synchronization to prevent
+    // the game from freezing due to the master SH-2 missing a communication port write from
+    // the slave SH-2. After the slave SH-2 sees a specific value from the master SH-2, it
+    // writes to the communication port twice in quick succession, and the master SH-2 must
+    // read the first value before it's overwritten
     fn sync_if_comm_port_accessed(&mut self, address: u32) {
         // $00004020-$0000402F are the communication ports
         if !(0x4020..0x4030).contains(&address) {
@@ -481,16 +486,17 @@ impl Sh2Bus<'_, '_> {
 
         let Some(OtherCpu { cpu, cycle_counter }) = &mut self.other_sh2 else { return };
 
+        let limit = cmp::min(self.cycle_limit, self.cycle_counter);
         let mut bus = Sh2Bus {
             s32x_bus: &mut *self.s32x_bus,
             which: self.which.other(),
             cycle_counter: **cycle_counter,
-            cycle_limit: self.cycle_limit,
+            cycle_limit: limit,
             other_sh2: None,
         };
 
-        while bus.cycle_counter < self.cycle_counter {
-            cpu.execute(1, &mut bus);
+        while bus.cycle_counter < limit {
+            cpu.execute(crate::core::SH2_EXECUTION_SLICE_LEN, &mut bus);
         }
         **cycle_counter = bus.cycle_counter;
     }

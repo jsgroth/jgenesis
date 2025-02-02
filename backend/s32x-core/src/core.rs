@@ -21,7 +21,7 @@ const M68K_DIVIDER: u64 = timing::NATIVE_M68K_DIVIDER;
 const SH2_MULTIPLIER: u64 = 3;
 
 // Prefer to execute SH-2 instructions in longer chunks when possible for better performance
-const SH2_EXECUTION_SLICE_LEN: u64 = 50;
+pub const SH2_EXECUTION_SLICE_LEN: u64 = 50;
 
 const SDRAM_LEN_WORDS: usize = 256 * 1024 / 2;
 
@@ -81,7 +81,7 @@ impl Sega32X {
                 sdram: BoxedWordArray::new(),
                 serial: SerialInterface::default(),
             },
-            m68k_vectors: bootrom::M68K_VECTORS.to_vec().into_boxed_slice().try_into().unwrap(),
+            m68k_vectors: Box::new(*bootrom::M68K_VECTORS),
             region,
         }
     }
@@ -91,6 +91,8 @@ impl Sega32X {
             let h_interrupt_enabled = self.s32x_bus.registers.either_h_interrupt_enabled();
             let mclk_till_next_vdp_event =
                 self.s32x_bus.vdp.mclk_cycles_until_next_event(h_interrupt_enabled);
+            debug_assert_ne!(mclk_till_next_vdp_event, 0);
+
             let mclk_cycles = cmp::min(mclk_till_next_vdp_event, total_mclk_cycles);
             total_mclk_cycles -= mclk_cycles;
 
@@ -100,54 +102,35 @@ impl Sega32X {
             self.mclk_counter -= elapsed_sh2_cycles * M68K_DIVIDER / SH2_MULTIPLIER;
             self.global_cycles += elapsed_sh2_cycles;
 
-            // Brutal Unleashed: Above the Claw requires fairly close synchronization to prevent
-            // the game from freezing due to the master SH-2 missing a communication port write from
-            // the slave SH-2. After the slave SH-2 sees a specific value from the master SH-2, it
-            // writes to the communication port twice in quick succession, and the master SH-2 must
-            // read the first value before it's overwritten
-            while self.master_cycles < self.global_cycles || self.slave_cycles < self.global_cycles
-            {
-                // Running the slave SH-2 before the master SH-2 fixes some of the Knuckles Chaotix
-                // prototype cartridges, which can freeze at boot otherwise.
-                // The 68000 writes to a communication port after it's done initializing the 32X VDP,
-                // and both SH-2s need to see that write before the master SH-2 writes a different value
-                // to the port (which it does almost immediately)
-                if self.slave_cycles < self.global_cycles {
-                    let master_cycles_at_start = self.master_cycles;
-                    while self.slave_cycles <= master_cycles_at_start {
-                        let mut bus = Sh2Bus {
-                            s32x_bus: &mut self.s32x_bus,
-                            which: WhichCpu::Slave,
-                            cycle_counter: self.slave_cycles,
-                            cycle_limit: self.global_cycles,
-                            other_sh2: Some(OtherCpu {
-                                cpu: &mut self.sh2_master,
-                                cycle_counter: &mut self.master_cycles,
-                            }),
-                        };
-                        self.sh2_slave.execute(SH2_EXECUTION_SLICE_LEN, &mut bus);
-                        self.slave_cycles = bus.cycle_counter;
-                    }
-                }
-
-                if self.master_cycles < self.global_cycles {
-                    let slave_cycles_at_start = self.slave_cycles;
-                    while self.master_cycles <= slave_cycles_at_start {
-                        let mut bus = Sh2Bus {
-                            s32x_bus: &mut self.s32x_bus,
-                            which: WhichCpu::Master,
-                            cycle_counter: self.master_cycles,
-                            cycle_limit: self.global_cycles,
-                            other_sh2: Some(OtherCpu {
-                                cpu: &mut self.sh2_slave,
-                                cycle_counter: &mut self.slave_cycles,
-                            }),
-                        };
-                        self.sh2_master.execute(SH2_EXECUTION_SLICE_LEN, &mut bus);
-                        self.master_cycles = bus.cycle_counter;
-                    }
-                }
+            let mut slave_bus = Sh2Bus {
+                s32x_bus: &mut self.s32x_bus,
+                which: WhichCpu::Slave,
+                cycle_counter: self.slave_cycles,
+                cycle_limit: self.global_cycles,
+                other_sh2: Some(OtherCpu {
+                    cpu: &mut self.sh2_master,
+                    cycle_counter: &mut self.master_cycles,
+                }),
+            };
+            while slave_bus.cycle_counter < self.global_cycles {
+                self.sh2_slave.execute(SH2_EXECUTION_SLICE_LEN, &mut slave_bus);
             }
+            self.slave_cycles = slave_bus.cycle_counter;
+
+            let mut master_bus = Sh2Bus {
+                s32x_bus: &mut self.s32x_bus,
+                which: WhichCpu::Master,
+                cycle_counter: self.master_cycles,
+                cycle_limit: self.global_cycles,
+                other_sh2: Some(OtherCpu {
+                    cpu: &mut self.sh2_slave,
+                    cycle_counter: &mut self.slave_cycles,
+                }),
+            };
+            while master_bus.cycle_counter < self.global_cycles {
+                self.sh2_master.execute(SH2_EXECUTION_SLICE_LEN, &mut master_bus);
+            }
+            self.master_cycles = master_bus.cycle_counter;
 
             let mut peripherals_bus = Sh2Bus {
                 s32x_bus: &mut self.s32x_bus,
