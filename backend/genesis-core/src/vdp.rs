@@ -97,6 +97,7 @@ struct InternalState {
     pending_writes: Vec<PendingWrite>,
     interlaced_frame: bool,
     frame_count: u64,
+    vdp_event_idx: u8,
 }
 
 impl InternalState {
@@ -126,6 +127,7 @@ impl InternalState {
             pending_writes: Vec::with_capacity(10),
             interlaced_frame: false,
             frame_count: 0,
+            vdp_event_idx: 0,
         }
     }
 }
@@ -324,6 +326,28 @@ pub struct VdpConfig {
     pub backdrop_enabled: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+enum VdpEvent {
+    VInterrupt,
+    HBlankStart,
+    HInterrupt,
+    LatchRegisters,
+    VIntStatusFlag,
+    None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+struct VdpEventWithTime {
+    event: VdpEvent,
+    mclk: u64,
+}
+
+impl VdpEventWithTime {
+    const fn new(mclk: u64, event: VdpEvent) -> Self {
+        Self { event, mclk }
+    }
+}
+
 type Vram = [u8; VRAM_LEN];
 type Cram = [u16; CRAM_LEN_WORDS];
 type Vsram = [u8; VSRAM_LEN];
@@ -349,6 +373,7 @@ pub struct Vdp {
     config: VdpConfig,
     dma_tracker: DmaTracker,
     fifo_tracker: FifoTracker,
+    vdp_event_times: [VdpEventWithTime; 6],
 }
 
 impl Vdp {
@@ -381,6 +406,7 @@ impl Vdp {
             config,
             dma_tracker: DmaTracker::new(),
             fifo_tracker: FifoTracker::new(),
+            vdp_event_times: Self::vdp_event_times(HorizontalDisplaySize::default()),
         }
     }
 
@@ -415,6 +441,8 @@ impl Vdp {
 
                     let register_number = ((value >> 8) & 0x1F) as u8;
                     self.registers.write_internal_register(register_number, value as u8);
+                    self.vdp_event_times =
+                        Self::vdp_event_times(self.registers.horizontal_display_size);
 
                     if self.registers.hv_counter_stopped && self.state.latched_hv_counter.is_none()
                     {
@@ -838,141 +866,18 @@ impl Vdp {
         self.state.delayed_v_interrupt = self.state.delayed_v_interrupt_next;
         self.state.delayed_v_interrupt_next = false;
 
-        let scanlines_per_frame = self.timing_mode.scanlines_per_frame();
-        let active_scanlines = self.registers.vertical_display_size.active_scanlines();
-
-        let prev_scanline_mclk = self.state.scanline_mclk_cycles;
         self.state.scanline_mclk_cycles += master_clock_cycles;
-
-        let h_display_size = self.registers.horizontal_display_size;
-        if prev_scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE
-            && self.state.scanline_mclk_cycles >= ACTIVE_MCLK_CYCLES_PER_SCANLINE
-        {
-            // HBlank start
-            self.sprite_state.handle_hblank_start(h_display_size, self.registers.display_enabled);
-
-            // Sprite processing phase 2
-            self.fetch_sprite_attributes();
-        }
-
-        // H interrupts occur a set number of mclk cycles after the end of the active display,
-        // not right at the start of HBlank
-        let h_interrupt_delay = match h_display_size {
-            // 12 pixels after active display
-            HorizontalDisplaySize::ThirtyTwoCell => 120,
-            // 16 pixels after active display
-            HorizontalDisplaySize::FortyCell => 128,
-        };
-        if prev_scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE + h_interrupt_delay
-            && self.state.scanline_mclk_cycles
-                >= ACTIVE_MCLK_CYCLES_PER_SCANLINE + h_interrupt_delay
-        {
-            self.latched_sprite_attributes.copy_from_slice(self.cached_sprite_attributes.as_ref());
-
-            // Check if an H interrupt has occurred
-            if self.state.scanline < active_scanlines
-                || self.state.scanline == scanlines_per_frame - 1
-                || self.state.v_border_forgotten
-            {
-                if self.state.h_interrupt_counter == 0 {
-                    self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
-
-                    log::trace!("Generating H interrupt (scanline {})", self.state.scanline);
-                    self.state.h_interrupt_pending = true;
-                } else {
-                    self.state.h_interrupt_counter -= 1;
-                }
-            } else {
-                // H interrupt counter is constantly refreshed during VBlank
-                self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
-            }
-        }
-
-        if prev_scanline_mclk
-            < ACTIVE_MCLK_CYCLES_PER_SCANLINE + h_interrupt_delay + REGISTER_LATCH_DELAY_MCLK
-            && self.state.scanline_mclk_cycles
-                >= ACTIVE_MCLK_CYCLES_PER_SCANLINE + h_interrupt_delay + REGISTER_LATCH_DELAY_MCLK
-        {
-            // Almost all VDP registers and the full screen V scroll values are latched within the 36 CPU cycles after
-            // HINT is generated. Changing values after this point will not take effect until after the next scanline
-            // is rendered.
-            // The only VDP registers that are not latched are the nametable addresses, the display enabled bit, and
-            // the background color.
-            self.latched_registers = self.registers.clone();
-            self.latched_full_screen_v_scroll = (
-                u16::from_be_bytes([self.vsram[0], self.vsram[1]]),
-                u16::from_be_bytes([self.vsram[2], self.vsram[3]]),
-            );
-        }
-
-        // Check whether to set the VINT flag in the VDP status register
-        if self.state.scanline == active_scanlines - 1
-            && prev_scanline_mclk < VINT_FLAG_MCLK
-            && self.state.scanline_mclk_cycles >= VINT_FLAG_MCLK
-        {
-            self.state.vint_flag = true;
-        }
-
-        // Check if a V interrupt has triggered
-        if self.state.scanline == active_scanlines
-            && prev_scanline_mclk < V_INTERRUPT_DELAY
-            && self.state.scanline_mclk_cycles >= V_INTERRUPT_DELAY
-        {
-            log::trace!("Generating V interrupt");
-            self.state.v_interrupt_pending = true;
-        }
+        self.process_events_after_mclk_update();
 
         // Check if the VDP has advanced to a new scanline
         let mut tick_effect = VdpTickEffect::None;
         if self.state.scanline_mclk_cycles >= MCLK_CYCLES_PER_SCANLINE {
-            self.sprite_state.handle_line_end(h_display_size);
-
-            // Sprite processing phase 1
-            self.scan_sprites_two_lines_ahead();
-
-            // Render the next line before advancing counters
-            self.render_next_scanline();
-
-            self.state.scanline_mclk_cycles -= MCLK_CYCLES_PER_SCANLINE;
-            self.state.scanline += 1;
-            if self.state.scanline == scanlines_per_frame {
-                self.state.scanline = 0;
-                self.state.frame_count += 1;
-                self.state.v_border_forgotten = false;
-
-                let next_frame_interlaced = match self.registers.interlacing_mode {
-                    InterlacingMode::Progressive => false,
-                    InterlacingMode::Interlaced => !self.config.deinterlace,
-                    InterlacingMode::InterlacedDouble => true,
-                };
-                if next_frame_interlaced && !self.state.interlaced_frame && !self.config.deinterlace
-                {
-                    self.prepare_frame_buffer_for_interlaced();
-                }
-                self.state.interlaced_frame = next_frame_interlaced;
-
-                // Top border length needs to be saved at start-of-frame in case there is a mid-frame swap between V28
-                // mode and V30 mode. Titan Overdrive 2 depends on this for the arcade scene
-                self.state.top_border =
-                    self.registers.vertical_display_size.top_border(self.timing_mode);
-            }
-
-            // Check if we already passed the VINT threshold
-            if self.state.scanline == active_scanlines
-                && self.state.scanline_mclk_cycles >= V_INTERRUPT_DELAY
-            {
-                log::trace!("Generating V interrupt");
-                self.state.v_interrupt_pending = true;
-            }
-
-            let last_scanline_of_frame =
-                self.timing_mode.rendered_lines_per_frame() - self.state.top_border;
-            if self.state.scanline == last_scanline_of_frame {
-                tick_effect = VdpTickEffect::FrameComplete;
-            }
+            tick_effect = self.advance_to_next_line();
+            self.process_events_after_mclk_update();
         }
 
         let line_type = LineType::from_vdp(self);
+        let h_display_size = self.registers.horizontal_display_size;
         let pixel = scanline_mclk_to_pixel(self.state.scanline_mclk_cycles, h_display_size);
 
         self.fifo_tracker.advance_to_pixel(self.state.scanline, pixel, h_display_size, line_type);
@@ -993,6 +898,150 @@ impl Vdp {
         }
 
         tick_effect
+    }
+
+    fn vdp_event_times(h_display_size: HorizontalDisplaySize) -> [VdpEventWithTime; 6] {
+        // H interrupts occur a set number of mclk cycles after the end of the active display,
+        // not right at the start of HBlank
+        let h_interrupt_delay = match h_display_size {
+            // 12 pixels after active display
+            HorizontalDisplaySize::ThirtyTwoCell => 120,
+            // 16 pixels after active display
+            HorizontalDisplaySize::FortyCell => 128,
+        };
+
+        [
+            VdpEventWithTime::new(V_INTERRUPT_DELAY, VdpEvent::VInterrupt),
+            VdpEventWithTime::new(ACTIVE_MCLK_CYCLES_PER_SCANLINE, VdpEvent::HBlankStart),
+            VdpEventWithTime::new(
+                ACTIVE_MCLK_CYCLES_PER_SCANLINE + h_interrupt_delay,
+                VdpEvent::HInterrupt,
+            ),
+            VdpEventWithTime::new(
+                ACTIVE_MCLK_CYCLES_PER_SCANLINE + h_interrupt_delay + REGISTER_LATCH_DELAY_MCLK,
+                VdpEvent::LatchRegisters,
+            ),
+            VdpEventWithTime::new(VINT_FLAG_MCLK, VdpEvent::VIntStatusFlag),
+            VdpEventWithTime::new(u64::MAX, VdpEvent::None),
+        ]
+    }
+
+    fn process_events_after_mclk_update(&mut self) {
+        let scanline_mclk = self.state.scanline_mclk_cycles;
+        while scanline_mclk >= self.vdp_event_times[self.state.vdp_event_idx as usize].mclk {
+            match self.vdp_event_times[self.state.vdp_event_idx as usize].event {
+                VdpEvent::VInterrupt => {
+                    let active_scanlines = self.registers.vertical_display_size.active_scanlines();
+                    if self.state.scanline == active_scanlines {
+                        log::trace!("Generating V interrupt");
+                        self.state.v_interrupt_pending = true;
+                    }
+                }
+                VdpEvent::HBlankStart => {
+                    self.sprite_state.handle_hblank_start(
+                        self.registers.horizontal_display_size,
+                        self.registers.display_enabled,
+                    );
+
+                    // Sprite processing phase 2
+                    self.fetch_sprite_attributes();
+                }
+                VdpEvent::HInterrupt => {
+                    self.latched_sprite_attributes
+                        .copy_from_slice(self.cached_sprite_attributes.as_ref());
+
+                    self.decrement_h_interrupt_counter();
+                }
+                VdpEvent::LatchRegisters => {
+                    // Almost all VDP registers and the full screen V scroll values are latched within the 36 CPU cycles after
+                    // HINT is generated. Changing values after this point will not take effect until after the next scanline
+                    // is rendered.
+                    // The only VDP registers that are not latched are the nametable addresses, the display enabled bit, and
+                    // the background color.
+                    self.latched_registers = self.registers.clone();
+                    self.latched_full_screen_v_scroll = (
+                        u16::from_be_bytes([self.vsram[0], self.vsram[1]]),
+                        u16::from_be_bytes([self.vsram[2], self.vsram[3]]),
+                    );
+                }
+                VdpEvent::VIntStatusFlag => {
+                    let active_scanlines = self.registers.vertical_display_size.active_scanlines();
+                    if self.state.scanline == active_scanlines - 1 {
+                        self.state.vint_flag = true;
+                    }
+                }
+                VdpEvent::None => {}
+            }
+
+            self.state.vdp_event_idx += 1;
+        }
+    }
+
+    fn decrement_h_interrupt_counter(&mut self) {
+        let active_scanlines = self.registers.vertical_display_size.active_scanlines();
+        let scanlines_per_frame = self.timing_mode.scanlines_per_frame();
+
+        if self.state.scanline < active_scanlines
+            || self.state.scanline == scanlines_per_frame - 1
+            || self.state.v_border_forgotten
+        {
+            if self.state.h_interrupt_counter == 0 {
+                self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
+
+                log::trace!("Generating H interrupt (scanline {})", self.state.scanline);
+                self.state.h_interrupt_pending = true;
+            } else {
+                self.state.h_interrupt_counter -= 1;
+            }
+        } else {
+            // H interrupt counter is constantly refreshed during VBlank
+            self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
+        }
+    }
+
+    fn advance_to_next_line(&mut self) -> VdpTickEffect {
+        let h_display_size = self.registers.horizontal_display_size;
+        self.sprite_state.handle_line_end(h_display_size);
+
+        // Sprite processing phase 1
+        self.scan_sprites_two_lines_ahead();
+
+        // Render the next line before advancing counters
+        self.render_next_scanline();
+
+        let scanlines_per_frame = self.timing_mode.scanlines_per_frame();
+
+        self.state.scanline_mclk_cycles -= MCLK_CYCLES_PER_SCANLINE;
+        self.state.vdp_event_idx = 0;
+        self.state.scanline += 1;
+        if self.state.scanline == scanlines_per_frame {
+            self.state.scanline = 0;
+            self.state.frame_count += 1;
+            self.state.v_border_forgotten = false;
+
+            let next_frame_interlaced = match self.registers.interlacing_mode {
+                InterlacingMode::Progressive => false,
+                InterlacingMode::Interlaced => !self.config.deinterlace,
+                InterlacingMode::InterlacedDouble => true,
+            };
+            if next_frame_interlaced && !self.state.interlaced_frame && !self.config.deinterlace {
+                self.prepare_frame_buffer_for_interlaced();
+            }
+            self.state.interlaced_frame = next_frame_interlaced;
+
+            // Top border length needs to be saved at start-of-frame in case there is a mid-frame swap between V28
+            // mode and V30 mode. Titan Overdrive 2 depends on this for the arcade scene
+            self.state.top_border =
+                self.registers.vertical_display_size.top_border(self.timing_mode);
+        }
+
+        let last_scanline_of_frame =
+            self.timing_mode.rendered_lines_per_frame() - self.state.top_border;
+        if self.state.scanline == last_scanline_of_frame {
+            VdpTickEffect::FrameComplete
+        } else {
+            VdpTickEffect::None
+        }
     }
 
     fn apply_pending_writes(&mut self) {
