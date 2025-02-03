@@ -33,6 +33,7 @@
 ## Fixes
 * (**Genesis**) Fixed the 68000 incorrectly being allowed to access audio RAM while the Z80 is on the bus; this fixes freezing in _Joe & Mac_ (#144)
 * (**Genesis**) Fixed Z80 RESET not clearing the Z80's HALT status
+* (**Genesis**) Fixed in-game saves not working correctly when _Sonic & Knuckles_ is locked on to a cartridge with SRAM (e.g. Sonic 3)
 * (**Sega CD**) Fixed a regression introduced in v0.8.3 that caused PCM chip channels to skip the first sample after being enabled (this made little-to-no audible difference in practice because the first sample is usually 0)
 * (**Sega CD**) Fixed slightly inaccurate emulation of PCM chip looping behavior at sample rates higher than 0x0800 / 32552 Hz
 * (**Sega CD**) Fixed inaccurate emulation of CD-DA fader volumes 1-3 out of 1024 (should be 50-60 dB of attenuation instead of complete silence)
