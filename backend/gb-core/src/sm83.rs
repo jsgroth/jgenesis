@@ -253,9 +253,7 @@ impl Sm83 {
 
             // TODO should there be a delay here?
             self.state.halted = false;
-            if self.registers.ime {
-                self.state.handling_interrupt = true;
-            }
+            self.state.handling_interrupt |= self.registers.ime;
         }
 
         if self.state.handling_interrupt {
@@ -500,6 +498,7 @@ impl Sm83 {
 
         let if_register = bus.read_if_register();
         self.registers.ime = false;
+        self.state.pending_ime_set = false;
 
         let Some(interrupt_type) = InterruptType::from_bits(ie_register & if_register) else {
             // IE & IF can equal 0 if one of the stack pushes wrote to IE and cleared bits that were previously set.
