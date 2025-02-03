@@ -3,12 +3,14 @@
 mod colortable;
 mod debug;
 mod registers;
+mod sprites;
 
 use crate::api::SnesEmulatorConfig;
 use crate::ppu::registers::{
     AccessFlipflop, BgMode, BgScreenSize, BitsPerPixel, MidScanlineUpdate, Mode7OobBehavior,
-    ObjPriorityMode, Registers, TileSize, VramIncrementMode,
+    Registers, TileSize, VramIncrementMode,
 };
+use crate::ppu::sprites::{SpriteProcessor, SpriteState};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{Color, FrameSize, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext};
@@ -23,29 +25,31 @@ const HIRES_SCREEN_WIDTH: usize = 512;
 const MAX_SCREEN_HEIGHT: usize = 478;
 const FRAME_BUFFER_LEN: usize = HIRES_SCREEN_WIDTH * MAX_SCREEN_HEIGHT;
 
-const OAM_LEN_SPRITES: usize = 128;
 const MAX_SPRITES_PER_LINE: usize = 32;
 const MAX_SPRITE_TILES_PER_LINE: usize = 34;
 
 const VRAM_LEN_WORDS: usize = 64 * 1024 / 2;
-const OAM_LEN_BYTES: usize = 512 + 32;
+const OAM_LOW_LEN_WORDS: usize = 512 / 2;
+const OAM_HIGH_LEN_BYTES: usize = 32;
 const CGRAM_LEN_WORDS: usize = 256;
 
 const VRAM_ADDRESS_MASK: u16 = (1 << 15) - 1;
-const OAM_ADDRESS_MASK: u16 = (1 << 10) - 1;
+const OAM_ADDRESS_MASK: u16 = (1 << 9) - 1;
 
 const MCLKS_PER_NORMAL_SCANLINE: u64 = 1364;
 const MCLKS_PER_SHORT_SCANLINE: u64 = 1360;
 const MCLKS_PER_LONG_SCANLINE: u64 = 1368;
 
 type Vram = [u16; VRAM_LEN_WORDS];
-type Oam = [u8; OAM_LEN_BYTES];
+type OamLow = [u16; OAM_LOW_LEN_WORDS];
+type OamHigh = [u8; OAM_HIGH_LEN_BYTES];
 type Cgram = [u16; CGRAM_LEN_WORDS];
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct State {
     scanline: u16,
     scanline_master_cycles: u64,
+    dot_event_idx: u8,
     odd_frame: bool,
     pending_sprite_pixel_overflow: bool,
     ppu1_open_bus: u8,
@@ -62,6 +66,7 @@ impl State {
         Self {
             scanline: 0,
             scanline_master_cycles: 0,
+            dot_event_idx: 0,
             odd_frame: false,
             pending_sprite_pixel_overflow: false,
             ppu1_open_bus: 0,
@@ -310,26 +315,6 @@ impl PriorityResolver {
     }
 }
 
-#[derive(Debug, Clone, Copy, Encode, Decode)]
-struct SpriteData {
-    x: u16,
-    y: u8,
-    tile_number: u16,
-    palette: u8,
-    priority: u8,
-    x_flip: bool,
-    y_flip: bool,
-    size: TileSize,
-}
-
-#[derive(Debug, Clone, Encode, Decode)]
-struct SpriteTileData {
-    x: u16,
-    palette: u8,
-    priority: u8,
-    colors: [u8; 8],
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Screen {
     Main,
@@ -356,11 +341,11 @@ pub struct Ppu {
     state: State,
     buffers: Box<Buffers>,
     vram: Box<Vram>,
-    oam: Box<Oam>,
+    oam_low: Box<OamLow>,
+    oam_high: Box<OamHigh>,
     cgram: Box<Cgram>,
     frame_buffer: FrameBuffer,
-    sprite_buffer: Vec<SpriteData>,
-    sprite_tile_buffer: Vec<SpriteTileData>,
+    sprites: SpriteProcessor,
     deinterlace: bool,
 }
 
@@ -388,23 +373,25 @@ impl Ppu {
             state: State::new(),
             buffers: Box::new(Buffers::new()),
             vram: vec![0; VRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
-            oam: vec![0; OAM_LEN_BYTES].into_boxed_slice().try_into().unwrap(),
+            oam_low: vec![0; OAM_LOW_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
+            oam_high: vec![0; OAM_HIGH_LEN_BYTES].into_boxed_slice().try_into().unwrap(),
             cgram: vec![0; CGRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             frame_buffer: FrameBuffer::new(),
-            sprite_buffer: Vec::with_capacity(MAX_SPRITES_PER_LINE),
-            sprite_tile_buffer: Vec::with_capacity(MAX_SPRITE_TILES_PER_LINE),
+            sprites: SpriteProcessor::new(),
             deinterlace: config.deinterlace,
         }
     }
 
     #[must_use]
     pub fn tick(&mut self, master_cycles: u64) -> PpuTickEffect {
-        let mut prev_scanline_mclks = self.state.scanline_master_cycles;
+        debug_assert!(master_cycles <= MCLKS_PER_SHORT_SCANLINE);
+
         let new_scanline_mclks = self.state.scanline_master_cycles + master_cycles;
         self.state.scanline_master_cycles = new_scanline_mclks;
 
+        self.advance_to_dot((new_scanline_mclks / 4) as u16);
+
         let v_display_size = self.registers.v_display_size.to_lines();
-        let is_active_scanline = (1..=v_display_size).contains(&self.state.scanline);
 
         let mclks_per_scanline = self.mclks_per_current_scanline();
 
@@ -412,9 +399,6 @@ impl Ppu {
         if new_scanline_mclks >= mclks_per_scanline {
             self.state.scanline += 1;
             self.state.scanline_master_cycles = new_scanline_mclks - mclks_per_scanline;
-
-            // For later checks, act like the PPU was previously at the start of the new line
-            prev_scanline_mclks = 0;
 
             if self.state.pending_sprite_pixel_overflow {
                 self.state.pending_sprite_pixel_overflow = false;
@@ -427,6 +411,7 @@ impl Ppu {
                 && (!self.registers.interlaced || self.state.odd_frame))
                 || self.state.scanline == scanlines_per_frame + 1
             {
+                // Start new frame
                 self.state.scanline = 0;
 
                 if !self.state.v_hi_res_frame && self.registers.interlaced && !self.deinterlace {
@@ -445,6 +430,15 @@ impl Ppu {
                 }
             }
 
+            self.sprites_finish_line();
+
+            let sprites_interlaced_odd =
+                !self.deinterlace && self.state.v_hi_res_frame && self.state.odd_frame;
+            self.sprites_start_new_line(self.state.scanline, sprites_interlaced_odd);
+
+            self.state.dot_event_idx = 0;
+            self.advance_to_dot((self.state.scanline_master_cycles / 4) as u16);
+
             if self.state.scanline == v_display_size + 1 {
                 // Reload OAM data port address at start of VBlank if not in forced blanking
                 if !self.registers.forced_blanking {
@@ -455,21 +449,8 @@ impl Ppu {
             }
         }
 
-        if is_active_scanline
-            && prev_scanline_mclks < MODE_7_LATCH_MCLK
-            && new_scanline_mclks >= MODE_7_LATCH_MCLK
-        {
-            self.registers.latch_mode_7();
-        }
-
-        if is_active_scanline
-            && prev_scanline_mclks < RENDER_LINE_MCLK
-            && new_scanline_mclks >= RENDER_LINE_MCLK
-        {
-            // Just crossed H=22; render current line in full
-            self.render_current_line(0);
-        } else if is_active_scanline
-            && self.registers.mid_line_update.is_some()
+        if self.registers.mid_line_update.is_some()
+            && (1..=v_display_size).contains(&self.state.scanline)
             && (RENDER_LINE_MCLK..END_RENDER_LINE_MCLK).contains(&new_scanline_mclks)
         {
             // Between H=22 and H=276 and INIDISP or one of the scroll registers was just modified;
@@ -492,6 +473,55 @@ impl Ppu {
         self.registers.mid_line_update = None;
 
         tick_effect
+    }
+
+    fn advance_to_dot(&mut self, dot: u16) {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        enum PpuEvent {
+            LatchMode7Registers,
+            RenderLine,
+            FinishSpriteEvaluation,
+            StartSpriteTileFetch,
+            None,
+        }
+
+        const EVENT_DOTS: &[u16; 5] = &[
+            (MODE_7_LATCH_MCLK / 4) as u16,
+            (RENDER_LINE_MCLK / 4) as u16,
+            sprites::SPRITE_EVALUATION_END_DOT,
+            sprites::SPRITE_FETCH_START_DOT,
+            u16::MAX,
+        ];
+
+        const EVENTS: &[PpuEvent; 5] = &[
+            PpuEvent::LatchMode7Registers,
+            PpuEvent::RenderLine,
+            PpuEvent::FinishSpriteEvaluation,
+            PpuEvent::StartSpriteTileFetch,
+            PpuEvent::None,
+        ];
+
+        debug_assert!(EVENT_DOTS.is_sorted());
+
+        while dot >= EVENT_DOTS[self.state.dot_event_idx as usize] {
+            match EVENTS[self.state.dot_event_idx as usize] {
+                PpuEvent::LatchMode7Registers => self.registers.latch_mode_7(),
+                PpuEvent::RenderLine => {
+                    let v_display_size = self.registers.v_display_size.to_lines();
+                    let is_active_scanline = (1..=v_display_size).contains(&self.state.scanline);
+                    if is_active_scanline {
+                        self.render_current_line(0);
+                    }
+                }
+                PpuEvent::FinishSpriteEvaluation => {
+                    self.progress_sprite_evaluation(sprites::SPRITE_EVALUATION_END_DOT);
+                }
+                PpuEvent::StartSpriteTileFetch => self.begin_sprite_tile_fetch(),
+                PpuEvent::None => {}
+            }
+
+            self.state.dot_event_idx += 1;
+        }
     }
 
     fn render_current_line(&mut self, from_pixel: u16) {
@@ -533,8 +563,6 @@ impl Ppu {
 
         if self.state.v_hi_res_frame && v_hi_res {
             // Vertical hi-res, 448px
-            self.render_obj_layer(scanline, false);
-
             if self.deinterlace || !self.state.odd_frame {
                 // Render even line
                 self.render_bg_layers_to_buffer(2 * scanline - 1, hi_res_mode, bg_from_pixel);
@@ -543,8 +571,8 @@ impl Ppu {
 
             if self.deinterlace || self.state.odd_frame {
                 // Render odd line
-                if self.registers.pseudo_obj_hi_res {
-                    self.render_obj_layer(scanline, true);
+                if self.deinterlace && self.registers.pseudo_obj_hi_res {
+                    self.render_sprite_tiles();
                 }
 
                 self.render_bg_layers_to_buffer(2 * scanline, hi_res_mode, bg_from_pixel);
@@ -555,28 +583,22 @@ impl Ppu {
             // start of frame
             let y = if self.state.odd_frame { 2 * scanline } else { 2 * scanline - 1 };
 
-            if from_pixel == 0 {
-                self.render_obj_layer(scanline, y % 2 == 0);
-            }
-
             self.render_bg_layers_to_buffer(y, hi_res_mode, bg_from_pixel);
             self.render_scanline(scanline, hi_res_mode, screen_from_pixel);
         } else if self.state.v_hi_res_frame {
             // Interlacing was enabled at start of frame - duplicate lines
             if !self.deinterlace {
                 let odd_frame: u16 = self.state.odd_frame.into();
-                self.render_obj_layer(scanline, self.state.odd_frame);
                 self.render_bg_layers_to_buffer(scanline, hi_res_mode, screen_from_pixel);
                 self.render_scanline(2 * scanline - 1 + odd_frame, hi_res_mode, screen_from_pixel);
             } else {
                 // Render even line
-                self.render_obj_layer(scanline, false);
                 self.render_bg_layers_to_buffer(scanline, hi_res_mode, bg_from_pixel);
                 self.render_scanline(2 * scanline - 1, hi_res_mode, screen_from_pixel);
 
                 // Duplicate to odd line, re-rendering OBJs if necessary
-                if self.registers.interlaced && self.registers.pseudo_obj_hi_res {
-                    self.render_obj_layer(scanline, true);
+                if self.registers.pseudo_obj_hi_res {
+                    self.render_sprite_tiles();
                     self.render_scanline(2 * scanline, hi_res_mode, screen_from_pixel);
                 } else {
                     self.duplicate_line(
@@ -588,10 +610,6 @@ impl Ppu {
             }
         } else {
             // Interlacing is disabled, render normally
-            if from_pixel == 0 {
-                self.render_obj_layer(scanline, false);
-            }
-
             self.render_bg_layers_to_buffer(scanline, hi_res_mode, bg_from_pixel);
             self.render_scanline(scanline, hi_res_mode, screen_from_pixel);
         }
@@ -1225,204 +1243,6 @@ impl Ppu {
         (scanline / mosaic_height * mosaic_height, pixel / mosaic_width * mosaic_width)
     }
 
-    fn render_obj_layer(&mut self, scanline: u16, interlaced_odd_line: bool) {
-        self.scan_oam(scanline);
-        self.process_sprite_tiles(scanline, interlaced_odd_line);
-
-        if !(self.registers.main_obj_enabled || self.registers.sub_obj_enabled) {
-            return;
-        }
-
-        // Reverse because sprite tiles are scanned in reverse index order but priority should be in
-        // index order
-        self.sprite_tile_buffer.reverse();
-
-        self.buffers.obj_pixels.fill(Pixel::TRANSPARENT);
-        for tile in &self.sprite_tile_buffer {
-            for dx in 0..8 {
-                let x = (tile.x + dx) & 0x1FF;
-                if x >= 256 || !self.buffers.obj_pixels[x as usize].is_transparent() {
-                    continue;
-                }
-
-                self.buffers.obj_pixels[x as usize] = Pixel {
-                    palette: tile.palette,
-                    color: tile.colors[dx as usize],
-                    priority: tile.priority,
-                };
-            }
-        }
-    }
-
-    fn scan_oam(&mut self, scanline: u16) {
-        let (small_width, small_height, large_width, large_height) = {
-            let (small_width, mut small_height) = self.registers.obj_tile_size.small_size();
-            let (large_width, mut large_height) = self.registers.obj_tile_size.large_size();
-
-            if self.registers.interlaced && self.registers.pseudo_obj_hi_res {
-                // If smaller OBJs are enabled, pretend sprites are half-size vertically for the OAM scan
-                small_height >>= 1;
-                large_height >>= 1;
-            }
-
-            (small_width, small_height, large_width, large_height)
-        };
-
-        // If priority rotate mode is set, start iteration at the current OAM address instead of
-        // index 0
-        let oam_offset = match self.registers.obj_priority_mode {
-            ObjPriorityMode::Normal => 0,
-            ObjPriorityMode::Rotate => ((self.registers.oam_address >> 2) & 0x7F) as usize,
-        };
-
-        self.sprite_buffer.clear();
-        for i in 0..OAM_LEN_SPRITES {
-            let oam_idx = (i + oam_offset) & 0x7F;
-
-            let oam_addr = oam_idx << 2;
-            let x_lsb = self.oam[oam_addr];
-            // Sprites at y=0 should display on scanline=1, and so on; add 1 to correct for this
-            let y = self.oam[oam_addr + 1].wrapping_add(1);
-            let tile_number_lsb = self.oam[oam_addr + 2];
-            let attributes = self.oam[oam_addr + 3];
-
-            let additional_bits_addr = 512 + (oam_idx >> 2);
-            let additional_bits_shift = 2 * (oam_idx & 0x03);
-            let additional_bits = self.oam[additional_bits_addr] >> additional_bits_shift;
-            let x_msb = additional_bits.bit(0);
-            let size = if additional_bits.bit(1) { TileSize::Large } else { TileSize::Small };
-
-            let (sprite_width, sprite_height) = match size {
-                TileSize::Small => (small_width, small_height),
-                TileSize::Large => (large_width, large_height),
-            };
-
-            if !line_overlaps_sprite(y, sprite_height, scanline) {
-                continue;
-            }
-
-            // Only sprites with pixels in the range [0, 256) are scanned into the sprite buffer
-            let x = u16::from_le_bytes([x_lsb, u8::from(x_msb)]);
-            if x >= 256 && x + sprite_width <= 512 {
-                continue;
-            }
-
-            if self.sprite_buffer.len() == MAX_SPRITES_PER_LINE {
-                // TODO more accurate timing - this flag should get set partway through the previous line
-                self.registers.sprite_overflow = true;
-                log::debug!("Hit 32 sprites per line limit on line {scanline}");
-                break;
-            }
-
-            let tile_number = u16::from_le_bytes([tile_number_lsb, u8::from(attributes.bit(0))]);
-            let palette = (attributes >> 1) & 0x07;
-            let priority = (attributes >> 4) & 0x03;
-            let x_flip = attributes.bit(6);
-            let y_flip = attributes.bit(7);
-
-            self.sprite_buffer.push(SpriteData {
-                x,
-                y,
-                tile_number,
-                palette,
-                priority,
-                x_flip,
-                y_flip,
-                size,
-            });
-        }
-    }
-
-    fn process_sprite_tiles(&mut self, scanline: u16, interlaced_odd_line: bool) {
-        let (small_width, small_height) = self.registers.obj_tile_size.small_size();
-        let (large_width, large_height) = self.registers.obj_tile_size.large_size();
-
-        // Sprites in range are processed last-to-first (games depend on this, e.g. Final Fantasy 6)
-        // Sprite tiles within a sprite are processed left-to-right
-        self.sprite_tile_buffer.clear();
-        for sprite in self.sprite_buffer.iter().rev() {
-            let (sprite_width, sprite_height) = match sprite.size {
-                TileSize::Small => (small_width, small_height),
-                TileSize::Large => (large_width, large_height),
-            };
-
-            let mut sprite_line = if sprite.y_flip {
-                sprite_height as u8
-                    - 1
-                    - ((scanline as u8).wrapping_sub(sprite.y) & ((sprite_height - 1) as u8))
-            } else {
-                (scanline as u8).wrapping_sub(sprite.y) & ((sprite_height - 1) as u8)
-            };
-
-            // Adjust sprite line if smaller OBJs are enabled
-            // Smaller OBJs affect how the line within the sprite is determined, but not where the
-            // sprite is positioned onscreen
-            if self.registers.interlaced && self.registers.pseudo_obj_hi_res {
-                sprite_line = (sprite_line << 1) | u8::from(interlaced_odd_line ^ sprite.y_flip);
-            }
-
-            let tile_y_offset: u16 = (sprite_line / 8).into();
-            for tile_x_offset in 0..sprite_width / 8 {
-                let x = if sprite.x_flip {
-                    sprite.x + (sprite_width - 8) - 8 * tile_x_offset
-                } else {
-                    sprite.x + 8 * tile_x_offset
-                };
-
-                if x >= 256 && x + 8 < 512 {
-                    // Sprite tile is entirely offscreen
-                    continue;
-                }
-
-                if self.sprite_tile_buffer.len() == MAX_SPRITE_TILES_PER_LINE {
-                    // Sprite time overflow
-                    self.registers.sprite_pixel_overflow = true;
-                    log::debug!("Hit 34 sprite tiles per line limit on line {scanline}");
-                    return;
-                }
-
-                // Unlike BG tiles in 16x16 mode, overflows in large OBJ tiles do not carry to the next nibble
-                let mut tile_number = sprite.tile_number;
-                tile_number =
-                    (tile_number & !0xF) | (tile_number.wrapping_add(tile_x_offset) & 0xF);
-                tile_number =
-                    (tile_number & !0xF0) | (tile_number.wrapping_add(tile_y_offset << 4) & 0xF0);
-
-                let tile_size_words = BitsPerPixel::OBJ.tile_size_words();
-                let tile_base_addr = self.registers.obj_tile_base_address
-                    + u16::from(tile_number.bit(8))
-                        * (256 * tile_size_words + self.registers.obj_tile_gap_size);
-                let tile_addr = ((tile_base_addr + (tile_number & 0x00FF) * tile_size_words)
-                    & VRAM_ADDRESS_MASK) as usize;
-
-                let tile_data = &self.vram[tile_addr..tile_addr + tile_size_words as usize];
-
-                let tile_row: u16 = (sprite_line % 8).into();
-
-                let mut colors = [0_u8; 8];
-                for tile_col in 0..8 {
-                    let bit_index = (7 - tile_col) as u8;
-
-                    let mut color = 0_u8;
-                    for i in 0..2 {
-                        let tile_word = tile_data[(tile_row + 8 * i) as usize];
-                        color |= u8::from(tile_word.bit(bit_index)) << (2 * i);
-                        color |= u8::from(tile_word.bit(bit_index + 8)) << (2 * i + 1);
-                    }
-
-                    colors[if sprite.x_flip { 7 - tile_col } else { tile_col }] = color;
-                }
-
-                self.sprite_tile_buffer.push(SpriteTileData {
-                    x,
-                    palette: sprite.palette,
-                    priority: sprite.priority,
-                    colors,
-                });
-            }
-        }
-    }
-
     fn enter_hi_res_mode(&mut self) {
         if !self.vblank_flag() && !self.state.h_hi_res_frame {
             // Hi-res mode enabled mid-frame; redraw previously rendered scanlines to 512x224 in-place
@@ -1533,6 +1353,10 @@ impl Ppu {
             && self.timing_mode == TimingMode::Pal
             && self.registers.interlaced
             && self.state.odd_frame
+    }
+
+    fn in_active_display(&self, scanline: u16) -> bool {
+        !self.registers.forced_blanking && scanline <= self.registers.v_display_size.to_lines()
     }
 
     pub fn vblank_flag(&self) -> bool {
@@ -1667,11 +1491,19 @@ impl Ppu {
             }
         }
 
+        let scanline = self.state.scanline;
         match address & 0xFF {
-            0x00 => self.registers.write_inidisp(value, self.is_first_vblank_scanline()),
+            0x00 => {
+                let new_forced_blanking = value.bit(7);
+                if self.registers.forced_blanking != new_forced_blanking {
+                    self.sprites_forced_blanking_change(new_forced_blanking);
+                }
+
+                self.registers.write_inidisp(value, self.is_first_vblank_scanline());
+            }
             0x01 => self.registers.write_obsel(value),
-            0x02 => self.registers.write_oamaddl(value),
-            0x03 => self.registers.write_oamaddh(value),
+            0x02 => self.registers.write_oamaddl(value, self.in_active_display(scanline)),
+            0x03 => self.registers.write_oamaddh(value, self.in_active_display(scanline)),
             0x04 => {
                 // OAMDATA: OAM data port (write)
                 self.write_oam_data_port(value);
@@ -1816,35 +1648,113 @@ impl Ppu {
     }
 
     fn write_oam_data_port(&mut self, value: u8) {
-        let oam_addr = self.registers.oam_address;
-        if oam_addr >= 0x200 {
-            // Writes to $200 or higher immediately go through
-            // $220-$3FF are mirrors of $200-$21F
-            self.oam[(0x200 | (oam_addr & 0x01F)) as usize] = value;
-        } else if !oam_addr.bit(0) {
-            // Even address < $200: latch LSB
-            self.registers.oam_write_buffer = value;
-        } else {
-            // Odd address < $200: Write word to OAM
-            self.oam[(oam_addr & !0x001) as usize] = self.registers.oam_write_buffer;
-            self.oam[oam_addr as usize] = value;
+        if self.in_active_display(self.state.scanline) {
+            self.handle_active_display_oam_write(value);
+            return;
         }
 
-        self.registers.oam_address = (oam_addr + 1) & OAM_ADDRESS_MASK;
+        if self.registers.oam_address >= 0x100 {
+            // Writes to $100 or higher immediately go through to high OAM at (address << 1) & 0x1F
+            // $220-$3FF are mirrors of $200-$21F
+            let second_write = self.registers.oam_data_flipflop == AccessFlipflop::Second;
+            let oam_high_addr = (self.registers.oam_address << 1) | u16::from(second_write);
+            self.oam_high[(oam_high_addr & 0x1F) as usize] = value;
+
+            self.registers.oam_data_flipflop = self.registers.oam_data_flipflop.toggle();
+            if second_write {
+                self.registers.oam_address = (self.registers.oam_address + 1) & OAM_ADDRESS_MASK;
+            }
+        } else {
+            // Writes to $000-$1FF go to low OAM; requires two writes to persist a word
+            match self.registers.oam_data_flipflop {
+                AccessFlipflop::First => {
+                    // First write: Latch LSB
+                    self.registers.oam_write_buffer = value;
+                }
+                AccessFlipflop::Second => {
+                    // Second write: Write word to OAM
+                    self.oam_low[self.registers.oam_address as usize] =
+                        u16::from_le_bytes([self.registers.oam_write_buffer, value]);
+                    self.registers.oam_address =
+                        (self.registers.oam_address + 1) & OAM_ADDRESS_MASK;
+                }
+            }
+            self.registers.oam_data_flipflop = self.registers.oam_data_flipflop.toggle();
+        }
+    }
+
+    fn handle_active_display_oam_write(&mut self, value: u8) {
+        self.progress_for_mid_scanline_write((self.state.scanline_master_cycles / 4) as u16);
+
+        if log::log_enabled!(log::Level::Debug) {
+            log::debug!(
+                "Active display OAM write at line {} dot {}, state is {:?}",
+                self.state.scanline,
+                self.state.scanline_master_cycles / 4,
+                self.sprites.state
+            );
+
+            if let SpriteState::TileFetch { oam_buffer_idx, .. } = self.sprites.state {
+                log::debug!(
+                    "  Current OAM idx = {}",
+                    self.sprites.scanned_oam_idxs[oam_buffer_idx as usize]
+                );
+            }
+        }
+
+        let oam_idx = self.sprites.state.oam_idx(&self.sprites.scanned_oam_idxs);
+
+        let oam_high_addr = (oam_idx >> 2) as usize;
+        self.oam_high[oam_high_addr] = value;
+
+        log::debug!("Set OAMHigh[${oam_high_addr:02X}] = 0x{value:02X}");
+
+        match self.registers.oam_data_flipflop {
+            AccessFlipflop::First => {
+                self.registers.oam_write_buffer = value;
+            }
+            AccessFlipflop::Second => {
+                let word = u16::from_le_bytes([self.registers.oam_write_buffer, value]);
+                let oam_low_addr = usize::from(oam_idx << 1);
+                self.oam_low[oam_low_addr] = word;
+
+                log::debug!("Set OAMLow[${oam_low_addr:02X}] = 0x{value:04X}");
+            }
+        }
+
+        self.registers.oam_data_flipflop = self.registers.oam_data_flipflop.toggle();
     }
 
     fn read_oam_data_port(&mut self) -> u8 {
-        let oam_addr = self.registers.oam_address;
-        let oam_byte = if oam_addr >= 0x200 {
-            // $220-$3FF are mirrors of $200-$21F
-            self.oam[(0x200 | (oam_addr & 0x01F)) as usize]
+        if self.in_active_display(self.state.scanline) {
+            return self.handle_active_display_oam_read();
+        }
+
+        let second_read = self.registers.oam_data_flipflop == AccessFlipflop::Second;
+
+        let oam_byte = if self.registers.oam_address >= 0x100 {
+            // High OAM; $220-$3FF mirrors $200-$21F
+            let oam_high_addr = (self.registers.oam_address << 1) | u16::from(second_read);
+            self.oam_high[(oam_high_addr & 0x1F) as usize]
         } else {
-            self.oam[oam_addr as usize]
+            // Low OAM
+            let word_bytes = self.oam_low[self.registers.oam_address as usize].to_le_bytes();
+            word_bytes[usize::from(second_read)]
         };
 
-        self.registers.oam_address = (oam_addr + 1) & OAM_ADDRESS_MASK;
+        self.registers.oam_data_flipflop = self.registers.oam_data_flipflop.toggle();
+        if second_read {
+            self.registers.oam_address = (self.registers.oam_address + 1) & OAM_ADDRESS_MASK;
+        }
 
         oam_byte
+    }
+
+    fn handle_active_display_oam_read(&self) -> u8 {
+        // TODO is this right? should active display reads always return from high OAM instead of low OAM?
+        let oam_idx = self.sprites.state.oam_idx(&self.sprites.scanned_oam_idxs);
+        let oam_high_addr = (oam_idx >> 2) & 0x1F;
+        self.oam_high[oam_high_addr as usize]
     }
 
     fn write_cgram_data_port(&mut self, value: u8) {

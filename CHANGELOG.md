@@ -42,6 +42,8 @@
 * (**32X**) Fixed a bug around synchronizing SH-2 accesses to 32X communication ports that could have caused writes to be skipped in some cases; this fixes freezing in the _Sonic Robo Blast 32X_ demo (#160)
 * (**SNES**) Implemented more accurate clipping and truncation in Mode 7 intermediate calculations; this fixes glitched Mode 7 graphics in _Tiny Toon Adventures: Wacky Sports Challenge_ (#161)
 * (**SNES**) Mode 7 registers are now latched about 12 pixels before line rendering begins; this fixes a glitchy line near the bottom of the play area in _Battle Clash_, where the screen transitions from Mode 1 to Mode 7
+* (**SNES**) Implemented an obscure behavior regarding the effects of writing to OAM during active display; this fixes incorrect sprite display in _Uniracers_' Vs. mode (#164)
+* (**SNES**) Made a best effort at implementing the effects on sprites of toggling forced blanking during active display; this mostly fixes some test ROMs that exercise this (#162)
 * (**GB**) Implemented an obscure behavior where pulse channels should output a constant 0 after power-on until after the first phase increment; this fixes missing voice samples in _Daiku no Gen-san - Robot Teikoku no Yabou_ (#151)
 * (**GB**) Fixed a bug related to the pulse channel phase counter reloading on the same cycle as a frequency change via NR13/NR14/NR23/NR24; this combined with the above change fixes missing voice samples in _Keitai Denjuu Telefang_ (#47)
 * (**GB**) Added emulation for a hardware quirk where the Mode 2 STAT interrupt appears to trigger 145 times per frame, not 144; this fixes [GBVideoPlayer](https://github.com/LIJI32/GBVideoPlayer) (#155)

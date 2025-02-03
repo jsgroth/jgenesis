@@ -585,6 +585,7 @@ pub struct Registers {
     pub oam_address_reload_value: u16,
     pub obj_priority_mode: ObjPriorityMode,
     pub oam_write_buffer: u8,
+    pub oam_data_flipflop: AccessFlipflop,
     // CGADD
     pub cgram_address: u8,
     // CGDATA/RDCGRAM
@@ -676,6 +677,7 @@ impl Registers {
             oam_address_reload_value: 0,
             obj_priority_mode: ObjPriorityMode::default(),
             oam_write_buffer: 0,
+            oam_data_flipflop: AccessFlipflop::default(),
             cgram_address: 0,
             cgram_write_buffer: 0,
             cgram_flipflop: AccessFlipflop::default(),
@@ -706,7 +708,7 @@ impl Registers {
 
         // Disabling forced blanking during the first VBlank scanline immediately reloads OAM address
         if prev_forced_blanking && !self.forced_blanking && first_vblank_scanline {
-            self.oam_address = self.oam_address_reload_value << 1;
+            self.reload_oam_address();
         }
 
         if prev_forced_blanking != self.forced_blanking
@@ -1100,20 +1102,25 @@ impl Registers {
         log::trace!("  Sub screen backdrop color: {sub_backdrop_color:04X}");
     }
 
-    pub fn write_oamaddl(&mut self, value: u8) {
+    pub fn write_oamaddl(&mut self, value: u8, in_active_display: bool) {
         // OAMADDL: OAM address, low byte
         self.oam_address_reload_value.set_lsb(value);
-        self.oam_address = self.oam_address_reload_value << 1;
+
+        if !in_active_display {
+            self.reload_oam_address();
+        }
 
         log::trace!("  OAM address reload value: {:04X}", self.oam_address_reload_value);
     }
 
-    pub fn write_oamaddh(&mut self, value: u8) {
+    pub fn write_oamaddh(&mut self, value: u8, in_active_display: bool) {
         // OAMADDH: OAM address, high byte
         self.oam_address_reload_value.set_msb(value & 0x01);
-        self.oam_address = self.oam_address_reload_value << 1;
-
         self.obj_priority_mode = ObjPriorityMode::from_byte(value);
+
+        if !in_active_display {
+            self.reload_oam_address();
+        }
 
         log::trace!("  OAM address reload value: {:04X}", self.oam_address_reload_value);
         log::trace!("  OBJ priority mode: {:?}", self.obj_priority_mode);
@@ -1219,6 +1226,11 @@ impl Registers {
 
     pub fn latch_mode_7(&mut self) {
         self.mode_7_latched = self.mode_7.clone();
+    }
+
+    pub fn reload_oam_address(&mut self) {
+        self.oam_address = self.oam_address_reload_value;
+        self.oam_data_flipflop = AccessFlipflop::First;
     }
 
     #[allow(clippy::range_plus_one)]
