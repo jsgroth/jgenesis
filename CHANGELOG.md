@@ -1,7 +1,7 @@
 # Next Release
 
 ## New Features
-* (**Genesis** / **Sega CD** / **32X**) Replaced the low-pass filtering settings added in v0.8.3 with a new set of options that are hopefully higher-quality
+* (**Genesis** / **Sega CD** / **32X**) Replaced the low-pass filtering settings added in v0.8.3 with a new set of options that should be more accurate to actual hardware
   * New option to apply a first-order 3.39 KHz low-pass filter to Genesis audio output; this is **ON** by default (biggest change from previous default settings)
   * New option to apply a second-order 7.97 KHz low-pass filter to Sega CD PCM audio output; this is **ON** by default
   * New options to individually configure whether the Genesis low-pass filter is applied to Sega CD and 32X audio output; these are all **OFF** by default
@@ -17,15 +17,17 @@
 ## Improvements
 * Audio resampling code has been rewritten to use the windowed sinc interpolation algorithm, which is much higher quality than the previous resampling implementation at a relatively low performance cost (for most emulated systems)
   * Windowed sinc interpolation can be very performance-intensive for NES and GB/GBC audio resampling, so these two systems have a new audio setting to choose between windowed sinc interpolation and the old resampling algorithm (low-pass filter followed by nearest neighbor interpolation)
-* GUI: When opening a game that requires a BIOS ROM or firmware ROM (e.g. any Sega CD game), if the BIOS/firmware ROM path is not configured, the error window now contains a button to configure the appropriate ROM path and immediately launch the game
-* CLI: If no config file exists, the CLI will now attempt to write out the default config to the config path so that it can be edited manually if desired
-* Save state files are now internally compressed using zstd which should reduce save state file size by at least 50%, often by 70-80%
 * (**Genesis**) Slightly improved performance by optimizing VDP rendering and tile fetching code
+* (**Genesis**) Frontends now recognize .gen and .smd as file extensions for Genesis / Mega Drive ROM images (#149)
+  * This includes attempting to auto-detect when a ROM image is interleaved (common for .smd files), and deinterleaving it during load
+* (**32X**) Significantly improved timing of 32X VDP interrupts for the SH-2s (#166)
+* (**32X**) Significantly improved synchronization between the SH-2s and the 68000
 * (**SMS**) The "crop vertical borders" video setting now defaults to enabled instead of disabled; unlike the left border, the vertical borders will only ever show the current backdrop color
 * (**SNES**) In games that use the SA-1 coprocessor, the SA-1 CPU now gets a wait cycle every time it accesses SA-1 BW-RAM, similar to actual hardware
   * The SA-1 CPU still runs faster than actual hardware in some cases because bus conflict wait cycles are not emulated
-* Frontends now recognize .gen and .smd as file extensions for Genesis / Mega Drive ROM images (#149)
-  * This includes attempting to auto-detect when a ROM image is interleaved (common for .smd files), and deinterleaving it during load
+* GUI: When opening a game that requires a BIOS ROM or firmware ROM (e.g. any Sega CD game), if the BIOS/firmware ROM path is not configured, the error window now contains a button to configure the appropriate ROM path and immediately launch the game
+* CLI: If no config file exists, the CLI will now attempt to write out the default config to the config path so that it can be edited manually if desired
+* Save state files are now internally compressed using zstd which should reduce save state file size by at least 50%, often by 70-80%
 * Frontends should now correctly handle files with uppercase file extensions
 
 ## Fixes
@@ -36,9 +38,9 @@
 * (**Sega CD**) Fixed inaccurate emulation of CD-DA fader volumes 1-3 out of 1024 (should be 50-60 dB of attenuation instead of complete silence)
 * (**Sega CD**) Unmapped/unknown address accesses will now log an error instead of crashing the emulator
 * (**32X**) Fixed a major bug in the PWM resampling code that caused PWM audio output to sound significantly more poppy and crackly than it's supposed to
-* (**32X**) Fixed a bug around synchronizing SH-2 accesses to 32X communication ports that could have caused writes to be skipped in some cases; this fixes random freezing in _Sonic Robo Blast 32X_ (#160)
+* (**32X**) Fixed a bug around synchronizing SH-2 accesses to 32X communication ports that could have caused writes to be skipped in some cases; this fixes freezing in the _Sonic Robo Blast 32X_ demo (#160)
 * (**SNES**) Implemented more accurate clipping and truncation in Mode 7 intermediate calculations; this fixes glitched Mode 7 graphics in _Tiny Toon Adventures: Wacky Sports Challenge_ (#161)
-* (**SNES**) Mode 7 registers are now latched about 12 pixels before line rendering begins; this fixes a glitchy line near the bottom of the play area in _Battle Clash_
+* (**SNES**) Mode 7 registers are now latched about 12 pixels before line rendering begins; this fixes a glitchy line near the bottom of the play area in _Battle Clash_, where the screen transitions from Mode 1 to Mode 7
 * (**GB**) Implemented an obscure behavior where pulse channels should output a constant 0 after power-on until after the first phase increment; this fixes missing voice samples in _Daiku no Gen-san - Robot Teikoku no Yabou_ (#151)
 * (**GB**) Fixed a bug related to the pulse channel phase counter reloading on the same cycle as a frequency change via NR13/NR14/NR23/NR24; this combined with the above change fixes missing voice samples in _Keitai Denjuu Telefang_ (#47)
 * (**GB**) Added emulation for a hardware quirk where the Mode 2 STAT interrupt appears to trigger 145 times per frame, not 144; this fixes [GBVideoPlayer](https://github.com/LIJI32/GBVideoPlayer) (#155)
@@ -46,7 +48,7 @@
 * (**GB**) Slightly adjusted timings related to powering on the PPU; this combined with the above change fixes [GBVideoPlayer2](https://github.com/LIJI32/GBVideoPlayer2) (#156)
 * (**GB**) Fixed an edge case related to LYC writes at the beginning of a line not triggering the LY=LYC STAT interrupt under certain conditions; this fixes glitchy graphics on the title screen of the _SQRKZ_ homebrew (#154)
 * (**GB**) The contents of OBJ palette RAM are now randomized at power-on (#152)
-* Fixed a performance bug in the audio resampling code that could have caused intermittent extremely poor performance due to performing arithmetic on subnormal floating-point numbers, which can apparently be up to 100 times slower than normal floating-point arithmetic (#135)
+* Fixed a performance bug in the audio resampling code that could have caused intermittent extremely poor performance due to performing arithmetic on subnormal floating-point numbers, which can be up to 100 times slower than normal floating-point arithmetic on some CPUs (#135)
 * Linux: AppImage builds now exclude all Wayland-related system libraries during packaging; this fixes the emulator failing to launch in some distros, e.g. Solus Plasma (#143)
 * Linux: AppImage builds now interpret relative paths in command-line arguments as being relative to the original working directory where the AppImage was launched from, not the AppImage internal runner directory (#147)
 * Linux/BSD CLI: For these platforms only and for the CLI only, reverted the change to estimate window scale factor because `SDL_GetDisplayDPI` does not return reliable values on Linux/BSD
