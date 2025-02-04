@@ -14,7 +14,7 @@ use crate::ym2612::lfo::LowFrequencyOscillator;
 use crate::ym2612::phase::PhaseGenerator;
 use crate::ym2612::timer::{TimerA, TimerB, TimerTickEffect};
 use bincode::{Decode, Encode};
-use jgenesis_common::num::{GetBit, U16Ext};
+use jgenesis_common::num::GetBit;
 use std::array;
 use std::sync::LazyLock;
 
@@ -152,8 +152,10 @@ enum FrequencyMode {
 struct FmChannel {
     operators: [FmOperator; 4],
     mode: FrequencyMode,
+    last_channel_freq_high_write: u8,
     channel_f_number: u16,
     channel_block: u8,
+    last_operator_freq_high_writes: [u8; 3],
     operator_f_numbers: [u16; 3],
     operator_blocks: [u8; 3],
     algorithm: u8,
@@ -170,8 +172,10 @@ impl FmChannel {
         Self {
             operators: array::from_fn(|_| FmOperator::default()),
             mode: FrequencyMode::Single,
+            last_channel_freq_high_write: 0,
             channel_f_number: 0,
             channel_block: 0,
+            last_operator_freq_high_writes: [0; 3],
             operator_f_numbers: [0; 3],
             operator_blocks: [0; 3],
             algorithm: 0,
@@ -717,28 +721,31 @@ impl Ym2612 {
                 // F-number low bits
                 let channel_idx = base_channel_idx + (register & 0x03) as usize;
                 let channel = &mut self.channels[channel_idx];
-                channel.channel_f_number.set_lsb(value);
+
+                let f_num_high_bits = channel.last_channel_freq_high_write & 7;
+                channel.channel_f_number = u16::from_le_bytes([value, f_num_high_bits]);
+                channel.channel_block = (channel.last_channel_freq_high_write >> 3) & 7;
+
                 channel.update_phase_generators();
 
                 log::trace!("Channel {}: F-num={:04X}", channel_idx + 1, channel.channel_f_number);
             }
             0xA4..=0xA6 => {
                 // F-number high bits and block
+                // Writes to this register do not take effect until low bits are written
                 let channel_idx = base_channel_idx + (register & 0x03) as usize;
                 let channel = &mut self.channels[channel_idx];
-                channel.channel_f_number.set_msb(value & 0x07);
-                channel.channel_block = (value >> 3) & 0x07;
-                channel.update_phase_generators();
+                channel.last_channel_freq_high_write = value;
 
                 log::trace!(
-                    "Channel {}: F-num={:04X}, block={}",
+                    "Channel {}: F-num high bits {}, block {}",
                     channel_idx + 1,
-                    channel.channel_f_number,
-                    channel.channel_block
+                    value & 7,
+                    (value >> 3) & 7,
                 );
             }
             0xA8..=0xAA => {
-                // Operator-level F-number low bits for channels 3 and 6
+                // Operator-level F-number low bits for channel 3
                 let channel_idx = base_channel_idx + 2;
                 let operator_idx = match register {
                     0xA8 => 2,
@@ -747,7 +754,12 @@ impl Ym2612 {
                     _ => unreachable!("nested match expressions"),
                 };
                 let channel = &mut self.channels[channel_idx];
-                channel.operator_f_numbers[operator_idx].set_lsb(value);
+
+                let last_operator_freq_write = channel.last_operator_freq_high_writes[operator_idx];
+                let f_num_high_bits = last_operator_freq_write & 7;
+                channel.operator_f_numbers[operator_idx] =
+                    u16::from_le_bytes([value, f_num_high_bits]);
+                channel.operator_blocks[operator_idx] = (last_operator_freq_write >> 3) & 7;
                 if channel.mode == FrequencyMode::Multiple {
                     channel.update_phase_generators();
                 }
@@ -760,7 +772,8 @@ impl Ym2612 {
                 );
             }
             0xAC..=0xAE => {
-                // Operator-level F-number high bits and block for channels 3 and 6
+                // Operator-level F-number high bits and block for channel 3
+                // Writes to this register do not take effect until low bits are written
                 let channel_idx = base_channel_idx + 2;
                 let operator_idx = match register {
                     0xAC => 2,
@@ -769,18 +782,14 @@ impl Ym2612 {
                     _ => unreachable!("nested match expressions"),
                 };
                 let channel = &mut self.channels[channel_idx];
-                channel.operator_f_numbers[operator_idx].set_msb(value & 0x07);
-                channel.operator_blocks[operator_idx] = (value >> 3) & 0x07;
-                if channel.mode == FrequencyMode::Multiple {
-                    channel.update_phase_generators();
-                }
+                channel.last_operator_freq_high_writes[operator_idx] = value;
 
                 log::trace!(
-                    "Set operator-level frequency / block for channel {} / operator {}: F-num={:04X}, block={}",
+                    "Set operator-level frequency / block for channel {} / operator {}: F-num high bits {}, block {}",
                     channel_idx + 1,
                     operator_idx + 1,
-                    channel.operator_f_numbers[operator_idx],
-                    channel.operator_blocks[operator_idx]
+                    value & 7,
+                    (value >> 3) & 7,
                 );
             }
             0xB0..=0xB2 => {
