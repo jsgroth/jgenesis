@@ -152,11 +152,13 @@ enum FrequencyMode {
 struct FmChannel {
     operators: [FmOperator; 4],
     mode: FrequencyMode,
-    last_channel_freq_high_write: u8,
+    pending_ch_f_number_high: u8,
     channel_f_number: u16,
+    pending_ch_block: u8,
     channel_block: u8,
-    last_operator_freq_high_writes: [u8; 3],
+    pending_op_f_numbers_high: [u8; 3],
     operator_f_numbers: [u16; 3],
+    pending_op_blocks: [u8; 3],
     operator_blocks: [u8; 3],
     algorithm: u8,
     am_sensitivity: u8,
@@ -172,11 +174,13 @@ impl FmChannel {
         Self {
             operators: array::from_fn(|_| FmOperator::default()),
             mode: FrequencyMode::Single,
-            last_channel_freq_high_write: 0,
+            pending_ch_f_number_high: 0,
             channel_f_number: 0,
+            pending_ch_block: 0,
             channel_block: 0,
-            last_operator_freq_high_writes: [0; 3],
+            pending_op_f_numbers_high: [0; 3],
             operator_f_numbers: [0; 3],
+            pending_op_blocks: [0; 3],
             operator_blocks: [0; 3],
             algorithm: 0,
             am_sensitivity: 0,
@@ -722,9 +726,9 @@ impl Ym2612 {
                 let channel_idx = base_channel_idx + (register & 0x03) as usize;
                 let channel = &mut self.channels[channel_idx];
 
-                let f_num_high_bits = channel.last_channel_freq_high_write & 7;
-                channel.channel_f_number = u16::from_le_bytes([value, f_num_high_bits]);
-                channel.channel_block = (channel.last_channel_freq_high_write >> 3) & 7;
+                channel.channel_f_number =
+                    u16::from_le_bytes([value, channel.pending_ch_f_number_high]);
+                channel.channel_block = channel.pending_ch_block;
 
                 channel.update_phase_generators();
 
@@ -735,13 +739,14 @@ impl Ym2612 {
                 // Writes to this register do not take effect until low bits are written
                 let channel_idx = base_channel_idx + (register & 0x03) as usize;
                 let channel = &mut self.channels[channel_idx];
-                channel.last_channel_freq_high_write = value;
+                channel.pending_ch_f_number_high = value & 7;
+                channel.pending_ch_block = (value >> 3) & 7;
 
                 log::trace!(
                     "Channel {}: F-num high bits {}, block {}",
                     channel_idx + 1,
-                    value & 7,
-                    (value >> 3) & 7,
+                    channel.pending_ch_f_number_high,
+                    channel.pending_ch_block,
                 );
             }
             0xA8..=0xAA => {
@@ -755,11 +760,9 @@ impl Ym2612 {
                 };
                 let channel = &mut self.channels[channel_idx];
 
-                let last_operator_freq_write = channel.last_operator_freq_high_writes[operator_idx];
-                let f_num_high_bits = last_operator_freq_write & 7;
-                channel.operator_f_numbers[operator_idx] =
-                    u16::from_le_bytes([value, f_num_high_bits]);
-                channel.operator_blocks[operator_idx] = (last_operator_freq_write >> 3) & 7;
+                let f_num_high = channel.pending_op_f_numbers_high[operator_idx];
+                channel.operator_f_numbers[operator_idx] = u16::from_le_bytes([value, f_num_high]);
+                channel.operator_blocks[operator_idx] = channel.pending_op_blocks[operator_idx];
                 if channel.mode == FrequencyMode::Multiple {
                     channel.update_phase_generators();
                 }
@@ -782,14 +785,15 @@ impl Ym2612 {
                     _ => unreachable!("nested match expressions"),
                 };
                 let channel = &mut self.channels[channel_idx];
-                channel.last_operator_freq_high_writes[operator_idx] = value;
+                channel.pending_op_f_numbers_high[operator_idx] = value & 7;
+                channel.pending_op_blocks[operator_idx] = (value >> 3) & 7;
 
                 log::trace!(
                     "Set operator-level frequency / block for channel {} / operator {}: F-num high bits {}, block {}",
                     channel_idx + 1,
                     operator_idx + 1,
-                    value & 7,
-                    (value >> 3) & 7,
+                    channel.pending_op_f_numbers_high[operator_idx],
+                    channel.pending_op_blocks[operator_idx],
                 );
             }
             0xB0..=0xB2 => {
