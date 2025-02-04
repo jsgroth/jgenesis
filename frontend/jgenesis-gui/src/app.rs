@@ -686,7 +686,7 @@ impl App {
                 ui.close_menu();
             }
 
-            if ui.button("Genesis / Sega CD").clicked() {
+            if ui.button("Genesis / Sega CD / 32X").clicked() {
                 self.state.open_windows.insert(OpenWindow::GenesisGeneral);
                 ui.close_menu();
             }
@@ -739,7 +739,7 @@ impl App {
                 ui.close_menu();
             }
 
-            if ui.button("Genesis / Sega CD").clicked() {
+            if ui.button("Genesis / Sega CD / 32X").clicked() {
                 self.state.open_windows.insert(OpenWindow::GenesisVideo);
                 ui.close_menu();
             }
@@ -775,7 +775,7 @@ impl App {
                 ui.close_menu();
             }
 
-            if ui.button("Genesis / Sega CD").clicked() {
+            if ui.button("Genesis / Sega CD / 32X").clicked() {
                 self.state.open_windows.insert(OpenWindow::GenesisAudio);
                 ui.close_menu();
             }
@@ -811,7 +811,7 @@ impl App {
                 ui.close_menu();
             }
 
-            if ui.button("Genesis / Sega CD").clicked() {
+            if ui.button("Genesis / Sega CD / 32X").clicked() {
                 self.state.open_windows.insert(OpenWindow::GenesisInput);
                 ui.close_menu();
             }
