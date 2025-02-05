@@ -41,52 +41,9 @@ https://github.com/jsgroth/jgenesis/actions
 
 Note that these builds are not always well-tested and may have bugs.
 
-## Dependencies
-
-### Rust
-
-This project requires the latest stable version of the [Rust toolchain](https://doc.rust-lang.org/book/ch01-01-installation.html) to build.
-
-### SDL2
-
-This project requires [SDL2](https://www.libsdl.org/) core headers to build. SDL2 is used for windowing, audio playback, and reading keyboard/gamepad/mouse inputs.
-
-Linux (Debian-based):
-```
-sudo apt install libsdl2-dev
-```
-
-Windows:
-* https://github.com/libsdl-org/SDL/releases (Download a 2.x version)
-
 ## Build & Run
 
-GUI:
-```shell
-cargo run --release --bin jgenesis-gui
-```
-
-CLI:
-```shell
-cargo run --release --bin jgenesis-cli -- -f <path_to_rom_file>
-```
-
-To view all CLI args:
-```shell
-cargo run --release --bin jgenesis-cli -- -h
-```
-
-To build with maximum optimizations (better runtime performance + smaller binary size at the cost of longer compile time):
-```shell
-cargo build --profile release-lto
-```
-...After which the executables will be in `target/release-lto/`.
-
-If you are building solely for your own personal usage, you can additionally set the flag `-C target_cpu=native` to tell the Rust compiler that it can use any CPU instruction that your computer's CPU supports, which may slightly improve performance:
-
-```shell
-RUSTFLAGS="-C target-cpu=native" cargo build --profile release-lto
-```
+See [BUILD.md](BUILD.md)
 
 ## Screenshots
 
