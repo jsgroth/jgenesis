@@ -412,7 +412,7 @@ impl App {
                 let rect = ui
                     .checkbox(
                         &mut pcm_low_pass,
-                        "(Sega CD) Apply 8 KHz low-pass filter to PCM chip",
+                        "(Sega CD) Apply 7.97 KHz low-pass filter to PCM chip",
                     )
                     .interact_rect;
                 if ui.rect_contains_pointer(rect) {
