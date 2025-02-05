@@ -146,7 +146,7 @@ pub const YM2612_LADDER_EFFECT: HelpText = HelpText {
 pub const GENESIS_LOW_PASS: HelpText = HelpText {
     heading: "Genesis Low-Pass Filter",
     text: &[
-        "If enabled, apply a 3.39 KHz low-pass filter to audio output. This should be similar to the filter found in early Model 1 consoles.",
+        "If enabled, apply a 3.39 KHz first-order low-pass filter to Genesis audio output. This should be similar to the filter found in early Model 1 consoles.",
         "Low-pass filtering makes the audio sound softer and somewhat muffled. Some game audio is designed around this effect.",
     ],
 };
@@ -154,7 +154,7 @@ pub const GENESIS_LOW_PASS: HelpText = HelpText {
 pub const PCM_LOW_PASS: HelpText = HelpText {
     heading: "Sega CD PCM Low-Pass Filter",
     text: &[
-        "If enabled, apply a 7.97 KHz low-pass filter to PCM chip audio output.",
+        "If enabled, apply a 7.97 KHz second-order low-pass filter to PCM chip audio output.",
         "This may not be accurate to actual hardware, but it produces a significantly cleaner sound than not low-pass filtering.",
     ],
 };
