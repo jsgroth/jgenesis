@@ -50,7 +50,7 @@
 * (**GB**) Added emulation for a hardware quirk where the Mode 2 STAT interrupt appears to trigger 145 times per frame, not 144; this fixes [GBVideoPlayer](https://github.com/LIJI32/GBVideoPlayer) (#155)
 * (**GB**) CGB palette RAM auto-increment flags now default to 1 (#156)
 * (**GB**) Slightly adjusted timings related to powering on the PPU; this combined with the above change fixes [GBVideoPlayer2](https://github.com/LIJI32/GBVideoPlayer2) (#156)
-* (**GB**) Fixed an edge case related to LYC writes at the beginning of a line not triggering the LY=LYC STAT interrupt under certain conditions; this fixes glitchy graphics on the title screen of the _SQRKZ_ homebrew (#154)
+* (**GB**) Fixed an edge case where LYC writes at the beginning of a line were not triggering the LY=LYC STAT interrupt under certain conditions; this fixes glitchy graphics on the title screen of the _SQRKZ_ homebrew (#154)
 * (**GB**) The contents of OBJ palette RAM are now randomized at power-on (#152)
 * Fixed a performance bug in the audio resampling code that could have caused intermittent extremely poor performance due to performing arithmetic on subnormal floating-point numbers, which can be up to 100 times slower than normal floating-point arithmetic on some CPUs (#135)
 * Linux: AppImage builds now exclude all Wayland-related system libraries during packaging; this fixes the emulator failing to launch in some distros, e.g. Solus Plasma (#143)
