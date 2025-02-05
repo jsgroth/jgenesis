@@ -210,11 +210,16 @@ impl FmChannel {
     }
 
     fn sample_clock(&mut self) {
+        // Operator order is 1 -> 3 -> 2 -> 4, per http://gendev.spritesmind.net/forum/viewtopic.php?p=30063#p30063
+        // This affects output of algorithms 0, 1, and 2
         let sample = match self.algorithm {
             0 => {
                 // O1 -> O2 -> O3 -> O4 -> Output
                 let m1 = compute_modulation_input(self.operators[0].sample_clock(0));
-                let m2 = compute_modulation_input(self.operators[1].sample_clock(m1));
+
+                let m2 = compute_modulation_input(self.operators[1].current_output);
+                self.operators[1].sample_clock(m1);
+
                 let m3 = compute_modulation_input(self.operators[2].sample_clock(m2));
                 self.operators[3].sample_clock(m3)
             }
@@ -223,7 +228,10 @@ impl FmChannel {
                 //      --> O3 -> O4 -> Output
                 // O2 --|
                 let m1 = compute_modulation_input(self.operators[0].sample_clock(0));
-                let m2 = compute_modulation_input(self.operators[1].sample_clock(0));
+
+                let m2 = compute_modulation_input(self.operators[1].current_output);
+                self.operators[1].sample_clock(0);
+
                 let m3 = compute_modulation_input(
                     self.operators[2].sample_clock((m1 + m2) & PHASE_MASK),
                 );
@@ -234,7 +242,10 @@ impl FmChannel {
                 //            --> O4 -> Output
                 // O2 -> O3 --|
                 let m1 = compute_modulation_input(self.operators[0].sample_clock(0));
-                let m2 = compute_modulation_input(self.operators[1].sample_clock(0));
+
+                let m2 = compute_modulation_input(self.operators[1].current_output);
+                self.operators[1].sample_clock(0);
+
                 let m3 = compute_modulation_input(self.operators[2].sample_clock(m2));
                 self.operators[3].sample_clock((m1 + m3) & PHASE_MASK)
             }
