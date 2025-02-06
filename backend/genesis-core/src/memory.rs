@@ -122,6 +122,8 @@ pub struct Cartridge {
 const TRIPLE_PLAY_GOLD_SERIAL: &[u8] = b"T-172116";
 const TRIPLE_PLAY_96_SERIAL: &[u8] = b"T-172026";
 
+const QUACKSHOT_REV_A_SERIAL: &[u8] = b"GM 00004054-01";
+
 const ROCKMAN_X3_CHECKSUM: u32 = 0x3EE639F0;
 
 impl Cartridge {
@@ -161,14 +163,11 @@ impl Cartridge {
         if rom_bytes.len() >= 0x300000
             && (serial_number == TRIPLE_PLAY_GOLD_SERIAL || serial_number == TRIPLE_PLAY_96_SERIAL)
         {
-            // Triple Play expects the third MB of the ROM to be mapped to $300000-$3FFFFF instead
-            // of $200000-$2FFFFF; accomplish this by duplicating the data
-            if rom_bytes.len() < 0x400000 {
-                rom_bytes.extend(iter::repeat(0xFF).take(0x400000 - rom_bytes.len()));
-            }
+            fix_triple_play_rom(&mut rom_bytes);
+        }
 
-            let (first, second) = rom_bytes.split_at_mut(0x300000);
-            second[..0x100000].copy_from_slice(&first[0x200000..0x300000]);
+        if rom_bytes.len() == 0x80000 && &rom_bytes[0x180..0x18E] == QUACKSHOT_REV_A_SERIAL {
+            rom_bytes = fix_quackshot_rev_a_rom(rom_bytes);
         }
 
         let is_unlicensed_rockman_x3 = checksum == ROCKMAN_X3_CHECKSUM;
@@ -309,6 +308,31 @@ fn deinterleave_rom(rom: Vec<u8>) -> Vec<u8> {
     }
 
     deinterleaved
+}
+
+fn fix_triple_play_rom(rom: &mut Vec<u8>) {
+    // Triple Play expects the third MB of the ROM to be mapped to $300000-$3FFFFF instead
+    // of $200000-$2FFFFF; accomplish this by duplicating the data
+    if rom.len() < 0x400000 {
+        rom.extend(iter::repeat(0xFF).take(0x400000 - rom.len()));
+    }
+
+    let (first, second) = rom.split_at_mut(0x300000);
+    second[..0x100000].copy_from_slice(&first[0x200000..0x300000]);
+}
+
+fn fix_quackshot_rev_a_rom(rom: Vec<u8>) -> Vec<u8> {
+    // QuackShot (Rev A) is a 512KB ROM with an unusual ROM address mapping:
+    //   $000000-$0FFFFF: First 256KB of ROM mirrored 4x
+    //   $100000-$1FFFFF: Second 256KB of ROM mirrored 4x
+    // Rather than implement custom mapping logic, just remap the ROM while loading it
+    let mut remapped_rom = vec![0; 0x200000];
+    for i in (0x000000..0x100000).step_by(0x40000) {
+        remapped_rom[i..i + 0x40000].copy_from_slice(&rom[..0x40000]);
+        remapped_rom[i + 0x100000..i + 0x140000].copy_from_slice(&rom[0x40000..]);
+    }
+
+    remapped_rom
 }
 
 #[must_use]
