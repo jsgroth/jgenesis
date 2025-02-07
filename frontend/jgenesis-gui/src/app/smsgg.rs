@@ -35,10 +35,10 @@ impl App {
                 ui.label("Master System VDP version");
 
                 ui.horizontal(|ui| {
-                    ui.radio_value(&mut self.config.smsgg.sms_model, SmsModel::Sms2, "SMS2");
-
                     ui.radio_value(&mut self.config.smsgg.sms_model, SmsModel::Sms1, "SMS1")
                         .on_hover_text("Emulates an SMS1 quirk that is required for the Japanese version of Ys");
+
+                    ui.radio_value(&mut self.config.smsgg.sms_model, SmsModel::Sms2, "SMS2");
                 });
             }).response.interact_rect;
             if ui.rect_contains_pointer(rect) {

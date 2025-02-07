@@ -23,6 +23,7 @@
 * (**32X**) Significantly improved timing of 32X VDP interrupts for the SH-2s (#166)
 * (**32X**) Significantly improved synchronization between the SH-2s and the 68000
 * (**SMS**) The "crop vertical borders" video setting now defaults to enabled instead of disabled; unlike the left border, the vertical borders will only ever show the current backdrop color
+* (**SMS**) The SMS model setting now defaults to SMS1, which emulates a VDP hardware quirk that is required for the Japanese version of _Ys_ to render correctly (#182)
 * (**SNES**) In games that use the SA-1 coprocessor, the SA-1 CPU now gets a wait cycle every time it accesses SA-1 BW-RAM, similar to actual hardware
   * The SA-1 CPU still runs faster than actual hardware in some cases because bus conflict wait cycles are not emulated
 * GUI: When opening a game that requires a BIOS ROM or firmware ROM (e.g. any Sega CD game), if the BIOS/firmware ROM path is not configured, the error window now contains a button to configure the appropriate ROM path and immediately launch the game
