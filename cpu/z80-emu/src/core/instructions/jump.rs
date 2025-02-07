@@ -155,13 +155,8 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         }
     }
 
-    pub(super) fn reti(&mut self) -> u32 {
-        self.registers.pc = self.pop_stack();
-
-        14
-    }
-
-    pub(super) fn retn(&mut self) -> u32 {
+    // On systems that don't use the special RETI hardware line, RETI and RETN behave identically
+    pub(super) fn reti_retn(&mut self) -> u32 {
         self.registers.pc = self.pop_stack();
         self.registers.iff1 = self.registers.iff2;
 
