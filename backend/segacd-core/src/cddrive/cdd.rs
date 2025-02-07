@@ -519,7 +519,9 @@ impl CdDrive {
             return;
         }
 
-        let seek_clocks = estimate_seek_clocks(current_time, seek_time);
+        // Enforce a minimum seek time of 7 cycles at 75 Hz
+        // At least one game depends on this, the Japanese version of Cobra Command / Thunder Storm FX
+        let seek_clocks = cmp::max(7, estimate_seek_clocks(current_time, seek_time));
 
         log::trace!(
             "Seeking from {current_time} to {seek_time}; estimated time {seek_clocks} 75Hz clocks"
