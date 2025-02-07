@@ -1017,6 +1017,11 @@ impl BusInterface for Sh2Bus<'_, '_> {
     }
 
     #[inline]
+    fn acknowledge_dreq_1(&mut self) {
+        self.s32x_bus.pwm.acknowledge_dreq_1();
+    }
+
+    #[inline]
     fn serial_rx(&mut self) -> Option<u8> {
         match self.which {
             WhichCpu::Master => self.s32x_bus.serial.slave_to_master.take(),

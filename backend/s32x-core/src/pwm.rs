@@ -134,29 +134,12 @@ pub struct PwmChip {
     cycle_counter: u64,
     off_cycle_counter: u64,
     timer_counter: u16,
+    dreq1: bool,
     genesis_mclk_frequency: f64,
 }
 
 // Cycle register and pulse width are unsigned 12-bit values
 const U12_MASK: u16 = (1 << 12) - 1;
-
-macro_rules! impl_write_register {
-    ($name:ident, $control_write_method:ident) => {
-        pub fn $name(&mut self, address: u32, value: u16) {
-            match address & 0xF {
-                0x0 => self.control.$control_write_method(value),
-                0x2 => self.write_cycle_register(value),
-                0x4 => self.write_l_fifo(value),
-                0x6 => self.write_r_fifo(value),
-                0x8 => self.write_mono_fifo(value),
-                _ => {
-                    // BC Racers frequently writes to $403A for some reason
-                    log::debug!("Invalid PWM register write: {address:08X} {value:04X}");
-                }
-            }
-        }
-    };
-}
 
 impl PwmChip {
     pub fn new(timing_mode: TimingMode) -> Self {
@@ -170,6 +153,7 @@ impl PwmChip {
             cycle_counter: U12_MASK.into(),
             off_cycle_counter: U12_MASK.into(),
             timer_counter: 16,
+            dreq1: false,
             genesis_mclk_frequency: match timing_mode {
                 TimingMode::Ntsc => genesis_core::audio::NTSC_GENESIS_MCLK_FREQUENCY,
                 TimingMode::Pal => genesis_core::audio::PAL_GENESIS_MCLK_FREQUENCY,
@@ -242,6 +226,8 @@ impl PwmChip {
 
                     log::trace!("Generating PWM interrupt");
                     system_registers.notify_pwm_timer();
+
+                    self.dreq1 |= self.control.dreq1_enabled;
                 }
             }
         }
@@ -263,8 +249,35 @@ impl PwmChip {
         }
     }
 
-    impl_write_register!(m68k_write_register, m68k_write);
-    impl_write_register!(sh2_write_register, sh2_write);
+    fn write_register(
+        &mut self,
+        address: u32,
+        value: u16,
+        control_write_fn: impl FnOnce(&mut PwmControl, u16),
+    ) {
+        match address & 0xF {
+            0x0 => {
+                control_write_fn(&mut self.control, value);
+                self.dreq1 &= self.control.dreq1_enabled;
+            }
+            0x2 => self.write_cycle_register(value),
+            0x4 => self.write_l_fifo(value),
+            0x6 => self.write_r_fifo(value),
+            0x8 => self.write_mono_fifo(value),
+            _ => {
+                // BC Racers frequently writes to $403A for some reason
+                log::debug!("Invalid PWM register write: {address:08X} {value:04X}");
+            }
+        }
+    }
+
+    pub fn m68k_write_register(&mut self, address: u32, value: u16) {
+        self.write_register(address, value, PwmControl::m68k_write);
+    }
+
+    pub fn sh2_write_register(&mut self, address: u32, value: u16) {
+        self.write_register(address, value, PwmControl::sh2_write);
+    }
 
     // 68000: $A15132
     // SH-2: $4032
@@ -331,7 +344,11 @@ impl PwmChip {
     }
 
     pub fn dma_request_1(&self) -> bool {
-        self.control.dreq1_enabled && (!self.l_fifo.is_full() || !self.r_fifo.is_full())
+        self.dreq1
+    }
+
+    pub fn acknowledge_dreq_1(&mut self) {
+        self.dreq1 = false;
     }
 }
 
@@ -345,9 +362,8 @@ fn pulse_width_to_f64(sample: u16, cycle_register: u16) -> f64 {
     }
 
     // Treat the pulse width as a sample on a scale from 0 to (cycle_register - 1) and map that to [0, 1]
-    let pulse_width = sample.wrapping_sub(1) & U12_MASK;
     let max_width = cycle_register.wrapping_sub(1) & U12_MASK;
-    let clamped_width = cmp::min(pulse_width, max_width);
+    let clamped_width = cmp::min(sample, max_width);
 
     // TODO this is wrong - should treat PWM output as unsigned and maybe high-pass filter to shift the center to 0
     let divisor = 0.5 * f64::from(max_width);
