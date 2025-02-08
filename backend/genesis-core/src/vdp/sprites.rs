@@ -264,10 +264,14 @@ impl Vdp {
         // there was a sprite pixel overflow on the previous scanline.
         let mut found_non_zero = self.sprite_state.dot_overflow_on_prev_line;
 
+        // Whether H=0 sprite masking is active on this line
+        let mut mask_sprites = false;
+
         'outer: for sprite in &buffers.sprites {
             if sprite.h_position == 0 && found_non_zero {
                 // Sprite masking from H=0 sprite; no more sprites will display on this line
-                break;
+                // Masked sprite tiles are still fetched by the VDP, just not displayed
+                mask_sprites = true;
             } else if sprite.h_position != 0 {
                 found_non_zero = true;
             }
@@ -317,6 +321,12 @@ impl Vdp {
                 if tiles_fetched < max_sprite_tiles_per_line {
                     buffers.last_tile_addresses[tiles_fetched as usize] = row_addr;
                     tiles_fetched += 1;
+                }
+
+                if mask_sprites {
+                    // If H=0 sprite masking applies to this tile, it is fetched but not displayed
+                    // Don't bother reading it from VRAM
+                    continue;
                 }
 
                 let cell_left = sprite.h_position + 8 * h_cell;
