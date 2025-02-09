@@ -189,7 +189,7 @@ impl Mode {
             [true, true, false, true] => Self::Four224Line,
             [false, true, false, false] => Self::GraphicsII,
             _ => {
-                log::warn!("Unsupported mode, defaulting to mode 4: {mode_bits:?}");
+                log::debug!("Unsupported mode, defaulting to mode 4: {mode_bits:?}");
                 Self::Four
             }
         }
