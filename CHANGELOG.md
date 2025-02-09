@@ -38,6 +38,8 @@
 * (**Genesis**) Implemented more accurate emulation of how the YM2612 computes operator amplitude from phase and envelope attenuation
 * (**Genesis**) Fixed in-game saves not working correctly when _Sonic & Knuckles_ is locked on to a cartridge with SRAM (e.g. Sonic 3)
 * (**Genesis**) Fixed certain revisions of _QuackShot_ not loading correctly due to having non-standard cartridge ROM address mappings (#174)
+* (**Genesis**) Fixed some illegal 68000 opcodes incorrectly decoding to "valid" instructions (#184 / #185)
+* (**Genesis**) Fixed an edge case related to how sprite tile/pixel overflow interacts with H=0 sprite masking (#186)
 * (**Sega CD**) Implemented a higher minimum seek time for small seek distances; this fixes _Thunder Storm FX_ (JP) failing to boot (#178)
 * (**Sega CD**) Fixed a regression introduced in v0.8.3 that caused PCM chip channels to skip the first sample after being enabled (this made little-to-no audible difference in practice because the first sample is usually 0)
 * (**Sega CD**) Fixed slightly inaccurate emulation of PCM chip looping behavior at sample rates higher than 0x0800 / 32552 Hz
@@ -51,6 +53,7 @@
 * (**SNES**) Mode 7 registers are now latched about 12 pixels before line rendering begins; this fixes a glitchy line near the bottom of the play area in _Battle Clash_, where the screen transitions from Mode 1 to Mode 7
 * (**SNES**) Implemented an obscure behavior regarding the effects of writing to OAM during active display; this fixes incorrect sprite display in _Uniracers_' Vs. mode (#164)
 * (**SNES**) Made a best effort at implementing the effects on sprites of toggling forced blanking during active display; this mostly fixes some test ROMs that exercise this (#162)
+* (**SNES**) Adjusted behavior of APU communication ports when the 65816 writes to a port on the same cycle that the SPC700 clears the port; this fixes _Kishin Douji Zenki: Tenchi Meidou_ failing to boot (#187)
 * (**GB**) Implemented an obscure behavior where pulse channels should output a constant 0 after power-on until after the first phase increment; this fixes missing voice samples in _Daiku no Gen-san - Robot Teikoku no Yabou_ (#151)
 * (**GB**) Fixed a bug related to the pulse channel phase counter reloading on the same cycle as a frequency change via NR13/NR14/NR23/NR24; this combined with the above change fixes missing voice samples in _Keitai Denjuu Telefang_ (#47)
 * (**GB**) Added emulation for a hardware quirk where the Mode 2 STAT interrupt appears to trigger 145 times per frame, not 144; this fixes [GBVideoPlayer](https://github.com/LIJI32/GBVideoPlayer) (#155)
