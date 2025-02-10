@@ -34,7 +34,7 @@ impl Mapper {
             rom[CODEMASTERS_CHECKSUM_ADDR + 1],
         ]);
         let mut checksum = 0_u16;
-        for address in (0..rom.len()).step_by(2) {
+        for address in (0..rom.len() & !1).step_by(2) {
             if !SEGA_HEADER_ADDR_RANGE.contains(&address) {
                 let word = u16::from_le_bytes([rom[address], rom[address + 1]]);
                 checksum = checksum.wrapping_add(word);
@@ -91,7 +91,7 @@ const CARTRIDGE_RAM_SIZE: usize = 32 * 1024;
 const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 
 impl Cartridge {
-    fn new(rom: Vec<u8>, initial_ram: Option<Vec<u8>>) -> Self {
+    fn new(mut rom: Vec<u8>, initial_ram: Option<Vec<u8>>) -> Self {
         let mapper = Mapper::detect_from_rom(&rom);
         log::info!("Detected mapper {mapper:?} from ROM header");
 
@@ -108,6 +108,8 @@ impl Cartridge {
             }
             _ => vec![0; CARTRIDGE_RAM_SIZE],
         };
+
+        jgenesis_common::rom::mirror_to_next_power_of_two(&mut rom);
 
         Self {
             rom: Rom(rom),
