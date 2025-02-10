@@ -251,6 +251,11 @@ fn populate_add(table: &mut InstructionTable) {
     for source in all_addressing_modes() {
         for dest in DataRegister::ALL {
             for size in OpSize::ALL {
+                if size == OpSize::Byte && source.is_address_direct() {
+                    // ADD.B does not support address direct source
+                    continue;
+                }
+
                 let opcode = 0xD000 | size.to_bits() | source.to_bits() | (u16::from(dest.0) << 9);
                 table[opcode as usize] = Instruction::Add {
                     size,
@@ -316,6 +321,11 @@ fn populate_addq(table: &mut InstructionTable) {
     for q_value in 0..8 {
         for dest in dest_addressing_modes() {
             for size in OpSize::ALL {
+                if size == OpSize::Byte && dest.is_address_direct() {
+                    // ADDQ.B does not support address direct destinations
+                    continue;
+                }
+
                 let opcode = 0x5000 | size.to_bits() | dest.to_bits() | (q_value << 9);
                 let source = if q_value == 0 {
                     AddressingMode::Quick(8)
@@ -537,12 +547,16 @@ impl_populate_bit_test!(populate_bset, 0x08C0, 0x01C0, BitTestAndSet);
 
 // Not using the macro because BTST supports PC relative addressing modes
 fn populate_btst(table: &mut InstructionTable) {
-    for dest in all_addressing_modes_no_address_direct() {
+    for dest in
+        all_addressing_modes_no_address_direct().filter(|&am| am != AddressingMode::Immediate)
+    {
         // BTST #<d>, <ea>
         let imm_opcode = 0x0800 | dest.to_bits();
         table[imm_opcode as usize] =
             Instruction::BitTest { source: AddressingMode::Immediate, dest };
+    }
 
+    for dest in all_addressing_modes_no_address_direct() {
         // BTST Dn, <ea>
         for source in DataRegister::ALL {
             let reg_opcode = 0x0100 | dest.to_bits() | (u16::from(source.0) << 9);
@@ -585,6 +599,11 @@ fn populate_cmp(table: &mut InstructionTable) {
     for source in all_addressing_modes() {
         for dest in DataRegister::ALL {
             for size in OpSize::ALL {
+                if size == OpSize::Byte && source.is_address_direct() {
+                    // CMP.B does not support address direct source
+                    continue;
+                }
+
                 let opcode = 0xB000 | size.to_bits() | source.to_bits() | (u16::from(dest.0) << 9);
                 table[opcode as usize] =
                     Instruction::Compare { size, source, dest: AddressingMode::DataDirect(dest) };
@@ -612,9 +631,7 @@ fn populate_cmpa(table: &mut InstructionTable) {
 
 fn populate_cmpi(table: &mut InstructionTable) {
     // CMPI #<d>, <ea>
-    for dest in
-        all_addressing_modes_no_address_direct().filter(|&mode| mode != AddressingMode::Immediate)
-    {
+    for dest in dest_addressing_modes_no_address_direct() {
         for size in OpSize::ALL {
             let opcode = 0x0C00 | size.to_bits() | dest.to_bits();
             table[opcode as usize] =
@@ -772,6 +789,11 @@ fn populate_move(table: &mut InstructionTable) {
     for source in all_addressing_modes() {
         for dest in dest_addressing_modes_no_address_direct() {
             for size in OpSize::ALL {
+                if size == OpSize::Byte && source.is_address_direct() {
+                    // MOVE.B does not support address direct source
+                    continue;
+                }
+
                 // Dest bits are shifted left 6, and mode/register are flipped
                 let raw_dest_bits = dest.to_bits();
                 let dest_bits = ((raw_dest_bits & 0x07) << 9) | ((raw_dest_bits & 0x38) << 3);
@@ -1068,6 +1090,11 @@ fn populate_sub(table: &mut InstructionTable) {
     for source in all_addressing_modes() {
         for dest in DataRegister::ALL {
             for size in OpSize::ALL {
+                if size == OpSize::Byte && source.is_address_direct() {
+                    // SUB.B does not support address direct source
+                    continue;
+                }
+
                 let opcode = 0x9000 | size.to_bits() | source.to_bits() | (u16::from(dest.0) << 9);
                 table[opcode as usize] = Instruction::Subtract {
                     size,
@@ -1132,6 +1159,11 @@ fn populate_subq(table: &mut InstructionTable) {
     // SUBQ #<d>, <ea>
     for dest in dest_addressing_modes() {
         for size in OpSize::ALL {
+            if size == OpSize::Byte && dest.is_address_direct() {
+                // SUBQ.B does not support address direct destinations
+                continue;
+            }
+
             for q_value in 0..8_u16 {
                 let opcode = 0x5100 | size.to_bits() | dest.to_bits() | (q_value << 9);
                 let source = if q_value == 0 {
@@ -1202,7 +1234,7 @@ fn populate_trap(table: &mut InstructionTable) {
 
 fn populate_tst(table: &mut InstructionTable) {
     // TST <ea>
-    for source in all_addressing_modes() {
+    for source in dest_addressing_modes_no_address_direct() {
         for size in OpSize::ALL {
             let opcode = 0x4A00 | size.to_bits() | source.to_bits();
             table[opcode as usize] = Instruction::Test(size, source);

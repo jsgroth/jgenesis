@@ -101,7 +101,8 @@ pub(crate) struct RomReadResult {
 
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct CommonConfig {
-    pub rom_file_path: String,
+    #[cfg_display(path)]
+    pub rom_file_path: PathBuf,
     pub audio_output_frequency: u64,
     pub audio_sync: bool,
     pub audio_dynamic_resampling_ratio: bool,
@@ -110,11 +111,11 @@ pub struct CommonConfig {
     pub audio_gain_db: f64,
     pub save_path: SavePath,
     pub state_path: SavePath,
-    #[debug_fmt]
+    #[cfg_display(debug_fmt)]
     pub window_size: Option<WindowSize>,
-    #[debug_fmt]
+    #[cfg_display(debug_fmt)]
     pub window_scale_factor: Option<f32>,
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub renderer_config: RendererConfig,
     pub fast_forward_multiplier: u64,
     pub rewind_buffer_length_seconds: u64,
@@ -122,7 +123,7 @@ pub struct CommonConfig {
     pub launch_in_fullscreen: bool,
     pub fullscreen_mode: FullscreenMode,
     pub axis_deadzone: i16,
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub hotkey_config: HotkeyConfig,
     pub hide_mouse_cursor: HideMouseCursor,
 }
@@ -153,11 +154,11 @@ impl CommonConfig {
 
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct SmsGgConfig {
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub common: CommonConfig,
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub inputs: SmsGgInputConfig,
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub emulator_config: SmsGgEmulatorConfig,
 }
 
@@ -174,56 +175,63 @@ pub(crate) fn default_smsgg_window_size(
 
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct GenesisConfig {
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub common: CommonConfig,
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub inputs: GenesisInputConfig,
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub emulator_config: GenesisEmulatorConfig,
 }
 
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct SegaCdConfig {
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub genesis: GenesisConfig,
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub emulator_config: SegaCdEmulatorConfig,
-    pub bios_file_path: Option<String>,
+    #[cfg_display(path)]
+    pub bios_file_path: Option<PathBuf>,
     pub run_without_disc: bool,
 }
 
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct Sega32XConfig {
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub genesis: GenesisConfig,
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub emulator_config: Sega32XEmulatorConfig,
 }
 
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct NesConfig {
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub common: CommonConfig,
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub inputs: NesInputConfig,
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub emulator_config: NesEmulatorConfig,
 }
 
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct SnesConfig {
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub common: CommonConfig,
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub inputs: SnesInputConfig,
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub emulator_config: SnesEmulatorConfig,
-    pub dsp1_rom_path: Option<String>,
-    pub dsp2_rom_path: Option<String>,
-    pub dsp3_rom_path: Option<String>,
-    pub dsp4_rom_path: Option<String>,
-    pub st010_rom_path: Option<String>,
-    pub st011_rom_path: Option<String>,
+    #[cfg_display(path)]
+    pub dsp1_rom_path: Option<PathBuf>,
+    #[cfg_display(path)]
+    pub dsp2_rom_path: Option<PathBuf>,
+    #[cfg_display(path)]
+    pub dsp3_rom_path: Option<PathBuf>,
+    #[cfg_display(path)]
+    pub dsp4_rom_path: Option<PathBuf>,
+    #[cfg_display(path)]
+    pub st010_rom_path: Option<PathBuf>,
+    #[cfg_display(path)]
+    pub st011_rom_path: Option<PathBuf>,
 }
 
 impl SnesConfig {
@@ -239,27 +247,27 @@ impl SnesConfig {
     }
 }
 
-fn coprocessor_read_fn(path: String) -> Box<CoprocessorRomFn> {
-    Box::new(move || fs::read(&path).map_err(|err| (err, path.clone())))
+fn coprocessor_read_fn(path: PathBuf) -> Box<CoprocessorRomFn> {
+    Box::new(move || fs::read(&path).map_err(|err| (err, path.display().to_string())))
 }
 
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct GameBoyConfig {
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub common: CommonConfig,
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub inputs: GameBoyInputConfig,
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub emulator_config: GameBoyEmulatorConfig,
 }
 
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct GameBoyAdvanceConfig {
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub common: CommonConfig,
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub inputs: GbaInputConfig,
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub emulator_config: GbaEmulatorConfig,
     pub bios_path: Option<String>,
 }

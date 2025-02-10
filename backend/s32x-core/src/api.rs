@@ -12,7 +12,8 @@ use genesis_core::vdp::{Vdp, VdpTickEffect};
 use genesis_core::ym2612::{Ym2612, YmTickEffect};
 use genesis_core::{GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorTrait, Renderer, SaveWriter, TickEffect, TickResult, TimingMode,
+    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, Renderer, SaveWriter, TickEffect,
+    TickResult, TimingMode,
 };
 use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, PartialClone};
 use m68000_emu::M68000;
@@ -44,10 +45,17 @@ pub enum S32XVideoOut {
 
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct Sega32XEmulatorConfig {
-    #[cfg_display_skip]
+    #[cfg_display(skip)]
     pub genesis: GenesisEmulatorConfig,
     pub video_out: S32XVideoOut,
+    pub apply_genesis_lpf_to_pwm: bool,
     pub pwm_enabled: bool,
+}
+
+impl EmulatorConfigTrait for Sega32XEmulatorConfig {
+    fn with_overclocking_disabled(&self) -> Self {
+        Self { genesis: self.genesis.with_overclocking_disabled(), ..*self }
+    }
 }
 
 macro_rules! new_main_bus {
@@ -147,7 +155,7 @@ impl Sega32XEmulator {
     #[must_use]
     pub fn cartridge_title(&self) -> String {
         genesis_core::memory::parse_title_from_header(
-            &self.memory.medium().cartridge.rom,
+            &self.memory.medium().cartridge().rom,
             self.region,
         )
     }
@@ -167,7 +175,7 @@ impl Sega32XEmulator {
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
         let frame_size = self.vdp.frame_size();
         let aspect_ratio = self.config.genesis.aspect_ratio.to_pixel_aspect_ratio(frame_size, true);
-        self.memory.medium().vdp.render_frame(
+        self.memory.medium_mut().vdp().render_frame(
             self.vdp.frame_buffer(),
             frame_size,
             aspect_ratio,
@@ -237,8 +245,9 @@ impl EmulatorTrait for Sega32XEmulator {
 
         while self.cycles.should_tick_psg() {
             if self.psg.tick() == Sn76489TickEffect::Clocked {
-                let (sample_l, sample_r) = self.psg.sample();
-                self.audio_resampler.collect_psg_sample(sample_l, sample_r);
+                // PSG output is mono in Genesis; stereo output is only for Game Gear
+                let (psg_sample, _) = self.psg.sample();
+                self.audio_resampler.collect_psg_sample(psg_sample);
             }
             self.cycles.decrement_psg();
         }
@@ -247,14 +256,14 @@ impl EmulatorTrait for Sega32XEmulator {
 
         let mut tick_effect = TickEffect::None;
         if self.vdp.tick(mclk_cycles, &mut self.memory) == VdpTickEffect::FrameComplete {
-            self.memory.medium_mut().vdp.composite_frame(
+            self.memory.medium_mut().vdp().composite_frame(
                 self.vdp.frame_size(),
                 self.vdp.border_size(),
                 self.vdp.frame_buffer_mut(),
             );
             self.render_frame(renderer).map_err(Sega32XError::Render)?;
 
-            let cartridge = &mut self.memory.medium_mut().cartridge;
+            let cartridge = self.memory.medium_mut().cartridge_mut();
             if cartridge.persistent_memory_dirty() {
                 cartridge.clear_persistent_dirty_bit();
                 save_writer
@@ -265,8 +274,8 @@ impl EmulatorTrait for Sega32XEmulator {
             tick_effect = TickEffect::FrameRendered;
         }
 
-        debug_assert_eq!(self.vdp.scanline(), self.memory.medium().vdp.scanline());
-        debug_assert_eq!(self.vdp.scanline_mclk(), self.memory.medium().vdp.scanline_mclk());
+        debug_assert_eq!(self.vdp.scanline(), self.memory.medium_mut().vdp().scanline());
+        debug_assert_eq!(self.vdp.scanline_mclk(), self.memory.medium_mut().vdp().scanline_mclk());
 
         Ok(tick_effect)
     }
@@ -304,7 +313,7 @@ impl EmulatorTrait for Sega32XEmulator {
     }
 
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
-        let rom = mem::take(&mut self.memory.medium_mut().cartridge.rom.0);
+        let rom = mem::take(&mut self.memory.medium_mut().cartridge_mut().rom.0);
 
         *self = Self::create(rom, self.config, save_writer);
     }

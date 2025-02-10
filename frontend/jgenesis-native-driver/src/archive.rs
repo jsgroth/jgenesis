@@ -1,5 +1,5 @@
 use crate::config::RomReadResult;
-use std::ffi::OsStr;
+use crate::extensions;
 use std::fs::File;
 use std::io;
 use std::io::{BufReader, Read};
@@ -57,12 +57,8 @@ pub struct ZipEntryMetadata {
     pub size: u64,
 }
 
-fn extract_extension(file_name: &str) -> Option<String> {
-    Path::new(file_name).extension().and_then(OsStr::to_str).map(str::to_ascii_lowercase)
-}
-
 fn extension_matches(file_name: &str, target_extension: &str) -> bool {
-    extract_extension(file_name).is_some_and(|file_ext| file_ext.as_str() == target_extension)
+    extensions::from_path(file_name).is_some_and(|file_ext| file_ext.as_str() == target_extension)
 }
 
 /// Returns metadata of the first file in the .zip archive that has a supported extension, or
@@ -92,7 +88,7 @@ pub fn first_supported_file_in_zip(
 
     let mut first_file_name_with_ext: Option<(String, String)> = None;
     for file_name in archive.file_names() {
-        let Some(extension) = extract_extension(file_name) else {
+        let Some(extension) = extensions::from_path(file_name) else {
             continue;
         };
 
@@ -188,7 +184,7 @@ pub(crate) fn read_first_file_in_zip(
 
     let file_names: Vec<_> = archive.file_names().map(String::from).collect();
     for file_name in file_names {
-        let Some(extension) = extract_extension(&file_name) else {
+        let Some(extension) = extensions::from_path(&file_name) else {
             continue;
         };
 

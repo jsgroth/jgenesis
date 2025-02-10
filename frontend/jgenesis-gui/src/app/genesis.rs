@@ -2,13 +2,15 @@ mod helptext;
 
 use crate::app::{App, Console, OpenWindow};
 use crate::emuthread::EmuThreadStatus;
-use egui::{Context, Slider, Window};
-use genesis_core::audio::LowPassFilter;
-use genesis_core::{GenesisAspectRatio, GenesisRegion};
+use crate::widgets::OverclockSlider;
+use egui::{Context, Window};
+use genesis_core::{GenesisAspectRatio, GenesisLowPassFilter, GenesisRegion};
 use jgenesis_common::frontend::TimingMode;
 use rfd::FileDialog;
 use s32x_core::api::S32XVideoOut;
-use segacd_core::api::PcmInterpolation;
+use segacd_core::api::{PcmInterpolation, PcmLowPassFilter};
+use std::num::{NonZeroU16, NonZeroU64};
+use std::path::PathBuf;
 
 impl App {
     pub(super) fn render_genesis_general_settings(&mut self, ctx: &Context) {
@@ -92,8 +94,8 @@ impl App {
                                 .config
                                 .sega_cd
                                 .bios_path
-                                .as_ref()
-                                .map_or("<None>", String::as_str);
+                                .as_deref()
+                                .map_or("<None>".into(), |path| path.display().to_string());
                             if ui.button(bios_path_str).clicked() {
                                 if let Some(bios_path) = pick_scd_bios_path() {
                                     self.config.sega_cd.bios_path = Some(bios_path);
@@ -114,7 +116,7 @@ impl App {
             let rect = ui
                 .checkbox(
                     &mut self.config.sega_cd.enable_ram_cartridge,
-                    "Enable Sega CD RAM cartridge",
+                    "(Sega CD) Enable RAM cartridge",
                 )
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
@@ -125,7 +127,7 @@ impl App {
             let rect = ui
                 .checkbox(
                     &mut self.config.sega_cd.load_disc_into_ram,
-                    "(Sega CD) Load CD-ROM images into RAM at startup",
+                    "(Sega CD) Load CD-ROM images into host RAM at startup",
                 )
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
@@ -133,26 +135,70 @@ impl App {
             }
 
             ui.add_space(5.0);
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    let rect = ui
+                        .add(OverclockSlider {
+                            label: "Genesis 68000 clock divider",
+                            current_value: &mut self.config.genesis.m68k_clock_divider,
+                            range: 1..=7,
+                            master_clock: genesis_core::audio::NTSC_GENESIS_MCLK_FREQUENCY,
+                            default_divider: genesis_core::timing::NATIVE_M68K_DIVIDER as f64,
+                        })
+                        .interact_rect;
+                    if ui.rect_contains_pointer(rect) {
+                        self.state.help_text.insert(WINDOW, helptext::M68K_CLOCK_DIVIDER);
+                    }
+                });
+
+                ui.vertical(|ui| {
+                    let rect = ui
+                        .add(OverclockSlider {
+                            label: "Sega CD sub 68000 clock divider",
+                            current_value: &mut self.config.sega_cd.sub_cpu_divider,
+                            range: NonZeroU64::new(1).unwrap()..=NonZeroU64::new(4).unwrap(),
+                            master_clock: segacd_core::api::SEGA_CD_MASTER_CLOCK_RATE as f64,
+                            default_divider: segacd_core::api::DEFAULT_SUB_CPU_DIVIDER as f64,
+                        })
+                        .interact_rect;
+                    if ui.rect_contains_pointer(rect) {
+                        self.state.help_text.insert(WINDOW, helptext::SCD_SUB_CPU_DIVIDER);
+                    }
+                });
+            });
+
+            ui.add_space(5.0);
             let rect = ui
                 .group(|ui| {
-                    ui.label("Genesis 68000 clock divider");
-                    ui.add(Slider::new(&mut self.config.genesis.m68k_clock_divider, 1..=7));
+                    ui.label("Sega CD disc drive speed (low compatibility)");
 
-                    let effective_speed_ratio = 100.0
-                        * genesis_core::timing::NATIVE_M68K_DIVIDER as f64
-                        / self.config.genesis.m68k_clock_divider as f64;
-                    let effective_speed_mhz = genesis_core::audio::NTSC_GENESIS_MCLK_FREQUENCY
-                        / self.config.genesis.m68k_clock_divider as f64
-                        / 1_000_000.0;
-                    ui.label(format!(
-                        "Effective speed: {effective_speed_mhz:.2} MHz ({}%)",
-                        effective_speed_ratio.round()
-                    ));
+                    ui.horizontal(|ui| {
+                        ui.radio_value(
+                            &mut self.config.sega_cd.disc_drive_speed,
+                            NonZeroU16::new(1).unwrap(),
+                            "1x (Native)",
+                        );
+                        ui.radio_value(
+                            &mut self.config.sega_cd.disc_drive_speed,
+                            NonZeroU16::new(2).unwrap(),
+                            "2x",
+                        );
+                        ui.radio_value(
+                            &mut self.config.sega_cd.disc_drive_speed,
+                            NonZeroU16::new(3).unwrap(),
+                            "3x",
+                        );
+                        ui.radio_value(
+                            &mut self.config.sega_cd.disc_drive_speed,
+                            NonZeroU16::new(4).unwrap(),
+                            "4x",
+                        );
+                    });
                 })
                 .response
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::M68K_CLOCK_DIVIDER);
+                self.state.help_text.insert(WINDOW, helptext::SCD_DRIVE_SPEED);
             }
 
             self.render_help_text(ui, WINDOW);
@@ -345,57 +391,85 @@ impl App {
                 self.state.help_text.insert(WINDOW, helptext::YM2612_LADDER_EFFECT);
             }
 
-            let rect = ui
-                .group(|ui| {
-                    ui.label("Low-pass filter");
+            ui.group(|ui| {
+                ui.label("Low-pass filtering");
 
-                    ui.radio_value(
-                        &mut self.config.genesis.low_pass_filter,
-                        LowPassFilter::Sharp,
-                        "Sharp (~15000 Hz cutoff)",
-                    );
-                    ui.radio_value(
-                        &mut self.config.genesis.low_pass_filter,
-                        LowPassFilter::Moderate,
-                        "Moderate (~10000 Hz cutoff)",
-                    );
-                    ui.radio_value(
-                        &mut self.config.genesis.low_pass_filter,
-                        LowPassFilter::Soft,
-                        "Soft (~8000 Hz cutoff)",
-                    );
-                    ui.radio_value(
-                        &mut self.config.genesis.low_pass_filter,
-                        LowPassFilter::VerySoft,
-                        "Very soft (~5000 Hz cutoff)",
-                    );
-                })
-                .response
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::LOW_PASS_FILTER);
-            }
+                let mut gen_low_pass =
+                    self.config.genesis.low_pass == GenesisLowPassFilter::Model1Va2;
+                let rect = ui
+                    .checkbox(&mut gen_low_pass, "Emulate 3.39 KHz low-pass filter")
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::GENESIS_LOW_PASS);
+                }
+                self.config.genesis.low_pass = if gen_low_pass {
+                    GenesisLowPassFilter::Model1Va2
+                } else {
+                    GenesisLowPassFilter::None
+                };
 
+                let mut pcm_low_pass = self.config.sega_cd.pcm_low_pass == PcmLowPassFilter::SegaCd;
+                let rect = ui
+                    .checkbox(
+                        &mut pcm_low_pass,
+                        "(Sega CD) Apply 7.97 KHz low-pass filter to PCM chip",
+                    )
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::PCM_LOW_PASS);
+                }
+                self.config.sega_cd.pcm_low_pass =
+                    if pcm_low_pass { PcmLowPassFilter::SegaCd } else { PcmLowPassFilter::None };
+
+                let rect = ui
+                    .add_enabled_ui(gen_low_pass, |ui| {
+                        ui.checkbox(
+                            &mut self.config.sega_cd.apply_genesis_lpf_to_pcm,
+                            "(Sega CD) Apply Genesis low-pass filter to PCM chip",
+                        );
+                        ui.checkbox(
+                            &mut self.config.sega_cd.apply_genesis_lpf_to_cd_da,
+                            "(Sega CD) Apply Genesis low-pass filter to CD-DA",
+                        );
+                    })
+                    .response
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::SCD_GEN_LOW_PASS);
+                }
+
+                let rect = ui
+                    .add_enabled_ui(gen_low_pass, |ui| {
+                        ui.checkbox(
+                            &mut self.config.sega_32x.apply_genesis_lpf_to_pwm,
+                            "(32X) Apply Genesis low-pass filter to PWM chip",
+                        );
+                    })
+                    .response
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::S32X_GEN_LOW_PASS);
+                }
+            });
+
+            ui.add_space(5.0);
             let rect = ui
                 .group(|ui| {
                     ui.label("Sega CD PCM chip interpolation");
 
                     ui.horizontal(|ui| {
-                        ui.radio_value(
-                            &mut self.config.sega_cd.pcm_interpolation,
-                            PcmInterpolation::None,
-                            "None",
-                        );
-                        ui.radio_value(
-                            &mut self.config.sega_cd.pcm_interpolation,
-                            PcmInterpolation::Linear,
-                            "Linear",
-                        );
-                        ui.radio_value(
-                            &mut self.config.sega_cd.pcm_interpolation,
-                            PcmInterpolation::CubicHermite,
-                            "Cubic",
-                        );
+                        for (value, label) in [
+                            (PcmInterpolation::None, "None"),
+                            (PcmInterpolation::Linear, "Linear"),
+                            (PcmInterpolation::CubicHermite, "4-point Cubic"),
+                            (PcmInterpolation::CubicHermite6Point, "6-point Cubic"),
+                        ] {
+                            ui.radio_value(
+                                &mut self.config.sega_cd.pcm_interpolation,
+                                value,
+                                label,
+                            );
+                        }
                     });
                 })
                 .response
@@ -408,14 +482,24 @@ impl App {
                 .group(|ui| {
                     ui.label("Enabled sound sources");
 
-                    ui.checkbox(&mut self.config.genesis.ym2612_enabled, "YM2612 FM chip");
-                    ui.checkbox(&mut self.config.genesis.psg_enabled, "SN76489 PSG chip");
-                    ui.checkbox(&mut self.config.sega_cd.pcm_enabled, "RF5C164 PCM chip (Sega CD)");
-                    ui.checkbox(
-                        &mut self.config.sega_cd.cd_audio_enabled,
-                        "CD-DA playback (Sega CD)",
-                    );
-                    ui.checkbox(&mut self.config.sega_32x.pwm_enabled, "PWM chip (32X)");
+                    ui.horizontal(|ui| {
+                        ui.checkbox(
+                            &mut self.config.genesis.ym2612_enabled,
+                            "YM2612 FM synth chip",
+                        );
+                        ui.checkbox(&mut self.config.genesis.psg_enabled, "SN76489 PSG chip");
+                    });
+                    ui.horizontal(|ui| {
+                        ui.checkbox(
+                            &mut self.config.sega_cd.pcm_enabled,
+                            "(Sega CD) RF5C164 PCM chip",
+                        );
+                        ui.checkbox(
+                            &mut self.config.sega_cd.cd_audio_enabled,
+                            "(Sega CD) CD-DA playback",
+                        );
+                    });
+                    ui.checkbox(&mut self.config.sega_32x.pwm_enabled, "(32X) PWM chip");
                 })
                 .response
                 .interact_rect;
@@ -455,11 +539,6 @@ impl App {
     }
 }
 
-fn pick_scd_bios_path() -> Option<String> {
-    let path = FileDialog::new()
-        .add_filter("bin", &["bin"])
-        .add_filter("All Types", &["*"])
-        .pick_file()?;
-
-    path.to_str().map(String::from)
+fn pick_scd_bios_path() -> Option<PathBuf> {
+    FileDialog::new().add_filter("bin", &["bin"]).add_filter("All Types", &["*"]).pick_file()
 }

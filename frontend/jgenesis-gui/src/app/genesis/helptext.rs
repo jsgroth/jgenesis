@@ -46,6 +46,23 @@ pub const M68K_CLOCK_DIVIDER: HelpText = HelpText {
     ],
 };
 
+pub const SCD_SUB_CPU_DIVIDER: HelpText = HelpText {
+    heading: "Sega CD 68000 Clock Divider",
+    text: &[
+        "Optionally overclock the Sega CD sub CPU by reducing the master clock divider.",
+        "Overclocking can cause major glitches. Some games may additionally require overclocking the main CPU when the sub CPU is overclocked.",
+        "Note that a clock divider lower than 3 may significantly increase the emulator's CPU usage.",
+    ],
+};
+
+pub const SCD_DRIVE_SPEED: HelpText = HelpText {
+    heading: "Sega CD Disc Drive Speed",
+    text: &[
+        "Optionally increase the speed of the Sega CD's CD-ROM drive when reading data tracks. This may shorten loading times in some games.",
+        "Warning: Increasing the drive speed is VERY likely to cause major glitches, particularly in games that play FMVs or animated cutscenes. Overclocking the sub CPU may improve compatibility with some games.",
+    ],
+};
+
 pub const ASPECT_RATIO: HelpText = HelpText {
     heading: "Aspect Ratio",
     text: &[
@@ -126,11 +143,35 @@ pub const YM2612_LADDER_EFFECT: HelpText = HelpText {
     ],
 };
 
-pub const LOW_PASS_FILTER: HelpText = HelpText {
-    heading: "Low-Pass Filter",
+pub const GENESIS_LOW_PASS: HelpText = HelpText {
+    heading: "Genesis Low-Pass Filter",
     text: &[
-        "Configure which low-pass filter to use on audio output.",
-        "Some Genesis hardware models had low-pass filters with low cutoff frequencies, which makes the audio sound softer and somewhat muffled. Some game audio is designed around a lower cutoff frequency.",
+        "If enabled, apply a 3.39 KHz first-order low-pass filter to Genesis audio output. This should be similar to the filter found in early Model 1 consoles.",
+        "Low-pass filtering makes the audio sound softer and somewhat muffled. Some game audio is designed around this effect.",
+    ],
+};
+
+pub const PCM_LOW_PASS: HelpText = HelpText {
+    heading: "Sega CD PCM Low-Pass Filter",
+    text: &[
+        "If enabled, apply a 7.97 KHz second-order low-pass filter to PCM chip audio output.",
+        "This may not be accurate to actual hardware, but it produces a significantly cleaner sound than not low-pass filtering.",
+    ],
+};
+
+pub const SCD_GEN_LOW_PASS: HelpText = HelpText {
+    heading: "Apply Genesis LPF to Sega CD",
+    text: &[
+        "Choose whether to apply the 3.39 KHz Genesis low-pass filter to Sega CD audio output. This can be configured independently for the PCM chip and CD-DA.",
+        "In actual hardware, Sega CD audio output may or may not pass through the Genesis low-pass filter depending on where the Sega CD audio output is connected.",
+    ],
+};
+
+pub const S32X_GEN_LOW_PASS: HelpText = HelpText {
+    heading: "Apply Genesis LPF to 32X",
+    text: &[
+        "Choose whether to apply the 3.39 KHz Genesis low-pass filter to 32X PWM audio output.",
+        "In actual hardware, 32X audio output may or may not pass through the Genesis low-pass filter depending on where the 32X audio output is connected.",
     ],
 };
 
@@ -139,7 +180,7 @@ pub const SCD_PCM_INTERPOLATION: HelpText = HelpText {
     text: &[
         "Choose the method used to interpolate when a PCM sound chip channel is partway between samples.",
         "Not interpolating is more accurate to hardware but tends to cause significant audio aliasing in PCM chip audio output.",
-        "Cubic interpolation is generally higher-quality than linear, but may sound more muffled at low sample rates.",
+        "In terms of quality, generally 6-point cubic is best and linear is worst, but higher-quality interpolation may sound more muffled at low sample rates.",
     ],
 };
 

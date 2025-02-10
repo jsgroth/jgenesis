@@ -1,44 +1,39 @@
 use crate::app::Console;
 use jgenesis_native_config::RecentOpen;
+use jgenesis_native_driver::extensions;
 use regex::Regex;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, LazyLock, Mutex, mpsc};
 use std::{fs, io, thread};
 
-pub const ALL_EXTENSIONS: &[&str] = &[
-    "sms", "gg", "md", "bin", "cue", "chd", "32x", "nes", "sfc", "smc", "gb", "gbc", "gba", "zip",
-    "7z",
-];
-
-const SMSGG_EXTENSIONS: &[&str] = &["sms", "gg"];
-const GENESIS_EXTENSIONS: &[&str] = &["md", "bin"];
-const SCD_EXTENSIONS: &[&str] = &["cue", "chd"];
-const S32X_EXTENSIONS: &[&str] = &["32x"];
-const NES_EXTENSIONS: &[&str] = &["nes"];
-const SNES_EXTENSIONS: &[&str] = &["sfc", "smc"];
-const GB_EXTENSIONS: &[&str] = &["gb", "gbc"];
-const GBA_EXTENSIONS: &[&str] = &["gba"];
+fn build_extension_lookup() -> HashMap<&'static str, Console> {
+    [
+        (extensions::MASTER_SYSTEM, Console::MasterSystem),
+        (extensions::GAME_GEAR, Console::GameGear),
+        (extensions::GENESIS, Console::Genesis),
+        (extensions::SEGA_CD, Console::SegaCd),
+        (extensions::SEGA_32X, Console::Sega32X),
+        (extensions::NES, Console::Nes),
+        (extensions::SNES, Console::Snes),
+        (extensions::GAME_BOY, Console::GameBoy),
+        (extensions::GAME_BOY_COLOR, Console::GameBoyColor),
+        (extensions::GAME_BOY_ADVANCE, Console::GameBoyAdvance),
+    ]
+    .into_iter()
+    .flat_map(|(extensions, console)| extensions.iter().map(move |&extension| (extension, console)))
+    .collect()
+}
 
 impl Console {
     fn from_extension(extension: &str) -> Option<Self> {
-        match extension {
-            "sms" => Some(Self::MasterSystem),
-            "gg" => Some(Self::GameGear),
-            "md" | "bin" => Some(Self::Genesis),
-            "cue" | "chd" => Some(Self::SegaCd),
-            "32x" => Some(Self::Sega32X),
-            "nes" => Some(Self::Nes),
-            "sfc" | "smc" => Some(Self::Snes),
-            "gb" => Some(Self::GameBoy),
-            "gbc" => Some(Self::GameBoyColor),
-            "gba" => Some(Self::GameBoyAdvance),
-            _ => None,
-        }
+        static LOOKUP: LazyLock<HashMap<&'static str, Console>> =
+            LazyLock::new(build_extension_lookup);
+        LOOKUP.get(&extension).copied()
     }
 
     #[must_use]
@@ -60,21 +55,21 @@ impl Console {
     #[must_use]
     pub fn supported_extensions(self) -> &'static [&'static str] {
         match self {
-            Self::MasterSystem | Self::GameGear => SMSGG_EXTENSIONS,
-            Self::Genesis => GENESIS_EXTENSIONS,
-            Self::SegaCd => SCD_EXTENSIONS,
-            Self::Sega32X => S32X_EXTENSIONS,
-            Self::Nes => NES_EXTENSIONS,
-            Self::Snes => SNES_EXTENSIONS,
-            Self::GameBoy | Self::GameBoyColor => GB_EXTENSIONS,
-            Self::GameBoyAdvance => GBA_EXTENSIONS,
+            Self::MasterSystem | Self::GameGear => &extensions::SMSGG,
+            Self::Genesis => extensions::GENESIS,
+            Self::SegaCd => extensions::SEGA_CD,
+            Self::Sega32X => extensions::SEGA_32X,
+            Self::Nes => extensions::NES,
+            Self::Snes => extensions::SNES,
+            Self::GameBoy | Self::GameBoyColor => &extensions::GB_GBC,
+            Self::GameBoyAdvance => extensions::GAME_BOY_ADVANCE,
         }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct RomMetadata {
-    pub full_path: String,
+    pub full_path: PathBuf,
     pub file_name_no_ext: String,
     pub console: Console,
     pub file_size: u64,
@@ -106,19 +101,17 @@ pub fn build(rom_search_dirs: &[String]) -> Vec<RomMetadata> {
     // Remove any files that are referenced in .cue files
     let cd_bin_file_names = metadata
         .iter()
-        .filter(|metadata| {
-            Path::new(&metadata.full_path).extension().and_then(OsStr::to_str) == Some("cue")
-        })
+        .filter(|metadata| extensions::from_path(&metadata.full_path).as_deref() == Some("cue"))
         .filter_map(|metadata| {
             let path = Path::new(&metadata.full_path);
 
             let cue_directory = path.parent()?;
             let cue_contents = fs::read_to_string(path).ok()?;
 
-            let file_names = parse_bin_file_names(&cue_contents)
-                .filter_map(|file_name| cue_directory.join(file_name).to_str().map(String::from))
+            let file_paths = parse_bin_file_names(&cue_contents)
+                .map(|file_name| cue_directory.join(file_name))
                 .collect::<Vec<_>>();
-            Some(file_names)
+            Some(file_paths)
         })
         .flatten()
         .collect::<HashSet<_>>();
@@ -136,44 +129,54 @@ pub fn read_metadata(path: &Path) -> Option<RomMetadata> {
 }
 
 fn process_file(file_name: &str, path: &Path, metadata: fs::Metadata) -> Option<RomMetadata> {
-    let full_path = path.to_str().map(String::from)?;
-    let file_name_no_ext = Path::new(&file_name).with_extension("").to_string_lossy().to_string();
-    let extension = Path::new(&file_name).extension().and_then(OsStr::to_str)?;
+    let file_name_no_ext = Path::new(file_name).with_extension("").to_string_lossy().to_string();
+    let extension = extensions::from_path(file_name)?;
 
-    match extension {
+    match extension.as_str() {
         "zip" => {
             let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_zip(
                 path,
-                jgenesis_native_driver::all_supported_extensions(),
+                &extensions::ALL_CARTRIDGE_BASED,
             )
             .ok()
             .flatten()?;
+
             let console = Console::from_extension(&zip_entry.extension)?;
-            Some(RomMetadata { full_path, file_name_no_ext, console, file_size: zip_entry.size })
+            Some(RomMetadata {
+                full_path: path.into(),
+                file_name_no_ext,
+                console,
+                file_size: zip_entry.size,
+            })
         }
         "7z" => {
             let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_7z(
                 path,
-                jgenesis_native_driver::all_supported_extensions(),
+                &extensions::ALL_CARTRIDGE_BASED,
             )
             .ok()
             .flatten()?;
             let console = Console::from_extension(&zip_entry.extension)?;
-            Some(RomMetadata { full_path, file_name_no_ext, console, file_size: zip_entry.size })
+            Some(RomMetadata {
+                full_path: path.into(),
+                file_name_no_ext,
+                console,
+                file_size: zip_entry.size,
+            })
         }
         _ => {
-            let console = Console::from_extension(extension)?;
-            let file_size = match extension {
-                "cue" => sega_cd_file_size(&full_path).ok()?,
+            let console = Console::from_extension(&extension)?;
+            let file_size = match extension.as_str() {
+                "cue" => sega_cd_file_size(path).ok()?,
                 _ => metadata.len(),
             };
 
-            Some(RomMetadata { full_path, file_name_no_ext, console, file_size })
+            Some(RomMetadata { full_path: path.into(), file_name_no_ext, console, file_size })
         }
     }
 }
 
-fn sega_cd_file_size(cue_path: &str) -> io::Result<u64> {
+fn sega_cd_file_size(cue_path: &Path) -> io::Result<u64> {
     let cue_contents = fs::read_to_string(cue_path)?;
     let cue_directory =
         Path::new(cue_path).parent().expect("Valid file should always have a parent dir");
@@ -208,7 +211,7 @@ pub fn from_recent_opens(recent_opens: &[RecentOpen]) -> Vec<RomMetadata> {
                 path.with_extension("").file_name()?.to_string_lossy().to_string();
             let metadata = fs::metadata(path).ok()?;
 
-            let file_size = match path.extension().and_then(OsStr::to_str) {
+            let file_size = match extensions::from_path(path).as_deref() {
                 Some("cue") => sega_cd_file_size(path_str).ok()?,
                 _ => metadata.len(),
             };

@@ -89,7 +89,13 @@ pub enum CdRomFileFormat {
 
 impl CdRomFileFormat {
     pub fn from_file_path<P: AsRef<Path>>(path: P) -> Option<Self> {
-        match path.as_ref().extension().and_then(OsStr::to_str) {
+        match path
+            .as_ref()
+            .extension()
+            .map(OsStr::to_ascii_lowercase)
+            .as_ref()
+            .and_then(|s| s.to_str())
+        {
             Some("cue") => Some(Self::CueBin),
             Some("chd") => Some(Self::Chd),
             _ => None,

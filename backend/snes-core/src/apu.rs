@@ -38,6 +38,8 @@ struct ApuRegisters {
     boot_rom_mapped: bool,
     main_cpu_communication: [u8; 4],
     spc700_communication: [u8; 4],
+    port_01_reset: bool,
+    port_23_reset: bool,
     timer_0: SlowTimer,
     timer_1: SlowTimer,
     timer_2: FastTimer,
@@ -51,6 +53,8 @@ impl ApuRegisters {
             boot_rom_mapped: true,
             main_cpu_communication: [0; 4],
             spc700_communication: [0; 4],
+            port_01_reset: false,
+            port_23_reset: false,
             timer_0: SlowTimer::new(),
             timer_1: SlowTimer::new(),
             timer_2: FastTimer::new(),
@@ -109,11 +113,13 @@ impl ApuRegisters {
                 if value.bit(4) {
                     self.main_cpu_communication[0] = 0;
                     self.main_cpu_communication[1] = 0;
+                    self.port_01_reset = true;
                 }
 
                 if value.bit(5) {
                     self.main_cpu_communication[2] = 0;
                     self.main_cpu_communication[3] = 0;
+                    self.port_23_reset = true;
                 }
 
                 self.boot_rom_mapped = value.bit(7);
@@ -292,6 +298,9 @@ impl Apu {
     }
 
     fn clock(&mut self) {
+        self.registers.port_01_reset = false;
+        self.registers.port_23_reset = false;
+
         self.spc700.tick(&mut new_spc700_bus!(self));
 
         self.registers.timer_0.tick();
@@ -304,7 +313,19 @@ impl Apu {
     }
 
     pub fn write_port(&mut self, address: u32, value: u8) {
-        self.registers.main_cpu_communication[(address & 0x3) as usize] = value;
+        let port_idx = address & 0x3;
+
+        if (self.registers.port_01_reset && port_idx <= 1)
+            || (self.registers.port_23_reset && port_idx >= 2)
+        {
+            // Discard 65816 communication port writes that occur on the same cycle as a latch
+            // reset via the SPC700 writing bits 4/5 in $F1.
+            // This fixes Kishin Douji Zenki: Tenchi Meidou failing to boot due to a livelock between
+            // the two CPUs
+            return;
+        }
+
+        self.registers.main_cpu_communication[port_idx as usize] = value;
     }
 
     pub fn reset(&mut self) {

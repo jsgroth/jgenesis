@@ -598,13 +598,16 @@ fn log_bus_control_write(address: u32, value: u32) {
             log::trace!("  RAS precharge time: {}", if value.bit(15) { 2 } else { 1 });
             log::trace!("  RAS-CAS delay: {}", if value.bit(14) { 2 } else { 1 });
             log::trace!("  Write precharge delay: {}", if value.bit(13) { 2 } else { 1 });
-            log::trace!("  CAS-before-RAS refresh RAS assert time: {}", match (value >> 11) & 3 {
-                0 => "2 cycles",
-                1 => "3 cycles",
-                2 => "4 cycles",
-                3 => "(Reserved)",
-                _ => unreachable!(),
-            });
+            log::trace!(
+                "  CAS-before-RAS refresh RAS assert time: {}",
+                match (value >> 11) & 3 {
+                    0 => "2 cycles",
+                    1 => "3 cycles",
+                    2 => "4 cycles",
+                    3 => "(Reserved)",
+                    _ => unreachable!(),
+                }
+            );
             log::trace!("  Burst enabled: {}", value.bit(10));
             log::trace!("  RAS down mode enabled: {}", value.bit(9));
             log::trace!(

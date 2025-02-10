@@ -1,16 +1,16 @@
-use genesis_core::audio::LowPassFilter;
 use genesis_core::input::GenesisControllerType;
-use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig};
+use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig, GenesisLowPassFilter};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, PrescaleMode, RendererConfig, Scanlines,
     VSyncMode, WgpuBackend,
 };
+use segacd_core::api::{PcmInterpolation, PcmLowPassFilter, SegaCdEmulatorConfig};
 use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsGgEmulatorConfig, SmsModel, SmsRegion};
 use snes_core::api::{AudioInterpolationMode, SnesAspectRatio, SnesEmulatorConfig};
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::num::{NonZeroU32, NonZeroU64};
+use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 use std::ops::Deref;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
@@ -100,6 +100,7 @@ pub struct GenesisWebConfig {
     aspect_ratio: GenesisAspectRatio,
     remove_sprite_limits: bool,
     emulate_non_linear_vdp_dac: bool,
+    low_pass: GenesisLowPassFilter,
     render_vertical_border: bool,
     render_horizontal_border: bool,
     m68k_divider: u64,
@@ -111,6 +112,7 @@ impl Default for GenesisWebConfig {
             aspect_ratio: GenesisAspectRatio::default(),
             remove_sprite_limits: false,
             emulate_non_linear_vdp_dac: false,
+            low_pass: GenesisLowPassFilter::default(),
             render_vertical_border: false,
             render_horizontal_border: false,
             m68k_divider: genesis_core::timing::NATIVE_M68K_DIVIDER,
@@ -140,7 +142,7 @@ impl GenesisWebConfig {
             backdrop_enabled: true,
             quantize_ym2612_output: true,
             emulate_ym2612_ladder_effect: true,
-            low_pass_filter: LowPassFilter::Moderate,
+            low_pass: self.low_pass,
             ym2612_enabled: true,
             psg_enabled: true,
         }
@@ -172,6 +174,24 @@ pub struct WebConfig {
     pub smsgg: SmsGgWebConfig,
     pub genesis: GenesisWebConfig,
     pub snes: SnesWebConfig,
+}
+
+impl WebConfig {
+    pub fn to_sega_cd_config(&self) -> SegaCdEmulatorConfig {
+        SegaCdEmulatorConfig {
+            genesis: self.genesis.to_emulator_config(),
+            pcm_interpolation: PcmInterpolation::CubicHermite,
+            enable_ram_cartridge: true,
+            load_disc_into_ram: true,
+            disc_drive_speed: NonZeroU16::new(1).unwrap(),
+            sub_cpu_divider: NonZeroU64::new(segacd_core::api::DEFAULT_SUB_CPU_DIVIDER).unwrap(),
+            pcm_low_pass: PcmLowPassFilter::default(),
+            apply_genesis_lpf_to_pcm: false,
+            apply_genesis_lpf_to_cd_da: false,
+            pcm_enabled: true,
+            cd_audio_enabled: true,
+        }
+    }
 }
 
 #[wasm_bindgen]
@@ -251,6 +271,14 @@ impl WebConfigRef {
 
     pub fn set_genesis_emulate_non_linear_dac(&self, emulate_non_linear_dac: bool) {
         self.borrow_mut().genesis.emulate_non_linear_vdp_dac = emulate_non_linear_dac;
+    }
+
+    pub fn set_genesis_emulate_low_pass(&self, emulate_low_pass: bool) {
+        self.borrow_mut().genesis.low_pass = if emulate_low_pass {
+            GenesisLowPassFilter::Model1Va2
+        } else {
+            GenesisLowPassFilter::None
+        };
     }
 
     pub fn set_genesis_render_vertical_border(&self, render_vertical_border: bool) {

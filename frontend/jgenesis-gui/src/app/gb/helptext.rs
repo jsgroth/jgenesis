@@ -46,3 +46,11 @@ pub const GBC_COLOR_CORRECTION: HelpText = HelpText {
         "There is also an option to attempt to emulate how the original Game Boy Advance LCD displays colors, which is significantly darker than even the GBC LCD.",
     ],
 };
+
+pub const AUDIO_RESAMPLING: HelpText = HelpText {
+    heading: "Audio Resampling Algorithm",
+    text: &[
+        "Choose the algorithm used to resample from the Game Boy native sample rate to the output sample rate.",
+        "Windowed sinc interpolation is higher quality and sharper, but it can be much more performance-intensive.",
+    ],
+};

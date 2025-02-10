@@ -2,9 +2,8 @@ use crate::config::RomReadResult;
 use crate::config::{GenesisConfig, Sega32XConfig, SegaCdConfig};
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{NativeEmulatorError, debug, save};
-use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
+use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config, extensions};
 use genesis_core::{GenesisEmulator, GenesisInputs};
-use jgenesis_common::frontend::EmulatorTrait;
 use s32x_core::api::Sega32XEmulator;
 use segacd_core::CdRomFileFormat;
 use segacd_core::api::{SegaCdEmulator, SegaCdLoadResult};
@@ -12,9 +11,6 @@ use std::fs;
 use std::path::Path;
 
 pub type NativeGenesisEmulator = NativeEmulator<GenesisEmulator>;
-
-pub const GENESIS_SUPPORTED_EXTENSIONS: &[&str] = &["md", "bin"];
-pub const S32X_SUPPORTED_EXTENSIONS: &[&str] = &["32x"];
 
 impl NativeGenesisEmulator {
     /// # Errors
@@ -25,8 +21,7 @@ impl NativeGenesisEmulator {
 
         self.reload_common_config(&config.common)?;
 
-        self.emulator.reload_config(&config.emulator_config);
-        self.config = config.emulator_config;
+        self.update_emulator_config(&config.emulator_config);
 
         self.input_mapper.update_mappings(
             config.common.axis_deadzone,
@@ -49,8 +44,7 @@ impl NativeSegaCdEmulator {
 
         self.reload_common_config(&config.genesis.common)?;
 
-        self.emulator.reload_config(&config.emulator_config);
-        self.config = config.emulator_config;
+        self.update_emulator_config(&config.emulator_config);
 
         self.input_mapper.update_mappings(
             config.genesis.common.axis_deadzone,
@@ -114,8 +108,7 @@ impl Native32XEmulator {
 
         self.reload_common_config(&config.genesis.common)?;
 
-        self.emulator.reload_config(&config.emulator_config);
-        self.config = config.emulator_config;
+        self.update_emulator_config(&config.emulator_config);
 
         self.input_mapper.update_mappings(
             config.genesis.common.axis_deadzone,
@@ -136,8 +129,7 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
     log::info!("Running with config: {config}");
 
     let rom_path = Path::new(&config.common.rom_file_path);
-    let RomReadResult { rom, extension } =
-        config.common.read_rom_file(GENESIS_SUPPORTED_EXTENSIONS)?;
+    let RomReadResult { rom, extension } = config.common.read_rom_file(extensions::GENESIS)?;
 
     let DeterminedPaths { save_path, save_state_path } = save::determine_save_paths(
         &config.common.save_path,
@@ -245,7 +237,7 @@ pub fn create_32x(config: Box<Sega32XConfig>) -> NativeEmulatorResult<Native32XE
 
     let rom_path = Path::new(&config.genesis.common.rom_file_path);
     let RomReadResult { rom, extension } =
-        config.genesis.common.read_rom_file(S32X_SUPPORTED_EXTENSIONS)?;
+        config.genesis.common.read_rom_file(extensions::SEGA_32X)?;
 
     let DeterminedPaths { save_path, save_state_path } = save::determine_save_paths(
         &config.genesis.common.save_path,

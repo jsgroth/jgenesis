@@ -154,10 +154,13 @@ impl GbcApu {
     // $04000062: SOUND1CNT_H (NR11 + NR12 from GBC) (Duty cycle, length counter, envelope)
     // $04000068: SOUND2CNT_L (NR21 + NR22 from GBC)
     pub fn write_sound12cnt_h(&mut self, channel: WhichPulse, value: u16) {
-        log::trace!("{} write: {value:04X}", match channel {
-            WhichPulse::One => "SOUND1CNT_H",
-            WhichPulse::Two => "SOUND2CNT_L",
-        });
+        log::trace!(
+            "{} write: {value:04X}",
+            match channel {
+                WhichPulse::One => "SOUND1CNT_H",
+                WhichPulse::Two => "SOUND2CNT_L",
+            }
+        );
 
         let [lsb, msb] = value.to_le_bytes();
         self.write_nr11nr21(channel, lsb);
@@ -197,10 +200,13 @@ impl GbcApu {
     // $04000064: SOUND1CNT_X (NR13 + NR14 from GBC) (Frequency, trigger)
     // $0400006C: SOUND2CNT_H (NR23 + NR24 from GBC)
     pub fn write_sound12cnt_x(&mut self, channel: WhichPulse, value: u16) {
-        log::trace!("{} write: {value:04X}", match channel {
-            WhichPulse::One => "SOUND1CNT_X",
-            WhichPulse::Two => "SOUND2CNT_H",
-        });
+        log::trace!(
+            "{} write: {value:04X}",
+            match channel {
+                WhichPulse::One => "SOUND1CNT_X",
+                WhichPulse::Two => "SOUND2CNT_H",
+            }
+        );
 
         let [lsb, msb] = value.to_le_bytes();
 

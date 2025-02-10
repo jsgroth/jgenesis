@@ -2,7 +2,7 @@ use crate::config::NesConfig;
 
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{debug, file_name_no_ext, save};
-use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
+use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config, extensions};
 use jgenesis_common::frontend::EmulatorTrait;
 
 use nes_core::api::NesEmulator;
@@ -27,8 +27,6 @@ impl NesControllerTypeExt for NesControllerType {
 
 pub type NativeNesEmulator = NativeEmulator<NesEmulator>;
 
-pub const SUPPORTED_EXTENSIONS: &[&str] = &["nes"];
-
 impl NativeNesEmulator {
     /// # Errors
     ///
@@ -38,8 +36,7 @@ impl NativeNesEmulator {
 
         self.reload_common_config(&config.common)?;
 
-        self.emulator.reload_config(&config.emulator_config);
-        self.config = config.emulator_config;
+        self.update_emulator_config(&config.emulator_config);
 
         // Config change could have changed target framerate (50/60 Hz hack)
         self.renderer.set_target_fps(self.emulator.target_fps());
@@ -64,7 +61,7 @@ pub fn create_nes(config: Box<NesConfig>) -> NativeEmulatorResult<NativeNesEmula
     log::info!("Running with config: {config}");
 
     let rom_path = Path::new(&config.common.rom_file_path);
-    let RomReadResult { rom, extension } = config.common.read_rom_file(SUPPORTED_EXTENSIONS)?;
+    let RomReadResult { rom, extension } = config.common.read_rom_file(extensions::NES)?;
 
     let DeterminedPaths { save_path, save_state_path } = save::determine_save_paths(
         &config.common.save_path,

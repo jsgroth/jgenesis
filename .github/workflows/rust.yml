@@ -8,7 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  JGENESIS_VERSION: 0.8.4
+  JGENESIS_VERSION: 0.9.0
 
 jobs:
   build:
@@ -79,6 +79,10 @@ jobs:
         run: |
           rustup update
 
+      - name: Install latest nightly Rust toolchain
+        run: |
+          rustup toolchain add nightly --component rustfmt --component rust-src
+
       - name: Install system library dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y libsdl2-dev
@@ -130,13 +134,21 @@ jobs:
         run: |
           rustup update
 
+      - name: Install latest nightly Rust toolchain
+        run: |
+          rustup toolchain add nightly --component rustfmt --component rust-src
+
       - name: Install mingw32
         run: |
           sudo apt-get update && sudo apt-get install -y mingw-w64
 
-      - name: Install Windows x64 Rust build target
+      - name: Install Windows x64 Rust build target (stable)
         run: |
           rustup target add x86_64-pc-windows-gnu
+
+      - name: Install Windows x64 Rust build target (nightly)
+        run: |
+          rustup target add --toolchain nightly x86_64-pc-windows-gnu
 
       - name: Download & extract Windows SDL2 libraries
         run: |
@@ -155,18 +167,18 @@ jobs:
       - name: Build CLI release
         run: |
           RUSTFLAGS=" \
-            -C target-cpu=x86-64-v2 \
+            -C target-cpu=x86-64-v2 -Z tune-cpu=x86-64-v3 \
             -C link-arg=-ISDL2-$SDL_VERSION/x86_64-w64-mingw32/include \
             -C link-arg=-LSDL2-$SDL_VERSION/x86_64-w64-mingw32/lib" \
-          cargo build --profile release-lto --target x86_64-pc-windows-gnu -p jgenesis-cli
+          cargo +nightly build --profile release-lto --target x86_64-pc-windows-gnu -p jgenesis-cli
 
       - name: Build GUI release
         run: |
           RUSTFLAGS=" \
-            -C target-cpu=x86-64-v2 \
+            -C target-cpu=x86-64-v2 -Z tune-cpu=x86-64-v3 \
             -C link-arg=-ISDL2-$SDL_VERSION/x86_64-w64-mingw32/include \
             -C link-arg=-LSDL2-$SDL_VERSION/x86_64-w64-mingw32/lib" \
-          cargo build --profile release-lto --target x86_64-pc-windows-gnu -p jgenesis-gui
+          cargo +nightly build --profile release-lto --target x86_64-pc-windows-gnu -p jgenesis-gui
 
       - name: Compress binaries
         run: |

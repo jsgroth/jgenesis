@@ -2,12 +2,13 @@ mod helptext;
 
 use crate::app::{App, Console, OpenWindow};
 use crate::emuthread::EmuThreadStatus;
-use egui::{Context, Window};
+use egui::{Context, Grid, Ui, Window};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_config::snes::SnesAppConfig;
 use rfd::FileDialog;
 use snes_core::api::{AudioInterpolationMode, SnesAspectRatio, SnesLoadError};
 use std::num::NonZeroU64;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HandledError {
@@ -37,7 +38,7 @@ impl CoprocessorRom {
         }
     }
 
-    fn path_field(self, config: &mut SnesAppConfig) -> &mut Option<String> {
+    fn path_field(self, config: &mut SnesAppConfig) -> &mut Option<PathBuf> {
         match self {
             Self::Dsp1 => &mut config.dsp1_rom_path,
             Self::Dsp2 => &mut config.dsp2_rom_path,
@@ -124,59 +125,17 @@ impl App {
             let rect = ui
                 .group(|ui| {
                     ui.label("Coprocessor ROM Paths");
-
-                    ui.horizontal(|ui| {
-                        let dsp1_rom_path = self.config.snes.dsp1_rom_path.as_deref();
-                        if ui.button(dsp1_rom_path.unwrap_or("<None>")).clicked() {
-                            pick_coprocessor_rom_path(&mut self.config.snes.dsp1_rom_path);
+                    Grid::new("coprocessor_path_grid").show(ui, |ui| {
+                        for (label, path) in [
+                            ("DSP-1 ROM path", &mut self.config.snes.dsp1_rom_path),
+                            ("DSP-2 ROM path", &mut self.config.snes.dsp2_rom_path),
+                            ("DSP-3 ROM path", &mut self.config.snes.dsp3_rom_path),
+                            ("DSP-4 ROM path", &mut self.config.snes.dsp4_rom_path),
+                            ("ST010 ROM path", &mut self.config.snes.st010_rom_path),
+                            ("ST011 ROM path", &mut self.config.snes.st011_rom_path),
+                        ] {
+                            render_coprocessor_path_select(label, path, ui);
                         }
-
-                        ui.label("DSP-1 ROM path");
-                    });
-
-                    ui.horizontal(|ui| {
-                        let dsp2_rom_path = self.config.snes.dsp2_rom_path.as_deref();
-                        if ui.button(dsp2_rom_path.unwrap_or("<None>")).clicked() {
-                            pick_coprocessor_rom_path(&mut self.config.snes.dsp2_rom_path);
-                        }
-
-                        ui.label("DSP-2 ROM path");
-                    });
-
-                    ui.horizontal(|ui| {
-                        let dsp3_rom_path = self.config.snes.dsp3_rom_path.as_deref();
-                        if ui.button(dsp3_rom_path.unwrap_or("<None>")).clicked() {
-                            pick_coprocessor_rom_path(&mut self.config.snes.dsp3_rom_path);
-                        }
-
-                        ui.label("DSP-3 ROM path");
-                    });
-
-                    ui.horizontal(|ui| {
-                        let dsp4_rom_path = self.config.snes.dsp4_rom_path.as_deref();
-                        if ui.button(dsp4_rom_path.unwrap_or("<None>")).clicked() {
-                            pick_coprocessor_rom_path(&mut self.config.snes.dsp4_rom_path);
-                        }
-
-                        ui.label("DSP-4 ROM path");
-                    });
-
-                    ui.horizontal(|ui| {
-                        let st010_rom_path = self.config.snes.st010_rom_path.as_deref();
-                        if ui.button(st010_rom_path.unwrap_or("<None>")).clicked() {
-                            pick_coprocessor_rom_path(&mut self.config.snes.st010_rom_path);
-                        }
-
-                        ui.label("ST010 ROM path");
-                    });
-
-                    ui.horizontal(|ui| {
-                        let st011_rom_path = self.config.snes.st011_rom_path.as_deref();
-                        if ui.button(st011_rom_path.unwrap_or("<None>")).clicked() {
-                            pick_coprocessor_rom_path(&mut self.config.snes.st011_rom_path);
-                        }
-
-                        ui.label("ST011 ROM path");
                     });
                 })
                 .response
@@ -338,7 +297,20 @@ impl App {
     }
 }
 
-fn pick_coprocessor_rom_path(out_path: &mut Option<String>) {
+fn render_coprocessor_path_select(label: &str, value: &mut Option<PathBuf>, ui: &mut Ui) {
+    let button_label =
+        value.as_deref().map_or_else(|| "<None>".into(), |path| path.display().to_string());
+
+    if ui.button(button_label).clicked() {
+        pick_coprocessor_rom_path(value);
+    }
+
+    ui.label(label);
+
+    ui.end_row();
+}
+
+fn pick_coprocessor_rom_path(out_path: &mut Option<PathBuf>) {
     let Some(path) = FileDialog::new()
         .add_filter("bin", &["rom", "bin"])
         .add_filter("All Types", &["*"])
@@ -347,12 +319,5 @@ fn pick_coprocessor_rom_path(out_path: &mut Option<String>) {
         return;
     };
 
-    match path.to_str() {
-        Some(path) => {
-            *out_path = Some(path.into());
-        }
-        None => {
-            log::error!("Unable to convert path to string: '{}'", path.display());
-        }
-    }
+    *out_path = Some(path);
 }

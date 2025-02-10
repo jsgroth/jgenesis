@@ -162,7 +162,7 @@ pub struct SmsGgInputMapping {
     pub p1: SmsGgControllerMapping,
     #[serde(default)]
     pub p2: SmsGgControllerMapping,
-    #[debug_fmt]
+    #[cfg_display(debug_fmt)]
     pub pause: Option<Vec<GenericInput>>,
 }
 
@@ -180,10 +180,10 @@ impl SmsGgInputMapping {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
 pub struct SmsGgInputConfig {
     #[serde(default = "default_smsgg_mapping_1")]
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub mapping_1: SmsGgInputMapping,
     #[serde(default)]
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub mapping_2: SmsGgInputMapping,
 }
 
@@ -261,10 +261,10 @@ impl GenesisControllerMapping {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ConfigDisplay)]
 pub struct GenesisInputMapping {
     #[serde(default)]
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub p1: GenesisControllerMapping,
     #[serde(default)]
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub p2: GenesisControllerMapping,
 }
 
@@ -282,10 +282,10 @@ pub struct GenesisInputConfig {
     #[serde(default)]
     pub p2_type: GenesisControllerType,
     #[serde(default = "default_genesis_mapping_1")]
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub mapping_1: GenesisInputMapping,
     #[serde(default)]
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub mapping_2: GenesisInputMapping,
 }
 
@@ -370,13 +370,13 @@ impl NesZapperMapping {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ConfigDisplay)]
 pub struct NesInputMapping {
     #[serde(default)]
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub p1: NesControllerMapping,
     #[serde(default)]
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub p2: NesControllerMapping,
     #[serde(default)]
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub zapper: NesZapperMapping,
 }
 
@@ -403,10 +403,10 @@ pub struct NesInputConfig {
     #[serde(default)]
     pub p2_type: NesControllerType,
     #[serde(default = "default_nes_mapping_1")]
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub mapping_1: NesInputMapping,
     #[serde(default)]
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub mapping_2: NesInputMapping,
 }
 
@@ -507,13 +507,13 @@ impl SnesSuperScopeMapping {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ConfigDisplay)]
 pub struct SnesInputMapping {
     #[serde(default)]
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub p1: SnesControllerMapping,
     #[serde(default)]
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub p2: SnesControllerMapping,
     #[serde(default)]
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub super_scope: SnesSuperScopeMapping,
 }
 
@@ -540,10 +540,10 @@ pub struct SnesInputConfig {
     #[serde(default)]
     pub p2_type: SnesControllerType,
     #[serde(default = "default_snes_mapping_1")]
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub mapping_1: SnesInputMapping,
     #[serde(default)]
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub mapping_2: SnesInputMapping,
 }
 
@@ -613,10 +613,10 @@ impl GameBoyInputMapping {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
 pub struct GameBoyInputConfig {
     #[serde(default = "default_gb_mapping_1")]
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub mapping_1: GameBoyInputMapping,
     #[serde(default)]
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub mapping_2: GameBoyInputMapping,
 }
 
@@ -675,10 +675,10 @@ impl GbaInputMapping {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
 pub struct GbaInputConfig {
     #[serde(default = "default_gba_mapping_1")]
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub mapping_1: GbaInputMapping,
     #[serde(default)]
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub mapping_2: GbaInputMapping,
 }
 
@@ -770,6 +770,7 @@ define_hotkey_mapping!(
     step_frame: StepFrame default N,
     fast_forward: FastForward default Tab,
     rewind: Rewind default Backquote,
+    toggle_overclocking: ToggleOverclocking default Semicolon,
     open_debugger: OpenDebugger default Quote,
     save_state_slot_0: SaveStateSlot0 default none,
     save_state_slot_1: SaveStateSlot1 default none,
@@ -796,10 +797,10 @@ define_hotkey_mapping!(
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
 pub struct HotkeyConfig {
     #[serde(default = "default_hotkey_mapping_1")]
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub mapping_1: HotkeyMapping,
     #[serde(default)]
-    #[indent_nested]
+    #[cfg_display(indent_nested)]
     pub mapping_2: HotkeyMapping,
 }
 

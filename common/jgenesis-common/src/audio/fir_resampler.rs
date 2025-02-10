@@ -1,6 +1,9 @@
 use crate::audio::{DEFAULT_OUTPUT_FREQUENCY, RESAMPLE_SCALING_FACTOR};
 use bincode::{Decode, Encode};
+use std::array;
 use std::collections::VecDeque;
+use std::marker::PhantomData;
+use std::ops::Deref;
 
 // This is different from VecDeque in that the samples are guaranteed to always be contiguous in
 // memory, which is important for performance when N is large
@@ -42,77 +45,69 @@ impl<const N: usize> RingBuffer<N> {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
-pub struct FirResampler<const LPF_TAPS: usize> {
-    samples_l: RingBuffer<LPF_TAPS>,
-    samples_r: RingBuffer<LPF_TAPS>,
-    output: VecDeque<(f64, f64)>,
-    sample_count_product: u64,
-    output_frequency: u64,
-    scaled_source_frequency: u64,
-    hpf_charge_factor: f64,
-    hpf_capacitor_l: f64,
-    hpf_capacitor_r: f64,
-    lpf_coefficients: [f64; LPF_TAPS],
-    zero_padding: u32,
+// Force coefficients to be aligned to a 32-byte boundary in order to support AVX aligned loads
+#[derive(Debug, Clone)]
+#[repr(C, align(32))]
+pub struct LpfCoefficients<const LPF_TAPS: usize>(pub [f64; LPF_TAPS]);
+
+impl<const LPF_TAPS: usize> Deref for LpfCoefficients<LPF_TAPS> {
+    type Target = [f64; LPF_TAPS];
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
-impl<const LPF_TAPS: usize> FirResampler<LPF_TAPS> {
+// Would be nicer if `LPF_TAPS` was an associated const, but `[f64; Self::LPF_TAPS]` doesn't compile
+// without nightly features related to const generic expressions
+pub trait FirKernel<const LPF_TAPS: usize> {
+    fn lpf_coefficients() -> &'static LpfCoefficients<LPF_TAPS>;
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct FirResampler<const CHANNELS: usize, const LPF_TAPS: usize, Kernel: FirKernel<LPF_TAPS>> {
+    input: [RingBuffer<LPF_TAPS>; CHANNELS],
+    output: VecDeque<[f64; CHANNELS]>,
+    sample_count_product: u64,
+    scaled_output_frequency: u64,
+    scaled_source_frequency: u64,
+    // Required for this struct to compile with the generic Kernel type
+    _marker: PhantomData<Kernel>,
+}
+
+impl<const CHANNELS: usize, const LPF_TAPS: usize, Kernel: FirKernel<LPF_TAPS>>
+    FirResampler<CHANNELS, LPF_TAPS, Kernel>
+{
     #[must_use]
-    pub fn new(
-        source_frequency: f64,
-        lpf_coefficients: [f64; LPF_TAPS],
-        hpf_charge_factor: f64,
-        zero_padding: u32,
-    ) -> Self {
-        let scaled_source_frequency = scale_frequency(source_frequency);
+    pub fn new(source_frequency: f64, output_frequency: u64) -> Self {
         Self {
-            samples_l: RingBuffer::new(),
-            samples_r: RingBuffer::new(),
+            input: array::from_fn(|_| RingBuffer::new()),
             output: VecDeque::with_capacity((DEFAULT_OUTPUT_FREQUENCY / 30) as usize),
             sample_count_product: 0,
-            output_frequency: DEFAULT_OUTPUT_FREQUENCY,
-            scaled_source_frequency,
-            hpf_charge_factor,
-            hpf_capacitor_l: 0.0,
-            hpf_capacitor_r: 0.0,
-            lpf_coefficients,
-            zero_padding,
+            scaled_output_frequency: output_frequency * RESAMPLE_SCALING_FACTOR,
+            scaled_source_frequency: Self::scale_frequency(source_frequency),
+            _marker: PhantomData,
         }
     }
 
-    fn buffer_sample(&mut self, sample_l: f64, sample_r: f64) {
-        self.samples_l.push(sample_l);
-        self.samples_r.push(sample_r);
-
-        self.sample_count_product += self.output_frequency * RESAMPLE_SCALING_FACTOR;
-        while self.sample_count_product >= self.scaled_source_frequency {
-            self.sample_count_product -= self.scaled_source_frequency;
-
-            let sample_l = output_sample::<LPF_TAPS>(
-                &self.samples_l,
-                &self.lpf_coefficients,
-                self.zero_padding,
-            );
-            let sample_r = output_sample::<LPF_TAPS>(
-                &self.samples_r,
-                &self.lpf_coefficients,
-                self.zero_padding,
-            );
-            self.output.push_back((sample_l, sample_r));
-        }
+    fn scale_frequency(source_frequency: f64) -> u64 {
+        (source_frequency * RESAMPLE_SCALING_FACTOR as f64).round() as u64
     }
 
     #[inline]
-    pub fn collect_sample(&mut self, sample_l: f64, sample_r: f64) {
-        let sample_l =
-            high_pass_filter(sample_l, self.hpf_charge_factor, &mut self.hpf_capacitor_l);
-        let sample_r =
-            high_pass_filter(sample_r, self.hpf_charge_factor, &mut self.hpf_capacitor_r);
+    pub fn collect(&mut self, samples: [f64; CHANNELS]) {
+        for (ch, sample) in samples.into_iter().enumerate() {
+            self.input[ch].push(sample);
+        }
 
-        self.buffer_sample(sample_l, sample_r);
-        for _ in 0..self.zero_padding {
-            self.buffer_sample(0.0, 0.0);
+        self.sample_count_product += self.scaled_output_frequency;
+        while self.sample_count_product >= self.scaled_source_frequency {
+            self.sample_count_product -= self.scaled_source_frequency;
+
+            let output_samples =
+                array::from_fn(|ch| apply_fir_filter(&self.input[ch], Kernel::lpf_coefficients()));
+            self.output.push_back(output_samples);
         }
     }
 
@@ -123,60 +118,26 @@ impl<const LPF_TAPS: usize> FirResampler<LPF_TAPS> {
     }
 
     #[inline]
-    pub fn output_buffer_pop_front(&mut self) -> Option<(f64, f64)> {
+    pub fn output_buffer_pop_front(&mut self) -> Option<[f64; CHANNELS]> {
         self.output.pop_front()
     }
 
     #[inline]
-    pub fn update_output_frequency(&mut self, output_frequency: u64) {
-        self.output_frequency = output_frequency;
+    pub fn update_output_frequency(&mut self, output_frequency: f64) {
+        self.scaled_output_frequency = Self::scale_frequency(output_frequency);
     }
 
     #[inline]
     pub fn update_source_frequency(&mut self, source_frequency: f64) {
-        self.scaled_source_frequency = scale_frequency(source_frequency);
+        self.scaled_source_frequency = Self::scale_frequency(source_frequency);
     }
-
-    #[inline]
-    pub fn fill_input_buffer_with(&mut self, (sample_l, sample_r): (f64, f64)) {
-        self.samples_l.buffer[self.samples_l.idx..self.samples_l.idx + self.samples_l.len]
-            .fill(sample_l);
-        self.samples_r.buffer[self.samples_r.idx..self.samples_r.idx + self.samples_r.len]
-            .fill(sample_r);
-    }
-
-    #[inline]
-    pub fn update_zero_padding(&mut self, zero_padding: u32) {
-        self.zero_padding = zero_padding;
-    }
-
-    #[inline]
-    pub fn update_lpf_coefficients(&mut self, coefficients: [f64; LPF_TAPS]) {
-        self.lpf_coefficients = coefficients;
-    }
-}
-
-fn scale_frequency(source_frequency: f64) -> u64 {
-    (source_frequency * RESAMPLE_SCALING_FACTOR as f64).round() as u64
-}
-
-fn high_pass_filter(sample: f64, charge_factor: f64, capacitor: &mut f64) -> f64 {
-    let filtered_sample = sample - *capacitor;
-    *capacitor = sample - charge_factor * filtered_sample;
-    filtered_sample
-}
-
-fn output_sample<const N: usize>(
-    samples: &RingBuffer<N>,
-    lpf_coefficients: &[f64; N],
-    zero_padding: u32,
-) -> f64 {
-    let sum = apply_fir_filter(samples, lpf_coefficients);
-    (sum * f64::from(zero_padding + 1)).clamp(-1.0, 1.0)
 }
 
 #[allow(clippy::needless_range_loop)]
-fn apply_fir_filter<const N: usize>(samples: &RingBuffer<N>, coefficients: &[f64; N]) -> f64 {
+fn apply_fir_filter<const N: usize>(
+    samples: &RingBuffer<N>,
+    coefficients: &LpfCoefficients<N>,
+) -> f64 {
     if samples.len >= N {
         #[cfg(target_arch = "x86_64")]
         {
@@ -209,7 +170,7 @@ fn apply_fir_filter<const N: usize>(samples: &RingBuffer<N>, coefficients: &[f64
 #[target_feature(enable = "avx,fma")]
 unsafe fn apply_fir_filter_avxfma<const N: usize>(
     samples: &RingBuffer<N>,
-    coefficients: &[f64; N],
+    coefficients: &LpfCoefficients<N>,
 ) -> f64 {
     #[allow(clippy::wildcard_imports)]
     use std::arch::x86_64::*;
@@ -222,7 +183,7 @@ unsafe fn apply_fir_filter_avxfma<const N: usize>(
     let mut sumvec = _mm256_setzero_pd();
     for i in (0..N & !3).step_by(4) {
         let a = _mm256_loadu_pd(samples.as_ptr().add(i));
-        let b = _mm256_loadu_pd(coefficients.as_ptr().add(i));
+        let b = _mm256_load_pd(coefficients.as_ptr().add(i));
         sumvec = _mm256_fmadd_pd(a, b, sumvec);
     }
 
@@ -249,11 +210,12 @@ unsafe fn apply_fir_filter_avxfma<const N: usize>(
         _ => unreachable!("value & 3 is always <= 3"),
     }
 
-    // Compute the final sum using an AVX hadd followed by a single scalar add
-    let hsum = _mm256_hadd_pd(sumvec, sumvec);
-    let sum_components: [f64; 4] = transmute(hsum);
-    sum_components[0] + sum_components[2]
+    let components: [f64; 4] = transmute(sumvec);
+    components.into_iter().sum()
 }
+
+pub type MonoFirResampler<const LPF_TAPS: usize, Kernel> = FirResampler<1, LPF_TAPS, Kernel>;
+pub type StereoFirResampler<const LPF_TAPS: usize, Kernel> = FirResampler<2, LPF_TAPS, Kernel>;
 
 #[cfg(test)]
 mod tests {
@@ -321,8 +283,9 @@ mod tests {
         buffer.push(12345.0);
         assert_eq!(buffer.idx, buffer.buffer.len() - N - 1);
         assert_eq!(buffer.len, N);
-        assert_eq!(&buffer.buffer[buffer.idx..buffer.idx + N], &[
-            12345.0, 56789.0, 54321.0, current[0]
-        ]);
+        assert_eq!(
+            &buffer.buffer[buffer.idx..buffer.idx + N],
+            &[12345.0, 56789.0, 54321.0, current[0]]
+        );
     }
 }

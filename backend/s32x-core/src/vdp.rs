@@ -10,6 +10,7 @@ use genesis_core::vdp::BorderSize;
 use jgenesis_common::frontend::{Color, FrameSize, PixelAspectRatio, Renderer, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
+use std::cmp;
 use std::ops::{Deref, DerefMut, Range};
 
 const NTSC_SCANLINES_PER_FRAME: u16 = genesis_core::vdp::NTSC_SCANLINES_PER_FRAME;
@@ -227,6 +228,22 @@ impl Vdp {
                 self.render_line();
             }
         }
+    }
+
+    pub fn mclk_cycles_until_next_event(&self, h_interrupt_enabled: bool) -> u64 {
+        let cycles_till_line_end = MCLK_CYCLES_PER_SCANLINE - self.state.scanline_mclk;
+
+        if h_interrupt_enabled
+            && self.state.h_interrupt_counter == 0
+            && self.state.scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE
+        {
+            return cmp::min(
+                cycles_till_line_end,
+                ACTIVE_MCLK_CYCLES_PER_SCANLINE - self.state.scanline_mclk,
+            );
+        }
+
+        cycles_till_line_end
     }
 
     fn render_line(&mut self) {

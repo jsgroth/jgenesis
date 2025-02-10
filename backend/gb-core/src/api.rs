@@ -16,8 +16,8 @@ use crate::timer::GbTimer;
 use crate::{HardwareMode, audio, ppu};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorTrait, PixelAspectRatio, Renderer, SaveWriter, TickEffect,
-    TickResult,
+    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, PixelAspectRatio, Renderer, SaveWriter,
+    TickEffect, TickResult,
 };
 use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, PartialClone};
 use std::fmt::{Debug, Display};
@@ -80,17 +80,29 @@ pub enum GbcColorCorrection {
     GbaLcd,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum GbAudioResampler {
+    LowPassNearestNeighbor,
+    #[default]
+    WindowedSinc,
+}
+
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct GameBoyEmulatorConfig {
     pub force_dmg_mode: bool,
     pub pretend_to_be_gba: bool,
     pub aspect_ratio: GbAspectRatio,
     pub gb_palette: GbPalette,
-    #[debug_fmt]
+    #[cfg_display(debug_fmt)]
     pub gb_custom_palette: [(u8, u8, u8); 4],
     pub gbc_color_correction: GbcColorCorrection,
+    pub audio_resampler: GbAudioResampler,
     pub audio_60hz_hack: bool,
 }
+
+impl EmulatorConfigTrait for GameBoyEmulatorConfig {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BackgroundTileMap {
@@ -124,7 +136,7 @@ impl GameBoyEmulator {
     ///
     /// This function will return an error if it cannot load the ROM (e.g. unsupported mapper).
     pub fn create<S: SaveWriter>(
-        rom: Vec<u8>,
+        mut rom: Vec<u8>,
         config: GameBoyEmulatorConfig,
         save_writer: &mut S,
     ) -> Result<Self, GameBoyLoadError> {
@@ -137,6 +149,8 @@ impl GameBoyEmulator {
         let ppu = Ppu::new(hardware_mode, &rom);
 
         let initial_sram = save_writer.load_bytes("sav").ok();
+
+        jgenesis_common::rom::mirror_to_next_power_of_two(&mut rom);
         let cartridge = Cartridge::create(rom.into_boxed_slice(), initial_sram, save_writer)?;
 
         log::info!("Running with hardware mode {hardware_mode}");

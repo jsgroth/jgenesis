@@ -11,8 +11,8 @@ use bincode::error::EncodeError;
 use bincode::{Decode, Encode};
 use crc::Crc;
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorTrait, FrameSize, PartialClone, PixelAspectRatio, Renderer,
-    SaveWriter, TickEffect, TimingMode,
+    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FrameSize, PartialClone,
+    PixelAspectRatio, Renderer, SaveWriter, TickEffect, TimingMode,
 };
 use jgenesis_proc_macros::{
     ConfigDisplay, EnumAll, EnumDisplay, EnumFromStr, FakeDecode, FakeEncode,
@@ -87,6 +87,8 @@ pub struct SnesEmulatorConfig {
     pub audio_60hz_hack: bool,
     pub gsu_overclock_factor: NonZeroU64,
 }
+
+impl EmulatorConfigTrait for SnesEmulatorConfig {}
 
 pub type CoprocessorRomFn = dyn Fn() -> Result<Vec<u8>, (io::Error, String)>;
 

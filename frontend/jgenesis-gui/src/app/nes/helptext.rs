@@ -63,3 +63,11 @@ pub const AUDIO_TIMING_HACK: HelpText = HelpText {
         "Native framerate is approximately 60.0988 fps for NTSC and 50.007 fps for PAL.",
     ],
 };
+
+pub const AUDIO_RESAMPLING: HelpText = HelpText {
+    heading: "Audio Resampling Algorithm",
+    text: &[
+        "Choose the algorithm used to resample from the NES native sample rate to the output sample rate.",
+        "Windowed sinc interpolation is higher quality and sharper, but it can be much more performance-intensive.",
+    ],
+};

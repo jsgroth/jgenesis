@@ -232,6 +232,7 @@ pub enum Hotkey {
     StepFrame,
     FastForward,
     Rewind,
+    ToggleOverclocking,
     OpenDebugger,
     SaveState,
     LoadState,
@@ -276,6 +277,7 @@ pub enum CompactHotkey {
     StepFrame,
     FastForward,
     Rewind,
+    ToggleOverclocking,
     OpenDebugger,
 }
 
@@ -295,6 +297,7 @@ impl Hotkey {
             Self::StepFrame => CompactHotkey::StepFrame,
             Self::FastForward => CompactHotkey::FastForward,
             Self::Rewind => CompactHotkey::Rewind,
+            Self::ToggleOverclocking => CompactHotkey::ToggleOverclocking,
             Self::OpenDebugger => CompactHotkey::OpenDebugger,
             Self::SaveStateSlot0 => CompactHotkey::SaveStateSlot(0),
             Self::SaveStateSlot1 => CompactHotkey::SaveStateSlot(1),
@@ -836,10 +839,13 @@ mod tests {
 
         state.handle_input(GenericInput::Keyboard(Keycode::H), false);
         assert_eq!(expected, state.inputs);
-        assert_eq!(*state.hotkey_events.borrow(), vec![
-            HotkeyEvent::Pressed(Hotkey::FastForward),
-            HotkeyEvent::Released(Hotkey::FastForward),
-        ]);
+        assert_eq!(
+            *state.hotkey_events.borrow(),
+            vec![
+                HotkeyEvent::Pressed(Hotkey::FastForward),
+                HotkeyEvent::Released(Hotkey::FastForward),
+            ]
+        );
     }
 
     #[test]
@@ -929,11 +935,14 @@ mod tests {
     fn combination_mapping() {
         let mut state = InputMapperState::new(SmsGgInputs::default());
         state.update_mappings(
-            &[((SmsGgButton::Button1, Player::One), &vec![
-                GenericInput::Keyboard(Keycode::F),
-                GenericInput::Keyboard(Keycode::G),
-                GenericInput::Keyboard(Keycode::H),
-            ])],
+            &[(
+                (SmsGgButton::Button1, Player::One),
+                &vec![
+                    GenericInput::Keyboard(Keycode::F),
+                    GenericInput::Keyboard(Keycode::G),
+                    GenericInput::Keyboard(Keycode::H),
+                ],
+            )],
             &[],
         );
 
@@ -972,13 +981,19 @@ mod tests {
     #[test]
     fn combination_length_priority_basic() {
         let mut state = InputMapperState::new(SmsGgInputs::default());
-        state.update_mappings(&[], &[
-            (Hotkey::SaveState, &vec![
-                GenericInput::Keyboard(Keycode::LShift),
-                GenericInput::Keyboard(Keycode::F1),
-            ]),
-            (Hotkey::LoadState, &vec![GenericInput::Keyboard(Keycode::F1)]),
-        ]);
+        state.update_mappings(
+            &[],
+            &[
+                (
+                    Hotkey::SaveState,
+                    &vec![
+                        GenericInput::Keyboard(Keycode::LShift),
+                        GenericInput::Keyboard(Keycode::F1),
+                    ],
+                ),
+                (Hotkey::LoadState, &vec![GenericInput::Keyboard(Keycode::F1)]),
+            ],
+        );
 
         let mut expected: Vec<HotkeyEvent> = vec![];
         assert_eq!(expected, take_hotkey_events(&mut state));
@@ -1011,13 +1026,19 @@ mod tests {
     #[test]
     fn combination_length_priority_weird() {
         let mut state = InputMapperState::new(SmsGgInputs::default());
-        state.update_mappings(&[], &[
-            (Hotkey::SaveState, &vec![
-                GenericInput::Keyboard(Keycode::LShift),
-                GenericInput::Keyboard(Keycode::F1),
-            ]),
-            (Hotkey::LoadState, &vec![GenericInput::Keyboard(Keycode::F1)]),
-        ]);
+        state.update_mappings(
+            &[],
+            &[
+                (
+                    Hotkey::SaveState,
+                    &vec![
+                        GenericInput::Keyboard(Keycode::LShift),
+                        GenericInput::Keyboard(Keycode::F1),
+                    ],
+                ),
+                (Hotkey::LoadState, &vec![GenericInput::Keyboard(Keycode::F1)]),
+            ],
+        );
 
         let mut expected: Vec<HotkeyEvent> = vec![];
         assert_eq!(expected, take_hotkey_events(&mut state));
@@ -1059,12 +1080,14 @@ mod tests {
         let mut state = InputMapperState::new(SmsGgInputs::default());
         state.update_mappings(
             &[
-                ((SmsGgButton::Button1, Player::One), &vec![GenericInput::Keyboard(
-                    Keycode::RShift,
-                )]),
-                ((SmsGgButton::Button2, Player::One), &vec![GenericInput::Keyboard(
-                    Keycode::LShift,
-                )]),
+                (
+                    (SmsGgButton::Button1, Player::One),
+                    &vec![GenericInput::Keyboard(Keycode::RShift)],
+                ),
+                (
+                    (SmsGgButton::Button2, Player::One),
+                    &vec![GenericInput::Keyboard(Keycode::LShift)],
+                ),
             ],
             &[],
         );
@@ -1098,12 +1121,14 @@ mod tests {
         let mut state = InputMapperState::new(SmsGgInputs::default());
         state.update_mappings(
             &[
-                ((SmsGgButton::Button1, Player::One), &vec![GenericInput::Keyboard(
-                    Keycode::RShift,
-                )]),
-                ((SmsGgButton::Button2, Player::One), &vec![GenericInput::Keyboard(
-                    Keycode::LShift,
-                )]),
+                (
+                    (SmsGgButton::Button1, Player::One),
+                    &vec![GenericInput::Keyboard(Keycode::RShift)],
+                ),
+                (
+                    (SmsGgButton::Button2, Player::One),
+                    &vec![GenericInput::Keyboard(Keycode::LShift)],
+                ),
             ],
             &[],
         );

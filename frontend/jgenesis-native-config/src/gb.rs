@@ -1,7 +1,10 @@
 use crate::AppConfig;
-use gb_core::api::{GameBoyEmulatorConfig, GbAspectRatio, GbPalette, GbcColorCorrection};
+use gb_core::api::{
+    GameBoyEmulatorConfig, GbAspectRatio, GbAudioResampler, GbPalette, GbcColorCorrection,
+};
 use jgenesis_native_driver::config::GameBoyConfig;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GameBoyAppConfig {
@@ -17,6 +20,8 @@ pub struct GameBoyAppConfig {
     pub gb_custom_palette: [(u8, u8, u8); 4],
     #[serde(default)]
     pub gbc_color_correction: GbcColorCorrection,
+    #[serde(default)]
+    pub audio_resampler: GbAudioResampler,
     #[serde(default)]
     pub audio_60hz_hack: bool,
 }
@@ -35,7 +40,7 @@ impl Default for GameBoyAppConfig {
 
 impl AppConfig {
     #[must_use]
-    pub fn gb_config(&self, path: String) -> Box<GameBoyConfig> {
+    pub fn gb_config(&self, path: PathBuf) -> Box<GameBoyConfig> {
         Box::new(GameBoyConfig {
             common: self.common_config(path),
             inputs: self.input.game_boy.clone(),
@@ -46,6 +51,7 @@ impl AppConfig {
                 gb_palette: self.game_boy.gb_palette,
                 gb_custom_palette: self.game_boy.gb_custom_palette,
                 gbc_color_correction: self.game_boy.gbc_color_correction,
+                audio_resampler: self.game_boy.audio_resampler,
                 audio_60hz_hack: self.game_boy.audio_60hz_hack,
             },
         })

@@ -31,7 +31,7 @@ pub struct Cartridge {
 
 impl Cartridge {
     pub fn new(mut rom: Vec<u8>) -> Self {
-        jgenesis_common::mirror_to_power_of_two(&mut rom);
+        jgenesis_common::rom::mirror_to_next_power_of_two(&mut rom);
 
         // TODO figure out actual SRAM size
         let sram = vec![0; 64 * 1024].into_boxed_slice();

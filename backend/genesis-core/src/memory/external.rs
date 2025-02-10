@@ -14,6 +14,8 @@ const FORCE_SRAM_CHECKSUMS: &[u32] = &[
     0x6EF7104A, // Might and Magic III: Isles of Terra (U) (Proto)
 ];
 
+const SONIC_AND_KNUCKLES_SERIAL: &[u8] = b"GM MK-1563 ";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub(crate) enum RamType {
     SixteenBit,
@@ -34,7 +36,7 @@ pub(crate) struct Ram {
 
 impl Ram {
     pub(crate) fn from_rom_header(
-        rom: &[u8],
+        mut rom: &[u8],
         checksum: u32,
         initial_ram: &mut Option<Vec<u8>>,
     ) -> Option<Self> {
@@ -42,6 +44,14 @@ impl Ram {
             // Several games have 8KB of SRAM but don't declare it in the header
             log::info!("Forcibly mapping 8KB of SRAM to $200001-$203FFF");
             return Some(Self::forced_8kb_sram(initial_ram));
+        }
+
+        // Sonic & Knuckles doesn't have SRAM itself, but the locked on game might (e.g. Sonic 3)
+        // S&K has 2MB of ROM so make sure the ROM is larger than that
+        let serial_number = &rom[0x180..0x18B];
+        if serial_number == SONIC_AND_KNUCKLES_SERIAL && rom.len() > 2 * 1024 * 1024 {
+            // Skip past the first 2MB of ROM and check the header of the locked-on cartridge
+            rom = &rom[2 * 1024 * 1024..];
         }
 
         let ram_header_bytes = &rom[0x1B0..0x1BC];

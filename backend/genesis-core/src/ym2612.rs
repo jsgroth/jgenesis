@@ -14,7 +14,7 @@ use crate::ym2612::lfo::LowFrequencyOscillator;
 use crate::ym2612::phase::PhaseGenerator;
 use crate::ym2612::timer::{TimerA, TimerB, TimerTickEffect};
 use bincode::{Decode, Encode};
-use jgenesis_common::num::{GetBit, U16Ext};
+use jgenesis_common::num::GetBit;
 use std::array;
 use std::sync::LazyLock;
 
@@ -23,6 +23,7 @@ const FM_SAMPLE_DIVIDER: u8 = 24;
 
 // Phase is 10 bits
 const PHASE_MASK: u16 = 0x03FF;
+const HALF_PHASE_MASK: u16 = PHASE_MASK >> 1;
 
 // Operator output is signed 14-bit
 const OPERATOR_OUTPUT_MIN: i16 = -0x2000;
@@ -81,7 +82,6 @@ impl FmOperator {
         }
     }
 
-    // TODO optimize to avoid floating-point arithmetic
     fn sample_clock(&mut self, modulation_input: u16) -> i16 {
         let feedback = match self.feedback_level {
             0 => 0,
@@ -95,22 +95,28 @@ impl FmOperator {
         };
 
         let phase = (self.phase.current_phase() + modulation_input + feedback) & PHASE_MASK;
-        let sine = phase_sin(phase);
+
+        // Phase is a 10-bit value that represents a number in the range 0 to 2*PI.
+        // Actual hardware splits this into a sign bit and a half-phase value from 0 to PI, computes
+        // the amplitude based on the half-phase, and then applies the sign bit at final output
+        let sign = phase.bit(9);
+        let sine_attenuation = phase_to_attenuation(phase);
 
         let envelope_attenuation = self.envelope.current_attenuation();
-        let attenuation = if self.am_enabled {
+        let envelope_am_attenuation = if self.am_enabled {
             let am_attenuation = lfo::amplitude_modulation(self.lfo_counter, self.am_sensitivity);
             (envelope_attenuation + am_attenuation).clamp(0, envelope::MAX_ATTENUATION)
         } else {
             envelope_attenuation
         };
 
-        // Convert from attenuation in dB to volume in linear units
-        let volume = attenuation_to_volume(attenuation);
-        let amplitude = sine * volume;
+        // Add phase attenuation (4.8 fixed-point) and envelope/AM attenuation (4.6 fixed-point)
+        let total_attenuation = sine_attenuation + (envelope_am_attenuation << 2);
 
-        // Convert volume to a 14-bit signed integer representing a floating-point value between -1 and 1
-        let output = (amplitude * f64::from(OPERATOR_OUTPUT_MAX)).round() as i16;
+        // Compute final output, adding the sign bit back in
+        let amplitude = attenuation_to_amplitude(total_attenuation);
+        let output = if sign { -(amplitude as i16) } else { amplitude as i16 };
+
         self.last_output = self.current_output;
         self.current_output = output;
 
@@ -118,27 +124,62 @@ impl FmOperator {
     }
 }
 
+// Logic based on http://gendev.spritesmind.net/forum/viewtopic.php?p=6114#p6114
 #[inline]
-fn phase_sin(phase: u16) -> f64 {
-    // Phase represents a value from 0 to 2PI on a scale from 0 to 2^10
-    static LOOKUP_TABLE: LazyLock<[f64; 1024]> = LazyLock::new(|| {
-        array::from_fn(|i| (i as f64 / 1024.0 * 2.0 * std::f64::consts::PI).sin())
-    });
+fn phase_to_attenuation(phase: u16) -> u16 {
+    // Actual hardware has a 256-entry quarter-sine table. This is emulated using a half-sine table
+    // for simplicity, but the values are calculated the same way
+    static LOG_SINE_TABLE: LazyLock<[u16; 512]> = LazyLock::new(|| {
+        array::from_fn(|mut i| {
+            use std::f64::consts::PI;
 
-    LOOKUP_TABLE[phase as usize]
-}
+            if i.bit(8) {
+                // Second quarter-phase
+                i = (!i) & 0xFF;
+            }
 
-#[inline]
-fn attenuation_to_volume(attenuation: u16) -> f64 {
-    // Envelope attenuation represents a value from 0dB to 96dB on a scale from 0 to 2^10
-    static LOOKUP_TABLE: LazyLock<[f64; 1024]> = LazyLock::new(|| {
-        array::from_fn(|i| {
-            let decibels = 96.0 * i as f64 / 1024.0;
-            10.0_f64.powf(decibels / -20.0)
+            // The table indices represent numbers in the range 0 to PI/2, but slightly offset in order
+            // to avoid computing log2(0)
+            let n = ((i << 1) | 1) as f64;
+            let sine = (n / 512.0 * PI / 2.0).sin();
+
+            // The table stores attenuation values, but on a log2 scale instead of log10
+            let attenuation = -sine.log2();
+
+            // Table contains 12-bit values that represent 4.8 fixed-point
+            (attenuation * f64::from(1 << 8)).round() as u16
         })
     });
 
-    LOOKUP_TABLE[attenuation as usize]
+    LOG_SINE_TABLE[(phase & HALF_PHASE_MASK) as usize]
+}
+
+// Logic based on http://gendev.spritesmind.net/forum/viewtopic.php?p=6114#p6114
+#[inline]
+fn attenuation_to_amplitude(attenuation: u16) -> u16 {
+    static POW2_TABLE: LazyLock<[u16; 256]> = LazyLock::new(|| {
+        array::from_fn(|i| {
+            // This is a lookup table for 2^(-n), where n is a value between 0 and 1
+            // Index i represents the number (i + 1)/256
+            let n = ((i + 1) as f64) / 256.0;
+            let inverse_pow2 = 2.0_f64.powf(-n);
+
+            // Table contains 11-bit values that represent 0.11 fixed-point
+            (inverse_pow2 * f64::from(1 << 11)).round() as u16
+        })
+    });
+
+    // Attenuation is interpreted as a 5.8 fixed-point number on a log2 scale
+    let int_part = (attenuation >> 8) & 0x1F;
+    if int_part >= 13 {
+        // Final result is guaranteed to shift down to 0
+        // Int part is applied as a right shift to 13-bit values
+        return 0;
+    }
+
+    let fract_part = attenuation & 0xFF;
+    let fract_pow2 = POW2_TABLE[fract_part as usize];
+    (fract_pow2 << 2) >> int_part
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
@@ -152,9 +193,13 @@ enum FrequencyMode {
 struct FmChannel {
     operators: [FmOperator; 4],
     mode: FrequencyMode,
+    pending_ch_f_number_high: u8,
     channel_f_number: u16,
+    pending_ch_block: u8,
     channel_block: u8,
+    pending_op_f_numbers_high: [u8; 3],
     operator_f_numbers: [u16; 3],
+    pending_op_blocks: [u8; 3],
     operator_blocks: [u8; 3],
     algorithm: u8,
     am_sensitivity: u8,
@@ -170,9 +215,13 @@ impl FmChannel {
         Self {
             operators: array::from_fn(|_| FmOperator::default()),
             mode: FrequencyMode::Single,
+            pending_ch_f_number_high: 0,
             channel_f_number: 0,
+            pending_ch_block: 0,
             channel_block: 0,
+            pending_op_f_numbers_high: [0; 3],
             operator_f_numbers: [0; 3],
+            pending_op_blocks: [0; 3],
             operator_blocks: [0; 3],
             algorithm: 0,
             am_sensitivity: 0,
@@ -202,11 +251,16 @@ impl FmChannel {
     }
 
     fn sample_clock(&mut self) {
+        // Operator order is 1 -> 3 -> 2 -> 4, per http://gendev.spritesmind.net/forum/viewtopic.php?p=30063#p30063
+        // This affects output of algorithms 0, 1, and 2
         let sample = match self.algorithm {
             0 => {
                 // O1 -> O2 -> O3 -> O4 -> Output
                 let m1 = compute_modulation_input(self.operators[0].sample_clock(0));
-                let m2 = compute_modulation_input(self.operators[1].sample_clock(m1));
+
+                let m2 = compute_modulation_input(self.operators[1].current_output);
+                self.operators[1].sample_clock(m1);
+
                 let m3 = compute_modulation_input(self.operators[2].sample_clock(m2));
                 self.operators[3].sample_clock(m3)
             }
@@ -215,7 +269,10 @@ impl FmChannel {
                 //      --> O3 -> O4 -> Output
                 // O2 --|
                 let m1 = compute_modulation_input(self.operators[0].sample_clock(0));
-                let m2 = compute_modulation_input(self.operators[1].sample_clock(0));
+
+                let m2 = compute_modulation_input(self.operators[1].current_output);
+                self.operators[1].sample_clock(0);
+
                 let m3 = compute_modulation_input(
                     self.operators[2].sample_clock((m1 + m2) & PHASE_MASK),
                 );
@@ -226,7 +283,10 @@ impl FmChannel {
                 //            --> O4 -> Output
                 // O2 -> O3 --|
                 let m1 = compute_modulation_input(self.operators[0].sample_clock(0));
-                let m2 = compute_modulation_input(self.operators[1].sample_clock(0));
+
+                let m2 = compute_modulation_input(self.operators[1].current_output);
+                self.operators[1].sample_clock(0);
+
                 let m3 = compute_modulation_input(self.operators[2].sample_clock(m2));
                 self.operators[3].sample_clock((m1 + m3) & PHASE_MASK)
             }
@@ -717,28 +777,32 @@ impl Ym2612 {
                 // F-number low bits
                 let channel_idx = base_channel_idx + (register & 0x03) as usize;
                 let channel = &mut self.channels[channel_idx];
-                channel.channel_f_number.set_lsb(value);
+
+                channel.channel_f_number =
+                    u16::from_le_bytes([value, channel.pending_ch_f_number_high]);
+                channel.channel_block = channel.pending_ch_block;
+
                 channel.update_phase_generators();
 
                 log::trace!("Channel {}: F-num={:04X}", channel_idx + 1, channel.channel_f_number);
             }
             0xA4..=0xA6 => {
                 // F-number high bits and block
+                // Writes to this register do not take effect until low bits are written
                 let channel_idx = base_channel_idx + (register & 0x03) as usize;
                 let channel = &mut self.channels[channel_idx];
-                channel.channel_f_number.set_msb(value & 0x07);
-                channel.channel_block = (value >> 3) & 0x07;
-                channel.update_phase_generators();
+                channel.pending_ch_f_number_high = value & 7;
+                channel.pending_ch_block = (value >> 3) & 7;
 
                 log::trace!(
-                    "Channel {}: F-num={:04X}, block={}",
+                    "Channel {}: F-num high bits {}, block {}",
                     channel_idx + 1,
-                    channel.channel_f_number,
-                    channel.channel_block
+                    channel.pending_ch_f_number_high,
+                    channel.pending_ch_block,
                 );
             }
             0xA8..=0xAA => {
-                // Operator-level F-number low bits for channels 3 and 6
+                // Operator-level F-number low bits for channel 3
                 let channel_idx = base_channel_idx + 2;
                 let operator_idx = match register {
                     0xA8 => 2,
@@ -747,7 +811,10 @@ impl Ym2612 {
                     _ => unreachable!("nested match expressions"),
                 };
                 let channel = &mut self.channels[channel_idx];
-                channel.operator_f_numbers[operator_idx].set_lsb(value);
+
+                let f_num_high = channel.pending_op_f_numbers_high[operator_idx];
+                channel.operator_f_numbers[operator_idx] = u16::from_le_bytes([value, f_num_high]);
+                channel.operator_blocks[operator_idx] = channel.pending_op_blocks[operator_idx];
                 if channel.mode == FrequencyMode::Multiple {
                     channel.update_phase_generators();
                 }
@@ -760,7 +827,8 @@ impl Ym2612 {
                 );
             }
             0xAC..=0xAE => {
-                // Operator-level F-number high bits and block for channels 3 and 6
+                // Operator-level F-number high bits and block for channel 3
+                // Writes to this register do not take effect until low bits are written
                 let channel_idx = base_channel_idx + 2;
                 let operator_idx = match register {
                     0xAC => 2,
@@ -769,18 +837,15 @@ impl Ym2612 {
                     _ => unreachable!("nested match expressions"),
                 };
                 let channel = &mut self.channels[channel_idx];
-                channel.operator_f_numbers[operator_idx].set_msb(value & 0x07);
-                channel.operator_blocks[operator_idx] = (value >> 3) & 0x07;
-                if channel.mode == FrequencyMode::Multiple {
-                    channel.update_phase_generators();
-                }
+                channel.pending_op_f_numbers_high[operator_idx] = value & 7;
+                channel.pending_op_blocks[operator_idx] = (value >> 3) & 7;
 
                 log::trace!(
-                    "Set operator-level frequency / block for channel {} / operator {}: F-num={:04X}, block={}",
+                    "Set operator-level frequency / block for channel {} / operator {}: F-num high bits {}, block {}",
                     channel_idx + 1,
                     operator_idx + 1,
-                    channel.operator_f_numbers[operator_idx],
-                    channel.operator_blocks[operator_idx]
+                    channel.pending_op_f_numbers_high[operator_idx],
+                    channel.pending_op_blocks[operator_idx],
                 );
             }
             0xB0..=0xB2 => {

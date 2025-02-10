@@ -3,7 +3,7 @@ mod helptext;
 use crate::app::{App, OpenWindow};
 use crate::emuthread::EmuThreadStatus;
 use egui::{Context, Ui, Window};
-use gb_core::api::{GbAspectRatio, GbPalette, GbcColorCorrection};
+use gb_core::api::{GbAspectRatio, GbAudioResampler, GbPalette, GbcColorCorrection};
 
 impl App {
     pub(super) fn render_gb_general_settings(&mut self, ctx: &Context) {
@@ -38,16 +38,6 @@ impl App {
                         self.state.help_text.insert(WINDOW, helptext::PRETEND_GBA_MODE);
                     }
                 });
-
-                let rect = ui
-                    .checkbox(
-                        &mut self.config.game_boy.audio_60hz_hack,
-                        "Enable audio sync timing hack",
-                    )
-                    .interact_rect;
-                if ui.rect_contains_pointer(rect) {
-                    self.state.help_text.insert(WINDOW, helptext::AUDIO_TIMING_HACK);
-                }
 
                 self.render_help_text(ui, WINDOW);
             });
@@ -151,6 +141,49 @@ impl App {
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::GBC_COLOR_CORRECTION);
+            }
+
+            self.render_help_text(ui, WINDOW);
+        });
+        if !open {
+            self.state.open_windows.remove(&WINDOW);
+        }
+    }
+
+    pub(super) fn render_gb_audio_settings(&mut self, ctx: &Context) {
+        const WINDOW: OpenWindow = OpenWindow::GameBoyAudio;
+        let mut open = true;
+        Window::new("Game Boy Audio Settings").open(&mut open).show(ctx, |ui| {
+            let rect = ui
+                .group(|ui| {
+                    ui.label("Audio resampling algorithm");
+
+                    ui.radio_value(
+                        &mut self.config.game_boy.audio_resampler,
+                        GbAudioResampler::LowPassNearestNeighbor,
+                        "Low-pass filter + nearest neighbor (Faster)",
+                    );
+                    ui.radio_value(
+                        &mut self.config.game_boy.audio_resampler,
+                        GbAudioResampler::WindowedSinc,
+                        "Windowed sinc interpolation (Higher quality)",
+                    );
+                })
+                .response
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::AUDIO_RESAMPLING);
+            }
+
+            ui.add_space(5.0);
+            let rect = ui
+                .checkbox(
+                    &mut self.config.game_boy.audio_60hz_hack,
+                    "Enable audio sync timing hack",
+                )
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::AUDIO_TIMING_HACK);
             }
 
             self.render_help_text(ui, WINDOW);

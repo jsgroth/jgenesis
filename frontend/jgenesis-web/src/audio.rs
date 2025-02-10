@@ -11,7 +11,7 @@ const HEADER_LEN_BYTES: u32 = HEADER_LEN * 4;
 const START_INDEX: u32 = 0;
 const END_INDEX: u32 = 1;
 
-pub const BUFFER_LEN_SAMPLES: u32 = 4096;
+pub const BUFFER_LEN_SAMPLES: u32 = 8192;
 const BUFFER_LEN_BYTES: u32 = BUFFER_LEN_SAMPLES * 4;
 const BUFFER_INDEX_MASK: u32 = BUFFER_LEN_SAMPLES - 1;
 
@@ -57,17 +57,23 @@ impl AudioQueue {
         Self { header, header_typed, buffer, buffer_typed }
     }
 
-    pub fn push_if_space(&self, sample: f32) -> Result<EnqueueResult, JsValue> {
-        let end = Atomics::load(&self.header_typed, END_INDEX)? as u32;
+    pub fn push_if_space(
+        &self,
+        (sample_l, sample_r): (f32, f32),
+    ) -> Result<EnqueueResult, JsValue> {
+        let mut end = Atomics::load(&self.header_typed, END_INDEX)? as u32;
         let start = Atomics::load(&self.header_typed, START_INDEX)? as u32;
 
-        if end == start.wrapping_sub(1) & BUFFER_INDEX_MASK {
-            return Ok(EnqueueResult::BufferFull);
+        for sample in [sample_l, sample_r] {
+            if end == start.wrapping_sub(1) & BUFFER_INDEX_MASK {
+                return Ok(EnqueueResult::BufferFull);
+            }
+
+            Atomics::store(&self.buffer_typed, end, sample.to_bits() as i32)?;
+            end = (end + 1) & BUFFER_INDEX_MASK;
         }
 
-        Atomics::store(&self.buffer_typed, end, sample.to_bits() as i32)?;
-        let new_end = (end + 1) & BUFFER_INDEX_MASK;
-        Atomics::store(&self.header_typed, END_INDEX, new_end as i32)?;
+        Atomics::store(&self.header_typed, END_INDEX, end as i32)?;
 
         Ok(EnqueueResult::Successful)
     }

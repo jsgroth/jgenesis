@@ -2,7 +2,7 @@ use crate::config::SnesConfig;
 
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{debug, save};
-use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
+use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config, extensions};
 use jgenesis_common::frontend::EmulatorTrait;
 
 use crate::config::RomReadResult;
@@ -26,8 +26,6 @@ impl SnesControllerTypeExt for SnesControllerType {
 
 pub type NativeSnesEmulator = NativeEmulator<SnesEmulator>;
 
-pub const SUPPORTED_EXTENSIONS: &[&str] = &["sfc", "smc"];
-
 impl NativeSnesEmulator {
     /// # Errors
     ///
@@ -37,8 +35,7 @@ impl NativeSnesEmulator {
 
         self.reload_common_config(&config.common)?;
 
-        self.emulator.reload_config(&config.emulator_config);
-        self.config = config.emulator_config;
+        self.update_emulator_config(&config.emulator_config);
 
         // Config change could have changed target framerate (50/60 Hz hack)
         self.renderer.set_target_fps(self.emulator.target_fps());
@@ -63,7 +60,7 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
     log::info!("Running with config: {config}");
 
     let rom_path = Path::new(&config.common.rom_file_path);
-    let RomReadResult { rom, extension } = config.common.read_rom_file(SUPPORTED_EXTENSIONS)?;
+    let RomReadResult { rom, extension } = config.common.read_rom_file(extensions::SNES)?;
 
     let DeterminedPaths { save_path, save_state_path } = save::determine_save_paths(
         &config.common.save_path,

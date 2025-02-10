@@ -2,15 +2,13 @@ use crate::config::GameBoyConfig;
 use crate::config::RomReadResult;
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{debug, file_name_no_ext, save};
-use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
+use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config, extensions};
 use gb_core::api::GameBoyEmulator;
 use gb_core::inputs::GameBoyInputs;
 use jgenesis_common::frontend::EmulatorTrait;
 use std::path::Path;
 
 pub type NativeGameBoyEmulator = NativeEmulator<GameBoyEmulator>;
-
-pub const SUPPORTED_EXTENSIONS: &[&str] = &["gb", "gbc"];
 
 impl NativeGameBoyEmulator {
     /// # Errors
@@ -21,8 +19,7 @@ impl NativeGameBoyEmulator {
 
         self.reload_common_config(&config.common)?;
 
-        self.emulator.reload_config(&config.emulator_config);
-        self.config = config.emulator_config;
+        self.update_emulator_config(&config.emulator_config);
 
         // Config change could have changed target framerate (60 Hz hack)
         self.renderer.set_target_fps(self.emulator.target_fps());
@@ -46,7 +43,7 @@ pub fn create_gb(config: Box<GameBoyConfig>) -> NativeEmulatorResult<NativeGameB
     log::info!("Running with config: {config}");
 
     let rom_path = Path::new(&config.common.rom_file_path);
-    let RomReadResult { rom, extension } = config.common.read_rom_file(SUPPORTED_EXTENSIONS)?;
+    let RomReadResult { rom, extension } = config.common.read_rom_file(&extensions::GB_GBC)?;
 
     let DeterminedPaths { save_path, save_state_path } = save::determine_save_paths(
         &config.common.save_path,

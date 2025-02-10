@@ -415,6 +415,10 @@ impl Sh2 {
 
         self.update_internal_interrupt_level();
 
+        if channel == 1 {
+            bus.acknowledge_dreq_1();
+        }
+
         if log::log_enabled!(log::Level::Debug) && transfer_complete {
             log::debug!("[{}] DMA{channel} complete", self.name);
         }

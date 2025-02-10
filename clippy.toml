@@ -9,5 +9,6 @@ doc-valid-idents = [
     "UxROM",
     "AxROM",
     "GxROM",
+    "AppImage",
     "..",
 ]

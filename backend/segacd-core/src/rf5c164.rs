@@ -8,17 +8,19 @@ use std::array;
 // Divider of sub CPU cycles
 const RF5C164_DIVIDER: u64 = 384;
 
-const ADDRESS_DECIMAL_BITS: u32 = 11;
-const ADDRESS_DECIMAL_MASK: u32 = (1 << ADDRESS_DECIMAL_BITS) - 1;
+const ADDRESS_FRACT_BITS: u32 = 11;
+const ADDRESS_FRACT_MASK: u32 = (1 << ADDRESS_FRACT_BITS) - 1;
 
 const WAVEFORM_RAM_LEN: usize = 64 * 1024;
 const WAVEFORM_ADDRESS_MASK: u32 = WAVEFORM_RAM_LEN as u32 - 1;
+
+const ADDRESS_FIXED_POINT_MASK: u32 = (1 << (16 + ADDRESS_FRACT_BITS)) - 1;
 
 type WaveformRam = [u8; WAVEFORM_RAM_LEN];
 
 #[derive(Debug, Clone, Default, Encode, Decode)]
 struct InterpolationBuffer {
-    buffer: [i8; 4],
+    buffer: [i8; 6],
 }
 
 impl InterpolationBuffer {
@@ -27,27 +29,31 @@ impl InterpolationBuffer {
     }
 
     fn push(&mut self, sample: i8) {
-        self.buffer[0] = self.buffer[1];
-        self.buffer[1] = self.buffer[2];
-        self.buffer[2] = self.buffer[3];
-        self.buffer[3] = sample;
+        for i in 0..5 {
+            self.buffer[i] = self.buffer[i + 1];
+        }
+        self.buffer[5] = sample;
     }
 
     fn sample(&self, interpolation: PcmInterpolation, current_address: u32) -> f64 {
         match interpolation {
-            PcmInterpolation::None => self.buffer[3].into(),
+            PcmInterpolation::None => self.buffer[5].into(),
             PcmInterpolation::Linear => {
-                interpolate_linear(self.buffer[2], self.buffer[3], interpolation_x(current_address))
+                interpolate_linear(self.buffer[4], self.buffer[5], interpolation_x(current_address))
             }
-            PcmInterpolation::CubicHermite => {
-                interpolate_cubic(self.buffer, interpolation_x(current_address))
+            PcmInterpolation::CubicHermite => interpolate_cubic_4p(
+                self.buffer[2..6].try_into().unwrap(),
+                interpolation_x(current_address),
+            ),
+            PcmInterpolation::CubicHermite6Point => {
+                interpolate_cubic_6p(self.buffer, interpolation_x(current_address))
             }
         }
     }
 }
 
 fn interpolation_x(address: u32) -> f64 {
-    f64::from(address & ADDRESS_DECIMAL_MASK) / f64::from(1 << ADDRESS_DECIMAL_BITS)
+    f64::from(address & ADDRESS_FRACT_MASK) / f64::from(1 << ADDRESS_FRACT_BITS)
 }
 
 fn interpolate_linear(y0: i8, y1: i8, x: f64) -> f64 {
@@ -57,12 +63,19 @@ fn interpolate_linear(y0: i8, y1: i8, x: f64) -> f64 {
     y0 * (1.0 - x) + y1 * x
 }
 
-fn interpolate_cubic(samples: [i8; 4], x: f64) -> f64 {
-    let result = jgenesis_common::audio::interpolate_cubic_hermite(samples.map(f64::from), x);
+// Clamp to [-127, 126] because samples are sign+magnitude, not signed 8-bit
+// +127 is not a valid sample value because 0xFF is the loop end marker
+const MIN_SAMPLE: f64 = -127.0;
+const MAX_SAMPLE: f64 = 126.0;
 
-    // Clamp to [-127, 126] because samples are sign+magnitude, not signed 8-bit
-    // +127 is not a valid sample value because 0xFF is the loop end marker
-    result.clamp(-127.0, 126.0)
+fn interpolate_cubic_4p(samples: [i8; 4], x: f64) -> f64 {
+    let result = jgenesis_common::audio::interpolate_cubic_hermite_4p(samples.map(f64::from), x);
+    result.clamp(MIN_SAMPLE, MAX_SAMPLE)
+}
+
+fn interpolate_cubic_6p(samples: [i8; 6], x: f64) -> f64 {
+    let result = jgenesis_common::audio::interpolate_cubic_hermite_6p(samples.map(f64::from), x);
+    result.clamp(MIN_SAMPLE, MAX_SAMPLE)
 }
 
 #[derive(Debug, Clone, Default, Encode, Decode)]
@@ -81,11 +94,17 @@ struct Channel {
 }
 
 impl Channel {
-    fn enable(&mut self) {
+    fn enable(&mut self, waveform_ram: &WaveformRam) {
         if !self.enabled {
-            self.current_address = u32::from(self.start_address) << ADDRESS_DECIMAL_BITS;
+            self.current_address = u32::from(self.start_address) << ADDRESS_FRACT_BITS;
             self.interpolation_buffer.clear();
             self.enabled = true;
+
+            // Immediately read the first sample when a channel is enabled; otherwise it will get skipped
+            let first_sample = waveform_ram[self.start_address as usize];
+            if first_sample != 0xFF {
+                self.interpolation_buffer.push(sign_magnitude_to_pcm(first_sample));
+            }
         }
     }
 
@@ -101,53 +120,72 @@ impl Channel {
         let address_increment: u32 = self.address_increment.into();
         let incremented_address = self.current_address + address_increment;
 
-        // TODO is it correct to step 1-by-1 when the address increment is greater than (1 << 11)?
-        // How does this interact with looping?
-        let mut address = self.current_address >> ADDRESS_DECIMAL_BITS;
-        let steps = (incremented_address >> ADDRESS_DECIMAL_BITS) - address;
-        for _ in 0..steps {
+        let mut address = self.current_address >> ADDRESS_FRACT_BITS;
+        let steps = (incremented_address >> ADDRESS_FRACT_BITS) - address;
+        if steps == 0 {
+            // Only the fractional bits changed; no new samples read
+            self.current_address = incremented_address & ADDRESS_FIXED_POINT_MASK;
+            return;
+        }
+
+        // All steps but last
+        for _ in 0..steps - 1 {
             address = (address + 1) & WAVEFORM_ADDRESS_MASK;
             let sample = waveform_ram[address as usize];
             if sample == 0xFF {
-                // Loop signal; jump to start of loop and immediately read the next sample
-                address = self.loop_address.into();
-
-                let loop_start_sample = waveform_ram[address as usize];
-                if loop_start_sample == 0xFF {
-                    // Infinite loop
-                    // TODO what does actual hardware do when there's an infinite loop?
-                    self.interpolation_buffer.push(0);
-                } else {
-                    self.interpolation_buffer.push(sign_magnitude_to_pcm(loop_start_sample));
-                }
-            } else {
-                self.interpolation_buffer.push(sign_magnitude_to_pcm(sample));
+                // Loop signal
+                // Actual hardware would skip over this, so just ignore it.
+                // This shouldn't really happen in practice unless a game puts multiple loop markers
+                // at the end of a sample while playing at >32552 Hz to guarantee that the chip
+                // doesn't miss the loop.
+                continue;
             }
+
+            self.interpolation_buffer.push(sign_magnitude_to_pcm(sample));
+        }
+
+        // Last step
+        address = (address + 1) & WAVEFORM_ADDRESS_MASK;
+        let sample = waveform_ram[address as usize];
+        if sample == 0xFF {
+            // Loop signal; jump to start of loop and immediately read the next sample
+            address = self.loop_address.into();
+            let loop_start_sample = waveform_ram[self.loop_address as usize];
+            if loop_start_sample == 0xFF {
+                // Infinite loop
+                // TODO what does actual hardware do when there's an infinite loop?
+                self.interpolation_buffer.push(0);
+            } else {
+                self.interpolation_buffer.push(sign_magnitude_to_pcm(loop_start_sample));
+            }
+        } else {
+            self.interpolation_buffer.push(sign_magnitude_to_pcm(sample));
         }
 
         let new_address_int = address & WAVEFORM_ADDRESS_MASK;
-        let new_address_fract = incremented_address & ADDRESS_DECIMAL_MASK;
-        self.current_address = (new_address_int << ADDRESS_DECIMAL_BITS) | new_address_fract;
+        let new_address_fract = incremented_address & ADDRESS_FRACT_MASK;
+        self.current_address = (new_address_int << ADDRESS_FRACT_BITS) | new_address_fract;
     }
 
-    fn sample(&self, interpolation: PcmInterpolation) -> (f64, f64) {
+    fn sample(&self, interpolation: PcmInterpolation) -> (i32, i32) {
         if !self.enabled {
-            return (0.0, 0.0);
+            return (0, 0);
         }
 
         let sample = self.interpolation_buffer.sample(interpolation, self.current_address);
+        let sign = sample.signum() as i32;
+        let magnitude = sample.abs();
 
         // Apply volume
-        let amplified = sample * f64::from(self.master_volume);
+        let amplified = magnitude * f64::from(self.master_volume);
         let panned_l = amplified * f64::from(self.l_volume);
         let panned_r = amplified * f64::from(self.r_volume);
 
-        // Drop the lowest 5 bits and scale so that one channel at max amplitude is +/- 0.25
-        let sign = sample.signum();
-        let magnitude_l = panned_l.abs();
-        let magnitude_r = panned_r.abs();
-        let output_l = sign * f64::from((magnitude_l.round() as u32) >> 5) / f64::from(u16::MAX);
-        let output_r = sign * f64::from((magnitude_r.round() as u32) >> 5) / f64::from(u16::MAX);
+        // Drop the lowest 5 bits and apply sign
+        // Per the RF5C164 datasheet, the truncation is done purely on the magnitude, before taking
+        // sign into account
+        let output_l = sign * ((panned_l.round() as i32) >> 5);
+        let output_r = sign * ((panned_r.round() as i32) >> 5);
 
         (output_l, output_r)
     }
@@ -247,7 +285,7 @@ impl Rf5c164 {
         let channel_idx = (address & 0xF) >> 1;
         let channel = &self.channels[channel_idx as usize];
         let channel_address = if channel.enabled {
-            (channel.current_address >> ADDRESS_DECIMAL_BITS) as u16
+            (channel.current_address >> ADDRESS_FRACT_BITS) as u16
         } else {
             channel.start_address
         };
@@ -349,7 +387,7 @@ impl Rf5c164 {
                     if value.bit(i as u8) {
                         channel.disable();
                     } else {
-                        channel.enable();
+                        channel.enable(&self.waveform_ram);
                     }
                 }
             }
@@ -386,11 +424,19 @@ impl Rf5c164 {
             .channels
             .iter()
             .map(|channel| channel.sample(self.interpolation))
-            .fold((0.0, 0.0), |(sum_l, sum_r), (sample_l, sample_r)| {
+            .fold((0, 0), |(sum_l, sum_r), (sample_l, sample_r)| {
                 (sum_l + sample_l, sum_r + sample_r)
             });
 
-        (sample_l.clamp(-1.0, 1.0), sample_r.clamp(-1.0, 1.0))
+        // Individual channel samples are effectively signed 15-bit after applying volume (and
+        // dropping the lowest 5 bits)
+        // Mixed output is clamped to signed 16-bit
+        let sample_l = sample_l.clamp(i16::MIN.into(), i16::MAX.into());
+        let sample_r = sample_r.clamp(i16::MIN.into(), i16::MAX.into());
+
+        let sample_l = f64::from(sample_l) / -f64::from(i16::MIN);
+        let sample_r = f64::from(sample_r) / -f64::from(i16::MIN);
+        (sample_l, sample_r)
     }
 
     pub fn reload_config(&mut self, config: &SegaCdEmulatorConfig) {

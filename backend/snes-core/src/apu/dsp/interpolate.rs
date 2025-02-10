@@ -44,6 +44,6 @@ pub fn hermite(
     let samples = [oldest.into(), older.into(), old.into(), sample.into()];
     let x = f64::from(pitch_counter & 0xFFF) / 4096.0;
 
-    let result = jgenesis_common::audio::interpolate_cubic_hermite(samples, x);
+    let result = jgenesis_common::audio::interpolate_cubic_hermite_4p(samples, x);
     result.round().clamp(I15_MIN, I15_MAX) as i16
 }

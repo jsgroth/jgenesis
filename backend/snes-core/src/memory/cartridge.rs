@@ -181,7 +181,7 @@ impl Cartridge {
         });
 
         if cartridge_type != CartridgeType::Spc7110 {
-            jgenesis_common::mirror_to_power_of_two(&mut rom);
+            jgenesis_common::rom::mirror_to_next_power_of_two(&mut rom);
             log::debug!("ROM length after mirroring is {} bytes", rom.len());
 
             debug_assert_eq!(rom.len().count_ones(), 1);

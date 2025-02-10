@@ -17,7 +17,7 @@ use jgenesis_common::frontend::{
 };
 use jgenesis_renderer::renderer::{WgpuRenderer, WindowSize};
 use rfd::AsyncFileDialog;
-use segacd_core::api::{PcmInterpolation, SegaCdEmulator, SegaCdEmulatorConfig};
+use segacd_core::api::SegaCdEmulator;
 use smsgg_core::{SmsGgEmulator, SmsGgHardware, SmsGgInputs};
 use snes_core::api::{CoprocessorRoms, SnesEmulator};
 use snes_core::input::SnesInputs;
@@ -64,8 +64,9 @@ impl AudioOutput for WebAudioOutput {
             let _ = self.audio_ctx.resume();
         }
 
-        self.audio_queue.push_if_space(sample_l as f32).map_err(|err| format!("{err:?}"))?;
-        self.audio_queue.push_if_space(sample_r as f32).map_err(|err| format!("{err:?}"))?;
+        self.audio_queue
+            .push_if_space((sample_l as f32, sample_r as f32))
+            .map_err(|err| format!("{err:?}"))?;
         Ok(())
     }
 }
@@ -348,14 +349,7 @@ impl Emulator {
                 emulator.reload_config(&config.genesis.to_emulator_config());
             }
             Self::SegaCd(emulator, ..) => {
-                emulator.reload_config(&SegaCdEmulatorConfig {
-                    genesis: config.genesis.to_emulator_config(),
-                    pcm_interpolation: PcmInterpolation::default(),
-                    enable_ram_cartridge: true,
-                    load_disc_into_ram: true,
-                    pcm_enabled: true,
-                    cd_audio_enabled: true,
-                });
+                emulator.reload_config(&config.to_sega_cd_config());
             }
             Self::Snes(emulator, ..) => {
                 emulator.reload_config(&config.snes.to_emulator_config());
@@ -767,7 +761,8 @@ fn run_event_loop(event_loop: EventLoop<JgenesisUserEvent>, mut state: AppState)
 
 async fn open_file(event_loop_proxy: EventLoopProxy<JgenesisUserEvent>) {
     let file = AsyncFileDialog::new()
-        .add_filter("sms/gg/md", &["sms", "gg", "md", "bin", "sfc", "smc"])
+        .add_filter("Supported Files", &["sms", "gg", "gen", "md", "bin", "smd", "sfc", "smc"])
+        .add_filter("All Types", &["*"])
         .pick_file()
         .await;
     let Some(file) = file else { return };
@@ -855,7 +850,7 @@ fn open_emulator(
             );
             Ok(Emulator::SmsGg(emulator, SmsGgInputs::default()))
         }
-        "md" | "bin" => {
+        "gen" | "md" | "bin" | "smd" => {
             js::showGenesisConfig();
 
             let emulator = GenesisEmulator::create(
@@ -871,14 +866,7 @@ fn open_emulator(
             let emulator = SegaCdEmulator::create_in_memory(
                 bios,
                 rom,
-                SegaCdEmulatorConfig {
-                    genesis: config_ref.borrow().genesis.to_emulator_config(),
-                    pcm_interpolation: PcmInterpolation::default(),
-                    enable_ram_cartridge: true,
-                    load_disc_into_ram: true,
-                    pcm_enabled: true,
-                    cd_audio_enabled: true,
-                },
+                config_ref.borrow().to_sega_cd_config(),
                 save_writer,
             )?;
 

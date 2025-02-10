@@ -202,10 +202,17 @@ pub trait MappableInputs<Button> {
     fn handle_mouse_leave(&mut self) {}
 }
 
+pub trait EmulatorConfigTrait: Clone {
+    #[must_use]
+    fn with_overclocking_disabled(&self) -> Self {
+        self.clone()
+    }
+}
+
 pub trait EmulatorTrait: Encode + Decode + PartialClone {
     type Button: Debug + Copy + Eq + Hash;
     type Inputs: Default + MappableInputs<Self::Button>;
-    type Config;
+    type Config: EmulatorConfigTrait;
 
     type Err<RErr: Debug + Display + Send + Sync + 'static, AErr: Debug + Display + Send + Sync + 'static, SErr: Debug + Display + Send + Sync + 'static>: Error + Send + Sync + 'static;
 
@@ -248,10 +255,10 @@ pub trait EmulatorTrait: Encode + Decode + PartialClone {
 
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S);
 
-    // All cores start at save state version 0; they can override this function when they need to change it
+    // All cores start at save state version 2; they can override this function when they need to change it
     #[must_use]
     fn save_state_version() -> u16 {
-        0
+        2
     }
 
     fn target_fps(&self) -> f64;

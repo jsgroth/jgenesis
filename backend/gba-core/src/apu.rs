@@ -430,13 +430,16 @@ impl Apu {
         }
 
         log::debug!("SOUNDCNT_H write: {value:04X}");
-        log::debug!("  PSG volume: {}", match self.psg_volume {
-            0 => "25%",
-            1 => "50%",
-            2 => "100%",
-            3 => "Prohibited",
-            _ => unreachable!(),
-        });
+        log::debug!(
+            "  PSG volume: {}",
+            match self.psg_volume {
+                0 => "25%",
+                1 => "50%",
+                2 => "100%",
+                3 => "Prohibited",
+                _ => unreachable!(),
+            }
+        );
         log::debug!(
             "  Channel A volume: {}",
             if self.channel_a.half_volume { "50%" } else { "100%" }

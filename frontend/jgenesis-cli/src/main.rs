@@ -2,30 +2,30 @@
 
 use clap::Parser;
 use env_logger::Env;
-use gb_core::api::{GbAspectRatio, GbPalette, GbcColorCorrection};
+use gb_core::api::{GbAspectRatio, GbAudioResampler, GbPalette, GbcColorCorrection};
 use gba_core::api::GbaAspectRatio;
-use genesis_core::audio::LowPassFilter;
-use genesis_core::{GenesisAspectRatio, GenesisControllerType, GenesisRegion};
+use genesis_core::{
+    GenesisAspectRatio, GenesisControllerType, GenesisLowPassFilter, GenesisRegion,
+};
 use jgenesis_common::frontend::{EmulatorTrait, TimingMode};
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::common::ConfigSavePath;
 use jgenesis_native_driver::config::input::{NesControllerType, SnesControllerType};
 use jgenesis_native_driver::config::{FullscreenMode, HideMouseCursor};
-use jgenesis_native_driver::{NativeEmulator, NativeTickEffect};
+use jgenesis_native_driver::{NativeEmulator, NativeTickEffect, extensions};
 use jgenesis_proc_macros::{CustomValueEnum, EnumAll, EnumDisplay};
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, Scanlines, VSyncMode, WgpuBackend,
 };
-use nes_core::api::NesAspectRatio;
+use nes_core::api::{NesAspectRatio, NesAudioResampler};
 use s32x_core::api::S32XVideoOut;
-use segacd_core::api::PcmInterpolation;
+use segacd_core::api::{PcmInterpolation, PcmLowPassFilter};
 use smsgg_core::psg::Sn76489Version;
 use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsModel, SmsRegion};
 use snes_core::api::{AudioInterpolationMode, SnesAspectRatio};
-use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::fs;
-use std::num::{NonZeroU32, NonZeroU64};
+use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumAll, EnumDisplay, CustomValueEnum)]
@@ -60,11 +60,11 @@ struct Args {
 
     /// ROM file path
     #[arg(short = 'f', long)]
-    file_path: String,
+    file_path: PathBuf,
 
     /// Override default config file path (jgenesis-config.toml)
     #[arg(long = "config")]
-    config_path_override: Option<String>,
+    config_path_override: Option<PathBuf>,
 
     /// Attempt to load the specified save state slot during startup. Takes priority over --load-recent-state-at-launch
     #[arg(long, value_name = "SLOT")]
@@ -168,9 +168,9 @@ struct Args {
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
     emulate_ym2612_ladder_effect: Option<bool>,
 
-    /// Choose which low-pass filter to apply to Genesis audio output
+    /// Audio low-pass filter setting
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
-    genesis_low_pass_filter: Option<LowPassFilter>,
+    genesis_low_pass: Option<GenesisLowPassFilter>,
 
     /// Enable audio from the YM2612 FM chip
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
@@ -202,7 +202,7 @@ struct Args {
 
     /// Sega CD BIOS path
     #[arg(short = 'b', long, help_heading = SCD_OPTIONS_HEADING)]
-    bios_path: Option<String>,
+    bios_path: Option<PathBuf>,
 
     /// Sega CD PCM sound chip interpolation
     #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
@@ -212,6 +212,15 @@ struct Args {
     #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
     enable_ram_cartridge: Option<bool>,
 
+    /// Set the CD-ROM drive speed when reading data tracks (1 = native speed)
+    #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
+    scd_drive_speed: Option<NonZeroU16>,
+
+    /// Optionally decrease the Sega CD sub CPU's clock divider (1-4, with 4 being actual hardware speed).
+    /// Lower divider = higher CPU clock speed
+    #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
+    scd_sub_cpu_divider: Option<NonZeroU64>,
+
     /// Run the Sega CD emulator with no disc
     #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
     scd_no_disc: bool,
@@ -219,6 +228,18 @@ struct Args {
     /// Load the CD-ROM image into RAM at startup
     #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
     scd_load_disc_into_ram: Option<bool>,
+
+    /// PCM chip low-pass filter setting
+    #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
+    scd_pcm_low_pass: Option<PcmLowPassFilter>,
+
+    /// Whether to apply the Genesis low-pass filter to PCM chip output
+    #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
+    scd_apply_gen_lpf_to_pcm: Option<bool>,
+
+    /// Whether to apply the Genesis low-pass filter to CD-DA playback
+    #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
+    scd_apply_gen_lpf_to_cd_da: Option<bool>,
 
     /// Enable audio from the RF5C164 PCM chip
     #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
@@ -231,6 +252,10 @@ struct Args {
     /// Set 32X video output
     #[arg(long, help_heading = S32X_OPTIONS_HEADING)]
     s32x_video_out: Option<S32XVideoOut>,
+
+    /// Configure whether PWM chip output uses the Genesis low-pass filter
+    #[arg(long, help_heading = S32X_OPTIONS_HEADING)]
+    s32x_apply_gen_lpf_to_pwm: Option<bool>,
 
     /// Enable audio from the 32X PWM chip
     #[arg(long, help_heading = S32X_OPTIONS_HEADING)]
@@ -272,6 +297,10 @@ struct Args {
     #[arg(long, help_heading = NES_OPTIONS_HEADING)]
     nes_silence_ultrasonic_triangle: Option<bool>,
 
+    /// Audio resampling algorithm
+    #[arg(long, help_heading = NES_OPTIONS_HEADING)]
+    nes_audio_resampler: Option<NesAudioResampler>,
+
     /// Enable hack that times NES audio sync to 60Hz NTSC / 50Hz PAL instead of ~60.099Hz NTSC / ~50.007Hz PAL
     #[arg(long, help_heading = NES_OPTIONS_HEADING)]
     nes_audio_60hz_hack: Option<bool>,
@@ -302,27 +331,27 @@ struct Args {
 
     /// Specify SNES DSP-1 ROM path (required for DSP-1 games)
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
-    dsp1_rom_path: Option<String>,
+    dsp1_rom_path: Option<PathBuf>,
 
     /// Specify SNES DSP-2 ROM path (required for DSP-2 games)
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
-    dsp2_rom_path: Option<String>,
+    dsp2_rom_path: Option<PathBuf>,
 
     /// Specify SNES DSP-3 ROM path (required for DSP-3 games)
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
-    dsp3_rom_path: Option<String>,
+    dsp3_rom_path: Option<PathBuf>,
 
     /// Specify SNES DSP-4 ROM path (required for DSP-4 games)
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
-    dsp4_rom_path: Option<String>,
+    dsp4_rom_path: Option<PathBuf>,
 
     /// Specify SNES ST010 ROM path (required for ST010 games)
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
-    st010_rom_path: Option<String>,
+    st010_rom_path: Option<PathBuf>,
 
     /// Specify SNES ST011 ROM path (required for ST011 games)
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
-    st011_rom_path: Option<String>,
+    st011_rom_path: Option<PathBuf>,
 
     /// Force DMG / original Game Boy mode in software with Game Boy Color support
     #[arg(long, help_heading = GB_OPTIONS_HEADING)]
@@ -343,6 +372,10 @@ struct Args {
     /// Game Boy Color color correction
     #[arg(long, help_heading = GB_OPTIONS_HEADING)]
     gbc_color_correction: Option<GbcColorCorrection>,
+
+    /// Audio resampling algorithm
+    #[arg(long, help_heading = GB_OPTIONS_HEADING)]
+    gb_audio_resampler: Option<GbAudioResampler>,
 
     /// Target 60 FPS instead of ~59.73 FPS
     #[arg(long, help_heading = GB_OPTIONS_HEADING)]
@@ -424,6 +457,10 @@ struct Args {
     #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
     audio_sync: Option<bool>,
 
+    /// Enable audio dynamic resampling ratio
+    #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
+    audio_dynamic_resampling_ratio: Option<bool>,
+
     /// Audio hardware queue size in samples
     #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
     audio_hardware_queue_size: Option<u16>,
@@ -476,6 +513,24 @@ macro_rules! apply_path_overrides {
 }
 
 impl Args {
+    fn fix_appimage_relative_paths(mut self) -> Self {
+        self.file_path = jgenesis_common::fix_appimage_relative_path(self.file_path);
+
+        fix_optional_relative_path(&mut self.config_path_override);
+        fix_optional_relative_path(&mut self.custom_save_path);
+        fix_optional_relative_path(&mut self.custom_state_path);
+
+        fix_optional_relative_path(&mut self.bios_path);
+        fix_optional_relative_path(&mut self.dsp1_rom_path);
+        fix_optional_relative_path(&mut self.dsp2_rom_path);
+        fix_optional_relative_path(&mut self.dsp3_rom_path);
+        fix_optional_relative_path(&mut self.dsp4_rom_path);
+        fix_optional_relative_path(&mut self.st010_rom_path);
+        fix_optional_relative_path(&mut self.st011_rom_path);
+
+        self
+    }
+
     fn apply_overrides(&self, config: &mut AppConfig) {
         self.apply_common_overrides(config);
         self.apply_smsgg_overrides(config);
@@ -542,8 +597,8 @@ impl Args {
             genesis_render_vertical_border -> render_vertical_border,
             genesis_render_horizontal_border -> render_horizontal_border,
             quantize_ym2612_output,
-            genesis_low_pass_filter -> low_pass_filter,
             emulate_ym2612_ladder_effect,
+            genesis_low_pass -> low_pass,
             ym2612_enabled,
             genesis_psg_enabled -> psg_enabled,
             genesis_aspect_ratio -> aspect_ratio,
@@ -567,6 +622,11 @@ impl Args {
             enable_ram_cartridge,
             scd_pcm_interpolation -> pcm_interpolation,
             scd_load_disc_into_ram -> load_disc_into_ram,
+            scd_drive_speed -> disc_drive_speed,
+            scd_sub_cpu_divider -> sub_cpu_divider,
+            scd_pcm_low_pass -> pcm_low_pass,
+            scd_apply_gen_lpf_to_pcm -> apply_genesis_lpf_to_pcm,
+            scd_apply_gen_lpf_to_cd_da -> apply_genesis_lpf_to_cd_da,
             scd_pcm_enabled -> pcm_enabled,
             scd_cd_da_enabled -> cd_audio_enabled,
         ]);
@@ -575,6 +635,7 @@ impl Args {
     fn apply_32x_overrides(&self, config: &mut AppConfig) {
         apply_overrides!(self, config.sega_32x, [
             s32x_video_out -> video_out,
+            s32x_apply_gen_lpf_to_pwm -> apply_genesis_lpf_to_pwm,
             s32x_pwm_enabled -> pwm_enabled,
         ]);
     }
@@ -585,6 +646,7 @@ impl Args {
             nes_pal_black_border -> pal_black_border,
             nes_allow_opposing_inputs -> allow_opposing_joypad_inputs,
             nes_silence_ultrasonic_triangle -> silence_ultrasonic_triangle_output,
+            nes_audio_resampler -> audio_resampler,
             nes_audio_60hz_hack -> audio_60hz_hack,
         ]);
 
@@ -611,14 +673,18 @@ impl Args {
             config.input.snes.p2_type = p2_controller_type;
         }
 
-        apply_path_overrides!(self, config.snes, [
-            dsp1_rom_path,
-            dsp2_rom_path,
-            dsp3_rom_path,
-            dsp4_rom_path,
-            st010_rom_path,
-            st011_rom_path,
-        ]);
+        apply_path_overrides!(
+            self,
+            config.snes,
+            [
+                dsp1_rom_path,
+                dsp2_rom_path,
+                dsp3_rom_path,
+                dsp4_rom_path,
+                st010_rom_path,
+                st011_rom_path,
+            ]
+        );
     }
 
     fn apply_gb_overrides(&self, config: &mut AppConfig) {
@@ -628,6 +694,7 @@ impl Args {
             gb_aspect_ratio -> aspect_ratio,
             gb_palette,
             gbc_color_correction,
+            gb_audio_resampler -> audio_resampler,
             gb_audio_60hz_hack -> audio_60hz_hack,
         ]);
     }
@@ -667,17 +734,21 @@ impl Args {
             config.common.launch_in_fullscreen = true;
         }
 
-        apply_overrides!(self, config.common, [
-            fullscreen_mode,
-            wgpu_backend,
-            vsync_mode,
-            frame_time_sync,
-            auto_prescale,
-            scanlines,
-            force_integer_height_scaling,
-            filter_mode,
-            preprocess_shader,
-        ]);
+        apply_overrides!(
+            self,
+            config.common,
+            [
+                fullscreen_mode,
+                wgpu_backend,
+                vsync_mode,
+                frame_time_sync,
+                auto_prescale,
+                scanlines,
+                force_integer_height_scaling,
+                filter_mode,
+                preprocess_shader,
+            ]
+        );
 
         if let Some(prescale_factor) = self.prescale_factor {
             config.common.prescale_factor =
@@ -686,20 +757,26 @@ impl Args {
     }
 
     fn apply_audio_overrides(&self, config: &mut AppConfig) {
-        apply_overrides!(self, config.common, [
-            audio_output_frequency,
-            audio_sync,
-            audio_hardware_queue_size,
-            audio_buffer_size,
-            audio_gain_db,
-        ]);
+        apply_overrides!(
+            self,
+            config.common,
+            [
+                audio_output_frequency,
+                audio_sync,
+                audio_dynamic_resampling_ratio,
+                audio_hardware_queue_size,
+                audio_buffer_size,
+                audio_gain_db,
+            ]
+        );
     }
 
     fn apply_hotkey_overrides(&self, config: &mut AppConfig) {
-        apply_overrides!(self, config.common, [
-            fast_forward_multiplier,
-            rewind_buffer_length_seconds,
-        ]);
+        apply_overrides!(
+            self,
+            config.common,
+            [fast_forward_multiplier, rewind_buffer_length_seconds,]
+        );
 
         if self.load_save_state.is_some() {
             // Don't try to load a recent state if --load-save-state arg was passed
@@ -710,10 +787,15 @@ impl Args {
     }
 }
 
+fn fix_optional_relative_path(option: &mut Option<PathBuf>) {
+    let Some(path) = option.take() else { return };
+    *option = Some(jgenesis_common::fix_appimage_relative_path(path));
+}
+
 fn try_determine_scale_factor() -> Option<f32> {
     let sdl_ctx = sdl2::init().ok()?;
     let video = sdl_ctx.video().ok()?;
-    jgenesis_native_driver::determine_scale_factor(&video, None)
+    jgenesis_native_driver::guess_sdl2_scale_factor(&video, None)
 }
 
 fn main() -> anyhow::Result<()> {
@@ -722,59 +804,11 @@ fn main() -> anyhow::Result<()> {
     )
     .init();
 
-    let args = Args::parse();
+    let args = Args::parse().fix_appimage_relative_paths();
 
     let hardware = match args.hardware {
         Some(hardware) => hardware,
-        None => {
-            let file_path = Path::new(&args.file_path);
-            let mut file_ext: String =
-                file_path.extension().and_then(OsStr::to_str).unwrap_or("").into();
-            match file_ext.as_str() {
-                "zip" => {
-                    let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_zip(
-                        file_path,
-                        jgenesis_native_driver::all_supported_extensions(),
-                    )?
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "No files with supported extensions found in .zip archive: {}",
-                            args.file_path
-                        )
-                    });
-                    file_ext = zip_entry.extension;
-                }
-                "7z" => {
-                    let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_7z(
-                        file_path,
-                        jgenesis_native_driver::all_supported_extensions(),
-                    )?
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "No files with supported extensions found in .7z archive: {}",
-                            args.file_path
-                        )
-                    });
-                    file_ext = zip_entry.extension;
-                }
-                _ => {}
-            }
-
-            match file_ext.as_str() {
-                "sms" | "gg" => Hardware::MasterSystem,
-                "md" | "bin" => Hardware::Genesis,
-                "cue" | "chd" => Hardware::SegaCd,
-                "32x" => Hardware::Sega32X,
-                "nes" => Hardware::Nes,
-                "sfc" | "smc" => Hardware::Snes,
-                "gb" | "gbc" => Hardware::GameBoy,
-                "gba" => Hardware::GameBoyAdvance,
-                _ => {
-                    log::warn!("Unrecognized file extension: '{file_ext}' defaulting to Genesis");
-                    Hardware::Genesis
-                }
-            }
-        }
+        None => guess_hardware(&args)?,
     };
 
     log::info!("Running with hardware {hardware}");
@@ -782,7 +816,7 @@ fn main() -> anyhow::Result<()> {
     let config_path = args
         .config_path_override
         .clone()
-        .map_or_else(jgenesis_native_config::default_config_path, PathBuf::from);
+        .unwrap_or_else(jgenesis_native_config::default_config_path);
     log::info!("Loading config from '{}'", config_path.display());
 
     let config_str = fs::read_to_string(&config_path).unwrap_or_else(|err| {
@@ -794,6 +828,21 @@ fn main() -> anyhow::Result<()> {
         log::error!("Unable to deserialize config file at '{}': {err}", config_path.display());
         AppConfig::default()
     });
+
+    // Persist default config if the file doesn't exist
+    if let Ok(config_file_exists) = fs::exists(&config_path) {
+        if !config_file_exists {
+            let config_str = toml::to_string_pretty(&config)?;
+            log::info!("Persisting default config to '{}'", config_path.display());
+            if let Err(err) = fs::write(&config_path, &config_str) {
+                log::error!(
+                    "Error serializing default config file to '{}': {err}",
+                    config_path.display()
+                );
+            }
+        }
+    }
+
     if let Some(migrated_config) = jgenesis_native_config::migrate_config(&config, &config_str) {
         config = migrated_config;
     }
@@ -810,6 +859,64 @@ fn main() -> anyhow::Result<()> {
         Hardware::GameBoy => run_gb(args, config),
         Hardware::GameBoyAdvance => run_gba(args, config),
     }
+}
+
+fn guess_hardware(args: &Args) -> anyhow::Result<Hardware> {
+    let file_path = Path::new(&args.file_path);
+
+    let mut file_ext = extensions::from_path(file_path).unwrap_or_default();
+
+    match file_ext.as_str() {
+        "zip" => {
+            let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_zip(
+                file_path,
+                &extensions::ALL_CARTRIDGE_BASED,
+            )?
+            .unwrap_or_else(|| {
+                panic!(
+                    "No files with supported extensions found in .zip archive: {}",
+                    args.file_path.display()
+                )
+            });
+            file_ext = zip_entry.extension;
+        }
+        "7z" => {
+            let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_7z(
+                file_path,
+                &extensions::ALL_CARTRIDGE_BASED,
+            )?
+            .unwrap_or_else(|| {
+                panic!(
+                    "No files with supported extensions found in .7z archive: {}",
+                    args.file_path.display()
+                )
+            });
+            file_ext = zip_entry.extension;
+        }
+        _ => {}
+    }
+
+    let file_ext_str = file_ext.as_str();
+    Ok(if extensions::SMSGG.contains(&file_ext_str) {
+        Hardware::MasterSystem
+    } else if extensions::GENESIS.contains(&file_ext_str) {
+        Hardware::Genesis
+    } else if extensions::SEGA_CD.contains(&file_ext_str) {
+        Hardware::SegaCd
+    } else if extensions::SEGA_32X.contains(&file_ext_str) {
+        Hardware::Sega32X
+    } else if extensions::NES.contains(&file_ext_str) {
+        Hardware::Nes
+    } else if extensions::SNES.contains(&file_ext_str) {
+        Hardware::Snes
+    } else if extensions::GB_GBC.contains(&file_ext_str) {
+        Hardware::GameBoy
+    } else if extensions::GAME_BOY_ADVANCE.contains(&file_ext_str) {
+        Hardware::GameBoyAdvance
+    } else {
+        log::warn!("Unrecognized file extension: '{file_ext}' defaulting to Genesis");
+        Hardware::Genesis
+    })
 }
 
 fn run_sms(args: Args, config: AppConfig) -> anyhow::Result<()> {

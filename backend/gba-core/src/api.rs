@@ -12,8 +12,8 @@ use crate::{bus, ppu};
 use arm7tdmi_emu::{Arm7Tdmi, Arm7TdmiResetArgs, CpuMode};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorTrait, PartialClone, PixelAspectRatio, Renderer, SaveWriter, TickEffect,
-    TickResult,
+    AudioOutput, EmulatorConfigTrait, EmulatorTrait, PartialClone, PixelAspectRatio, Renderer,
+    SaveWriter, TickEffect, TickResult,
 };
 use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay};
 use std::fmt::{Debug, Display};
@@ -46,6 +46,8 @@ pub struct GbaEmulatorConfig {
     pub aspect_ratio: GbaAspectRatio,
     pub skip_bios_intro_animation: bool,
 }
+
+impl EmulatorConfigTrait for GbaEmulatorConfig {}
 
 #[derive(Debug, Error)]
 pub enum GbaError<RErr, AErr, SErr> {

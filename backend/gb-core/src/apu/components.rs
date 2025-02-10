@@ -183,7 +183,7 @@ pub enum TimerTickEffect {
 pub struct PhaseTimer<const MAX_PHASE: u8, const SPEED_MULTIPLIER: u16> {
     pub phase: u8,
     frequency: u16,
-    counter: u16,
+    pub counter: u16,
     period: u16,
 }
 
@@ -195,6 +195,11 @@ impl<const MAX_PHASE: u8, const SPEED_MULTIPLIER: u16> PhaseTimer<MAX_PHASE, SPE
         assert_eq!(MAX_PHASE.trailing_ones() + MAX_PHASE.leading_zeros(), u8::BITS);
 
         Self { phase: 0, counter: 2048, period: 2048, frequency: 0 }
+    }
+
+    #[must_use]
+    pub fn just_reloaded(self) -> bool {
+        self.counter == self.period
     }
 
     #[must_use]

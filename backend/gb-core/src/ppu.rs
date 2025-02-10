@@ -198,20 +198,20 @@ pub struct Ppu {
 }
 
 macro_rules! cgb_only_read {
-    ($ppu:ident.$($op:tt)*) => {
+    ($ppu:ident => $op:expr) => {
         match $ppu.hardware_mode {
             HardwareMode::Dmg => 0xFF,
-            HardwareMode::Cgb => $ppu.$($op)*,
+            HardwareMode::Cgb => $op,
         }
-    }
+    };
 }
 
 macro_rules! cgb_only_write {
-    ($ppu:ident.$($op:tt)*) => {
+    ($ppu:ident => $op:expr) => {
         if $ppu.hardware_mode == HardwareMode::Cgb {
-            $ppu.$($op)*;
+            $op;
         }
-    }
+    };
 }
 
 impl Ppu {
@@ -225,8 +225,8 @@ impl Ppu {
             vram: vram.into_boxed_slice().try_into().unwrap(),
             oam: vec![0; OAM_LEN].into_boxed_slice().try_into().unwrap(),
             registers: Registers::new(),
-            bg_palette_ram: CgbPaletteRam::new(),
-            sprite_palette_ram: CgbPaletteRam::new(),
+            bg_palette_ram: CgbPaletteRam::new_bg(),
+            sprite_palette_ram: CgbPaletteRam::new_obj(),
             state: State::new(),
             sprite_buffer: Vec::with_capacity(MAX_SPRITES_PER_LINE),
             fifo: PixelFifo::new(hardware_mode),
@@ -274,6 +274,9 @@ impl Ppu {
             return;
         } else if !self.state.previously_enabled {
             self.state.previously_enabled = true;
+
+            // Restarting the PPU at dot 4 instead of 0 fixes graphical glitches in GBVideoPlayer2
+            self.state.dot = 4;
 
             // When the PPU is re-enabled, the next frame is not displayed
             self.state.skip_next_frame = true;
@@ -356,6 +359,15 @@ impl Ppu {
                 self.state.skip_next_frame = false;
             } else {
                 self.state.frame_complete = true;
+            }
+
+            // Obscure behavior: If the mode 2 STAT interrupt is enabled, it will trigger a STAT
+            // interrupt on line 144 around the same time that VBlank starts.
+            //
+            // GB Video Player (https://github.com/LIJI32/GBVideoPlayer) depends on this because
+            // it uses the Mode 2 STAT interrupt and expects it to trigger 145 times per frame, not 144
+            if !self.state.prev_stat_interrupt_line && self.registers.mode_2_interrupt_enabled {
+                interrupt_registers.set_flag(InterruptType::LcdStatus);
             }
         }
 
@@ -447,11 +459,14 @@ impl Ppu {
     }
 
     fn cpu_can_access_vram(&self) -> bool {
-        // Allow access even during mode 3 if dot == 80.
+        // Allow access even during mode 3 if dot <= 84.
         // Because of how the CPU and PPU are executed, a write at dot == 80 would have occurred
         // on dot 78 (single-speed) or dot 79 (double-speed) on actual hardware and would not have
-        // been blocked
-        self.state.mode != PpuMode::Rendering || self.state.dot == OAM_SCAN_DOTS
+        // been blocked.
+        // Allowing writes on dots 81-84 (probably 81-83 in actual hardware) is a hack to fix
+        // what seems to be a timing issue elsewhere, possibly interrupt-related. The Stunt Race FX
+        // demo depends on allowing these through
+        self.state.mode != PpuMode::Rendering || self.state.dot <= OAM_SCAN_DOTS + 4
     }
 
     pub fn mode(&self) -> PpuMode {
@@ -472,12 +487,14 @@ impl Ppu {
             0x49 => self.registers.read_obp1(),
             0x4A => self.registers.window_y,
             0x4B => self.registers.window_x,
-            0x4F => cgb_only_read!(self.registers.read_vbk()),
-            0x68 => cgb_only_read!(self.bg_palette_ram.read_data_port_address()),
-            0x69 => cgb_only_read!(self.bg_palette_ram.read_data_port(self.cpu_can_access_vram())),
-            0x6A => cgb_only_read!(self.sprite_palette_ram.read_data_port_address()),
+            0x4F => cgb_only_read!(self => self.registers.read_vbk()),
+            0x68 => cgb_only_read!(self => self.bg_palette_ram.read_data_port_address()),
+            0x69 => {
+                cgb_only_read!(self => self.bg_palette_ram.read_data_port(self.cpu_can_access_vram()))
+            }
+            0x6A => cgb_only_read!(self => self.sprite_palette_ram.read_data_port_address()),
             0x6B => {
-                cgb_only_read!(self.sprite_palette_ram.read_data_port(self.cpu_can_access_vram()))
+                cgb_only_read!(self => self.sprite_palette_ram.read_data_port(self.cpu_can_access_vram()))
             }
             _ => {
                 log::warn!("PPU register read {address:04X}");
@@ -490,6 +507,7 @@ impl Ppu {
         &mut self,
         address: u16,
         value: u8,
+        speed: CpuSpeed,
         interrupt_registers: &mut InterruptRegisters,
     ) {
         log::trace!(
@@ -505,20 +523,20 @@ impl Ppu {
             0x43 => self.registers.write_scx(value),
             // LY, not writable
             0x44 => {}
-            0x45 => self.registers.write_lyc(value),
+            0x45 => self.write_lyc(value, speed),
             0x47 => self.registers.write_bgp(value),
             0x48 => self.registers.write_obp0(value),
             0x49 => self.registers.write_obp1(value),
             0x4A => self.registers.write_wy(value),
             0x4B => self.registers.write_wx(value),
-            0x4F => cgb_only_write!(self.registers.write_vbk(value)),
-            0x68 => cgb_only_write!(self.bg_palette_ram.write_data_port_address(value)),
+            0x4F => cgb_only_write!(self => self.registers.write_vbk(value)),
+            0x68 => cgb_only_write!(self => self.bg_palette_ram.write_data_port_address(value)),
             0x69 => cgb_only_write!(
-                self.bg_palette_ram.write_data_port(value, self.cpu_can_access_vram())
+                self => self.bg_palette_ram.write_data_port(value, self.cpu_can_access_vram())
             ),
-            0x6A => cgb_only_write!(self.sprite_palette_ram.write_data_port_address(value)),
+            0x6A => cgb_only_write!(self => self.sprite_palette_ram.write_data_port_address(value)),
             0x6B => cgb_only_write!(
-                self.sprite_palette_ram.write_data_port(value, self.cpu_can_access_vram())
+                self => self.sprite_palette_ram.write_data_port(value, self.cpu_can_access_vram())
             ),
             _ => log::warn!("PPU register write {address:04X} {value:02X}"),
         }
@@ -551,6 +569,20 @@ impl Ppu {
         }
 
         self.registers.write_stat(value);
+    }
+
+    fn write_lyc(&mut self, value: u8, speed: CpuSpeed) {
+        self.registers.write_lyc(value);
+
+        // If changing LYC would cause the STAT interrupt line to go from high to low, immediately
+        // pull it low.
+        // This fixes graphical glitches in SQRKZ, where it sometimes changes LYC from 141 to 142
+        // on line=142 dot=0, and the LY=LYC STAT interrupt should trigger almost immediately.
+        // TODO timing around the LY=LYC interrupt is iffy in general - improve this
+        if value == self.state.scanline && self.state.dot == 0 {
+            let stat_interrupt_line = self.stat_interrupt_line(speed);
+            self.state.prev_stat_interrupt_line &= stat_interrupt_line;
+        }
     }
 }
 

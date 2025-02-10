@@ -2,6 +2,7 @@ use crate::AppConfig;
 use gba_core::api::{GbaAspectRatio, GbaEmulatorConfig};
 use jgenesis_native_driver::config::GameBoyAdvanceConfig;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GbaAppConfig {
@@ -20,7 +21,7 @@ impl Default for GbaAppConfig {
 
 impl AppConfig {
     #[must_use]
-    pub fn gba_config(&self, path: String) -> Box<GameBoyAdvanceConfig> {
+    pub fn gba_config(&self, path: PathBuf) -> Box<GameBoyAdvanceConfig> {
         Box::new(GameBoyAdvanceConfig {
             common: self.common_config(path),
             inputs: self.input.gba.clone(),

@@ -142,7 +142,7 @@ fn default_rewind_buffer_length() -> u64 {
 
 impl AppConfig {
     #[must_use]
-    pub fn common_config(&self, path: String) -> CommonConfig {
+    pub fn common_config(&self, path: PathBuf) -> CommonConfig {
         CommonConfig {
             rom_file_path: path,
             audio_output_frequency: self.common.audio_output_frequency,

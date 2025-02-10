@@ -1,11 +1,14 @@
 use crate::AppConfig;
-use genesis_core::audio::LowPassFilter;
-use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig, GenesisRegion};
+use genesis_core::{
+    GenesisAspectRatio, GenesisEmulatorConfig, GenesisLowPassFilter, GenesisRegion,
+};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::{GenesisConfig, Sega32XConfig, SegaCdConfig};
 use s32x_core::api::{S32XVideoOut, Sega32XEmulatorConfig};
-use segacd_core::api::{PcmInterpolation, SegaCdEmulatorConfig};
+use segacd_core::api::{PcmInterpolation, PcmLowPassFilter, SegaCdEmulatorConfig};
 use serde::{Deserialize, Serialize};
+use std::num::{NonZeroU16, NonZeroU64};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GenesisAppConfig {
@@ -44,7 +47,7 @@ pub struct GenesisAppConfig {
     #[serde(default = "true_fn")]
     pub emulate_ym2612_ladder_effect: bool,
     #[serde(default)]
-    pub low_pass_filter: LowPassFilter,
+    pub low_pass: GenesisLowPassFilter,
     #[serde(default = "true_fn")]
     pub ym2612_enabled: bool,
     #[serde(default = "true_fn")]
@@ -67,17 +70,35 @@ impl Default for GenesisAppConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SegaCdAppConfig {
-    pub bios_path: Option<String>,
+    pub bios_path: Option<PathBuf>,
     #[serde(default)]
     pub pcm_interpolation: PcmInterpolation,
     #[serde(default = "true_fn")]
     pub enable_ram_cartridge: bool,
     #[serde(default)]
     pub load_disc_into_ram: bool,
+    #[serde(default = "default_drive_speed")]
+    pub disc_drive_speed: NonZeroU16,
+    #[serde(default = "default_sub_divider")]
+    pub sub_cpu_divider: NonZeroU64,
+    #[serde(default)]
+    pub pcm_low_pass: PcmLowPassFilter,
+    #[serde(default)]
+    pub apply_genesis_lpf_to_pcm: bool,
+    #[serde(default)]
+    pub apply_genesis_lpf_to_cd_da: bool,
     #[serde(default = "true_fn")]
     pub pcm_enabled: bool,
     #[serde(default = "true_fn")]
     pub cd_audio_enabled: bool,
+}
+
+fn default_drive_speed() -> NonZeroU16 {
+    NonZeroU16::new(1).unwrap()
+}
+
+fn default_sub_divider() -> NonZeroU64 {
+    NonZeroU64::new(segacd_core::api::DEFAULT_SUB_CPU_DIVIDER).unwrap()
 }
 
 impl Default for SegaCdAppConfig {
@@ -90,6 +111,8 @@ impl Default for SegaCdAppConfig {
 pub struct Sega32XAppConfig {
     #[serde(default)]
     pub video_out: S32XVideoOut,
+    #[serde(default)]
+    pub apply_genesis_lpf_to_pwm: bool,
     #[serde(default = "true_fn")]
     pub pwm_enabled: bool,
 }
@@ -102,7 +125,7 @@ impl Default for Sega32XAppConfig {
 
 impl AppConfig {
     #[must_use]
-    pub fn genesis_config(&self, path: String) -> Box<GenesisConfig> {
+    pub fn genesis_config(&self, path: PathBuf) -> Box<GenesisConfig> {
         Box::new(GenesisConfig {
             common: self.common_config(path),
             inputs: self.input.genesis.clone(),
@@ -128,7 +151,7 @@ impl AppConfig {
                 backdrop_enabled: self.genesis.backdrop_enabled,
                 quantize_ym2612_output: self.genesis.quantize_ym2612_output,
                 emulate_ym2612_ladder_effect: self.genesis.emulate_ym2612_ladder_effect,
-                low_pass_filter: self.genesis.low_pass_filter,
+                low_pass: self.genesis.low_pass,
                 ym2612_enabled: self.genesis.ym2612_enabled,
                 psg_enabled: self.genesis.psg_enabled,
             },
@@ -136,7 +159,7 @@ impl AppConfig {
     }
 
     #[must_use]
-    pub fn sega_cd_config(&self, path: String) -> Box<SegaCdConfig> {
+    pub fn sega_cd_config(&self, path: PathBuf) -> Box<SegaCdConfig> {
         let genesis_config = *self.genesis_config(path);
         let genesis_emu_config = genesis_config.emulator_config;
         Box::new(SegaCdConfig {
@@ -148,6 +171,11 @@ impl AppConfig {
                 pcm_interpolation: self.sega_cd.pcm_interpolation,
                 enable_ram_cartridge: self.sega_cd.enable_ram_cartridge,
                 load_disc_into_ram: self.sega_cd.load_disc_into_ram,
+                disc_drive_speed: self.sega_cd.disc_drive_speed,
+                sub_cpu_divider: self.sega_cd.sub_cpu_divider,
+                pcm_low_pass: self.sega_cd.pcm_low_pass,
+                apply_genesis_lpf_to_pcm: self.sega_cd.apply_genesis_lpf_to_pcm,
+                apply_genesis_lpf_to_cd_da: self.sega_cd.apply_genesis_lpf_to_cd_da,
                 pcm_enabled: self.sega_cd.pcm_enabled,
                 cd_audio_enabled: self.sega_cd.cd_audio_enabled,
             },
@@ -155,7 +183,7 @@ impl AppConfig {
     }
 
     #[must_use]
-    pub fn sega_32x_config(&self, path: String) -> Box<Sega32XConfig> {
+    pub fn sega_32x_config(&self, path: PathBuf) -> Box<Sega32XConfig> {
         let genesis_config = *self.genesis_config(path);
         let genesis_emu_config = genesis_config.emulator_config;
         Box::new(Sega32XConfig {
@@ -163,6 +191,7 @@ impl AppConfig {
             emulator_config: Sega32XEmulatorConfig {
                 genesis: genesis_emu_config,
                 video_out: self.sega_32x.video_out,
+                apply_genesis_lpf_to_pwm: self.sega_32x.apply_genesis_lpf_to_pwm,
                 pwm_enabled: self.sega_32x.pwm_enabled,
             },
         })

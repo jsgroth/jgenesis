@@ -118,7 +118,7 @@ impl<Emulator> DebuggerWindow<Emulator> {
 
         let scale_factor = scale_factor.unwrap_or_else(|| {
             let display_idx = window.display_index().ok();
-            crate::determine_scale_factor(video, display_idx).unwrap_or(1.0)
+            crate::guess_sdl2_scale_factor(video, display_idx).unwrap_or(1.0)
         });
         log::info!("Guessed scale factor {scale_factor}");
 

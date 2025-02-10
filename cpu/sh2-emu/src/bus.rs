@@ -30,9 +30,15 @@ pub trait BusInterface {
     /// DREQ line for DMA channel 1
     fn dma_request_1(&self) -> bool;
 
+    fn acknowledge_dreq_1(&mut self);
+
     /// Receive a byte from the serial interface, if any
     fn serial_rx(&mut self) -> Option<u8>;
 
     /// Transmit a byte to the serial interface
     fn serial_tx(&mut self, value: u8);
+
+    fn increment_cycle_counter(&mut self, cycles: u64);
+
+    fn should_stop_execution(&self) -> bool;
 }

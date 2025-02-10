@@ -4,7 +4,7 @@ mod backupram;
 mod font;
 pub(crate) mod wordram;
 
-use crate::api::SegaCdLoadResult;
+use crate::api::{SegaCdEmulatorConfig, SegaCdLoadResult};
 use crate::cddrive::cdc::{DeviceDestination, Rchip};
 use crate::cddrive::cdd::CdDrive;
 use crate::cddrive::{CdController, cdc};
@@ -153,8 +153,7 @@ impl SegaCd {
         mut disc: Option<CdRom>,
         initial_backup_ram: Option<Vec<u8>>,
         initial_ram_cartridge: Option<Vec<u8>>,
-        enable_ram_cartridge: bool,
-        forced_region: Option<GenesisRegion>,
+        config: &SegaCdEmulatorConfig,
     ) -> SegaCdLoadResult<Self> {
         let (backup_ram, ram_cartridge) = backupram::load_initial_backup_ram(
             initial_backup_ram.as_ref(),
@@ -173,18 +172,18 @@ impl SegaCd {
 
         Ok(Self {
             bios: Bios(bios),
-            disc_drive: CdController::new(disc),
+            disc_drive: CdController::new(disc, config),
             prg_ram: BoxedByteArray::new(),
             word_ram: WordRam::new(),
             backup_ram,
-            enable_ram_cartridge,
+            enable_ram_cartridge: config.enable_ram_cartridge,
             ram_cartridge: ram_cartridge.into(),
             ram_cartridge_writes_enabled: true,
             backup_ram_dirty: false,
             registers: SegaCdRegisters::new(),
             font_registers: FontRegisters::new(),
             disc_region,
-            forced_region,
+            forced_region: config.genesis.forced_region,
             timer_divider: TIMER_DIVIDER,
         })
     }
@@ -572,12 +571,10 @@ impl SegaCd {
         self.disc_drive.take_disc_from(&mut other.disc_drive);
     }
 
-    pub fn set_forced_region(&mut self, forced_region: Option<GenesisRegion>) {
-        self.forced_region = forced_region;
-    }
-
-    pub fn set_enable_ram_cartridge(&mut self, enable_ram_cartridge: bool) {
-        self.enable_ram_cartridge = enable_ram_cartridge;
+    pub fn reload_config(&mut self, config: &SegaCdEmulatorConfig) {
+        self.forced_region = config.genesis.forced_region;
+        self.enable_ram_cartridge = config.enable_ram_cartridge;
+        self.cdd_mut().reload_config(config);
     }
 
     pub fn reset(&mut self) {
@@ -654,7 +651,10 @@ impl PhysicalMedium for SegaCd {
                 // Sega CD registers
                 self.read_main_cpu_register_byte(address)
             }
-            _ => todo!("read byte: {address:06X}"),
+            _ => {
+                log::error!("Main read byte: {address:06X}");
+                0xFF
+            }
         }
     }
 
@@ -700,7 +700,10 @@ impl PhysicalMedium for SegaCd {
                 // Sega CD registers
                 self.read_main_cpu_register_word(address)
             }
-            _ => todo!("read word: {address:06X}"),
+            _ => {
+                log::error!("Main read word: {address:06X}");
+                0xFFFF
+            }
         }
     }
 
@@ -736,7 +739,7 @@ impl PhysicalMedium for SegaCd {
             0xA12000..=0xA1202F => {
                 self.write_main_cpu_register_byte(address, value);
             }
-            _ => todo!("write byte: {address:06X}, {value:02X}"),
+            _ => log::error!("Main write byte: {address:06X}, {value:02X}"),
         }
     }
 
@@ -767,7 +770,7 @@ impl PhysicalMedium for SegaCd {
             0xA12000..=0xA1202F => {
                 self.write_main_cpu_register_word(address, value);
             }
-            _ => todo!("write word: {address:06X}, {value:04X}"),
+            _ => log::error!("Main write word: {address:06X}, {value:04X}"),
         }
     }
 
@@ -1291,7 +1294,10 @@ impl BusInterface for SubBus<'_> {
                 // Sub CPU registers; canonically located at $FF8000-$FF81FF, but mirrored throughout the range
                 self.read_register_byte(address)
             }
-            _ => todo!("sub bus read byte {address:06X}"),
+            _ => {
+                log::error!("Sub bus read byte {address:06X}");
+                0xFF
+            }
         }
     }
 
@@ -1326,7 +1332,10 @@ impl BusInterface for SubBus<'_> {
                 // Sub CPU registers; canonically located at $FF8000-$FF81FF, but mirrored throughout the range
                 self.read_register_word(address)
             }
-            _ => todo!("sub bus read word {address:06X}"),
+            _ => {
+                log::error!("Sub bus read word {address:06X}");
+                0xFFFF
+            }
         }
     }
 
@@ -1361,7 +1370,7 @@ impl BusInterface for SubBus<'_> {
                 // Sub CPU registers; canonically located at $FF8000-$FF81FF, but mirrored throughout the range
                 self.write_register_byte(address, value);
             }
-            _ => todo!("sub bus read byte {address:06X} {value:02X}"),
+            _ => log::error!("Sub bus write byte {address:06X} {value:02X}"),
         }
     }
 
@@ -1398,7 +1407,7 @@ impl BusInterface for SubBus<'_> {
                 // Sub CPU registers; canonically located at $FF8000-$FF81FF, but mirrored throughout the range
                 self.write_register_word(address, value);
             }
-            _ => todo!("sub bus read word {address:06X} {value:04X}"),
+            _ => log::error!("Sub bus write word {address:06X} {value:04X}"),
         }
     }
 
