@@ -210,7 +210,12 @@ impl Mode {
     }
 
     // The number of scanlines to remove from each of the top and bottom borders when in this mode
-    const fn vertical_border_offset(self) -> u16 {
+    fn vertical_border_offset(self, version: VdpVersion) -> u16 {
+        if version == VdpVersion::GameGear {
+            // 224-line mode does not affect the viewport size/position for Game Gear
+            return 0;
+        }
+
         match self {
             Self::Four | Self::GraphicsII => 0,
             Self::Four224Line => 16,
@@ -927,7 +932,7 @@ impl Vdp {
 
     fn frame_buffer_row(&self) -> u16 {
         self.scanline + self.frame_buffer.viewport.top_border_height
-            - self.registers.mode.vertical_border_offset()
+            - self.registers.mode.vertical_border_offset(self.registers.version)
     }
 
     fn backdrop_color(&self) -> u16 {
@@ -1033,7 +1038,7 @@ impl Vdp {
         let ViewportSize { top_border_height, height, bottom_border_height, .. } =
             self.frame_buffer.viewport;
 
-        let mode_border_offset = self.registers.mode.vertical_border_offset();
+        let mode_border_offset = self.registers.mode.vertical_border_offset(self.registers.version);
 
         let viewport_top = top_border_height - mode_border_offset;
         for scanline in 0..viewport_top {

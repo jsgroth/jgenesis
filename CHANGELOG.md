@@ -49,6 +49,8 @@
 * (**32X**) Fixed a bug around synchronizing SH-2 accesses to 32X communication ports that could have caused writes to be skipped in some cases; this fixes freezing in the _Sonic Robo Blast 32X_ demo (#160)
 * (**32X**) Fixed PWM DMA transfer rate via DREQ1 not taking the PWM timer interval into account; this fixes broken sound effects in _BC Racers_ (#179)
 * (**SMS**) Fixed the Z80's RETI instruction not correctly copying IFF2 to IFF1 like RETN does; this fixes _Desert Strike_ from freezing when you press Start/Pause (#181)
+* (**SMS** / **Game Gear**) Fixed incorrect handling of non-power-of-two ROM sizes, which fixes several homebrew games and demos (#201 / #203 / #204)
+* (**Game Gear**) Fixed the emulator crashing if a game enables the VDP's 224-line mode (#202)
 * (**SNES**) Implemented more accurate clipping and truncation in Mode 7 intermediate calculations; this fixes glitched Mode 7 graphics in _Tiny Toon Adventures: Wacky Sports Challenge_ (#161)
 * (**SNES**) Mode 7 registers are now latched about 12 pixels before line rendering begins; this fixes a glitchy line near the bottom of the play area in _Battle Clash_, where the screen transitions from Mode 1 to Mode 7
 * (**SNES**) Implemented an obscure behavior regarding the effects of writing to OAM during active display; this fixes incorrect sprite display in _Uniracers_' Vs. mode (#164)
