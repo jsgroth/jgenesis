@@ -1,4 +1,4 @@
-# Next Release
+# v0.9.0
 
 ## New Features
 * (**Genesis** / **Sega CD** / **32X**) Replaced the low-pass filtering settings added in v0.8.3 with a new set of options that should be more accurate to actual hardware
@@ -20,16 +20,23 @@
 * (**Genesis**) Slightly improved performance by optimizing VDP rendering and tile fetching code
 * (**Genesis**) Frontends now recognize .gen and .smd as file extensions for Genesis / Mega Drive ROM images (#149)
   * This includes attempting to auto-detect when a ROM image is interleaved (common for .smd files), and deinterleaving it during load
-* (**32X**) Significantly improved timing of 32X VDP interrupts for the SH-2s (#166)
-* (**32X**) Significantly improved synchronization between the SH-2s and the 68000
 * (**SMS**) The "crop vertical borders" video setting now defaults to enabled instead of disabled; unlike the left border, the vertical borders will only ever show the current backdrop color
 * (**SMS**) The SMS model setting now defaults to SMS1, which emulates a VDP hardware quirk that is required for the Japanese version of _Ys_ to render correctly (#182)
+* (**SMS** / **Game Gear**) Reduced log level of a warning message that caused excessively verbose log output in _Virtua Fighter Mini_ (#199)
 * (**SNES**) In games that use the SA-1 coprocessor, the SA-1 CPU now gets a wait cycle every time it accesses SA-1 BW-RAM, similar to actual hardware
   * The SA-1 CPU still runs faster than actual hardware in some cases because bus conflict wait cycles are not emulated
 * GUI: When opening a game that requires a BIOS ROM or firmware ROM (e.g. any Sega CD game), if the BIOS/firmware ROM path is not configured, the error window now contains a button to configure the appropriate ROM path and immediately launch the game
 * CLI: If no config file exists, the CLI will now attempt to write out the default config to the config path so that it can be edited manually if desired
 * Save state files are now internally compressed using zstd which should reduce save state file size by at least 50%, often by 70-80%
 * Frontends should now correctly handle files with uppercase file extensions
+
+## Multi-System Fixes
+* Fixed a performance bug in the audio resampling code that could have caused intermittent extremely poor performance due to performing arithmetic on subnormal floating-point numbers, which can be up to 100 times slower than normal floating-point arithmetic on some CPUs (#135)
+* Linux: AppImage builds now exclude all Wayland-related system libraries during packaging; this fixes the emulator failing to launch in some distros, e.g. Solus Plasma (#143)
+* Linux: AppImage builds now interpret relative paths in command-line arguments as being relative to the original working directory where the AppImage was launched from, not the AppImage internal runner directory (#147)
+* Linux/BSD CLI: For these platforms only and for the CLI only, reverted the change to estimate window scale factor because `SDL_GetDisplayDPI` does not return reliable values on Linux/BSD
+* Adjusted frame time sync's sleep implementation to fix frame time sync potentially causing slowdown on some platforms
+* Save state files are now explicitly versioned, which fixes potential crashing when attempting to load an incompatible save state file from a different version
 
 ## Genesis / Mega Drive Fixes
 * Fixed the 68000 incorrectly being allowed to access audio RAM while the Z80 is on the bus; this fixes freezing in _Joe & Mac_ (#144)
@@ -51,12 +58,14 @@
 ## 32X Fixes
 * Fixed a major bug in the PWM resampling code that caused PWM audio output to sound significantly more poppy and crackly than it's supposed to
 * Fixed a bug around synchronizing SH-2 accesses to 32X communication ports that could have caused writes to be skipped in some cases; this fixes freezing in the _Sonic Robo Blast 32X_ demo (#160)
+* Significantly improved timing of 32X VDP interrupts for the SH-2s (#166)
+* Significantly improved synchronization between the SH-2s and the 68000
 * Fixed PWM DMA transfer rate via DREQ1 not taking the PWM timer interval into account; this fixes broken sound effects in _BC Racers_ (#179)
 
 ## Master System / Game Gear Fixes
 * Fixed the Z80's RETI instruction not correctly copying IFF2 to IFF1 like RETN does; this fixes _Desert Strike_ from freezing when you press Start/Pause (#181)
 * Fixed incorrect handling of non-power-of-two ROM sizes, which fixes several homebrew games and demos (#201 / #203 / #204)
-* (**Game Gear**) Fixed the emulator crashing if a game enables the VDP's 224-line mode (#202)
+* (**Game Gear**) Fixed the emulator crashing if a game enables the VDP's 224-line mode, as the homebrew _GG Turrican_ does (#202)
 
 ## SNES Fixes
 * Implemented more accurate clipping and truncation in Mode 7 intermediate calculations; this fixes glitched Mode 7 graphics in _Tiny Toon Adventures: Wacky Sports Challenge_ (#161)
@@ -73,14 +82,6 @@
 * Slightly adjusted timings related to powering on the PPU; this combined with the above change fixes [GBVideoPlayer2](https://github.com/LIJI32/GBVideoPlayer2) (#156)
 * Fixed an edge case where LYC writes at the beginning of a line were not triggering the LY=LYC STAT interrupt under certain conditions; this fixes glitchy graphics on the title screen of the _SQRKZ_ homebrew (#154)
 * The contents of OBJ palette RAM are now randomized at power-on (#152)
-
-## Multi-System Fixes
-* Fixed a performance bug in the audio resampling code that could have caused intermittent extremely poor performance due to performing arithmetic on subnormal floating-point numbers, which can be up to 100 times slower than normal floating-point arithmetic on some CPUs (#135)
-* Linux: AppImage builds now exclude all Wayland-related system libraries during packaging; this fixes the emulator failing to launch in some distros, e.g. Solus Plasma (#143)
-* Linux: AppImage builds now interpret relative paths in command-line arguments as being relative to the original working directory where the AppImage was launched from, not the AppImage internal runner directory (#147)
-* Linux/BSD CLI: For these platforms only and for the CLI only, reverted the change to estimate window scale factor because `SDL_GetDisplayDPI` does not return reliable values on Linux/BSD
-* Adjusted frame time sync's sleep implementation to fix frame time sync potentially causing slowdown on some platforms
-* Save state files are now explicitly versioned, which fixes potential crashing when attempting to load an incompatible save state file from a different version
 
 # v0.8.3
 
