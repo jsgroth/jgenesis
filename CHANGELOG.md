@@ -31,43 +31,54 @@
 * Save state files are now internally compressed using zstd which should reduce save state file size by at least 50%, often by 70-80%
 * Frontends should now correctly handle files with uppercase file extensions
 
-## Fixes
-* (**Genesis**) Fixed the 68000 incorrectly being allowed to access audio RAM while the Z80 is on the bus; this fixes freezing in _Joe & Mac_ (#144)
-* (**Genesis**) Fixed Z80 RESET not clearing the Z80's HALT status
-* (**Genesis**) Fixed writes to YM2612 F-num high / block registers (\$A4-\$A6 and \$AC-\$AE) taking effect immediately instead of after the next F-num low register write; this fixes some music glitches in _Valis_
-* (**Genesis**) Implemented more accurate emulation of how the YM2612 computes operator amplitude from phase and envelope attenuation
-* (**Genesis**) Fixed in-game saves not working correctly when _Sonic & Knuckles_ is locked on to a cartridge with SRAM (e.g. Sonic 3)
-* (**Genesis**) Fixed certain revisions of _QuackShot_ not loading correctly due to having non-standard cartridge ROM address mappings (#174)
-* (**Genesis**) Fixed some illegal 68000 opcodes incorrectly decoding to "valid" instructions (#184 / #185)
-* (**Genesis**) Fixed an edge case related to how sprite tile/pixel overflow interacts with H=0 sprite masking (#186)
-* (**Sega CD**) Implemented a higher minimum seek time for small seek distances; this fixes _Thunder Storm FX_ (JP) failing to boot (#178)
-* (**Sega CD**) Fixed a regression introduced in v0.8.3 that caused PCM chip channels to skip the first sample after being enabled (this made little-to-no audible difference in practice because the first sample is usually 0)
-* (**Sega CD**) Fixed slightly inaccurate emulation of PCM chip looping behavior at sample rates higher than 0x0800 / 32552 Hz
-* (**Sega CD**) Fixed inaccurate emulation of CD-DA fader volumes 1-3 out of 1024 (should be 50-60 dB of attenuation instead of complete silence)
-* (**Sega CD**) Unmapped/unknown address accesses will now log an error instead of crashing the emulator
-* (**32X**) Fixed a major bug in the PWM resampling code that caused PWM audio output to sound significantly more poppy and crackly than it's supposed to
-* (**32X**) Fixed a bug around synchronizing SH-2 accesses to 32X communication ports that could have caused writes to be skipped in some cases; this fixes freezing in the _Sonic Robo Blast 32X_ demo (#160)
-* (**32X**) Fixed PWM DMA transfer rate via DREQ1 not taking the PWM timer interval into account; this fixes broken sound effects in _BC Racers_ (#179)
-* (**SMS**) Fixed the Z80's RETI instruction not correctly copying IFF2 to IFF1 like RETN does; this fixes _Desert Strike_ from freezing when you press Start/Pause (#181)
-* (**SMS** / **Game Gear**) Fixed incorrect handling of non-power-of-two ROM sizes, which fixes several homebrew games and demos (#201 / #203 / #204)
+## Genesis / Mega Drive Fixes
+* Fixed the 68000 incorrectly being allowed to access audio RAM while the Z80 is on the bus; this fixes freezing in _Joe & Mac_ (#144)
+* Fixed Z80 RESET not clearing the Z80's HALT status
+* Fixed writes to YM2612 F-num high / block registers (\$A4-\$A6 and \$AC-\$AE) taking effect immediately instead of after the next F-num low register write; this fixes some music glitches in _Valis_
+* Implemented more accurate emulation of how the YM2612 computes operator amplitude from phase and envelope attenuation
+* Fixed in-game saves not working correctly when _Sonic & Knuckles_ is locked on to a cartridge with SRAM (e.g. Sonic 3)
+* Fixed certain revisions of _QuackShot_ not loading correctly due to having non-standard cartridge ROM address mappings (#174)
+* Fixed some illegal 68000 opcodes incorrectly decoding to "valid" instructions (#184 / #185)
+* Fixed an edge case related to how sprite tile/pixel overflow interacts with H=0 sprite masking (#186)
+
+## Sega CD Fixes
+* Implemented a higher minimum seek time for small seek distances; this fixes _Thunder Storm FX_ (JP) failing to boot (#178)
+* Fixed a regression introduced in v0.8.3 that caused PCM chip channels to skip the first sample after being enabled (this made little-to-no audible difference in practice because the first sample is usually 0)
+* Fixed slightly inaccurate emulation of PCM chip looping behavior at sample rates higher than 0x0800 / 32552 Hz
+* Fixed inaccurate emulation of CD-DA fader volumes 1-3 out of 1024 (should be 50-60 dB of attenuation instead of complete silence)
+* Unmapped/unknown address accesses will now log an error instead of crashing the emulator
+
+## 32X Fixes
+* Fixed a major bug in the PWM resampling code that caused PWM audio output to sound significantly more poppy and crackly than it's supposed to
+* Fixed a bug around synchronizing SH-2 accesses to 32X communication ports that could have caused writes to be skipped in some cases; this fixes freezing in the _Sonic Robo Blast 32X_ demo (#160)
+* Fixed PWM DMA transfer rate via DREQ1 not taking the PWM timer interval into account; this fixes broken sound effects in _BC Racers_ (#179)
+
+## Master System / Game Gear Fixes
+* Fixed the Z80's RETI instruction not correctly copying IFF2 to IFF1 like RETN does; this fixes _Desert Strike_ from freezing when you press Start/Pause (#181)
+* Fixed incorrect handling of non-power-of-two ROM sizes, which fixes several homebrew games and demos (#201 / #203 / #204)
 * (**Game Gear**) Fixed the emulator crashing if a game enables the VDP's 224-line mode (#202)
-* (**SNES**) Implemented more accurate clipping and truncation in Mode 7 intermediate calculations; this fixes glitched Mode 7 graphics in _Tiny Toon Adventures: Wacky Sports Challenge_ (#161)
-* (**SNES**) Mode 7 registers are now latched about 12 pixels before line rendering begins; this fixes a glitchy line near the bottom of the play area in _Battle Clash_, where the screen transitions from Mode 1 to Mode 7
-* (**SNES**) Implemented an obscure behavior regarding the effects of writing to OAM during active display; this fixes incorrect sprite display in _Uniracers_' Vs. mode (#164)
-* (**SNES**) Made a best effort at implementing the effects on sprites of toggling forced blanking during active display; this mostly fixes some test ROMs that exercise this (#162)
-* (**SNES**) Adjusted behavior of APU communication ports when the 65816 writes to a port on the same cycle that the SPC700 clears the port; this fixes _Kishin Douji Zenki: Tenchi Meidou_ failing to boot (#187)
-* (**GB**) Implemented an obscure behavior where pulse channels should output a constant 0 after power-on until after the first phase increment; this fixes missing voice samples in _Daiku no Gen-san - Robot Teikoku no Yabou_ (#151)
-* (**GB**) Fixed a bug related to the pulse channel phase counter reloading on the same cycle as a frequency change via NR13/NR14/NR23/NR24; this combined with the above change fixes missing voice samples in _Keitai Denjuu Telefang_ (#47)
-* (**GB**) Added emulation for a hardware quirk where the Mode 2 STAT interrupt appears to trigger 145 times per frame, not 144; this fixes [GBVideoPlayer](https://github.com/LIJI32/GBVideoPlayer) (#155)
-* (**GB**) CGB palette RAM auto-increment flags now default to 1 (#156)
-* (**GB**) Slightly adjusted timings related to powering on the PPU; this combined with the above change fixes [GBVideoPlayer2](https://github.com/LIJI32/GBVideoPlayer2) (#156)
-* (**GB**) Fixed an edge case where LYC writes at the beginning of a line were not triggering the LY=LYC STAT interrupt under certain conditions; this fixes glitchy graphics on the title screen of the _SQRKZ_ homebrew (#154)
-* (**GB**) The contents of OBJ palette RAM are now randomized at power-on (#152)
+
+## SNES Fixes
+* Implemented more accurate clipping and truncation in Mode 7 intermediate calculations; this fixes glitched Mode 7 graphics in _Tiny Toon Adventures: Wacky Sports Challenge_ (#161)
+* Mode 7 registers are now latched about 12 pixels before line rendering begins; this fixes a glitchy line near the bottom of the play area in _Battle Clash_, where the screen transitions from Mode 1 to Mode 7
+* Implemented an obscure behavior regarding the effects of writing to OAM during active display; this fixes incorrect sprite display in _Uniracers_' Vs. mode (#164)
+* Made a best effort at implementing the effects on sprites of toggling forced blanking during active display; this mostly fixes some test ROMs that exercise this (#162)
+* Adjusted behavior of APU communication ports when the 65816 writes to a port on the same cycle that the SPC700 clears the port; this fixes _Kishin Douji Zenki: Tenchi Meidou_ failing to boot (#187)
+
+## Game Boy [Color] Fixes
+* Implemented an obscure behavior where pulse channels should output a constant 0 after power-on until after the first phase increment; this fixes missing voice samples in _Daiku no Gen-san - Robot Teikoku no Yabou_ (#151)
+* Fixed a bug related to the pulse channel phase counter reloading on the same cycle as a frequency change via NR13/NR14/NR23/NR24; this combined with the above change fixes missing voice samples in _Keitai Denjuu Telefang_ (#47)
+* Added emulation for a hardware quirk where the Mode 2 STAT interrupt appears to trigger 145 times per frame, not 144; this fixes [GBVideoPlayer](https://github.com/LIJI32/GBVideoPlayer) (#155)
+* CGB palette RAM auto-increment flags now default to 1 (#156)
+* Slightly adjusted timings related to powering on the PPU; this combined with the above change fixes [GBVideoPlayer2](https://github.com/LIJI32/GBVideoPlayer2) (#156)
+* Fixed an edge case where LYC writes at the beginning of a line were not triggering the LY=LYC STAT interrupt under certain conditions; this fixes glitchy graphics on the title screen of the _SQRKZ_ homebrew (#154)
+* The contents of OBJ palette RAM are now randomized at power-on (#152)
+
+## Multi-System Fixes
 * Fixed a performance bug in the audio resampling code that could have caused intermittent extremely poor performance due to performing arithmetic on subnormal floating-point numbers, which can be up to 100 times slower than normal floating-point arithmetic on some CPUs (#135)
 * Linux: AppImage builds now exclude all Wayland-related system libraries during packaging; this fixes the emulator failing to launch in some distros, e.g. Solus Plasma (#143)
 * Linux: AppImage builds now interpret relative paths in command-line arguments as being relative to the original working directory where the AppImage was launched from, not the AppImage internal runner directory (#147)
 * Linux/BSD CLI: For these platforms only and for the CLI only, reverted the change to estimate window scale factor because `SDL_GetDisplayDPI` does not return reliable values on Linux/BSD
-  * This does not affect the GUI which still passes along the scale factor determined by eframe/winit
 * Adjusted frame time sync's sleep implementation to fix frame time sync potentially causing slowdown on some platforms
 * Save state files are now explicitly versioned, which fixes potential crashing when attempting to load an incompatible save state file from a different version
 
