@@ -24,10 +24,20 @@ pub static GB_GBC: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
 });
 
 pub static ALL_CARTRIDGE_BASED: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
-    [MASTER_SYSTEM, GAME_GEAR, GENESIS, SEGA_32X, NES, SNES, GAME_BOY, GAME_BOY_COLOR]
-        .into_iter()
-        .flat_map(|system| system.iter().copied())
-        .collect()
+    [
+        MASTER_SYSTEM,
+        GAME_GEAR,
+        GENESIS,
+        SEGA_32X,
+        NES,
+        SNES,
+        GAME_BOY,
+        GAME_BOY_COLOR,
+        GAME_BOY_ADVANCE,
+    ]
+    .into_iter()
+    .flat_map(|system| system.iter().copied())
+    .collect()
 });
 
 pub static ALL: LazyLock<Vec<&'static str>> = LazyLock::new(|| {

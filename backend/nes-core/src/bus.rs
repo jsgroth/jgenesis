@@ -1000,9 +1000,11 @@ impl CpuBus<'_> {
             }
             PpuRegister::PPUSTATUS => {}
             PpuRegister::OAMADDR => {
+                log::info!("OAMADDR write {value:02X}");
                 self.0.ppu_registers.oam_addr = value;
             }
             PpuRegister::OAMDATA => {
+                log::info!("OAMDATA write {value:02X}");
                 if self.0.ppu_registers.oam_open_bus_value.is_none() {
                     let oam_addr = self.0.ppu_registers.oam_addr;
                     self.0.ppu_oam[oam_addr as usize] = value;

@@ -196,9 +196,7 @@ impl BusInterface for Bus<'_> {
             MMIO_START..=MMIO_END => self.read_io_register_u8(address),
             VRAM_START..=VRAM_END => self.ppu.read_vram_byte(address),
             PALETTES_START..=PALETTES_END => self.ppu.read_palette_byte(address),
-            CARTRIDGE_RAM_START..=CARTRIDGE_RAM_END => {
-                self.memory.cartridge.read_sram_byte(address)
-            }
+            CARTRIDGE_RAM_START..=CARTRIDGE_RAM_END => self.memory.cartridge.read_ram_byte(address),
             BIOS_START..=BIOS_END => self.memory.read_bios_byte(address),
             _ => todo!("read byte {address:08X}"),
         }
@@ -250,7 +248,7 @@ impl BusInterface for Bus<'_> {
             EWRAM_START..=EWRAM_END => self.memory.write_ewram_byte(address, value),
             MMIO_START..=MMIO_END => self.write_io_register_u8(address, value),
             CARTRIDGE_RAM_START..=CARTRIDGE_RAM_END => {
-                self.memory.cartridge.write_sram_byte(address, value);
+                self.memory.cartridge.write_ram_byte(address, value);
             }
             BIOS_START..=BIOS_END => {
                 log::warn!("BIOS ROM write {address:08X} {value:02X}");
@@ -268,6 +266,9 @@ impl BusInterface for Bus<'_> {
             VRAM_START..=VRAM_END => self.ppu.write_vram_halfword(address, value),
             OAM_START..=OAM_END => self.ppu.write_oam_halfword(address, value),
             PALETTES_START..=PALETTES_END => self.ppu.write_palette_halfword(address, value),
+            CARTRIDGE_ROM_0_START..=CARTRIDGE_ROM_0_END => {
+                log::warn!("Cartridge ROM write {address:08X} {value:04X}");
+            }
             BIOS_START..=BIOS_END => {
                 log::warn!("BIOS ROM write {address:08X} {value:04X}");
             }
