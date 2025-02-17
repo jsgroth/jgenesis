@@ -30,7 +30,7 @@ cargo install wasm-pack
 The following incantation builds the required WASM/JS files into the `pkg` directory:
 
 ```
-RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals" \
+RUSTFLAGS='--cfg getrandom_backend="wasm_js" -C target-feature=+atomics,+bulk-memory,+mutable-globals' \
 rustup run nightly \
 wasm-pack build --target web . -- -Z build-std=panic_abort,std
 ```
