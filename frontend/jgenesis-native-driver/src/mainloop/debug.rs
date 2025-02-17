@@ -75,11 +75,18 @@ impl<Emulator> DebuggerWindow<Emulator> {
             .build()?;
         let (width, height) = window.size();
 
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             flags: wgpu::InstanceFlags::default(),
-            dx12_shader_compiler: wgpu::Dx12Compiler::Dxc { dxil_path: None, dxc_path: None },
-            gles_minor_version: wgpu::Gles3MinorVersion::default(),
+            backend_options: wgpu::BackendOptions {
+                dx12: wgpu::Dx12BackendOptions {
+                    shader_compiler: wgpu::Dx12Compiler::DynamicDxc {
+                        dxc_path: "dxcompiler.dll".into(),
+                        dxil_path: "dxil.dll".into(),
+                    },
+                },
+                gl: wgpu::GlBackendOptions::default(),
+            },
         });
 
         // SAFETY: The surface must not outlive the window
@@ -250,7 +257,7 @@ impl<Emulator> DebuggerWindow<Emulator> {
 
 fn screen_width(ctx: &egui::Context) -> f32 {
     let window_margin = ctx.style().spacing.window_margin;
-    ctx.available_rect().width() - window_margin.left - window_margin.right
+    ctx.available_rect().width() - f32::from(window_margin.left) - f32::from(window_margin.right)
 }
 
 fn create_texture(
@@ -308,14 +315,14 @@ fn write_textures<Emulator>(
     ctx: &mut DebugRenderContext<'_, Emulator>,
 ) {
     ctx.queue.write_texture(
-        wgpu::ImageCopyTexture {
+        wgpu::TexelCopyTextureInfo {
             texture: wgpu_texture,
             mip_level: 0,
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
         data,
-        wgpu::ImageDataLayout {
+        wgpu::TexelCopyBufferLayout {
             offset: 0,
             bytes_per_row: Some(wgpu_texture.width() * 4),
             rows_per_image: None,
