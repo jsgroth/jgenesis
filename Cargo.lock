@@ -1786,7 +1786,7 @@ dependencies = [
  "jgenesis-proc-macros",
  "log",
  "serde",
- "thiserror 2.0.7",
+ "thiserror 2.0.11",
 ]
 
 [[package]]
