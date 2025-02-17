@@ -381,7 +381,7 @@ impl Svp {
                     self.dram[word_addr].set_lsb(value);
                 } else {
                     self.dram[word_addr].set_msb(value);
-                };
+                }
 
                 // Specific DRAM addresses used for communication between the 68000 and DSP
                 if word_addr == 0x7F03 || word_addr == 0x7F04 {

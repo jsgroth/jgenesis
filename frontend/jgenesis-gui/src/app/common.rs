@@ -152,7 +152,7 @@ impl App {
                             if let Some(prescale_factor) = NonZeroU32::new(self.state.prescale_factor_raw) {
                                 self.config.common.prescale_factor = prescale_factor.into();
                             }
-                        };
+                        }
                     });
                 });
 

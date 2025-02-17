@@ -141,7 +141,7 @@ impl EnvelopeGenerator {
                 self.phase = EnvelopePhase::Decay;
             } else {
                 self.phase = EnvelopePhase::Attack;
-            };
+            }
             phase_generator.counter = 0;
 
             if let Some(modulator) = modulator {

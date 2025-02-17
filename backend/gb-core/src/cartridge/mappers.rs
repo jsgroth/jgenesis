@@ -168,7 +168,7 @@ impl Mbc2 {
         } else {
             // Set ROM bank
             self.rom_bank = value & 0x0F;
-        };
+        }
     }
 }
 

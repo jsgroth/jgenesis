@@ -44,9 +44,11 @@ pub(crate) struct InMemoryBus {
 #[cfg(test)]
 impl InMemoryBus {
     pub(crate) fn new() -> Self {
+        use std::array;
+
         Self {
-            memory: [0; 0x10000],
-            io_ports: [0; 0x100],
+            memory: array::from_fn(|_| 0),
+            io_ports: array::from_fn(|_| 0),
             nmi: InterruptLine::High,
             int: InterruptLine::High,
             reset: false,

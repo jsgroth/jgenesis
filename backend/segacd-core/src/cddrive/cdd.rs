@@ -647,7 +647,7 @@ impl CdDrive {
         if !self.playing_audio() {
             self.audio_sample_idx = 0;
             return None;
-        };
+        }
 
         let idx = self.audio_sample_idx as usize;
 
