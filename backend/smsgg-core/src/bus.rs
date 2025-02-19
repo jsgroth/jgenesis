@@ -1,10 +1,10 @@
 //! Implementation of the Z80's bus interface, which connects it to all other components
 
-use crate::VdpVersion;
 use crate::input::InputState;
 use crate::memory::Memory;
 use crate::psg::Sn76489;
 use crate::vdp::Vdp;
+use crate::{SmsRegion, VdpVersion};
 use jgenesis_common::num::GetBit;
 use ym_opll::Ym2413;
 use z80_emu::traits::{BusInterface, InterruptLine};
@@ -43,9 +43,13 @@ impl BusInterface for Bus<'_> {
     fn read_io(&mut self, address: u16) -> u8 {
         let address = address & 0xFF;
         if self.version == VdpVersion::GameGear && address <= 0x06 {
-            // TODO Game Gear registers
+            // TODO Game Gear serial port / EXT registers
             return match address {
-                0x00 => (u8::from(!self.input.pause_pressed()) << 7) | 0x40,
+                0x00 => {
+                    // Start/Pause button and region
+                    (u8::from(!self.input.pause_pressed()) << 7)
+                        | (u8::from(self.input.region() == SmsRegion::International) << 6)
+                }
                 0x01 => 0x7F,
                 0x02 | 0x04 | 0x06 => 0xFF,
                 0x03 | 0x05 => 0x00,
