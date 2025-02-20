@@ -2,6 +2,7 @@
 
 mod metadata;
 
+use crate::SmsGgRegion;
 use bincode::{Decode, Encode};
 use crc::Crc;
 use jgenesis_common::num::GetBit;
@@ -320,5 +321,39 @@ impl Memory {
         let control_bits = value & 0x03;
         self.audio_control.fm_enabled = control_bits.bit(0);
         self.audio_control.psg_enabled = control_bits == 0 || control_bits == 3;
+    }
+
+    pub fn guess_cartridge_region(&self) -> SmsGgRegion {
+        const POSSIBLE_HEADER_LOCATIONS: [usize; 3] = [0x7FF0, 0x3FF0, 0x1FF0];
+
+        let rom = &self.cartridge.rom.0;
+        for header_start in POSSIBLE_HEADER_LOCATIONS {
+            if rom.len() < header_start + 16 {
+                // ROM is too small for the header to be here
+                continue;
+            }
+
+            // The first 8 bytes of a valid header should be the string "TMR SEGA"
+            if &rom[header_start..header_start + 8] != b"TMR SEGA" {
+                continue;
+            }
+
+            // Intentionally don't validate checksum; some games have invalid checksums in their headers
+
+            let region_code = rom[header_start + 15] >> 4;
+            match region_code {
+                // SMS Domestic / GG Domestic
+                3 | 5 => return SmsGgRegion::Domestic,
+                // SMS Export / GG Export / GG International
+                4 | 6 | 7 => return SmsGgRegion::International,
+                _ => {
+                    log::warn!("Unexpected region code in cartridge header: {region_code:X}");
+                }
+            }
+        }
+
+        // If no valid header was found, assume region Domestic/Japan
+        // Every GG game and non-JP SMS game should have a header, but some JP SMS games do not
+        SmsGgRegion::Domestic
     }
 }

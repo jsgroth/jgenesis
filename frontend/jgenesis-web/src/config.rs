@@ -6,7 +6,7 @@ use jgenesis_renderer::config::{
     VSyncMode, WgpuBackend,
 };
 use segacd_core::api::{PcmInterpolation, PcmLowPassFilter, SegaCdEmulatorConfig};
-use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsGgEmulatorConfig, SmsModel, SmsRegion};
+use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsGgEmulatorConfig, SmsModel};
 use snes_core::api::{AudioInterpolationMode, SnesAspectRatio, SnesEmulatorConfig};
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -54,7 +54,6 @@ pub struct SmsGgWebConfig {
     timing_mode: TimingMode,
     sms_aspect_ratio: SmsAspectRatio,
     gg_aspect_ratio: GgAspectRatio,
-    region: SmsRegion,
     remove_sprite_limit: bool,
     sms_crop_vertical_border: bool,
     sms_crop_left_border: bool,
@@ -67,7 +66,6 @@ impl Default for SmsGgWebConfig {
             timing_mode: TimingMode::default(),
             sms_aspect_ratio: SmsAspectRatio::default(),
             gg_aspect_ratio: GgAspectRatio::default(),
-            region: SmsRegion::default(),
             remove_sprite_limit: false,
             sms_crop_vertical_border: true,
             sms_crop_left_border: false,
@@ -84,7 +82,7 @@ impl SmsGgWebConfig {
             forced_psg_version: None,
             sms_aspect_ratio: self.sms_aspect_ratio,
             gg_aspect_ratio: self.gg_aspect_ratio,
-            sms_region: self.region,
+            forced_region: None,
             remove_sprite_limit: self.remove_sprite_limit,
             sms_crop_left_border: self.sms_crop_left_border,
             sms_crop_vertical_border: self.sms_crop_vertical_border,
@@ -232,11 +230,6 @@ impl WebConfigRef {
     pub fn set_gg_aspect_ratio(&self, aspect_ratio: &str) {
         let Ok(aspect_ratio) = aspect_ratio.parse() else { return };
         self.borrow_mut().smsgg.gg_aspect_ratio = aspect_ratio;
-    }
-
-    pub fn set_sms_region(&self, region: &str) {
-        let Ok(region) = region.parse() else { return };
-        self.borrow_mut().smsgg.region = region;
     }
 
     pub fn set_sms_remove_sprite_limit(&self, remove_sprite_limit: bool) {

@@ -20,7 +20,7 @@ use nes_core::api::{NesAspectRatio, NesAudioResampler};
 use s32x_core::api::S32XVideoOut;
 use segacd_core::api::{PcmInterpolation, PcmLowPassFilter};
 use smsgg_core::psg::Sn76489Version;
-use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsModel, SmsRegion};
+use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsGgRegion, SmsModel};
 use snes_core::api::{AudioInterpolationMode, SnesAspectRatio};
 use std::fmt::Debug;
 use std::fs;
@@ -111,9 +111,9 @@ struct Args {
     #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
     gg_aspect_ratio: Option<GgAspectRatio>,
 
-    /// Master System region
+    /// Master System / Game Gear region
     #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
-    sms_region: Option<SmsRegion>,
+    smsgg_region: Option<SmsGgRegion>,
 
     /// Crop SMS top and bottom border; almost all games display only the background color in this area
     #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
@@ -560,13 +560,16 @@ impl Args {
             sms_model,
             sms_aspect_ratio,
             gg_aspect_ratio,
-            sms_region,
             sms_crop_vertical_border,
             sms_crop_left_border,
             gg_use_sms_resolution,
             sms_fm_unit_enabled -> fm_sound_unit_enabled,
             smsgg_z80_divider -> z80_divider,
         ]);
+
+        if let Some(region) = self.smsgg_region {
+            config.smsgg.forced_region = Some(region);
+        }
 
         if let Some(psg_version) = self.psg_version {
             config.smsgg.psg_version = Some(psg_version);

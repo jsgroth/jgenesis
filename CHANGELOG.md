@@ -1,3 +1,11 @@
+# Next Release
+
+## New Features
+* (**SMS** / **Game Gear**) Added a hardware region "Auto" setting that attempts to auto-detect region from the cartridge header (#214)
+
+## Fixes
+* (**Game Gear**) The region bit in I/O port \$00 now properly reflects the hardware region instead of being hardcoded to 1; this fixes the Start button not working on the title screen of _Pop Breaker_ (#214)
+
 # v0.9.0
 
 ## New Features

@@ -83,7 +83,7 @@ pub enum SmsModel {
 )]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum SmsRegion {
+pub enum SmsGgRegion {
     #[default]
     International,
     Domestic,
@@ -145,7 +145,7 @@ pub struct SmsGgEmulatorConfig {
     pub sms_aspect_ratio: SmsAspectRatio,
     pub gg_aspect_ratio: GgAspectRatio,
     pub remove_sprite_limit: bool,
-    pub sms_region: SmsRegion,
+    pub forced_region: Option<SmsGgRegion>,
     pub sms_crop_vertical_border: bool,
     pub sms_crop_left_border: bool,
     pub gg_use_sms_resolution: bool,
@@ -156,6 +156,18 @@ pub struct SmsGgEmulatorConfig {
 impl EmulatorConfigTrait for SmsGgEmulatorConfig {
     fn with_overclocking_disabled(&self) -> Self {
         Self { z80_divider: NonZeroU32::new(crate::NATIVE_Z80_DIVIDER).unwrap(), ..*self }
+    }
+}
+
+impl SmsGgEmulatorConfig {
+    pub(crate) fn region(self, memory: &Memory) -> SmsGgRegion {
+        if let Some(forced_region) = self.forced_region {
+            return forced_region;
+        }
+
+        let region = memory.guess_cartridge_region();
+        log::info!("Guessed region {region:?} from cartridge ROM");
+        region
     }
 }
 
@@ -203,7 +215,7 @@ impl SmsGgEmulator {
         let memory = Memory::new(rom, cartridge_ram);
         let vdp = Vdp::new(vdp_version, &config);
         let psg = Sn76489::new(psg_version);
-        let input = InputState::new(config.sms_region);
+        let input = InputState::new(config.region(&memory));
 
         let mut z80 = Z80::new();
         init_z80(&mut z80);
@@ -444,7 +456,7 @@ impl EmulatorTrait for SmsGgEmulator {
         self.psg.set_version(determine_psg_version(hardware, config));
 
         self.pixel_aspect_ratio = determine_aspect_ratio(hardware, config);
-        self.input.set_region(config.sms_region);
+        self.input.set_region(config.region(&self.memory));
         self.audio_resampler.update_timing_mode(self.vdp.timing_mode());
     }
 

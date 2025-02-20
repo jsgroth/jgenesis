@@ -1,6 +1,6 @@
 //! Code for handling Sega Master System / Game Gear controller input I/O registers
 
-use crate::api::SmsRegion;
+use crate::api::SmsGgRegion;
 use bincode::{Decode, Encode};
 use jgenesis_common::define_controller_inputs;
 use jgenesis_common::num::GetBit;
@@ -47,12 +47,12 @@ pub struct InputState {
     port_a_th: PinDirection,
     port_b_tr: PinDirection,
     port_b_th: PinDirection,
-    region: SmsRegion,
+    region: SmsGgRegion,
     reset: bool,
 }
 
 impl InputState {
-    pub fn new(region: SmsRegion) -> Self {
+    pub fn new(region: SmsGgRegion) -> Self {
         Self {
             inputs: SmsGgInputs::default(),
             port_a_tr: PinDirection::Input,
@@ -72,11 +72,11 @@ impl InputState {
         self.inputs = inputs;
     }
 
-    pub fn region(&self) -> SmsRegion {
+    pub fn region(&self) -> SmsGgRegion {
         self.region
     }
 
-    pub fn set_region(&mut self, region: SmsRegion) {
+    pub fn set_region(&mut self, region: SmsGgRegion) {
         self.region = region;
     }
 
@@ -110,9 +110,9 @@ impl InputState {
 
     pub fn port_dd(&self) -> u8 {
         let port_b_th_bit =
-            u8::from(self.region == SmsRegion::International && self.port_b_th.bit(true)) << 7;
+            u8::from(self.region == SmsGgRegion::International && self.port_b_th.bit(true)) << 7;
         let port_a_th_bit =
-            u8::from(self.region == SmsRegion::International && self.port_a_th.bit(true)) << 6;
+            u8::from(self.region == SmsGgRegion::International && self.port_a_th.bit(true)) << 6;
         let port_b_tr_bit = u8::from(self.port_b_tr.bit(!self.inputs.p2.button2)) << 3;
 
         port_b_th_bit
