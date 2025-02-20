@@ -161,13 +161,7 @@ impl EmulatorConfigTrait for SmsGgEmulatorConfig {
 
 impl SmsGgEmulatorConfig {
     pub(crate) fn region(self, memory: &Memory) -> SmsGgRegion {
-        if let Some(forced_region) = self.forced_region {
-            return forced_region;
-        }
-
-        let region = memory.guess_cartridge_region();
-        log::info!("Guessed region {region:?} from cartridge ROM");
-        region
+        self.forced_region.unwrap_or_else(|| memory.guess_cartridge_region())
     }
 }
 
@@ -216,6 +210,8 @@ impl SmsGgEmulator {
         let vdp = Vdp::new(vdp_version, &config);
         let psg = Sn76489::new(psg_version);
         let input = InputState::new(config.region(&memory));
+
+        log::info!("Region in cartridge header: {:?}", memory.guess_cartridge_region());
 
         let mut z80 = Z80::new();
         init_z80(&mut z80);
