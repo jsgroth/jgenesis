@@ -71,9 +71,8 @@ impl BusInterface for Bus<'_> {
                 self.vdp.v_counter()
             }
             (false, true, true) => {
-                // TODO H counter
                 log::trace!("H counter read");
-                0x00
+                self.vdp.h_counter()
             }
             (true, false, false) => {
                 log::trace!("VDP data read");
@@ -128,7 +127,7 @@ impl BusInterface for Bus<'_> {
             }
             (false, false, true) => {
                 log::trace!("I/O control write: {value:02X}");
-                self.input.write_control(value);
+                self.input.write_control(value, self.vdp);
             }
             (false, true, _) => {
                 log::trace!("PSG write: {value:02X}");

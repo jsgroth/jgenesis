@@ -69,7 +69,7 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
         emulator_config,
         config.common,
         extension,
-        config::default_smsgg_window_size(hardware, emulator_config.sms_timing_mode),
+        config::default_smsgg_window_size(hardware, emulator_config.sms_aspect_ratio),
         &window_title,
         save_writer,
         save_state_path,

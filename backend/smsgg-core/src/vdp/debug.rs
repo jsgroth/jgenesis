@@ -1,4 +1,4 @@
-use crate::vdp::{VRAM_SIZE, Vdp, convert_gg_color, convert_sms_color, get_color_id};
+use crate::vdp::{VRAM_LEN, Vdp, convert_gg_color, convert_sms_color, get_color_id};
 
 use jgenesis_common::frontend::Color;
 
@@ -22,7 +22,7 @@ impl Vdp {
     }
 
     pub fn copy_vram(&self, out: &mut [Color], palette: u8, row_len: usize) {
-        for pattern in 0..VRAM_SIZE / 32 {
+        for pattern in 0..VRAM_LEN / 32 {
             let tile = &self.vram[32 * pattern..32 * (pattern + 1)];
             let base_idx = pattern / row_len * row_len * 64 + (pattern % row_len) * 8;
 
@@ -54,7 +54,7 @@ impl Vdp {
                 ("Horizontal scroll lock", bool_str(self.registers.horizontal_scroll_lock)),
                 ("Hide left column", bool_str(self.registers.hide_left_column)),
                 ("Horizontal interrupt enabled", bool_str(self.registers.line_interrupt_enabled)),
-                ("Shift sprites left", bool_str(self.registers.shift_sprites_left)),
+                ("Shift sprites left", bool_str(self.registers.sprite.shift_sprites_left)),
                 ("M3", if self.registers.mode_bits[3] { "1" } else { "0" }),
                 ("M1", if self.registers.mode_bits[1] { "1" } else { "0" }),
                 ("Mode", &mode_str),
@@ -69,8 +69,8 @@ impl Vdp {
                 ("M0", if self.registers.mode_bits[0] { "1" } else { "0" }),
                 ("M2", if self.registers.mode_bits[2] { "1" } else { "0" }),
                 ("Mode", &mode_str),
-                ("Double sprite height", bool_str(self.registers.double_sprite_height)),
-                ("Double sprite size", bool_str(self.registers.double_sprite_size)),
+                ("Double sprite height", bool_str(self.registers.sprite.double_sprite_height)),
+                ("Double sprite size", bool_str(self.registers.sprite.double_sprite_size)),
             ],
         );
 
@@ -99,7 +99,7 @@ impl Vdp {
             5,
             &[(
                 "Sprite attribute table address",
-                &format!("${:04X}", self.registers.base_sprite_table_address),
+                &format!("${:04X}", self.registers.sprite.base_sprite_table_address),
             )],
         );
 
@@ -107,7 +107,7 @@ impl Vdp {
             6,
             &[(
                 "Sprite pattern generator address",
-                &format!("${:04X}", self.registers.base_sprite_pattern_address),
+                &format!("${:04X}", self.registers.sprite.base_sprite_pattern_address),
             )],
         );
 

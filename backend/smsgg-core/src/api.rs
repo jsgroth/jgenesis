@@ -5,7 +5,7 @@ use crate::bus::Bus;
 use crate::input::InputState;
 use crate::memory::Memory;
 use crate::psg::{Sn76489, Sn76489TickEffect, Sn76489Version};
-use crate::vdp::{Vdp, VdpBuffer, VdpTickEffect};
+use crate::vdp::{Vdp, VdpBuffer, VdpTickEffect, ViewportSize};
 use crate::{SmsGgButton, SmsGgInputs, VdpVersion, vdp};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
@@ -264,6 +264,7 @@ impl SmsGgEmulator {
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
         populate_frame_buffer(
             self.vdp.frame_buffer(),
+            self.vdp.viewport(),
             self.vdp_version,
             self.config.sms_crop_vertical_border,
             self.config.sms_crop_left_border,
@@ -504,13 +505,12 @@ impl EmulatorTrait for SmsGgEmulator {
 
 fn populate_frame_buffer(
     vdp_buffer: &VdpBuffer,
+    viewport: ViewportSize,
     vdp_version: VdpVersion,
     crop_vertical_border: bool,
     crop_left_border: bool,
     frame_buffer: &mut [Color],
 ) {
-    let viewport = vdp_buffer.viewport();
-
     let (row_skip, row_take) = if crop_vertical_border {
         (viewport.top_border_height as usize, viewport.height_without_border() as usize)
     } else {

@@ -1,6 +1,7 @@
 //! Code for handling Sega Master System / Game Gear controller input I/O registers
 
 use crate::api::SmsGgRegion;
+use crate::vdp::Vdp;
 use bincode::{Decode, Encode};
 use jgenesis_common::define_controller_inputs;
 use jgenesis_common::num::GetBit;
@@ -84,7 +85,12 @@ impl InputState {
         self.reset = reset;
     }
 
-    pub fn write_control(&mut self, value: u8) {
+    pub fn write_control(&mut self, value: u8, vdp: &mut Vdp) {
+        log::debug!("I/O control write {value:02X}");
+
+        let prev_a_th = self.port_a_th != PinDirection::Output(false);
+        let prev_b_th = self.port_b_th != PinDirection::Output(false);
+
         self.port_b_th =
             if value.bit(3) { PinDirection::Input } else { PinDirection::Output(value.bit(7)) };
         self.port_b_tr =
@@ -93,6 +99,12 @@ impl InputState {
             if value.bit(1) { PinDirection::Input } else { PinDirection::Output(value.bit(5)) };
         self.port_a_tr =
             if value.bit(0) { PinDirection::Input } else { PinDirection::Output(value.bit(4)) };
+
+        if (!prev_a_th && self.port_a_th != PinDirection::Output(false))
+            || (!prev_b_th && self.port_b_th != PinDirection::Output(false))
+        {
+            vdp.latch_h_counter_on_th_change();
+        }
     }
 
     pub fn port_dc(&self) -> u8 {

@@ -15,8 +15,38 @@ use bincode::{BorrowDecode, Decode, Encode};
 use jgenesis_common::frontend::{Color, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::EnumDisplay;
+use std::array;
 use std::fmt::{Display, Formatter};
 use z80_emu::traits::InterruptLine;
+
+const VRAM_LEN: usize = 16 * 1024;
+const COLOR_RAM_LEN: usize = 64;
+
+pub const SCREEN_WIDTH: u16 = 256;
+pub const SCREEN_HEIGHT: u16 = 240;
+pub const FRAME_BUFFER_LEN: usize = SCREEN_WIDTH as usize * SCREEN_HEIGHT as usize;
+
+// Data address is 14 bits
+const DATA_ADDRESS_MASK: u16 = 0x3FFF;
+
+pub const DOTS_PER_SCANLINE: u16 = 342;
+pub const MCLK_CYCLES_PER_SCANLINE: u16 = 10 * DOTS_PER_SCANLINE;
+
+pub const NTSC_SCANLINES_PER_FRAME: u16 = 262;
+pub const PAL_SCANLINES_PER_FRAME: u16 = 313;
+
+trait TimingModeExt {
+    fn scanlines_per_frame(self) -> u16;
+}
+
+impl TimingModeExt for TimingMode {
+    fn scanlines_per_frame(self) -> u16 {
+        match self {
+            Self::Ntsc => NTSC_SCANLINES_PER_FRAME,
+            Self::Pal => PAL_SCANLINES_PER_FRAME,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub struct ViewportSize {
@@ -223,19 +253,56 @@ impl Mode {
     }
 }
 
+#[derive(Debug, Clone, Copy, Encode, Decode)]
+struct SpriteRegisters {
+    double_sprite_height: bool,
+    double_sprite_size: bool,
+    shift_sprites_left: bool,
+    base_sprite_table_address: u16,
+    base_sprite_pattern_address: u16,
+}
+
+impl SpriteRegisters {
+    fn new() -> Self {
+        Self {
+            double_sprite_height: false,
+            double_sprite_size: false,
+            shift_sprites_left: false,
+            base_sprite_table_address: 0x3F00,
+            base_sprite_pattern_address: 0x2000,
+        }
+    }
+
+    fn sprite_height(self) -> u8 {
+        match (self.double_sprite_size, self.double_sprite_height) {
+            (true, true) => 32,
+            (true, false) | (false, true) => 16,
+            (false, false) => 8,
+        }
+    }
+
+    fn sprite_width(self) -> u8 {
+        if self.double_sprite_size { 16 } else { 8 }
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 struct Registers {
     version: VdpVersion,
     mode: Mode,
     mode_bits: [bool; 4],
+    sprite: SpriteRegisters,
+    latched_sprite: SpriteRegisters,
     control_write_flag: ControlWriteFlag,
     latched_control_byte: u8,
     data_write_location: DataWriteLocation,
     data_address: u16,
     data_read_buffer: u8,
+    cram_write_latch: u8,
     display_enabled: bool,
     frame_interrupt_enabled: bool,
     frame_interrupt_pending: bool,
+    frame_interrupt_flag: bool,
     line_interrupt_enabled: bool,
     line_interrupt_pending: bool,
     sprite_overflow: bool,
@@ -243,13 +310,8 @@ struct Registers {
     vertical_scroll_lock: bool,
     horizontal_scroll_lock: bool,
     hide_left_column: bool,
-    shift_sprites_left: bool,
-    double_sprite_height: bool,
-    double_sprite_size: bool,
     base_name_table_address: u16,
     name_table_address_mask: u16,
-    base_sprite_table_address: u16,
-    base_sprite_pattern_address: u16,
     backdrop_color: u8,
     x_scroll: u8,
     y_scroll: u8,
@@ -259,23 +321,24 @@ struct Registers {
     pattern_generator_address: u16,
 }
 
-// Data address is 14 bits
-const DATA_ADDRESS_MASK: u16 = 0x3FFF;
-
 impl Registers {
     fn new(version: VdpVersion) -> Self {
         Self {
             version,
             mode: Mode::Four,
             mode_bits: [false, false, false, true],
+            sprite: SpriteRegisters::new(),
+            latched_sprite: SpriteRegisters::new(),
             control_write_flag: ControlWriteFlag::First,
             latched_control_byte: 0,
             data_write_location: DataWriteLocation::Vram,
             data_address: 0,
             data_read_buffer: 0,
+            cram_write_latch: 0,
             display_enabled: false,
             frame_interrupt_enabled: false,
             frame_interrupt_pending: false,
+            frame_interrupt_flag: false,
             line_interrupt_enabled: false,
             line_interrupt_pending: false,
             sprite_overflow: false,
@@ -283,13 +346,8 @@ impl Registers {
             vertical_scroll_lock: false,
             horizontal_scroll_lock: false,
             hide_left_column: false,
-            shift_sprites_left: false,
-            double_sprite_height: false,
-            double_sprite_size: false,
             base_name_table_address: 0x3800,
             name_table_address_mask: 0xFFFF,
-            base_sprite_table_address: 0x3F00,
-            base_sprite_pattern_address: 0x2000,
             backdrop_color: 0,
             x_scroll: 0,
             y_scroll: 0,
@@ -300,12 +358,13 @@ impl Registers {
     }
 
     fn read_control(&mut self) -> u8 {
-        let status_flags = (u8::from(self.frame_interrupt_pending) << 7)
+        let status_flags = (u8::from(self.frame_interrupt_flag) << 7)
             | (u8::from(self.sprite_overflow) << 6)
             | (u8::from(self.sprite_collision) << 5);
 
         // Control reads clear all status/interrupt flags and reset the control write toggle
         self.frame_interrupt_pending = false;
+        self.frame_interrupt_flag = false;
         self.line_interrupt_pending = false;
         self.sprite_overflow = false;
         self.sprite_collision = false;
@@ -354,7 +413,7 @@ impl Registers {
 
                         self.data_write_location = DataWriteLocation::Vram;
 
-                        log::trace!(
+                        log::debug!(
                             "Internal register write: {register} set to {:02X}",
                             self.latched_control_byte
                         );
@@ -395,7 +454,19 @@ impl Registers {
             DataWriteLocation::Cram => {
                 // CRAM only uses the lowest 5 or 6 address bits
                 let cram_addr = self.data_address & self.version.cram_address_mask();
-                cram[cram_addr as usize] = value;
+                if self.version.is_master_system() {
+                    // SMS CRAM is 8-bit; writes go through directly
+                    cram[cram_addr as usize] = value;
+                } else {
+                    // Game Gear CRAM is 16-bit; even addr writes are latched, odd addr writes
+                    // persist a 16-bit word
+                    if !cram_addr.bit(0) {
+                        self.cram_write_latch = value;
+                    } else {
+                        cram[(cram_addr & !1) as usize] = self.cram_write_latch;
+                        cram[cram_addr as usize] = value;
+                    }
+                }
             }
         }
 
@@ -416,11 +487,18 @@ impl Registers {
                 self.horizontal_scroll_lock = value.bit(6);
                 self.hide_left_column = value.bit(5);
                 self.line_interrupt_enabled = value.bit(4);
-                self.shift_sprites_left = value.bit(3);
+                self.sprite.shift_sprites_left = value.bit(3);
                 self.mode_bits[3] = value.bit(2);
                 self.mode_bits[1] = value.bit(1);
                 self.mode = Mode::from_mode_bits(self.mode_bits);
                 // TODO sync/monochrome bit
+
+                log::debug!("  Vertical scroll lock: {}", self.vertical_scroll_lock);
+                log::debug!("  Horizontal scroll lock: {}", self.horizontal_scroll_lock);
+                log::debug!("  Hide left column: {}", self.hide_left_column);
+                log::debug!("  Line interrupt enabled: {}", self.line_interrupt_enabled);
+                log::debug!("  Shift sprites left: {}", self.sprite.shift_sprites_left);
+                log::debug!("  Mode: {:?}", self.mode);
             }
             1 => {
                 // Mode control #2
@@ -429,8 +507,14 @@ impl Registers {
                 self.mode_bits[0] = value.bit(4);
                 self.mode_bits[2] = value.bit(3);
                 self.mode = Mode::from_mode_bits(self.mode_bits);
-                self.double_sprite_height = value.bit(1);
-                self.double_sprite_size = value.bit(0);
+                self.sprite.double_sprite_height = value.bit(1);
+                self.sprite.double_sprite_size = value.bit(0);
+
+                log::debug!("  Display enabled: {}", self.display_enabled);
+                log::debug!("  Frame interrupt enabled: {}", self.frame_interrupt_enabled);
+                log::debug!("  Double sprite height: {}", self.sprite.double_sprite_height);
+                log::debug!("  Double sprite size: {}", self.sprite.double_sprite_size);
+                log::debug!("  Mode: {:?}", self.mode);
             }
             2 => {
                 // Base name table address (note: least significant bit is only used in legacy modes)
@@ -442,57 +526,73 @@ impl Registers {
                 } else {
                     0xFFFF
                 };
+
+                log::debug!("  Base nametable address: {:04X}", self.base_name_table_address);
+                log::debug!("  Nametable address mask: {:04X}", self.name_table_address_mask);
             }
             3 => {
                 // Color table address (used only in TMS9918 modes)
                 self.color_table_address = u16::from(value) << 6;
+
+                log::debug!("  TMS9918 color table address: {:04X}", self.color_table_address);
             }
             4 => {
                 // Pattern generator start address (used only in TMS9918 modes)
                 self.pattern_generator_address = u16::from(value & 0x07) << 11;
+
+                log::debug!(
+                    "  TMS9918 pattern generator address: {:04X}",
+                    self.pattern_generator_address
+                );
             }
             5 => {
                 // Sprite attribute table base address (note: LSB is only used in legacy modes)
                 // TODO SMS1 hardware quirk - if bit 0 is cleared then X position and tile index are
                 // fetched from the lower half of the table instead of the upper half
-                self.base_sprite_table_address = u16::from(value & 0x7F) << 7;
+                self.sprite.base_sprite_table_address = u16::from(value & 0x7F) << 7;
+
+                log::debug!(
+                    "  Sprite attribute table address: {:04X}",
+                    self.sprite.base_sprite_table_address
+                );
             }
             6 => {
                 // Sprite pattern table base address (note: bits 1 and 0 are only used in legacy modes)
                 // TODO SMS1 hardware quirk - bits 1 and 0 are ANDed with bits 8 and 6 of the tile index
-                self.base_sprite_pattern_address = u16::from(value & 0x07) << 11;
+                self.sprite.base_sprite_pattern_address = u16::from(value & 0x07) << 11;
+
+                log::debug!(
+                    "  Sprite pattern generator address: {:04X}",
+                    self.sprite.base_sprite_pattern_address
+                );
             }
             7 => {
                 // Backdrop color
                 self.backdrop_color = value & 0x0F;
+
+                log::debug!("  Backdrop color: {}", self.backdrop_color);
             }
             8 => {
-                // X scroll
+                // X scrollf
                 self.x_scroll = value;
+
+                log::debug!("  X scroll: {value}");
             }
             9 => {
                 // Y scroll
-                // TODO updates to Y scroll should only take effect at end-of-frame
+                // TODO updates to Y scroll should only take effect at end-of-frame?
                 self.y_scroll = value;
+
+                log::debug!("  Y scroll: {value}");
             }
             10 => {
                 // Line counter
                 self.line_counter_reload_value = value;
+
+                log::debug!("  Line interrupt counter reload: {value}");
             }
             _ => {}
         }
-    }
-
-    fn sprite_height(&self) -> u8 {
-        match (self.double_sprite_size, self.double_sprite_height) {
-            (true, true) => 32,
-            (true, false) | (false, true) => 16,
-            (false, false) => 8,
-        }
-    }
-
-    fn sprite_width(&self) -> u8 {
-        if self.double_sprite_size { 16 } else { 8 }
     }
 }
 
@@ -582,28 +682,32 @@ impl<T: Copy> Iterator for BufferIter<'_, T> {
 
 fn find_sprites_on_scanline(
     scanline: u8,
-    registers: &Registers,
+    mode: Mode,
+    registers: SpriteRegisters,
     vram: &[u8],
     sprite_buffer: &mut SpriteBuffer,
     remove_sprite_limit: bool,
 ) {
-    sprite_buffer.clear();
-
     let sprite_height = registers.sprite_height();
 
     let base_sat_addr = registers.base_sprite_table_address & 0xFF00;
     for i in 0..64 {
         let y = vram[(base_sat_addr | i) as usize];
-        if registers.mode != Mode::Four224Line && y == 0xD0 {
+        if mode != Mode::Four224Line && y == 0xD0 {
             return;
         }
 
         let x = vram[(base_sat_addr | 0x80 | (2 * i)) as usize];
         let tile_index = vram[(base_sat_addr | 0x80 | (2 * i + 1)) as usize];
 
-        let sprite_top = y.saturating_add(1);
-        let sprite_bottom = sprite_top.saturating_add(sprite_height);
-        if (sprite_top..sprite_bottom).contains(&scanline) {
+        let sprite_bottom = y.wrapping_add(sprite_height);
+
+        let sprite_overlaps_line = if y < sprite_bottom {
+            (y..sprite_bottom).contains(&scanline)
+        } else {
+            scanline >= y || scanline < sprite_bottom
+        };
+        if sprite_overlaps_line {
             if sprite_buffer.len == 8 {
                 sprite_buffer.overflow = true;
                 if !remove_sprite_limit {
@@ -618,12 +722,73 @@ fn find_sprites_on_scanline(
     }
 }
 
-const VRAM_SIZE: usize = 16 * 1024;
-const COLOR_RAM_SIZE: usize = 64;
+#[derive(Debug, Clone, Encode, Decode)]
+struct SpriteLineBuffer {
+    pixels: [u8; SCREEN_WIDTH as usize],
+    collisions: [bool; SCREEN_WIDTH as usize],
+}
 
-pub const SCREEN_WIDTH: u16 = 256;
-pub const SCREEN_HEIGHT: u16 = 240;
-pub const FRAME_BUFFER_LEN: usize = SCREEN_WIDTH as usize * SCREEN_HEIGHT as usize;
+impl SpriteLineBuffer {
+    fn new() -> Self {
+        Self { pixels: array::from_fn(|_| 0), collisions: array::from_fn(|_| false) }
+    }
+
+    fn clear(&mut self) {
+        self.pixels.fill(0);
+        self.collisions.fill(false);
+    }
+}
+
+fn render_sprite_pixels(
+    scanline: u8,
+    registers: SpriteRegisters,
+    vram: &[u8; VRAM_LEN],
+    active_sprites: &SpriteBuffer,
+    line_buffer: &mut SpriteLineBuffer,
+) {
+    let sprite_width: u16 = registers.sprite_width().into();
+    let sprite_x_downshift: i32 = registers.shift_sprites_left.into();
+
+    // Mask out bits 11-12 (only used in legacy modes)
+    let base_sprite_pattern_addr = registers.base_sprite_pattern_address & 0x2000;
+
+    let sprite_x_delta = if registers.shift_sprites_left { -8 } else { 0 };
+
+    for sprite in active_sprites {
+        let sprite_left: u16 = sprite.x.into();
+        let sprite_tile_row = u16::from(scanline.wrapping_sub(sprite.y)) >> sprite_x_downshift;
+
+        let tile_index = if registers.double_sprite_height {
+            let top_tile = sprite.tile_index & 0xFE;
+            top_tile | u16::from(sprite_tile_row >= 8)
+        } else {
+            sprite.tile_index
+        };
+
+        let sprite_tile_addr = (base_sprite_pattern_addr | (tile_index * 32)) as usize;
+        let sprite_tile = &vram[sprite_tile_addr..sprite_tile_addr + 32];
+
+        for dx in 0..sprite_width {
+            let x = sprite_left + dx;
+            let pixel_idx = i32::from(x) + sprite_x_delta;
+            if !(0..SCREEN_WIDTH.into()).contains(&pixel_idx) {
+                continue;
+            }
+
+            let sprite_tile_col = dx >> sprite_x_downshift;
+            let color_id = get_color_id(sprite_tile, sprite_tile_row & 7, sprite_tile_col, false);
+            if color_id == 0 {
+                continue;
+            }
+
+            if line_buffer.pixels[pixel_idx as usize] != 0 {
+                line_buffer.collisions[pixel_idx as usize] = true;
+            } else {
+                line_buffer.pixels[pixel_idx as usize] = color_id;
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct VdpBuffer {
@@ -658,10 +823,6 @@ impl VdpBuffer {
 
     pub fn iter(&self) -> FrameBufferRowIter<'_> {
         FrameBufferRowIter { buffer: self, row: 0 }
-    }
-
-    pub fn viewport(&self) -> ViewportSize {
-        self.viewport
     }
 }
 
@@ -723,20 +884,17 @@ impl<'a> IntoIterator for &'a VdpBuffer {
 pub struct Vdp {
     frame_buffer: VdpBuffer,
     registers: Registers,
-    vram: [u8; VRAM_SIZE],
-    color_ram: [u8; COLOR_RAM_SIZE],
+    vram: [u8; VRAM_LEN],
+    color_ram: [u8; COLOR_RAM_LEN],
     scanline: u16,
     dot: u16,
+    event_idx: u8,
     sprite_buffer: SpriteBuffer,
+    sprite_line_buffer: SpriteLineBuffer,
     remove_sprite_limit: bool,
     line_counter: u8,
+    latched_h_counter: u8,
 }
-
-pub const DOTS_PER_SCANLINE: u16 = 342;
-pub const MCLK_CYCLES_PER_SCANLINE: u16 = 10 * DOTS_PER_SCANLINE;
-
-pub const NTSC_SCANLINES_PER_FRAME: u16 = 262;
-pub const PAL_SCANLINES_PER_FRAME: u16 = 313;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VdpTickEffect {
@@ -749,13 +907,16 @@ impl Vdp {
         Self {
             frame_buffer: VdpBuffer::new(version, config.gg_use_sms_resolution),
             registers: Registers::new(version),
-            vram: [0; VRAM_SIZE],
-            color_ram: [0; COLOR_RAM_SIZE],
+            vram: [0; VRAM_LEN],
+            color_ram: [0; COLOR_RAM_LEN],
             scanline: 0,
             dot: 0,
+            event_idx: 0,
             sprite_buffer: SpriteBuffer::new(),
+            sprite_line_buffer: SpriteLineBuffer::new(),
             remove_sprite_limit: config.remove_sprite_limit,
             line_counter: 0xFF,
+            latched_h_counter: 0,
         }
     }
 
@@ -792,14 +953,13 @@ impl Vdp {
         BgTileData { priority, palette, vertical_flip, horizontal_flip, tile_index }
     }
 
-    fn render_scanline(&mut self) {
+    fn render_scanline(&mut self, scanline: u16) {
         if self.registers.mode == Mode::GraphicsII {
-            self.render_graphics_2_scanline();
+            self.render_graphics_2_scanline(scanline);
             return;
         }
 
-        let scanline = self.scanline;
-        let frame_buffer_row = self.frame_buffer_row();
+        let frame_buffer_row = self.frame_buffer_row(scanline);
 
         let (coarse_x_scroll, fine_x_scroll) =
             if scanline < 16 && self.registers.horizontal_scroll_lock {
@@ -812,23 +972,6 @@ impl Vdp {
         for dot in 0..fine_x_scroll {
             self.frame_buffer.set(frame_buffer_row, dot, backdrop_color);
         }
-
-        find_sprites_on_scanline(
-            scanline as u8,
-            &self.registers,
-            &self.vram,
-            &mut self.sprite_buffer,
-            self.remove_sprite_limit,
-        );
-        if self.sprite_buffer.overflow {
-            self.registers.sprite_overflow = true;
-        }
-
-        let sprite_width: u16 = self.registers.sprite_width().into();
-        let sprite_pixel_size = if self.registers.double_sprite_size { 2 } else { 1 };
-
-        // Mask out bits 11-12 (only used in legacy modes)
-        let base_sprite_pattern_addr = self.registers.base_sprite_pattern_address & 0x2000;
 
         for column in 0..32 {
             let (coarse_y_scroll, fine_y_scroll) = if column >= 24
@@ -870,45 +1013,8 @@ impl Vdp {
                 let bg_color_id =
                     get_color_id(bg_tile, bg_tile_row, bg_tile_col, bg_tile_data.horizontal_flip);
 
-                let sprite_dot = if self.registers.shift_sprites_left { dot + 8 } else { dot };
-                let mut found_sprite_color_id = None;
-                for sprite in &self.sprite_buffer {
-                    let sprite_left: u16 = sprite.x.into();
-                    let sprite_right = sprite_left + sprite_width;
-                    if !(sprite_left..sprite_right).contains(&sprite_dot) {
-                        continue;
-                    }
+                let sprite_color_id = self.sprite_line_buffer.pixels[dot as usize];
 
-                    let sprite_tile_row =
-                        (scanline - (u16::from(sprite.y) + 1)) / sprite_pixel_size;
-                    let sprite_tile_col = (sprite_dot - sprite_left) / sprite_pixel_size;
-
-                    let tile_index = if self.registers.double_sprite_height {
-                        let top_tile = sprite.tile_index & 0xFE;
-                        top_tile | u16::from(sprite_tile_row >= 8)
-                    } else {
-                        sprite.tile_index
-                    };
-
-                    let sprite_tile_addr = (base_sprite_pattern_addr | (tile_index * 32)) as usize;
-                    let sprite_tile = &self.vram[sprite_tile_addr..sprite_tile_addr + 32];
-
-                    let sprite_color_id =
-                        get_color_id(sprite_tile, sprite_tile_row & 0x07, sprite_tile_col, false);
-                    if sprite_color_id != 0 {
-                        match found_sprite_color_id {
-                            None => {
-                                found_sprite_color_id = Some(sprite_color_id);
-                            }
-                            Some(_) => {
-                                self.registers.sprite_collision = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                let sprite_color_id = found_sprite_color_id.unwrap_or(0);
                 let pixel_color =
                     if sprite_color_id != 0 && (bg_color_id == 0 || !bg_tile_data.priority) {
                         // Sprites can only use palette 1
@@ -921,8 +1027,8 @@ impl Vdp {
         }
     }
 
-    fn clear_scanline(&mut self) {
-        let frame_buffer_row = self.frame_buffer_row();
+    fn clear_scanline(&mut self, scanline: u16) {
+        let frame_buffer_row = self.frame_buffer_row(scanline);
         let backdrop_color = self.backdrop_color();
 
         for pixel in 0..SCREEN_WIDTH {
@@ -930,8 +1036,8 @@ impl Vdp {
         }
     }
 
-    fn frame_buffer_row(&self) -> u16 {
-        self.scanline + self.frame_buffer.viewport.top_border_height
+    fn frame_buffer_row(&self, scanline: u16) -> u16 {
+        scanline + self.frame_buffer.viewport.top_border_height
             - self.registers.mode.vertical_border_offset(self.registers.version)
     }
 
@@ -940,7 +1046,7 @@ impl Vdp {
         self.read_color_ram_word(0x10 | self.registers.backdrop_color)
     }
 
-    fn debug_log(&self) {
+    fn trace_log_current_state(&self) {
         log::trace!("Registers: {:04X?}", self.registers);
 
         log::trace!("CRAM:");
@@ -972,59 +1078,168 @@ impl Vdp {
     #[must_use]
     pub fn tick(&mut self) -> VdpTickEffect {
         if log::log_enabled!(log::Level::Trace) && self.scanline == 0 && self.dot == 0 {
-            self.debug_log();
+            self.trace_log_current_state();
         }
 
+        let timing_mode = self.timing_mode();
         let active_scanlines = self.registers.mode.active_scanlines();
-        if self.scanline < active_scanlines && self.dot == 0 {
-            if self.registers.display_enabled {
-                self.render_scanline();
-            } else {
-                self.clear_scanline();
-            }
-        }
-
-        // The apparent off-by-one in this comparison is intentional. The line counter is
-        // decremented on every active scanline *and* on the scanline immediately following the
-        // active period.
-        if self.scanline <= active_scanlines && self.dot == 0 {
-            let (new_counter, overflowed) = self.line_counter.overflowing_sub(1);
-            if overflowed {
-                self.line_counter = self.registers.line_counter_reload_value;
-                self.registers.line_interrupt_pending = true;
-            } else {
-                self.line_counter = new_counter;
-            }
-        } else if self.scanline > active_scanlines {
-            // Line counter is constantly reloaded outside of the active display period
-            self.line_counter = self.registers.line_counter_reload_value;
-        }
-
-        let vblank_start = self.scanline == active_scanlines + 1 && self.dot == 0;
-        if vblank_start {
-            self.registers.frame_interrupt_pending = true;
-
-            self.fill_vertical_border();
-        }
-
-        let tick_effect =
-            if vblank_start { VdpTickEffect::FrameComplete } else { VdpTickEffect::None };
+        let scanlines_per_frame = timing_mode.scanlines_per_frame();
 
         self.dot += 1;
         if self.dot == DOTS_PER_SCANLINE {
             self.scanline += 1;
             self.dot = 0;
+            self.event_idx = 0;
 
-            let scanlines_per_frame = match self.registers.version.timing_mode() {
-                TimingMode::Ntsc => NTSC_SCANLINES_PER_FRAME,
-                TimingMode::Pal => PAL_SCANLINES_PER_FRAME,
-            };
             if self.scanline == scanlines_per_frame {
                 self.scanline = 0;
             }
         }
 
-        tick_effect
+        self.process_events(active_scanlines, scanlines_per_frame);
+
+        if self.registers.display_enabled
+            && self.scanline < active_scanlines
+            && self
+                .sprite_line_buffer
+                .collisions
+                .get(self.dot.wrapping_sub(2) as usize)
+                .copied()
+                .unwrap_or(false)
+        {
+            log::debug!("Sprite collision at line {} dot {}", self.scanline, self.dot);
+            self.registers.sprite_collision = true;
+        }
+
+        let frame_complete = self.scanline == active_scanlines + 1 && self.dot == 0;
+        if frame_complete { VdpTickEffect::FrameComplete } else { VdpTickEffect::None }
+    }
+
+    fn process_events(&mut self, active_scanlines: u16, scanlines_per_frame: u16) {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        enum VdpEvent {
+            None,
+            SpriteProcessing,
+            RenderLine,
+            SetSpriteOverflow,
+            FrameInterruptFlag,
+            FrameInterruptPending,
+            DecrementLineCounter,
+        }
+
+        // These timings are slightly early to account for how Z80 and VDP execution are interleaved.
+        // Z80 execution is instruction-level, so when the Z80 accesses a VDP port, the VDP's current
+        // cycle count will be pre-instruction rather than post-instruction. Any Z80-visible state
+        // needs to be updated "early" to account for this
+        const EVENT_DOTS: [u16; 7] = [
+            DOTS_PER_SCANLINE - 45,
+            DOTS_PER_SCANLINE - 35,
+            DOTS_PER_SCANLINE - 34,
+            DOTS_PER_SCANLINE - 33,
+            DOTS_PER_SCANLINE - 17,
+            DOTS_PER_SCANLINE - 16,
+            u16::MAX,
+        ];
+
+        const EVENTS: [VdpEvent; 7] = [
+            VdpEvent::SpriteProcessing,
+            VdpEvent::RenderLine,
+            VdpEvent::SetSpriteOverflow,
+            VdpEvent::FrameInterruptFlag,
+            VdpEvent::FrameInterruptPending,
+            VdpEvent::DecrementLineCounter,
+            VdpEvent::None,
+        ];
+
+        while self.dot >= EVENT_DOTS[self.event_idx as usize] {
+            match EVENTS[self.event_idx as usize] {
+                VdpEvent::SpriteProcessing => {
+                    self.per_line_sprite_processing(active_scanlines, scanlines_per_frame);
+                    self.registers.latched_sprite = self.registers.sprite;
+                }
+                VdpEvent::RenderLine => {
+                    let next_line = if self.scanline == scanlines_per_frame - 1 {
+                        0
+                    } else {
+                        self.scanline + 1
+                    };
+                    if next_line < active_scanlines {
+                        if self.registers.display_enabled {
+                            self.render_scanline(next_line);
+                        } else {
+                            self.clear_scanline(next_line);
+                        }
+                    }
+                }
+                VdpEvent::SetSpriteOverflow => {
+                    self.registers.sprite_overflow |= self.sprite_buffer.overflow;
+                }
+                VdpEvent::FrameInterruptFlag => {
+                    if self.scanline == active_scanlines {
+                        self.registers.frame_interrupt_flag = true;
+                    }
+                }
+                VdpEvent::FrameInterruptPending => {
+                    if self.scanline == active_scanlines {
+                        self.registers.frame_interrupt_pending = true;
+                        self.registers.frame_interrupt_flag = true;
+
+                        self.fill_vertical_border();
+                    }
+                }
+                VdpEvent::DecrementLineCounter => {
+                    if self.scanline < active_scanlines || self.scanline == scanlines_per_frame - 1
+                    {
+                        let (new_counter, overflowed) = self.line_counter.overflowing_sub(1);
+                        if overflowed {
+                            self.line_counter = self.registers.line_counter_reload_value;
+                            self.registers.line_interrupt_pending = true;
+                        } else {
+                            self.line_counter = new_counter;
+                        }
+                    } else {
+                        // Line counter is constantly reloaded outside of the active display period
+                        self.line_counter = self.registers.line_counter_reload_value;
+                    }
+                }
+                VdpEvent::None => {}
+            }
+
+            self.event_idx += 1;
+        }
+    }
+
+    fn per_line_sprite_processing(&mut self, active_scanlines: u16, scanlines_per_frame: u16) {
+        self.sprite_buffer.clear();
+        self.sprite_line_buffer.clear();
+
+        let sprite_line = if self.scanline == scanlines_per_frame - 1 {
+            255
+        } else if self.scanline < active_scanlines - 1 {
+            self.scanline
+        } else {
+            return;
+        };
+        let sprite_line = sprite_line as u8;
+
+        find_sprites_on_scanline(
+            sprite_line,
+            self.registers.mode,
+            self.registers.latched_sprite,
+            &self.vram,
+            &mut self.sprite_buffer,
+            self.remove_sprite_limit,
+        );
+
+        if self.registers.display_enabled {
+            render_sprite_pixels(
+                sprite_line,
+                self.registers.latched_sprite,
+                &self.vram,
+                &self.sprite_buffer,
+                &mut self.sprite_line_buffer,
+            );
+        }
     }
 
     fn fill_vertical_border(&mut self) {
@@ -1060,14 +1275,21 @@ impl Vdp {
     }
 
     pub fn viewport(&self) -> ViewportSize {
-        self.frame_buffer.viewport
+        let mut viewport = self.frame_buffer.viewport;
+        if self.registers.version.is_master_system() && self.registers.mode == Mode::Four224Line {
+            viewport.top_border_height -= 16;
+            viewport.bottom_border_height -= 16;
+        }
+        viewport
     }
 
     pub fn read_control(&mut self) -> u8 {
+        log::debug!("VDP control read at line {} dot {}", self.scanline, self.dot);
         self.registers.read_control()
     }
 
     pub fn write_control(&mut self, value: u8) {
+        log::debug!("VDP control write {value:02X} at line {} dot {}", self.scanline, self.dot);
         self.registers.write_control(value, &self.vram);
     }
 
@@ -1080,38 +1302,77 @@ impl Vdp {
     }
 
     pub fn v_counter(&self) -> u8 {
-        match (self.registers.version.timing_mode(), self.registers.mode) {
+        let scanline = if self.dot >= DOTS_PER_SCANLINE - 34 {
+            (self.scanline + 1) % self.timing_mode().scanlines_per_frame()
+        } else {
+            self.scanline
+        };
+
+        let v_counter = match (self.registers.version.timing_mode(), self.registers.mode) {
             (TimingMode::Ntsc, Mode::Four | Mode::GraphicsII) => {
-                if self.scanline <= 0xDA {
-                    self.scanline as u8
+                if scanline <= 0xDA {
+                    scanline as u8
                 } else {
-                    (self.scanline - 6) as u8
+                    (scanline - 6) as u8
                 }
             }
             (TimingMode::Pal, Mode::Four | Mode::GraphicsII) => {
-                if self.scanline <= 0xF2 {
-                    self.scanline as u8
+                if scanline <= 0xF2 {
+                    scanline as u8
                 } else {
-                    (self.scanline - 57) as u8
+                    (scanline - 57) as u8
                 }
             }
             (TimingMode::Ntsc, Mode::Four224Line) => {
-                if self.scanline <= 0xEA {
-                    self.scanline as u8
+                if scanline <= 0xEA {
+                    scanline as u8
                 } else {
-                    (self.scanline - 6) as u8
+                    (scanline - 6) as u8
                 }
             }
             (TimingMode::Pal, Mode::Four224Line) => {
-                if self.scanline <= 0xFF {
-                    self.scanline as u8
-                } else if self.scanline <= 0x102 {
-                    (self.scanline - 0x100) as u8
+                if scanline <= 0xFF {
+                    scanline as u8
+                } else if scanline <= 0x102 {
+                    (scanline - 0x100) as u8
                 } else {
-                    (self.scanline - 57) as u8
+                    (scanline - 57) as u8
                 }
             }
+        };
+
+        log::debug!(
+            "V counter read at line {} dot {}, value {v_counter:02X}",
+            self.scanline,
+            self.dot
+        );
+
+        v_counter
+    }
+
+    pub fn h_counter(&self) -> u8 {
+        self.latched_h_counter
+    }
+
+    pub fn latch_h_counter_on_th_change(&mut self) {
+        let mut dot = self.dot + 10;
+        if dot >= DOTS_PER_SCANLINE {
+            dot -= DOTS_PER_SCANLINE;
         }
+
+        self.latched_h_counter = if dot >= DOTS_PER_SCANLINE - 46 {
+            let diff = -((DOTS_PER_SCANLINE - dot) as i16);
+            (diff >> 1) as u8
+        } else {
+            (dot >> 1) as u8
+        };
+
+        log::debug!(
+            "Latched H counter at line {} dot {}, value {:02X}",
+            self.scanline,
+            self.dot,
+            self.latched_h_counter
+        );
     }
 
     pub fn interrupt_line(&self) -> InterruptLine {
