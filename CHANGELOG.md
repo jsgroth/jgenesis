@@ -10,6 +10,7 @@
 * (**SMS** / **Game Gear**) Somewhat improved VDP-related timings; this fixes glitchy cutscene graphics in _Madou Monogatari I_ (#213) and fixes most tests in the SMSVDPTest test ROM (#190)
 * (**Game Gear**) The region bit in I/O port \$00 now properly reflects the hardware region instead of being hardcoded to 1; this fixes the Start button not working on the title screen of _Pop Breaker_ (#214)
 * (**Game Gear**) Fixed the viewport Y offset being 16 lines off in 224-line mode; this fixes glitchy graphics in _Micro Machines_ (#221)
+* (**Game Gear**) I/O port \$01 is now read/write; this fixes _Primal Rage_ freezing at the title screen (#220)
 * (**NES**) Improved accuracy of Namco 163 expansion audio emulation (used by _Megami Tensei II_ among other games)
 
 # v0.9.0

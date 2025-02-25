@@ -10,15 +10,23 @@ use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use std::mem;
 use std::ops::{Index, RangeInclusive};
 
+const SYSTEM_RAM_SIZE: usize = 8 * 1024;
+
+const CODEMASTERS_CHECKSUM_ADDR: usize = 0x7FE6;
+const SEGA_HEADER_ADDR_RANGE: RangeInclusive<usize> = 0x7FF0..=0x7FFF;
+
+// Most cartridges with RAM only had 8KB, but up to 32KB was supported, and the header contains
+// no information on RAM size (or even whether RAM is present)
+const CARTRIDGE_RAM_SIZE: usize = 32 * 1024;
+
+const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum Mapper {
     #[default]
     Sega,
     Codemasters,
 }
-
-const CODEMASTERS_CHECKSUM_ADDR: usize = 0x7FE6;
-const SEGA_HEADER_ADDR_RANGE: RangeInclusive<usize> = 0x7FF0..=0x7FFF;
 
 impl Mapper {
     // Codemasters ROMs have a 16-bit checksum at $7FE6 which is the sum of all 16-bit words in the ROM
@@ -84,12 +92,6 @@ struct Cartridge {
     ram_bank: u32,
     ram_dirty: bool,
 }
-
-// Most cartridges with RAM only had 8KB, but up to 32KB was supported, and the header contains
-// no information on RAM size (or even whether RAM is present)
-const CARTRIDGE_RAM_SIZE: usize = 32 * 1024;
-
-const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 
 impl Cartridge {
     fn new(mut rom: Vec<u8>, initial_ram: Option<Vec<u8>>) -> Self {
@@ -202,7 +204,17 @@ impl Default for AudioControl {
     }
 }
 
-const SYSTEM_RAM_SIZE: usize = 8 * 1024;
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct GameGearRegisters {
+    pub ext_port: u8,
+    // TODO emulate serial port registers
+}
+
+impl GameGearRegisters {
+    fn new() -> Self {
+        Self { ext_port: 0x7F }
+    }
+}
 
 #[derive(Debug, Clone, Encode, Decode, PartialClone)]
 pub struct Memory {
@@ -210,6 +222,7 @@ pub struct Memory {
     cartridge: Cartridge,
     ram: [u8; SYSTEM_RAM_SIZE],
     audio_control: AudioControl,
+    gg_registers: GameGearRegisters,
 }
 
 impl Memory {
@@ -218,6 +231,7 @@ impl Memory {
             cartridge: Cartridge::new(rom, initial_cartridge_ram),
             ram: [0; SYSTEM_RAM_SIZE],
             audio_control: AudioControl::default(),
+            gg_registers: GameGearRegisters::new(),
         }
     }
 
@@ -355,5 +369,9 @@ impl Memory {
         // If no valid header was found, assume region Domestic/Japan
         // Every GG game and non-JP SMS game should have a header, but some JP SMS games do not
         SmsGgRegion::Domestic
+    }
+
+    pub fn gg_registers(&mut self) -> &mut GameGearRegisters {
+        &mut self.gg_registers
     }
 }

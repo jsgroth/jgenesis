@@ -50,7 +50,7 @@ impl BusInterface for Bus<'_> {
                     (u8::from(!self.input.pause_pressed()) << 7)
                         | (u8::from(self.input.region() == SmsGgRegion::International) << 6)
                 }
-                0x01 => 0x7F,
+                0x01 => self.memory.gg_registers().ext_port,
                 0x02 | 0x04 | 0x06 => 0xFF,
                 0x03 | 0x05 => 0x00,
                 _ => unreachable!("value is <= 0x06"),
@@ -96,8 +96,10 @@ impl BusInterface for Bus<'_> {
     fn write_io(&mut self, address: u16, value: u8) {
         let address = address & 0xFF;
         if self.version == VdpVersion::GameGear && address <= 0x06 {
-            if address == 0x06 {
-                self.psg.write_stereo_control(value);
+            match address {
+                0x01 => self.memory.gg_registers().ext_port = value & 0x7F,
+                0x06 => self.psg.write_stereo_control(value),
+                _ => {}
             }
             return;
         }
