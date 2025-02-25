@@ -155,8 +155,8 @@ impl VdpVersion {
     }
 
     #[must_use]
-    const fn viewport_size(self, gg_use_sms_resolution: bool) -> ViewportSize {
-        match self {
+    const fn viewport_size(self, gg_use_sms_resolution: bool, mode: Mode) -> ViewportSize {
+        let mut viewport = match self {
             Self::NtscMasterSystem1 | Self::NtscMasterSystem2 => ViewportSize::NTSC_SMS,
             Self::PalMasterSystem1 | Self::PalMasterSystem2 => ViewportSize::PAL_SMS,
             Self::GameGear => {
@@ -166,7 +166,26 @@ impl VdpVersion {
                     ViewportSize::GAME_GEAR
                 }
             }
+        };
+
+        if matches!(mode, Mode::Four224Line) {
+            match self {
+                Self::NtscMasterSystem1
+                | Self::NtscMasterSystem2
+                | Self::PalMasterSystem1
+                | Self::PalMasterSystem2 => {
+                    viewport.top_border_height -= 16;
+                    viewport.bottom_border_height -= 16;
+                }
+                Self::GameGear => {
+                    if !gg_use_sms_resolution {
+                        viewport.top += 16;
+                    }
+                }
+            }
         }
+
+        viewport
     }
 }
 
@@ -236,19 +255,6 @@ impl Mode {
         match self {
             Self::Four | Self::GraphicsII => 192,
             Self::Four224Line => 224,
-        }
-    }
-
-    // The number of scanlines to remove from each of the top and bottom borders when in this mode
-    fn vertical_border_offset(self, version: VdpVersion) -> u16 {
-        if version == VdpVersion::GameGear {
-            // 224-line mode does not affect the viewport size/position for Game Gear
-            return 0;
-        }
-
-        match self {
-            Self::Four | Self::GraphicsII => 0,
-            Self::Four224Line => 16,
         }
     }
 }
@@ -800,7 +806,7 @@ impl VdpBuffer {
     fn new(version: VdpVersion, gg_use_sms_resolution: bool) -> Self {
         Self {
             buffer: vec![0; FRAME_BUFFER_LEN],
-            viewport: version.viewport_size(gg_use_sms_resolution),
+            viewport: version.viewport_size(gg_use_sms_resolution, Mode::default()),
         }
     }
 
@@ -892,6 +898,7 @@ pub struct Vdp {
     sprite_buffer: SpriteBuffer,
     sprite_line_buffer: SpriteLineBuffer,
     remove_sprite_limit: bool,
+    gg_use_sms_resolution: bool,
     line_counter: u8,
     latched_h_counter: u8,
 }
@@ -915,6 +922,7 @@ impl Vdp {
             sprite_buffer: SpriteBuffer::new(),
             sprite_line_buffer: SpriteLineBuffer::new(),
             remove_sprite_limit: config.remove_sprite_limit,
+            gg_use_sms_resolution: config.gg_use_sms_resolution,
             line_counter: 0xFF,
             latched_h_counter: 0,
         }
@@ -1038,7 +1046,6 @@ impl Vdp {
 
     fn frame_buffer_row(&self, scanline: u16) -> u16 {
         scanline + self.frame_buffer.viewport.top_border_height
-            - self.registers.mode.vertical_border_offset(self.registers.version)
     }
 
     fn backdrop_color(&self) -> u16 {
@@ -1253,16 +1260,14 @@ impl Vdp {
         let ViewportSize { top_border_height, height, bottom_border_height, .. } =
             self.frame_buffer.viewport;
 
-        let mode_border_offset = self.registers.mode.vertical_border_offset(self.registers.version);
-
-        let viewport_top = top_border_height - mode_border_offset;
+        let viewport_top = top_border_height;
         for scanline in 0..viewport_top {
             for pixel in 0..256 {
                 self.frame_buffer.set(scanline, pixel, backdrop_color);
             }
         }
 
-        let viewport_bottom = height - bottom_border_height + mode_border_offset;
+        let viewport_bottom = height - bottom_border_height;
         for scanline in viewport_bottom..height {
             for pixel in 0..256 {
                 self.frame_buffer.set(scanline, pixel, backdrop_color);
@@ -1275,12 +1280,7 @@ impl Vdp {
     }
 
     pub fn viewport(&self) -> ViewportSize {
-        let mut viewport = self.frame_buffer.viewport;
-        if self.registers.version.is_master_system() && self.registers.mode == Mode::Four224Line {
-            viewport.top_border_height -= 16;
-            viewport.bottom_border_height -= 16;
-        }
-        viewport
+        self.frame_buffer.viewport
     }
 
     pub fn read_control(&mut self) -> u8 {
@@ -1291,6 +1291,10 @@ impl Vdp {
     pub fn write_control(&mut self, value: u8) {
         log::debug!("VDP control write {value:02X} at line {} dot {}", self.scanline, self.dot);
         self.registers.write_control(value, &self.vram);
+
+        // Update viewport in case mode changed
+        self.frame_buffer.viewport =
+            self.registers.version.viewport_size(self.gg_use_sms_resolution, self.registers.mode);
     }
 
     pub fn read_data(&mut self) -> u8 {
@@ -1391,8 +1395,10 @@ impl Vdp {
 
     pub fn update_config(&mut self, version: VdpVersion, config: &SmsGgEmulatorConfig) {
         self.registers.version = version;
-        self.frame_buffer.viewport = version.viewport_size(config.gg_use_sms_resolution);
+        self.frame_buffer.viewport =
+            version.viewport_size(config.gg_use_sms_resolution, self.registers.mode);
         self.remove_sprite_limit = config.remove_sprite_limit;
+        self.gg_use_sms_resolution = config.gg_use_sms_resolution;
     }
 }
 
