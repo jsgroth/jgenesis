@@ -7,14 +7,19 @@ use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use std::array;
 
+// 15-bit counter
+const MAX_IRQ_COUNTER: u16 = 0x7FFF;
+
+const AUDIO_DIVIDER: u8 = 15;
+
+// Mix instead of multiplex when 6+ channels are playing to avoid high-pitched ringing noise
+const CHANNEL_MULTIPLEX_THRESHOLD: u8 = 6;
+
 #[derive(Debug, Clone, Encode, Decode)]
 struct IrqCounter {
     enabled: bool,
     counter: u16,
 }
-
-// 15-bit counter
-const MAX_IRQ_COUNTER: u16 = 0x7FFF;
 
 impl IrqCounter {
     fn new() -> Self {
@@ -51,77 +56,62 @@ impl IrqCounter {
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct Namco163AudioChannel {
-    frequency: u32,
-    phase: u32,
-    length_mask: u8,
-    address: u8,
-    volume: u8,
+    channel_idx: u8,
     current_output: f64,
 }
 
 impl Namco163AudioChannel {
-    fn new() -> Self {
-        Self { frequency: 0, phase: 0, length_mask: 0, address: 0, volume: 0, current_output: 0.0 }
+    fn new(channel_idx: u8) -> Self {
+        Self { channel_idx, current_output: 0.0 }
     }
 
-    fn process_register_update(&mut self, index: u8, value: u8) {
-        match index {
-            0 => {
-                // Lowest 8 bits of frequency
-                self.frequency = (self.frequency & 0xFFFFFF00) | u32::from(value);
-            }
-            1 => {
-                // Lowest 8 bits of phase
-                self.phase = (self.phase & 0xFFFFFF00) | u32::from(value);
-            }
-            2 => {
-                // Middle 8 bits of frequency
-                self.frequency = (self.frequency & 0xFFFF00FF) | (u32::from(value) << 8);
-            }
-            3 => {
-                // Middle 8 bits of phase
-                self.phase = (self.phase & 0xFFFF00FF) | (u32::from(value) << 8);
-            }
-            4 => {
-                // High 2 bits of frequency + waveform length
-                self.frequency = (self.frequency & 0x0000FFFF) | (u32::from(value & 0x03) << 16);
-                // Length is 256 - (length << 2), set mask to that minus 1
-                self.length_mask = 255 - (value & 0xFC);
-            }
-            5 => {
-                // High 8 bits of phase
-                self.phase = (self.phase & 0x0000FFFF) | (u32::from(value) << 16);
-            }
-            6 => {
-                // Waveform address
-                self.address = value;
-            }
-            7 => {
-                // Volume
-                self.volume = value & 0x0F;
-            }
-            _ => panic!("invalid audio register index: {index}"),
+    fn clock(&mut self, internal_ram: &mut [u8; 128]) {
+        // Channel config/state stored in $40-$7F, 8 bytes per channel
+        let config_addr = 0x40 | (8 * self.channel_idx as usize);
+
+        let frequency = u32::from_le_bytes([
+            internal_ram[config_addr],
+            internal_ram[config_addr + 2],
+            internal_ram[config_addr + 4] & 0x03,
+            0,
+        ]);
+
+        let mut phase = u32::from_le_bytes([
+            internal_ram[config_addr + 1],
+            internal_ram[config_addr + 3],
+            internal_ram[config_addr + 5],
+            0,
+        ]);
+
+        let length = 256 - u32::from(internal_ram[config_addr + 4] & 0xFC);
+        let base_address: u32 = internal_ram[config_addr + 6].into();
+        let volume: i16 = (internal_ram[config_addr + 7] & 0x0F).into();
+
+        phase = (phase + frequency) & ((1 << 24) - 1);
+        while phase >= (length << 16) {
+            phase -= length << 16;
         }
-    }
 
-    fn clock(&mut self, internal_ram: &[u8; 128]) {
-        self.phase = (self.phase + self.frequency) & !(1 << 24);
-        let sample_phase = ((self.phase >> 16) as u8) & self.length_mask;
-        let sample_addr = self.address.wrapping_add(sample_phase);
-        let sample_byte = internal_ram[(sample_addr >> 1) as usize];
+        let relative_sample_idx = phase >> 16;
+        let sample_idx = (base_address + relative_sample_idx) & 0xFF;
+        let sample_byte = internal_ram[(sample_idx >> 1) as usize];
+
         // Samples are 4-bit nibbles in little-endian: 0=low nibble, 1=high nibble
-        let sample = if sample_addr & 0x01 == 0 { sample_byte & 0x0F } else { sample_byte >> 4 };
+        let sample = (sample_byte >> (4 * (sample_idx & 1))) & 0xF;
 
         // Volume should act as if the waveform is centered at sample value 8
         // This will produce a value in the range [-120, 105]
-        let sample = (i16::from(sample) - 8) * i16::from(self.volume);
+        let sample = (i16::from(sample) - 8) * volume;
 
-        // Shift the sample to a range of [0, 1]
-        self.current_output = f64::from(sample + 120) / 225.0;
+        self.current_output = f64::from(sample) / 120.0;
+
+        // Write updated phase back to wavetable RAM
+        let [phase_low, phase_mid, phase_high, _] = phase.to_le_bytes();
+        internal_ram[config_addr + 1] = phase_low;
+        internal_ram[config_addr + 3] = phase_mid;
+        internal_ram[config_addr + 5] = phase_high;
     }
 }
-
-const AUDIO_DIVIDER: u8 = 15;
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct Namco163AudioUnit {
@@ -136,7 +126,7 @@ impl Namco163AudioUnit {
     fn new() -> Self {
         Self {
             enabled: false,
-            channels: array::from_fn(|_| Namco163AudioChannel::new()),
+            channels: array::from_fn(|i| Namco163AudioChannel::new(i as u8)),
             divider: AUDIO_DIVIDER,
             current_channel: 0,
             enabled_channel_count: 0,
@@ -144,18 +134,15 @@ impl Namco163AudioUnit {
     }
 
     fn process_internal_ram_update(&mut self, address: u8, value: u8) {
-        if address >= 0x40 {
-            let channel_index = (address & 0x3F) / 0x08;
-            self.channels[channel_index as usize].process_register_update(address & 0x07, value);
+        if address == 0x7F {
+            // Bits 6-4 of $7F control which channels are enabled in addition to channel 8 volume
+            self.enabled_channel_count = ((value & 0x70) >> 4) + 1;
 
-            if address == 0x7F {
-                // Bits 6-4 of $7F control which channels are enabled in addition to channel 8 volume
-                self.enabled_channel_count = ((value & 0x70) >> 4) + 1;
-            }
+            log::trace!("# channels enabled: {}", self.enabled_channel_count);
         }
     }
 
-    fn clock(&mut self, internal_ram: &[u8; 128]) {
+    fn clock(&mut self, internal_ram: &mut [u8; 128]) {
         if !self.enabled {
             return;
         }
@@ -167,7 +154,7 @@ impl Namco163AudioUnit {
         self.channels[self.current_channel as usize].clock(internal_ram);
     }
 
-    fn tick_cpu(&mut self, internal_ram: &[u8; 128]) {
+    fn tick_cpu(&mut self, internal_ram: &mut [u8; 128]) {
         self.divider -= 1;
         if self.divider == 0 {
             self.clock(internal_ram);
@@ -176,11 +163,11 @@ impl Namco163AudioUnit {
     }
 
     fn sample(&self) -> f64 {
-        if self.enabled_channel_count < 6 {
+        if self.enabled_channel_count < CHANNEL_MULTIPLEX_THRESHOLD {
             self.channels[self.current_channel as usize].current_output
         } else {
             // Special case 6-8 enabled channels because an accurate implementation sounds horrible
-            // without a very expensive low-pass filter
+            // without a low-pass filter with a low cutoff frequency
             let channel_sum = self
                 .channels
                 .iter()
@@ -204,16 +191,16 @@ impl VolumeVariantDb {
     const fn n163_coefficient(self) -> f64 {
         match self {
             Self::Twelve => {
-                // APU pulse volume * 10^(12/20)
-                0.594679822071084
+                // APU pulse volume * 10^(12/20) / (1 + 105/120)
+                0.31716257177124485
             }
             Self::Sixteen => {
-                // APU pulse volume * 10^(16.5/20)
-                0.998350874789345
+                // APU pulse volume * 10^(16.5/20) / (1 + 105/120)
+                0.5324537998876507
             }
             Self::Eighteen => {
-                // APU pulse volume * 10^(18.75/20)
-                1.293549947919034
+                // APU pulse volume * 10^(18.75/20) / (1 + 105/120)
+                0.6898933055568182
             }
         }
     }
@@ -385,7 +372,7 @@ impl MapperImpl<Namco163> {
 
     pub(crate) fn tick_cpu(&mut self) {
         self.data.irq.tick_cpu();
-        self.data.audio.tick_cpu(&self.data.internal_ram);
+        self.data.audio.tick_cpu(&mut self.data.internal_ram);
     }
 
     pub(crate) fn interrupt_flag(&self) -> bool {
@@ -412,9 +399,7 @@ impl MapperImpl<Namco163> {
         }
 
         let n163_sample = self.data.audio.sample() * self.data.volume_variant.n163_coefficient();
-        let clamped_n163_sample = if n163_sample > 1.0 { 1.0 } else { n163_sample };
-
-        mixed_apu_sample - clamped_n163_sample
+        (mixed_apu_sample + n163_sample).clamp(-1.0, 1.0)
     }
 }
 
