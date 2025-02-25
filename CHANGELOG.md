@@ -4,6 +4,7 @@
 * (**SMS** / **Game Gear**) Added a hardware region "Auto" setting that attempts to auto-detect region from the cartridge header (#214)
 
 ## Fixes
+* (**Genesis**) Fixed behavior when the controller port TH pin is set to input; this fixes controls not working properly in _Micro Machines_
 * (**SMS**) Fixed sprites never displaying on the topmost line of active display
 * (**SMS**) Fixed the "crop vertical borders" setting incorrectly cropping the top 16 lines and bottom 16 lines in 224-line mode
 * (**SMS** / **Game Gear**) Somewhat improved VDP-related timings; this fixes glitchy cutscene graphics in _Madou Monogatari I_ (#213) and fixes most tests in the SMSVDPTest test ROM (#190)
