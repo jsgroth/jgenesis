@@ -34,6 +34,13 @@ const V30_FRAME_HEIGHT: u32 = 240;
 // The H32 frame buffer should be large enough to store frames as H1280px resolution (4 * 320)
 const H32_FRAME_BUFFER_LEN: usize = genesis_core::vdp::FRAME_BUFFER_LEN * 4;
 
+// Offset between the left edge of the Genesis H32 frame and the 32X frame, in H1280px pixels
+//
+// Due to HSYNC/blanking/border timings being slightly different between H32 and H40 mode, and due
+// to the 32X VDP always assuming H40 mode, the Genesis and 32X frames are slightly offset when the
+// Genesis VDP is in H32 mode.
+const H32_H_OFFSET: u32 = 13;
+
 const RGB_5_TO_8: &[u8; 32] = &[
     0, 8, 16, 25, 33, 41, 49, 58, 66, 74, 82, 90, 99, 107, 115, 123, 132, 140, 148, 156, 165, 173,
     181, 189, 197, 206, 214, 222, 230, 239, 247, 255,
@@ -544,21 +551,21 @@ impl Vdp {
         self.state.scanline_mclk
     }
 
-    pub fn composite_frame(
-        &mut self,
-        genesis_frame_size: FrameSize,
-        border_size: BorderSize,
-        genesis_frame_buffer: &mut [Color; genesis_core::vdp::FRAME_BUFFER_LEN],
-    ) {
+    pub fn composite_frame(&mut self, genesis_vdp: &mut genesis_core::vdp::Vdp) {
         // Default to rendering from the Genesis VDP frame buffer, switch later if necessary
         self.state.next_render_buffer = WhichFrameBuffer::Genesis;
 
-        if self.registers.frame_buffer_mode == FrameBufferMode::Blank
+        if (self.video_out != S32XVideoOut::S32XOnly
+            && self.registers.frame_buffer_mode == FrameBufferMode::Blank)
             || self.video_out == S32XVideoOut::GenesisOnly
         {
             // Leave Genesis frame as-is
             return;
         }
+
+        let genesis_frame_size = genesis_vdp.frame_size();
+        let border_size = genesis_vdp.border_size();
+        let genesis_frame_buffer = genesis_vdp.frame_buffer_mut();
 
         if genesis_frame_size.width - border_size.left - border_size.right == 256 {
             // If the Genesis VDP is in H32 mode, render the frame in 1280x224 so that it's possible
@@ -605,16 +612,25 @@ impl Vdp {
         let s32x_only = self.video_out == S32XVideoOut::S32XOnly;
 
         if !s32x_only {
-            self.copy_genesis_frame_buffer_to_h32(genesis_frame_buffer, genesis_frame_size);
+            self.copy_genesis_frame_buffer_to_h32(
+                genesis_frame_buffer,
+                genesis_frame_size,
+                border_size,
+            );
+        } else {
+            self.h32_frame_buffer.fill(Color::rgba(0, 0, 0, 0));
         }
 
         let priority = self.registers.priority;
         let active_lines_per_frame: u32 =
             self.registers.v_resolution.active_scanlines_per_frame().into();
 
+        let h32_frame_width = determine_h32_buffer_width(genesis_frame_size, border_size);
+
         for line in 0..active_lines_per_frame {
-            let fb_row_addr = 5
-                * ((line + border_size.top) * genesis_frame_size.width + border_size.left) as usize;
+            let fb_row_addr = ((line + border_size.top) * h32_frame_width
+                + 5 * border_size.left
+                + H32_H_OFFSET) as usize;
             for pixel in 0..FRAME_WIDTH {
                 let s32x_pixel = self.rendered_frame[line as usize][pixel as usize];
                 let fb_addr = fb_row_addr + 4 * pixel as usize;
@@ -637,30 +653,46 @@ impl Vdp {
         &mut self,
         frame_buffer: &[Color; genesis_core::vdp::FRAME_BUFFER_LEN],
         frame_size: FrameSize,
+        border_size: BorderSize,
     ) {
+        let h32_frame_width = determine_h32_buffer_width(frame_size, border_size);
+
         // Expand the frame buffer from 256x224 to 1280x224 (plus borders)
         for line in 0..frame_size.height {
+            let h32_fb_line_addr = line * h32_frame_width;
             for pixel in 0..frame_size.width {
                 let genesis_fb_addr = (line * frame_size.width + pixel) as usize;
-                let h32_fb_addr = 5 * genesis_fb_addr;
+                let h32_fb_addr = (h32_fb_line_addr + 5 * pixel) as usize;
                 self.h32_frame_buffer[h32_fb_addr..h32_fb_addr + 5]
                     .fill(frame_buffer[genesis_fb_addr]);
+            }
+
+            if 5 * frame_size.width != h32_frame_width {
+                // Clear right border pixels so 32X pixels will always display over them
+                self.h32_frame_buffer[(h32_fb_line_addr + 5 * frame_size.width) as usize
+                    ..(h32_fb_line_addr + h32_frame_width) as usize]
+                    .fill(Color::rgba(0, 0, 0, 0));
             }
         }
     }
 
     pub fn render_frame<R: Renderer>(
         &self,
-        genesis_frame_buffer: &[Color; genesis_core::vdp::FRAME_BUFFER_LEN],
-        mut frame_size: FrameSize,
+        genesis_vdp: &genesis_core::vdp::Vdp,
         mut aspect_ratio: Option<PixelAspectRatio>,
         renderer: &mut R,
     ) -> Result<(), R::Err> {
         if self.state.next_render_buffer == WhichFrameBuffer::Genesis {
-            return renderer.render_frame(genesis_frame_buffer, frame_size, aspect_ratio);
+            return renderer.render_frame(
+                genesis_vdp.frame_buffer(),
+                genesis_vdp.frame_size(),
+                aspect_ratio,
+            );
         }
 
-        frame_size.width *= 5;
+        let mut frame_size = genesis_vdp.frame_size();
+        frame_size.width = determine_h32_buffer_width(frame_size, genesis_vdp.border_size());
+
         aspect_ratio =
             aspect_ratio.map(|par| PixelAspectRatio::try_from(0.2 * f64::from(par)).unwrap());
 
@@ -678,4 +710,12 @@ fn u16_to_rgb(s32x_pixel: u16) -> Color {
     let b = (s32x_pixel >> 10) & 0x1F;
 
     Color::rgb(RGB_5_TO_8[r as usize], RGB_5_TO_8[g as usize], RGB_5_TO_8[b as usize])
+}
+
+fn determine_h32_buffer_width(frame_size: FrameSize, border_size: BorderSize) -> u32 {
+    if border_size.right < (H32_H_OFFSET + 4) / 5 {
+        5 * frame_size.width + H32_H_OFFSET
+    } else {
+        5 * frame_size.width
+    }
 }
