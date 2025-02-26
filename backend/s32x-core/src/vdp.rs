@@ -713,7 +713,7 @@ fn u16_to_rgb(s32x_pixel: u16) -> Color {
 }
 
 fn determine_h32_buffer_width(frame_size: FrameSize, border_size: BorderSize) -> u32 {
-    if border_size.right < (H32_H_OFFSET + 4) / 5 {
+    if border_size.right < H32_H_OFFSET.div_ceil(5) {
         5 * frame_size.width + H32_H_OFFSET
     } else {
         5 * frame_size.width
