@@ -225,7 +225,7 @@ impl Cartridge {
 
         let sram = match initial_sram {
             Some(sram) if sram.len() == sram_len => sram.into_boxed_slice(),
-            _ => vec![0; sram_len].into_boxed_slice(),
+            _ => vec![0xFF; sram_len].into_boxed_slice(),
         };
 
         log::info!("Using mapper {cartridge_type} with SRAM size {sram_len}");
