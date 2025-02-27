@@ -19,7 +19,7 @@ pub struct InputWindow {
 
 impl InputWindow {
     pub fn new(window: Window, scale_factor: f32) -> anyhow::Result<Self> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
 
         // SAFETY: The returned surface must not outlive the window
         let surface = unsafe {
