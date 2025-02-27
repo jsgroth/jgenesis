@@ -606,14 +606,14 @@ impl RenderingPipeline {
 
         let input_texture = self.preprocess_pipeline.input_texture();
         queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
+            wgpu::ImageCopyTexture {
                 texture: input_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             bytemuck::cast_slice(frame_buffer),
-            wgpu::TexelCopyBufferLayout {
+            wgpu::ImageDataLayout {
                 offset: 0,
                 bytes_per_row: Some(self.frame_size.width * 4),
                 rows_per_image: Some(self.frame_size.height),
@@ -1007,18 +1007,11 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             WgpuBackend::OpenGl => wgpu::Backends::GL,
         };
 
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends,
             flags: wgpu::InstanceFlags::default(),
-            backend_options: wgpu::BackendOptions {
-                dx12: wgpu::Dx12BackendOptions {
-                    shader_compiler: wgpu::Dx12Compiler::DynamicDxc {
-                        dxc_path: "dxcompiler.dll".into(),
-                        dxil_path: "dxil.dll".into(),
-                    },
-                },
-                gl: wgpu::GlBackendOptions::default(),
-            },
+            dx12_shader_compiler: wgpu::Dx12Compiler::Dxc { dxil_path: None, dxc_path: None },
+            gles_minor_version: wgpu::Gles3MinorVersion::default(),
         });
 
         // SAFETY: The surface must not outlive the window it was created from
