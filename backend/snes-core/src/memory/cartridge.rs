@@ -818,9 +818,12 @@ pub(crate) fn lorom_map_address(address: u32, rom_len: u32, sram_len: u32) -> Ca
         (0x70..=0x7D | 0xF0..=0xFF, 0x0000..=0x7FFF) => {
             // SRAM, if mapped
             if sram_len != 0 {
+                // Ignore A15 and shift A16-19 right by one
+                // Games with more than 32KB of SRAM depend on this, e.g. Dezaemon (128KB SRAM)
+                let sram_addr = (address & 0x7FFF) | ((address & 0xF0000) >> 1);
+
                 // SRAM size is always a power of 2; use that to mask address
-                // TODO apparently some games have >32KB of SRAM?
-                let sram_addr = address & (sram_len - 1);
+                let sram_addr = sram_addr & (sram_len - 1);
                 CartridgeAddress::Sram(sram_addr)
             } else {
                 // Treat as ROM mirror
