@@ -3,7 +3,7 @@ use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::SmsGgConfig;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::Sn76489Version;
-use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsGgEmulatorConfig, SmsModel, SmsRegion};
+use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsGgEmulatorConfig, SmsGgRegion, SmsModel};
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 
@@ -17,7 +17,7 @@ pub struct SmsGgAppConfig {
     #[serde(default)]
     pub gg_aspect_ratio: GgAspectRatio,
     #[serde(default)]
-    pub sms_region: SmsRegion,
+    pub forced_region: Option<SmsGgRegion>,
     #[serde(default)]
     pub sms_timing_mode: TimingMode,
     #[serde(default)]
@@ -61,7 +61,7 @@ impl AppConfig {
                 remove_sprite_limit: self.smsgg.remove_sprite_limit,
                 sms_aspect_ratio: self.smsgg.sms_aspect_ratio,
                 gg_aspect_ratio: self.smsgg.gg_aspect_ratio,
-                sms_region: self.smsgg.sms_region,
+                forced_region: self.smsgg.forced_region,
                 sms_crop_vertical_border: self.smsgg.sms_crop_vertical_border,
                 sms_crop_left_border: self.smsgg.sms_crop_left_border,
                 gg_use_sms_resolution: self.smsgg.gg_use_sms_resolution,

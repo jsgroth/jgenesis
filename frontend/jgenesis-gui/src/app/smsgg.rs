@@ -6,7 +6,7 @@ use crate::widgets::OverclockSlider;
 use egui::{Context, Window};
 use jgenesis_common::frontend::TimingMode;
 use smsgg_core::psg::Sn76489Version;
-use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsModel, SmsRegion};
+use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsGgRegion, SmsModel};
 use std::num::NonZeroU32;
 
 impl App {
@@ -46,17 +46,18 @@ impl App {
             }
 
             let rect = ui.group(|ui| {
-                ui.label("Master System region");
+                ui.label("Hardware region");
 
                 ui.horizontal(|ui| {
+                    ui.radio_value(&mut self.config.smsgg.forced_region, None, "Auto");
                     ui.radio_value(
-                        &mut self.config.smsgg.sms_region,
-                        SmsRegion::International,
+                        &mut self.config.smsgg.forced_region,
+                        Some(SmsGgRegion::International),
                         "International / Overseas",
                     );
                     ui.radio_value(
-                        &mut self.config.smsgg.sms_region,
-                        SmsRegion::Domestic,
+                        &mut self.config.smsgg.forced_region,
+                        Some(SmsGgRegion::Domestic),
                         "Domestic (Japan)",
                     );
                 });

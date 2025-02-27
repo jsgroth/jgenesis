@@ -307,7 +307,7 @@ pub struct Z80 {
 }
 
 impl Z80 {
-    const MINIMUM_T_CYCLES: u32 = 3;
+    const MINIMUM_T_CYCLES: u32 = 4;
 
     #[must_use]
     pub fn new() -> Self {

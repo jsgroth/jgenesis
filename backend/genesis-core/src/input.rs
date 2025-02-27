@@ -51,6 +51,7 @@ struct PinDirections {
     last_ctrl_write: u8,
     th_flip_count: u8,
     flip_reset_counter: u32,
+    cycles_until_th_high: u32,
     controller_th: bool,
 }
 
@@ -61,6 +62,7 @@ impl Default for PinDirections {
             last_ctrl_write: 0,
             th_flip_count: 0,
             flip_reset_counter: 0,
+            cycles_until_th_high: 0,
             // Some games will freeze at boot if controller TH doesn't default to 1
             controller_th: true,
         }
@@ -71,6 +73,12 @@ impl PinDirections {
     fn write_ctrl(&mut self, ctrl_byte: u8, controller_type: GenesisControllerType) {
         self.last_ctrl_write = ctrl_byte;
         self.maybe_set_th(controller_type);
+
+        // When TH is set to input, the controller's TH should get pulled high, but only after a
+        // short delay.
+        // Micro Machines depends on it getting pulled high within ~70 68K CPU cycles, while
+        // Trouble Shooter depends on it _not_ getting pulled high until after ~15 68K CPU cycles.
+        self.cycles_until_th_high = if !ctrl_byte.bit(TH_BIT) { 30 } else { 0 };
     }
 
     fn write_data(&mut self, data_byte: u8, controller_type: GenesisControllerType) {
@@ -151,6 +159,13 @@ impl PinDirections {
         self.flip_reset_counter = self.flip_reset_counter.saturating_sub(m68k_cycles);
         if self.flip_reset_counter == 0 {
             self.th_flip_count = 0;
+        }
+
+        if self.cycles_until_th_high != 0 {
+            self.cycles_until_th_high = self.cycles_until_th_high.saturating_sub(m68k_cycles);
+            if self.cycles_until_th_high == 0 {
+                self.controller_th = true;
+            }
         }
     }
 }

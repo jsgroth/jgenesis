@@ -35,9 +35,8 @@ struct Graphics2SpriteData {
 }
 
 impl Vdp {
-    pub(super) fn render_graphics_2_scanline(&mut self) {
-        let scanline = self.scanline;
-        let frame_buffer_row = self.frame_buffer_row();
+    pub(super) fn render_graphics_2_scanline(&mut self, scanline: u16) {
+        let frame_buffer_row = self.frame_buffer_row(scanline);
         let backdrop_color = TMS9918_COLOR_TO_SMS_COLOR[self.registers.backdrop_color as usize];
 
         let base_name_table_addr = self.registers.base_name_table_address;
@@ -59,8 +58,8 @@ impl Vdp {
 
         let tile_row = scanline % 8;
 
-        let large_sprites = self.registers.double_sprite_height;
-        let magnify_sprites = self.registers.double_sprite_size;
+        let large_sprites = self.registers.latched_sprite.double_sprite_height;
+        let magnify_sprites = self.registers.latched_sprite.double_sprite_size;
         let sprite_size = 16 * u8::from(large_sprites) + 16 * u8::from(magnify_sprites);
 
         // Scan for sprites on this line
@@ -111,7 +110,7 @@ impl Vdp {
         sprite_size: u8,
     ) -> ArrayVec<Graphics2SpriteData, MAX_SPRITES_PER_LINE> {
         let scanline = self.scanline as u8;
-        let base_sprite_table_addr = self.registers.base_sprite_table_address;
+        let base_sprite_table_addr = self.registers.latched_sprite.base_sprite_table_address;
 
         let mut sprite_buffer = ArrayVec::<Graphics2SpriteData, 4>::new();
         for sprite_idx in 0..32 {
@@ -185,9 +184,10 @@ impl Vdp {
 
                 // Mask out the lowest 2 bits of sprite name when using 16x16 sprites
                 let sprite_name_mask = if large_sprites { !0x03 } else { !0x00 };
-                let mut sprite_pattern_addr = self.registers.base_sprite_pattern_address
-                    + 8 * u16::from(sprite.name & sprite_name_mask)
-                    + u16::from(sprite_row % 8);
+                let mut sprite_pattern_addr =
+                    self.registers.latched_sprite.base_sprite_pattern_address
+                        + 8 * u16::from(sprite.name & sprite_name_mask)
+                        + u16::from(sprite_row % 8);
                 if sprite_row >= 8 {
                     sprite_pattern_addr += 8;
                 }

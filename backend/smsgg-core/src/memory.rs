@@ -2,6 +2,7 @@
 
 mod metadata;
 
+use crate::SmsGgRegion;
 use bincode::{Decode, Encode};
 use crc::Crc;
 use jgenesis_common::num::GetBit;
@@ -9,15 +10,23 @@ use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use std::mem;
 use std::ops::{Index, RangeInclusive};
 
+const SYSTEM_RAM_SIZE: usize = 8 * 1024;
+
+const CODEMASTERS_CHECKSUM_ADDR: usize = 0x7FE6;
+const SEGA_HEADER_ADDR_RANGE: RangeInclusive<usize> = 0x7FF0..=0x7FFF;
+
+// Most cartridges with RAM only had 8KB, but up to 32KB was supported, and the header contains
+// no information on RAM size (or even whether RAM is present)
+const CARTRIDGE_RAM_SIZE: usize = 32 * 1024;
+
+const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum Mapper {
     #[default]
     Sega,
     Codemasters,
 }
-
-const CODEMASTERS_CHECKSUM_ADDR: usize = 0x7FE6;
-const SEGA_HEADER_ADDR_RANGE: RangeInclusive<usize> = 0x7FF0..=0x7FFF;
 
 impl Mapper {
     // Codemasters ROMs have a 16-bit checksum at $7FE6 which is the sum of all 16-bit words in the ROM
@@ -83,12 +92,6 @@ struct Cartridge {
     ram_bank: u32,
     ram_dirty: bool,
 }
-
-// Most cartridges with RAM only had 8KB, but up to 32KB was supported, and the header contains
-// no information on RAM size (or even whether RAM is present)
-const CARTRIDGE_RAM_SIZE: usize = 32 * 1024;
-
-const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 
 impl Cartridge {
     fn new(mut rom: Vec<u8>, initial_ram: Option<Vec<u8>>) -> Self {
@@ -201,7 +204,17 @@ impl Default for AudioControl {
     }
 }
 
-const SYSTEM_RAM_SIZE: usize = 8 * 1024;
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct GameGearRegisters {
+    pub ext_port: u8,
+    // TODO emulate serial port registers
+}
+
+impl GameGearRegisters {
+    fn new() -> Self {
+        Self { ext_port: 0x7F }
+    }
+}
 
 #[derive(Debug, Clone, Encode, Decode, PartialClone)]
 pub struct Memory {
@@ -209,6 +222,7 @@ pub struct Memory {
     cartridge: Cartridge,
     ram: [u8; SYSTEM_RAM_SIZE],
     audio_control: AudioControl,
+    gg_registers: GameGearRegisters,
 }
 
 impl Memory {
@@ -217,6 +231,7 @@ impl Memory {
             cartridge: Cartridge::new(rom, initial_cartridge_ram),
             ram: [0; SYSTEM_RAM_SIZE],
             audio_control: AudioControl::default(),
+            gg_registers: GameGearRegisters::new(),
         }
     }
 
@@ -320,5 +335,43 @@ impl Memory {
         let control_bits = value & 0x03;
         self.audio_control.fm_enabled = control_bits.bit(0);
         self.audio_control.psg_enabled = control_bits == 0 || control_bits == 3;
+    }
+
+    pub fn guess_cartridge_region(&self) -> SmsGgRegion {
+        const POSSIBLE_HEADER_LOCATIONS: [usize; 3] = [0x7FF0, 0x3FF0, 0x1FF0];
+
+        let rom = &self.cartridge.rom.0;
+        for header_start in POSSIBLE_HEADER_LOCATIONS {
+            if rom.len() < header_start + 16 {
+                // ROM is too small for the header to be here
+                continue;
+            }
+
+            // The first 8 bytes of a valid header should be the string "TMR SEGA"
+            if &rom[header_start..header_start + 8] != b"TMR SEGA" {
+                continue;
+            }
+
+            // Intentionally don't validate checksum; some games have invalid checksums in their headers
+
+            let region_code = rom[header_start + 15] >> 4;
+            match region_code {
+                // SMS Domestic / GG Domestic
+                3 | 5 => return SmsGgRegion::Domestic,
+                // SMS Export / GG Export / GG International
+                4 | 6 | 7 => return SmsGgRegion::International,
+                _ => {
+                    log::warn!("Unexpected region code in cartridge header: {region_code:X}");
+                }
+            }
+        }
+
+        // If no valid header was found, assume region Domestic/Japan
+        // Every GG game and non-JP SMS game should have a header, but some JP SMS games do not
+        SmsGgRegion::Domestic
+    }
+
+    pub fn gg_registers(&mut self) -> &mut GameGearRegisters {
+        &mut self.gg_registers
     }
 }

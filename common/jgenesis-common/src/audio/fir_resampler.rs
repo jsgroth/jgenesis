@@ -266,7 +266,7 @@ mod tests {
         buffer.idx = 1;
         buffer.len = N;
 
-        let current: [f64; N] = buffer.buffer[1..N + 1].try_into().unwrap();
+        let current: [f64; N] = buffer.buffer[1..=N].try_into().unwrap();
 
         // Last push before buffer is full
         buffer.push(54321.0);

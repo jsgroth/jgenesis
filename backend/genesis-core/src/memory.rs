@@ -314,7 +314,7 @@ fn fix_triple_play_rom(rom: &mut Vec<u8>) {
     // Triple Play expects the third MB of the ROM to be mapped to $300000-$3FFFFF instead
     // of $200000-$2FFFFF; accomplish this by duplicating the data
     if rom.len() < 0x400000 {
-        rom.extend(iter::repeat(0xFF).take(0x400000 - rom.len()));
+        rom.extend(iter::repeat_n(0xFF, 0x400000 - rom.len()));
     }
 
     let (first, second) = rom.split_at_mut(0x300000);

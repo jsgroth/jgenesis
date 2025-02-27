@@ -20,6 +20,8 @@ use std::mem;
 use std::num::NonZeroU64;
 use std::ops::Deref;
 
+const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
+
 #[derive(Debug, Clone, FakeEncode, FakeDecode)]
 pub struct Rom(pub Box<[u8]>);
 
@@ -225,7 +227,7 @@ impl Cartridge {
 
         let sram = match initial_sram {
             Some(sram) if sram.len() == sram_len => sram.into_boxed_slice(),
-            _ => vec![0; sram_len].into_boxed_slice(),
+            _ => vec![0xFF; sram_len].into_boxed_slice(),
         };
 
         log::info!("Using mapper {cartridge_type} with SRAM size {sram_len}");
@@ -251,11 +253,16 @@ impl Cartridge {
             return Ok(Self::St01x { rom: Rom(rom), upd77c25 });
         }
 
+        let rom_checksum = CRC.checksum(&rom);
+        log::info!("ROM CRC32: {rom_checksum:08X}");
+
         // Check for DSP-1/2/3/4 coprocessor (identified by chipset $03-$05, can be LoROM or HiROM)
-        if (0x03..0x06).contains(&chipset_byte)
-            && matches!(cartridge_type, CartridgeType::LoRom | CartridgeType::HiRom)
+        let force_dsp1 = should_force_dsp1(rom_checksum);
+        if force_dsp1
+            || ((0x03..0x06).contains(&chipset_byte)
+                && matches!(cartridge_type, CartridgeType::LoRom | CartridgeType::HiRom))
         {
-            let dsp_variant = guess_dsp_variant(&rom);
+            let dsp_variant = guess_dsp_variant(rom_checksum);
 
             log::info!("Detected DSP coprocessor of type {dsp_variant}");
 
@@ -306,8 +313,8 @@ impl Cartridge {
                 (lorom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram)
             }
             Self::DspLoRom { rom, sram, upd77c25 } => match (bank, offset) {
-                (0x30..=0x3F | 0xC0..=0xCF, 0x8000..=0xBFFF) => return Some(upd77c25.read_data()),
-                (0x30..=0x3F | 0xC0..=0xCF, 0xC000..=0xFFFF) => {
+                (0x30..=0x3F | 0xB0..=0xBF, 0x8000..=0xBFFF) => return Some(upd77c25.read_data()),
+                (0x30..=0x3F | 0xB0..=0xBF, 0xC000..=0xFFFF) => {
                     return Some(upd77c25.read_status());
                 }
                 _ => (lorom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram),
@@ -367,7 +374,7 @@ impl Cartridge {
                 }
             }
             Self::DspLoRom { rom, sram, upd77c25 } => match (bank, offset) {
-                (0x30..=0x3F | 0xC0..=0xCF, 0x8000..=0xBFFF) => {
+                (0x30..=0x3F | 0xB0..=0xBF, 0x8000..=0xBFFF) => {
                     upd77c25.write_data(value);
                 }
                 _ => {
@@ -767,14 +774,15 @@ fn check_for_lorom_coprocessor(rom: &[u8]) -> Option<CartridgeType> {
     None
 }
 
-const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
+fn should_force_dsp1(checksum: u32) -> bool {
+    // DSP1 Tech Demo (World) (Tech Demo)
+    checksum == 0xD18A00CD
+}
 
-fn guess_dsp_variant(rom: &[u8]) -> DspVariant {
-    let checksum = CRC.checksum(rom);
-
+fn guess_dsp_variant(checksum: u32) -> DspVariant {
     match checksum {
-        // Dungeon Master (U/J/E)
-        0x0DFD9CEB | 0xAA79FA33 | 0x89A67ADF => DspVariant::Dsp2,
+        // Dungeon Master (U/J/J Rev 1/E)
+        0x0DFD9CEB | 0x7A1BA194 | 0xAA79FA33 | 0x89A67ADF => DspVariant::Dsp2,
         // SD Gundam GX (J)
         0x4DC3D903 => DspVariant::Dsp3,
         // Top Gear 3000 (U/E) / The Planet's Champ TG 3000 (J)
@@ -818,9 +826,12 @@ pub(crate) fn lorom_map_address(address: u32, rom_len: u32, sram_len: u32) -> Ca
         (0x70..=0x7D | 0xF0..=0xFF, 0x0000..=0x7FFF) => {
             // SRAM, if mapped
             if sram_len != 0 {
+                // Ignore A15 and shift A16-19 right by one
+                // Games with more than 32KB of SRAM depend on this, e.g. Dezaemon (128KB SRAM)
+                let sram_addr = (address & 0x7FFF) | ((address & 0xF0000) >> 1);
+
                 // SRAM size is always a power of 2; use that to mask address
-                // TODO apparently some games have >32KB of SRAM?
-                let sram_addr = address & (sram_len - 1);
+                let sram_addr = sram_addr & (sram_len - 1);
                 CartridgeAddress::Sram(sram_addr)
             } else {
                 // Treat as ROM mirror

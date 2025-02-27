@@ -227,7 +227,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
                             address = address.wrapping_add(4);
                         }
                         OpSize::Byte => panic!("MOVEM does not support size byte"),
-                    };
+                    }
 
                     count += 1;
                 }

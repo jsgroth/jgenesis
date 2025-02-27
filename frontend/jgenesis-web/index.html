@@ -152,16 +152,6 @@
                     </fieldset>
 
                     <fieldset>
-                        <legend>Console region</legend>
-
-                        <input type="radio" id="sms-region-international" name="sms-region" value="International" checked>
-                        <label for="sms-region-international">International</label>
-
-                        <input type="radio" id="sms-region-domestic" name="sms-region" value="Domestic">
-                        <label for="sms-region-domestic">Japan</label>
-                    </fieldset>
-
-                    <fieldset>
                         <legend>Sega Master System aspect ratio</legend>
 
                         <input type="radio" id="sms-aspect-ratio-ntsc" name="sms-aspect-ratio" value="Ntsc" checked>
@@ -407,12 +397,6 @@
             document.querySelectorAll("input[name='sms-timing-mode']").forEach((element) => {
                 element.addEventListener("click", (event) => {
                     config.set_sms_timing_mode(event.target.value);
-                });
-            });
-
-            document.querySelectorAll("input[name='sms-region']").forEach((element) => {
-                element.addEventListener("click", (event) => {
-                    config.set_sms_region(event.target.value);
                 });
             });
 

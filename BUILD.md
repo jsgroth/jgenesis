@@ -16,6 +16,12 @@ sudo apt install libsdl2-dev
 Windows:
 * https://github.com/libsdl-org/SDL/releases (Download a 2.x version)
 
+### DirectX Shader Compiler (Windows DX12 backend only)
+
+The DirectX 12 wgpu backend is currently configured in such a way that it requires DLLs for Microsoft's DirectX shader compiler. The latest release is available here: https://github.com/microsoft/DirectXShaderCompiler/releases
+
+`dxcompiler.dll` and `dxil.dll` must be present in the current working directory for the DirectX 12 backend to work.
+
 ## Build & Run
 
 Build and run GUI:

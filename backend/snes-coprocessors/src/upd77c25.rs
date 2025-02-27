@@ -329,7 +329,7 @@ impl Upd77c25 {
             self.ram[word_addr].set_lsb(value);
         } else {
             self.ram[word_addr].set_msb(value);
-        };
+        }
     }
 
     #[inline]

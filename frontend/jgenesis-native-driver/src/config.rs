@@ -9,14 +9,13 @@ use crate::{NativeEmulatorResult, archive};
 use gb_core::api::GameBoyEmulatorConfig;
 use gba_core::api::GbaEmulatorConfig;
 use genesis_core::GenesisEmulatorConfig;
-use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay};
 use jgenesis_renderer::config::RendererConfig;
 use nes_core::api::NesEmulatorConfig;
 use s32x_core::api::Sega32XEmulatorConfig;
 use segacd_core::api::SegaCdEmulatorConfig;
 use serde::{Deserialize, Serialize};
-use smsgg_core::{SmsGgEmulatorConfig, SmsGgHardware};
+use smsgg_core::{SmsAspectRatio, SmsGgEmulatorConfig, SmsGgHardware};
 use snes_core::api::{CoprocessorRomFn, CoprocessorRoms, SnesEmulatorConfig};
 use std::ffi::OsStr;
 use std::fmt::{Display, Formatter};
@@ -164,11 +163,13 @@ pub struct SmsGgConfig {
 
 pub(crate) fn default_smsgg_window_size(
     hardware: SmsGgHardware,
-    sms_timing_mode: TimingMode,
+    sms_aspect_ratio: SmsAspectRatio,
 ) -> WindowSize {
-    match (hardware, sms_timing_mode) {
-        (SmsGgHardware::MasterSystem, TimingMode::Ntsc) => WindowSize { width: 878, height: 576 },
-        (SmsGgHardware::MasterSystem, TimingMode::Pal) => WindowSize { width: 1056, height: 576 },
+    match (hardware, sms_aspect_ratio) {
+        (SmsGgHardware::MasterSystem, SmsAspectRatio::Pal) => {
+            WindowSize { width: 1056, height: 576 }
+        }
+        (SmsGgHardware::MasterSystem, _) => WindowSize { width: 878, height: 576 },
         (SmsGgHardware::GameGear, _) => WindowSize { width: 576, height: 432 },
     }
 }

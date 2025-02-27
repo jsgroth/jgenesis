@@ -1,6 +1,21 @@
 # v0.9.0
 
 ## New Features
+* (**SMS** / **Game Gear**) Added a hardware region "Auto" setting that attempts to auto-detect region from the cartridge header (#214)
+
+## Fixes
+* (**Genesis**) Fixed behavior when the controller port TH pin is set to input; this fixes controls not working properly in _Micro Machines_
+* (**SMS**) Fixed sprites never displaying on the topmost line of active display
+* (**SMS**) Fixed the "crop vertical borders" setting incorrectly cropping the top 16 lines and bottom 16 lines in 224-line mode
+* (**SMS** / **Game Gear**) Somewhat improved VDP-related timings; this fixes glitchy cutscene graphics in _Madou Monogatari I_ (#213) and fixes most tests in the SMSVDPTest test ROM (#190)
+* (**Game Gear**) The region bit in I/O port \$00 now properly reflects the hardware region instead of being hardcoded to 1; this fixes the Start button not working on the title screen of _Pop Breaker_ (#214)
+* (**Game Gear**) Fixed the viewport Y offset being 16 lines off in 224-line mode; this fixes glitchy graphics in _Micro Machines_ (#221)
+* (**Game Gear**) I/O port \$01 is now read/write; this fixes _Primal Rage_ freezing at the title screen (#220)
+* (**NES**) Improved accuracy of Namco 163 expansion audio emulation (used by _Megami Tensei II_ among other games)
+
+# v0.9.0
+
+## New Features
 * (**Genesis** / **Sega CD** / **32X**) Replaced the low-pass filtering settings added in v0.8.3 with a new set of options that should be more accurate to actual hardware
   * New option to apply a first-order 3.39 KHz low-pass filter to Genesis audio output; this is **ON** by default (biggest change from previous default settings)
   * New option to apply a second-order 7.97 KHz low-pass filter to Sega CD PCM audio output; this is **ON** by default
