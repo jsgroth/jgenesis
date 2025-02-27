@@ -306,8 +306,8 @@ impl Cartridge {
                 (lorom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram)
             }
             Self::DspLoRom { rom, sram, upd77c25 } => match (bank, offset) {
-                (0x30..=0x3F | 0xC0..=0xCF, 0x8000..=0xBFFF) => return Some(upd77c25.read_data()),
-                (0x30..=0x3F | 0xC0..=0xCF, 0xC000..=0xFFFF) => {
+                (0x30..=0x3F | 0xB0..=0xBF, 0x8000..=0xBFFF) => return Some(upd77c25.read_data()),
+                (0x30..=0x3F | 0xB0..=0xBF, 0xC000..=0xFFFF) => {
                     return Some(upd77c25.read_status());
                 }
                 _ => (lorom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram),
@@ -367,7 +367,7 @@ impl Cartridge {
                 }
             }
             Self::DspLoRom { rom, sram, upd77c25 } => match (bank, offset) {
-                (0x30..=0x3F | 0xC0..=0xCF, 0x8000..=0xBFFF) => {
+                (0x30..=0x3F | 0xB0..=0xBF, 0x8000..=0xBFFF) => {
                     upd77c25.write_data(value);
                 }
                 _ => {
