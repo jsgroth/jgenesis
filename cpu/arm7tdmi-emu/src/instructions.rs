@@ -1761,16 +1761,34 @@ fn thumb_unconditional_branch(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn Bus
 // This instruction has no ARM equivalent
 fn thumb_long_branch(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
     // Offset is a signed 23-bit value split across two opcodes, with 11 bits in each
-    let offset_high: u32 = (opcode & 0x7FF).into();
-    let offset_low = cpu.prefetch[1] & 0x7FF;
-    let unsigned_offset = (offset_high << 11) | offset_low;
-    let offset = ((unsigned_offset as i32) << 10) >> 9;
+    // First opcode has H=0 and second opcode has H=1
+    // It is possible to have an H=1 opcode without an H=0 opcode; Golden Sun: The Lost Age does this
+    if !opcode.bit(11) {
+        // First opcode: Write highest 11 bits of jump address to LR
+        let unsigned_offset = i32::from(opcode & 0x7FF) << 12;
 
-    cpu.registers.r[14] = cpu.registers.r[15] | 1;
-    cpu.registers.r[15] = cpu.registers.r[15].wrapping_add_signed(offset) & !1;
-    cpu.fetch_thumb_opcode(bus);
-    cpu.fetch_thumb_opcode(bus);
+        // Clip to signed 23-bit
+        let offset = (unsigned_offset << 9) >> 9;
 
-    // 1N + 3S
-    4
+        cpu.registers.r[14] = cpu.registers.r[15].wrapping_add_signed(offset);
+
+        cpu.fetch_thumb_opcode(bus);
+
+        // 1S
+        1
+    } else {
+        // Second opcode: Add lowest 11 bits of jump address to LR, jump, and write return address to LR
+        let offset_low = u32::from(opcode & 0x7FF) << 1;
+        let jump_address = cpu.registers.r[14].wrapping_add(offset_low);
+
+        let return_address = cpu.registers.r[15].wrapping_sub(2);
+        cpu.registers.r[14] = return_address | 1;
+        cpu.registers.r[15] = jump_address & !1;
+
+        cpu.fetch_thumb_opcode(bus);
+        cpu.fetch_thumb_opcode(bus);
+
+        // 1N + 2S
+        3
+    }
 }
