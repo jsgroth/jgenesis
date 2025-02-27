@@ -765,8 +765,12 @@ impl Ppu {
         // Mode 7 tile map is always 128x128
         const TILE_MAP_SIZE_PIXELS: i32 = 128 * 8;
 
-        fn clip_to_i11(value: i32) -> i32 {
-            (value << (32 - 11)) >> (32 - 11)
+        fn sign_extend_i10(value: i32) -> i32 {
+            (value << (32 - 10)) >> (32 - 10)
+        }
+
+        fn sign_extend_i13(value: u16) -> i32 {
+            (((value as i16) << 3) >> 3).into()
         }
 
         // Several Mode 7 intermediate results truncate the lowest 6 bits
@@ -781,11 +785,11 @@ impl Ppu {
         let m7d: i32 = (self.registers.mode_7_latched.parameter_d as i16).into();
 
         // Center of rotation
-        let m7x = sign_extend_13_bit(self.registers.mode_7_latched.center_x);
-        let m7y = sign_extend_13_bit(self.registers.mode_7_latched.center_y);
+        let m7x = sign_extend_i13(self.registers.mode_7_latched.center_x);
+        let m7y = sign_extend_i13(self.registers.mode_7_latched.center_y);
 
-        let h_scroll = sign_extend_13_bit(self.registers.mode_7_latched.h_scroll);
-        let v_scroll = sign_extend_13_bit(self.registers.mode_7_latched.v_scroll);
+        let h_scroll = sign_extend_i13(self.registers.mode_7_latched.h_scroll);
+        let v_scroll = sign_extend_i13(self.registers.mode_7_latched.v_scroll);
 
         let h_flip = self.registers.mode_7_latched.h_flip;
         let v_flip = self.registers.mode_7_latched.v_flip;
@@ -812,8 +816,9 @@ impl Ppu {
 
             // Accurate clipping and truncating are important for some games
             // e.g. Tiny Toon Adventures: Wacky Sports Challenge, the birdman event
-            let scrolled_center_x = clip_to_i11(h_scroll - m7x);
-            let scrolled_center_y = clip_to_i11(v_scroll - m7y);
+            // e.g. Kaite Tsukutte Asoberu Dezaemon, title screen animation
+            let scrolled_center_x = sign_extend_i10(h_scroll - m7x);
+            let scrolled_center_y = sign_extend_i10(v_scroll - m7y);
 
             let mut tile_map_x = truncate_intermediate(m7a * scrolled_center_x)
                 + m7a * screen_x
@@ -1824,10 +1829,6 @@ impl Ppu {
         // Return to default rendering mode (224-line, non-interlaced, no pseudo-hi-res or smaller OBJs)
         self.registers.write_setini(0x00);
     }
-}
-
-fn sign_extend_13_bit(value: u16) -> i32 {
-    (((value as i16) << 3) >> 3).into()
 }
 
 #[allow(clippy::too_many_arguments)]
