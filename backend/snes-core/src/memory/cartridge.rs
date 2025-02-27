@@ -20,6 +20,8 @@ use std::mem;
 use std::num::NonZeroU64;
 use std::ops::Deref;
 
+const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
+
 #[derive(Debug, Clone, FakeEncode, FakeDecode)]
 pub struct Rom(pub Box<[u8]>);
 
@@ -251,11 +253,16 @@ impl Cartridge {
             return Ok(Self::St01x { rom: Rom(rom), upd77c25 });
         }
 
+        let rom_checksum = CRC.checksum(&rom);
+        log::info!("ROM CRC32: {rom_checksum:08X}");
+
         // Check for DSP-1/2/3/4 coprocessor (identified by chipset $03-$05, can be LoROM or HiROM)
-        if (0x03..0x06).contains(&chipset_byte)
-            && matches!(cartridge_type, CartridgeType::LoRom | CartridgeType::HiRom)
+        let force_dsp1 = should_force_dsp1(rom_checksum);
+        if force_dsp1
+            || ((0x03..0x06).contains(&chipset_byte)
+                && matches!(cartridge_type, CartridgeType::LoRom | CartridgeType::HiRom))
         {
-            let dsp_variant = guess_dsp_variant(&rom);
+            let dsp_variant = guess_dsp_variant(rom_checksum);
 
             log::info!("Detected DSP coprocessor of type {dsp_variant}");
 
@@ -767,14 +774,15 @@ fn check_for_lorom_coprocessor(rom: &[u8]) -> Option<CartridgeType> {
     None
 }
 
-const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
+fn should_force_dsp1(checksum: u32) -> bool {
+    // DSP1 Tech Demo (World) (Tech Demo)
+    checksum == 0xD18A00CD
+}
 
-fn guess_dsp_variant(rom: &[u8]) -> DspVariant {
-    let checksum = CRC.checksum(rom);
-
+fn guess_dsp_variant(checksum: u32) -> DspVariant {
     match checksum {
-        // Dungeon Master (U/J/E)
-        0x0DFD9CEB | 0xAA79FA33 | 0x89A67ADF => DspVariant::Dsp2,
+        // Dungeon Master (U/J/J Rev 1/E)
+        0x0DFD9CEB | 0x7A1BA194 | 0xAA79FA33 | 0x89A67ADF => DspVariant::Dsp2,
         // SD Gundam GX (J)
         0x4DC3D903 => DspVariant::Dsp3,
         // Top Gear 3000 (U/E) / The Planet's Champ TG 3000 (J)
