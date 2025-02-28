@@ -4103,6 +4103,7 @@ dependencies = [
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",
+ "rand 0.9.0",
  "serde",
  "snes-coprocessors",
  "spc700-emu",

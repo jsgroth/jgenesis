@@ -13,8 +13,8 @@ use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{SaveWriter, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext, U24Ext};
 use jgenesis_proc_macros::PartialClone;
-use std::array;
 use std::num::NonZeroU64;
+use std::{array, iter};
 
 const MAIN_RAM_LEN: usize = 128 * 1024;
 
@@ -68,9 +68,11 @@ impl Memory {
 
         log::info!("Cartridge has battery-backed SRAM: {}", cartridge.has_battery());
 
+        let main_ram = Vec::from_iter(iter::repeat_with(rand::random).take(MAIN_RAM_LEN));
+
         Ok(Self {
             cartridge,
-            main_ram: vec![0; MAIN_RAM_LEN].into_boxed_slice().try_into().unwrap(),
+            main_ram: main_ram.into_boxed_slice().try_into().unwrap(),
             wram_port_address: 0,
             cpu_open_bus: 0,
         })
