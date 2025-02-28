@@ -20,6 +20,7 @@ use segacd_core::api::SegaCdLoadResult;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::mpsc::SendError;
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
@@ -36,6 +37,7 @@ pub enum EmuThreadStatus {
     RunningSnes = 6,
     RunningGameBoy = 7,
     WaitingForFirstCommand = 8,
+    Terminated = 9,
 }
 
 impl EmuThreadStatus {
@@ -50,6 +52,7 @@ impl EmuThreadStatus {
             6 => Self::RunningSnes,
             7 => Self::RunningGameBoy,
             8 => Self::WaitingForFirstCommand,
+            9 => Self::Terminated,
             _ => panic!("invalid status discriminant: {discriminant}"),
         }
     }
@@ -87,6 +90,7 @@ pub enum EmuThreadCommand {
     Run { console: Console, config: Box<AppConfig>, file_path: PathBuf },
     ReloadConfig(Box<AppConfig>, PathBuf),
     StopEmulator,
+    Terminate,
     CollectInput { axis_deadzone: i16 },
     SoftReset,
     HardReset,
@@ -109,6 +113,10 @@ pub struct EmuThreadHandle {
 impl EmuThreadHandle {
     pub fn send(&self, command: EmuThreadCommand) {
         self.command_sender.send(command).unwrap();
+    }
+
+    pub fn try_send(&self, command: EmuThreadCommand) -> Result<(), SendError<EmuThreadCommand>> {
+        self.command_sender.send(command)
     }
 
     pub fn status(&self) -> EmuThreadStatus {
@@ -221,7 +229,12 @@ fn thread_run(ctx: EmuThreadContext) {
                         continue;
                     }
                 };
-                run_emulator(emulator, &ctx);
+                let run_result = run_emulator(emulator, &ctx);
+
+                if run_result == RunEmuResult::Terminate {
+                    ctx.status.store(EmuThreadStatus::Terminated as u8, Ordering::Relaxed);
+                    return;
+                }
             }
             Ok(EmuThreadCommand::CollectInput { axis_deadzone }) => {
                 match collect_input_not_running(axis_deadzone, ctx.egui_ctx.pixels_per_point()) {
@@ -233,6 +246,11 @@ fn thread_run(ctx: EmuThreadContext) {
                         log::error!("Error collecting SDL2 input: {err}");
                     }
                 }
+            }
+            Ok(EmuThreadCommand::Terminate) => {
+                log::info!("Terminating emulation thread");
+                ctx.status.store(EmuThreadStatus::Terminated as u8, Ordering::Relaxed);
+                return;
             }
             Ok(
                 EmuThreadCommand::StopEmulator
@@ -364,7 +382,14 @@ impl GenericEmulator {
     }
 }
 
-fn run_emulator(mut emulator: GenericEmulator, ctx: &EmuThreadContext) {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RunEmuResult {
+    None,
+    Terminate,
+}
+
+#[must_use]
+fn run_emulator(mut emulator: GenericEmulator, ctx: &EmuThreadContext) -> RunEmuResult {
     loop {
         match emulator.render_frame() {
             Ok(None) => {
@@ -375,12 +400,16 @@ fn run_emulator(mut emulator: GenericEmulator, ctx: &EmuThreadContext) {
                         EmuThreadCommand::ReloadConfig(config, path) => {
                             if let Err(err) = emulator.reload_config(config, path) {
                                 *ctx.emulator_error.lock().unwrap() = Some(err.into());
-                                return;
+                                return RunEmuResult::None;
                             }
                         }
                         EmuThreadCommand::StopEmulator => {
                             log::info!("Stopping emulator");
-                            return;
+                            return RunEmuResult::None;
+                        }
+                        EmuThreadCommand::Terminate => {
+                            log::info!("Terminating emulation thread");
+                            return RunEmuResult::Terminate;
                         }
                         EmuThreadCommand::CollectInput { axis_deadzone } => {
                             log::debug!("Received collect input command");
@@ -397,7 +426,7 @@ fn run_emulator(mut emulator: GenericEmulator, ctx: &EmuThreadContext) {
 
                             if is_none {
                                 // Window was closed
-                                return;
+                                return RunEmuResult::None;
                             }
                         }
                         EmuThreadCommand::SoftReset => emulator.soft_reset(),
@@ -409,7 +438,7 @@ fn run_emulator(mut emulator: GenericEmulator, ctx: &EmuThreadContext) {
                         EmuThreadCommand::SegaCdChangeDisc(path) => {
                             if let Err(err) = emulator.change_disc(path) {
                                 *ctx.emulator_error.lock().unwrap() = Some(err.into());
-                                return;
+                                return RunEmuResult::None;
                             }
                         }
                         EmuThreadCommand::Run { .. } => {}
@@ -417,16 +446,16 @@ fn run_emulator(mut emulator: GenericEmulator, ctx: &EmuThreadContext) {
                 }
             }
             Ok(Some(NativeTickEffect::PowerOff)) => {
-                return;
+                return RunEmuResult::None;
             }
             Ok(Some(NativeTickEffect::Exit)) => {
                 ctx.exit_signal.store(true, Ordering::Relaxed);
-                return;
+                return RunEmuResult::Terminate;
             }
             Err(err) => {
                 log::error!("Emulator terminated with an error: {err}");
                 *ctx.emulator_error.lock().unwrap() = Some(err);
-                return;
+                return RunEmuResult::None;
             }
         }
     }

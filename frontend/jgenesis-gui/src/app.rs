@@ -29,11 +29,12 @@ use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::Scanlines;
 use rfd::FileDialog;
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use std::{fs, thread};
 use time::{OffsetDateTime, UtcOffset, format_description};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumAll, EnumDisplay, EnumFromStr)]
@@ -511,7 +512,7 @@ impl App {
 
         let quit_shortcut = KeyboardShortcut::new(Modifiers::CTRL, Key::Q);
         if ctx.input_mut(|input| input.consume_shortcut(&quit_shortcut)) {
-            ctx.send_viewport_cmd(ViewportCommand::Close);
+            self.quit(ctx);
         }
 
         ui.menu_button("File", |ui| {
@@ -562,7 +563,7 @@ impl App {
             let quit_button =
                 Button::new("Quit").shortcut_text(ctx.format_shortcut(&quit_shortcut));
             if quit_button.ui(ui).clicked() {
-                ctx.send_viewport_cmd(ViewportCommand::Close);
+                self.quit(ctx);
             }
         });
     }
@@ -1098,7 +1099,7 @@ impl App {
         if self.state.close_on_emulator_exit {
             let status = self.emu_thread.status();
             if !status.is_running() && status != EmuThreadStatus::WaitingForFirstCommand {
-                ctx.send_viewport_cmd(ViewportCommand::Close);
+                self.quit(ctx);
             }
         }
     }
@@ -1129,12 +1130,28 @@ impl App {
             .collect::<Vec<_>>()
             .into();
     }
+
+    fn quit(&self, ctx: &Context) {
+        let _ = self.emu_thread.try_send(EmuThreadCommand::Terminate);
+
+        let wait_limit = Instant::now() + Duration::from_secs(1);
+        while Instant::now() < wait_limit && self.emu_thread.status() != EmuThreadStatus::Terminated
+        {
+            thread::sleep(Duration::from_millis(1));
+        }
+
+        if self.emu_thread.status() != EmuThreadStatus::Terminated {
+            log::warn!("Failed to terminate emulation thread; exiting anyway");
+        }
+
+        ctx.send_viewport_cmd(ViewportCommand::Close);
+    }
 }
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
         if self.emu_thread.exit_signal() {
-            ctx.send_viewport_cmd(ViewportCommand::Close);
+            self.quit(ctx);
             return;
         }
 
