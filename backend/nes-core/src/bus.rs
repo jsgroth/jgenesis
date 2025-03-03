@@ -723,10 +723,10 @@ impl InterruptLines {
 pub struct Bus {
     #[partial_clone(partial)]
     mapper: Mapper,
-    cpu_internal_ram: [u8; 2048],
+    cpu_internal_ram: Box<[u8; 2048]>,
     ppu_registers: PpuRegisters,
     io_registers: IoRegisters,
-    ppu_vram: [u8; 2048],
+    ppu_vram: Box<[u8; 2048]>,
     ppu_palette_ram: [u8; 32],
     ppu_oam: [u8; 256],
     ppu_bus_address: u16,
@@ -739,10 +739,12 @@ impl Bus {
         Self {
             mapper,
             // (Somewhat) randomize initial RAM contents
-            cpu_internal_ram: array::from_fn(|_| if rand::random() { 0x00 } else { 0xFF }),
+            cpu_internal_ram: Box::new(array::from_fn(
+                |_| if rand::random() { 0x00 } else { 0xFF },
+            )),
             ppu_registers: PpuRegisters::new(),
             io_registers: IoRegisters::new(overscan),
-            ppu_vram: [0; 2048],
+            ppu_vram: Box::new(array::from_fn(|_| 0)),
             ppu_palette_ram: [0; 32],
             ppu_oam: [0; 256],
             ppu_bus_address: 0,

@@ -68,7 +68,7 @@ impl Memory {
 
         log::info!("Cartridge has battery-backed SRAM: {}", cartridge.has_battery());
 
-        let main_ram = Vec::from_iter(iter::repeat_with(rand::random).take(MAIN_RAM_LEN));
+        let main_ram: Vec<u8> = iter::repeat_with(rand::random).take(MAIN_RAM_LEN).collect();
 
         Ok(Self {
             cartridge,

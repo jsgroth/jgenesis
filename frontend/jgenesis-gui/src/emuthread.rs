@@ -275,13 +275,13 @@ fn thread_run(ctx: EmuThreadContext) {
 
 #[derive(MatchEachVariantMacro)]
 enum GenericEmulator {
-    SmsGg(NativeSmsGgEmulator),
-    Genesis(NativeGenesisEmulator),
-    SegaCd(NativeSegaCdEmulator),
-    Sega32X(Native32XEmulator),
-    Nes(NativeNesEmulator),
-    Snes(NativeSnesEmulator),
-    GameBoy(NativeGameBoyEmulator),
+    SmsGg(Box<NativeSmsGgEmulator>),
+    Genesis(Box<NativeGenesisEmulator>),
+    SegaCd(Box<NativeSegaCdEmulator>),
+    Sega32X(Box<Native32XEmulator>),
+    Nes(Box<NativeNesEmulator>),
+    Snes(Box<NativeSnesEmulator>),
+    GameBoy(Box<NativeGameBoyEmulator>),
 }
 
 impl GenericEmulator {
@@ -291,24 +291,26 @@ impl GenericEmulator {
         path: PathBuf,
     ) -> NativeEmulatorResult<Self> {
         let emulator = match console {
-            Console::MasterSystem | Console::GameGear => {
-                Self::SmsGg(jgenesis_native_driver::create_smsgg(config.smsgg_config(path))?)
+            Console::MasterSystem | Console::GameGear => Self::SmsGg(Box::new(
+                jgenesis_native_driver::create_smsgg(config.smsgg_config(path))?,
+            )),
+            Console::Genesis => Self::Genesis(Box::new(jgenesis_native_driver::create_genesis(
+                config.genesis_config(path),
+            )?)),
+            Console::SegaCd => Self::SegaCd(Box::new(jgenesis_native_driver::create_sega_cd(
+                config.sega_cd_config(path),
+            )?)),
+            Console::Sega32X => Self::Sega32X(Box::new(jgenesis_native_driver::create_32x(
+                config.sega_32x_config(path),
+            )?)),
+            Console::Nes => {
+                Self::Nes(Box::new(jgenesis_native_driver::create_nes(config.nes_config(path))?))
             }
-            Console::Genesis => {
-                Self::Genesis(jgenesis_native_driver::create_genesis(config.genesis_config(path))?)
-            }
-            Console::SegaCd => {
-                Self::SegaCd(jgenesis_native_driver::create_sega_cd(config.sega_cd_config(path))?)
-            }
-            Console::Sega32X => {
-                Self::Sega32X(jgenesis_native_driver::create_32x(config.sega_32x_config(path))?)
-            }
-            Console::Nes => Self::Nes(jgenesis_native_driver::create_nes(config.nes_config(path))?),
             Console::Snes => {
-                Self::Snes(jgenesis_native_driver::create_snes(config.snes_config(path))?)
+                Self::Snes(Box::new(jgenesis_native_driver::create_snes(config.snes_config(path))?))
             }
             Console::GameBoy | Console::GameBoyColor => {
-                Self::GameBoy(jgenesis_native_driver::create_gb(config.gb_config(path))?)
+                Self::GameBoy(Box::new(jgenesis_native_driver::create_gb(config.gb_config(path))?))
             }
         };
 

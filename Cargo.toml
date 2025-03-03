@@ -100,11 +100,7 @@ rust_2018_idioms = "warn"
 [workspace.lints.clippy]
 # Warn broadly on all/pedantic, allowing the broad warns to be overridden
 all = { level = "warn", priority = -1 }
-
-# 2025-02-26: Disabling pedantic lints because the macro_use_imports lint is broken on nightly
-# Issue: https://github.com/rust-lang/rust/issues/137640
-# TODO re-enable these
-#pedantic = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
 
 # Warn on a small selection of restriction lints
 clone_on_ref_ptr = "warn"

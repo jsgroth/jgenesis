@@ -53,7 +53,7 @@ pub struct CdController {
     #[partial_clone(partial)]
     drive: CdDrive,
     rchip: Rchip,
-    sector_buffer: [u8; cdrom::BYTES_PER_SECTOR as usize],
+    sector_buffer: Box<[u8; cdrom::BYTES_PER_SECTOR as usize]>,
     prescaler: CdPrescaler,
 }
 
@@ -62,7 +62,7 @@ impl CdController {
         Self {
             drive: CdDrive::new(disc, config),
             rchip: Rchip::new(),
-            sector_buffer: array::from_fn(|_| 0),
+            sector_buffer: Box::new(array::from_fn(|_| 0)),
             prescaler: CdPrescaler::new(),
         }
     }

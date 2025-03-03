@@ -7,8 +7,8 @@ use bincode::{Decode, Encode};
 use crc::Crc;
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
-use std::mem;
 use std::ops::{Index, RangeInclusive};
+use std::{array, mem};
 
 const SYSTEM_RAM_SIZE: usize = 8 * 1024;
 
@@ -220,7 +220,7 @@ impl GameGearRegisters {
 pub struct Memory {
     #[partial_clone(partial)]
     cartridge: Cartridge,
-    ram: [u8; SYSTEM_RAM_SIZE],
+    ram: Box<[u8; SYSTEM_RAM_SIZE]>,
     audio_control: AudioControl,
     gg_registers: GameGearRegisters,
 }
@@ -229,7 +229,7 @@ impl Memory {
     pub fn new(rom: Vec<u8>, initial_cartridge_ram: Option<Vec<u8>>) -> Self {
         Self {
             cartridge: Cartridge::new(rom, initial_cartridge_ram),
-            ram: [0; SYSTEM_RAM_SIZE],
+            ram: Box::new(array::from_fn(|_| 0)),
             audio_control: AudioControl::default(),
             gg_registers: GameGearRegisters::new(),
         }
