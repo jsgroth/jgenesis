@@ -22,6 +22,7 @@ pub enum AudioError {
 }
 
 pub struct SdlAudioOutput {
+    muted: bool,
     audio_queue: AudioQueue<f32>,
     audio_buffer: Vec<f32>,
     audio_sync: bool,
@@ -42,6 +43,7 @@ impl SdlAudioOutput {
         let output_frequency = audio_queue.spec().freq;
 
         Ok(Self {
+            muted: config.mute_audio,
             audio_queue,
             audio_buffer: Vec::with_capacity(INTERNAL_AUDIO_BUFFER_LEN),
             audio_sync: config.audio_sync,
@@ -58,6 +60,7 @@ impl SdlAudioOutput {
     }
 
     pub fn reload_config(&mut self, config: &CommonConfig) -> Result<(), AudioError> {
+        self.muted = config.mute_audio;
         self.audio_sync = config.audio_sync;
         self.dynamic_resampling_ratio_enabled = config.audio_dynamic_resampling_ratio;
         self.audio_buffer_size = config.audio_buffer_size;
@@ -150,6 +153,10 @@ impl AudioOutput for SdlAudioOutput {
 
     #[inline]
     fn push_sample(&mut self, sample_l: f64, sample_r: f64) -> Result<(), Self::Err> {
+        if self.muted {
+            return Ok(());
+        }
+
         self.sample_count += 1;
         if self.sample_count % self.speed_multiplier != 0 {
             return Ok(());

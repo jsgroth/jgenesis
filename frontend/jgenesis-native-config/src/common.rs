@@ -26,6 +26,8 @@ pub enum ConfigSavePath {
 pub struct CommonAppConfig {
     #[serde(default = "default_audio_output_frequency")]
     pub audio_output_frequency: u64,
+    #[serde(default)]
+    pub mute_audio: bool,
     #[serde(default = "true_fn")]
     pub audio_sync: bool,
     #[serde(default = "true_fn")]
@@ -145,6 +147,7 @@ impl AppConfig {
     pub fn common_config(&self, path: PathBuf) -> CommonConfig {
         CommonConfig {
             rom_file_path: path,
+            mute_audio: self.common.mute_audio,
             audio_output_frequency: self.common.audio_output_frequency,
             audio_sync: self.common.audio_sync,
             audio_dynamic_resampling_ratio: self.common.audio_dynamic_resampling_ratio,

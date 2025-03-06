@@ -99,6 +99,7 @@ pub(crate) struct RomReadResult {
 pub struct CommonConfig {
     #[cfg_display(path)]
     pub rom_file_path: PathBuf,
+    pub mute_audio: bool,
     pub audio_output_frequency: u64,
     pub audio_sync: bool,
     pub audio_dynamic_resampling_ratio: bool,
