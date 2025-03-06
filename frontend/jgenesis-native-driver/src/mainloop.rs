@@ -406,7 +406,7 @@ where
         initial_inputs: Emulator::Inputs,
         debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
     ) -> NativeEmulatorResult<Self> {
-        let (sdl, video, audio, joystick, event_pump) = init_sdl(&common_config)?;
+        let (sdl, video, audio, joystick, event_pump) = init_sdl2(&common_config)?;
 
         let mut initial_window_size = common_config.window_size.unwrap_or(default_window_size);
         if let Some(scale_factor) = common_config.window_scale_factor {
@@ -806,8 +806,7 @@ fn file_name_no_ext<P: AsRef<Path>>(path: P) -> NativeEmulatorResult<String> {
         .ok_or_else(|| NativeEmulatorError::ParseFileName(path.as_ref().display().to_string()))
 }
 
-// Initialize SDL2
-fn init_sdl(
+fn init_sdl2(
     config: &CommonConfig,
 ) -> NativeEmulatorResult<(Sdl, VideoSubsystem, AudioSubsystem, JoystickSubsystem, EventPump)> {
     let sdl = sdl2::init().map_err(NativeEmulatorError::SdlInit)?;
@@ -815,6 +814,10 @@ fn init_sdl(
     let audio = sdl.audio().map_err(NativeEmulatorError::SdlAudioInit)?;
     let joystick = sdl.joystick().map_err(NativeEmulatorError::SdlJoystickInit)?;
     let event_pump = sdl.event_pump().map_err(NativeEmulatorError::SdlEventPumpInit)?;
+
+    // Allow gamepad inputs while window does not have focus
+    // https://wiki.libsdl.org/SDL2/SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS
+    sdl2::hint::set("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
 
     sdl.mouse().show_cursor(!config.hide_mouse_cursor.should_hide(config.launch_in_fullscreen));
 
