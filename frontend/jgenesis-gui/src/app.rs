@@ -331,6 +331,12 @@ impl App {
         self.launch_emulator(path, console);
     }
 
+    fn open_most_recent_file(&mut self) {
+        let Some(recent_open) = self.state.recent_open_list.first() else { return };
+
+        self.launch_emulator(recent_open.full_path.clone(), Some(recent_open.console));
+    }
+
     fn launch_emulator(&mut self, path: PathBuf, console: Option<Console>) {
         self.state.current_file_path.clone_from(&path);
 
@@ -510,6 +516,11 @@ impl App {
             self.open_file(None);
         }
 
+        let open_most_recent_shortcut = KeyboardShortcut::new(Modifiers::NONE, Key::F5);
+        if ctx.input_mut(|input| input.consume_shortcut(&open_most_recent_shortcut)) {
+            self.open_most_recent_file();
+        }
+
         let quit_shortcut = KeyboardShortcut::new(Modifiers::CTRL, Key::Q);
         if ctx.input_mut(|input| input.consume_shortcut(&quit_shortcut)) {
             self.quit(ctx);
@@ -534,8 +545,25 @@ impl App {
 
                         ui.add_space(5.0);
                     }
+
+                    ui.separator();
+
+                    if ui.button("Clear List").clicked() {
+                        self.config.recent_open_list.clear();
+                        self.state.recent_open_list.clear();
+                        ui.close_menu();
+                    }
                 });
+
+                let open_most_recent_button = Button::new("Open Most Recent")
+                    .shortcut_text(ctx.format_shortcut(&open_most_recent_shortcut));
+                if ui.add(open_most_recent_button).clicked() {
+                    self.open_most_recent_file();
+                    ui.close_menu();
+                }
             });
+
+            ui.add_space(10.0);
 
             ui.menu_button("Open Using", |ui| {
                 for console in [
