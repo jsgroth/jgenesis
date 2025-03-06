@@ -152,14 +152,15 @@ impl AudioOutput for SdlAudioOutput {
     type Err = AudioError;
 
     #[inline]
-    fn push_sample(&mut self, sample_l: f64, sample_r: f64) -> Result<(), Self::Err> {
-        if self.muted {
-            return Ok(());
-        }
-
+    fn push_sample(&mut self, mut sample_l: f64, mut sample_r: f64) -> Result<(), Self::Err> {
         self.sample_count += 1;
         if self.sample_count % self.speed_multiplier != 0 {
             return Ok(());
+        }
+
+        if self.muted {
+            sample_l = 0.0;
+            sample_r = 0.0;
         }
 
         self.audio_buffer.push((sample_l * self.audio_gain_multiplier) as f32);
