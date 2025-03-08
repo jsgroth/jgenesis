@@ -80,6 +80,14 @@ pub const DEINTERLACING: HelpText = HelpText {
     ],
 };
 
+pub const NON_LINEAR_COLOR_SCALE: HelpText = HelpText {
+    heading: "Non-Linear Color Scale",
+    text: &[
+        "Emulate the VDP's non-linear color scale when converting from Genesis RGB333 colors to displayed colors. Enabling this is more accurate to actual hardware.",
+        "In practice, compared to a linear color scale, this slightly brightens darker colors and slightly darkens brighter colors.",
+    ],
+};
+
 pub const DOUBLE_SCREEN_INTERLACED_ASPECT: HelpText = HelpText {
     heading: "Double-Screen Aspect Adjustment",
     text: &[
@@ -93,14 +101,6 @@ pub const REMOVE_SPRITE_LIMITS: HelpText = HelpText {
     text: &[
         "If enabled, ignore the hardware's sprite-per-scanline and sprite-pixel-per-scanline limits when rendering.",
         "This typically reduces sprite flickering, but it may cause visual glitches in games that use the limits to intentionally hide sprites.",
-    ],
-};
-
-pub const NON_LINEAR_COLOR_DAC: HelpText = HelpText {
-    heading: "Non-Linear Color DAC",
-    text: &[
-        "If enabled, attempt to emulate the VDP's non-linear color DAC rather than treating VDP color values as raw sRGB.",
-        "In practice, this pushes most colors slightly towards gray, darkening brighter colors and brightening darker colors.",
     ],
 };
 

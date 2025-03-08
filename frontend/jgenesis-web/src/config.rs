@@ -97,7 +97,7 @@ impl SmsGgWebConfig {
 pub struct GenesisWebConfig {
     aspect_ratio: GenesisAspectRatio,
     remove_sprite_limits: bool,
-    emulate_non_linear_vdp_dac: bool,
+    non_linear_color_scale: bool,
     low_pass: GenesisLowPassFilter,
     render_vertical_border: bool,
     render_horizontal_border: bool,
@@ -109,7 +109,7 @@ impl Default for GenesisWebConfig {
         Self {
             aspect_ratio: GenesisAspectRatio::default(),
             remove_sprite_limits: false,
-            emulate_non_linear_vdp_dac: false,
+            non_linear_color_scale: true,
             low_pass: GenesisLowPassFilter::default(),
             render_vertical_border: false,
             render_horizontal_border: false,
@@ -129,7 +129,7 @@ impl GenesisWebConfig {
             adjust_aspect_ratio_in_2x_resolution: true,
             remove_sprite_limits: self.remove_sprite_limits,
             m68k_clock_divider: self.m68k_divider,
-            emulate_non_linear_vdp_dac: self.emulate_non_linear_vdp_dac,
+            non_linear_color_scale: self.non_linear_color_scale,
             deinterlace: true,
             render_vertical_border: self.render_vertical_border,
             render_horizontal_border: self.render_horizontal_border,
@@ -262,8 +262,8 @@ impl WebConfigRef {
         self.borrow_mut().genesis.remove_sprite_limits = remove_sprite_limits;
     }
 
-    pub fn set_genesis_emulate_non_linear_dac(&self, emulate_non_linear_dac: bool) {
-        self.borrow_mut().genesis.emulate_non_linear_vdp_dac = emulate_non_linear_dac;
+    pub fn set_genesis_non_linear_color_scale(&self, non_linear_color_scale: bool) {
+        self.borrow_mut().genesis.non_linear_color_scale = non_linear_color_scale;
     }
 
     pub fn set_genesis_emulate_low_pass(&self, emulate_low_pass: bool) {

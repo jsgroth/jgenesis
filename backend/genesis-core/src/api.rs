@@ -154,7 +154,7 @@ pub struct GenesisEmulatorConfig {
     pub adjust_aspect_ratio_in_2x_resolution: bool,
     pub remove_sprite_limits: bool,
     pub m68k_clock_divider: u64,
-    pub emulate_non_linear_vdp_dac: bool,
+    pub non_linear_color_scale: bool,
     pub deinterlace: bool,
     pub render_vertical_border: bool,
     pub render_horizontal_border: bool,
@@ -175,7 +175,7 @@ impl GenesisEmulatorConfig {
     pub fn to_vdp_config(&self) -> VdpConfig {
         VdpConfig {
             enforce_sprite_limits: !self.remove_sprite_limits,
-            emulate_non_linear_dac: self.emulate_non_linear_vdp_dac,
+            non_linear_color_scale: self.non_linear_color_scale,
             deinterlace: self.deinterlace,
             render_vertical_border: self.render_vertical_border,
             render_horizontal_border: self.render_horizontal_border,

@@ -315,7 +315,7 @@ pub struct BorderSize {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub struct VdpConfig {
     pub enforce_sprite_limits: bool,
-    pub emulate_non_linear_dac: bool,
+    pub non_linear_color_scale: bool,
     pub deinterlace: bool,
     pub render_vertical_border: bool,
     pub render_horizontal_border: bool,
@@ -1376,7 +1376,7 @@ mod tests {
             TimingMode::Ntsc,
             VdpConfig {
                 enforce_sprite_limits: true,
-                emulate_non_linear_dac: false,
+                non_linear_color_scale: false,
                 deinterlace: true,
                 render_vertical_border: false,
                 render_horizontal_border: false,

@@ -237,13 +237,13 @@
                     </fieldset>
 
                     <div>
-                        <input type="checkbox" id="genesis-remove-sprite-limits">
-                        <label for="genesis-remove-sprite-limits">Remove sprite-per-scanline and sprite-pixel-per-scanline limits</label>
+                        <input type="checkbox" id="genesis-non-linear-color-scale" checked>
+                        <label for="genesis-non-linear-color-scale">Emulate non-linear VDP color scale</label>
                     </div>
 
                     <div>
-                        <input type="checkbox" id="genesis-emulate-non-linear-dac">
-                        <label for="genesis-emulate-non-linear-dac">Emulate non-linear color DAC</label>
+                        <input type="checkbox" id="genesis-remove-sprite-limits">
+                        <label for="genesis-remove-sprite-limits">Remove sprite-per-scanline and sprite-pixel-per-scanline limits</label>
                     </div>
 
                     <div>
@@ -444,8 +444,8 @@
                 config.set_genesis_remove_sprite_limits(event.target.checked);
             });
 
-            document.getElementById("genesis-emulate-non-linear-dac").addEventListener("click", (event) => {
-                config.set_genesis_emulate_non_linear_dac(event.target.checked);
+            document.getElementById("genesis-non-linear-color-scale").addEventListener("click", (event) => {
+                config.set_genesis_non_linear_color_scale(event.target.checked);
             });
 
             document.getElementById("genesis-emulate-low-pass").addEventListener("click", (event) => {

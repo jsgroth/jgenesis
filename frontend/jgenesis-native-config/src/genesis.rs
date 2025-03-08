@@ -24,8 +24,8 @@ pub struct GenesisAppConfig {
     pub remove_sprite_limits: bool,
     #[serde(default = "default_68k_divider")]
     pub m68k_clock_divider: u64,
-    #[serde(default)]
-    pub emulate_non_linear_vdp_dac: bool,
+    #[serde(default = "true_fn")]
+    pub non_linear_color_scale: bool,
     #[serde(default = "true_fn")]
     pub deinterlace: bool,
     #[serde(default)]
@@ -140,7 +140,7 @@ impl AppConfig {
                     .adjust_aspect_ratio_in_2x_resolution,
                 remove_sprite_limits: self.genesis.remove_sprite_limits,
                 m68k_clock_divider: self.genesis.m68k_clock_divider,
-                emulate_non_linear_vdp_dac: self.genesis.emulate_non_linear_vdp_dac,
+                non_linear_color_scale: self.genesis.non_linear_color_scale,
                 deinterlace: self.genesis.deinterlace,
                 render_vertical_border: self.genesis.render_vertical_border,
                 render_horizontal_border: self.genesis.render_horizontal_border,

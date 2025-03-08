@@ -272,7 +272,7 @@ impl Vdp {
                 color,
                 ColorModifier::None,
                 screen_width,
-                self.config.emulate_non_linear_dac,
+                self.config.non_linear_color_scale,
             );
         }
     }
@@ -548,7 +548,7 @@ impl Vdp {
                 pixel_color,
                 color_modifier,
                 screen_width,
-                self.config.emulate_non_linear_dac,
+                self.config.non_linear_color_scale,
             );
         }
     }
@@ -634,7 +634,7 @@ impl Vdp {
                         color,
                         ColorModifier::None,
                         screen_width,
-                        self.config.emulate_non_linear_dac,
+                        self.config.non_linear_color_scale,
                     );
                 }
             }
@@ -662,7 +662,7 @@ impl Vdp {
                         bg_color,
                         ColorModifier::None,
                         screen_width,
-                        self.config.emulate_non_linear_dac,
+                        self.config.non_linear_color_scale,
                     );
                 }
             }
@@ -677,7 +677,7 @@ impl Vdp {
                         color_0,
                         ColorModifier::None,
                         screen_width,
-                        self.config.emulate_non_linear_dac,
+                        self.config.non_linear_color_scale,
                     );
                 }
             }
@@ -699,7 +699,7 @@ impl Vdp {
                         color_0,
                         ColorModifier::None,
                         screen_width,
-                        self.config.emulate_non_linear_dac,
+                        self.config.non_linear_color_scale,
                     );
                 }
             }
@@ -740,7 +740,7 @@ impl Vdp {
                         bg_color,
                         ColorModifier::None,
                         screen_width.into(),
-                        self.config.emulate_non_linear_dac,
+                        self.config.non_linear_color_scale,
                     );
                 }
             }
@@ -755,7 +755,7 @@ impl Vdp {
                         color_0,
                         ColorModifier::None,
                         screen_width.into(),
-                        self.config.emulate_non_linear_dac,
+                        self.config.non_linear_color_scale,
                     );
                 }
             }
@@ -815,7 +815,7 @@ impl Vdp {
             color,
             ColorModifier::None,
             screen_width,
-            self.config.emulate_non_linear_dac,
+            self.config.non_linear_color_scale,
         );
     }
 

@@ -136,9 +136,9 @@ struct Args {
     #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
     smsgg_z80_divider: Option<NonZeroU32>,
 
-    /// Emulate the VDP's non-linear DAC, which tends to brighten darker colors and darken brighter colors
+    /// Emulate the VDP's non-linear color scale, which tends to brighten darker colors and darken brighter colors
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
-    emulate_non_linear_vdp_dac: Option<bool>,
+    genesis_non_linear_color_scale: Option<bool>,
 
     /// Deinterlace if a game enables an interlacing screen mode
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
@@ -582,7 +582,7 @@ impl Args {
 
     fn apply_genesis_overrides(&self, config: &mut AppConfig) {
         apply_overrides!(self, config.genesis, [
-            emulate_non_linear_vdp_dac,
+            genesis_non_linear_color_scale -> non_linear_color_scale,
             genesis_deinterlace -> deinterlace,
             m68k_clock_divider,
             genesis_render_vertical_border -> render_vertical_border,

@@ -271,6 +271,16 @@ impl App {
 
             let rect = ui
                 .checkbox(
+                    &mut self.config.genesis.non_linear_color_scale,
+                    "Emulate non-linear VDP color scale",
+                )
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::NON_LINEAR_COLOR_SCALE);
+            }
+
+            let rect = ui
+                .checkbox(
                     &mut self.config.genesis.remove_sprite_limits,
                     "Remove sprite-per-scanline and sprite-pixel-per-scanline limits",
                 )
@@ -278,17 +288,6 @@ impl App {
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::REMOVE_SPRITE_LIMITS);
-            }
-
-            let rect = ui
-                .checkbox(
-                    &mut self.config.genesis.emulate_non_linear_vdp_dac,
-                    "Emulate the VDP's non-linear color DAC",
-                )
-                .on_hover_text("Tends to brighten darker colors and darken brighter colors")
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::NON_LINEAR_COLOR_DAC);
             }
 
             let rect = ui
