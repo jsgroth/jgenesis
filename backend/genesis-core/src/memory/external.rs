@@ -56,8 +56,8 @@ impl Ram {
 
         let ram_header_bytes = &rom[0x1B0..0x1BC];
 
-        // RAM header should always start with ASCII "RA" followed by $F8 and $20
-        if ram_header_bytes[..4] != [b'R', b'A', 0xF8, 0x20] {
+        // RAM header should always start with ASCII "RA" followed by RAM type byte and $20
+        if !matches!(&ram_header_bytes[..4], &[b'R', b'A', _, 0x20]) {
             return None;
         }
 
