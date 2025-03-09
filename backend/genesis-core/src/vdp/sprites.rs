@@ -58,7 +58,7 @@ impl SpriteState {
     pub fn handle_line_end(&mut self, h_display_size: HorizontalDisplaySize) {
         if !self.display_enabled {
             self.pixels_disabled_during_hblank +=
-                h_display_size.pixels_including_hblank() - self.display_enabled_pixel;
+                h_display_size.pixels_including_hblank().saturating_sub(self.display_enabled_pixel);
         }
     }
 }

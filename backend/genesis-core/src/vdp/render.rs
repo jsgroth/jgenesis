@@ -260,7 +260,7 @@ impl Vdp {
     fn fill_frame_buffer_row(&mut self, row: u32, starting_pixel: u16, color: u16) {
         let screen_width = self.screen_width();
 
-        let left_border = self.latched_registers.horizontal_display_size.left_border();
+        let left_border = self.state.frame_h_resolution.left_border();
         let starting_col =
             if starting_pixel == 0 { 0 } else { u32::from(starting_pixel + left_border) };
 

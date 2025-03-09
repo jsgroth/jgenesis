@@ -96,6 +96,10 @@ struct InternalState {
     pending_dma: Option<ActiveDma>,
     pending_writes: Vec<PendingWrite>,
     interlaced_frame: bool,
+    // Latched at start of VBlank
+    // This is not accurate to actual hardware, but nothing should change H resolution mid-frame
+    // during active display
+    frame_h_resolution: HorizontalDisplaySize,
     frame_count: u64,
     vdp_event_idx: u8,
 }
@@ -126,6 +130,7 @@ impl InternalState {
             pending_dma: None,
             pending_writes: Vec::with_capacity(10),
             interlaced_frame: false,
+            frame_h_resolution: HorizontalDisplaySize::default(),
             frame_count: 0,
             vdp_event_idx: 0,
         }
@@ -476,6 +481,9 @@ impl Vdp {
                                 .contains(&self.state.scanline)
                         {
                             self.state.v_border_forgotten = true;
+
+                            // Latch horizontal resolution here since VINT won't happen this frame
+                            self.state.frame_h_resolution = self.registers.horizontal_display_size;
                         }
 
                         // V interrupts must be delayed by 1 CPU instruction if they are enabled
@@ -935,6 +943,10 @@ impl Vdp {
                     if self.state.scanline == active_scanlines {
                         log::trace!("Generating V interrupt");
                         self.state.v_interrupt_pending = true;
+
+                        // Latch H resolution at start of VBlank in case the game changes resolution
+                        // at start of VBlank, e.g. Bugs Bunny in Double Trouble
+                        self.state.frame_h_resolution = self.registers.horizontal_display_size;
                     }
                 }
                 VdpEvent::HBlankStart => {
@@ -1242,7 +1254,7 @@ impl Vdp {
     #[inline]
     #[must_use]
     pub fn screen_width(&self) -> u32 {
-        let h_display_size = self.registers.horizontal_display_size;
+        let h_display_size = self.state.frame_h_resolution;
         let active_display_pixels: u32 = h_display_size.active_display_pixels().into();
 
         if self.config.render_horizontal_border {
@@ -1270,7 +1282,7 @@ impl Vdp {
     #[must_use]
     pub fn border_size(&self) -> BorderSize {
         let (left, right) = if self.config.render_horizontal_border {
-            let h_display_size = self.registers.horizontal_display_size;
+            let h_display_size = self.state.frame_h_resolution;
             (h_display_size.left_border(), RIGHT_BORDER)
         } else {
             (0, 0)
