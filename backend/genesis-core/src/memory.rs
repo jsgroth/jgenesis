@@ -7,6 +7,7 @@ use crate::api::GenesisRegion;
 use crate::input::InputState;
 use crate::memory::external::ExternalMemory;
 use crate::svp::Svp;
+use crate::timing::CycleCounters;
 use crate::vdp::Vdp;
 use crate::ym2612::Ym2612;
 use bincode::{Decode, Encode};
@@ -641,21 +642,23 @@ impl MainBusWrites {
     }
 }
 
-pub struct MainBus<'a, Medium> {
-    memory: &'a mut Memory<Medium>,
-    vdp: &'a mut Vdp,
-    psg: &'a mut Sn76489,
-    ym2612: &'a mut Ym2612,
-    input: &'a mut InputState,
-    timing_mode: TimingMode,
-    signals: MainBusSignals,
-    pending_writes: MainBusWrites,
-    z80_accessed_68k_bus: bool,
+pub struct MainBus<'a, Medium, const REFRESH_INTERVAL: u64> {
+    pub memory: &'a mut Memory<Medium>,
+    pub vdp: &'a mut Vdp,
+    pub psg: &'a mut Sn76489,
+    pub ym2612: &'a mut Ym2612,
+    pub input: &'a mut InputState,
+    pub timing_mode: TimingMode,
+    pub signals: MainBusSignals,
+    pub pending_writes: MainBusWrites,
+    pub cycles: &'a mut CycleCounters<REFRESH_INTERVAL>,
     // Last word-size read; used to pseudo-emulate open bus bits in the Z80 BUSACK register
-    last_word_read: u16,
+    pub last_word_read: u16,
 }
 
-impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
+impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u64>
+    MainBus<'a, Medium, REFRESH_INTERVAL>
+{
     #[allow(clippy::too_many_arguments)]
     #[inline]
     pub fn new(
@@ -664,6 +667,7 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
         psg: &'a mut Sn76489,
         ym2612: &'a mut Ym2612,
         input: &'a mut InputState,
+        cycles: &'a mut CycleCounters<REFRESH_INTERVAL>,
         timing_mode: TimingMode,
         signals: MainBusSignals,
         pending_writes: MainBusWrites,
@@ -674,10 +678,10 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
             psg,
             ym2612,
             input,
+            cycles,
             timing_mode,
             signals,
             pending_writes,
-            z80_accessed_68k_bus: false,
             last_word_read: 0,
         }
     }
@@ -788,6 +792,8 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
                 // Z80 memory map; writable by the 68k only when the Z80 is removed from the bus
                 // and not reset
                 if self.memory.signals.z80_busack() {
+                    self.cycles.record_68k_z80_bus_access();
+
                     // For 68k access, $8000-$FFFF mirrors $0000-$7FFF
                     <Self as z80_emu::BusInterface>::write_memory(
                         self,
@@ -857,12 +863,6 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
         }
     }
 
-    #[inline]
-    #[must_use]
-    pub fn z80_accessed_68k_bus(&self) -> bool {
-        self.z80_accessed_68k_bus
-    }
-
     // $A11100
     fn read_busack_register(&self) -> u16 {
         // Word reads of Z80 BUSREQ signal mirror the byte in both MSB and LSB (TODO is this right or should only bit 8 be set?)
@@ -878,7 +878,9 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
 // The Genesis has a 24-bit bus, not 32-bit
 const ADDRESS_MASK: u32 = 0xFFFFFF;
 
-impl<Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'_, Medium> {
+impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u64> m68000_emu::BusInterface
+    for MainBus<'_, Medium, REFRESH_INTERVAL>
+{
     #[inline]
     fn read_byte(&mut self, address: u32) -> u8 {
         let address = address & ADDRESS_MASK;
@@ -890,6 +892,8 @@ impl<Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'_, Medium> {
             0xA00000..=0xA0FFFF => {
                 // Z80 memory map; 68k can only access when the Z80 is running and removed from the bus
                 if self.memory.signals.z80_busack() {
+                    self.cycles.record_68k_z80_bus_access();
+
                     // For 68k access, $8000-$FFFF mirrors $0000-$7FFF
                     <Self as z80_emu::BusInterface>::read_memory(self, (address & 0x7FFF) as u16)
                 } else {
@@ -917,6 +921,8 @@ impl<Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'_, Medium> {
             0xA00000..=0xA0FFFF => {
                 // Z80 memory map; 68k can only access when the Z80 is running and removed from the bus
                 if self.memory.signals.z80_busack() {
+                    self.cycles.record_68k_z80_bus_access();
+
                     // All Z80 access is byte-size; word reads mirror the byte in both MSB and LSB
                     let byte = self.read_byte(address);
                     u16::from_le_bytes([byte, byte])
@@ -984,7 +990,9 @@ impl<Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'_, Medium> {
     }
 }
 
-impl<Medium: PhysicalMedium> z80_emu::BusInterface for MainBus<'_, Medium> {
+impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u64> z80_emu::BusInterface
+    for MainBus<'_, Medium, REFRESH_INTERVAL>
+{
     #[inline]
     // TODO remove
     #[allow(clippy::match_same_arms)]
@@ -1020,7 +1028,7 @@ impl<Medium: PhysicalMedium> z80_emu::BusInterface for MainBus<'_, Medium> {
                 0xFF
             }
             0x8000..=0xFFFF => {
-                self.z80_accessed_68k_bus = true;
+                self.cycles.record_z80_68k_bus_access();
 
                 let m68k_addr = self.memory.z80_bank_register.map_to_68k_address(address);
                 if !(0xA00000..=0xA0FFFF).contains(&m68k_addr) {
@@ -1066,7 +1074,7 @@ impl<Medium: PhysicalMedium> z80_emu::BusInterface for MainBus<'_, Medium> {
                 self.write_vdp_byte(address.into(), value);
             }
             0x8000..=0xFFFF => {
-                self.z80_accessed_68k_bus = true;
+                self.cycles.record_z80_68k_bus_access();
 
                 let m68k_addr = self.memory.z80_bank_register.map_to_68k_address(address);
                 if !(0xA00000..=0xA0FFFF).contains(&m68k_addr) {

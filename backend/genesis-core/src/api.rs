@@ -235,6 +235,7 @@ macro_rules! new_main_bus {
             &mut $self.psg,
             &mut $self.ym2612,
             &mut $self.input,
+            &mut $self.cycles,
             $self.timing_mode,
             MainBusSignals { m68k_reset: $m68k_reset },
             std::mem::take(&mut $self.main_bus_writes),
@@ -384,23 +385,19 @@ impl EmulatorTrait for GenesisEmulator {
         S::Err: Debug + Display + Send + Sync + 'static,
     {
         let mut bus = new_main_bus!(self, m68k_reset: false);
-        let m68k_cycles = if self.cycles.m68k_wait_cpu_cycles != 0 {
-            self.cycles.take_m68k_wait_cpu_cycles()
+        let m68k_cycles = if bus.cycles.m68k_wait_cpu_cycles != 0 {
+            bus.cycles.take_m68k_wait_cpu_cycles()
         } else {
             self.m68k.execute_instruction(&mut bus)
         };
 
-        let elapsed_mclk_cycles = self
+        let elapsed_mclk_cycles = bus
             .cycles
             .record_68k_instruction(m68k_cycles, self.m68k.last_instruction_was_mul_or_div());
 
-        while self.cycles.should_tick_z80() {
+        while bus.cycles.should_tick_z80() {
             self.z80.tick(&mut bus);
-            self.cycles.decrement_z80();
-        }
-
-        if bus.z80_accessed_68k_bus() {
-            self.cycles.record_z80_68k_bus_access();
+            bus.cycles.decrement_z80();
         }
 
         self.main_bus_writes = bus.apply_writes();

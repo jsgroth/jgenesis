@@ -114,9 +114,16 @@ impl<const REFRESH_INTERVAL: u64> CycleCounters<REFRESH_INTERVAL> {
     pub fn record_z80_68k_bus_access(&mut self) {
         // Each time the Z80 accesses the 68K bus, the Z80 is stalled for on average 3.3 Z80 cycles (= 49.5 mclk cycles)
         // and the 68K is stalled for on average 11 68K cycles
-        self.m68k_wait_cpu_cycles = 11;
-        self.z80_wait_mclk_cycles = 49 + u64::from(self.z80_odd_access);
+        self.m68k_wait_cpu_cycles += 11;
+        self.z80_wait_mclk_cycles += 49 + u64::from(self.z80_odd_access);
         self.z80_odd_access = !self.z80_odd_access;
+    }
+
+    #[inline]
+    pub fn record_68k_z80_bus_access(&mut self) {
+        // Each time the 68K accesses the Z80 bus, the 68K is stalled for 1 CPU cycle
+        // Pac-Man 2: The New Adventures depends on this for its audio code to work correctly
+        self.m68k_wait_cpu_cycles += 1;
     }
 
     #[inline]
