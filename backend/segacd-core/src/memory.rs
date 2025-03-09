@@ -1042,7 +1042,11 @@ impl<'a> SubBus<'a> {
                 registers.led_red = value.bit(0);
             }
             0x0001 => {
-                // TODO reset CDD/CDC
+                log::trace!("  CDD reset write: {value:02X}");
+                if !value.bit(0) {
+                    // TODO official documentation says that this reset takes about 100ms - unclear what happens during that time
+                    self.sega_cd_mut().cdd_mut().reset();
+                }
             }
             0x0002..=0x0003 => {
                 // Memory mode

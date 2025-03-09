@@ -343,12 +343,17 @@ impl CdDrive {
         // Status 0 is always drive status
         self.status[0] = self.current_cdd_status() as u8;
 
-        // If seeking/skipping/stopped, return "not ready" status; not doing this causes Lunar to randomly freeze
+        // If drive is stopped, leave status as all 0s
+        if matches!(self.state, State::MotorStopped) {
+            update_cdd_checksum(&mut self.status);
+            return;
+        }
+
+        // If seeking/skipping, return "not ready" status; not doing this causes Lunar to randomly freeze
         if matches!(
             self.state,
             State::Seeking { .. }
                 | State::TrackSkipping { .. }
-                | State::MotorStopped
                 | State::TrayOpening { .. }
                 | State::TrayOpen { .. }
                 | State::TrayClosing
