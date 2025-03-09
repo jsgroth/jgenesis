@@ -22,8 +22,8 @@ use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{Color, FrameSize, TimingMode};
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
-use std::array;
 use std::ops::{Deref, DerefMut};
+use std::{array, mem};
 use z80_emu::traits::InterruptLine;
 
 const VRAM_LEN: usize = 64 * 1024;
@@ -83,6 +83,8 @@ struct InternalState {
     v_interrupt_pending: bool,
     delayed_v_interrupt: bool,
     delayed_v_interrupt_next: bool,
+    delayed_h_interrupt: bool,
+    delayed_h_interrupt_next: bool,
     h_interrupt_pending: bool,
     h_interrupt_counter: u16,
     latched_hv_counter: Option<u16>,
@@ -117,6 +119,8 @@ impl InternalState {
             v_interrupt_pending: false,
             delayed_v_interrupt: false,
             delayed_v_interrupt_next: false,
+            delayed_h_interrupt: false,
+            delayed_h_interrupt_next: false,
             h_interrupt_pending: false,
             h_interrupt_counter: 0,
             latched_hv_counter: None,
@@ -441,6 +445,7 @@ impl Vdp {
                 if value & 0xE000 == 0x8000 {
                     // Register set
 
+                    let prev_h_interrupt_enabled = self.registers.h_interrupt_enabled;
                     let prev_v_interrupt_enabled = self.registers.v_interrupt_enabled;
                     let prev_v_display_size = self.registers.vertical_display_size;
 
@@ -491,6 +496,9 @@ impl Vdp {
                         self.state.delayed_v_interrupt_next =
                             !prev_v_interrupt_enabled && self.registers.v_interrupt_enabled;
                     }
+
+                    self.state.delayed_h_interrupt_next |=
+                        !prev_h_interrupt_enabled && self.registers.h_interrupt_enabled;
                 } else {
                     // First word of command write
                     self.state.data_address =
@@ -871,8 +879,8 @@ impl Vdp {
             "VDP tick {master_clock_cycles} mclk cycles, expected <1250"
         );
 
-        self.state.delayed_v_interrupt = self.state.delayed_v_interrupt_next;
-        self.state.delayed_v_interrupt_next = false;
+        self.state.delayed_v_interrupt = mem::take(&mut self.state.delayed_v_interrupt_next);
+        self.state.delayed_h_interrupt = mem::take(&mut self.state.delayed_h_interrupt_next);
 
         self.state.scanline_mclk_cycles += master_clock_cycles;
         self.process_events_after_mclk_update();
@@ -1173,7 +1181,10 @@ impl Vdp {
             && !self.state.delayed_v_interrupt
         {
             6
-        } else if self.state.h_interrupt_pending && self.registers.h_interrupt_enabled {
+        } else if self.state.h_interrupt_pending
+            && self.registers.h_interrupt_enabled
+            && !self.state.delayed_h_interrupt
+        {
             4
         } else {
             0
