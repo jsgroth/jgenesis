@@ -461,7 +461,7 @@ impl Vdp {
 
             let nametable_word = read_name_table_word(
                 &self.vram,
-                self.latched_registers.window_base_nt_addr,
+                self.latched_registers.masked_window_nametable_addr(),
                 self.latched_registers.horizontal_display_size.window_width_cells(),
                 v_cell,
                 h_cell,

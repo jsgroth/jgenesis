@@ -703,6 +703,15 @@ impl Registers {
         }
     }
 
+    pub fn masked_window_nametable_addr(&self) -> u16 {
+        // A11 is ignored in H40 mode; Cheese Cat-Astrophe depends on this
+        let mask = match self.horizontal_display_size {
+            HorizontalDisplaySize::ThirtyTwoCell => 0xF800,
+            HorizontalDisplaySize::FortyCell => 0xF000,
+        };
+        self.window_base_nt_addr & mask
+    }
+
     pub fn masked_sprite_attribute_table_addr(&self) -> u16 {
         self.sprite_attribute_table_base_addr
             & self.horizontal_display_size.sprite_attribute_table_mask()
