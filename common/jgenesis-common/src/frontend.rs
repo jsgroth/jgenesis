@@ -255,10 +255,9 @@ pub trait EmulatorTrait: Encode + Decode + PartialClone {
 
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S);
 
-    // All cores start at save state version 2; they can override this function when they need to change it
     #[must_use]
     fn save_state_version() -> u16 {
-        2
+        3
     }
 
     fn target_fps(&self) -> f64;
