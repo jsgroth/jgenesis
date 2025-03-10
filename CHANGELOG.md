@@ -1,17 +1,52 @@
 # Next Release
 
 ## New Features
+* Added an audio option to mute all emulator audio output (#248)
+* GUI: Added a new File menu button and hotkey to quickly open the most recently opened ROM file (#248)
 * (**SMS** / **Game Gear**) Added a hardware region "Auto" setting that attempts to auto-detect region from the cartridge header (#214)
 
-## Fixes
-* (**Genesis**) Fixed behavior when the controller port TH pin is set to input; this fixes controls not working properly in _Micro Machines_
+## Multi-System Fixes
+* Fixed the emulator not reading gamepad inputs while the window does not have focus (#248)
+* Fixed the GUI sometimes segfaulting when you close the main GUI window while an emulator is running
+
+## Genesis / Mega Drive Fixes
+* Fixed behavior when the controller port TH pin is set to input; this fixes controls not working properly in _Micro Machines_ (#226)
+* Improved display behavior when games switch between H32 and H40 modes shortly after the start of VBlank; this fixes glitchy frames in _Bugs Bunny in Double Trouble_ (#252)
+* Fixed the window nametable address not being masked correctly in H40 mode; this fixes glitchy graphics on some screens in _Cheese Cat-Astrophe Starring Speedy Gonzales_ (#253)
+* Added a 1-instruction delay to handling HINT if a game enables HINTs while an HINT is pending; this fixes _Fatal Rewind_ / _The Killing Game Show_ failing to boot (#254)
+* Added a 1 CPU cycle delay on every 68000 access to the Z80 side of the bus; this fixes broken audio in _Pac-Man 2: The New Adventures_ (#255)
+* Fixed several major bugs in how the V counter and the VBlank status flag are emulated in interlaced modes; this fixes _Combat Cars_ freezing in 2P mode as well as occasional sprite glitches in _Sonic the Hedgehog 2_'s Vs. mode (#258)
+* Fixed the emulator not correctly initializing cartridge SRAM when the cartridge header specifies less common RAM types; this fixes the Mega Drive Mode 7 demo not working (#250)
+* The non-linear VDP color scale option is now enabled by default because it is more accurate to actual hardware's video output (#249)
+
+## Sega CD Fixes
+* Fixed the CDD reset register (\$FF8001) not correctly resetting CDD state; this fixes the _Pier Solar_ enhanced audio disc failing to boot in SCD Mode 2 (#215)
+
+## 32X Fixes
+* Fixed the Genesis VDP and 32X VDP frames incorrectly lining up exactly when the Genesis VDP is in H32 mode; this fixes some minor graphical issues in _NFL Quarterback Club_ (#230)
+
+## Master System / Game Gear Fixes
+* Somewhat improved VDP-related timings; this fixes glitchy cutscene graphics in _Madou Monogatari I_ (#213) and fixes most tests in the SMSVDPTest test ROM (#190)
 * (**SMS**) Fixed sprites never displaying on the topmost line of active display
 * (**SMS**) Fixed the "crop vertical borders" setting incorrectly cropping the top 16 lines and bottom 16 lines in 224-line mode
-* (**SMS** / **Game Gear**) Somewhat improved VDP-related timings; this fixes glitchy cutscene graphics in _Madou Monogatari I_ (#213) and fixes most tests in the SMSVDPTest test ROM (#190)
 * (**Game Gear**) The region bit in I/O port \$00 now properly reflects the hardware region instead of being hardcoded to 1; this fixes the Start button not working on the title screen of _Pop Breaker_ (#214)
 * (**Game Gear**) Fixed the viewport Y offset being 16 lines off in 224-line mode; this fixes glitchy graphics in _Micro Machines_ (#221)
 * (**Game Gear**) I/O port \$01 is now read/write; this fixes _Primal Rage_ freezing at the title screen (#220)
-* (**NES**) Improved accuracy of Namco 163 expansion audio emulation (used by _Megami Tensei II_ among other games)
+
+## NES Fixes
+* Improved accuracy of Namco 163 expansion audio emulation (used by _Megami Tensei II_ among other games)
+
+## SNES Fixes
+* Fixed incorrect cartridge SRAM mapping for LoROM cartridges with more than 32 KB of SRAM; this fixes _Kaite Tsukutte Asoberu Dezaemon_ failing to boot (#234)
+* Fixed Mode 7 incorrectly clipping the scrolled center point to signed 11-bit rather than signed 10-bit; this fixes glitched Mode 7 graphics in _Kaite Tsukutte Asoberu Dezaemon_
+* Fixed incorrect emulation of interactions between offset-per-tile modes and BG1/BG2 horizontal scrolling; this fixes glitchy graphics in some stages in _The Adventures of Batman & Robin_ (#246)
+* WRAM contents are now randomized at power-on; this fixes major bugs in _Power Drive_ and the European version of _PGA Tour Golf_ (#188 / #235)
+* Cartridge SRAM is now initialized to all 1s instead of all 0s; this fixes _Ken Griffey Jr. Presents Major League Baseball_ crashing when you select Season mode (#231)
+* Fixed incorrect mapping of the DSP-1 port mirrors in LoROM cartridges; this fixes the DSP-1 tech demo prototype not working properly (#233)
+* Fixed some revisions of _Dungeon Master_ being incorrectly detected as DSP-1 instead of DSP-2
+
+## Game Boy [Color] Fixes
+* Cartridge SRAM is now initialized to all 1s instead of all 0s
 
 # v0.9.0
 
