@@ -307,7 +307,7 @@ impl EmulatorTrait for Sega32XEmulator {
     }
 
     fn target_fps(&self) -> f64 {
-        genesis_core::target_framerate(self.timing_mode)
+        genesis_core::target_framerate(&self.vdp, self.timing_mode)
     }
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {

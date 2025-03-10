@@ -5,7 +5,6 @@ use crate::mainloop::{debug, file_name_no_ext, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config, extensions};
 use gb_core::api::GameBoyEmulator;
 use gb_core::inputs::GameBoyInputs;
-use jgenesis_common::frontend::EmulatorTrait;
 use std::path::Path;
 
 pub type NativeGameBoyEmulator = NativeEmulator<GameBoyEmulator>;
@@ -20,9 +19,6 @@ impl NativeGameBoyEmulator {
         self.reload_common_config(&config.common)?;
 
         self.update_emulator_config(&config.emulator_config);
-
-        // Config change could have changed target framerate (60 Hz hack)
-        self.renderer.set_target_fps(self.emulator.target_fps());
 
         self.input_mapper.update_mappings(
             config.common.axis_deadzone,

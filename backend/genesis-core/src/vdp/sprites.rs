@@ -89,8 +89,13 @@ impl Vdp {
     // from around when HINT is generated. Actual hardware does sprite scanning in parallel with sprite pixel fetching for
     // the next scanline, but here we want to know if there were any pixels where display was disabled during HBlank.
     pub(super) fn scan_sprites(&mut self, scanline: u16) {
-        let raster_line =
-            RasterLine::from_scanline(scanline, &self.latched_registers, self.timing_mode);
+        let raster_line = RasterLine::from_scanline(
+            scanline,
+            &self.latched_registers,
+            self.timing_mode,
+            self.state.interlaced_frame,
+            self.state.interlaced_odd,
+        );
 
         // In the vertical border, sprite scan only occurs for the scanline immediately following
         // active display (unless the vertical border was forgotten)

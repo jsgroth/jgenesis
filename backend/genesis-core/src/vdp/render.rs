@@ -21,10 +21,16 @@ pub struct RasterLine {
 }
 
 impl RasterLine {
-    pub fn from_scanline(scanline: u16, registers: &Registers, timing_mode: TimingMode) -> Self {
+    pub fn from_scanline(
+        scanline: u16,
+        registers: &Registers,
+        timing_mode: TimingMode,
+        interlaced: bool,
+        interlaced_odd: bool,
+    ) -> Self {
         let v_display_size = registers.vertical_display_size;
         let active_scanlines = v_display_size.active_scanlines();
-        let scanlines_per_frame = timing_mode.scanlines_per_frame();
+        let scanlines_per_frame = timing_mode.scanlines_per_frame(interlaced, interlaced_odd);
         let top_border = v_display_size.top_border(timing_mode);
 
         if scanline < active_scanlines {
@@ -91,14 +97,20 @@ impl Vdp {
             return;
         }
 
-        let raster_line =
-            RasterLine::from_scanline(scanline, &self.latched_registers, self.timing_mode);
+        let raster_line = RasterLine::from_scanline(
+            scanline,
+            &self.latched_registers,
+            self.timing_mode,
+            self.state.interlaced_frame,
+            self.state.interlaced_odd,
+        );
         let frame_buffer_row = raster_line.to_frame_buffer_row(
             self.state.top_border,
             self.timing_mode,
             self.config.render_vertical_border,
         );
 
+        // TODO interlacing mode should be latched at start of VBlank
         match self.latched_registers.interlacing_mode {
             InterlacingMode::Progressive => {
                 self.do_render_scanline(
@@ -110,7 +122,7 @@ impl Vdp {
                 );
             }
             InterlacingMode::Interlaced => {
-                let odd_frame = self.state.frame_count % 2 == 1;
+                let odd_frame = self.state.interlaced_odd();
                 let frame_buffer_row = if !self.config.deinterlace {
                     frame_buffer_row.map(|row| 2 * row + u32::from(odd_frame))
                 } else {
@@ -126,7 +138,7 @@ impl Vdp {
                 );
             }
             InterlacingMode::InterlacedDouble => {
-                let odd_frame = self.state.frame_count % 2 == 1;
+                let odd_frame = self.state.interlaced_odd();
 
                 if self.config.deinterlace || !odd_frame {
                     self.do_render_scanline(

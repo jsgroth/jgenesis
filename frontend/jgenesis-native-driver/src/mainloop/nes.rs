@@ -3,7 +3,6 @@ use crate::config::NesConfig;
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{debug, file_name_no_ext, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config, extensions};
-use jgenesis_common::frontend::EmulatorTrait;
 
 use nes_core::api::NesEmulator;
 use nes_core::input::{NesInputDevice, NesInputs, NesJoypadState, ZapperState};
@@ -37,9 +36,6 @@ impl NativeNesEmulator {
         self.reload_common_config(&config.common)?;
 
         self.update_emulator_config(&config.emulator_config);
-
-        // Config change could have changed target framerate (50/60 Hz hack)
-        self.renderer.set_target_fps(self.emulator.target_fps());
 
         self.input_mapper.update_mappings(
             config.common.axis_deadzone,

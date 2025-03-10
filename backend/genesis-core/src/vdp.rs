@@ -8,6 +8,9 @@ mod render;
 mod sprites;
 mod timing;
 
+#[cfg(test)]
+mod tests;
+
 use crate::memory::{Memory, PhysicalMedium};
 use crate::vdp::colors::ColorModifier;
 use crate::vdp::registers::{
@@ -98,11 +101,11 @@ struct InternalState {
     pending_dma: Option<ActiveDma>,
     pending_writes: Vec<PendingWrite>,
     interlaced_frame: bool,
+    interlaced_odd: bool,
     // Latched at start of VBlank
     // This is not accurate to actual hardware, but nothing should change H resolution mid-frame
     // during active display
     frame_h_resolution: HorizontalDisplaySize,
-    frame_count: u64,
     vdp_event_idx: u8,
 }
 
@@ -134,10 +137,14 @@ impl InternalState {
             pending_dma: None,
             pending_writes: Vec::with_capacity(10),
             interlaced_frame: false,
+            interlaced_odd: false,
             frame_h_resolution: HorizontalDisplaySize::default(),
-            frame_count: 0,
             vdp_event_idx: 0,
         }
+    }
+
+    fn interlaced_odd(&self) -> bool {
+        self.interlaced_frame && self.interlaced_odd
     }
 }
 
@@ -291,16 +298,16 @@ const M68K_DIVIDER: u64 = crate::timing::NATIVE_M68K_DIVIDER;
 const VINT_FLAG_MCLK: u64 = MCLK_CYCLES_PER_SCANLINE - (20 * M68K_DIVIDER - V_INTERRUPT_DELAY);
 
 pub(crate) trait TimingModeExt: Copy {
-    fn scanlines_per_frame(self) -> u16;
+    fn scanlines_per_frame(self, interlaced: bool, interlaced_odd: bool) -> u16;
 
     fn rendered_lines_per_frame(self) -> u16;
 }
 
 impl TimingModeExt for TimingMode {
-    fn scanlines_per_frame(self) -> u16 {
+    fn scanlines_per_frame(self, interlaced: bool, interlaced_odd: bool) -> u16 {
         match self {
-            Self::Ntsc => NTSC_SCANLINES_PER_FRAME,
-            Self::Pal => PAL_SCANLINES_PER_FRAME,
+            Self::Ntsc => NTSC_SCANLINES_PER_FRAME + u16::from(interlaced_odd),
+            Self::Pal => PAL_SCANLINES_PER_FRAME - 1 + u16::from(!interlaced || interlaced_odd),
         }
     }
 
@@ -355,6 +362,12 @@ impl VdpEventWithTime {
     const fn new(mclk: u64, event: VdpEvent) -> Self {
         Self { event, mclk }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct VCounter {
+    counter: u8,
+    vblank_flag: bool,
 }
 
 type Vram = [u8; VRAM_LEN];
@@ -736,26 +749,8 @@ impl Vdp {
     pub fn read_status(&mut self) -> u16 {
         log::trace!("VDP status register read");
 
-        let interlaced_odd =
-            self.registers.interlacing_mode.is_interlaced() && self.state.frame_count % 2 == 1;
-
         let scanline_mclk = self.state.scanline_mclk_cycles;
-        let v_counter: u16 = self.v_counter(scanline_mclk).into();
-        let vblank_flag = match self.timing_mode {
-            TimingMode::Ntsc => {
-                v_counter >= VerticalDisplaySize::TwentyEightCell.active_scanlines()
-                    && v_counter != 0xFF
-            }
-            TimingMode::Pal => {
-                let active_scanlines = self.registers.vertical_display_size.active_scanlines();
-                // This OR is necessary because the PAL V counter briefly wraps around to $00-$0A
-                // during VBlank.
-                // >300 comparison is because the V counter hits 0xFF twice, once at scanline 255
-                // and again at scanline 312.
-                (v_counter >= active_scanlines || self.state.scanline > active_scanlines)
-                    && !((v_counter == 0x00 || v_counter == 0xFF) && self.state.scanline > 300)
-            }
-        };
+        let VCounter { vblank_flag, .. } = self.v_counter(scanline_mclk);
 
         // HBlank flag is based on the H counter crossing specific values, not on mclk being >= 2560
         let h_counter = self.h_counter(scanline_mclk);
@@ -769,8 +764,8 @@ impl Vdp {
             | (u16::from(self.state.vint_flag) << 7)
             | (u16::from(self.sprite_state.overflow_flag()) << 6)
             | (u16::from(self.sprite_state.collision_flag()) << 5)
-            | (u16::from(interlaced_odd) << 4)
-            | (u16::from(vblank_flag) << 3)
+            | (u16::from(self.state.interlaced_odd) << 4)
+            | (u16::from(vblank_flag || !self.registers.display_enabled) << 3)
             | (u16::from(hblank_flag) << 2)
             | (u16::from(self.dma_tracker.is_in_progress()) << 1)
             | u16::from(self.timing_mode == TimingMode::Pal);
@@ -791,7 +786,7 @@ impl Vdp {
         }
 
         let h_counter = self.h_counter(self.state.scanline_mclk_cycles);
-        let v_counter = self.v_counter(self.state.scanline_mclk_cycles);
+        let VCounter { counter: v_counter, .. } = self.v_counter(self.state.scanline_mclk_cycles);
 
         log::trace!(
             "HV counter read on scanline {}; H={h_counter:02X}, V={v_counter:02X}",
@@ -821,47 +816,76 @@ impl Vdp {
     }
 
     #[inline]
-    fn v_counter(&self, scanline_mclk: u64) -> u8 {
+    fn v_counter(&self, scanline_mclk: u64) -> VCounter {
         // Values from https://gendev.spritesmind.net/forum/viewtopic.php?t=768
 
         // V counter increments for the next line shortly after the start of HBlank
         let in_hblank = scanline_mclk >= ACTIVE_MCLK_CYCLES_PER_SCANLINE;
         let scanline = if in_hblank {
-            (self.state.scanline + 1) % self.timing_mode.scanlines_per_frame()
+            let scanlines_per_frame = self.scanlines_in_current_frame();
+            if self.state.scanline == scanlines_per_frame - 1 { 0 } else { self.state.scanline + 1 }
         } else {
             self.state.scanline
         };
 
-        match self.registers.interlacing_mode {
-            InterlacingMode::Progressive | InterlacingMode::Interlaced => {
-                match (self.timing_mode, self.registers.vertical_display_size) {
-                    (TimingMode::Ntsc, _) => {
-                        if scanline <= 0xEA {
-                            scanline as u8
-                        } else {
-                            (scanline - 6) as u8
-                        }
-                    }
-                    (TimingMode::Pal, VerticalDisplaySize::TwentyEightCell) => {
-                        if scanline <= 0x102 {
-                            scanline as u8
-                        } else {
-                            (scanline - (0x103 - 0xCA)) as u8
-                        }
-                    }
-                    (TimingMode::Pal, VerticalDisplaySize::ThirtyCell) => {
-                        if scanline <= 0x10A {
-                            scanline as u8
-                        } else {
-                            (scanline - (0x10B - 0xD2)) as u8
-                        }
-                    }
-                }
+        let active_scanlines = match self.timing_mode {
+            TimingMode::Ntsc => VerticalDisplaySize::TwentyEightCell.active_scanlines(),
+            TimingMode::Pal => self.registers.vertical_display_size.active_scanlines(),
+        };
+
+        let interlacing_mode = if self.state.interlaced_frame {
+            self.registers.interlacing_mode
+        } else {
+            InterlacingMode::Progressive
+        };
+        match interlacing_mode {
+            InterlacingMode::Progressive => {
+                let threshold = match (self.timing_mode, self.registers.vertical_display_size) {
+                    (TimingMode::Ntsc, _) => 0xEA,
+                    (TimingMode::Pal, VerticalDisplaySize::TwentyEightCell) => 0x102,
+                    (TimingMode::Pal, VerticalDisplaySize::ThirtyCell) => 0x10A,
+                };
+
+                let scanlines_per_frame = match self.timing_mode {
+                    TimingMode::Ntsc => NTSC_SCANLINES_PER_FRAME,
+                    TimingMode::Pal => PAL_SCANLINES_PER_FRAME,
+                };
+
+                let counter = if scanline <= threshold {
+                    scanline
+                } else {
+                    scanline.wrapping_sub(scanlines_per_frame) & 0x1FF
+                };
+                let vblank_flag = counter >= active_scanlines && counter != 0x1FF;
+                VCounter { counter: counter as u8, vblank_flag }
             }
-            InterlacingMode::InterlacedDouble => {
-                // TODO this is not accurate
-                let scanline = scanline << 1;
-                (scanline as u8) | u8::from(scanline.bit(8))
+            InterlacingMode::Interlaced | InterlacingMode::InterlacedDouble => {
+                let threshold = match (self.timing_mode, self.registers.vertical_display_size) {
+                    (TimingMode::Ntsc, _) => 0xEA,
+                    (TimingMode::Pal, VerticalDisplaySize::TwentyEightCell) => 0x101,
+                    (TimingMode::Pal, VerticalDisplaySize::ThirtyCell) => 0x109,
+                };
+                let scanlines_per_frame =
+                    self.timing_mode.scanlines_per_frame(true, self.state.interlaced_odd);
+
+                let internal_counter = if scanline <= threshold {
+                    scanline
+                } else {
+                    scanline.wrapping_sub(scanlines_per_frame) & 0x1FF
+                };
+                let vblank_flag = internal_counter >= active_scanlines && internal_counter != 0x1FF;
+
+                let external_counter = match interlacing_mode {
+                    InterlacingMode::Interlaced => {
+                        (internal_counter & 0xFE) | ((internal_counter >> 8) & 1)
+                    }
+                    InterlacingMode::InterlacedDouble => {
+                        ((internal_counter << 1) & 0xFE) | ((internal_counter >> 7) & 1)
+                    }
+                    InterlacingMode::Progressive => unreachable!("nested matches"),
+                };
+
+                VCounter { counter: external_counter as u8, vblank_flag }
             }
         }
     }
@@ -999,7 +1023,7 @@ impl Vdp {
 
     fn decrement_h_interrupt_counter(&mut self) {
         let active_scanlines = self.registers.vertical_display_size.active_scanlines();
-        let scanlines_per_frame = self.timing_mode.scanlines_per_frame();
+        let scanlines_per_frame = self.scanlines_in_current_frame();
 
         if self.state.scanline < active_scanlines
             || self.state.scanline == scanlines_per_frame - 1
@@ -1029,14 +1053,13 @@ impl Vdp {
         // Render the next line before advancing counters
         self.render_next_scanline();
 
-        let scanlines_per_frame = self.timing_mode.scanlines_per_frame();
+        let scanlines_per_frame = self.scanlines_in_current_frame();
 
         self.state.scanline_mclk_cycles -= MCLK_CYCLES_PER_SCANLINE;
         self.state.vdp_event_idx = 0;
         self.state.scanline += 1;
         if self.state.scanline == scanlines_per_frame {
             self.state.scanline = 0;
-            self.state.frame_count += 1;
             self.state.v_border_forgotten = false;
 
             let next_frame_interlaced = match self.registers.interlacing_mode {
@@ -1044,9 +1067,17 @@ impl Vdp {
                 InterlacingMode::Interlaced => !self.config.deinterlace,
                 InterlacingMode::InterlacedDouble => true,
             };
-            if next_frame_interlaced && !self.state.interlaced_frame && !self.config.deinterlace {
-                self.prepare_frame_buffer_for_interlaced();
+
+            if next_frame_interlaced && !self.state.interlaced_frame {
+                self.state.interlaced_odd = false;
+
+                if !self.config.deinterlace {
+                    self.prepare_frame_buffer_for_interlaced();
+                }
+            } else if self.state.interlaced_frame {
+                self.state.interlaced_odd = !self.state.interlaced_odd;
             }
+
             self.state.interlaced_frame = next_frame_interlaced;
 
             // Top border length needs to be saved at start-of-frame in case there is a mid-frame swap between V28
@@ -1170,7 +1201,7 @@ impl Vdp {
 
     fn in_vblank(&self) -> bool {
         self.state.scanline >= self.registers.vertical_display_size.active_scanlines()
-            && self.state.scanline < self.timing_mode.scanlines_per_frame() - 1
+            && self.state.scanline < self.scanlines_in_current_frame() - 1
     }
 
     #[must_use]
@@ -1228,14 +1259,14 @@ impl Vdp {
 
     fn scan_sprites_two_lines_ahead(&mut self) {
         let scanline_for_sprite_scan =
-            (self.state.scanline + 2) % self.timing_mode.scanlines_per_frame();
+            (self.state.scanline + 2) % self.scanlines_in_current_frame();
 
         self.scan_sprites(scanline_for_sprite_scan);
     }
 
     #[inline]
     fn render_next_scanline(&mut self) {
-        let scanlines_per_frame = self.timing_mode.scanlines_per_frame();
+        let scanlines_per_frame = self.scanlines_in_current_frame();
         let render_scanline = if self.state.scanline == scanlines_per_frame - 1 {
             0
         } else {
@@ -1260,6 +1291,24 @@ impl Vdp {
     #[must_use]
     pub fn frame_size(&self) -> FrameSize {
         FrameSize { width: self.screen_width(), height: self.screen_height() }
+    }
+
+    fn scanlines_in_current_frame(&self) -> u16 {
+        self.timing_mode.scanlines_per_frame(self.state.interlaced_frame, self.state.interlaced_odd)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn average_scanlines_per_frame(&self) -> f64 {
+        let interlaced_frame = self.state.interlaced_frame;
+        match self.timing_mode {
+            TimingMode::Ntsc => {
+                f64::from(NTSC_SCANLINES_PER_FRAME) + 0.5 * f64::from(interlaced_frame)
+            }
+            TimingMode::Pal => {
+                f64::from(PAL_SCANLINES_PER_FRAME) - 0.5 * f64::from(interlaced_frame)
+            }
+        }
     }
 
     #[inline]
@@ -1387,74 +1436,5 @@ fn scanline_mclk_to_pixel_h40(scanline_mclk: u64) -> u16 {
         // 30 pixels of left blanking + 13 pixels of left border, all at mclk/8
         3076..=3419 => (377 + (scanline_mclk - 3076) / 8) as u16,
         _ => panic!("scanline mclk must be < 3420"),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn new_vdp() -> Vdp {
-        Vdp::new(
-            TimingMode::Ntsc,
-            VdpConfig {
-                enforce_sprite_limits: true,
-                non_linear_color_scale: false,
-                deinterlace: true,
-                render_vertical_border: false,
-                render_horizontal_border: false,
-                plane_a_enabled: true,
-                plane_b_enabled: true,
-                window_enabled: true,
-                sprites_enabled: true,
-                backdrop_enabled: true,
-            },
-        )
-    }
-
-    #[test]
-    fn h_counter_basic_functionality() {
-        let mut vdp = new_vdp();
-
-        vdp.registers.horizontal_display_size = HorizontalDisplaySize::ThirtyTwoCell;
-        assert_eq!(vdp.h_counter(0), 0);
-        assert_eq!(vdp.h_counter(80), 4);
-        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE - 1), 0x7F);
-
-        vdp.registers.horizontal_display_size = HorizontalDisplaySize::FortyCell;
-        assert_eq!(vdp.h_counter(0), 0);
-        assert_eq!(vdp.h_counter(80), 5);
-        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE - 1), 0x9F);
-    }
-
-    #[test]
-    fn h_counter_hblank_h32() {
-        let mut vdp = new_vdp();
-
-        vdp.registers.horizontal_display_size = HorizontalDisplaySize::ThirtyTwoCell;
-        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE), 0x80);
-        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 80), 0x84);
-        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 380), 0x93);
-        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 400), 0xE9);
-        assert_eq!(vdp.h_counter(MCLK_CYCLES_PER_SCANLINE - 41), 0xFD);
-        assert_eq!(vdp.h_counter(MCLK_CYCLES_PER_SCANLINE - 21), 0xFE);
-        assert_eq!(vdp.h_counter(MCLK_CYCLES_PER_SCANLINE - 1), 0xFF);
-    }
-
-    #[test]
-    fn h_counter_hblank_h40() {
-        let mut vdp = new_vdp();
-
-        vdp.registers.horizontal_display_size = HorizontalDisplaySize::FortyCell;
-        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE), 0xA0);
-        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 200), 0xAC);
-        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 208), 0xAC);
-        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 218), 0xAD);
-        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 288), 0xB0);
-        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 386), 0xB5);
-        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 404), 0xE4);
-        assert_eq!(vdp.h_counter(MCLK_CYCLES_PER_SCANLINE - 17), 0xFE);
-        assert_eq!(vdp.h_counter(MCLK_CYCLES_PER_SCANLINE - 16), 0xFF);
-        assert_eq!(vdp.h_counter(MCLK_CYCLES_PER_SCANLINE - 1), 0xFF);
     }
 }

@@ -227,10 +227,6 @@ impl InterlacingMode {
             Self::InterlacedDouble => 4,
         }
     }
-
-    pub const fn is_interlaced(self) -> bool {
-        matches!(self, Self::Interlaced | Self::InterlacedDouble)
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]

@@ -499,6 +499,8 @@ where
 
             self.audio_output.adjust_dynamic_resampling_ratio();
             self.emulator.update_audio_output_frequency(self.audio_output.output_frequency());
+
+            self.renderer.set_target_fps(self.emulator.target_fps());
         }
 
         self.hotkey_state.should_step_frame = false;
