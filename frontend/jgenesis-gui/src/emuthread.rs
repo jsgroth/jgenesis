@@ -1,9 +1,9 @@
 mod inputwindow;
 
-use crate::app::Console;
 use crate::emuthread::inputwindow::InputWindow;
 use anyhow::anyhow;
 use jgenesis_native_config::AppConfig;
+use jgenesis_native_driver::extensions::Console;
 use jgenesis_native_driver::input::{
     AxisDirection, GamepadAction, GenericInput, HatDirection, Joysticks,
 };
@@ -71,7 +71,11 @@ impl EmuThreadStatus {
     }
 }
 
-impl Console {
+trait ConsoleExt {
+    fn running_status(self) -> EmuThreadStatus;
+}
+
+impl ConsoleExt for Console {
     fn running_status(self) -> EmuThreadStatus {
         match self {
             Self::MasterSystem | Self::GameGear => EmuThreadStatus::RunningSmsGg,

@@ -1,8 +1,9 @@
 use crate::app::Console;
 use jgenesis_native_config::RecentOpen;
 use jgenesis_native_driver::extensions;
+use jgenesis_native_driver::extensions::ConsoleWithSize;
 use regex::Regex;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -10,59 +11,6 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, LazyLock, Mutex, mpsc};
 use std::{fs, io, thread};
-
-fn build_extension_lookup() -> HashMap<&'static str, Console> {
-    [
-        (extensions::MASTER_SYSTEM, Console::MasterSystem),
-        (extensions::GAME_GEAR, Console::GameGear),
-        (extensions::GENESIS, Console::Genesis),
-        (extensions::SEGA_CD, Console::SegaCd),
-        (extensions::SEGA_32X, Console::Sega32X),
-        (extensions::NES, Console::Nes),
-        (extensions::SNES, Console::Snes),
-        (extensions::GAME_BOY, Console::GameBoy),
-        (extensions::GAME_BOY_COLOR, Console::GameBoyColor),
-    ]
-    .into_iter()
-    .flat_map(|(extensions, console)| extensions.iter().map(move |&extension| (extension, console)))
-    .collect()
-}
-
-impl Console {
-    fn from_extension(extension: &str) -> Option<Self> {
-        static LOOKUP: LazyLock<HashMap<&'static str, Console>> =
-            LazyLock::new(build_extension_lookup);
-        LOOKUP.get(&extension).copied()
-    }
-
-    #[must_use]
-    pub fn display_str(self) -> &'static str {
-        match self {
-            Self::MasterSystem => "Master System",
-            Self::GameGear => "Game Gear",
-            Self::Genesis => "Genesis",
-            Self::SegaCd => "Sega CD",
-            Self::Sega32X => "32X",
-            Self::Nes => "NES",
-            Self::Snes => "SNES",
-            Self::GameBoy => "Game Boy",
-            Self::GameBoyColor => "Game Boy Color",
-        }
-    }
-
-    #[must_use]
-    pub fn supported_extensions(self) -> &'static [&'static str] {
-        match self {
-            Self::MasterSystem | Self::GameGear => &extensions::SMSGG,
-            Self::Genesis => extensions::GENESIS,
-            Self::SegaCd => extensions::SEGA_CD,
-            Self::Sega32X => extensions::SEGA_32X,
-            Self::Nes => extensions::NES,
-            Self::Snes => extensions::SNES,
-            Self::GameBoy | Self::GameBoyColor => &extensions::GB_GBC,
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct RomMetadata {
@@ -87,7 +35,7 @@ pub fn build(rom_search_dirs: &[String]) -> Vec<RomMetadata> {
                             }
 
                             let file_name = dir_entry.file_name().to_string_lossy().to_string();
-                            process_file(&file_name, &dir_entry.path(), metadata)
+                            process_file(&file_name, &dir_entry.path())
                         })
                         .collect::<Vec<_>>()
                 })
@@ -121,56 +69,21 @@ pub fn build(rom_search_dirs: &[String]) -> Vec<RomMetadata> {
 
 pub fn read_metadata(path: &Path) -> Option<RomMetadata> {
     let file_name = path.file_name().and_then(OsStr::to_str)?;
-    let metadata = fs::metadata(path).ok()?;
-    process_file(file_name, path, metadata)
+    process_file(file_name, path)
 }
 
-fn process_file(file_name: &str, path: &Path, metadata: fs::Metadata) -> Option<RomMetadata> {
+fn process_file(file_name: &str, path: &Path) -> Option<RomMetadata> {
+    let ConsoleWithSize { console, file_size: raw_file_size } = Console::from_file(path)?;
+
     let file_name_no_ext = Path::new(file_name).with_extension("").to_string_lossy().to_string();
     let extension = extensions::from_path(file_name)?;
 
-    match extension.as_str() {
-        "zip" => {
-            let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_zip(
-                path,
-                &extensions::ALL_CARTRIDGE_BASED,
-            )
-            .ok()
-            .flatten()?;
+    let file_size = match extension.as_str() {
+        "cue" => sega_cd_file_size(path).ok()?,
+        _ => raw_file_size,
+    };
 
-            let console = Console::from_extension(&zip_entry.extension)?;
-            Some(RomMetadata {
-                full_path: path.into(),
-                file_name_no_ext,
-                console,
-                file_size: zip_entry.size,
-            })
-        }
-        "7z" => {
-            let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_7z(
-                path,
-                &extensions::ALL_CARTRIDGE_BASED,
-            )
-            .ok()
-            .flatten()?;
-            let console = Console::from_extension(&zip_entry.extension)?;
-            Some(RomMetadata {
-                full_path: path.into(),
-                file_name_no_ext,
-                console,
-                file_size: zip_entry.size,
-            })
-        }
-        _ => {
-            let console = Console::from_extension(&extension)?;
-            let file_size = match extension.as_str() {
-                "cue" => sega_cd_file_size(path).ok()?,
-                _ => metadata.len(),
-            };
-
-            Some(RomMetadata { full_path: path.into(), file_name_no_ext, console, file_size })
-        }
-    }
+    Some(RomMetadata { full_path: path.into(), file_name_no_ext, console, file_size })
 }
 
 fn sega_cd_file_size(cue_path: &Path) -> io::Result<u64> {

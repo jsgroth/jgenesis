@@ -11,7 +11,8 @@ use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::common::ConfigSavePath;
 use jgenesis_native_driver::config::input::{NesControllerType, SnesControllerType};
 use jgenesis_native_driver::config::{FullscreenMode, HideMouseCursor};
-use jgenesis_native_driver::{NativeEmulator, NativeTickEffect, extensions};
+use jgenesis_native_driver::extensions::{Console, ConsoleWithSize};
+use jgenesis_native_driver::{NativeEmulator, NativeTickEffect};
 use jgenesis_proc_macros::{CustomValueEnum, EnumAll, EnumDisplay};
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, Scanlines, VSyncMode, WgpuBackend,
@@ -789,7 +790,7 @@ fn main() -> anyhow::Result<()> {
 
     let hardware = match args.hardware {
         Some(hardware) => hardware,
-        None => guess_hardware(&args)?,
+        None => guess_hardware(&args),
     };
 
     log::info!("Running with hardware {hardware}");
@@ -841,60 +842,28 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
-fn guess_hardware(args: &Args) -> anyhow::Result<Hardware> {
+fn guess_hardware(args: &Args) -> Hardware {
     let file_path = Path::new(&args.file_path);
 
-    let mut file_ext = extensions::from_path(file_path).unwrap_or_default();
+    let console = Console::from_file(file_path)
+        .map(|ConsoleWithSize { console, .. }| console)
+        .unwrap_or_else(|| {
+            log::warn!(
+                "Unable to auto-detect hardware of file at '{}'; defaulting to Genesis",
+                file_path.display()
+            );
+            Console::Genesis
+        });
 
-    match file_ext.as_str() {
-        "zip" => {
-            let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_zip(
-                file_path,
-                &extensions::ALL_CARTRIDGE_BASED,
-            )?
-            .unwrap_or_else(|| {
-                panic!(
-                    "No files with supported extensions found in .zip archive: {}",
-                    args.file_path.display()
-                )
-            });
-            file_ext = zip_entry.extension;
-        }
-        "7z" => {
-            let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_7z(
-                file_path,
-                &extensions::ALL_CARTRIDGE_BASED,
-            )?
-            .unwrap_or_else(|| {
-                panic!(
-                    "No files with supported extensions found in .7z archive: {}",
-                    args.file_path.display()
-                )
-            });
-            file_ext = zip_entry.extension;
-        }
-        _ => {}
+    match console {
+        Console::MasterSystem | Console::GameGear => Hardware::MasterSystem,
+        Console::Genesis => Hardware::Genesis,
+        Console::SegaCd => Hardware::SegaCd,
+        Console::Sega32X => Hardware::Sega32X,
+        Console::Nes => Hardware::Nes,
+        Console::Snes => Hardware::Snes,
+        Console::GameBoy | Console::GameBoyColor => Hardware::GameBoy,
     }
-
-    let file_ext_str = file_ext.as_str();
-    Ok(if extensions::SMSGG.contains(&file_ext_str) {
-        Hardware::MasterSystem
-    } else if extensions::GENESIS.contains(&file_ext_str) {
-        Hardware::Genesis
-    } else if extensions::SEGA_CD.contains(&file_ext_str) {
-        Hardware::SegaCd
-    } else if extensions::SEGA_32X.contains(&file_ext_str) {
-        Hardware::Sega32X
-    } else if extensions::NES.contains(&file_ext_str) {
-        Hardware::Nes
-    } else if extensions::SNES.contains(&file_ext_str) {
-        Hardware::Snes
-    } else if extensions::GB_GBC.contains(&file_ext_str) {
-        Hardware::GameBoy
-    } else {
-        log::warn!("Unrecognized file extension: '{file_ext}' defaulting to Genesis");
-        Hardware::Genesis
-    })
 }
 
 fn run_sms(args: Args, config: AppConfig) -> anyhow::Result<()> {

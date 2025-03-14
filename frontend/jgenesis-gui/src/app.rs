@@ -24,8 +24,8 @@ use egui::{
 use egui_extras::{Column, TableBuilder};
 use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen};
 use jgenesis_native_driver::config::HideMouseCursor;
+use jgenesis_native_driver::extensions::Console;
 use jgenesis_native_driver::{NativeEmulatorError, extensions};
-use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::Scanlines;
 use rfd::FileDialog;
 use std::collections::{HashMap, HashSet};
@@ -36,19 +36,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{fs, thread};
 use time::{OffsetDateTime, UtcOffset, format_description};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumAll, EnumDisplay, EnumFromStr)]
-pub enum Console {
-    MasterSystem,
-    GameGear,
-    Genesis,
-    SegaCd,
-    Sega32X,
-    Nes,
-    Snes,
-    GameBoy,
-    GameBoyColor,
-}
 
 trait ListFiltersExt {
     fn to_console_vec(&self) -> Vec<Console>;

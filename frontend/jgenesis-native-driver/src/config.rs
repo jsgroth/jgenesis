@@ -1,11 +1,12 @@
 pub mod input;
 
+use crate::archive::{ArchiveEntry, ArchiveError};
 use crate::config::input::{
     GameBoyInputConfig, GenesisInputConfig, HotkeyConfig, NesInputConfig, SmsGgInputConfig,
     SnesInputConfig,
 };
 use crate::mainloop::NativeEmulatorError;
-use crate::{NativeEmulatorResult, archive};
+use crate::{NativeEmulatorResult, archive, extensions};
 use gb_core::api::GameBoyEmulatorConfig;
 use genesis_core::GenesisEmulatorConfig;
 use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay};
@@ -16,7 +17,6 @@ use segacd_core::api::SegaCdEmulatorConfig;
 use serde::{Deserialize, Serialize};
 use smsgg_core::{SmsAspectRatio, SmsGgEmulatorConfig, SmsGgHardware};
 use snes_core::api::{CoprocessorRomFn, CoprocessorRoms, SnesEmulatorConfig};
-use std::ffi::OsStr;
 use std::fmt::{Display, Formatter};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -95,6 +95,11 @@ pub(crate) struct RomReadResult {
     pub extension: String,
 }
 
+struct NameWithExtension {
+    file_name: String,
+    extension: String,
+}
+
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct CommonConfig {
     #[cfg_display(path)]
@@ -130,20 +135,70 @@ impl CommonConfig {
         &self,
         supported_extensions: &[&str],
     ) -> NativeEmulatorResult<RomReadResult> {
-        let path = Path::new(&self.rom_file_path);
-        let extension = path.extension().and_then(OsStr::to_str).unwrap_or("");
-        match extension {
-            "zip" => archive::read_first_file_in_zip(path, supported_extensions)
-                .map_err(NativeEmulatorError::Archive),
-            "7z" => archive::read_first_file_in_7z(path, supported_extensions)
-                .map_err(NativeEmulatorError::Archive),
+        #[derive(Default)]
+        struct ArchiveListCallback {
+            first_supported_file: Option<NameWithExtension>,
+        }
+
+        impl ArchiveListCallback {
+            fn as_fn_mut<'ext>(
+                &mut self,
+                supported_extensions: &'ext [&str],
+            ) -> impl FnMut(ArchiveEntry<'_>) + use<'_, 'ext> {
+                |entry| {
+                    if self.first_supported_file.is_some() {
+                        return;
+                    }
+
+                    let Some(extension) = extensions::from_path(entry.file_name) else { return };
+                    if supported_extensions.contains(&extension.as_str()) {
+                        self.first_supported_file = Some(NameWithExtension {
+                            file_name: entry.file_name.into(),
+                            extension,
+                        });
+                    }
+                }
+            }
+
+            fn open_file(
+                self,
+                archive_path: &Path,
+                read_fn: fn(&Path, &str) -> Result<Vec<u8>, ArchiveError>,
+            ) -> NativeEmulatorResult<RomReadResult> {
+                let first_supported_file = self.first_supported_file.ok_or_else(|| {
+                    NativeEmulatorError::Archive(ArchiveError::NoSupportedFiles {
+                        path: archive_path.display().to_string(),
+                    })
+                })?;
+
+                let contents = read_fn(archive_path, &first_supported_file.file_name)
+                    .map_err(NativeEmulatorError::Archive)?;
+                Ok(RomReadResult { rom: contents, extension: first_supported_file.extension })
+            }
+        }
+
+        let path = &self.rom_file_path;
+        let extension = extensions::from_path(path).unwrap_or_default();
+        match extension.as_str() {
+            "zip" => {
+                let mut callback = ArchiveListCallback::default();
+                archive::list_files_zip(path, callback.as_fn_mut(supported_extensions))
+                    .map_err(NativeEmulatorError::Archive)?;
+                callback.open_file(path, archive::read_file_zip)
+            }
+            "7z" => {
+                let mut callback = ArchiveListCallback::default();
+                archive::list_files_7z(path, callback.as_fn_mut(supported_extensions))
+                    .map_err(NativeEmulatorError::Archive)?;
+                callback.open_file(path, archive::read_file_7z)
+            }
             _ => {
                 let contents = fs::read(path).map_err(|source| NativeEmulatorError::RomRead {
                     path: path.display().to_string(),
                     source,
                 })?;
 
-                Ok(RomReadResult { rom: contents, extension: extension.into() })
+                Ok(RomReadResult { rom: contents, extension })
             }
         }
     }
