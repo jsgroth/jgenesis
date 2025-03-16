@@ -18,8 +18,20 @@ enum PrgBankingMode {
 }
 
 impl PrgBankingMode {
-    fn map_result(bank_number: u8, bank_size: BankSizeKb, address: u16) -> CpuMapResult {
+    fn map_result(
+        bank_number: u8,
+        bank_size: BankSizeKb,
+        address: u16,
+        prg_ram_len: u32,
+    ) -> CpuMapResult {
         let is_rom = bank_number.bit(7);
+
+        if !is_rom && prg_ram_len == 16 * 1024 && bank_size == BankSizeKb::Eight {
+            // Every MMC5 cartridge with 16KB of PRG RAM has it split across two 8KB chips
+            // Bank bit 2 is used as a chip select; other bank bits do nothing
+            let bank: u8 = bank_number.bit(2).into();
+            return CpuMapResult::PrgRAM(BankSizeKb::Eight.to_absolute_address(bank, address));
+        }
 
         let masked_bank_number = if is_rom { bank_number & 0x7F } else { bank_number & 0x0F };
 
@@ -39,54 +51,55 @@ impl PrgBankingMode {
         }
     }
 
-    fn map_prg_address(self, prg_bank_registers: [u8; 5], address: u16) -> CpuMapResult {
+    fn map_prg_address(
+        self,
+        prg_bank_registers: [u8; 5],
+        address: u16,
+        prg_ram_len: u32,
+    ) -> CpuMapResult {
         match address {
             0x0000..=0x5FFF => panic!("invalid MMC5 PRG map address: {address:04X}"),
             0x6000..=0x7FFF => {
-                Self::map_result(prg_bank_registers[0] & 0x7F, BankSizeKb::Eight, address)
+                Self::map_result(prg_bank_registers[0], BankSizeKb::Eight, address, prg_ram_len)
             }
-            0x8000..=0xFFFF => match self {
-                // 1x32KB
-                Self::Mode0 => {
-                    Self::map_result(prg_bank_registers[4] | 0x80, BankSizeKb::ThirtyTwo, address)
-                }
-                // 2x16KB
-                Self::Mode1 => match address {
-                    0x0000..=0x7FFF => unreachable!("nested match expressions"),
-                    0x8000..=0xBFFF => {
-                        Self::map_result(prg_bank_registers[2], BankSizeKb::Sixteen, address)
+            0x8000..=0xFFFF => {
+                let (bank_register, bank_size) = match self {
+                    // 1x32KB
+                    Self::Mode0 => (4, BankSizeKb::ThirtyTwo),
+                    // 2x16KB
+                    Self::Mode1 => {
+                        let bank_register = match address {
+                            0x8000..=0xBFFF => 2,
+                            0xC000..=0xFFFF => 4,
+                            0x0000..=0x7FFF => unreachable!("nested match expressions"),
+                        };
+                        (bank_register, BankSizeKb::Sixteen)
                     }
-                    0xC000..=0xFFFF => {
-                        Self::map_result(prg_bank_registers[4] | 0x80, BankSizeKb::Sixteen, address)
+                    // 1x16KB + 2x8KB
+                    Self::Mode2 => match address {
+                        0x8000..=0xBFFF => (2, BankSizeKb::Sixteen),
+                        0xC000..=0xDFFF => (3, BankSizeKb::Eight),
+                        0xE000..=0xFFFF => (4, BankSizeKb::Eight),
+                        0x0000..=0x7FFF => unreachable!("nested match expressions"),
+                    },
+                    // 4x8KB
+                    Self::Mode3 => {
+                        // 0x8000..=0x9FFF to bank 1
+                        // 0xA000..=0xBFFF to bank 2
+                        // 0xC000..=0xDFFF to bank 3
+                        // 0xE000..=0xFFFF to bank 4
+                        let bank_register = (address & 0x7FFF) / 0x2000 + 1;
+                        (bank_register, BankSizeKb::Eight)
                     }
-                },
-                // 1x16KB + 2x8KB
-                Self::Mode2 => match address {
-                    0x0000..=0x7FFF => unreachable!("nested match expressions"),
-                    0x8000..=0xBFFF => {
-                        Self::map_result(prg_bank_registers[2], BankSizeKb::Sixteen, address)
-                    }
-                    0xC000..=0xDFFF => {
-                        Self::map_result(prg_bank_registers[3], BankSizeKb::Eight, address)
-                    }
-                    0xE000..=0xFFFF => {
-                        Self::map_result(prg_bank_registers[4] | 0x80, BankSizeKb::Eight, address)
-                    }
-                },
-                // 4x8KB
-                Self::Mode3 => {
-                    // 0x8000..=0x9FFF to bank 1
-                    // 0xA000..=0xBFFF to bank 2
-                    // 0xC000..=0xDFFF to bank 3
-                    // 0xD000..=0xFFFF to bank 4
-                    let bank_register = (address & 0x7FFF) / 0x2000 + 1;
-                    Self::map_result(
-                        prg_bank_registers[bank_register as usize],
-                        BankSizeKb::Eight,
-                        address,
-                    )
-                }
-            },
+                };
+
+                Self::map_result(
+                    prg_bank_registers[bank_register as usize],
+                    bank_size,
+                    address,
+                    prg_ram_len,
+                )
+            }
         }
     }
 }
@@ -696,7 +709,22 @@ impl MapperImpl<Mmc5> {
                 log::trace!("Fill mode palette index set to {value:02X}");
             }
             0x5113..=0x5117 => {
-                self.data.prg_bank_registers[(address - 0x5113) as usize] = value;
+                let bank = match address {
+                    0x5113 => {
+                        // Bank 0 can only ever map to PRG RAM
+                        value & 0x7F
+                    }
+                    0x5117 => {
+                        // Bank 4 can only ever map to PRG ROM
+                        value | 0x80
+                    }
+                    _ => {
+                        // Banks 1-3 can map to PRG ROM or RAM, depending on bit 7
+                        value
+                    }
+                };
+
+                self.data.prg_bank_registers[(address - 0x5113) as usize] = bank;
                 log::trace!("PRG bank {:02X} set to {value:02X}", address - 0x5113);
             }
             0x5120..=0x512B => {
@@ -763,7 +791,11 @@ impl MapperImpl<Mmc5> {
                 let value = self
                     .data
                     .prg_banking_mode
-                    .map_prg_address(self.data.prg_bank_registers, address)
+                    .map_prg_address(
+                        self.data.prg_bank_registers,
+                        address,
+                        self.cartridge.prg_ram.len() as u32,
+                    )
                     .read(&self.cartridge);
 
                 self.data.pcm_channel.process_cpu_read(address, value);
@@ -789,7 +821,11 @@ impl MapperImpl<Mmc5> {
                 if self.prg_ram_writes_enabled() {
                     self.data
                         .prg_banking_mode
-                        .map_prg_address(self.data.prg_bank_registers, address)
+                        .map_prg_address(
+                            self.data.prg_bank_registers,
+                            address,
+                            self.cartridge.prg_ram.len() as u32,
+                        )
                         .write(value, &mut self.cartridge);
                 }
             }
