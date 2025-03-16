@@ -642,14 +642,9 @@ pub(crate) fn from_ines_file(
         }
     }
 
-    let prg_ram = if let Some(sav_bytes) = &sav_bytes {
-        if sav_bytes.len() == header.prg_ram_size as usize {
-            sav_bytes.clone()
-        } else {
-            vec![0; header.prg_ram_size as usize]
-        }
-    } else {
-        vec![0; header.prg_ram_size as usize]
+    let prg_ram = match &sav_bytes {
+        Some(sav_bytes) if sav_bytes.len() == header.prg_ram_size as usize => sav_bytes.clone(),
+        _ => vec![0xFF; header.prg_ram_size as usize],
     };
 
     let timing_mode = forced_timing_mode.unwrap_or(header.timing_mode);
