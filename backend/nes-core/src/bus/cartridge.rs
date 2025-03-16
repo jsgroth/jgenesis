@@ -465,20 +465,14 @@ impl INesHeader {
 
         // All iNES headers should begin with this 4-byte sequence, which is "NES" followed by the
         // character that MS-DOS used for EOF
-        if header[..4] != [0x4E, 0x45, 0x53, 0x1A] {
+        if header[..4] != [b'N', b'E', b'S', 0x1A] {
             return Err(CartridgeFileError::Format);
         }
 
         let format =
             if header[7] & 0x0C == 0x08 { FileFormat::Nes2Point0 } else { FileFormat::INes };
-
-        let prg_rom_size = {
-            let mut prg_rom_size_16kb = u32::from(header[4]);
-            if format == FileFormat::Nes2Point0 {
-                prg_rom_size_16kb |= u32::from(header[9] & 0x0F) << 8;
-            }
-            16 * 1024 * prg_rom_size_16kb
-        };
+        let has_trainer = header[6].bit(2);
+        let mapper_number = u16::from((header[7] & 0xF0) | ((header[6] & 0xF0) >> 4));
 
         let chr_rom_size = {
             let mut chr_rom_size_8kb = u32::from(header[5]);
@@ -488,6 +482,23 @@ impl INesHeader {
             8 * 1024 * chr_rom_size_8kb
         };
 
+        let prg_rom_size = {
+            let mut prg_rom_size_16kb = u32::from(header[4]);
+            if format == FileFormat::Nes2Point0 {
+                prg_rom_size_16kb |= u32::from(header[9] & 0x0F) << 8;
+            }
+            let prg_rom_size = 16 * 1024 * prg_rom_size_16kb;
+
+            // Hack: Galaxian (J) only has 8KB of PRG ROM, and the iNES header usually contains a
+            // nonsensical PRG ROM size because it can't represent this
+            if should_apply_8kb_prg_rom_hack(file_bytes, mapper_number, has_trainer, chr_rom_size) {
+                log::info!("Ignoring PRG ROM size in header of {prg_rom_size} bytes");
+                8 * 1024
+            } else {
+                prg_rom_size
+            }
+        };
+
         if header.len() + (prg_rom_size + chr_rom_size) as usize > file_bytes.len() {
             return Err(CartridgeFileError::InvalidRomSize {
                 file_size: file_bytes.len() as u32,
@@ -495,10 +506,6 @@ impl INesHeader {
                 chr_rom_size,
             });
         }
-
-        let has_trainer = header[6].bit(2);
-
-        let mapper_number = u16::from((header[7] & 0xF0) | ((header[6] & 0xF0) >> 4));
 
         let chr_type = if chr_rom_size == 0 { ChrType::RAM } else { ChrType::ROM };
 
@@ -574,6 +581,24 @@ impl INesHeader {
             has_four_screen_vram,
         })
     }
+}
+
+// Check whether to assume the cartridge has 8KB of PRG ROM, which the iNES format cannot represent
+fn should_apply_8kb_prg_rom_hack(
+    file_bytes: &[u8],
+    mapper_number: u16,
+    has_trainer: bool,
+    chr_rom_size: u32,
+) -> bool {
+    if mapper_number != 0 {
+        // Only apply this hack for mapper 0
+        return false;
+    }
+
+    let trainer_len = if has_trainer { 512 } else { 0 };
+    let header_len = 16 + trainer_len;
+
+    file_bytes.len().saturating_sub(header_len).saturating_sub(chr_rom_size as usize) == 8 * 1024
 }
 
 fn determine_prg_ram_size(header: &[u8], mapper_number: u16, format: FileFormat) -> u32 {
