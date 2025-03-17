@@ -726,7 +726,7 @@ impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u64>
         match address & 0x1F {
             0x00 | 0x02 => self.vdp.read_data().msb(),
             0x01 | 0x03 => self.vdp.read_data().lsb(),
-            0x04 | 0x06 => self.vdp.read_status().msb(),
+            0x04 | 0x06 => self.vdp.read_status().msb() | (self.last_word_read.msb() & 0xFC),
             0x05 | 0x07 => self.vdp.read_status().lsb(),
             0x08 | 0x0A => self.vdp.hv_counter().msb(),
             0x09 | 0x0B => self.vdp.hv_counter().lsb(),
@@ -934,7 +934,8 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u64> m68000_emu::BusInterfa
             0xA10000..=0xA1001F => self.read_io_register(address).into(),
             0xA11100..=0xA11101 => self.read_busack_register(),
             0xC00000..=0xC00003 => self.vdp.read_data(),
-            0xC00004..=0xC00007 => self.vdp.read_status(),
+            // Highest 6 bits of VDP status register are open bus; VDPFIFOTesting depends on this
+            0xC00004..=0xC00007 => self.vdp.read_status() | (self.last_word_read & 0xFC00),
             0xC00008..=0xC0000F => self.vdp.hv_counter(),
             0xE00000..=0xFFFFFF => {
                 let ram_addr = (address & 0xFFFF) as usize;

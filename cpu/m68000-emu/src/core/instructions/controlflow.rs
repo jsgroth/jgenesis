@@ -1,7 +1,7 @@
 use crate::core::instructions::BranchCondition;
 use crate::core::{
-    AddressRegister, AddressingMode, BusOpType, ConditionCodes, DataRegister, Exception,
-    ExecuteResult, InstructionExecutor, OpSize, ResolvedAddress,
+    AddressRegister, AddressingMode, ConditionCodes, DataRegister, Exception, ExecuteResult,
+    InstructionExecutor, OpSize, ResolvedAddress,
 };
 use crate::traits::BusInterface;
 
@@ -16,15 +16,6 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
                 "effective address operations should only accept addressing modes that resolve to an effective address"
             );
         };
-
-        Ok(address)
-    }
-
-    fn check_jump_address(&mut self, address: u32) -> ExecuteResult<u32> {
-        if address % 2 != 0 {
-            self.registers.pc = address.wrapping_sub(2);
-            return Err(Exception::AddressError(address, BusOpType::Jump));
-        }
 
         Ok(address)
     }
@@ -49,7 +40,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
 
     pub(super) fn jmp(&mut self, source: AddressingMode) -> ExecuteResult<u32> {
         let address = self.resolve_to_memory_address(source)?;
-        self.registers.pc = self.check_jump_address(address)?;
+        self.jump_to_address(address)?;
 
         Ok(jump_cycles(source))
     }
@@ -57,7 +48,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     pub(super) fn jsr(&mut self, source: AddressingMode) -> ExecuteResult<u32> {
         let address = self.resolve_to_memory_address(source)?;
         let old_pc = self.registers.pc;
-        self.registers.pc = self.check_jump_address(address)?;
+        self.jump_to_address(address)?;
         self.push_stack_u32(old_pc)?;
 
         Ok(8 + jump_cycles(source))
@@ -96,7 +87,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         }
 
         let pc = self.pop_stack_u32()?;
-        self.registers.pc = self.check_jump_address(pc)?;
+        self.jump_to_address(pc)?;
 
         Ok(if restore_ccr { 20 } else { 16 })
     }
@@ -110,7 +101,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
 
         let pc = self.pop_stack_u32()?;
         self.registers.set_status_register(sr);
-        self.registers.pc = self.check_jump_address(pc)?;
+        self.jump_to_address(pc)?;
 
         Ok(20)
     }
@@ -163,7 +154,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
 
         if condition.check(self.registers.ccr) {
             let address = pc.wrapping_add(displacement as u32);
-            self.registers.pc = self.check_jump_address(address)?;
+            self.jump_to_address(address)?;
 
             Ok(10)
         } else if fetched_extension {
@@ -180,7 +171,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         self.push_stack_u32(self.registers.pc)?;
 
         let address = pc.wrapping_add(displacement as u32);
-        self.registers.pc = self.check_jump_address(address)?;
+        self.jump_to_address(address)?;
 
         Ok(18)
     }
@@ -199,7 +190,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
 
             if value != 0 {
                 let address = pc.wrapping_add(displacement as u32);
-                self.registers.pc = self.check_jump_address(address)?;
+                self.jump_to_address(address)?;
 
                 Ok(10)
             } else {

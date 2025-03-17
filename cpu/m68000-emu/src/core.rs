@@ -46,6 +46,7 @@ struct Registers {
     usp: u32,
     ssp: u32,
     pc: u32,
+    prefetch: u16,
     ccr: ConditionCodes,
     interrupt_priority_mask: u8,
     pending_interrupt_level: Option<u8>,
@@ -66,6 +67,7 @@ impl Registers {
             usp: 0,
             ssp: 0,
             pc: 0,
+            prefetch: 0,
             ccr: 0.into(),
             interrupt_priority_mask: DEFAULT_INTERRUPT_MASK,
             pending_interrupt_level: None,
@@ -472,7 +474,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
     // Fetch a word from the current PC and increment PC; returns an address error if PC is odd
     fn fetch_operand(&mut self) -> ExecuteResult<u16> {
-        let operand = self.read_bus_word(self.registers.pc)?;
+        let operand = self.registers.prefetch;
+        self.registers.prefetch = self.read_bus_word(self.registers.pc.wrapping_add(2))?;
         self.registers.pc = self.registers.pc.wrapping_add(2);
 
         Ok(operand)
@@ -851,7 +854,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         self.push_stack_u32(pc)?;
         self.push_stack_u16(sr)?;
 
-        self.registers.pc = self.bus.read_long_word(vector * 4);
+        let new_pc = self.bus.read_long_word(vector * 4);
+        self.jump_to_address(new_pc)?;
 
         Ok(())
     }
@@ -866,11 +870,24 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         self.push_stack_u16(sr)?;
 
         let vector_addr = AUTO_VECTORED_INTERRUPT_BASE_ADDRESS + 4 * u32::from(interrupt_level);
-        self.registers.pc = self.bus.read_long_word(vector_addr);
+        let new_pc = self.bus.read_long_word(vector_addr);
+        self.jump_to_address(new_pc)?;
 
         // Auto-vectored interrupt handling takes 44 cycles, but 10 already elapsed from waiting to
         // acknowledge
         Ok(34)
+    }
+
+    fn jump_to_address(&mut self, address: u32) -> ExecuteResult<()> {
+        self.registers.pc = address.wrapping_sub(2);
+
+        if address % 2 != 0 {
+            return Err(Exception::AddressError(address, BusOpType::Jump));
+        }
+
+        let _ = self.fetch_operand();
+
+        Ok(())
     }
 
     fn execute(mut self) -> u32 {
@@ -904,7 +921,13 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         match self.do_execute() {
             Ok(cycles) => cycles,
-            Err(Exception::AddressError(address, op_type)) => {
+            Err(exception) => self.handle_exception(exception),
+        }
+    }
+
+    fn handle_exception(&mut self, exception: Exception) -> u32 {
+        match exception {
+            Exception::AddressError(address, op_type) => {
                 log::error!(
                     "[{}] Encountered 68000 address error; address={address:08X}, op_type={op_type:?}",
                     self.name
@@ -918,8 +941,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 // Not completely accurate but close enough; this shouldn't occur in real software
                 50
             }
-            Err(Exception::PrivilegeViolation) => todo!("privilege violation"),
-            Err(Exception::IllegalInstruction(opcode)) => {
+            Exception::PrivilegeViolation => todo!("privilege violation"),
+            Exception::IllegalInstruction(opcode) => {
                 // If the highest 4 bits of the opcode are 1010 or 1111, the CPU uses different
                 // exception vectors. Zaxxon's Motherbase 2000 (32X) depends on this
                 let vector = match opcode >> 12 {
@@ -941,7 +964,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 // TODO this shouldn't happen in real software
                 34
             }
-            Err(Exception::DivisionByZero { cycles }) => {
+            Exception::DivisionByZero { cycles } => {
                 log::warn!("[{}] Encountered 68000 divide by zero exception", self.name);
 
                 if self.handle_trap(DIVIDE_BY_ZERO_VECTOR, self.registers.pc).is_err() {
@@ -950,14 +973,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
                 38 + cycles
             }
-            Err(Exception::Trap(vector)) => {
+            Exception::Trap(vector) => {
                 if self.handle_trap(vector, self.registers.pc).is_err() {
                     todo!("address error triggered while executing TRAP instruction")
                 }
 
                 34
             }
-            Err(Exception::CheckRegister { cycles }) => {
+            Exception::CheckRegister { cycles } => {
                 if self.handle_trap(CHECK_REGISTER_VECTOR, self.registers.pc).is_err() {
                     todo!("address error triggered while executing CHK instruction")
                 }
@@ -1033,7 +1056,7 @@ impl M68000 {
         M68000Builder::default()
     }
 
-    fn reset<B: BusInterface>(&mut self, bus: &mut B) {
+    fn reset(&mut self, bus: &mut impl BusInterface) {
         // Reset the upper word of the status register
         self.registers.supervisor_mode = true;
         self.registers.trace_enabled = false;
@@ -1044,6 +1067,18 @@ impl M68000 {
         // Read SSP from $000000 and PC from $000004
         self.registers.ssp = bus.read_long_word(0);
         self.registers.pc = bus.read_long_word(4);
+
+        log::trace!("RESET vector: {:04X}", self.registers.pc);
+
+        self.populate_prefetch(bus);
+    }
+
+    fn populate_prefetch(&mut self, bus: &mut impl BusInterface) {
+        let mut executor =
+            InstructionExecutor::new(&mut self.registers, bus, self.allow_tas_writes, &self.name);
+        if let Err(exception) = executor.jump_to_address(executor.registers.pc) {
+            executor.handle_exception(exception);
+        }
     }
 
     #[must_use]
@@ -1094,8 +1129,9 @@ impl M68000 {
         self.registers.pc
     }
 
-    pub fn set_pc(&mut self, pc: u32) {
+    pub fn set_pc(&mut self, pc: u32, bus: &mut impl BusInterface) {
         self.registers.pc = pc;
+        self.populate_prefetch(bus);
     }
 
     #[must_use]
