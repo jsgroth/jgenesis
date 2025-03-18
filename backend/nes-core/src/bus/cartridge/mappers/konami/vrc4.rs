@@ -305,11 +305,11 @@ impl MapperImpl<Vrc4> {
                         Variant::Single(SingleVariant::Vrc2a) => {
                             // In VRC2a, everything is shifted right one
                             self.data.chr_banks[chr_bank_index as usize] =
-                                (existing_value & 0xFFF8) | u16::from((value & 0x0F) >> 1);
+                                (existing_value & !(0x0F >> 1)) | u16::from((value & 0x0F) >> 1);
                         }
                         _ => {
                             self.data.chr_banks[chr_bank_index as usize] =
-                                (existing_value & 0xFFF0) | u16::from(value & 0x0F);
+                                (existing_value & !0x0F) | u16::from(value & 0x0F);
                         }
                     }
                 } else {
@@ -317,16 +317,16 @@ impl MapperImpl<Vrc4> {
                         Variant::Single(SingleVariant::Vrc2a) => {
                             // In VRC2a, everything is shifted right one
                             self.data.chr_banks[chr_bank_index as usize] =
-                                (existing_value & 0xFF87) | u16::from((value & 0x0F) << 3);
+                                (existing_value & 0x07) | (u16::from(value & 0x0F) << 3);
                         }
                         _ => match self.data.variant.to_type() {
                             Type::Vrc2 => {
                                 self.data.chr_banks[chr_bank_index as usize] =
-                                    (existing_value & 0xFF0F) | u16::from((value & 0x0F) << 4);
+                                    (existing_value & 0x0F) | (u16::from(value & 0x0F) << 4);
                             }
                             Type::Vrc4 => {
                                 self.data.chr_banks[chr_bank_index as usize] =
-                                    (existing_value & 0xFE0F) | u16::from((value & 0x1F) << 4);
+                                    (existing_value & 0x0F) | (u16::from(value & 0x1F) << 4);
                             }
                         },
                     }
