@@ -1320,9 +1320,11 @@ impl Vdp {
         let access_slots = h_display_size.access_slots();
         let blank_refresh_slots = h_display_size.blank_refresh_slots();
 
+        let check_access_slots = self.control_port.dma_active || !self.fifo.is_empty();
+
         while self.state.pixel < end_pixel {
             let pixel = self.state.pixel;
-            if (self.control_port.dma_active || !self.fifo.is_empty()) && !pixel.bit(0) {
+            if check_access_slots && !pixel.bit(0) {
                 let slot_idx = (pixel >> 1) as u8;
                 let blank = !self.registers.display_enabled || self.state.in_vblank;
                 if (blank && !blank_refresh_slots[slot_idx as usize])

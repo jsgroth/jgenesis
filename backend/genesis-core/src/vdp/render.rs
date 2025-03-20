@@ -558,19 +558,19 @@ impl Vdp {
             let scroll_a_pixel = self.bg_buffers.plane_a_pixels[frame_buffer_col as usize];
             let scroll_b_pixel = self.bg_buffers.plane_b_pixels[frame_buffer_col as usize];
 
-            let (pixel_color, color_modifier) = determine_pixel_color(
-                &self.cram,
-                self.debug_register,
-                PixelColorArgs {
-                    sprite_pixel,
-                    scroll_a_pixel,
-                    scroll_b_pixel,
-                    bg_color,
-                    shadow_highlight_flag: self.latched_registers.shadow_highlight_flag,
-                    in_h_border: !(0..active_display_pixels as i16).contains(&pixel),
-                    in_v_border: raster_line.in_v_border && !self.state.v_border_forgotten,
-                },
-            );
+            let pixel_color_args = PixelColorArgs {
+                sprite_pixel,
+                scroll_a_pixel,
+                scroll_b_pixel,
+                bg_color,
+                in_h_border: !(0..active_display_pixels as i16).contains(&pixel),
+                in_v_border: raster_line.in_v_border && !self.state.v_border_forgotten,
+            };
+            let (pixel_color, color_modifier) = if self.latched_registers.shadow_highlight_flag {
+                determine_pixel_color::<true>(&self.cram, self.debug_register, pixel_color_args)
+            } else {
+                determine_pixel_color::<false>(&self.cram, self.debug_register, pixel_color_args)
+            };
 
             set_in_frame_buffer(
                 &mut self.frame_buffer,
@@ -1040,14 +1040,13 @@ struct PixelColorArgs {
     scroll_a_pixel: TilePixel,
     scroll_b_pixel: TilePixel,
     bg_color: u16,
-    shadow_highlight_flag: bool,
     in_h_border: bool,
     in_v_border: bool,
 }
 
 #[inline]
 #[allow(clippy::unnested_or_patterns)]
-fn determine_pixel_color(
+fn determine_pixel_color<const SHADOW_HIGHLIGHT: bool>(
     cram: &Cram,
     debug_register: DebugRegister,
     PixelColorArgs {
@@ -1055,7 +1054,6 @@ fn determine_pixel_color(
         scroll_a_pixel,
         scroll_b_pixel,
         bg_color,
-        shadow_highlight_flag,
         in_h_border,
         in_v_border,
     }: PixelColorArgs,
@@ -1077,13 +1075,12 @@ fn determine_pixel_color(
         return (color, ColorModifier::None);
     }
 
-    let mut modifier =
-        if shadow_highlight_flag && !scroll_a_pixel.priority && !scroll_b_pixel.priority {
-            // If shadow/highlight bit is set and all priority flags are 0, default modifier to shadow
-            ColorModifier::Shadow
-        } else {
-            ColorModifier::None
-        };
+    let mut modifier = if SHADOW_HIGHLIGHT && !scroll_a_pixel.priority && !scroll_b_pixel.priority {
+        // If shadow/highlight bit is set and all priority flags are 0, default modifier to shadow
+        ColorModifier::Shadow
+    } else {
+        ColorModifier::None
+    };
 
     let sprite = UnresolvedColor {
         palette: sprite_pixel.palette,
@@ -1116,7 +1113,7 @@ fn determine_pixel_color(
             continue;
         }
 
-        if shadow_highlight_flag && is_sprite && palette == 3 {
+        if SHADOW_HIGHLIGHT && is_sprite && palette == 3 {
             if color_id == 14 {
                 // Palette 3 + color 14 = highlight; sprite is transparent, underlying pixel is highlighted
                 modifier += ColorModifier::Highlight;
@@ -1142,7 +1139,7 @@ fn determine_pixel_color(
 
         // Sprite color id 14 is never shadowed/highlighted, and neither is a sprite with the priority
         // bit set
-        if is_sprite && (color_id == 14 || sprite_pixel.priority) {
+        if SHADOW_HIGHLIGHT && is_sprite && (color_id == 14 || sprite_pixel.priority) {
             modifier = ColorModifier::None;
         }
 
