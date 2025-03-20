@@ -6,6 +6,8 @@ use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::EnumAll;
 use std::fmt::{Display, Formatter};
 
+pub use instructions::cycles_if_move_or_btst;
+
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
 struct ConditionCodes {
@@ -1144,6 +1146,12 @@ impl M68000 {
     #[must_use]
     pub fn last_instruction_was_mul_or_div(&self) -> bool {
         self.registers.last_instruction_was_muldiv
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn next_opcode(&self) -> u16 {
+        self.registers.prefetch
     }
 
     #[inline]

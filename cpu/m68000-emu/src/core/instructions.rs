@@ -514,6 +514,41 @@ fn binary_op_cycles(size: OpSize, source: AddressingMode, dest: AddressingMode) 
     cycles
 }
 
+#[inline]
+#[must_use]
+pub fn cycles_if_move_or_btst(opcode: u16) -> Option<u32> {
+    match table::decode(opcode) {
+        Instruction::Move { size, source, dest } => {
+            // -(An) destinations take 2 fewer cycles than they do in other operations
+            let base_cycles = match dest {
+                AddressingMode::AddressIndirectPredecrement(..) => 2,
+                _ => 4,
+            };
+
+            Some(
+                base_cycles
+                    + source.address_calculation_cycles(size)
+                    + dest.address_calculation_cycles(size),
+            )
+        }
+        Instruction::BitTest { source, dest } => {
+            let dest_cycles = match dest {
+                AddressingMode::DataDirect(..) => 2,
+                AddressingMode::Immediate => 6,
+                _ => dest.address_calculation_cycles(OpSize::Byte),
+            };
+
+            let source_cycles = match source {
+                AddressingMode::Immediate => 4,
+                _ => 0,
+            };
+
+            Some(4 + source_cycles + dest_cycles)
+        }
+        _ => None,
+    }
+}
+
 impl Display for Instruction {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {

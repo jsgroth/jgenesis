@@ -652,7 +652,8 @@ pub struct MainBus<'a, Medium, const REFRESH_INTERVAL: u64> {
     pub signals: MainBusSignals,
     pub pending_writes: MainBusWrites,
     pub cycles: &'a mut CycleCounters<REFRESH_INTERVAL>,
-    // Last word-size read; used to pseudo-emulate open bus bits in the Z80 BUSACK register
+    pub m68k_opcode: u16,
+    // Last word-size read; used to pseudo-emulate open bus behavior
     pub last_word_read: u16,
 }
 
@@ -668,6 +669,7 @@ impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u64>
         ym2612: &'a mut Ym2612,
         input: &'a mut InputState,
         cycles: &'a mut CycleCounters<REFRESH_INTERVAL>,
+        m68k_opcode: u16,
         timing_mode: TimingMode,
         signals: MainBusSignals,
         pending_writes: MainBusWrites,
@@ -679,6 +681,7 @@ impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u64>
             ym2612,
             input,
             cycles,
+            m68k_opcode,
             timing_mode,
             signals,
             pending_writes,
@@ -722,14 +725,25 @@ impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u64>
         }
     }
 
+    fn read_vdp_status(&mut self) -> u16 {
+        // Highest 6 bits of VDP status register are open bus; VDPFIFOTesting DMA busy flag tests
+        // depend on this
+        self.vdp.read_status(self.m68k_opcode, self.cycles.m68k_divider.get())
+            | (self.last_word_read & 0xFC00)
+    }
+
+    fn read_vdp_hv_counter(&self) -> u16 {
+        self.vdp.hv_counter(self.m68k_opcode, self.cycles.m68k_divider.get())
+    }
+
     fn read_vdp_byte(&mut self, address: u32) -> u8 {
         match address & 0x1F {
             0x00 | 0x02 => self.vdp.read_data().msb(),
             0x01 | 0x03 => self.vdp.read_data().lsb(),
-            0x04 | 0x06 => self.vdp.read_status().msb() | (self.last_word_read.msb() & 0xFC),
-            0x05 | 0x07 => self.vdp.read_status().lsb(),
-            0x08 | 0x0A => self.vdp.hv_counter().msb(),
-            0x09 | 0x0B => self.vdp.hv_counter().lsb(),
+            0x04 | 0x06 => self.read_vdp_status().msb(),
+            0x05 | 0x07 => self.read_vdp_status().lsb(),
+            0x08 | 0x0A => self.read_vdp_hv_counter().msb(),
+            0x09 | 0x0B => self.read_vdp_hv_counter().lsb(),
             0x10..=0x1F => {
                 // PSG / unused space; PSG is not readable
                 0xFF
@@ -934,9 +948,8 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u64> m68000_emu::BusInterfa
             0xA10000..=0xA1001F => self.read_io_register(address).into(),
             0xA11100..=0xA11101 => self.read_busack_register(),
             0xC00000..=0xC00003 => self.vdp.read_data(),
-            // Highest 6 bits of VDP status register are open bus; VDPFIFOTesting depends on this
-            0xC00004..=0xC00007 => self.vdp.read_status() | (self.last_word_read & 0xFC00),
-            0xC00008..=0xC0000F => self.vdp.hv_counter(),
+            0xC00004..=0xC00007 => self.read_vdp_status(),
+            0xC00008..=0xC0000F => self.read_vdp_hv_counter(),
             0xE00000..=0xFFFFFF => {
                 let ram_addr = (address & 0xFFFF) as usize;
                 u16::from_be_bytes([

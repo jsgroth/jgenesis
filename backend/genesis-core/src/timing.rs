@@ -26,6 +26,8 @@ pub struct CycleCounters<const REFRESH_INTERVAL: u64> {
     pub ym2612_mclk_counter: u64,
     pub psg_mclk_counter: u64,
     pub refresh_mclk_counter: u64,
+    pub vdp_owns_bus: bool,
+    pub z80_halt: bool,
 }
 
 fn max_wait_cpu_cycles(m68k_divider: NonZeroU64) -> u32 {
@@ -55,6 +57,8 @@ impl<const REFRESH_INTERVAL: u64> CycleCounters<REFRESH_INTERVAL> {
             ym2612_mclk_counter: 0,
             psg_mclk_counter: 0,
             refresh_mclk_counter: 0,
+            vdp_owns_bus: false,
+            z80_halt: false,
         }
     }
 
@@ -75,48 +79,70 @@ impl<const REFRESH_INTERVAL: u64> CycleCounters<REFRESH_INTERVAL> {
 
     #[inline]
     #[must_use]
-    pub fn record_68k_instruction(&mut self, m68k_cycles: u32, was_mul_or_div: bool) -> u64 {
+    pub fn record_68k_instruction(
+        &mut self,
+        m68k_cycles: u32,
+        was_mul_or_div: bool,
+        m68k_wait: bool,
+        vdp_owns_bus: bool,
+    ) -> u64 {
         let mut mclk_cycles = u64::from(m68k_cycles) * self.m68k_divider.get();
 
         // Track memory refresh delay, which stalls the 68000 for roughly 2 out of every 128 mclk cycles
         // (at least on the standalone Genesis)
         // Clue and Super Airwolf depend on this or they will have graphical glitches, Clue in the
         // main menu and Super Airwolf in the intro
-        self.refresh_mclk_counter += mclk_cycles;
-        if was_mul_or_div && mclk_cycles >= LONG_68K_INSTRUCTION_THRESHOLD {
-            // Only incur memory refresh delay once for multiplication/division instructions
-            mclk_cycles += 2;
-            self.refresh_mclk_counter %= REFRESH_INTERVAL - 2;
-        } else {
-            while self.refresh_mclk_counter >= REFRESH_INTERVAL - 2 {
-                self.refresh_mclk_counter -= REFRESH_INTERVAL - 2;
+        if !m68k_wait && !vdp_owns_bus {
+            self.refresh_mclk_counter += mclk_cycles;
+            if was_mul_or_div && mclk_cycles >= LONG_68K_INSTRUCTION_THRESHOLD {
+                // Only incur memory refresh delay once for multiplication/division instructions
                 mclk_cycles += 2;
+                self.refresh_mclk_counter %= REFRESH_INTERVAL - 2;
+            } else {
+                while self.refresh_mclk_counter >= REFRESH_INTERVAL - 2 {
+                    self.refresh_mclk_counter -= REFRESH_INTERVAL - 2;
+                    mclk_cycles += 2;
+                }
             }
         }
 
-        self.increment_mclk_counters(mclk_cycles);
+        self.increment_mclk_counters(mclk_cycles, vdp_owns_bus);
 
         mclk_cycles
     }
 
     #[inline]
-    pub fn increment_mclk_counters(&mut self, mclk_cycles: u64) {
+    pub fn increment_mclk_counters(&mut self, mclk_cycles: u64, vdp_owns_bus: bool) {
+        self.vdp_owns_bus = vdp_owns_bus;
+        self.z80_halt &= vdp_owns_bus;
+
         self.z80_mclk_counter += mclk_cycles;
         self.ym2612_mclk_counter += mclk_cycles;
         self.psg_mclk_counter += mclk_cycles;
 
-        let z80_wait_elapsed = cmp::min(self.z80_mclk_counter, self.z80_wait_mclk_cycles);
-        self.z80_mclk_counter -= z80_wait_elapsed;
-        self.z80_wait_mclk_cycles -= z80_wait_elapsed;
+        if !vdp_owns_bus {
+            let z80_wait_elapsed = cmp::min(self.z80_mclk_counter, self.z80_wait_mclk_cycles);
+            self.z80_mclk_counter -= z80_wait_elapsed;
+            self.z80_wait_mclk_cycles -= z80_wait_elapsed;
+        }
     }
 
     #[inline]
     pub fn record_z80_68k_bus_access(&mut self) {
         // Each time the Z80 accesses the 68K bus, the Z80 is stalled for on average 3.3 Z80 cycles (= 49.5 mclk cycles)
         // and the 68K is stalled for on average 11 68K cycles
-        self.m68k_wait_cpu_cycles += 11;
         self.z80_wait_mclk_cycles += 49 + u64::from(self.z80_odd_access);
         self.z80_odd_access = !self.z80_odd_access;
+
+        // The Z80 should halt if it accesses the 68K bus during a VDP DMA or while the 68K is
+        // stalled on a VDP FIFO write
+        self.z80_halt |= self.vdp_owns_bus;
+
+        if !self.vdp_owns_bus {
+            // Not sure if it's accurate for this to be conditional, but adding this delay after
+            // a VDP DMA breaks some effects in Overdrive
+            self.m68k_wait_cpu_cycles += 11;
+        }
     }
 
     #[inline]

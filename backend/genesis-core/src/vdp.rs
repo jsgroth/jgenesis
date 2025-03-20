@@ -2,17 +2,17 @@
 
 mod colors;
 mod debug;
-mod dma;
+mod fifo;
 mod registers;
 mod render;
 mod sprites;
-mod timing;
 
 #[cfg(test)]
 mod tests;
 
 use crate::memory::{Memory, PhysicalMedium};
 use crate::vdp::colors::ColorModifier;
+use crate::vdp::fifo::{VdpFifo, VdpFifoEntry, VramWriteSize};
 use crate::vdp::registers::{
     DebugRegister, DmaMode, H40_LEFT_BORDER, HorizontalDisplaySize, InterlacingMode,
     NTSC_BOTTOM_BORDER, NTSC_TOP_BORDER, PAL_V28_BOTTOM_BORDER, PAL_V28_TOP_BORDER,
@@ -20,18 +20,149 @@ use crate::vdp::registers::{
     VramSizeKb,
 };
 use crate::vdp::sprites::{SpriteBuffers, SpriteState};
-use crate::vdp::timing::{DmaTracker, FifoTracker, LineType};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{Color, FrameSize, TimingMode};
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
-use std::ops::{Deref, DerefMut};
-use std::{array, mem};
+use std::collections::VecDeque;
+use std::ops::{Deref, DerefMut, Range};
+use std::{array, cmp, mem};
 use z80_emu::traits::InterruptLine;
 
 const VRAM_LEN: usize = 64 * 1024;
 const CRAM_LEN_WORDS: usize = 64;
 const VSRAM_LEN: usize = 80;
+
+const MAX_SCREEN_WIDTH: usize = 320 + H40_LEFT_BORDER as usize + RIGHT_BORDER as usize;
+const MAX_SCREEN_HEIGHT: usize = 240 + PAL_V30_TOP_BORDER as usize + PAL_V30_BOTTOM_BORDER as usize;
+
+// Double screen height to account for interlaced 2x mode
+pub const FRAME_BUFFER_LEN: usize = MAX_SCREEN_WIDTH * MAX_SCREEN_HEIGHT * 2;
+
+pub const MCLK_CYCLES_PER_SCANLINE: u64 = 3420;
+pub const ACTIVE_MCLK_CYCLES_PER_SCANLINE: u64 = 2560;
+pub const NTSC_SCANLINES_PER_FRAME: u16 = 262;
+pub const PAL_SCANLINES_PER_FRAME: u16 = 313;
+
+const MAX_SPRITES_PER_FRAME: usize = 80;
+
+macro_rules! new_bool256 {
+    ($($value:literal),* $(,)?) => {
+        {
+            let mut bools = [false; 256];
+            $(
+                bools[$value] = true;
+            )*
+            bools
+        }
+    }
+}
+
+// Adapted from https://gendev.spritesmind.net/forum/viewtopic.php?t=851 and modified so that 0
+// is at H=0x000 rather than the H scroll fetch
+const H32_ACCESS_SLOTS: &[bool; 256] =
+    &new_bool256![5, 13, 21, 37, 45, 53, 69, 77, 85, 101, 109, 117, 132, 133, 147, 161];
+const H40_ACCESS_SLOTS: &[bool; 256] =
+    &new_bool256![6, 14, 22, 38, 46, 54, 70, 78, 86, 102, 110, 118, 134, 142, 150, 165, 166, 190];
+
+// Adapted from https://gendev.spritesmind.net/forum/viewtopic.php?p=20921#p20921
+// TODO H32 refresh slot locations are probably not accurate
+const H32_BLANK_REFRESH_SLOTS: &[bool; 256] = &new_bool256![1, 33, 65, 97, 129];
+const H40_BLANK_REFRESH_SLOTS: &[bool; 256] = &new_bool256![26, 58, 90, 122, 154, 204];
+
+// Most H values sourced from https://gendev.spritesmind.net/forum/viewtopic.php?p=17683#p17683
+impl HorizontalDisplaySize {
+    // External access slot locations during active display
+    const fn access_slots(self) -> &'static [bool; 256] {
+        match self {
+            Self::ThirtyTwoCell => H32_ACCESS_SLOTS,
+            Self::FortyCell => H40_ACCESS_SLOTS,
+        }
+    }
+
+    // Refresh slot locations during blanking (either VBlank or display disabled)
+    const fn blank_refresh_slots(self) -> &'static [bool; 256] {
+        match self {
+            Self::ThirtyTwoCell => H32_BLANK_REFRESH_SLOTS,
+            Self::FortyCell => H40_BLANK_REFRESH_SLOTS,
+        }
+    }
+
+    // Total number of slots minus number of refresh slots
+    const fn access_slots_per_blank_line(self) -> u16 {
+        match self {
+            Self::ThirtyTwoCell => 171 - 5,
+            Self::FortyCell => 210 - 6,
+        }
+    }
+
+    // H range during which the status HBlank flag is _not_ set
+    const fn hblank_flag_clear_h_range(self) -> Range<u16> {
+        match self {
+            Self::ThirtyTwoCell => 0x00A..0x126,
+            Self::FortyCell => 0x00B..0x166,
+        }
+    }
+
+    // H value at which the VDP increments the H interrupt counter, increments the V counter, and
+    // potentially sets HINT pending
+    const fn h_interrupt_h(self) -> u16 {
+        match self {
+            Self::ThirtyTwoCell => 0x10A,
+            Self::FortyCell => 0x14A,
+        }
+    }
+
+    const fn h_interrupt_scanline_mclk(self) -> u64 {
+        (self.h_interrupt_h() as u64) * self.active_display_mclk_divider()
+    }
+
+    // H value at which the VDP sets VINT pending on line 224/240
+    const fn v_interrupt_h(self) -> u16 {
+        match self {
+            Self::ThirtyTwoCell => 0x001,
+            Self::FortyCell => 0x002,
+        }
+    }
+
+    const fn v_interrupt_scanline_mclk(self) -> u64 {
+        (self.v_interrupt_h() as u64) * self.active_display_mclk_divider()
+    }
+
+    // Range when the VDP is actively displaying pixels
+    const fn active_display_h_range(self) -> Range<u16> {
+        match self {
+            Self::ThirtyTwoCell => 0x018..0x118,
+            Self::FortyCell => 0x01A..0x15A,
+        }
+    }
+
+    const fn rendering_begin_h(self) -> u16 {
+        self.active_display_h_range().start - 16
+    }
+
+    // H where HBlank begins (should line up with the two consecutive external access slots)
+    const fn hblank_begin_h(self) -> u16 {
+        self.active_display_h_range().end - 16
+    }
+
+    // H by which VDP register latching for the next line is completed
+    const fn latch_registers_h(self) -> u16 {
+        // Estimated based on latching taking place within 36 CPU cycles of HINT
+        // TODO this is probably inaccurate for either H32 or H40 mode
+        match self {
+            Self::ThirtyTwoCell => 0x121,
+            Self::FortyCell => 0x169,
+        }
+    }
+
+    const fn active_display_mclk_divider(self) -> u64 {
+        match self {
+            Self::ThirtyTwoCell => 10,
+            Self::FortyCell => 8,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum ControlWriteFlag {
@@ -43,21 +174,93 @@ enum ControlWriteFlag {
 enum DataPortMode {
     Read,
     Write,
-    Invalid,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum DataPortLocation {
     Vram,
+    Vram8Bit,
     Cram,
     Vsram,
+    Invalid,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum ActiveDma {
-    MemoryToVram,
-    VramFill(u16),
-    VramCopy,
+#[derive(Debug, Clone, Encode, Decode)]
+struct ControlPort {
+    mode: DataPortMode,
+    location_bits: u8,
+    location: DataPortLocation,
+    control_address: u32,
+    data_port_address: u32,
+    write_flag: ControlWriteFlag,
+    dma_active: bool,
+}
+
+impl ControlPort {
+    fn new() -> Self {
+        Self {
+            mode: DataPortMode::Read,
+            location_bits: 0,
+            location: DataPortLocation::Vram,
+            control_address: 0,
+            data_port_address: 0,
+            write_flag: ControlWriteFlag::First,
+            dma_active: false,
+        }
+    }
+
+    fn write_first_command(&mut self, value: u16) {
+        // First command word: Lowest 14 bits of address and lowest 2 bits of code
+        self.control_address = (self.control_address & !0x3FFF) | u32::from(value & 0x3FFF);
+        self.data_port_address = self.control_address;
+
+        self.mode = if value.bit(14) { DataPortMode::Write } else { DataPortMode::Read };
+        self.location_bits = (self.location_bits & !1) | (value >> 15) as u8;
+        self.location = parse_location_bits(self.location_bits, self.mode);
+    }
+
+    fn write_second_command(&mut self, value: u16, registers: &Registers) {
+        // Second command word: Highest 3 bits of address (A14-A16) and highest 4 bits of code (CD2-CD5)
+        self.control_address = (self.control_address & 0x3FFF) | (u32::from(value & 7) << 14);
+        self.data_port_address = self.control_address;
+
+        self.location_bits = (self.location_bits & 1) | ((value >> 3) & 0b110) as u8;
+        self.location = parse_location_bits(self.location_bits, self.mode);
+
+        // CD5 is only writable if DMA is enabled in register #1
+        if registers.dma_enabled {
+            self.dma_active = value.bit(7);
+        }
+    }
+
+    fn new_fifo_entry(&self, word: u16, vram_size: VramSizeKb) -> VdpFifoEntry {
+        // Perform 128KB mode address conversion on FIFO push rather than pop; Overdrive 2 depends on this
+        // TODO does 128KB mode also cause invalid target FIFO entries to only take 1 slot?
+        let (address, size) = match (self.location, vram_size) {
+            (DataPortLocation::Vram | DataPortLocation::Invalid, VramSizeKb::OneTwentyEight) => {
+                (convert_128kb_vram_address(self.data_port_address), VramWriteSize::Byte)
+            }
+            _ => (self.data_port_address, VramWriteSize::Word),
+        };
+
+        VdpFifoEntry::new(self.mode, self.location, address, word, size)
+    }
+
+    fn increment_data_port_address(&mut self, registers: &Registers) {
+        self.data_port_address =
+            self.data_port_address.wrapping_add(registers.data_port_auto_increment.into());
+    }
+}
+
+fn parse_location_bits(bits: u8, mode: DataPortMode) -> DataPortLocation {
+    match (bits, mode) {
+        (0b000, _) => DataPortLocation::Vram,
+        (0b010, _) => DataPortLocation::Vsram,
+        (0b001, DataPortMode::Write) | (0b100, DataPortMode::Read) => DataPortLocation::Cram,
+        // Undocumented: Code 01100 enables 8-bit VRAM reads (verified by VDPFIFOTesting ROM)
+        (0b110, DataPortMode::Read) => DataPortLocation::Vram8Bit,
+        _ => DataPortLocation::Invalid,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -74,21 +277,13 @@ impl Default for PendingWrite {
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct InternalState {
-    control_write_flag: ControlWriteFlag,
-    code: u8,
-    data_port_mode: DataPortMode,
-    data_port_location: DataPortLocation,
-    data_address: u32,
-    latched_high_address_bits: u32,
-    // Whether the VINT flag in the status register reads 1
-    vint_flag: bool,
     // Whether the VDP is actively raising INT6
     v_interrupt_pending: bool,
     delayed_v_interrupt: bool,
     delayed_v_interrupt_next: bool,
+    h_interrupt_pending: bool,
     delayed_h_interrupt: bool,
     delayed_h_interrupt_next: bool,
-    h_interrupt_pending: bool,
     h_interrupt_counter: u16,
     latched_hv_counter: Option<u16>,
     v_border_forgotten: bool,
@@ -98,27 +293,26 @@ struct InternalState {
     last_h_scroll_b: u16,
     scanline: u16,
     scanline_mclk_cycles: u64,
-    pending_dma: Option<ActiveDma>,
+    pixel: u16,
+    in_vblank: bool,
+    // Used to store writes to either VDP port while a memory-to-VRAM DMA is in progress
+    // (Can happen if a DMA is initiated using a longword write)
     pending_writes: Vec<PendingWrite>,
+    pending_write_delay_pixels: u8,
+    data_port_read_wait: bool,
+    vram_fill_data: Option<u16>,
+    vram_copy_odd_slot: bool,
     interlaced_frame: bool,
     interlaced_odd: bool,
     // Latched at start of VBlank
     // This is not accurate to actual hardware, but nothing should change H resolution mid-frame
     // during active display
     frame_h_resolution: HorizontalDisplaySize,
-    vdp_event_idx: u8,
 }
 
 impl InternalState {
     fn new(timing_mode: TimingMode) -> Self {
         Self {
-            control_write_flag: ControlWriteFlag::First,
-            code: 0,
-            data_port_mode: DataPortMode::Write,
-            data_port_location: DataPortLocation::Vram,
-            data_address: 0,
-            latched_high_address_bits: 0,
-            vint_flag: false,
             v_interrupt_pending: false,
             delayed_v_interrupt: false,
             delayed_v_interrupt_next: false,
@@ -134,12 +328,16 @@ impl InternalState {
             last_h_scroll_b: 0,
             scanline: 0,
             scanline_mclk_cycles: 0,
-            pending_dma: None,
+            pixel: 0,
+            in_vblank: false,
             pending_writes: Vec::with_capacity(10),
+            pending_write_delay_pixels: 0,
+            data_port_read_wait: false,
+            vram_fill_data: None,
+            vram_copy_odd_slot: false,
             interlaced_frame: false,
             interlaced_odd: false,
             frame_h_resolution: HorizontalDisplaySize::default(),
-            vdp_event_idx: 0,
         }
     }
 
@@ -273,30 +471,6 @@ impl DerefMut for FrameBuffer {
     }
 }
 
-const MAX_SCREEN_WIDTH: usize = 320 + H40_LEFT_BORDER as usize + RIGHT_BORDER as usize;
-const MAX_SCREEN_HEIGHT: usize = 240 + PAL_V30_TOP_BORDER as usize + PAL_V30_BOTTOM_BORDER as usize;
-
-// Double screen height to account for interlaced 2x mode
-pub const FRAME_BUFFER_LEN: usize = MAX_SCREEN_WIDTH * MAX_SCREEN_HEIGHT * 2;
-
-pub const MCLK_CYCLES_PER_SCANLINE: u64 = 3420;
-pub const ACTIVE_MCLK_CYCLES_PER_SCANLINE: u64 = 2560;
-pub const NTSC_SCANLINES_PER_FRAME: u16 = 262;
-pub const PAL_SCANLINES_PER_FRAME: u16 = 313;
-
-// 36 CPU cycles
-const REGISTER_LATCH_DELAY_MCLK: u64 = 36 * 7;
-
-const MAX_SPRITES_PER_FRAME: usize = 80;
-
-// Master clock cycle on which to trigger VINT on scanline 224/240.
-const V_INTERRUPT_DELAY: u64 = 48;
-
-// Have the VINT flag in the VDP status register read 1 about 20 CPU cycles before the VDP raises
-// the interrupt. This fixes several games failing to boot (e.g. Tyrants: Fight Through Time, Ex-Mutants)
-const M68K_DIVIDER: u64 = crate::timing::NATIVE_M68K_DIVIDER;
-const VINT_FLAG_MCLK: u64 = MCLK_CYCLES_PER_SCANLINE - (20 * M68K_DIVIDER - V_INTERRUPT_DELAY);
-
 pub(crate) trait TimingModeExt: Copy {
     fn scanlines_per_frame(self, interlaced: bool, interlaced_odd: bool) -> u16;
 
@@ -345,28 +519,37 @@ pub struct VdpConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum VdpEvent {
     VInterrupt,
+    LatchVsram,
+    RenderLine,
     HBlankStart,
     HInterrupt,
     LatchRegisters,
-    VIntStatusFlag,
     None,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 struct VdpEventWithTime {
     event: VdpEvent,
-    mclk: u64,
+    h: u16,
 }
 
 impl VdpEventWithTime {
-    const fn new(mclk: u64, event: VdpEvent) -> Self {
-        Self { event, mclk }
+    const fn new(h: u16, event: VdpEvent) -> Self {
+        Self { event, h }
     }
 }
 
 #[derive(Debug, Clone, Copy)]
 struct VCounter {
     counter: u8,
+    vblank_flag: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HVCounter {
+    internal_h: u16,
+    internal_v: u8,
+    hv_counter: u16,
     vblank_flag: bool,
 }
 
@@ -380,7 +563,13 @@ pub struct Vdp {
     vram: Box<Vram>,
     cram: Box<Cram>,
     vsram: Box<Vsram>,
+    latched_vsram: Box<Vsram>,
+    fifo: VdpFifo,
+    dma_latency: u8,
+    // Used to store writes to data port while FIFO is full
+    pending_fifo_writes: VecDeque<VdpFifoEntry>,
     timing_mode: TimingMode,
+    control_port: ControlPort,
     state: InternalState,
     sprite_state: SpriteState,
     registers: Registers,
@@ -393,9 +582,8 @@ pub struct Vdp {
     sprite_buffers: SpriteBuffers,
     interlaced_sprite_buffers: SpriteBuffers,
     config: VdpConfig,
-    dma_tracker: DmaTracker,
-    fifo_tracker: FifoTracker,
-    vdp_event_times: [VdpEventWithTime; 6],
+    vdp_event_times: [VdpEventWithTime; 7],
+    vdp_event_idx: u8,
 }
 
 impl Vdp {
@@ -407,7 +595,12 @@ impl Vdp {
             vram: vec![0; VRAM_LEN].into_boxed_slice().try_into().unwrap(),
             cram: vec![0; CRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             vsram: vec![0; VSRAM_LEN].into_boxed_slice().try_into().unwrap(),
+            latched_vsram: vec![0; VSRAM_LEN].into_boxed_slice().try_into().unwrap(),
+            fifo: VdpFifo::new(),
+            dma_latency: 0,
+            pending_fifo_writes: VecDeque::with_capacity(8),
             timing_mode,
+            control_port: ControlPort::new(),
             state: InternalState::new(timing_mode),
             sprite_state: SpriteState::default(),
             registers: Registers::new(),
@@ -426,9 +619,8 @@ impl Vdp {
             sprite_buffers: SpriteBuffers::new(),
             interlaced_sprite_buffers: SpriteBuffers::new(),
             config,
-            dma_tracker: DmaTracker::new(),
-            fifo_tracker: FifoTracker::new(),
             vdp_event_times: Self::vdp_event_times(HorizontalDisplaySize::default()),
+            vdp_event_idx: 0,
         }
     }
 
@@ -441,107 +633,152 @@ impl Vdp {
                 self.state.scanline_mclk_cycles,
                 self.registers.horizontal_display_size
             ),
-            self.state.control_write_flag,
+            self.control_port.write_flag,
             self.registers.dma_enabled
         );
 
-        if self.maybe_push_pending_write(PendingWrite::Control(value)) {
+        if self.control_port.dma_active && self.registers.dma_mode == DmaMode::MemoryToVram {
+            // VDP is locking the bus; buffer the write until the DMA is done
+            // Some games depend on this - they'll do a longword write where the first word starts
+            // a DMA and then the second word changes the control port address
+            self.state.pending_writes.push(PendingWrite::Control(value));
             return;
         }
 
-        match self.state.control_write_flag {
+        match self.control_port.write_flag {
             ControlWriteFlag::First => {
-                // Always latch lowest 2 code bits, even if this is a register write
-                self.state.code = (self.state.code & 0xFC) | ((value >> 14) & 0x03) as u8;
-                self.update_data_port_location();
+                // VDP register write OR first word of command write
 
-                if value & 0xE000 == 0x8000 {
-                    // Register set
+                // Always write first word to control port, even if this is a register write
+                self.control_port.write_first_command(value);
 
-                    let prev_h_interrupt_enabled = self.registers.h_interrupt_enabled;
-                    let prev_v_interrupt_enabled = self.registers.v_interrupt_enabled;
-                    let prev_v_display_size = self.registers.vertical_display_size;
-
-                    let register_number = ((value >> 8) & 0x1F) as u8;
-                    self.registers.write_internal_register(register_number, value as u8);
-                    self.vdp_event_times =
-                        Self::vdp_event_times(self.registers.horizontal_display_size);
-
-                    if self.registers.hv_counter_stopped && self.state.latched_hv_counter.is_none()
-                    {
-                        self.state.latched_hv_counter = Some(self.hv_counter());
-                    } else if !self.registers.hv_counter_stopped
-                        && self.state.latched_hv_counter.is_some()
-                    {
-                        self.state.latched_hv_counter = None;
-                    }
-
-                    self.update_latched_registers_if_necessary(register_number);
-
-                    if register_number == 1 {
-                        // Update enabled pixels in sprite state if register #1 was written
-                        let pixel = scanline_mclk_to_pixel(
-                            self.state.scanline_mclk_cycles,
-                            self.registers.horizontal_display_size,
-                        );
-                        self.sprite_state
-                            .handle_display_enabled_write(self.registers.display_enabled, pixel);
-
-                        // Mark vertical border "forgotten" if V size was switched from V30 to V28 between lines 224-239
-                        // This has a few effects:
-                        // - The HINT counter continues to tick down every line throughout VBlank instead of getting reset
-                        // - The VDP continues to render normally inside the vertical border
-                        if prev_v_display_size == VerticalDisplaySize::ThirtyCell
-                            && self.registers.vertical_display_size
-                                == VerticalDisplaySize::TwentyEightCell
-                            && (VerticalDisplaySize::TwentyEightCell.active_scanlines()
-                                ..VerticalDisplaySize::ThirtyCell.active_scanlines())
-                                .contains(&self.state.scanline)
-                        {
-                            self.state.v_border_forgotten = true;
-
-                            // Latch horizontal resolution here since VINT won't happen this frame
-                            self.state.frame_h_resolution = self.registers.horizontal_display_size;
-                        }
-
-                        // V interrupts must be delayed by 1 CPU instruction if they are enabled
-                        // while a V interrupt is pending; Sesame Street Counting Cafe depends on this
-                        self.state.delayed_v_interrupt_next =
-                            !prev_v_interrupt_enabled && self.registers.v_interrupt_enabled;
-                    }
-
-                    self.state.delayed_h_interrupt_next |=
-                        !prev_h_interrupt_enabled && self.registers.h_interrupt_enabled;
+                if value & 0xC000 == 0x8000 {
+                    // VDP register write
+                    self.write_vdp_register(value);
                 } else {
                     // First word of command write
-                    self.state.data_address =
-                        (self.state.latched_high_address_bits) | u32::from(value & 0x3FFF);
-
-                    self.state.control_write_flag = ControlWriteFlag::Second;
+                    self.control_port.write_flag = ControlWriteFlag::Second;
                 }
             }
             ControlWriteFlag::Second => {
-                let high_address_bits = u32::from(value & 0x7) << 14;
-                self.state.latched_high_address_bits = high_address_bits;
-                self.state.data_address = (self.state.data_address & 0x3FFF) | high_address_bits;
-                self.state.control_write_flag = ControlWriteFlag::First;
+                // Second word of command write
+                self.control_port.write_second_command(value, &self.registers);
+                self.control_port.write_flag = ControlWriteFlag::First;
 
-                self.state.code = (((value >> 2) & 0x3C) as u8) | (self.state.code & 0x03);
-                self.update_data_port_location();
+                if self.control_port.dma_active {
+                    // DMA started
+                    self.state.vram_fill_data = None;
+                    self.state.vram_copy_odd_slot = false;
 
-                if self.state.code.bit(5)
-                    && self.registers.dma_enabled
-                    && self.registers.dma_mode != DmaMode::VramFill
-                {
-                    // This is a DMA initiation, not a normal control write
-                    log::trace!("DMA transfer initiated, mode={:?}", self.registers.dma_mode);
-                    self.state.pending_dma = match self.registers.dma_mode {
-                        DmaMode::MemoryToVram => Some(ActiveDma::MemoryToVram),
-                        DmaMode::VramCopy => Some(ActiveDma::VramCopy),
-                        DmaMode::VramFill => unreachable!("dma_mode != VramFill"),
+                    // OutRunners depends on there being a delay to FIFO writes when starting
+                    // memory-to-VRAM DMA
+                    if self.registers.dma_mode == DmaMode::MemoryToVram {
+                        // Hack: Fewer than 7 slots doesn't consistently fix OutRunners, but 7 slots
+                        // breaks Overdrive 2's plasma twisters effect. Use a shorter delay when
+                        // DMAing to VSRAM (almost certainly working around other timing issues)
+                        self.dma_latency = if self.control_port.location == DataPortLocation::Vsram
+                        {
+                            5
+                        } else {
+                            7
+                        };
                     }
+
+                    log::trace!(
+                        "DMA of type {:?} initiated at line {} mclk {} pixel {}",
+                        self.registers.dma_mode,
+                        self.state.scanline,
+                        self.state.scanline_mclk_cycles,
+                        self.state.pixel
+                    );
                 }
             }
+        }
+
+        log::trace!("  Mode: {:?}", self.control_port.mode);
+        log::trace!("  Location bits: {:03b}", self.control_port.location_bits);
+        log::trace!("  Location: {:?}", self.control_port.location);
+        log::trace!("  Address: {:05X}", self.control_port.control_address);
+        log::trace!("  DMA active: {}", self.control_port.dma_active);
+    }
+
+    fn write_vdp_register(&mut self, value: u16) {
+        let prev_h_interrupt_enabled = self.registers.h_interrupt_enabled;
+        let prev_v_interrupt_enabled = self.registers.v_interrupt_enabled;
+        let prev_h_display_size = self.registers.horizontal_display_size;
+        let prev_v_display_size = self.registers.vertical_display_size;
+
+        let register_number = ((value >> 8) & 0x1F) as u8;
+        self.registers.write_internal_register(register_number, value as u8);
+
+        if self.registers.hv_counter_stopped && self.state.latched_hv_counter.is_none() {
+            let HVCounter { hv_counter, .. } =
+                self.hv_counter_internal(self.state.scanline_mclk_cycles);
+            self.state.latched_hv_counter = Some(hv_counter);
+        } else if !self.registers.hv_counter_stopped && self.state.latched_hv_counter.is_some() {
+            self.state.latched_hv_counter = None;
+        }
+
+        self.update_latched_registers_if_necessary(register_number);
+
+        if register_number == 1 {
+            // Update enabled pixels in sprite state if register #1 was written
+            self.sprite_state.handle_display_enabled_write(
+                self.registers.horizontal_display_size,
+                self.registers.display_enabled,
+                self.state.pixel,
+            );
+
+            // Mark vertical border "forgotten" if V size was switched from V30 to V28 between lines 224-239
+            // This has a few effects:
+            // - The HINT counter continues to tick down every line throughout VBlank instead of getting reset
+            // - The VDP continues to render normally inside the vertical border
+            if prev_v_display_size == VerticalDisplaySize::ThirtyCell
+                && self.registers.vertical_display_size == VerticalDisplaySize::TwentyEightCell
+                && (VerticalDisplaySize::TwentyEightCell.active_scanlines()
+                    ..VerticalDisplaySize::ThirtyCell.active_scanlines())
+                    .contains(&self.state.scanline)
+            {
+                log::trace!(
+                    "V border forgotten; line {} pixel {}",
+                    self.state.scanline,
+                    self.state.pixel
+                );
+                self.state.v_border_forgotten = true;
+            }
+
+            // V interrupts must be delayed by 1 CPU instruction if they are enabled
+            // while a V interrupt is pending; Sesame Street Counting Cafe depends on this
+            self.state.delayed_v_interrupt_next =
+                !prev_v_interrupt_enabled && self.registers.v_interrupt_enabled;
+        }
+
+        self.state.delayed_h_interrupt_next |=
+            !prev_h_interrupt_enabled && self.registers.h_interrupt_enabled;
+
+        if prev_h_display_size != self.registers.horizontal_display_size {
+            self.handle_h_resolution_change();
+        }
+    }
+
+    fn handle_h_resolution_change(&mut self) {
+        let h_display_size = self.registers.horizontal_display_size;
+        self.state.pixel = scanline_mclk_to_pixel(self.state.scanline_mclk_cycles, h_display_size);
+
+        let internal_h = pixel_to_internal_h(self.state.pixel, h_display_size);
+        let effective_v = if internal_h >= h_display_size.hblank_begin_h() {
+            self.state.scanline + 1
+        } else {
+            self.state.scanline
+        };
+        let active_scanlines = self.registers.vertical_display_size.active_scanlines();
+        let scanlines_per_frame = self.scanlines_in_current_frame();
+        self.state.in_vblank = (active_scanlines..scanlines_per_frame - 1).contains(&effective_v);
+
+        self.vdp_event_times = Self::vdp_event_times(h_display_size);
+        self.vdp_event_idx = 0;
+        while internal_h >= self.vdp_event_times[self.vdp_event_idx as usize].h {
+            self.vdp_event_idx += 1;
         }
     }
 
@@ -586,158 +823,267 @@ impl Vdp {
         // If this write occurred during active display, re-render the current scanline starting from the current pixel
         if changed
             && self.state.scanline < self.latched_registers.vertical_display_size.active_scanlines()
-            && self.state.scanline_mclk_cycles < ACTIVE_MCLK_CYCLES_PER_SCANLINE
         {
-            let mclk_per_pixel =
-                self.latched_registers.horizontal_display_size.mclk_cycles_per_pixel();
-            let pixel = (self.state.scanline_mclk_cycles / mclk_per_pixel) as u16;
-            self.render_scanline(self.state.scanline, pixel);
+            self.maybe_render_partial_line();
         }
     }
 
-    fn update_data_port_location(&mut self) {
-        let (data_port_location, data_port_mode) = match self.state.code & 0x0F {
-            0x01 => (DataPortLocation::Vram, DataPortMode::Write),
-            0x03 => (DataPortLocation::Cram, DataPortMode::Write),
-            0x05 => (DataPortLocation::Vsram, DataPortMode::Write),
-            0x00 => (DataPortLocation::Vram, DataPortMode::Read),
-            0x08 => (DataPortLocation::Cram, DataPortMode::Read),
-            0x04 => (DataPortLocation::Vsram, DataPortMode::Read),
-            _ => {
-                // Invalid code
-                (DataPortLocation::Vram, DataPortMode::Invalid)
-            }
-        };
-
-        self.state.data_port_location = data_port_location;
-        self.state.data_port_mode = data_port_mode;
-
-        log::trace!(
-            "Set data port location to {data_port_location:?} and mode to {data_port_mode:?}"
-        );
+    fn maybe_render_partial_line(&mut self) {
+        let render_start = self.registers.horizontal_display_size.rendering_begin_h();
+        let active_display_range = self.registers.horizontal_display_size.active_display_h_range();
+        if (render_start..active_display_range.end).contains(&self.state.pixel) {
+            log::trace!(
+                "Re-rendering line {} from pixel {} (frame pixel {})",
+                self.state.scanline,
+                self.state.pixel,
+                self.state.pixel.saturating_sub(active_display_range.start)
+            );
+            self.render_scanline(
+                self.state.scanline,
+                self.state.pixel.saturating_sub(active_display_range.start),
+            );
+        }
     }
 
     pub fn read_data(&mut self) -> u16 {
-        log::trace!("VDP data read");
+        log::trace!(
+            "VDP data read at line {} mclk {} pixel {}",
+            self.state.scanline,
+            self.state.scanline_mclk_cycles,
+            self.state.pixel
+        );
 
-        // Reset write flag
-        self.state.control_write_flag = ControlWriteFlag::First;
+        // Reset write flag on all data port accesses
+        self.control_port.write_flag = ControlWriteFlag::First;
 
-        if self.state.data_port_mode != DataPortMode::Read {
+        if self.control_port.mode != DataPortMode::Read {
+            // TODO return previous read buffer contents?
             return 0xFFFF;
         }
 
-        self.dma_tracker.record_data_port_read();
-
-        let data_port_location = self.state.data_port_location;
-        let data = match data_port_location {
-            DataPortLocation::Vram => {
-                match self.registers.vram_size {
-                    VramSizeKb::SixtyFour => {
-                        // VRAM reads/writes ignore A0
-                        let address = (self.state.data_address & 0xFFFE) as usize;
-                        u16::from_be_bytes([self.vram[address], self.vram[(address + 1) & 0xFFFF]])
-                    }
-                    VramSizeKb::OneTwentyEight => {
-                        // Reads in 128KB mode duplicate a single byte to both halves of the word
-                        let address = convert_128kb_vram_address(self.state.data_address);
-                        let byte = self.vram[address as usize];
-                        u16::from_be_bytes([byte, byte])
-                    }
+        let mut value = match self.control_port.location {
+            DataPortLocation::Vram => match self.registers.vram_size {
+                VramSizeKb::SixtyFour => {
+                    let vram_addr = (self.control_port.data_port_address & 0xFFFF & !1) as usize;
+                    let msb = self.vram[vram_addr];
+                    let lsb = self.vram[vram_addr + 1];
+                    u16::from_be_bytes([msb, lsb])
                 }
+                VramSizeKb::OneTwentyEight => {
+                    let vram_addr = convert_128kb_vram_address(self.control_port.data_port_address);
+                    let byte = self.vram[vram_addr as usize];
+                    u16::from_be_bytes([byte, byte])
+                }
+            },
+            DataPortLocation::Vram8Bit => {
+                // TODO 128KB mode?
+                let vram_addr = ((self.control_port.data_port_address & 0xFFFF) ^ 1) as usize;
+                let lsb = self.vram[vram_addr];
+                u16::from_le_bytes([lsb, self.fifo.next_slot_word().msb()])
             }
             DataPortLocation::Cram => {
-                let address = (self.state.data_address & 0x7F) as usize;
-                if !address.bit(0) {
-                    self.cram[address >> 1]
-                } else {
-                    let msb_in_low_byte = self.cram[address >> 1] & 0x00FF;
-                    let lsb_in_high_byte = self.cram[((address + 1) & 0x7F) >> 1] & 0xFF00;
-                    (msb_in_low_byte | lsb_in_high_byte).swap_bytes()
-                }
+                let cram_addr = (self.control_port.data_port_address & 0x7F) >> 1;
+                self.cram[cram_addr as usize]
             }
             DataPortLocation::Vsram => {
-                let address = (self.state.data_address as usize) % VSRAM_LEN;
-                u16::from_be_bytes([self.vsram[address], self.vsram[(address + 1) % VSRAM_LEN]])
+                let vsram_addr = (self.control_port.data_port_address & 0x7F & !1) as usize;
+                if vsram_addr < VSRAM_LEN {
+                    u16::from_be_bytes([self.vsram[vsram_addr], self.vsram[vsram_addr + 1]])
+                } else {
+                    // TODO return most recently used VSRAM entry?
+                    u16::from_be_bytes([self.vsram[0], self.vsram[1]])
+                }
+            }
+            DataPortLocation::Invalid => {
+                // TODO return previous read buffer contents?
+                0xFFFF
             }
         };
 
-        self.increment_data_address();
+        if !self.fifo.is_empty() {
+            self.state.data_port_read_wait = true;
 
-        let line_type = LineType::from_vdp(self);
-        self.fifo_tracker.record_access(line_type, data_port_location, self.registers.vram_size);
+            if let Some(read_override) = self.data_port_fifo_override() {
+                value = read_override;
+            }
+        }
 
-        data
+        self.control_port.increment_data_port_address(&self.registers);
+
+        // CRAM is 9-bit memory and VSRAM is 11-bit memory
+        // Remaining bits are filled from the last word written to the next available FIFO slot
+        match self.control_port.location {
+            DataPortLocation::Cram => (value & 0x0EEE) | (self.fifo.next_slot_word() & !0x0EEE),
+            DataPortLocation::Vsram => (value & 0x07FF) | (self.fifo.next_slot_word() & !0x07FF),
+            _ => value,
+        }
+    }
+
+    // TODO this function is not well-tested
+    fn data_port_fifo_override(&self) -> Option<u16> {
+        let mut read_override: Option<u16> = None;
+
+        let address_mask = match self.control_port.location {
+            DataPortLocation::Vram | DataPortLocation::Vram8Bit => match self.registers.vram_size {
+                VramSizeKb::SixtyFour => 0xFFFF & !1,
+                VramSizeKb::OneTwentyEight => 0x1FFFF & !1,
+            },
+            DataPortLocation::Cram | DataPortLocation::Vsram => 0x7F & !1,
+            DataPortLocation::Invalid => !0,
+        };
+
+        for entry in self.fifo.iter() {
+            if entry.mode != DataPortMode::Write
+                || entry.location != self.control_port.location
+                || (entry.address & address_mask)
+                    != (self.control_port.data_port_address & address_mask)
+            {
+                continue;
+            }
+
+            match self.control_port.location {
+                DataPortLocation::Vram => match self.registers.vram_size {
+                    VramSizeKb::SixtyFour => {
+                        read_override = Some(if !entry.address.bit(0) {
+                            entry.word
+                        } else {
+                            entry.word.swap_bytes()
+                        });
+                    }
+                    VramSizeKb::OneTwentyEight => {
+                        let byte = entry.word.lsb();
+                        read_override = Some(u16::from_le_bytes([byte, byte]));
+                    }
+                },
+                DataPortLocation::Cram | DataPortLocation::Vsram => {
+                    read_override = Some(entry.word);
+                }
+                DataPortLocation::Vram8Bit | DataPortLocation::Invalid => {}
+            }
+        }
+
+        if let Some(read_override) = read_override {
+            log::trace!(
+                "Overriding {:?} read of {:04X} to {read_override:04X}",
+                self.control_port.location,
+                self.control_port.data_port_address
+            );
+        }
+
+        read_override
     }
 
     pub fn write_data(&mut self, value: u16) {
         log::trace!(
-            "VDP data write on scanline {} / mclk {} / pixel {}: {value:04X}",
+            "VDP data write on scanline {} / mclk {} / pixel {}: {value:04X}, data port addr {:04X}",
             self.state.scanline,
             self.state.scanline_mclk_cycles,
-            scanline_mclk_to_pixel(
-                self.state.scanline_mclk_cycles,
-                self.registers.horizontal_display_size
-            )
+            self.state.pixel,
+            self.control_port.data_port_address
         );
 
-        // Reset write flag
-        self.state.control_write_flag = ControlWriteFlag::First;
-
-        if self.state.data_port_mode != DataPortMode::Write {
+        if self.control_port.dma_active && self.registers.dma_mode == DmaMode::MemoryToVram {
+            // VDP is locking the bus; buffer the write until the DMA is done
+            self.state.pending_writes.push(PendingWrite::Data(value));
             return;
         }
 
-        if self.maybe_push_pending_write(PendingWrite::Data(value)) {
-            return;
+        // Reset write flag on all data port accesses
+        self.control_port.write_flag = ControlWriteFlag::First;
+
+        let fifo_entry = self.control_port.new_fifo_entry(value, self.registers.vram_size);
+        self.control_port.increment_data_port_address(&self.registers);
+
+        if self.fifo.is_full() {
+            self.pending_fifo_writes.push_back(fifo_entry);
+        } else {
+            self.push_fifo(fifo_entry);
         }
-
-        if self.state.code.bit(5)
-            && self.registers.dma_enabled
-            && self.registers.dma_mode == DmaMode::VramFill
-        {
-            log::trace!("Initiated VRAM fill DMA with fill data = {value:04X}");
-            self.state.pending_dma = Some(ActiveDma::VramFill(value));
-            return;
-        }
-
-        let data_port_location = self.state.data_port_location;
-        match data_port_location {
-            DataPortLocation::Vram => {
-                // VRAM reads/writes ignore A0
-                log::trace!("Writing to {:04X} in VRAM", self.state.data_address);
-                self.write_vram_word(self.state.data_address, value);
-            }
-            DataPortLocation::Cram => {
-                let address = (self.state.data_address & 0x7F) as usize;
-                log::trace!("Writing to {address:02X} in CRAM");
-                self.write_cram_word(self.state.data_address, value);
-            }
-            DataPortLocation::Vsram => {
-                let address = (self.state.data_address as usize) % VSRAM_LEN;
-                log::trace!("Writing to {address:02X} in VSRAM");
-                let [msb, lsb] = value.to_be_bytes();
-                self.vsram[address] = msb;
-                self.vsram[(address + 1) % VSRAM_LEN] = lsb;
-            }
-        }
-
-        self.increment_data_address();
-
-        let line_type = LineType::from_vdp(self);
-        self.fifo_tracker.record_access(line_type, data_port_location, self.registers.vram_size);
     }
 
-    fn maybe_push_pending_write(&mut self, write: PendingWrite) -> bool {
-        if self.state.pending_dma.is_some()
-            || self.fifo_tracker.should_halt_cpu()
-            || (self.dma_tracker.is_in_progress() && matches!(write, PendingWrite::Data(..)))
-        {
-            self.state.pending_writes.push(write);
-            true
-        } else {
-            false
+    fn push_fifo(&mut self, entry: VdpFifoEntry) {
+        // Check sprite table cache on FIFO push; this works around some timing issues in rendering
+        // Overdrive 2's textured cube effect
+        if entry.mode == DataPortMode::Write && entry.location == DataPortLocation::Vram {
+            match self.registers.vram_size {
+                VramSizeKb::SixtyFour => {
+                    // A16 is checked for sprite table cache even in 64KB mode
+                    if !entry.address.bit(16) {
+                        self.maybe_update_sprite_cache(entry.address as u16, entry.word.msb());
+                        self.maybe_update_sprite_cache(
+                            (entry.address ^ 1) as u16,
+                            entry.word.lsb(),
+                        );
+                    }
+                }
+                VramSizeKb::OneTwentyEight => {
+                    // Both sprite cache bytes are updated even in 128KB mode, but byteswapped
+                    self.maybe_update_sprite_cache(entry.address as u16, entry.word.lsb());
+                    self.maybe_update_sprite_cache((entry.address ^ 1) as u16, entry.word.msb());
+                }
+            }
         }
+
+        log::trace!(
+            "FIFO push (line {} pixel {}): {entry:04X?}",
+            self.state.scanline,
+            self.state.pixel
+        );
+
+        self.fifo.push(entry);
+    }
+
+    fn pop_fifo(&mut self) {
+        let entry = self.fifo.front();
+
+        log::trace!(
+            "FIFO pop (line {} pixel {} len {}): {entry:04X?}",
+            self.state.scanline,
+            self.state.pixel,
+            self.fifo.len()
+        );
+
+        if entry.mode == DataPortMode::Write {
+            match entry.location {
+                DataPortLocation::Vram => {
+                    let vram_addr = (entry.address & 0xFFFF) as usize;
+                    match entry.size {
+                        VramWriteSize::Word => {
+                            self.vram[vram_addr] = entry.word.msb();
+                            self.vram[vram_addr ^ 1] = entry.word.lsb();
+                        }
+                        VramWriteSize::Byte => {
+                            self.vram[vram_addr] = entry.word.lsb();
+                        }
+                    }
+                }
+                DataPortLocation::Cram => {
+                    let cram_addr = (entry.address & 0x7F) >> 1;
+                    self.cram[cram_addr as usize] = entry.word;
+                }
+                DataPortLocation::Vsram => {
+                    let vsram_addr = (entry.address & 0x7F & !1) as usize;
+                    if vsram_addr < VSRAM_LEN {
+                        self.vsram[vsram_addr] = entry.word.msb();
+                        self.vsram[vsram_addr + 1] = entry.word.lsb();
+                    }
+                }
+                DataPortLocation::Vram8Bit | DataPortLocation::Invalid => {}
+            }
+        }
+
+        // VRAM fill begins when an entry is popped from the FIFO after starting VRAM fill DMA
+        // Writing to the FIFO after the DMA begins will update the data used for the fill
+        self.state.vram_fill_data = Some(entry.word);
+
+        self.fifo.pop();
+        if !self.fifo.is_full() {
+            if let Some(pending_write) = self.pending_fifo_writes.pop_front() {
+                self.push_fifo(pending_write);
+            }
+        }
+
+        self.state.data_port_read_wait &= !self.fifo.is_empty();
     }
 
     pub fn write_debug_register(&mut self, value: u16) {
@@ -746,81 +1092,109 @@ impl Vdp {
         log::trace!("VDP debug register write: {:?}", self.debug_register);
     }
 
-    pub fn read_status(&mut self) -> u16 {
+    pub fn read_status(&mut self, m68k_opcode: u16, m68k_divider: u64) -> u16 {
         log::trace!("VDP status register read");
 
-        let scanline_mclk = self.state.scanline_mclk_cycles;
-        let VCounter { vblank_flag, .. } = self.v_counter(scanline_mclk);
+        let read_adjustment = Self::status_read_mclk_adjustment(m68k_opcode, m68k_divider);
+        let mut scanline_mclk = self.state.scanline_mclk_cycles + read_adjustment;
+        let HVCounter { internal_h, internal_v: v_counter, vblank_flag, .. } =
+            self.hv_counter_internal(scanline_mclk);
 
-        // HBlank flag is based on the H counter crossing specific values, not on mclk being >= 2560
-        let h_counter = self.h_counter(scanline_mclk);
-        let hblank_flag = match self.registers.horizontal_display_size {
-            HorizontalDisplaySize::ThirtyTwoCell => h_counter <= 0x04 || h_counter >= 0x93,
-            HorizontalDisplaySize::FortyCell => h_counter <= 0x05 || h_counter >= 0xB3,
+        let hblank_flag = !self
+            .registers
+            .horizontal_display_size
+            .hblank_flag_clear_h_range()
+            .contains(&internal_h);
+
+        if scanline_mclk >= MCLK_CYCLES_PER_SCANLINE {
+            scanline_mclk -= MCLK_CYCLES_PER_SCANLINE;
+        }
+
+        // It must be possible for VINT to read 1 before the 68000 handles the interrupt; several
+        // games depend on this (e.g. Ex-Mutants and Tyrants: Fight Through Time)
+        let active_scanlines = self.registers.vertical_display_size.active_scanlines();
+        let passed_vint = u16::from(v_counter) == active_scanlines && {
+            let vint_mclk = self.registers.horizontal_display_size.v_interrupt_scanline_mclk();
+            let original_scanline_mclk = self.state.scanline_mclk_cycles;
+            scanline_mclk >= vint_mclk
+                && (original_scanline_mclk < vint_mclk
+                    || original_scanline_mclk >= MCLK_CYCLES_PER_SCANLINE - vint_mclk)
         };
+        let vint_flag = self.state.v_interrupt_pending || passed_vint;
 
-        let status = (u16::from(self.fifo_tracker.is_empty()) << 9)
-            | (u16::from(self.fifo_tracker.is_full()) << 8)
-            | (u16::from(self.state.vint_flag) << 7)
+        let status = (u16::from(self.fifo.is_empty()) << 9)
+            | (u16::from(self.fifo.is_full()) << 8)
+            | (u16::from(vint_flag) << 7)
             | (u16::from(self.sprite_state.overflow_flag()) << 6)
             | (u16::from(self.sprite_state.collision_flag()) << 5)
             | (u16::from(self.state.interlaced_odd) << 4)
             | (u16::from(vblank_flag || !self.registers.display_enabled) << 3)
             | (u16::from(hblank_flag) << 2)
-            | (u16::from(self.dma_tracker.is_in_progress()) << 1)
+            | (u16::from(self.control_port.dma_active) << 1)
             | u16::from(self.timing_mode == TimingMode::Pal);
 
         // Reading status register clears the sprite overflow and collision flags
         self.sprite_state.clear_status_flags();
 
-        // Reset control write flag
-        self.state.control_write_flag = ControlWriteFlag::First;
+        // Reset control write flag on all status register reads
+        self.control_port.write_flag = ControlWriteFlag::First;
 
         status
     }
 
-    #[must_use]
-    pub fn hv_counter(&self) -> u16 {
-        if let Some(latched_hv_counter) = self.state.latched_hv_counter {
-            return latched_hv_counter;
+    fn status_read_mclk_adjustment(m68k_opcode: u16, m68k_divider: u64) -> u64 {
+        // Timing hack: When the CPU reads the status register or the HV counter, return values
+        // from slightly in the future to account for the actual read occurring towards the end
+        // of the instruction.
+        // Using the same value for everything will break either Overdrive 1 (background on the
+        // heart screen) or Overdrive 2 (plasma twisters). It needs to vary based on what instruction
+        // is performing the read
+        match m68000_emu::cycles_if_move_or_btst(m68k_opcode) {
+            Some(cycles) => u64::from(cycles - 4) * m68k_divider,
+            None => 8 * m68k_divider,
         }
-
-        let h_counter = self.h_counter(self.state.scanline_mclk_cycles);
-        let VCounter { counter: v_counter, .. } = self.v_counter(self.state.scanline_mclk_cycles);
-
-        log::trace!(
-            "HV counter read on scanline {}; H={h_counter:02X}, V={v_counter:02X}",
-            self.state.scanline
-        );
-
-        u16::from_be_bytes([v_counter, h_counter])
     }
 
-    #[inline]
-    fn h_counter(&self, scanline_mclk: u64) -> u8 {
-        // Values from https://gendev.spritesmind.net/forum/viewtopic.php?t=768
-        match self.registers.horizontal_display_size {
-            HorizontalDisplaySize::ThirtyTwoCell => {
-                let h = (scanline_mclk / 20) as u8;
-                if h <= 0x93 { h } else { h + (0xE9 - 0x94) }
-            }
-            HorizontalDisplaySize::FortyCell => {
-                let pixel = scanline_mclk_to_pixel_h40(scanline_mclk);
-                match pixel {
-                    0..=364 => (pixel / 2) as u8,
-                    365..=419 => (0xE4 + (pixel - 364) / 2) as u8,
-                    _ => panic!("H40 pixel values should always be < 420"),
-                }
-            }
+    #[must_use]
+    pub fn hv_counter(&self, m68k_opcode: u16, m68k_divider: u64) -> u16 {
+        let read_adjustment = Self::status_read_mclk_adjustment(m68k_opcode, m68k_divider);
+        let hv = self.hv_counter_internal(self.state.scanline_mclk_cycles + read_adjustment);
+
+        log::trace!(
+            "HV counter read on scanline {}; H={:02X}, V={:02X}, internal H={:03X}",
+            self.state.scanline,
+            hv.hv_counter.lsb(),
+            hv.hv_counter.msb(),
+            hv.internal_h,
+        );
+
+        hv.hv_counter
+    }
+
+    fn hv_counter_internal(&self, mut scanline_mclk: u64) -> HVCounter {
+        let VCounter { counter: v_counter, vblank_flag } = self.v_counter(scanline_mclk);
+
+        if scanline_mclk >= MCLK_CYCLES_PER_SCANLINE {
+            scanline_mclk -= MCLK_CYCLES_PER_SCANLINE;
         }
+        let pixel = scanline_mclk_to_pixel(scanline_mclk, self.registers.horizontal_display_size);
+        let internal_h = pixel_to_internal_h(pixel, self.registers.horizontal_display_size);
+
+        let hv_counter = self.state.latched_hv_counter.unwrap_or_else(|| {
+            let h_counter = (internal_h >> 1) as u8;
+            u16::from_be_bytes([v_counter, h_counter])
+        });
+
+        HVCounter { internal_h, internal_v: v_counter, hv_counter, vblank_flag }
     }
 
     #[inline]
     fn v_counter(&self, scanline_mclk: u64) -> VCounter {
         // Values from https://gendev.spritesmind.net/forum/viewtopic.php?t=768
 
-        // V counter increments for the next line shortly after the start of HBlank
-        let in_hblank = scanline_mclk >= ACTIVE_MCLK_CYCLES_PER_SCANLINE;
+        // V counter increments for the next line when HINT is generated
+        let in_hblank =
+            scanline_mclk >= self.registers.horizontal_display_size.h_interrupt_scanline_mclk();
         let scanline = if in_hblank {
             let scanlines_per_frame = self.scanlines_in_current_frame();
             if self.state.scanline == scanlines_per_frame - 1 { 0 } else { self.state.scanline + 1 }
@@ -906,118 +1280,300 @@ impl Vdp {
         self.state.delayed_v_interrupt = mem::take(&mut self.state.delayed_v_interrupt_next);
         self.state.delayed_h_interrupt = mem::take(&mut self.state.delayed_h_interrupt_next);
 
-        self.state.scanline_mclk_cycles += master_clock_cycles;
-        self.process_events_after_mclk_update();
-
-        // Check if the VDP has advanced to a new scanline
         let mut tick_effect = VdpTickEffect::None;
+        self.state.scanline_mclk_cycles += master_clock_cycles;
         if self.state.scanline_mclk_cycles >= MCLK_CYCLES_PER_SCANLINE {
+            let end_of_line = self.registers.horizontal_display_size.pixels_including_hblank();
+            self.advance_to_pixel(end_of_line, memory);
+
             tick_effect = self.advance_to_next_line();
-            self.process_events_after_mclk_update();
         }
 
-        let line_type = LineType::from_vdp(self);
-        let h_display_size = self.registers.horizontal_display_size;
-        let pixel = scanline_mclk_to_pixel(self.state.scanline_mclk_cycles, h_display_size);
-
-        self.fifo_tracker.advance_to_pixel(self.state.scanline, pixel, h_display_size, line_type);
-
-        // Count down DMA time before checking if a DMA was initiated in the last CPU instruction
-        self.dma_tracker.advance_to_pixel(self.state.scanline, pixel, h_display_size, line_type);
-
-        if let Some(active_dma) = self.state.pending_dma {
-            // TODO accurate DMA timing
-            self.run_dma(memory, active_dma);
-        }
-
-        if !self.dma_tracker.is_in_progress()
-            && !self.fifo_tracker.should_halt_cpu()
-            && !self.state.pending_writes.is_empty()
-        {
-            self.apply_pending_writes();
-        }
+        let pixel = scanline_mclk_to_pixel(
+            self.state.scanline_mclk_cycles,
+            self.registers.horizontal_display_size,
+        );
+        self.advance_to_pixel(pixel, memory);
 
         tick_effect
     }
 
-    fn vdp_event_times(h_display_size: HorizontalDisplaySize) -> [VdpEventWithTime; 6] {
-        // H interrupts occur a set number of mclk cycles after the end of the active display,
-        // not right at the start of HBlank
-        let h_interrupt_delay = match h_display_size {
-            // 12 pixels after active display
-            HorizontalDisplaySize::ThirtyTwoCell => 120,
-            // 16 pixels after active display
-            HorizontalDisplaySize::FortyCell => 128,
-        };
+    fn advance_to_pixel<Medium: PhysicalMedium>(
+        &mut self,
+        end_pixel: u16,
+        memory: &mut Memory<Medium>,
+    ) {
+        let h_display_size = self.registers.horizontal_display_size;
 
-        [
-            VdpEventWithTime::new(V_INTERRUPT_DELAY, VdpEvent::VInterrupt),
-            VdpEventWithTime::new(ACTIVE_MCLK_CYCLES_PER_SCANLINE, VdpEvent::HBlankStart),
-            VdpEventWithTime::new(
-                ACTIVE_MCLK_CYCLES_PER_SCANLINE + h_interrupt_delay,
-                VdpEvent::HInterrupt,
-            ),
-            VdpEventWithTime::new(
-                ACTIVE_MCLK_CYCLES_PER_SCANLINE + h_interrupt_delay + REGISTER_LATCH_DELAY_MCLK,
-                VdpEvent::LatchRegisters,
-            ),
-            VdpEventWithTime::new(VINT_FLAG_MCLK, VdpEvent::VIntStatusFlag),
-            VdpEventWithTime::new(u64::MAX, VdpEvent::None),
-        ]
-    }
+        let access_slots = h_display_size.access_slots();
+        let blank_refresh_slots = h_display_size.blank_refresh_slots();
 
-    fn process_events_after_mclk_update(&mut self) {
-        let scanline_mclk = self.state.scanline_mclk_cycles;
-        while scanline_mclk >= self.vdp_event_times[self.state.vdp_event_idx as usize].mclk {
-            match self.vdp_event_times[self.state.vdp_event_idx as usize].event {
-                VdpEvent::VInterrupt => {
-                    let active_scanlines = self.registers.vertical_display_size.active_scanlines();
-                    if self.state.scanline == active_scanlines {
-                        log::trace!("Generating V interrupt");
-                        self.state.v_interrupt_pending = true;
+        while self.state.pixel < end_pixel {
+            let pixel = self.state.pixel;
+            if (self.control_port.dma_active || !self.fifo.is_empty()) && !pixel.bit(0) {
+                let slot_idx = (pixel >> 1) as u8;
+                let blank = !self.registers.display_enabled || self.state.in_vblank;
+                if (blank && !blank_refresh_slots[slot_idx as usize])
+                    || (!blank && access_slots[slot_idx as usize])
+                {
+                    self.handle_access_slot(blank, slot_idx, blank_refresh_slots, memory);
+                }
 
-                        // Latch H resolution at start of VBlank in case the game changes resolution
-                        // at start of VBlank, e.g. Bugs Bunny in Double Trouble
-                        self.state.frame_h_resolution = self.registers.horizontal_display_size;
-                    }
+                // TODO correct refresh slot locations for active display
+                if !blank_refresh_slots[slot_idx as usize] {
+                    self.fifo.decrement_latency();
                 }
-                VdpEvent::HBlankStart => {
-                    self.sprite_state.handle_hblank_start(
-                        self.registers.horizontal_display_size,
-                        self.registers.display_enabled,
-                    );
-
-                    // Sprite processing phase 2
-                    self.fetch_sprite_attributes();
-                }
-                VdpEvent::HInterrupt => {
-                    self.latched_sprite_attributes
-                        .copy_from_slice(self.cached_sprite_attributes.as_ref());
-
-                    self.decrement_h_interrupt_counter();
-                }
-                VdpEvent::LatchRegisters => {
-                    // Almost all VDP registers and the full screen V scroll values are latched within the 36 CPU cycles after
-                    // HINT is generated. Changing values after this point will not take effect until after the next scanline
-                    // is rendered.
-                    // The only VDP registers that are not latched are the nametable addresses, the display enabled bit, and
-                    // the background color.
-                    self.latched_registers = self.registers.clone();
-                    self.latched_full_screen_v_scroll = (
-                        u16::from_be_bytes([self.vsram[0], self.vsram[1]]),
-                        u16::from_be_bytes([self.vsram[2], self.vsram[3]]),
-                    );
-                }
-                VdpEvent::VIntStatusFlag => {
-                    let active_scanlines = self.registers.vertical_display_size.active_scanlines();
-                    if self.state.scanline == active_scanlines - 1 {
-                        self.state.vint_flag = true;
-                    }
-                }
-                VdpEvent::None => {}
             }
 
-            self.state.vdp_event_idx += 1;
+            let internal_h = pixel_to_internal_h(pixel, h_display_size);
+            while internal_h >= self.vdp_event_times[self.vdp_event_idx as usize].h {
+                let event = self.vdp_event_times[self.vdp_event_idx as usize].event;
+                self.vdp_event_idx += 1;
+
+                self.handle_vdp_event(event);
+            }
+
+            self.state.pixel += 1;
+
+            if self.state.pending_write_delay_pixels != 0 {
+                self.state.pending_write_delay_pixels -= 1;
+                if self.state.pending_write_delay_pixels == 0 {
+                    self.apply_pending_writes();
+                }
+            }
+        }
+    }
+
+    fn handle_access_slot<Medium: PhysicalMedium>(
+        &mut self,
+        blank: bool,
+        slot_idx: u8,
+        blank_refresh_slots: &[bool; 256],
+        memory: &mut Memory<Medium>,
+    ) {
+        self.dma_latency = self.dma_latency.saturating_sub(1);
+
+        // Bus read slot for memory-to-VRAM DMA
+        if self.control_port.dma_active
+            && self.registers.dma_mode == DmaMode::MemoryToVram
+            && !self.fifo.is_full()
+        {
+            // Lose an extra read slot for every VRAM refresh slot during blanking
+            // Direct color DMA demos depend on this
+            let should_skip_read =
+                blank && slot_idx != 0 && blank_refresh_slots[(slot_idx - 1) as usize];
+            if !should_skip_read {
+                self.progress_memory_to_vram_dma(memory);
+            }
+        }
+
+        // Video memory write slot
+        // FIFO takes priority over VRAM fill/copy DMA
+        if !self.fifo.is_empty() {
+            if self.dma_latency == 0 && self.fifo.front().latency == 0 {
+                self.pop_fifo();
+            }
+        } else if self.control_port.dma_active {
+            match self.registers.dma_mode {
+                DmaMode::VramFill => self.progress_vram_fill_dma(),
+                DmaMode::VramCopy => self.progress_vram_copy_dma(),
+                DmaMode::MemoryToVram => {}
+            }
+        }
+    }
+
+    fn progress_memory_to_vram_dma<Medium: PhysicalMedium>(&mut self, memory: &mut Memory<Medium>) {
+        let word = memory.read_word_for_dma(self.registers.dma_source_address);
+        self.increment_dma_source_address();
+
+        self.push_fifo(self.control_port.new_fifo_entry(word, self.registers.vram_size));
+        self.control_port.increment_data_port_address(&self.registers);
+
+        self.decrement_dma_length();
+    }
+
+    fn progress_vram_fill_dma(&mut self) {
+        let Some(fill_data) = self.state.vram_fill_data else { return };
+
+        // VRAM fill increments source address on every write even though it does not use the address
+        self.increment_dma_source_address();
+
+        match self.control_port.location {
+            DataPortLocation::Vram | DataPortLocation::Vram8Bit => {
+                let byte = fill_data.msb();
+                let vram_addr = (self.control_port.data_port_address ^ 1) & 0xFFFF;
+                self.vram[vram_addr as usize] = byte;
+                self.maybe_update_sprite_cache(vram_addr as u16, byte);
+            }
+            DataPortLocation::Cram => {
+                // CRAM fill is bugged: uses the value from the next FIFO slot instead of fill data
+                let word = self.fifo.next_slot_word();
+                let cram_addr = (self.control_port.data_port_address & 0x7F) >> 1;
+                self.cram[cram_addr as usize] = word;
+            }
+            DataPortLocation::Vsram => {
+                // VSRAM fill is bugged; uses the value from the next FIFO slot instead of fill data
+                let word = self.fifo.next_slot_word();
+                let vsram_addr = (self.control_port.data_port_address & 0x7F & !1) as usize;
+                if vsram_addr < VSRAM_LEN {
+                    self.vsram[vsram_addr] = word.msb();
+                    self.vsram[vsram_addr + 1] = word.lsb();
+                }
+            }
+            DataPortLocation::Invalid => {}
+        }
+
+        self.control_port.increment_data_port_address(&self.registers);
+        self.decrement_dma_length();
+    }
+
+    fn progress_vram_copy_dma(&mut self) {
+        self.state.vram_copy_odd_slot = !self.state.vram_copy_odd_slot;
+        if self.state.vram_copy_odd_slot {
+            return;
+        }
+
+        let source_addr = (self.registers.dma_source_address >> 1) ^ 1;
+        self.increment_dma_source_address();
+
+        let dest_addr = (self.control_port.data_port_address & 0xFFFF) ^ 1;
+        self.control_port.increment_data_port_address(&self.registers);
+
+        let byte = self.vram[source_addr as usize];
+        self.vram[dest_addr as usize] = byte;
+        self.maybe_update_sprite_cache(dest_addr as u16, byte);
+
+        self.decrement_dma_length();
+    }
+
+    fn increment_dma_source_address(&mut self) {
+        // DMA source address always wraps within a 0x20000-byte block
+        self.registers.dma_source_address = (self.registers.dma_source_address & !0x1FFFF)
+            | (self.registers.dma_source_address.wrapping_add(2) & 0x1FFFF);
+    }
+
+    fn decrement_dma_length(&mut self) {
+        // Check for 0 after decrementing; an initial DMA length of 0 should function as 65536
+        self.registers.dma_length = self.registers.dma_length.wrapping_sub(1);
+        if self.registers.dma_length != 0 {
+            return;
+        }
+
+        self.control_port.dma_active = false;
+
+        // Hack: If a memory-to-VRAM DMA finishes in fewer than 5 slots, keep a small latency
+        // before allowing FIFO writes through. This fixes the VDPFIFOTesting FIFO wait states
+        // test from occasionally failing
+        self.dma_latency = cmp::min(2, self.dma_latency);
+
+        if !self.state.pending_writes.is_empty() {
+            // If any port writes were enqueued after starting a memory-to-VRAM DMA, wait 4
+            // pixels before applying them (slightly longer than 4 CPU cycles)
+            self.state.pending_write_delay_pixels = 4;
+        }
+
+        log::trace!(
+            "DMA of type {:?} complete at line {} mclk {}; FIFO len {}",
+            self.registers.dma_mode,
+            self.state.scanline,
+            self.state.scanline_mclk_cycles,
+            self.fifo.len()
+        );
+    }
+
+    fn vdp_event_times(h_display_size: HorizontalDisplaySize) -> [VdpEventWithTime; 7] {
+        let events = [
+            VdpEventWithTime::new(h_display_size.v_interrupt_h(), VdpEvent::VInterrupt),
+            VdpEventWithTime::new(h_display_size.rendering_begin_h(), VdpEvent::LatchVsram),
+            VdpEventWithTime::new(
+                h_display_size.active_display_h_range().start,
+                VdpEvent::RenderLine,
+            ),
+            VdpEventWithTime::new(h_display_size.hblank_begin_h(), VdpEvent::HBlankStart),
+            VdpEventWithTime::new(h_display_size.h_interrupt_h(), VdpEvent::HInterrupt),
+            VdpEventWithTime::new(h_display_size.latch_registers_h(), VdpEvent::LatchRegisters),
+            VdpEventWithTime::new(u16::MAX, VdpEvent::None),
+        ];
+
+        debug_assert!((0..events.len() - 1).all(|i| events[i + 1].h >= events[i].h));
+
+        events
+    }
+
+    fn handle_vdp_event(&mut self, event: VdpEvent) {
+        match event {
+            VdpEvent::VInterrupt => {
+                let active_scanlines = self.registers.vertical_display_size.active_scanlines();
+                if self.state.scanline == active_scanlines {
+                    log::trace!("Generating V interrupt");
+                    self.state.v_interrupt_pending = true;
+
+                    // Latch H resolution at start of VBlank in case the game changes resolution
+                    // at start of VBlank, e.g. Bugs Bunny in Double Trouble
+                    self.state.frame_h_resolution = self.registers.horizontal_display_size;
+                }
+            }
+            VdpEvent::LatchVsram => {
+                // Latching VSRAM 16 pixels before rendering fixes a minor glitch in Overdrive 2's
+                // plasma twister effect (slightly incorrect graphics in the bottom left corner)
+                self.latched_vsram.copy_from_slice(self.vsram.as_ref());
+            }
+            VdpEvent::RenderLine => {
+                self.sprite_state
+                    .handle_line_end(self.registers.horizontal_display_size, self.state.pixel);
+
+                // Sprite processing phase 1
+                // In actual hardware this takes place during HBlank
+                log::trace!("Scanning sprites");
+                self.scan_sprites_one_line_ahead();
+
+                // Render current line
+                self.render_scanline(self.state.scanline, 0);
+            }
+            VdpEvent::HBlankStart => {
+                self.sprite_state.handle_hblank_start(
+                    self.registers.horizontal_display_size,
+                    self.registers.display_enabled,
+                );
+
+                // Sprite processing phase 2
+                // In actual hardware this takes place during active display
+                log::trace!("Fetching sprite attributes");
+                self.fetch_sprite_attributes();
+
+                let active_scanlines = self.registers.vertical_display_size.active_scanlines();
+                let scanlines_per_frame = self.scanlines_in_current_frame();
+                if self.state.scanline == active_scanlines - 1
+                    || (self.state.v_border_forgotten
+                        && self.state.scanline
+                            == VerticalDisplaySize::ThirtyCell.active_scanlines() - 1)
+                {
+                    self.state.in_vblank = true;
+                } else if self.state.scanline == scanlines_per_frame - 2 {
+                    self.state.in_vblank = false;
+                }
+            }
+            VdpEvent::HInterrupt => {
+                log::trace!("Latching cached sprite table");
+                self.latched_sprite_attributes
+                    .copy_from_slice(self.cached_sprite_attributes.as_ref());
+
+                self.decrement_h_interrupt_counter();
+            }
+            VdpEvent::LatchRegisters => {
+                // Almost all VDP registers and the full screen V scroll values are latched within the 36 CPU cycles after
+                // HINT is generated. Changing values after this point will not take effect until after the next scanline
+                // is rendered.
+                // The only VDP registers that are not latched are the nametable addresses, the display enabled bit, and
+                // the background color.
+                log::trace!("Latching VDP registers");
+                self.latched_registers = self.registers.clone();
+                self.latched_full_screen_v_scroll = (
+                    u16::from_be_bytes([self.vsram[0], self.vsram[1]]),
+                    u16::from_be_bytes([self.vsram[2], self.vsram[3]]),
+                );
+            }
+            VdpEvent::None => {}
         }
     }
 
@@ -1044,20 +1600,12 @@ impl Vdp {
     }
 
     fn advance_to_next_line(&mut self) -> VdpTickEffect {
-        let h_display_size = self.registers.horizontal_display_size;
-        self.sprite_state.handle_line_end(h_display_size);
-
-        // Sprite processing phase 1
-        self.scan_sprites_two_lines_ahead();
-
-        // Render the next line before advancing counters
-        self.render_next_scanline();
-
         let scanlines_per_frame = self.scanlines_in_current_frame();
 
         self.state.scanline_mclk_cycles -= MCLK_CYCLES_PER_SCANLINE;
-        self.state.vdp_event_idx = 0;
+        self.vdp_event_idx = 0;
         self.state.scanline += 1;
+        self.state.pixel = 0;
         if self.state.scanline == scanlines_per_frame {
             self.state.scanline = 0;
             self.state.v_border_forgotten = false;
@@ -1075,6 +1623,7 @@ impl Vdp {
                     self.prepare_frame_buffer_for_interlaced();
                 }
             } else if self.state.interlaced_frame {
+                // TODO this actually happens _slightly_ after H=0
                 self.state.interlaced_odd = !self.state.interlaced_odd;
             }
 
@@ -1110,50 +1659,6 @@ impl Vdp {
                     self.write_data(value);
                 }
             }
-        }
-    }
-
-    fn increment_data_address(&mut self) {
-        self.state.data_address =
-            self.state.data_address.wrapping_add(self.registers.data_port_auto_increment.into());
-    }
-
-    fn write_vram_word(&mut self, address: u32, value: u16) {
-        let [msb, lsb] = value.to_be_bytes();
-
-        match self.registers.vram_size {
-            VramSizeKb::SixtyFour => {
-                let vram_addr = address & 0xFFFF;
-                self.vram[vram_addr as usize] = msb;
-                self.vram[(vram_addr ^ 0x1) as usize] = lsb;
-
-                // Address bit 16 is always checked for sprite cache, even in 64KB mode
-                if !address.bit(16) {
-                    self.maybe_update_sprite_cache(vram_addr as u16, msb);
-                    self.maybe_update_sprite_cache((vram_addr ^ 0x1) as u16, lsb);
-                }
-            }
-            VramSizeKb::OneTwentyEight => {
-                // Only LSB is written in 128KB mode
-                let vram_addr = convert_128kb_vram_address(address);
-                self.vram[vram_addr as usize] = lsb;
-
-                // Both bytes are written to the sprite cache even in 128KB mode
-                self.maybe_update_sprite_cache(vram_addr as u16, lsb);
-                self.maybe_update_sprite_cache((vram_addr ^ 0x1) as u16, msb);
-            }
-        }
-    }
-
-    fn write_cram_word(&mut self, address: u32, value: u16) {
-        if !address.bit(0) {
-            self.cram[((address & 0x7F) >> 1) as usize] = value;
-        } else {
-            let msb_addr = ((address & 0x7F) >> 1) as usize;
-            self.cram[msb_addr] = (self.cram[msb_addr] & 0xFF00) | (value >> 8);
-
-            let lsb_addr = (((address + 1) & 0x7F) >> 1) as usize;
-            self.cram[lsb_addr] = (self.cram[lsb_addr] & 0x00FF) | (value << 8);
         }
     }
 
@@ -1199,11 +1704,6 @@ impl Vdp {
         }
     }
 
-    fn in_vblank(&self) -> bool {
-        self.state.scanline >= self.registers.vertical_display_size.active_scanlines()
-            && self.state.scanline < self.scanlines_in_current_frame() - 1
-    }
-
     #[must_use]
     pub fn m68k_interrupt_level(&self) -> u8 {
         // TODO external interrupts at level 2
@@ -1227,7 +1727,6 @@ impl Vdp {
         log::trace!("M68K interrupt acknowledged; level {interrupt_level}");
         if interrupt_level == 6 {
             self.state.v_interrupt_pending = false;
-            self.state.vint_flag = false;
         } else if interrupt_level == 4 {
             self.state.h_interrupt_pending = false;
         }
@@ -1236,14 +1735,18 @@ impl Vdp {
     #[inline]
     #[must_use]
     pub fn should_halt_cpu(&self) -> bool {
-        self.dma_tracker.should_halt_cpu(&self.state.pending_writes)
-            || self.fifo_tracker.should_halt_cpu()
+        (self.control_port.dma_active && self.registers.dma_mode == DmaMode::MemoryToVram)
+            || self.state.data_port_read_wait
+            || !self.pending_fifo_writes.is_empty()
     }
 
     #[inline]
     #[must_use]
     pub fn long_halting_dma_in_progress(&self) -> bool {
-        self.should_halt_cpu() && self.dma_tracker.long_dma_in_progress()
+        self.control_port.dma_active
+            && self.registers.dma_mode == DmaMode::MemoryToVram
+            && self.registers.dma_length
+                >= self.registers.horizontal_display_size.access_slots_per_blank_line()
     }
 
     #[inline]
@@ -1257,22 +1760,15 @@ impl Vdp {
         }
     }
 
-    fn scan_sprites_two_lines_ahead(&mut self) {
-        let scanline_for_sprite_scan =
-            (self.state.scanline + 2) % self.scanlines_in_current_frame();
-
-        self.scan_sprites(scanline_for_sprite_scan);
-    }
-
-    #[inline]
-    fn render_next_scanline(&mut self) {
+    fn scan_sprites_one_line_ahead(&mut self) {
         let scanlines_per_frame = self.scanlines_in_current_frame();
-        let render_scanline = if self.state.scanline == scanlines_per_frame - 1 {
+        let scanline_for_sprite_scan = if self.state.scanline == scanlines_per_frame - 1 {
             0
         } else {
             self.state.scanline + 1
         };
-        self.render_scanline(render_scanline, 0);
+
+        self.scan_sprites(scanline_for_sprite_scan);
     }
 
     #[inline]
@@ -1405,36 +1901,66 @@ fn scanline_mclk_to_pixel(scanline_mclk: u64, h_display_size: HorizontalDisplayS
     }
 }
 
+fn pixel_to_internal_h(pixel: u16, h_display_size: HorizontalDisplaySize) -> u16 {
+    match h_display_size {
+        HorizontalDisplaySize::ThirtyTwoCell => pixel_to_internal_h_h32(pixel),
+        HorizontalDisplaySize::FortyCell => pixel_to_internal_h_h40(pixel),
+    }
+}
+
 fn scanline_mclk_to_pixel_h32(scanline_mclk: u64) -> u16 {
+    // H32 pixel clock is always mclk/10
     (scanline_mclk / 10) as u16
 }
 
+fn pixel_to_internal_h_h32(pixel: u16) -> u16 {
+    if pixel <= 0x127 { pixel } else { pixel + (0x1D2 - 0x128) }
+}
+
 fn scanline_mclk_to_pixel_h40(scanline_mclk: u64) -> u16 {
+    // Note H jumps 0x16C to 0x1C9 right before HSYNC
+    const JUMP_DIFF: u64 = 0x1C9 - 0x16D;
+
     // Special cases due to pixel clock varying during HSYNC in H40 mode
     // https://gendev.spritesmind.net/forum/viewtopic.php?t=3221
-    match scanline_mclk {
-        // 320 pixels of active display + 14 pixels of right border + 9 pixels of right blanking,
-        // all at mclk/8
-        0..=2743 => (scanline_mclk / 8) as u16,
-        // 34 pixels of HSYNC in a pattern of 1 mclk/8, 7 mclk/10, 2 mclk/9, 7 mclk/10
-        2744..=3075 => {
-            let hsync_mclk = scanline_mclk - 2744;
-            let pattern_pixel = match hsync_mclk % 166 {
-                0..=7 => 0,
-                pattern_mclk @ 8..=77 => 1 + (pattern_mclk - 8) / 10,
-                pattern_mclk @ 78..=95 => 8 + (pattern_mclk - 78) / 9,
-                pattern_cmlk @ 96..=165 => 10 + (pattern_cmlk - 96) / 10,
-                _ => unreachable!("value % 166 is always < 166"),
-            };
 
-            if hsync_mclk < 166 {
-                343 + pattern_pixel as u16
-            } else {
-                343 + 17 + pattern_pixel as u16
-            }
-        }
-        // 30 pixels of left blanking + 13 pixels of left border, all at mclk/8
-        3076..=3419 => (377 + (scanline_mclk - 3076) / 8) as u16,
-        _ => panic!("scanline mclk must be < 3420"),
+    // Pixel clock is mclk/8 from H=0x000 through H=0x1CB
+    if scanline_mclk < (0x1CC - JUMP_DIFF) * 8 {
+        return (scanline_mclk / 8) as u16;
     }
+
+    // From H=0x1CC through H=0x1ED, follows this pattern, repeated twice:
+    //   1 mclk/8, 7 mclk/10, 2 mclk/9, 7 mclk/10
+    let hsync_start_mclk = (0x1CC - JUMP_DIFF) * 8;
+    let hsync_end_mclk = hsync_start_mclk + 2 * (8 + 7 * 10 + 2 * 9 + 7 * 10);
+    if (hsync_start_mclk..hsync_end_mclk).contains(&scanline_mclk) {
+        let hsync_mclk = scanline_mclk - hsync_start_mclk;
+        let pattern_pixel = match hsync_mclk % (8 + 7 * 10 + 2 * 9 + 7 * 10) {
+            // 1 pixel at mclk/8
+            0..=7 => 0,
+            // 7 pixels at mclk/10
+            pattern_mclk @ 8..=77 => 1 + (pattern_mclk - 8) / 10,
+            // 2 pixels at mclk/9 (effectively)
+            pattern_mclk @ 78..=95 => 8 + (pattern_mclk - 78) / 9,
+            // 7 pixels at mclk/10
+            pattern_mclk @ 96..=165 => 10 + (pattern_mclk - 96) / 10,
+            _ => unreachable!("value % 166 is always < 166"),
+        };
+
+        return if hsync_mclk < 166 {
+            // First repetition
+            (0x1CC - JUMP_DIFF + pattern_pixel) as u16
+        } else {
+            // Second repetition
+            (0x1CC - JUMP_DIFF + 17 + pattern_pixel) as u16
+        };
+    }
+
+    // From H=0x1EE to H=0x1FF, stays at mclk/8
+    let post_hsync_mclk = scanline_mclk - hsync_end_mclk;
+    (0x1CC - JUMP_DIFF + 34 + post_hsync_mclk / 8) as u16
+}
+
+fn pixel_to_internal_h_h40(pixel: u16) -> u16 {
+    if pixel <= 0x16C { pixel } else { pixel + (0x1C9 - 0x16D) }
 }
