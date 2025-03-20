@@ -134,6 +134,16 @@ impl App {
 
             let rect = ui
                 .checkbox(
+                    &mut self.config.nes.ntsc_crop_vertical_overscan,
+                    "(NTSC) Crop vertical overscan",
+                )
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::NTSC_V_OVERSCAN);
+            }
+
+            let rect = ui
+                .checkbox(
                     &mut self.config.nes.remove_sprite_limit,
                     "Remove sprite-per-scanline limit",
                 )

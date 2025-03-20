@@ -10,6 +10,8 @@ pub struct NesAppConfig {
     pub forced_timing_mode: Option<TimingMode>,
     #[serde(default)]
     pub aspect_ratio: NesAspectRatio,
+    #[serde(default = "true_fn")]
+    pub ntsc_crop_vertical_overscan: bool,
     #[serde(default)]
     pub overscan: Overscan,
     #[serde(default)]
@@ -24,6 +26,10 @@ pub struct NesAppConfig {
     pub audio_60hz_hack: bool,
     #[serde(default)]
     pub allow_opposing_joypad_inputs: bool,
+}
+
+const fn true_fn() -> bool {
+    true
 }
 
 impl NesAppConfig {
@@ -48,6 +54,7 @@ impl AppConfig {
             emulator_config: NesEmulatorConfig {
                 forced_timing_mode: self.nes.forced_timing_mode,
                 aspect_ratio: self.nes.aspect_ratio,
+                ntsc_crop_vertical_overscan: self.nes.ntsc_crop_vertical_overscan,
                 overscan: self.nes.overscan,
                 remove_sprite_limit: self.nes.remove_sprite_limit,
                 pal_black_border: self.nes.pal_black_border,

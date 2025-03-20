@@ -35,12 +35,12 @@ pub fn ppu_frame_buffer_to_rgba(
     ppu_frame_buffer: &FrameBuffer,
     rgba_frame_buffer: &mut [Color],
     overscan: Overscan,
-    timing_mode: TimingMode,
+    display_mode: TimingMode,
 ) {
     rgba_frame_buffer.fill(Color::BLACK);
 
-    let row_offset = timing_mode.starting_row();
-    let visible_screen_height = timing_mode.visible_screen_height();
+    let row_offset = display_mode.starting_row();
+    let visible_screen_height = display_mode.visible_screen_height();
 
     let num_rows_rendered =
         visible_screen_height.saturating_sub(overscan.top).saturating_sub(overscan.bottom) as usize;

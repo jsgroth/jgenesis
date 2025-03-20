@@ -25,6 +25,14 @@ pub const ASPECT_RATIO: HelpText = HelpText {
     ],
 };
 
+pub const NTSC_V_OVERSCAN: HelpText = HelpText {
+    heading: "Crop NTSC Vertical Overscan",
+    text: &[
+        "If enabled, crop NTSC frames from 256x240 to 256x224.",
+        "The PPU always renders 240 lines even on NTSC consoles, but the top 8 lines and bottom 8 lines were not visible on most contemporary NTSC TVs, leaving 224 lines visible.",
+    ],
+};
+
 pub const REMOVE_SPRITE_LIMIT: HelpText = HelpText {
     heading: "Remove Sprite Limit",
     text: &[
