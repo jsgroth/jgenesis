@@ -393,12 +393,8 @@ impl EmulatorTrait for GenesisEmulator {
             self.m68k.execute_instruction(&mut bus)
         };
 
-        let elapsed_mclk_cycles = bus.cycles.record_68k_instruction(
-            m68k_cycles,
-            self.m68k.last_instruction_was_mul_or_div(),
-            m68k_wait,
-            bus.vdp.should_halt_cpu(),
-        );
+        let elapsed_mclk_cycles =
+            bus.cycles.record_68k_instruction(m68k_cycles, m68k_wait, bus.vdp.should_halt_cpu());
 
         while bus.cycles.should_tick_z80() {
             if !bus.cycles.z80_halt {
@@ -522,7 +518,7 @@ pub fn target_framerate(vdp: &Vdp, timing_mode: TimingMode) -> f64 {
 //
 // This function is public so that it can be used by the Sega CD core
 #[inline]
-pub fn check_for_long_dma_skip<const REFRESH_INTERVAL: u64>(
+pub fn check_for_long_dma_skip<const REFRESH_INTERVAL: u32>(
     vdp: &Vdp,
     cycles: &mut CycleCounters<REFRESH_INTERVAL>,
 ) {
