@@ -1,6 +1,7 @@
 //! Genesis VDP (video display processor)
 
 mod colors;
+mod cramdots;
 mod debug;
 mod fifo;
 mod registers;
@@ -12,6 +13,7 @@ mod tests;
 
 use crate::memory::{Memory, PhysicalMedium};
 use crate::vdp::colors::ColorModifier;
+use crate::vdp::cramdots::CramDotBuffer;
 use crate::vdp::fifo::{VdpFifo, VdpFifoEntry, VramWriteSize};
 use crate::vdp::registers::{
     DebugRegister, DmaMode, H40_LEFT_BORDER, HorizontalDisplaySize, InterlacingMode,
@@ -560,6 +562,7 @@ type Vsram = [u8; VSRAM_LEN];
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Vdp {
     frame_buffer: FrameBuffer,
+    cram_dots: CramDotBuffer,
     vram: Box<Vram>,
     cram: Box<Cram>,
     vsram: Box<Vsram>,
@@ -592,6 +595,7 @@ impl Vdp {
     pub fn new(timing_mode: TimingMode, config: VdpConfig) -> Self {
         Self {
             frame_buffer: FrameBuffer::new(),
+            cram_dots: CramDotBuffer::new(),
             vram: vec![0; VRAM_LEN].into_boxed_slice().try_into().unwrap(),
             cram: vec![0; CRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             vsram: vec![0; VSRAM_LEN].into_boxed_slice().try_into().unwrap(),
@@ -1060,6 +1064,14 @@ impl Vdp {
                 DataPortLocation::Cram => {
                     let cram_addr = (entry.address & 0x7F) >> 1;
                     self.cram[cram_addr as usize] = entry.word;
+
+                    self.cram_dots.check_for_dot(
+                        &self.registers,
+                        &self.fifo,
+                        self.state.pixel,
+                        cram_addr,
+                        entry.word,
+                    );
                 }
                 DataPortLocation::Vsram => {
                     let vsram_addr = (entry.address & 0x7F & !1) as usize;
@@ -1601,6 +1613,8 @@ impl Vdp {
 
     fn advance_to_next_line(&mut self) -> VdpTickEffect {
         let scanlines_per_frame = self.scanlines_in_current_frame();
+
+        self.cram_dots.swap_buffers_if_needed();
 
         self.state.scanline_mclk_cycles -= MCLK_CYCLES_PER_SCANLINE;
         self.vdp_event_idx = 0;

@@ -163,6 +163,10 @@ impl Vdp {
                 }
             }
         }
+
+        if starting_pixel == 0 {
+            self.apply_cram_dots_previous_line(raster_line);
+        }
     }
 
     fn do_render_scanline(
@@ -859,7 +863,7 @@ impl Vdp {
     }
 }
 
-fn set_in_frame_buffer(
+pub(super) fn set_in_frame_buffer(
     frame_buffer: &mut FrameBuffer,
     row: u32,
     col: u32,
