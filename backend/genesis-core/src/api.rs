@@ -41,6 +41,7 @@ pub type GenesisResult<RErr, AErr, SErr> = Result<TickEffect, GenesisError<RErr,
 #[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum GenesisAspectRatio {
     #[default]
+    Auto,
     Ntsc,
     Pal,
     SquarePixels,
@@ -52,9 +53,22 @@ impl GenesisAspectRatio {
     #[allow(clippy::missing_panics_doc)]
     pub fn to_pixel_aspect_ratio(
         self,
+        timing_mode: TimingMode,
         frame_size: FrameSize,
         adjust_for_2x_resolution: bool,
     ) -> Option<PixelAspectRatio> {
+        if self == Self::Auto {
+            let auto_aspect = match timing_mode {
+                TimingMode::Ntsc => Self::Ntsc,
+                TimingMode::Pal => Self::Pal,
+            };
+            return auto_aspect.to_pixel_aspect_ratio(
+                timing_mode,
+                frame_size,
+                adjust_for_2x_resolution,
+            );
+        }
+
         let mut pixel_aspect_ratio = match (self, frame_size.width) {
             (Self::SquarePixels, _) => Some(1.0),
             (Self::Stretched, _) => None,
@@ -66,6 +80,7 @@ impl GenesisAspectRatio {
                 log::error!("unexpected Genesis frame width: {}", frame_size.width);
                 None
             }
+            (Self::Auto, _) => unreachable!("Auto checked at start of function with early return"),
         };
 
         if adjust_for_2x_resolution && frame_size.height >= 448 {
@@ -313,6 +328,7 @@ impl GenesisEmulator {
 
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
         render_frame(
+            self.timing_mode,
             &self.vdp,
             self.aspect_ratio,
             self.adjust_aspect_ratio_in_2x_resolution,
@@ -339,14 +355,18 @@ impl GenesisEmulator {
 ///
 /// This function will propagate any error returned by the renderer.
 pub fn render_frame<R: Renderer>(
+    timing_mode: TimingMode,
     vdp: &Vdp,
     aspect_ratio: GenesisAspectRatio,
     adjust_aspect_ratio_in_2x_resolution: bool,
     renderer: &mut R,
 ) -> Result<(), R::Err> {
     let frame_size = vdp.frame_size();
-    let pixel_aspect_ratio =
-        aspect_ratio.to_pixel_aspect_ratio(frame_size, adjust_aspect_ratio_in_2x_resolution);
+    let pixel_aspect_ratio = aspect_ratio.to_pixel_aspect_ratio(
+        timing_mode,
+        frame_size,
+        adjust_aspect_ratio_in_2x_resolution,
+    );
 
     renderer.render_frame(vdp.frame_buffer(), frame_size, pixel_aspect_ratio)
 }

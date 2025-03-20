@@ -220,6 +220,11 @@ impl App {
                     ui.horizontal(|ui| {
                         ui.radio_value(
                             &mut self.config.genesis.aspect_ratio,
+                            GenesisAspectRatio::Auto,
+                            "Auto",
+                        );
+                        ui.radio_value(
+                            &mut self.config.genesis.aspect_ratio,
                             GenesisAspectRatio::Ntsc,
                             "NTSC",
                         )

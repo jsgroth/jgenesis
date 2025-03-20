@@ -176,7 +176,11 @@ impl Sega32XEmulator {
 
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
         let frame_size = self.vdp.frame_size();
-        let aspect_ratio = self.config.genesis.aspect_ratio.to_pixel_aspect_ratio(frame_size, true);
+        let aspect_ratio = self.config.genesis.aspect_ratio.to_pixel_aspect_ratio(
+            self.timing_mode,
+            frame_size,
+            true,
+        );
         self.memory.medium_mut().vdp().render_frame(&self.vdp, aspect_ratio, renderer)
     }
 }

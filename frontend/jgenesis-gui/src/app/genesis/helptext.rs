@@ -69,6 +69,7 @@ pub const ASPECT_RATIO: HelpText = HelpText {
         "Configure aspect ratio.",
         "NTSC - 8:7 pixel aspect ratio in H256px mode, 32:35 pixel aspect ratio in H320px mode",
         "PAL - 11:8 pixel aspect ratio in H256px mode, 11:10 pixel aspect ratio in H320px mode",
+        "The Auto option will automatically select NTSC or PAL based on the timing/display mode.",
     ],
 };
 

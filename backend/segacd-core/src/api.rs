@@ -310,6 +310,7 @@ impl SegaCdEmulator {
 
     fn render_frame<R: Renderer>(&self, renderer: &mut R) -> Result<(), R::Err> {
         genesis_core::render_frame(
+            self.timing_mode,
             &self.vdp,
             self.config.genesis.aspect_ratio,
             self.config.genesis.adjust_aspect_ratio_in_2x_resolution,
