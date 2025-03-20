@@ -445,10 +445,10 @@ impl ZapperBusState {
         pixel: u8,
         x: u16,
         y: u16,
-        timing_mode: TimingMode,
+        display_mode: TimingMode,
         overscan: Overscan,
     ) {
-        let Some((x, y)) = Self::adjust_frame_position(x, y, timing_mode, overscan) else {
+        let Some((x, y)) = Self::adjust_frame_position(x, y, display_mode, overscan) else {
             return;
         };
 
@@ -465,12 +465,12 @@ impl ZapperBusState {
     fn adjust_frame_position(
         mut x: u16,
         mut y: u16,
-        timing_mode: TimingMode,
+        display_mode: TimingMode,
         overscan: Overscan,
     ) -> Option<(u16, u16)> {
         let mut overflowed;
 
-        (y, overflowed) = y.overflowing_sub(timing_mode.starting_row());
+        (y, overflowed) = y.overflowing_sub(display_mode.starting_row());
         if overflowed {
             return None;
         }
@@ -1113,10 +1113,10 @@ impl PpuBus<'_> {
         self.0.ppu_bus_address = address;
     }
 
-    pub fn handle_pixel_rendered(&mut self, pixel: u8, x: u16, y: u16, timing_mode: TimingMode) {
+    pub fn handle_pixel_rendered(&mut self, pixel: u8, x: u16, y: u16, display_mode: TimingMode) {
         if let Some(zapper_state) = &mut self.0.io_registers.zapper_state {
             let overscan = self.0.io_registers.overscan;
-            zapper_state.handle_pixel_rendered(pixel, x, y, timing_mode, overscan);
+            zapper_state.handle_pixel_rendered(pixel, x, y, display_mode, overscan);
         }
     }
 

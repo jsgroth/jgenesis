@@ -159,7 +159,7 @@ impl NesEmulator {
         let mut bus = Bus::from_cartridge(mapper, config.overscan);
 
         let cpu_state = CpuState::new(&mut bus.cpu());
-        let ppu_state = PpuState::new(timing_mode);
+        let ppu_state = PpuState::new(timing_mode, config.ntsc_crop_vertical_overscan);
         let mut apu_state = ApuState::new(timing_mode);
 
         init_apu(&mut apu_state, &mut bus, config);
@@ -369,6 +369,7 @@ impl EmulatorTrait for NesEmulator {
 
         self.bus.reload_config(*config);
         self.audio_resampler.reload_config(config);
+        self.ppu_state.ntsc_crop_vertical_overscan = config.ntsc_crop_vertical_overscan;
     }
 
     fn take_rom_from(&mut self, other: &mut Self) {
