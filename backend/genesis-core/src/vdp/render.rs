@@ -90,12 +90,15 @@ impl RasterLine {
 impl Vdp {
     pub(super) fn render_scanline(&mut self, scanline: u16, starting_pixel: u16) {
         if starting_pixel
-            >= self.latched_registers.horizontal_display_size.active_display_pixels() - 10
+            >= self.latched_registers.horizontal_display_size.active_display_pixels() - 16
         {
-            // Don't re-render for mid-scanline writes that occur very near the end of a scanline; this can cause visual
-            // glitches due to some underlying issues in how timing is handled between the 68000 and VDP
+            // Don't re-render for mid-scanline writes that occur very near the end of active display;
+            // this can cause visual glitches due to some underlying issues in how timing is handled
+            // between the 68000 and VDP
             return;
         }
+
+        log::trace!("Rendering line {scanline} from pixel {starting_pixel}");
 
         let raster_line = RasterLine::from_scanline(
             scanline,
@@ -201,7 +204,9 @@ impl Vdp {
             // Check if the previous line's right border should be rendered
             // This needs to happen after the previous line is rendered because it depends on which sprite tiles were
             // fetched for the next/current line
-            if self.config.render_horizontal_border {
+            if self.config.render_horizontal_border
+                && matches!(self.debug_register.forced_plane, Plane::ScrollA | Plane::ScrollB)
+            {
                 let prev_raster_line =
                     raster_line.previous_line(self.latched_registers.vertical_display_size);
                 if !prev_raster_line.in_v_border
@@ -266,6 +271,16 @@ impl Vdp {
                 self.state.last_h_scroll_a,
                 self.state.last_h_scroll_b,
             );
+
+            // If not using debug register to force one of the BG planes, render right border now
+            // in case the backdrop color changes between lines
+            if matches!(self.debug_register.forced_plane, Plane::Background | Plane::Sprite) {
+                self.render_right_border(
+                    frame_buffer_row,
+                    self.state.last_h_scroll_a,
+                    self.state.last_h_scroll_b,
+                );
+            }
         }
     }
 
@@ -369,7 +384,7 @@ impl Vdp {
 
             for h_column in start_h_column..end_h_column {
                 let v_scroll = read_v_scroll(
-                    &self.vsram,
+                    &self.latched_vsram,
                     plane,
                     h_column,
                     &self.latched_registers,

@@ -236,6 +236,7 @@ macro_rules! new_main_bus {
             &mut $self.ym2612,
             &mut $self.input,
             &mut $self.cycles,
+            $self.m68k.next_opcode(),
             $self.timing_mode,
             MainBusSignals { m68k_reset: $m68k_reset },
             std::mem::take(&mut $self.main_bus_writes),
@@ -385,22 +386,28 @@ impl EmulatorTrait for GenesisEmulator {
         S::Err: Debug + Display + Send + Sync + 'static,
     {
         let mut bus = new_main_bus!(self, m68k_reset: false);
-        let m68k_cycles = if bus.cycles.m68k_wait_cpu_cycles != 0 {
+        let m68k_wait = bus.cycles.m68k_wait_cpu_cycles != 0;
+        let m68k_cycles = if m68k_wait {
             bus.cycles.take_m68k_wait_cpu_cycles()
         } else {
             self.m68k.execute_instruction(&mut bus)
         };
 
-        let elapsed_mclk_cycles = bus
-            .cycles
-            .record_68k_instruction(m68k_cycles, self.m68k.last_instruction_was_mul_or_div());
+        let elapsed_mclk_cycles = bus.cycles.record_68k_instruction(
+            m68k_cycles,
+            self.m68k.last_instruction_was_mul_or_div(),
+            m68k_wait,
+            bus.vdp.should_halt_cpu(),
+        );
 
         while bus.cycles.should_tick_z80() {
-            self.z80.tick(&mut bus);
+            if !bus.cycles.z80_halt {
+                self.z80.tick(&mut bus);
+            }
             bus.cycles.decrement_z80();
         }
 
-        self.main_bus_writes = bus.apply_writes();
+        self.main_bus_writes = bus.pending_writes;
 
         self.memory.medium_mut().tick(m68k_cycles);
 
@@ -446,6 +453,8 @@ impl EmulatorTrait for GenesisEmulator {
         }
 
         check_for_long_dma_skip(&self.vdp, &mut self.cycles);
+
+        self.main_bus_writes = new_main_bus!(self, m68k_reset: false).apply_writes();
 
         Ok(tick_effect)
     }

@@ -84,13 +84,6 @@ impl HorizontalDisplaySize {
         }
     }
 
-    pub const fn mclk_cycles_per_pixel(self) -> u64 {
-        match self {
-            Self::ThirtyTwoCell => 10,
-            Self::FortyCell => 8,
-        }
-    }
-
     // Length in sprites
     pub const fn sprite_table_len(self) -> u16 {
         match self {
@@ -688,15 +681,6 @@ impl Registers {
 
     pub fn window_h_range(&self, active_display_pixels: u16) -> (u16, u16) {
         self.window_horizontal_mode.h_range(self.window_x_position, active_display_pixels)
-    }
-
-    pub fn dma_length(&self) -> u32 {
-        if self.dma_length > 0 {
-            self.dma_length.into()
-        } else {
-            // DMA length of 0 is treated as 65536
-            65536
-        }
     }
 
     pub fn masked_window_nametable_addr(&self) -> u16 {

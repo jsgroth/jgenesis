@@ -38,28 +38,40 @@ impl SpriteState {
         self.pixels_disabled_during_hblank = 0;
 
         self.display_enabled = display_enabled;
-        self.display_enabled_pixel = h_display_size.active_display_pixels();
+        self.display_enabled_pixel = h_display_size.hblank_begin_h();
     }
 
-    pub fn handle_display_enabled_write(&mut self, display_enabled: bool, pixel: u16) {
-        if pixel < self.display_enabled_pixel {
+    pub fn handle_display_enabled_write(
+        &mut self,
+        h_display_size: HorizontalDisplaySize,
+        display_enabled: bool,
+        pixel: u16,
+    ) {
+        if (h_display_size.rendering_begin_h()..h_display_size.hblank_begin_h()).contains(&pixel) {
             // Pre-HBlank write on the next scanline; ignore
             return;
         }
 
         if !self.display_enabled {
-            self.pixels_disabled_during_hblank += pixel - self.display_enabled_pixel;
+            self.increment_pixels_disabled(pixel, h_display_size);
         }
 
         self.display_enabled = display_enabled;
         self.display_enabled_pixel = pixel;
     }
 
-    pub fn handle_line_end(&mut self, h_display_size: HorizontalDisplaySize) {
+    pub fn handle_line_end(&mut self, h_display_size: HorizontalDisplaySize, pixel: u16) {
         if !self.display_enabled {
-            self.pixels_disabled_during_hblank +=
-                h_display_size.pixels_including_hblank().saturating_sub(self.display_enabled_pixel);
+            self.increment_pixels_disabled(pixel, h_display_size);
         }
+    }
+
+    fn increment_pixels_disabled(&mut self, pixel: u16, h_display_size: HorizontalDisplaySize) {
+        self.pixels_disabled_during_hblank += if pixel > self.display_enabled_pixel {
+            pixel - self.display_enabled_pixel
+        } else {
+            pixel + h_display_size.pixels_including_hblank() - self.display_enabled_pixel
+        };
     }
 }
 
@@ -136,9 +148,7 @@ impl Vdp {
         // display was disabled during), but this approximation works well enough for Mickey Mania's
         // 3D stages and Titan Overdrive's "your emulator suxx" screen
         let sprites_not_scanned = if self.sprite_state.pixels_disabled_during_hblank != 0 {
-            // Not sure exactly why, but adding ~8 here is necessary to fully remove the "your emulator
-            // suxx" text from Titan Overdrive's 512-color screen
-            self.sprite_state.pixels_disabled_during_hblank + 8
+            self.sprite_state.pixels_disabled_during_hblank + 2
         } else {
             0
         };
@@ -241,7 +251,7 @@ impl Vdp {
             SPRITE_H_DISPLAY_START..SPRITE_H_DISPLAY_START + h_size.active_display_pixels();
 
         let half_tiles_not_fetched = if self.sprite_state.pixels_disabled_during_hblank != 0 {
-            self.sprite_state.pixels_disabled_during_hblank + 8
+            self.sprite_state.pixels_disabled_during_hblank + 2
         } else {
             0
         };

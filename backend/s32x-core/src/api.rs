@@ -67,6 +67,7 @@ macro_rules! new_main_bus {
             &mut $self.ym2612,
             &mut $self.input,
             &mut $self.cycles,
+            $self.m68k.next_opcode(),
             $self.timing_mode,
             MainBusSignals { m68k_reset: $m68k_reset },
             std::mem::take(&mut $self.main_bus_writes),
@@ -215,10 +216,12 @@ impl EmulatorTrait for Sega32XEmulator {
         };
 
         let mclk_cycles = u64::from(m68k_cycles) * bus.cycles.m68k_divider.get();
-        bus.cycles.increment_mclk_counters(mclk_cycles);
+        bus.cycles.increment_mclk_counters(mclk_cycles, bus.vdp.should_halt_cpu());
 
         while bus.cycles.should_tick_z80() {
-            self.z80.tick(&mut bus);
+            if !bus.cycles.z80_halt {
+                self.z80.tick(&mut bus);
+            }
             bus.cycles.decrement_z80();
         }
 

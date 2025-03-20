@@ -155,6 +155,7 @@ macro_rules! new_main_bus {
             &mut $self.ym2612,
             &mut $self.input,
             &mut $self.cycles,
+            $self.main_cpu.next_opcode(),
             $self.timing_mode,
             MainBusSignals { m68k_reset: $m68k_reset },
             std::mem::take(&mut $self.main_bus_writes),
@@ -383,7 +384,8 @@ impl EmulatorTrait for SegaCdEmulator {
         let mut main_bus = new_main_bus!(self, m68k_reset: false);
 
         // Main 68000
-        let main_cpu_cycles = if main_bus.cycles.m68k_wait_cpu_cycles != 0 {
+        let m68k_wait = main_bus.cycles.m68k_wait_cpu_cycles != 0;
+        let main_cpu_cycles = if m68k_wait {
             main_bus.cycles.take_m68k_wait_cpu_cycles()
         } else {
             self.main_cpu.execute_instruction(&mut main_bus)
@@ -391,11 +393,15 @@ impl EmulatorTrait for SegaCdEmulator {
         let genesis_mclk_elapsed = main_bus.cycles.record_68k_instruction(
             main_cpu_cycles,
             self.main_cpu.last_instruction_was_mul_or_div(),
+            m68k_wait,
+            main_bus.vdp.should_halt_cpu(),
         );
 
         // Z80
         while main_bus.cycles.should_tick_z80() {
-            self.z80.tick(&mut main_bus);
+            if !main_bus.cycles.z80_halt {
+                self.z80.tick(&mut main_bus);
+            }
             main_bus.cycles.decrement_z80();
         }
 
