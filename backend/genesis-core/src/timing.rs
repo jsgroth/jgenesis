@@ -9,12 +9,8 @@ pub const Z80_DIVIDER: u64 = 15;
 pub const YM2612_DIVIDER: u64 = 7;
 pub const PSG_DIVIDER: u64 = 15;
 
-// Multiplication and division instructions all take at least 40 CPU cycles and don't access the bus
-// while executing
-const LONG_68K_INSTRUCTION_THRESHOLD: u64 = 40 * NATIVE_M68K_DIVIDER;
-
 #[derive(Debug, Clone, Copy, Encode, Decode)]
-pub struct CycleCounters<const REFRESH_INTERVAL: u64> {
+pub struct CycleCounters<const REFRESH_INTERVAL: u32> {
     // Store divider as both u64 and u32 for better codegen when doing u32 division
     pub m68k_divider: NonZeroU64,
     pub m68k_divider_u32: NonZeroU32,
@@ -25,7 +21,7 @@ pub struct CycleCounters<const REFRESH_INTERVAL: u64> {
     pub z80_odd_access: bool,
     pub ym2612_mclk_counter: u64,
     pub psg_mclk_counter: u64,
-    pub refresh_mclk_counter: u64,
+    pub m68k_refresh_counter: u32,
     pub vdp_owns_bus: bool,
     pub z80_halt: bool,
 }
@@ -38,7 +34,7 @@ fn max_wait_cpu_cycles(m68k_divider: NonZeroU64) -> u32 {
     MAX_WAIT_MCLK_CYCLES / m68k_divider.get() as u32
 }
 
-impl<const REFRESH_INTERVAL: u64> CycleCounters<REFRESH_INTERVAL> {
+impl<const REFRESH_INTERVAL: u32> CycleCounters<REFRESH_INTERVAL> {
     #[inline]
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
@@ -56,7 +52,7 @@ impl<const REFRESH_INTERVAL: u64> CycleCounters<REFRESH_INTERVAL> {
             z80_odd_access: false,
             ym2612_mclk_counter: 0,
             psg_mclk_counter: 0,
-            refresh_mclk_counter: 0,
+            m68k_refresh_counter: 0,
             vdp_owns_bus: false,
             z80_halt: false,
         }
@@ -82,30 +78,27 @@ impl<const REFRESH_INTERVAL: u64> CycleCounters<REFRESH_INTERVAL> {
     pub fn record_68k_instruction(
         &mut self,
         m68k_cycles: u32,
-        was_mul_or_div: bool,
         m68k_wait: bool,
         vdp_owns_bus: bool,
     ) -> u64 {
-        let mut mclk_cycles = u64::from(m68k_cycles) * self.m68k_divider.get();
-
-        // Track memory refresh delay, which stalls the 68000 for roughly 2 out of every 128 mclk cycles
+        // Track memory refresh delay, which stalls the 68000 for roughly 2 out of every 130 CPU cycles
         // (at least on the standalone Genesis)
         // Clue and Super Airwolf depend on this or they will have graphical glitches, Clue in the
         // main menu and Super Airwolf in the intro
-        if !m68k_wait && !vdp_owns_bus {
-            self.refresh_mclk_counter += mclk_cycles;
-            if was_mul_or_div && mclk_cycles >= LONG_68K_INSTRUCTION_THRESHOLD {
-                // Only incur memory refresh delay once for multiplication/division instructions
-                mclk_cycles += 2;
-                self.refresh_mclk_counter %= REFRESH_INTERVAL - 2;
-            } else {
-                while self.refresh_mclk_counter >= REFRESH_INTERVAL - 2 {
-                    self.refresh_mclk_counter -= REFRESH_INTERVAL - 2;
-                    mclk_cycles += 2;
+        if vdp_owns_bus {
+            // Not sure this is accurate, but it's required for stable images in Direct Color DMA demos
+            self.m68k_refresh_counter = 0;
+        } else {
+            self.m68k_refresh_counter += m68k_cycles;
+            if self.m68k_refresh_counter >= REFRESH_INTERVAL {
+                if !m68k_wait {
+                    self.m68k_wait_cpu_cycles += 2;
                 }
+                self.m68k_refresh_counter %= REFRESH_INTERVAL;
             }
         }
 
+        let mclk_cycles = u64::from(m68k_cycles) * self.m68k_divider.get();
         self.increment_mclk_counters(mclk_cycles, vdp_owns_bus);
 
         mclk_cycles

@@ -392,7 +392,6 @@ impl EmulatorTrait for SegaCdEmulator {
         };
         let genesis_mclk_elapsed = main_bus.cycles.record_68k_instruction(
             main_cpu_cycles,
-            self.main_cpu.last_instruction_was_mul_or_div(),
             m68k_wait,
             main_bus.vdp.should_halt_cpu(),
         );
