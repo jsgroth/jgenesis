@@ -8,6 +8,7 @@ use crate::vdp::{Vdp, VdpConfig, VdpTickEffect};
 use crate::ym2612::{Ym2612, YmTickEffect};
 use crate::{GenesisControllerType, audio, timing, vdp};
 use bincode::{Decode, Encode};
+use crc::Crc;
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FrameSize, PartialClone,
     PixelAspectRatio, Renderer, SaveWriter, TickEffect, TimingMode,
@@ -103,6 +104,22 @@ pub enum GenesisRegion {
 impl GenesisRegion {
     #[must_use]
     pub fn from_rom(rom: &[u8]) -> Option<Self> {
+        const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
+
+        // European games with incorrect region headers that indicate US or JP support
+        const DEFAULT_EUROPE_CHECKSUMS: &[u32] = &[
+            0x28165BD1, // Alisia Dragoon (Europe)
+            0x224256C7, // Andre Agassi Tennis (Europe)
+            0x90F5C2B7, // Brian Lara Cricket (Europe)
+            0xEB8F4374, // Indiana Jones and the Last Crusade (Europe)
+            0xFA537A45, // Winter Olympics (Europe)
+            0xDACA01C3, // World Class Leader Board (Europe)
+        ];
+
+        if DEFAULT_EUROPE_CHECKSUMS.contains(&CRC.checksum(rom)) {
+            return Some(GenesisRegion::Europe);
+        }
+
         if &rom[0x1F0..0x1F6] == b"EUROPE" {
             // Another World (E) has the string "EUROPE" in the region section; special case this
             // so that it's not detected as U (this game does not work with NTSC timings)
