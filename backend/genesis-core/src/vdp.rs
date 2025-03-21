@@ -74,22 +74,6 @@ const H40_BLANK_REFRESH_SLOTS: &[bool; 256] = &new_bool256![26, 58, 90, 122, 154
 
 // Most H values sourced from https://gendev.spritesmind.net/forum/viewtopic.php?p=17683#p17683
 impl HorizontalDisplaySize {
-    // External access slot locations during active display
-    const fn access_slots(self) -> &'static [bool; 256] {
-        match self {
-            Self::ThirtyTwoCell => H32_ACCESS_SLOTS,
-            Self::FortyCell => H40_ACCESS_SLOTS,
-        }
-    }
-
-    // Refresh slot locations during blanking (either VBlank or display disabled)
-    const fn blank_refresh_slots(self) -> &'static [bool; 256] {
-        match self {
-            Self::ThirtyTwoCell => H32_BLANK_REFRESH_SLOTS,
-            Self::FortyCell => H40_BLANK_REFRESH_SLOTS,
-        }
-    }
-
     // Total number of slots minus number of refresh slots
     const fn access_slots_per_blank_line(self) -> u16 {
         match self {
@@ -1315,16 +1299,37 @@ impl Vdp {
         end_pixel: u16,
         memory: &mut Memory<Medium>,
     ) {
-        let h_display_size = self.registers.horizontal_display_size;
-
-        let access_slots = h_display_size.access_slots();
-        let blank_refresh_slots = h_display_size.blank_refresh_slots();
-
         let check_access_slots = self.control_port.dma_active || !self.fifo.is_empty();
+        match (self.registers.horizontal_display_size, check_access_slots) {
+            (HorizontalDisplaySize::ThirtyTwoCell, false) => {
+                self.advance_to_pixel_no_slot_check::<false>(end_pixel);
+            }
+            (HorizontalDisplaySize::ThirtyTwoCell, true) => {
+                self.advance_to_pixel_check_slots::<false, _>(end_pixel, memory);
+            }
+            (HorizontalDisplaySize::FortyCell, false) => {
+                self.advance_to_pixel_no_slot_check::<true>(end_pixel);
+            }
+            (HorizontalDisplaySize::FortyCell, true) => {
+                self.advance_to_pixel_check_slots::<true, _>(end_pixel, memory);
+            }
+        }
+    }
+
+    #[inline]
+    fn advance_to_pixel_check_slots<const H40: bool, Medium: PhysicalMedium>(
+        &mut self,
+        end_pixel: u16,
+        memory: &mut Memory<Medium>,
+    ) {
+        // Slower loop - check for access slots for DMA/FIFO progress
+        let access_slots = if H40 { H40_ACCESS_SLOTS } else { H32_ACCESS_SLOTS };
+        let blank_refresh_slots =
+            if H40 { H40_BLANK_REFRESH_SLOTS } else { H32_BLANK_REFRESH_SLOTS };
 
         while self.state.pixel < end_pixel {
             let pixel = self.state.pixel;
-            if check_access_slots && !pixel.bit(0) {
+            if !pixel.bit(0) {
                 let slot_idx = (pixel >> 1) as u8;
                 let blank = !self.registers.display_enabled || self.state.in_vblank;
                 if (blank && !blank_refresh_slots[slot_idx as usize])
@@ -1339,7 +1344,8 @@ impl Vdp {
                 }
             }
 
-            let internal_h = pixel_to_internal_h(pixel, h_display_size);
+            let internal_h =
+                if H40 { pixel_to_internal_h_h40(pixel) } else { pixel_to_internal_h_h32(pixel) };
             while internal_h >= self.vdp_event_times[self.vdp_event_idx as usize].h {
                 let event = self.vdp_event_times[self.vdp_event_idx as usize].event;
                 self.vdp_event_idx += 1;
@@ -1356,6 +1362,33 @@ impl Vdp {
                 }
             }
         }
+    }
+
+    #[inline]
+    fn advance_to_pixel_no_slot_check<const H40: bool>(&mut self, end_pixel: u16) {
+        // Faster loop - only check for passed VDP events
+        debug_assert!(!self.control_port.dma_active && self.fifo.is_empty());
+
+        let end_internal_h = if H40 {
+            pixel_to_internal_h_h40(end_pixel)
+        } else {
+            pixel_to_internal_h_h32(end_pixel)
+        };
+        while end_internal_h >= self.vdp_event_times[self.vdp_event_idx as usize].h {
+            let internal_h = self.vdp_event_times[self.vdp_event_idx as usize].h;
+            let pixel = if H40 {
+                internal_h_to_pixel_h40(internal_h)
+            } else {
+                internal_h_to_pixel_h32(internal_h)
+            };
+            let event = self.vdp_event_times[self.vdp_event_idx as usize].event;
+            self.vdp_event_idx += 1;
+
+            self.state.pixel = pixel;
+            self.handle_vdp_event(event);
+        }
+
+        self.state.pixel = end_pixel;
     }
 
     fn handle_access_slot<Medium: PhysicalMedium>(
@@ -1933,6 +1966,10 @@ fn pixel_to_internal_h_h32(pixel: u16) -> u16 {
     if pixel <= 0x127 { pixel } else { pixel + (0x1D2 - 0x128) }
 }
 
+fn internal_h_to_pixel_h32(internal_h: u16) -> u16 {
+    if internal_h <= 0x127 { internal_h } else { internal_h - (0x1D2 - 0x128) }
+}
+
 fn scanline_mclk_to_pixel_h40(scanline_mclk: u64) -> u16 {
     // Note H jumps 0x16C to 0x1C9 right before HSYNC
     const JUMP_DIFF: u64 = 0x1C9 - 0x16D;
@@ -1979,4 +2016,8 @@ fn scanline_mclk_to_pixel_h40(scanline_mclk: u64) -> u16 {
 
 fn pixel_to_internal_h_h40(pixel: u16) -> u16 {
     if pixel <= 0x16C { pixel } else { pixel + (0x1C9 - 0x16D) }
+}
+
+fn internal_h_to_pixel_h40(internal_h: u16) -> u16 {
+    if internal_h <= 0x16C { internal_h } else { internal_h - (0x1C9 - 0x16D) }
 }
