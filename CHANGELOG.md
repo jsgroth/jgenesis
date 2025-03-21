@@ -1,15 +1,27 @@
-# Next Release
+# 0.9.1
 
 ## New Features
+* (**Genesis**) CRAM dots are now emulated
+  * These are normally not visible within active display because it's uncommon to modify CRAM while the VDP is actively rendering, but they're visible in many games if vertical border rendering is enabled
+* (**Genesis**) Added an aspect ratio "Auto" option (now default) that will function as either NTSC (8:7 / 32:35 PAR) or PAL (11:8 / 11:10 PAR) based on the current timing mode
+* (**SMS** / **Game Gear**) Added a hardware region "Auto" setting that attempts to auto-detect region from the cartridge header (#214)
+* (**NES**) Added an option to disable vertical overscan cropping in NTSC mode (i.e. display in 256x240 instead of 256x224)
 * Added an audio option to mute all emulator audio output (#248)
 * GUI: Added a new File menu button and hotkey to quickly open the most recently opened ROM file (#248)
-* (**SMS** / **Game Gear**) Added a hardware region "Auto" setting that attempts to auto-detect region from the cartridge header (#214)
 
 ## Multi-System Fixes
 * Fixed the emulator not reading gamepad inputs while the window does not have focus (#248)
 * Fixed the GUI sometimes segfaulting when you close the main GUI window while an emulator is running
 
 ## Genesis / Mega Drive Fixes
+* Improved both behavioral accuracy and timing accuracy of VDP ports, VDP DMA, and the VDP FIFO; this fixes a number of bugs
+  * Fixes _Clue_ sometimes having corrupted main menu graphics (#159)
+  * Fixes _Gaiares_ having flickering text on the title screen
+  * Fixes a minor visual glitch in Overdrive 2's plasma twister effect
+  * The emulator now fully passes the VDPFIFOTesting test ROM (#103)
+  * Fixes incorrect color palettes in some demos (#183)
+  * Fixes a glitch on the title screen of the homebrew _Rick Dangerous 2_ port (#102)
+* Direct color DMA demos now work, thanks to the above accuracy improvements combined with changes related to CRAM dots (#172)
 * Fixed behavior when the controller port TH pin is set to input; this fixes controls not working properly in _Micro Machines_ (#226)
 * Improved display behavior when games switch between H32 and H40 modes shortly after the start of VBlank; this fixes glitchy frames in _Bugs Bunny in Double Trouble_ (#252)
 * Fixed the window nametable address not being masked correctly in H40 mode; this fixes glitchy graphics on some screens in _Cheese Cat-Astrophe Starring Speedy Gonzales_ (#253)
@@ -18,12 +30,14 @@
 * Fixed several major bugs in how the V counter and the VBlank status flag are emulated in interlaced modes; this fixes _Combat Cars_ freezing in 2P mode as well as occasional sprite glitches in _Sonic the Hedgehog 2_'s Vs. mode (#258)
 * Fixed the emulator not correctly initializing cartridge SRAM when the cartridge header specifies less common RAM types; this fixes the Mega Drive Mode 7 demo not working (#250)
 * The non-linear VDP color scale option is now enabled by default because it is more accurate to actual hardware's video output (#249)
+* When horizontal border rendering is enabled, fixed the right border rendering as the wrong color if the backdrop color is changed between lines (Overdrive 1 does this on some screens)
 
 ## Sega CD Fixes
 * Fixed the CDD reset register (\$FF8001) not correctly resetting CDD state; this fixes the _Pier Solar_ enhanced audio disc failing to boot in SCD Mode 2 (#215)
 
 ## 32X Fixes
 * Fixed the Genesis VDP and 32X VDP frames incorrectly lining up exactly when the Genesis VDP is in H32 mode; this fixes some minor graphical issues in _NFL Quarterback Club_ (#230)
+* Files with .bin extensions are now auto-detected as 32X instead of Genesis if they contain the 32X security program at the expected location in ROM (#259)
 
 ## Master System / Game Gear Fixes
 * Somewhat improved VDP-related timings; this fixes glitchy cutscene graphics in _Madou Monogatari I_ (#213) and fixes most tests in the SMSVDPTest test ROM (#190)
@@ -35,6 +49,11 @@
 
 ## NES Fixes
 * Improved accuracy of Namco 163 expansion audio emulation (used by _Megami Tensei II_ among other games)
+* Cartridge PRG RAM is now initialized to all 1s instead of all 0s; this fixes _Famicom Jump II_ crashing on first boot (#280)
+* CNROM cartridges (iNES mapper 3) are now allowed to have PRG RAM; this fixes _Hayauchi Super Igo_ effectively freezing upon starting a game (#273)
+* Fixed MMC5 PRG RAM bank mapping in MMC5 cartridges that have two 8KB RAM chips; this fixes _Uncharted Waters_ being completely broken upon starting a game (#275)
+* Added support for NROM cartridges (iNES mapper 0) with only 8KB of PRG ROM; this fixes _Galaxian_ failing to boot (#261)
+* Fixed a VRC4 mapper bug where the highest bit of the 9-bit CHR ROM bank number was not working correctly; this fixes corrupted graphics in _World Hero_ (#283)
 
 ## SNES Fixes
 * Fixed incorrect cartridge SRAM mapping for LoROM cartridges with more than 32 KB of SRAM; this fixes _Kaite Tsukutte Asoberu Dezaemon_ failing to boot (#234)
