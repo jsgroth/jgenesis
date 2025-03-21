@@ -2,7 +2,7 @@ use crate::vdp::colors::ColorModifier;
 use crate::vdp::fifo::VdpFifo;
 use crate::vdp::registers::{InterlacingMode, RIGHT_BORDER, Registers};
 use crate::vdp::render::RasterLine;
-use crate::vdp::{MAX_SCREEN_WIDTH, Vdp, render};
+use crate::vdp::{MAX_SCREEN_WIDTH, Vdp, colors};
 use bincode::{Decode, Encode};
 use std::num::NonZeroU16;
 use std::ops::Range;
@@ -148,16 +148,27 @@ impl Vdp {
             if !(0..screen_width as i32).contains(&fb_col) {
                 continue;
             }
+            let fb_col = fb_col as u32;
 
-            render::set_in_frame_buffer(
-                &mut self.frame_buffer,
-                fb_row,
-                fb_col as u32,
-                color,
+            let fb_idx = (fb_row * screen_width + fb_col) as usize;
+
+            let r = ((color >> 1) & 7) as u8;
+            let g = ((color >> 5) & 7) as u8;
+            let b = ((color >> 9) & 7) as u8;
+
+            // Reuse "alpha" from the existing pixel; some 32X games depend on this (e.g. Toughman Contest)
+            let a = self.frame_buffer[fb_idx].a;
+
+            let rgba_color = colors::gen_to_rgba(
+                r,
+                g,
+                b,
+                a,
                 ColorModifier::None,
-                screen_width,
                 self.config.non_linear_color_scale,
             );
+
+            self.frame_buffer[fb_idx] = rgba_color;
         }
     }
 }
