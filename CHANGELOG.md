@@ -17,7 +17,6 @@
 * Improved both behavioral accuracy and timing accuracy of VDP ports, VDP DMA, and the VDP FIFO; this fixes a number of bugs
   * Fixes _Clue_ sometimes having corrupted main menu graphics (#159)
   * Fixes _Gaiares_ having flickering text on the title screen
-  * Fixes a minor visual glitch in Overdrive 2's plasma twister effect
   * The emulator now fully passes the VDPFIFOTesting test ROM (#103)
   * Fixes incorrect color palettes in some demos (#183)
   * Fixes a glitch on the title screen of the homebrew _Rick Dangerous 2_ port (#102)
@@ -31,6 +30,7 @@
 * Fixed the emulator not correctly initializing cartridge SRAM when the cartridge header specifies less common RAM types; this fixes the Mega Drive Mode 7 demo not working (#250)
 * The non-linear VDP color scale option is now enabled by default because it is more accurate to actual hardware's video output (#249)
 * When horizontal border rendering is enabled, fixed the right border rendering as the wrong color if the backdrop color is changed between lines (Overdrive 1 does this on some screens)
+* Fixed a number of European games with bad region headers defaulting to NTSC mode instead of PAL (#176)
 
 ## Sega CD Fixes
 * Fixed the CDD reset register (\$FF8001) not correctly resetting CDD state; this fixes the _Pier Solar_ enhanced audio disc failing to boot in SCD Mode 2 (#215)
@@ -54,6 +54,7 @@
 * Fixed MMC5 PRG RAM bank mapping in MMC5 cartridges that have two 8KB RAM chips; this fixes _Uncharted Waters_ being completely broken upon starting a game (#275)
 * Added support for NROM cartridges (iNES mapper 0) with only 8KB of PRG ROM; this fixes _Galaxian_ failing to boot (#261)
 * Fixed a VRC4 mapper bug where the highest bit of the 9-bit CHR ROM bank number was not working correctly; this fixes corrupted graphics in _World Hero_ (#283)
+* Fixed the DMC sample address incorrectly defaulting to \$8000 at power-on instead of \$C000 (#292)
 
 ## SNES Fixes
 * Fixed incorrect cartridge SRAM mapping for LoROM cartridges with more than 32 KB of SRAM; this fixes _Kaite Tsukutte Asoberu Dezaemon_ failing to boot (#234)

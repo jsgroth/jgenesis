@@ -505,7 +505,6 @@ pub struct VdpConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum VdpEvent {
     VInterrupt,
-    LatchVsram,
     RenderLine,
     HBlankStart,
     HInterrupt,
@@ -550,7 +549,6 @@ pub struct Vdp {
     vram: Box<Vram>,
     cram: Box<Cram>,
     vsram: Box<Vsram>,
-    latched_vsram: Box<Vsram>,
     fifo: VdpFifo,
     dma_latency: u8,
     // Used to store writes to data port while FIFO is full
@@ -569,7 +567,7 @@ pub struct Vdp {
     sprite_buffers: SpriteBuffers,
     interlaced_sprite_buffers: SpriteBuffers,
     config: VdpConfig,
-    vdp_event_times: [VdpEventWithTime; 7],
+    vdp_event_times: [VdpEventWithTime; 6],
     vdp_event_idx: u8,
 }
 
@@ -583,7 +581,6 @@ impl Vdp {
             vram: vec![0; VRAM_LEN].into_boxed_slice().try_into().unwrap(),
             cram: vec![0; CRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             vsram: vec![0; VSRAM_LEN].into_boxed_slice().try_into().unwrap(),
-            latched_vsram: vec![0; VSRAM_LEN].into_boxed_slice().try_into().unwrap(),
             fifo: VdpFifo::new(),
             dma_latency: 0,
             pending_fifo_writes: VecDeque::with_capacity(8),
@@ -1528,10 +1525,9 @@ impl Vdp {
         );
     }
 
-    fn vdp_event_times(h_display_size: HorizontalDisplaySize) -> [VdpEventWithTime; 7] {
+    fn vdp_event_times(h_display_size: HorizontalDisplaySize) -> [VdpEventWithTime; 6] {
         let events = [
             VdpEventWithTime::new(h_display_size.v_interrupt_h(), VdpEvent::VInterrupt),
-            VdpEventWithTime::new(h_display_size.rendering_begin_h(), VdpEvent::LatchVsram),
             VdpEventWithTime::new(
                 h_display_size.active_display_h_range().start,
                 VdpEvent::RenderLine,
@@ -1559,11 +1555,6 @@ impl Vdp {
                     // at start of VBlank, e.g. Bugs Bunny in Double Trouble
                     self.state.frame_h_resolution = self.registers.horizontal_display_size;
                 }
-            }
-            VdpEvent::LatchVsram => {
-                // Latching VSRAM 16 pixels before rendering fixes a minor glitch in Overdrive 2's
-                // plasma twister effect (slightly incorrect graphics in the bottom left corner)
-                self.latched_vsram.copy_from_slice(self.vsram.as_ref());
             }
             VdpEvent::RenderLine => {
                 self.sprite_state

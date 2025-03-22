@@ -388,7 +388,7 @@ impl Vdp {
 
             for h_column in start_h_column..end_h_column {
                 let v_scroll = read_v_scroll(
-                    &self.latched_vsram,
+                    &self.vsram,
                     plane,
                     h_column,
                     &self.latched_registers,
