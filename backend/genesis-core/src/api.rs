@@ -5,7 +5,7 @@ use crate::input::{GenesisButton, GenesisInputs, InputState};
 use crate::memory::{Cartridge, MainBus, MainBusSignals, MainBusWrites, Memory};
 use crate::timing::{CycleCounters, GenesisCycleCounters};
 use crate::vdp::{Vdp, VdpConfig, VdpTickEffect};
-use crate::ym2612::{Ym2612, YmTickEffect};
+use crate::ym2612::Ym2612;
 use crate::{GenesisControllerType, audio, timing, vdp};
 use bincode::{Decode, Encode};
 use crc::Crc;
@@ -456,13 +456,10 @@ impl EmulatorTrait for GenesisEmulator {
             self.cycles.decrement_psg();
         }
 
-        while self.cycles.should_tick_ym2612() {
-            if self.ym2612.tick() == YmTickEffect::OutputSample {
-                let (ym_sample_l, ym_sample_r) = self.ym2612.sample();
-                self.audio_resampler.collect_ym2612_sample(ym_sample_l, ym_sample_r);
-            }
-
-            self.cycles.decrement_ym2612();
+        if self.cycles.has_ym2612_ticks() {
+            let ym2612_ticks = self.cycles.take_ym2612_ticks();
+            self.ym2612
+                .tick(ym2612_ticks, |(l, r)| self.audio_resampler.collect_ym2612_sample(l, r));
         }
 
         self.audio_resampler.output_samples(audio_output).map_err(GenesisError::Audio)?;

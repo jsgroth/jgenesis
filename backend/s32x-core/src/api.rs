@@ -9,7 +9,7 @@ use genesis_core::input::{GenesisButton, InputState};
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::timing::GenesisCycleCounters;
 use genesis_core::vdp::{Vdp, VdpTickEffect};
-use genesis_core::ym2612::{Ym2612, YmTickEffect};
+use genesis_core::ym2612::Ym2612;
 use genesis_core::{GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, Renderer, SaveWriter, TickEffect,
@@ -234,12 +234,10 @@ impl EmulatorTrait for Sega32XEmulator {
         self.memory.medium_mut().tick(mclk_cycles, self.audio_resampler.pwm_resampler_mut());
         self.input.tick(m68k_cycles);
 
-        while self.cycles.should_tick_ym2612() {
-            if self.ym2612.tick() == YmTickEffect::OutputSample {
-                let (sample_l, sample_r) = self.ym2612.sample();
-                self.audio_resampler.collect_ym2612_sample(sample_l, sample_r);
-            }
-            self.cycles.decrement_ym2612();
+        if self.cycles.has_ym2612_ticks() {
+            let ym2612_ticks = self.cycles.take_ym2612_ticks();
+            self.ym2612
+                .tick(ym2612_ticks, |(l, r)| self.audio_resampler.collect_ym2612_sample(l, r));
         }
 
         while self.cycles.should_tick_psg() {

@@ -4,8 +4,6 @@ use crate::ym2612::lfo;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 
-const PHASE_DIVIDER: u8 = 144 / 6;
-
 // Shifted F-num values are 17 bits
 const SHIFTED_F_NUM_MASK: u32 = 0x1FFFF;
 
@@ -58,29 +56,11 @@ pub(super) struct PhaseGenerator {
     // Internal state
     counter: u32,
     current_output: u16,
-    divider: u8,
 }
 
 impl PhaseGenerator {
     pub(super) fn new() -> Self {
-        Self {
-            f_number: 0,
-            block: 0,
-            multiple: 0,
-            detune: 0,
-            counter: 0,
-            current_output: 0,
-            divider: PHASE_DIVIDER,
-        }
-    }
-
-    #[inline]
-    pub(super) fn fm_clock(&mut self, lfo_counter: u8, fm_sensitivity: u8) {
-        self.divider -= 1;
-        if self.divider == 0 {
-            self.divider = PHASE_DIVIDER;
-            self.clock(lfo_counter, fm_sensitivity);
-        }
+        Self { f_number: 0, block: 0, multiple: 0, detune: 0, counter: 0, current_output: 0 }
     }
 
     pub(super) fn reset(&mut self) {
@@ -90,7 +70,7 @@ impl PhaseGenerator {
     }
 
     #[inline]
-    fn clock(&mut self, lfo_counter: u8, fm_sensitivity: u8) {
+    pub(super) fn clock(&mut self, lfo_counter: u8, fm_sensitivity: u8) {
         let phase_increment = self.compute_phase_increment(lfo_counter, fm_sensitivity);
         self.counter = (self.counter + phase_increment) & PHASE_COUNTER_MASK;
 

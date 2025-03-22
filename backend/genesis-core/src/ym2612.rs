@@ -206,7 +206,6 @@ struct FmChannel {
     fm_sensitivity: u8,
     l_output: bool,
     r_output: bool,
-    divider: u8,
     current_output: (i16, i16),
 }
 
@@ -228,29 +227,24 @@ impl FmChannel {
             fm_sensitivity: 0,
             l_output: true,
             r_output: true,
-            divider: FM_SAMPLE_DIVIDER,
             current_output: (0, 0),
         }
     }
 
     #[inline]
-    fn fm_clock(&mut self, lfo_counter: u8) {
+    fn clock(&mut self, lfo_counter: u8) {
         for operator in &mut self.operators {
-            operator.phase.fm_clock(lfo_counter, self.fm_sensitivity);
-            operator.envelope.fm_clock(&mut operator.phase);
+            operator.phase.clock(lfo_counter, self.fm_sensitivity);
+            operator.envelope.clock(&mut operator.phase);
 
             operator.lfo_counter = lfo_counter;
             operator.am_sensitivity = self.am_sensitivity;
         }
 
-        self.divider -= 1;
-        if self.divider == 0 {
-            self.divider = FM_SAMPLE_DIVIDER;
-            self.sample_clock();
-        }
+        self.generate_sample();
     }
 
-    fn sample_clock(&mut self) {
+    fn generate_sample(&mut self) {
         // Operator order is 1 -> 3 -> 2 -> 4, per http://gendev.spritesmind.net/forum/viewtopic.php?p=30063#p30063
         // This affects output of algorithms 0, 1, and 2
         let sample = match self.algorithm {
@@ -392,12 +386,6 @@ impl Default for FmChannel {
 fn compute_modulation_input(operator_output: i16) -> u16 {
     // Modulation input uses bits 10-1 of the operator output
     ((operator_output as u16) >> 1) & PHASE_MASK
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum YmTickEffect {
-    None,
-    OutputSample,
 }
 
 // The YM2612 always raises the BUSY line for exactly 32 internal cycles after a register write
@@ -604,37 +592,37 @@ impl Ym2612 {
     }
 
     #[inline]
-    pub fn tick(&mut self) -> YmTickEffect {
-        self.lfo.tick();
+    pub fn tick(&mut self, ticks: u32, mut output: impl FnMut((f64, f64))) {
+        for _ in 0..ticks {
+            self.lfo.tick();
 
-        let timer_a_effect = self.timer_a.tick();
-        self.timer_b.tick();
+            let timer_a_effect = self.timer_a.tick();
+            self.timer_b.tick();
 
-        if self.csm_enabled && timer_a_effect == TimerTickEffect::Overflowed {
-            // CSM: Whenever Timer A overflows, instantaneously key on & off all operators in
-            // channel 3 that are not already keyed on
-            for operator in &mut self.channels[2].operators {
-                if !operator.envelope.is_key_on() {
-                    operator.key_on_or_off(true);
-                    operator.key_on_or_off(false);
+            if self.csm_enabled && timer_a_effect == TimerTickEffect::Overflowed {
+                // CSM: Whenever Timer A overflows, instantaneously key on & off all operators in
+                // channel 3 that are not already keyed on
+                for operator in &mut self.channels[2].operators {
+                    if !operator.envelope.is_key_on() {
+                        operator.key_on_or_off(true);
+                        operator.key_on_or_off(false);
+                    }
+                }
+            }
+
+            self.clock_divider -= 1;
+            if self.clock_divider == 0 {
+                self.clock_divider = FM_CLOCK_DIVIDER;
+                self.busy_cycles_remaining = self.busy_cycles_remaining.saturating_sub(1);
+
+                self.sample_divider -= 1;
+                if self.sample_divider == 0 {
+                    self.sample_divider = FM_SAMPLE_DIVIDER;
+                    self.clock(self.lfo.counter());
+                    output(self.sample());
                 }
             }
         }
-
-        self.clock_divider -= 1;
-        if self.clock_divider == 0 {
-            self.clock_divider = FM_CLOCK_DIVIDER;
-            self.clock(self.lfo.counter());
-            self.busy_cycles_remaining = self.busy_cycles_remaining.saturating_sub(1);
-
-            self.sample_divider -= 1;
-            if self.sample_divider == 0 {
-                self.sample_divider = FM_SAMPLE_DIVIDER;
-                return YmTickEffect::OutputSample;
-            }
-        }
-
-        YmTickEffect::None
     }
 
     #[must_use]
@@ -887,7 +875,7 @@ impl Ym2612 {
     #[inline]
     fn clock(&mut self, lfo_counter: u8) {
         for channel in &mut self.channels {
-            channel.fm_clock(lfo_counter);
+            channel.clock(lfo_counter);
         }
     }
 

@@ -21,6 +21,7 @@
   * Fixes incorrect color palettes in some demos (#183)
   * Fixes a glitch on the title screen of the homebrew _Rick Dangerous 2_ port (#102)
 * Direct color DMA demos now work, thanks to the above accuracy improvements combined with changes related to CRAM dots (#172)
+* Significantly improved performance due primarily to optimizations related to the YM2612 code
 * Fixed a Z80 timing bug caused by a VDP DMA "optimization" introduced in v0.8.2; this fixes video/audio desync in Overdrive 2
 * Fixed behavior when the controller port TH pin is set to input; this fixes controls not working properly in _Micro Machines_ (#226)
 * Improved display behavior when games switch between H32 and H40 modes shortly after the start of VBlank; this fixes glitchy frames in _Bugs Bunny in Double Trouble_ (#252)

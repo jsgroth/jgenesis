@@ -158,13 +158,16 @@ impl<const REFRESH_INTERVAL: u32> CycleCounters<REFRESH_INTERVAL> {
 
     #[inline]
     #[must_use]
-    pub fn should_tick_ym2612(&self) -> bool {
+    pub fn has_ym2612_ticks(&mut self) -> bool {
         self.ym2612_mclk_counter >= YM2612_DIVIDER
     }
 
     #[inline]
-    pub fn decrement_ym2612(&mut self) {
-        self.ym2612_mclk_counter -= YM2612_DIVIDER;
+    #[must_use]
+    pub fn take_ym2612_ticks(&mut self) -> u32 {
+        let ticks = self.ym2612_mclk_counter / YM2612_DIVIDER;
+        self.ym2612_mclk_counter %= YM2612_DIVIDER;
+        ticks as u32
     }
 
     #[inline]

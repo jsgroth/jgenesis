@@ -5,11 +5,8 @@ use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use std::cmp;
 
-const ENVELOPE_DIVIDER: u8 = 72;
-
-// SSG-EG updates 3x as fast as the envelope generator
-const SSG_UPDATE_1: u8 = 24;
-const SSG_UPDATE_2: u8 = 48;
+// Envelope updates every third cycle at 53627 Hz
+const ENVELOPE_DIVIDER: u8 = 3;
 
 const SSG_ATTENUATION_THRESHOLD: u16 = 0x200;
 
@@ -140,19 +137,16 @@ impl EnvelopeGenerator {
     }
 
     #[inline]
-    pub(super) fn fm_clock(&mut self, phase_generator: &mut PhaseGenerator) {
+    pub(super) fn clock(&mut self, phase_generator: &mut PhaseGenerator) {
+        // SSG updates on every clock if enabled
+        if self.ssg_enabled {
+            self.ssg_clock(phase_generator);
+        }
+
         self.divider -= 1;
         if self.divider == 0 {
             self.divider = ENVELOPE_DIVIDER;
-
-            if self.ssg_enabled {
-                self.ssg_clock(phase_generator);
-            }
-
             self.envelope_clock();
-        } else if self.ssg_enabled && (self.divider == SSG_UPDATE_1 || self.divider == SSG_UPDATE_2)
-        {
-            self.ssg_clock(phase_generator);
         }
     }
 
