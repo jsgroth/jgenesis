@@ -563,6 +563,14 @@ pub fn check_for_long_dma_skip<const REFRESH_INTERVAL: u32>(
         return;
     }
 
+    if !cycles.z80_halt {
+        // Don't advance for very long time slices if the Z80 is still active; doing so causes
+        // video/audio desync in Overdrive 2.
+        // 8 68K cycles is slightly less than 4 Z80 cycles
+        cycles.m68k_wait_cpu_cycles = 8;
+        return;
+    }
+
     // Skip as close as possible to the end of the current scanline
     let wait_cycles = cmp::max(
         cycles.m68k_wait_cpu_cycles,
