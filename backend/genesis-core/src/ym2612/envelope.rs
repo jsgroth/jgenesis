@@ -126,7 +126,7 @@ impl EnvelopeGenerator {
             phase: EnvelopePhase::Release,
             attenuation: MAX_ATTENUATION,
             key_scale_rate: 0,
-            cycle_count: 0,
+            cycle_count: 1,
             divider: ENVELOPE_DIVIDER,
             ssg_enabled: false,
             ssg_attack: false,
@@ -152,7 +152,9 @@ impl EnvelopeGenerator {
 
     #[inline]
     fn envelope_clock(&mut self) {
-        self.cycle_count = self.cycle_count.wrapping_add(1);
+        // It's been verified that actual hardware's envelope cycle counter is 12-bit and skips 0 on overflow
+        self.cycle_count += 1;
+        self.cycle_count = (self.cycle_count & 0xFFF) + (self.cycle_count >> 12);
 
         // Sustain level applies in increments of 32, with max level special cased to be
         // max attenuation

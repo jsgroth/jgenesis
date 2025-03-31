@@ -126,11 +126,7 @@ impl Vdp {
             }
             InterlacingMode::Interlaced => {
                 let odd_frame = self.state.interlaced_odd();
-                let frame_buffer_row = if !self.config.deinterlace {
-                    frame_buffer_row.map(|row| 2 * row + u32::from(odd_frame))
-                } else {
-                    frame_buffer_row
-                };
+                let frame_buffer_row = frame_buffer_row.map(|row| 2 * row + u32::from(odd_frame));
 
                 self.do_render_scanline(
                     scanline,
@@ -139,6 +135,12 @@ impl Vdp {
                     frame_buffer_row,
                     false,
                 );
+
+                if self.config.deinterlace {
+                    if let Some(frame_buffer_row) = frame_buffer_row {
+                        self.copy_frame_buffer_row(frame_buffer_row, frame_buffer_row ^ 1);
+                    }
+                }
             }
             InterlacingMode::InterlacedDouble => {
                 let odd_frame = self.state.interlaced_odd();
@@ -217,6 +219,7 @@ impl Vdp {
                     || self.state.v_border_forgotten
                     || prev_raster_line.line == 511
                 {
+                    // TODO this does not work correctly in interlaced modes - wrong frame buffer row
                     if let Some(right_border_row) = prev_raster_line.to_frame_buffer_row(
                         self.state.top_border,
                         self.timing_mode,
@@ -305,6 +308,24 @@ impl Vdp {
                 screen_width,
                 self.config.non_linear_color_scale,
             );
+        }
+    }
+
+    fn copy_frame_buffer_row(&mut self, from_row: u32, to_row: u32) {
+        debug_assert_ne!(from_row, to_row);
+
+        let screen_width = self.screen_width();
+        let from_addr = (from_row * screen_width) as usize;
+        let to_addr = (to_row * screen_width) as usize;
+
+        if to_addr > from_addr {
+            let (a, b) = self.frame_buffer.split_at_mut(to_addr);
+            b[..screen_width as usize]
+                .copy_from_slice(&a[from_addr..from_addr + screen_width as usize]);
+        } else {
+            let (a, b) = self.frame_buffer.split_at_mut(from_addr);
+            a[to_addr..to_addr + screen_width as usize]
+                .copy_from_slice(&b[..screen_width as usize]);
         }
     }
 

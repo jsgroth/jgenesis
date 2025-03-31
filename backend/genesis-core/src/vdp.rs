@@ -1650,11 +1650,10 @@ impl Vdp {
             self.state.scanline = 0;
             self.state.v_border_forgotten = false;
 
-            let next_frame_interlaced = match self.registers.interlacing_mode {
-                InterlacingMode::Progressive => false,
-                InterlacingMode::Interlaced => !self.config.deinterlace,
-                InterlacingMode::InterlacedDouble => true,
-            };
+            let next_frame_interlaced = matches!(
+                self.registers.interlacing_mode,
+                InterlacingMode::Interlaced | InterlacingMode::InterlacedDouble
+            );
 
             if next_frame_interlaced && !self.state.interlaced_frame {
                 self.state.interlaced_odd = false;
@@ -1662,9 +1661,6 @@ impl Vdp {
                 if !self.config.deinterlace {
                     self.prepare_frame_buffer_for_interlaced();
                 }
-            } else if self.state.interlaced_frame {
-                // TODO this actually happens _slightly_ after H=0
-                self.state.interlaced_odd = !self.state.interlaced_odd;
             }
 
             self.state.interlaced_frame = next_frame_interlaced;
@@ -1673,6 +1669,15 @@ impl Vdp {
             // mode and V30 mode. Titan Overdrive 2 depends on this for the arcade scene
             self.state.top_border =
                 self.registers.vertical_display_size.top_border(self.timing_mode);
+        } else if self.state.interlaced_frame {
+            let toggle_odd_line = match self.registers.vertical_display_size {
+                VerticalDisplaySize::TwentyEightCell => 240,
+                VerticalDisplaySize::ThirtyCell => 256,
+            };
+            if self.state.scanline == toggle_odd_line {
+                // TODO this actually happens at H=0x001 or H=0x002
+                self.state.interlaced_odd = !self.state.interlaced_odd;
+            }
         }
 
         let last_scanline_of_frame =
@@ -1829,8 +1834,22 @@ impl Vdp {
         FrameSize { width: self.screen_width(), height: self.screen_height() }
     }
 
-    fn scanlines_in_current_frame(&self) -> u16 {
+    #[inline]
+    #[must_use]
+    pub fn scanlines_in_current_frame(&self) -> u16 {
         self.timing_mode.scanlines_per_frame(self.state.interlaced_frame, self.state.interlaced_odd)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn is_interlaced_frame(&self) -> bool {
+        self.state.interlaced_frame
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn is_interlaced_odd(&self) -> bool {
+        self.state.interlaced_frame && self.state.interlaced_odd
     }
 
     #[inline]

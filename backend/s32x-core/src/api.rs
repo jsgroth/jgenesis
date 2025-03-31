@@ -231,7 +231,11 @@ impl EmulatorTrait for Sega32XEmulator {
 
         self.main_bus_writes = bus.apply_writes();
 
-        self.memory.medium_mut().tick(mclk_cycles, self.audio_resampler.pwm_resampler_mut());
+        self.memory.medium_mut().tick(
+            mclk_cycles,
+            self.audio_resampler.pwm_resampler_mut(),
+            &self.vdp,
+        );
         self.input.tick(m68k_cycles);
 
         if self.cycles.has_ym2612_ticks() {

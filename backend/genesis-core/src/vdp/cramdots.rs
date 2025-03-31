@@ -1,6 +1,6 @@
 use crate::vdp::colors::ColorModifier;
 use crate::vdp::fifo::VdpFifo;
-use crate::vdp::registers::{InterlacingMode, RIGHT_BORDER, Registers};
+use crate::vdp::registers::{RIGHT_BORDER, Registers};
 use crate::vdp::render::RasterLine;
 use crate::vdp::{MAX_SCREEN_WIDTH, Vdp, colors};
 use bincode::{Decode, Encode};
@@ -117,14 +117,10 @@ impl Vdp {
             return;
         };
 
-        let interlaced_resolution = self.state.interlaced_frame
-            && !(self.config.deinterlace
-                && self.registers.interlacing_mode == InterlacingMode::Interlaced);
-        if interlaced_resolution {
+        let interlaced = self.state.interlaced_frame;
+        if interlaced {
             fb_row *= 2;
-            if self.state.interlaced_odd {
-                fb_row += 1;
-            }
+            fb_row += u32::from(self.state.interlaced_odd);
         }
 
         let screen_width = self.screen_width();
@@ -135,7 +131,7 @@ impl Vdp {
         };
 
         self.apply_cram_dots_inner(fb_row, screen_width, left_border_offset);
-        if interlaced_resolution && self.config.deinterlace {
+        if interlaced && self.config.deinterlace {
             self.apply_cram_dots_inner(fb_row ^ 1, screen_width, left_border_offset);
         }
     }
