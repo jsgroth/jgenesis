@@ -510,7 +510,7 @@ impl App {
 
         let quit_shortcut = KeyboardShortcut::new(Modifiers::CTRL, Key::Q);
         if ctx.input_mut(|input| input.consume_shortcut(&quit_shortcut)) {
-            self.quit(ctx);
+            ctx.send_viewport_cmd(ViewportCommand::Close);
         }
 
         ui.menu_button("File", |ui| {
@@ -578,7 +578,7 @@ impl App {
             let quit_button =
                 Button::new("Quit").shortcut_text(ctx.format_shortcut(&quit_shortcut));
             if quit_button.ui(ui).clicked() {
-                self.quit(ctx);
+                ctx.send_viewport_cmd(ViewportCommand::Close);
             }
         });
     }
@@ -1114,7 +1114,7 @@ impl App {
         if self.state.close_on_emulator_exit {
             let status = self.emu_thread.status();
             if !status.is_running() && status != EmuThreadStatus::WaitingForFirstCommand {
-                self.quit(ctx);
+                ctx.send_viewport_cmd(ViewportCommand::Close);
             }
         }
     }
@@ -1146,7 +1146,11 @@ impl App {
             .into();
     }
 
-    fn quit(&self, ctx: &Context) {
+    fn terminate_emu_thread(&self) {
+        if self.emu_thread.status() == EmuThreadStatus::Terminated {
+            return;
+        }
+
         let _ = self.emu_thread.try_send(EmuThreadCommand::Terminate);
 
         let wait_limit = Instant::now() + Duration::from_secs(1);
@@ -1158,15 +1162,13 @@ impl App {
         if self.emu_thread.status() != EmuThreadStatus::Terminated {
             log::warn!("Failed to terminate emulation thread; exiting anyway");
         }
-
-        ctx.send_viewport_cmd(ViewportCommand::Close);
     }
 }
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
         if self.emu_thread.exit_signal() {
-            self.quit(ctx);
+            ctx.send_viewport_cmd(ViewportCommand::Close);
             return;
         }
 
@@ -1214,6 +1216,10 @@ impl eframe::App for App {
         }
 
         self.state.rendered_first_frame = true;
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.terminate_emu_thread();
     }
 }
 
