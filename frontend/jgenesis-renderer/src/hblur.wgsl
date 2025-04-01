@@ -11,6 +11,12 @@ var texture_in: texture_2d<f32>;
 @group(0) @binding(1)
 var<uniform> texture_width: TextureWidth;
 
+// If horizontal resolution is 1280 or higher, use a wider range of pixels when applying horizontal blur.
+//
+// This is a hack to make blur work correctly for 32X when the Genesis VDP is in H32 mode, which changes the internal
+// rendering resolution to 1280x224 in order to correctly handle priority between Genesis H32 pixels and 32X H40 pixels
+const S32X_H32_HACK_WIDTH = 1280u;
+
 fn to_texture_position(fragment_position: vec4f) -> vec2u {
     let texture_position = round(fragment_position.xy - vec2f(0.5));
     return vec2u(u32(texture_position.x), u32(texture_position.y));
@@ -19,6 +25,12 @@ fn to_texture_position(fragment_position: vec4f) -> vec2u {
 @fragment
 fn hblur_2px(@builtin(position) position: vec4f) -> @location(0) vec4f {
     let t_position = to_texture_position(position);
+
+    if texture_width.value >= S32X_H32_HACK_WIDTH {
+        // Blur 9 pixels at H1280px
+        let color = compute_hblur_variable(t_position, 4);
+        return vec4f(color, 1.0);
+    }
 
     let left = textureLoad(texture_in, t_position, 0).rgb;
     let right = select(
@@ -34,36 +46,69 @@ fn hblur_2px(@builtin(position) position: vec4f) -> @location(0) vec4f {
 @fragment
 fn hblur_3px(@builtin(position) position: vec4f) -> @location(0) vec4f {
     let t_position = to_texture_position(position);
+
+    if texture_width.value >= S32X_H32_HACK_WIDTH {
+        // Blur 13 pixels at H1280px
+        let color = compute_hblur_variable(t_position, 6);
+        return vec4f(color, 1.0);
+    }
+
     let color = compute_hblur_3px(t_position);
     return vec4f(color, 1.0);
 }
 
 fn compute_hblur_3px(t_position: vec2u) -> vec3f {
-    let center = textureLoad(texture_in, t_position, 0).rgb;
-    let left = select(
-        textureLoad(texture_in, t_position + vec2u(1u, 0u), 0).rgb,
-        textureLoad(texture_in, t_position - vec2u(1u, 0u), 0).rgb,
-        t_position.x != 0u,
-    );
-    let right = select(
-        textureLoad(texture_in, t_position - vec2u(1u, 0u), 0).rgb,
-        textureLoad(texture_in, t_position + vec2u(1u, 0u), 0).rgb,
-        t_position.x != texture_width.value - 1u,
-    );
+    var color_sum = 2.0 * textureLoad(texture_in, t_position, 0).rgb;
+    var weight_sum = 2.0;
 
-    return (2.0 * center + left + right) / 4.0;
+    if t_position.x != 0u {
+        color_sum += textureLoad(texture_in, t_position - vec2u(1u, 0u), 0).rgb;
+        weight_sum += 1.0;
+    }
+
+    if t_position.x != texture_width.value - 1u {
+        color_sum += textureLoad(texture_in, t_position + vec2u(1u, 0u), 0).rgb;
+        weight_sum += 1.0;
+    }
+
+    return color_sum / weight_sum;
+}
+
+fn compute_hblur_variable(t_position: vec2u, distance: i32) -> vec3f {
+    var color_sum = vec3f(0.0, 0.0, 0.0);
+    var weight_sum = 0.0;
+
+    for (var dx = -distance; dx <= distance; dx++) {
+        let x = i32(t_position.x) + dx;
+        if x < 0 || x >= i32(texture_width.value) {
+            continue;
+        }
+
+        let color = textureLoad(texture_in, vec2u(u32(x), t_position.y), 0).rgb;
+        let weight = f32(distance + 1 - abs(dx));
+        color_sum += weight * color;
+        weight_sum += weight;
+    }
+
+    return color_sum / weight_sum;
 }
 
 @fragment
 fn hblur_snes(@builtin(position) position: vec4f) -> @location(0) vec4f {
     let t_position = to_texture_position(position);
 
-    let color = select(
-        hblur_snes_256px(t_position),
-        compute_hblur_3px(t_position),
-        texture_width.value >= 512u,
-    );
+    if texture_width.value >= S32X_H32_HACK_WIDTH {
+        // Blur 5 pixels at H1280px
+        let color = compute_hblur_variable(t_position, 2);
+        return vec4f(color, 1.0);
+    }
 
+    if texture_width.value >= 512u {
+        let color = compute_hblur_3px(t_position);
+        return vec4f(color, 1.0);
+    }
+
+    let color = hblur_snes_256px(t_position);
     return vec4f(color, 1.0);
 }
 
