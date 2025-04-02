@@ -736,6 +736,12 @@ pub struct Bus {
 
 impl Bus {
     pub(crate) fn from_cartridge(mapper: Mapper, overscan: Overscan) -> Self {
+        const INITIAL_PALETTE_RAM: [u8; 32] = [
+            0x09, 0x01, 0x00, 0x01, 0x00, 0x02, 0x02, 0x0D, 0x08, 0x10, 0x08, 0x24, 0x00, 0x00,
+            0x04, 0x2C, 0x09, 0x01, 0x34, 0x03, 0x00, 0x04, 0x00, 0x14, 0x08, 0x3A, 0x00, 0x02,
+            0x00, 0x20, 0x2C, 0x08,
+        ];
+
         Self {
             mapper,
             // (Somewhat) randomize initial RAM contents
@@ -745,7 +751,7 @@ impl Bus {
             ppu_registers: PpuRegisters::new(),
             io_registers: IoRegisters::new(overscan),
             ppu_vram: Box::new(array::from_fn(|_| 0)),
-            ppu_palette_ram: [0; 32],
+            ppu_palette_ram: INITIAL_PALETTE_RAM,
             ppu_oam: [0; 256],
             ppu_bus_address: 0,
             interrupt_lines: InterruptLines::new(),
