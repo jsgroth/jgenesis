@@ -6,7 +6,7 @@ use std::{cmp, mem};
 
 pub const NATIVE_M68K_DIVIDER: u64 = 7;
 pub const Z80_DIVIDER: u64 = 15;
-pub const YM2612_DIVIDER: u64 = 7;
+pub const YM2612_DIVIDER: u64 = 7 * 6;
 pub const PSG_DIVIDER: u64 = 15;
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]

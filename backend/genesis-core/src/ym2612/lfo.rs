@@ -6,47 +6,41 @@ use jgenesis_common::num::GetBit;
 // LFO counter is 7 bits
 const LFO_COUNTER_MASK: u8 = 0x7F;
 
-// TODO figure out if these numbers are remotely correct
-const LFO_DIVIDERS: [u16; 8] = [
-    15704, // 3.816Hz
-    11241, // 5.331Hz
-    10382, // 5.772Hz
-    9812,  // 6.108Hz
-    9084,  // 6.597Hz
-    6490,  // 9.233Hz
-    1299,  // 46.119Hz
-    866,   // 69.226Hz
+const LFO_DIVIDERS: [u8; 8] = [
+    108, // 3.85 Hz
+    77,  // 5.40 Hz
+    71,  // 5.86 Hz
+    67,  // 6.21 Hz
+    62,  // 6.71 Hz
+    44,  // 9.46 Hz
+    8,   // 52.02 Hz
+    5,   // 83.23 Hz
 ];
 
 // Adapted from http://gendev.spritesmind.net/forum/viewtopic.php?f=24&t=386&start=480
 // Values are for the highest bit of F-number
-const FM_INCREMENT_TABLE: [[u16; 8]; 8] = [
+const FM_INCREMENT_TABLE: &[[u16; 8]; 8] = &[
     [0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 2, 2, 2, 2],
-    [0, 0, 0, 2, 2, 2, 4, 4],
-    [0, 0, 2, 2, 4, 4, 6, 6],
-    [0, 0, 2, 4, 4, 4, 6, 8],
-    [0, 0, 4, 6, 8, 8, 10, 12],
+    [0, 0, 0, 0, 4, 4, 4, 4],
+    [0, 0, 0, 4, 4, 4, 8, 8],
+    [0, 0, 4, 4, 8, 8, 12, 12],
+    [0, 0, 4, 8, 8, 8, 12, 16],
     [0, 0, 8, 12, 16, 16, 20, 24],
     [0, 0, 16, 24, 32, 32, 40, 48],
+    [0, 0, 32, 48, 64, 64, 80, 96],
 ];
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct LowFrequencyOscillator {
     enabled: bool,
     counter: u8,
-    divider: u16,
-    divider_reload: u16,
+    divider: u8,
+    frequency: u8,
 }
 
 impl LowFrequencyOscillator {
     pub fn new() -> Self {
-        Self {
-            enabled: false,
-            counter: 0,
-            divider: LFO_DIVIDERS[0],
-            divider_reload: LFO_DIVIDERS[0],
-        }
+        Self { enabled: false, counter: 0, divider: 0, frequency: LFO_DIVIDERS[0] }
     }
 
     pub fn set_enabled(&mut self, enabled: bool) {
@@ -57,7 +51,7 @@ impl LowFrequencyOscillator {
     }
 
     pub fn set_frequency(&mut self, frequency: u8) {
-        self.divider_reload = LFO_DIVIDERS[frequency as usize];
+        self.frequency = LFO_DIVIDERS[frequency as usize];
     }
 
     pub fn counter(&self) -> u8 {
@@ -66,9 +60,10 @@ impl LowFrequencyOscillator {
 
     #[inline]
     pub fn tick(&mut self) {
-        self.divider -= 1;
-        if self.divider == 0 {
-            self.divider = self.divider_reload;
+        // TODO is this the correct way to handle LFO frequency changes?
+        self.divider += 1;
+        if self.divider >= self.frequency {
+            self.divider = 0;
 
             if self.enabled {
                 self.counter = (self.counter + 1) & LFO_COUNTER_MASK;
@@ -77,10 +72,10 @@ impl LowFrequencyOscillator {
     }
 }
 
-// Returns the modulated F-number
+// Returns the modulated F-number, as a 12-bit value (left shifted 1 from input F-num)
 pub fn frequency_modulation(lfo_counter: u8, fm_sensitivity: u8, f_number: u16) -> u16 {
     if fm_sensitivity == 0 {
-        return f_number;
+        return f_number << 1;
     }
 
     let fm_table_idx = if lfo_counter.bit(5) {
@@ -93,22 +88,20 @@ pub fn frequency_modulation(lfo_counter: u8, fm_sensitivity: u8, f_number: u16) 
 
     // Compute total increment from the highest 7 bits of F-number; the lower 4 bits never add any
     // increment
+    let raw_increment = FM_INCREMENT_TABLE[fm_sensitivity as usize][fm_table_idx as usize];
     let fm_increment = (4..11)
         .map(|i| {
-            if f_number.bit(i) {
-                FM_INCREMENT_TABLE[fm_sensitivity as usize][fm_table_idx as usize] >> (10 - i)
-            } else {
-                0
-            }
+            let bit = (f_number >> i) & 1;
+            bit * (raw_increment >> (10 - i))
         })
         .sum::<u16>();
 
     if lfo_counter.bit(6) {
         // Negative half of wave
-        f_number.wrapping_sub(fm_increment) & 0x7FF
+        (f_number << 1).wrapping_sub(fm_increment) & 0xFFF
     } else {
         // Positive half of wave
-        f_number.wrapping_add(fm_increment) & 0x7FF
+        (f_number << 1).wrapping_add(fm_increment) & 0xFFF
     }
 }
 
@@ -132,5 +125,39 @@ pub fn amplitude_modulation(lfo_counter: u8, am_sensitivity: u8) -> u16 {
         2 => am_attenuation >> 1,
         3 => am_attenuation,
         _ => panic!("invalid AM sensitivity value: {am_sensitivity}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lfo_dividers() {
+        for (freq, divider) in LFO_DIVIDERS.into_iter().enumerate() {
+            let mut lfo = LowFrequencyOscillator::new();
+            lfo.set_enabled(true);
+            lfo.set_frequency(freq as u8);
+
+            for i in 0..4 {
+                for tick in 0..divider - 1 {
+                    lfo.tick();
+                    assert_eq!(
+                        i,
+                        lfo.counter(),
+                        "LFO counter should be {i} after {} ticks with divider {divider}",
+                        tick + 1
+                    );
+                }
+
+                lfo.tick();
+                assert_eq!(
+                    i + 1,
+                    lfo.counter(),
+                    "LFO counter should be {} after {divider} ticks (frequency {freq})",
+                    i + 1
+                );
+            }
+        }
     }
 }

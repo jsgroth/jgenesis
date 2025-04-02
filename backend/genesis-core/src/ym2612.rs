@@ -12,13 +12,12 @@ use crate::GenesisEmulatorConfig;
 use crate::ym2612::envelope::EnvelopeGenerator;
 use crate::ym2612::lfo::LowFrequencyOscillator;
 use crate::ym2612::phase::PhaseGenerator;
-use crate::ym2612::timer::{TimerA, TimerB, TimerTickEffect};
+use crate::ym2612::timer::{TimerA, TimerB, TimerControl, TimerTickEffect};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use std::array;
 use std::sync::LazyLock;
 
-const FM_CLOCK_DIVIDER: u8 = 6;
 const FM_SAMPLE_DIVIDER: u8 = 24;
 
 // Phase is 10 bits
@@ -50,7 +49,6 @@ fn compute_key_code(f_number: u16, block: u8) -> u8 {
 struct FmOperator {
     phase: PhaseGenerator,
     envelope: EnvelopeGenerator,
-    feedback_level: u8,
     am_enabled: bool,
     current_output: i16,
     last_output: i16,
@@ -82,19 +80,8 @@ impl FmOperator {
         }
     }
 
-    fn sample_clock(&mut self, modulation_input: u16) -> i16 {
-        let feedback = match self.feedback_level {
-            0 => 0,
-            feedback_level => {
-                // Feedback is implemented by summing the last 2 operator outputs, shifting from
-                // signed 14-bit to signed 10-bit, and then applying a right shift of (6 - feedback_level).
-                // This is equivalent to shifting by (10 - feedback_level).
-                let feedback_output = self.current_output + self.last_output;
-                ((feedback_output >> (10 - feedback_level)) as u16) & PHASE_MASK
-            }
-        };
-
-        let phase = (self.phase.current_phase() + modulation_input + feedback) & PHASE_MASK;
+    fn sample_clock(&mut self, modulation_input: i16) -> i16 {
+        let phase = self.phase.current_phase().wrapping_add_signed(modulation_input);
 
         // Phase is a 10-bit value that represents a number in the range 0 to 2*PI.
         // Actual hardware splits this into a sign bit and a half-phase value from 0 to PI, computes
@@ -202,11 +189,12 @@ struct FmChannel {
     pending_op_blocks: [u8; 3],
     operator_blocks: [u8; 3],
     algorithm: u8,
+    feedback_level: u8,
     am_sensitivity: u8,
     fm_sensitivity: u8,
     l_output: bool,
     r_output: bool,
-    current_output: (i16, i16),
+    current_output: i16,
 }
 
 impl FmChannel {
@@ -223,16 +211,17 @@ impl FmChannel {
             pending_op_blocks: [0; 3],
             operator_blocks: [0; 3],
             algorithm: 0,
+            feedback_level: 0,
             am_sensitivity: 0,
             fm_sensitivity: 0,
             l_output: true,
             r_output: true,
-            current_output: (0, 0),
+            current_output: 0,
         }
     }
 
     #[inline]
-    fn clock(&mut self, lfo_counter: u8) {
+    fn clock(&mut self, lfo_counter: u8, quantization_mask: i16) {
         for operator in &mut self.operators {
             operator.phase.clock(lfo_counter, self.fm_sensitivity);
             operator.envelope.clock(&mut operator.phase);
@@ -241,67 +230,95 @@ impl FmChannel {
             operator.am_sensitivity = self.am_sensitivity;
         }
 
-        self.generate_sample();
+        self.generate_sample(quantization_mask);
     }
 
-    fn generate_sample(&mut self) {
+    fn generate_sample(&mut self, out_mask: i16) {
+        macro_rules! carrier_sum {
+            ($($carrier:expr),*) => {
+                {
+                    let mut sum = 0;
+                    $(sum += $carrier & out_mask;)*
+                    sum.clamp(OPERATOR_OUTPUT_MIN & out_mask, OPERATOR_OUTPUT_MAX & out_mask)
+                }
+            }
+        }
+
+        let op1_feedback = match self.feedback_level {
+            0 => 0,
+            f => (self.operators[0].current_output + self.operators[0].last_output) >> (10 - f),
+        };
+
         // Operator order is 1 -> 3 -> 2 -> 4, per http://gendev.spritesmind.net/forum/viewtopic.php?p=30063#p30063
-        // This affects output of algorithms 0, 1, and 2
+        // Additionally, when two operators execute consecutively, if the first one modulates the
+        // second one, it will use the operator output from the previous cycle instead of the current
+        // cycle. This is due to how the chip pipelines operator evaluation internally.
         let sample = match self.algorithm {
             0 => {
                 // O1 -> O2 -> O3 -> O4 -> Output
-                let m1 = compute_modulation_input(self.operators[0].sample_clock(0));
+                let m1 = self.operators[0].sample_clock(op1_feedback);
 
-                let m2 = compute_modulation_input(self.operators[1].current_output);
-                self.operators[1].sample_clock(m1);
+                let m2_old = self.operators[1].current_output;
+                self.operators[1].sample_clock(m1 >> 1);
 
-                let m3 = compute_modulation_input(self.operators[2].sample_clock(m2));
-                self.operators[3].sample_clock(m3)
+                let m3 = self.operators[2].sample_clock(m2_old >> 1);
+                let c4 = self.operators[3].sample_clock(m3 >> 1);
+
+                c4 & out_mask
             }
             1 => {
                 // O1 --|
                 //      --> O3 -> O4 -> Output
                 // O2 --|
-                let m1 = compute_modulation_input(self.operators[0].sample_clock(0));
+                let m1_old = self.operators[0].current_output;
+                self.operators[0].sample_clock(op1_feedback);
 
-                let m2 = compute_modulation_input(self.operators[1].current_output);
+                let m2_old = self.operators[1].current_output;
                 self.operators[1].sample_clock(0);
 
-                let m3 = compute_modulation_input(
-                    self.operators[2].sample_clock((m1 + m2) & PHASE_MASK),
-                );
-                self.operators[3].sample_clock(m3)
+                let m3 = self.operators[2].sample_clock((m1_old + m2_old) >> 1);
+                let c4 = self.operators[3].sample_clock(m3 >> 1);
+
+                c4 & out_mask
             }
             2 => {
                 //       O1 --|
                 //            --> O4 -> Output
                 // O2 -> O3 --|
-                let m1 = compute_modulation_input(self.operators[0].sample_clock(0));
+                let m1 = self.operators[0].sample_clock(op1_feedback);
 
-                let m2 = compute_modulation_input(self.operators[1].current_output);
+                let m2_old = self.operators[1].current_output;
                 self.operators[1].sample_clock(0);
 
-                let m3 = compute_modulation_input(self.operators[2].sample_clock(m2));
-                self.operators[3].sample_clock((m1 + m3) & PHASE_MASK)
+                let m3 = self.operators[2].sample_clock(m2_old >> 1);
+                let c4 = self.operators[3].sample_clock((m1 + m3) >> 1);
+
+                c4 & out_mask
             }
             3 => {
                 // O1 -> O2 --|
                 //            --> O4 -> Output
                 //       O3 --|
-                let m1 = compute_modulation_input(self.operators[0].sample_clock(0));
-                let m2 = compute_modulation_input(self.operators[1].sample_clock(m1));
-                let m3 = compute_modulation_input(self.operators[2].sample_clock(0));
-                self.operators[3].sample_clock((m2 + m3) & PHASE_MASK)
+                let m1 = self.operators[0].sample_clock(op1_feedback);
+
+                let m2_old = self.operators[1].current_output;
+                self.operators[1].sample_clock(m1 >> 1);
+
+                let m3 = self.operators[2].sample_clock(0);
+                let c4 = self.operators[3].sample_clock((m2_old + m3) >> 1);
+
+                c4 & out_mask
             }
             4 => {
                 // O1 -> O2 --|
                 //            --> Output
                 // O3 -> O4 --|
-                let m1 = compute_modulation_input(self.operators[0].sample_clock(0));
-                let c1 = self.operators[1].sample_clock(m1);
-                let m2 = compute_modulation_input(self.operators[2].sample_clock(0));
-                let c2 = self.operators[3].sample_clock(m2);
-                (c1 + c2).clamp(OPERATOR_OUTPUT_MIN, OPERATOR_OUTPUT_MAX)
+                let m1 = self.operators[0].sample_clock(op1_feedback);
+                let c2 = self.operators[1].sample_clock(m1 >> 1);
+                let m3 = self.operators[2].sample_clock(0);
+                let c4 = self.operators[3].sample_clock(m3 >> 1);
+
+                carrier_sum!(c2, c4)
             }
             5 => {
                 //      --> O2 --|
@@ -309,11 +326,13 @@ impl FmChannel {
                 // O1 --|-> O3 ----> Output
                 //      |        |
                 //      --> O4 --|
-                let m1 = compute_modulation_input(self.operators[0].sample_clock(0));
-                let c1 = self.operators[1].sample_clock(m1);
-                let c2 = self.operators[2].sample_clock(m1);
-                let c3 = self.operators[3].sample_clock(m1);
-                (c1 + c2 + c3).clamp(OPERATOR_OUTPUT_MIN, OPERATOR_OUTPUT_MAX)
+                let m1_old = self.operators[0].current_output;
+                let m1 = self.operators[0].sample_clock(op1_feedback);
+                let c2 = self.operators[1].sample_clock(m1 >> 1);
+                let c3 = self.operators[2].sample_clock(m1_old >> 1);
+                let c4 = self.operators[3].sample_clock(m1 >> 1);
+
+                carrier_sum!(c2, c3, c4)
             }
             6 => {
                 // O1 --> O2 --|
@@ -321,11 +340,12 @@ impl FmChannel {
                 //        O3 ----> Output
                 //             |
                 //        O4 --|
-                let m1 = compute_modulation_input(self.operators[0].sample_clock(0));
-                let c1 = self.operators[1].sample_clock(m1);
-                let c2 = self.operators[2].sample_clock(0);
-                let c3 = self.operators[3].sample_clock(0);
-                (c1 + c2 + c3).clamp(OPERATOR_OUTPUT_MIN, OPERATOR_OUTPUT_MAX)
+                let m1 = self.operators[0].sample_clock(op1_feedback);
+                let c2 = self.operators[1].sample_clock(m1 >> 1);
+                let c3 = self.operators[2].sample_clock(0);
+                let c4 = self.operators[3].sample_clock(0);
+
+                carrier_sum!(c2, c3, c4)
             }
             7 => {
                 // O1 --|
@@ -335,18 +355,17 @@ impl FmChannel {
                 // O3 --|
                 //      |
                 // O4 --|
-                let c1 = self.operators[0].sample_clock(0);
+                let c1 = self.operators[0].sample_clock(op1_feedback);
                 let c2 = self.operators[1].sample_clock(0);
                 let c3 = self.operators[2].sample_clock(0);
                 let c4 = self.operators[3].sample_clock(0);
-                (c1 + c2 + c3 + c4).clamp(OPERATOR_OUTPUT_MIN, OPERATOR_OUTPUT_MAX)
+
+                carrier_sum!(c1, c2, c3, c4)
             }
             _ => panic!("invalid algorithm: {}", self.algorithm),
         };
 
-        let sample_l = sample * i16::from(self.l_output);
-        let sample_r = sample * i16::from(self.r_output);
-        self.current_output = (sample_l, sample_r);
+        self.current_output = sample;
     }
 
     // Update phase generator F-numbers & blocks after channel-level F-number, block, or frequency mode is updated
@@ -382,12 +401,6 @@ impl Default for FmChannel {
     }
 }
 
-#[inline]
-fn compute_modulation_input(operator_output: i16) -> u16 {
-    // Modulation input uses bits 10-1 of the operator output
-    ((operator_output as u16) >> 1) & PHASE_MASK
-}
-
 // The YM2612 always raises the BUSY line for exactly 32 internal cycles after a register write
 const WRITE_BUSY_CYCLES: u8 = 32;
 
@@ -403,12 +416,11 @@ enum RegisterGroup {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Ym2612 {
     channels: [FmChannel; 6],
-    pcm_enabled: bool,
-    pcm_sample: u8,
+    dac_channel_enabled: bool,
+    dac_channel_sample: u8,
     lfo: LowFrequencyOscillator,
     selected_register: u8,
     selected_register_group: RegisterGroup,
-    clock_divider: u8,
     sample_divider: u8,
     busy_cycles_remaining: u8,
     timer_a: TimerA,
@@ -423,12 +435,11 @@ impl Ym2612 {
     pub fn new(config: GenesisEmulatorConfig) -> Self {
         Self {
             channels: array::from_fn(|_| FmChannel::default()),
-            pcm_enabled: false,
-            pcm_sample: 0,
+            dac_channel_enabled: false,
+            dac_channel_sample: 0,
             lfo: LowFrequencyOscillator::new(),
             selected_register: 0,
             selected_register_group: RegisterGroup::default(),
-            clock_divider: FM_CLOCK_DIVIDER,
             sample_divider: FM_SAMPLE_DIVIDER,
             busy_cycles_remaining: 0,
             timer_a: TimerA::new(),
@@ -487,23 +498,21 @@ impl Ym2612 {
             }
             0x24 => {
                 // Timer A interval bits 9-2
-                let interval = (self.timer_a.interval() & 0x0003) | (u32::from(value) << 2);
-                self.timer_a.set_interval(interval);
+                self.timer_a.write_interval_high(value);
 
-                log::trace!("Timer A interval: {}", interval);
+                log::trace!("Timer A interval: {}", self.timer_a.interval());
             }
             0x25 => {
                 // Timer A interval bits 1-0
-                let interval = (self.timer_a.interval() & 0xFFFC) | u32::from(value & 0x03);
-                self.timer_a.set_interval(interval);
+                self.timer_a.write_interval_low(value);
 
-                log::trace!("Timer A interval: {}", interval);
+                log::trace!("Timer A interval: {}", self.timer_a.interval());
             }
             0x26 => {
                 // Timer B interval
-                self.timer_b.set_interval(value.into());
+                self.timer_b.interval = value;
 
-                log::trace!("Timer B interval: {}", self.timer_b.interval());
+                log::trace!("Timer B interval: {}", self.timer_b.interval);
             }
             0x27 => {
                 // Channel 3 mode + timer control
@@ -516,17 +525,17 @@ impl Ym2612 {
                 channel.mode = mode;
                 channel.update_phase_generators();
 
-                self.timer_a.set_enabled(value.bit(0));
-                self.timer_b.set_enabled(value.bit(1));
-                self.timer_a.set_overflow_flag_enabled(value.bit(2));
-                self.timer_b.set_overflow_flag_enabled(value.bit(3));
+                self.timer_a.write_control(TimerControl {
+                    enabled: value.bit(0),
+                    overflow_flag_enabled: value.bit(2),
+                    clear_overflow_flag: value.bit(4),
+                });
 
-                if value.bit(4) {
-                    self.timer_a.clear_overflow_flag();
-                }
-                if value.bit(5) {
-                    self.timer_b.clear_overflow_flag();
-                }
+                self.timer_b.write_control(TimerControl {
+                    enabled: value.bit(1),
+                    overflow_flag_enabled: value.bit(3),
+                    clear_overflow_flag: value.bit(5),
+                });
 
                 log::trace!("Channel 3 frequency mode: {mode:?}");
                 log::trace!("CSM enabled: {}", self.csm_enabled);
@@ -549,11 +558,11 @@ impl Ym2612 {
                 }
             }
             0x2A => {
-                self.pcm_sample = value;
+                self.dac_channel_sample = value;
             }
             0x2B => {
-                self.pcm_enabled = value.bit(7);
-                log::trace!("PCM enabled: {}", self.pcm_enabled);
+                self.dac_channel_enabled = value.bit(7);
+                log::trace!("PCM enabled: {}", self.dac_channel_enabled);
             }
             0x30..=0x9F => {
                 self.write_operator_level_register(register, value, GROUP_1_BASE_CHANNEL);
@@ -594,58 +603,49 @@ impl Ym2612 {
     #[inline]
     pub fn tick(&mut self, ticks: u32, mut output: impl FnMut((f64, f64))) {
         for _ in 0..ticks {
-            self.lfo.tick();
+            self.busy_cycles_remaining = self.busy_cycles_remaining.saturating_sub(1);
 
-            let timer_a_effect = self.timer_a.tick();
-            self.timer_b.tick();
+            self.sample_divider -= 1;
+            if self.sample_divider == 0 {
+                self.sample_divider = FM_SAMPLE_DIVIDER;
 
-            if self.csm_enabled && timer_a_effect == TimerTickEffect::Overflowed {
-                // CSM: Whenever Timer A overflows, instantaneously key on & off all operators in
-                // channel 3 that are not already keyed on
-                for operator in &mut self.channels[2].operators {
-                    if !operator.envelope.is_key_on() {
-                        operator.key_on_or_off(true);
-                        operator.key_on_or_off(false);
+                self.lfo.tick();
+
+                self.timer_b.tick();
+                let timer_a_effect = self.timer_a.tick();
+
+                if self.csm_enabled && timer_a_effect == TimerTickEffect::Overflowed {
+                    // CSM: Whenever Timer A overflows, instantaneously key on & off all operators in
+                    // channel 3 that are not already keyed on
+                    for operator in &mut self.channels[2].operators {
+                        if !operator.envelope.is_key_on() {
+                            operator.key_on_or_off(true);
+                            operator.key_on_or_off(false);
+                        }
                     }
                 }
-            }
 
-            self.clock_divider -= 1;
-            if self.clock_divider == 0 {
-                self.clock_divider = FM_CLOCK_DIVIDER;
-                self.busy_cycles_remaining = self.busy_cycles_remaining.saturating_sub(1);
-
-                self.sample_divider -= 1;
-                if self.sample_divider == 0 {
-                    self.sample_divider = FM_SAMPLE_DIVIDER;
-                    self.clock(self.lfo.counter());
-                    output(self.sample());
-                }
+                self.clock();
+                output(self.sample());
             }
         }
     }
 
     #[must_use]
     pub fn sample(&self) -> (f64, f64) {
-        let quantization_mask = self.quantization_mask();
-
         let mut sum_l = 0;
         let mut sum_r = 0;
         for (i, channel) in self.channels.iter().enumerate() {
-            let (mut sample_l, mut sample_r) = if i == 5 && self.pcm_enabled {
+            let sample = if i == 5 && self.dac_channel_enabled {
                 // Channel 6 is in DAC mode; play PCM sample instead of FM output
                 // Convert unsigned 8-bit sample to a signed 14-bit sample
-                let pcm_sample = (i16::from(self.pcm_sample) - 128) << 6;
-                (pcm_sample, pcm_sample)
+                (i16::from(self.dac_channel_sample) - 128) << 6
             } else {
                 channel.current_output
             };
 
-            sample_l &= quantization_mask;
-            sample_r &= quantization_mask;
-
-            sample_l = self.apply_ladder_effect(sample_l);
-            sample_r = self.apply_ladder_effect(sample_r);
+            let sample_l = self.apply_panning(sample, channel.l_output);
+            let sample_r = self.apply_panning(sample, channel.r_output);
 
             sum_l += i32::from(sample_l);
             sum_r += i32::from(sample_r);
@@ -655,27 +655,20 @@ impl Ym2612 {
         (f64::from(sum_l) / 49152.0, f64::from(sum_r) / 49152.0)
     }
 
-    fn quantization_mask(&self) -> i16 {
-        if self.quantize_output {
-            // Simulate a 9-bit DAC by masking out the lowest 5 bits of the 14-bit channel outputs
-            !((1 << 5) - 1)
-        } else {
-            !0
-        }
-    }
+    fn apply_panning(&self, sample: i16, pan_enabled: bool) -> i16 {
+        let pan_enabled: i16 = pan_enabled.into();
 
-    fn apply_ladder_effect(&self, sample: i16) -> i16 {
         if !self.emulate_ladder_effect {
-            return sample;
+            return sample * pan_enabled;
         }
 
-        // The "ladder effect" is a distortion in the YM2612 DAC that effectively amplifies
-        // low-volume waves (and has little effect on high-volume waves). A number of games depend
-        // on it for their music to sound correct.
-        //
-        // Emulate the distortion by adding -3 to negative samples and +4 to non-negative samples,
-        // shifted left by 5 because the distortion occurs in the 9-bit DAC but these are 14-bit samples
-        if sample < 0 { sample - (3 << 5) } else { sample + (4 << 5) }
+        // Ladder effect emulation
+        // If channel is not muted through panning, add +4 to non-negative samples and -3 to negative
+        // If muted, output a constant +4 for non-negative samples and -4 for negative
+        // See https://gendev.spritesmind.net/forum/viewtopic.php?p=32605#p32605
+        let adjustment = if sample >= 0 { 4 } else { -(4 - pan_enabled) };
+
+        sample * pan_enabled + (adjustment << 5)
     }
 
     fn write_operator_level_register(&mut self, register: u8, value: u8, base_channel_idx: usize) {
@@ -841,13 +834,13 @@ impl Ym2612 {
                 let channel_idx = base_channel_idx + (register & 0x03) as usize;
                 let channel = &mut self.channels[channel_idx];
                 channel.algorithm = value & 0x07;
-                channel.operators[0].feedback_level = (value >> 3) & 0x07;
+                channel.feedback_level = (value >> 3) & 0x07;
 
                 log::trace!(
                     "Channel {}: Algorithm={}, feedback level={}",
                     channel_idx + 1,
                     channel.algorithm,
-                    channel.operators[0].feedback_level
+                    channel.feedback_level
                 );
             }
             0xB4..=0xB6 => {
@@ -873,14 +866,47 @@ impl Ym2612 {
     }
 
     #[inline]
-    fn clock(&mut self, lfo_counter: u8) {
+    fn clock(&mut self) {
+        let lfo_counter = self.lfo.counter();
+        let quantization_mask = if self.quantize_output {
+            // Simulate a 9-bit DAC by masking out the lowest 5 bits of the 14-bit channel outputs
+            !((1 << 5) - 1)
+        } else {
+            !0
+        };
+
         for channel in &mut self.channels {
-            channel.clock(lfo_counter);
+            channel.clock(lfo_counter, quantization_mask);
         }
     }
 
     pub fn reload_config(&mut self, config: GenesisEmulatorConfig) {
         self.quantize_output = config.quantize_ym2612_output;
         self.emulate_ladder_effect = config.emulate_ym2612_ladder_effect;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ladder_effect() {
+        let ym2612 = Ym2612::new(GenesisEmulatorConfig {
+            emulate_ym2612_ladder_effect: true,
+            ..GenesisEmulatorConfig::new_for_tests()
+        });
+
+        // Zero; output +4
+        assert_eq!(4 << 5, ym2612.apply_panning(0, false));
+        assert_eq!(4 << 5, ym2612.apply_panning(0, true));
+
+        // Positive; output +4 when muted, add +4 when enabled
+        assert_eq!(4 << 5, ym2612.apply_panning(6 << 5, false));
+        assert_eq!(10 << 5, ym2612.apply_panning(6 << 5, true));
+
+        // Negative; output -4 when muted, add -3 when enabled
+        assert_eq!(-(4 << 5), ym2612.apply_panning(-(6 << 5), false));
+        assert_eq!(-(9 << 5), ym2612.apply_panning(-(6 << 5), true));
     }
 }

@@ -231,6 +231,34 @@ impl GenesisEmulatorConfig {
         }
         NonZeroU64::new(clamped_divider).unwrap()
     }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_tests() -> Self {
+        Self {
+            p1_controller_type: GenesisControllerType::default(),
+            p2_controller_type: GenesisControllerType::default(),
+            forced_timing_mode: None,
+            forced_region: None,
+            aspect_ratio: GenesisAspectRatio::default(),
+            adjust_aspect_ratio_in_2x_resolution: false,
+            remove_sprite_limits: false,
+            m68k_clock_divider: 0,
+            non_linear_color_scale: false,
+            deinterlace: false,
+            render_vertical_border: false,
+            render_horizontal_border: false,
+            plane_a_enabled: false,
+            plane_b_enabled: false,
+            sprites_enabled: false,
+            window_enabled: false,
+            backdrop_enabled: false,
+            quantize_ym2612_output: false,
+            emulate_ym2612_ladder_effect: false,
+            low_pass: GenesisLowPassFilter::default(),
+            ym2612_enabled: false,
+            psg_enabled: false,
+        }
+    }
 }
 
 impl EmulatorConfigTrait for GenesisEmulatorConfig {

@@ -8,50 +8,52 @@ pub enum TimerTickEffect {
     Overflowed,
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
-pub struct Timer<const INTERVAL: u32, const MAX: u32> {
-    enabled: bool,
-    overflow_flag_enabled: bool,
-    overflow_flag: bool,
-    // Interval and counter are in mclk cycles
-    interval: u32,
-    counter: u32,
+pub struct TimerControl {
+    pub enabled: bool,
+    pub overflow_flag_enabled: bool,
+    pub clear_overflow_flag: bool,
 }
 
-// Timer A logically ticks every 72 mclk cycles and timer B logically ticks every 1152 mclk cycles
-pub type TimerA = Timer<72, 1024>;
-pub type TimerB = Timer<1152, 256>;
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct TimerA {
+    enabled: bool,
+    enabled_next: bool,
+    overflow_flag_enabled: bool,
+    overflow_flag: bool,
+    interval: u16,
+    counter: u16,
+}
 
-impl<const INTERVAL: u32, const MAX: u32> Timer<INTERVAL, MAX> {
+impl TimerA {
     pub fn new() -> Self {
         Self {
             enabled: false,
+            enabled_next: false,
             overflow_flag_enabled: false,
             overflow_flag: false,
             interval: 0,
-            counter: Self::counter_reload_value(0),
+            counter: 0,
         }
     }
 
-    #[inline]
-    fn counter_reload_value(interval: u32) -> u32 {
-        2 * INTERVAL * (MAX - interval)
-    }
-
-    #[inline]
     pub fn tick(&mut self) -> TimerTickEffect {
+        // Timer A counter is 10-bit in actual hardware
+        const OVERFLOW: u16 = 1024;
+
         if !self.enabled {
+            if self.enabled_next {
+                self.enabled = true;
+                self.counter = self.interval;
+            }
             return TimerTickEffect::None;
         }
 
-        self.counter -= 1;
-        if self.counter == 0 {
-            self.counter = Self::counter_reload_value(self.interval);
+        self.enabled = self.enabled_next;
 
-            if self.overflow_flag_enabled {
-                self.overflow_flag = true;
-            }
-
+        self.counter += 1;
+        if self.counter == OVERFLOW {
+            self.overflow_flag |= self.overflow_flag_enabled;
+            self.counter = self.interval;
             TimerTickEffect::Overflowed
         } else {
             TimerTickEffect::None
@@ -62,26 +64,86 @@ impl<const INTERVAL: u32, const MAX: u32> Timer<INTERVAL, MAX> {
         self.overflow_flag
     }
 
-    pub fn clear_overflow_flag(&mut self) {
-        self.overflow_flag = false;
-    }
-
-    pub fn set_enabled(&mut self, enabled: bool) {
-        if !self.enabled && enabled {
-            self.counter = Self::counter_reload_value(self.interval);
-        }
-        self.enabled = enabled;
-    }
-
-    pub fn set_overflow_flag_enabled(&mut self, value: bool) {
-        self.overflow_flag_enabled = value;
-    }
-
-    pub fn interval(&self) -> u32 {
+    pub fn interval(&self) -> u16 {
         self.interval
     }
 
-    pub fn set_interval(&mut self, interval: u32) {
-        self.interval = interval;
+    pub fn write_control(
+        &mut self,
+        TimerControl { enabled, overflow_flag_enabled, clear_overflow_flag }: TimerControl,
+    ) {
+        self.enabled_next = enabled;
+        self.overflow_flag_enabled = overflow_flag_enabled;
+        self.overflow_flag &= !clear_overflow_flag;
+    }
+
+    pub fn write_interval_high(&mut self, value: u8) {
+        self.interval = (self.interval & 3) | (u16::from(value) << 2);
+    }
+
+    pub fn write_interval_low(&mut self, value: u8) {
+        self.interval = (self.interval & !3) | u16::from(value & 3);
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct TimerB {
+    enabled: bool,
+    enabled_next: bool,
+    overflow_flag_enabled: bool,
+    overflow_flag: bool,
+    pub interval: u8,
+    counter: u8,
+    divider: u8,
+}
+
+impl TimerB {
+    // Timer B counter increments once per 16 samples
+    const DIVIDER: u8 = 16;
+
+    pub fn new() -> Self {
+        Self {
+            enabled: false,
+            enabled_next: false,
+            overflow_flag_enabled: false,
+            overflow_flag: false,
+            interval: 0,
+            counter: 0,
+            divider: Self::DIVIDER,
+        }
+    }
+
+    pub fn tick(&mut self) {
+        self.divider -= 1;
+        if self.divider == 0 {
+            self.divider = Self::DIVIDER;
+
+            if self.enabled {
+                let overflowed;
+                (self.counter, overflowed) = self.counter.overflowing_add(1);
+                if overflowed {
+                    self.overflow_flag |= self.overflow_flag_enabled;
+                    self.counter = self.interval;
+                }
+            }
+        }
+
+        if !self.enabled && self.enabled_next {
+            self.counter = self.interval;
+        }
+        self.enabled = self.enabled_next;
+    }
+
+    pub fn overflow_flag(&self) -> bool {
+        self.overflow_flag
+    }
+
+    pub fn write_control(
+        &mut self,
+        TimerControl { enabled, overflow_flag_enabled, clear_overflow_flag }: TimerControl,
+    ) {
+        self.enabled_next = enabled;
+        self.overflow_flag_enabled = overflow_flag_enabled;
+        self.overflow_flag &= !clear_overflow_flag;
     }
 }
