@@ -141,11 +141,7 @@ impl DeltaModulationChannel {
         }
 
         self.sample_buffer = Some(bus.read(self.current_sample_address));
-        self.current_sample_address = if self.current_sample_address == 0xFFFF {
-            0x8000
-        } else {
-            self.current_sample_address + 1
-        };
+        self.current_sample_address = 0xC000 | self.current_sample_address.wrapping_add(1);
         self.sample_bytes_remaining -= 1;
 
         if self.sample_bytes_remaining == 0 {
