@@ -541,7 +541,7 @@ impl INesHeader {
                 }
             }
             FileFormat::INes => {
-                if header[0].bit(0) {
+                if header[9].bit(0) {
                     TimingMode::Pal
                 } else {
                     TimingMode::Ntsc
