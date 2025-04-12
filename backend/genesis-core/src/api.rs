@@ -114,6 +114,7 @@ impl GenesisRegion {
             0xEB8F4374, // Indiana Jones and the Last Crusade (Europe)
             0xFA537A45, // Winter Olympics (Europe)
             0xDACA01C3, // World Class Leader Board (Europe)
+            0xC0DCE0E5, // Midway Presents Arcade's Greatest Hits (Europe)
         ];
 
         if DEFAULT_EUROPE_CHECKSUMS.contains(&CRC.checksum(rom)) {
