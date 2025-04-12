@@ -232,34 +232,6 @@ impl GenesisEmulatorConfig {
         }
         NonZeroU64::new(clamped_divider).unwrap()
     }
-
-    #[cfg(test)]
-    pub(crate) fn new_for_tests() -> Self {
-        Self {
-            p1_controller_type: GenesisControllerType::default(),
-            p2_controller_type: GenesisControllerType::default(),
-            forced_timing_mode: None,
-            forced_region: None,
-            aspect_ratio: GenesisAspectRatio::default(),
-            adjust_aspect_ratio_in_2x_resolution: false,
-            remove_sprite_limits: false,
-            m68k_clock_divider: 0,
-            non_linear_color_scale: false,
-            deinterlace: false,
-            render_vertical_border: false,
-            render_horizontal_border: false,
-            plane_a_enabled: false,
-            plane_b_enabled: false,
-            sprites_enabled: false,
-            window_enabled: false,
-            backdrop_enabled: false,
-            quantize_ym2612_output: false,
-            emulate_ym2612_ladder_effect: false,
-            low_pass: GenesisLowPassFilter::default(),
-            ym2612_enabled: false,
-            psg_enabled: false,
-        }
-    }
 }
 
 impl EmulatorConfigTrait for GenesisEmulatorConfig {
@@ -332,7 +304,7 @@ impl GenesisEmulator {
         let z80 = Z80::new();
         let vdp = Vdp::new(timing_mode, config.to_vdp_config());
         let psg = Sn76489::new(Sn76489Version::Standard);
-        let ym2612 = Ym2612::new(config);
+        let ym2612 = Ym2612::new_from_config(&config);
         let input = InputState::new(config.p1_controller_type, config.p2_controller_type);
 
         // The Genesis does not allow TAS to lock the bus, so don't allow TAS writes
@@ -546,7 +518,7 @@ impl EmulatorTrait for GenesisEmulator {
 
         self.m68k.execute_instruction(&mut new_main_bus!(self, m68k_reset: true));
         self.memory.reset_z80_signals();
-        self.ym2612.reset(self.config);
+        self.ym2612.reset();
     }
 
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {

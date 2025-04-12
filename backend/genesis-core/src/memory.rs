@@ -824,8 +824,7 @@ impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u32>
                 log::trace!("Set Z80 BUSREQ to {}", self.memory.signals.z80_busreq);
             }
             0xA11200..=0xA11201 => {
-                self.memory.signals.z80_reset = !value.bit(0);
-                log::trace!("Set Z80 RESET to {}", self.memory.signals.z80_reset);
+                self.set_z80_reset(!value.bit(0));
             }
             0xC00000..=0xC0001F => {
                 self.write_vdp_byte(address, value);
@@ -856,8 +855,7 @@ impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u32>
                 log::trace!("Set Z80 BUSREQ to {}", self.memory.signals.z80_busreq);
             }
             0xA11200..=0xA11201 => {
-                self.memory.signals.z80_reset = !value.bit(8);
-                log::trace!("Set Z80 RESET to {}", self.memory.signals.z80_reset);
+                self.set_z80_reset(!value.bit(8));
             }
             0xC00000..=0xC00003 => {
                 self.vdp.write_data(value);
@@ -875,6 +873,17 @@ impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u32>
             }
             _ => {}
         }
+    }
+
+    fn set_z80_reset(&mut self, z80_reset: bool) {
+        if !self.memory.signals.z80_reset && z80_reset {
+            // Z80 RESET also resets the YM2612
+            // Fantastic Dizzy depends on this or music will not mute correctly when you pause the game
+            self.ym2612.reset();
+        }
+
+        self.memory.signals.z80_reset = z80_reset;
+        log::trace!("Set Z80 RESET to {}", self.memory.signals.z80_reset);
     }
 
     // $A11100

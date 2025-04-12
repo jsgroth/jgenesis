@@ -244,7 +244,7 @@ impl SegaCdEmulator {
         let z80 = Z80::new();
         let vdp = Vdp::new(timing_mode, emulator_config.genesis.to_vdp_config());
         let graphics_coprocessor = GraphicsCoprocessor::new();
-        let ym2612 = Ym2612::new(emulator_config.genesis);
+        let ym2612 = Ym2612::new_from_config(&emulator_config.genesis);
         let psg = Sn76489::new(Sn76489Version::Standard);
         let pcm = Rf5c164::new(&emulator_config);
         let input = InputState::new(
@@ -550,7 +550,7 @@ impl EmulatorTrait for SegaCdEmulator {
         self.main_cpu.execute_instruction(&mut new_main_bus!(self, m68k_reset: true));
         self.memory.reset_z80_signals();
 
-        self.ym2612.reset(self.config.genesis);
+        self.ym2612.reset();
         self.pcm.disable();
 
         self.memory.medium_mut().reset();

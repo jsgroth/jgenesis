@@ -123,7 +123,7 @@ impl Sega32XEmulator {
         let m68k = M68000::builder().allow_tas_writes(false).build();
         let z80 = Z80::new();
         let vdp = Vdp::new(timing_mode, config.genesis.to_vdp_config());
-        let ym2612 = Ym2612::new(config.genesis);
+        let ym2612 = Ym2612::new_from_config(&config.genesis);
         let psg = Sn76489::new(Sn76489Version::Standard);
 
         let initial_cartridge_ram = save_writer.load_bytes("sav").ok();
@@ -304,7 +304,7 @@ impl EmulatorTrait for Sega32XEmulator {
 
         self.m68k.execute_instruction(&mut new_main_bus!(self, m68k_reset: true));
         self.memory.reset_z80_signals();
-        self.ym2612.reset(self.config.genesis);
+        self.ym2612.reset();
 
         self.memory.medium_mut().reset();
     }

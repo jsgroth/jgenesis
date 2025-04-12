@@ -432,7 +432,7 @@ pub struct Ym2612 {
 
 impl Ym2612 {
     #[must_use]
-    pub fn new(config: GenesisEmulatorConfig) -> Self {
+    pub fn new(quantize_output: bool, emulate_ladder_effect: bool) -> Self {
         Self {
             channels: array::from_fn(|_| FmChannel::default()),
             dac_channel_enabled: false,
@@ -445,13 +445,18 @@ impl Ym2612 {
             timer_a: TimerA::new(),
             timer_b: TimerB::new(),
             csm_enabled: false,
-            quantize_output: config.quantize_ym2612_output,
-            emulate_ladder_effect: config.emulate_ym2612_ladder_effect,
+            quantize_output,
+            emulate_ladder_effect,
         }
     }
 
-    pub fn reset(&mut self, config: GenesisEmulatorConfig) {
-        *self = Self::new(config);
+    #[must_use]
+    pub fn new_from_config(config: &GenesisEmulatorConfig) -> Self {
+        Self::new(config.quantize_ym2612_output, config.emulate_ym2612_ladder_effect)
+    }
+
+    pub fn reset(&mut self) {
+        *self = Self::new(self.quantize_output, self.emulate_ladder_effect);
     }
 
     // Set the address register and set group to 1 (system registers + channels 1-3)
@@ -892,10 +897,7 @@ mod tests {
 
     #[test]
     fn ladder_effect() {
-        let ym2612 = Ym2612::new(GenesisEmulatorConfig {
-            emulate_ym2612_ladder_effect: true,
-            ..GenesisEmulatorConfig::new_for_tests()
-        });
+        let ym2612 = Ym2612::new(false, true);
 
         // Zero; output +4
         assert_eq!(4 << 5, ym2612.apply_panning(0, false));
