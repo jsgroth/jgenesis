@@ -2,9 +2,11 @@ use crate::mainloop::debug;
 use crate::mainloop::debug::memviewer::{MemoryViewer, MemoryViewerState};
 use crate::mainloop::debug::{DebugRenderContext, DebugRenderFn};
 use egui::panel::TopBottomSide;
-use egui::{Grid, ScrollArea, TopBottomPanel, Ui, Vec2, Window, menu};
+use egui::{FontId, Grid, RichText, ScrollArea, TopBottomPanel, Ui, Vec2, Window, menu};
+use egui_extras::{Column, TableBuilder};
 use genesis_core::GenesisEmulator;
 use jgenesis_common::frontend::{Color, ViewableBytes, ViewableWordsBigEndian};
+use m68000_emu::disassembler::Disassembly;
 use s32x_core::api::Sega32XEmulator;
 use segacd_core::api::SegaCdEmulator;
 
@@ -27,6 +29,8 @@ struct State {
     fb0_viewer_state: MemoryViewerState,
     fb1_viewer_state: MemoryViewerState,
     s32x_cram_viewer_state: MemoryViewerState,
+    m68k_debugger_open: bool,
+    m68k_disassembly: Vec<Disassembly>,
     vram_open: bool,
     cram_open: bool,
     vdp_registers_open: bool,
@@ -53,6 +57,8 @@ impl State {
             fb0_viewer_state: MemoryViewerState::new(),
             fb1_viewer_state: MemoryViewerState::new(),
             s32x_cram_viewer_state: MemoryViewerState::new(),
+            m68k_debugger_open: true,
+            m68k_disassembly: Vec::with_capacity(15),
             vram_open: true,
             cram_open: true,
             vdp_registers_open: false,
@@ -108,6 +114,8 @@ pub(crate) trait GenesisBase {
     fn s32x_cram_viewer(&mut self) -> Option<ViewableWordsBigEndian<'_>> {
         None
     }
+
+    fn m68k_disassemble(&mut self, _out: &mut Vec<Disassembly>) {}
 }
 
 impl GenesisBase for GenesisEmulator {
@@ -124,23 +132,29 @@ impl GenesisBase for GenesisEmulator {
     }
 
     fn working_ram_viewer(&mut self) -> ViewableBytes<'_> {
-        self.debug_working_ram_view()
+        self.debug_view().working_ram_view()
     }
 
     fn audio_ram_viewer(&mut self) -> ViewableBytes<'_> {
-        self.debug_audio_ram_view()
+        self.debug_view().audio_ram_view()
     }
 
     fn vram_viewer(&mut self) -> ViewableBytes<'_> {
-        self.debug_vram_view()
+        self.debug_view().vram_view()
     }
 
     fn cram_viewer(&mut self) -> ViewableWordsBigEndian<'_> {
-        self.debug_cram_view()
+        self.debug_view().cram_view()
     }
 
     fn vsram_viewer(&mut self) -> ViewableBytes<'_> {
-        self.debug_vsram_view()
+        self.debug_view().vsram_view()
+    }
+
+    fn m68k_disassemble(&mut self, out: &mut Vec<Disassembly>) {
+        let debug_view = self.debug_view();
+        let pc = debug_view.m68k_pc();
+        debug_view.m68k_disassemble(pc, out, 20);
     }
 }
 
@@ -277,6 +291,13 @@ fn render<Emulator: GenesisBase>(mut ctx: DebugRenderContext<'_, Emulator>, stat
     );
 
     render_vdp_registers_window(ctx.egui_ctx, ctx.emulator, &mut state.vdp_registers_open);
+
+    render_m68k_debugger_window(
+        ctx.egui_ctx,
+        ctx.emulator,
+        &mut state.m68k_disassembly,
+        &mut state.m68k_debugger_open,
+    );
 }
 
 fn render_memory_viewers<Emulator: GenesisBase>(
@@ -501,6 +522,52 @@ fn render_vdp_registers_window(ctx: &egui::Context, emulator: &impl GenesisBase,
                 });
             });
         });
+    });
+}
+
+fn render_m68k_debugger_window(
+    ctx: &egui::Context,
+    emulator: &mut impl GenesisBase,
+    m68k_disassembly: &mut Vec<Disassembly>,
+    open: &mut bool,
+) {
+    m68k_disassembly.clear();
+    emulator.m68k_disassemble(m68k_disassembly);
+
+    Window::new("68000 Debugger").open(open).show(ctx, |ui| {
+        TableBuilder::new(ui)
+            .column(Column::auto().at_least(60.0))
+            .column(Column::auto().at_least(180.0))
+            .column(Column::remainder().at_least(230.0))
+            .body(|mut body| {
+                for disassembly in m68k_disassembly {
+                    body.row(15.0, |mut row| {
+                        row.col(|ui| {
+                            ui.label(
+                                RichText::new(format!("${:06X}", disassembly.pc & 0xFFFFFF))
+                                    .font(FontId::monospace(12.0)),
+                            );
+                        });
+
+                        row.col(|ui| {
+                            let mut s = String::with_capacity(disassembly.words.len() * 4);
+                            for word in disassembly.words.iter() {
+                                if !s.is_empty() {
+                                    s.push(' ');
+                                }
+                                s.push_str(&format!("{word:04X}"));
+                            }
+                            ui.label(RichText::new(s).font(FontId::monospace(12.0)));
+                        });
+
+                        row.col(|ui| {
+                            ui.label(
+                                RichText::new(&disassembly.string).font(FontId::monospace(12.0)),
+                            );
+                        });
+                    });
+                }
+            });
     });
 }
 

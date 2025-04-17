@@ -628,6 +628,36 @@ impl Memory<Cartridge> {
     pub fn get_and_clear_external_ram_dirty(&mut self) -> bool {
         self.physical_medium.get_and_clear_ram_dirty()
     }
+
+    #[inline]
+    #[must_use]
+    pub fn peek_word(&self, address: u32) -> u16 {
+        if address < 0x400000 {
+            if self.physical_medium.ram_mapped {
+                if let Some(word) = self.physical_medium.external_memory.read_word(address) {
+                    return word;
+                }
+            }
+
+            let rom_addr =
+                self.physical_medium.mapper.map_or(address, |mapper| mapper.map_address(address));
+            if rom_addr < self.physical_medium.rom.0.len() as u32 {
+                let msb = self.physical_medium.rom[rom_addr as usize];
+                let lsb = self.physical_medium.rom[(rom_addr + 1) as usize];
+                u16::from_be_bytes([msb, lsb])
+            } else {
+                0xFFFF
+            }
+        } else if address >= 0xE00000 {
+            let ram_addr = address & 0xFFFF;
+            u16::from_be_bytes([
+                self.main_ram[ram_addr as usize],
+                self.main_ram[(ram_addr + 1) as usize],
+            ])
+        } else {
+            0xFFFF
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

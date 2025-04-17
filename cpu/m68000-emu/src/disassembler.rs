@@ -2,23 +2,26 @@ use crate::core::instructions::{
     BranchCondition, Direction, Instruction, ShiftCount, ShiftDirection, UspDirection,
 };
 use crate::core::{AddressRegister, AddressingMode, DataRegister, OpSize, instructions};
+use jgenesis_common::arrayvec::ArrayVec;
 use jgenesis_common::num::GetBit;
 use std::borrow::Cow;
 
 #[derive(Debug, Clone)]
 pub struct Disassembly {
     pub string: String,
-    pub byte_length: usize,
+    pub words: ArrayVec<u16, 5>,
+    pub pc: u32,
     pub new_pc: u32,
 }
 
-pub fn disassemble(bytes: &[u8], pc: u32) -> Disassembly {
-    Disassembler { pc, bytes }.disassemble()
+pub fn disassemble(pc: u32, read_word: &dyn Fn(u32) -> u16) -> Disassembly {
+    Disassembler { pc, words: ArrayVec::new(), read_word }.disassemble()
 }
 
 struct Disassembler<'a> {
     pc: u32,
-    bytes: &'a [u8],
+    words: ArrayVec<u16, 5>,
+    read_word: &'a dyn Fn(u32) -> u16,
 }
 
 impl Disassembler<'_> {
@@ -146,15 +149,15 @@ impl Disassembler<'_> {
             }
         };
 
-        let instruction_len = self.pc.wrapping_sub(pc);
-
-        Disassembly { string, byte_length: instruction_len as usize, new_pc: self.pc }
+        Disassembly { string, words: self.words, pc, new_pc: self.pc }
     }
 
     fn next_word(&mut self) -> u16 {
-        let word = u16::from_be_bytes([self.bytes[0], self.bytes[1]]);
-        self.bytes = &self.bytes[2..];
+        let word = (self.read_word)(self.pc);
         self.pc = self.pc.wrapping_add(2);
+
+        self.words.push(word);
+
         word
     }
 
@@ -209,9 +212,11 @@ impl Disassembler<'_> {
                 format!("(${address:04X}).w").into()
             }
             AddressingMode::AbsoluteLong => {
-                let address = self.next_word();
+                let address_high = self.next_word();
+                let address_low = self.next_word();
+                let address = (u32::from(address_high) << 16) | u32::from(address_low);
 
-                format!("(${address:06X}).l").into()
+                format!("(${:06X}).l", address & 0xFFFFFF).into()
             }
             AddressingMode::Immediate => {
                 let first_word = self.next_word();
@@ -414,7 +419,7 @@ impl Disassembler<'_> {
         let pc = self.pc;
         let displacement = self.read_branch_displacement(displacement);
 
-        let new_pc = pc.wrapping_add_signed(displacement.into());
+        let new_pc = pc.wrapping_add_signed(displacement.into()) & 0xFFFFFF;
 
         format!("{instruction} ${new_pc:06X}")
     }
@@ -431,7 +436,7 @@ impl Disassembler<'_> {
 
         let pc = self.pc;
         let displacement = self.next_word() as i16;
-        let new_pc = pc.wrapping_add_signed(displacement.into());
+        let new_pc = pc.wrapping_add_signed(displacement.into()) & 0xFFFFFF;
 
         format!("db{suffix} D{}, ${new_pc:06X}", register.0)
     }
@@ -439,7 +444,7 @@ impl Disassembler<'_> {
     fn bsr(&mut self, displacement: i8) -> String {
         let pc = self.pc;
         let displacement = self.read_branch_displacement(displacement);
-        let new_pc = pc.wrapping_add_signed(displacement.into());
+        let new_pc = pc.wrapping_add_signed(displacement.into()) & 0xFFFFFF;
 
         format!("bsr ${new_pc:06X}")
     }

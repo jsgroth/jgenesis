@@ -1,4 +1,5 @@
 pub mod appimage;
+pub mod arrayvec;
 pub mod audio;
 pub mod boxedarray;
 pub mod frontend;

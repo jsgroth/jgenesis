@@ -2371,6 +2371,7 @@ dependencies = [
  "jgenesis-proc-macros",
  "jgenesis-renderer",
  "log",
+ "m68000-emu",
  "nes-core",
  "pollster",
  "rustc-hash 2.1.1",

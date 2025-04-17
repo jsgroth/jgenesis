@@ -23,6 +23,8 @@ segacd-core = { path = "../../backend/segacd-core" }
 smsgg-core = { path = "../../backend/smsgg-core", features = ["serde"] }
 snes-core = { path = "../../backend/snes-core", features = ["serde"] }
 
+m68000-emu = { path = "../../cpu/m68000-emu" }
+
 arrayvec = { workspace = true }
 bincode = { workspace = true }
 bytemuck = { workspace = true }
