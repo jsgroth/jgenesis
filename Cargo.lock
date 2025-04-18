@@ -2257,7 +2257,7 @@ checksum = "d75a2a4b1b190afb6f5425f10f6a8f959d2ea0b9c2b1d79553551850539e4674"
 
 [[package]]
 name = "jgenesis-cli"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2296,7 +2296,7 @@ dependencies = [
 
 [[package]]
 name = "jgenesis-gui"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2332,7 +2332,7 @@ dependencies = [
 
 [[package]]
 name = "jgenesis-native-config"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "cfg-if",
  "clap",

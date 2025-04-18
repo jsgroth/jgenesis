@@ -257,7 +257,7 @@ pub trait EmulatorTrait: Encode + Decode + PartialClone {
 
     #[must_use]
     fn save_state_version() -> u16 {
-        3
+        4
     }
 
     fn target_fps(&self) -> f64;

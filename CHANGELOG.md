@@ -1,8 +1,9 @@
-# 0.9.1
+# 0.10.0
 
 ## New Features
 * (**Genesis**) CRAM dots are now emulated
   * These are normally not visible within active display because it's uncommon to modify CRAM while the VDP is actively rendering, but they're visible in many games if vertical border rendering is enabled
+* (**Genesis**) Direct color DMA demos now work (though alignment might still be slightly off compared to actual hardware)
 * (**Genesis**) Added an aspect ratio "Auto" option (now default) that will function as either NTSC (8:7 / 32:35 PAR) or PAL (11:8 / 11:10 PAR) based on the current timing mode
 * (**SMS** / **Game Gear**) Added a hardware region "Auto" setting that attempts to auto-detect region from the cartridge header (#214)
 * (**NES**) Added an option to disable vertical overscan cropping in NTSC mode (i.e. display in 256x240 instead of 256x224)
@@ -20,7 +21,14 @@
   * The emulator now fully passes the VDPFIFOTesting test ROM (#103)
   * Fixes incorrect color palettes in some demos (#183)
   * Fixes a glitch on the title screen of the homebrew _Rick Dangerous 2_ port (#102)
-* Direct color DMA demos now work, thanks to the above accuracy improvements combined with changes related to CRAM dots (#172)
+* Lots of mostly minor fixes to YM2612 sound chip emulation
+  * Fixed multiple timing precision bugs with the LFO and hardware timers
+  * Fixed vibrato / LFO FM calculations incorrectly using 11-bit precision instead of 12-bit
+  * Fixed vibrato incorrectly affecting how detune computes key code
+  * Fixed the accurate quantization option incorrectly quantizing channel outputs instead of carrier outputs
+  * More accurate emulation of DAC crossover distortion (ladder effect)
+  * Added emulation for operator evaluation pipelining in channel output calculations
+  * Fixed the DAC channel not respecting the Channel 6 panning bits
 * Significantly improved performance due primarily to optimizations related to the YM2612 code
 * Fixed a Z80 timing bug caused by a VDP DMA "optimization" introduced in v0.8.2; this fixes video/audio desync in Overdrive 2
 * Fixed behavior when the controller port TH pin is set to input; this fixes controls not working properly in _Micro Machines_ (#226)
@@ -29,10 +37,12 @@
 * Added a 1-instruction delay to handling HINT if a game enables HINTs while an HINT is pending; this fixes _Fatal Rewind_ / _The Killing Game Show_ failing to boot (#254)
 * Added a 1 CPU cycle delay on every 68000 access to the Z80 side of the bus; this fixes broken audio in _Pac-Man 2: The New Adventures_ (#255)
 * Fixed several major bugs in how the V counter and the VBlank status flag are emulated in interlaced modes; this fixes _Combat Cars_ freezing in 2P mode as well as occasional sprite glitches in _Sonic the Hedgehog 2_'s Vs. mode (#258)
+* Fixed the Z80 RESET line not resetting the YM2612 in addition to the Z80; this fixes audio glitches in _Fantastic Dizzy_ (#397)
 * Fixed the emulator not correctly initializing cartridge SRAM when the cartridge header specifies less common RAM types; this fixes the Mega Drive Mode 7 demo not working (#250)
-* The non-linear VDP color scale option is now enabled by default because it is more accurate to actual hardware's video output (#249)
+* Fixed the interlaced ODD flag in the VDP status register not toggling correctly in single-screen interlaced mode if deinterlacing is enabled (#354)
+* Fixed a number of European games with bad region headers defaulting to NTSC mode instead of PAL (#176 / #394)
 * When horizontal border rendering is enabled, fixed the right border rendering as the wrong color if the backdrop color is changed between lines (Overdrive 1 does this on some screens)
-* Fixed a number of European games with bad region headers defaulting to NTSC mode instead of PAL (#176)
+* The non-linear VDP color scale option is now enabled by default because it is more accurate to actual hardware's video output (#249)
 
 ## Sega CD Fixes
 * Fixed the CDD reset register (\$FF8001) not correctly resetting CDD state; this fixes the _Pier Solar_ enhanced audio disc failing to boot in SCD Mode 2 (#215)
@@ -40,6 +50,7 @@
 ## 32X Fixes
 * Fixed the Genesis VDP and 32X VDP frames incorrectly lining up exactly when the Genesis VDP is in H32 mode; this fixes some minor graphical issues in _NFL Quarterback Club_ (#230)
 * Files with .bin extensions are now auto-detected as 32X instead of Genesis if they contain the 32X security program at the expected location in ROM (#259)
+* Horizontal blur shaders now scale the effect properly when the Genesis VDP is in H32 mode
 
 ## Master System / Game Gear Fixes
 * Somewhat improved VDP-related timings; this fixes glitchy cutscene graphics in _Madou Monogatari I_ (#213) and fixes most tests in the SMSVDPTest test ROM (#190)
@@ -57,6 +68,8 @@
 * Added support for NROM cartridges (iNES mapper 0) with only 8KB of PRG ROM; this fixes _Galaxian_ failing to boot (#261)
 * Fixed a VRC4 mapper bug where the highest bit of the 9-bit CHR ROM bank number was not working correctly; this fixes corrupted graphics in _World Hero_ (#283)
 * Fixed the DMC sample address incorrectly defaulting to \$8000 at power-on instead of \$C000 (#292)
+* PPU palette RAM is now initialized to the palette in the power\_up\_palette test ROM instead of all 0s
+* Fixed iNES header parsing reading the wrong byte when checking for the PAL bit; this fixes the _Populous_ prototype incorrectly defaulting to NTSC instead of PAL (#391)
 
 ## SNES Fixes
 * Fixed incorrect cartridge SRAM mapping for LoROM cartridges with more than 32 KB of SRAM; this fixes _Kaite Tsukutte Asoberu Dezaemon_ failing to boot (#234)
