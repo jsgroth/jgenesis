@@ -17,6 +17,7 @@ use cdrom::reader::{CdRom, CdRomFileFormat};
 use genesis_core::GenesisRegion;
 use genesis_core::memory::{Memory, PhysicalMedium};
 use jgenesis_common::boxedarray::BoxedByteArray;
+use jgenesis_common::frontend::ViewableBytes;
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use m68000_emu::BusInterface;
@@ -593,6 +594,14 @@ impl SegaCd {
         load_disc_into_ram: bool,
     ) -> SegaCdLoadResult<()> {
         self.cdd_mut().change_disc(rom_path, format, load_disc_into_ram)
+    }
+
+    pub fn debug_prg_ram_view(&mut self) -> ViewableBytes<'_> {
+        ViewableBytes(self.prg_ram.as_mut_slice())
+    }
+
+    pub fn debug_cdc_ram_view(&mut self) -> ViewableBytes<'_> {
+        self.cdc_mut().debug_ram_view()
     }
 }
 

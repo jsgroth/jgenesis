@@ -2364,6 +2364,7 @@ dependencies = [
  "egui",
  "egui-sdl2-platform",
  "egui-wgpu",
+ "egui_extras",
  "gb-core",
  "genesis-core",
  "jgenesis-common",

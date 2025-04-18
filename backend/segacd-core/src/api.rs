@@ -1,5 +1,7 @@
 //! Sega CD public interface and main loop
 
+mod debug;
+
 use crate::audio::AudioResampler;
 use crate::graphics::GraphicsCoprocessor;
 use crate::memory;

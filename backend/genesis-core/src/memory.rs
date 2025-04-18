@@ -12,7 +12,7 @@ use crate::vdp::Vdp;
 use crate::ym2612::Ym2612;
 use bincode::{Decode, Encode};
 use crc::Crc;
-use jgenesis_common::frontend::TimingMode;
+use jgenesis_common::frontend::{TimingMode, ViewableBytes};
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use regex::Regex;
@@ -526,8 +526,8 @@ impl Signals {
 pub struct Memory<Medium> {
     #[partial_clone(partial)]
     physical_medium: Medium,
-    main_ram: Box<[u8; MAIN_RAM_LEN]>,
-    audio_ram: Box<[u8; AUDIO_RAM_LEN]>,
+    pub(crate) main_ram: Box<[u8; MAIN_RAM_LEN]>,
+    pub(crate) audio_ram: Box<[u8; AUDIO_RAM_LEN]>,
     z80_bank_register: Z80BankRegister,
     signals: Signals,
 }
@@ -581,6 +581,18 @@ impl<Medium: PhysicalMedium> Memory<Medium> {
     #[inline]
     pub fn reset_z80_signals(&mut self) {
         self.signals = Signals::default();
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn debug_main_ram_view(&mut self) -> ViewableBytes<'_> {
+        ViewableBytes(self.main_ram.as_mut_slice())
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn debug_audio_ram_view(&mut self) -> ViewableBytes<'_> {
+        ViewableBytes(self.audio_ram.as_mut_slice())
     }
 }
 

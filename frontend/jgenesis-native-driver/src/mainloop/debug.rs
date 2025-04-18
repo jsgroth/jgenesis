@@ -1,11 +1,13 @@
 pub mod gb;
 pub mod genesis;
+mod memviewer;
 pub mod nes;
 pub mod smsgg;
 pub mod snes;
 
 use sdl2::event::{Event, WindowEvent};
 
+use crate::config::EguiTheme;
 use egui::{Button, Response, Ui, Widget, WidgetText};
 use egui_wgpu::ScreenDescriptor;
 use sdl2::VideoSubsystem;
@@ -50,6 +52,7 @@ pub struct DebuggerWindow<Emulator> {
     platform: egui_sdl2_platform::Platform,
     egui_renderer: egui_wgpu::Renderer,
     start_time: SystemTime,
+    egui_theme: EguiTheme,
     render_fn: Box<DebugRenderFn<Emulator>>,
     // SAFETY: The window must be dropped after the surface
     window: Window,
@@ -59,6 +62,7 @@ impl<Emulator> DebuggerWindow<Emulator> {
     pub fn new(
         video: &VideoSubsystem,
         scale_factor: Option<f32>,
+        egui_theme: EguiTheme,
         render_fn: Box<DebugRenderFn<Emulator>>,
     ) -> Result<Self, DebuggerError> {
         let mut window_width = 800;
@@ -142,6 +146,7 @@ impl<Emulator> DebuggerWindow<Emulator> {
             platform,
             egui_renderer,
             start_time,
+            egui_theme,
             render_fn,
             window,
         })
@@ -153,6 +158,12 @@ impl<Emulator> DebuggerWindow<Emulator> {
         );
 
         let full_output = self.platform.context().run(egui_input, |ctx| {
+            ctx.set_theme(match self.egui_theme {
+                EguiTheme::SystemDefault => egui::ThemePreference::System,
+                EguiTheme::Dark => egui::ThemePreference::Dark,
+                EguiTheme::Light => egui::ThemePreference::Light,
+            });
+
             (self.render_fn)(DebugRenderContext {
                 egui_ctx: ctx,
                 emulator,
@@ -252,6 +263,10 @@ impl<Emulator> DebuggerWindow<Emulator> {
 
     pub fn window_id(&self) -> u32 {
         self.window.id()
+    }
+
+    pub fn set_egui_theme(&mut self, egui_theme: EguiTheme) {
+        self.egui_theme = egui_theme;
     }
 }
 

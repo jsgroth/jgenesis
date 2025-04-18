@@ -7,7 +7,9 @@ use crate::registers::SystemRegisters;
 use crate::vdp::registers::{FrameBufferMode, Registers, SelectedFrameBuffer};
 use bincode::{Decode, Encode};
 use genesis_core::vdp::BorderSize;
-use jgenesis_common::frontend::{Color, FrameSize, PixelAspectRatio, Renderer, TimingMode};
+use jgenesis_common::frontend::{
+    Color, FrameSize, PixelAspectRatio, Renderer, TimingMode, ViewableWordsBigEndian,
+};
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::cmp;
@@ -734,6 +736,18 @@ impl Vdp {
 
     pub fn update_video_out(&mut self, video_out: S32XVideoOut) {
         self.video_out = video_out;
+    }
+
+    pub fn debug_fb0_view(&mut self) -> ViewableWordsBigEndian<'_> {
+        ViewableWordsBigEndian(self.frame_buffer_0.as_mut_slice())
+    }
+
+    pub fn debug_fb1_view(&mut self) -> ViewableWordsBigEndian<'_> {
+        ViewableWordsBigEndian(self.frame_buffer_1.as_mut_slice())
+    }
+
+    pub fn debug_cram_view(&mut self) -> ViewableWordsBigEndian<'_> {
+        ViewableWordsBigEndian(self.cram.as_mut_slice())
     }
 }
 

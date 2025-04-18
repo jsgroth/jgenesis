@@ -1,4 +1,4 @@
-mod instructions;
+pub(crate) mod instructions;
 
 use crate::core::instructions::Instruction;
 use crate::traits::BusInterface;
@@ -114,7 +114,7 @@ impl Registers {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DataRegister(u8);
+pub struct DataRegister(pub(super) u8);
 
 impl DataRegister {
     const ALL: [Self; 8] = [Self(0), Self(1), Self(2), Self(3), Self(4), Self(5), Self(6), Self(7)];
@@ -145,7 +145,7 @@ impl From<u8> for DataRegister {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AddressRegister(u8);
+pub struct AddressRegister(pub(super) u8);
 
 impl AddressRegister {
     const ALL: [Self; 8] = [Self(0), Self(1), Self(2), Self(3), Self(4), Self(5), Self(6), Self(7)];

@@ -2,9 +2,21 @@ use crate::vdp;
 use crate::vdp::{ColorModifier, Vdp, colors, render};
 
 use crate::vdp::render::PatternGeneratorRowArgs;
-use jgenesis_common::frontend::Color;
+use jgenesis_common::frontend::{Color, ViewableBytes, ViewableWordsBigEndian};
 
 impl Vdp {
+    pub fn debug_vram_view(&mut self) -> ViewableBytes<'_> {
+        ViewableBytes(self.vram.as_mut())
+    }
+
+    pub fn debug_cram_view(&mut self) -> ViewableWordsBigEndian<'_> {
+        ViewableWordsBigEndian(self.cram.as_mut())
+    }
+
+    pub fn debug_vsram_view(&mut self) -> ViewableBytes<'_> {
+        ViewableBytes(self.vsram.as_mut())
+    }
+
     pub fn copy_cram(&self, out: &mut [Color]) {
         for (out_color, &cram_color) in out.iter_mut().zip(self.cram.as_ref()) {
             *out_color = parse_gen_color(cram_color);

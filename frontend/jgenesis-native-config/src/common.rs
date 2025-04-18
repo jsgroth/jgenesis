@@ -181,6 +181,7 @@ impl AppConfig {
             axis_deadzone: self.input.axis_deadzone,
             hotkey_config: self.input.hotkeys.clone(),
             hide_mouse_cursor: self.common.hide_mouse_cursor,
+            egui_theme: self.egui_theme,
         }
     }
 }

@@ -22,8 +22,8 @@ use egui::{
     menu,
 };
 use egui_extras::{Column, TableBuilder};
-use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen};
-use jgenesis_native_driver::config::HideMouseCursor;
+use jgenesis_native_config::{AppConfig, ListFilters, RecentOpen};
+use jgenesis_native_driver::config::{EguiTheme, HideMouseCursor};
 use jgenesis_native_driver::extensions::Console;
 use jgenesis_native_driver::{NativeEmulatorError, extensions};
 use jgenesis_renderer::config::Scanlines;
@@ -1230,7 +1230,6 @@ fn should_reload_config(prev_config: &AppConfig, new_config: &AppConfig) -> bool
         list_filters: ListFilters::default(),
         rom_search_dirs: vec![],
         recent_open_list: vec![],
-        egui_theme: EguiTheme::default(),
         ..prev_config.clone()
     };
 
@@ -1238,7 +1237,6 @@ fn should_reload_config(prev_config: &AppConfig, new_config: &AppConfig) -> bool
         list_filters: ListFilters::default(),
         rom_search_dirs: vec![],
         recent_open_list: vec![],
-        egui_theme: EguiTheme::default(),
         ..new_config.clone()
     };
 

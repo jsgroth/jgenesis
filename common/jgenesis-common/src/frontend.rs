@@ -165,6 +165,7 @@ pub trait PartialClone {
 }
 
 use crate::input::Player;
+use crate::num::{GetBit, U16Ext};
 pub use jgenesis_proc_macros::PartialClone;
 
 #[derive(
@@ -263,4 +264,84 @@ pub trait EmulatorTrait: Encode + Decode + PartialClone {
     fn target_fps(&self) -> f64;
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64);
+}
+
+#[allow(clippy::len_without_is_empty)]
+pub trait ViewableMemory {
+    fn len(&self) -> usize;
+
+    fn read(&self, address: u32) -> u8;
+
+    fn write(&mut self, address: u32, value: u8);
+
+    fn search(&self, needle: &[u8], start: Option<u32>) -> Option<u32>;
+}
+
+pub struct ViewableBytes<'ram>(pub &'ram mut [u8]);
+
+impl ViewableMemory for ViewableBytes<'_> {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    fn read(&self, address: u32) -> u8 {
+        self.0.get(address as usize).copied().unwrap_or(0)
+    }
+
+    fn write(&mut self, address: u32, value: u8) {
+        let address = address as usize;
+        if address < self.0.len() {
+            self.0[address] = value;
+        }
+    }
+
+    fn search(&self, needle: &[u8], start: Option<u32>) -> Option<u32> {
+        let start = start.unwrap_or(0) as usize;
+        for i in start..self.0.len() - needle.len() {
+            if &self.0[i..i + needle.len()] == needle {
+                return Some(i as u32);
+            }
+        }
+
+        None
+    }
+}
+
+pub struct ViewableWordsBigEndian<'ram>(pub &'ram mut [u16]);
+
+impl ViewableMemory for ViewableWordsBigEndian<'_> {
+    fn len(&self) -> usize {
+        self.0.len() * 2
+    }
+
+    fn read(&self, address: u32) -> u8 {
+        let word = self.0.get((address >> 1) as usize).copied().unwrap_or(0);
+        (word >> (8 * ((address & 1) ^ 1))) as u8
+    }
+
+    fn write(&mut self, address: u32, value: u8) {
+        let address = address as usize;
+        if (address >> 1) < self.0.len() {
+            if !address.bit(0) {
+                self.0[address >> 1].set_msb(value);
+            } else {
+                self.0[address >> 1].set_lsb(value);
+            }
+        }
+    }
+
+    fn search(&self, needle: &[u8], start: Option<u32>) -> Option<u32> {
+        let start = start.unwrap_or(0) as usize;
+        'outer: for i in start..2 * self.0.len() - needle.len() {
+            for (j, needle_char) in needle.iter().copied().enumerate() {
+                if self.read((i + j) as u32) != needle_char {
+                    continue 'outer;
+                }
+            }
+
+            return Some(i as u32);
+        }
+
+        None
+    }
 }

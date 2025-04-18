@@ -17,6 +17,7 @@ use crate::nes::NesAppConfig;
 use crate::smsgg::SmsGgAppConfig;
 use crate::snes::SnesAppConfig;
 use cfg_if::cfg_if;
+use jgenesis_native_driver::config::EguiTheme;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -55,14 +56,6 @@ impl Default for ListFilters {
 pub struct RecentOpen {
     pub console: String,
     pub path: PathBuf,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum EguiTheme {
-    #[default]
-    SystemDefault,
-    Dark,
-    Light,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

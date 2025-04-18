@@ -514,6 +514,10 @@ fn binary_op_cycles(size: OpSize, source: AddressingMode, dest: AddressingMode) 
     cycles
 }
 
+pub(crate) fn decode_first_opcode(opcode: u16) -> Instruction {
+    table::decode(opcode)
+}
+
 #[inline]
 #[must_use]
 pub fn cycles_if_move_or_btst(opcode: u16) -> Option<u32> {

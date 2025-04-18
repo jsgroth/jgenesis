@@ -1,5 +1,7 @@
 //! Genesis public interface and main loop
 
+mod debug;
+
 use crate::audio::GenesisAudioResampler;
 use crate::input::{GenesisButton, GenesisInputs, InputState};
 use crate::memory::{Cartridge, MainBus, MainBusSignals, MainBusWrites, Memory};

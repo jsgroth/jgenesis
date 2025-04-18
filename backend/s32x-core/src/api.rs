@@ -2,6 +2,8 @@
 //!
 //! At some point common code should probably be collapsed between the Genesis/SCD/32X crates
 
+mod debug;
+
 use crate::audio::Sega32XResampler;
 use crate::core::Sega32X;
 use bincode::{Decode, Encode};

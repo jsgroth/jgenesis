@@ -2,6 +2,7 @@
 
 use crate::api::{PcmInterpolation, SegaCdEmulatorConfig};
 use bincode::{Decode, Encode};
+use jgenesis_common::frontend::ViewableBytes;
 use jgenesis_common::num::{GetBit, U16Ext};
 use std::array;
 
@@ -441,5 +442,9 @@ impl Rf5c164 {
 
     pub fn reload_config(&mut self, config: &SegaCdEmulatorConfig) {
         self.interpolation = config.pcm_interpolation;
+    }
+
+    pub fn debug_ram_view(&mut self) -> ViewableBytes<'_> {
+        ViewableBytes(self.waveform_ram.as_mut_slice())
     }
 }

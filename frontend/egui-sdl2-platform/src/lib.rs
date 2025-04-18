@@ -40,8 +40,8 @@ impl Platform {
     }
 
     pub fn handle_event(&mut self, event: &SdlEvent) {
-        match *event {
-            SdlEvent::Window {
+        match event {
+            &SdlEvent::Window {
                 window_id,
                 win_event:
                     SdlWindowEvent::Resized(width, height) | SdlWindowEvent::SizeChanged(width, height),
@@ -52,12 +52,12 @@ impl Platform {
                     egui::Vec2::new(width as f32, height as f32) / self.scale_factor,
                 ));
             }
-            SdlEvent::MouseMotion { window_id, x, y, .. } if window_id == self.window_id => {
+            &SdlEvent::MouseMotion { window_id, x, y, .. } if window_id == self.window_id => {
                 let pointer_pos =
                     egui::Pos2::new(x as f32 / self.scale_factor, y as f32 / self.scale_factor);
                 self.raw_input.events.push(egui::Event::PointerMoved(pointer_pos));
             }
-            SdlEvent::MouseButtonDown { window_id, mouse_btn, x, y, .. }
+            &SdlEvent::MouseButtonDown { window_id, mouse_btn, x, y, .. }
                 if window_id == self.window_id =>
             {
                 let Some(egui_button) = sdl_mouse_button_to_egui(mouse_btn) else { return };
@@ -71,7 +71,7 @@ impl Platform {
                     modifiers: egui::Modifiers::default(),
                 });
             }
-            SdlEvent::MouseButtonUp { window_id, mouse_btn, x, y, .. }
+            &SdlEvent::MouseButtonUp { window_id, mouse_btn, x, y, .. }
                 if window_id == self.window_id =>
             {
                 let Some(egui_button) = sdl_mouse_button_to_egui(mouse_btn) else { return };
@@ -85,7 +85,7 @@ impl Platform {
                     modifiers: egui::Modifiers::default(),
                 });
             }
-            SdlEvent::MouseWheel { window_id, direction, precise_x, precise_y, .. }
+            &SdlEvent::MouseWheel { window_id, direction, precise_x, precise_y, .. }
                 if window_id == self.window_id =>
             {
                 // Multiplier of 15 somewhat arbitrary - scrolling is way too slow without any multiplier
@@ -98,6 +98,42 @@ impl Platform {
                     delta,
                     modifiers: self.raw_input.modifiers,
                 });
+            }
+            &SdlEvent::KeyDown { window_id, keycode: Some(keycode), keymod, repeat, .. }
+                if window_id == self.window_id =>
+            {
+                let Some(egui_key) = sdl_keycode_to_egui(keycode) else { return };
+
+                let modifiers = sdl_mod_to_egui(keymod);
+
+                self.raw_input.events.push(egui::Event::Key {
+                    key: egui_key,
+                    physical_key: None,
+                    pressed: true,
+                    repeat,
+                    modifiers,
+                });
+            }
+            &SdlEvent::KeyUp { window_id, keycode: Some(keycode), keymod, repeat, .. }
+                if window_id == self.window_id =>
+            {
+                let Some(egui_key) = sdl_keycode_to_egui(keycode) else { return };
+
+                let modifiers = sdl_mod_to_egui(keymod);
+
+                self.raw_input.events.push(egui::Event::Key {
+                    key: egui_key,
+                    physical_key: None,
+                    pressed: false,
+                    repeat,
+                    modifiers,
+                });
+            }
+            SdlEvent::TextInput { window_id, text, .. }
+            | SdlEvent::TextEditing { window_id, text, .. }
+                if *window_id == self.window_id =>
+            {
+                self.raw_input.events.push(egui::Event::Text(text.clone()));
             }
             _ => {}
         }
@@ -125,5 +161,76 @@ fn sdl_mouse_button_to_egui(button: sdl2::mouse::MouseButton) -> Option<egui::Po
         X1 => Some(egui::PointerButton::Extra1),
         X2 => Some(egui::PointerButton::Extra2),
         Unknown => None,
+    }
+}
+
+fn sdl_keycode_to_egui(key: sdl2::keyboard::Keycode) -> Option<egui::Key> {
+    use egui::Key;
+    use sdl2::keyboard::Keycode;
+
+    match key {
+        Keycode::A => Some(Key::A),
+        Keycode::B => Some(Key::B),
+        Keycode::C => Some(Key::C),
+        Keycode::D => Some(Key::D),
+        Keycode::E => Some(Key::E),
+        Keycode::F => Some(Key::F),
+        Keycode::G => Some(Key::G),
+        Keycode::H => Some(Key::H),
+        Keycode::I => Some(Key::I),
+        Keycode::J => Some(Key::J),
+        Keycode::K => Some(Key::K),
+        Keycode::L => Some(Key::L),
+        Keycode::M => Some(Key::M),
+        Keycode::N => Some(Key::N),
+        Keycode::O => Some(Key::O),
+        Keycode::P => Some(Key::P),
+        Keycode::Q => Some(Key::Q),
+        Keycode::R => Some(Key::R),
+        Keycode::S => Some(Key::S),
+        Keycode::T => Some(Key::T),
+        Keycode::U => Some(Key::U),
+        Keycode::V => Some(Key::V),
+        Keycode::W => Some(Key::W),
+        Keycode::X => Some(Key::X),
+        Keycode::Y => Some(Key::Y),
+        Keycode::Z => Some(Key::Z),
+        Keycode::Kp0 | Keycode::Num0 => Some(Key::Num0),
+        Keycode::Kp1 | Keycode::Num1 => Some(Key::Num1),
+        Keycode::Kp2 | Keycode::Num2 => Some(Key::Num2),
+        Keycode::Kp3 | Keycode::Num3 => Some(Key::Num3),
+        Keycode::Kp4 | Keycode::Num4 => Some(Key::Num4),
+        Keycode::Kp5 | Keycode::Num5 => Some(Key::Num5),
+        Keycode::Kp6 | Keycode::Num6 => Some(Key::Num6),
+        Keycode::Kp7 | Keycode::Num7 => Some(Key::Num7),
+        Keycode::Kp8 | Keycode::Num8 => Some(Key::Num8),
+        Keycode::Kp9 | Keycode::Num9 => Some(Key::Num9),
+        Keycode::Backspace => Some(Key::Backspace),
+        Keycode::Delete => Some(Key::Delete),
+        Keycode::Return => Some(Key::Enter),
+        Keycode::Left => Some(Key::ArrowLeft),
+        Keycode::Right => Some(Key::ArrowRight),
+        Keycode::Up => Some(Key::ArrowUp),
+        Keycode::Down => Some(Key::ArrowDown),
+        Keycode::Tab => Some(Key::Tab),
+        Keycode::Insert => Some(Key::Insert),
+        Keycode::Space => Some(Key::Space),
+        Keycode::Home => Some(Key::Home),
+        Keycode::End => Some(Key::End),
+        _ => None,
+    }
+}
+
+fn sdl_mod_to_egui(sdl_mod: sdl2::keyboard::Mod) -> egui::Modifiers {
+    use sdl2::keyboard::Mod;
+
+    let ctrl = sdl_mod & Mod::LCTRLMOD != Mod::NOMOD || sdl_mod & Mod::RCTRLMOD != Mod::NOMOD;
+    egui::Modifiers {
+        alt: sdl_mod & Mod::LALTMOD != Mod::NOMOD || sdl_mod & Mod::RALTMOD != Mod::NOMOD,
+        ctrl,
+        shift: sdl_mod & Mod::LSHIFTMOD != Mod::NOMOD || sdl_mod & Mod::RSHIFTMOD != Mod::NOMOD,
+        mac_cmd: false,
+        // TODO this is not correct for MacOS
+        command: ctrl,
     }
 }

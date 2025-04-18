@@ -100,6 +100,16 @@ struct NameWithExtension {
     extension: String,
 }
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumAll, EnumDisplay,
+)]
+pub enum EguiTheme {
+    #[default]
+    SystemDefault,
+    Dark,
+    Light,
+}
+
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct CommonConfig {
     #[cfg_display(path)]
@@ -128,6 +138,7 @@ pub struct CommonConfig {
     #[cfg_display(indent_nested)]
     pub hotkey_config: HotkeyConfig,
     pub hide_mouse_cursor: HideMouseCursor,
+    pub egui_theme: EguiTheme,
 }
 
 impl CommonConfig {
