@@ -1669,6 +1669,10 @@ impl Vdp {
             // mode and V30 mode. Titan Overdrive 2 depends on this for the arcade scene
             self.state.top_border =
                 self.registers.vertical_display_size.top_border(self.timing_mode);
+
+            // Re-latch H display mode at start of frame in case a game changed it mid-VBlank
+            // Not doing this causes a glitchy frame on mode switches
+            self.state.frame_h_resolution = self.registers.horizontal_display_size;
         } else if self.state.interlaced_frame {
             let toggle_odd_line = match self.registers.vertical_display_size {
                 VerticalDisplaySize::TwentyEightCell => 240,
