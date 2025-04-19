@@ -1,4 +1,4 @@
-use crate::app::{App, Console, OpenWindow};
+use crate::app::{App, OpenWindow};
 use egui::{Context, Window};
 use gba_core::api::GbaAspectRatio;
 use rfd::FileDialog;
@@ -78,11 +78,12 @@ impl App {
             });
         });
 
+        #[cfg(feature = "gba")]
         if path_configured {
             *open = false;
             self.launch_emulator(
                 self.state.current_file_path.clone(),
-                Some(Console::GameBoyAdvance),
+                Some(jgenesis_native_driver::extensions::Console::GameBoyAdvance),
             );
         }
     }

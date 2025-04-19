@@ -170,7 +170,7 @@ impl Cartridge {
 
         let mut sram = match initial_sram {
             Some(initial_sram) if initial_sram.len() == sram_len => initial_sram,
-            _ => vec![0; sram_len],
+            _ => vec![0xFF; sram_len],
         };
 
         let (mapper, has_battery) = match mapper_byte {

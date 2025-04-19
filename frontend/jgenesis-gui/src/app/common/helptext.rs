@@ -68,6 +68,9 @@ pub const INTEGER_HEIGHT_SCALING: HelpText = HelpText {
     ],
 };
 
+pub const MUTE_AUDIO: HelpText =
+    HelpText { heading: "Mute Audio", text: &["Mute all audio output."] };
+
 pub const AUDIO_SAMPLE_RATE: HelpText = HelpText {
     heading: "Audio Sample Rate",
     text: &[

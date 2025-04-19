@@ -445,10 +445,10 @@ impl ZapperBusState {
         pixel: u8,
         x: u16,
         y: u16,
-        timing_mode: TimingMode,
+        display_mode: TimingMode,
         overscan: Overscan,
     ) {
-        let Some((x, y)) = Self::adjust_frame_position(x, y, timing_mode, overscan) else {
+        let Some((x, y)) = Self::adjust_frame_position(x, y, display_mode, overscan) else {
             return;
         };
 
@@ -465,12 +465,12 @@ impl ZapperBusState {
     fn adjust_frame_position(
         mut x: u16,
         mut y: u16,
-        timing_mode: TimingMode,
+        display_mode: TimingMode,
         overscan: Overscan,
     ) -> Option<(u16, u16)> {
         let mut overflowed;
 
-        (y, overflowed) = y.overflowing_sub(timing_mode.starting_row());
+        (y, overflowed) = y.overflowing_sub(display_mode.starting_row());
         if overflowed {
             return None;
         }
@@ -723,10 +723,10 @@ impl InterruptLines {
 pub struct Bus {
     #[partial_clone(partial)]
     mapper: Mapper,
-    cpu_internal_ram: [u8; 2048],
+    cpu_internal_ram: Box<[u8; 2048]>,
     ppu_registers: PpuRegisters,
     io_registers: IoRegisters,
-    ppu_vram: [u8; 2048],
+    ppu_vram: Box<[u8; 2048]>,
     ppu_palette_ram: [u8; 32],
     ppu_oam: [u8; 256],
     ppu_bus_address: u16,
@@ -736,14 +736,22 @@ pub struct Bus {
 
 impl Bus {
     pub(crate) fn from_cartridge(mapper: Mapper, overscan: Overscan) -> Self {
+        const INITIAL_PALETTE_RAM: [u8; 32] = [
+            0x09, 0x01, 0x00, 0x01, 0x00, 0x02, 0x02, 0x0D, 0x08, 0x10, 0x08, 0x24, 0x00, 0x00,
+            0x04, 0x2C, 0x09, 0x01, 0x34, 0x03, 0x00, 0x04, 0x00, 0x14, 0x08, 0x3A, 0x00, 0x02,
+            0x00, 0x20, 0x2C, 0x08,
+        ];
+
         Self {
             mapper,
             // (Somewhat) randomize initial RAM contents
-            cpu_internal_ram: array::from_fn(|_| if rand::random() { 0x00 } else { 0xFF }),
+            cpu_internal_ram: Box::new(array::from_fn(
+                |_| if rand::random() { 0x00 } else { 0xFF },
+            )),
             ppu_registers: PpuRegisters::new(),
             io_registers: IoRegisters::new(overscan),
-            ppu_vram: [0; 2048],
-            ppu_palette_ram: [0; 32],
+            ppu_vram: Box::new(array::from_fn(|_| 0)),
+            ppu_palette_ram: INITIAL_PALETTE_RAM,
             ppu_oam: [0; 256],
             ppu_bus_address: 0,
             interrupt_lines: InterruptLines::new(),
@@ -1113,10 +1121,10 @@ impl PpuBus<'_> {
         self.0.ppu_bus_address = address;
     }
 
-    pub fn handle_pixel_rendered(&mut self, pixel: u8, x: u16, y: u16, timing_mode: TimingMode) {
+    pub fn handle_pixel_rendered(&mut self, pixel: u8, x: u16, y: u16, display_mode: TimingMode) {
         if let Some(zapper_state) = &mut self.0.io_registers.zapper_state {
             let overscan = self.0.io_registers.overscan;
-            zapper_state.handle_pixel_rendered(pixel, x, y, timing_mode, overscan);
+            zapper_state.handle_pixel_rendered(pixel, x, y, display_mode, overscan);
         }
     }
 

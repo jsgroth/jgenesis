@@ -13,17 +13,9 @@
 
 use crate::bus;
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring, PpuMapResult};
-use crate::bus::cartridge::{Cartridge, HasBasicPpuMapping, MapperImpl};
+use crate::bus::cartridge::{HasBasicPpuMapping, MapperImpl};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
-
-fn basic_read_cpu_address(address: u16, cartridge: &Cartridge) -> u8 {
-    match address {
-        0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
-        0x4020..=0x7FFF => bus::cpu_open_bus(address),
-        0x8000..=0xFFFF => cartridge.get_prg_rom(u32::from(address & 0x7FFF)),
-    }
-}
 
 fn basic_map_ppu_address(
     address: u16,
@@ -51,7 +43,11 @@ impl Nrom {
 
 impl MapperImpl<Nrom> {
     pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
-        basic_read_cpu_address(address, &self.cartridge)
+        match address {
+            0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
+            0x4020..=0x7FFF => bus::cpu_open_bus(address),
+            0x8000..=0xFFFF => self.cartridge.get_prg_rom((address & 0x7FFF).into()),
+        }
     }
 
     // Intentionally blank implementation that is present because every MapperImpl must have a
@@ -187,13 +183,29 @@ impl Cnrom {
 
 impl MapperImpl<Cnrom> {
     pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
-        basic_read_cpu_address(address, &self.cartridge)
+        match address {
+            0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
+            0x4020..=0x5FFF => bus::cpu_open_bus(address),
+            0x6000..=0x7FFF => {
+                if !self.cartridge.prg_ram.is_empty() {
+                    self.cartridge.get_prg_ram((address & 0x1FFF).into())
+                } else {
+                    bus::cpu_open_bus(address)
+                }
+            }
+            0x8000..=0xFFFF => self.cartridge.get_prg_rom((address & 0x7FFF).into()),
+        }
     }
 
     pub(crate) fn write_cpu_address(&mut self, address: u16, value: u8) {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
-            0x4020..=0x7FFF => {}
+            0x4020..=0x5FFF => {}
+            0x6000..=0x7FFF => {
+                if !self.cartridge.prg_ram.is_empty() {
+                    self.cartridge.set_prg_ram((address & 0x1FFF).into(), value);
+                }
+            }
             0x8000..=0xFFFF => {
                 // Mapper bus conflict behavior: the value written by the CPU is bitwise ANDed with
                 // the value at that address in PRG ROM.

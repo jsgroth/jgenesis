@@ -9,7 +9,7 @@ use genesis_core::input::{GenesisButton, InputState};
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::timing::GenesisCycleCounters;
 use genesis_core::vdp::{Vdp, VdpTickEffect};
-use genesis_core::ym2612::{Ym2612, YmTickEffect};
+use genesis_core::ym2612::Ym2612;
 use genesis_core::{GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, Renderer, SaveWriter, TickEffect,
@@ -66,6 +66,8 @@ macro_rules! new_main_bus {
             &mut $self.psg,
             &mut $self.ym2612,
             &mut $self.input,
+            &mut $self.cycles,
+            $self.m68k.next_opcode(),
             $self.timing_mode,
             MainBusSignals { m68k_reset: $m68k_reset },
             std::mem::take(&mut $self.main_bus_writes),
@@ -121,7 +123,7 @@ impl Sega32XEmulator {
         let m68k = M68000::builder().allow_tas_writes(false).build();
         let z80 = Z80::new();
         let vdp = Vdp::new(timing_mode, config.genesis.to_vdp_config());
-        let ym2612 = Ym2612::new(config.genesis);
+        let ym2612 = Ym2612::new_from_config(&config.genesis);
         let psg = Sn76489::new(Sn76489Version::Standard);
 
         let initial_cartridge_ram = save_writer.load_bytes("sav").ok();
@@ -174,7 +176,11 @@ impl Sega32XEmulator {
 
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
         let frame_size = self.vdp.frame_size();
-        let aspect_ratio = self.config.genesis.aspect_ratio.to_pixel_aspect_ratio(frame_size, true);
+        let aspect_ratio = self.config.genesis.aspect_ratio.to_pixel_aspect_ratio(
+            self.timing_mode,
+            frame_size,
+            true,
+        );
         self.memory.medium_mut().vdp().render_frame(&self.vdp, aspect_ratio, renderer)
     }
 }
@@ -207,35 +213,35 @@ impl EmulatorTrait for Sega32XEmulator {
         self.input.set_inputs(*inputs);
 
         let mut bus = new_main_bus!(self, m68k_reset: false);
-        let m68k_cycles = if self.cycles.m68k_wait_cpu_cycles != 0 {
-            self.cycles.take_m68k_wait_cpu_cycles()
+        let m68k_cycles = if bus.cycles.m68k_wait_cpu_cycles != 0 {
+            bus.cycles.take_m68k_wait_cpu_cycles()
         } else {
             self.m68k.execute_instruction(&mut bus)
         };
 
-        let mclk_cycles = u64::from(m68k_cycles) * self.cycles.m68k_divider.get();
-        self.cycles.increment_mclk_counters(mclk_cycles);
+        let mclk_cycles = u64::from(m68k_cycles) * bus.cycles.m68k_divider.get();
+        bus.cycles.increment_mclk_counters(mclk_cycles, bus.vdp.should_halt_cpu());
 
-        while self.cycles.should_tick_z80() {
-            self.z80.tick(&mut bus);
-            self.cycles.decrement_z80();
-        }
-
-        if bus.z80_accessed_68k_bus() {
-            self.cycles.record_z80_68k_bus_access();
+        while bus.cycles.should_tick_z80() {
+            if !bus.cycles.z80_halt {
+                self.z80.tick(&mut bus);
+            }
+            bus.cycles.decrement_z80();
         }
 
         self.main_bus_writes = bus.apply_writes();
 
-        self.memory.medium_mut().tick(mclk_cycles, self.audio_resampler.pwm_resampler_mut());
+        self.memory.medium_mut().tick(
+            mclk_cycles,
+            self.audio_resampler.pwm_resampler_mut(),
+            &self.vdp,
+        );
         self.input.tick(m68k_cycles);
 
-        while self.cycles.should_tick_ym2612() {
-            if self.ym2612.tick() == YmTickEffect::OutputSample {
-                let (sample_l, sample_r) = self.ym2612.sample();
-                self.audio_resampler.collect_ym2612_sample(sample_l, sample_r);
-            }
-            self.cycles.decrement_ym2612();
+        if self.cycles.has_ym2612_ticks() {
+            let ym2612_ticks = self.cycles.take_ym2612_ticks();
+            self.ym2612
+                .tick(ym2612_ticks, |(l, r)| self.audio_resampler.collect_ym2612_sample(l, r));
         }
 
         while self.cycles.should_tick_psg() {
@@ -298,7 +304,7 @@ impl EmulatorTrait for Sega32XEmulator {
 
         self.m68k.execute_instruction(&mut new_main_bus!(self, m68k_reset: true));
         self.memory.reset_z80_signals();
-        self.ym2612.reset(self.config.genesis);
+        self.ym2612.reset();
 
         self.memory.medium_mut().reset();
     }
@@ -310,7 +316,7 @@ impl EmulatorTrait for Sega32XEmulator {
     }
 
     fn target_fps(&self) -> f64 {
-        genesis_core::target_framerate(self.timing_mode)
+        genesis_core::target_framerate(&self.vdp, self.timing_mode)
     }
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {

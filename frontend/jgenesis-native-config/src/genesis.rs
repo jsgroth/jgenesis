@@ -1,6 +1,7 @@
 use crate::AppConfig;
 use genesis_core::{
     GenesisAspectRatio, GenesisEmulatorConfig, GenesisLowPassFilter, GenesisRegion,
+    Opn2BusyBehavior,
 };
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::{GenesisConfig, Sega32XConfig, SegaCdConfig};
@@ -24,8 +25,8 @@ pub struct GenesisAppConfig {
     pub remove_sprite_limits: bool,
     #[serde(default = "default_68k_divider")]
     pub m68k_clock_divider: u64,
-    #[serde(default)]
-    pub emulate_non_linear_vdp_dac: bool,
+    #[serde(default = "true_fn")]
+    pub non_linear_color_scale: bool,
     #[serde(default = "true_fn")]
     pub deinterlace: bool,
     #[serde(default)]
@@ -44,6 +45,8 @@ pub struct GenesisAppConfig {
     pub sprites_enabled: bool,
     #[serde(default = "true_fn")]
     pub quantize_ym2612_output: bool,
+    #[serde(default)]
+    pub opn2_busy_behavior: Opn2BusyBehavior,
     #[serde(default = "true_fn")]
     pub emulate_ym2612_ladder_effect: bool,
     #[serde(default)]
@@ -140,7 +143,7 @@ impl AppConfig {
                     .adjust_aspect_ratio_in_2x_resolution,
                 remove_sprite_limits: self.genesis.remove_sprite_limits,
                 m68k_clock_divider: self.genesis.m68k_clock_divider,
-                emulate_non_linear_vdp_dac: self.genesis.emulate_non_linear_vdp_dac,
+                non_linear_color_scale: self.genesis.non_linear_color_scale,
                 deinterlace: self.genesis.deinterlace,
                 render_vertical_border: self.genesis.render_vertical_border,
                 render_horizontal_border: self.genesis.render_horizontal_border,
@@ -151,6 +154,7 @@ impl AppConfig {
                 backdrop_enabled: self.genesis.backdrop_enabled,
                 quantize_ym2612_output: self.genesis.quantize_ym2612_output,
                 emulate_ym2612_ladder_effect: self.genesis.emulate_ym2612_ladder_effect,
+                opn2_busy_behavior: self.genesis.opn2_busy_behavior,
                 low_pass: self.genesis.low_pass,
                 ym2612_enabled: self.genesis.ym2612_enabled,
                 psg_enabled: self.genesis.psg_enabled,

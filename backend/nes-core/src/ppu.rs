@@ -298,6 +298,7 @@ type SpriteLineBuffer = [SpriteData; SCREEN_WIDTH as usize];
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct PpuState {
     timing_mode: TimingMode,
+    pub ntsc_crop_vertical_overscan: bool,
     frame_buffer: Box<FrameBuffer>,
     registers: InternalRegisters,
     bg_buffers: BgBuffers,
@@ -311,9 +312,10 @@ pub struct PpuState {
 }
 
 impl PpuState {
-    pub fn new(timing_mode: TimingMode) -> Self {
+    pub fn new(timing_mode: TimingMode, ntsc_crop_vertical_overscan: bool) -> Self {
         Self {
             timing_mode,
+            ntsc_crop_vertical_overscan,
             frame_buffer: vec![
                 [(0, ColorEmphasis::default()); SCREEN_WIDTH as usize];
                 MAX_SCREEN_HEIGHT as usize
@@ -359,7 +361,10 @@ impl PpuState {
         bus: &mut PpuBus<'_>,
     ) {
         self.frame_buffer[y as usize][x as usize] = (pixel, color_emphasis);
-        bus.handle_pixel_rendered(pixel, x, y, self.timing_mode);
+
+        let display_mode =
+            if !self.ntsc_crop_vertical_overscan { TimingMode::Pal } else { self.timing_mode };
+        bus.handle_pixel_rendered(pixel, x, y, display_mode);
     }
 }
 
@@ -459,7 +464,7 @@ fn get_color_mask(registers: &PpuRegisters) -> u8 {
 /// memory-mapped PPU regsiters.
 pub fn reset(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     let vram_address = state.registers.vram_address;
-    *state = PpuState::new(state.timing_mode);
+    *state = PpuState::new(state.timing_mode, state.ntsc_crop_vertical_overscan);
     state.registers.vram_address = vram_address;
 
     bus.reset();

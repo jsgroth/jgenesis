@@ -139,8 +139,8 @@ impl Default for RenderedPixel {
 struct Buffers {
     bg_pixels: [[Pixel; HIRES_SCREEN_WIDTH]; 4],
     obj_pixels: [Pixel; NORMAL_SCREEN_WIDTH],
-    offset_per_tile_h_scroll: [[u16; HIRES_SCREEN_WIDTH]; 2],
-    offset_per_tile_v_scroll: [[u16; HIRES_SCREEN_WIDTH]; 2],
+    offset_per_tile_h_scroll: [[u16; NORMAL_SCREEN_WIDTH]; 2],
+    offset_per_tile_v_scroll: [[u16; NORMAL_SCREEN_WIDTH]; 2],
     main_screen_pixels: [PriorityResolver; NORMAL_SCREEN_WIDTH],
     main_screen_rendered_pixels: [RenderedPixel; NORMAL_SCREEN_WIDTH],
     sub_screen_pixels: [PriorityResolver; NORMAL_SCREEN_WIDTH],
@@ -633,7 +633,7 @@ impl Ppu {
 
         if mode.is_offset_per_tile() && (bg1_enabled || bg2_enabled) {
             // Populate offset-per-tile buffers before rendering BG1 or BG2
-            self.populate_offset_per_tile_buffers(hi_res_mode);
+            self.populate_offset_per_tile_buffers();
         }
 
         if bg1_enabled {
@@ -692,9 +692,13 @@ impl Ppu {
 
             // Account for offset-per-tile if in mode 2/4/6
             let (mut h_scroll, v_scroll) = if mode.is_offset_per_tile() {
+                let buffer_idx = match hi_res_mode {
+                    HiResMode::True => (pixel_idx / 2) as usize,
+                    HiResMode::None | HiResMode::Pseudo => pixel_idx as usize,
+                };
                 (
-                    self.buffers.offset_per_tile_h_scroll[bg][pixel_idx as usize],
-                    self.buffers.offset_per_tile_v_scroll[bg][pixel_idx as usize],
+                    self.buffers.offset_per_tile_h_scroll[bg][buffer_idx],
+                    self.buffers.offset_per_tile_v_scroll[bg][buffer_idx],
                 )
             } else {
                 (bg_h_scroll, bg_v_scroll)
@@ -877,17 +881,26 @@ impl Ppu {
         }
     }
 
-    fn populate_offset_per_tile_buffers(&mut self, hi_res_mode: HiResMode) {
-        let screen_width =
-            if hi_res_mode == HiResMode::True { HIRES_SCREEN_WIDTH } else { NORMAL_SCREEN_WIDTH };
+    fn populate_offset_per_tile_buffers(&mut self) {
+        // Offset-per-tile does not apply to first visible BG1/BG2 tile (1-8 pixels)
+        for bg in 0..2 {
+            let bg_h_scroll = self.registers.bg_h_scroll[bg];
+            let bg_v_scroll = self.registers.bg_v_scroll[bg];
+
+            for pixel in 0..(8 - (bg_h_scroll & 7)) {
+                self.buffers.offset_per_tile_h_scroll[bg][pixel as usize] = bg_h_scroll;
+                self.buffers.offset_per_tile_v_scroll[bg][pixel as usize] = bg_v_scroll;
+            }
+        }
 
         let mode = self.registers.bg_mode;
         let bg3_h_scroll = self.registers.bg_h_scroll[2];
         let bg3_v_scroll = self.registers.bg_v_scroll[2];
 
-        for pixel in 0..screen_width as u16 {
+        // Up to 33 8x8 tiles can be visible when fine H scrolling is used
+        for tile_idx in 0..33_u16 {
             // Lowest 3 bits of BG3 H scroll do not apply in offset-per-tile
-            let bg3_x = (pixel.wrapping_sub(8) & !0x7).wrapping_add(bg3_h_scroll & !0x7);
+            let bg3_x = (8 * tile_idx).wrapping_add(bg3_h_scroll & !7);
 
             let (h_offset_entry, v_offset_entry) = match mode {
                 BgMode::Four => {
@@ -906,37 +919,45 @@ impl Ppu {
                 _ => {
                     let h_offset_entry =
                         get_bg_map_entry(&self.vram, &self.registers, 2, bg3_x, bg3_v_scroll);
-                    let v_offset_entry =
-                        get_bg_map_entry(&self.vram, &self.registers, 2, bg3_x, bg3_v_scroll + 8);
+                    let v_offset_entry = get_bg_map_entry(
+                        &self.vram,
+                        &self.registers,
+                        2,
+                        bg3_x,
+                        bg3_v_scroll.wrapping_add(8),
+                    );
                     (h_offset_entry, v_offset_entry)
                 }
             };
 
-            // Offset-per-tile can only apply to BG1 and BG2
             for bg in 0..2 {
                 let bg_h_scroll = self.registers.bg_h_scroll[bg];
                 let bg_v_scroll = self.registers.bg_v_scroll[bg];
-                if pixel + (bg_h_scroll & 0x07) < 8 {
-                    // Offset-per-tile only applies to the 2nd visible tile and onwards
-                    self.buffers.offset_per_tile_h_scroll[bg][pixel as usize] = bg_h_scroll;
-                    self.buffers.offset_per_tile_v_scroll[bg][pixel as usize] = bg_v_scroll;
-                    continue;
-                }
 
-                // BG1 uses bit 13 to determine whether to apply offset-per-tile, while BG2 uses bit 14
-                let bg_offset_bit = if bg == 0 { 13 } else { 14 };
-                self.buffers.offset_per_tile_h_scroll[bg][pixel as usize] =
-                    if h_offset_entry.bit(bg_offset_bit) {
-                        h_offset_entry & 0x03FF
-                    } else {
-                        bg_h_scroll
-                    };
-                self.buffers.offset_per_tile_v_scroll[bg][pixel as usize] =
-                    if v_offset_entry.bit(bg_offset_bit) {
-                        v_offset_entry & 0x03FF
-                    } else {
-                        bg_v_scroll
-                    };
+                let use_offset_bit = [13, 14][bg];
+                let h_scroll = if h_offset_entry.bit(use_offset_bit) {
+                    // TODO is this right for fine H scroll?
+                    (h_offset_entry & 0x03FF & !7) | (bg_h_scroll & 7)
+                } else {
+                    bg_h_scroll
+                };
+                let v_scroll = if v_offset_entry.bit(use_offset_bit) {
+                    v_offset_entry & 0x03FF
+                } else {
+                    bg_v_scroll
+                };
+
+                // BG3 tile N is used as offsets for BG1/BG2 visible tile N+1
+                let base_x = (8 * (tile_idx + 1)).wrapping_sub(bg_h_scroll & 7);
+                for dx in 0..8 {
+                    let pixel = base_x + dx;
+                    if pixel >= NORMAL_SCREEN_WIDTH as u16 {
+                        break;
+                    }
+
+                    self.buffers.offset_per_tile_h_scroll[bg][pixel as usize] = h_scroll;
+                    self.buffers.offset_per_tile_v_scroll[bg][pixel as usize] = v_scroll;
+                }
             }
         }
     }

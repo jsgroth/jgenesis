@@ -285,7 +285,6 @@ fn init_test_state(state: &State, bus: &mut InMemoryBus) -> M68000 {
         state.ssp,
     );
     m68000.set_status_register(state.sr);
-    m68000.set_pc(state.pc);
 
     bus.write_word(state.pc, state.prefetch[0]);
     bus.write_word(state.pc.wrapping_add(2), state.prefetch[1]);
@@ -293,6 +292,8 @@ fn init_test_state(state: &State, bus: &mut InMemoryBus) -> M68000 {
     for &(address, value) in &state.ram {
         bus.write_byte(address, value);
     }
+
+    m68000.set_pc(state.pc, bus);
 
     m68000
 }

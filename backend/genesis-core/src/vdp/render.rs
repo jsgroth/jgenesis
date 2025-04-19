@@ -21,10 +21,16 @@ pub struct RasterLine {
 }
 
 impl RasterLine {
-    pub fn from_scanline(scanline: u16, registers: &Registers, timing_mode: TimingMode) -> Self {
+    pub fn from_scanline(
+        scanline: u16,
+        registers: &Registers,
+        timing_mode: TimingMode,
+        interlaced: bool,
+        interlaced_odd: bool,
+    ) -> Self {
         let v_display_size = registers.vertical_display_size;
         let active_scanlines = v_display_size.active_scanlines();
-        let scanlines_per_frame = timing_mode.scanlines_per_frame();
+        let scanlines_per_frame = timing_mode.scanlines_per_frame(interlaced, interlaced_odd);
         let top_border = v_display_size.top_border(timing_mode);
 
         if scanline < active_scanlines {
@@ -84,21 +90,30 @@ impl RasterLine {
 impl Vdp {
     pub(super) fn render_scanline(&mut self, scanline: u16, starting_pixel: u16) {
         if starting_pixel
-            >= self.latched_registers.horizontal_display_size.active_display_pixels() - 10
+            >= self.latched_registers.horizontal_display_size.active_display_pixels() - 16
         {
-            // Don't re-render for mid-scanline writes that occur very near the end of a scanline; this can cause visual
-            // glitches due to some underlying issues in how timing is handled between the 68000 and VDP
+            // Don't re-render for mid-scanline writes that occur very near the end of active display;
+            // this can cause visual glitches due to some underlying issues in how timing is handled
+            // between the 68000 and VDP
             return;
         }
 
-        let raster_line =
-            RasterLine::from_scanline(scanline, &self.latched_registers, self.timing_mode);
+        log::trace!("Rendering line {scanline} from pixel {starting_pixel}");
+
+        let raster_line = RasterLine::from_scanline(
+            scanline,
+            &self.latched_registers,
+            self.timing_mode,
+            self.state.interlaced_frame,
+            self.state.interlaced_odd,
+        );
         let frame_buffer_row = raster_line.to_frame_buffer_row(
             self.state.top_border,
             self.timing_mode,
             self.config.render_vertical_border,
         );
 
+        // TODO interlacing mode should be latched at start of VBlank
         match self.latched_registers.interlacing_mode {
             InterlacingMode::Progressive => {
                 self.do_render_scanline(
@@ -110,12 +125,8 @@ impl Vdp {
                 );
             }
             InterlacingMode::Interlaced => {
-                let odd_frame = self.state.frame_count % 2 == 1;
-                let frame_buffer_row = if !self.config.deinterlace {
-                    frame_buffer_row.map(|row| 2 * row + u32::from(odd_frame))
-                } else {
-                    frame_buffer_row
-                };
+                let odd_frame = self.state.interlaced_odd();
+                let frame_buffer_row = frame_buffer_row.map(|row| 2 * row + u32::from(odd_frame));
 
                 self.do_render_scanline(
                     scanline,
@@ -124,9 +135,15 @@ impl Vdp {
                     frame_buffer_row,
                     false,
                 );
+
+                if self.config.deinterlace {
+                    if let Some(frame_buffer_row) = frame_buffer_row {
+                        self.copy_frame_buffer_row(frame_buffer_row, frame_buffer_row ^ 1);
+                    }
+                }
             }
             InterlacingMode::InterlacedDouble => {
-                let odd_frame = self.state.frame_count % 2 == 1;
+                let odd_frame = self.state.interlaced_odd();
 
                 if self.config.deinterlace || !odd_frame {
                     self.do_render_scanline(
@@ -147,6 +164,10 @@ impl Vdp {
                     );
                 }
             }
+        }
+
+        if starting_pixel == 0 {
+            self.apply_cram_dots_previous_line(raster_line);
         }
     }
 
@@ -189,13 +210,16 @@ impl Vdp {
             // Check if the previous line's right border should be rendered
             // This needs to happen after the previous line is rendered because it depends on which sprite tiles were
             // fetched for the next/current line
-            if self.config.render_horizontal_border {
+            if self.config.render_horizontal_border
+                && matches!(self.debug_register.forced_plane, Plane::ScrollA | Plane::ScrollB)
+            {
                 let prev_raster_line =
                     raster_line.previous_line(self.latched_registers.vertical_display_size);
                 if !prev_raster_line.in_v_border
                     || self.state.v_border_forgotten
                     || prev_raster_line.line == 511
                 {
+                    // TODO this does not work correctly in interlaced modes - wrong frame buffer row
                     if let Some(right_border_row) = prev_raster_line.to_frame_buffer_row(
                         self.state.top_border,
                         self.timing_mode,
@@ -254,13 +278,23 @@ impl Vdp {
                 self.state.last_h_scroll_a,
                 self.state.last_h_scroll_b,
             );
+
+            // If not using debug register to force one of the BG planes, render right border now
+            // in case the backdrop color changes between lines
+            if matches!(self.debug_register.forced_plane, Plane::Background | Plane::Sprite) {
+                self.render_right_border(
+                    frame_buffer_row,
+                    self.state.last_h_scroll_a,
+                    self.state.last_h_scroll_b,
+                );
+            }
         }
     }
 
     fn fill_frame_buffer_row(&mut self, row: u32, starting_pixel: u16, color: u16) {
         let screen_width = self.screen_width();
 
-        let left_border = self.latched_registers.horizontal_display_size.left_border();
+        let left_border = self.state.frame_h_resolution.left_border();
         let starting_col =
             if starting_pixel == 0 { 0 } else { u32::from(starting_pixel + left_border) };
 
@@ -272,8 +306,26 @@ impl Vdp {
                 color,
                 ColorModifier::None,
                 screen_width,
-                self.config.emulate_non_linear_dac,
+                self.config.non_linear_color_scale,
             );
+        }
+    }
+
+    fn copy_frame_buffer_row(&mut self, from_row: u32, to_row: u32) {
+        debug_assert_ne!(from_row, to_row);
+
+        let screen_width = self.screen_width();
+        let from_addr = (from_row * screen_width) as usize;
+        let to_addr = (to_row * screen_width) as usize;
+
+        if to_addr > from_addr {
+            let (a, b) = self.frame_buffer.split_at_mut(to_addr);
+            b[..screen_width as usize]
+                .copy_from_slice(&a[from_addr..from_addr + screen_width as usize]);
+        } else {
+            let (a, b) = self.frame_buffer.split_at_mut(from_addr);
+            a[to_addr..to_addr + screen_width as usize]
+                .copy_from_slice(&b[..screen_width as usize]);
         }
     }
 
@@ -461,7 +513,7 @@ impl Vdp {
 
             let nametable_word = read_name_table_word(
                 &self.vram,
-                self.latched_registers.window_base_nt_addr,
+                self.latched_registers.masked_window_nametable_addr(),
                 self.latched_registers.horizontal_display_size.window_width_cells(),
                 v_cell,
                 h_cell,
@@ -527,19 +579,19 @@ impl Vdp {
             let scroll_a_pixel = self.bg_buffers.plane_a_pixels[frame_buffer_col as usize];
             let scroll_b_pixel = self.bg_buffers.plane_b_pixels[frame_buffer_col as usize];
 
-            let (pixel_color, color_modifier) = determine_pixel_color(
-                &self.cram,
-                self.debug_register,
-                PixelColorArgs {
-                    sprite_pixel,
-                    scroll_a_pixel,
-                    scroll_b_pixel,
-                    bg_color,
-                    shadow_highlight_flag: self.latched_registers.shadow_highlight_flag,
-                    in_h_border: !(0..active_display_pixels as i16).contains(&pixel),
-                    in_v_border: raster_line.in_v_border && !self.state.v_border_forgotten,
-                },
-            );
+            let pixel_color_args = PixelColorArgs {
+                sprite_pixel,
+                scroll_a_pixel,
+                scroll_b_pixel,
+                bg_color,
+                in_h_border: !(0..active_display_pixels as i16).contains(&pixel),
+                in_v_border: raster_line.in_v_border && !self.state.v_border_forgotten,
+            };
+            let (pixel_color, color_modifier) = if self.latched_registers.shadow_highlight_flag {
+                determine_pixel_color::<true>(&self.cram, self.debug_register, pixel_color_args)
+            } else {
+                determine_pixel_color::<false>(&self.cram, self.debug_register, pixel_color_args)
+            };
 
             set_in_frame_buffer(
                 &mut self.frame_buffer,
@@ -548,7 +600,7 @@ impl Vdp {
                 pixel_color,
                 color_modifier,
                 screen_width,
-                self.config.emulate_non_linear_dac,
+                self.config.non_linear_color_scale,
             );
         }
     }
@@ -634,7 +686,7 @@ impl Vdp {
                         color,
                         ColorModifier::None,
                         screen_width,
-                        self.config.emulate_non_linear_dac,
+                        self.config.non_linear_color_scale,
                     );
                 }
             }
@@ -662,7 +714,7 @@ impl Vdp {
                         bg_color,
                         ColorModifier::None,
                         screen_width,
-                        self.config.emulate_non_linear_dac,
+                        self.config.non_linear_color_scale,
                     );
                 }
             }
@@ -677,7 +729,7 @@ impl Vdp {
                         color_0,
                         ColorModifier::None,
                         screen_width,
-                        self.config.emulate_non_linear_dac,
+                        self.config.non_linear_color_scale,
                     );
                 }
             }
@@ -699,7 +751,7 @@ impl Vdp {
                         color_0,
                         ColorModifier::None,
                         screen_width,
-                        self.config.emulate_non_linear_dac,
+                        self.config.non_linear_color_scale,
                     );
                 }
             }
@@ -740,7 +792,7 @@ impl Vdp {
                         bg_color,
                         ColorModifier::None,
                         screen_width.into(),
-                        self.config.emulate_non_linear_dac,
+                        self.config.non_linear_color_scale,
                     );
                 }
             }
@@ -755,7 +807,7 @@ impl Vdp {
                         color_0,
                         ColorModifier::None,
                         screen_width.into(),
-                        self.config.emulate_non_linear_dac,
+                        self.config.non_linear_color_scale,
                     );
                 }
             }
@@ -815,7 +867,7 @@ impl Vdp {
             color,
             ColorModifier::None,
             screen_width,
-            self.config.emulate_non_linear_dac,
+            self.config.non_linear_color_scale,
         );
     }
 
@@ -832,7 +884,7 @@ impl Vdp {
     }
 }
 
-fn set_in_frame_buffer(
+pub(super) fn set_in_frame_buffer(
     frame_buffer: &mut FrameBuffer,
     row: u32,
     col: u32,
@@ -1009,14 +1061,13 @@ struct PixelColorArgs {
     scroll_a_pixel: TilePixel,
     scroll_b_pixel: TilePixel,
     bg_color: u16,
-    shadow_highlight_flag: bool,
     in_h_border: bool,
     in_v_border: bool,
 }
 
 #[inline]
 #[allow(clippy::unnested_or_patterns)]
-fn determine_pixel_color(
+fn determine_pixel_color<const SHADOW_HIGHLIGHT: bool>(
     cram: &Cram,
     debug_register: DebugRegister,
     PixelColorArgs {
@@ -1024,7 +1075,6 @@ fn determine_pixel_color(
         scroll_a_pixel,
         scroll_b_pixel,
         bg_color,
-        shadow_highlight_flag,
         in_h_border,
         in_v_border,
     }: PixelColorArgs,
@@ -1046,13 +1096,12 @@ fn determine_pixel_color(
         return (color, ColorModifier::None);
     }
 
-    let mut modifier =
-        if shadow_highlight_flag && !scroll_a_pixel.priority && !scroll_b_pixel.priority {
-            // If shadow/highlight bit is set and all priority flags are 0, default modifier to shadow
-            ColorModifier::Shadow
-        } else {
-            ColorModifier::None
-        };
+    let mut modifier = if SHADOW_HIGHLIGHT && !scroll_a_pixel.priority && !scroll_b_pixel.priority {
+        // If shadow/highlight bit is set and all priority flags are 0, default modifier to shadow
+        ColorModifier::Shadow
+    } else {
+        ColorModifier::None
+    };
 
     let sprite = UnresolvedColor {
         palette: sprite_pixel.palette,
@@ -1085,7 +1134,7 @@ fn determine_pixel_color(
             continue;
         }
 
-        if shadow_highlight_flag && is_sprite && palette == 3 {
+        if SHADOW_HIGHLIGHT && is_sprite && palette == 3 {
             if color_id == 14 {
                 // Palette 3 + color 14 = highlight; sprite is transparent, underlying pixel is highlighted
                 modifier += ColorModifier::Highlight;
@@ -1111,7 +1160,7 @@ fn determine_pixel_color(
 
         // Sprite color id 14 is never shadowed/highlighted, and neither is a sprite with the priority
         // bit set
-        if is_sprite && (color_id == 14 || sprite_pixel.priority) {
+        if SHADOW_HIGHLIGHT && is_sprite && (color_id == 14 || sprite_pixel.priority) {
             modifier = ColorModifier::None;
         }
 

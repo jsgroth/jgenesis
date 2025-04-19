@@ -4,10 +4,11 @@ use crate::audio::GenesisAudioResampler;
 use crate::input::{GenesisButton, GenesisInputs, InputState};
 use crate::memory::{Cartridge, MainBus, MainBusSignals, MainBusWrites, Memory};
 use crate::timing::{CycleCounters, GenesisCycleCounters};
-use crate::vdp::{TimingModeExt, Vdp, VdpConfig, VdpTickEffect};
-use crate::ym2612::{Ym2612, YmTickEffect};
+use crate::vdp::{Vdp, VdpConfig, VdpTickEffect};
+use crate::ym2612::Ym2612;
 use crate::{GenesisControllerType, audio, timing, vdp};
 use bincode::{Decode, Encode};
+use crc::Crc;
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FrameSize, PartialClone,
     PixelAspectRatio, Renderer, SaveWriter, TickEffect, TimingMode,
@@ -41,6 +42,7 @@ pub type GenesisResult<RErr, AErr, SErr> = Result<TickEffect, GenesisError<RErr,
 #[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum GenesisAspectRatio {
     #[default]
+    Auto,
     Ntsc,
     Pal,
     SquarePixels,
@@ -52,9 +54,22 @@ impl GenesisAspectRatio {
     #[allow(clippy::missing_panics_doc)]
     pub fn to_pixel_aspect_ratio(
         self,
+        timing_mode: TimingMode,
         frame_size: FrameSize,
         adjust_for_2x_resolution: bool,
     ) -> Option<PixelAspectRatio> {
+        if self == Self::Auto {
+            let auto_aspect = match timing_mode {
+                TimingMode::Ntsc => Self::Ntsc,
+                TimingMode::Pal => Self::Pal,
+            };
+            return auto_aspect.to_pixel_aspect_ratio(
+                timing_mode,
+                frame_size,
+                adjust_for_2x_resolution,
+            );
+        }
+
         let mut pixel_aspect_ratio = match (self, frame_size.width) {
             (Self::SquarePixels, _) => Some(1.0),
             (Self::Stretched, _) => None,
@@ -66,6 +81,7 @@ impl GenesisAspectRatio {
                 log::error!("unexpected Genesis frame width: {}", frame_size.width);
                 None
             }
+            (Self::Auto, _) => unreachable!("Auto checked at start of function with early return"),
         };
 
         if adjust_for_2x_resolution && frame_size.height >= 448 {
@@ -88,6 +104,23 @@ pub enum GenesisRegion {
 impl GenesisRegion {
     #[must_use]
     pub fn from_rom(rom: &[u8]) -> Option<Self> {
+        const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
+
+        // European games with incorrect region headers that indicate US or JP support
+        const DEFAULT_EUROPE_CHECKSUMS: &[u32] = &[
+            0x28165BD1, // Alisia Dragoon (Europe)
+            0x224256C7, // Andre Agassi Tennis (Europe)
+            0x90F5C2B7, // Brian Lara Cricket (Europe)
+            0xEB8F4374, // Indiana Jones and the Last Crusade (Europe)
+            0xFA537A45, // Winter Olympics (Europe)
+            0xDACA01C3, // World Class Leader Board (Europe)
+            0xC0DCE0E5, // Midway Presents Arcade's Greatest Hits (Europe)
+        ];
+
+        if DEFAULT_EUROPE_CHECKSUMS.contains(&CRC.checksum(rom)) {
+            return Some(GenesisRegion::Europe);
+        }
+
         if &rom[0x1F0..0x1F6] == b"EUROPE" {
             // Another World (E) has the string "EUROPE" in the region section; special case this
             // so that it's not detected as U (this game does not work with NTSC timings)
@@ -144,6 +177,15 @@ pub enum GenesisLowPassFilter {
     Model1Va2,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumAll, EnumDisplay)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum Opn2BusyBehavior {
+    Ym2612,
+    #[default]
+    Ym3438,
+}
+
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct GenesisEmulatorConfig {
     pub p1_controller_type: GenesisControllerType,
@@ -154,7 +196,7 @@ pub struct GenesisEmulatorConfig {
     pub adjust_aspect_ratio_in_2x_resolution: bool,
     pub remove_sprite_limits: bool,
     pub m68k_clock_divider: u64,
-    pub emulate_non_linear_vdp_dac: bool,
+    pub non_linear_color_scale: bool,
     pub deinterlace: bool,
     pub render_vertical_border: bool,
     pub render_horizontal_border: bool,
@@ -165,6 +207,7 @@ pub struct GenesisEmulatorConfig {
     pub backdrop_enabled: bool,
     pub quantize_ym2612_output: bool,
     pub emulate_ym2612_ladder_effect: bool,
+    pub opn2_busy_behavior: Opn2BusyBehavior,
     pub low_pass: GenesisLowPassFilter,
     pub ym2612_enabled: bool,
     pub psg_enabled: bool,
@@ -175,7 +218,7 @@ impl GenesisEmulatorConfig {
     pub fn to_vdp_config(&self) -> VdpConfig {
         VdpConfig {
             enforce_sprite_limits: !self.remove_sprite_limits,
-            emulate_non_linear_dac: self.emulate_non_linear_vdp_dac,
+            non_linear_color_scale: self.non_linear_color_scale,
             deinterlace: self.deinterlace,
             render_vertical_border: self.render_vertical_border,
             render_horizontal_border: self.render_horizontal_border,
@@ -235,6 +278,8 @@ macro_rules! new_main_bus {
             &mut $self.psg,
             &mut $self.ym2612,
             &mut $self.input,
+            &mut $self.cycles,
+            $self.m68k.next_opcode(),
             $self.timing_mode,
             MainBusSignals { m68k_reset: $m68k_reset },
             std::mem::take(&mut $self.main_bus_writes),
@@ -269,7 +314,7 @@ impl GenesisEmulator {
         let z80 = Z80::new();
         let vdp = Vdp::new(timing_mode, config.to_vdp_config());
         let psg = Sn76489::new(Sn76489Version::Standard);
-        let ym2612 = Ym2612::new(config);
+        let ym2612 = Ym2612::new_from_config(&config);
         let input = InputState::new(config.p1_controller_type, config.p2_controller_type);
 
         // The Genesis does not allow TAS to lock the bus, so don't allow TAS writes
@@ -311,6 +356,7 @@ impl GenesisEmulator {
 
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
         render_frame(
+            self.timing_mode,
             &self.vdp,
             self.aspect_ratio,
             self.adjust_aspect_ratio_in_2x_resolution,
@@ -337,14 +383,18 @@ impl GenesisEmulator {
 ///
 /// This function will propagate any error returned by the renderer.
 pub fn render_frame<R: Renderer>(
+    timing_mode: TimingMode,
     vdp: &Vdp,
     aspect_ratio: GenesisAspectRatio,
     adjust_aspect_ratio_in_2x_resolution: bool,
     renderer: &mut R,
 ) -> Result<(), R::Err> {
     let frame_size = vdp.frame_size();
-    let pixel_aspect_ratio =
-        aspect_ratio.to_pixel_aspect_ratio(frame_size, adjust_aspect_ratio_in_2x_resolution);
+    let pixel_aspect_ratio = aspect_ratio.to_pixel_aspect_ratio(
+        timing_mode,
+        frame_size,
+        adjust_aspect_ratio_in_2x_resolution,
+    );
 
     renderer.render_frame(vdp.frame_buffer(), frame_size, pixel_aspect_ratio)
 }
@@ -384,26 +434,24 @@ impl EmulatorTrait for GenesisEmulator {
         S::Err: Debug + Display + Send + Sync + 'static,
     {
         let mut bus = new_main_bus!(self, m68k_reset: false);
-        let m68k_cycles = if self.cycles.m68k_wait_cpu_cycles != 0 {
-            self.cycles.take_m68k_wait_cpu_cycles()
+        let m68k_wait = bus.cycles.m68k_wait_cpu_cycles != 0;
+        let m68k_cycles = if m68k_wait {
+            bus.cycles.take_m68k_wait_cpu_cycles()
         } else {
             self.m68k.execute_instruction(&mut bus)
         };
 
-        let elapsed_mclk_cycles = self
-            .cycles
-            .record_68k_instruction(m68k_cycles, self.m68k.last_instruction_was_mul_or_div());
+        let elapsed_mclk_cycles =
+            bus.cycles.record_68k_instruction(m68k_cycles, m68k_wait, bus.vdp.should_halt_cpu());
 
-        while self.cycles.should_tick_z80() {
-            self.z80.tick(&mut bus);
-            self.cycles.decrement_z80();
+        while bus.cycles.should_tick_z80() {
+            if !bus.cycles.z80_halt {
+                self.z80.tick(&mut bus);
+            }
+            bus.cycles.decrement_z80();
         }
 
-        if bus.z80_accessed_68k_bus() {
-            self.cycles.record_z80_68k_bus_access();
-        }
-
-        self.main_bus_writes = bus.apply_writes();
+        self.main_bus_writes = bus.pending_writes;
 
         self.memory.medium_mut().tick(m68k_cycles);
 
@@ -419,13 +467,10 @@ impl EmulatorTrait for GenesisEmulator {
             self.cycles.decrement_psg();
         }
 
-        while self.cycles.should_tick_ym2612() {
-            if self.ym2612.tick() == YmTickEffect::OutputSample {
-                let (ym_sample_l, ym_sample_r) = self.ym2612.sample();
-                self.audio_resampler.collect_ym2612_sample(ym_sample_l, ym_sample_r);
-            }
-
-            self.cycles.decrement_ym2612();
+        if self.cycles.has_ym2612_ticks() {
+            let ym2612_ticks = self.cycles.take_ym2612_ticks();
+            self.ym2612
+                .tick(ym2612_ticks, |(l, r)| self.audio_resampler.collect_ym2612_sample(l, r));
         }
 
         self.audio_resampler.output_samples(audio_output).map_err(GenesisError::Audio)?;
@@ -449,6 +494,8 @@ impl EmulatorTrait for GenesisEmulator {
         }
 
         check_for_long_dma_skip(&self.vdp, &mut self.cycles);
+
+        self.main_bus_writes = new_main_bus!(self, m68k_reset: false).apply_writes();
 
         Ok(tick_effect)
     }
@@ -481,7 +528,7 @@ impl EmulatorTrait for GenesisEmulator {
 
         self.m68k.execute_instruction(&mut new_main_bus!(self, m68k_reset: true));
         self.memory.reset_z80_signals();
-        self.ym2612.reset(self.config);
+        self.ym2612.reset();
     }
 
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
@@ -492,7 +539,7 @@ impl EmulatorTrait for GenesisEmulator {
     }
 
     fn target_fps(&self) -> f64 {
-        target_framerate(self.timing_mode)
+        target_framerate(&self.vdp, self.timing_mode)
     }
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
@@ -502,14 +549,13 @@ impl EmulatorTrait for GenesisEmulator {
 
 #[inline]
 #[must_use]
-pub fn target_framerate(timing_mode: TimingMode) -> f64 {
+pub fn target_framerate(vdp: &Vdp, timing_mode: TimingMode) -> f64 {
     let mclk_frequency = match timing_mode {
         TimingMode::Ntsc => audio::NTSC_GENESIS_MCLK_FREQUENCY,
         TimingMode::Pal => audio::PAL_GENESIS_MCLK_FREQUENCY,
     };
-    let scanlines_per_frame = timing_mode.scanlines_per_frame();
 
-    mclk_frequency / (vdp::MCLK_CYCLES_PER_SCANLINE as f64) / f64::from(scanlines_per_frame)
+    mclk_frequency / (vdp::MCLK_CYCLES_PER_SCANLINE as f64) / vdp.average_scanlines_per_frame()
 }
 
 // If a long DMA is in progress (i.e. the DMA will not finish on this line), preemptively skip the
@@ -517,11 +563,19 @@ pub fn target_framerate(timing_mode: TimingMode) -> f64 {
 //
 // This function is public so that it can be used by the Sega CD core
 #[inline]
-pub fn check_for_long_dma_skip<const REFRESH_INTERVAL: u64>(
+pub fn check_for_long_dma_skip<const REFRESH_INTERVAL: u32>(
     vdp: &Vdp,
     cycles: &mut CycleCounters<REFRESH_INTERVAL>,
 ) {
     if !vdp.long_halting_dma_in_progress() {
+        return;
+    }
+
+    if !cycles.z80_halt {
+        // Don't advance for very long time slices if the Z80 is still active; doing so causes
+        // video/audio desync in Overdrive 2.
+        // 8 68K cycles is slightly less than 4 Z80 cycles
+        cycles.m68k_wait_cpu_cycles = 8;
         return;
     }
 

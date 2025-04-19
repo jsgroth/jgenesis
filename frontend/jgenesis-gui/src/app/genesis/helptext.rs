@@ -69,6 +69,7 @@ pub const ASPECT_RATIO: HelpText = HelpText {
         "Configure aspect ratio.",
         "NTSC - 8:7 pixel aspect ratio in H256px mode, 32:35 pixel aspect ratio in H320px mode",
         "PAL - 11:8 pixel aspect ratio in H256px mode, 11:10 pixel aspect ratio in H320px mode",
+        "The Auto option will automatically select NTSC or PAL based on the timing/display mode.",
     ],
 };
 
@@ -77,6 +78,14 @@ pub const DEINTERLACING: HelpText = HelpText {
     text: &[
         "If enabled and a game sets the VDP to an interlaced screen mode, render in progressive mode instead of interlaced.",
         "In double-screen interlaced mode, this causes the VDP to render all 448 lines every frame (or 480 in V30 mode).",
+    ],
+};
+
+pub const NON_LINEAR_COLOR_SCALE: HelpText = HelpText {
+    heading: "Non-Linear Color Scale",
+    text: &[
+        "Emulate the VDP's non-linear color scale when converting from Genesis RGB333 colors to displayed colors. Enabling this is more accurate to actual hardware.",
+        "In practice, compared to a linear color scale, this slightly brightens darker colors and slightly darkens brighter colors.",
     ],
 };
 
@@ -93,14 +102,6 @@ pub const REMOVE_SPRITE_LIMITS: HelpText = HelpText {
     text: &[
         "If enabled, ignore the hardware's sprite-per-scanline and sprite-pixel-per-scanline limits when rendering.",
         "This typically reduces sprite flickering, but it may cause visual glitches in games that use the limits to intentionally hide sprites.",
-    ],
-};
-
-pub const NON_LINEAR_COLOR_DAC: HelpText = HelpText {
-    heading: "Non-Linear Color DAC",
-    text: &[
-        "If enabled, attempt to emulate the VDP's non-linear color DAC rather than treating VDP color values as raw sRGB.",
-        "In practice, this pushes most colors slightly towards gray, darkening brighter colors and brightening darker colors.",
     ],
 };
 
@@ -130,8 +131,8 @@ pub const S32X_VIDEO_OUT: HelpText = HelpText {
 pub const QUANTIZE_YM2612_OUTPUT: HelpText = HelpText {
     heading: "Quantize YM2612 Output",
     text: &[
-        "If enabled, quantize YM2612 FM channel output from 14 bits to 9 bits by truncating the lowest bits.",
-        "This makes audio somewhat less dynamic, but enabling this is more accurate, and some game audio is designed around quantization.",
+        "If enabled, quantize YM2612 FM channel output from 14 bits to 9 bits by truncating the lowest bits. This makes audio output somewhat noisier.",
+        "Enabling this is more accurate to actual hardware. Some games have audio designed around quantization.",
     ],
 };
 
@@ -140,6 +141,15 @@ pub const YM2612_LADDER_EFFECT: HelpText = HelpText {
     text: &[
         "If enabled, emulate YM2612 DAC crossover distortion, commonly known as the ladder effect.",
         "This effectively amplifies low-volume audio waves and has little effect on high-volume waves. Some games have audio designed around this effect.",
+        "This distortion is not present on later consoles that have a YM3438.",
+    ],
+};
+
+pub const OPN2_BUSY_BEHAVIOR: HelpText = HelpText {
+    heading: "OPN2 Busy Flag Behavior",
+    text: &[
+        "Control which FM chip busy flag behavior to emulate.",
+        "This does not affect most games, but a few games have audio issues with one behavior or the other, such as Earthworm Jim (issues with YM2612 behavior) and Hellfire (issues with YM3438 behavior).",
     ],
 };
 

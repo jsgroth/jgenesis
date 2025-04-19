@@ -7,6 +7,7 @@ use crate::api::GenesisRegion;
 use crate::input::InputState;
 use crate::memory::external::ExternalMemory;
 use crate::svp::Svp;
+use crate::timing::CycleCounters;
 use crate::vdp::Vdp;
 use crate::ym2612::Ym2612;
 use bincode::{Decode, Encode};
@@ -641,21 +642,24 @@ impl MainBusWrites {
     }
 }
 
-pub struct MainBus<'a, Medium> {
-    memory: &'a mut Memory<Medium>,
-    vdp: &'a mut Vdp,
-    psg: &'a mut Sn76489,
-    ym2612: &'a mut Ym2612,
-    input: &'a mut InputState,
-    timing_mode: TimingMode,
-    signals: MainBusSignals,
-    pending_writes: MainBusWrites,
-    z80_accessed_68k_bus: bool,
-    // Last word-size read; used to pseudo-emulate open bus bits in the Z80 BUSACK register
-    last_word_read: u16,
+pub struct MainBus<'a, Medium, const REFRESH_INTERVAL: u32> {
+    pub memory: &'a mut Memory<Medium>,
+    pub vdp: &'a mut Vdp,
+    pub psg: &'a mut Sn76489,
+    pub ym2612: &'a mut Ym2612,
+    pub input: &'a mut InputState,
+    pub timing_mode: TimingMode,
+    pub signals: MainBusSignals,
+    pub pending_writes: MainBusWrites,
+    pub cycles: &'a mut CycleCounters<REFRESH_INTERVAL>,
+    pub m68k_opcode: u16,
+    // Last word-size read; used to pseudo-emulate open bus behavior
+    pub last_word_read: u16,
 }
 
-impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
+impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u32>
+    MainBus<'a, Medium, REFRESH_INTERVAL>
+{
     #[allow(clippy::too_many_arguments)]
     #[inline]
     pub fn new(
@@ -664,6 +668,8 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
         psg: &'a mut Sn76489,
         ym2612: &'a mut Ym2612,
         input: &'a mut InputState,
+        cycles: &'a mut CycleCounters<REFRESH_INTERVAL>,
+        m68k_opcode: u16,
         timing_mode: TimingMode,
         signals: MainBusSignals,
         pending_writes: MainBusWrites,
@@ -674,10 +680,11 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
             psg,
             ym2612,
             input,
+            cycles,
+            m68k_opcode,
             timing_mode,
             signals,
             pending_writes,
-            z80_accessed_68k_bus: false,
             last_word_read: 0,
         }
     }
@@ -718,14 +725,25 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
         }
     }
 
+    fn read_vdp_status(&mut self) -> u16 {
+        // Highest 6 bits of VDP status register are open bus; VDPFIFOTesting DMA busy flag tests
+        // depend on this
+        self.vdp.read_status(self.m68k_opcode, self.cycles.m68k_divider.get())
+            | (self.last_word_read & 0xFC00)
+    }
+
+    fn read_vdp_hv_counter(&self) -> u16 {
+        self.vdp.hv_counter(self.m68k_opcode, self.cycles.m68k_divider.get())
+    }
+
     fn read_vdp_byte(&mut self, address: u32) -> u8 {
         match address & 0x1F {
             0x00 | 0x02 => self.vdp.read_data().msb(),
             0x01 | 0x03 => self.vdp.read_data().lsb(),
-            0x04 | 0x06 => self.vdp.read_status().msb(),
-            0x05 | 0x07 => self.vdp.read_status().lsb(),
-            0x08 | 0x0A => self.vdp.hv_counter().msb(),
-            0x09 | 0x0B => self.vdp.hv_counter().lsb(),
+            0x04 | 0x06 => self.read_vdp_status().msb(),
+            0x05 | 0x07 => self.read_vdp_status().lsb(),
+            0x08 | 0x0A => self.read_vdp_hv_counter().msb(),
+            0x09 | 0x0B => self.read_vdp_hv_counter().lsb(),
             0x10..=0x1F => {
                 // PSG / unused space; PSG is not readable
                 0xFF
@@ -788,6 +806,8 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
                 // Z80 memory map; writable by the 68k only when the Z80 is removed from the bus
                 // and not reset
                 if self.memory.signals.z80_busack() {
+                    self.cycles.record_68k_z80_bus_access();
+
                     // For 68k access, $8000-$FFFF mirrors $0000-$7FFF
                     <Self as z80_emu::BusInterface>::write_memory(
                         self,
@@ -804,8 +824,7 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
                 log::trace!("Set Z80 BUSREQ to {}", self.memory.signals.z80_busreq);
             }
             0xA11200..=0xA11201 => {
-                self.memory.signals.z80_reset = !value.bit(0);
-                log::trace!("Set Z80 RESET to {}", self.memory.signals.z80_reset);
+                self.set_z80_reset(!value.bit(0));
             }
             0xC00000..=0xC0001F => {
                 self.write_vdp_byte(address, value);
@@ -836,8 +855,7 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
                 log::trace!("Set Z80 BUSREQ to {}", self.memory.signals.z80_busreq);
             }
             0xA11200..=0xA11201 => {
-                self.memory.signals.z80_reset = !value.bit(8);
-                log::trace!("Set Z80 RESET to {}", self.memory.signals.z80_reset);
+                self.set_z80_reset(!value.bit(8));
             }
             0xC00000..=0xC00003 => {
                 self.vdp.write_data(value);
@@ -857,10 +875,15 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
         }
     }
 
-    #[inline]
-    #[must_use]
-    pub fn z80_accessed_68k_bus(&self) -> bool {
-        self.z80_accessed_68k_bus
+    fn set_z80_reset(&mut self, z80_reset: bool) {
+        if !self.memory.signals.z80_reset && z80_reset {
+            // Z80 RESET also resets the YM2612
+            // Fantastic Dizzy depends on this or music will not mute correctly when you pause the game
+            self.ym2612.reset();
+        }
+
+        self.memory.signals.z80_reset = z80_reset;
+        log::trace!("Set Z80 RESET to {}", self.memory.signals.z80_reset);
     }
 
     // $A11100
@@ -878,7 +901,9 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
 // The Genesis has a 24-bit bus, not 32-bit
 const ADDRESS_MASK: u32 = 0xFFFFFF;
 
-impl<Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'_, Medium> {
+impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterface
+    for MainBus<'_, Medium, REFRESH_INTERVAL>
+{
     #[inline]
     fn read_byte(&mut self, address: u32) -> u8 {
         let address = address & ADDRESS_MASK;
@@ -890,6 +915,8 @@ impl<Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'_, Medium> {
             0xA00000..=0xA0FFFF => {
                 // Z80 memory map; 68k can only access when the Z80 is running and removed from the bus
                 if self.memory.signals.z80_busack() {
+                    self.cycles.record_68k_z80_bus_access();
+
                     // For 68k access, $8000-$FFFF mirrors $0000-$7FFF
                     <Self as z80_emu::BusInterface>::read_memory(self, (address & 0x7FFF) as u16)
                 } else {
@@ -917,6 +944,8 @@ impl<Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'_, Medium> {
             0xA00000..=0xA0FFFF => {
                 // Z80 memory map; 68k can only access when the Z80 is running and removed from the bus
                 if self.memory.signals.z80_busack() {
+                    self.cycles.record_68k_z80_bus_access();
+
                     // All Z80 access is byte-size; word reads mirror the byte in both MSB and LSB
                     let byte = self.read_byte(address);
                     u16::from_le_bytes([byte, byte])
@@ -928,8 +957,8 @@ impl<Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'_, Medium> {
             0xA10000..=0xA1001F => self.read_io_register(address).into(),
             0xA11100..=0xA11101 => self.read_busack_register(),
             0xC00000..=0xC00003 => self.vdp.read_data(),
-            0xC00004..=0xC00007 => self.vdp.read_status(),
-            0xC00008..=0xC0000F => self.vdp.hv_counter(),
+            0xC00004..=0xC00007 => self.read_vdp_status(),
+            0xC00008..=0xC0000F => self.read_vdp_hv_counter(),
             0xE00000..=0xFFFFFF => {
                 let ram_addr = (address & 0xFFFF) as usize;
                 u16::from_be_bytes([
@@ -984,7 +1013,9 @@ impl<Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'_, Medium> {
     }
 }
 
-impl<Medium: PhysicalMedium> z80_emu::BusInterface for MainBus<'_, Medium> {
+impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> z80_emu::BusInterface
+    for MainBus<'_, Medium, REFRESH_INTERVAL>
+{
     #[inline]
     // TODO remove
     #[allow(clippy::match_same_arms)]
@@ -999,8 +1030,7 @@ impl<Medium: PhysicalMedium> z80_emu::BusInterface for MainBus<'_, Medium> {
             }
             0x4000..=0x5FFF => {
                 // YM2612 registers/ports (mirrored every 4 addresses)
-                // All YM2612 reads function identically
-                self.ym2612.read_register()
+                self.ym2612.read_register(address)
             }
             0x6000..=0x60FF => {
                 // Bank number register
@@ -1020,7 +1050,7 @@ impl<Medium: PhysicalMedium> z80_emu::BusInterface for MainBus<'_, Medium> {
                 0xFF
             }
             0x8000..=0xFFFF => {
-                self.z80_accessed_68k_bus = true;
+                self.cycles.record_z80_68k_bus_access();
 
                 let m68k_addr = self.memory.z80_bank_register.map_to_68k_address(address);
                 if !(0xA00000..=0xA0FFFF).contains(&m68k_addr) {
@@ -1066,7 +1096,7 @@ impl<Medium: PhysicalMedium> z80_emu::BusInterface for MainBus<'_, Medium> {
                 self.write_vdp_byte(address.into(), value);
             }
             0x8000..=0xFFFF => {
-                self.z80_accessed_68k_bus = true;
+                self.cycles.record_z80_68k_bus_access();
 
                 let m68k_addr = self.memory.z80_bank_register.map_to_68k_address(address);
                 if !(0xA00000..=0xA0FFFF).contains(&m68k_addr) {

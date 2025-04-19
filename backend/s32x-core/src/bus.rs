@@ -424,47 +424,6 @@ pub struct Sh2Bus<'bus, 'other> {
     pub other_sh2: Option<OtherCpu<'other>>,
 }
 
-// $00000000-$00003FFF: Boot ROM
-const SH2_BOOT_ROM_START: u32 = 0x00000000;
-const SH2_BOOT_ROM_END: u32 = 0x00003FFF;
-
-// $00004000-$0000402F: 32X system registers
-const SH2_SYSTEM_REGISTERS_START: u32 = 0x00004000;
-const SH2_SYSTEM_REGISTERS_END: u32 = 0x0000402F;
-
-// $00004030-$0000403F: PWM registers
-const SH2_PWM_START: u32 = 0x00004030;
-const SH2_PWM_END: u32 = 0x0000403F;
-
-// $00004100-$000041FF: VDP registers
-const SH2_VDP_START: u32 = 0x00004100;
-const SH2_VDP_END: u32 = 0x000041FF;
-
-// $00004200-$000043FF: VDP palette RAM
-const SH2_CRAM_START: u32 = 0x00004200;
-const SH2_CRAM_END: u32 = 0x000043FF;
-
-// $02000000-$023FFFFF: Cartridge
-const SH2_CARTRIDGE_START: u32 = 0x02000000;
-const SH2_CARTRIDGE_END: u32 = 0x023FFFFF;
-
-// $04000000-$0401FFFF: Frame buffer
-const SH2_FRAME_BUFFER_START: u32 = 0x04000000;
-const SH2_FRAME_BUFFER_END: u32 = 0x0401FFFF;
-
-// $04020000-$0403FFFF: Frame buffer overwrite image
-const SH2_OVERWRITE_IMAGE_START: u32 = 0x04020000;
-const SH2_OVERWRITE_IMAGE_END: u32 = 0x0403FFFF;
-
-// $04040000-$0405FFFF: Frame buffer (mirror)
-// The unreleased SoulStar X prototype seems to expect the frame buffer to be mirrored at these addresses
-const SH2_FB_MIRROR_START: u32 = 0x04040000;
-const SH2_FB_MIRROR_END: u32 = 0x0405FFFF;
-
-// $06000000-$0603FFFF: SDRAM
-const SH2_SDRAM_START: u32 = 0x06000000;
-const SH2_SDRAM_END: u32 = 0x0603FFFF;
-
 // All values are minus one because every access takes at least 1 cycle
 const SH2_CARTRIDGE_CYCLES: u64 = 5;
 const SH2_FRAME_BUFFER_READ_CYCLES: u64 = 4;
@@ -500,30 +459,14 @@ impl Sh2Bus<'_, '_> {
         }
         **cycle_counter = bus.cycle_counter;
     }
-}
 
-impl BusInterface for Sh2Bus<'_, '_> {
-    #[inline]
-    fn read_byte(&mut self, address: u32) -> u8 {
+    // $00000000-$01FFFFFF: Boot ROM, 32X registers, 32X CRAM
+    fn read_byte_00(&mut self, address: u32) -> u8 {
         self.cycle_counter += 1;
 
         match address {
-            SH2_SDRAM_START..=SH2_SDRAM_END => {
-                self.cycle_counter += SH2_SDRAM_READ_CYCLES;
-
-                let word = self.s32x_bus.sdram[((address & SDRAM_MASK) >> 1) as usize];
-                if !address.bit(0) { word.msb() } else { word.lsb() }
-            }
-            SH2_CARTRIDGE_START..=SH2_CARTRIDGE_END => {
-                self.cycle_counter += SH2_CARTRIDGE_CYCLES;
-
-                self.s32x_bus.cartridge.read_byte(address & 0x3FFFFF)
-            }
-            SH2_BOOT_ROM_START..=SH2_BOOT_ROM_END => match self.which {
-                WhichCpu::Master => read_u8(bootrom::SH2_MASTER, address),
-                WhichCpu::Slave => read_u8(bootrom::SH2_SLAVE, address),
-            },
-            SH2_SYSTEM_REGISTERS_START..=SH2_SYSTEM_REGISTERS_END => {
+            0x4000..=0x402F => {
+                // 32X system registers
                 log::trace!("SH-2 {:?} read byte {address:08X}", self.which);
 
                 self.sync_if_comm_port_accessed(address);
@@ -532,7 +475,12 @@ impl BusInterface for Sh2Bus<'_, '_> {
                     self.s32x_bus.registers.sh2_read(address & !1, self.which, &self.s32x_bus.vdp);
                 if !address.bit(0) { value.msb() } else { value.lsb() }
             }
-            SH2_VDP_START..=SH2_VDP_END => {
+            0x4030..=0x403F => {
+                // 32X PWM registers
+                word_to_byte!(address, self.s32x_bus.pwm.read_register)
+            }
+            0x4100..=0x41FF => {
+                // 32X VDP registers
                 self.cycle_counter += SH2_VDP_CYCLES;
 
                 if self.s32x_bus.registers.vdp_access == Access::Sh2 {
@@ -542,7 +490,8 @@ impl BusInterface for Sh2Bus<'_, '_> {
                     0xFF
                 }
             }
-            SH2_CRAM_START..=SH2_CRAM_END => {
+            0x4200..=0x43FF => {
+                // 32X CRAM
                 self.cycle_counter += SH2_VDP_CYCLES;
 
                 if self.s32x_bus.registers.vdp_access == Access::Sh2 {
@@ -553,55 +502,40 @@ impl BusInterface for Sh2Bus<'_, '_> {
                     0xFF
                 }
             }
-            SH2_FRAME_BUFFER_START..=SH2_FB_MIRROR_END => {
-                self.cycle_counter += SH2_FRAME_BUFFER_READ_CYCLES;
-
-                if self.s32x_bus.registers.vdp_access == Access::Sh2 {
-                    word_to_byte!(address, self.s32x_bus.vdp.read_frame_buffer)
-                } else {
-                    log::warn!("Frame buffer byte read with FM=0: {address:08X}");
-                    0xFF
+            0x0000..=0x3FFF => {
+                // Boot ROM
+                match self.which {
+                    WhichCpu::Master => read_u8(bootrom::SH2_MASTER, address),
+                    WhichCpu::Slave => read_u8(bootrom::SH2_SLAVE, address),
                 }
             }
-            SH2_PWM_START..=SH2_PWM_END => {
-                word_to_byte!(address, self.s32x_bus.pwm.read_register)
-            }
             _ => {
-                log::warn!("SH-2 {:?} invalid address byte read {address:08X}", self.which);
+                log::debug!("SH-2 {:?} invalid address byte read {address:08X}", self.which);
                 0
             }
         }
     }
 
-    #[inline]
-    fn read_word(&mut self, address: u32) -> u16 {
+    // $00000000-$01FFFFFF: Boot ROM, 32X registers, 32X CRAM
+    fn read_word_00(&mut self, address: u32) -> u16 {
         self.cycle_counter += 1;
 
         match address {
-            SH2_SDRAM_START..=SH2_SDRAM_END => {
-                self.cycle_counter += SH2_SDRAM_READ_CYCLES;
-                self.s32x_bus.sdram[((address & SDRAM_MASK) >> 1) as usize]
-            }
-            SH2_CARTRIDGE_START..=SH2_CARTRIDGE_END => {
-                self.cycle_counter += SH2_CARTRIDGE_CYCLES;
-                self.s32x_bus.cartridge.read_word(address & 0x3FFFFF)
-            }
-            SH2_BOOT_ROM_START..=SH2_BOOT_ROM_END => match self.which {
-                WhichCpu::Master => read_u16(bootrom::SH2_MASTER, address),
-                WhichCpu::Slave => read_u16(bootrom::SH2_SLAVE, address),
-            },
-            SH2_SYSTEM_REGISTERS_START..=SH2_SYSTEM_REGISTERS_END => {
+            0x4000..=0x402F => {
+                // 32X system registers
                 log::trace!("SH-2 {:?} read word {address:08X}", self.which);
 
                 self.sync_if_comm_port_accessed(address);
 
                 self.s32x_bus.registers.sh2_read(address, self.which, &self.s32x_bus.vdp)
             }
-            SH2_PWM_START..=SH2_PWM_END => {
+            0x4030..=0x403F => {
+                // 32X PWM registers
                 log::trace!("SH-2 {:?} PWM register read {address:08X}", self.which);
                 self.s32x_bus.pwm.read_register(address)
             }
-            SH2_VDP_START..=SH2_VDP_END => {
+            0x4100..=0x41FF => {
+                // 32X VDP registers
                 self.cycle_counter += SH2_VDP_CYCLES;
 
                 if self.s32x_bus.registers.vdp_access == Access::Sh2 {
@@ -611,7 +545,8 @@ impl BusInterface for Sh2Bus<'_, '_> {
                     0xFFFF
                 }
             }
-            SH2_CRAM_START..=SH2_CRAM_END => {
+            0x4200..=0x43FF => {
+                // 32X CRAM
                 self.cycle_counter += SH2_VDP_CYCLES;
 
                 if self.s32x_bus.registers.vdp_access == Access::Sh2 {
@@ -621,52 +556,27 @@ impl BusInterface for Sh2Bus<'_, '_> {
                     0xFFFF
                 }
             }
-            SH2_FRAME_BUFFER_START..=SH2_FB_MIRROR_END => {
-                self.cycle_counter += SH2_FRAME_BUFFER_READ_CYCLES;
-
-                if self.s32x_bus.registers.vdp_access == Access::Sh2 {
-                    self.s32x_bus.vdp.read_frame_buffer(address)
-                } else {
-                    log::warn!("Frame buffer word read with FM=0: {address:08X}");
-                    0xFFFF
+            0x0000..=0x3FFF => {
+                // Boot ROM
+                match self.which {
+                    WhichCpu::Master => read_u16(bootrom::SH2_MASTER, address),
+                    WhichCpu::Slave => read_u16(bootrom::SH2_SLAVE, address),
                 }
             }
-            0x02400000..=0x027FFFFF => {
-                // Not sure what these addresses are; Doom 32X Resurrection reads from them
-                // Sega CD maybe?
-                log::debug!("Invalid address word read {address:08X}");
-                0
-            }
             _ => {
-                log::warn!("SH-2 {:?} invalid address word read {address:08X}", self.which);
+                log::debug!("SH-2 {:?} invalid address word read {address:08X}", self.which);
                 0
             }
         }
     }
 
-    #[inline]
-    fn read_longword(&mut self, address: u32) -> u32 {
+    // $00000000-$01FFFFFF: Boot ROM, 32X registers, 32X CRAM
+    fn read_longword_00(&mut self, address: u32) -> u32 {
         self.cycle_counter += 2;
 
         match address {
-            SH2_SDRAM_START..=SH2_SDRAM_END => {
-                // Subtract one because SDRAM access times are not doubled for longword reads
-                self.cycle_counter += SH2_SDRAM_READ_CYCLES - 1;
-
-                let word_addr = (((address & SDRAM_MASK) >> 1) & !1) as usize;
-                let high_word = self.s32x_bus.sdram[word_addr];
-                let low_word = self.s32x_bus.sdram[word_addr | 1];
-                (u32::from(high_word) << 16) | u32::from(low_word)
-            }
-            SH2_CARTRIDGE_START..=SH2_CARTRIDGE_END => {
-                self.cycle_counter += 2 * SH2_CARTRIDGE_CYCLES;
-                self.s32x_bus.cartridge.read_longword(address & 0x3FFFFF)
-            }
-            SH2_BOOT_ROM_START..=SH2_BOOT_ROM_END => match self.which {
-                WhichCpu::Master => read_u32(bootrom::SH2_MASTER, address),
-                WhichCpu::Slave => read_u32(bootrom::SH2_SLAVE, address),
-            },
-            SH2_SYSTEM_REGISTERS_START..=SH2_SYSTEM_REGISTERS_END => {
+            0x4000..=0x402F => {
+                // 32X system registers
                 if log::log_enabled!(log::Level::Trace) && !(0x4020..0x4030).contains(&address) {
                     log::trace!("SH-2 {:?} read longword {address:08X}", self.which);
                 }
@@ -679,7 +589,14 @@ impl BusInterface for Sh2Bus<'_, '_> {
                     self.s32x_bus.registers.sh2_read(address | 2, self.which, &self.s32x_bus.vdp);
                 (u32::from(high) << 16) | u32::from(low)
             }
-            SH2_VDP_START..=SH2_VDP_END => {
+            0x4030..=0x403F => {
+                // 32X PWM registers
+                let high = self.s32x_bus.pwm.read_register(address);
+                let low = self.s32x_bus.pwm.read_register(address | 2);
+                (u32::from(high) << 16) | u32::from(low)
+            }
+            0x4100..=0x41FF => {
+                // 32X VDP registers
                 self.cycle_counter += 2 * SH2_VDP_CYCLES;
 
                 if self.s32x_bus.registers.vdp_access == Access::Sh2 {
@@ -691,7 +608,8 @@ impl BusInterface for Sh2Bus<'_, '_> {
                     0xFFFFFFFF
                 }
             }
-            SH2_CRAM_START..=SH2_CRAM_END => {
+            0x4200..=0x43FF => {
+                // 32X CRAM
                 self.cycle_counter += 2 * SH2_VDP_CYCLES;
 
                 if self.s32x_bus.registers.vdp_access == Access::Sh2 {
@@ -703,58 +621,151 @@ impl BusInterface for Sh2Bus<'_, '_> {
                     0xFFFFFFFF
                 }
             }
-            SH2_FRAME_BUFFER_START..=SH2_FB_MIRROR_END => {
-                self.cycle_counter += 2 * SH2_FRAME_BUFFER_READ_CYCLES;
-
-                if self.s32x_bus.registers.vdp_access == Access::Sh2 {
-                    let high_word = self.s32x_bus.vdp.read_frame_buffer(address);
-                    let low_word = self.s32x_bus.vdp.read_frame_buffer(address | 2);
-                    (u32::from(high_word) << 16) | u32::from(low_word)
-                } else {
-                    log::warn!("Frame buffer longword read with FM=0: {address:08X}");
-                    0xFFFFFFFF
+            0x0000..=0x3FFF => {
+                // Boot ROM
+                match self.which {
+                    WhichCpu::Master => read_u32(bootrom::SH2_MASTER, address),
+                    WhichCpu::Slave => read_u32(bootrom::SH2_SLAVE, address),
                 }
             }
             _ => {
-                log::warn!("SH-2 {:?} invalid address longword read {address:08X}", self.which);
+                log::debug!("SH-2 {:?} invalid address longword read {address:08X}", self.which);
                 0
             }
         }
     }
 
-    #[inline]
-    fn read_cache_line(&mut self, address: u32) -> [u32; 4] {
-        if (SH2_SDRAM_START..=SH2_SDRAM_END).contains(&address) {
-            // The SH-2s can read a full 16-byte cache line in 12 cycles
-            self.cycle_counter += SH2_SDRAM_READ_CYCLES + 1;
+    // $02000000-$03FFFFFF: Cartridge
+    fn read_byte_02(&mut self, address: u32) -> u8 {
+        self.cycle_counter += 1 + SH2_CARTRIDGE_CYCLES;
 
-            let base_addr = ((address & SDRAM_MASK) >> 1) as usize;
-            return array::from_fn(|i| {
-                let high_word = self.s32x_bus.sdram[base_addr | (i << 1)];
-                let low_word = self.s32x_bus.sdram[(base_addr | (i << 1)) + 1];
-                (u32::from(high_word) << 16) | u32::from(low_word)
-            });
+        if address & 0x400000 == 0 {
+            // Cartridge
+            self.s32x_bus.cartridge.read_byte(address & 0x3FFFFF)
+        } else {
+            // Not sure what these addresses are; Doom 32X Resurrection reads from them
+            // Sega CD maybe?
+            log::debug!("Invalid address byte read {address:08X}");
+            0
         }
-
-        array::from_fn(|i| self.read_longword(address | ((i as u32) << 2)))
     }
 
-    #[inline]
-    fn write_byte(&mut self, address: u32, value: u8) {
+    // $02000000-$03FFFFFF: Cartridge
+    fn read_word_02(&mut self, address: u32) -> u16 {
+        self.cycle_counter += 1 + SH2_CARTRIDGE_CYCLES;
+
+        if address & 0x400000 == 0 {
+            // Cartridge
+            self.s32x_bus.cartridge.read_word(address & 0x3FFFFF)
+        } else {
+            // Not sure what these addresses are; Doom 32X Resurrection reads from them
+            // Sega CD maybe?
+            log::debug!("Invalid address word read {address:08X}");
+            0
+        }
+    }
+
+    // $02000000-$03FFFFFF: Cartridge
+    fn read_longword_02(&mut self, address: u32) -> u32 {
+        self.cycle_counter += 2 * (1 + SH2_CARTRIDGE_CYCLES);
+
+        if address & 0x400000 == 0 {
+            // Cartridge
+            self.s32x_bus.cartridge.read_longword(address & 0x3FFFFF)
+        } else {
+            // Not sure what these addresses are; Doom 32X Resurrection reads from them
+            // Sega CD maybe?
+            log::debug!("Invalid address longword read {address:08X}");
+            0
+        }
+    }
+
+    // $04000000-$05FFFFFF: Frame buffer
+    fn read_byte_04(&mut self, address: u32) -> u8 {
+        self.cycle_counter += 1 + SH2_FRAME_BUFFER_READ_CYCLES;
+
+        if self.s32x_bus.registers.vdp_access == Access::Sh2 {
+            word_to_byte!(address & 0x1FFFF, self.s32x_bus.vdp.read_frame_buffer)
+        } else {
+            log::warn!("Frame buffer byte read with FM=0: {address:08X}");
+            0xFF
+        }
+    }
+
+    // $04000000-$05FFFFFF: Frame buffer
+    fn read_word_04(&mut self, address: u32) -> u16 {
+        self.cycle_counter += 1 + SH2_FRAME_BUFFER_READ_CYCLES;
+
+        if self.s32x_bus.registers.vdp_access == Access::Sh2 {
+            self.s32x_bus.vdp.read_frame_buffer(address & 0x1FFFF)
+        } else {
+            log::warn!("Frame buffer word read with FM=0: {address:08X}");
+            0xFFFF
+        }
+    }
+
+    // $04000000-$05FFFFFF: Frame buffer
+    fn read_longword_04(&mut self, address: u32) -> u32 {
+        self.cycle_counter += 2 * (1 + SH2_FRAME_BUFFER_READ_CYCLES);
+
+        if self.s32x_bus.registers.vdp_access == Access::Sh2 {
+            let high_word = self.s32x_bus.vdp.read_frame_buffer(address);
+            let low_word = self.s32x_bus.vdp.read_frame_buffer(address | 2);
+            (u32::from(high_word) << 16) | u32::from(low_word)
+        } else {
+            log::warn!("Frame buffer longword read with FM=0: {address:08X}");
+            0xFFFFFFFF
+        }
+    }
+
+    // $06000000-$07FFFFFF: SDRAM
+    fn read_byte_06(&mut self, address: u32) -> u8 {
+        if address >= 0x06040000 {
+            log::debug!("Invalid byte read {address:08X}");
+            return 0;
+        }
+
+        self.cycle_counter += 1 + SH2_SDRAM_READ_CYCLES;
+
+        let word = self.s32x_bus.sdram[((address & SDRAM_MASK) >> 1) as usize];
+        if !address.bit(0) { word.msb() } else { word.lsb() }
+    }
+
+    // $06000000-$07FFFFFF: SDRAM
+    fn read_word_06(&mut self, address: u32) -> u16 {
+        if address >= 0x06040000 {
+            log::debug!("Invalid word read {address:08X}");
+            return 0;
+        }
+
+        self.cycle_counter += 1 + SH2_SDRAM_READ_CYCLES;
+
+        self.s32x_bus.sdram[((address & SDRAM_MASK) >> 1) as usize]
+    }
+
+    // $06000000-$07FFFFFF: SDRAM
+    fn read_longword_06(&mut self, address: u32) -> u32 {
+        if address >= 0x06040000 {
+            log::debug!("Invalid longword read {address:08X}");
+            return 0;
+        }
+
+        // SDRAM access times are not doubled for longword reads
+        self.cycle_counter += 1 + SH2_SDRAM_READ_CYCLES;
+
+        let word_addr = (((address & SDRAM_MASK) >> 1) & !1) as usize;
+        let high_word = self.s32x_bus.sdram[word_addr];
+        let low_word = self.s32x_bus.sdram[word_addr | 1];
+        (u32::from(high_word) << 16) | u32::from(low_word)
+    }
+
+    // $00000000-$01FFFFFF: Boot ROM, 32X registers, 32X CRAM
+    fn write_byte_00(&mut self, address: u32, value: u8) {
         self.cycle_counter += 1;
 
         match address {
-            SH2_SDRAM_START..=SH2_SDRAM_END => {
-                self.cycle_counter += SH2_SDRAM_WRITE_CYCLES;
-
-                let word_addr = ((address & SDRAM_MASK) >> 1) as usize;
-                if !address.bit(0) {
-                    self.s32x_bus.sdram[word_addr].set_msb(value);
-                } else {
-                    self.s32x_bus.sdram[word_addr].set_lsb(value);
-                }
-            }
-            SH2_SYSTEM_REGISTERS_START..=SH2_SYSTEM_REGISTERS_END => {
+            0x4000..=0x402F => {
+                // 32X system registers
                 log::trace!("SH-2 {:?} byte write {address:08X} {value:02X}", self.which);
 
                 self.sync_if_comm_port_accessed(address);
@@ -766,33 +777,8 @@ impl BusInterface for Sh2Bus<'_, '_> {
                     &mut self.s32x_bus.vdp,
                 );
             }
-            SH2_VDP_START..=SH2_VDP_END => {
-                self.cycle_counter += SH2_VDP_CYCLES;
-
-                if self.s32x_bus.registers.vdp_access == Access::Sh2 {
-                    self.s32x_bus.vdp.write_register_byte(address, value);
-                } else {
-                    log::warn!("VDP register write with FM=0: {address:08X} {value:02X}");
-                }
-            }
-            SH2_CRAM_START..=SH2_CRAM_END => {
-                self.cycle_counter += SH2_VDP_CYCLES;
-
-                if self.s32x_bus.registers.vdp_access == Access::Sh2 {
-                    self.s32x_bus.vdp.write_cram_byte(address, value);
-                } else {
-                    log::warn!("CRAM write with FM=0: {address:08X} {value:02X}");
-                }
-            }
-            SH2_FRAME_BUFFER_START..=SH2_FB_MIRROR_END => {
-                if self.s32x_bus.registers.vdp_access == Access::Sh2 {
-                    // Treat write as an overwrite because 0 bytes are never written to the frame buffer
-                    self.s32x_bus.vdp.write_frame_buffer_byte(address, value);
-                } else {
-                    log::warn!("Frame buffer write with FM=0: {address:08X} {value:02X}");
-                }
-            }
-            SH2_PWM_START..=SH2_PWM_END => {
+            0x4030..=0x403F => {
+                // 32X PWM registers
                 let mut word = self.s32x_bus.pwm.read_register(address & !1);
                 if !address.bit(0) {
                     word.set_msb(value);
@@ -801,20 +787,28 @@ impl BusInterface for Sh2Bus<'_, '_> {
                 }
                 self.s32x_bus.pwm.sh2_write_register(address & !1, word);
             }
-            SH2_CARTRIDGE_START..=SH2_CARTRIDGE_END => {
-                self.cycle_counter += SH2_CARTRIDGE_CYCLES;
+            0x4100..=0x41FF => {
+                // 32X VDP registers
+                self.cycle_counter += SH2_VDP_CYCLES;
 
-                // TODO can the SH-2s write to cartridge RAM?
-                self.s32x_bus.cartridge.write_byte(address & 0x3FFFFF, value);
+                if self.s32x_bus.registers.vdp_access == Access::Sh2 {
+                    self.s32x_bus.vdp.write_register_byte(address, value);
+                } else {
+                    log::warn!("VDP register write with FM=0: {address:08X} {value:02X}");
+                }
             }
-            SH2_BOOT_ROM_START..=SH2_BOOT_ROM_END => {
-                log::debug!(
-                    "Ignoring SH-2 {:?} byte write to boot ROM: {address:08X} {value:02X}",
-                    self.which
-                );
+            0x4200..=0x43FF => {
+                // 32X CRAM
+                self.cycle_counter += SH2_VDP_CYCLES;
+
+                if self.s32x_bus.registers.vdp_access == Access::Sh2 {
+                    self.s32x_bus.vdp.write_cram_byte(address, value);
+                } else {
+                    log::warn!("CRAM write with FM=0: {address:08X} {value:02X}");
+                }
             }
             _ => {
-                log::warn!(
+                log::debug!(
                     "SH-2 {:?} invalid address byte write: {address:08X} {value:02X}",
                     self.which
                 );
@@ -822,16 +816,13 @@ impl BusInterface for Sh2Bus<'_, '_> {
         }
     }
 
-    #[inline]
-    fn write_word(&mut self, address: u32, value: u16) {
+    // $00000000-$01FFFFFF: Boot ROM, 32X registers, 32X CRAM
+    fn write_word_00(&mut self, address: u32, value: u16) {
         self.cycle_counter += 1;
 
         match address {
-            SH2_SDRAM_START..=SH2_SDRAM_END => {
-                self.cycle_counter += SH2_SDRAM_WRITE_CYCLES;
-                self.s32x_bus.sdram[((address & SDRAM_MASK) >> 1) as usize] = value;
-            }
-            SH2_SYSTEM_REGISTERS_START..=SH2_SYSTEM_REGISTERS_END => {
+            0x4000..=0x402F => {
+                // 32X system registers
                 log::trace!("SH-2 {:?} word write {address:08X} {value:04X}", self.which);
 
                 self.sync_if_comm_port_accessed(address);
@@ -843,11 +834,13 @@ impl BusInterface for Sh2Bus<'_, '_> {
                     &mut self.s32x_bus.vdp,
                 );
             }
-            SH2_PWM_START..=SH2_PWM_END => {
+            0x4030..=0x403F => {
+                // 32X PWM registers
                 log::trace!("SH-2 {:?} PWM register write {address:08X} {value:04X}", self.which);
                 self.s32x_bus.pwm.sh2_write_register(address, value);
             }
-            SH2_VDP_START..=SH2_VDP_END => {
+            0x4100..=0x41FF => {
+                // 32X VDP registers
                 self.cycle_counter += SH2_VDP_CYCLES;
 
                 if self.s32x_bus.registers.vdp_access == Access::Sh2 {
@@ -856,7 +849,8 @@ impl BusInterface for Sh2Bus<'_, '_> {
                     log::warn!("VDP register write with FM=0: {address:08X} {value:04X}");
                 }
             }
-            SH2_CRAM_START..=SH2_CRAM_END => {
+            0x4200..=0x43FF => {
+                // 32X CRAM
                 self.cycle_counter += SH2_VDP_CYCLES;
 
                 if self.s32x_bus.registers.vdp_access == Access::Sh2 {
@@ -865,34 +859,8 @@ impl BusInterface for Sh2Bus<'_, '_> {
                     log::warn!("CRAM write with FM=0: {address:08X} {value:04X}");
                 }
             }
-            SH2_FRAME_BUFFER_START..=SH2_FRAME_BUFFER_END
-            | SH2_FB_MIRROR_START..=SH2_FB_MIRROR_END => {
-                if self.s32x_bus.registers.vdp_access == Access::Sh2 {
-                    self.s32x_bus.vdp.write_frame_buffer_word(address, value);
-                } else {
-                    log::warn!("Frame buffer write with FM=0: {address:08X} {value:04X}");
-                }
-            }
-            SH2_OVERWRITE_IMAGE_START..=SH2_OVERWRITE_IMAGE_END => {
-                if self.s32x_bus.registers.vdp_access == Access::Sh2 {
-                    self.s32x_bus.vdp.frame_buffer_overwrite_word(address, value);
-                } else {
-                    log::warn!(
-                        "Frame buffer overwrite image write with FM=0: {address:08X} {value:04X}"
-                    );
-                }
-            }
-            SH2_CARTRIDGE_START..=SH2_CARTRIDGE_END => {
-                self.cycle_counter += SH2_CARTRIDGE_CYCLES;
-
-                // TODO can the SH-2s write to cartridge RAM?
-                self.s32x_bus.cartridge.write_word(address & 0x3FFFFF, value);
-            }
-            SH2_BOOT_ROM_START..=SH2_BOOT_ROM_END => {
-                log::debug!("SH-2 {:?} write to boot ROM: {address:08X} {value:04X}", self.which);
-            }
             _ => {
-                log::warn!(
+                log::debug!(
                     "SH-2 {:?} invalid address write: {address:08X} {value:04X}",
                     self.which
                 );
@@ -900,19 +868,13 @@ impl BusInterface for Sh2Bus<'_, '_> {
         }
     }
 
-    #[inline]
-    fn write_longword(&mut self, address: u32, value: u32) {
+    // $00000000-$01FFFFFF: Boot ROM, 32X registers, 32X CRAM
+    fn write_longword_00(&mut self, address: u32, value: u32) {
         self.cycle_counter += 2;
 
         match address {
-            SH2_SDRAM_START..=SH2_SDRAM_END => {
-                self.cycle_counter += 2 * SH2_SDRAM_WRITE_CYCLES;
-
-                let sdram_addr = (((address & SDRAM_MASK) >> 1) & !1) as usize;
-                self.s32x_bus.sdram[sdram_addr] = (value >> 16) as u16;
-                self.s32x_bus.sdram[sdram_addr | 1] = value as u16;
-            }
-            SH2_SYSTEM_REGISTERS_START..=SH2_SYSTEM_REGISTERS_END => {
+            0x4000..=0x402F => {
+                // 32X system registers
                 log::trace!("SH-2 {:?} longword write {address:08X} {value:08X}", self.which);
 
                 self.sync_if_comm_port_accessed(address);
@@ -930,7 +892,13 @@ impl BusInterface for Sh2Bus<'_, '_> {
                     &mut self.s32x_bus.vdp,
                 );
             }
-            SH2_VDP_START..=SH2_VDP_END => {
+            0x4030..=0x403F => {
+                // 32X PWM registers
+                self.s32x_bus.pwm.sh2_write_register(address, (value >> 16) as u16);
+                self.s32x_bus.pwm.sh2_write_register(address | 2, value as u16);
+            }
+            0x4100..=0x41FF => {
+                // 32X VDP registers
                 self.cycle_counter += 2 * SH2_VDP_CYCLES;
 
                 if self.s32x_bus.registers.vdp_access == Access::Sh2 {
@@ -940,7 +908,8 @@ impl BusInterface for Sh2Bus<'_, '_> {
                     log::warn!("VDP register write with FM=0: {address:08X} {value:08X}");
                 }
             }
-            SH2_CRAM_START..=SH2_CRAM_END => {
+            0x4200..=0x43FF => {
+                // 32X CRAM
                 self.cycle_counter += 2 * SH2_VDP_CYCLES;
 
                 if self.s32x_bus.registers.vdp_access == Access::Sh2 {
@@ -950,47 +919,245 @@ impl BusInterface for Sh2Bus<'_, '_> {
                     log::warn!("CRAM write with FM=0: {address:08X} {value:08X}");
                 }
             }
-            SH2_FRAME_BUFFER_START..=SH2_FRAME_BUFFER_END
-            | SH2_FB_MIRROR_START..=SH2_FB_MIRROR_END => {
-                if self.s32x_bus.registers.vdp_access == Access::Sh2 {
-                    self.s32x_bus.vdp.write_frame_buffer_word(address, (value >> 16) as u16);
-                    self.s32x_bus.vdp.write_frame_buffer_word(address | 2, value as u16);
-                } else {
-                    log::warn!("Frame buffer write with FM=0: {address:08X} {value:08X}");
-                }
-            }
-            SH2_OVERWRITE_IMAGE_START..=SH2_OVERWRITE_IMAGE_END => {
-                if self.s32x_bus.registers.vdp_access == Access::Sh2 {
-                    self.s32x_bus.vdp.frame_buffer_overwrite_word(address, (value >> 16) as u16);
-                    self.s32x_bus.vdp.frame_buffer_overwrite_word(address | 2, value as u16);
-                } else {
-                    log::warn!("Frame buffer write with FM=0: {address:08X} {value:08X}");
-                }
-            }
-            SH2_PWM_START..=SH2_PWM_END => {
-                self.s32x_bus.pwm.sh2_write_register(address, (value >> 16) as u16);
-                self.s32x_bus.pwm.sh2_write_register(address | 2, value as u16);
-            }
-            SH2_CARTRIDGE_START..=SH2_CARTRIDGE_END => {
-                self.cycle_counter += 2 * SH2_CARTRIDGE_CYCLES;
-
-                // TODO can the SH-2s write to cartridge RAM?
-                self.s32x_bus.cartridge.write_word(address & 0x3FFFFF, (value >> 16) as u16);
-                self.s32x_bus.cartridge.write_word((address & 0x3FFFFF) | 1, value as u16);
-            }
-            SH2_BOOT_ROM_START..=SH2_BOOT_ROM_END => {
-                log::debug!(
-                    "SH-2 {:?} longword write to boot ROM address: {address:08X} {value:08X}",
-                    self.which
-                );
-            }
             _ => {
-                log::warn!(
-                    "SH-2 {:?} invalid address write: {address:08X} {value:08X}",
+                log::debug!(
+                    "SH-2 {:?} invalid address longword write: {address:08X} {value:08X}",
                     self.which
                 );
             }
         }
+    }
+
+    // $02000000-$03FFFFFF: Cartridge
+    fn write_byte_02(&mut self, address: u32, value: u8) {
+        self.cycle_counter += 1 + SH2_CARTRIDGE_CYCLES;
+
+        if address & 0x400000 == 0 {
+            // TODO can the SH-2s write to cartridge RAM?
+            self.s32x_bus.cartridge.write_byte(address & 0x3FFFFF, value);
+        } else {
+            // TODO Sega CD?
+        }
+    }
+
+    // $02000000-$03FFFFFF: Cartridge
+    fn write_word_02(&mut self, address: u32, value: u16) {
+        self.cycle_counter += 1 + SH2_CARTRIDGE_CYCLES;
+
+        if address & 0x400000 == 0 {
+            // TODO can the SH-2s write to cartridge RAM?
+            self.s32x_bus.cartridge.write_word(address & 0x3FFFFF & !1, value);
+        } else {
+            // TODO Sega CD?
+        }
+    }
+
+    // $02000000-$03FFFFFF: Cartridge
+    fn write_longword_02(&mut self, address: u32, value: u32) {
+        self.cycle_counter += 2 * (1 + SH2_CARTRIDGE_CYCLES);
+
+        if address & 0x400000 == 0 {
+            // TODO can the SH-2s write to cartridge RAM?
+            self.s32x_bus.cartridge.write_word(address & 0x3FFFFF & !3, (value >> 16) as u16);
+            self.s32x_bus.cartridge.write_word((address & 0x3FFFFF & !3) | 2, value as u16);
+        } else {
+            // TODO Sega CD?
+        }
+    }
+
+    // $04000000-$05FFFFFF: Frame buffer
+    fn write_byte_04(&mut self, address: u32, value: u8) {
+        self.cycle_counter += 1;
+
+        if self.s32x_bus.registers.vdp_access == Access::Sh2 {
+            // Treat normal mapping and overwrite image identically because 0 bytes are never
+            // written in either case
+            self.s32x_bus.vdp.write_frame_buffer_byte(address, value);
+        } else {
+            log::warn!("Frame buffer write with FM=0: {address:08X} {value:02X}");
+        }
+    }
+
+    // $04000000-$05FFFFFF: Frame buffer
+    fn write_word_04(&mut self, address: u32, value: u16) {
+        self.cycle_counter += 1;
+
+        if address & 0x20000 == 0 {
+            // Normal frame buffer mapping
+            if self.s32x_bus.registers.vdp_access == Access::Sh2 {
+                self.s32x_bus.vdp.write_frame_buffer_word(address, value);
+            } else {
+                log::warn!("Frame buffer write with FM=0: {address:08X} {value:04X}");
+            }
+        } else {
+            // Overwrite image
+            if self.s32x_bus.registers.vdp_access == Access::Sh2 {
+                self.s32x_bus.vdp.frame_buffer_overwrite_word(address, value);
+            } else {
+                log::warn!(
+                    "Frame buffer overwrite image write with FM=0: {address:08X} {value:04X}"
+                );
+            }
+        }
+    }
+
+    // $04000000-$05FFFFFF: Frame buffer
+    fn write_longword_04(&mut self, address: u32, value: u32) {
+        self.cycle_counter += 2;
+
+        if address & 0x20000 == 0 {
+            // Normal frame buffer mapping
+            if self.s32x_bus.registers.vdp_access == Access::Sh2 {
+                self.s32x_bus.vdp.write_frame_buffer_word(address, (value >> 16) as u16);
+                self.s32x_bus.vdp.write_frame_buffer_word(address | 2, value as u16);
+            } else {
+                log::warn!("Frame buffer write with FM=0: {address:08X} {value:08X}");
+            }
+        } else {
+            // Overwrite image
+            if self.s32x_bus.registers.vdp_access == Access::Sh2 {
+                self.s32x_bus.vdp.frame_buffer_overwrite_word(address, (value >> 16) as u16);
+                self.s32x_bus.vdp.frame_buffer_overwrite_word(address | 2, value as u16);
+            } else {
+                log::warn!(
+                    "Frame buffer overwrite image write with FM=0: {address:08X} {value:08X}"
+                );
+            }
+        }
+    }
+
+    // $06000000-$07FFFFFF: SDRAM
+    fn write_byte_06(&mut self, address: u32, value: u8) {
+        if address >= 0x06040000 {
+            log::debug!("Invalid byte write {address:08X} {value:02X}");
+            return;
+        }
+
+        self.cycle_counter += 1 + SH2_SDRAM_READ_CYCLES;
+
+        let word_addr = ((address & SDRAM_MASK) >> 1) as usize;
+        if !address.bit(0) {
+            self.s32x_bus.sdram[word_addr].set_msb(value);
+        } else {
+            self.s32x_bus.sdram[word_addr].set_lsb(value);
+        }
+    }
+
+    // $06000000-$07FFFFFF: SDRAM
+    fn write_word_06(&mut self, address: u32, value: u16) {
+        if address >= 0x06040000 {
+            log::debug!("Invalid word write {address:08X} {value:04X}");
+            return;
+        }
+
+        self.cycle_counter += 1 + SH2_SDRAM_WRITE_CYCLES;
+
+        self.s32x_bus.sdram[((address & SDRAM_MASK) >> 1) as usize] = value;
+    }
+
+    // $06000000-$07FFFFFF: SDRAM
+    fn write_longword_06(&mut self, address: u32, value: u32) {
+        if address >= 0x06040000 {
+            log::warn!("Invalid longword write {address:08X} {value:08X}");
+            return;
+        }
+
+        self.cycle_counter += 2 * (1 + SH2_SDRAM_WRITE_CYCLES);
+
+        let sdram_addr = (((address & SDRAM_MASK) >> 1) & !1) as usize;
+        self.s32x_bus.sdram[sdram_addr] = (value >> 16) as u16;
+        self.s32x_bus.sdram[sdram_addr | 1] = value as u16;
+    }
+}
+
+impl BusInterface for Sh2Bus<'_, '_> {
+    #[inline]
+    fn read_byte(&mut self, address: u32) -> u8 {
+        const FNS: [fn(&mut Sh2Bus<'_, '_>, u32) -> u8; 4] = [
+            |bus, address| bus.read_byte_00(address),
+            |bus, address| bus.read_byte_02(address),
+            |bus, address| bus.read_byte_04(address),
+            |bus, address| bus.read_byte_06(address),
+        ];
+
+        FNS[((address >> 25) & 3) as usize](self, address)
+    }
+
+    #[inline]
+    fn read_word(&mut self, address: u32) -> u16 {
+        const FNS: [fn(&mut Sh2Bus<'_, '_>, u32) -> u16; 4] = [
+            |bus, address| bus.read_word_00(address),
+            |bus, address| bus.read_word_02(address),
+            |bus, address| bus.read_word_04(address),
+            |bus, address| bus.read_word_06(address),
+        ];
+
+        FNS[((address >> 25) & 3) as usize](self, address)
+    }
+
+    #[inline]
+    fn read_longword(&mut self, address: u32) -> u32 {
+        const FNS: [fn(&mut Sh2Bus<'_, '_>, u32) -> u32; 4] = [
+            |bus, address| bus.read_longword_00(address),
+            |bus, address| bus.read_longword_02(address),
+            |bus, address| bus.read_longword_04(address),
+            |bus, address| bus.read_longword_06(address),
+        ];
+
+        FNS[((address >> 25) & 3) as usize](self, address)
+    }
+
+    #[inline]
+    fn read_cache_line(&mut self, address: u32) -> [u32; 4] {
+        if (0x06000000..0x06040000).contains(&address) {
+            // The SH-2s can read a full 16-byte cache line in 12 cycles
+            self.cycle_counter += SH2_SDRAM_READ_CYCLES + 1;
+
+            let base_addr = ((address & SDRAM_MASK & !0xF) >> 1) as usize;
+            return array::from_fn(|i| {
+                let high_word = self.s32x_bus.sdram[base_addr | (i << 1)];
+                let low_word = self.s32x_bus.sdram[(base_addr | (i << 1)) + 1];
+                (u32::from(high_word) << 16) | u32::from(low_word)
+            });
+        }
+
+        array::from_fn(|i| self.read_longword(address | ((i as u32) << 2)))
+    }
+
+    #[inline]
+    fn write_byte(&mut self, address: u32, value: u8) {
+        const FNS: [fn(&mut Sh2Bus<'_, '_>, u32, u8); 4] = [
+            |bus, address, value| bus.write_byte_00(address, value),
+            |bus, address, value| bus.write_byte_02(address, value),
+            |bus, address, value| bus.write_byte_04(address, value),
+            |bus, address, value| bus.write_byte_06(address, value),
+        ];
+
+        FNS[((address >> 25) & 3) as usize](self, address, value);
+    }
+
+    #[inline]
+    fn write_word(&mut self, address: u32, value: u16) {
+        const FNS: [fn(&mut Sh2Bus<'_, '_>, u32, u16); 4] = [
+            |bus, address, value| bus.write_word_00(address, value),
+            |bus, address, value| bus.write_word_02(address, value),
+            |bus, address, value| bus.write_word_04(address, value),
+            |bus, address, value| bus.write_word_06(address, value),
+        ];
+
+        FNS[((address >> 25) & 3) as usize](self, address, value);
+    }
+
+    #[inline]
+    fn write_longword(&mut self, address: u32, value: u32) {
+        const FNS: [fn(&mut Sh2Bus<'_, '_>, u32, u32); 4] = [
+            |bus, address, value| bus.write_longword_00(address, value),
+            |bus, address, value| bus.write_longword_02(address, value),
+            |bus, address, value| bus.write_longword_04(address, value),
+            |bus, address, value| bus.write_longword_06(address, value),
+        ];
+
+        FNS[((address >> 25) & 3) as usize](self, address, value);
     }
 
     #[inline]

@@ -3,16 +3,19 @@
 use clap::Parser;
 use env_logger::Env;
 use gb_core::api::{GbAspectRatio, GbAudioResampler, GbPalette, GbcColorCorrection};
+#[cfg(feature = "gba")]
 use gba_core::api::GbaAspectRatio;
 use genesis_core::{
     GenesisAspectRatio, GenesisControllerType, GenesisLowPassFilter, GenesisRegion,
+    Opn2BusyBehavior,
 };
 use jgenesis_common::frontend::{EmulatorTrait, TimingMode};
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::common::ConfigSavePath;
 use jgenesis_native_driver::config::input::{NesControllerType, SnesControllerType};
 use jgenesis_native_driver::config::{FullscreenMode, HideMouseCursor};
-use jgenesis_native_driver::{NativeEmulator, NativeTickEffect, extensions};
+use jgenesis_native_driver::extensions::{Console, ConsoleWithSize};
+use jgenesis_native_driver::{NativeEmulator, NativeTickEffect};
 use jgenesis_proc_macros::{CustomValueEnum, EnumAll, EnumDisplay};
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, Scanlines, VSyncMode, WgpuBackend,
@@ -47,6 +50,7 @@ const S32X_OPTIONS_HEADING: &str = "32X Options";
 const NES_OPTIONS_HEADING: &str = "NES Options";
 const SNES_OPTIONS_HEADING: &str = "SNES Options";
 const GB_OPTIONS_HEADING: &str = "Game Boy Options";
+#[cfg(feature = "gba")]
 const GBA_OPTIONS_HEADING: &str = "Game Boy Advance Options";
 const VIDEO_OPTIONS_HEADING: &str = "Video Options";
 const AUDIO_OPTIONS_HEADING: &str = "Audio Options";
@@ -139,9 +143,9 @@ struct Args {
     #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
     smsgg_z80_divider: Option<NonZeroU32>,
 
-    /// Emulate the VDP's non-linear DAC, which tends to brighten darker colors and darken brighter colors
+    /// Emulate the VDP's non-linear color scale, which tends to brighten darker colors and darken brighter colors
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
-    emulate_non_linear_vdp_dac: Option<bool>,
+    genesis_non_linear_color_scale: Option<bool>,
 
     /// Deinterlace if a game enables an interlacing screen mode
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
@@ -167,6 +171,10 @@ struct Args {
     /// Emulate the YM2612 "ladder effect"
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
     emulate_ym2612_ladder_effect: Option<bool>,
+
+    /// Select OPN2 busy flag behavior
+    #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
+    opn2_busy_behavior: Option<Opn2BusyBehavior>,
 
     /// Audio low-pass filter setting
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
@@ -383,14 +391,17 @@ struct Args {
 
     /// BIOS ROM path (Required if not set in config file)
     #[arg(long, help_heading = GBA_OPTIONS_HEADING)]
+    #[cfg(feature = "gba")]
     gba_bios_path: Option<String>,
 
     /// Aspect ratio
     #[arg(long, help_heading = GBA_OPTIONS_HEADING)]
+    #[cfg(feature = "gba")]
     gba_aspect_ratio: Option<GbaAspectRatio>,
 
     /// Skip BIOS intro animation
     #[arg(long, help_heading = GBA_OPTIONS_HEADING)]
+    #[cfg(feature = "gba")]
     gba_skip_intro_animation: Option<bool>,
 
     /// Initial window width in pixels
@@ -448,6 +459,10 @@ struct Args {
     /// Preprocess shader
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     preprocess_shader: Option<PreprocessShader>,
+
+    /// Mute all audio output
+    #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
+    mute_audio: Option<bool>,
 
     /// Audio output frequency (48000 recommended)
     #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
@@ -540,6 +555,7 @@ impl Args {
         self.apply_nes_overrides(config);
         self.apply_snes_overrides(config);
         self.apply_gb_overrides(config);
+        #[cfg(feature = "gba")]
         self.apply_gba_overrides(config);
         self.apply_video_overrides(config);
         self.apply_audio_overrides(config);
@@ -594,13 +610,14 @@ impl Args {
 
     fn apply_genesis_overrides(&self, config: &mut AppConfig) {
         apply_overrides!(self, config.genesis, [
-            emulate_non_linear_vdp_dac,
+            genesis_non_linear_color_scale -> non_linear_color_scale,
             genesis_deinterlace -> deinterlace,
             m68k_clock_divider,
             genesis_render_vertical_border -> render_vertical_border,
             genesis_render_horizontal_border -> render_horizontal_border,
             quantize_ym2612_output,
             emulate_ym2612_ladder_effect,
+            opn2_busy_behavior,
             genesis_low_pass -> low_pass,
             ym2612_enabled,
             genesis_psg_enabled -> psg_enabled,
@@ -702,6 +719,7 @@ impl Args {
         ]);
     }
 
+    #[cfg(feature = "gba")]
     fn apply_gba_overrides(&self, config: &mut AppConfig) {
         if let Some(bios_path) = &self.gba_bios_path {
             config.game_boy_advance.bios_path = Some(bios_path.clone());
@@ -764,6 +782,7 @@ impl Args {
             self,
             config.common,
             [
+                mute_audio,
                 audio_output_frequency,
                 audio_sync,
                 audio_dynamic_resampling_ratio,
@@ -811,7 +830,7 @@ fn main() -> anyhow::Result<()> {
 
     let hardware = match args.hardware {
         Some(hardware) => hardware,
-        None => guess_hardware(&args)?,
+        None => guess_hardware(&args),
     };
 
     log::info!("Running with hardware {hardware}");
@@ -864,62 +883,30 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
-fn guess_hardware(args: &Args) -> anyhow::Result<Hardware> {
+fn guess_hardware(args: &Args) -> Hardware {
     let file_path = Path::new(&args.file_path);
 
-    let mut file_ext = extensions::from_path(file_path).unwrap_or_default();
+    let console = Console::from_file(file_path)
+        .map(|ConsoleWithSize { console, .. }| console)
+        .unwrap_or_else(|| {
+            log::warn!(
+                "Unable to auto-detect hardware of file at '{}'; defaulting to Genesis",
+                file_path.display()
+            );
+            Console::Genesis
+        });
 
-    match file_ext.as_str() {
-        "zip" => {
-            let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_zip(
-                file_path,
-                &extensions::ALL_CARTRIDGE_BASED,
-            )?
-            .unwrap_or_else(|| {
-                panic!(
-                    "No files with supported extensions found in .zip archive: {}",
-                    args.file_path.display()
-                )
-            });
-            file_ext = zip_entry.extension;
-        }
-        "7z" => {
-            let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_7z(
-                file_path,
-                &extensions::ALL_CARTRIDGE_BASED,
-            )?
-            .unwrap_or_else(|| {
-                panic!(
-                    "No files with supported extensions found in .7z archive: {}",
-                    args.file_path.display()
-                )
-            });
-            file_ext = zip_entry.extension;
-        }
-        _ => {}
+    match console {
+        Console::MasterSystem | Console::GameGear => Hardware::MasterSystem,
+        Console::Genesis => Hardware::Genesis,
+        Console::SegaCd => Hardware::SegaCd,
+        Console::Sega32X => Hardware::Sega32X,
+        Console::Nes => Hardware::Nes,
+        Console::Snes => Hardware::Snes,
+        Console::GameBoy | Console::GameBoyColor => Hardware::GameBoy,
+        #[cfg(feature = "gba")]
+        Console::GameBoyAdvance => Hardware::GameBoyAdvance,
     }
-
-    let file_ext_str = file_ext.as_str();
-    Ok(if extensions::SMSGG.contains(&file_ext_str) {
-        Hardware::MasterSystem
-    } else if extensions::GENESIS.contains(&file_ext_str) {
-        Hardware::Genesis
-    } else if extensions::SEGA_CD.contains(&file_ext_str) {
-        Hardware::SegaCd
-    } else if extensions::SEGA_32X.contains(&file_ext_str) {
-        Hardware::Sega32X
-    } else if extensions::NES.contains(&file_ext_str) {
-        Hardware::Nes
-    } else if extensions::SNES.contains(&file_ext_str) {
-        Hardware::Snes
-    } else if extensions::GB_GBC.contains(&file_ext_str) {
-        Hardware::GameBoy
-    } else if extensions::GAME_BOY_ADVANCE.contains(&file_ext_str) {
-        Hardware::GameBoyAdvance
-    } else {
-        log::warn!("Unrecognized file extension: '{file_ext}' defaulting to Genesis");
-        Hardware::Genesis
-    })
 }
 
 fn run_sms(args: Args, config: AppConfig) -> anyhow::Result<()> {

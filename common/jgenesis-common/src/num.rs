@@ -1,5 +1,11 @@
-pub trait GetBit: Copy {
+use std::ops::RangeInclusive;
+
+pub trait GetBit {
+    #[must_use]
     fn bit(self, i: u8) -> bool;
+
+    #[must_use]
+    fn bits(self, range: RangeInclusive<u8>) -> Self;
 }
 
 macro_rules! impl_get_bit {
@@ -9,6 +15,15 @@ macro_rules! impl_get_bit {
             fn bit(self, i: u8) -> bool {
                 debug_assert!(i < (<$t>::BITS as u8));
                 self & (1 << i) != 0
+            }
+
+            #[inline]
+            fn bits(self, range: RangeInclusive<u8>) -> Self {
+                let start = *range.start();
+                let end = *range.end();
+                debug_assert!(end < (<$t>::BITS as u8));
+
+                (self >> start) & ((1 << (end - start + 1)) - 1)
             }
         }
     };

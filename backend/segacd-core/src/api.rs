@@ -12,7 +12,7 @@ use genesis_core::input::{GenesisButton, InputState};
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::timing::CycleCounters;
 use genesis_core::vdp::{Vdp, VdpTickEffect};
-use genesis_core::ym2612::{Ym2612, YmTickEffect};
+use genesis_core::ym2612::Ym2612;
 use genesis_core::{GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, PartialClone, Renderer, SaveWriter,
@@ -154,6 +154,8 @@ macro_rules! new_main_bus {
             &mut $self.psg,
             &mut $self.ym2612,
             &mut $self.input,
+            &mut $self.cycles,
+            $self.main_cpu.next_opcode(),
             $self.timing_mode,
             MainBusSignals { m68k_reset: $m68k_reset },
             std::mem::take(&mut $self.main_bus_writes),
@@ -242,7 +244,7 @@ impl SegaCdEmulator {
         let z80 = Z80::new();
         let vdp = Vdp::new(timing_mode, emulator_config.genesis.to_vdp_config());
         let graphics_coprocessor = GraphicsCoprocessor::new();
-        let ym2612 = Ym2612::new(emulator_config.genesis);
+        let ym2612 = Ym2612::new_from_config(&emulator_config.genesis);
         let psg = Sn76489::new(Sn76489Version::Standard);
         let pcm = Rf5c164::new(&emulator_config);
         let input = InputState::new(
@@ -308,6 +310,7 @@ impl SegaCdEmulator {
 
     fn render_frame<R: Renderer>(&self, renderer: &mut R) -> Result<(), R::Err> {
         genesis_core::render_frame(
+            self.timing_mode,
             &self.vdp,
             self.config.genesis.aspect_ratio,
             self.config.genesis.adjust_aspect_ratio_in_2x_resolution,
@@ -382,24 +385,24 @@ impl EmulatorTrait for SegaCdEmulator {
         let mut main_bus = new_main_bus!(self, m68k_reset: false);
 
         // Main 68000
-        let main_cpu_cycles = if self.cycles.m68k_wait_cpu_cycles != 0 {
-            self.cycles.take_m68k_wait_cpu_cycles()
+        let m68k_wait = main_bus.cycles.m68k_wait_cpu_cycles != 0;
+        let main_cpu_cycles = if m68k_wait {
+            main_bus.cycles.take_m68k_wait_cpu_cycles()
         } else {
             self.main_cpu.execute_instruction(&mut main_bus)
         };
-        let genesis_mclk_elapsed = self.cycles.record_68k_instruction(
+        let genesis_mclk_elapsed = main_bus.cycles.record_68k_instruction(
             main_cpu_cycles,
-            self.main_cpu.last_instruction_was_mul_or_div(),
+            m68k_wait,
+            main_bus.vdp.should_halt_cpu(),
         );
 
         // Z80
-        while self.cycles.should_tick_z80() {
-            self.z80.tick(&mut main_bus);
-            self.cycles.decrement_z80();
-        }
-
-        if main_bus.z80_accessed_68k_bus() {
-            self.cycles.record_z80_68k_bus_access();
+        while main_bus.cycles.should_tick_z80() {
+            if !main_bus.cycles.z80_halt {
+                self.z80.tick(&mut main_bus);
+            }
+            main_bus.cycles.decrement_z80();
         }
 
         self.main_bus_writes = main_bus.take_writes();
@@ -475,12 +478,10 @@ impl EmulatorTrait for SegaCdEmulator {
         }
 
         // YM2612
-        while self.cycles.should_tick_ym2612() {
-            if self.ym2612.tick() == YmTickEffect::OutputSample {
-                let (ym2612_sample_l, ym2612_sample_r) = self.ym2612.sample();
-                self.audio_resampler.collect_ym2612_sample(ym2612_sample_l, ym2612_sample_r);
-            }
-            self.cycles.decrement_ym2612();
+        if self.cycles.has_ym2612_ticks() {
+            let ym2612_ticks = self.cycles.take_ym2612_ticks();
+            self.ym2612
+                .tick(ym2612_ticks, |(l, r)| self.audio_resampler.collect_ym2612_sample(l, r));
         }
 
         // RF5C164
@@ -549,7 +550,7 @@ impl EmulatorTrait for SegaCdEmulator {
         self.main_cpu.execute_instruction(&mut new_main_bus!(self, m68k_reset: true));
         self.memory.reset_z80_signals();
 
-        self.ym2612.reset(self.config.genesis);
+        self.ym2612.reset();
         self.pcm.disable();
 
         self.memory.medium_mut().reset();
@@ -565,7 +566,7 @@ impl EmulatorTrait for SegaCdEmulator {
     }
 
     fn target_fps(&self) -> f64 {
-        genesis_core::target_framerate(self.timing_mode)
+        genesis_core::target_framerate(&self.vdp, self.timing_mode)
     }
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {

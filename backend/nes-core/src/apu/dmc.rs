@@ -85,8 +85,8 @@ impl DeltaModulationChannel {
             timer_period: DMC_PERIOD_LOOKUP_TABLE[0],
             sample_buffer: None,
             output_unit: DmcOutputUnit::new(),
-            sample_address: 0x8000,
-            current_sample_address: 0x8000,
+            sample_address: 0xC000,
+            current_sample_address: 0xC000,
             sample_length: 1,
             sample_bytes_remaining: 0,
             loop_flag: false,
@@ -141,11 +141,7 @@ impl DeltaModulationChannel {
         }
 
         self.sample_buffer = Some(bus.read(self.current_sample_address));
-        self.current_sample_address = if self.current_sample_address == 0xFFFF {
-            0x8000
-        } else {
-            self.current_sample_address + 1
-        };
+        self.current_sample_address = 0xC000 | self.current_sample_address.wrapping_add(1);
         self.sample_bytes_remaining -= 1;
 
         if self.sample_bytes_remaining == 0 {

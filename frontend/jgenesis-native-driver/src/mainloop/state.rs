@@ -3,7 +3,7 @@ use crate::mainloop::{NativeEmulatorError, bincode_config};
 use jgenesis_common::frontend::EmulatorTrait;
 use std::ffi::OsStr;
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use std::{array, fs};
@@ -13,8 +13,11 @@ pub const EXTENSION: &str = "jst";
 
 const FILE_PREFIX: &[u8] = b"jgenstate";
 
-// Prefix + 2 bytes for version
-const HEADER_LEN: usize = FILE_PREFIX.len() + 2;
+// 000.111.222.333
+const MAX_VERSION_LEN: usize = 15;
+
+// Prefix + version
+const MAX_HEADER_LEN: usize = FILE_PREFIX.len() + MAX_VERSION_LEN;
 
 pub type SaveStatePaths = [PathBuf; SAVE_STATE_SLOTS];
 
@@ -37,9 +40,10 @@ pub struct SaveStateMetadata {
 }
 
 impl SaveStateMetadata {
-    pub(crate) fn load(paths: &SaveStatePaths, version: u16) -> Self {
+    pub(crate) fn load(paths: &SaveStatePaths, version: &str) -> Self {
         let times_nanos = array::from_fn(|i| {
-            if read_version_from_header(&paths[i]) != Some(version) {
+            let header_version = read_version_from_header(&paths[i]);
+            if header_version.as_deref() != Some(version) {
                 return None;
             }
 
@@ -52,21 +56,27 @@ impl SaveStateMetadata {
     }
 }
 
-fn read_version_from_header(path: &Path) -> Option<u16> {
+fn read_version_from_header(path: &Path) -> Option<String> {
     let mut file = File::open(path).ok()?;
 
-    let mut buffer = [0_u8; HEADER_LEN];
+    let mut buffer = [0_u8; MAX_HEADER_LEN];
     file.read_exact(&mut buffer).ok()?;
 
     if &buffer[..FILE_PREFIX.len()] != FILE_PREFIX {
         return None;
     }
 
-    Some(read_version_from_buffer(&buffer))
+    read_version_from_buffer(&buffer)
 }
 
-fn read_version_from_buffer(buffer: &[u8]) -> u16 {
-    u16::from_le_bytes([buffer[FILE_PREFIX.len()], buffer[FILE_PREFIX.len() + 1]])
+fn read_version_from_buffer(buffer: &[u8]) -> Option<String> {
+    let version_len = buffer[FILE_PREFIX.len()] as usize;
+    if !(1..=MAX_VERSION_LEN).contains(&version_len) {
+        return None;
+    }
+
+    let version_bytes = &buffer[FILE_PREFIX.len() + 1..FILE_PREFIX.len() + 1 + version_len];
+    String::from_utf8(version_bytes.to_vec()).ok()
 }
 
 pub fn save<Emulator: EmulatorTrait>(
@@ -83,9 +93,11 @@ pub fn save<Emulator: EmulatorTrait>(
 
     let mut writer = BufWriter::new(file);
     writer.write_all(FILE_PREFIX).map_err(NativeEmulatorError::SaveStateIo)?;
-    writer
-        .write_all(&Emulator::save_state_version().to_le_bytes())
-        .map_err(NativeEmulatorError::SaveStateIo)?;
+
+    let current_version = Emulator::save_state_version();
+    let version_len = current_version.len() as u8;
+    writer.write_all(&[version_len]).map_err(NativeEmulatorError::SaveStateIo)?;
+    writer.write_all(current_version.as_bytes()).map_err(NativeEmulatorError::SaveStateIo)?;
 
     let mut encoder =
         zstd::stream::Encoder::new(writer, 0).map_err(NativeEmulatorError::SaveStateIo)?;
@@ -111,7 +123,7 @@ pub fn load<Emulator: EmulatorTrait>(
     })?;
 
     let mut reader = BufReader::new(file);
-    let mut header_buffer = [0_u8; HEADER_LEN];
+    let mut header_buffer = [0_u8; MAX_HEADER_LEN];
     reader.read_exact(&mut header_buffer).map_err(NativeEmulatorError::LoadStateIo)?;
 
     if &header_buffer[..FILE_PREFIX.len()] != FILE_PREFIX {
@@ -119,14 +131,18 @@ pub fn load<Emulator: EmulatorTrait>(
     }
 
     let current_version = Emulator::save_state_version();
-    let version_in_header = read_version_from_buffer(&header_buffer);
-    if version_in_header != current_version {
+    let version_in_header = read_version_from_buffer(&header_buffer)
+        .ok_or(NativeEmulatorError::LoadStatePrefixMismatch)?;
+
+    if version_in_header.as_str() != current_version {
         return Err(NativeEmulatorError::LoadStateVersionMismatch {
-            expected: current_version,
+            expected: current_version.into(),
             actual: version_in_header,
         });
     }
 
+    let total_header_len = (FILE_PREFIX.len() + 1 + current_version.len()) as u64;
+    reader.seek(SeekFrom::Start(total_header_len)).map_err(NativeEmulatorError::SaveStateIo)?;
     let mut decoder =
         zstd::stream::Decoder::new(reader).map_err(NativeEmulatorError::LoadStateIo)?;
     let mut loaded_emulator: Emulator =

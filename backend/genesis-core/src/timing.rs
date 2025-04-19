@@ -6,15 +6,11 @@ use std::{cmp, mem};
 
 pub const NATIVE_M68K_DIVIDER: u64 = 7;
 pub const Z80_DIVIDER: u64 = 15;
-pub const YM2612_DIVIDER: u64 = 7;
+pub const YM2612_DIVIDER: u64 = 7 * 6;
 pub const PSG_DIVIDER: u64 = 15;
 
-// Multiplication and division instructions all take at least 40 CPU cycles and don't access the bus
-// while executing
-const LONG_68K_INSTRUCTION_THRESHOLD: u64 = 40 * NATIVE_M68K_DIVIDER;
-
 #[derive(Debug, Clone, Copy, Encode, Decode)]
-pub struct CycleCounters<const REFRESH_INTERVAL: u64> {
+pub struct CycleCounters<const REFRESH_INTERVAL: u32> {
     // Store divider as both u64 and u32 for better codegen when doing u32 division
     pub m68k_divider: NonZeroU64,
     pub m68k_divider_u32: NonZeroU32,
@@ -25,7 +21,9 @@ pub struct CycleCounters<const REFRESH_INTERVAL: u64> {
     pub z80_odd_access: bool,
     pub ym2612_mclk_counter: u64,
     pub psg_mclk_counter: u64,
-    pub refresh_mclk_counter: u64,
+    pub m68k_refresh_counter: u32,
+    pub vdp_owns_bus: bool,
+    pub z80_halt: bool,
 }
 
 fn max_wait_cpu_cycles(m68k_divider: NonZeroU64) -> u32 {
@@ -36,7 +34,7 @@ fn max_wait_cpu_cycles(m68k_divider: NonZeroU64) -> u32 {
     MAX_WAIT_MCLK_CYCLES / m68k_divider.get() as u32
 }
 
-impl<const REFRESH_INTERVAL: u64> CycleCounters<REFRESH_INTERVAL> {
+impl<const REFRESH_INTERVAL: u32> CycleCounters<REFRESH_INTERVAL> {
     #[inline]
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
@@ -54,7 +52,9 @@ impl<const REFRESH_INTERVAL: u64> CycleCounters<REFRESH_INTERVAL> {
             z80_odd_access: false,
             ym2612_mclk_counter: 0,
             psg_mclk_counter: 0,
-            refresh_mclk_counter: 0,
+            m68k_refresh_counter: 0,
+            vdp_owns_bus: false,
+            z80_halt: false,
         }
     }
 
@@ -75,48 +75,74 @@ impl<const REFRESH_INTERVAL: u64> CycleCounters<REFRESH_INTERVAL> {
 
     #[inline]
     #[must_use]
-    pub fn record_68k_instruction(&mut self, m68k_cycles: u32, was_mul_or_div: bool) -> u64 {
-        let mut mclk_cycles = u64::from(m68k_cycles) * self.m68k_divider.get();
-
-        // Track memory refresh delay, which stalls the 68000 for roughly 2 out of every 128 mclk cycles
+    pub fn record_68k_instruction(
+        &mut self,
+        m68k_cycles: u32,
+        m68k_wait: bool,
+        vdp_owns_bus: bool,
+    ) -> u64 {
+        // Track memory refresh delay, which stalls the 68000 for roughly 2 out of every 130 CPU cycles
         // (at least on the standalone Genesis)
         // Clue and Super Airwolf depend on this or they will have graphical glitches, Clue in the
         // main menu and Super Airwolf in the intro
-        self.refresh_mclk_counter += mclk_cycles;
-        if was_mul_or_div && mclk_cycles >= LONG_68K_INSTRUCTION_THRESHOLD {
-            // Only incur memory refresh delay once for multiplication/division instructions
-            mclk_cycles += 2;
-            self.refresh_mclk_counter %= REFRESH_INTERVAL - 2;
+        if vdp_owns_bus {
+            // Not sure this is accurate, but it's required for stable images in Direct Color DMA demos
+            self.m68k_refresh_counter = 0;
         } else {
-            while self.refresh_mclk_counter >= REFRESH_INTERVAL - 2 {
-                self.refresh_mclk_counter -= REFRESH_INTERVAL - 2;
-                mclk_cycles += 2;
+            self.m68k_refresh_counter += m68k_cycles;
+            if self.m68k_refresh_counter >= REFRESH_INTERVAL {
+                if !m68k_wait {
+                    self.m68k_wait_cpu_cycles += 2;
+                }
+                self.m68k_refresh_counter %= REFRESH_INTERVAL;
             }
         }
 
-        self.increment_mclk_counters(mclk_cycles);
+        let mclk_cycles = u64::from(m68k_cycles) * self.m68k_divider.get();
+        self.increment_mclk_counters(mclk_cycles, vdp_owns_bus);
 
         mclk_cycles
     }
 
     #[inline]
-    pub fn increment_mclk_counters(&mut self, mclk_cycles: u64) {
+    pub fn increment_mclk_counters(&mut self, mclk_cycles: u64, vdp_owns_bus: bool) {
+        self.vdp_owns_bus = vdp_owns_bus;
+        self.z80_halt &= vdp_owns_bus;
+
         self.z80_mclk_counter += mclk_cycles;
         self.ym2612_mclk_counter += mclk_cycles;
         self.psg_mclk_counter += mclk_cycles;
 
-        let z80_wait_elapsed = cmp::min(self.z80_mclk_counter, self.z80_wait_mclk_cycles);
-        self.z80_mclk_counter -= z80_wait_elapsed;
-        self.z80_wait_mclk_cycles -= z80_wait_elapsed;
+        if !vdp_owns_bus {
+            let z80_wait_elapsed = cmp::min(self.z80_mclk_counter, self.z80_wait_mclk_cycles);
+            self.z80_mclk_counter -= z80_wait_elapsed;
+            self.z80_wait_mclk_cycles -= z80_wait_elapsed;
+        }
     }
 
     #[inline]
     pub fn record_z80_68k_bus_access(&mut self) {
         // Each time the Z80 accesses the 68K bus, the Z80 is stalled for on average 3.3 Z80 cycles (= 49.5 mclk cycles)
         // and the 68K is stalled for on average 11 68K cycles
-        self.m68k_wait_cpu_cycles = 11;
-        self.z80_wait_mclk_cycles = 49 + u64::from(self.z80_odd_access);
+        self.z80_wait_mclk_cycles += 49 + u64::from(self.z80_odd_access);
         self.z80_odd_access = !self.z80_odd_access;
+
+        // The Z80 should halt if it accesses the 68K bus during a VDP DMA or while the 68K is
+        // stalled on a VDP FIFO write
+        self.z80_halt |= self.vdp_owns_bus;
+
+        if !self.vdp_owns_bus {
+            // Not sure if it's accurate for this to be conditional, but adding this delay after
+            // a VDP DMA breaks some effects in Overdrive
+            self.m68k_wait_cpu_cycles += 11;
+        }
+    }
+
+    #[inline]
+    pub fn record_68k_z80_bus_access(&mut self) {
+        // Each time the 68K accesses the Z80 bus, the 68K is stalled for 1 CPU cycle
+        // Pac-Man 2: The New Adventures depends on this for its audio code to work correctly
+        self.m68k_wait_cpu_cycles += 1;
     }
 
     #[inline]
@@ -132,13 +158,16 @@ impl<const REFRESH_INTERVAL: u64> CycleCounters<REFRESH_INTERVAL> {
 
     #[inline]
     #[must_use]
-    pub fn should_tick_ym2612(&self) -> bool {
+    pub fn has_ym2612_ticks(&mut self) -> bool {
         self.ym2612_mclk_counter >= YM2612_DIVIDER
     }
 
     #[inline]
-    pub fn decrement_ym2612(&mut self) {
-        self.ym2612_mclk_counter -= YM2612_DIVIDER;
+    #[must_use]
+    pub fn take_ym2612_ticks(&mut self) -> u32 {
+        let ticks = self.ym2612_mclk_counter / YM2612_DIVIDER;
+        self.ym2612_mclk_counter %= YM2612_DIVIDER;
+        ticks as u32
     }
 
     #[inline]

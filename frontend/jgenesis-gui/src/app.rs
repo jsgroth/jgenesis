@@ -25,31 +25,18 @@ use egui::{
 use egui_extras::{Column, TableBuilder};
 use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen};
 use jgenesis_native_driver::config::HideMouseCursor;
+use jgenesis_native_driver::extensions::Console;
 use jgenesis_native_driver::{NativeEmulatorError, extensions};
-use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::Scanlines;
 use rfd::FileDialog;
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use std::{fs, thread};
 use time::{OffsetDateTime, UtcOffset, format_description};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumAll, EnumDisplay, EnumFromStr)]
-pub enum Console {
-    MasterSystem,
-    GameGear,
-    Genesis,
-    SegaCd,
-    Sega32X,
-    Nes,
-    Snes,
-    GameBoy,
-    GameBoyColor,
-    GameBoyAdvance,
-}
 
 trait ListFiltersExt {
     fn to_console_vec(&self) -> Vec<Console>;
@@ -73,6 +60,7 @@ impl ListFiltersExt for ListFilters {
             self.snes.then_some(Console::Snes),
             self.game_boy.then_some(Console::GameBoy),
             self.game_boy.then_some(Console::GameBoyColor),
+            #[cfg(feature = "gba")]
             self.game_boy_advance.then_some(Console::GameBoyAdvance),
         ]
         .into_iter()
@@ -335,6 +323,12 @@ impl App {
         self.launch_emulator(path, console);
     }
 
+    fn open_most_recent_file(&mut self) {
+        let Some(recent_open) = self.state.recent_open_list.first() else { return };
+
+        self.launch_emulator(recent_open.full_path.clone(), Some(recent_open.console));
+    }
+
     fn launch_emulator(&mut self, path: PathBuf, console: Option<Console>) {
         self.state.current_file_path.clone_from(&path);
 
@@ -514,6 +508,11 @@ impl App {
             self.open_file(None);
         }
 
+        let open_most_recent_shortcut = KeyboardShortcut::new(Modifiers::NONE, Key::F5);
+        if ctx.input_mut(|input| input.consume_shortcut(&open_most_recent_shortcut)) {
+            self.open_most_recent_file();
+        }
+
         let quit_shortcut = KeyboardShortcut::new(Modifiers::CTRL, Key::Q);
         if ctx.input_mut(|input| input.consume_shortcut(&quit_shortcut)) {
             ctx.send_viewport_cmd(ViewportCommand::Close);
@@ -538,8 +537,25 @@ impl App {
 
                         ui.add_space(5.0);
                     }
+
+                    ui.separator();
+
+                    if ui.button("Clear List").clicked() {
+                        self.config.recent_open_list.clear();
+                        self.state.recent_open_list.clear();
+                        ui.close_menu();
+                    }
                 });
+
+                let open_most_recent_button = Button::new("Open Most Recent")
+                    .shortcut_text(ctx.format_shortcut(&open_most_recent_shortcut));
+                if ui.add(open_most_recent_button).clicked() {
+                    self.open_most_recent_file();
+                    ui.close_menu();
+                }
             });
+
+            ui.add_space(10.0);
 
             ui.menu_button("Open Using", |ui| {
                 for console in [
@@ -715,6 +731,7 @@ impl App {
                 ui.close_menu();
             }
 
+            #[cfg(feature = "gba")]
             if ui.button("Game Boy Advance").clicked() {
                 self.state.open_windows.insert(OpenWindow::GbaGeneral);
                 ui.close_menu();
@@ -773,6 +790,7 @@ impl App {
                 ui.close_menu();
             }
 
+            #[cfg(feature = "gba")]
             if ui.button("Game Boy Advance").clicked() {
                 self.state.open_windows.insert(OpenWindow::GbaVideo);
                 ui.close_menu();
@@ -1005,6 +1023,7 @@ impl App {
             ui.checkbox(&mut self.config.list_filters.nes, "NES");
             ui.checkbox(&mut self.config.list_filters.snes, "SNES");
             ui.checkbox(&mut self.config.list_filters.game_boy, "GB");
+            #[cfg(feature = "gba")]
             ui.checkbox(&mut self.config.list_filters.game_boy_advance, "GBA");
 
             if prev_list_filters != self.config.list_filters {
@@ -1152,6 +1171,24 @@ impl App {
             .collect::<Vec<_>>()
             .into();
     }
+
+    fn terminate_emu_thread(&self) {
+        if self.emu_thread.status() == EmuThreadStatus::Terminated {
+            return;
+        }
+
+        let _ = self.emu_thread.try_send(EmuThreadCommand::Terminate);
+
+        let wait_limit = Instant::now() + Duration::from_secs(1);
+        while Instant::now() < wait_limit && self.emu_thread.status() != EmuThreadStatus::Terminated
+        {
+            thread::sleep(Duration::from_millis(1));
+        }
+
+        if self.emu_thread.status() != EmuThreadStatus::Terminated {
+            log::warn!("Failed to terminate emulation thread; exiting anyway");
+        }
+    }
 }
 
 impl eframe::App for App {
@@ -1205,6 +1242,10 @@ impl eframe::App for App {
         }
 
         self.state.rendered_first_frame = true;
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.terminate_emu_thread();
     }
 }
 

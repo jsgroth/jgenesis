@@ -86,7 +86,12 @@ impl Sega32X {
         }
     }
 
-    pub fn tick(&mut self, mut total_mclk_cycles: u64, pwm_resampler: &mut PwmResampler) {
+    pub fn tick(
+        &mut self,
+        mut total_mclk_cycles: u64,
+        pwm_resampler: &mut PwmResampler,
+        genesis_vdp: &genesis_core::vdp::Vdp,
+    ) {
         while total_mclk_cycles > 0 {
             let h_interrupt_enabled = self.s32x_bus.registers.either_h_interrupt_enabled();
             let mclk_till_next_vdp_event =
@@ -144,7 +149,7 @@ impl Sega32X {
             peripherals_bus.which = WhichCpu::Slave;
             self.sh2_slave.tick_peripherals(elapsed_sh2_cycles, &mut peripherals_bus);
 
-            self.s32x_bus.vdp.tick(mclk_cycles, &mut self.s32x_bus.registers);
+            self.s32x_bus.vdp.tick(mclk_cycles, &mut self.s32x_bus.registers, genesis_vdp);
 
             self.s32x_bus.pwm.tick(elapsed_sh2_cycles, &mut self.s32x_bus.registers, pwm_resampler);
         }

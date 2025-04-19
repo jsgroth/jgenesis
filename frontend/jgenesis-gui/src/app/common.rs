@@ -188,6 +188,12 @@ impl App {
 
         let mut open = true;
         Window::new("General Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            let rect = ui.checkbox(&mut self.config.common.mute_audio, "Mute audio").interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::MUTE_AUDIO);
+            }
+
+            ui.add_space(5.0);
             let rect = ui
                 .group(|ui| {
                     ui.label("Output sample rate");

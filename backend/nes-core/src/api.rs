@@ -87,6 +87,8 @@ pub struct NesEmulatorConfig {
     pub forced_timing_mode: Option<TimingMode>,
     /// Aspect ratio
     pub aspect_ratio: NesAspectRatio,
+    /// Crop frame vertically from 240px to 224px in NTSC mode
+    pub ntsc_crop_vertical_overscan: bool,
     /// Overscan in pixels
     pub overscan: Overscan,
     /// If true, do not emulate the 8 sprite per scanline limit; this eliminates sprite flickering
@@ -157,7 +159,7 @@ impl NesEmulator {
         let mut bus = Bus::from_cartridge(mapper, config.overscan);
 
         let cpu_state = CpuState::new(&mut bus.cpu());
-        let ppu_state = PpuState::new(timing_mode);
+        let ppu_state = PpuState::new(timing_mode, config.ntsc_crop_vertical_overscan);
         let mut apu_state = ApuState::new(timing_mode);
 
         init_apu(&mut apu_state, &mut bus, config);
@@ -227,15 +229,19 @@ impl NesEmulator {
 
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
         let overscan = self.config.overscan;
-        let timing_mode = self.bus.mapper().timing_mode();
+        let display_mode = if !self.config.ntsc_crop_vertical_overscan {
+            TimingMode::Pal
+        } else {
+            self.bus.mapper().timing_mode()
+        };
         graphics::ppu_frame_buffer_to_rgba(
             self.ppu_state.frame_buffer(),
             &mut self.rgba_frame_buffer,
             overscan,
-            timing_mode,
+            display_mode,
         );
 
-        let visible_screen_height = timing_mode.visible_screen_height();
+        let visible_screen_height = display_mode.visible_screen_height();
         let frame_size = FrameSize {
             width: ppu::SCREEN_WIDTH
                 .saturating_sub(overscan.left)
@@ -363,6 +369,7 @@ impl EmulatorTrait for NesEmulator {
 
         self.bus.reload_config(*config);
         self.audio_resampler.reload_config(config);
+        self.ppu_state.ntsc_crop_vertical_overscan = config.ntsc_crop_vertical_overscan;
     }
 
     fn take_rom_from(&mut self, other: &mut Self) {

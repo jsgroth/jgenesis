@@ -35,6 +35,8 @@ pub const MCLK_CYCLES_PER_SCANLINE: u16 = 10 * DOTS_PER_SCANLINE;
 pub const NTSC_SCANLINES_PER_FRAME: u16 = 262;
 pub const PAL_SCANLINES_PER_FRAME: u16 = 313;
 
+type Vram = [u8; VRAM_LEN];
+
 trait TimingModeExt {
     fn scanlines_per_frame(self) -> u16;
 }
@@ -379,7 +381,7 @@ impl Registers {
         status_flags
     }
 
-    fn write_control(&mut self, value: u8, vram: &[u8]) {
+    fn write_control(&mut self, value: u8, vram: &Vram) {
         let write_flag = self.control_write_flag;
 
         log::trace!("VDP control write with flag {write_flag:?}");
@@ -438,7 +440,7 @@ impl Registers {
         self.control_write_flag = write_flag.toggle();
     }
 
-    fn read_data(&mut self, vram: &[u8]) -> u8 {
+    fn read_data(&mut self, vram: &Vram) -> u8 {
         let buffered_byte = self.data_read_buffer;
 
         self.data_read_buffer = vram[self.data_address as usize];
@@ -450,7 +452,7 @@ impl Registers {
         buffered_byte
     }
 
-    fn write_data(&mut self, value: u8, vram: &mut [u8], cram: &mut [u8]) {
+    fn write_data(&mut self, value: u8, vram: &mut Vram, cram: &mut [u8]) {
         log::trace!("VDP data write with address {:04X}", self.data_address);
 
         match self.data_write_location {
@@ -690,7 +692,7 @@ fn find_sprites_on_scanline(
     scanline: u8,
     mode: Mode,
     registers: SpriteRegisters,
-    vram: &[u8],
+    vram: &Vram,
     sprite_buffer: &mut SpriteBuffer,
     remove_sprite_limit: bool,
 ) {
@@ -890,7 +892,7 @@ impl<'a> IntoIterator for &'a VdpBuffer {
 pub struct Vdp {
     frame_buffer: VdpBuffer,
     registers: Registers,
-    vram: [u8; VRAM_LEN],
+    vram: Box<Vram>,
     color_ram: [u8; COLOR_RAM_LEN],
     scanline: u16,
     dot: u16,
@@ -914,7 +916,7 @@ impl Vdp {
         Self {
             frame_buffer: VdpBuffer::new(version, config.gg_use_sms_resolution),
             registers: Registers::new(version),
-            vram: [0; VRAM_LEN],
+            vram: Box::new(array::from_fn(|_| 0)),
             color_ram: [0; COLOR_RAM_LEN],
             scanline: 0,
             dot: 0,

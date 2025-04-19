@@ -13,9 +13,6 @@ use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::cmp;
 use std::ops::{Deref, DerefMut, Range};
 
-const NTSC_SCANLINES_PER_FRAME: u16 = genesis_core::vdp::NTSC_SCANLINES_PER_FRAME;
-const PAL_SCANLINES_PER_FRAME: u16 = genesis_core::vdp::PAL_SCANLINES_PER_FRAME;
-
 const MCLK_CYCLES_PER_SCANLINE: u64 = genesis_core::vdp::MCLK_CYCLES_PER_SCANLINE;
 const ACTIVE_MCLK_CYCLES_PER_SCANLINE: u64 = genesis_core::vdp::ACTIVE_MCLK_CYCLES_PER_SCANLINE;
 
@@ -45,6 +42,8 @@ const RGB_5_TO_8: &[u8; 32] = &[
     0, 8, 16, 25, 33, 41, 49, 58, 66, 74, 82, 90, 99, 107, 115, 123, 132, 140, 148, 156, 165, 173,
     181, 189, 197, 206, 214, 222, 230, 239, 247, 255,
 ];
+
+type GenesisVdp = genesis_core::vdp::Vdp;
 
 #[derive(Debug, Clone, FakeEncode, FakeDecode)]
 struct H32FrameBuffer(Box<[Color; H32_FRAME_BUFFER_LEN]>);
@@ -85,19 +84,6 @@ fn new_rendered_frame() -> Box<RenderedFrame> {
         .unwrap()
 }
 
-trait TimingModeExt {
-    fn scanlines_per_frame(self) -> u16;
-}
-
-impl TimingModeExt for TimingMode {
-    fn scanlines_per_frame(self) -> u16 {
-        match self {
-            Self::Ntsc => NTSC_SCANLINES_PER_FRAME,
-            Self::Pal => PAL_SCANLINES_PER_FRAME,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum WhichFrameBuffer {
     #[default]
@@ -110,6 +96,7 @@ struct State {
     next_render_buffer: WhichFrameBuffer,
     scanline: u16,
     scanline_mclk: u64,
+    scanlines_in_current_frame: u16,
     h_interrupt_counter: u16,
     display_frame_buffer: SelectedFrameBuffer,
     // 7 * SH-2 cycles
@@ -122,6 +109,7 @@ impl State {
             next_render_buffer: WhichFrameBuffer::Genesis,
             scanline: 0,
             scanline_mclk: 0,
+            scanlines_in_current_frame: u16::MAX,
             h_interrupt_counter: 0,
             display_frame_buffer: SelectedFrameBuffer::default(),
             auto_fill_cycles_remaining: 0,
@@ -186,7 +174,12 @@ impl Vdp {
         }
     }
 
-    pub fn tick(&mut self, mclk_cycles: u64, registers: &mut SystemRegisters) {
+    pub fn tick(
+        &mut self,
+        mclk_cycles: u64,
+        registers: &mut SystemRegisters,
+        genesis_vdp: &GenesisVdp,
+    ) {
         self.state.auto_fill_cycles_remaining =
             self.state.auto_fill_cycles_remaining.saturating_sub(mclk_cycles * 3);
 
@@ -227,7 +220,11 @@ impl Vdp {
                 }
                 self.state.display_frame_buffer = self.registers.display_frame_buffer;
                 registers.notify_vblank();
-            } else if self.state.scanline >= self.timing_mode.scanlines_per_frame() {
+
+                // Grab scanlines in frame at start of VBlank to avoid a dependency on which order
+                // the VDPs execute in, since interlacing state is latched at the start of line 0
+                self.state.scanlines_in_current_frame = genesis_vdp.scanlines_in_current_frame();
+            } else if self.state.scanline >= self.state.scanlines_in_current_frame {
                 self.state.scanline = 0;
             }
 
@@ -274,20 +271,23 @@ impl Vdp {
             self.state.display_frame_buffer
         );
 
+        let priority = u16::from(self.registers.priority) << 15;
+
         if self.registers.screen_left_shift {
             for pixel in 0..FRAME_WIDTH as u16 {
                 let frame_buffer_addr = line_addr.wrapping_add((pixel + 1) >> 1);
                 let color = (frame_buffer[frame_buffer_addr as usize] >> (8 * (pixel & 1))) & 0xFF;
 
-                self.rendered_frame[line][pixel as usize] = self.cram[color as usize];
+                self.rendered_frame[line][pixel as usize] = self.cram[color as usize] ^ priority;
             }
         } else {
             for pixel in (0..FRAME_WIDTH as u16).step_by(2) {
                 let frame_buffer_addr = line_addr.wrapping_add(pixel >> 1);
                 let [msb, lsb] = frame_buffer[frame_buffer_addr as usize].to_be_bytes();
 
-                self.rendered_frame[line][pixel as usize] = self.cram[msb as usize];
-                self.rendered_frame[line][(pixel + 1) as usize] = self.cram[lsb as usize];
+                self.rendered_frame[line][pixel as usize] = self.cram[msb as usize] ^ priority;
+                self.rendered_frame[line][(pixel + 1) as usize] =
+                    self.cram[lsb as usize] ^ priority;
             }
         }
     }
@@ -302,9 +302,11 @@ impl Vdp {
             self.state.display_frame_buffer
         );
 
+        let priority = u16::from(self.registers.priority) << 15;
+
         for pixel in 0..FRAME_WIDTH as u16 {
             let color = frame_buffer[line_addr.wrapping_add(pixel) as usize];
-            self.rendered_frame[line][pixel as usize] = color;
+            self.rendered_frame[line][pixel as usize] = color ^ priority;
         }
     }
 
@@ -318,6 +320,8 @@ impl Vdp {
             self.state.display_frame_buffer
         );
 
+        let priority = u16::from(self.registers.priority) << 15;
+
         let mut pixel = 0;
         while pixel < FRAME_WIDTH {
             let [run_length_byte, color_idx] = frame_buffer[line_addr as usize].to_be_bytes();
@@ -326,7 +330,7 @@ impl Vdp {
             let color = self.cram[color_idx as usize];
             let mut run_length = u16::from(run_length_byte) + 1;
             while pixel < FRAME_WIDTH && run_length != 0 {
-                self.rendered_frame[line][pixel as usize] = color;
+                self.rendered_frame[line][pixel as usize] = color ^ priority;
                 pixel += 1;
                 run_length -= 1;
             }
@@ -551,7 +555,7 @@ impl Vdp {
         self.state.scanline_mclk
     }
 
-    pub fn composite_frame(&mut self, genesis_vdp: &mut genesis_core::vdp::Vdp) {
+    pub fn composite_frame(&mut self, genesis_vdp: &mut GenesisVdp) {
         // Default to rendering from the Genesis VDP frame buffer, switch later if necessary
         self.state.next_render_buffer = WhichFrameBuffer::Genesis;
 
@@ -560,100 +564,129 @@ impl Vdp {
             || self.video_out == S32XVideoOut::GenesisOnly
         {
             // Leave Genesis frame as-is
+            // TODO what if 32X VDP was switched to blank mode mid-frame?
             return;
         }
 
         let genesis_frame_size = genesis_vdp.frame_size();
         let border_size = genesis_vdp.border_size();
-        let genesis_frame_buffer = genesis_vdp.frame_buffer_mut();
 
         if genesis_frame_size.width - border_size.left - border_size.right == 256 {
             // If the Genesis VDP is in H32 mode, render the frame in 1280x224 so that it's possible
             // to composite the 320x224 32X frame with the 256x224 Genesis frame without needing to
             // blend or filter any pixels.
             // NFL Quarterback Club depends on this - it uses H32 mode in menus
-            self.composite_frame_h32(genesis_frame_buffer, genesis_frame_size, border_size);
+            self.composite_frame_h32(genesis_frame_size, border_size, genesis_vdp);
             return;
         }
 
-        let priority = self.registers.priority;
-
-        let active_lines_per_frame: u32 =
-            self.registers.v_resolution.active_scanlines_per_frame().into();
-        let s32x_only = self.video_out == S32XVideoOut::S32XOnly;
-
-        for line in 0..active_lines_per_frame {
-            for pixel in 0..FRAME_WIDTH {
-                let genesis_fb_addr = ((line + border_size.top) * genesis_frame_size.width
-                    + pixel
-                    + border_size.left) as usize;
-
-                let s32x_pixel = self.rendered_frame[line as usize][pixel as usize];
-
-                if s32x_only
-                    || s32x_pixel.bit(15) != priority
-                    || genesis_frame_buffer[genesis_fb_addr].a == 0
-                {
-                    // Replace Genesis pixel with 32X pixel
-                    genesis_frame_buffer[genesis_fb_addr] = u16_to_rgb(s32x_pixel);
-                }
-            }
-        }
+        // Otherwise, composite in H40 into the Genesis VDP frame buffer
+        self.composite_frame_inner::<false>(genesis_frame_size, border_size, genesis_vdp);
     }
 
     fn composite_frame_h32(
         &mut self,
-        genesis_frame_buffer: &[Color; genesis_core::vdp::FRAME_BUFFER_LEN],
         genesis_frame_size: FrameSize,
         border_size: BorderSize,
+        genesis_vdp: &mut GenesisVdp,
     ) {
         debug_assert!(genesis_frame_size.width == 256 + border_size.left + border_size.right);
 
-        let s32x_only = self.video_out == S32XVideoOut::S32XOnly;
+        self.state.next_render_buffer = WhichFrameBuffer::H32;
 
-        if !s32x_only {
+        if self.video_out != S32XVideoOut::S32XOnly {
             self.copy_genesis_frame_buffer_to_h32(
-                genesis_frame_buffer,
                 genesis_frame_size,
                 border_size,
+                genesis_vdp.frame_buffer_mut(),
             );
         } else {
             self.h32_frame_buffer.fill(Color::rgba(0, 0, 0, 0));
         }
 
-        let priority = self.registers.priority;
+        self.composite_frame_inner::<true>(genesis_frame_size, border_size, genesis_vdp);
+    }
+
+    fn composite_frame_inner<const H32: bool>(
+        &mut self,
+        frame_size: FrameSize,
+        border_size: BorderSize,
+        genesis_vdp: &mut GenesisVdp,
+    ) {
+        fn should_use_32x_pixel(s32x_only: bool, s32x_pixel: u16, gen_color: Color) -> bool {
+            s32x_only || s32x_pixel.bit(15) || gen_color.a == 0
+        }
+
+        let interlaced_frame: u32 = genesis_vdp.is_interlaced_frame().into();
+        let interlaced_odd: u32 = genesis_vdp.is_interlaced_odd().into();
+
+        let frame_buffer =
+            if H32 { self.h32_frame_buffer.as_mut() } else { genesis_vdp.frame_buffer_mut() };
+
         let active_lines_per_frame: u32 =
             self.registers.v_resolution.active_scanlines_per_frame().into();
+        let s32x_only = self.video_out == S32XVideoOut::S32XOnly;
 
-        let h32_frame_width = determine_h32_buffer_width(genesis_frame_size, border_size);
+        let frame_width = if H32 {
+            determine_h32_buffer_width(frame_size, border_size)
+        } else {
+            frame_size.width
+        };
+        let left_offset = if H32 { 5 * border_size.left + H32_H_OFFSET } else { border_size.left };
+
+        let top_offset = border_size.top << interlaced_frame;
 
         for line in 0..active_lines_per_frame {
-            let fb_row_addr = ((line + border_size.top) * h32_frame_width
-                + 5 * border_size.left
-                + H32_H_OFFSET) as usize;
+            let effective_line = (line << interlaced_frame) + interlaced_odd;
+            let fb_row_addr = ((effective_line + top_offset) * frame_width + left_offset) as usize;
+
             for pixel in 0..FRAME_WIDTH {
                 let s32x_pixel = self.rendered_frame[line as usize][pixel as usize];
-                let fb_addr = fb_row_addr + 4 * pixel as usize;
 
-                for i in 0..4 {
-                    if s32x_only
-                        || s32x_pixel.bit(15) != priority
-                        || self.h32_frame_buffer[fb_addr + i].a == 0
-                    {
-                        self.h32_frame_buffer[fb_addr + i] = u16_to_rgb(s32x_pixel);
+                if H32 {
+                    let fb_addr = fb_row_addr + 4 * pixel as usize;
+                    for i in 0..4 {
+                        if should_use_32x_pixel(s32x_only, s32x_pixel, frame_buffer[fb_addr + i]) {
+                            frame_buffer[fb_addr + i] = u16_to_rgb(s32x_pixel);
+                        }
+                    }
+                } else {
+                    let fb_addr = fb_row_addr + pixel as usize;
+                    if should_use_32x_pixel(s32x_only, s32x_pixel, frame_buffer[fb_addr]) {
+                        frame_buffer[fb_addr] = u16_to_rgb(s32x_pixel);
                     }
                 }
             }
         }
 
-        self.state.next_render_buffer = WhichFrameBuffer::H32;
+        // TODO how do interlaced modes actually work with 32X? Needs testing
+        if interlaced_frame != 0 {
+            for line in 0..active_lines_per_frame {
+                let from_line = 2 * line + interlaced_odd;
+                let to_line = from_line ^ 1;
+
+                let from_line_fb_addr = ((from_line + top_offset) * frame_width) as usize;
+                let to_line_fb_addr = ((to_line + top_offset) * frame_width) as usize;
+
+                if to_line_fb_addr > from_line_fb_addr {
+                    let (a, b) = frame_buffer.split_at_mut(to_line_fb_addr);
+                    b[..frame_width as usize].copy_from_slice(
+                        &a[from_line_fb_addr..from_line_fb_addr + frame_width as usize],
+                    );
+                } else {
+                    let (a, b) = frame_buffer.split_at_mut(from_line_fb_addr);
+                    a[to_line_fb_addr..to_line_fb_addr + frame_width as usize]
+                        .copy_from_slice(&b[..frame_width as usize]);
+                }
+            }
+        }
     }
 
     fn copy_genesis_frame_buffer_to_h32(
         &mut self,
-        frame_buffer: &[Color; genesis_core::vdp::FRAME_BUFFER_LEN],
         frame_size: FrameSize,
         border_size: BorderSize,
+        frame_buffer: &mut [Color; genesis_core::vdp::FRAME_BUFFER_LEN],
     ) {
         let h32_frame_width = determine_h32_buffer_width(frame_size, border_size);
 
@@ -678,7 +711,7 @@ impl Vdp {
 
     pub fn render_frame<R: Renderer>(
         &self,
-        genesis_vdp: &genesis_core::vdp::Vdp,
+        genesis_vdp: &GenesisVdp,
         mut aspect_ratio: Option<PixelAspectRatio>,
         renderer: &mut R,
     ) -> Result<(), R::Err> {
