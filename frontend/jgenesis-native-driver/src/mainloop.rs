@@ -380,8 +380,8 @@ pub enum NativeEmulatorError {
     LoadStateIo(io::Error),
     #[error("Save state begins with invalid prefix")]
     LoadStatePrefixMismatch,
-    #[error("Save state version mismatch; expected {expected}, got {actual}")]
-    LoadStateVersionMismatch { expected: u16, actual: u16 },
+    #[error("Save state version mismatch; expected '{expected}', got '{actual}'")]
+    LoadStateVersionMismatch { expected: String, actual: String },
     #[error("Error in emulation core: {0}")]
     Emulator(#[source] Box<dyn Error + Send + Sync + 'static>),
 }

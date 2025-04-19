@@ -256,8 +256,8 @@ pub trait EmulatorTrait: Encode + Decode + PartialClone {
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S);
 
     #[must_use]
-    fn save_state_version() -> u16 {
-        4
+    fn save_state_version() -> &'static str {
+        "0.10.0"
     }
 
     fn target_fps(&self) -> f64;
