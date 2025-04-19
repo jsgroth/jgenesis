@@ -9,6 +9,7 @@ mod phase;
 mod timer;
 
 use crate::GenesisEmulatorConfig;
+use crate::api::Opn2BusyBehavior;
 use crate::ym2612::envelope::EnvelopeGenerator;
 use crate::ym2612::lfo::LowFrequencyOscillator;
 use crate::ym2612::phase::PhaseGenerator;
@@ -428,11 +429,18 @@ pub struct Ym2612 {
     csm_enabled: bool,
     quantize_output: bool,
     emulate_ladder_effect: bool,
+    busy_behavior: Opn2BusyBehavior,
+    last_status_read: u8,
+    status_decay_samples_remaining: u32,
 }
 
 impl Ym2612 {
     #[must_use]
-    pub fn new(quantize_output: bool, emulate_ladder_effect: bool) -> Self {
+    pub fn new(
+        quantize_output: bool,
+        emulate_ladder_effect: bool,
+        busy_behavior: Opn2BusyBehavior,
+    ) -> Self {
         Self {
             channels: array::from_fn(|_| FmChannel::default()),
             dac_channel_enabled: false,
@@ -447,16 +455,23 @@ impl Ym2612 {
             csm_enabled: false,
             quantize_output,
             emulate_ladder_effect,
+            busy_behavior,
+            last_status_read: 0,
+            status_decay_samples_remaining: 0,
         }
     }
 
     #[must_use]
     pub fn new_from_config(config: &GenesisEmulatorConfig) -> Self {
-        Self::new(config.quantize_ym2612_output, config.emulate_ym2612_ladder_effect)
+        Self::new(
+            config.quantize_ym2612_output,
+            config.emulate_ym2612_ladder_effect,
+            config.opn2_busy_behavior,
+        )
     }
 
     pub fn reset(&mut self) {
-        *self = Self::new(self.quantize_output, self.emulate_ladder_effect);
+        *self = Self::new(self.quantize_output, self.emulate_ladder_effect, self.busy_behavior);
     }
 
     // Set the address register and set group to 1 (system registers + channels 1-3)
@@ -599,10 +614,27 @@ impl Ym2612 {
 
     #[allow(clippy::unused_self)]
     #[must_use]
-    pub fn read_register(&self) -> u8 {
-        (u8::from(self.busy_cycles_remaining != 0) << 7)
+    pub fn read_register(&mut self, address: u16) -> u8 {
+        if self.busy_behavior == Opn2BusyBehavior::Ym2612 && address & 3 != 0 {
+            // On YM2612, reads from $4001-$4003 return the last value read from $4000
+            // Status value decays to 0 after a certain amount of time has passed
+            return if self.status_decay_samples_remaining != 0 {
+                self.last_status_read
+            } else {
+                0
+            };
+        }
+
+        let status = (u8::from(self.busy_cycles_remaining != 0) << 7)
             | (u8::from(self.timer_b.overflow_flag()) << 1)
-            | u8::from(self.timer_a.overflow_flag())
+            | u8::from(self.timer_a.overflow_flag());
+
+        // 12000 sample decay period produces a result similar to actual YM2612 hardware, though from
+        // limited testing the decay period can vary even on a single console
+        self.status_decay_samples_remaining = 12000;
+        self.last_status_read = status;
+
+        status
     }
 
     #[inline]
@@ -613,6 +645,9 @@ impl Ym2612 {
             self.sample_divider -= 1;
             if self.sample_divider == 0 {
                 self.sample_divider = FM_SAMPLE_DIVIDER;
+
+                self.status_decay_samples_remaining =
+                    self.status_decay_samples_remaining.saturating_sub(1);
 
                 self.lfo.tick();
 
@@ -888,6 +923,7 @@ impl Ym2612 {
     pub fn reload_config(&mut self, config: GenesisEmulatorConfig) {
         self.quantize_output = config.quantize_ym2612_output;
         self.emulate_ladder_effect = config.emulate_ym2612_ladder_effect;
+        self.busy_behavior = config.opn2_busy_behavior;
     }
 }
 
@@ -897,7 +933,7 @@ mod tests {
 
     #[test]
     fn ladder_effect() {
-        let ym2612 = Ym2612::new(false, true);
+        let ym2612 = Ym2612::new(false, true, Opn2BusyBehavior::default());
 
         // Zero; output +4
         assert_eq!(4 << 5, ym2612.apply_panning(0, false));
@@ -910,5 +946,56 @@ mod tests {
         // Negative; output -4 when muted, add -3 when enabled
         assert_eq!(-(4 << 5), ym2612.apply_panning(-(6 << 5), false));
         assert_eq!(-(9 << 5), ym2612.apply_panning(-(6 << 5), true));
+    }
+
+    #[test]
+    fn busy_flag_ym2612() {
+        let mut ym2612 = Ym2612::new(false, true, Opn2BusyBehavior::Ym2612);
+
+        let check_4001_4003 = |ym2612: &mut Ym2612, value: u8| {
+            for address in 0x4001..=0x4003 {
+                assert_eq!(ym2612.read_register(address) & 0x80, value);
+            }
+        };
+
+        // Write to a register
+        ym2612.write_address_1(0x30);
+        ym2612.write_data(0xFF);
+
+        // $4001-$4003 should read 0
+        check_4001_4003(&mut ym2612, 0);
+
+        // Read from $4000 should have busy flag set
+        assert_eq!(ym2612.read_register(0x4000) & 0x80, 0x80);
+
+        // $4001-$4003 should now read with the busy flag set
+        check_4001_4003(&mut ym2612, 0x80);
+
+        // Tick for 40 internal cycles
+        ym2612.tick(40, |_| {});
+
+        // Busy flag should be clear by now, but $4001-$4003 should still read the old value
+        check_4001_4003(&mut ym2612, 0x80);
+
+        // Read from $4000 should have busy flag clear
+        assert_eq!(ym2612.read_register(0x4000) & 0x80, 0);
+
+        // $4001-$4003 should now have busy flag clear
+        check_4001_4003(&mut ym2612, 0);
+
+        // Write to a register again
+        ym2612.write_address_1(0x30);
+        ym2612.write_data(0xFF);
+
+        // $4000 should now have busy flag set again
+        assert_eq!(ym2612.read_register(0x4000) & 0x80, 0x80);
+        check_4001_4003(&mut ym2612, 0x80);
+
+        // Tick for almost half a second's worth of cycles
+        ym2612.tick(500000, |_| {});
+
+        // Status value should have decayed to 0 by now
+        check_4001_4003(&mut ym2612, 0);
+        assert_eq!(ym2612.read_register(0x4000) & 0x80, 0);
     }
 }

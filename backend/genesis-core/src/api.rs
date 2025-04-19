@@ -177,6 +177,15 @@ pub enum GenesisLowPassFilter {
     Model1Va2,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumAll, EnumDisplay)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum Opn2BusyBehavior {
+    Ym2612,
+    #[default]
+    Ym3438,
+}
+
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct GenesisEmulatorConfig {
     pub p1_controller_type: GenesisControllerType,
@@ -198,6 +207,7 @@ pub struct GenesisEmulatorConfig {
     pub backdrop_enabled: bool,
     pub quantize_ym2612_output: bool,
     pub emulate_ym2612_ladder_effect: bool,
+    pub opn2_busy_behavior: Opn2BusyBehavior,
     pub low_pass: GenesisLowPassFilter,
     pub ym2612_enabled: bool,
     pub psg_enabled: bool,

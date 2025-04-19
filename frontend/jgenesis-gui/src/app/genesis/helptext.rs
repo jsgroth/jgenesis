@@ -131,8 +131,8 @@ pub const S32X_VIDEO_OUT: HelpText = HelpText {
 pub const QUANTIZE_YM2612_OUTPUT: HelpText = HelpText {
     heading: "Quantize YM2612 Output",
     text: &[
-        "If enabled, quantize YM2612 FM channel output from 14 bits to 9 bits by truncating the lowest bits.",
-        "This makes audio somewhat less dynamic, but enabling this is more accurate, and some game audio is designed around quantization.",
+        "If enabled, quantize YM2612 FM channel output from 14 bits to 9 bits by truncating the lowest bits. This makes audio output somewhat noisier.",
+        "Enabling this is more accurate to actual hardware. Some games have audio designed around quantization.",
     ],
 };
 
@@ -141,6 +141,15 @@ pub const YM2612_LADDER_EFFECT: HelpText = HelpText {
     text: &[
         "If enabled, emulate YM2612 DAC crossover distortion, commonly known as the ladder effect.",
         "This effectively amplifies low-volume audio waves and has little effect on high-volume waves. Some games have audio designed around this effect.",
+        "This distortion is not present on later consoles that have a YM3438.",
+    ],
+};
+
+pub const OPN2_BUSY_BEHAVIOR: HelpText = HelpText {
+    heading: "OPN2 Busy Flag Behavior",
+    text: &[
+        "Control which FM chip busy flag behavior to emulate.",
+        "This does not affect most games, but a few games have audio issues with one behavior or the other, such as Earthworm Jim (issues with YM2612 behavior) and Hellfire (issues with YM3438 behavior).",
     ],
 };
 

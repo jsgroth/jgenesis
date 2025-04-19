@@ -1,5 +1,7 @@
 use genesis_core::input::GenesisControllerType;
-use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig, GenesisLowPassFilter};
+use genesis_core::{
+    GenesisAspectRatio, GenesisEmulatorConfig, GenesisLowPassFilter, Opn2BusyBehavior,
+};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, PrescaleMode, RendererConfig, Scanlines,
@@ -140,6 +142,7 @@ impl GenesisWebConfig {
             backdrop_enabled: true,
             quantize_ym2612_output: true,
             emulate_ym2612_ladder_effect: true,
+            opn2_busy_behavior: Opn2BusyBehavior::default(),
             low_pass: self.low_pass,
             ym2612_enabled: true,
             psg_enabled: true,

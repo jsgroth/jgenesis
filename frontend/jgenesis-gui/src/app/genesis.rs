@@ -4,7 +4,7 @@ use crate::app::{App, Console, OpenWindow};
 use crate::emuthread::EmuThreadStatus;
 use crate::widgets::OverclockSlider;
 use egui::{Context, Window};
-use genesis_core::{GenesisAspectRatio, GenesisLowPassFilter, GenesisRegion};
+use genesis_core::{GenesisAspectRatio, GenesisLowPassFilter, GenesisRegion, Opn2BusyBehavior};
 use jgenesis_common::frontend::TimingMode;
 use rfd::FileDialog;
 use s32x_core::api::S32XVideoOut;
@@ -373,14 +373,14 @@ impl App {
         const WINDOW: OpenWindow = OpenWindow::GenesisAudio;
 
         let mut open = true;
-        Window::new("Genesis Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+        Window::new("Genesis Audio Settings").open(&mut open).resizable(false).default_pos([10.0, 5.0]).show(ctx, |ui| {
             let rect = ui.checkbox(
                 &mut self.config.genesis.quantize_ym2612_output,
                 "Quantize YM2612 channel output",
             )
-            .on_hover_text(
-                "Quantize channel outputs from 14 bits to 9 bits to emulate the YM2612's 9-bit DAC",
-            ).interact_rect;
+                .on_hover_text(
+                    "Quantize channel outputs from 14 bits to 9 bits to emulate the YM2612's 9-bit DAC",
+                ).interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::QUANTIZE_YM2612_OUTPUT);
             }
@@ -455,6 +455,21 @@ impl App {
                     self.state.help_text.insert(WINDOW, helptext::S32X_GEN_LOW_PASS);
                 }
             });
+
+            ui.add_space(5.0);
+            let rect = ui.group(|ui| {
+                ui.label("OPN2 busy flag behavior");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(&mut self.config.genesis.opn2_busy_behavior, Opn2BusyBehavior::Ym2612, "YM2612");
+                    ui.radio_value(&mut self.config.genesis.opn2_busy_behavior, Opn2BusyBehavior::Ym3438, "YM3438");
+                });
+            })
+                .response
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::OPN2_BUSY_BEHAVIOR);
+            }
 
             ui.add_space(5.0);
             let rect = ui

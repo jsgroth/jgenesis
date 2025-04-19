@@ -1030,8 +1030,7 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> z80_emu::BusInterface
             }
             0x4000..=0x5FFF => {
                 // YM2612 registers/ports (mirrored every 4 addresses)
-                // All YM2612 reads function identically
-                self.ym2612.read_register()
+                self.ym2612.read_register(address)
             }
             0x6000..=0x60FF => {
                 // Bank number register

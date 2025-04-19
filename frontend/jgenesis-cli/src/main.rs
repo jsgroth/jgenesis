@@ -5,6 +5,7 @@ use env_logger::Env;
 use gb_core::api::{GbAspectRatio, GbAudioResampler, GbPalette, GbcColorCorrection};
 use genesis_core::{
     GenesisAspectRatio, GenesisControllerType, GenesisLowPassFilter, GenesisRegion,
+    Opn2BusyBehavior,
 };
 use jgenesis_common::frontend::{EmulatorTrait, TimingMode};
 use jgenesis_native_config::AppConfig;
@@ -165,6 +166,10 @@ struct Args {
     /// Emulate the YM2612 "ladder effect"
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
     emulate_ym2612_ladder_effect: Option<bool>,
+
+    /// Select OPN2 busy flag behavior
+    #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
+    opn2_busy_behavior: Option<Opn2BusyBehavior>,
 
     /// Audio low-pass filter setting
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
@@ -590,6 +595,7 @@ impl Args {
             genesis_render_horizontal_border -> render_horizontal_border,
             quantize_ym2612_output,
             emulate_ym2612_ladder_effect,
+            opn2_busy_behavior,
             genesis_low_pass -> low_pass,
             ym2612_enabled,
             genesis_psg_enabled -> psg_enabled,
