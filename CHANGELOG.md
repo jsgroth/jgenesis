@@ -5,6 +5,8 @@
   * These are normally not visible within active display because it's uncommon to modify CRAM while the VDP is actively rendering, but they're visible in many games if vertical border rendering is enabled
 * (**Genesis**) Direct color DMA demos now work (though alignment might still be slightly off compared to actual hardware)
 * (**Genesis**) Added an aspect ratio "Auto" option (now default) that will function as either NTSC (8:7 / 32:35 PAR) or PAL (11:8 / 11:10 PAR) based on the current timing mode
+* (**Genesis**) Added an option to emulate the YM2612's busy flag behavior, as opposed to always using the YM3438 behavior
+  * YM2612 behavior fixes _Hellfire_'s music being way too slow, but also causes audio stuttering in _Earthworm Jim_
 * (**SMS** / **Game Gear**) Added a hardware region "Auto" setting that attempts to auto-detect region from the cartridge header (#214)
 * (**NES**) Added an option to disable vertical overscan cropping in NTSC mode (i.e. display in 256x240 instead of 256x224)
 * Added an audio option to mute all emulator audio output (#248)
