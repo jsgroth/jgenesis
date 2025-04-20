@@ -11,6 +11,7 @@ clap = ["dep:clap"]
 serde = ["dep:serde"]
 
 [dependencies]
+dsp = { path = "../../common/dsp" }
 jgenesis-common = { path = "../../common/jgenesis-common" }
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 mos6502-emu = { path = "../../cpu/mos6502-emu" }

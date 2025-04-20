@@ -625,7 +625,12 @@ impl Ym2612 {
             };
         }
 
-        let status = (u8::from(self.busy_cycles_remaining != 0) << 7)
+        let busy_flag = match self.busy_behavior {
+            Opn2BusyBehavior::AlwaysZero => false,
+            Opn2BusyBehavior::Ym2612 | Opn2BusyBehavior::Ym3438 => self.busy_cycles_remaining != 0,
+        };
+
+        let status = (u8::from(busy_flag) << 7)
             | (u8::from(self.timer_b.overflow_flag()) << 1)
             | u8::from(self.timer_a.overflow_flag());
 

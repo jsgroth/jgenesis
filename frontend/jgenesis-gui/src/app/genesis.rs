@@ -3,12 +3,13 @@ mod helptext;
 use crate::app::{App, Console, OpenWindow};
 use crate::emuthread::EmuThreadStatus;
 use crate::widgets::OverclockSlider;
-use egui::{Context, Window};
-use genesis_core::{GenesisAspectRatio, GenesisLowPassFilter, GenesisRegion, Opn2BusyBehavior};
+use egui::style::ScrollStyle;
+use egui::{Context, ScrollArea, Slider, Ui, Window};
+use genesis_core::{GenesisAspectRatio, GenesisRegion, Opn2BusyBehavior};
 use jgenesis_common::frontend::TimingMode;
 use rfd::FileDialog;
 use s32x_core::api::S32XVideoOut;
-use segacd_core::api::{PcmInterpolation, PcmLowPassFilter};
+use segacd_core::api::PcmInterpolation;
 use std::num::{NonZeroU16, NonZeroU64};
 use std::path::PathBuf;
 
@@ -372,164 +373,228 @@ impl App {
     pub(super) fn render_genesis_audio_settings(&mut self, ctx: &Context) {
         const WINDOW: OpenWindow = OpenWindow::GenesisAudio;
 
+        let screen_height = ctx.input(|i| i.screen_rect.height());
+
         let mut open = true;
-        Window::new("Genesis Audio Settings").open(&mut open).resizable(false).default_pos([10.0, 5.0]).show(ctx, |ui| {
-            let rect = ui.checkbox(
-                &mut self.config.genesis.quantize_ym2612_output,
-                "Quantize YM2612 channel output",
-            )
-                .on_hover_text(
-                    "Quantize channel outputs from 14 bits to 9 bits to emulate the YM2612's 9-bit DAC",
-                ).interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::QUANTIZE_YM2612_OUTPUT);
-            }
+        Window::new("Genesis Audio Settings").open(&mut open).show(ctx, |ui| {
+            ui.ctx().style_mut(|style| style.spacing.scroll = ScrollStyle::solid());
 
-            let rect = ui
-                .checkbox(
-                    &mut self.config.genesis.emulate_ym2612_ladder_effect,
-                    "Emulate YM2612 DAC distortion (\"ladder effect\")",
-                )
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::YM2612_LADDER_EFFECT);
-            }
+            ScrollArea::vertical().auto_shrink([false, true]).max_height(screen_height * 0.6).show(
+                ui,
+                |ui| {
+                    let rect = ui
+                        .checkbox(
+                            &mut self.config.genesis.quantize_ym2612_output,
+                            "Quantize YM2612 channel output",
+                        )
+                        .on_hover_text("Quantize channel outputs from 14 bits to 9 bits")
+                        .interact_rect;
+                    if ui.rect_contains_pointer(rect) {
+                        self.state.help_text.insert(WINDOW, helptext::QUANTIZE_YM2612_OUTPUT);
+                    }
 
-            ui.group(|ui| {
-                ui.label("Low-pass filtering");
+                    let rect = ui
+                        .checkbox(
+                            &mut self.config.genesis.emulate_ym2612_ladder_effect,
+                            "Emulate YM2612 DAC distortion (\"ladder effect\")",
+                        )
+                        .interact_rect;
+                    if ui.rect_contains_pointer(rect) {
+                        self.state.help_text.insert(WINDOW, helptext::YM2612_LADDER_EFFECT);
+                    }
 
-                let mut gen_low_pass =
-                    self.config.genesis.low_pass == GenesisLowPassFilter::Model1Va2;
-                let rect = ui
-                    .checkbox(&mut gen_low_pass, "Emulate 3.39 KHz low-pass filter")
-                    .interact_rect;
-                if ui.rect_contains_pointer(rect) {
-                    self.state.help_text.insert(WINDOW, helptext::GENESIS_LOW_PASS);
-                }
-                self.config.genesis.low_pass = if gen_low_pass {
-                    GenesisLowPassFilter::Model1Va2
-                } else {
-                    GenesisLowPassFilter::None
-                };
-
-                let mut pcm_low_pass = self.config.sega_cd.pcm_low_pass == PcmLowPassFilter::SegaCd;
-                let rect = ui
-                    .checkbox(
-                        &mut pcm_low_pass,
-                        "(Sega CD) Apply 7.97 KHz low-pass filter to PCM chip",
-                    )
-                    .interact_rect;
-                if ui.rect_contains_pointer(rect) {
-                    self.state.help_text.insert(WINDOW, helptext::PCM_LOW_PASS);
-                }
-                self.config.sega_cd.pcm_low_pass =
-                    if pcm_low_pass { PcmLowPassFilter::SegaCd } else { PcmLowPassFilter::None };
-
-                let rect = ui
-                    .add_enabled_ui(gen_low_pass, |ui| {
-                        ui.checkbox(
-                            &mut self.config.sega_cd.apply_genesis_lpf_to_pcm,
-                            "(Sega CD) Apply Genesis low-pass filter to PCM chip",
-                        );
-                        ui.checkbox(
-                            &mut self.config.sega_cd.apply_genesis_lpf_to_cd_da,
-                            "(Sega CD) Apply Genesis low-pass filter to CD-DA",
-                        );
-                    })
-                    .response
-                    .interact_rect;
-                if ui.rect_contains_pointer(rect) {
-                    self.state.help_text.insert(WINDOW, helptext::SCD_GEN_LOW_PASS);
-                }
-
-                let rect = ui
-                    .add_enabled_ui(gen_low_pass, |ui| {
-                        ui.checkbox(
-                            &mut self.config.sega_32x.apply_genesis_lpf_to_pwm,
-                            "(32X) Apply Genesis low-pass filter to PWM chip",
-                        );
-                    })
-                    .response
-                    .interact_rect;
-                if ui.rect_contains_pointer(rect) {
-                    self.state.help_text.insert(WINDOW, helptext::S32X_GEN_LOW_PASS);
-                }
-            });
-
-            ui.add_space(5.0);
-            let rect = ui.group(|ui| {
-                ui.label("OPN2 busy flag behavior");
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(&mut self.config.genesis.opn2_busy_behavior, Opn2BusyBehavior::Ym2612, "YM2612");
-                    ui.radio_value(&mut self.config.genesis.opn2_busy_behavior, Opn2BusyBehavior::Ym3438, "YM3438");
-                });
-            })
-                .response
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::OPN2_BUSY_BEHAVIOR);
-            }
-
-            ui.add_space(5.0);
-            let rect = ui
-                .group(|ui| {
-                    ui.label("Sega CD PCM chip interpolation");
-
-                    ui.horizontal(|ui| {
-                        for (value, label) in [
-                            (PcmInterpolation::None, "None"),
-                            (PcmInterpolation::Linear, "Linear"),
-                            (PcmInterpolation::CubicHermite, "4-point Cubic"),
-                            (PcmInterpolation::CubicHermite6Point, "6-point Cubic"),
-                        ] {
-                            ui.radio_value(
-                                &mut self.config.sega_cd.pcm_interpolation,
-                                value,
-                                label,
-                            );
-                        }
+                    ui.add_space(5.0);
+                    ui.group(|ui| {
+                        self.render_low_pass_filter_settings(ui);
                     });
-                })
-                .response
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::SCD_PCM_INTERPOLATION);
-            }
 
-            let rect = ui
-                .group(|ui| {
-                    ui.label("Enabled sound sources");
+                    ui.add_space(5.0);
+                    self.render_opn2_busy_flag_setting(ui);
 
-                    ui.horizontal(|ui| {
-                        ui.checkbox(
-                            &mut self.config.genesis.ym2612_enabled,
-                            "YM2612 FM synth chip",
-                        );
-                        ui.checkbox(&mut self.config.genesis.psg_enabled, "SN76489 PSG chip");
-                    });
-                    ui.horizontal(|ui| {
-                        ui.checkbox(
-                            &mut self.config.sega_cd.pcm_enabled,
-                            "(Sega CD) RF5C164 PCM chip",
-                        );
-                        ui.checkbox(
-                            &mut self.config.sega_cd.cd_audio_enabled,
-                            "(Sega CD) CD-DA playback",
-                        );
-                    });
-                    ui.checkbox(&mut self.config.sega_32x.pwm_enabled, "(32X) PWM chip");
-                })
-                .response
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::SOUND_SOURCES);
-            }
+                    ui.add_space(5.0);
+                    self.render_scd_pcm_interpolation_setting(ui);
+
+                    ui.add_space(5.0);
+                    self.render_enabled_sound_sources(ui);
+                },
+            );
 
             self.render_help_text(ui, WINDOW);
         });
         if !open {
             self.state.open_windows.remove(&WINDOW);
+        }
+    }
+
+    fn render_low_pass_filter_settings(&mut self, ui: &mut Ui) {
+        const WINDOW: OpenWindow = OpenWindow::GenesisAudio;
+
+        ui.heading("Low-pass filtering");
+
+        let rect = ui
+            .checkbox(
+                &mut self.config.genesis.genesis_lpf_enabled,
+                "Emulate Genesis first-order low-pass filter",
+            )
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(WINDOW, helptext::GENESIS_LOW_PASS);
+        }
+
+        ui.horizontal(|ui| {
+            ui.add_space(15.0);
+
+            ui.label("Cutoff frequency");
+
+            ui.add(Slider::new(&mut self.config.genesis.genesis_lpf_cutoff, 1..=15000).text("Hz"));
+        });
+
+        ui.add_space(5.0);
+        ui.horizontal(|ui| {
+            ui.label("Presets:");
+
+            if ui.button("Model 1 VA0-VA2").clicked() {
+                self.config.genesis.genesis_lpf_enabled = true;
+                self.config.genesis.genesis_lpf_cutoff = 3390;
+            }
+
+            if ui.button("Model 1 VA3-VA6").clicked() {
+                self.config.genesis.genesis_lpf_enabled = true;
+                self.config.genesis.genesis_lpf_cutoff = 2840;
+            }
+        });
+
+        ui.separator();
+
+        let rect = ui
+            .checkbox(
+                &mut self.config.sega_cd.pcm_lpf_enabled,
+                "(Sega CD) Apply second-order low-pass filter to PCM chip",
+            )
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(WINDOW, helptext::PCM_LOW_PASS);
+        }
+
+        ui.horizontal(|ui| {
+            ui.add_space(15.0);
+
+            ui.label("Cutoff frequency");
+
+            ui.add(Slider::new(&mut self.config.sega_cd.pcm_lpf_cutoff, 1..=15000).text("Hz"));
+
+            if ui.button("Default").clicked() {
+                self.config.sega_cd.pcm_lpf_cutoff = segacd_core::DEFAULT_PCM_LPF_CUTOFF;
+            }
+        });
+
+        let rect = ui
+            .add_enabled_ui(self.config.genesis.genesis_lpf_enabled, |ui| {
+                ui.checkbox(
+                    &mut self.config.sega_cd.apply_genesis_lpf_to_pcm,
+                    "(Sega CD) Apply Genesis low-pass filter to PCM chip",
+                );
+                ui.checkbox(
+                    &mut self.config.sega_cd.apply_genesis_lpf_to_cd_da,
+                    "(Sega CD) Apply Genesis low-pass filter to CD-DA",
+                );
+            })
+            .response
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(WINDOW, helptext::SCD_GEN_LOW_PASS);
+        }
+
+        let rect = ui
+            .add_enabled_ui(self.config.genesis.genesis_lpf_enabled, |ui| {
+                ui.checkbox(
+                    &mut self.config.sega_32x.apply_genesis_lpf_to_pwm,
+                    "(32X) Apply Genesis low-pass filter to PWM chip",
+                );
+            })
+            .response
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(WINDOW, helptext::S32X_GEN_LOW_PASS);
+        }
+    }
+
+    fn render_opn2_busy_flag_setting(&mut self, ui: &mut Ui) {
+        let rect = ui
+            .group(|ui| {
+                ui.label("OPN2 busy flag behavior");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.config.genesis.opn2_busy_behavior,
+                        Opn2BusyBehavior::Ym2612,
+                        "YM2612",
+                    );
+                    ui.radio_value(
+                        &mut self.config.genesis.opn2_busy_behavior,
+                        Opn2BusyBehavior::Ym3438,
+                        "YM3438",
+                    );
+                    ui.radio_value(
+                        &mut self.config.genesis.opn2_busy_behavior,
+                        Opn2BusyBehavior::AlwaysZero,
+                        "Always 0",
+                    );
+                });
+            })
+            .response
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(OpenWindow::GenesisAudio, helptext::OPN2_BUSY_BEHAVIOR);
+        }
+    }
+
+    fn render_scd_pcm_interpolation_setting(&mut self, ui: &mut Ui) {
+        let rect = ui
+            .group(|ui| {
+                ui.label("Sega CD PCM chip interpolation");
+
+                ui.horizontal(|ui| {
+                    for (value, label) in [
+                        (PcmInterpolation::None, "None"),
+                        (PcmInterpolation::Linear, "Linear"),
+                        (PcmInterpolation::CubicHermite, "4-point Cubic"),
+                        (PcmInterpolation::CubicHermite6Point, "6-point Cubic"),
+                    ] {
+                        ui.radio_value(&mut self.config.sega_cd.pcm_interpolation, value, label);
+                    }
+                });
+            })
+            .response
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(OpenWindow::GenesisAudio, helptext::SCD_PCM_INTERPOLATION);
+        }
+    }
+
+    fn render_enabled_sound_sources(&mut self, ui: &mut Ui) {
+        let rect = ui
+            .group(|ui| {
+                ui.label("Enabled sound sources");
+
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.config.genesis.ym2612_enabled, "YM2612 FM synth chip");
+                    ui.checkbox(&mut self.config.genesis.psg_enabled, "SN76489 PSG chip");
+                });
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.config.sega_cd.pcm_enabled, "(Sega CD) RF5C164 PCM chip");
+                    ui.checkbox(
+                        &mut self.config.sega_cd.cd_audio_enabled,
+                        "(Sega CD) CD-DA playback",
+                    );
+                });
+
+                ui.checkbox(&mut self.config.sega_32x.pwm_enabled, "(32X) PWM chip");
+            })
+            .response
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(OpenWindow::GenesisAudio, helptext::SOUND_SOURCES);
         }
     }
 

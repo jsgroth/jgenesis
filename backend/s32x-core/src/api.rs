@@ -289,7 +289,7 @@ impl EmulatorTrait for Sega32XEmulator {
         self.ym2612.reload_config(config.genesis);
         self.input.reload_config(config.genesis);
         self.memory.medium_mut().reload_config(*config);
-        self.audio_resampler.reload_config(*config);
+        self.audio_resampler.reload_config(self.timing_mode, *config);
         self.cycles.update_m68k_divider(config.genesis.clamped_m68k_divider());
 
         self.config = *config;

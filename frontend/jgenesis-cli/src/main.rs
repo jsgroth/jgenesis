@@ -3,10 +3,7 @@
 use clap::Parser;
 use env_logger::Env;
 use gb_core::api::{GbAspectRatio, GbAudioResampler, GbPalette, GbcColorCorrection};
-use genesis_core::{
-    GenesisAspectRatio, GenesisControllerType, GenesisLowPassFilter, GenesisRegion,
-    Opn2BusyBehavior,
-};
+use genesis_core::{GenesisAspectRatio, GenesisControllerType, GenesisRegion, Opn2BusyBehavior};
 use jgenesis_common::frontend::{EmulatorTrait, TimingMode};
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::common::ConfigSavePath;
@@ -20,7 +17,7 @@ use jgenesis_renderer::config::{
 };
 use nes_core::api::{NesAspectRatio, NesAudioResampler};
 use s32x_core::api::S32XVideoOut;
-use segacd_core::api::{PcmInterpolation, PcmLowPassFilter};
+use segacd_core::api::PcmInterpolation;
 use smsgg_core::psg::Sn76489Version;
 use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsGgRegion, SmsModel};
 use snes_core::api::{AudioInterpolationMode, SnesAspectRatio};
@@ -171,13 +168,17 @@ struct Args {
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
     opn2_busy_behavior: Option<Opn2BusyBehavior>,
 
-    /// Audio low-pass filter setting
-    #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
-    genesis_low_pass: Option<GenesisLowPassFilter>,
-
     /// Enable audio from the YM2612 FM chip
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
     ym2612_enabled: Option<bool>,
+
+    /// Enable Genesis first-order low-pass filter
+    #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
+    genesis_lpf_enabled: Option<bool>,
+
+    /// Specify Genesis low-pass filter cutoff frequency
+    #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
+    genesis_lpf_cutoff: Option<u32>,
 
     /// Enable audio from the SN76489 PSG chip
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
@@ -232,9 +233,13 @@ struct Args {
     #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
     scd_load_disc_into_ram: Option<bool>,
 
-    /// PCM chip low-pass filter setting
+    /// Enable second-order low-pass filter for PCM chip output
     #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
-    scd_pcm_low_pass: Option<PcmLowPassFilter>,
+    scd_pcm_lpf_enabled: Option<bool>,
+
+    /// Specify PCM chip low-pass filter cutoff frequency
+    #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
+    scd_pcm_lpf_cutoff: Option<u32>,
 
     /// Whether to apply the Genesis low-pass filter to PCM chip output
     #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
@@ -596,8 +601,9 @@ impl Args {
             quantize_ym2612_output,
             emulate_ym2612_ladder_effect,
             opn2_busy_behavior,
-            genesis_low_pass -> low_pass,
             ym2612_enabled,
+            genesis_lpf_enabled,
+            genesis_lpf_cutoff,
             genesis_psg_enabled -> psg_enabled,
             genesis_aspect_ratio -> aspect_ratio,
             genesis_adjust_aspect_ratio -> adjust_aspect_ratio_in_2x_resolution,
@@ -622,7 +628,8 @@ impl Args {
             scd_load_disc_into_ram -> load_disc_into_ram,
             scd_drive_speed -> disc_drive_speed,
             scd_sub_cpu_divider -> sub_cpu_divider,
-            scd_pcm_low_pass -> pcm_low_pass,
+            scd_pcm_lpf_enabled -> pcm_lpf_enabled,
+            scd_pcm_lpf_cutoff -> pcm_lpf_cutoff,
             scd_apply_gen_lpf_to_pcm -> apply_genesis_lpf_to_pcm,
             scd_apply_gen_lpf_to_cd_da -> apply_genesis_lpf_to_cd_da,
             scd_pcm_enabled -> pcm_enabled,

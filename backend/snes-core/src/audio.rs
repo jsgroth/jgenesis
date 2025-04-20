@@ -2,15 +2,15 @@
 
 use crate::apu;
 use bincode::{Decode, Encode};
-use jgenesis_common::audio::iir::FirstOrderIirFilter;
-use jgenesis_common::audio::sinc::QualitySincResampler;
+use dsp::design::FilterType;
+use dsp::iir::FirstOrderIirFilter;
+use dsp::sinc::QualitySincResampler;
 use jgenesis_common::frontend::AudioOutput;
 
 const SNES_AUDIO_FREQUENCY: f64 = apu::OUTPUT_FREQUENCY as f64;
 
 fn new_dc_offset_filter() -> FirstOrderIirFilter {
-    // Butterworth high-pass with 5 Hz cutoff frequency and 32040 Hz source frequency
-    FirstOrderIirFilter::new(&[0.9995099791730125, -0.9995099791730125], &[1.0, -0.999019958346025])
+    dsp::design::butterworth(5.0, SNES_AUDIO_FREQUENCY, FilterType::HighPass)
 }
 
 #[derive(Debug, Clone, Encode, Decode)]

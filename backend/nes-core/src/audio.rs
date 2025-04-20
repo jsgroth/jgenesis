@@ -4,9 +4,10 @@ mod constants;
 
 use crate::api::{NesAudioResampler, NesEmulatorConfig};
 use bincode::{Decode, Encode};
+use dsp::design::FilterType;
+use dsp::iir::FirstOrderIirFilter;
+use dsp::sinc::PerformanceSincResampler;
 use jgenesis_common::audio::fir_resampler::{FirKernel, LpfCoefficients, MonoFirResampler};
-use jgenesis_common::audio::iir::FirstOrderIirFilter;
-use jgenesis_common::audio::sinc::PerformanceSincResampler;
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
 use jgenesis_proc_macros::MatchEachVariantMacro;
 
@@ -59,12 +60,8 @@ fn compute_source_frequency(timing_mode: TimingMode, apply_refresh_rate_adjustme
     timing_mode.nes_audio_frequency() * refresh_rate_multiplier
 }
 
-fn new_dc_offset_filter() -> FirstOrderIirFilter {
-    // Butterworth high-pass with cutoff frequency 5 Hz, source frequency 1789772 Hz
-    FirstOrderIirFilter::new(
-        &[0.9999912235642162, -0.9999912235642162],
-        &[1.0, -0.9999824471284324],
-    )
+fn new_dc_offset_filter(timing_mode: TimingMode) -> FirstOrderIirFilter {
+    dsp::design::butterworth(5.0, timing_mode.nes_audio_frequency(), FilterType::HighPass)
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -126,7 +123,12 @@ impl AudioResampler {
         let resampler =
             create_audio_resampler(config.audio_resampler, source_frequency, output_frequency);
 
-        Self { timing_mode, dc_offset_filter: new_dc_offset_filter(), resampler, output_frequency }
+        Self {
+            timing_mode,
+            dc_offset_filter: new_dc_offset_filter(timing_mode),
+            resampler,
+            output_frequency,
+        }
     }
 
     pub fn collect_sample(&mut self, sample: f64) {

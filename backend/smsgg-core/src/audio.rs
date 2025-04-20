@@ -1,8 +1,9 @@
 //! Master System / Game Gear audio resampling code
 
 use bincode::{Decode, Encode};
-use jgenesis_common::audio::iir::FirstOrderIirFilter;
-use jgenesis_common::audio::sinc::PerformanceSincResampler;
+use dsp::design::FilterType;
+use dsp::iir::FirstOrderIirFilter;
+use dsp::sinc::PerformanceSincResampler;
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
 
 pub const NTSC_MCLK_FREQUENCY: f64 = 53_693_175.0;
@@ -26,9 +27,12 @@ fn compute_psg_frequency(console_mclk_frequency: f64) -> f64 {
 }
 
 #[must_use]
-pub fn new_psg_dc_offset() -> FirstOrderIirFilter {
-    // Butterworth high-pass with cutoff frequency 5 Hz, source frequency 223721 Hz
-    FirstOrderIirFilter::new(&[0.999929792817883, -0.999929792817883], &[1.0, -0.9998595856357659])
+pub fn new_psg_dc_offset(timing_mode: TimingMode) -> FirstOrderIirFilter {
+    dsp::design::butterworth(
+        5.0,
+        compute_psg_frequency(timing_mode.mclk_frequency()),
+        FilterType::HighPass,
+    )
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -41,8 +45,8 @@ pub(crate) struct AudioResampler {
 impl AudioResampler {
     pub fn new(timing_mode: TimingMode) -> Self {
         Self {
-            dc_offset_l: new_psg_dc_offset(),
-            dc_offset_r: new_psg_dc_offset(),
+            dc_offset_l: new_psg_dc_offset(timing_mode),
+            dc_offset_r: new_psg_dc_offset(timing_mode),
             psg_resampler: PerformanceSincResampler::new(
                 compute_psg_frequency(timing_mode.mclk_frequency()),
                 48000.0,

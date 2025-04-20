@@ -2,11 +2,11 @@
 
 use crate::api::Sega32XEmulatorConfig;
 use bincode::{Decode, Encode};
-use genesis_core::GenesisLowPassFilter;
-use genesis_core::audio::GenesisAudioFilter;
+use dsp::design::FilterType;
+use dsp::iir::FirstOrderIirFilter;
+use dsp::sinc::{PerformanceSincResampler, QualitySincResampler};
+use genesis_core::audio::{GenesisAudioFilter, LowPassSettings};
 use jgenesis_common::audio::CubicResampler;
-use jgenesis_common::audio::iir::FirstOrderIirFilter;
-use jgenesis_common::audio::sinc::{PerformanceSincResampler, QualitySincResampler};
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
 use std::collections::VecDeque;
 
@@ -15,17 +15,12 @@ const PSG_COEFFICIENT: f64 = genesis_core::audio::PSG_COEFFICIENT;
 // -2 dB (10^(-2 / 20))
 const PWM_COEFFICIENT: f64 = 0.7943282347242815;
 
-fn new_pwm_48khz_low_pass() -> FirstOrderIirFilter {
-    // First-order Butterworth IIR filter targeting 3390 Hz cutoff with source frequency of 48000 Hz
-    FirstOrderIirFilter::new(
-        &[0.18406577751250913, 0.18406577751250913],
-        &[1.0, -0.6318684449749816],
-    )
+fn new_pwm_48khz_low_pass(cutoff: f64) -> FirstOrderIirFilter {
+    dsp::design::butterworth(cutoff, 48000.0, FilterType::LowPass)
 }
 
-fn new_pwm_44khz_low_pass() -> FirstOrderIirFilter {
-    // First-order Butterworth IIR filter targeting 3390 Hz cutoff with source frequency of 44100 Hz
-    FirstOrderIirFilter::new(&[0.1976272152714313, 0.1976272152714313], &[1.0, -0.6047455694571374])
+fn new_pwm_44khz_low_pass(cutoff: f64) -> FirstOrderIirFilter {
+    dsp::design::butterworth(cutoff, 44100.0, FilterType::LowPass)
 }
 
 // This silliness is necessary to handle dynamic resampling ratio; the frontend doesn't indicate
@@ -37,10 +32,10 @@ fn round_output_frequency(output_frequency: u64) -> u64 {
     if diff_48khz <= diff_44khz { 48000 } else { 44100 }
 }
 
-fn new_pwm_low_pass(output_frequency: u64) -> FirstOrderIirFilter {
+fn new_pwm_low_pass(output_frequency: u64, cutoff: f64) -> FirstOrderIirFilter {
     match output_frequency {
-        48000 => new_pwm_48khz_low_pass(),
-        44100 => new_pwm_44khz_low_pass(),
+        48000 => new_pwm_48khz_low_pass(cutoff),
+        44100 => new_pwm_44khz_low_pass(cutoff),
         _ => panic!(
             "new_pwm_low_pass(freq) should only be called with 48000 or 44100, was {output_frequency}"
         ),
@@ -49,7 +44,7 @@ fn new_pwm_low_pass(output_frequency: u64) -> FirstOrderIirFilter {
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct PwmAudioFilter {
-    gen_low_pass_setting: GenesisLowPassFilter,
+    gen_low_pass_setting: LowPassSettings,
     apply_gen_lpf_to_pwm: bool,
     rounded_output_frequency: u64,
     pwm_lpf_l: FirstOrderIirFilter,
@@ -59,30 +54,26 @@ struct PwmAudioFilter {
 impl PwmAudioFilter {
     fn new(config: &Sega32XEmulatorConfig, output_frequency: u64) -> Self {
         let rounded_output_frequency = round_output_frequency(output_frequency);
+        let genesis_lpf_cutoff: f64 = config.genesis.genesis_lpf_cutoff.into();
         Self {
-            gen_low_pass_setting: config.genesis.low_pass,
+            gen_low_pass_setting: LowPassSettings::from_config(&config.genesis),
             apply_gen_lpf_to_pwm: config.apply_genesis_lpf_to_pwm,
             rounded_output_frequency,
-            pwm_lpf_l: new_pwm_low_pass(rounded_output_frequency),
-            pwm_lpf_r: new_pwm_low_pass(rounded_output_frequency),
+            pwm_lpf_l: new_pwm_low_pass(rounded_output_frequency, genesis_lpf_cutoff),
+            pwm_lpf_r: new_pwm_low_pass(rounded_output_frequency, genesis_lpf_cutoff),
         }
     }
 
     fn filter(&mut self, (sample_l, sample_r): (f64, f64)) -> (f64, f64) {
-        if !self.apply_gen_lpf_to_pwm {
+        if !self.gen_low_pass_setting.genesis_enabled || !self.apply_gen_lpf_to_pwm {
             return (sample_l, sample_r);
         }
 
-        match self.gen_low_pass_setting {
-            GenesisLowPassFilter::Model1Va2 => {
-                (self.pwm_lpf_l.filter(sample_l), self.pwm_lpf_r.filter(sample_r))
-            }
-            GenesisLowPassFilter::None => (sample_l, sample_r),
-        }
+        (self.pwm_lpf_l.filter(sample_l), self.pwm_lpf_r.filter(sample_r))
     }
 
     fn reload_config(&mut self, config: &Sega32XEmulatorConfig) {
-        if self.gen_low_pass_setting == config.genesis.low_pass
+        if self.gen_low_pass_setting == LowPassSettings::from_config(&config.genesis)
             && self.apply_gen_lpf_to_pwm == config.apply_genesis_lpf_to_pwm
         {
             return;
@@ -98,8 +89,10 @@ impl PwmAudioFilter {
         }
 
         self.rounded_output_frequency = rounded_output_frequency;
-        self.pwm_lpf_l = new_pwm_low_pass(output_frequency);
-        self.pwm_lpf_r = new_pwm_low_pass(output_frequency);
+
+        let genesis_lpf_cutoff: f64 = self.gen_low_pass_setting.genesis_cutoff.into();
+        self.pwm_lpf_l = new_pwm_low_pass(output_frequency, genesis_lpf_cutoff);
+        self.pwm_lpf_r = new_pwm_low_pass(output_frequency, genesis_lpf_cutoff);
     }
 }
 
@@ -163,7 +156,10 @@ pub struct Sega32XResampler {
 impl Sega32XResampler {
     pub fn new(timing_mode: TimingMode, config: Sega32XEmulatorConfig) -> Self {
         Self {
-            gen_filter: GenesisAudioFilter::new(config.genesis.low_pass),
+            gen_filter: GenesisAudioFilter::new(
+                timing_mode,
+                LowPassSettings::from_config(&config.genesis),
+            ),
             ym2612_resampler: QualitySincResampler::new(
                 genesis_core::audio::ym2612_frequency(timing_mode),
                 48000.0,
@@ -227,12 +223,12 @@ impl Sega32XResampler {
         Ok(())
     }
 
-    pub fn reload_config(&mut self, config: Sega32XEmulatorConfig) {
+    pub fn reload_config(&mut self, timing_mode: TimingMode, config: Sega32XEmulatorConfig) {
         self.ym2612_enabled = config.genesis.ym2612_enabled;
         self.psg_enabled = config.genesis.psg_enabled;
         self.pwm_enabled = config.pwm_enabled;
 
-        self.gen_filter.reload_config(&config.genesis);
+        self.gen_filter.reload_config(timing_mode, &config.genesis);
         self.pwm_resampler.reload_config(&config);
     }
 
