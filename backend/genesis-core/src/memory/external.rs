@@ -12,6 +12,7 @@ const FORCE_SRAM_CHECKSUMS: &[u32] = &[
     0x8135702C, // NHL 96 (UE)
     0xF509145F, // Might and Magic: Gates to Another World (UE)
     0x6EF7104A, // Might and Magic III: Isles of Terra (U) (Proto)
+    0x2491DF2F, // NBA Action '94 (USA) (Beta) (1994-01-04)
 ];
 
 const SONIC_AND_KNUCKLES_SERIAL: &[u8] = b"GM MK-1563 ";
