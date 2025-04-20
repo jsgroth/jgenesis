@@ -2,20 +2,17 @@ mod constants;
 
 use crate::api::{GameBoyEmulatorConfig, GbAudioResampler};
 use bincode::{Decode, Encode};
+use dsp::design::FilterType;
+use dsp::iir::FirstOrderIirFilter;
+use dsp::sinc::PerformanceSincResampler;
 use jgenesis_common::audio::fir_resampler::{FirKernel, LpfCoefficients, StereoFirResampler};
-use jgenesis_common::audio::iir::FirstOrderIirFilter;
-use jgenesis_common::audio::sinc::PerformanceSincResampler;
 use jgenesis_common::frontend::AudioOutput;
 use jgenesis_proc_macros::MatchEachVariantMacro;
 
 pub const GB_APU_FREQUENCY: f64 = 1_048_576.0;
 
 fn new_dc_offset_filter() -> FirstOrderIirFilter {
-    // Butterworth high-pass with cutoff frequency 5 Hz and source frequency 1048576 Hz
-    FirstOrderIirFilter::new(
-        &[0.9999850199432726, -0.9999850199432726],
-        &[1.0, -0.9999700398865453],
-    )
+    dsp::design::butterworth(5.0, GB_APU_FREQUENCY, FilterType::HighPass)
 }
 
 #[derive(Debug, Clone, Encode, Decode)]

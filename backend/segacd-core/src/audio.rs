@@ -2,12 +2,12 @@
 //!
 //! Reuses some resampling/filtering code from [`genesis_core::audio`]
 
-use crate::api::{PcmLowPassFilter, SegaCdEmulatorConfig};
+use crate::api::SegaCdEmulatorConfig;
 use bincode::{Decode, Encode};
-use genesis_core::GenesisLowPassFilter;
-use genesis_core::audio::GenesisAudioFilter;
-use jgenesis_common::audio::iir::{FirstOrderIirFilter, SecondOrderIirFilter};
-use jgenesis_common::audio::sinc::{PerformanceSincResampler, QualitySincResampler};
+use dsp::design::FilterType;
+use dsp::iir::{FirstOrderIirFilter, IirFilter, SecondOrderIirFilter};
+use dsp::sinc::{PerformanceSincResampler, QualitySincResampler};
+use genesis_core::audio::{GenesisAudioFilter, LowPassSettings};
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
 use std::cmp;
 
@@ -22,35 +22,23 @@ const PCM_COEFFICIENT: f64 = 0.5011872336272722;
 // -7 dB (10 ^ -7/20)
 const CD_COEFFICIENT: f64 = 0.44668359215096315;
 
-fn new_pcm_8khz_low_pass() -> SecondOrderIirFilter {
-    // Second-order Butterworth IIR filter targeting 7973 Hz cutoff with source frequency of 32552 Hz
-    SecondOrderIirFilter::new(
-        &[0.28362508499709993, 0.5672501699941999, 0.28362508499709993],
-        &[1.0, -0.03731874083716955, 0.17181908082556915],
-    )
+fn new_pcm_low_pass<const N: usize>(cutoff: f64) -> IirFilter<N> {
+    dsp::design::butterworth(cutoff, SEGA_CD_MCLK_FREQUENCY / 4.0 / 384.0, FilterType::LowPass)
 }
 
-fn new_pcm_gen_low_pass() -> FirstOrderIirFilter {
-    // First-order Butterworth IIR filter targeting 3390 Hz cutoff with source frequency of 32552 Hz
-    FirstOrderIirFilter::new(
-        &[0.2533767724796169, 0.2533767724796169],
-        &[1.0, -0.49324645504076625],
-    )
-}
-
-fn new_cd_da_gen_low_pass() -> FirstOrderIirFilter {
-    // First-order Butterworth IIR filter targeting 3390 Hz cutoff with source frequency of 44100 Hz
-    FirstOrderIirFilter::new(&[0.1976272152714313, 0.1976272152714313], &[1.0, -0.6047455694571374])
+fn new_cd_da_low_pass(cutoff: f64) -> FirstOrderIirFilter {
+    dsp::design::butterworth(cutoff, CD_DA_FREQUENCY, FilterType::LowPass)
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct SegaCdAudioFilter {
-    gen_low_pass_setting: GenesisLowPassFilter,
-    pcm_low_pass_setting: PcmLowPassFilter,
+    gen_low_pass_setting: LowPassSettings,
+    pcm_lpf_enabled: bool,
+    pcm_lpf_cutoff: u32,
     apply_gen_lpf_to_pcm: bool,
     apply_gen_lpf_to_cd_da: bool,
-    pcm_8khz_lpf_l: SecondOrderIirFilter,
-    pcm_8khz_lpf_r: SecondOrderIirFilter,
+    pcm_lpf_l: SecondOrderIirFilter,
+    pcm_lpf_r: SecondOrderIirFilter,
     pcm_gen_lpf_l: FirstOrderIirFilter,
     pcm_gen_lpf_r: FirstOrderIirFilter,
     cd_da_gen_lpf_l: FirstOrderIirFilter,
@@ -59,55 +47,50 @@ struct SegaCdAudioFilter {
 
 impl SegaCdAudioFilter {
     fn new(config: &SegaCdEmulatorConfig) -> Self {
+        let gen_cutoff: f64 = config.genesis.genesis_lpf_cutoff.into();
+        let pcm_cutoff: f64 = config.pcm_lpf_cutoff.into();
+
         Self {
-            gen_low_pass_setting: config.genesis.low_pass,
-            pcm_low_pass_setting: config.pcm_low_pass,
+            gen_low_pass_setting: LowPassSettings::from_config(&config.genesis),
+            pcm_lpf_enabled: config.pcm_lpf_enabled,
+            pcm_lpf_cutoff: config.pcm_lpf_cutoff,
             apply_gen_lpf_to_pcm: config.apply_genesis_lpf_to_pcm,
             apply_gen_lpf_to_cd_da: config.apply_genesis_lpf_to_cd_da,
-            pcm_8khz_lpf_l: new_pcm_8khz_low_pass(),
-            pcm_8khz_lpf_r: new_pcm_8khz_low_pass(),
-            pcm_gen_lpf_l: new_pcm_gen_low_pass(),
-            pcm_gen_lpf_r: new_pcm_gen_low_pass(),
-            cd_da_gen_lpf_l: new_cd_da_gen_low_pass(),
-            cd_da_gen_lpf_r: new_cd_da_gen_low_pass(),
+            pcm_lpf_l: new_pcm_low_pass(pcm_cutoff),
+            pcm_lpf_r: new_pcm_low_pass(pcm_cutoff),
+            pcm_gen_lpf_l: new_pcm_low_pass(gen_cutoff),
+            pcm_gen_lpf_r: new_pcm_low_pass(gen_cutoff),
+            cd_da_gen_lpf_l: new_cd_da_low_pass(gen_cutoff),
+            cd_da_gen_lpf_r: new_cd_da_low_pass(gen_cutoff),
         }
     }
 
     fn filter_pcm(&mut self, (mut sample_l, mut sample_r): (f64, f64)) -> (f64, f64) {
-        if self.pcm_low_pass_setting == PcmLowPassFilter::SegaCd {
-            sample_l = self.pcm_8khz_lpf_l.filter(sample_l);
-            sample_r = self.pcm_8khz_lpf_r.filter(sample_r);
+        if self.pcm_lpf_enabled {
+            sample_l = self.pcm_lpf_l.filter(sample_l);
+            sample_r = self.pcm_lpf_r.filter(sample_r);
         }
 
-        if self.apply_gen_lpf_to_pcm {
-            match self.gen_low_pass_setting {
-                GenesisLowPassFilter::Model1Va2 => {
-                    sample_l = self.pcm_gen_lpf_l.filter(sample_l);
-                    sample_r = self.pcm_gen_lpf_r.filter(sample_r);
-                }
-                GenesisLowPassFilter::None => {}
-            }
+        if self.gen_low_pass_setting.genesis_enabled && self.apply_gen_lpf_to_pcm {
+            sample_l = self.pcm_gen_lpf_l.filter(sample_l);
+            sample_r = self.pcm_gen_lpf_r.filter(sample_r);
         }
 
         (sample_l, sample_r)
     }
 
     fn filter_cd_da(&mut self, (sample_l, sample_r): (f64, f64)) -> (f64, f64) {
-        if !self.apply_gen_lpf_to_cd_da {
+        if !self.gen_low_pass_setting.genesis_enabled || !self.apply_gen_lpf_to_cd_da {
             return (sample_l, sample_r);
         }
 
-        match self.gen_low_pass_setting {
-            GenesisLowPassFilter::Model1Va2 => {
-                (self.cd_da_gen_lpf_l.filter(sample_l), self.cd_da_gen_lpf_r.filter(sample_r))
-            }
-            GenesisLowPassFilter::None => (sample_l, sample_r),
-        }
+        (self.cd_da_gen_lpf_l.filter(sample_l), self.cd_da_gen_lpf_r.filter(sample_r))
     }
 
     fn reload_config(&mut self, config: &SegaCdEmulatorConfig) {
-        if self.gen_low_pass_setting == config.genesis.low_pass
-            && self.pcm_low_pass_setting == config.pcm_low_pass
+        if self.gen_low_pass_setting == LowPassSettings::from_config(&config.genesis)
+            && self.pcm_lpf_enabled == config.pcm_lpf_enabled
+            && self.pcm_lpf_cutoff == config.pcm_lpf_cutoff
             && self.apply_gen_lpf_to_pcm == config.apply_genesis_lpf_to_pcm
             && self.apply_gen_lpf_to_cd_da == config.apply_genesis_lpf_to_cd_da
         {
@@ -143,7 +126,10 @@ impl AudioResampler {
         let cd_resampler = QualitySincResampler::new(CD_DA_FREQUENCY, 48000.0);
 
         Self {
-            gen_filter: GenesisAudioFilter::new(config.genesis.low_pass),
+            gen_filter: GenesisAudioFilter::new(
+                timing_mode,
+                LowPassSettings::from_config(&config.genesis),
+            ),
             scd_filter: SegaCdAudioFilter::new(&config),
             ym2612_resampler,
             psg_resampler,
@@ -222,13 +208,13 @@ impl AudioResampler {
         Ok(())
     }
 
-    pub fn reload_config(&mut self, config: SegaCdEmulatorConfig) {
+    pub fn reload_config(&mut self, timing_mode: TimingMode, config: SegaCdEmulatorConfig) {
         self.ym2612_enabled = config.genesis.ym2612_enabled;
         self.psg_enabled = config.genesis.psg_enabled;
         self.pcm_enabled = config.pcm_enabled;
         self.cd_enabled = config.cd_audio_enabled;
 
-        self.gen_filter.reload_config(&config.genesis);
+        self.gen_filter.reload_config(timing_mode, &config.genesis);
         self.scd_filter.reload_config(&config);
     }
 

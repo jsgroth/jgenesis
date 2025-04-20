@@ -1,12 +1,9 @@
 use crate::AppConfig;
-use genesis_core::{
-    GenesisAspectRatio, GenesisEmulatorConfig, GenesisLowPassFilter, GenesisRegion,
-    Opn2BusyBehavior,
-};
+use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig, GenesisRegion, Opn2BusyBehavior};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::{GenesisConfig, Sega32XConfig, SegaCdConfig};
 use s32x_core::api::{S32XVideoOut, Sega32XEmulatorConfig};
-use segacd_core::api::{PcmInterpolation, PcmLowPassFilter, SegaCdEmulatorConfig};
+use segacd_core::api::{PcmInterpolation, SegaCdEmulatorConfig};
 use serde::{Deserialize, Serialize};
 use std::num::{NonZeroU16, NonZeroU64};
 use std::path::PathBuf;
@@ -49,8 +46,10 @@ pub struct GenesisAppConfig {
     pub opn2_busy_behavior: Opn2BusyBehavior,
     #[serde(default = "true_fn")]
     pub emulate_ym2612_ladder_effect: bool,
-    #[serde(default)]
-    pub low_pass: GenesisLowPassFilter,
+    #[serde(default = "true_fn")]
+    pub genesis_lpf_enabled: bool,
+    #[serde(default = "default_genesis_lpf_cutoff")]
+    pub genesis_lpf_cutoff: u32,
     #[serde(default = "true_fn")]
     pub ym2612_enabled: bool,
     #[serde(default = "true_fn")]
@@ -63,6 +62,10 @@ const fn true_fn() -> bool {
 
 const fn default_68k_divider() -> u64 {
     genesis_core::timing::NATIVE_M68K_DIVIDER
+}
+
+const fn default_genesis_lpf_cutoff() -> u32 {
+    genesis_core::audio::DEFAULT_GENESIS_LPF_CUTOFF
 }
 
 impl Default for GenesisAppConfig {
@@ -84,8 +87,10 @@ pub struct SegaCdAppConfig {
     pub disc_drive_speed: NonZeroU16,
     #[serde(default = "default_sub_divider")]
     pub sub_cpu_divider: NonZeroU64,
-    #[serde(default)]
-    pub pcm_low_pass: PcmLowPassFilter,
+    #[serde(default = "true_fn")]
+    pub pcm_lpf_enabled: bool,
+    #[serde(default = "default_pcm_lpf_cutoff")]
+    pub pcm_lpf_cutoff: u32,
     #[serde(default)]
     pub apply_genesis_lpf_to_pcm: bool,
     #[serde(default)]
@@ -102,6 +107,10 @@ fn default_drive_speed() -> NonZeroU16 {
 
 fn default_sub_divider() -> NonZeroU64 {
     NonZeroU64::new(segacd_core::api::DEFAULT_SUB_CPU_DIVIDER).unwrap()
+}
+
+const fn default_pcm_lpf_cutoff() -> u32 {
+    segacd_core::DEFAULT_PCM_LPF_CUTOFF
 }
 
 impl Default for SegaCdAppConfig {
@@ -155,7 +164,8 @@ impl AppConfig {
                 quantize_ym2612_output: self.genesis.quantize_ym2612_output,
                 emulate_ym2612_ladder_effect: self.genesis.emulate_ym2612_ladder_effect,
                 opn2_busy_behavior: self.genesis.opn2_busy_behavior,
-                low_pass: self.genesis.low_pass,
+                genesis_lpf_enabled: self.genesis.genesis_lpf_enabled,
+                genesis_lpf_cutoff: self.genesis.genesis_lpf_cutoff,
                 ym2612_enabled: self.genesis.ym2612_enabled,
                 psg_enabled: self.genesis.psg_enabled,
             },
@@ -177,7 +187,8 @@ impl AppConfig {
                 load_disc_into_ram: self.sega_cd.load_disc_into_ram,
                 disc_drive_speed: self.sega_cd.disc_drive_speed,
                 sub_cpu_divider: self.sega_cd.sub_cpu_divider,
-                pcm_low_pass: self.sega_cd.pcm_low_pass,
+                pcm_lpf_enabled: self.sega_cd.pcm_lpf_enabled,
+                pcm_lpf_cutoff: self.sega_cd.pcm_lpf_cutoff,
                 apply_genesis_lpf_to_pcm: self.sega_cd.apply_genesis_lpf_to_pcm,
                 apply_genesis_lpf_to_cd_da: self.sega_cd.apply_genesis_lpf_to_cd_da,
                 pcm_enabled: self.sega_cd.pcm_enabled,

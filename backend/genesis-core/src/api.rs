@@ -171,19 +171,11 @@ impl GenesisRegion {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumAll, EnumDisplay)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum GenesisLowPassFilter {
-    None,
-    #[default]
-    Model1Va2,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumAll, EnumDisplay)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum Opn2BusyBehavior {
     Ym2612,
     #[default]
     Ym3438,
+    AlwaysZero,
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
@@ -208,7 +200,8 @@ pub struct GenesisEmulatorConfig {
     pub quantize_ym2612_output: bool,
     pub emulate_ym2612_ladder_effect: bool,
     pub opn2_busy_behavior: Opn2BusyBehavior,
-    pub low_pass: GenesisLowPassFilter,
+    pub genesis_lpf_enabled: bool,
+    pub genesis_lpf_cutoff: u32,
     pub ym2612_enabled: bool,
     pub psg_enabled: bool,
 }
@@ -513,7 +506,7 @@ impl EmulatorTrait for GenesisEmulator {
         self.vdp.reload_config(config.to_vdp_config());
         self.ym2612.reload_config(*config);
         self.input.reload_config(*config);
-        self.audio_resampler.reload_config(*config);
+        self.audio_resampler.reload_config(self.timing_mode, *config);
         self.cycles.update_m68k_divider(config.clamped_m68k_divider());
 
         self.config = *config;

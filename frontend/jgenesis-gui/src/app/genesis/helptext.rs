@@ -149,30 +149,27 @@ pub const OPN2_BUSY_BEHAVIOR: HelpText = HelpText {
     heading: "OPN2 Busy Flag Behavior",
     text: &[
         "Control which FM chip busy flag behavior to emulate.",
-        "This does not affect most games, but a few games have audio issues with one behavior or the other, such as Earthworm Jim (issues with YM2612 behavior) and Hellfire (issues with YM3438 behavior).",
+        "This has no effect on most games, but a few games have audio issues with one behavior or the other, such as Earthworm Jim (issues with YM2612 behavior) and Hellfire (issues with YM3438 behavior).",
     ],
 };
 
 pub const GENESIS_LOW_PASS: HelpText = HelpText {
     heading: "Genesis Low-Pass Filter",
     text: &[
-        "If enabled, apply a 3.39 KHz first-order low-pass filter to Genesis audio output. This should be similar to the filter found in early Model 1 consoles.",
+        "If enabled, apply a first-order low-pass filter to Genesis audio output, both YM2612 and PSG.",
         "Low-pass filtering makes the audio sound softer and somewhat muffled. Some game audio is designed around this effect.",
     ],
 };
 
 pub const PCM_LOW_PASS: HelpText = HelpText {
     heading: "Sega CD PCM Low-Pass Filter",
-    text: &[
-        "If enabled, apply a 7.97 KHz second-order low-pass filter to PCM chip audio output.",
-        "This may not be accurate to actual hardware, but it produces a significantly cleaner sound than not low-pass filtering.",
-    ],
+    text: &["If enabled, apply a second-order low-pass filter to PCM chip audio output."],
 };
 
 pub const SCD_GEN_LOW_PASS: HelpText = HelpText {
     heading: "Apply Genesis LPF to Sega CD",
     text: &[
-        "Choose whether to apply the 3.39 KHz Genesis low-pass filter to Sega CD audio output. This can be configured independently for the PCM chip and CD-DA.",
+        "Choose whether to apply the Genesis low-pass filter to Sega CD audio output. This can be configured independently for the PCM chip and CD-DA.",
         "In actual hardware, Sega CD audio output may or may not pass through the Genesis low-pass filter depending on where the Sega CD audio output is connected.",
     ],
 };
@@ -180,7 +177,7 @@ pub const SCD_GEN_LOW_PASS: HelpText = HelpText {
 pub const S32X_GEN_LOW_PASS: HelpText = HelpText {
     heading: "Apply Genesis LPF to 32X",
     text: &[
-        "Choose whether to apply the 3.39 KHz Genesis low-pass filter to 32X PWM audio output.",
+        "Choose whether to apply the Genesis low-pass filter to 32X PWM audio output.",
         "In actual hardware, 32X audio output may or may not pass through the Genesis low-pass filter depending on where the 32X audio output is connected.",
     ],
 };
