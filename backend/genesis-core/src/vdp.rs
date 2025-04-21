@@ -1511,9 +1511,10 @@ impl Vdp {
         self.dma_latency = cmp::min(2, self.dma_latency);
 
         if !self.state.pending_writes.is_empty() {
-            // If any port writes were enqueued after starting a memory-to-VRAM DMA, wait 4
-            // pixels before applying them (slightly longer than 4 CPU cycles)
-            self.state.pending_write_delay_pixels = 4;
+            // If any port writes were enqueued after starting a memory-to-VRAM DMA, wait 5
+            // pixels before applying them (slightly longer than 5 CPU cycles)
+            // Fewer than 5 pixels causes a glitchy line in Mickey Mania's 3D stages
+            self.state.pending_write_delay_pixels = 5;
         }
 
         log::trace!(
