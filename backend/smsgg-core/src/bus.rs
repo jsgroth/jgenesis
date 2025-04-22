@@ -124,11 +124,15 @@ impl BusInterface for Bus<'_> {
 
         match (address.bit(7), address.bit(6), address.bit(0)) {
             (false, false, false) => {
-                // TODO memory control
-                log::trace!("Memory control write: {value:02X}");
+                let memory_control = self.memory.memory_control();
+                memory_control.cartridge_enabled =
+                    !value.bit(6) || self.version == VdpVersion::GameGear;
+                memory_control.bios_enabled = !value.bit(3);
+                // TODO other memory control bits? expansion, card, WRAM, I/O
+                log::debug!("Memory control write: {value:02X}");
             }
             (false, false, true) => {
-                log::trace!("I/O control write: {value:02X}");
+                log::debug!("I/O control write: {value:02X}");
                 self.input.write_control(value, self.vdp);
             }
             (false, true, _) => {

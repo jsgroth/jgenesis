@@ -6,7 +6,7 @@ pub(crate) mod wordram;
 
 use crate::api::{SegaCdEmulatorConfig, SegaCdLoadResult};
 use crate::cddrive::cdc::{DeviceDestination, Rchip};
-use crate::cddrive::cdd::CdDrive;
+use crate::cddrive::cdd::{CdDrive, CdModel};
 use crate::cddrive::{CdController, cdc};
 use crate::graphics::GraphicsCoprocessor;
 use crate::memory::font::FontRegisters;
@@ -127,6 +127,12 @@ impl Deref for Bios {
     }
 }
 
+fn guess_cd_model(bios: &[u8]) -> CdModel {
+    // Official BIOS versions have the version number at the end of the serial number, e.g.:
+    //   "BR 000003-1.10" (Model 1 V1.10)
+    if &bios[0x18A..0x18C] == b"1." { CdModel::One } else { CdModel::Two }
+}
+
 #[derive(Debug, Encode, Decode, PartialClone)]
 pub struct SegaCd {
     #[partial_clone(default)]
@@ -170,9 +176,12 @@ impl SegaCd {
 
         log::info!("Region parsed from disc header: {disc_region:?}");
 
+        let cd_model = guess_cd_model(&bios);
+        log::info!("Detected CD model {cd_model:?} based on BIOS ROM");
+
         Ok(Self {
             bios: Bios(bios),
-            disc_drive: CdController::new(disc, config),
+            disc_drive: CdController::new(disc, cd_model, config),
             prg_ram: BoxedByteArray::new(),
             word_ram: WordRam::new(),
             backup_ram,

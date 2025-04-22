@@ -843,7 +843,8 @@ fn open_emulator(
                 _ => unreachable!("nested match expressions"),
             };
             let emulator = SmsGgEmulator::create(
-                rom,
+                Some(rom),
+                None,
                 hardware,
                 config_ref.borrow().smsgg.to_emulator_config(),
                 save_writer,

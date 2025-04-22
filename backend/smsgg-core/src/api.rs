@@ -193,7 +193,8 @@ const YM2413_CLOCK_INTERVAL: u8 = 72;
 impl SmsGgEmulator {
     #[must_use]
     pub fn create<S: SaveWriter>(
-        rom: Vec<u8>,
+        rom: Option<Vec<u8>>,
+        bios_rom: Option<Vec<u8>>,
         hardware: SmsGgHardware,
         config: SmsGgEmulatorConfig,
         save_writer: &mut S,
@@ -206,7 +207,8 @@ impl SmsGgEmulator {
         log::info!("VDP version: {vdp_version:?}");
         log::info!("PSG version: {psg_version:?}");
 
-        let memory = Memory::new(rom, cartridge_ram);
+        let rom = rom.unwrap_or_else(|| vec![0xFF; 0x8000]);
+        let memory = Memory::new(rom, bios_rom, cartridge_ram);
         let vdp = Vdp::new(vdp_version, &config);
         let psg = Sn76489::new(psg_version);
         let input = InputState::new(config.region(&memory));
@@ -472,8 +474,8 @@ impl EmulatorTrait for SmsGgEmulator {
     fn hard_reset<S: SaveWriter>(&mut self, _save_writer: &mut S) {
         log::info!("Hard resetting console");
 
-        let (rom, ram) = self.memory.take_cartridge_rom_and_ram();
-        self.memory = Memory::new(rom, Some(ram));
+        let (rom, bios_rom, ram) = self.memory.take_cartridge_rom_and_ram();
+        self.memory = Memory::new(rom, bios_rom, Some(ram));
 
         self.z80 = Z80::new();
         init_z80(&mut self.z80);

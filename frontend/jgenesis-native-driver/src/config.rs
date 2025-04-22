@@ -212,6 +212,10 @@ pub struct SmsGgConfig {
     pub inputs: SmsGgInputConfig,
     #[cfg_display(indent_nested)]
     pub emulator_config: SmsGgEmulatorConfig,
+    pub boot_from_bios: bool,
+    pub run_without_cartridge: bool,
+    #[cfg_display(path)]
+    pub bios_path: Option<PathBuf>,
 }
 
 pub(crate) fn default_smsgg_window_size(

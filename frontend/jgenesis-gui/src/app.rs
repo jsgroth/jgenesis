@@ -568,6 +568,26 @@ impl App {
 
             ui.add_space(10.0);
 
+            ui.menu_button("Run BIOS", |ui| {
+                for (label, console, has_bios) in [
+                    ("Master System", Console::MasterSystem, self.config.smsgg.bios_path.is_some()),
+                    ("Sega CD", Console::SegaCd, self.config.sega_cd.bios_path.is_some()),
+                ] {
+                    ui.add_enabled_ui(has_bios, |ui| {
+                        if ui.button(label).clicked() {
+                            self.emu_thread.stop_emulator_if_running();
+                            self.emu_thread.send(EmuThreadCommand::RunBios {
+                                console,
+                                config: Box::new(self.config.clone()),
+                            });
+                            ui.close_menu();
+                        }
+                    });
+                }
+            });
+
+            ui.add_space(10.0);
+
             let open_button =
                 Button::new("Open").shortcut_text(ctx.format_shortcut(&open_shortcut));
             if open_button.ui(ui).clicked() {
@@ -1068,6 +1088,7 @@ impl App {
         if let Some(err) = error_lock.as_ref() {
             let mut open = true;
             match err {
+                NativeEmulatorError::SmsNoBios => self.render_sms_bios_error(ctx, &mut open),
                 NativeEmulatorError::SegaCdNoBios => self.render_scd_bios_error(ctx, &mut open),
                 NativeEmulatorError::SnesLoad(snes_load_err) => {
                     match self.render_snes_load_error(ctx, snes_load_err, &mut open) {

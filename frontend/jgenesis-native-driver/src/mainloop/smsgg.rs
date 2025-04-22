@@ -1,12 +1,14 @@
 use crate::config::SmsGgConfig;
+use std::fs;
 
-use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
+use crate::mainloop::save::FsSaveWriter;
 use crate::mainloop::{debug, file_name_no_ext, save};
-use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config, extensions};
+use crate::{
+    AudioError, NativeEmulator, NativeEmulatorError, NativeEmulatorResult, config, extensions,
+};
 
-use crate::config::RomReadResult;
 use smsgg_core::{SmsGgEmulator, SmsGgHardware, SmsGgInputs};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub type NativeSmsGgEmulator = NativeEmulator<SmsGgEmulator>;
 
@@ -39,26 +41,68 @@ impl NativeSmsGgEmulator {
 pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsGgEmulator> {
     log::info!("Running with config: {config}");
 
-    let rom_path = Path::new(&config.common.rom_file_path);
+    let rom: Option<Vec<u8>>;
+    let extension: String;
+    let save_path: PathBuf;
+    let save_state_path: PathBuf;
+    let hardware: SmsGgHardware;
+    let rom_title: String;
 
-    let RomReadResult { rom, extension } = config.common.read_rom_file(&extensions::SMSGG)?;
+    let run_without_cartridge = config.boot_from_bios && config.run_without_cartridge;
+    if !run_without_cartridge {
+        let rom_path = Path::new(&config.common.rom_file_path);
 
-    let DeterminedPaths { save_path, save_state_path } = save::determine_save_paths(
-        &config.common.save_path,
-        &config.common.state_path,
-        rom_path,
-        &extension,
-    )?;
+        let rom_read_result = config.common.read_rom_file(&extensions::SMSGG)?;
+        rom = Some(rom_read_result.rom);
+        extension = rom_read_result.extension;
+
+        let determined_paths = save::determine_save_paths(
+            &config.common.save_path,
+            &config.common.state_path,
+            rom_path,
+            &extension,
+        )?;
+        save_path = determined_paths.save_path;
+        save_state_path = determined_paths.save_state_path;
+
+        hardware = hardware_for_ext(&extension);
+        rom_title = file_name_no_ext(rom_path)?;
+    } else {
+        let Some(bios_path) = &config.bios_path else { return Err(NativeEmulatorError::SmsNoBios) };
+
+        rom = None;
+        extension = "sms".into();
+
+        let determined_paths = save::determine_save_paths(
+            &config.common.save_path,
+            &config.common.state_path,
+            bios_path,
+            &extension,
+        )?;
+        save_path = determined_paths.save_path;
+        save_state_path = determined_paths.save_state_path;
+
+        hardware = SmsGgHardware::MasterSystem;
+        rom_title = "(BIOS)".into();
+    }
 
     let mut save_writer = FsSaveWriter::new(save_path);
 
-    let hardware = hardware_for_ext(&extension);
-
-    let rom_title = file_name_no_ext(rom_path)?;
     let window_title = format!("smsgg - {rom_title}");
 
+    let bios_rom = if config.boot_from_bios && hardware == SmsGgHardware::MasterSystem {
+        let Some(bios_path) = &config.bios_path else { return Err(NativeEmulatorError::SmsNoBios) };
+        Some(fs::read(bios_path).map_err(|source| NativeEmulatorError::SmsBiosRead {
+            path: bios_path.clone(),
+            source,
+        })?)
+    } else {
+        None
+    };
+
     let emulator_config = config.emulator_config;
-    let emulator = SmsGgEmulator::create(rom, hardware, emulator_config, &mut save_writer);
+    let emulator =
+        SmsGgEmulator::create(rom, bios_rom, hardware, emulator_config, &mut save_writer);
 
     NativeSmsGgEmulator::new(
         emulator,

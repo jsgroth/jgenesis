@@ -5,6 +5,7 @@ pub mod cdd;
 
 use crate::api::{SegaCdEmulatorConfig, SegaCdLoadResult};
 use crate::cddrive::cdc::RchipDmaArgs;
+use crate::cddrive::cdd::CdModel;
 use crate::memory::wordram::WordRam;
 use crate::rf5c164::Rf5c164;
 use crate::{api, memory};
@@ -58,9 +59,9 @@ pub struct CdController {
 }
 
 impl CdController {
-    pub fn new(disc: Option<CdRom>, config: &SegaCdEmulatorConfig) -> Self {
+    pub fn new(disc: Option<CdRom>, model: CdModel, config: &SegaCdEmulatorConfig) -> Self {
         Self {
-            drive: CdDrive::new(disc, config),
+            drive: CdDrive::new(disc, model, config),
             rchip: Rchip::new(),
             sector_buffer: Box::new(array::from_fn(|_| 0)),
             prescaler: CdPrescaler::new(),

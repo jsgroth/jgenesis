@@ -32,6 +32,10 @@ pub struct SmsGgAppConfig {
     pub fm_sound_unit_enabled: bool,
     #[serde(default = "default_z80_divider")]
     pub z80_divider: NonZeroU32,
+    #[serde(default)]
+    pub boot_from_bios: bool,
+    #[serde(default)]
+    pub bios_path: Option<PathBuf>,
 }
 
 const fn true_fn() -> bool {
@@ -68,6 +72,9 @@ impl AppConfig {
                 fm_sound_unit_enabled: self.smsgg.fm_sound_unit_enabled,
                 z80_divider: self.smsgg.z80_divider,
             },
+            boot_from_bios: self.smsgg.boot_from_bios,
+            run_without_cartridge: false,
+            bios_path: self.smsgg.bios_path.clone(),
         })
     }
 }

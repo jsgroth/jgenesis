@@ -8,7 +8,7 @@ use s32x_core::api::Sega32XEmulator;
 use segacd_core::CdRomFileFormat;
 use segacd_core::api::{SegaCdEmulator, SegaCdLoadResult};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub type NativeGenesisEmulator = NativeEmulator<GenesisEmulator>;
 
@@ -81,6 +81,7 @@ impl NativeSegaCdEmulator {
             CdRomFileFormat::CueBin
         });
 
+        self.rom_path = rom_path.as_ref().to_path_buf();
         self.emulator.change_disc(rom_path, rom_format)?;
 
         let title = format!("sega cd - {}", self.emulator.disc_title());
@@ -91,6 +92,10 @@ impl NativeSegaCdEmulator {
                 .window_mut()
                 .set_title(&title)
                 .expect("Disc title should have non-printable characters already removed");
+        }
+
+        if let Err(err) = self.update_save_paths(&self.common_config.clone()) {
+            log::error!("Error updating save paths on disc change: {err}");
         }
 
         Ok(())
@@ -176,25 +181,47 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
 
     log::info!("Running with config: {config}");
 
-    let rom_path = Path::new(&config.genesis.common.rom_file_path);
-    let rom_format = CdRomFileFormat::from_file_path(rom_path).unwrap_or_else(|| {
-        log::warn!(
-            "Unrecognized CD-ROM file extension, behaving as if this is a CUE file: {}",
-            rom_path.display()
-        );
-        CdRomFileFormat::CueBin
-    });
+    let bios_file_path = config.bios_file_path.as_ref().ok_or(NativeEmulatorError::SegaCdNoBios)?;
 
-    let DeterminedPaths { save_path, save_state_path } = save::determine_save_paths(
-        &config.genesis.common.save_path,
-        &config.genesis.common.state_path,
-        rom_path,
-        SCD_SAVE_EXTENSION,
-    )?;
+    let rom_path: &Path;
+    let rom_format: CdRomFileFormat;
+    let save_path: PathBuf;
+    let save_state_path: PathBuf;
+
+    if !config.run_without_disc {
+        rom_path = Path::new(&config.genesis.common.rom_file_path);
+        rom_format = CdRomFileFormat::from_file_path(rom_path).unwrap_or_else(|| {
+            log::warn!(
+                "Unrecognized CD-ROM file extension, behaving as if this is a CUE file: {}",
+                rom_path.display()
+            );
+            CdRomFileFormat::CueBin
+        });
+
+        let determined_paths = save::determine_save_paths(
+            &config.genesis.common.save_path,
+            &config.genesis.common.state_path,
+            rom_path,
+            SCD_SAVE_EXTENSION,
+        )?;
+        save_path = determined_paths.save_path;
+        save_state_path = determined_paths.save_state_path;
+    } else {
+        rom_path = Path::new("");
+        rom_format = CdRomFileFormat::CueBin;
+
+        let determined_paths = save::determine_save_paths(
+            &config.genesis.common.save_path,
+            &config.genesis.common.state_path,
+            bios_file_path,
+            SCD_SAVE_EXTENSION,
+        )?;
+        save_path = determined_paths.save_path;
+        save_state_path = determined_paths.save_state_path;
+    }
 
     let mut save_writer = FsSaveWriter::new(save_path);
 
-    let bios_file_path = config.bios_file_path.as_ref().ok_or(NativeEmulatorError::SegaCdNoBios)?;
     let bios = fs::read(bios_file_path).map_err(|source| NativeEmulatorError::SegaCdBiosRead {
         path: bios_file_path.clone(),
         source,

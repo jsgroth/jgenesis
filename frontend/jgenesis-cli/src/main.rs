@@ -135,6 +135,18 @@ struct Args {
     #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
     smsgg_z80_divider: Option<NonZeroU32>,
 
+    /// Boot from the SMS BIOS
+    #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
+    sms_boot_from_bios: Option<bool>,
+
+    /// Boot without a cartridge
+    #[arg(long, default_value_t, help_heading = SMSGG_OPTIONS_HEADING)]
+    sms_no_cartridge: bool,
+
+    /// Master System BIOS path
+    #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
+    sms_bios_path: Option<PathBuf>,
+
     /// Emulate the VDP's non-linear color scale, which tends to brighten darker colors and darken brighter colors
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
     genesis_non_linear_color_scale: Option<bool>,
@@ -580,6 +592,7 @@ impl Args {
             gg_use_sms_resolution,
             sms_fm_unit_enabled -> fm_sound_unit_enabled,
             smsgg_z80_divider -> z80_divider,
+            sms_boot_from_bios -> boot_from_bios,
         ]);
 
         if let Some(region) = self.smsgg_region {
@@ -588,6 +601,10 @@ impl Args {
 
         if let Some(psg_version) = self.psg_version {
             config.smsgg.psg_version = Some(psg_version);
+        }
+
+        if let Some(bios_path) = &self.sms_bios_path {
+            config.smsgg.bios_path = Some(bios_path.clone());
         }
     }
 
@@ -880,8 +897,10 @@ fn guess_hardware(args: &Args) -> Hardware {
 }
 
 fn run_sms(args: Args, config: AppConfig) -> anyhow::Result<()> {
-    let mut emulator =
-        jgenesis_native_driver::create_smsgg(config.smsgg_config(args.file_path.clone()))?;
+    let mut smsgg_config = config.smsgg_config(args.file_path.clone());
+    smsgg_config.run_without_cartridge = args.sms_no_cartridge;
+
+    let mut emulator = jgenesis_native_driver::create_smsgg(smsgg_config)?;
     run_emulator(&mut emulator, &args)
 }
 

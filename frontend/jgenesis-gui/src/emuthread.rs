@@ -92,6 +92,7 @@ impl ConsoleExt for Console {
 #[derive(Debug, Clone)]
 pub enum EmuThreadCommand {
     Run { console: Console, config: Box<AppConfig>, file_path: PathBuf },
+    RunBios { console: Console, config: Box<AppConfig> },
     ReloadConfig(Box<AppConfig>, PathBuf),
     StopEmulator,
     Terminate,
@@ -240,6 +241,30 @@ fn thread_run(ctx: EmuThreadContext) {
                     return;
                 }
             }
+            Ok(EmuThreadCommand::RunBios { console, mut config }) => {
+                ctx.status.store(console.running_status() as u8, Ordering::Relaxed);
+
+                if let Some(native_ppi) = ctx.egui_ctx.native_pixels_per_point() {
+                    log::info!("Setting emulator window scale factor to {native_ppi}");
+                    config.common.window_scale_factor = Some(native_ppi);
+                }
+
+                let emulator = match GenericEmulator::create_run_bios(console, config) {
+                    Ok(Some(emulator)) => emulator,
+                    Ok(None) => continue,
+                    Err(err) => {
+                        log::error!("Error initializing emulator: {err}");
+                        *ctx.emulator_error.lock().unwrap() = Some(err);
+                        continue;
+                    }
+                };
+                let run_result = run_emulator(emulator, &ctx);
+
+                if run_result == RunEmuResult::Terminate {
+                    ctx.status.store(EmuThreadStatus::Terminated as u8, Ordering::Relaxed);
+                    return;
+                }
+            }
             Ok(EmuThreadCommand::CollectInput { axis_deadzone }) => {
                 match collect_input_not_running(axis_deadzone, ctx.egui_ctx.pixels_per_point()) {
                     Ok(input) => {
@@ -319,6 +344,30 @@ impl GenericEmulator {
         };
 
         Ok(emulator)
+    }
+
+    fn create_run_bios(
+        console: Console,
+        config: Box<AppConfig>,
+    ) -> NativeEmulatorResult<Option<Self>> {
+        let emulator = match console {
+            Console::MasterSystem => {
+                let mut sms_config = config.smsgg_config(PathBuf::new());
+                sms_config.boot_from_bios = true;
+                sms_config.run_without_cartridge = true;
+
+                Self::SmsGg(Box::new(jgenesis_native_driver::create_smsgg(sms_config)?))
+            }
+            Console::SegaCd => {
+                let mut scd_config = config.sega_cd_config(PathBuf::new());
+                scd_config.run_without_disc = true;
+
+                Self::SegaCd(Box::new(jgenesis_native_driver::create_sega_cd(scd_config)?))
+            }
+            _ => return Ok(None),
+        };
+
+        Ok(Some(emulator))
     }
 
     fn reload_config(&mut self, config: Box<AppConfig>, path: PathBuf) -> Result<(), AudioError> {
@@ -447,7 +496,7 @@ fn run_emulator(mut emulator: GenericEmulator, ctx: &EmuThreadContext) -> RunEmu
                                 return RunEmuResult::None;
                             }
                         }
-                        EmuThreadCommand::Run { .. } => {}
+                        EmuThreadCommand::Run { .. } | EmuThreadCommand::RunBios { .. } => {}
                     }
                 }
             }

@@ -170,10 +170,17 @@ impl Default for State {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+pub enum CdModel {
+    One,
+    Two,
+}
+
 #[derive(Debug, Encode, Decode, PartialClone)]
 pub struct CdDrive {
     #[partial_clone(default)]
     disc: Option<CdRom>,
+    model: CdModel,
     sector_buffer: Box<[u8; cdrom::BYTES_PER_SECTOR as usize]>,
     state: State,
     report_type: ReportType,
@@ -192,9 +199,10 @@ pub struct CdDrive {
 }
 
 impl CdDrive {
-    pub(super) fn new(disc: Option<CdRom>, config: &SegaCdEmulatorConfig) -> Self {
+    pub(super) fn new(disc: Option<CdRom>, model: CdModel, config: &SegaCdEmulatorConfig) -> Self {
         Self {
             disc,
+            model,
             sector_buffer: Box::new(array::from_fn(|_| 0)),
             state: State::default(),
             report_type: ReportType::default(),
@@ -311,7 +319,9 @@ impl CdDrive {
             0x0D => {
                 // Open tray
                 log::trace!("  Command: Open Tray");
-                self.state = State::TrayOpening { auto_close: false };
+                if !matches!(self.state, State::TrayOpening { .. }) {
+                    self.state = State::TrayOpening { auto_close: false };
+                }
             }
             _ => {}
         }
@@ -904,7 +914,7 @@ impl CdDrive {
         log::info!("Removing disc");
 
         self.disc = None;
-        self.state = State::TrayOpening { auto_close: true };
+        self.state = State::TrayOpening { auto_close: self.model == CdModel::Two };
     }
 
     pub fn change_disc<P: AsRef<Path>>(
@@ -922,7 +932,13 @@ impl CdDrive {
         } else {
             CdRom::open(cue_path, format)?
         });
-        self.state = State::TrayOpening { auto_close: true };
+
+        // Only open the tray if running a Model 2 BIOS version.
+        // Model 1 BIOS versions will usually crash if the tray opens without the BIOS first sending
+        // an "open tray" command
+        if self.model == CdModel::Two {
+            self.state = State::TrayOpening { auto_close: true };
+        }
 
         Ok(())
     }

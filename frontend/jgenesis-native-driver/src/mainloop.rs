@@ -195,6 +195,7 @@ pub struct NativeEmulator<Emulator: EmulatorTrait> {
     raw_config: Emulator::Config,
     // Config with overclocking maybe forcibly disabled due to hotkey state
     config: Emulator::Config,
+    common_config: CommonConfig,
     renderer: WgpuRenderer<Window>,
     audio_output: SdlAudioOutput,
     input_mapper: InputMapper<Emulator::Inputs, Emulator::Button>,
@@ -347,6 +348,14 @@ pub enum NativeEmulatorError {
     },
     #[error("{0}")]
     Archive(#[from] ArchiveError),
+    #[error("No SMS BIOS provided")]
+    SmsNoBios,
+    #[error("Error opening BIOS file at '{path}': {source}")]
+    SmsBiosRead {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
     #[error("BIOS is required for Sega CD emulation")]
     SegaCdNoBios,
     #[error("Error opening BIOS file at '{path}': {source}")]
@@ -355,7 +364,6 @@ pub enum NativeEmulatorError {
         #[source]
         source: io::Error,
     },
-
     #[error("{0}")]
     SegaCdDisc(#[from] SegaCdLoadError),
     #[error("{0}")]
@@ -446,6 +454,7 @@ where
             emulator,
             raw_config: emulator_config.clone(),
             config: emulator_config,
+            common_config: common_config.clone(),
             renderer,
             audio_output,
             input_mapper,
