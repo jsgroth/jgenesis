@@ -123,7 +123,7 @@ impl Default for SegaCdAppConfig {
 pub struct Sega32XAppConfig {
     #[serde(default)]
     pub video_out: S32XVideoOut,
-    #[serde(default)]
+    #[serde(default = "true_fn")]
     pub apply_genesis_lpf_to_pwm: bool,
     #[serde(default = "true_fn")]
     pub pwm_enabled: bool,

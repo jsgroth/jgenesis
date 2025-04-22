@@ -178,7 +178,7 @@ pub const S32X_GEN_LOW_PASS: HelpText = HelpText {
     heading: "Apply Genesis LPF to 32X",
     text: &[
         "Choose whether to apply the Genesis low-pass filter to 32X PWM audio output.",
-        "In actual hardware, 32X audio output may or may not pass through the Genesis low-pass filter depending on where the 32X audio output is connected.",
+        "Enabling this is more accurate to actual hardware but can make PWM audio sound somewhat muffled.",
     ],
 };
 
