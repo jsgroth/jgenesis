@@ -293,7 +293,7 @@ pub struct Mbc5 {
 impl Mbc5 {
     pub fn new(rom_len: u32, ram_len: u32) -> Self {
         Self {
-            rom_bank: 0,
+            rom_bank: 1,
             rom_addr_mask: rom_len - 1,
             ram_bank: 0,
             ram_addr_mask: if ram_len != 0 { ram_len - 1 } else { 0 },
