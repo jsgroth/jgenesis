@@ -1,5 +1,8 @@
 //! Code for loading and reading CD-ROM images in CUE/BIN format
 
+#[cfg(test)]
+mod tests;
+
 use crate::cdtime::CdTime;
 use crate::cue::{CueSheet, Track, TrackMode, TrackType};
 use crate::{CdRomError, CdRomResult, cue};
@@ -102,6 +105,7 @@ impl<F: Read + Seek> CdBinFiles<F> {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 struct ParsedTrack {
     number: u8,
     mode: TrackMode,
@@ -111,6 +115,7 @@ struct ParsedTrack {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 struct ParsedFile {
     file_name: String,
     tracks: Vec<ParsedTrack>,
@@ -144,13 +149,14 @@ impl CueParser {
 
     fn parse(mut self, file: &str) -> CdRomResult<Vec<ParsedFile>> {
         for line in file.lines() {
-            if line.starts_with("FILE ") {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("FILE ") {
                 self.parse_file_line(line)?;
-            } else if line.starts_with("  TRACK ") {
+            } else if trimmed.starts_with("TRACK ") {
                 self.parse_track_line(line)?;
-            } else if line.starts_with("    INDEX ") {
+            } else if trimmed.starts_with("INDEX ") {
                 self.parse_index_line(line)?;
-            } else if line.starts_with("    PREGAP ") {
+            } else if trimmed.starts_with("PREGAP ") {
                 self.parse_pregap_line(line)?;
             }
         }
