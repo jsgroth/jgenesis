@@ -488,6 +488,10 @@ impl EmulatorTrait for GenesisEmulator {
 
         check_for_long_dma_skip(&self.vdp, &mut self.cycles);
 
+        if !m68k_wait {
+            self.vdp.clear_interrupt_delays();
+        }
+
         self.main_bus_writes = new_main_bus!(self, m68k_reset: false).apply_writes();
 
         Ok(tick_effect)

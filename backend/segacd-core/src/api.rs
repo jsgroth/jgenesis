@@ -397,6 +397,10 @@ impl EmulatorTrait for SegaCdEmulator {
 
         self.main_bus_writes = main_bus.take_writes();
 
+        if !m68k_wait {
+            self.vdp.clear_interrupt_delays();
+        }
+
         self.sega_cd_mclk_cycle_product += genesis_mclk_elapsed * SEGA_CD_MASTER_CLOCK_RATE;
         let scd_mclk_elapsed = match self.timing_mode {
             TimingMode::Ntsc => {

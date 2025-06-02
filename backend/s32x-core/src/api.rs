@@ -213,7 +213,8 @@ impl EmulatorTrait for Sega32XEmulator {
         self.input.set_inputs(*inputs);
 
         let mut bus = new_main_bus!(self, m68k_reset: false);
-        let m68k_cycles = if bus.cycles.m68k_wait_cpu_cycles != 0 {
+        let m68k_wait = bus.cycles.m68k_wait_cpu_cycles != 0;
+        let m68k_cycles = if m68k_wait {
             bus.cycles.take_m68k_wait_cpu_cycles()
         } else {
             self.m68k.execute_instruction(&mut bus)
@@ -227,6 +228,10 @@ impl EmulatorTrait for Sega32XEmulator {
                 self.z80.tick(&mut bus);
             }
             bus.cycles.decrement_z80();
+        }
+
+        if !m68k_wait {
+            bus.vdp.clear_interrupt_delays();
         }
 
         self.main_bus_writes = bus.apply_writes();

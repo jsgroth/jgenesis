@@ -28,7 +28,7 @@ use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::collections::VecDeque;
 use std::ops::{Deref, DerefMut, Range};
-use std::{array, cmp, mem};
+use std::{array, cmp};
 use z80_emu::traits::InterruptLine;
 
 const VRAM_LEN: usize = 64 * 1024;
@@ -266,10 +266,8 @@ struct InternalState {
     // Whether the VDP is actively raising INT6
     v_interrupt_pending: bool,
     delayed_v_interrupt: bool,
-    delayed_v_interrupt_next: bool,
     h_interrupt_pending: bool,
     delayed_h_interrupt: bool,
-    delayed_h_interrupt_next: bool,
     h_interrupt_counter: u16,
     latched_hv_counter: Option<u16>,
     v_border_forgotten: bool,
@@ -301,9 +299,7 @@ impl InternalState {
         Self {
             v_interrupt_pending: false,
             delayed_v_interrupt: false,
-            delayed_v_interrupt_next: false,
             delayed_h_interrupt: false,
-            delayed_h_interrupt_next: false,
             h_interrupt_pending: false,
             h_interrupt_counter: 0,
             latched_hv_counter: None,
@@ -734,11 +730,13 @@ impl Vdp {
 
             // V interrupts must be delayed by 1 CPU instruction if they are enabled
             // while a V interrupt is pending; Sesame Street Counting Cafe depends on this
-            self.state.delayed_v_interrupt_next =
+            self.state.delayed_v_interrupt =
                 !prev_v_interrupt_enabled && self.registers.v_interrupt_enabled;
         }
 
-        self.state.delayed_h_interrupt_next |=
+        // Fatal Rewind / The Killing Game Show depends on both HINT and VINT being delayed by 1
+        // instruction when enabled by software while an interrupt is pending
+        self.state.delayed_h_interrupt |=
             !prev_h_interrupt_enabled && self.registers.h_interrupt_enabled;
 
         if prev_h_display_size != self.registers.horizontal_display_size {
@@ -1270,9 +1268,6 @@ impl Vdp {
             "VDP tick {master_clock_cycles} mclk cycles, expected <1250"
         );
 
-        self.state.delayed_v_interrupt = mem::take(&mut self.state.delayed_v_interrupt_next);
-        self.state.delayed_h_interrupt = mem::take(&mut self.state.delayed_h_interrupt_next);
-
         let mut tick_effect = VdpTickEffect::None;
         self.state.scanline_mclk_cycles += master_clock_cycles;
         if self.state.scanline_mclk_cycles >= MCLK_CYCLES_PER_SCANLINE {
@@ -1770,6 +1765,12 @@ impl Vdp {
         } else {
             0
         }
+    }
+
+    #[inline]
+    pub fn clear_interrupt_delays(&mut self) {
+        self.state.delayed_v_interrupt = false;
+        self.state.delayed_h_interrupt = false;
     }
 
     pub fn acknowledge_m68k_interrupt(&mut self) {
