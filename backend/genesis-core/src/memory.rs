@@ -744,7 +744,7 @@ impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u32>
             0x05 | 0x07 => self.read_vdp_status().lsb(),
             0x08 | 0x0A => self.read_vdp_hv_counter().msb(),
             0x09 | 0x0B => self.read_vdp_hv_counter().lsb(),
-            0x10..=0x1F => {
+            0x0C..=0x1F => {
                 // PSG / unused space; PSG is not readable
                 0xFF
             }
@@ -765,7 +765,7 @@ impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u32>
             0x11 | 0x13 | 0x15 | 0x17 => {
                 self.psg.write(value);
             }
-            0x10 | 0x12 | 0x14 | 0x16 | 0x18..=0x1F => {}
+            0x08..=0x10 | 0x12 | 0x14 | 0x16 | 0x18..=0x1F => {}
             _ => unreachable!("address & 0x1F is always <= 0x1F"),
         }
     }
