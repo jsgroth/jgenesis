@@ -21,7 +21,13 @@ use std::fmt::{Display, Formatter};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub(crate) const DEFAULT_GENESIS_WINDOW_SIZE: WindowSize = WindowSize { width: 878, height: 672 };
+pub(crate) const DEFAULT_GENESIS_WINDOW_SIZE: WindowSize =
+    WindowSize { width: 878, height: 224 * 3 };
+
+// Make 32X window a little wider than Genesis by default so that the frame won't shrink if a
+// game switches to H32 mode while the renderer has forced integer height scaling enabled
+pub(crate) const DEFAULT_32X_WINDOW_SIZE: WindowSize = WindowSize { width: 887, height: 224 * 3 };
+
 pub(crate) const DEFAULT_GB_WINDOW_SIZE: WindowSize =
     WindowSize { width: 160 * 3, height: 144 * 3 };
 

@@ -287,7 +287,7 @@ pub fn create_32x(config: Box<Sega32XConfig>) -> NativeEmulatorResult<Native32XE
         emulator_config,
         config.genesis.common,
         extension,
-        config::DEFAULT_GENESIS_WINDOW_SIZE,
+        config::DEFAULT_32X_WINDOW_SIZE,
         &window_title,
         save_writer,
         save_state_path,
