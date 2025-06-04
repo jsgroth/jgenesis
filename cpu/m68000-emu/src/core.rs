@@ -875,9 +875,11 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let new_pc = self.bus.read_long_word(vector_addr);
         self.jump_to_address(new_pc)?;
 
-        // Auto-vectored interrupt handling takes 44 cycles, but 10 already elapsed from waiting to
-        // acknowledge
-        Ok(34)
+        // Auto-vectored interrupt handling takes 49-59 cycles instead of 44:
+        //   https://gendev.spritesmind.net/forum/viewtopic.php?t=2202
+        // For simplicity, use a constant 54 instead of tracking and synchronizing with E clock.
+        // Return 44 here because 10 cycles have already elapsed prior to the interrupt acknowledge
+        Ok(44)
     }
 
     fn jump_to_address(&mut self, address: u32) -> ExecuteResult<()> {
