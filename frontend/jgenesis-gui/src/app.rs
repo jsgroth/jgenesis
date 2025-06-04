@@ -63,7 +63,7 @@ impl ListFiltersExt for ListFilters {
             self.nes.then_some(Console::Nes),
             self.snes.then_some(Console::Snes),
             self.game_boy.then_some(Console::GameBoy),
-            self.game_boy.then_some(Console::GameBoyColor),
+            self.game_boy_color.then_some(Console::GameBoyColor),
         ]
         .into_iter()
         .flatten()
@@ -1027,6 +1027,7 @@ impl App {
             ui.checkbox(&mut self.config.list_filters.nes, "NES");
             ui.checkbox(&mut self.config.list_filters.snes, "SNES");
             ui.checkbox(&mut self.config.list_filters.game_boy, "GB");
+            ui.checkbox(&mut self.config.list_filters.game_boy_color, "GBC");
 
             if prev_list_filters != self.config.list_filters {
                 self.refresh_filtered_rom_list();
