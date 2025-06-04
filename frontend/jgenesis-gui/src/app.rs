@@ -16,12 +16,15 @@ use crate::emuthread::{EmuThreadCommand, EmuThreadHandle, EmuThreadStatus};
 use crate::widgets::SavePathSelect;
 use eframe::Frame;
 use egui::panel::TopBottomSide;
+use egui::scroll_area::ScrollAreaOutput;
+use egui::style::ScrollStyle;
 use egui::{
     Align, Button, CentralPanel, Color32, Context, Grid, Key, KeyboardShortcut, Layout, Modifiers,
-    Response, TextEdit, ThemePreference, TopBottomPanel, Ui, Vec2, ViewportCommand, Widget, Window,
-    menu,
+    Response, ScrollArea, TextEdit, ThemePreference, TopBottomPanel, Ui, Vec2, ViewportCommand,
+    Widget, Window, menu,
 };
 use egui_extras::{Column, TableBuilder};
+use emath::Pos2;
 use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen};
 use jgenesis_native_driver::config::HideMouseCursor;
 use jgenesis_native_driver::extensions::Console;
@@ -36,6 +39,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{fs, thread};
 use time::{OffsetDateTime, UtcOffset, format_description};
+
+const RESERVED_HELP_TEXT_HEIGHT: f32 = 150.0;
 
 trait ListFiltersExt {
     fn to_console_vec(&self) -> Vec<Console>;
@@ -1068,16 +1073,20 @@ impl App {
     }
 
     fn render_help_text(&mut self, ui: &mut Ui, window: OpenWindow) {
-        let Some(help_text) = self.state.help_text.get(&window) else { return };
-
         ui.separator();
 
-        ui.heading(help_text.heading);
+        ui.scope(|ui| {
+            ui.set_min_size([0.0, RESERVED_HELP_TEXT_HEIGHT].into());
 
-        for text in help_text.text {
-            ui.add_space(7.0);
-            ui.label(*text);
-        }
+            let Some(help_text) = self.state.help_text.get(&window) else { return };
+
+            ui.heading(help_text.heading);
+
+            for text in help_text.text {
+                ui.add_space(7.0);
+                ui.label(*text);
+            }
+        });
     }
 
     fn check_emulator_error(&mut self, ctx: &Context) {
@@ -1184,6 +1193,14 @@ impl App {
             log::warn!("Failed to terminate emulation thread; exiting anyway");
         }
     }
+
+    fn update_window_size_in_config(&mut self, ctx: &Context) {
+        ctx.viewport(|vp| {
+            let Pos2 { x: width, y: height } = vp.input.screen_rect.max;
+            self.config.gui_window_width = width;
+            self.config.gui_window_height = height;
+        });
+    }
 }
 
 impl eframe::App for App {
@@ -1223,6 +1240,8 @@ impl eframe::App for App {
 
         self.render_windows(ctx);
 
+        self.update_window_size_in_config(ctx);
+
         if prev_config != self.config {
             self.state.display_scanlines_warning = should_display_scanlines_warning(&self.config);
 
@@ -1252,6 +1271,8 @@ fn should_reload_config(prev_config: &AppConfig, new_config: &AppConfig) -> bool
         rom_search_dirs: vec![],
         recent_open_list: vec![],
         egui_theme: EguiTheme::default(),
+        gui_window_width: jgenesis_native_config::DEFAULT_GUI_WIDTH,
+        gui_window_height: jgenesis_native_config::DEFAULT_GUI_HEIGHT,
         ..prev_config.clone()
     };
 
@@ -1260,6 +1281,8 @@ fn should_reload_config(prev_config: &AppConfig, new_config: &AppConfig) -> bool
         rom_search_dirs: vec![],
         recent_open_list: vec![],
         egui_theme: EguiTheme::default(),
+        gui_window_width: jgenesis_native_config::DEFAULT_GUI_WIDTH,
+        gui_window_height: jgenesis_native_config::DEFAULT_GUI_HEIGHT,
         ..new_config.clone()
     };
 
@@ -1277,6 +1300,26 @@ fn format_time_nanos(time_nanos: u128) -> Option<String> {
         format_description::parse_borrowed::<2>("[year]-[month]-[day] [hour]:[minute]:[second]")
             .unwrap();
     local_date_time.format(&format).ok()
+}
+
+fn render_vertical_scroll_area<R>(
+    ui: &mut Ui,
+    add_contents: impl FnOnce(&mut Ui) -> R,
+) -> ScrollAreaOutput<R> {
+    let screen_height = ui.input(|i| i.screen_rect.height());
+
+    let mut scroll_area = ScrollArea::vertical().auto_shrink([false, true]);
+
+    let max_scroll_height = screen_height - RESERVED_HELP_TEXT_HEIGHT - 75.0;
+    if max_scroll_height >= 100.0 {
+        scroll_area = scroll_area.max_height(max_scroll_height);
+    }
+
+    ui.scope(|ui| {
+        ui.style_mut().spacing.scroll = ScrollStyle::solid();
+        scroll_area.show(ui, add_contents)
+    })
+    .inner
 }
 
 #[cfg(test)]

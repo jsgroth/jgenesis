@@ -1,8 +1,8 @@
 mod helptext;
 
-use crate::app::{App, NumericTextEdit, OpenWindow};
+use crate::app::{App, NumericTextEdit, OpenWindow, render_vertical_scroll_area};
 use eframe::epaint::Color32;
-use egui::{Context, Slider, Window};
+use egui::{Context, Slider, Ui, Window};
 use jgenesis_native_driver::config::FullscreenMode;
 use jgenesis_renderer::config::{FilterMode, PreprocessShader, Scanlines, VSyncMode, WgpuBackend};
 use std::num::NonZeroU32;
@@ -13,29 +13,85 @@ impl App {
 
         let mut open = true;
         Window::new("General Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            let rect = ui.checkbox(&mut self.config.common.launch_in_fullscreen, "Launch in fullscreen")
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::FULLSCREEN);
-            }
+            render_vertical_scroll_area(ui, |ui| {
+                self.render_fullscreen_settings(ui, WINDOW);
+                self.render_wgpu_backend_setting(ui, WINDOW);
+                self.render_filter_mode_setting(ui, WINDOW);
+                self.render_preprocess_shader_setting(ui, WINDOW);
+                self.render_scanlines_setting(ui, WINDOW);
+                self.render_prescaling_settings(ui, WINDOW);
 
-            let rect = ui.group(|ui| {
+                let rect = ui
+                    .checkbox(
+                        &mut self.config.common.force_integer_height_scaling,
+                        "Force integer height scaling",
+                    )
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::INTEGER_HEIGHT_SCALING);
+                }
+
+                if self.state.display_scanlines_warning {
+                    ui.colored_label(
+                        Color32::RED,
+                        concat!(
+                            "Integer height scaling + even-numbered prescale factor",
+                            " strongly recommended when scanlines are enabled"
+                        ),
+                    );
+                }
+            });
+
+            self.render_help_text(ui, WINDOW);
+        });
+        if !open {
+            self.state.open_windows.remove(&WINDOW);
+        }
+    }
+
+    fn render_fullscreen_settings(&mut self, ui: &mut Ui, window: OpenWindow) {
+        let rect = ui
+            .checkbox(&mut self.config.common.launch_in_fullscreen, "Launch in fullscreen")
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(window, helptext::FULLSCREEN);
+        }
+
+        let rect = ui
+            .group(|ui| {
                 ui.label("Fullscreen mode");
 
                 ui.horizontal(|ui| {
-                    ui.radio_value(&mut self.config.common.fullscreen_mode, FullscreenMode::Borderless, "Borderless");
-                    ui.radio_value(&mut self.config.common.fullscreen_mode, FullscreenMode::Exclusive, "Exclusive");
+                    ui.radio_value(
+                        &mut self.config.common.fullscreen_mode,
+                        FullscreenMode::Borderless,
+                        "Borderless",
+                    );
+                    ui.radio_value(
+                        &mut self.config.common.fullscreen_mode,
+                        FullscreenMode::Exclusive,
+                        "Exclusive",
+                    );
                 });
-            }).response.interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::FULLSCREEN_MODE);
-            }
+            })
+            .response
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(window, helptext::FULLSCREEN_MODE);
+        }
+    }
 
-            let rect = ui.group(|ui| {
+    fn render_wgpu_backend_setting(&mut self, ui: &mut Ui, window: OpenWindow) {
+        let rect = ui
+            .group(|ui| {
                 ui.add_enabled_ui(!self.emu_thread.status().is_running(), |ui| {
                     ui.label("wgpu backend");
                     ui.horizontal(|ui| {
-                        ui.radio_value(&mut self.config.common.wgpu_backend, WgpuBackend::Auto, "Auto");
+                        ui.radio_value(
+                            &mut self.config.common.wgpu_backend,
+                            WgpuBackend::Auto,
+                            "Auto",
+                        );
                         ui.radio_value(
                             &mut self.config.common.wgpu_backend,
                             WgpuBackend::Vulkan,
@@ -53,18 +109,23 @@ impl App {
                         );
                     });
                 });
-            }).response.interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::WGPU_BACKEND);
-            }
+            })
+            .response
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(window, helptext::WGPU_BACKEND);
+        }
 
-            // At least as of wgpu 0.20, wgpu w/ the OpenGL backend only supports present mode Fifo (VSync enabled)
-            let is_opengl = self.config.common.wgpu_backend == WgpuBackend::OpenGl;
-            if is_opengl {
-                self.config.common.vsync_mode = VSyncMode::Enabled;
-            }
+        // At least as of wgpu 0.20, wgpu w/ the OpenGL backend only supports present mode Fifo (VSync enabled)
+        let is_opengl = self.config.common.wgpu_backend == WgpuBackend::OpenGl;
+        if is_opengl {
+            self.config.common.vsync_mode = VSyncMode::Enabled;
+        }
+    }
 
-            let rect = ui.group(|ui| {
+    fn render_filter_mode_setting(&mut self, ui: &mut Ui, window: OpenWindow) {
+        let rect = ui
+            .group(|ui| {
                 ui.label("Filter mode");
                 ui.horizontal(|ui| {
                     ui.radio_value(
@@ -78,12 +139,17 @@ impl App {
                         "Linear interpolation",
                     );
                 });
-            }).response.interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::FILTER_MODE);
-            }
+            })
+            .response
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(window, helptext::FILTER_MODE);
+        }
+    }
 
-            let rect = ui.group(|ui| {
+    fn render_preprocess_shader_setting(&mut self, ui: &mut Ui, window: OpenWindow) {
+        let rect = ui
+            .group(|ui| {
                 ui.label("Preprocess shader");
 
                 ui.radio_value(
@@ -108,27 +174,35 @@ impl App {
                         PreprocessShader::HorizontalBlurSnesAdaptive,
                         "Horizontal blur (SNES adaptive)",
                     )
-                        .on_hover_text("Always maintains the effect of blurring 3px horizontally at 512px horizontal resolution");
+                    .on_hover_text(concat!(
+                        "Always maintains the effect of blurring",
+                        " 3px horizontally at 512px horizontal resolution"
+                    ));
                 });
 
                 ui.horizontal(|ui| {
                     ui.radio_value(
                         &mut self.config.common.preprocess_shader,
                         PreprocessShader::AntiDitherWeak,
-                        "Anti-dither (conservative)"
+                        "Anti-dither (conservative)",
                     );
                     ui.radio_value(
                         &mut self.config.common.preprocess_shader,
                         PreprocessShader::AntiDitherStrong,
-                        "Anti-dither (aggressive)"
+                        "Anti-dither (aggressive)",
                     );
                 });
-            }).response.interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::PREPROCESS_SHADER);
-            }
+            })
+            .response
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(window, helptext::PREPROCESS_SHADER);
+        }
+    }
 
-            let rect = ui.group(|ui| {
+    fn render_scanlines_setting(&mut self, ui: &mut Ui, window: OpenWindow) {
+        let rect = ui
+            .group(|ui| {
                 ui.label("Scanlines");
 
                 ui.horizontal(|ui| {
@@ -136,20 +210,30 @@ impl App {
                     ui.radio_value(&mut self.config.common.scanlines, Scanlines::Dim, "Dim");
                     ui.radio_value(&mut self.config.common.scanlines, Scanlines::Black, "Black");
                 });
-            }).response.interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::SCANLINES);
-            }
+            })
+            .response
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(window, helptext::SCANLINES);
+        }
+    }
 
-            let rect = ui.group(|ui| {
+    fn render_prescaling_settings(&mut self, ui: &mut Ui, window: OpenWindow) {
+        let rect = ui
+            .group(|ui| {
                 ui.label("Prescaling");
 
                 ui.horizontal(|ui| {
                     ui.add_enabled_ui(!self.config.common.auto_prescale, |ui| {
                         ui.label("Prescale factor:");
 
-                        if ui.add(Slider::new(&mut self.state.prescale_factor_raw, 1..=16)).changed() {
-                            if let Some(prescale_factor) = NonZeroU32::new(self.state.prescale_factor_raw) {
+                        if ui
+                            .add(Slider::new(&mut self.state.prescale_factor_raw, 1..=16))
+                            .changed()
+                        {
+                            if let Some(prescale_factor) =
+                                NonZeroU32::new(self.state.prescale_factor_raw)
+                            {
                                 self.config.common.prescale_factor = prescale_factor.into();
                             }
                         }
@@ -157,27 +241,11 @@ impl App {
                 });
 
                 ui.checkbox(&mut self.config.common.auto_prescale, "Enable auto-prescale");
-            }).response.interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::PRESCALING);
-            }
-
-            let rect = ui.checkbox(
-                &mut self.config.common.force_integer_height_scaling,
-                "Force integer height scaling",
-            ).interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::INTEGER_HEIGHT_SCALING);
-            }
-
-            if self.state.display_scanlines_warning {
-                ui.colored_label(Color32::RED, "Integer height scaling + even-numbered prescale factor strongly recommended when scanlines are enabled");
-            }
-
-            self.render_help_text(ui, WINDOW);
-        });
-        if !open {
-            self.state.open_windows.remove(&WINDOW);
+            })
+            .response
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(window, helptext::PRESCALING);
         }
     }
 

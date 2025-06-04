@@ -3,7 +3,9 @@ use eframe::NativeOptions;
 use egui::{Vec2, ViewportBuilder};
 use env_logger::Env;
 use jgenesis_gui::app::{App, LoadAtStartup};
-use std::path::PathBuf;
+use jgenesis_native_config::AppConfig;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -84,6 +86,25 @@ fn steam_deck_dpi_hack() {
     }
 }
 
+fn initial_gui_size(config_path: &Path) -> (f32, f32) {
+    let mut gui_width = jgenesis_native_config::DEFAULT_GUI_WIDTH;
+    let mut gui_height = jgenesis_native_config::DEFAULT_GUI_HEIGHT;
+
+    if let Some(config) = fs::read_to_string(config_path)
+        .ok()
+        .and_then(|config_str| toml::from_str::<AppConfig>(&config_str).ok())
+    {
+        gui_width = f32_max(jgenesis_native_config::DEFAULT_GUI_WIDTH, config.gui_window_width);
+        gui_height = f32_max(jgenesis_native_config::DEFAULT_GUI_HEIGHT, config.gui_window_height);
+    }
+
+    (gui_width, gui_height)
+}
+
+fn f32_max(value: f32, max: f32) -> f32 {
+    if value < max { max } else { value }
+}
+
 fn main() -> eframe::Result<()> {
     env_logger::Builder::from_env(
         Env::default().default_filter_or("info,wgpu_core=warn,wgpu_hal=warn"),
@@ -103,8 +124,10 @@ fn main() -> eframe::Result<()> {
         log::info!("Will open file '{}' after starting", file_path.display());
     }
 
+    let (gui_width, gui_height) = initial_gui_size(&config_path);
+
     let options = NativeOptions {
-        viewport: ViewportBuilder::default().with_inner_size(Vec2::new(800.0, 600.0)),
+        viewport: ViewportBuilder::default().with_inner_size(Vec2::new(gui_width, gui_height)),
         ..NativeOptions::default()
     };
 

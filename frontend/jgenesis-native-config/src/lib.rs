@@ -21,6 +21,9 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+pub const DEFAULT_GUI_WIDTH: f32 = 900.0;
+pub const DEFAULT_GUI_HEIGHT: f32 = 675.0;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListFilters {
     #[serde(default = "true_fn")]
@@ -96,6 +99,18 @@ pub struct AppConfig {
     pub recent_open_list: Vec<RecentOpen>,
     #[serde(default)]
     pub egui_theme: EguiTheme,
+    #[serde(default = "default_gui_width")]
+    pub gui_window_width: f32,
+    #[serde(default = "default_gui_height")]
+    pub gui_window_height: f32,
+}
+
+fn default_gui_width() -> f32 {
+    DEFAULT_GUI_WIDTH
+}
+
+fn default_gui_height() -> f32 {
+    DEFAULT_GUI_HEIGHT
 }
 
 impl AppConfig {

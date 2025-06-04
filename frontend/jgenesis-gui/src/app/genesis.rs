@@ -1,10 +1,10 @@
 mod helptext;
 
-use crate::app::{App, Console, OpenWindow};
+use crate::app::{App, Console, OpenWindow, render_vertical_scroll_area};
 use crate::emuthread::EmuThreadStatus;
 use crate::widgets::OverclockSlider;
 use egui::style::ScrollStyle;
-use egui::{Context, ScrollArea, Slider, Ui, Window};
+use egui::{Context, Slider, Ui, Window};
 use genesis_core::{GenesisAspectRatio, GenesisRegion, Opn2BusyBehavior};
 use jgenesis_common::frontend::TimingMode;
 use rfd::FileDialog;
@@ -373,51 +373,46 @@ impl App {
     pub(super) fn render_genesis_audio_settings(&mut self, ctx: &Context) {
         const WINDOW: OpenWindow = OpenWindow::GenesisAudio;
 
-        let screen_height = ctx.input(|i| i.screen_rect.height());
-
         let mut open = true;
         Window::new("Genesis Audio Settings").open(&mut open).show(ctx, |ui| {
             ui.ctx().style_mut(|style| style.spacing.scroll = ScrollStyle::solid());
 
-            ScrollArea::vertical().auto_shrink([false, true]).max_height(screen_height * 0.6).show(
-                ui,
-                |ui| {
-                    let rect = ui
-                        .checkbox(
-                            &mut self.config.genesis.quantize_ym2612_output,
-                            "Quantize YM2612 channel output",
-                        )
-                        .on_hover_text("Quantize channel outputs from 14 bits to 9 bits")
-                        .interact_rect;
-                    if ui.rect_contains_pointer(rect) {
-                        self.state.help_text.insert(WINDOW, helptext::QUANTIZE_YM2612_OUTPUT);
-                    }
+            render_vertical_scroll_area(ui, |ui| {
+                let rect = ui
+                    .checkbox(
+                        &mut self.config.genesis.quantize_ym2612_output,
+                        "Quantize YM2612 channel output",
+                    )
+                    .on_hover_text("Quantize channel outputs from 14 bits to 9 bits")
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::QUANTIZE_YM2612_OUTPUT);
+                }
 
-                    let rect = ui
-                        .checkbox(
-                            &mut self.config.genesis.emulate_ym2612_ladder_effect,
-                            "Emulate YM2612 DAC distortion (\"ladder effect\")",
-                        )
-                        .interact_rect;
-                    if ui.rect_contains_pointer(rect) {
-                        self.state.help_text.insert(WINDOW, helptext::YM2612_LADDER_EFFECT);
-                    }
+                let rect = ui
+                    .checkbox(
+                        &mut self.config.genesis.emulate_ym2612_ladder_effect,
+                        "Emulate YM2612 DAC distortion (\"ladder effect\")",
+                    )
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::YM2612_LADDER_EFFECT);
+                }
 
-                    ui.add_space(5.0);
-                    ui.group(|ui| {
-                        self.render_low_pass_filter_settings(ui);
-                    });
+                ui.add_space(5.0);
+                ui.group(|ui| {
+                    self.render_low_pass_filter_settings(ui);
+                });
 
-                    ui.add_space(5.0);
-                    self.render_opn2_busy_flag_setting(ui);
+                ui.add_space(5.0);
+                self.render_opn2_busy_flag_setting(ui);
 
-                    ui.add_space(5.0);
-                    self.render_scd_pcm_interpolation_setting(ui);
+                ui.add_space(5.0);
+                self.render_scd_pcm_interpolation_setting(ui);
 
-                    ui.add_space(5.0);
-                    self.render_enabled_sound_sources(ui);
-                },
-            );
+                ui.add_space(5.0);
+                self.render_enabled_sound_sources(ui);
+            });
 
             self.render_help_text(ui, WINDOW);
         });
