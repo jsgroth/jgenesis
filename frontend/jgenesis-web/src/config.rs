@@ -142,7 +142,9 @@ impl GenesisWebConfig {
             emulate_ym2612_ladder_effect: true,
             opn2_busy_behavior: Opn2BusyBehavior::default(),
             genesis_lpf_enabled: self.lpf_enabled,
-            genesis_lpf_cutoff: genesis_core::audio::DEFAULT_GENESIS_LPF_CUTOFF,
+            genesis_lpf_cutoff: genesis_core::audio::MODEL_1_VA2_LPF_CUTOFF,
+            ym2612_2nd_lpf_enabled: false,
+            ym2612_2nd_lpf_cutoff: genesis_core::audio::MODEL_2_2ND_LPF_CUTOFF,
             ym2612_enabled: true,
             psg_enabled: true,
         }
