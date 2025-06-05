@@ -436,13 +436,48 @@ impl App {
             self.state.help_text.insert(WINDOW, helptext::GENESIS_LOW_PASS);
         }
 
-        ui.horizontal(|ui| {
-            ui.add_space(15.0);
+        let rect = ui
+            .horizontal(|ui| {
+                ui.add_space(15.0);
 
-            ui.label("Cutoff frequency");
+                ui.label("Cutoff frequency");
 
-            ui.add(Slider::new(&mut self.config.genesis.genesis_lpf_cutoff, 1..=15000).text("Hz"));
-        });
+                ui.add(
+                    Slider::new(&mut self.config.genesis.genesis_lpf_cutoff, 1..=15000).text("Hz"),
+                );
+            })
+            .response
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(WINDOW, helptext::GENESIS_LOW_PASS);
+        }
+
+        let rect = ui
+            .checkbox(
+                &mut self.config.genesis.ym2612_2nd_lpf_enabled,
+                "Emulate YM2612 second-order low-pass filter",
+            )
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(WINDOW, helptext::YM2612_2ND_LOW_PASS);
+        }
+
+        let rect = ui
+            .horizontal(|ui| {
+                ui.add_space(15.0);
+
+                ui.label("Cutoff frequency");
+
+                ui.add(
+                    Slider::new(&mut self.config.genesis.ym2612_2nd_lpf_cutoff, 1..=15000)
+                        .text("Hz"),
+                );
+            })
+            .response
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(WINDOW, helptext::YM2612_2ND_LOW_PASS);
+        }
 
         ui.add_space(5.0);
         ui.horizontal(|ui| {
@@ -450,12 +485,25 @@ impl App {
 
             if ui.button("Model 1 VA0-VA2").clicked() {
                 self.config.genesis.genesis_lpf_enabled = true;
-                self.config.genesis.genesis_lpf_cutoff = 3390;
+                self.config.genesis.genesis_lpf_cutoff =
+                    genesis_core::audio::MODEL_1_VA2_LPF_CUTOFF;
+                self.config.genesis.ym2612_2nd_lpf_enabled = false;
             }
 
             if ui.button("Model 1 VA3-VA6").clicked() {
                 self.config.genesis.genesis_lpf_enabled = true;
-                self.config.genesis.genesis_lpf_cutoff = 2840;
+                self.config.genesis.genesis_lpf_cutoff =
+                    genesis_core::audio::MODEL_1_VA3_LPF_CUTOFF;
+                self.config.genesis.ym2612_2nd_lpf_enabled = false;
+            }
+
+            if ui.button("Model 2").clicked() {
+                self.config.genesis.genesis_lpf_enabled = true;
+                self.config.genesis.genesis_lpf_cutoff =
+                    genesis_core::audio::MODEL_2_1ST_LPF_CUTOFF;
+                self.config.genesis.ym2612_2nd_lpf_enabled = true;
+                self.config.genesis.ym2612_2nd_lpf_cutoff =
+                    genesis_core::audio::MODEL_2_2ND_LPF_CUTOFF;
             }
         });
 

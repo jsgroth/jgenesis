@@ -161,6 +161,14 @@ pub const GENESIS_LOW_PASS: HelpText = HelpText {
     ],
 };
 
+pub const YM2612_2ND_LOW_PASS: HelpText = HelpText {
+    heading: "YM2612 2nd-Order Low-Pass Filter",
+    text: &[
+        "If enabled, apply a second-order low-pass filter only to YM2612 audio output, applied before the first-order Genesis low-pass filter.",
+        "This should be similar to the audio circuitry found in Model 2 consoles.",
+    ],
+};
+
 pub const PCM_LOW_PASS: HelpText = HelpText {
     heading: "Sega CD PCM Low-Pass Filter",
     text: &["If enabled, apply a second-order low-pass filter to PCM chip audio output."],

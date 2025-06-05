@@ -50,6 +50,10 @@ pub struct GenesisAppConfig {
     pub genesis_lpf_enabled: bool,
     #[serde(default = "default_genesis_lpf_cutoff")]
     pub genesis_lpf_cutoff: u32,
+    #[serde(default)]
+    pub ym2612_2nd_lpf_enabled: bool,
+    #[serde(default = "default_ym2612_2nd_lpf_cutoff")]
+    pub ym2612_2nd_lpf_cutoff: u32,
     #[serde(default = "true_fn")]
     pub ym2612_enabled: bool,
     #[serde(default = "true_fn")]
@@ -65,7 +69,11 @@ const fn default_68k_divider() -> u64 {
 }
 
 const fn default_genesis_lpf_cutoff() -> u32 {
-    genesis_core::audio::DEFAULT_GENESIS_LPF_CUTOFF
+    genesis_core::audio::MODEL_1_VA2_LPF_CUTOFF
+}
+
+const fn default_ym2612_2nd_lpf_cutoff() -> u32 {
+    genesis_core::audio::MODEL_2_2ND_LPF_CUTOFF
 }
 
 impl Default for GenesisAppConfig {
@@ -166,6 +174,8 @@ impl AppConfig {
                 opn2_busy_behavior: self.genesis.opn2_busy_behavior,
                 genesis_lpf_enabled: self.genesis.genesis_lpf_enabled,
                 genesis_lpf_cutoff: self.genesis.genesis_lpf_cutoff,
+                ym2612_2nd_lpf_enabled: self.genesis.ym2612_2nd_lpf_enabled,
+                ym2612_2nd_lpf_cutoff: self.genesis.ym2612_2nd_lpf_cutoff,
                 ym2612_enabled: self.genesis.ym2612_enabled,
                 psg_enabled: self.genesis.psg_enabled,
             },

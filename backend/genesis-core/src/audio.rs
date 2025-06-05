@@ -3,7 +3,7 @@
 use crate::GenesisEmulatorConfig;
 use bincode::{Decode, Encode};
 use dsp::design::FilterType;
-use dsp::iir::{FirstOrderIirFilter, IirFilter};
+use dsp::iir::{FirstOrderIirFilter, IirFilter, SecondOrderIirFilter};
 use dsp::sinc::{PerformanceSincResampler, QualitySincResampler};
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
 use std::cmp;
@@ -14,7 +14,10 @@ pub const PAL_GENESIS_MCLK_FREQUENCY: f64 = 53_203_424.0;
 // -7dB (10 ^ -7/20)
 pub const PSG_COEFFICIENT: f64 = 0.44668359215096315;
 
-pub const DEFAULT_GENESIS_LPF_CUTOFF: u32 = 3390;
+pub const MODEL_1_VA2_LPF_CUTOFF: u32 = 3390;
+pub const MODEL_1_VA3_LPF_CUTOFF: u32 = 2840;
+pub const MODEL_2_1ST_LPF_CUTOFF: u32 = 3789;
+pub const MODEL_2_2ND_LPF_CUTOFF: u32 = 6725;
 
 #[must_use]
 pub fn new_ym2612_low_pass<const N: usize>(timing_mode: TimingMode, cutoff: u32) -> IirFilter<N> {
@@ -35,6 +38,8 @@ pub fn new_ym2612_dc_offset(timing_mode: TimingMode) -> FirstOrderIirFilter {
 pub struct LowPassSettings {
     pub genesis_enabled: bool,
     pub genesis_cutoff: u32,
+    pub ym2612_2nd_enabled: bool,
+    pub ym2612_2nd_cutoff: u32,
 }
 
 impl LowPassSettings {
@@ -43,6 +48,8 @@ impl LowPassSettings {
         Self {
             genesis_enabled: config.genesis_lpf_enabled,
             genesis_cutoff: config.genesis_lpf_cutoff,
+            ym2612_2nd_enabled: config.ym2612_2nd_lpf_enabled,
+            ym2612_2nd_cutoff: config.ym2612_2nd_lpf_cutoff,
         }
     }
 }
@@ -53,8 +60,10 @@ pub struct GenesisAudioFilter {
     ym2612_dc_offset_r: FirstOrderIirFilter,
     psg_dc_offset: FirstOrderIirFilter,
     low_pass_settings: LowPassSettings,
-    ym2612_low_pass_l: FirstOrderIirFilter,
-    ym2612_low_pass_r: FirstOrderIirFilter,
+    ym2612_gen_low_pass_l: FirstOrderIirFilter,
+    ym2612_gen_low_pass_r: FirstOrderIirFilter,
+    ym2612_2nd_low_pass_l: SecondOrderIirFilter,
+    ym2612_2nd_low_pass_r: SecondOrderIirFilter,
     psg_low_pass: FirstOrderIirFilter,
 }
 
@@ -66,22 +75,42 @@ impl GenesisAudioFilter {
             ym2612_dc_offset_r: new_ym2612_dc_offset(timing_mode),
             psg_dc_offset: smsgg_core::audio::new_psg_dc_offset(timing_mode),
             low_pass_settings,
-            ym2612_low_pass_l: new_ym2612_low_pass(timing_mode, low_pass_settings.genesis_cutoff),
-            ym2612_low_pass_r: new_ym2612_low_pass(timing_mode, low_pass_settings.genesis_cutoff),
+            ym2612_gen_low_pass_l: new_ym2612_low_pass(
+                timing_mode,
+                low_pass_settings.genesis_cutoff,
+            ),
+            ym2612_gen_low_pass_r: new_ym2612_low_pass(
+                timing_mode,
+                low_pass_settings.genesis_cutoff,
+            ),
+            ym2612_2nd_low_pass_l: new_ym2612_low_pass(
+                timing_mode,
+                low_pass_settings.ym2612_2nd_cutoff,
+            ),
+            ym2612_2nd_low_pass_r: new_ym2612_low_pass(
+                timing_mode,
+                low_pass_settings.ym2612_2nd_cutoff,
+            ),
             psg_low_pass: new_psg_low_pass(timing_mode, low_pass_settings.genesis_cutoff),
         }
     }
 
     #[must_use]
     pub fn filter_ym2612(&mut self, (sample_l, sample_r): (f64, f64)) -> (f64, f64) {
-        let (sample_l, sample_r) =
+        let (mut sample_l, mut sample_r) =
             (self.ym2612_dc_offset_l.filter(sample_l), self.ym2612_dc_offset_r.filter(sample_r));
 
-        if !self.low_pass_settings.genesis_enabled {
-            return (sample_l, sample_r);
+        if self.low_pass_settings.ym2612_2nd_enabled {
+            sample_l = self.ym2612_2nd_low_pass_l.filter(sample_l);
+            sample_r = self.ym2612_2nd_low_pass_r.filter(sample_r);
         }
 
-        (self.ym2612_low_pass_l.filter(sample_l), self.ym2612_low_pass_r.filter(sample_r))
+        if self.low_pass_settings.genesis_enabled {
+            sample_l = self.ym2612_gen_low_pass_l.filter(sample_l);
+            sample_r = self.ym2612_gen_low_pass_r.filter(sample_r);
+        }
+
+        (sample_l, sample_r)
     }
 
     #[must_use]

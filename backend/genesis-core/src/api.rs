@@ -202,6 +202,8 @@ pub struct GenesisEmulatorConfig {
     pub opn2_busy_behavior: Opn2BusyBehavior,
     pub genesis_lpf_enabled: bool,
     pub genesis_lpf_cutoff: u32,
+    pub ym2612_2nd_lpf_enabled: bool,
+    pub ym2612_2nd_lpf_cutoff: u32,
     pub ym2612_enabled: bool,
     pub psg_enabled: bool,
 }
