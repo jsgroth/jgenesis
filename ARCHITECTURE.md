@@ -3,7 +3,7 @@
 ## Overview
 
 The crates can be broken up roughly into 5 categories:
-* Common libraries: `jgenesis-common`, `jgenesis-proc-macros`, `cdrom`
+* Common libraries: `jgenesis-common`, `jgenesis-proc-macros`, `cdrom`, `dsp`
 * CPU emulators: `z80-emu`, `m68000-emu`, `mos6502-emu`, `wdc65816-emu`, `spc700-emu`, `sh2-emu`
 * Emulation backend: `smsgg-core`, `genesis-core`, `segacd-core`, `s32x-core`, `nes-core`, `snes-core`, `snes-coprocessors`, `gb-core`, `ym-opll`
 * Emulation frontend: `jgenesis-renderer`, `jgenesis-native-driver`, `jgenesis-native-config`, `jgenesis-cli`, `jgenesis-gui`, `jgenesis-web`
@@ -19,19 +19,25 @@ The CPU emulators are designed to be usable with any implementation of their res
 
 For the most part, the backends interact with the frontends through trait implementations. The backends implement traits that enable frontend features including save states and rewind. The frontends provide trait implementations to the backends that enable the backends to display video frames, output audio samples, and persist any save files (e.g. for a cartridge with battery-backed SRAM). The frontends are also responsible for passing current emulated controller state to the backends (i.e. which buttons are currently pressed).
 
-## Crates
+## Common Crates
 
 ### `jgenesis-common`
 
-Contains traits that define the interface between the emulation backends and the emulation frontends, as well as some dependency-light common code that is used across many of the other crates (e.g. helper extension traits and audio resampling).
+Contains traits that define the interface between the emulation backends and the emulation frontends, as well as some dependency-light common code that is used across many of the other crates (e.g. helper extension traits).
 
 ### `jgenesis-proc-macros`
 
-Custom derive macros used across many of the other crates.
+Custom derive macros and other proc macros used across many of the other crates.
 
 ### `cdrom`
 
 Contains code for reading CD-ROM images in CUE/BIN or CHD format.
+
+### `dsp`
+
+DSP (digital signal processing) code, used primarily for audio-related functionality (e.g. resampling).
+
+## CPU Crates
 
 ### `z80-emu`
 
@@ -56,6 +62,8 @@ Cycle-based emulation core for the Sony SPC700 CPU, which is used in the SNES as
 ### `sh2-emu`
 
 Instruction-based emulation core for the Hitachi SH-2 CPU, used in the Sega 32X and the Sega Saturn. This implementation includes the SH7604 hardware features.
+
+## Backend Crates
 
 ### `ym-opll`
 
@@ -93,6 +101,8 @@ Emulation for coprocessors used in SNES cartridges. Coprocessor cartridge implem
 
 Emulation core for the Game Boy and Game Boy Color.
 
+## Frontend Crates
+
 ### `jgenesis-renderer`
 
 GPU-based implementation of the `Renderer` trait in `jgenesis-traits`, built on top of `wgpu`. Can be used with any window that implements the `raw-window-handle` traits. Exists in its own crate so that it can be used in both the native and web frontends.
@@ -112,6 +122,8 @@ CLI and GUI that both invoke `jgenesis-native-driver` to run the emulator. `jgen
 ### `jgenesis-web`
 
 Web emulation frontend that compiles to WASM and runs in a web browser.
+
+## CPU Test Harness Crates
 
 ### `z80-test-runner`
 
