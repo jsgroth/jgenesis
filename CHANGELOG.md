@@ -3,16 +3,24 @@
 ## New Features
 * (**Genesis**) CRAM dots are now emulated
   * These are normally not visible within active display because it's uncommon to modify CRAM while the VDP is actively rendering, but they're visible in many games if vertical border rendering is enabled
-* (**Genesis**) Direct color DMA demos now work (though alignment might still be slightly off compared to actual hardware)
+* (**Genesis** / **Sega CD**) Audio low-pass filter cutoff frequencies are now configurable
+* (**Genesis**) New option to apply a second-order low-pass filter only to YM2612 audio output, which should be similar to the audio circuitry in later Model 2 consoles (when used in combination with a first-order filter applied to all audio output)
 * (**Genesis**) Added an aspect ratio "Auto" option (now default) that will function as either NTSC (8:7 / 32:35 PAR) or PAL (11:8 / 11:10 PAR) based on the current timing mode
+* (**Genesis**) Added an option for whether to emulate YM2612 or YM3438 busy flag behavior, which affects audio in a few games (e.g. _Earthworm Jim_ and _Hellfire_)
+  * There is also an Always 0 option that is less accurate to hardware but produces the "correct" behavior for both of these games
 * (**SMS** / **Game Gear**) Added a hardware region "Auto" setting that attempts to auto-detect region from the cartridge header (#214)
+* (**SMS**) Added the option to boot from a BIOS rather than booting directly into the game
+* (**SMS** / **Sega CD**) Added the ability to boot directly into the BIOS with no cartridge/disc inserted
 * (**NES**) Added an option to disable vertical overscan cropping in NTSC mode (i.e. display in 256x240 instead of 256x224)
 * Added an audio option to mute all emulator audio output (#248)
+* Added an option to configure the initial window size when not running in fullscreen (#409)
 * GUI: Added a new File menu button and hotkey to quickly open the most recently opened ROM file (#248)
 
 ## Multi-System Fixes
 * Fixed the emulator not reading gamepad inputs while the window does not have focus (#248)
 * Fixed the GUI sometimes segfaulting when you close the main GUI window while an emulator is running
+* The GUI window now remembers its size when the application is closed and reopened
+* Initial window size now takes aspect ratio into account
 
 ## Genesis / Mega Drive Fixes
 * Improved both behavioral accuracy and timing accuracy of VDP ports, VDP DMA, and the VDP FIFO; this fixes a number of bugs
@@ -21,6 +29,7 @@
   * The emulator now fully passes the VDPFIFOTesting test ROM (#103)
   * Fixes incorrect color palettes in some demos (#183)
   * Fixes a glitch on the title screen of the homebrew _Rick Dangerous 2_ port (#102)
+* Significantly improved performance due primarily to optimizations related to the YM2612 code
 * Lots of mostly minor fixes to YM2612 sound chip emulation
   * Fixed multiple timing precision bugs with the LFO and hardware timers
   * Fixed vibrato / LFO FM calculations incorrectly using 11-bit precision instead of 12-bit
@@ -28,8 +37,7 @@
   * Fixed the accurate quantization option incorrectly quantizing channel outputs instead of carrier outputs
   * More accurate emulation of DAC crossover distortion (ladder effect)
   * Added emulation for operator evaluation pipelining in channel output calculations
-  * Fixed the DAC channel not respecting the Channel 6 panning bits
-* Significantly improved performance due primarily to optimizations related to the YM2612 code
+  * Fixed the DAC channel not respecting the channel 6 panning bits
 * Fixed a Z80 timing bug caused by a VDP DMA "optimization" introduced in v0.8.2; this fixes video/audio desync in Overdrive 2
 * Fixed behavior when the controller port TH pin is set to input; this fixes controls not working properly in _Micro Machines_ (#226)
 * Improved display behavior when games switch between H32 and H40 modes shortly after the start of VBlank; this fixes glitchy frames in _Bugs Bunny in Double Trouble_ (#252)
@@ -41,16 +49,22 @@
 * Fixed the emulator not correctly initializing cartridge SRAM when the cartridge header specifies less common RAM types; this fixes the Mega Drive Mode 7 demo not working (#250)
 * Fixed the interlaced ODD flag in the VDP status register not toggling correctly in single-screen interlaced mode if deinterlacing is enabled (#354)
 * Fixed a number of European games with bad region headers defaulting to NTSC mode instead of PAL (#176 / #394)
+* The 68000 interrupt handler now takes 54 CPU cycles instead of 44; this is more accurate and fixes a minor glitch in Overdrive (#419)
+* Fixed the emulator crashing if a game reads from Z80 $7F0C-$7F0F or writes to Z80 $7F08-$7F0F
 * When horizontal border rendering is enabled, fixed the right border rendering as the wrong color if the backdrop color is changed between lines (Overdrive 1 does this on some screens)
 * The non-linear VDP color scale option is now enabled by default because it is more accurate to actual hardware's video output (#249)
 
 ## Sega CD Fixes
 * Fixed the CDD reset register (\$FF8001) not correctly resetting CDD state; this fixes the _Pier Solar_ enhanced audio disc failing to boot in SCD Mode 2 (#215)
+* Fixed the CUE parser being too strict around parsing leading whitespace on lines (#418)
+* Fixed some bugs related to changing discs while a game is running (particularly when using a Model 1 BIOS)
 
 ## 32X Fixes
 * Fixed the Genesis VDP and 32X VDP frames incorrectly lining up exactly when the Genesis VDP is in H32 mode; this fixes some minor graphical issues in _NFL Quarterback Club_ (#230)
 * Files with .bin extensions are now auto-detected as 32X instead of Genesis if they contain the 32X security program at the expected location in ROM (#259)
 * Horizontal blur shaders now scale the effect properly when the Genesis VDP is in H32 mode
+* The "apply Genesis low-pass filter to PWM" setting is now on by default because that seems to be more accurate to actual hardware's audio circuitry
+* Fixed initial window size being slightly too small to fit integer-height-scaled output when the Genesis VDP is in H32 mode (#420)
 
 ## Master System / Game Gear Fixes
 * Somewhat improved VDP-related timings; this fixes glitchy cutscene graphics in _Madou Monogatari I_ (#213) and fixes most tests in the SMSVDPTest test ROM (#190)
@@ -81,6 +95,7 @@
 * Fixed some revisions of _Dungeon Master_ being incorrectly detected as DSP-1 instead of DSP-2
 
 ## Game Boy [Color] Fixes
+* The MBC5 ROM bank is now initialized to 1 instead of 0; this fixes _Project S-11_ failing to boot (#410)
 * Cartridge SRAM is now initialized to all 1s instead of all 0s
 
 # v0.9.0
