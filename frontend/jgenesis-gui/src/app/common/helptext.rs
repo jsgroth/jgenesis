@@ -12,6 +12,14 @@ pub const FULLSCREEN_MODE: HelpText = HelpText {
     ],
 };
 
+pub const INITIAL_WINDOW_SIZE: HelpText = HelpText {
+    heading: "Initial Window Size",
+    text: &[
+        "Initial window size when not running in fullscreen, as a multiple of the console's native resolution.",
+        "Changing this setting will only take effect after opening a new game.",
+    ],
+};
+
 pub const WGPU_BACKEND: HelpText = HelpText {
     heading: "wgpu Backend",
     text: &[

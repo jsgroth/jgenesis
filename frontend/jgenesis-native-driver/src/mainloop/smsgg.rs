@@ -1,11 +1,9 @@
-use crate::config::SmsGgConfig;
+use crate::config::{SmsGgConfig, WindowSize};
 use std::fs;
 
 use crate::mainloop::save::FsSaveWriter;
 use crate::mainloop::{debug, file_name_no_ext, save};
-use crate::{
-    AudioError, NativeEmulator, NativeEmulatorError, NativeEmulatorResult, config, extensions,
-};
+use crate::{AudioError, NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
 
 use smsgg_core::{SmsGgEmulator, SmsGgHardware, SmsGgInputs};
 use std::path::{Path, PathBuf};
@@ -104,12 +102,22 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
     let emulator =
         SmsGgEmulator::create(rom, bios_rom, hardware, emulator_config, &mut save_writer);
 
+    let default_window_size = match hardware {
+        SmsGgHardware::MasterSystem => {
+            WindowSize::new_sms(config.common.initial_window_size, emulator_config.sms_aspect_ratio)
+        }
+        SmsGgHardware::GameGear => WindowSize::new_game_gear(
+            config.common.initial_window_size,
+            emulator_config.gg_aspect_ratio,
+        ),
+    };
+
     NativeSmsGgEmulator::new(
         emulator,
         emulator_config,
         config.common,
         extension,
-        config::default_smsgg_window_size(hardware, emulator_config.sms_aspect_ratio),
+        default_window_size,
         &window_title,
         save_writer,
         save_state_path,

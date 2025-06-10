@@ -50,6 +50,26 @@ pub enum GenesisAspectRatio {
 }
 
 impl GenesisAspectRatio {
+    #[inline]
+    #[must_use]
+    pub fn to_h40_pixel_aspect_ratio(self, timing_mode: TimingMode) -> Option<f64> {
+        if self == Self::Auto {
+            let auto_aspect = match timing_mode {
+                TimingMode::Ntsc => Self::Ntsc,
+                TimingMode::Pal => Self::Pal,
+            };
+            return auto_aspect.to_h40_pixel_aspect_ratio(timing_mode);
+        }
+
+        match self {
+            Self::Ntsc => Some(32.0 / 35.0),
+            Self::Pal => Some(11.0 / 10.0),
+            Self::SquarePixels => Some(1.0),
+            Self::Stretched => None,
+            Self::Auto => unreachable!("Auto checked at start of function with early return"),
+        }
+    }
+
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
     pub fn to_pixel_aspect_ratio(
@@ -347,6 +367,12 @@ impl GenesisEmulator {
     #[must_use]
     pub fn has_sram(&self) -> bool {
         self.memory.is_external_ram_persistent()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn timing_mode(&self) -> TimingMode {
+        self.timing_mode
     }
 
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {

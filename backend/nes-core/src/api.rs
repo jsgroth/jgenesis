@@ -38,13 +38,19 @@ pub enum NesAspectRatio {
 }
 
 impl NesAspectRatio {
-    fn to_pixel_aspect_ratio(self) -> Option<PixelAspectRatio> {
+    #[inline]
+    #[must_use]
+    pub fn to_pixel_aspect_ratio_f64(self) -> Option<f64> {
         match self {
-            Self::Ntsc => Some(PixelAspectRatio::try_from(8.0 / 7.0).unwrap()),
-            Self::Pal => Some(PixelAspectRatio::try_from(11.0 / 8.0).unwrap()),
-            Self::SquarePixels => Some(PixelAspectRatio::SQUARE),
+            Self::Ntsc => Some(8.0 / 7.0),
+            Self::Pal => Some(11.0 / 8.0),
+            Self::SquarePixels => Some(PixelAspectRatio::SQUARE.into()),
             Self::Stretched => None,
         }
+    }
+
+    fn to_pixel_aspect_ratio(self) -> Option<PixelAspectRatio> {
+        self.to_pixel_aspect_ratio_f64().map(|par| PixelAspectRatio::try_from(par).unwrap())
     }
 }
 
@@ -174,6 +180,12 @@ impl NesEmulator {
             audio_resampler: AudioResampler::new(timing_mode, &config),
             raw_rom_bytes: rom_bytes,
         })
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn timing_mode(&self) -> TimingMode {
+        self.bus.mapper().timing_mode()
     }
 
     fn ntsc_tick(&mut self) {
@@ -419,5 +431,17 @@ fn init_apu(apu_state: &mut ApuState, bus: &mut Bus, config: NesEmulatorConfig) 
     for _ in 0..10 {
         apu::tick(apu_state, &mut bus.cpu(), config);
         bus.tick();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_aspect_ratios_valid() {
+        for par in NesAspectRatio::ALL {
+            let _ = par.to_pixel_aspect_ratio();
+        }
     }
 }

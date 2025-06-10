@@ -1,8 +1,8 @@
-use crate::config::RomReadResult;
 use crate::config::{GenesisConfig, Sega32XConfig, SegaCdConfig};
+use crate::config::{RomReadResult, WindowSize};
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{NativeEmulatorError, debug, save};
-use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config, extensions};
+use crate::{AudioError, NativeEmulator, NativeEmulatorResult, extensions};
 use genesis_core::{GenesisEmulator, GenesisInputs};
 use s32x_core::api::Sega32XEmulator;
 use segacd_core::CdRomFileFormat;
@@ -155,12 +155,18 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
     });
     let window_title = format!("genesis - {cartridge_title}");
 
+    let default_window_size = WindowSize::new_genesis(
+        config.common.initial_window_size,
+        emulator_config.aspect_ratio,
+        emulator.timing_mode(),
+    );
+
     NativeGenesisEmulator::new(
         emulator,
         emulator_config,
         config.common,
         extension,
-        config::DEFAULT_GENESIS_WINDOW_SIZE,
+        default_window_size,
         &window_title,
         save_writer,
         save_state_path,
@@ -239,12 +245,18 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
 
     let window_title = format!("sega cd - {}", emulator.disc_title());
 
+    let default_window_size = WindowSize::new_genesis(
+        config.genesis.common.initial_window_size,
+        emulator_config.genesis.aspect_ratio,
+        emulator.timing_mode(),
+    );
+
     NativeSegaCdEmulator::new(
         emulator,
         emulator_config,
         config.genesis.common,
         SCD_SAVE_EXTENSION.into(),
-        config::DEFAULT_GENESIS_WINDOW_SIZE,
+        default_window_size,
         &window_title,
         save_writer,
         save_state_path,
@@ -282,12 +294,18 @@ pub fn create_32x(config: Box<Sega32XConfig>) -> NativeEmulatorResult<Native32XE
     let cartridge_title = emulator.cartridge_title();
     let window_title = format!("32x - {cartridge_title}");
 
+    let default_window_size = WindowSize::new_32x(
+        config.genesis.common.initial_window_size,
+        emulator_config.genesis.aspect_ratio,
+        emulator.timing_mode(),
+    );
+
     Native32XEmulator::new(
         emulator,
         emulator_config,
         config.genesis.common,
         extension,
-        config::DEFAULT_32X_WINDOW_SIZE,
+        default_window_size,
         &window_title,
         save_writer,
         save_state_path,

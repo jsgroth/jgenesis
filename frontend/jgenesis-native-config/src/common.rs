@@ -8,7 +8,7 @@ use jgenesis_renderer::config::{
     VSyncMode, WgpuBackend,
 };
 use serde::{Deserialize, Serialize};
-use std::num::NonZeroU32;
+use std::num::{NonZeroU8, NonZeroU32};
 use std::path::{Path, PathBuf};
 
 #[derive(
@@ -53,6 +53,8 @@ pub struct CommonAppConfig {
     pub launch_in_fullscreen: bool,
     #[serde(default)]
     pub fullscreen_mode: FullscreenMode,
+    #[serde(default = "default_initial_window_size")]
+    pub initial_window_size: NonZeroU8,
     #[serde(default)]
     pub wgpu_backend: WgpuBackend,
     #[serde(default)]
@@ -134,6 +136,10 @@ fn default_prescale_factor() -> PrescaleFactor {
     PrescaleFactor::from(NonZeroU32::new(3).unwrap())
 }
 
+fn default_initial_window_size() -> NonZeroU8 {
+    NonZeroU8::new(3).unwrap()
+}
+
 fn default_fast_forward_multiplier() -> u64 {
     2
 }
@@ -178,6 +184,7 @@ impl AppConfig {
             load_recent_state_at_launch: self.common.load_recent_state_at_launch,
             launch_in_fullscreen: self.common.launch_in_fullscreen,
             fullscreen_mode: self.common.fullscreen_mode,
+            initial_window_size: self.common.initial_window_size,
             axis_deadzone: self.input.axis_deadzone,
             hotkey_config: self.input.hotkeys.clone(),
             hide_mouse_cursor: self.common.hide_mouse_cursor,

@@ -162,6 +162,12 @@ impl Sega32XEmulator {
         )
     }
 
+    #[inline]
+    #[must_use]
+    pub fn timing_mode(&self) -> TimingMode {
+        self.timing_mode
+    }
+
     pub fn copy_cram(&self, out: &mut [Color]) {
         self.vdp.copy_cram(out);
     }

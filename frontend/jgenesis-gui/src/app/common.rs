@@ -5,7 +5,7 @@ use eframe::epaint::Color32;
 use egui::{Context, Slider, Ui, Window};
 use jgenesis_native_driver::config::FullscreenMode;
 use jgenesis_renderer::config::{FilterMode, PreprocessShader, Scanlines, VSyncMode, WgpuBackend};
-use std::num::NonZeroU32;
+use std::num::{NonZeroU8, NonZeroU32};
 
 impl App {
     pub(super) fn render_common_video_settings(&mut self, ctx: &Context) {
@@ -15,6 +15,7 @@ impl App {
         Window::new("General Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             render_vertical_scroll_area(ui, |ui| {
                 self.render_fullscreen_settings(ui, WINDOW);
+                self.render_window_size_setting(ui, WINDOW);
                 self.render_wgpu_backend_setting(ui, WINDOW);
                 self.render_filter_mode_setting(ui, WINDOW);
                 self.render_preprocess_shader_setting(ui, WINDOW);
@@ -78,6 +79,29 @@ impl App {
             .interact_rect;
         if ui.rect_contains_pointer(rect) {
             self.state.help_text.insert(window, helptext::FULLSCREEN_MODE);
+        }
+    }
+
+    fn render_window_size_setting(&mut self, ui: &mut Ui, window: OpenWindow) {
+        const MIN_SIZE: NonZeroU8 = NonZeroU8::new(1).unwrap();
+        const MAX_SIZE: NonZeroU8 = NonZeroU8::new(10).unwrap();
+
+        let rect = ui
+            .horizontal(|ui| {
+                ui.label("Initial window size:");
+
+                ui.add(
+                    Slider::new(&mut self.config.common.initial_window_size, MIN_SIZE..=MAX_SIZE)
+                        .custom_formatter(|n, _| {
+                            let n = n as u8;
+                            format!("{n}x")
+                        }),
+                );
+            })
+            .response
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(window, helptext::INITIAL_WINDOW_SIZE);
         }
     }
 

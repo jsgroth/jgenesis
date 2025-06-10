@@ -103,13 +103,19 @@ pub enum SmsAspectRatio {
 }
 
 impl SmsAspectRatio {
-    pub(crate) fn to_pixel_aspect_ratio(self) -> Option<PixelAspectRatio> {
+    #[inline]
+    #[must_use]
+    pub fn to_pixel_aspect_ratio_f64(self) -> Option<f64> {
         match self {
-            Self::Ntsc => Some(PixelAspectRatio::try_from(crate::SMS_NTSC_ASPECT_RATIO).unwrap()),
-            Self::Pal => Some(PixelAspectRatio::try_from(crate::SMS_PAL_ASPECT_RATIO).unwrap()),
-            Self::SquarePixels => Some(PixelAspectRatio::SQUARE),
+            Self::Ntsc => Some(crate::SMS_NTSC_ASPECT_RATIO),
+            Self::Pal => Some(crate::SMS_PAL_ASPECT_RATIO),
+            Self::SquarePixels => Some(PixelAspectRatio::SQUARE.into()),
             Self::Stretched => None,
         }
+    }
+
+    pub(crate) fn to_pixel_aspect_ratio(self) -> Option<PixelAspectRatio> {
+        self.to_pixel_aspect_ratio_f64().map(|par| PixelAspectRatio::try_from(par).unwrap())
     }
 }
 
@@ -126,14 +132,18 @@ pub enum GgAspectRatio {
 }
 
 impl GgAspectRatio {
-    pub(crate) fn to_pixel_aspect_ratio(self) -> Option<PixelAspectRatio> {
+    #[inline]
+    #[must_use]
+    pub fn to_pixel_aspect_ratio_f64(self) -> Option<f64> {
         match self {
-            Self::GgLcd => {
-                Some(PixelAspectRatio::try_from(crate::GAME_GEAR_LCD_ASPECT_RATIO).unwrap())
-            }
-            Self::SquarePixels => Some(PixelAspectRatio::SQUARE),
+            Self::GgLcd => Some(crate::GAME_GEAR_LCD_ASPECT_RATIO),
+            Self::SquarePixels => Some(PixelAspectRatio::SQUARE.into()),
             Self::Stretched => None,
         }
+    }
+
+    pub(crate) fn to_pixel_aspect_ratio(self) -> Option<PixelAspectRatio> {
+        self.to_pixel_aspect_ratio_f64().map(|par| PixelAspectRatio::try_from(par).unwrap())
     }
 }
 
@@ -541,6 +551,25 @@ fn populate_frame_buffer(
             };
 
             frame_buffer[i * screen_width + j] = Color::rgb(r, g, b);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_sms_aspect_ratios_valid() {
+        for par in SmsAspectRatio::ALL {
+            let _ = par.to_pixel_aspect_ratio();
+        }
+    }
+
+    #[test]
+    fn all_gg_aspect_ratios_valid() {
+        for par in GgAspectRatio::ALL {
+            let _ = par.to_pixel_aspect_ratio();
         }
     }
 }

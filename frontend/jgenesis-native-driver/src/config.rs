@@ -8,28 +8,20 @@ use crate::config::input::{
 use crate::mainloop::NativeEmulatorError;
 use crate::{NativeEmulatorResult, archive, extensions};
 use gb_core::api::GameBoyEmulatorConfig;
-use genesis_core::GenesisEmulatorConfig;
+use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig};
+use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay};
 use jgenesis_renderer::config::RendererConfig;
-use nes_core::api::NesEmulatorConfig;
+use nes_core::api::{NesAspectRatio, NesEmulatorConfig};
 use s32x_core::api::Sega32XEmulatorConfig;
 use segacd_core::api::SegaCdEmulatorConfig;
 use serde::{Deserialize, Serialize};
-use smsgg_core::{SmsAspectRatio, SmsGgEmulatorConfig, SmsGgHardware};
-use snes_core::api::{CoprocessorRomFn, CoprocessorRoms, SnesEmulatorConfig};
+use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsGgEmulatorConfig};
+use snes_core::api::{CoprocessorRomFn, CoprocessorRoms, SnesAspectRatio, SnesEmulatorConfig};
 use std::fmt::{Display, Formatter};
 use std::fs;
+use std::num::NonZeroU8;
 use std::path::{Path, PathBuf};
-
-pub(crate) const DEFAULT_GENESIS_WINDOW_SIZE: WindowSize =
-    WindowSize { width: 878, height: 224 * 3 };
-
-// Make 32X window a little wider than Genesis by default so that the frame won't shrink if a
-// game switches to H32 mode while the renderer has forced integer height scaling enabled
-pub(crate) const DEFAULT_32X_WINDOW_SIZE: WindowSize = WindowSize { width: 887, height: 224 * 3 };
-
-pub(crate) const DEFAULT_GB_WINDOW_SIZE: WindowSize =
-    WindowSize { width: 160 * 3, height: 144 * 3 };
 
 #[derive(Debug, Clone, Copy)]
 pub struct WindowSize {
@@ -38,6 +30,111 @@ pub struct WindowSize {
 }
 
 impl WindowSize {
+    const SMS_HEIGHT: f64 = 192.0;
+    const SMS_WIDTH: f64 = 256.0;
+
+    const GG_HEIGHT: f64 = 144.0;
+    const GG_WIDTH: f64 = 160.0;
+
+    const GENESIS_HEIGHT: f64 = 224.0;
+    const GENESIS_WIDTH_H40: f64 = 320.0;
+
+    const NES_NTSC_HEIGHT: f64 = 224.0;
+    const NES_PAL_HEIGHT: f64 = 240.0;
+    const NES_WIDTH: f64 = 256.0;
+
+    const SNES_HEIGHT: f64 = 224.0;
+    const SNES_WIDTH: f64 = 256.0;
+
+    const GB_HEIGHT: f64 = 144.0;
+    const GB_WIDTH: f64 = 160.0;
+
+    pub(crate) fn new(native_width: f64, native_height: f64, size: NonZeroU8) -> Self {
+        let size: f64 = size.get().into();
+
+        let width = (native_width * size).ceil() as u32;
+        let height = (native_height * size).ceil() as u32;
+        Self { width, height }
+    }
+
+    pub(crate) fn new_sms(size: NonZeroU8, aspect_ratio: SmsAspectRatio) -> Self {
+        let pixel_aspect_ratio = aspect_ratio.to_pixel_aspect_ratio_f64().unwrap_or_else(|| {
+            SmsAspectRatio::default().to_pixel_aspect_ratio_f64().unwrap_or(1.0)
+        });
+        let width = Self::SMS_WIDTH * pixel_aspect_ratio;
+
+        Self::new(width, Self::SMS_HEIGHT, size)
+    }
+
+    pub(crate) fn new_game_gear(size: NonZeroU8, aspect_ratio: GgAspectRatio) -> Self {
+        let pixel_aspect_ratio = aspect_ratio
+            .to_pixel_aspect_ratio_f64()
+            .unwrap_or_else(|| GgAspectRatio::default().to_pixel_aspect_ratio_f64().unwrap_or(1.0));
+        let width = Self::GG_WIDTH * pixel_aspect_ratio;
+
+        Self::new(width, Self::GG_HEIGHT, size)
+    }
+
+    pub(crate) fn new_genesis(
+        size: NonZeroU8,
+        aspect_ratio: GenesisAspectRatio,
+        timing_mode: TimingMode,
+    ) -> Self {
+        Self::new(Self::genesis_width(aspect_ratio, timing_mode), Self::GENESIS_HEIGHT, size)
+    }
+
+    fn genesis_width(aspect_ratio: GenesisAspectRatio, timing_mode: TimingMode) -> f64 {
+        let h40_par = aspect_ratio.to_h40_pixel_aspect_ratio(timing_mode).unwrap_or_else(|| {
+            GenesisAspectRatio::default().to_h40_pixel_aspect_ratio(timing_mode).unwrap_or(1.0)
+        });
+        Self::GENESIS_WIDTH_H40 * h40_par
+    }
+
+    pub(crate) fn new_32x(
+        size: NonZeroU8,
+        aspect_ratio: GenesisAspectRatio,
+        timing_mode: TimingMode,
+    ) -> Self {
+        // Make 32X window a little wider than Genesis by default so that the frame won't shrink if a
+        // game switches to H32 mode while the renderer has forced integer height scaling enabled
+        let width = Self::genesis_width(aspect_ratio, timing_mode) * 323.25 / 320.0;
+
+        Self::new(width, Self::GENESIS_HEIGHT, size)
+    }
+
+    pub(crate) fn new_nes(
+        size: NonZeroU8,
+        aspect_ratio: NesAspectRatio,
+        timing_mode: TimingMode,
+        ntsc_crop_v_overscan: bool,
+    ) -> Self {
+        let pixel_aspect_ratio = aspect_ratio.to_pixel_aspect_ratio_f64().unwrap_or_else(|| {
+            NesAspectRatio::default().to_pixel_aspect_ratio_f64().unwrap_or(1.0)
+        });
+        let width = Self::NES_WIDTH * pixel_aspect_ratio;
+
+        let height = match timing_mode {
+            TimingMode::Ntsc if ntsc_crop_v_overscan => Self::NES_NTSC_HEIGHT,
+            _ => Self::NES_PAL_HEIGHT,
+        };
+
+        Self::new(width, height, size)
+    }
+
+    pub(crate) fn new_snes(size: NonZeroU8, aspect_ratio: SnesAspectRatio) -> Self {
+        let pixel_aspect_ratio = aspect_ratio.to_pixel_aspect_ratio_f64().unwrap_or_else(|| {
+            SnesAspectRatio::default().to_pixel_aspect_ratio_f64().unwrap_or(1.0)
+        });
+        let width = Self::SNES_WIDTH * pixel_aspect_ratio;
+
+        Self::new(width, Self::SNES_HEIGHT, size)
+    }
+
+    pub(crate) fn new_gb(size: NonZeroU8) -> Self {
+        // Only GB aspect ratio options are square pixels and stretched
+        Self::new(Self::GB_WIDTH, Self::GB_HEIGHT, size)
+    }
+
     pub(crate) fn scale(self, scale_factor: f32) -> Self {
         Self {
             width: (self.width as f32 * scale_factor).round() as u32,
@@ -130,6 +227,7 @@ pub struct CommonConfig {
     pub load_recent_state_at_launch: bool,
     pub launch_in_fullscreen: bool,
     pub fullscreen_mode: FullscreenMode,
+    pub initial_window_size: NonZeroU8,
     pub axis_deadzone: i16,
     #[cfg_display(indent_nested)]
     pub hotkey_config: HotkeyConfig,
@@ -222,19 +320,6 @@ pub struct SmsGgConfig {
     pub run_without_cartridge: bool,
     #[cfg_display(path)]
     pub bios_path: Option<PathBuf>,
-}
-
-pub(crate) fn default_smsgg_window_size(
-    hardware: SmsGgHardware,
-    sms_aspect_ratio: SmsAspectRatio,
-) -> WindowSize {
-    match (hardware, sms_aspect_ratio) {
-        (SmsGgHardware::MasterSystem, SmsAspectRatio::Pal) => {
-            WindowSize { width: 1056, height: 576 }
-        }
-        (SmsGgHardware::MasterSystem, _) => WindowSize { width: 878, height: 576 },
-        (SmsGgHardware::GameGear, _) => WindowSize { width: 576, height: 432 },
-    }
 }
 
 #[derive(Debug, Clone, ConfigDisplay)]

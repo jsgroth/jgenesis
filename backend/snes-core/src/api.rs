@@ -43,15 +43,19 @@ pub enum SnesAspectRatio {
 }
 
 impl SnesAspectRatio {
+    #[inline]
+    #[must_use]
+    pub fn to_pixel_aspect_ratio_f64(self) -> Option<f64> {
+        match self {
+            Self::Ntsc => Some(8.0 / 7.0),
+            Self::Pal => Some(11.0 / 8.0),
+            Self::SquarePixels => Some(1.0),
+            Self::Stretched => None,
+        }
+    }
+
     fn to_pixel_aspect_ratio(self, frame_size: FrameSize) -> Option<PixelAspectRatio> {
-        let mut pixel_aspect_ratio = match self {
-            Self::Ntsc => 8.0 / 7.0,
-            Self::Pal => 11.0 / 8.0,
-            Self::SquarePixels => 1.0,
-            Self::Stretched => {
-                return None;
-            }
-        };
+        let mut pixel_aspect_ratio = self.to_pixel_aspect_ratio_f64()?;
 
         if frame_size.width == 512 && frame_size.height < 240 {
             // Cut pixel aspect ratio in half to account for the screen being squished horizontally

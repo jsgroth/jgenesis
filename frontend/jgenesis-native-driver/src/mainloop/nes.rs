@@ -1,8 +1,8 @@
-use crate::config::NesConfig;
+use crate::config::{NesConfig, WindowSize};
 
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{debug, file_name_no_ext, save};
-use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config, extensions};
+use crate::{AudioError, NativeEmulator, NativeEmulatorResult, extensions};
 
 use nes_core::api::NesEmulator;
 use nes_core::input::{NesInputDevice, NesInputs, NesJoypadState, ZapperState};
@@ -77,12 +77,19 @@ pub fn create_nes(config: Box<NesConfig>) -> NativeEmulatorResult<NativeNesEmula
     let initial_inputs =
         NesInputs { p1: NesJoypadState::default(), p2: config.inputs.p2_type.to_input_device() };
 
+    let default_window_size = WindowSize::new_nes(
+        config.common.initial_window_size,
+        emulator_config.aspect_ratio,
+        emulator.timing_mode(),
+        emulator_config.ntsc_crop_vertical_overscan,
+    );
+
     NativeNesEmulator::new(
         emulator,
         emulator_config,
         config.common,
         extension,
-        config::DEFAULT_GENESIS_WINDOW_SIZE,
+        default_window_size,
         &window_title,
         save_writer,
         save_state_path,

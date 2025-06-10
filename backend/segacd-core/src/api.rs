@@ -308,9 +308,16 @@ impl SegaCdEmulator {
         )
     }
 
+    #[inline]
     #[must_use]
     pub fn disc_title(&self) -> &str {
         &self.disc_title
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn timing_mode(&self) -> TimingMode {
+        self.timing_mode
     }
 
     pub fn remove_disc(&mut self) {
