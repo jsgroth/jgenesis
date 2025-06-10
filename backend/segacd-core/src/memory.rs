@@ -719,9 +719,9 @@ impl PhysicalMedium for SegaCd {
     fn read_word_for_dma(&mut self, address: u32) -> u16 {
         // VDP DMA reads from word RAM are delayed by a cycle, effectively meaning the read should
         // be from (address - 2)
-        match address & ADDRESS_MASK {
-            // End range at $240000, one word past the last word address in word RAM
-            address @ 0x200000..=0x240000 => self.read_word(address.wrapping_sub(2)),
+        match address & 0xFFFFFF {
+            // End range at $400000, one word past the last word address in the last word RAM mirror
+            address @ 0x200000..=0x400000 => self.read_word(address.wrapping_sub(2)),
             address => self.read_word(address),
         }
     }
@@ -1044,7 +1044,9 @@ impl<'a> SubBus<'a> {
     #[allow(clippy::match_same_arms)]
     fn write_register_byte(&mut self, address: u32, value: u8) {
         log::trace!("Sub CPU register byte write: {address:06X} {value:02X}");
-        match address & SUB_REGISTER_ADDRESS_MASK {
+
+        let address = address & SUB_REGISTER_ADDRESS_MASK;
+        match address {
             0x0000 => {
                 let registers = &mut self.sega_cd_mut().registers;
                 registers.led_green = value.bit(1);
@@ -1152,7 +1154,7 @@ impl<'a> SubBus<'a> {
                 sega_cd.registers.cdd_command[relative_addr as usize] = value & 0x0F;
 
                 // Byte-size writes to $FF804B trigger a CDD command send
-                if address == 0xFF804B {
+                if address == 0x04B {
                     sega_cd.disc_drive.cdd_mut().send_command(sega_cd.registers.cdd_command);
                 }
             }
@@ -1178,7 +1180,9 @@ impl<'a> SubBus<'a> {
     #[allow(clippy::match_same_arms)]
     fn write_register_word(&mut self, address: u32, value: u16) {
         log::trace!("Sub CPU register word write: {address:06X} {value:04X}");
-        match address & SUB_REGISTER_ADDRESS_MASK {
+
+        let address = address & SUB_REGISTER_ADDRESS_MASK;
+        match address {
             0x0000 => {
                 // LEDs / CD drive reset
                 let [msb, lsb] = value.to_be_bytes();
@@ -1254,7 +1258,7 @@ impl<'a> SubBus<'a> {
                 sega_cd.registers.cdd_command[(relative_addr + 1) as usize] = lsb & 0x0F;
 
                 // Word-size writes to $FF804A trigger a CDD command send
-                if address == 0xFF804A {
+                if address == 0x04A {
                     sega_cd.disc_drive.cdd_mut().send_command(sega_cd.registers.cdd_command);
                 }
             }
@@ -1274,13 +1278,15 @@ impl<'a> SubBus<'a> {
     }
 }
 
-// Sega CD / 68000 only has a 24-bit address bus
-const ADDRESS_MASK: u32 = 0xFFFFFF;
+// Only A0-A19 are connected for the sub CPU:
+//   https://gendev.spritesmind.net/forum/viewtopic.php?p=18935#p18935
+const SUB_BUS_ADDRESS_MASK: u32 = 0x0FFFFF;
 
 impl BusInterface for SubBus<'_> {
     #[inline]
     fn read_byte(&mut self, address: u32) -> u8 {
-        let address = address & ADDRESS_MASK;
+        let address = address & SUB_BUS_ADDRESS_MASK;
+
         match address {
             0x000000..=0x07FFFF => {
                 // PRG RAM
@@ -1290,7 +1296,7 @@ impl BusInterface for SubBus<'_> {
                 // Word RAM
                 self.sega_cd_mut().word_ram.sub_cpu_read_ram(address)
             }
-            0xFE0000..=0xFEFFFF => {
+            0x0E0000..=0x0EFFFF => {
                 // Backup RAM (odd addresses)
                 if address.bit(0) {
                     let backup_ram_addr = (address & 0x3FFF) >> 1;
@@ -1299,24 +1305,22 @@ impl BusInterface for SubBus<'_> {
                     0x00
                 }
             }
-            0xFF0000..=0xFF7FFF => {
+            0x0F0000..=0x0F7FFF => {
                 // PCM sound chip (odd addresses); canonically located at $FF0000-$FF3FFF and mirrored at $FF4000-$FF7FFF
                 if address.bit(0) { self.pcm.read((address & 0x3FFF) >> 1) } else { 0x00 }
             }
-            0xFF8000..=0xFFFFFF => {
+            0x0F8000..=0x0FFFFF => {
                 // Sub CPU registers; canonically located at $FF8000-$FF81FF, but mirrored throughout the range
                 self.read_register_byte(address)
             }
-            _ => {
-                log::error!("Sub bus read byte {address:06X}");
-                0xFF
-            }
+            _ => unreachable!("value & 0x0FFFFF is always <= 0x0FFFFF"),
         }
     }
 
     #[inline]
     fn read_word(&mut self, address: u32) -> u16 {
-        let address = address & ADDRESS_MASK;
+        let address = address & SUB_BUS_ADDRESS_MASK;
+
         match address {
             0x000000..=0x07FFFF => {
                 // PRG RAM
@@ -1332,29 +1336,27 @@ impl BusInterface for SubBus<'_> {
                 let lsb = word_ram.sub_cpu_read_ram(address | 1);
                 u16::from_be_bytes([msb, lsb])
             }
-            0xFE0000..=0xFEFFFF => {
+            0x0E0000..=0x0EFFFF => {
                 // Backup RAM (odd addresses)
                 let backup_ram_addr = (address & 0x3FFF) >> 1;
                 self.sega_cd().backup_ram[backup_ram_addr as usize].into()
             }
-            0xFF0000..=0xFF7FFF => {
+            0x0F0000..=0x0F7FFF => {
                 // PCM sound chip (odd addresses); canonically located at $FF0000-$FF3FFF and mirrored at $FF4000-$FF7FFF
                 self.pcm.read((address & 0x3FFF) >> 1).into()
             }
-            0xFF8000..=0xFFFFFF => {
+            0x0F8000..=0x0FFFFF => {
                 // Sub CPU registers; canonically located at $FF8000-$FF81FF, but mirrored throughout the range
                 self.read_register_word(address)
             }
-            _ => {
-                log::error!("Sub bus read word {address:06X}");
-                0xFFFF
-            }
+            _ => unreachable!("value & 0x0FFFFF is always <= 0x0FFFFF"),
         }
     }
 
     #[inline]
     fn write_byte(&mut self, address: u32, value: u8) {
-        let address = address & ADDRESS_MASK;
+        let address = address & SUB_BUS_ADDRESS_MASK;
+
         match address {
             0x000000..=0x07FFFF => {
                 // PRG RAM
@@ -1364,7 +1366,7 @@ impl BusInterface for SubBus<'_> {
                 // Word RAM
                 self.sega_cd_mut().word_ram.sub_cpu_write_ram(address, value);
             }
-            0xFE0000..=0xFEFFFF => {
+            0x0E0000..=0x0EFFFF => {
                 // Backup RAM (odd addresses)
                 if address.bit(0) {
                     let backup_ram_addr = (address & 0x3FFF) >> 1;
@@ -1373,23 +1375,24 @@ impl BusInterface for SubBus<'_> {
                     sega_cd.backup_ram_dirty = true;
                 }
             }
-            0xFF0000..=0xFF7FFF => {
+            0x0F0000..=0x0F7FFF => {
                 // PCM sound chip (odd addresses); canonically located at $FF0000-$FF3FFF and mirrored at $FF4000-$FF7FFF
                 if address.bit(0) {
                     self.pcm.write((address & 0x3FFF) >> 1, value);
                 }
             }
-            0xFF8000..=0xFFFFFF => {
+            0x0F8000..=0x0FFFFF => {
                 // Sub CPU registers; canonically located at $FF8000-$FF81FF, but mirrored throughout the range
                 self.write_register_byte(address, value);
             }
-            _ => log::error!("Sub bus write byte {address:06X} {value:02X}"),
+            _ => unreachable!("value & 0x0FFFFF is always <= 0x0FFFFF"),
         }
     }
 
     #[inline]
     fn write_word(&mut self, address: u32, value: u16) {
-        let address = address & ADDRESS_MASK;
+        let address = address & SUB_BUS_ADDRESS_MASK;
+
         match address {
             0x000000..=0x07FFFF => {
                 // PRG RAM
@@ -1405,22 +1408,22 @@ impl BusInterface for SubBus<'_> {
                 word_ram.sub_cpu_write_ram(address, msb);
                 word_ram.sub_cpu_write_ram(address | 1, lsb);
             }
-            0xFE0000..=0xFEFFFF => {
+            0x0E0000..=0x0EFFFF => {
                 // Backup RAM (odd addresses)
                 let backup_ram_addr = (address & 0x3FFF) >> 1;
                 let sega_cd = self.sega_cd_mut();
                 sega_cd.backup_ram[backup_ram_addr as usize] = value as u8;
                 sega_cd.backup_ram_dirty = true;
             }
-            0xFF0000..=0xFF7FFF => {
+            0x0F0000..=0x0F7FFF => {
                 // PCM sound chip (odd addresses); canonically located at $FF0000-$FF3FFF and mirrored at $FF4000-$FF7FFF
                 self.pcm.write((address & 0x3FFF) >> 1, value as u8);
             }
-            0xFF8000..=0xFFFFFF => {
+            0x0F8000..=0x0FFFFF => {
                 // Sub CPU registers; canonically located at $FF8000-$FF81FF, but mirrored throughout the range
                 self.write_register_word(address, value);
             }
-            _ => log::error!("Sub bus write word {address:06X} {value:04X}"),
+            _ => unreachable!("value & 0x0FFFFF is always <= 0x0FFFFF"),
         }
     }
 
