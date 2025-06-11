@@ -559,6 +559,12 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>, remove_sprite_li
 
                     fetch_sprite_tile_data(bus, scanline, dot, &mut state.sprite_buffers);
 
+                    // OAMADDR is repeatedly reset to 0 during these dots on rendering scanlines.
+                    // Ghostbusters II depends on this due to sometimes running OAM DMAs that don't
+                    // finish before the pre-render scanline begins, and it never explicitly writes
+                    // to OAMADDR after boot
+                    bus.get_ppu_registers_mut().set_oam_addr(0);
+
                     if dot == 320 {
                         if remove_sprite_limit {
                             finish_sprite_tile_fetches(

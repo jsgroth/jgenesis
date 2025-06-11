@@ -265,6 +265,10 @@ impl PpuRegisters {
         self.ppu_open_bus_value
     }
 
+    pub fn set_oam_addr(&mut self, oam_addr: u8) {
+        self.oam_addr = oam_addr;
+    }
+
     pub fn set_oam_open_bus(&mut self, value: Option<u8>) {
         self.oam_open_bus_value = value;
     }
