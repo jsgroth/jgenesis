@@ -58,6 +58,7 @@
 * Fixed the CDD reset register (\$FF8001) not correctly resetting CDD state; this fixes the _Pier Solar_ enhanced audio disc failing to boot in SCD Mode 2 (#215)
 * Fixed the CUE parser being too strict around parsing leading whitespace on lines (#418)
 * Fixed some bugs related to changing discs while a game is running (particularly when using a Model 1 BIOS)
+* Implemented more accurate memory mirroring in sub CPU memory map; this fixes excessive error logging in _WWF: Rage in the Cage_ (#216)
 
 ## 32X Fixes
 * Fixed the Genesis VDP and 32X VDP frames incorrectly lining up exactly when the Genesis VDP is in H32 mode; this fixes some minor graphical issues in _NFL Quarterback Club_ (#230)
@@ -84,6 +85,7 @@
 * Fixed the DMC sample address incorrectly defaulting to \$8000 at power-on instead of \$C000 (#292)
 * PPU palette RAM is now initialized to the palette in the power\_up\_palette test ROM instead of all 0s
 * Fixed iNES header parsing reading the wrong byte when checking for the PAL bit; this fixes the _Populous_ prototype incorrectly defaulting to NTSC instead of PAL (#391)
+* OAMADDR is now reset to 0 on every line during rendering; this fixes _Ghostbusters II_ freezing after the title screen (#421)
 
 ## SNES Fixes
 * Fixed incorrect cartridge SRAM mapping for LoROM cartridges with more than 32 KB of SRAM; this fixes _Kaite Tsukutte Asoberu Dezaemon_ failing to boot (#234)
