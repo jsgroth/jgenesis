@@ -85,6 +85,13 @@ pub fn save<Emulator: EmulatorTrait>(
     slot: usize,
     metadata: &mut SaveStateMetadata,
 ) -> NativeEmulatorResult<()> {
+    let current_version = Emulator::save_state_version();
+    assert!(
+        current_version.len() <= MAX_VERSION_LEN,
+        "save state version is '{current_version}' (len {}), len must be at most {MAX_VERSION_LEN}",
+        current_version.len()
+    );
+
     let path = &paths[slot];
     let file = File::create(path).map_err(|source| NativeEmulatorError::StateFileOpen {
         path: path.display().to_string(),
@@ -94,7 +101,6 @@ pub fn save<Emulator: EmulatorTrait>(
     let mut writer = BufWriter::new(file);
     writer.write_all(FILE_PREFIX).map_err(NativeEmulatorError::SaveStateIo)?;
 
-    let current_version = Emulator::save_state_version();
     let version_len = current_version.len() as u8;
     writer.write_all(&[version_len]).map_err(NativeEmulatorError::SaveStateIo)?;
     writer.write_all(current_version.as_bytes()).map_err(NativeEmulatorError::SaveStateIo)?;
