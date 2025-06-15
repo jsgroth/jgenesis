@@ -148,10 +148,6 @@ pub fn default_config_path() -> PathBuf {
 
 #[cfg(target_os = "linux")]
 fn default_linux_config_path() -> PathBuf {
-    if !jgenesis_common::is_appimage_build() {
-        return CONFIG_FILENAME.into();
-    }
-
     let Some(base_dirs) = directories::BaseDirs::new() else {
         log::error!("Unable to determine config dir; app config will probably not save");
         return CONFIG_FILENAME.into();
