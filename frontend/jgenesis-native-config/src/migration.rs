@@ -1,6 +1,6 @@
 use crate::AppConfig;
-use jgenesis_native_driver::config::input::HotkeyConfig;
-use jgenesis_native_driver::input::GenericInput;
+use crate::input::GenericInput;
+use crate::input::mappings::HotkeyConfig;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};

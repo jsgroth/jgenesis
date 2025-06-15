@@ -1,9 +1,10 @@
+use crate::config::RomReadResult;
 use crate::config::{GenesisConfig, Sega32XConfig, SegaCdConfig};
-use crate::config::{RomReadResult, WindowSize};
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{NativeEmulatorError, debug, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorResult, extensions};
 use genesis_core::{GenesisEmulator, GenesisInputs};
+use jgenesis_native_config::common::WindowSize;
 use s32x_core::api::Sega32XEmulator;
 use segacd_core::CdRomFileFormat;
 use segacd_core::api::{SegaCdEmulator, SegaCdLoadResult};

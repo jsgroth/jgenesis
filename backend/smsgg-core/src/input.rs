@@ -1,30 +1,9 @@
 //! Code for handling Sega Master System / Game Gear controller input I/O registers
 
-use crate::api::SmsGgRegion;
 use crate::vdp::Vdp;
 use bincode::{Decode, Encode};
-use jgenesis_common::define_controller_inputs;
 use jgenesis_common::num::GetBit;
-
-define_controller_inputs! {
-    buttons: SmsGgButton {
-        Up -> up,
-        Left -> left,
-        Right -> right,
-        Down -> down,
-        Button1 -> button1,
-        Button2 -> button2,
-    },
-    non_gamepad_buttons: [Pause],
-    joypad: SmsGgJoypadState,
-    inputs: SmsGgInputs {
-        players: {
-            p1: Player::One,
-            p2: Player::Two,
-        },
-        buttons: [Pause -> pause],
-    },
-}
+use smsgg_config::{SmsGgInputs, SmsGgRegion};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum PinDirection {

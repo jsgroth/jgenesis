@@ -1,6 +1,7 @@
-use crate::input::{SnesInputDevice, SnesInputs, SnesJoypadState, SuperScopeState};
+use crate::input::{SnesInputDevice, SnesInputs, SnesJoypadStateExt, SuperScopeState};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
+use snes_config::SnesJoypadState;
 use std::mem;
 
 const AUTO_JOYPAD_DURATION_MCLK: u64 = 4224;

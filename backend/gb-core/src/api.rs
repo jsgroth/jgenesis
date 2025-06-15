@@ -5,7 +5,7 @@ use crate::bus::Bus;
 use crate::cartridge::{Cartridge, SoftwareType};
 use crate::dma::DmaUnit;
 use crate::graphics::RgbaFrameBuffer;
-use crate::inputs::{GameBoyButton, GameBoyInputs, InputState};
+use crate::inputs::InputState;
 use crate::interrupts::InterruptRegisters;
 use crate::memory::Memory;
 use crate::ppu::Ppu;
@@ -15,11 +15,14 @@ use crate::speed::SpeedRegister;
 use crate::timer::GbTimer;
 use crate::{HardwareMode, audio, ppu};
 use bincode::{Decode, Encode};
-use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, PixelAspectRatio, Renderer, SaveWriter,
-    TickEffect, TickResult,
+use gb_config::{
+    GameBoyButton, GameBoyInputs, GbAspectRatio, GbAudioResampler, GbPalette, GbcColorCorrection,
 };
-use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, PartialClone};
+use jgenesis_common::frontend::{
+    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, Renderer, SaveWriter, TickEffect,
+    TickResult,
+};
+use jgenesis_proc_macros::{ConfigDisplay, PartialClone};
 use std::fmt::{Debug, Display};
 use thiserror::Error;
 
@@ -39,54 +42,6 @@ pub enum GameBoyError<RErr, AErr, SErr> {
     Audio(AErr),
     #[error("Error writing save file: {0}")]
     SaveWrite(SErr),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum GbAspectRatio {
-    #[default]
-    SquarePixels,
-    Stretched,
-}
-
-impl GbAspectRatio {
-    fn to_pixel_aspect_ratio(self) -> Option<PixelAspectRatio> {
-        match self {
-            Self::SquarePixels => Some(PixelAspectRatio::SQUARE),
-            Self::Stretched => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum GbPalette {
-    BlackAndWhite,
-    #[default]
-    GreenTint,
-    LimeGreen,
-    Custom,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum GbcColorCorrection {
-    None,
-    #[default]
-    GbcLcd,
-    GbaLcd,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum GbAudioResampler {
-    LowPassNearestNeighbor,
-    #[default]
-    WindowedSinc,
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]

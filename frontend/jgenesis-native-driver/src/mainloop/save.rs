@@ -1,9 +1,9 @@
 use crate::NativeEmulatorResult;
-use crate::config::SavePath;
 use crate::mainloop::{NativeEmulatorError, bincode_config};
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::SaveWriter;
+use jgenesis_native_config::common::SavePath;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs::File;

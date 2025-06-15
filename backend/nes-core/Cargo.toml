@@ -5,24 +5,21 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[features]
-default = []
-clap = ["dep:clap"]
-serde = ["dep:serde"]
-
 [dependencies]
 dsp = { path = "../../common/dsp" }
 jgenesis-common = { path = "../../common/jgenesis-common" }
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
+
+nes-config = { path = "../../config/nes-config" }
+
 mos6502-emu = { path = "../../cpu/mos6502-emu" }
+
 ym-opll = { path = "../ym-opll" }
 
 bincode = { workspace = true }
-clap = { workspace = true, optional = true }
 crc = { workspace = true }
 log = { workspace = true }
 rand = { workspace = true }
-serde = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 [lints]

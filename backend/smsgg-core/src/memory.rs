@@ -2,11 +2,11 @@
 
 mod metadata;
 
-use crate::SmsGgRegion;
 use bincode::{Decode, Encode};
 use crc::Crc;
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
+use smsgg_config::SmsGgRegion;
 use std::ops::{Index, RangeInclusive};
 use std::{array, mem};
 

@@ -2,10 +2,10 @@
 
 mod registers;
 
-use crate::api::S32XVideoOut;
 use crate::registers::SystemRegisters;
 use crate::vdp::registers::{FrameBufferMode, Registers, SelectedFrameBuffer};
 use bincode::{Decode, Encode};
+use genesis_config::S32XVideoOut;
 use genesis_core::vdp::BorderSize;
 use jgenesis_common::frontend::{Color, FrameSize, PixelAspectRatio, Renderer, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext};

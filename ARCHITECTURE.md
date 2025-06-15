@@ -2,9 +2,10 @@
 
 ## Overview
 
-The crates can be broken up roughly into 5 categories:
+The crates can be broken up roughly into 6 categories:
 * Common libraries: `jgenesis-common`, `jgenesis-proc-macros`, `cdrom`, `dsp`
 * CPU emulators: `z80-emu`, `m68000-emu`, `mos6502-emu`, `wdc65816-emu`, `spc700-emu`, `sh2-emu`
+* Config libraries: `smsgg-config`, `genesis-config`, `nes-config`, `snes-config`, `gb-config`
 * Emulation backend: `smsgg-core`, `genesis-core`, `segacd-core`, `s32x-core`, `nes-core`, `snes-core`, `snes-coprocessors`, `gb-core`, `ym-opll`
 * Emulation frontend: `jgenesis-renderer`, `jgenesis-native-driver`, `jgenesis-native-config`, `jgenesis-cli`, `jgenesis-gui`, `jgenesis-web`
 * CPU emulator test harnesses: `z80-test-runner`, `m68000-test-runner`, `mos6502-test-runner`, `wdc65816-test-runner`, `spc700-test-runner`
@@ -12,10 +13,13 @@ The crates can be broken up roughly into 5 categories:
 Repo structure:
 * `common/` contains common library crates
 * `cpu/` contains the CPU emulator and test harness crates
+* `config/` contains the config library crates
 * `backend/` contains the emulation backend crates
 * `frontend/` contains the emulation frontend crates
 
 The CPU emulators are designed to be usable with any implementation of their respective bus traits. The test harnesses provide a bus implementation that maps every address to RAM (which is what the tests expect), while the various consoles provide implementations that emulate the console's memory map.
+
+The "config" crates contain common structs and enums that are both used in the corresponding backend crate and serialized into the frontend's config file. These are in separate crates from the backend cores to improve incremental compilation times, specifically by only re-executing `serde` and `clap` derive macros when needed.
 
 For the most part, the backends interact with the frontends through trait implementations. The backends implement traits that enable frontend features including save states and rewind. The frontends provide trait implementations to the backends that enable the backends to display video frames, output audio samples, and persist any save files (e.g. for a cartridge with battery-backed SRAM). The frontends are also responsible for passing current emulated controller state to the backends (i.e. which buttons are currently pressed).
 
@@ -62,6 +66,28 @@ Cycle-based emulation core for the Sony SPC700 CPU, which is used in the SNES as
 ### `sh2-emu`
 
 Instruction-based emulation core for the Hitachi SH-2 CPU, used in the Sega 32X and the Sega Saturn. This implementation includes the SH7604 hardware features.
+
+## Config Crates
+
+### `smsgg-config`
+
+Common structs and enums for the Sega Master System and Game Gear.
+
+### `genesis-config`
+
+Common structs and enums for the Sega Genesis, including Sega CD and 32X.
+
+### `nes-config`
+
+Common structs and enums for NES.
+
+### `snes-config`
+
+Common structs and enums for SNES.
+
+### `gb-config`
+
+Common structs and enums for Game Boy and Game Boy Color.
 
 ## Backend Crates
 

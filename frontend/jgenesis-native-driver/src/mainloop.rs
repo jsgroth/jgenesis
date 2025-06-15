@@ -20,10 +20,9 @@ pub use snes::{NativeSnesEmulator, create_snes};
 pub use state::{SAVE_STATE_SLOTS, SaveStateMetadata};
 
 use crate::archive::ArchiveError;
-use crate::config::input::ButtonMappingVec;
-use crate::config::{CommonConfig, FullscreenMode, HideMouseCursor, WindowSize};
+use crate::config::CommonConfig;
 use crate::fpstracker::FpsTracker;
-use crate::input::{CompactHotkey, Hotkey, HotkeyEvent, InputMapper, Joysticks};
+use crate::input::{HotkeyEvent, InputMapper, Joysticks};
 use crate::mainloop::audio::SdlAudioOutput;
 use crate::mainloop::debug::{DebugRenderFn, DebuggerWindow};
 use crate::mainloop::rewind::Rewinder;
@@ -54,15 +53,6 @@ use std::{io, thread};
 use thiserror::Error;
 
 const MODAL_DURATION: Duration = Duration::from_secs(3);
-
-impl FullscreenMode {
-    fn to_sdl_fullscreen(self) -> FullscreenType {
-        match self {
-            Self::Borderless => FullscreenType::Desktop,
-            Self::Exclusive => FullscreenType::True,
-        }
-    }
-}
 
 trait RendererExt {
     fn focus(&mut self);
@@ -878,3 +868,6 @@ macro_rules! bincode_config {
 }
 
 use bincode_config;
+use jgenesis_native_config::common::{FullscreenMode, HideMouseCursor, WindowSize};
+use jgenesis_native_config::input::mappings::ButtonMappingVec;
+use jgenesis_native_config::input::{CompactHotkey, Hotkey};

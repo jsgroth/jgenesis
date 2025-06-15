@@ -25,8 +25,8 @@ use egui::{
 };
 use egui_extras::{Column, TableBuilder};
 use emath::Pos2;
+use jgenesis_native_config::common::HideMouseCursor;
 use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen};
-use jgenesis_native_driver::config::HideMouseCursor;
 use jgenesis_native_driver::extensions::Console;
 use jgenesis_native_driver::{NativeEmulatorError, extensions};
 use jgenesis_renderer::config::Scanlines;

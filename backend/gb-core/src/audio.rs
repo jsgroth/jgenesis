@@ -1,10 +1,11 @@
 mod constants;
 
-use crate::api::{GameBoyEmulatorConfig, GbAudioResampler};
+use crate::api::GameBoyEmulatorConfig;
 use bincode::{Decode, Encode};
 use dsp::design::FilterType;
 use dsp::iir::FirstOrderIirFilter;
 use dsp::sinc::PerformanceSincResampler;
+use gb_config::GbAudioResampler;
 use jgenesis_common::audio::fir_resampler::{FirKernel, LpfCoefficients, StereoFirResampler};
 use jgenesis_common::frontend::AudioOutput;
 use jgenesis_proc_macros::MatchEachVariantMacro;

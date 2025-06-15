@@ -6,13 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-gb-core = { path = "../../backend/gb-core", features = ["clap"] }
-genesis-core = { path = "../../backend/genesis-core", features = ["clap"] }
-nes-core = { path = "../../backend/nes-core", features = ["clap"] }
-s32x-core = { path = "../../backend/s32x-core", features = ["clap"] }
-segacd-core = { path = "../../backend/segacd-core", features = ["clap"] }
-smsgg-core = { path = "../../backend/smsgg-core", features = ["clap"] }
-snes-core = { path = "../../backend/snes-core", features = ["clap"] }
+gb-config = { path = "../../config/gb-config", features = ["clap"] }
+genesis-config = { path = "../../config/genesis-config", features = ["clap"] }
+nes-config = { path = "../../config/nes-config", features = ["clap"] }
+smsgg-config = { path = "../../config/smsgg-config", features = ["clap"] }
+snes-config = { path = "../../config/snes-config", features = ["clap"] }
 
 jgenesis-common = { path = "../../common/jgenesis-common", features = ["clap"] }
 jgenesis-native-config = { path = "../jgenesis-native-config", features = ["clap"] }

@@ -18,7 +18,8 @@ use jgenesis_common::frontend::{
 use jgenesis_renderer::renderer::{WgpuRenderer, WindowSize};
 use rfd::AsyncFileDialog;
 use segacd_core::api::SegaCdEmulator;
-use smsgg_core::{SmsGgEmulator, SmsGgHardware, SmsGgInputs};
+use smsgg_config::SmsGgInputs;
+use smsgg_core::{SmsGgEmulator, SmsGgHardware};
 use snes_core::api::{CoprocessorRoms, SnesEmulator};
 use snes_core::input::SnesInputs;
 use std::collections::HashMap;

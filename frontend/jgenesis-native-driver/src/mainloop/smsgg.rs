@@ -1,11 +1,13 @@
-use crate::config::{SmsGgConfig, WindowSize};
+use crate::config::SmsGgConfig;
 use std::fs;
 
 use crate::mainloop::save::FsSaveWriter;
 use crate::mainloop::{debug, file_name_no_ext, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
 
-use smsgg_core::{SmsGgEmulator, SmsGgHardware, SmsGgInputs};
+use jgenesis_native_config::common::WindowSize;
+use smsgg_config::SmsGgInputs;
+use smsgg_core::{SmsGgEmulator, SmsGgHardware};
 use std::path::{Path, PathBuf};
 
 pub type NativeSmsGgEmulator = NativeEmulator<SmsGgEmulator>;

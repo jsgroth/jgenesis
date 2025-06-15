@@ -1,19 +1,18 @@
 use crate::input::{GenericInput, Hotkey};
-use gb_core::inputs::GameBoyButton;
-use genesis_core::GenesisControllerType;
-use genesis_core::input::GenesisButton;
+use gb_config::GameBoyButton;
+use genesis_config::{GenesisButton, GenesisControllerType};
 use jgenesis_common::input::Player;
 use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay};
-use nes_core::input::NesButton;
+use nes_config::NesButton;
 use sdl2::keyboard::Keycode;
 use sdl2::mouse::MouseButton;
 use serde::{Deserialize, Serialize};
-use smsgg_core::SmsGgButton;
-use snes_core::input::SnesButton;
+use smsgg_config::SmsGgButton;
+use snes_config::SnesButton;
 use std::fmt::Formatter;
 
-pub(crate) type ButtonMappingVec<'a, Button> = Vec<((Button, Player), &'a Vec<GenericInput>)>;
-pub(crate) type HotkeyMappingVec<'a> = Vec<(Hotkey, &'a Vec<GenericInput>)>;
+pub type ButtonMappingVec<'a, Button> = Vec<((Button, Player), &'a Vec<GenericInput>)>;
+pub type HotkeyMappingVec<'a> = Vec<(Hotkey, &'a Vec<GenericInput>)>;
 
 macro_rules! key_input {
     ($key:ident) => {
@@ -35,7 +34,7 @@ macro_rules! define_controller_mapping {
         }
 
         impl $name {
-            pub(crate) fn to_mapping_vec<'a>(&'a self, player: Player, out: &mut ButtonMappingVec<'a, $button_enum>) {
+            pub fn to_mapping_vec<'a>(&'a self, player: Player, out: &mut ButtonMappingVec<'a, $button_enum>) {
                 $(
                     if let Some(mapping) = &self.$field {
                         out.push((($button_enum::$enum_value, player), mapping));
@@ -104,7 +103,8 @@ fn fmt_input_mapping_field(mapping: &[GenericInput], f: &mut Formatter<'_>) -> s
 
 macro_rules! impl_to_mapping_vec {
     ($button:ty) => {
-        pub(crate) fn to_mapping_vec(&self) -> ButtonMappingVec<'_, $button> {
+        #[must_use]
+        pub fn to_mapping_vec(&self) -> ButtonMappingVec<'_, $button> {
             let mut out = Vec::new();
 
             self.mapping_1.to_mapping_vec(&mut out);
@@ -166,7 +166,7 @@ pub struct SmsGgInputMapping {
 }
 
 impl SmsGgInputMapping {
-    pub(crate) fn to_mapping_vec<'a>(&'a self, out: &mut ButtonMappingVec<'a, SmsGgButton>) {
+    pub fn to_mapping_vec<'a>(&'a self, out: &mut ButtonMappingVec<'a, SmsGgButton>) {
         self.p1.to_mapping_vec(Player::One, out);
         self.p2.to_mapping_vec(Player::Two, out);
 
@@ -268,7 +268,7 @@ pub struct GenesisInputMapping {
 }
 
 impl GenesisInputMapping {
-    pub(crate) fn to_mapping_vec<'a>(&'a self, out: &mut ButtonMappingVec<'a, GenesisButton>) {
+    pub fn to_mapping_vec<'a>(&'a self, out: &mut ButtonMappingVec<'a, GenesisButton>) {
         self.p1.to_mapping_vec(Player::One, out);
         self.p2.to_mapping_vec(Player::Two, out);
     }
@@ -380,7 +380,7 @@ pub struct NesInputMapping {
 }
 
 impl NesInputMapping {
-    pub(crate) fn to_mapping_vec<'a>(&'a self, out: &mut ButtonMappingVec<'a, NesButton>) {
+    pub fn to_mapping_vec<'a>(&'a self, out: &mut ButtonMappingVec<'a, NesButton>) {
         self.p1.to_mapping_vec(Player::One, out);
         self.p2.to_mapping_vec(Player::Two, out);
         self.zapper.to_mapping_vec(Player::One, out);
@@ -517,7 +517,7 @@ pub struct SnesInputMapping {
 }
 
 impl SnesInputMapping {
-    pub(crate) fn to_mapping_vec<'a>(&'a self, out: &mut ButtonMappingVec<'a, SnesButton>) {
+    pub fn to_mapping_vec<'a>(&'a self, out: &mut ButtonMappingVec<'a, SnesButton>) {
         self.p1.to_mapping_vec(Player::One, out);
         self.p2.to_mapping_vec(Player::Two, out);
         self.super_scope.to_mapping_vec(Player::One, out);
@@ -620,7 +620,8 @@ pub struct GameBoyInputConfig {
 }
 
 impl GameBoyInputConfig {
-    pub(crate) fn to_mapping_vec(&self) -> ButtonMappingVec<'_, GameBoyButton> {
+    #[must_use]
+    pub fn to_mapping_vec(&self) -> ButtonMappingVec<'_, GameBoyButton> {
         let mut out = Vec::new();
 
         self.mapping_1.to_mapping_vec(Player::One, &mut out);
@@ -672,7 +673,7 @@ macro_rules! define_hotkey_mapping {
                 }
             }
 
-            pub(crate) fn to_mapping_vec<'a>(&'a self, out: &mut HotkeyMappingVec<'a>) {
+            pub fn to_mapping_vec<'a>(&'a self, out: &mut HotkeyMappingVec<'a>) {
                 $(
                     if let Some(mapping) = &self.$value {
                         out.push((Hotkey::$hotkey, mapping));
@@ -742,7 +743,8 @@ pub struct HotkeyConfig {
 }
 
 impl HotkeyConfig {
-    pub(crate) fn to_mapping_vec(&self) -> HotkeyMappingVec<'_> {
+    #[must_use]
+    pub fn to_mapping_vec(&self) -> HotkeyMappingVec<'_> {
         let mut out = Vec::new();
 
         self.mapping_1.to_mapping_vec(&mut out);

@@ -1,7 +1,8 @@
 //! Ricoh RF5C164 PCM sound chip
 
-use crate::api::{PcmInterpolation, SegaCdEmulatorConfig};
+use crate::api::SegaCdEmulatorConfig;
 use bincode::{Decode, Encode};
+use genesis_config::PcmInterpolation;
 use jgenesis_common::num::{GetBit, U16Ext};
 use std::array;
 

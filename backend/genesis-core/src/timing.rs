@@ -4,7 +4,7 @@ use bincode::{Decode, Encode};
 use std::num::{NonZeroU32, NonZeroU64};
 use std::{cmp, mem};
 
-pub const NATIVE_M68K_DIVIDER: u64 = 7;
+pub const NATIVE_M68K_DIVIDER: u64 = genesis_config::NATIVE_M68K_DIVIDER;
 pub const Z80_DIVIDER: u64 = 15;
 pub const YM2612_DIVIDER: u64 = 7 * 6;
 pub const PSG_DIVIDER: u64 = 15;

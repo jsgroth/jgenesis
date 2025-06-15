@@ -3,7 +3,7 @@
 use crate::bootrom;
 use crate::core::{Sega32X, Sega32XBus};
 use crate::registers::Access;
-use genesis_core::GenesisRegion;
+use genesis_config::GenesisRegion;
 use genesis_core::memory::PhysicalMedium;
 use jgenesis_common::num::{GetBit, U16Ext};
 use sh2_emu::Sh2;

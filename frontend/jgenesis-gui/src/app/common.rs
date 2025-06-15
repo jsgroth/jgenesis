@@ -3,7 +3,7 @@ mod helptext;
 use crate::app::{App, NumericTextEdit, OpenWindow, render_vertical_scroll_area};
 use eframe::epaint::Color32;
 use egui::{Context, Slider, Ui, Window};
-use jgenesis_native_driver::config::FullscreenMode;
+use jgenesis_native_config::common::FullscreenMode;
 use jgenesis_renderer::config::{FilterMode, PreprocessShader, Scanlines, VSyncMode, WgpuBackend};
 use std::num::{NonZeroU8, NonZeroU32};
 

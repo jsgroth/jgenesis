@@ -13,7 +13,7 @@ use bincode::{Decode, Encode};
 use cdc::Rchip;
 use cdd::CdDrive;
 use cdrom::reader::CdRom;
-use genesis_core::GenesisRegion;
+use genesis_config::GenesisRegion;
 use jgenesis_proc_macros::PartialClone;
 use std::array;
 

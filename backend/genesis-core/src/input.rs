@@ -2,43 +2,8 @@
 
 use crate::GenesisEmulatorConfig;
 use bincode::{Decode, Encode};
-use jgenesis_common::define_controller_inputs;
+use genesis_config::{GenesisControllerType, GenesisInputs, GenesisJoypadState};
 use jgenesis_common::num::GetBit;
-use jgenesis_proc_macros::{EnumAll, EnumDisplay};
-
-define_controller_inputs! {
-    buttons: GenesisButton {
-        Up -> up,
-        Left -> left,
-        Right -> right,
-        Down -> down,
-        A -> a,
-        B -> b,
-        C -> c,
-        X -> x,
-        Y -> y,
-        Z -> z,
-        Start -> start,
-        Mode -> mode,
-    },
-    joypad: GenesisJoypadState,
-    inputs: GenesisInputs {
-        players: {
-            p1: Player::One,
-            p2: Player::Two,
-        },
-    },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum GenesisControllerType {
-    ThreeButton,
-    #[default]
-    SixButton,
-    None,
-}
 
 // Slightly less than 1.5ms
 const FLIP_COUNTER_CYCLES: u32 = 10000;

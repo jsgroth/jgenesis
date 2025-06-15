@@ -3,10 +3,10 @@ mod inputwindow;
 use crate::emuthread::inputwindow::InputWindow;
 use anyhow::anyhow;
 use jgenesis_native_config::AppConfig;
+use jgenesis_native_config::input::{AxisDirection, GamepadAction, GenericInput, HatDirection};
+use jgenesis_native_driver::config::AppConfigExt;
 use jgenesis_native_driver::extensions::Console;
-use jgenesis_native_driver::input::{
-    AxisDirection, GamepadAction, GenericInput, HatDirection, Joysticks,
-};
+use jgenesis_native_driver::input::Joysticks;
 use jgenesis_native_driver::{
     AudioError, Native32XEmulator, NativeEmulatorError, NativeEmulatorResult,
     NativeGameBoyEmulator, NativeGenesisEmulator, NativeNesEmulator, NativeSegaCdEmulator,

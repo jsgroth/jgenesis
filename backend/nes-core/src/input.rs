@@ -1,38 +1,22 @@
 use bincode::{Decode, Encode};
-use jgenesis_common::define_controller_inputs;
 use jgenesis_common::frontend::{DisplayArea, FrameSize, MappableInputs};
 use jgenesis_common::input::Player;
+use nes_config::{NesButton, NesJoypadState};
 
-define_controller_inputs! {
-    buttons: NesButton {
-        Up -> up,
-        Left -> left,
-        Right -> right,
-        Down -> down,
-        A -> a,
-        B -> b,
-        Start -> start,
-        Select -> select,
-    },
-    non_gamepad_buttons: [ZapperFire, ZapperForceOffscreen],
-    joypad: NesJoypadState,
-}
-
-impl NesButton {
-    #[inline]
+pub(crate) trait NesJoypadStateExt: Sized + Copy {
     #[must_use]
-    pub fn is_zapper(self) -> bool {
-        matches!(self, Self::ZapperFire | Self::ZapperForceOffscreen)
-    }
+    fn sanitize_opposing_directions(self) -> Self;
+
+    #[must_use]
+    fn latch(self) -> LatchedJoypadState;
 }
 
-impl NesJoypadState {
+impl NesJoypadStateExt for NesJoypadState {
     /// Prevent left+right or up+down from being pressed simultaneously from the NES's perspective.
     ///
     /// If left+right are pressed simultaneously, left will be preferred.
     /// If up+down are pressed simultaneously, up will be preferred.
-    #[must_use]
-    pub(crate) fn sanitize_opposing_directions(self) -> Self {
+    fn sanitize_opposing_directions(self) -> Self {
         let mut sanitized = self;
 
         if self.left && self.right {
@@ -48,7 +32,7 @@ impl NesJoypadState {
         sanitized
     }
 
-    pub(crate) fn latch(self) -> LatchedJoypadState {
+    fn latch(self) -> LatchedJoypadState {
         let bitstream = (u8::from(self.right) << 7)
             | (u8::from(self.left) << 6)
             | (u8::from(self.down) << 5)

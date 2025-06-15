@@ -5,19 +5,21 @@
 use crate::audio::Sega32XResampler;
 use crate::core::Sega32X;
 use bincode::{Decode, Encode};
-use genesis_core::input::{GenesisButton, InputState};
+use genesis_config::{GenesisButton, GenesisRegion, S32XVideoOut};
+use genesis_core::input::InputState;
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::timing::GenesisCycleCounters;
 use genesis_core::vdp::{Vdp, VdpTickEffect};
 use genesis_core::ym2612::Ym2612;
-use genesis_core::{GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
+use genesis_core::{GenesisEmulatorConfig, GenesisInputs, GenesisRegionExt};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, Renderer, SaveWriter, TickEffect,
     TickResult, TimingMode,
 };
-use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, PartialClone};
+use jgenesis_proc_macros::{ConfigDisplay, PartialClone};
 use m68000_emu::M68000;
-use smsgg_core::psg::{Sn76489, Sn76489TickEffect, Sn76489Version};
+use smsgg_config::Sn76489Version;
+use smsgg_core::psg::{Sn76489, Sn76489TickEffect};
 use std::fmt::{Debug, Display};
 use std::mem;
 use thiserror::Error;
@@ -31,16 +33,6 @@ pub enum Sega32XError<RErr, AErr, SErr> {
     Audio(AErr),
     #[error("Save write error: {0}")]
     SaveWrite(SErr),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum S32XVideoOut {
-    #[default]
-    Combined,
-    GenesisOnly,
-    S32XOnly,
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]

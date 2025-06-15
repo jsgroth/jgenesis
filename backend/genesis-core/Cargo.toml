@@ -5,25 +5,23 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[features]
-default = []
-clap = ["dep:clap"]
-serde = ["dep:serde"]
-
 [dependencies]
 dsp = { path = "../../common/dsp" }
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 jgenesis-common = { path = "../../common/jgenesis-common" }
+
+genesis-config = { path = "../../config/genesis-config" }
+smsgg-config = { path = "../../config/smsgg-config" }
+
 m68000-emu = { path = "../../cpu/m68000-emu", features = ["bincode"] }
-smsgg-core = { path = "../smsgg-core" }
 z80-emu = { path = "../../cpu/z80-emu", features = ["bincode"] }
 
+smsgg-core = { path = "../smsgg-core" }
+
 bincode = { workspace = true }
-clap = { workspace = true, optional = true }
 crc = { workspace = true }
 log = { workspace = true }
 regex = { workspace = true }
-serde = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

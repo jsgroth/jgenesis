@@ -6,18 +6,22 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-gb-core = { path = "../../backend/gb-core", features = ["serde"] }
-genesis-core = { path = "../../backend/genesis-core", features = ["serde"] }
-nes-core = { path = "../../backend/nes-core", features = ["serde"] }
-s32x-core = { path = "../../backend/s32x-core", features = ["serde"] }
-segacd-core = { path = "../../backend/segacd-core" }
-smsgg-core = { path = "../../backend/smsgg-core", features = ["serde"] }
-snes-core = { path = "../../backend/snes-core", features = ["serde"] }
-
 jgenesis-common = { path = "../../common/jgenesis-common", features = ["serde"] }
+jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
+
+genesis-core = { path = "../../backend/genesis-core" }
+segacd-core = { path = "../../backend/segacd-core" }
+smsgg-core = { path = "../../backend/smsgg-core" }
+snes-core = { path = "../../backend/snes-core" }
+
+gb-config = { path = "../../config/gb-config" }
+genesis-config = { path = "../../config/genesis-config" }
+nes-config = { path = "../../config/nes-config" }
+smsgg-config = { path = "../../config/smsgg-config" }
+snes-config = { path = "../../config/snes-config" }
+
 jgenesis-native-config = { path = "../jgenesis-native-config"}
 jgenesis-native-driver = { path = "../jgenesis-native-driver" }
-jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 jgenesis-renderer = { path = "../jgenesis-renderer" }
 egui-sdl2-platform = { path = "../egui-sdl2-platform" }
 

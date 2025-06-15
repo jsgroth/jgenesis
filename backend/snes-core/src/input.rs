@@ -1,62 +1,15 @@
 use bincode::{Decode, Encode};
-use jgenesis_common::define_controller_inputs;
 use jgenesis_common::frontend::{DisplayArea, FrameSize, MappableInputs};
 use jgenesis_common::input::Player;
+use snes_config::{SnesButton, SnesJoypadState, SuperScopeButton};
 
-define_controller_inputs! {
-    buttons: SnesButton {
-        Up -> up,
-        Left -> left,
-        Right -> right,
-        Down -> down,
-        A -> a,
-        B -> b,
-        X -> x,
-        Y -> y,
-        L -> l,
-        R -> r,
-        Start -> start,
-        Select -> select,
-    },
-    non_gamepad_buttons: [SuperScopeFire, SuperScopeCursor, SuperScopePause, SuperScopeTurboToggle],
-    joypad: SnesJoypadState,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SuperScopeButton {
-    Fire,
-    Cursor,
-    Pause,
-    TurboToggle,
-}
-
-impl SnesButton {
+pub(crate) trait SnesJoypadStateExt: Sized + Copy {
     #[must_use]
-    pub fn to_super_scope(self) -> Option<SuperScopeButton> {
-        match self {
-            Self::SuperScopeFire => Some(SuperScopeButton::Fire),
-            Self::SuperScopeCursor => Some(SuperScopeButton::Cursor),
-            Self::SuperScopePause => Some(SuperScopeButton::Pause),
-            Self::SuperScopeTurboToggle => Some(SuperScopeButton::TurboToggle),
-            _ => None,
-        }
-    }
+    fn to_register_word(self) -> u16;
 }
 
-impl SuperScopeButton {
-    #[must_use]
-    pub fn to_snes_button(self) -> SnesButton {
-        match self {
-            Self::Fire => SnesButton::SuperScopeFire,
-            Self::Cursor => SnesButton::SuperScopeCursor,
-            Self::Pause => SnesButton::SuperScopePause,
-            Self::TurboToggle => SnesButton::SuperScopeTurboToggle,
-        }
-    }
-}
-
-impl SnesJoypadState {
-    pub(crate) fn to_register_word(self) -> u16 {
+impl SnesJoypadStateExt for SnesJoypadState {
+    fn to_register_word(self) -> u16 {
         (u16::from(self.b) << 15)
             | (u16::from(self.y) << 14)
             | (u16::from(self.select) << 13)

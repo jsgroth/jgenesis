@@ -7,4 +7,4 @@ mod rf5c164;
 
 pub use cdrom::reader::CdRomFileFormat;
 
-pub const DEFAULT_PCM_LPF_CUTOFF: u32 = 7973;
+pub const DEFAULT_PCM_LPF_CUTOFF: u32 = genesis_config::DEFAULT_PCM_LPF_CUTOFF;

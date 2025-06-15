@@ -6,7 +6,7 @@ use bincode::{Decode, Encode};
 use cdrom::cdtime::CdTime;
 use cdrom::cue::{Track, TrackType};
 use cdrom::reader::{CdRom, CdRomFileFormat};
-use genesis_core::GenesisRegion;
+use genesis_config::GenesisRegion;
 use jgenesis_proc_macros::PartialClone;
 use regex::Regex;
 use std::cmp::Ordering;

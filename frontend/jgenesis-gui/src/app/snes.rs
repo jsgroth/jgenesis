@@ -6,7 +6,8 @@ use egui::{Context, Grid, Ui, Window};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_config::snes::SnesAppConfig;
 use rfd::FileDialog;
-use snes_core::api::{AudioInterpolationMode, SnesAspectRatio, SnesLoadError};
+use snes_config::{AudioInterpolationMode, SnesAspectRatio};
+use snes_core::api::SnesLoadError;
 use std::num::NonZeroU64;
 use std::path::PathBuf;
 

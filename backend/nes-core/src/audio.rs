@@ -2,7 +2,7 @@
 
 mod constants;
 
-use crate::api::{NesAudioResampler, NesEmulatorConfig};
+use crate::api::NesEmulatorConfig;
 use bincode::{Decode, Encode};
 use dsp::design::FilterType;
 use dsp::iir::FirstOrderIirFilter;
@@ -10,6 +10,7 @@ use dsp::sinc::PerformanceSincResampler;
 use jgenesis_common::audio::fir_resampler::{FirKernel, LpfCoefficients, MonoFirResampler};
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
 use jgenesis_proc_macros::MatchEachVariantMacro;
+use nes_config::NesAudioResampler;
 
 // 236.25MHz / 11 / 12
 const NTSC_NES_AUDIO_FREQUENCY: f64 = 1789772.7272727272727273;

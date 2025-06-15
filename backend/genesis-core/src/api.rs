@@ -1,22 +1,27 @@
 //! Genesis public interface and main loop
 
 use crate::audio::GenesisAudioResampler;
-use crate::input::{GenesisButton, GenesisInputs, InputState};
+use crate::input::InputState;
 use crate::memory::{Cartridge, MainBus, MainBusSignals, MainBusWrites, Memory};
 use crate::timing::{CycleCounters, GenesisCycleCounters};
 use crate::vdp::{Vdp, VdpConfig, VdpTickEffect};
 use crate::ym2612::Ym2612;
-use crate::{GenesisControllerType, audio, timing, vdp};
+use crate::{audio, timing, vdp};
 use bincode::{Decode, Encode};
 use crc::Crc;
+use genesis_config::{
+    GenesisAspectRatio, GenesisButton, GenesisControllerType, GenesisInputs, GenesisRegion,
+    Opn2BusyBehavior,
+};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FrameSize, PartialClone,
-    PixelAspectRatio, Renderer, SaveWriter, TickEffect, TimingMode,
+    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, PartialClone, Renderer, SaveWriter,
+    TickEffect, TimingMode,
 };
 use jgenesis_common::num::GetBit;
-use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, EnumFromStr};
+use jgenesis_proc_macros::ConfigDisplay;
 use m68000_emu::M68000;
-use smsgg_core::psg::{Sn76489, Sn76489TickEffect, Sn76489Version};
+use smsgg_config::Sn76489Version;
+use smsgg_core::psg::{Sn76489, Sn76489TickEffect};
 use std::cmp;
 use std::fmt::{Debug, Display};
 use std::num::NonZeroU64;
@@ -35,95 +40,16 @@ pub enum GenesisError<RErr, AErr, SErr> {
 
 pub type GenesisResult<RErr, AErr, SErr> = Result<TickEffect, GenesisError<RErr, AErr, SErr>>;
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr, EnumAll,
-)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum GenesisAspectRatio {
-    #[default]
-    Auto,
-    Ntsc,
-    Pal,
-    SquarePixels,
-    Stretched,
-}
-
-impl GenesisAspectRatio {
-    #[inline]
+pub trait GenesisRegionExt: Sized + Copy {
     #[must_use]
-    pub fn to_h40_pixel_aspect_ratio(self, timing_mode: TimingMode) -> Option<f64> {
-        if self == Self::Auto {
-            let auto_aspect = match timing_mode {
-                TimingMode::Ntsc => Self::Ntsc,
-                TimingMode::Pal => Self::Pal,
-            };
-            return auto_aspect.to_h40_pixel_aspect_ratio(timing_mode);
-        }
-
-        match self {
-            Self::Ntsc => Some(32.0 / 35.0),
-            Self::Pal => Some(11.0 / 10.0),
-            Self::SquarePixels => Some(1.0),
-            Self::Stretched => None,
-            Self::Auto => unreachable!("Auto checked at start of function with early return"),
-        }
-    }
+    fn from_rom(rom: &[u8]) -> Option<Self>;
 
     #[must_use]
-    #[allow(clippy::missing_panics_doc)]
-    pub fn to_pixel_aspect_ratio(
-        self,
-        timing_mode: TimingMode,
-        frame_size: FrameSize,
-        adjust_for_2x_resolution: bool,
-    ) -> Option<PixelAspectRatio> {
-        if self == Self::Auto {
-            let auto_aspect = match timing_mode {
-                TimingMode::Ntsc => Self::Ntsc,
-                TimingMode::Pal => Self::Pal,
-            };
-            return auto_aspect.to_pixel_aspect_ratio(
-                timing_mode,
-                frame_size,
-                adjust_for_2x_resolution,
-            );
-        }
-
-        let mut pixel_aspect_ratio = match (self, frame_size.width) {
-            (Self::SquarePixels, _) => Some(1.0),
-            (Self::Stretched, _) => None,
-            (Self::Ntsc, 256..=284) => Some(8.0 / 7.0),
-            (Self::Ntsc, 320..=347) => Some(32.0 / 35.0),
-            (Self::Pal, 256..=284) => Some(11.0 / 8.0),
-            (Self::Pal, 320..=347) => Some(11.0 / 10.0),
-            (Self::Ntsc | Self::Pal, _) => {
-                log::error!("unexpected Genesis frame width: {}", frame_size.width);
-                None
-            }
-            (Self::Auto, _) => unreachable!("Auto checked at start of function with early return"),
-        };
-
-        if adjust_for_2x_resolution && frame_size.height >= 448 {
-            pixel_aspect_ratio = pixel_aspect_ratio.map(|par| par * 2.0);
-        }
-
-        pixel_aspect_ratio.map(|par| PixelAspectRatio::try_from(par).unwrap())
-    }
+    fn version_bit(self) -> bool;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, EnumDisplay, EnumAll)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum GenesisRegion {
-    Americas,
-    Japan,
-    Europe,
-}
-
-impl GenesisRegion {
-    #[must_use]
-    pub fn from_rom(rom: &[u8]) -> Option<Self> {
+impl GenesisRegionExt for GenesisRegion {
+    fn from_rom(rom: &[u8]) -> Option<Self> {
         const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 
         // European games with incorrect region headers that indicate US or JP support
@@ -182,20 +108,10 @@ impl GenesisRegion {
         }
     }
 
-    #[must_use]
-    pub fn version_bit(self) -> bool {
+    #[inline]
+    fn version_bit(self) -> bool {
         self != Self::Japan
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumAll, EnumDisplay)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum Opn2BusyBehavior {
-    Ym2612,
-    #[default]
-    Ym3438,
-    AlwaysZero,
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]

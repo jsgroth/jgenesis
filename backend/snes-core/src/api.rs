@@ -3,7 +3,7 @@
 use crate::apu::{Apu, ApuTickEffect};
 use crate::audio::AudioResampler;
 use crate::bus::Bus;
-use crate::input::{SnesButton, SnesInputs};
+use crate::input::SnesInputs;
 use crate::memory::dma::{DmaStatus, DmaUnit};
 use crate::memory::{CpuInternalRegisters, Memory};
 use crate::ppu::{Ppu, PpuTickEffect};
@@ -11,12 +11,11 @@ use bincode::error::EncodeError;
 use bincode::{Decode, Encode};
 use crc::Crc;
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FrameSize, PartialClone,
-    PixelAspectRatio, Renderer, SaveWriter, TickEffect, TimingMode,
+    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, PartialClone, Renderer, SaveWriter,
+    TickEffect, TimingMode,
 };
-use jgenesis_proc_macros::{
-    ConfigDisplay, EnumAll, EnumDisplay, EnumFromStr, FakeDecode, FakeEncode,
-};
+use jgenesis_proc_macros::{ConfigDisplay, FakeDecode, FakeEncode};
+use snes_config::{AudioInterpolationMode, SnesAspectRatio, SnesButton};
 use std::fmt::{Debug, Display};
 use std::num::NonZeroU64;
 use std::{io, mem};
@@ -28,59 +27,6 @@ const MEMORY_REFRESH_MCLK: u64 = 536;
 const MEMORY_REFRESH_CYCLES: u64 = 40;
 
 const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
-
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr, EnumAll,
-)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum SnesAspectRatio {
-    #[default]
-    Ntsc,
-    Pal,
-    SquarePixels,
-    Stretched,
-}
-
-impl SnesAspectRatio {
-    #[inline]
-    #[must_use]
-    pub fn to_pixel_aspect_ratio_f64(self) -> Option<f64> {
-        match self {
-            Self::Ntsc => Some(8.0 / 7.0),
-            Self::Pal => Some(11.0 / 8.0),
-            Self::SquarePixels => Some(1.0),
-            Self::Stretched => None,
-        }
-    }
-
-    fn to_pixel_aspect_ratio(self, frame_size: FrameSize) -> Option<PixelAspectRatio> {
-        let mut pixel_aspect_ratio = self.to_pixel_aspect_ratio_f64()?;
-
-        if frame_size.width == 512 && frame_size.height < 240 {
-            // Cut pixel aspect ratio in half to account for the screen being squished horizontally
-            pixel_aspect_ratio *= 0.5;
-        }
-
-        if frame_size.width == 256 && frame_size.height >= 240 {
-            // Double pixel aspect ratio to account for the screen being stretched horizontally
-            pixel_aspect_ratio *= 2.0;
-        }
-
-        Some(PixelAspectRatio::try_from(pixel_aspect_ratio).unwrap())
-    }
-}
-
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr, EnumAll,
-)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum AudioInterpolationMode {
-    #[default]
-    Gaussian,
-    Hermite,
-}
 
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct SnesEmulatorConfig {

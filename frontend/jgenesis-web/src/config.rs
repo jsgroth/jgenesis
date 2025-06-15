@@ -1,13 +1,17 @@
-use genesis_core::input::GenesisControllerType;
-use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig, Opn2BusyBehavior};
+use genesis_config::{
+    GenesisAspectRatio, GenesisControllerType, Opn2BusyBehavior, PcmInterpolation,
+};
+use genesis_core::GenesisEmulatorConfig;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, PrescaleMode, RendererConfig, Scanlines,
     VSyncMode, WgpuBackend,
 };
-use segacd_core::api::{PcmInterpolation, SegaCdEmulatorConfig};
-use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsGgEmulatorConfig, SmsModel};
-use snes_core::api::{AudioInterpolationMode, SnesAspectRatio, SnesEmulatorConfig};
+use segacd_core::api::SegaCdEmulatorConfig;
+use smsgg_config::{GgAspectRatio, SmsAspectRatio, SmsModel};
+use smsgg_core::SmsGgEmulatorConfig;
+use snes_config::{AudioInterpolationMode, SnesAspectRatio};
+use snes_core::api::SnesEmulatorConfig;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
@@ -142,9 +146,9 @@ impl GenesisWebConfig {
             emulate_ym2612_ladder_effect: true,
             opn2_busy_behavior: Opn2BusyBehavior::default(),
             genesis_lpf_enabled: self.lpf_enabled,
-            genesis_lpf_cutoff: genesis_core::audio::MODEL_1_VA2_LPF_CUTOFF,
+            genesis_lpf_cutoff: genesis_config::MODEL_1_VA2_LPF_CUTOFF,
             ym2612_2nd_lpf_enabled: false,
-            ym2612_2nd_lpf_cutoff: genesis_core::audio::MODEL_2_2ND_LPF_CUTOFF,
+            ym2612_2nd_lpf_cutoff: genesis_config::MODEL_2_2ND_LPF_CUTOFF,
             ym2612_enabled: true,
             psg_enabled: true,
         }

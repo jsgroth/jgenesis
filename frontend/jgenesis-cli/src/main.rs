@@ -2,25 +2,24 @@
 
 use clap::Parser;
 use env_logger::Env;
-use gb_core::api::{GbAspectRatio, GbAudioResampler, GbPalette, GbcColorCorrection};
-use genesis_core::{GenesisAspectRatio, GenesisControllerType, GenesisRegion, Opn2BusyBehavior};
+use gb_config::{GbAspectRatio, GbAudioResampler, GbPalette, GbcColorCorrection};
+use genesis_config::PcmInterpolation;
+use genesis_config::S32XVideoOut;
+use genesis_config::{GenesisAspectRatio, GenesisControllerType, GenesisRegion, Opn2BusyBehavior};
 use jgenesis_common::frontend::{EmulatorTrait, TimingMode};
 use jgenesis_native_config::AppConfig;
-use jgenesis_native_config::common::ConfigSavePath;
-use jgenesis_native_driver::config::input::{NesControllerType, SnesControllerType};
-use jgenesis_native_driver::config::{FullscreenMode, HideMouseCursor};
+use jgenesis_native_config::common::{ConfigSavePath, FullscreenMode, HideMouseCursor};
+use jgenesis_native_config::input::mappings::{NesControllerType, SnesControllerType};
+use jgenesis_native_driver::config::AppConfigExt;
 use jgenesis_native_driver::extensions::{Console, ConsoleWithSize};
 use jgenesis_native_driver::{NativeEmulator, NativeTickEffect};
 use jgenesis_proc_macros::{CustomValueEnum, EnumAll, EnumDisplay};
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, Scanlines, VSyncMode, WgpuBackend,
 };
-use nes_core::api::{NesAspectRatio, NesAudioResampler};
-use s32x_core::api::S32XVideoOut;
-use segacd_core::api::PcmInterpolation;
-use smsgg_core::psg::Sn76489Version;
-use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsGgRegion, SmsModel};
-use snes_core::api::{AudioInterpolationMode, SnesAspectRatio};
+use nes_config::{NesAspectRatio, NesAudioResampler};
+use smsgg_config::{GgAspectRatio, SmsAspectRatio, SmsGgRegion, SmsModel, Sn76489Version};
+use snes_config::{AudioInterpolationMode, SnesAspectRatio};
 use std::fmt::Debug;
 use std::fs;
 use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};

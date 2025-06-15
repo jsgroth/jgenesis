@@ -1780,17 +1780,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "gb-config"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "clap",
+ "jgenesis-common",
+ "jgenesis-proc-macros",
+ "serde",
+]
+
+[[package]]
 name = "gb-core"
 version = "0.7.1"
 dependencies = [
  "bincode",
- "clap",
  "dsp",
+ "gb-config",
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",
  "rand 0.9.1",
- "serde",
  "thiserror 2.0.12",
 ]
 
@@ -1805,19 +1815,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "genesis-config"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "clap",
+ "jgenesis-common",
+ "jgenesis-proc-macros",
+ "log",
+ "serde",
+]
+
+[[package]]
 name = "genesis-core"
 version = "0.7.1"
 dependencies = [
  "bincode",
- "clap",
  "crc",
  "dsp",
+ "genesis-config",
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",
  "m68000-emu",
  "regex",
- "serde",
+ "smsgg-config",
  "smsgg-core",
  "test-log",
  "thiserror 2.0.12",
@@ -2246,20 +2268,18 @@ dependencies = [
  "anyhow",
  "clap",
  "env_logger",
- "gb-core",
- "genesis-core",
+ "gb-config",
+ "genesis-config",
  "jgenesis-common",
  "jgenesis-native-config",
  "jgenesis-native-driver",
  "jgenesis-proc-macros",
  "jgenesis-renderer",
  "log",
- "nes-core",
- "s32x-core",
+ "nes-config",
  "sdl2",
- "segacd-core",
- "smsgg-core",
- "snes-core",
+ "smsgg-config",
+ "snes-config",
  "toml",
 ]
 
@@ -2291,7 +2311,8 @@ dependencies = [
  "egui_extras",
  "emath",
  "env_logger",
- "gb-core",
+ "gb-config",
+ "genesis-config",
  "genesis-core",
  "jgenesis-common",
  "jgenesis-native-config",
@@ -2299,14 +2320,15 @@ dependencies = [
  "jgenesis-proc-macros",
  "jgenesis-renderer",
  "log",
- "nes-core",
+ "nes-config",
  "pollster",
  "regex",
  "rfd",
- "s32x-core",
  "sdl2",
  "segacd-core",
+ "smsgg-config",
  "smsgg-core",
+ "snes-config",
  "snes-core",
  "time",
  "toml",
@@ -2321,19 +2343,17 @@ dependencies = [
  "cfg-if",
  "clap",
  "directories",
- "gb-core",
- "genesis-core",
+ "gb-config",
+ "genesis-config",
  "jgenesis-common",
- "jgenesis-native-driver",
  "jgenesis-proc-macros",
  "jgenesis-renderer",
  "log",
- "nes-core",
- "s32x-core",
- "segacd-core",
+ "nes-config",
+ "sdl2",
  "serde",
- "smsgg-core",
- "snes-core",
+ "smsgg-config",
+ "snes-config",
  "toml",
 ]
 
@@ -2348,21 +2368,25 @@ dependencies = [
  "egui",
  "egui-sdl2-platform",
  "egui-wgpu",
+ "gb-config",
  "gb-core",
  "genesis-core",
  "jgenesis-common",
+ "jgenesis-native-config",
  "jgenesis-proc-macros",
  "jgenesis-renderer",
  "log",
+ "nes-config",
  "nes-core",
  "pollster",
  "rustc-hash 2.1.1",
  "s32x-core",
  "sdl2",
  "segacd-core",
- "serde",
  "sevenz-rust",
+ "smsgg-config",
  "smsgg-core",
+ "snes-config",
  "snes-core",
  "thiserror 2.0.12",
  "wgpu",
@@ -2407,6 +2431,7 @@ dependencies = [
  "bincode",
  "console_error_panic_hook",
  "console_log",
+ "genesis-config",
  "genesis-core",
  "getrandom 0.3.3",
  "jgenesis-common",
@@ -2417,7 +2442,9 @@ dependencies = [
  "rand 0.9.1",
  "rfd",
  "segacd-core",
+ "smsgg-config",
  "smsgg-core",
+ "snes-config",
  "snes-core",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -2881,19 +2908,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "nes-config"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "clap",
+ "jgenesis-common",
+ "jgenesis-proc-macros",
+ "serde",
+]
+
+[[package]]
 name = "nes-core"
 version = "0.7.1"
 dependencies = [
  "bincode",
- "clap",
  "crc",
  "dsp",
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",
  "mos6502-emu",
+ "nes-config",
  "rand 0.9.1",
- "serde",
  "thiserror 2.0.12",
  "ym-opll",
 ]
@@ -4023,15 +4060,15 @@ name = "s32x-core"
 version = "0.1.0"
 dependencies = [
  "bincode",
- "clap",
  "dsp",
+ "genesis-config",
  "genesis-core",
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",
  "m68000-emu",
- "serde",
  "sh2-emu",
+ "smsgg-config",
  "smsgg-core",
  "thiserror 2.0.12",
  "z80-emu",
@@ -4101,15 +4138,15 @@ version = "0.7.1"
 dependencies = [
  "bincode",
  "cdrom",
- "clap",
  "dsp",
+ "genesis-config",
  "genesis-core",
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",
  "m68000-emu",
  "regex",
- "serde",
+ "smsgg-config",
  "smsgg-core",
  "thiserror 2.0.12",
  "z80-emu",
@@ -4335,21 +4372,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "smsgg-config"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "clap",
+ "jgenesis-common",
+ "jgenesis-proc-macros",
+ "serde",
+]
+
+[[package]]
 name = "smsgg-core"
 version = "0.7.1"
 dependencies = [
  "arrayvec",
  "bincode",
- "clap",
  "crc",
  "dsp",
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",
- "serde",
+ "smsgg-config",
  "thiserror 2.0.12",
  "ym-opll",
  "z80-emu",
+]
+
+[[package]]
+name = "snes-config"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "clap",
+ "jgenesis-common",
+ "jgenesis-proc-macros",
+ "serde",
 ]
 
 [[package]]
@@ -4370,14 +4428,13 @@ name = "snes-core"
 version = "0.7.1"
 dependencies = [
  "bincode",
- "clap",
  "crc",
  "dsp",
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",
  "rand 0.9.1",
- "serde",
+ "snes-config",
  "snes-coprocessors",
  "spc700-emu",
  "thiserror 2.0.12",
