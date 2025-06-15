@@ -142,7 +142,7 @@ impl SaveWriter for LocalStorageSaveWriter {
         Ok(())
     }
 
-    fn load_serialized<D: Decode>(&mut self, extension: &str) -> Result<D, Self::Err> {
+    fn load_serialized<D: Decode<()>>(&mut self, extension: &str) -> Result<D, Self::Err> {
         let file_name = self.get_file_name(extension);
         let bytes = read_save_file(&file_name)?;
         let (value, _) = bincode::decode_from_slice(&bytes, bincode_config!())
