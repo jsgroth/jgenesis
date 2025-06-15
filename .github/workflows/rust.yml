@@ -72,6 +72,7 @@ jobs:
           && RUSTFLAGS='--cfg getrandom_backend="wasm_js"' cargo +nightly clippy --target wasm32-unknown-unknown
   linux-release-appimage:
     runs-on: ubuntu-22.04
+    if: github.ref == 'refs/heads/master'
 
     steps:
       - uses: actions/checkout@v4
@@ -122,6 +123,7 @@ jobs:
           path: target/release-lto/jgenesis-gui_${{ env.JGENESIS_VERSION }}_x86_64.AppImage
   windows-release:
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master'
 
     env:
       SDL_VERSION: 2.30.9
