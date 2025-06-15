@@ -1,13 +1,15 @@
-use crate::config::{SnesConfig, WindowSize};
+use crate::config::SnesConfig;
 
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{debug, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorResult, extensions};
 
 use crate::config::RomReadResult;
-use crate::config::input::SnesControllerType;
+use jgenesis_native_config::common::WindowSize;
+use jgenesis_native_config::input::mappings::SnesControllerType;
+use snes_config::SnesJoypadState;
 use snes_core::api::SnesEmulator;
-use snes_core::input::{SnesInputDevice, SnesInputs, SnesJoypadState, SuperScopeState};
+use snes_core::input::{SnesInputDevice, SnesInputs, SuperScopeState};
 use std::path::Path;
 
 trait SnesControllerTypeExt {

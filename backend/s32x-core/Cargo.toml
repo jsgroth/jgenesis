@@ -3,15 +3,13 @@ name = "s32x-core"
 version = "0.1.0"
 edition = "2021"
 
-[features]
-default = []
-clap = ["dep:clap"]
-serde = ["dep:serde"]
-
 [dependencies]
 dsp = { path = "../../common/dsp" }
 jgenesis-common = { path = "../../common/jgenesis-common" }
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
+
+genesis-config = { path = "../../config/genesis-config" }
+smsgg-config = { path = "../../config/smsgg-config" }
 
 m68000-emu = { path = "../../cpu/m68000-emu" }
 sh2-emu = { path = "../../cpu/sh2-emu" }
@@ -21,9 +19,7 @@ genesis-core = { path = "../genesis-core" }
 smsgg-core = { path = "../smsgg-core" }
 
 bincode = { workspace = true, features = ["derive"] }
-clap = { workspace = true, optional = true }
 log = { workspace = true }
-serde = { workspace = true, optional = true, features = ["derive"] }
 thiserror = { workspace = true }
 
 [lints]

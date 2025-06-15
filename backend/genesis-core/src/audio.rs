@@ -14,11 +14,6 @@ pub const PAL_GENESIS_MCLK_FREQUENCY: f64 = 53_203_424.0;
 // -7dB (10 ^ -7/20)
 pub const PSG_COEFFICIENT: f64 = 0.44668359215096315;
 
-pub const MODEL_1_VA2_LPF_CUTOFF: u32 = 3390;
-pub const MODEL_1_VA3_LPF_CUTOFF: u32 = 2840;
-pub const MODEL_2_1ST_LPF_CUTOFF: u32 = 3789;
-pub const MODEL_2_2ND_LPF_CUTOFF: u32 = 6725;
-
 #[must_use]
 pub fn new_ym2612_low_pass<const N: usize>(timing_mode: TimingMode, cutoff: u32) -> IirFilter<N> {
     dsp::design::butterworth(cutoff.into(), ym2612_frequency(timing_mode), FilterType::LowPass)

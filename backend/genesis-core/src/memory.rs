@@ -3,7 +3,7 @@
 pub mod eeprom;
 mod external;
 
-use crate::api::GenesisRegion;
+use crate::api::GenesisRegionExt;
 use crate::input::InputState;
 use crate::memory::external::ExternalMemory;
 use crate::svp::Svp;
@@ -12,6 +12,7 @@ use crate::vdp::Vdp;
 use crate::ym2612::Ym2612;
 use bincode::{Decode, Encode};
 use crc::Crc;
+use genesis_config::GenesisRegion;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};

@@ -6,7 +6,7 @@ use eframe::emath::Align;
 use eframe::epaint::Color32;
 use egui::{Context, Layout, Window};
 use jgenesis_common::frontend::TimingMode;
-use nes_core::api::{NesAspectRatio, NesAudioResampler, Overscan};
+use nes_config::{NesAspectRatio, NesAudioResampler, Overscan};
 
 pub struct OverscanState {
     top_text: String,

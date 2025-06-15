@@ -4,87 +4,28 @@ use crate::bus::cartridge::CartridgeFileError;
 use crate::bus::{Bus, cartridge};
 use crate::cpu::CpuState;
 use crate::graphics::TimingModeGraphicsExt;
-use crate::input::{NesButton, NesInputs};
+use crate::input::NesInputs;
 use crate::ppu::PpuState;
 use crate::{apu, audio, cpu, graphics, ppu};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FrameSize, PixelAspectRatio, Renderer,
-    SaveWriter, TickEffect, TickResult, TimingMode,
+    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FrameSize, Renderer, SaveWriter,
+    TickEffect, TickResult, TimingMode,
 };
-use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, PartialClone};
-use std::fmt::{Debug, Display, Formatter};
+use jgenesis_proc_macros::{ConfigDisplay, PartialClone};
+use std::fmt::{Debug, Display};
 use std::mem;
 use thiserror::Error;
 
 pub use graphics::PatternTable;
 use mos6502_emu::bus::BusInterface;
+use nes_config::{NesAspectRatio, NesAudioResampler, NesButton, Overscan};
 
 // The number of master clock ticks to run in one `Emulator::tick` call
 const PAL_MASTER_CLOCK_TICKS: u32 = 80;
 
 const PAL_CPU_DIVIDER: u32 = 16;
 const PAL_PPU_DIVIDER: u32 = 5;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum NesAspectRatio {
-    #[default]
-    Ntsc,
-    Pal,
-    SquarePixels,
-    Stretched,
-}
-
-impl NesAspectRatio {
-    #[inline]
-    #[must_use]
-    pub fn to_pixel_aspect_ratio_f64(self) -> Option<f64> {
-        match self {
-            Self::Ntsc => Some(8.0 / 7.0),
-            Self::Pal => Some(11.0 / 8.0),
-            Self::SquarePixels => Some(PixelAspectRatio::SQUARE.into()),
-            Self::Stretched => None,
-        }
-    }
-
-    fn to_pixel_aspect_ratio(self) -> Option<PixelAspectRatio> {
-        self.to_pixel_aspect_ratio_f64().map(|par| PixelAspectRatio::try_from(par).unwrap())
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Overscan {
-    pub top: u16,
-    pub bottom: u16,
-    pub left: u16,
-    pub right: u16,
-}
-
-impl Overscan {
-    pub const NONE: Self = Self { top: 0, bottom: 0, left: 0, right: 0 };
-}
-
-impl Display for Overscan {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Overscan {{ top={}, bottom={}, left={}, right={} }}",
-            self.top, self.bottom, self.left, self.right
-        )
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum NesAudioResampler {
-    LowPassNearestNeighbor,
-    #[default]
-    WindowedSinc,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, ConfigDisplay)]
 pub struct NesEmulatorConfig {
@@ -431,17 +372,5 @@ fn init_apu(apu_state: &mut ApuState, bus: &mut Bus, config: NesEmulatorConfig) 
     for _ in 0..10 {
         apu::tick(apu_state, &mut bus.cpu(), config);
         bus.tick();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn all_aspect_ratios_valid() {
-        for par in NesAspectRatio::ALL {
-            let _ = par.to_pixel_aspect_ratio();
-        }
     }
 }

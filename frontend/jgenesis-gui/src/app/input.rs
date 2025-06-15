@@ -1,21 +1,20 @@
 use crate::app::{App, NumericTextEdit, OpenWindow};
 use crate::emuthread::EmuThreadCommand;
 use egui::{Button, Color32, ComboBox, Context, Grid, ScrollArea, Slider, Ui, Window};
-use gb_core::inputs::GameBoyButton;
-use genesis_core::GenesisControllerType;
-use genesis_core::input::GenesisButton;
+use gb_config::GameBoyButton;
+use genesis_config::{GenesisButton, GenesisControllerType};
 use jgenesis_common::input::Player;
 use jgenesis_native_config::input::InputAppConfig;
-use jgenesis_native_driver::config::input::{
+use jgenesis_native_config::input::mappings::{
     GameBoyInputMapping, GenesisControllerMapping, GenesisInputMapping, HotkeyMapping,
     NesControllerMapping, NesControllerType, NesInputMapping, NesZapperMapping,
     SmsGgControllerMapping, SmsGgInputMapping, SnesControllerMapping, SnesControllerType,
     SnesInputMapping, SnesSuperScopeMapping,
 };
-use jgenesis_native_driver::input::{GenericInput, Hotkey};
-use nes_core::input::NesButton;
-use smsgg_core::SmsGgButton;
-use snes_core::input::SnesButton;
+use jgenesis_native_config::input::{GenericInput, Hotkey};
+use nes_config::NesButton;
+use smsgg_config::SmsGgButton;
+use snes_config::SnesButton;
 use std::sync::LazyLock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

@@ -5,11 +5,11 @@ use crate::emuthread::EmuThreadStatus;
 use crate::widgets::OverclockSlider;
 use egui::style::ScrollStyle;
 use egui::{Context, Slider, Ui, Window};
-use genesis_core::{GenesisAspectRatio, GenesisRegion, Opn2BusyBehavior};
+use genesis_config::PcmInterpolation;
+use genesis_config::S32XVideoOut;
+use genesis_config::{GenesisAspectRatio, GenesisRegion, Opn2BusyBehavior};
 use jgenesis_common::frontend::TimingMode;
 use rfd::FileDialog;
-use s32x_core::api::S32XVideoOut;
-use segacd_core::api::PcmInterpolation;
 use std::num::{NonZeroU16, NonZeroU64};
 use std::path::PathBuf;
 
@@ -485,25 +485,21 @@ impl App {
 
             if ui.button("Model 1 VA0-VA2").clicked() {
                 self.config.genesis.genesis_lpf_enabled = true;
-                self.config.genesis.genesis_lpf_cutoff =
-                    genesis_core::audio::MODEL_1_VA2_LPF_CUTOFF;
+                self.config.genesis.genesis_lpf_cutoff = genesis_config::MODEL_1_VA2_LPF_CUTOFF;
                 self.config.genesis.ym2612_2nd_lpf_enabled = false;
             }
 
             if ui.button("Model 1 VA3-VA6").clicked() {
                 self.config.genesis.genesis_lpf_enabled = true;
-                self.config.genesis.genesis_lpf_cutoff =
-                    genesis_core::audio::MODEL_1_VA3_LPF_CUTOFF;
+                self.config.genesis.genesis_lpf_cutoff = genesis_config::MODEL_1_VA3_LPF_CUTOFF;
                 self.config.genesis.ym2612_2nd_lpf_enabled = false;
             }
 
             if ui.button("Model 2").clicked() {
                 self.config.genesis.genesis_lpf_enabled = true;
-                self.config.genesis.genesis_lpf_cutoff =
-                    genesis_core::audio::MODEL_2_1ST_LPF_CUTOFF;
+                self.config.genesis.genesis_lpf_cutoff = genesis_config::MODEL_2_1ST_LPF_CUTOFF;
                 self.config.genesis.ym2612_2nd_lpf_enabled = true;
-                self.config.genesis.ym2612_2nd_lpf_cutoff =
-                    genesis_core::audio::MODEL_2_2ND_LPF_CUTOFF;
+                self.config.genesis.ym2612_2nd_lpf_cutoff = genesis_config::MODEL_2_2ND_LPF_CUTOFF;
             }
         });
 

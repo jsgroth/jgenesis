@@ -8,23 +8,22 @@ default = []
 clap = ["dep:clap"]
 
 [dependencies]
-gb-core = { path = "../../backend/gb-core", features = ["serde"] }
-genesis-core = { path = "../../backend/genesis-core", features = ["serde"] }
-nes-core = { path = "../../backend/nes-core", features = ["serde"] }
-s32x-core = { path = "../../backend/s32x-core", features = ["serde"] }
-segacd-core = { path = "../../backend/segacd-core", features = ["serde"] }
-smsgg-core = { path = "../../backend/smsgg-core", features = ["serde"] }
-snes-core = { path = "../../backend/snes-core", features = ["serde"] }
-
 jgenesis-common = { path = "../../common/jgenesis-common", features = ["serde"] }
-jgenesis-native-driver = { path = "../jgenesis-native-driver" }
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
-jgenesis-renderer = { path = "../jgenesis-renderer" }
+
+gb-config = { path = "../../config/gb-config", features = ["serde"] }
+genesis-config = { path = "../../config/genesis-config", features = ["serde"] }
+nes-config = { path = "../../config/nes-config", features = ["serde"] }
+smsgg-config = { path = "../../config/smsgg-config", features = ["serde"] }
+snes-config = { path = "../../config/snes-config", features = ["serde"] }
+
+jgenesis-renderer = { path = "../jgenesis-renderer", features = ["serde"] }
 
 cfg-if = { workspace = true }
 clap = { workspace = true, optional = true }
 directories = { workspace = true }
 log = { workspace = true }
+sdl2 = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }
 

@@ -3,11 +3,11 @@
 mod interpolate;
 mod tables;
 
-use crate::api::AudioInterpolationMode;
 use crate::apu::AudioRam;
 use crate::apu::dsp::interpolate::InterpolateArgs;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, U16Ext};
+use snes_config::AudioInterpolationMode;
 use std::array;
 use std::ops::Index;
 

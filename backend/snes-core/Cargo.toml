@@ -5,25 +5,22 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[features]
-default = []
-clap = ["dep:clap"]
-serde = ["dep:serde"]
-
 [dependencies]
 dsp = { path = "../../common/dsp" }
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 jgenesis-common = { path = "../../common/jgenesis-common" }
-snes-coprocessors = { path = "../snes-coprocessors" }
+
+snes-config = { path = "../../config/snes-config" }
+
 spc700-emu = { path = "../../cpu/spc700-emu" }
 wdc65816-emu = { path = "../../cpu/wdc65816-emu" }
 
+snes-coprocessors = { path = "../snes-coprocessors" }
+
 bincode = { workspace = true }
-clap = { workspace = true, optional = true }
 crc = { workspace = true }
 log = { workspace = true }
 rand = { workspace = true }
-serde = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 [lints]

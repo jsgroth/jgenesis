@@ -112,7 +112,6 @@ impl ViewportSize {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum VdpVersion {
     NtscMasterSystem1,
     PalMasterSystem1,

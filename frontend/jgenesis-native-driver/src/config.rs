@@ -1,196 +1,26 @@
-pub mod input;
-
 use crate::archive::{ArchiveEntry, ArchiveError};
-use crate::config::input::{
-    GameBoyInputConfig, GenesisInputConfig, HotkeyConfig, NesInputConfig, SmsGgInputConfig,
-    SnesInputConfig,
-};
 use crate::mainloop::NativeEmulatorError;
 use crate::{NativeEmulatorResult, archive, extensions};
 use gb_core::api::GameBoyEmulatorConfig;
-use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig};
-use jgenesis_common::frontend::TimingMode;
-use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay};
-use jgenesis_renderer::config::RendererConfig;
-use nes_core::api::{NesAspectRatio, NesEmulatorConfig};
+use genesis_core::GenesisEmulatorConfig;
+use jgenesis_native_config::AppConfig;
+use jgenesis_native_config::common::{
+    ConfigSavePath, FullscreenMode, HideMouseCursor, SavePath, WindowSize,
+};
+use jgenesis_native_config::input::mappings::{
+    GameBoyInputConfig, GenesisInputConfig, HotkeyConfig, NesInputConfig, SmsGgInputConfig,
+    SnesInputConfig,
+};
+use jgenesis_proc_macros::ConfigDisplay;
+use jgenesis_renderer::config::{PrescaleMode, RendererConfig};
+use nes_core::api::NesEmulatorConfig;
 use s32x_core::api::Sega32XEmulatorConfig;
 use segacd_core::api::SegaCdEmulatorConfig;
-use serde::{Deserialize, Serialize};
-use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsGgEmulatorConfig};
-use snes_core::api::{CoprocessorRomFn, CoprocessorRoms, SnesAspectRatio, SnesEmulatorConfig};
-use std::fmt::{Display, Formatter};
+use smsgg_core::SmsGgEmulatorConfig;
+use snes_core::api::{CoprocessorRomFn, CoprocessorRoms, SnesEmulatorConfig};
 use std::fs;
 use std::num::NonZeroU8;
 use std::path::{Path, PathBuf};
-
-#[derive(Debug, Clone, Copy)]
-pub struct WindowSize {
-    pub width: u32,
-    pub height: u32,
-}
-
-impl WindowSize {
-    const SMS_HEIGHT: f64 = 192.0;
-    const SMS_WIDTH: f64 = 256.0;
-
-    const GG_HEIGHT: f64 = 144.0;
-    const GG_WIDTH: f64 = 160.0;
-
-    const GENESIS_HEIGHT: f64 = 224.0;
-    const GENESIS_WIDTH_H40: f64 = 320.0;
-
-    const NES_NTSC_HEIGHT: f64 = 224.0;
-    const NES_PAL_HEIGHT: f64 = 240.0;
-    const NES_WIDTH: f64 = 256.0;
-
-    const SNES_HEIGHT: f64 = 224.0;
-    const SNES_WIDTH: f64 = 256.0;
-
-    const GB_HEIGHT: f64 = 144.0;
-    const GB_WIDTH: f64 = 160.0;
-
-    pub(crate) fn new(native_width: f64, native_height: f64, size: NonZeroU8) -> Self {
-        let size: f64 = size.get().into();
-
-        let width = (native_width * size).ceil() as u32;
-        let height = (native_height * size).ceil() as u32;
-        Self { width, height }
-    }
-
-    pub(crate) fn new_sms(size: NonZeroU8, aspect_ratio: SmsAspectRatio) -> Self {
-        let pixel_aspect_ratio = aspect_ratio.to_pixel_aspect_ratio_f64().unwrap_or_else(|| {
-            SmsAspectRatio::default().to_pixel_aspect_ratio_f64().unwrap_or(1.0)
-        });
-        let width = Self::SMS_WIDTH * pixel_aspect_ratio;
-
-        Self::new(width, Self::SMS_HEIGHT, size)
-    }
-
-    pub(crate) fn new_game_gear(size: NonZeroU8, aspect_ratio: GgAspectRatio) -> Self {
-        let pixel_aspect_ratio = aspect_ratio
-            .to_pixel_aspect_ratio_f64()
-            .unwrap_or_else(|| GgAspectRatio::default().to_pixel_aspect_ratio_f64().unwrap_or(1.0));
-        let width = Self::GG_WIDTH * pixel_aspect_ratio;
-
-        Self::new(width, Self::GG_HEIGHT, size)
-    }
-
-    pub(crate) fn new_genesis(
-        size: NonZeroU8,
-        aspect_ratio: GenesisAspectRatio,
-        timing_mode: TimingMode,
-    ) -> Self {
-        Self::new(Self::genesis_width(aspect_ratio, timing_mode), Self::GENESIS_HEIGHT, size)
-    }
-
-    fn genesis_width(aspect_ratio: GenesisAspectRatio, timing_mode: TimingMode) -> f64 {
-        let h40_par = aspect_ratio.to_h40_pixel_aspect_ratio(timing_mode).unwrap_or_else(|| {
-            GenesisAspectRatio::default().to_h40_pixel_aspect_ratio(timing_mode).unwrap_or(1.0)
-        });
-        Self::GENESIS_WIDTH_H40 * h40_par
-    }
-
-    pub(crate) fn new_32x(
-        size: NonZeroU8,
-        aspect_ratio: GenesisAspectRatio,
-        timing_mode: TimingMode,
-    ) -> Self {
-        // Make 32X window a little wider than Genesis by default so that the frame won't shrink if a
-        // game switches to H32 mode while the renderer has forced integer height scaling enabled
-        let width = Self::genesis_width(aspect_ratio, timing_mode) * 323.25 / 320.0;
-
-        Self::new(width, Self::GENESIS_HEIGHT, size)
-    }
-
-    pub(crate) fn new_nes(
-        size: NonZeroU8,
-        aspect_ratio: NesAspectRatio,
-        timing_mode: TimingMode,
-        ntsc_crop_v_overscan: bool,
-    ) -> Self {
-        let pixel_aspect_ratio = aspect_ratio.to_pixel_aspect_ratio_f64().unwrap_or_else(|| {
-            NesAspectRatio::default().to_pixel_aspect_ratio_f64().unwrap_or(1.0)
-        });
-        let width = Self::NES_WIDTH * pixel_aspect_ratio;
-
-        let height = match timing_mode {
-            TimingMode::Ntsc if ntsc_crop_v_overscan => Self::NES_NTSC_HEIGHT,
-            _ => Self::NES_PAL_HEIGHT,
-        };
-
-        Self::new(width, height, size)
-    }
-
-    pub(crate) fn new_snes(size: NonZeroU8, aspect_ratio: SnesAspectRatio) -> Self {
-        let pixel_aspect_ratio = aspect_ratio.to_pixel_aspect_ratio_f64().unwrap_or_else(|| {
-            SnesAspectRatio::default().to_pixel_aspect_ratio_f64().unwrap_or(1.0)
-        });
-        let width = Self::SNES_WIDTH * pixel_aspect_ratio;
-
-        Self::new(width, Self::SNES_HEIGHT, size)
-    }
-
-    pub(crate) fn new_gb(size: NonZeroU8) -> Self {
-        // Only GB aspect ratio options are square pixels and stretched
-        Self::new(Self::GB_WIDTH, Self::GB_HEIGHT, size)
-    }
-
-    pub(crate) fn scale(self, scale_factor: f32) -> Self {
-        Self {
-            width: (self.width as f32 * scale_factor).round() as u32,
-            height: (self.height as f32 * scale_factor).round() as u32,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum SavePath {
-    RomFolder,
-    EmulatorFolder,
-    Custom(PathBuf),
-}
-
-impl SavePath {
-    pub const SAVE_SUBDIR: &'static str = "saves";
-    pub const STATE_SUBDIR: &'static str = "states";
-}
-
-impl Display for SavePath {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::RomFolder => write!(f, "ROM Folder"),
-            Self::EmulatorFolder => write!(f, "Emulator Folder"),
-            Self::Custom(path) => write!(f, "{}", path.display()),
-        }
-    }
-}
-
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumAll,
-)]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum FullscreenMode {
-    #[default]
-    Borderless,
-    Exclusive,
-}
-
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumAll,
-)]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum HideMouseCursor {
-    #[default]
-    Fullscreen,
-    Never,
-    Always,
-}
-
-impl HideMouseCursor {
-    pub(crate) fn should_hide(self, fullscreen: bool) -> bool {
-        self == Self::Always || (fullscreen && self == Self::Fullscreen)
-    }
-}
 
 #[derive(Debug, Clone)]
 pub(crate) struct RomReadResult {
@@ -408,4 +238,237 @@ pub struct GameBoyConfig {
     pub inputs: GameBoyInputConfig,
     #[cfg_display(indent_nested)]
     pub emulator_config: GameBoyEmulatorConfig,
+}
+
+pub trait AppConfigExt {
+    #[must_use]
+    fn common_config(&self, path: PathBuf) -> CommonConfig;
+
+    #[must_use]
+    fn genesis_config(&self, path: PathBuf) -> Box<GenesisConfig>;
+
+    #[must_use]
+    fn sega_cd_config(&self, path: PathBuf) -> Box<SegaCdConfig>;
+
+    #[must_use]
+    fn sega_32x_config(&self, path: PathBuf) -> Box<Sega32XConfig>;
+
+    #[must_use]
+    fn smsgg_config(&self, path: PathBuf) -> Box<SmsGgConfig>;
+
+    #[must_use]
+    fn nes_config(&self, path: PathBuf) -> Box<NesConfig>;
+
+    #[must_use]
+    fn snes_config(&self, path: PathBuf) -> Box<SnesConfig>;
+
+    #[must_use]
+    fn gb_config(&self, path: PathBuf) -> Box<GameBoyConfig>;
+}
+
+impl AppConfigExt for AppConfig {
+    fn common_config(&self, path: PathBuf) -> CommonConfig {
+        fn save_path(path: ConfigSavePath, custom_path: &Path) -> SavePath {
+            match path {
+                ConfigSavePath::RomFolder => SavePath::RomFolder,
+                ConfigSavePath::EmulatorFolder => SavePath::EmulatorFolder,
+                ConfigSavePath::Custom => SavePath::Custom(custom_path.into()),
+            }
+        }
+
+        CommonConfig {
+            rom_file_path: path,
+            mute_audio: self.common.mute_audio,
+            audio_output_frequency: self.common.audio_output_frequency,
+            audio_sync: self.common.audio_sync,
+            audio_dynamic_resampling_ratio: self.common.audio_dynamic_resampling_ratio,
+            audio_hardware_queue_size: self.common.audio_hardware_queue_size,
+            audio_buffer_size: self.common.audio_buffer_size,
+            audio_gain_db: self.common.audio_gain_db,
+            save_path: save_path(self.common.save_path, &self.common.custom_save_path),
+            state_path: save_path(self.common.state_path, &self.common.custom_state_path),
+            window_size: self.common.window_size(),
+            window_scale_factor: self.common.window_scale_factor,
+            renderer_config: RendererConfig {
+                wgpu_backend: self.common.wgpu_backend,
+                vsync_mode: self.common.vsync_mode,
+                frame_time_sync: self.common.frame_time_sync,
+                prescale_mode: if self.common.auto_prescale {
+                    PrescaleMode::Auto
+                } else {
+                    PrescaleMode::Manual(self.common.prescale_factor)
+                },
+                scanlines: self.common.scanlines,
+                force_integer_height_scaling: self.common.force_integer_height_scaling,
+                filter_mode: self.common.filter_mode,
+                preprocess_shader: self.common.preprocess_shader,
+                use_webgl2_limits: false,
+            },
+            fast_forward_multiplier: self.common.fast_forward_multiplier,
+            rewind_buffer_length_seconds: self.common.rewind_buffer_length_seconds,
+            load_recent_state_at_launch: self.common.load_recent_state_at_launch,
+            launch_in_fullscreen: self.common.launch_in_fullscreen,
+            fullscreen_mode: self.common.fullscreen_mode,
+            initial_window_size: self.common.initial_window_size,
+            axis_deadzone: self.input.axis_deadzone,
+            hotkey_config: self.input.hotkeys.clone(),
+            hide_mouse_cursor: self.common.hide_mouse_cursor,
+        }
+    }
+
+    fn genesis_config(&self, path: PathBuf) -> Box<GenesisConfig> {
+        Box::new(GenesisConfig {
+            common: self.common_config(path),
+            inputs: self.input.genesis.clone(),
+            emulator_config: GenesisEmulatorConfig {
+                p1_controller_type: self.input.genesis.p1_type,
+                p2_controller_type: self.input.genesis.p2_type,
+                forced_timing_mode: self.genesis.forced_timing_mode,
+                forced_region: self.genesis.forced_region,
+                aspect_ratio: self.genesis.aspect_ratio,
+                adjust_aspect_ratio_in_2x_resolution: self
+                    .genesis
+                    .adjust_aspect_ratio_in_2x_resolution,
+                remove_sprite_limits: self.genesis.remove_sprite_limits,
+                m68k_clock_divider: self.genesis.m68k_clock_divider,
+                non_linear_color_scale: self.genesis.non_linear_color_scale,
+                deinterlace: self.genesis.deinterlace,
+                render_vertical_border: self.genesis.render_vertical_border,
+                render_horizontal_border: self.genesis.render_horizontal_border,
+                plane_a_enabled: self.genesis.plane_a_enabled,
+                plane_b_enabled: self.genesis.plane_b_enabled,
+                sprites_enabled: self.genesis.sprites_enabled,
+                window_enabled: self.genesis.window_enabled,
+                backdrop_enabled: self.genesis.backdrop_enabled,
+                quantize_ym2612_output: self.genesis.quantize_ym2612_output,
+                emulate_ym2612_ladder_effect: self.genesis.emulate_ym2612_ladder_effect,
+                opn2_busy_behavior: self.genesis.opn2_busy_behavior,
+                genesis_lpf_enabled: self.genesis.genesis_lpf_enabled,
+                genesis_lpf_cutoff: self.genesis.genesis_lpf_cutoff,
+                ym2612_2nd_lpf_enabled: self.genesis.ym2612_2nd_lpf_enabled,
+                ym2612_2nd_lpf_cutoff: self.genesis.ym2612_2nd_lpf_cutoff,
+                ym2612_enabled: self.genesis.ym2612_enabled,
+                psg_enabled: self.genesis.psg_enabled,
+            },
+        })
+    }
+
+    fn sega_cd_config(&self, path: PathBuf) -> Box<SegaCdConfig> {
+        let genesis_config = *self.genesis_config(path);
+        let genesis_emu_config = genesis_config.emulator_config;
+        Box::new(SegaCdConfig {
+            genesis: genesis_config,
+            bios_file_path: self.sega_cd.bios_path.clone(),
+            run_without_disc: false,
+            emulator_config: SegaCdEmulatorConfig {
+                genesis: genesis_emu_config,
+                pcm_interpolation: self.sega_cd.pcm_interpolation,
+                enable_ram_cartridge: self.sega_cd.enable_ram_cartridge,
+                load_disc_into_ram: self.sega_cd.load_disc_into_ram,
+                disc_drive_speed: self.sega_cd.disc_drive_speed,
+                sub_cpu_divider: self.sega_cd.sub_cpu_divider,
+                pcm_lpf_enabled: self.sega_cd.pcm_lpf_enabled,
+                pcm_lpf_cutoff: self.sega_cd.pcm_lpf_cutoff,
+                apply_genesis_lpf_to_pcm: self.sega_cd.apply_genesis_lpf_to_pcm,
+                apply_genesis_lpf_to_cd_da: self.sega_cd.apply_genesis_lpf_to_cd_da,
+                pcm_enabled: self.sega_cd.pcm_enabled,
+                cd_audio_enabled: self.sega_cd.cd_audio_enabled,
+            },
+        })
+    }
+
+    fn sega_32x_config(&self, path: PathBuf) -> Box<Sega32XConfig> {
+        let genesis_config = *self.genesis_config(path);
+        let genesis_emu_config = genesis_config.emulator_config;
+        Box::new(Sega32XConfig {
+            genesis: genesis_config,
+            emulator_config: Sega32XEmulatorConfig {
+                genesis: genesis_emu_config,
+                video_out: self.sega_32x.video_out,
+                apply_genesis_lpf_to_pwm: self.sega_32x.apply_genesis_lpf_to_pwm,
+                pwm_enabled: self.sega_32x.pwm_enabled,
+            },
+        })
+    }
+
+    fn smsgg_config(&self, path: PathBuf) -> Box<SmsGgConfig> {
+        Box::new(SmsGgConfig {
+            common: self.common_config(path),
+            inputs: self.input.smsgg.clone(),
+            emulator_config: SmsGgEmulatorConfig {
+                sms_timing_mode: self.smsgg.sms_timing_mode,
+                sms_model: self.smsgg.sms_model,
+                forced_psg_version: self.smsgg.psg_version,
+                remove_sprite_limit: self.smsgg.remove_sprite_limit,
+                sms_aspect_ratio: self.smsgg.sms_aspect_ratio,
+                gg_aspect_ratio: self.smsgg.gg_aspect_ratio,
+                forced_region: self.smsgg.forced_region,
+                sms_crop_vertical_border: self.smsgg.sms_crop_vertical_border,
+                sms_crop_left_border: self.smsgg.sms_crop_left_border,
+                gg_use_sms_resolution: self.smsgg.gg_use_sms_resolution,
+                fm_sound_unit_enabled: self.smsgg.fm_sound_unit_enabled,
+                z80_divider: self.smsgg.z80_divider,
+            },
+            boot_from_bios: self.smsgg.boot_from_bios,
+            run_without_cartridge: false,
+            bios_path: self.smsgg.bios_path.clone(),
+        })
+    }
+
+    fn nes_config(&self, path: PathBuf) -> Box<NesConfig> {
+        Box::new(NesConfig {
+            common: self.common_config(path),
+            inputs: self.input.nes.clone(),
+            emulator_config: NesEmulatorConfig {
+                forced_timing_mode: self.nes.forced_timing_mode,
+                aspect_ratio: self.nes.aspect_ratio,
+                ntsc_crop_vertical_overscan: self.nes.ntsc_crop_vertical_overscan,
+                overscan: self.nes.overscan,
+                remove_sprite_limit: self.nes.remove_sprite_limit,
+                pal_black_border: self.nes.pal_black_border,
+                silence_ultrasonic_triangle_output: self.nes.silence_ultrasonic_triangle_output,
+                audio_resampler: self.nes.audio_resampler,
+                audio_refresh_rate_adjustment: self.nes.audio_60hz_hack,
+                allow_opposing_joypad_inputs: self.nes.allow_opposing_joypad_inputs,
+            },
+        })
+    }
+
+    fn snes_config(&self, path: PathBuf) -> Box<SnesConfig> {
+        Box::new(SnesConfig {
+            common: self.common_config(path),
+            inputs: self.input.snes.clone(),
+            emulator_config: SnesEmulatorConfig {
+                forced_timing_mode: self.snes.forced_timing_mode,
+                aspect_ratio: self.snes.aspect_ratio,
+                deinterlace: self.snes.deinterlace,
+                audio_interpolation: self.snes.audio_interpolation,
+                audio_60hz_hack: self.snes.audio_60hz_hack,
+                gsu_overclock_factor: self.snes.gsu_overclock_factor,
+            },
+            dsp1_rom_path: self.snes.dsp1_rom_path.clone(),
+            dsp2_rom_path: self.snes.dsp2_rom_path.clone(),
+            dsp3_rom_path: self.snes.dsp3_rom_path.clone(),
+            dsp4_rom_path: self.snes.dsp4_rom_path.clone(),
+            st010_rom_path: self.snes.st010_rom_path.clone(),
+            st011_rom_path: self.snes.st011_rom_path.clone(),
+        })
+    }
+
+    fn gb_config(&self, path: PathBuf) -> Box<GameBoyConfig> {
+        Box::new(GameBoyConfig {
+            common: self.common_config(path),
+            inputs: self.input.game_boy.clone(),
+            emulator_config: GameBoyEmulatorConfig {
+                force_dmg_mode: self.game_boy.force_dmg_mode,
+                pretend_to_be_gba: self.game_boy.pretend_to_be_gba,
+                aspect_ratio: self.game_boy.aspect_ratio,
+                gb_palette: self.game_boy.gb_palette,
+                gb_custom_palette: self.game_boy.gb_custom_palette,
+                gbc_color_correction: self.game_boy.gbc_color_correction,
+                audio_resampler: self.game_boy.audio_resampler,
+                audio_60hz_hack: self.game_boy.audio_60hz_hack,
+            },
+        })
+    }
 }

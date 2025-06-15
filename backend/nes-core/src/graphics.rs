@@ -2,10 +2,10 @@ mod debug;
 
 pub use debug::{PatternTable, copy_nametables, copy_oam, copy_palette_ram};
 
-use crate::api::Overscan;
 use crate::ppu;
 use crate::ppu::{ColorEmphasis, FrameBuffer};
 use jgenesis_common::frontend::{Color, TimingMode};
+use nes_config::Overscan;
 
 pub trait TimingModeGraphicsExt {
     fn visible_screen_height(self) -> u16;

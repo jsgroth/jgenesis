@@ -8,26 +8,28 @@ use crate::rf5c164::Rf5c164;
 use bincode::{Decode, Encode};
 use cdrom::CdRomError;
 use cdrom::reader::{CdRom, CdRomFileFormat};
-use genesis_core::input::{GenesisButton, InputState};
+use genesis_config::{GenesisButton, GenesisRegion, PcmInterpolation};
+use genesis_core::input::InputState;
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::timing::CycleCounters;
 use genesis_core::vdp::{Vdp, VdpTickEffect};
 use genesis_core::ym2612::Ym2612;
-use genesis_core::{GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
+use genesis_core::{GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, PartialClone, Renderer, SaveWriter,
     TickEffect, TimingMode,
 };
-use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, EnumFromStr};
+use jgenesis_proc_macros::ConfigDisplay;
 use m68000_emu::M68000;
-use smsgg_core::psg::{Sn76489, Sn76489TickEffect, Sn76489Version};
+use smsgg_config::Sn76489Version;
+use smsgg_core::psg::{Sn76489, Sn76489TickEffect};
 use std::fmt::{Debug, Display};
 use std::num::{NonZeroU16, NonZeroU64};
 use std::path::Path;
 use thiserror::Error;
 use z80_emu::Z80;
 
-pub const DEFAULT_SUB_CPU_DIVIDER: u64 = 4;
+pub const DEFAULT_SUB_CPU_DIVIDER: u64 = genesis_config::DEFAULT_SUB_CPU_DIVIDER;
 
 const NTSC_GENESIS_MASTER_CLOCK_RATE: u64 = 53_693_175;
 const PAL_GENESIS_MASTER_CLOCK_RATE: u64 = 53_203_424;
@@ -67,19 +69,6 @@ pub enum SegaCdError<RErr, AErr, SErr> {
 }
 
 pub type SegaCdResult<T, RErr, AErr, SErr> = Result<T, SegaCdError<RErr, AErr, SErr>>;
-
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr, EnumAll,
-)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum PcmInterpolation {
-    #[default]
-    None,
-    Linear,
-    CubicHermite,
-    CubicHermite6Point,
-}
 
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct SegaCdEmulatorConfig {

@@ -1,10 +1,11 @@
+use crate::config::GameBoyConfig;
 use crate::config::RomReadResult;
-use crate::config::{GameBoyConfig, WindowSize};
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{debug, file_name_no_ext, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorResult, extensions};
+use gb_config::GameBoyInputs;
 use gb_core::api::GameBoyEmulator;
-use gb_core::inputs::GameBoyInputs;
+use jgenesis_native_config::common::WindowSize;
 use std::path::Path;
 
 pub type NativeGameBoyEmulator = NativeEmulator<GameBoyEmulator>;

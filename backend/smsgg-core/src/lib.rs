@@ -6,20 +6,7 @@ mod memory;
 pub mod psg;
 mod vdp;
 
-pub use api::{
-    GgAspectRatio, SmsAspectRatio, SmsGgEmulator, SmsGgEmulatorConfig, SmsGgError, SmsGgHardware,
-    SmsGgRegion, SmsGgResult, SmsModel,
-};
-pub use input::{SmsGgButton, SmsGgInputs, SmsGgJoypadState};
+pub use api::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgError, SmsGgHardware, SmsGgResult};
 pub use vdp::{VdpVersion, gg_color_to_rgb, sms_color_to_rgb};
 
-// 8:7
-pub const SMS_NTSC_ASPECT_RATIO: f64 = 1.1428571428571428;
-
-// 11:8
-pub const SMS_PAL_ASPECT_RATIO: f64 = 1.375;
-
-// 6:5
-pub const GAME_GEAR_LCD_ASPECT_RATIO: f64 = 1.2;
-
-pub const NATIVE_Z80_DIVIDER: u32 = 15;
+pub const NATIVE_Z80_DIVIDER: u32 = smsgg_config::NATIVE_Z80_DIVIDER;

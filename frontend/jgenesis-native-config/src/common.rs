@@ -1,15 +1,208 @@
-use crate::AppConfig;
-use jgenesis_native_driver::config::{
-    CommonConfig, FullscreenMode, HideMouseCursor, SavePath, WindowSize,
-};
+use genesis_config::GenesisAspectRatio;
+use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::{EnumAll, EnumDisplay};
 use jgenesis_renderer::config::{
-    FilterMode, PreprocessShader, PrescaleFactor, PrescaleMode, RendererConfig, Scanlines,
-    VSyncMode, WgpuBackend,
+    FilterMode, PreprocessShader, PrescaleFactor, Scanlines, VSyncMode, WgpuBackend,
 };
+use nes_config::NesAspectRatio;
+use sdl2::video::FullscreenType;
 use serde::{Deserialize, Serialize};
+use smsgg_config::{GgAspectRatio, SmsAspectRatio};
+use snes_config::SnesAspectRatio;
+use std::fmt::{Display, Formatter};
 use std::num::{NonZeroU8, NonZeroU32};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+#[derive(Debug, Clone, Copy)]
+pub struct WindowSize {
+    pub width: u32,
+    pub height: u32,
+}
+
+impl WindowSize {
+    const SMS_HEIGHT: f64 = 192.0;
+    const SMS_WIDTH: f64 = 256.0;
+
+    const GG_HEIGHT: f64 = 144.0;
+    const GG_WIDTH: f64 = 160.0;
+
+    const GENESIS_HEIGHT: f64 = 224.0;
+    const GENESIS_WIDTH_H40: f64 = 320.0;
+
+    const NES_NTSC_HEIGHT: f64 = 224.0;
+    const NES_PAL_HEIGHT: f64 = 240.0;
+    const NES_WIDTH: f64 = 256.0;
+
+    const SNES_HEIGHT: f64 = 224.0;
+    const SNES_WIDTH: f64 = 256.0;
+
+    const GB_HEIGHT: f64 = 144.0;
+    const GB_WIDTH: f64 = 160.0;
+
+    #[must_use]
+    pub fn new(native_width: f64, native_height: f64, size: NonZeroU8) -> Self {
+        let size: f64 = size.get().into();
+
+        let width = (native_width * size).ceil() as u32;
+        let height = (native_height * size).ceil() as u32;
+        Self { width, height }
+    }
+
+    #[must_use]
+    pub fn new_sms(size: NonZeroU8, aspect_ratio: SmsAspectRatio) -> Self {
+        let pixel_aspect_ratio = aspect_ratio.to_pixel_aspect_ratio_f64().unwrap_or_else(|| {
+            SmsAspectRatio::default().to_pixel_aspect_ratio_f64().unwrap_or(1.0)
+        });
+        let width = Self::SMS_WIDTH * pixel_aspect_ratio;
+
+        Self::new(width, Self::SMS_HEIGHT, size)
+    }
+
+    #[must_use]
+    pub fn new_game_gear(size: NonZeroU8, aspect_ratio: GgAspectRatio) -> Self {
+        let pixel_aspect_ratio = aspect_ratio
+            .to_pixel_aspect_ratio_f64()
+            .unwrap_or_else(|| GgAspectRatio::default().to_pixel_aspect_ratio_f64().unwrap_or(1.0));
+        let width = Self::GG_WIDTH * pixel_aspect_ratio;
+
+        Self::new(width, Self::GG_HEIGHT, size)
+    }
+
+    #[must_use]
+    pub fn new_genesis(
+        size: NonZeroU8,
+        aspect_ratio: GenesisAspectRatio,
+        timing_mode: TimingMode,
+    ) -> Self {
+        Self::new(Self::genesis_width(aspect_ratio, timing_mode), Self::GENESIS_HEIGHT, size)
+    }
+
+    fn genesis_width(aspect_ratio: GenesisAspectRatio, timing_mode: TimingMode) -> f64 {
+        let h40_par = aspect_ratio.to_h40_pixel_aspect_ratio(timing_mode).unwrap_or_else(|| {
+            GenesisAspectRatio::default().to_h40_pixel_aspect_ratio(timing_mode).unwrap_or(1.0)
+        });
+        Self::GENESIS_WIDTH_H40 * h40_par
+    }
+
+    #[must_use]
+    pub fn new_32x(
+        size: NonZeroU8,
+        aspect_ratio: GenesisAspectRatio,
+        timing_mode: TimingMode,
+    ) -> Self {
+        // Make 32X window a little wider than Genesis by default so that the frame won't shrink if a
+        // game switches to H32 mode while the renderer has forced integer height scaling enabled
+        let width = Self::genesis_width(aspect_ratio, timing_mode) * 323.25 / 320.0;
+
+        Self::new(width, Self::GENESIS_HEIGHT, size)
+    }
+
+    #[must_use]
+    pub fn new_nes(
+        size: NonZeroU8,
+        aspect_ratio: NesAspectRatio,
+        timing_mode: TimingMode,
+        ntsc_crop_v_overscan: bool,
+    ) -> Self {
+        let pixel_aspect_ratio = aspect_ratio.to_pixel_aspect_ratio_f64().unwrap_or_else(|| {
+            NesAspectRatio::default().to_pixel_aspect_ratio_f64().unwrap_or(1.0)
+        });
+        let width = Self::NES_WIDTH * pixel_aspect_ratio;
+
+        let height = match timing_mode {
+            TimingMode::Ntsc if ntsc_crop_v_overscan => Self::NES_NTSC_HEIGHT,
+            _ => Self::NES_PAL_HEIGHT,
+        };
+
+        Self::new(width, height, size)
+    }
+
+    #[must_use]
+    pub fn new_snes(size: NonZeroU8, aspect_ratio: SnesAspectRatio) -> Self {
+        let pixel_aspect_ratio = aspect_ratio.to_pixel_aspect_ratio_f64().unwrap_or_else(|| {
+            SnesAspectRatio::default().to_pixel_aspect_ratio_f64().unwrap_or(1.0)
+        });
+        let width = Self::SNES_WIDTH * pixel_aspect_ratio;
+
+        Self::new(width, Self::SNES_HEIGHT, size)
+    }
+
+    #[must_use]
+    pub fn new_gb(size: NonZeroU8) -> Self {
+        // Only GB aspect ratio options are square pixels and stretched
+        Self::new(Self::GB_WIDTH, Self::GB_HEIGHT, size)
+    }
+
+    #[must_use]
+    pub fn scale(self, scale_factor: f32) -> Self {
+        Self {
+            width: (self.width as f32 * scale_factor).round() as u32,
+            height: (self.height as f32 * scale_factor).round() as u32,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum SavePath {
+    RomFolder,
+    EmulatorFolder,
+    Custom(PathBuf),
+}
+
+impl SavePath {
+    pub const SAVE_SUBDIR: &'static str = "saves";
+    pub const STATE_SUBDIR: &'static str = "states";
+}
+
+impl Display for SavePath {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RomFolder => write!(f, "ROM Folder"),
+            Self::EmulatorFolder => write!(f, "Emulator Folder"),
+            Self::Custom(path) => write!(f, "{}", path.display()),
+        }
+    }
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumAll,
+)]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum FullscreenMode {
+    #[default]
+    Borderless,
+    Exclusive,
+}
+
+impl FullscreenMode {
+    #[inline]
+    #[must_use]
+    pub fn to_sdl_fullscreen(self) -> FullscreenType {
+        match self {
+            Self::Borderless => FullscreenType::Desktop,
+            Self::Exclusive => FullscreenType::True,
+        }
+    }
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumAll,
+)]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum HideMouseCursor {
+    #[default]
+    Fullscreen,
+    Never,
+    Always,
+}
+
+impl HideMouseCursor {
+    #[inline]
+    #[must_use]
+    pub fn should_hide(self, fullscreen: bool) -> bool {
+        self == Self::Always || (fullscreen && self == Self::Fullscreen)
+    }
+}
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumAll,
@@ -84,6 +277,7 @@ pub struct CommonAppConfig {
 }
 
 impl CommonAppConfig {
+    #[inline]
     #[must_use]
     pub fn window_size(&self) -> Option<WindowSize> {
         match (self.window_width, self.window_height) {
@@ -146,56 +340,4 @@ fn default_fast_forward_multiplier() -> u64 {
 
 fn default_rewind_buffer_length() -> u64 {
     10
-}
-
-impl AppConfig {
-    #[must_use]
-    pub fn common_config(&self, path: PathBuf) -> CommonConfig {
-        CommonConfig {
-            rom_file_path: path,
-            mute_audio: self.common.mute_audio,
-            audio_output_frequency: self.common.audio_output_frequency,
-            audio_sync: self.common.audio_sync,
-            audio_dynamic_resampling_ratio: self.common.audio_dynamic_resampling_ratio,
-            audio_hardware_queue_size: self.common.audio_hardware_queue_size,
-            audio_buffer_size: self.common.audio_buffer_size,
-            audio_gain_db: self.common.audio_gain_db,
-            save_path: save_path(self.common.save_path, &self.common.custom_save_path),
-            state_path: save_path(self.common.state_path, &self.common.custom_state_path),
-            window_size: self.common.window_size(),
-            window_scale_factor: self.common.window_scale_factor,
-            renderer_config: RendererConfig {
-                wgpu_backend: self.common.wgpu_backend,
-                vsync_mode: self.common.vsync_mode,
-                frame_time_sync: self.common.frame_time_sync,
-                prescale_mode: if self.common.auto_prescale {
-                    PrescaleMode::Auto
-                } else {
-                    PrescaleMode::Manual(self.common.prescale_factor)
-                },
-                scanlines: self.common.scanlines,
-                force_integer_height_scaling: self.common.force_integer_height_scaling,
-                filter_mode: self.common.filter_mode,
-                preprocess_shader: self.common.preprocess_shader,
-                use_webgl2_limits: false,
-            },
-            fast_forward_multiplier: self.common.fast_forward_multiplier,
-            rewind_buffer_length_seconds: self.common.rewind_buffer_length_seconds,
-            load_recent_state_at_launch: self.common.load_recent_state_at_launch,
-            launch_in_fullscreen: self.common.launch_in_fullscreen,
-            fullscreen_mode: self.common.fullscreen_mode,
-            initial_window_size: self.common.initial_window_size,
-            axis_deadzone: self.input.axis_deadzone,
-            hotkey_config: self.input.hotkeys.clone(),
-            hide_mouse_cursor: self.common.hide_mouse_cursor,
-        }
-    }
-}
-
-fn save_path(path: ConfigSavePath, custom_path: &Path) -> SavePath {
-    match path {
-        ConfigSavePath::RomFolder => SavePath::RomFolder,
-        ConfigSavePath::EmulatorFolder => SavePath::EmulatorFolder,
-        ConfigSavePath::Custom => SavePath::Custom(custom_path.into()),
-    }
 }

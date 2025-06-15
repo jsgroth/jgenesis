@@ -2,6 +2,7 @@
 members = [
     "common/*",
     "cpu/*",
+    "config/*",
     "backend/*",
     "frontend/*",
 ]

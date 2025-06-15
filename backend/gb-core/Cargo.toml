@@ -5,21 +5,16 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[features]
-default = []
-clap = ["dep:clap"]
-serde = ["dep:serde"]
-
 [dependencies]
 dsp = { path = "../../common/dsp" }
 jgenesis-common = { path = "../../common/jgenesis-common" }
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 
+gb-config = { path = "../../config/gb-config" }
+
 bincode = { workspace = true, features = ["derive"] }
-clap = { workspace = true, optional = true }
 log = { workspace = true }
 rand = { workspace = true }
-serde = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 [lints]

@@ -14,6 +14,10 @@ segacd-core = { path = "../../backend/segacd-core" }
 smsgg-core = { path = "../../backend/smsgg-core" }
 snes-core = { path = "../../backend/snes-core" }
 
+genesis-config = { path = "../../config/genesis-config" }
+smsgg-config = { path = "../../config/smsgg-config" }
+snes-config = { path = "../../config/snes-config" }
+
 jgenesis-common = { path = "../../common/jgenesis-common" }
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 jgenesis-renderer = { path = "../jgenesis-renderer" }

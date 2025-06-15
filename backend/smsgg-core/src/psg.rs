@@ -2,7 +2,7 @@
 
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
-use jgenesis_proc_macros::{EnumAll, EnumDisplay};
+use smsgg_config::Sn76489Version;
 use std::{array, cmp};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -231,15 +231,6 @@ impl Register {
 pub enum Sn76489TickEffect {
     None,
     Clocked,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum Sn76489Version {
-    #[default]
-    MasterSystem2,
-    Standard,
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]

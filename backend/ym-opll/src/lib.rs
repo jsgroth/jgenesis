@@ -393,7 +393,7 @@ fn log_sine_lookup(phase: u32) -> (u16, Sign) {
     static LOOKUP_TABLE: LazyLock<[(u16, Sign); 1024]> = LazyLock::new(|| {
         let quarter_table: [u16; 256] = array::from_fn(|i| {
             let sine = ((i as f64 + 0.5) / 256.0 * std::f64::consts::PI / 2.0).sin();
-            (-1.0 * sine.log2() * 256.0).round() as u16
+            (-sine.log2() * 256.0).round() as u16
         });
 
         array::from_fn(|i| match i {

@@ -3,7 +3,7 @@ mod helptext;
 use crate::app::{App, OpenWindow};
 use crate::emuthread::EmuThreadStatus;
 use egui::{Context, Ui, Window};
-use gb_core::api::{GbAspectRatio, GbAudioResampler, GbPalette, GbcColorCorrection};
+use gb_config::{GbAspectRatio, GbAudioResampler, GbPalette, GbcColorCorrection};
 
 impl App {
     pub(super) fn render_gb_general_settings(&mut self, ctx: &Context) {

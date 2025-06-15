@@ -1,0 +1,20 @@
+[package]
+name = "gb-config"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+clap = ["dep:clap"]
+serde = ["dep:serde"]
+
+[dependencies]
+jgenesis-common = { path = "../../common/jgenesis-common" }
+jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
+
+bincode = { workspace = true, features = ["derive"] }
+clap = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+
+[lints]
+workspace = true

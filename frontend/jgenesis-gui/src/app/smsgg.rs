@@ -7,8 +7,7 @@ use egui::{Context, Window};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::extensions::Console;
 use rfd::FileDialog;
-use smsgg_core::psg::Sn76489Version;
-use smsgg_core::{GgAspectRatio, SmsAspectRatio, SmsGgRegion, SmsModel};
+use smsgg_config::{GgAspectRatio, SmsAspectRatio, SmsGgRegion, SmsModel, Sn76489Version};
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 

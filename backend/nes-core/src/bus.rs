@@ -35,15 +35,16 @@
 
 pub mod cartridge;
 
-use crate::api::{NesEmulatorConfig, Overscan};
+use crate::api::NesEmulatorConfig;
 use crate::bus::cartridge::Mapper;
 use crate::graphics::TimingModeGraphicsExt;
-use crate::input::{LatchedJoypadState, NesInputDevice, NesJoypadState, ZapperState};
+use crate::input::{LatchedJoypadState, NesInputDevice, NesJoypadStateExt, ZapperState};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::PartialClone;
 use mos6502_emu::bus::BusInterface;
+use nes_config::{NesJoypadState, Overscan};
 use std::array;
 
 pub const CPU_RAM_START: u16 = 0x0000;
@@ -1146,8 +1147,7 @@ pub(crate) fn cpu_open_bus(address: u16) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use crate::api::Overscan;
-    use crate::bus::{Bus, cartridge};
+    use super::*;
 
     #[test]
     fn randomized_ram_on_startup() {

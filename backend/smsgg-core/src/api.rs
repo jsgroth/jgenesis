@@ -4,16 +4,17 @@ use crate::audio::{AudioResampler, TimingModeExt};
 use crate::bus::Bus;
 use crate::input::InputState;
 use crate::memory::Memory;
-use crate::psg::{Sn76489, Sn76489TickEffect, Sn76489Version};
+use crate::psg::{Sn76489, Sn76489TickEffect};
 use crate::vdp::{Vdp, VdpBuffer, VdpTickEffect, ViewportSize};
-use crate::{SmsGgButton, SmsGgInputs, VdpVersion, vdp};
+use crate::{VdpVersion, vdp};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FrameSize, PartialClone,
     PixelAspectRatio, Renderer, SaveWriter, TickEffect, TimingMode,
 };
-use jgenesis_proc_macros::{
-    ConfigDisplay, EnumAll, EnumDisplay, EnumFromStr, FakeDecode, FakeEncode,
+use jgenesis_proc_macros::{ConfigDisplay, FakeDecode, FakeEncode};
+use smsgg_config::{
+    GgAspectRatio, SmsAspectRatio, SmsGgButton, SmsGgInputs, SmsGgRegion, SmsModel, Sn76489Version,
 };
 use std::fmt::{Debug, Display};
 use std::num::NonZeroU32;
@@ -67,84 +68,6 @@ impl DerefMut for FrameBuffer {
 pub enum SmsGgHardware {
     MasterSystem,
     GameGear,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum SmsModel {
-    #[default]
-    Sms1,
-    Sms2,
-}
-
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr, EnumAll,
-)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum SmsGgRegion {
-    #[default]
-    International,
-    Domestic,
-}
-
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr, EnumAll,
-)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum SmsAspectRatio {
-    #[default]
-    Ntsc,
-    Pal,
-    SquarePixels,
-    Stretched,
-}
-
-impl SmsAspectRatio {
-    #[inline]
-    #[must_use]
-    pub fn to_pixel_aspect_ratio_f64(self) -> Option<f64> {
-        match self {
-            Self::Ntsc => Some(crate::SMS_NTSC_ASPECT_RATIO),
-            Self::Pal => Some(crate::SMS_PAL_ASPECT_RATIO),
-            Self::SquarePixels => Some(PixelAspectRatio::SQUARE.into()),
-            Self::Stretched => None,
-        }
-    }
-
-    pub(crate) fn to_pixel_aspect_ratio(self) -> Option<PixelAspectRatio> {
-        self.to_pixel_aspect_ratio_f64().map(|par| PixelAspectRatio::try_from(par).unwrap())
-    }
-}
-
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr, EnumAll,
-)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum GgAspectRatio {
-    #[default]
-    GgLcd,
-    SquarePixels,
-    Stretched,
-}
-
-impl GgAspectRatio {
-    #[inline]
-    #[must_use]
-    pub fn to_pixel_aspect_ratio_f64(self) -> Option<f64> {
-        match self {
-            Self::GgLcd => Some(crate::GAME_GEAR_LCD_ASPECT_RATIO),
-            Self::SquarePixels => Some(PixelAspectRatio::SQUARE.into()),
-            Self::Stretched => None,
-        }
-    }
-
-    pub(crate) fn to_pixel_aspect_ratio(self) -> Option<PixelAspectRatio> {
-        self.to_pixel_aspect_ratio_f64().map(|par| PixelAspectRatio::try_from(par).unwrap())
-    }
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
@@ -551,25 +474,6 @@ fn populate_frame_buffer(
             };
 
             frame_buffer[i * screen_width + j] = Color::rgb(r, g, b);
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn all_sms_aspect_ratios_valid() {
-        for par in SmsAspectRatio::ALL {
-            let _ = par.to_pixel_aspect_ratio();
-        }
-    }
-
-    #[test]
-    fn all_gg_aspect_ratios_valid() {
-        for par in GgAspectRatio::ALL {
-            let _ = par.to_pixel_aspect_ratio();
         }
     }
 }
