@@ -131,7 +131,7 @@ pub fn config_display(input: TokenStream) -> TokenStream {
     let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
 
     let struct_ident = &input.ident;
-    let gen = quote! {
+    let expanded = quote! {
         impl #impl_generics ::std::fmt::Display for #struct_ident #type_generics #where_clause {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 ::std::writeln!(f)?;
@@ -140,5 +140,5 @@ pub fn config_display(input: TokenStream) -> TokenStream {
         }
     };
 
-    gen.into()
+    expanded.into()
 }

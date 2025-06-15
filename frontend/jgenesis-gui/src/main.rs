@@ -82,7 +82,11 @@ fn steam_deck_dpi_hack() {
         log::info!(
             "It looks like this is a Steam Deck; overriding winit scale factor to 1 as otherwise it will default to 4.5"
         );
-        std::env::set_var("WINIT_X11_SCALE_FACTOR", "1");
+
+        // SAFETY: This function is only called during initialization, before spawning any threads
+        unsafe {
+            std::env::set_var("WINIT_X11_SCALE_FACTOR", "1");
+        }
     }
 }
 

@@ -176,42 +176,48 @@ unsafe fn apply_fir_filter_avxfma<const N: usize>(
     use std::arch::x86_64::*;
     use std::mem::transmute;
 
-    debug_assert!(samples.len == N);
-    let samples = &samples.buffer[samples.idx..samples.idx + N];
+    unsafe {
+        debug_assert!(samples.len == N);
+        let samples = &samples.buffer[samples.idx..samples.idx + N];
 
-    // Sum all chunks of 4 samples using f64x4 vectors
-    let mut sumvec = _mm256_setzero_pd();
-    for i in (0..N & !3).step_by(4) {
-        let a = _mm256_loadu_pd(samples.as_ptr().add(i));
-        let b = _mm256_load_pd(coefficients.as_ptr().add(i));
-        sumvec = _mm256_fmadd_pd(a, b, sumvec);
+        // Sum all chunks of 4 samples using f64x4 vectors
+        let mut sumvec = _mm256_setzero_pd();
+        for i in (0..N & !3).step_by(4) {
+            let a = _mm256_loadu_pd(samples.as_ptr().add(i));
+            let b = _mm256_load_pd(coefficients.as_ptr().add(i));
+            sumvec = _mm256_fmadd_pd(a, b, sumvec);
+        }
+
+        // Manual loop unroll to add in the last chunk of 0-3 samples
+        // The match should be optimized out at compile time since N is a const generic
+        match N & 3 {
+            0 => {}
+            1 => {
+                let a = _mm256_set_pd(samples[N - 1], 0.0, 0.0, 0.0);
+                let b = _mm256_set_pd(coefficients[N - 1], 0.0, 0.0, 0.0);
+                sumvec = _mm256_fmadd_pd(a, b, sumvec);
+            }
+            2 => {
+                let a = _mm256_set_pd(samples[N - 2], samples[N - 1], 0.0, 0.0);
+                let b = _mm256_set_pd(coefficients[N - 2], coefficients[N - 1], 0.0, 0.0);
+                sumvec = _mm256_fmadd_pd(a, b, sumvec);
+            }
+            3 => {
+                let a = _mm256_set_pd(samples[N - 3], samples[N - 2], samples[N - 1], 0.0);
+                let b = _mm256_set_pd(
+                    coefficients[N - 3],
+                    coefficients[N - 2],
+                    coefficients[N - 1],
+                    0.0,
+                );
+                sumvec = _mm256_fmadd_pd(a, b, sumvec);
+            }
+            _ => unreachable!("value & 3 is always <= 3"),
+        }
+
+        let components: [f64; 4] = transmute(sumvec);
+        components.into_iter().sum()
     }
-
-    // Manual loop unroll to add in the last chunk of 0-3 samples
-    // The match should be optimized out at compile time since N is a const generic
-    match N & 3 {
-        0 => {}
-        1 => {
-            let a = _mm256_set_pd(samples[N - 1], 0.0, 0.0, 0.0);
-            let b = _mm256_set_pd(coefficients[N - 1], 0.0, 0.0, 0.0);
-            sumvec = _mm256_fmadd_pd(a, b, sumvec);
-        }
-        2 => {
-            let a = _mm256_set_pd(samples[N - 2], samples[N - 1], 0.0, 0.0);
-            let b = _mm256_set_pd(coefficients[N - 2], coefficients[N - 1], 0.0, 0.0);
-            sumvec = _mm256_fmadd_pd(a, b, sumvec);
-        }
-        3 => {
-            let a = _mm256_set_pd(samples[N - 3], samples[N - 2], samples[N - 1], 0.0);
-            let b =
-                _mm256_set_pd(coefficients[N - 3], coefficients[N - 2], coefficients[N - 1], 0.0);
-            sumvec = _mm256_fmadd_pd(a, b, sumvec);
-        }
-        _ => unreachable!("value & 3 is always <= 3"),
-    }
-
-    let components: [f64; 4] = transmute(sumvec);
-    components.into_iter().sum()
 }
 
 pub type MonoFirResampler<const LPF_TAPS: usize, Kernel> = FirResampler<1, LPF_TAPS, Kernel>;

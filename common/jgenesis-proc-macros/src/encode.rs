@@ -6,7 +6,7 @@ pub fn fake_encode(input: TokenStream) -> TokenStream {
     let input: DeriveInput = syn::parse(input).expect("Unable to parse input");
 
     let type_ident = &input.ident;
-    let gen = quote! {
+    let expanded = quote! {
         impl ::bincode::Encode for #type_ident {
             fn encode<E: ::bincode::enc::Encoder>(
                 &self,
@@ -17,14 +17,14 @@ pub fn fake_encode(input: TokenStream) -> TokenStream {
         }
     };
 
-    gen.into()
+    expanded.into()
 }
 
 pub fn fake_decode(input: TokenStream) -> TokenStream {
     let input: DeriveInput = syn::parse(input).expect("Unable to parse input");
 
     let type_ident = &input.ident;
-    let gen = quote! {
+    let expanded = quote! {
         impl<Context> ::bincode::Decode<Context> for #type_ident {
             fn decode<D: ::bincode::de::Decoder<Context = Context>>(
                 _decoder: &mut D
@@ -42,5 +42,5 @@ pub fn fake_decode(input: TokenStream) -> TokenStream {
         }
     };
 
-    gen.into()
+    expanded.into()
 }

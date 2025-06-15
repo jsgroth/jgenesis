@@ -18,7 +18,7 @@ pub fn partial_clone(input: TokenStream) -> TokenStream {
     }
     let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
 
-    let gen = quote! {
+    let expanded = quote! {
         impl #impl_generics ::jgenesis_common::frontend::PartialClone for #type_ident #type_generics #where_clause {
             fn partial_clone(&self) -> Self {
                 #body
@@ -26,7 +26,7 @@ pub fn partial_clone(input: TokenStream) -> TokenStream {
         }
     };
 
-    gen.into()
+    expanded.into()
 }
 
 fn partial_clone_struct_body(data: &DataStruct) -> proc_macro2::TokenStream {

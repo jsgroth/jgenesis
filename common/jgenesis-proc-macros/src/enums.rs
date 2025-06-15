@@ -25,7 +25,7 @@ pub fn enum_display(input: TokenStream) -> TokenStream {
         })
         .collect();
 
-    let gen = quote! {
+    let expanded = quote! {
         impl #name {
             pub fn to_str(&self) -> &'static str {
                 match self {
@@ -41,7 +41,7 @@ pub fn enum_display(input: TokenStream) -> TokenStream {
         }
     };
 
-    gen.into()
+    expanded.into()
 }
 
 pub fn enum_from_str(input: TokenStream) -> TokenStream {
@@ -68,7 +68,7 @@ pub fn enum_from_str(input: TokenStream) -> TokenStream {
         .collect();
 
     let err_fmt_string = format!("invalid {name} string: '{{}}'");
-    let gen = quote! {
+    let expanded = quote! {
         impl ::std::str::FromStr for #name {
             type Err = ::std::string::String;
 
@@ -81,7 +81,7 @@ pub fn enum_from_str(input: TokenStream) -> TokenStream {
         }
     };
 
-    gen.into()
+    expanded.into()
 }
 
 pub fn enum_all(input: TokenStream) -> TokenStream {
@@ -105,13 +105,13 @@ pub fn enum_all(input: TokenStream) -> TokenStream {
     }).collect();
 
     let num_variants = data.variants.len();
-    let gen = quote! {
+    let expanded = quote! {
         impl #type_ident {
             pub const ALL: [Self; #num_variants] = [#(#variant_constructors,)*];
         }
     };
 
-    gen.into()
+    expanded.into()
 }
 
 pub fn custom_value_enum(input: TokenStream) -> TokenStream {
@@ -119,7 +119,7 @@ pub fn custom_value_enum(input: TokenStream) -> TokenStream {
 
     let type_ident = &input.ident;
 
-    let gen = quote! {
+    let expanded = quote! {
         impl ::clap::ValueEnum for #type_ident {
             fn value_variants<'a>() -> &'a [Self] {
                 &Self::ALL
@@ -133,7 +133,7 @@ pub fn custom_value_enum(input: TokenStream) -> TokenStream {
         }
     };
 
-    gen.into()
+    expanded.into()
 }
 
 pub fn match_each_variant_macro(input: TokenStream) -> TokenStream {
@@ -182,7 +182,7 @@ pub fn match_each_variant_macro(input: TokenStream) -> TokenStream {
         })
         .collect();
 
-    let gen = quote! {
+    let expanded = quote! {
         macro_rules! match_each_variant {
             ($value:expr, $field:ident => $match_arm:expr) => {
                 match $value {
@@ -197,5 +197,5 @@ pub fn match_each_variant_macro(input: TokenStream) -> TokenStream {
         }
     };
 
-    gen.into()
+    expanded.into()
 }
