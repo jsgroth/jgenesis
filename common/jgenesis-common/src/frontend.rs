@@ -145,7 +145,7 @@ pub trait SaveWriter {
     /// # Errors
     ///
     /// Will propagate any errors encountered while reading the file or deserializing the data.
-    fn load_serialized<D: Decode>(&mut self, extension: &str) -> Result<D, Self::Err>;
+    fn load_serialized<D: Decode<()>>(&mut self, extension: &str) -> Result<D, Self::Err>;
 
     /// Write a serialized value using the given extension.
     ///
@@ -209,7 +209,7 @@ pub trait EmulatorConfigTrait: Clone {
     }
 }
 
-pub trait EmulatorTrait: Encode + Decode + PartialClone {
+pub trait EmulatorTrait: Encode + Decode<()> + PartialClone {
     type Button: Debug + Copy + Eq + Hash;
     type Inputs: Default + MappableInputs<Self::Button>;
     type Config: EmulatorConfigTrait;

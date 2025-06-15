@@ -48,16 +48,18 @@ impl<const LEN: usize> DerefMut for BoxedByteArray<LEN> {
     }
 }
 
-impl<const LEN: usize> Decode for BoxedByteArray<LEN> {
-    fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError> {
+impl<const LEN: usize, Context> Decode<Context> for BoxedByteArray<LEN> {
+    fn decode<D: Decoder<Context = Context>>(decoder: &mut D) -> Result<Self, DecodeError> {
         let mut array: Box<[u8; LEN]> = vec![0; LEN].into_boxed_slice().try_into().unwrap();
         decoder.reader().read(array.as_mut())?;
         Ok(Self(array))
     }
 }
 
-impl<'de, const LEN: usize> BorrowDecode<'de> for BoxedByteArray<LEN> {
-    fn borrow_decode<D: BorrowDecoder<'de>>(decoder: &mut D) -> Result<Self, DecodeError> {
+impl<'de, const LEN: usize, Context> BorrowDecode<'de, Context> for BoxedByteArray<LEN> {
+    fn borrow_decode<D: BorrowDecoder<'de, Context = Context>>(
+        decoder: &mut D,
+    ) -> Result<Self, DecodeError> {
         let mut array: Box<[u8; LEN]> = vec![0; LEN].into_boxed_slice().try_into().unwrap();
         decoder.reader().read(array.as_mut())?;
         Ok(Self(array))
@@ -101,8 +103,8 @@ impl<const LEN: usize> DerefMut for BoxedWordArray<LEN> {
     }
 }
 
-impl<const LEN: usize> Decode for BoxedWordArray<LEN> {
-    fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError> {
+impl<const LEN: usize, Context> Decode<Context> for BoxedWordArray<LEN> {
+    fn decode<D: Decoder<Context = Context>>(decoder: &mut D) -> Result<Self, DecodeError> {
         let mut array: Box<[u16; LEN]> = vec![0; LEN].into_boxed_slice().try_into().unwrap();
 
         for value in array.as_mut() {
@@ -113,8 +115,10 @@ impl<const LEN: usize> Decode for BoxedWordArray<LEN> {
     }
 }
 
-impl<'de, const LEN: usize> BorrowDecode<'de> for BoxedWordArray<LEN> {
-    fn borrow_decode<D: BorrowDecoder<'de>>(decoder: &mut D) -> Result<Self, DecodeError> {
+impl<'de, const LEN: usize, Context> BorrowDecode<'de, Context> for BoxedWordArray<LEN> {
+    fn borrow_decode<D: BorrowDecoder<'de, Context = Context>>(
+        decoder: &mut D,
+    ) -> Result<Self, DecodeError> {
         let mut array: Box<[u16; LEN]> = vec![0; LEN].into_boxed_slice().try_into().unwrap();
 
         for value in array.as_mut() {

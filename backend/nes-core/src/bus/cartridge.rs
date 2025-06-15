@@ -54,8 +54,8 @@ impl Encode for Cartridge {
     }
 }
 
-impl Decode for Cartridge {
-    fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError> {
+impl<Context> Decode<Context> for Cartridge {
+    fn decode<D: Decoder<Context = Context>>(decoder: &mut D) -> Result<Self, DecodeError> {
         let timing_mode = Decode::decode(decoder)?;
         let prg_ram = Decode::decode(decoder)?;
         let has_ram_battery = Decode::decode(decoder)?;
@@ -74,8 +74,10 @@ impl Decode for Cartridge {
     }
 }
 
-impl<'de> BorrowDecode<'de> for Cartridge {
-    fn borrow_decode<D: BorrowDecoder<'de>>(decoder: &mut D) -> Result<Self, DecodeError> {
+impl<'de, Context> BorrowDecode<'de, Context> for Cartridge {
+    fn borrow_decode<D: BorrowDecoder<'de, Context = Context>>(
+        decoder: &mut D,
+    ) -> Result<Self, DecodeError> {
         let timing_mode = BorrowDecode::borrow_decode(decoder)?;
         let prg_ram = BorrowDecode::borrow_decode(decoder)?;
         let has_ram_battery = BorrowDecode::borrow_decode(decoder)?;

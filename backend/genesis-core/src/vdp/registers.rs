@@ -591,7 +591,7 @@ impl Registers {
                 // Register #15: VRAM address auto increment
                 self.data_port_auto_increment = value.into();
 
-                log::trace!("  Data port auto increment: {:02X}", value);
+                log::trace!("  Data port auto increment: {value:02X}");
             }
             16 => {
                 // Register #16: Scroll size

@@ -25,16 +25,16 @@ pub fn fake_decode(input: TokenStream) -> TokenStream {
 
     let type_ident = &input.ident;
     let gen = quote! {
-        impl ::bincode::Decode for #type_ident {
-            fn decode<D: ::bincode::de::Decoder>(
+        impl<Context> ::bincode::Decode<Context> for #type_ident {
+            fn decode<D: ::bincode::de::Decoder<Context = Context>>(
                 _decoder: &mut D
             ) -> ::std::result::Result<Self, ::bincode::error::DecodeError> {
                 ::std::result::Result::Ok(Self::default())
             }
         }
 
-        impl<'de> ::bincode::BorrowDecode<'de> for #type_ident {
-            fn borrow_decode<D: ::bincode::de::BorrowDecoder<'de>>(
+        impl<'de, Context> ::bincode::BorrowDecode<'de, Context> for #type_ident {
+            fn borrow_decode<D: ::bincode::de::BorrowDecoder<'de, Context = Context>>(
                 _decoder: &mut D
             ) -> ::std::result::Result<Self, ::bincode::error::DecodeError> {
                 ::std::result::Result::Ok(Self::default())

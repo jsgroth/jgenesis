@@ -475,7 +475,7 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>, remove_sprite_li
     let dot = state.dot;
     let timing_mode = state.timing_mode;
 
-    log::trace!("Rendering at scanline {} dot {}", scanline, dot);
+    log::trace!("Rendering at scanline {scanline} dot {dot}");
 
     if state.pending_sprite_0_hit {
         // If sprite 0 hit triggered on the last cycle, set the flag in PPUSTATUS

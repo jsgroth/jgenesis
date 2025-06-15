@@ -841,15 +841,17 @@ impl Encode for VdpBuffer {
     }
 }
 
-impl Decode for VdpBuffer {
-    fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError> {
+impl<Context> Decode<Context> for VdpBuffer {
+    fn decode<D: Decoder<Context = Context>>(decoder: &mut D) -> Result<Self, DecodeError> {
         let viewport = ViewportSize::decode(decoder)?;
         Ok(Self { buffer: vec![0; FRAME_BUFFER_LEN], viewport })
     }
 }
 
-impl<'de> BorrowDecode<'de> for VdpBuffer {
-    fn borrow_decode<D: BorrowDecoder<'de>>(decoder: &mut D) -> Result<Self, DecodeError> {
+impl<'de, Context> BorrowDecode<'de, Context> for VdpBuffer {
+    fn borrow_decode<D: BorrowDecoder<'de, Context = Context>>(
+        decoder: &mut D,
+    ) -> Result<Self, DecodeError> {
         let viewport = ViewportSize::borrow_decode(decoder)?;
         Ok(Self { buffer: vec![0; FRAME_BUFFER_LEN], viewport })
     }

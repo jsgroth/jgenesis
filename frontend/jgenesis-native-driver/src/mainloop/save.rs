@@ -153,7 +153,7 @@ impl SaveWriter for FsSaveWriter {
         })
     }
 
-    fn load_serialized<D: Decode>(&mut self, extension: &str) -> Result<D, Self::Err> {
+    fn load_serialized<D: Decode<()>>(&mut self, extension: &str) -> Result<D, Self::Err> {
         self.read_file(extension, |mut reader, path| {
             bincode::decode_from_std_read(&mut reader, bincode_config!()).map_err(|source| {
                 SaveWriteError::Decode { path: path.display().to_string(), source }

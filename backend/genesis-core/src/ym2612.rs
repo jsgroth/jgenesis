@@ -513,8 +513,8 @@ impl Ym2612 {
                 let lfo_frequency = value & 0x07;
                 self.lfo.set_frequency(lfo_frequency);
 
-                log::trace!("LFO enabled: {}", lfo_enabled);
-                log::trace!("LFO frequency: {}", lfo_frequency);
+                log::trace!("LFO enabled: {lfo_enabled}");
+                log::trace!("LFO frequency: {lfo_frequency}");
             }
             0x24 => {
                 // Timer A interval bits 9-2

@@ -110,7 +110,7 @@ impl RtcTime {
             self.increment_minutes();
         }
 
-        log::trace!("Incremented seconds, new time: {:#?}", self);
+        log::trace!("Incremented seconds, new time: {self:#?}");
     }
 
     fn increment_minutes(&mut self) {
