@@ -769,8 +769,16 @@ impl Ppu {
         // Mode 7 tile map is always 128x128
         const TILE_MAP_SIZE_PIXELS: i32 = 128 * 8;
 
-        fn sign_extend_i10(value: i32) -> i32 {
-            (value << (32 - 10)) >> (32 - 10)
+        fn clip_i11(value: i32) -> i32 {
+            // This is intentionally not equivalent to `(value << (32 - 11)) >> (32 - 11)`
+            //
+            // Some games depend on using the magnitude from the lowest 10 bits but using the sign
+            // of the full i14 value instead of clipping to i11.
+            // e.g. Kaite Tsukutte Asoberu Dezaemon, title screen animation
+            // e.g. Tiny Toon Adventures: Wacky Sports Challenge, the birdman event
+            let magnitude = value & 0x03FF;
+            let sign = (value >> 31) & !0x03FF;
+            magnitude | sign
         }
 
         fn sign_extend_i13(value: u16) -> i32 {
@@ -817,12 +825,8 @@ impl Ppu {
             //   [ vram_y ]   [ m7c  m7d ]   [ screen_y + m7vofs - m7y ]   [ m7y ]
             // m7a/m7b/m7c/m7d are in 1/256 pixel units, so the multiplication result is also in
             // 1/256 pixel units, and m7x/m7y need to be converted for the addition
-
-            // Accurate clipping and truncating are important for some games
-            // e.g. Tiny Toon Adventures: Wacky Sports Challenge, the birdman event
-            // e.g. Kaite Tsukutte Asoberu Dezaemon, title screen animation
-            let scrolled_center_x = sign_extend_i10(h_scroll - m7x);
-            let scrolled_center_y = sign_extend_i10(v_scroll - m7y);
+            let scrolled_center_x = clip_i11(h_scroll - m7x);
+            let scrolled_center_y = clip_i11(v_scroll - m7y);
 
             let mut tile_map_x = truncate_intermediate(m7a * scrolled_center_x)
                 + m7a * screen_x
