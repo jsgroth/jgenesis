@@ -1,3 +1,8 @@
+# 0.10.1
+
+## Fixes
+* (**SNES**) Corrected implementation of how Mode 7 clips scrolled center point coordinates; this fixes missing background graphics on some screens in _Super Metroid_ (#426)
+
 # 0.10.0
 
 ## New Features
