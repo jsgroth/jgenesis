@@ -52,7 +52,8 @@ impl BusInterface for Bus<'_> {
                         | (u8::from(self.input.region() == SmsGgRegion::International) << 6)
                 }
                 0x01 => self.memory.gg_registers().ext_port,
-                0x02 | 0x04 | 0x06 => 0xFF,
+                0x02 => self.memory.gg_registers().parallel_port,
+                0x04 | 0x06 => 0xFF,
                 0x03 | 0x05 => 0x00,
                 _ => unreachable!("value is <= 0x06"),
             };
@@ -99,6 +100,7 @@ impl BusInterface for Bus<'_> {
         if self.version == VdpVersion::GameGear && address <= 0x06 {
             match address {
                 0x01 => self.memory.gg_registers().ext_port = value & 0x7F,
+                0x02 => self.memory.gg_registers().parallel_port = value,
                 0x06 => self.psg.write_stereo_control(value),
                 _ => {}
             }

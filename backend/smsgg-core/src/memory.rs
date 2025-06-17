@@ -3,6 +3,7 @@
 mod mappers;
 mod metadata;
 
+use crate::SmsGgHardware;
 use crate::memory::mappers::Mapper;
 use bincode::{Decode, Encode};
 use crc::Crc;
@@ -44,7 +45,7 @@ struct Cartridge {
 impl Cartridge {
     fn new(mut rom: Vec<u8>, initial_ram: Option<Vec<u8>>) -> Self {
         let mapper = Mapper::detect_from_rom(&rom);
-        log::info!("Detected mapper {mapper:?} from ROM header");
+        log::info!("Detected mapper {} from ROM header", mapper.name());
 
         let checksum = CRC.checksum(&rom);
         log::info!("ROM CRC32: {checksum:08X}");
@@ -104,12 +105,13 @@ impl MemoryControl {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct GameGearRegisters {
     pub ext_port: u8,
+    pub parallel_port: u8,
     // TODO emulate serial port registers
 }
 
 impl GameGearRegisters {
     fn new() -> Self {
-        Self { ext_port: 0x7F }
+        Self { ext_port: 0x7F, parallel_port: 0xFF }
     }
 }
 
@@ -123,6 +125,7 @@ pub struct Memory {
     memory_control: MemoryControl,
     audio_control: AudioControl,
     gg_registers: GameGearRegisters,
+    hardware: SmsGgHardware,
 }
 
 impl Memory {
@@ -130,6 +133,7 @@ impl Memory {
         rom: Vec<u8>,
         bios_rom: Option<Vec<u8>>,
         initial_cartridge_ram: Option<Vec<u8>>,
+        hardware: SmsGgHardware,
     ) -> Self {
         let memory_control = MemoryControl::new(bios_rom.as_ref());
 
@@ -149,26 +153,46 @@ impl Memory {
             memory_control,
             audio_control: AudioControl::default(),
             gg_registers: GameGearRegisters::new(),
+            hardware,
         }
     }
 
     pub fn read(&self, address: u16) -> u8 {
         match address {
             0x0000..=0xBFFF => {
-                if self.memory_control.cartridge_enabled {
-                    let cartridge_byte = self.cartridge.read(address);
-                    if self.memory_control.bios_enabled {
-                        // Cartridge and BIOS are both enabled; return logical AND of their bytes
-                        let bios_byte = self.read_bios(address);
-                        cartridge_byte & bios_byte
-                    } else {
-                        cartridge_byte
+                match self.hardware {
+                    SmsGgHardware::MasterSystem => {
+                        if self.memory_control.cartridge_enabled {
+                            let cartridge_byte = self.cartridge.read(address);
+                            if self.memory_control.bios_enabled {
+                                // Cartridge and BIOS are both enabled; return logical AND of their bytes
+                                let bios_byte = self.read_bios_sms(address);
+                                cartridge_byte & bios_byte
+                            } else {
+                                cartridge_byte
+                            }
+                        } else if self.memory_control.bios_enabled {
+                            self.read_bios_sms(address)
+                        } else {
+                            log::debug!(
+                                "Slot read ${address:04X} with neither cartridge nor BIOS enabled"
+                            );
+                            0xFF
+                        }
                     }
-                } else if self.memory_control.bios_enabled {
-                    self.read_bios(address)
-                } else {
-                    log::debug!("Slot read ${address:04X} with neither cartridge nor BIOS enabled");
-                    0xFF
+                    SmsGgHardware::GameGear => {
+                        // Cartridge is always enabled on Game Gear
+                        // BIOS is mapped to $0000-$03FF if enabled
+                        if self.memory_control.bios_enabled && address <= 0x03FF {
+                            self.bios_rom
+                                .as_ref()
+                                .and_then(|bios| bios.get(address as usize))
+                                .copied()
+                                .unwrap_or(0xFF)
+                        } else {
+                            self.cartridge.read(address)
+                        }
+                    }
                 }
             }
             0xC000..=0xFFFF => {
@@ -178,7 +202,7 @@ impl Memory {
         }
     }
 
-    fn read_bios(&self, address: u16) -> u8 {
+    fn read_bios_sms(&self, address: u16) -> u8 {
         let Some(bios_rom) = &self.bios_rom else {
             log::debug!("BIOS ROM read ${address:04X} with no BIOS");
             return 0xFF;
@@ -241,11 +265,13 @@ impl Memory {
         self.cartridge.rom = mem::take(&mut other.cartridge.rom);
     }
 
-    pub fn take_cartridge_rom_and_ram(&mut self) -> (Vec<u8>, Option<Vec<u8>>, Vec<u8>) {
-        let rom = mem::take(&mut self.cartridge.rom);
-        let bios_rom = mem::take(&mut self.bios_rom);
-        let ram = mem::take(&mut self.cartridge.ram);
-        (rom.0, bios_rom, ram)
+    pub fn reset(&mut self) {
+        *self = Self::new(
+            mem::take(&mut self.cartridge.rom.0),
+            mem::take(&mut self.bios_rom),
+            Some(mem::take(&mut self.cartridge.ram)),
+            self.hardware,
+        );
     }
 
     pub fn fm_enabled(&self) -> bool {

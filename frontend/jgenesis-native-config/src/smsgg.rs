@@ -30,9 +30,13 @@ pub struct SmsGgAppConfig {
     #[serde(default = "default_z80_divider")]
     pub z80_divider: NonZeroU32,
     #[serde(default)]
-    pub boot_from_bios: bool,
+    pub sms_boot_from_bios: bool,
     #[serde(default)]
-    pub bios_path: Option<PathBuf>,
+    pub gg_boot_from_bios: bool,
+    #[serde(default)]
+    pub sms_bios_path: Option<PathBuf>,
+    #[serde(default)]
+    pub gg_bios_path: Option<PathBuf>,
 }
 
 const fn true_fn() -> bool {

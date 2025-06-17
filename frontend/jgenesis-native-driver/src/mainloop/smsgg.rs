@@ -12,6 +12,46 @@ use std::path::{Path, PathBuf};
 
 pub type NativeSmsGgEmulator = NativeEmulator<SmsGgEmulator>;
 
+trait SmsGgHardwareExt: Sized + Copy {
+    fn bios_path(self, config: &SmsGgConfig) -> Option<&PathBuf>;
+
+    fn no_bios_error(self) -> NativeEmulatorError;
+
+    fn standard_extension(self) -> &'static str;
+
+    fn boot_from_bios(self, config: &SmsGgConfig) -> bool;
+}
+
+impl SmsGgHardwareExt for SmsGgHardware {
+    fn bios_path(self, config: &SmsGgConfig) -> Option<&PathBuf> {
+        match self {
+            Self::MasterSystem => config.sms_bios_path.as_ref(),
+            Self::GameGear => config.gg_bios_path.as_ref(),
+        }
+    }
+
+    fn no_bios_error(self) -> NativeEmulatorError {
+        match self {
+            Self::MasterSystem => NativeEmulatorError::SmsNoBios,
+            Self::GameGear => NativeEmulatorError::GgNoBios,
+        }
+    }
+
+    fn standard_extension(self) -> &'static str {
+        match self {
+            Self::MasterSystem => "sms",
+            Self::GameGear => "gg",
+        }
+    }
+
+    fn boot_from_bios(self, config: &SmsGgConfig) -> bool {
+        match self {
+            Self::MasterSystem => config.sms_boot_from_bios,
+            Self::GameGear => config.gg_boot_from_bios,
+        }
+    }
+}
+
 impl NativeSmsGgEmulator {
     /// # Errors
     ///
@@ -48,7 +88,7 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
     let hardware: SmsGgHardware;
     let rom_title: String;
 
-    let run_without_cartridge = config.boot_from_bios && config.run_without_cartridge;
+    let run_without_cartridge = config.run_without_cartridge;
     if !run_without_cartridge {
         let rom_path = Path::new(&config.common.rom_file_path);
 
@@ -65,13 +105,21 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
         save_path = determined_paths.save_path;
         save_state_path = determined_paths.save_state_path;
 
-        hardware = hardware_for_ext(&extension);
+        hardware = config.hardware.unwrap_or_else(|| hardware_for_ext(&extension));
         rom_title = file_name_no_ext(rom_path)?;
     } else {
-        let Some(bios_path) = &config.bios_path else { return Err(NativeEmulatorError::SmsNoBios) };
+        hardware = config.hardware.unwrap_or_else(|| {
+            log::error!(
+                "run_without_cartridge set without specifying hardware; this is probably a bug"
+            );
+            SmsGgHardware::MasterSystem
+        });
+
+        let bios_path = hardware.bios_path(&config);
+        let Some(bios_path) = bios_path else { return Err(hardware.no_bios_error()) };
 
         rom = None;
-        extension = "sms".into();
+        extension = hardware.standard_extension().into();
 
         let determined_paths = save::determine_save_paths(
             &config.common.save_path,
@@ -82,7 +130,6 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
         save_path = determined_paths.save_path;
         save_state_path = determined_paths.save_state_path;
 
-        hardware = SmsGgHardware::MasterSystem;
         rom_title = "(BIOS)".into();
     }
 
@@ -90,9 +137,11 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
 
     let window_title = format!("smsgg - {rom_title}");
 
-    let bios_rom = if config.boot_from_bios && hardware == SmsGgHardware::MasterSystem {
-        let Some(bios_path) = &config.bios_path else { return Err(NativeEmulatorError::SmsNoBios) };
-        Some(fs::read(bios_path).map_err(|source| NativeEmulatorError::SmsBiosRead {
+    let bios_rom = if hardware.boot_from_bios(&config) {
+        let Some(bios_path) = hardware.bios_path(&config) else {
+            return Err(hardware.no_bios_error());
+        };
+        Some(fs::read(bios_path).map_err(|source| NativeEmulatorError::SmsGgBiosRead {
             path: bios_path.clone(),
             source,
         })?)

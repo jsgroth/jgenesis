@@ -340,8 +340,10 @@ pub enum NativeEmulatorError {
     Archive(#[from] ArchiveError),
     #[error("No SMS BIOS provided")]
     SmsNoBios,
+    #[error("No Game Gear BIOS provided")]
+    GgNoBios,
     #[error("Error opening BIOS file at '{path}': {source}")]
-    SmsBiosRead {
+    SmsGgBiosRead {
         path: PathBuf,
         #[source]
         source: io::Error,

@@ -205,4 +205,11 @@ impl Mapper {
     pub fn write(&mut self, address: u16, value: u8, ram: &mut [u8], ram_dirty: &mut bool) {
         match_each_variant!(self, mapper => mapper.write(address, value, ram, ram_dirty));
     }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Sega(_) => "Sega",
+            Self::Codemasters(_) => "Codemasters",
+        }
+    }
 }

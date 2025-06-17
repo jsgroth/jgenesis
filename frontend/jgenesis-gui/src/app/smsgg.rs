@@ -99,21 +99,32 @@ impl App {
 
             ui.add_space(5.0);
             let rect = ui
-                .checkbox(&mut self.config.smsgg.boot_from_bios, "(SMS) Boot from BIOS ROM")
+                .checkbox(&mut self.config.smsgg.sms_boot_from_bios, "(SMS) Boot from BIOS ROM")
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::SMS_BIOS);
+                self.state.help_text.insert(WINDOW, helptext::BIOS);
             }
 
             let rect = ui
+                .checkbox(
+                    &mut self.config.smsgg.gg_boot_from_bios,
+                    "(Game Gear) Boot from BIOS ROM",
+                )
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::BIOS);
+            }
+
+            ui.add_space(5.0);
+            let rect = ui
                 .horizontal(|ui| {
-                    let button_label = match &self.config.smsgg.bios_path {
+                    let button_label = match &self.config.smsgg.sms_bios_path {
                         Some(bios_path) => bios_path.to_string_lossy(),
                         None => "<None>".into(),
                     };
                     if ui.button(button_label).clicked() {
-                        if let Some(bios_path) = pick_sms_bios_path() {
-                            self.config.smsgg.bios_path = Some(bios_path);
+                        if let Some(bios_path) = pick_bios_path("sms") {
+                            self.config.smsgg.sms_bios_path = Some(bios_path);
                         }
                     }
 
@@ -122,7 +133,27 @@ impl App {
                 .response
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::SMS_BIOS);
+                self.state.help_text.insert(WINDOW, helptext::BIOS);
+            }
+
+            let rect = ui
+                .horizontal(|ui| {
+                    let button_label = match &self.config.smsgg.gg_bios_path {
+                        Some(bios_path) => bios_path.to_string_lossy(),
+                        None => "<None>".into(),
+                    };
+                    if ui.button(button_label).clicked() {
+                        if let Some(bios_path) = pick_bios_path("gg") {
+                            self.config.smsgg.gg_bios_path = Some(bios_path);
+                        }
+                    }
+
+                    ui.label("Game Gear BIOS path");
+                })
+                .response
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::BIOS);
             }
 
             self.render_help_text(ui, WINDOW);
@@ -313,8 +344,8 @@ impl App {
             ui.horizontal(|ui| {
                 ui.label("Configure now:");
                 if ui.button("Configure SMS BIOS path").clicked() {
-                    if let Some(bios_path) = pick_sms_bios_path() {
-                        self.config.smsgg.bios_path = Some(bios_path);
+                    if let Some(bios_path) = pick_bios_path("sms") {
+                        self.config.smsgg.sms_bios_path = Some(bios_path);
                         path_configured = true;
                     }
                 }
@@ -326,8 +357,35 @@ impl App {
             self.launch_emulator(self.state.current_file_path.clone(), Some(Console::MasterSystem));
         }
     }
+
+    pub(super) fn render_gg_bios_error(&mut self, ctx: &Context, open: &mut bool) {
+        let mut path_configured = false;
+        Window::new("Missing Game Gear BIOS").open(open).resizable(false).show(ctx, |ui| {
+            ui.label("The boot from BIOS option is set but no Game Gear BIOS path is configured.");
+
+            ui.add_space(10.0);
+
+            ui.horizontal(|ui| {
+                ui.label("Configure now:");
+                if ui.button("Configure Game Gear BIOS path").clicked() {
+                    if let Some(bios_path) = pick_bios_path("gg") {
+                        self.config.smsgg.gg_bios_path = Some(bios_path);
+                        path_configured = true;
+                    }
+                }
+            });
+        });
+
+        if path_configured {
+            *open = false;
+            self.launch_emulator(self.state.current_file_path.clone(), Some(Console::GameGear));
+        }
+    }
 }
 
-fn pick_sms_bios_path() -> Option<PathBuf> {
-    FileDialog::new().add_filter("bin", &["sms", "bin"]).add_filter("All Files", &["*"]).pick_file()
+fn pick_bios_path(default_extension: &str) -> Option<PathBuf> {
+    FileDialog::new()
+        .add_filter("bin", &[default_extension, "bin"])
+        .add_filter("All Files", &["*"])
+        .pick_file()
 }

@@ -32,10 +32,10 @@ pub const Z80_OVERCLOCK: HelpText = HelpText {
     ],
 };
 
-pub const SMS_BIOS: HelpText = HelpText {
-    heading: "SMS BIOS",
+pub const BIOS: HelpText = HelpText {
+    heading: "BIOS",
     text: &[
-        "Boot into a Sega Master System BIOS at power-on.",
+        "Boot into a Sega Master System or Game Gear BIOS at power-on.",
         "If disabled, the emulator will boot directly into the game.",
     ],
 };

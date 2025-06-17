@@ -141,7 +141,7 @@ impl SmsGgEmulator {
         log::info!("PSG version: {psg_version:?}");
 
         let rom = rom.unwrap_or_else(|| vec![0xFF; 0x8000]);
-        let memory = Memory::new(rom, bios_rom, cartridge_ram);
+        let memory = Memory::new(rom, bios_rom, cartridge_ram, hardware);
         let vdp = Vdp::new(vdp_version, &config);
         let psg = Sn76489::new(psg_version);
         let input = InputState::new(config.region(&memory));
@@ -407,8 +407,7 @@ impl EmulatorTrait for SmsGgEmulator {
     fn hard_reset<S: SaveWriter>(&mut self, _save_writer: &mut S) {
         log::info!("Hard resetting console");
 
-        let (rom, bios_rom, ram) = self.memory.take_cartridge_rom_and_ram();
-        self.memory = Memory::new(rom, bios_rom, Some(ram));
+        self.memory.reset();
 
         self.z80 = Z80::new();
         init_z80(&mut self.z80);
@@ -420,6 +419,10 @@ impl EmulatorTrait for SmsGgEmulator {
         self.vdp_mclk_counter = 0;
         self.psg_mclk_counter = 0;
         self.frame_count = 0;
+    }
+
+    fn save_state_version() -> &'static str {
+        "0.10.1-0"
     }
 
     fn target_fps(&self) -> f64 {

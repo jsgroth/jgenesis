@@ -4,6 +4,7 @@ use crate::input::mappings::HotkeyConfig;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
+use std::path::PathBuf;
 use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,38 +90,42 @@ pub fn migrate_config(config: &AppConfig, config_str: &str) -> Option<AppConfig>
         migrate_config_0_8_4(&mut new_config);
     }
 
+    if old_version < SemVer::new(0, 10, 2) {
+        migrate_config_0_10_2(&mut new_config, config_str);
+    }
+
     new_config.config_version = Some(current_config_version().into());
 
     Some(new_config)
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct OldHotkeyMapping {
-    #[serde(default)]
-    pub quit: Option<Vec<GenericInput>>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct OldHotkeyConfig {
-    #[serde(default)]
-    pub mapping_1: OldHotkeyMapping,
-    #[serde(default)]
-    pub mapping_2: OldHotkeyMapping,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct OldInputConfig {
-    #[serde(default)]
-    pub hotkeys: OldHotkeyConfig,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct OldAppConfig {
-    #[serde(default)]
-    pub input: OldInputConfig,
-}
-
 fn migrate_config_0_8_3(config: &mut AppConfig, config_str: &str) {
+    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+    struct OldHotkeyMapping {
+        #[serde(default)]
+        pub quit: Option<Vec<GenericInput>>,
+    }
+
+    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+    struct OldHotkeyConfig {
+        #[serde(default)]
+        pub mapping_1: OldHotkeyMapping,
+        #[serde(default)]
+        pub mapping_2: OldHotkeyMapping,
+    }
+
+    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+    struct OldInputConfig {
+        #[serde(default)]
+        pub hotkeys: OldHotkeyConfig,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct OldAppConfig {
+        #[serde(default)]
+        pub input: OldInputConfig,
+    }
+
     // Quit hotkey renamed to PowerOff
     if let Ok(mut old_config) = toml::from_str::<OldAppConfig>(config_str) {
         if let Some(mapping) = old_config.input.hotkeys.mapping_1.quit.take() {
@@ -162,4 +167,44 @@ fn migrate_config_0_8_4(config: &mut AppConfig) {
     // New hotkey ToggleOverclocking
     config.input.hotkeys.mapping_1.toggle_overclocking =
         HotkeyConfig::default().mapping_1.toggle_overclocking;
+}
+
+fn migrate_config_0_10_2(config: &mut AppConfig, config_str: &str) {
+    // smsgg.bios_path -> smsgg.sms_bios_path
+    // smsgg.boot_from_bios -> smsgg.sms_boot_from_bios
+
+    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+    struct OldSmsGgConfig {
+        bios_path: Option<PathBuf>,
+        boot_from_bios: bool,
+    }
+
+    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+    struct OldAppConfig {
+        smsgg: OldSmsGgConfig,
+    }
+
+    let Ok(old_config) = toml::from_str::<OldAppConfig>(config_str) else { return };
+
+    config.smsgg.sms_bios_path = old_config.smsgg.bios_path;
+    config.smsgg.sms_boot_from_bios = old_config.smsgg.boot_from_bios;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn v0_10_2() {
+        const OLD_STR: &str = "
+[smsgg]
+boot_from_bios = true
+bios_path = \"/path/to/bios.sms\"
+";
+
+        let mut config = AppConfig::default();
+        migrate_config_0_10_2(&mut config, OLD_STR);
+        assert!(config.smsgg.sms_boot_from_bios);
+        assert_eq!(config.smsgg.sms_bios_path, Some("/path/to/bios.sms".into()));
+    }
 }

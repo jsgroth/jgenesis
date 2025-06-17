@@ -560,6 +560,7 @@ impl App {
             ui.menu_button("Open Using", |ui| {
                 for console in [
                     Console::MasterSystem,
+                    Console::GameGear,
                     Console::Genesis,
                     Console::SegaCd,
                     Console::Sega32X,
@@ -575,7 +576,11 @@ impl App {
 
             ui.menu_button("Run BIOS", |ui| {
                 for (label, console, has_bios) in [
-                    ("Master System", Console::MasterSystem, self.config.smsgg.bios_path.is_some()),
+                    (
+                        "Master System",
+                        Console::MasterSystem,
+                        self.config.smsgg.sms_bios_path.is_some(),
+                    ),
                     ("Sega CD", Console::SegaCd, self.config.sega_cd.bios_path.is_some()),
                 ] {
                     ui.add_enabled_ui(has_bios, |ui| {
@@ -609,12 +614,7 @@ impl App {
     }
 
     fn render_open_using_button(&mut self, console: Console, ui: &mut Ui) {
-        let label = match console {
-            Console::MasterSystem => "SMS / Game Gear",
-            _ => console.display_str(),
-        };
-
-        if ui.button(label).clicked() {
+        if ui.button(console.display_str()).clicked() {
             self.open_file(Some(console));
             ui.close_menu();
         }
@@ -1099,6 +1099,7 @@ impl App {
             let mut open = true;
             match err {
                 NativeEmulatorError::SmsNoBios => self.render_sms_bios_error(ctx, &mut open),
+                NativeEmulatorError::GgNoBios => self.render_gg_bios_error(ctx, &mut open),
                 NativeEmulatorError::SegaCdNoBios => self.render_scd_bios_error(ctx, &mut open),
                 NativeEmulatorError::SnesLoad(snes_load_err) => {
                     match self.render_snes_load_error(ctx, snes_load_err, &mut open) {

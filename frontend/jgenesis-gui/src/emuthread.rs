@@ -17,6 +17,7 @@ use sdl2::EventPump;
 use sdl2::event::Event;
 use sdl2::joystick::{HatState, Joystick};
 use segacd_core::api::SegaCdLoadResult;
+use smsgg_core::SmsGgHardware;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -320,9 +321,12 @@ impl GenericEmulator {
         path: PathBuf,
     ) -> NativeEmulatorResult<Self> {
         let emulator = match console {
-            Console::MasterSystem | Console::GameGear => Self::SmsGg(Box::new(
-                jgenesis_native_driver::create_smsgg(config.smsgg_config(path))?,
-            )),
+            Console::MasterSystem => Self::SmsGg(Box::new(jgenesis_native_driver::create_smsgg(
+                config.smsgg_config(path, Some(SmsGgHardware::MasterSystem)),
+            )?)),
+            Console::GameGear => Self::SmsGg(Box::new(jgenesis_native_driver::create_smsgg(
+                config.smsgg_config(path, Some(SmsGgHardware::GameGear)),
+            )?)),
             Console::Genesis => Self::Genesis(Box::new(jgenesis_native_driver::create_genesis(
                 config.genesis_config(path),
             )?)),
@@ -352,11 +356,20 @@ impl GenericEmulator {
     ) -> NativeEmulatorResult<Option<Self>> {
         let emulator = match console {
             Console::MasterSystem => {
-                let mut sms_config = config.smsgg_config(PathBuf::new());
-                sms_config.boot_from_bios = true;
+                let mut sms_config =
+                    config.smsgg_config(PathBuf::new(), Some(SmsGgHardware::MasterSystem));
+                sms_config.sms_boot_from_bios = true;
                 sms_config.run_without_cartridge = true;
 
                 Self::SmsGg(Box::new(jgenesis_native_driver::create_smsgg(sms_config)?))
+            }
+            Console::GameGear => {
+                let mut gg_config =
+                    config.smsgg_config(PathBuf::new(), Some(SmsGgHardware::GameGear));
+                gg_config.gg_boot_from_bios = true;
+                gg_config.run_without_cartridge = true;
+
+                Self::SmsGg(Box::new(jgenesis_native_driver::create_smsgg(gg_config)?))
             }
             Console::SegaCd => {
                 let mut scd_config = config.sega_cd_config(PathBuf::new());
@@ -372,7 +385,7 @@ impl GenericEmulator {
 
     fn reload_config(&mut self, config: Box<AppConfig>, path: PathBuf) -> Result<(), AudioError> {
         match self {
-            Self::SmsGg(emulator) => emulator.reload_smsgg_config(config.smsgg_config(path)),
+            Self::SmsGg(emulator) => emulator.reload_smsgg_config(config.smsgg_config(path, None)),
             Self::Genesis(emulator) => emulator.reload_genesis_config(config.genesis_config(path)),
             Self::SegaCd(emulator) => emulator.reload_sega_cd_config(config.sega_cd_config(path)),
             Self::Sega32X(emulator) => emulator.reload_32x_config(config.sega_32x_config(path)),

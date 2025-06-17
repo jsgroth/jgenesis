@@ -16,7 +16,7 @@ use jgenesis_renderer::config::{PrescaleMode, RendererConfig};
 use nes_core::api::NesEmulatorConfig;
 use s32x_core::api::Sega32XEmulatorConfig;
 use segacd_core::api::SegaCdEmulatorConfig;
-use smsgg_core::SmsGgEmulatorConfig;
+use smsgg_core::{SmsGgEmulatorConfig, SmsGgHardware};
 use snes_core::api::{CoprocessorRomFn, CoprocessorRoms, SnesEmulatorConfig};
 use std::fs;
 use std::num::NonZeroU8;
@@ -144,12 +144,17 @@ pub struct SmsGgConfig {
     pub common: CommonConfig,
     #[cfg_display(indent_nested)]
     pub inputs: SmsGgInputConfig,
+    #[cfg_display(debug_fmt)]
+    pub hardware: Option<SmsGgHardware>,
     #[cfg_display(indent_nested)]
     pub emulator_config: SmsGgEmulatorConfig,
-    pub boot_from_bios: bool,
+    pub sms_boot_from_bios: bool,
+    pub gg_boot_from_bios: bool,
     pub run_without_cartridge: bool,
     #[cfg_display(path)]
-    pub bios_path: Option<PathBuf>,
+    pub sms_bios_path: Option<PathBuf>,
+    #[cfg_display(path)]
+    pub gg_bios_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, ConfigDisplay)]
@@ -254,7 +259,7 @@ pub trait AppConfigExt {
     fn sega_32x_config(&self, path: PathBuf) -> Box<Sega32XConfig>;
 
     #[must_use]
-    fn smsgg_config(&self, path: PathBuf) -> Box<SmsGgConfig>;
+    fn smsgg_config(&self, path: PathBuf, hardware: Option<SmsGgHardware>) -> Box<SmsGgConfig>;
 
     #[must_use]
     fn nes_config(&self, path: PathBuf) -> Box<NesConfig>;
@@ -391,10 +396,11 @@ impl AppConfigExt for AppConfig {
         })
     }
 
-    fn smsgg_config(&self, path: PathBuf) -> Box<SmsGgConfig> {
+    fn smsgg_config(&self, path: PathBuf, hardware: Option<SmsGgHardware>) -> Box<SmsGgConfig> {
         Box::new(SmsGgConfig {
             common: self.common_config(path),
             inputs: self.input.smsgg.clone(),
+            hardware,
             emulator_config: SmsGgEmulatorConfig {
                 sms_timing_mode: self.smsgg.sms_timing_mode,
                 sms_model: self.smsgg.sms_model,
@@ -409,9 +415,11 @@ impl AppConfigExt for AppConfig {
                 fm_sound_unit_enabled: self.smsgg.fm_sound_unit_enabled,
                 z80_divider: self.smsgg.z80_divider,
             },
-            boot_from_bios: self.smsgg.boot_from_bios,
+            sms_boot_from_bios: self.smsgg.sms_boot_from_bios,
+            gg_boot_from_bios: self.smsgg.gg_boot_from_bios,
             run_without_cartridge: false,
-            bios_path: self.smsgg.bios_path.clone(),
+            sms_bios_path: self.smsgg.sms_bios_path.clone(),
+            gg_bios_path: self.smsgg.gg_bios_path.clone(),
         })
     }
 
