@@ -9,3 +9,6 @@
 /states
 
 /scripts/lpf.csv
+
+# SDL2 libraries needed for rust-sdl2
+/SDL2*
