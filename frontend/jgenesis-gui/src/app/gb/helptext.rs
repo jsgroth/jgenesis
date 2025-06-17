@@ -16,6 +16,14 @@ pub const PRETEND_GBA_MODE: HelpText = HelpText {
     ],
 };
 
+pub const BOOT_ROM: HelpText = HelpText {
+    heading: "Boot ROM",
+    text: &[
+        "Optionally boot from a boot ROM instead of booting directly into the game.",
+        "Boot ROMs are configured separately for DMG (Game Boy) and CGB (Game Boy Color).",
+    ],
+};
+
 pub const AUDIO_TIMING_HACK: HelpText = HelpText {
     heading: "Audio Timing Hack",
     text: &[

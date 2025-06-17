@@ -104,6 +104,8 @@ impl MemoryControl {
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct GameGearRegisters {
+    // The EXT and parallel communication ports are not actually emulated, but some things depend on
+    // them being R/W
     pub ext_port: u8,
     pub parallel_port: u8,
     // TODO emulate serial port registers

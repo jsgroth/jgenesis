@@ -1,5 +1,6 @@
 use gb_config::{GbAspectRatio, GbAudioResampler, GbPalette, GbcColorCorrection};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GameBoyAppConfig {
@@ -7,6 +8,14 @@ pub struct GameBoyAppConfig {
     pub force_dmg_mode: bool,
     #[serde(default)]
     pub pretend_to_be_gba: bool,
+    #[serde(default)]
+    pub dmg_boot_rom: bool,
+    #[serde(default)]
+    pub cgb_boot_rom: bool,
+    #[serde(default)]
+    pub dmg_boot_rom_path: Option<PathBuf>,
+    #[serde(default)]
+    pub cgb_boot_rom_path: Option<PathBuf>,
     #[serde(default)]
     pub aspect_ratio: GbAspectRatio,
     #[serde(default)]

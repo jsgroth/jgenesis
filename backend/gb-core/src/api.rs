@@ -32,6 +32,8 @@ pub enum GameBoyLoadError {
     InvalidSramByte(u8),
     #[error("ROM header contains unsupported mapper byte: ${0:02X}")]
     UnsupportedMapperByte(u8),
+    #[error("Incorrect boot ROM size; expected {expected} bytes, was {actual} bytes")]
+    InvalidBootRomSize { actual: usize, expected: usize },
 }
 
 #[derive(Debug, Error)]
@@ -66,6 +68,11 @@ pub enum BackgroundTileMap {
     One,
 }
 
+pub struct BootRoms {
+    pub dmg: Option<Vec<u8>>,
+    pub cgb: Option<Vec<u8>>,
+}
+
 #[derive(Debug, Clone, Encode, Decode, PartialClone)]
 pub struct GameBoyEmulator {
     hardware_mode: HardwareMode,
@@ -92,6 +99,7 @@ impl GameBoyEmulator {
     /// This function will return an error if it cannot load the ROM (e.g. unsupported mapper).
     pub fn create<S: SaveWriter>(
         mut rom: Vec<u8>,
+        boot_roms: BootRoms,
         config: GameBoyEmulatorConfig,
         save_writer: &mut S,
     ) -> Result<Self, GameBoyLoadError> {
@@ -101,7 +109,14 @@ impl GameBoyEmulator {
             (false, SoftwareType::CgbEnhanced | SoftwareType::CgbOnly) => HardwareMode::Cgb,
         };
 
-        let ppu = Ppu::new(hardware_mode, &rom);
+        let boot_rom = match hardware_mode {
+            HardwareMode::Dmg => boot_roms.dmg,
+            HardwareMode::Cgb => boot_roms.cgb,
+        };
+        let boot_rom_present = boot_rom.is_some();
+
+        let ppu = Ppu::new(hardware_mode, &rom, boot_rom_present);
+        let memory = Memory::new(boot_rom, hardware_mode)?;
 
         let initial_sram = save_writer.load_bytes("sav").ok();
 
@@ -112,10 +127,10 @@ impl GameBoyEmulator {
 
         Ok(Self {
             hardware_mode,
-            cpu: Sm83::new(hardware_mode, config.pretend_to_be_gba),
+            cpu: Sm83::new(hardware_mode, config.pretend_to_be_gba, boot_rom_present),
             ppu,
             apu: Apu::new(config, hardware_mode),
-            memory: Memory::new(hardware_mode),
+            memory,
             serial_port: SerialPort::new(hardware_mode),
             interrupt_registers: InterruptRegisters::default(),
             speed_register: SpeedRegister::new(),
@@ -270,8 +285,18 @@ impl EmulatorTrait for GameBoyEmulator {
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
         let rom = self.cartridge.take_rom();
 
-        *self = Self::create(rom, self.config, save_writer)
+        let boot_rom = self.memory.clone_boot_rom();
+        let boot_roms = match self.hardware_mode {
+            HardwareMode::Dmg => BootRoms { dmg: boot_rom, cgb: None },
+            HardwareMode::Cgb => BootRoms { dmg: None, cgb: boot_rom },
+        };
+
+        *self = Self::create(rom, boot_roms, self.config, save_writer)
             .expect("Hard reset should never fail to load cartridge");
+    }
+
+    fn save_state_version() -> &'static str {
+        "0.10.1-0"
     }
 
     fn target_fps(&self) -> f64 {

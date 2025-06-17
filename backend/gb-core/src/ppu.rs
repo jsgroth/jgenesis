@@ -215,16 +215,19 @@ macro_rules! cgb_only_write {
 }
 
 impl Ppu {
-    pub fn new(hardware_mode: HardwareMode, rom: &[u8]) -> Self {
+    pub fn new(hardware_mode: HardwareMode, rom: &[u8], boot_rom_present: bool) -> Self {
         let mut vram = vec![0; VRAM_LEN];
-        initialize_vram(hardware_mode, rom, &mut vram);
+
+        if !boot_rom_present {
+            initialize_vram(hardware_mode, rom, &mut vram);
+        }
 
         Self {
             hardware_mode,
             frame_buffer: PpuFrameBuffer::default(),
             vram: vram.into_boxed_slice().try_into().unwrap(),
             oam: vec![0; OAM_LEN].into_boxed_slice().try_into().unwrap(),
-            registers: Registers::new(),
+            registers: Registers::new(boot_rom_present),
             bg_palette_ram: CgbPaletteRam::new_bg(),
             sprite_palette_ram: CgbPaletteRam::new_obj(),
             state: State::new(),

@@ -1,6 +1,7 @@
 mod helptext;
 
-use crate::app::{App, OpenWindow};
+use crate::app::widgets::{BiosErrorStrings, OptionalPathSelector, RenderErrorEffect};
+use crate::app::{App, OpenWindow, widgets};
 use crate::emuthread::EmuThreadStatus;
 use crate::widgets::OverclockSlider;
 use egui::{Context, Window};
@@ -117,40 +118,22 @@ impl App {
 
             ui.add_space(5.0);
             let rect = ui
-                .horizontal(|ui| {
-                    let button_label = match &self.config.smsgg.sms_bios_path {
-                        Some(bios_path) => bios_path.to_string_lossy(),
-                        None => "<None>".into(),
-                    };
-                    if ui.button(button_label).clicked() {
-                        if let Some(bios_path) = pick_bios_path("sms") {
-                            self.config.smsgg.sms_bios_path = Some(bios_path);
-                        }
-                    }
-
-                    ui.label("SMS BIOS path");
-                })
-                .response
+                .add(OptionalPathSelector::new(
+                    "SMS BIOS Path",
+                    &mut self.config.smsgg.sms_bios_path,
+                    || pick_bios_path("sms"),
+                ))
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::BIOS);
             }
 
             let rect = ui
-                .horizontal(|ui| {
-                    let button_label = match &self.config.smsgg.gg_bios_path {
-                        Some(bios_path) => bios_path.to_string_lossy(),
-                        None => "<None>".into(),
-                    };
-                    if ui.button(button_label).clicked() {
-                        if let Some(bios_path) = pick_bios_path("gg") {
-                            self.config.smsgg.gg_bios_path = Some(bios_path);
-                        }
-                    }
-
-                    ui.label("Game Gear BIOS path");
-                })
-                .response
+                .add(OptionalPathSelector::new(
+                    "Game Gear BIOS Path",
+                    &mut self.config.smsgg.gg_bios_path,
+                    || pick_bios_path("gg"),
+                ))
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::BIOS);
@@ -334,52 +317,44 @@ impl App {
         }
     }
 
-    pub(super) fn render_sms_bios_error(&mut self, ctx: &Context, open: &mut bool) {
-        let mut path_configured = false;
-        Window::new("Missing SMS BIOS").open(open).resizable(false).show(ctx, |ui| {
-            ui.label("The boot from BIOS option is set but no SMS BIOS path is configured.");
-
-            ui.add_space(10.0);
-
-            ui.horizontal(|ui| {
-                ui.label("Configure now:");
-                if ui.button("Configure SMS BIOS path").clicked() {
-                    if let Some(bios_path) = pick_bios_path("sms") {
-                        self.config.smsgg.sms_bios_path = Some(bios_path);
-                        path_configured = true;
-                    }
-                }
-            });
-        });
-
-        if path_configured {
-            *open = false;
-            self.launch_emulator(self.state.current_file_path.clone(), Some(Console::MasterSystem));
-        }
+    #[must_use]
+    pub(super) fn render_sms_bios_error(
+        &mut self,
+        ctx: &Context,
+        open: &mut bool,
+    ) -> RenderErrorEffect {
+        widgets::render_bios_error(
+            ctx,
+            open,
+            BiosErrorStrings {
+                title: "Missing SMS BIOS",
+                text: "The boot from BIOS option is set but no SMS BIOS path is configured.",
+                button_label: "Configure SMS BIOS path",
+            },
+            &mut self.config.smsgg.sms_bios_path,
+            Console::MasterSystem,
+            || pick_bios_path("sms"),
+        )
     }
 
-    pub(super) fn render_gg_bios_error(&mut self, ctx: &Context, open: &mut bool) {
-        let mut path_configured = false;
-        Window::new("Missing Game Gear BIOS").open(open).resizable(false).show(ctx, |ui| {
-            ui.label("The boot from BIOS option is set but no Game Gear BIOS path is configured.");
-
-            ui.add_space(10.0);
-
-            ui.horizontal(|ui| {
-                ui.label("Configure now:");
-                if ui.button("Configure Game Gear BIOS path").clicked() {
-                    if let Some(bios_path) = pick_bios_path("gg") {
-                        self.config.smsgg.gg_bios_path = Some(bios_path);
-                        path_configured = true;
-                    }
-                }
-            });
-        });
-
-        if path_configured {
-            *open = false;
-            self.launch_emulator(self.state.current_file_path.clone(), Some(Console::GameGear));
-        }
+    #[must_use]
+    pub(super) fn render_gg_bios_error(
+        &mut self,
+        ctx: &Context,
+        open: &mut bool,
+    ) -> RenderErrorEffect {
+        widgets::render_bios_error(
+            ctx,
+            open,
+            BiosErrorStrings {
+                title: "Missing Game Gear BIOS",
+                text: "The boot from BIOS option is set but no Game Gear BIOS path is configured.",
+                button_label: "Configure Game Gear BIOS path",
+            },
+            &mut self.config.smsgg.gg_bios_path,
+            Console::GameGear,
+            || pick_bios_path("gg"),
+        )
     }
 }
 

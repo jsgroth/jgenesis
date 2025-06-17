@@ -1,6 +1,7 @@
 mod helptext;
 
-use crate::app::{App, NumericTextEdit, OpenWindow};
+use crate::app::widgets::NumericTextEdit;
+use crate::app::{App, OpenWindow};
 use crate::emuthread::EmuThreadStatus;
 use eframe::emath::Align;
 use eframe::epaint::Color32;

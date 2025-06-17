@@ -81,7 +81,10 @@ impl Bus<'_> {
             0x70 => cgb_only_read!(self.memory.read_svbk()),
             0x76 => cgb_only_read!(self.apu.read_pcm12()),
             0x77 => cgb_only_read!(self.apu.read_pcm34()),
-            _ => 0xFF,
+            _ => {
+                log::debug!("Unexpected I/O register read: {address:04X}");
+                0xFF
+            }
         }
     }
 
@@ -107,13 +110,16 @@ impl Bus<'_> {
             }
             0x46 => self.dma_unit.write_dma_register(value),
             0x4D => cgb_only_write!(self.speed_register.write_key1(value)),
+            0x50 => self.memory.write_bank(value),
             0x51 => cgb_only_write!(self.dma_unit.write_hdma1(value)),
             0x52 => cgb_only_write!(self.dma_unit.write_hdma2(value)),
             0x53 => cgb_only_write!(self.dma_unit.write_hdma3(value)),
             0x54 => cgb_only_write!(self.dma_unit.write_hdma4(value)),
             0x55 => cgb_only_write!(self.dma_unit.write_hdma5(value, self.ppu.mode())),
             0x70 => cgb_only_write!(self.memory.write_svbk(value)),
-            _ => {}
+            _ => {
+                log::debug!("Unexpected I/O register write: {address:04X} {value:02X}");
+            }
         }
     }
 
@@ -149,7 +155,10 @@ impl BusInterface for Bus<'_> {
         self.tick_components();
 
         match address {
-            0x0000..=0x7FFF => self.cartridge.read_rom(address),
+            0x0000..=0x7FFF => self
+                .memory
+                .try_read_boot_rom(address)
+                .unwrap_or_else(|| self.cartridge.read_rom(address)),
             0x8000..=0x9FFF => self.ppu.read_vram(address),
             0xA000..=0xBFFF => self.cartridge.read_ram(address),
             0xC000..=0xFDFF => self.memory.read_main_ram(address),

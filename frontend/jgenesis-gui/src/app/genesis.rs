@@ -1,6 +1,7 @@
 mod helptext;
 
-use crate::app::{App, Console, OpenWindow, render_vertical_scroll_area};
+use crate::app::widgets::{BiosErrorStrings, OptionalPathSelector, RenderErrorEffect};
+use crate::app::{App, Console, OpenWindow, widgets};
 use crate::emuthread::EmuThreadStatus;
 use crate::widgets::OverclockSlider;
 use egui::style::ScrollStyle;
@@ -87,27 +88,11 @@ impl App {
 
             ui.add_space(5.0);
             let rect = ui
-                .horizontal(|ui| {
-                    ui.add_enabled_ui(
-                        self.emu_thread.status() != EmuThreadStatus::RunningSegaCd,
-                        |ui| {
-                            let bios_path_str = self
-                                .config
-                                .sega_cd
-                                .bios_path
-                                .as_deref()
-                                .map_or("<None>".into(), |path| path.display().to_string());
-                            if ui.button(bios_path_str).clicked() {
-                                if let Some(bios_path) = pick_scd_bios_path() {
-                                    self.config.sega_cd.bios_path = Some(bios_path);
-                                }
-                            }
-
-                            ui.label("Sega CD BIOS path");
-                        },
-                    );
-                })
-                .response
+                .add(OptionalPathSelector::new(
+                    "Sega CD BIOS path",
+                    &mut self.config.sega_cd.bios_path,
+                    pick_scd_bios_path,
+                ))
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::SCD_BIOS_PATH);
@@ -377,7 +362,7 @@ impl App {
         Window::new("Genesis Audio Settings").open(&mut open).show(ctx, |ui| {
             ui.ctx().style_mut(|style| style.spacing.scroll = ScrollStyle::solid());
 
-            render_vertical_scroll_area(ui, |ui| {
+            widgets::render_vertical_scroll_area(ui, |ui| {
                 let rect = ui
                     .checkbox(
                         &mut self.config.genesis.quantize_ym2612_output,
@@ -637,28 +622,24 @@ impl App {
         }
     }
 
-    pub(super) fn render_scd_bios_error(&mut self, ctx: &Context, open: &mut bool) {
-        let mut path_configured = false;
-        Window::new("Missing Sega CD BIOS").open(open).resizable(false).show(ctx, |ui| {
-            ui.label("No Sega CD BIOS path is configured. A Sega CD BIOS ROM is required for Sega CD emulation.");
-
-            ui.add_space(10.0);
-
-            ui.horizontal(|ui| {
-                ui.label("Configure now:");
-                if ui.button("Configure Sega CD BIOS path").clicked() {
-                    if let Some(bios_path) = pick_scd_bios_path() {
-                        self.config.sega_cd.bios_path = Some(bios_path);
-                        path_configured = true;
-                    }
-                }
-            });
-        });
-
-        if path_configured {
-            *open = false;
-            self.launch_emulator(self.state.current_file_path.clone(), Some(Console::SegaCd));
-        }
+    #[must_use]
+    pub(super) fn render_scd_bios_error(
+        &mut self,
+        ctx: &Context,
+        open: &mut bool,
+    ) -> RenderErrorEffect {
+        widgets::render_bios_error(
+            ctx,
+            open,
+            BiosErrorStrings {
+                title: "Missing Sega CD BIOS",
+                text: "No Sega CD BIOS path is configured. A Sega CD BIOS ROM is required for Sega CD emulation.",
+                button_label: "Configure Sega CD BIOS path",
+            },
+            &mut self.config.sega_cd.bios_path,
+            Console::SegaCd,
+            pick_scd_bios_path,
+        )
     }
 }
 

@@ -243,6 +243,12 @@ pub struct GameBoyConfig {
     pub inputs: GameBoyInputConfig,
     #[cfg_display(indent_nested)]
     pub emulator_config: GameBoyEmulatorConfig,
+    pub dmg_boot_rom: bool,
+    pub cgb_boot_rom: bool,
+    #[cfg_display(path)]
+    pub dmg_boot_rom_path: Option<PathBuf>,
+    #[cfg_display(path)]
+    pub cgb_boot_rom_path: Option<PathBuf>,
 }
 
 pub trait AppConfigExt {
@@ -477,6 +483,10 @@ impl AppConfigExt for AppConfig {
                 audio_resampler: self.game_boy.audio_resampler,
                 audio_60hz_hack: self.game_boy.audio_60hz_hack,
             },
+            dmg_boot_rom: self.game_boy.dmg_boot_rom,
+            cgb_boot_rom: self.game_boy.cgb_boot_rom,
+            dmg_boot_rom_path: self.game_boy.dmg_boot_rom_path.clone(),
+            cgb_boot_rom_path: self.game_boy.cgb_boot_rom_path.clone(),
         })
     }
 }

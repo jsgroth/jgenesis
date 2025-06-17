@@ -1,4 +1,5 @@
-use crate::app::{App, NumericTextEdit, OpenWindow};
+use crate::app::widgets::NumericTextEdit;
+use crate::app::{App, OpenWindow};
 use crate::emuthread::EmuThreadCommand;
 use egui::{Button, Color32, ComboBox, Context, Grid, ScrollArea, Slider, Ui, Window};
 use gb_config::GameBoyButton;

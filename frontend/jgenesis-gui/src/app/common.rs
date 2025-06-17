@@ -1,6 +1,7 @@
 mod helptext;
 
-use crate::app::{App, NumericTextEdit, OpenWindow, render_vertical_scroll_area};
+use crate::app::widgets::NumericTextEdit;
+use crate::app::{App, OpenWindow, widgets};
 use eframe::epaint::Color32;
 use egui::{Context, Slider, Ui, Window};
 use jgenesis_native_config::common::FullscreenMode;
@@ -13,7 +14,7 @@ impl App {
 
         let mut open = true;
         Window::new("General Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            render_vertical_scroll_area(ui, |ui| {
+            widgets::render_vertical_scroll_area(ui, |ui| {
                 self.render_fullscreen_settings(ui, WINDOW);
                 self.render_window_size_setting(ui, WINDOW);
                 self.render_wgpu_backend_setting(ui, WINDOW);

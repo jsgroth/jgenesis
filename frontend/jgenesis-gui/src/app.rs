@@ -6,22 +6,21 @@ mod nes;
 mod romlist;
 mod smsgg;
 mod snes;
+mod widgets;
 
 use crate::app::input::{GenericButton, InputMappingSet};
 use crate::app::nes::OverscanState;
 use crate::app::romlist::{RomListThreadHandle, RomMetadata};
 use crate::app::snes::HandledError;
+use crate::app::widgets::RenderErrorEffect;
 use crate::emuthread;
 use crate::emuthread::{EmuThreadCommand, EmuThreadHandle, EmuThreadStatus};
 use crate::widgets::SavePathSelect;
 use eframe::Frame;
 use egui::panel::TopBottomSide;
-use egui::scroll_area::ScrollAreaOutput;
-use egui::style::ScrollStyle;
 use egui::{
     Align, Button, CentralPanel, Color32, Context, Grid, Key, KeyboardShortcut, Layout, Modifiers,
-    Response, ScrollArea, TextEdit, ThemePreference, TopBottomPanel, Ui, Vec2, ViewportCommand,
-    Widget, Window, menu,
+    TextEdit, ThemePreference, TopBottomPanel, Ui, Vec2, ViewportCommand, Widget, Window, menu,
 };
 use egui_extras::{Column, TableBuilder};
 use emath::Pos2;
@@ -34,7 +33,6 @@ use rfd::FileDialog;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{fs, thread};
@@ -198,54 +196,6 @@ fn should_display_scanlines_warning(config: &AppConfig) -> bool {
 
     config.common.scanlines != Scanlines::None
         && (prescale_odd || !config.common.force_integer_height_scaling)
-}
-
-struct NumericTextEdit<'a, T> {
-    text: &'a mut String,
-    value: &'a mut T,
-    invalid: &'a mut bool,
-    validation_fn: Box<dyn Fn(T) -> bool>,
-    desired_width: Option<f32>,
-}
-
-impl<'a, T> NumericTextEdit<'a, T> {
-    fn new(text: &'a mut String, value: &'a mut T, invalid: &'a mut bool) -> Self {
-        Self { text, value, invalid, validation_fn: Box::new(|_| true), desired_width: None }
-    }
-
-    fn with_validation(mut self, validation_fn: impl Fn(T) -> bool + 'static) -> Self {
-        self.validation_fn = Box::new(validation_fn);
-        self
-    }
-
-    fn desired_width(mut self, desired_width: f32) -> Self {
-        self.desired_width = Some(desired_width);
-        self
-    }
-}
-
-impl<T: Copy + FromStr> Widget for NumericTextEdit<'_, T> {
-    fn ui(self, ui: &mut Ui) -> Response {
-        let mut text_edit = TextEdit::singleline(self.text);
-        if let Some(desired_width) = self.desired_width {
-            text_edit = text_edit.desired_width(desired_width);
-        }
-
-        let response = text_edit.ui(ui);
-        if response.changed() {
-            match self.text.parse::<T>() {
-                Ok(value) if (self.validation_fn)(value) => {
-                    *self.value = value;
-                    *self.invalid = false;
-                }
-                _ => {
-                    *self.invalid = true;
-                }
-            }
-        }
-
-        response
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -1097,30 +1047,50 @@ impl App {
 
         if let Some(err) = error_lock.as_ref() {
             let mut open = true;
-            match err {
+            let render_effect = match err {
                 NativeEmulatorError::SmsNoBios => self.render_sms_bios_error(ctx, &mut open),
                 NativeEmulatorError::GgNoBios => self.render_gg_bios_error(ctx, &mut open),
                 NativeEmulatorError::SegaCdNoBios => self.render_scd_bios_error(ctx, &mut open),
+                NativeEmulatorError::GbNoDmgBootRom => {
+                    self.render_dmg_boot_rom_error(ctx, &mut open)
+                }
+                NativeEmulatorError::GbNoCgbBootRom => {
+                    self.render_cgb_boot_rom_error(ctx, &mut open)
+                }
                 NativeEmulatorError::SnesLoad(snes_load_err) => {
                     match self.render_snes_load_error(ctx, snes_load_err, &mut open) {
-                        HandledError::Yes => {}
+                        HandledError::Yes(effect) => effect,
                         HandledError::No => Self::render_generic_error_window(ctx, err, &mut open),
                     }
                 }
                 _ => Self::render_generic_error_window(ctx, err, &mut open),
+            };
+
+            match render_effect {
+                RenderErrorEffect::LaunchEmulator(console) => {
+                    self.launch_emulator(self.state.current_file_path.clone(), Some(console));
+                }
+                RenderErrorEffect::None => {}
             }
+
             if !open {
                 *error_lock = None;
             }
         }
     }
 
-    fn render_generic_error_window(ctx: &Context, err: &NativeEmulatorError, open: &mut bool) {
+    fn render_generic_error_window(
+        ctx: &Context,
+        err: &NativeEmulatorError,
+        open: &mut bool,
+    ) -> RenderErrorEffect {
         Window::new("Emulator Error").open(open).resizable(false).show(ctx, |ui| {
             ui.label("Emulator terminated with error:");
             ui.add_space(10.0);
             ui.colored_label(Color32::RED, err.to_string());
         });
+
+        RenderErrorEffect::None
     }
 
     fn check_waiting_for_input(&mut self, ctx: &Context) {
@@ -1302,26 +1272,6 @@ fn format_time_nanos(time_nanos: u128) -> Option<String> {
         format_description::parse_borrowed::<2>("[year]-[month]-[day] [hour]:[minute]:[second]")
             .unwrap();
     local_date_time.format(&format).ok()
-}
-
-fn render_vertical_scroll_area<R>(
-    ui: &mut Ui,
-    add_contents: impl FnOnce(&mut Ui) -> R,
-) -> ScrollAreaOutput<R> {
-    let screen_height = ui.input(|i| i.screen_rect.height());
-
-    let mut scroll_area = ScrollArea::vertical().auto_shrink([false, true]);
-
-    let max_scroll_height = screen_height - RESERVED_HELP_TEXT_HEIGHT - 75.0;
-    if max_scroll_height >= 100.0 {
-        scroll_area = scroll_area.max_height(max_scroll_height);
-    }
-
-    ui.scope(|ui| {
-        ui.style_mut().spacing.scroll = ScrollStyle::solid();
-        scroll_area.show(ui, add_contents)
-    })
-    .inner
 }
 
 #[cfg(test)]

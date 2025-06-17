@@ -1,6 +1,7 @@
 mod helptext;
 
-use crate::app::{App, Console, OpenWindow};
+use crate::app::widgets::{BiosErrorStrings, RenderErrorEffect};
+use crate::app::{App, Console, OpenWindow, widgets};
 use crate::emuthread::EmuThreadStatus;
 use egui::{Context, Grid, Ui, Window};
 use jgenesis_common::frontend::TimingMode;
@@ -14,7 +15,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HandledError {
     No,
-    Yes,
+    Yes(RenderErrorEffect),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -272,29 +273,23 @@ impl App {
         };
 
         let name = coprocessor_rom.name();
-        let mut configured_path = false;
-        Window::new(format!("Missing {name} ROM")).open(open).resizable(false).show(ctx, |ui| {
-            ui.label(format!("No {name} firmware ROM is configured. This is required to run games that use the {name} coprocessor."));
+        let path_field = coprocessor_rom.path_field(&mut self.config.snes);
+        let render_effect = widgets::render_bios_error(
+            ctx,
+            open,
+            BiosErrorStrings {
+                title: format!("Missing {name} ROM"),
+                text: format!(
+                    "No {name} firmware ROM is configured. This is required to run games that use the {name} coprocessor."
+                ),
+                button_label: format!("Configure {name} ROM path"),
+            },
+            path_field,
+            Console::Snes,
+            pick_coprocessor_rom_path,
+        );
 
-            ui.add_space(10.0);
-
-            ui.horizontal(|ui| {
-                ui.label("Configure now:");
-
-                if ui.button(format!("Configure {name} ROM path")).clicked() {
-                    let path_field = coprocessor_rom.path_field(&mut self.config.snes);
-                    pick_coprocessor_rom_path(path_field);
-                    configured_path = path_field.is_some();
-                }
-            });
-        });
-
-        if configured_path {
-            *open = false;
-            self.launch_emulator(self.state.current_file_path.clone(), Some(Console::Snes));
-        }
-
-        HandledError::Yes
+        HandledError::Yes(render_effect)
     }
 }
 
@@ -303,7 +298,9 @@ fn render_coprocessor_path_select(label: &str, value: &mut Option<PathBuf>, ui: 
         value.as_deref().map_or_else(|| "<None>".into(), |path| path.display().to_string());
 
     if ui.button(button_label).clicked() {
-        pick_coprocessor_rom_path(value);
+        if let Some(path) = pick_coprocessor_rom_path() {
+            *value = Some(path);
+        }
     }
 
     ui.label(label);
@@ -311,14 +308,6 @@ fn render_coprocessor_path_select(label: &str, value: &mut Option<PathBuf>, ui: 
     ui.end_row();
 }
 
-fn pick_coprocessor_rom_path(out_path: &mut Option<PathBuf>) {
-    let Some(path) = FileDialog::new()
-        .add_filter("bin", &["rom", "bin"])
-        .add_filter("All Types", &["*"])
-        .pick_file()
-    else {
-        return;
-    };
-
-    *out_path = Some(path);
+fn pick_coprocessor_rom_path() -> Option<PathBuf> {
+    FileDialog::new().add_filter("bin", &["rom", "bin"]).add_filter("All Types", &["*"]).pick_file()
 }

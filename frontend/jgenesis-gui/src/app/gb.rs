@@ -1,9 +1,13 @@
 mod helptext;
 
-use crate::app::{App, OpenWindow};
+use crate::app::widgets::{BiosErrorStrings, OptionalPathSelector, RenderErrorEffect};
+use crate::app::{App, OpenWindow, widgets};
 use crate::emuthread::EmuThreadStatus;
 use egui::{Context, Ui, Window};
 use gb_config::{GbAspectRatio, GbAudioResampler, GbPalette, GbcColorCorrection};
+use jgenesis_native_driver::extensions::Console;
+use rfd::FileDialog;
+use std::path::PathBuf;
 
 impl App {
     pub(super) fn render_gb_general_settings(&mut self, ctx: &Context) {
@@ -15,9 +19,18 @@ impl App {
             .open(&mut open)
             .resizable(false)
             .show(ctx, |ui| {
-                let is_running_gb = self.emu_thread.status() == EmuThreadStatus::RunningGameBoy;
+                let rect = ui
+                    .checkbox(
+                        &mut self.config.game_boy.pretend_to_be_gba,
+                        "Pretend to be a Game Boy Advance",
+                    )
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::PRETEND_GBA_MODE);
+                }
 
-                ui.add_enabled_ui(!is_running_gb, |ui| {
+                let running_gb = self.emu_thread.status() != EmuThreadStatus::RunningGameBoy;
+                ui.add_enabled_ui(running_gb, |ui| {
                     let rect = ui
                         .checkbox(
                             &mut self.config.game_boy.force_dmg_mode,
@@ -28,14 +41,50 @@ impl App {
                         self.state.help_text.insert(WINDOW, helptext::FORCE_DMG_MODE);
                     }
 
+                    ui.add_space(5.0);
+
                     let rect = ui
                         .checkbox(
-                            &mut self.config.game_boy.pretend_to_be_gba,
-                            "Pretend to be a Game Boy Advance",
+                            &mut self.config.game_boy.dmg_boot_rom,
+                            "Boot from boot ROM in DMG mode",
                         )
                         .interact_rect;
                     if ui.rect_contains_pointer(rect) {
-                        self.state.help_text.insert(WINDOW, helptext::PRETEND_GBA_MODE);
+                        self.state.help_text.insert(WINDOW, helptext::BOOT_ROM);
+                    }
+
+                    let rect = ui
+                        .checkbox(
+                            &mut self.config.game_boy.cgb_boot_rom,
+                            "Boot from boot ROM in CGB mode",
+                        )
+                        .interact_rect;
+                    if ui.rect_contains_pointer(rect) {
+                        self.state.help_text.insert(WINDOW, helptext::BOOT_ROM);
+                    }
+
+                    ui.add_space(5.0);
+
+                    let rect = ui
+                        .add(OptionalPathSelector::new(
+                            "DMG boot ROM",
+                            &mut self.config.game_boy.dmg_boot_rom_path,
+                            || pick_boot_rom_path("gb"),
+                        ))
+                        .interact_rect;
+                    if ui.rect_contains_pointer(rect) {
+                        self.state.help_text.insert(WINDOW, helptext::BOOT_ROM);
+                    }
+
+                    let rect = ui
+                        .add(OptionalPathSelector::new(
+                            "CGB boot ROM",
+                            &mut self.config.game_boy.cgb_boot_rom_path,
+                            || pick_boot_rom_path("gbc"),
+                        ))
+                        .interact_rect;
+                    if ui.rect_contains_pointer(rect) {
+                        self.state.help_text.insert(WINDOW, helptext::BOOT_ROM);
                     }
                 });
 
@@ -192,6 +241,46 @@ impl App {
             self.state.open_windows.remove(&WINDOW);
         }
     }
+
+    #[must_use]
+    pub(super) fn render_dmg_boot_rom_error(
+        &mut self,
+        ctx: &Context,
+        open: &mut bool,
+    ) -> RenderErrorEffect {
+        widgets::render_bios_error(
+            ctx,
+            open,
+            BiosErrorStrings {
+                title: "Missing DMG Boot ROM",
+                text: "The boot from boot ROM option is set but no DMG boot ROM is configured.",
+                button_label: "Configure DMG boot ROM",
+            },
+            &mut self.config.game_boy.dmg_boot_rom_path,
+            Console::GameBoy,
+            || pick_boot_rom_path("gb"),
+        )
+    }
+
+    #[must_use]
+    pub(super) fn render_cgb_boot_rom_error(
+        &mut self,
+        ctx: &Context,
+        open: &mut bool,
+    ) -> RenderErrorEffect {
+        widgets::render_bios_error(
+            ctx,
+            open,
+            BiosErrorStrings {
+                title: "Missing CGB Boot ROM",
+                text: "The boot from boot ROM option is set but no CGB boot ROM is configured.",
+                button_label: "Configure CGB boot ROM",
+            },
+            &mut self.config.game_boy.cgb_boot_rom_path,
+            Console::GameBoyColor,
+            || pick_boot_rom_path("gbc"),
+        )
+    }
 }
 
 fn render_custom_palette_widget(custom_palette: &mut [(u8, u8, u8); 4], ui: &mut Ui) {
@@ -213,4 +302,11 @@ fn render_custom_palette_widget(custom_palette: &mut [(u8, u8, u8); 4], ui: &mut
     if ui.button("Default custom palette").clicked() {
         *custom_palette = jgenesis_native_config::gb::default_gb_custom_palette();
     }
+}
+
+fn pick_boot_rom_path(default_extension: &str) -> Option<PathBuf> {
+    FileDialog::new()
+        .add_filter("Boot ROM", &[default_extension, "bin"])
+        .add_filter("All Files", &["*"])
+        .pick_file()
 }

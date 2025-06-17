@@ -362,6 +362,12 @@ pub enum NativeEmulatorError {
     NesLoad(#[from] NesInitializationError),
     #[error("{0}")]
     SnesLoad(#[from] SnesLoadError),
+    #[error("No Game Boy boot ROM provided")]
+    GbNoDmgBootRom,
+    #[error("No Game Boy Color boot ROM provided")]
+    GbNoCgbBootRom,
+    #[error("Failed to load boot ROM: {0}")]
+    GbBootRomLoad(io::Error),
     #[error("{0}")]
     GameBoyLoad(#[from] GameBoyLoadError),
     #[error("I/O error opening save state file '{path}': {source}")]

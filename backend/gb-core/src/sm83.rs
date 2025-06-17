@@ -75,11 +75,14 @@ macro_rules! impl_increment_register_pair {
     };
 }
 
-const ENTRY_POINT: u16 = 0x0100;
+const BOOT_ROM_ENTRY_POINT: u16 = 0x0000;
+const CARTRIDGE_ENTRY_POINT: u16 = 0x0100;
 const HRAM_END: u16 = 0xFFFE;
 
 impl Registers {
-    fn new(hardware_mode: HardwareMode, pretend_to_be_gba: bool) -> Self {
+    fn new(hardware_mode: HardwareMode, boot_rom_present: bool) -> Self {
+        let pc = if boot_rom_present { BOOT_ROM_ENTRY_POINT } else { CARTRIDGE_ENTRY_POINT };
+
         // Values from https://gbdev.io/pandocs/Power_Up_Sequence.html
         // Most important is that DMG sets A=$01 and CGB sets A=$11
         match hardware_mode {
@@ -93,21 +96,20 @@ impl Registers {
                 h: 0x01,
                 l: 0x4D,
                 sp: HRAM_END,
-                pc: ENTRY_POINT,
+                pc,
                 ime: false,
             },
             HardwareMode::Cgb => Self {
                 a: 0x11,
                 f: Flags { zero: true, subtract: false, half_carry: false, carry: false },
-                // GBA sets B bit 0 at boot ($01), GBC does not ($00)
-                b: pretend_to_be_gba.into(),
+                b: 0x00,
                 c: 0x00,
                 d: 0xFF,
                 e: 0x56,
                 h: 0x00,
                 l: 0x0D,
                 sp: HRAM_END,
-                pc: ENTRY_POINT,
+                pc,
                 ime: false,
             },
         }
@@ -160,16 +162,21 @@ struct State {
     halted: bool,
     halt_bug_triggered: bool,
     executed_invalid_opcode: bool,
+    // Used to ensure that "pretend to be GBA" flag works correctly when booting from boot ROM
+    pending_b_override: Option<u8>,
 }
 
 impl State {
-    fn new() -> Self {
+    fn new(hardware_mode: HardwareMode, pretend_to_be_gba: bool) -> Self {
         Self {
             pending_ime_set: false,
             handling_interrupt: false,
             halted: false,
             halt_bug_triggered: false,
             executed_invalid_opcode: false,
+            // Some GBC games detect GBA by checking that B == $01 at game boot
+            pending_b_override: (hardware_mode == HardwareMode::Cgb && pretend_to_be_gba)
+                .then_some(0x01),
         }
     }
 }
@@ -232,8 +239,15 @@ pub struct Sm83 {
 }
 
 impl Sm83 {
-    pub fn new(hardware_mode: HardwareMode, pretend_to_be_gba: bool) -> Self {
-        Self { registers: Registers::new(hardware_mode, pretend_to_be_gba), state: State::new() }
+    pub fn new(
+        hardware_mode: HardwareMode,
+        pretend_to_be_gba: bool,
+        boot_rom_present: bool,
+    ) -> Self {
+        Self {
+            registers: Registers::new(hardware_mode, boot_rom_present),
+            state: State::new(hardware_mode, pretend_to_be_gba),
+        }
     }
 
     pub fn execute_instruction<B: BusInterface>(&mut self, bus: &mut B) {
@@ -268,6 +282,13 @@ impl Sm83 {
         if self.state.pending_ime_set {
             self.registers.ime = true;
             self.state.pending_ime_set = false;
+        }
+
+        if let Some(b_override) = self.state.pending_b_override {
+            if self.registers.pc == CARTRIDGE_ENTRY_POINT {
+                self.registers.b = b_override;
+                self.state.pending_b_override = None;
+            }
         }
 
         let opcode = self.fetch_operand(bus);

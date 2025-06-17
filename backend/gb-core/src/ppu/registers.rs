@@ -84,9 +84,9 @@ pub struct Registers {
 }
 
 impl Registers {
-    pub fn new() -> Self {
+    pub fn new(boot_rom_present: bool) -> Self {
         Self {
-            ppu_enabled: true,
+            ppu_enabled: !boot_rom_present,
             bg_enabled: true,
             window_enabled: false,
             sprites_enabled: false,

@@ -2,11 +2,12 @@ use crate::config::GameBoyConfig;
 use crate::config::RomReadResult;
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{debug, file_name_no_ext, save};
-use crate::{AudioError, NativeEmulator, NativeEmulatorResult, extensions};
+use crate::{AudioError, NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
 use gb_config::GameBoyInputs;
-use gb_core::api::GameBoyEmulator;
+use gb_core::api::{BootRoms, GameBoyEmulator};
 use jgenesis_native_config::common::WindowSize;
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 pub type NativeGameBoyEmulator = NativeEmulator<GameBoyEmulator>;
 
@@ -42,6 +43,18 @@ pub fn create_gb(config: Box<GameBoyConfig>) -> NativeEmulatorResult<NativeGameB
     let rom_path = Path::new(&config.common.rom_file_path);
     let RomReadResult { rom, extension } = config.common.read_rom_file(&extensions::GB_GBC)?;
 
+    let dmg_boot_rom = load_boot_rom(
+        config.dmg_boot_rom,
+        config.dmg_boot_rom_path.as_ref(),
+        NativeEmulatorError::GbNoDmgBootRom,
+    )?;
+    let cgb_boot_rom = load_boot_rom(
+        config.cgb_boot_rom,
+        config.cgb_boot_rom_path.as_ref(),
+        NativeEmulatorError::GbNoCgbBootRom,
+    )?;
+    let boot_roms = BootRoms { dmg: dmg_boot_rom, cgb: cgb_boot_rom };
+
     let DeterminedPaths { save_path, save_state_path } = save::determine_save_paths(
         &config.common.save_path,
         &config.common.state_path,
@@ -52,7 +65,7 @@ pub fn create_gb(config: Box<GameBoyConfig>) -> NativeEmulatorResult<NativeGameB
     let mut save_writer = FsSaveWriter::new(save_path);
 
     let emulator_config = config.emulator_config;
-    let emulator = GameBoyEmulator::create(rom, emulator_config, &mut save_writer)?;
+    let emulator = GameBoyEmulator::create(rom, boot_roms, emulator_config, &mut save_writer)?;
 
     let rom_title = file_name_no_ext(&config.common.rom_file_path)?;
     let window_title = format!("gb - {rom_title}");
@@ -72,4 +85,19 @@ pub fn create_gb(config: Box<GameBoyConfig>) -> NativeEmulatorResult<NativeGameB
         GameBoyInputs::default(),
         debug::gb::render_fn,
     )
+}
+
+fn load_boot_rom(
+    load: bool,
+    path: Option<&PathBuf>,
+    no_boot_rom_err: NativeEmulatorError,
+) -> NativeEmulatorResult<Option<Vec<u8>>> {
+    if !load {
+        return Ok(None);
+    }
+
+    let Some(path) = path else { return Err(no_boot_rom_err) };
+
+    let boot_rom = fs::read(path).map_err(NativeEmulatorError::GbBootRomLoad)?;
+    Ok(Some(boot_rom))
 }
