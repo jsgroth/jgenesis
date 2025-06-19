@@ -47,6 +47,15 @@ macro_rules! cpu_op_bus {
     }
 }
 
+fn nop(_cpu: &mut Sh2, _opcode: u16, _bus: &mut dyn BusInterface) {}
+
+fn sleep(cpu: &mut Sh2, _opcode: u16, _bus: &mut dyn BusInterface) {
+    // In actual hardware, SLEEP causes the CPU to enter a low-power state.
+    // Since nothing uses SLEEP except for a handful of demos, use a simpler implementation that
+    // is inefficient but doesn't require checking whether the CPU is sleeping after every instruction
+    cpu.registers.pc = cpu.registers.pc.wrapping_sub(2);
+}
+
 fn illegal_opcode(cpu: &mut Sh2, opcode: u16, _bus: &mut dyn BusInterface) {
     todo!("[{}] illegal (?) SH-2 opcode {opcode:04X}, PC={:08X}", cpu.name, cpu.registers.pc)
 }
@@ -159,11 +168,10 @@ fn decode_inner(opcode: u16) -> OpcodeFn {
             0b0000_0000_0000_1011 => cpu!(branch::rts),
             0b0000_0000_0000_1000 => cpu!(load::clrt),
             0b0000_0000_0010_1000 => cpu!(load::clrmac),
-            // NOP
-            0b0000_0000_0000_1001 => |_, _, _| {},
+            0b0000_0000_0000_1001 => nop,
             0b0000_0000_0010_1011 => |cpu, _, bus| branch::rte(cpu, bus),
             0b0000_0000_0001_1000 => cpu!(load::sett),
-            0b0000_0000_0001_1011 => |_, _, _| todo!("SLEEP"),
+            0b0000_0000_0001_1011 => sleep,
             _ => match opcode & 0b1111_0000_0000_0000 {
                 0b1110_0000_0000_0000 => cpu_op!(load::mov_b_immediate_rn),
                 0b1001_0000_0000_0000 => cpu_op_bus!(load::mov_w_immediate_rn),
