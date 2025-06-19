@@ -61,6 +61,7 @@ impl GenesisRegionExt for GenesisRegion {
             0xFA537A45, // Winter Olympics (Europe)
             0xDACA01C3, // World Class Leader Board (Europe)
             0xC0DCE0E5, // Midway Presents Arcade's Greatest Hits (Europe)
+            0x4C926BF6, // Nuance Xmas-Intro 2024
         ];
 
         if DEFAULT_EUROPE_CHECKSUMS.contains(&CRC.checksum(rom)) {
