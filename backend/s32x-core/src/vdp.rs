@@ -127,6 +127,9 @@ pub struct Vdp {
     h32_frame_buffer: H32FrameBuffer,
     cram: Box<Cram>,
     registers: Registers,
+    // Per documentation, the VDP latches registers for rendering once per line beginning shortly
+    // after the start of HBlank
+    latched: Registers,
     state: State,
     timing_mode: TimingMode,
     video_out: S32XVideoOut,
@@ -168,6 +171,7 @@ impl Vdp {
             h32_frame_buffer: H32FrameBuffer::default(),
             cram: vec![0; CRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             registers: Registers::default(),
+            latched: Registers::default(),
             state: State::new(),
             timing_mode,
             video_out,
@@ -186,18 +190,13 @@ impl Vdp {
         let prev_scanline_mclk = self.state.scanline_mclk;
         self.state.scanline_mclk += mclk_cycles;
 
-        if self.state.scanline < self.registers.v_resolution.active_scanlines_per_frame()
+        if self.state.scanline < self.latched.v_resolution.active_scanlines_per_frame()
             || self.registers.h_interrupt_in_vblank
         {
             if prev_scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE
                 && self.state.scanline_mclk >= ACTIVE_MCLK_CYCLES_PER_SCANLINE
             {
-                if self.state.h_interrupt_counter == 0 {
-                    self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
-                    registers.notify_h_interrupt();
-                } else {
-                    self.state.h_interrupt_counter -= 1;
-                }
+                self.handle_hblank_start(registers);
             }
         } else {
             self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
@@ -207,12 +206,10 @@ impl Vdp {
             self.state.scanline_mclk -= MCLK_CYCLES_PER_SCANLINE;
             self.state.scanline += 1;
 
-            let active_lines_per_frame = self.registers.v_resolution.active_scanlines_per_frame();
+            let active_lines_per_frame = self.latched.v_resolution.active_scanlines_per_frame();
             if self.state.scanline == active_lines_per_frame {
                 // Beginning of VBlank; frame buffer switches take effect
-                if log::log_enabled!(log::Level::Debug)
-                    && self.state.display_frame_buffer != self.registers.display_frame_buffer
-                {
+                if self.state.display_frame_buffer != self.registers.display_frame_buffer {
                     log::debug!(
                         "VBlank: Changing front frame buffer to {:?}",
                         self.registers.display_frame_buffer
@@ -234,6 +231,26 @@ impl Vdp {
         }
     }
 
+    fn handle_hblank_start(&mut self, registers: &mut SystemRegisters) {
+        // Latch registers for rendering next line
+        self.latched = self.registers.clone();
+
+        // In case VDP was switched to blank mode with a pending frame buffer swap
+        if self.latched.frame_buffer_mode == FrameBufferMode::Blank {
+            if self.state.display_frame_buffer != self.registers.display_frame_buffer {
+                log::debug!("Front frame buffer set to {:?}", self.state.display_frame_buffer);
+            }
+            self.state.display_frame_buffer = self.registers.display_frame_buffer;
+        }
+
+        if self.state.h_interrupt_counter == 0 {
+            self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
+            registers.notify_h_interrupt();
+        } else {
+            self.state.h_interrupt_counter -= 1;
+        }
+    }
+
     pub fn mclk_cycles_until_next_event(&self, h_interrupt_enabled: bool) -> u64 {
         let cycles_till_line_end = MCLK_CYCLES_PER_SCANLINE - self.state.scanline_mclk;
 
@@ -251,7 +268,7 @@ impl Vdp {
     }
 
     fn render_line(&mut self) {
-        match self.registers.frame_buffer_mode {
+        match self.latched.frame_buffer_mode {
             FrameBufferMode::Blank => {
                 self.rendered_frame[self.state.scanline as usize].fill(0);
             }
@@ -271,9 +288,9 @@ impl Vdp {
             self.state.display_frame_buffer
         );
 
-        let priority = u16::from(self.registers.priority) << 15;
+        let priority = u16::from(self.latched.priority) << 15;
 
-        if self.registers.screen_left_shift {
+        if self.latched.screen_left_shift {
             for pixel in 0..FRAME_WIDTH as u16 {
                 let frame_buffer_addr = line_addr.wrapping_add((pixel + 1) >> 1);
                 let color = (frame_buffer[frame_buffer_addr as usize] >> (8 * (pixel & 1))) & 0xFF;
@@ -302,7 +319,7 @@ impl Vdp {
             self.state.display_frame_buffer
         );
 
-        let priority = u16::from(self.registers.priority) << 15;
+        let priority = u16::from(self.latched.priority) << 15;
 
         for pixel in 0..FRAME_WIDTH as u16 {
             let color = frame_buffer[line_addr.wrapping_add(pixel) as usize];
@@ -320,7 +337,7 @@ impl Vdp {
             self.state.display_frame_buffer
         );
 
-        let priority = u16::from(self.registers.priority) << 15;
+        let priority = u16::from(self.latched.priority) << 15;
 
         let mut pixel = 0;
         while pixel < FRAME_WIDTH {
@@ -380,7 +397,7 @@ impl Vdp {
             }
             0xA => {
                 self.registers.write_frame_buffer_control(value);
-                if self.in_vblank() || self.registers.frame_buffer_mode == FrameBufferMode::Blank {
+                if self.in_vblank() || self.latched.frame_buffer_mode == FrameBufferMode::Blank {
                     self.state.display_frame_buffer = self.registers.display_frame_buffer;
                     log::debug!("Front frame buffer set to {:?}", self.state.display_frame_buffer);
                 }
@@ -540,7 +557,7 @@ impl Vdp {
     }
 
     fn in_vblank(&self) -> bool {
-        self.state.scanline >= self.registers.v_resolution.active_scanlines_per_frame()
+        self.state.scanline >= self.latched.v_resolution.active_scanlines_per_frame()
     }
 
     fn in_hblank(&self) -> bool {
@@ -560,7 +577,7 @@ impl Vdp {
         self.state.next_render_buffer = WhichFrameBuffer::Genesis;
 
         if (self.video_out != S32XVideoOut::S32XOnly
-            && self.registers.frame_buffer_mode == FrameBufferMode::Blank)
+            && self.latched.frame_buffer_mode == FrameBufferMode::Blank)
             || self.video_out == S32XVideoOut::GenesisOnly
         {
             // Leave Genesis frame as-is
@@ -624,7 +641,7 @@ impl Vdp {
             if H32 { self.h32_frame_buffer.as_mut() } else { genesis_vdp.frame_buffer_mut() };
 
         let active_lines_per_frame: u32 =
-            self.registers.v_resolution.active_scanlines_per_frame().into();
+            self.latched.v_resolution.active_scanlines_per_frame().into();
         let s32x_only = self.video_out == S32XVideoOut::S32XOnly;
 
         let frame_width = if H32 {
