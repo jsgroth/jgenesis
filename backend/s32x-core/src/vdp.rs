@@ -100,7 +100,7 @@ struct State {
     h_interrupt_counter: u16,
     display_frame_buffer: SelectedFrameBuffer,
     // 7 * SH-2 cycles
-    auto_fill_cycles_remaining: u64,
+    auto_fill_mclk_remaining: u64,
 }
 
 impl State {
@@ -112,7 +112,7 @@ impl State {
             scanlines_in_current_frame: u16::MAX,
             h_interrupt_counter: 0,
             display_frame_buffer: SelectedFrameBuffer::default(),
-            auto_fill_cycles_remaining: 0,
+            auto_fill_mclk_remaining: 0,
         }
     }
 }
@@ -184,8 +184,8 @@ impl Vdp {
         registers: &mut SystemRegisters,
         genesis_vdp: &GenesisVdp,
     ) {
-        self.state.auto_fill_cycles_remaining =
-            self.state.auto_fill_cycles_remaining.saturating_sub(mclk_cycles * 3);
+        self.state.auto_fill_mclk_remaining =
+            self.state.auto_fill_mclk_remaining.saturating_sub(mclk_cycles);
 
         let prev_scanline_mclk = self.state.scanline_mclk;
         self.state.scanline_mclk += mclk_cycles;
@@ -522,7 +522,7 @@ impl Vdp {
 
         // Metal Head depends on the FEN bit reading 1 during DRAM refresh (beginning of HBlank every line)
         // or else it will freeze after the Sega splash screen
-        let frame_buffer_busy = self.state.auto_fill_cycles_remaining != 0
+        let frame_buffer_busy = self.state.auto_fill_mclk_remaining != 0
             || DRAM_REFRESH_MCLK_CYCLES.contains(&self.state.scanline_mclk);
 
         (u16::from(in_vblank) << 15)
@@ -552,8 +552,10 @@ impl Vdp {
         // draw a single glitched frame that was partly drawn using the previous inputs and partly
         // drawn using the new inputs. Depending on emulated SH-2 speed, this can also cause
         // gameplay glitches as the game may briefly stop responding to user inputs.
-        self.state.auto_fill_cycles_remaining =
-            7 * (7 * u64::from(self.registers.auto_fill_length) / 3);
+        //
+        // Official documentation appears to say that auto fill takes (7 + 3 * length) Sclk cycles
+        let auto_fill_sclk = 7 + 3 * u64::from(self.registers.auto_fill_length);
+        self.state.auto_fill_mclk_remaining = auto_fill_sclk * 7 / 3;
     }
 
     fn in_vblank(&self) -> bool {
