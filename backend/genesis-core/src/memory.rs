@@ -233,9 +233,23 @@ impl Cartridge {
     }
 }
 
-fn ensure_rom_in_expected_format(rom: Vec<u8>) -> Vec<u8> {
-    let rom = remove_copier_header(rom);
-    let rom = deinterleave_rom(rom);
+fn ensure_rom_in_expected_format(mut rom: Vec<u8>) -> Vec<u8> {
+    // For very tiny ROMs, pad to 1KB before doing anything else
+    // e.g. "Mona in 344 bytes" demo
+    const MIN_ROM_LEN: usize = 1024;
+
+    if rom.len() < MIN_ROM_LEN {
+        jgenesis_common::rom::mirror_to_next_power_of_two(&mut rom);
+
+        while rom.len() < MIN_ROM_LEN {
+            for i in 0..rom.len() {
+                rom.push(rom[i]);
+            }
+        }
+    }
+
+    rom = remove_copier_header(rom);
+    rom = deinterleave_rom(rom);
     ensure_big_endian(rom)
 }
 
@@ -1142,5 +1156,16 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> z80_emu::BusInterface
     #[inline]
     fn reset(&self) -> bool {
         self.memory.signals.z80_reset
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn loading_tiny_rom_does_not_panic() {
+        let rom = vec![0; 344];
+        let _ = Memory::new(Cartridge::from_rom(rom, None, None));
     }
 }
