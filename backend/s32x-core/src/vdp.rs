@@ -252,19 +252,27 @@ impl Vdp {
     }
 
     pub fn mclk_cycles_until_next_event(&self, h_interrupt_enabled: bool) -> u64 {
+        // Sync at every end of line
         let cycles_till_line_end = MCLK_CYCLES_PER_SCANLINE - self.state.scanline_mclk;
+        let mut cycles_till_next = cycles_till_line_end;
 
+        // Sync at HINT if HINT will trigger on this line
         if h_interrupt_enabled
             && self.state.h_interrupt_counter == 0
             && self.state.scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE
         {
-            return cmp::min(
-                cycles_till_line_end,
+            cycles_till_next = cmp::min(
+                cycles_till_next,
                 ACTIVE_MCLK_CYCLES_PER_SCANLINE - self.state.scanline_mclk,
             );
         }
 
-        cycles_till_line_end
+        // Sync at auto fill end if an auto fill is in progress
+        if self.state.auto_fill_mclk_remaining != 0 {
+            cycles_till_next = cmp::min(cycles_till_next, self.state.auto_fill_mclk_remaining);
+        }
+
+        cycles_till_next
     }
 
     fn render_line(&mut self) {
