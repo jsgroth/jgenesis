@@ -62,6 +62,7 @@ impl GenesisRegionExt for GenesisRegion {
             0xDACA01C3, // World Class Leader Board (Europe)
             0xC0DCE0E5, // Midway Presents Arcade's Greatest Hits (Europe)
             0x4C926BF6, // Nuance Xmas-Intro 2024
+            0x0F51DD6A, // Chaekopon by Limp Ninja
         ];
 
         if DEFAULT_EUROPE_CHECKSUMS.contains(&CRC.checksum(rom)) {
