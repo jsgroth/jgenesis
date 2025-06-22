@@ -5,8 +5,8 @@ use bincode::{Decode, Encode};
 use genesis_config::{GenesisControllerType, GenesisInputs, GenesisJoypadState};
 use jgenesis_common::num::GetBit;
 
-// Slightly less than 1.5ms
-const FLIP_COUNTER_CYCLES: u32 = 10000;
+// Produces roughly the expected timeout value in Joystick Test Program (PD)
+const FLIP_COUNTER_CYCLES: u32 = 12150;
 
 const TH_BIT: u8 = 6;
 
