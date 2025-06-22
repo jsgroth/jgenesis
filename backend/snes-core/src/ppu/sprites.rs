@@ -68,18 +68,6 @@ impl SpriteProcessor {
     }
 }
 
-#[derive(Debug, Clone, Copy, Encode, Decode)]
-pub struct SpriteData {
-    pub x: u16,
-    pub y: u8,
-    pub tile_number: u16,
-    pub palette: u8,
-    pub priority: u8,
-    pub x_flip: bool,
-    pub y_flip: bool,
-    pub size: TileSize,
-}
-
 impl Ppu {
     pub(super) fn sprites_start_new_line(&mut self, scanline: u16, interlaced_odd_frame: bool) {
         self.sprites.line = scanline;
