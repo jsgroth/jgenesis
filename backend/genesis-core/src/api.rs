@@ -122,6 +122,7 @@ pub struct GenesisEmulatorConfig {
     pub forced_timing_mode: Option<TimingMode>,
     pub forced_region: Option<GenesisRegion>,
     pub aspect_ratio: GenesisAspectRatio,
+    pub force_square_pixels_in_h40: bool,
     pub adjust_aspect_ratio_in_2x_resolution: bool,
     pub remove_sprite_limits: bool,
     pub m68k_clock_divider: u64,
@@ -196,8 +197,6 @@ pub struct GenesisEmulator {
     main_bus_writes: MainBusWrites,
     audio_resampler: GenesisAudioResampler,
     cycles: GenesisCycleCounters,
-    aspect_ratio: GenesisAspectRatio,
-    adjust_aspect_ratio_in_2x_resolution: bool,
     config: GenesisEmulatorConfig,
 }
 
@@ -262,8 +261,6 @@ impl GenesisEmulator {
             input,
             timing_mode,
             main_bus_writes: MainBusWrites::new(),
-            aspect_ratio: config.aspect_ratio,
-            adjust_aspect_ratio_in_2x_resolution: config.adjust_aspect_ratio_in_2x_resolution,
             audio_resampler: GenesisAudioResampler::new(timing_mode, config),
             cycles: GenesisCycleCounters::new(config.clamped_m68k_divider()),
             config,
@@ -293,13 +290,7 @@ impl GenesisEmulator {
     }
 
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
-        render_frame(
-            self.timing_mode,
-            &self.vdp,
-            self.aspect_ratio,
-            self.adjust_aspect_ratio_in_2x_resolution,
-            renderer,
-        )
+        render_frame(self.timing_mode, &self.vdp, &self.config, renderer)
     }
 
     pub fn copy_cram(&self, out: &mut [Color]) {
@@ -323,15 +314,15 @@ impl GenesisEmulator {
 pub fn render_frame<R: Renderer>(
     timing_mode: TimingMode,
     vdp: &Vdp,
-    aspect_ratio: GenesisAspectRatio,
-    adjust_aspect_ratio_in_2x_resolution: bool,
+    config: &GenesisEmulatorConfig,
     renderer: &mut R,
 ) -> Result<(), R::Err> {
     let frame_size = vdp.frame_size();
-    let pixel_aspect_ratio = aspect_ratio.to_pixel_aspect_ratio(
+    let pixel_aspect_ratio = config.aspect_ratio.to_pixel_aspect_ratio(
         timing_mode,
         frame_size,
-        adjust_aspect_ratio_in_2x_resolution,
+        config.force_square_pixels_in_h40,
+        config.adjust_aspect_ratio_in_2x_resolution,
     );
 
     renderer.render_frame(vdp.frame_buffer(), frame_size, pixel_aspect_ratio)
@@ -450,8 +441,6 @@ impl EmulatorTrait for GenesisEmulator {
     }
 
     fn reload_config(&mut self, config: &Self::Config) {
-        self.aspect_ratio = config.aspect_ratio;
-        self.adjust_aspect_ratio_in_2x_resolution = config.adjust_aspect_ratio_in_2x_resolution;
         self.vdp.reload_config(config.to_vdp_config());
         self.ym2612.reload_config(*config);
         self.input.reload_config(*config);

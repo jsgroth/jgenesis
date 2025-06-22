@@ -159,6 +159,7 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
     let default_window_size = WindowSize::new_genesis(
         config.common.initial_window_size,
         emulator_config.aspect_ratio,
+        emulator_config.force_square_pixels_in_h40,
         emulator.timing_mode(),
     );
 
@@ -249,6 +250,7 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
     let default_window_size = WindowSize::new_genesis(
         config.genesis.common.initial_window_size,
         emulator_config.genesis.aspect_ratio,
+        emulator_config.genesis.force_square_pixels_in_h40,
         emulator.timing_mode(),
     );
 
@@ -298,6 +300,7 @@ pub fn create_32x(config: Box<Sega32XConfig>) -> NativeEmulatorResult<Native32XE
     let default_window_size = WindowSize::new_32x(
         config.genesis.common.initial_window_size,
         emulator_config.genesis.aspect_ratio,
+        emulator_config.genesis.force_square_pixels_in_h40,
         emulator.timing_mode(),
     );
 

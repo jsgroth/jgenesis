@@ -14,6 +14,8 @@ pub struct GenesisAppConfig {
     pub forced_region: Option<GenesisRegion>,
     #[serde(default)]
     pub aspect_ratio: GenesisAspectRatio,
+    #[serde(default)]
+    pub force_square_pixels_in_h40: bool,
     #[serde(default = "true_fn")]
     pub adjust_aspect_ratio_in_2x_resolution: bool,
     #[serde(default)]

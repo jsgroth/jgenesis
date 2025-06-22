@@ -199,49 +199,7 @@ impl App {
 
         let mut open = true;
         Window::new("Genesis Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            let rect = ui
-                .group(|ui| {
-                    ui.label("Aspect ratio");
-
-                    ui.horizontal(|ui| {
-                        ui.radio_value(
-                            &mut self.config.genesis.aspect_ratio,
-                            GenesisAspectRatio::Auto,
-                            "Auto",
-                        );
-                        ui.radio_value(
-                            &mut self.config.genesis.aspect_ratio,
-                            GenesisAspectRatio::Ntsc,
-                            "NTSC",
-                        )
-                        .on_hover_text("32:35 pixel aspect ratio in 320px mode, 8:7 in 256px mode");
-                        ui.radio_value(
-                            &mut self.config.genesis.aspect_ratio,
-                            GenesisAspectRatio::Pal,
-                            "PAL",
-                        )
-                        .on_hover_text(
-                            "11:10 pixel aspect ratio in 320px mode, 11:8 in 256px mode",
-                        );
-                        ui.radio_value(
-                            &mut self.config.genesis.aspect_ratio,
-                            GenesisAspectRatio::SquarePixels,
-                            "Square pixels",
-                        )
-                        .on_hover_text("1:1 pixel aspect ratio");
-                        ui.radio_value(
-                            &mut self.config.genesis.aspect_ratio,
-                            GenesisAspectRatio::Stretched,
-                            "Stretched",
-                        )
-                        .on_hover_text("Stretch image to fill the screen");
-                    });
-                })
-                .response
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::ASPECT_RATIO);
-            }
+            self.render_aspect_ratio_settings(ui, WINDOW);
 
             let rect = ui
                 .checkbox(&mut self.config.genesis.deinterlace, "Deinterlacing enabled")
@@ -300,58 +258,129 @@ impl App {
 
             ui.add_space(5.0);
 
-            let rect = ui
-                .group(|ui| {
-                    ui.label("Enabled layers");
-
-                    ui.horizontal(|ui| {
-                        ui.checkbox(&mut self.config.genesis.plane_a_enabled, "Plane A");
-                        ui.checkbox(&mut self.config.genesis.plane_b_enabled, "Plane B");
-                        ui.checkbox(&mut self.config.genesis.sprites_enabled, "Sprites");
-                        ui.checkbox(&mut self.config.genesis.window_enabled, "Window");
-                        ui.checkbox(&mut self.config.genesis.backdrop_enabled, "Backdrop");
-                    });
-                })
-                .response
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::ENABLED_LAYERS);
-            }
+            self.render_enabled_layers_setting(ui, WINDOW);
 
             ui.add_space(5.0);
 
-            let rect = ui
-                .group(|ui| {
-                    ui.label("32X video output");
-
-                    ui.horizontal(|ui| {
-                        ui.radio_value(
-                            &mut self.config.sega_32x.video_out,
-                            S32XVideoOut::Combined,
-                            "Combined",
-                        );
-                        ui.radio_value(
-                            &mut self.config.sega_32x.video_out,
-                            S32XVideoOut::GenesisOnly,
-                            "Genesis VDP only",
-                        );
-                        ui.radio_value(
-                            &mut self.config.sega_32x.video_out,
-                            S32XVideoOut::S32XOnly,
-                            "32X VDP only",
-                        );
-                    });
-                })
-                .response
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::S32X_VIDEO_OUT);
-            }
+            self.render_32x_video_out_setting(ui, WINDOW);
 
             self.render_help_text(ui, WINDOW);
         });
         if !open {
             self.state.open_windows.remove(&WINDOW);
+        }
+    }
+
+    fn render_aspect_ratio_settings(&mut self, ui: &mut Ui, window: OpenWindow) {
+        let mut displayed_other_help_text = false;
+
+        let rect = ui
+            .group(|ui| {
+                ui.label("Aspect ratio");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.config.genesis.aspect_ratio,
+                        GenesisAspectRatio::Auto,
+                        "Auto",
+                    );
+                    ui.radio_value(
+                        &mut self.config.genesis.aspect_ratio,
+                        GenesisAspectRatio::Ntsc,
+                        "NTSC",
+                    )
+                    .on_hover_text("32:35 pixel aspect ratio in 320px mode, 8:7 in 256px mode");
+                    ui.radio_value(
+                        &mut self.config.genesis.aspect_ratio,
+                        GenesisAspectRatio::Pal,
+                        "PAL",
+                    )
+                    .on_hover_text("11:10 pixel aspect ratio in 320px mode, 11:8 in 256px mode");
+                    ui.radio_value(
+                        &mut self.config.genesis.aspect_ratio,
+                        GenesisAspectRatio::SquarePixels,
+                        "Square pixels",
+                    )
+                    .on_hover_text("1:1 pixel aspect ratio");
+                    ui.radio_value(
+                        &mut self.config.genesis.aspect_ratio,
+                        GenesisAspectRatio::Stretched,
+                        "Stretched",
+                    )
+                    .on_hover_text("Stretch image to fill the screen");
+                });
+
+                let rect = ui
+                    .add_enabled_ui(
+                        self.config.genesis.aspect_ratio != GenesisAspectRatio::Stretched,
+                        |ui| {
+                            ui.checkbox(
+                                &mut self.config.genesis.force_square_pixels_in_h40,
+                                "Force square pixels in H320px mode",
+                            );
+                        },
+                    )
+                    .response
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(window, helptext::FORCE_SQUARE_PIXELS_H40);
+                    displayed_other_help_text = true;
+                }
+            })
+            .response
+            .interact_rect;
+        if !displayed_other_help_text && ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(window, helptext::ASPECT_RATIO);
+        }
+    }
+
+    fn render_enabled_layers_setting(&mut self, ui: &mut Ui, window: OpenWindow) {
+        let rect = ui
+            .group(|ui| {
+                ui.label("Enabled layers");
+
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.config.genesis.plane_a_enabled, "Plane A");
+                    ui.checkbox(&mut self.config.genesis.plane_b_enabled, "Plane B");
+                    ui.checkbox(&mut self.config.genesis.sprites_enabled, "Sprites");
+                    ui.checkbox(&mut self.config.genesis.window_enabled, "Window");
+                    ui.checkbox(&mut self.config.genesis.backdrop_enabled, "Backdrop");
+                });
+            })
+            .response
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(window, helptext::ENABLED_LAYERS);
+        }
+    }
+
+    fn render_32x_video_out_setting(&mut self, ui: &mut Ui, window: OpenWindow) {
+        let rect = ui
+            .group(|ui| {
+                ui.label("32X video output");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.config.sega_32x.video_out,
+                        S32XVideoOut::Combined,
+                        "Combined",
+                    );
+                    ui.radio_value(
+                        &mut self.config.sega_32x.video_out,
+                        S32XVideoOut::GenesisOnly,
+                        "Genesis VDP only",
+                    );
+                    ui.radio_value(
+                        &mut self.config.sega_32x.video_out,
+                        S32XVideoOut::S32XOnly,
+                        "32X VDP only",
+                    );
+                });
+            })
+            .response
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(window, helptext::S32X_VIDEO_OUT);
         }
     }
 

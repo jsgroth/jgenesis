@@ -73,6 +73,13 @@ pub const ASPECT_RATIO: HelpText = HelpText {
     ],
 };
 
+pub const FORCE_SQUARE_PIXELS_H40: HelpText = HelpText {
+    heading: "Force Square Pixels in H320px",
+    text: &[
+        "If enabled, ignore the configured aspect ratio and always display square pixels when a game enables H320px mode.",
+    ],
+};
+
 pub const DEINTERLACING: HelpText = HelpText {
     heading: "Deinterlacing",
     text: &[

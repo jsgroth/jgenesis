@@ -753,8 +753,7 @@ impl Vdp {
         let mut frame_size = genesis_vdp.frame_size();
         frame_size.width = determine_h32_buffer_width(frame_size, genesis_vdp.border_size());
 
-        aspect_ratio =
-            aspect_ratio.map(|par| PixelAspectRatio::try_from(0.2 * f64::from(par)).unwrap());
+        aspect_ratio = aspect_ratio.map(|par| par * PixelAspectRatio::try_from(0.2).unwrap());
 
         renderer.render_frame(self.h32_frame_buffer.as_ref(), frame_size, aspect_ratio)
     }

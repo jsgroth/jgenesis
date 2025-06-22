@@ -55,6 +55,7 @@ impl GenesisAspectRatio {
         self,
         timing_mode: TimingMode,
         frame_size: FrameSize,
+        force_square_in_h40: bool,
         adjust_for_2x_resolution: bool,
     ) -> Option<PixelAspectRatio> {
         if self == Self::Auto {
@@ -65,6 +66,7 @@ impl GenesisAspectRatio {
             return auto_aspect.to_pixel_aspect_ratio(
                 timing_mode,
                 frame_size,
+                force_square_in_h40,
                 adjust_for_2x_resolution,
             );
         }
@@ -72,10 +74,22 @@ impl GenesisAspectRatio {
         let mut pixel_aspect_ratio = match (self, frame_size.width) {
             (Self::SquarePixels, _) => Some(1.0),
             (Self::Stretched, _) => None,
-            (Self::Ntsc, 256..=284) => Some(8.0 / 7.0),
-            (Self::Ntsc, 320..=347) => Some(32.0 / 35.0),
-            (Self::Pal, 256..=284) => Some(11.0 / 8.0),
-            (Self::Pal, 320..=347) => Some(11.0 / 10.0),
+            (Self::Ntsc, 256..=284) => {
+                // NTSC H32/H256px
+                Some(8.0 / 7.0)
+            }
+            (Self::Ntsc, 320..=347) => {
+                // NTSC H40/H320px
+                if force_square_in_h40 { Some(1.0) } else { Some(32.0 / 35.0) }
+            }
+            (Self::Pal, 256..=284) => {
+                // PAL H32/H256px
+                Some(11.0 / 8.0)
+            }
+            (Self::Pal, 320..=347) => {
+                // PAL H40/H320px
+                if force_square_in_h40 { Some(1.0) } else { Some(11.0 / 10.0) }
+            }
             (Self::Ntsc | Self::Pal, _) => {
                 log::error!("unexpected Genesis frame width: {}", frame_size.width);
                 None

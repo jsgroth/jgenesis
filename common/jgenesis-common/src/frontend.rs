@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::num::NonZeroU32;
+use std::ops::Mul;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable, Encode, Decode)]
@@ -83,6 +84,14 @@ impl TryFrom<f64> for PixelAspectRatio {
         } else {
             Err(format!("invalid pixel aspect ratio: {value}"))
         }
+    }
+}
+
+impl Mul for PixelAspectRatio {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        Self(self.0 * rhs.0)
     }
 }
 

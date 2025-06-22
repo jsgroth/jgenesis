@@ -72,12 +72,25 @@ impl WindowSize {
     pub fn new_genesis(
         size: NonZeroU8,
         aspect_ratio: GenesisAspectRatio,
+        force_square_pixels_in_h40: bool,
         timing_mode: TimingMode,
     ) -> Self {
-        Self::new(Self::genesis_width(aspect_ratio, timing_mode), Self::GENESIS_HEIGHT, size)
+        Self::new(
+            Self::genesis_width(aspect_ratio, force_square_pixels_in_h40, timing_mode),
+            Self::GENESIS_HEIGHT,
+            size,
+        )
     }
 
-    fn genesis_width(aspect_ratio: GenesisAspectRatio, timing_mode: TimingMode) -> f64 {
+    fn genesis_width(
+        aspect_ratio: GenesisAspectRatio,
+        force_square_pixels_in_h40: bool,
+        timing_mode: TimingMode,
+    ) -> f64 {
+        if force_square_pixels_in_h40 {
+            return Self::GENESIS_WIDTH_H40;
+        }
+
         let h40_par = aspect_ratio.to_h40_pixel_aspect_ratio(timing_mode).unwrap_or_else(|| {
             GenesisAspectRatio::default().to_h40_pixel_aspect_ratio(timing_mode).unwrap_or(1.0)
         });
@@ -88,11 +101,14 @@ impl WindowSize {
     pub fn new_32x(
         size: NonZeroU8,
         aspect_ratio: GenesisAspectRatio,
+        force_square_pixels_in_h40: bool,
         timing_mode: TimingMode,
     ) -> Self {
         // Make 32X window a little wider than Genesis by default so that the frame won't shrink if a
         // game switches to H32 mode while the renderer has forced integer height scaling enabled
-        let width = Self::genesis_width(aspect_ratio, timing_mode) * 323.25 / 320.0;
+        let genesis_width =
+            Self::genesis_width(aspect_ratio, force_square_pixels_in_h40, timing_mode);
+        let width = genesis_width * 323.25 / 320.0;
 
         Self::new(width, Self::GENESIS_HEIGHT, size)
     }

@@ -337,6 +337,7 @@ impl AppConfigExt for AppConfig {
                 forced_timing_mode: self.genesis.forced_timing_mode,
                 forced_region: self.genesis.forced_region,
                 aspect_ratio: self.genesis.aspect_ratio,
+                force_square_pixels_in_h40: self.genesis.force_square_pixels_in_h40,
                 adjust_aspect_ratio_in_2x_resolution: self
                     .genesis
                     .adjust_aspect_ratio_in_2x_resolution,

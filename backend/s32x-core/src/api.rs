@@ -177,7 +177,8 @@ impl Sega32XEmulator {
         let aspect_ratio = self.config.genesis.aspect_ratio.to_pixel_aspect_ratio(
             self.timing_mode,
             frame_size,
-            true,
+            self.config.genesis.force_square_pixels_in_h40,
+            self.config.genesis.adjust_aspect_ratio_in_2x_resolution,
         );
         self.memory.medium_mut().vdp().render_frame(&self.vdp, aspect_ratio, renderer)
     }

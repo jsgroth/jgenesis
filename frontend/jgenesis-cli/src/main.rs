@@ -207,6 +207,10 @@ struct Args {
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
     genesis_aspect_ratio: Option<GenesisAspectRatio>,
 
+    /// Force aspect ratio to square pixels when a game enables H40/H320px mode
+    #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
+    force_square_pixels_in_h40: Option<bool>,
+
     /// Automatically adjust pixel aspect ratio in double-screen interlaced mode
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
     genesis_adjust_aspect_ratio: Option<bool>,
@@ -626,6 +630,7 @@ impl Args {
             genesis_deinterlace -> deinterlace,
             m68k_clock_divider,
             genesis_render_vertical_border -> render_vertical_border,
+            force_square_pixels_in_h40,
             genesis_render_horizontal_border -> render_horizontal_border,
             quantize_ym2612_output,
             emulate_ym2612_ladder_effect,
