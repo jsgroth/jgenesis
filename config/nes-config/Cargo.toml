@@ -12,6 +12,7 @@ serde = ["dep:serde"]
 jgenesis-common = { path = "../../common/jgenesis-common" }
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 
+base64 = { workspace = true }
 bincode = { workspace = true, features = ["derive"] }
 clap = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }

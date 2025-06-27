@@ -5,7 +5,7 @@ pub use debug::{PatternTable, copy_nametables, copy_oam, copy_palette_ram};
 use crate::ppu;
 use crate::ppu::{ColorEmphasis, FrameBuffer};
 use jgenesis_common::frontend::{Color, TimingMode};
-use nes_config::Overscan;
+use nes_config::{NesPalette, Overscan};
 
 pub trait TimingModeGraphicsExt {
     fn visible_screen_height(self) -> u16;
@@ -29,13 +29,12 @@ impl TimingModeGraphicsExt for TimingMode {
     }
 }
 
-const PALETTE: &[u8; 3 * 64 * 8] = include_bytes!("nespalette.pal");
-
 pub fn ppu_frame_buffer_to_rgba(
     ppu_frame_buffer: &FrameBuffer,
     rgba_frame_buffer: &mut [Color],
     overscan: Overscan,
     display_mode: TimingMode,
+    palette: &NesPalette,
 ) {
     rgba_frame_buffer.fill(Color::BLACK);
 
@@ -56,24 +55,22 @@ pub fn ppu_frame_buffer_to_rgba(
         for (col, &(nes_color, color_emphasis)) in
             scanline.iter().skip(overscan.left as usize).take(num_cols_rendered).enumerate()
         {
-            let rgba_color = nes_color_to_rgba(nes_color, color_emphasis);
+            let rgba_color = nes_color_to_rgba(nes_color, color_emphasis, palette);
             rgba_frame_buffer[row * num_cols_rendered + col] = rgba_color;
         }
     }
 }
 
-pub fn nes_color_to_rgba(nes_color: u8, color_emphasis: ColorEmphasis) -> Color {
-    let color_emphasis_offset = get_color_emphasis_offset(color_emphasis);
-    let palette_idx = (color_emphasis_offset + 3 * u16::from(nes_color)) as usize;
+pub fn nes_color_to_rgba(
+    nes_color: u8,
+    color_emphasis: ColorEmphasis,
+    palette: &NesPalette,
+) -> Color {
+    let palette_idx = usize::from(nes_color)
+        + 64 * usize::from(color_emphasis.red())
+        + 128 * usize::from(color_emphasis.green())
+        + 256 * usize::from(color_emphasis.blue());
 
-    let r = PALETTE[palette_idx];
-    let g = PALETTE[palette_idx + 1];
-    let b = PALETTE[palette_idx + 2];
+    let (r, g, b) = palette[palette_idx];
     Color::rgb(r, g, b)
-}
-
-fn get_color_emphasis_offset(color_emphasis: ColorEmphasis) -> u16 {
-    3 * 64 * u16::from(color_emphasis.red())
-        + 3 * 128 * u16::from(color_emphasis.green())
-        + 3 * 256 * u16::from(color_emphasis.blue())
 }

@@ -1,5 +1,6 @@
 #![allow(clippy::doc_markdown)]
 
+use anyhow::Context;
 use clap::Parser;
 use env_logger::Env;
 use gb_config::{GbAspectRatio, GbAudioResampler, GbPalette, GbcColorCorrection};
@@ -17,7 +18,7 @@ use jgenesis_proc_macros::{CustomValueEnum, EnumAll, EnumDisplay};
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, Scanlines, VSyncMode, WgpuBackend,
 };
-use nes_config::{NesAspectRatio, NesAudioResampler};
+use nes_config::{NesAspectRatio, NesAudioResampler, NesPalette};
 use smsgg_config::{GgAspectRatio, SmsAspectRatio, SmsGgRegion, SmsModel, Sn76489Version};
 use snes_config::{AudioInterpolationMode, SnesAspectRatio};
 use std::fmt::Debug;
@@ -336,6 +337,10 @@ struct Args {
     #[arg(long, help_heading = NES_OPTIONS_HEADING)]
     nes_audio_60hz_hack: Option<bool>,
 
+    /// Custom NES palette file
+    #[arg(long, help_heading = NES_OPTIONS_HEADING)]
+    nes_palette_file: Option<PathBuf>,
+
     /// SNES aspect ratio
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
     snes_aspect_ratio: Option<SnesAspectRatio>,
@@ -574,18 +579,20 @@ impl Args {
         self
     }
 
-    fn apply_overrides(&self, config: &mut AppConfig) {
+    fn apply_overrides(&self, config: &mut AppConfig) -> anyhow::Result<()> {
         self.apply_common_overrides(config);
         self.apply_smsgg_overrides(config);
         self.apply_genesis_overrides(config);
         self.apply_sega_cd_overrides(config);
         self.apply_32x_overrides(config);
-        self.apply_nes_overrides(config);
+        self.apply_nes_overrides(config)?;
         self.apply_snes_overrides(config);
         self.apply_gb_overrides(config);
         self.apply_video_overrides(config);
         self.apply_audio_overrides(config);
         self.apply_hotkey_overrides(config);
+
+        Ok(())
     }
 
     fn apply_common_overrides(&self, config: &mut AppConfig) {
@@ -699,7 +706,7 @@ impl Args {
         ]);
     }
 
-    fn apply_nes_overrides(&self, config: &mut AppConfig) {
+    fn apply_nes_overrides(&self, config: &mut AppConfig) -> anyhow::Result<()> {
         apply_overrides!(self, config.nes, [
             nes_aspect_ratio -> aspect_ratio,
             nes_pal_black_border -> pal_black_border,
@@ -717,6 +724,13 @@ impl Args {
         ]);
 
         apply_overrides!(self, config.input.nes, [nes_p2_controller_type -> p2_type]);
+
+        if let Some(path) = &self.nes_palette_file {
+            config.nes.palette =
+                NesPalette::read_from(path).context("Failed to load NES palette file")?;
+        }
+
+        Ok(())
     }
 
     fn apply_snes_overrides(&self, config: &mut AppConfig) {
@@ -905,7 +919,7 @@ fn main() -> anyhow::Result<()> {
         config = migrated_config;
     }
 
-    args.apply_overrides(&mut config);
+    args.apply_overrides(&mut config)?;
 
     match hardware {
         Hardware::MasterSystem => run_sms(args, config),

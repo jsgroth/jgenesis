@@ -2321,6 +2321,7 @@ dependencies = [
  "jgenesis-renderer",
  "log",
  "nes-config",
+ "nes-core",
  "pollster",
  "regex",
  "rfd",
@@ -2911,6 +2912,7 @@ dependencies = [
 name = "nes-config"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "bincode",
  "clap",
  "jgenesis-common",

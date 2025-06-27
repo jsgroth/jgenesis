@@ -1,5 +1,5 @@
 use jgenesis_common::frontend::TimingMode;
-use nes_config::{NesAspectRatio, NesAudioResampler, Overscan};
+use nes_config::{NesAspectRatio, NesAudioResampler, NesPalette, Overscan};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -23,6 +23,8 @@ pub struct NesAppConfig {
     pub audio_60hz_hack: bool,
     #[serde(default)]
     pub allow_opposing_joypad_inputs: bool,
+    #[serde(default)]
+    pub palette: NesPalette,
 }
 
 const fn true_fn() -> bool {

@@ -384,7 +384,7 @@ pub fn render_pal_black_border(state: &mut PpuState) {
 }
 
 /// Run the PPU for one PPU cycle. Pixels will be written to `PpuState`'s frame buffer as appropriate.
-pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>, config: NesEmulatorConfig) {
+pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>, config: &NesEmulatorConfig) {
     let rendering_enabled =
         bus.get_ppu_registers().bg_enabled() || bus.get_ppu_registers().sprites_enabled();
 
