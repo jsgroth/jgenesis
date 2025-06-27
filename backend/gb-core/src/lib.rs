@@ -3,6 +3,7 @@ mod apu;
 mod audio;
 mod bus;
 mod cartridge;
+mod cgb;
 mod dma;
 mod graphics;
 pub mod inputs;
@@ -11,7 +12,6 @@ mod memory;
 mod ppu;
 mod serial;
 mod sm83;
-mod speed;
 mod timer;
 
 use bincode::{Decode, Encode};

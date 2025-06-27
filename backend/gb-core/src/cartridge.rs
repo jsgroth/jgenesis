@@ -9,6 +9,7 @@ use crate::cartridge::mappers::{Mbc1, Mbc2, Mbc3, Mbc5};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::SaveWriter;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
+use std::fmt::{Display, Formatter};
 use std::mem;
 use std::ops::Deref;
 
@@ -126,6 +127,16 @@ impl SoftwareType {
             Some(0x80) => Self::CgbEnhanced,
             Some(0xC0) => Self::CgbOnly,
             _ => Self::DmgOnly,
+        }
+    }
+}
+
+impl Display for SoftwareType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SoftwareType::DmgOnly => write!(f, "DMG-only"),
+            SoftwareType::CgbEnhanced => write!(f, "CGB-enhanced"),
+            SoftwareType::CgbOnly => write!(f, "CGB-only"),
         }
     }
 }

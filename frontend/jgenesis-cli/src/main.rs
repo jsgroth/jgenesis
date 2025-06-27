@@ -388,9 +388,29 @@ struct Args {
     #[arg(long, help_heading = GB_OPTIONS_HEADING)]
     force_dmg_mode: Option<bool>,
 
+    /// Force CGB / Game Boy Color mode in software with no Game Boy Color support (requires CGB boot ROM)
+    #[arg(long, help_heading = GB_OPTIONS_HEADING)]
+    force_cgb_mode: Option<bool>,
+
     /// Pretend to be a Game Boy Advance (for GBC games that vary behavior on GBA)
     #[arg(long, help_heading = GB_OPTIONS_HEADING)]
     pretend_to_be_gba: Option<bool>,
+
+    /// Boot from boot ROM when running in DMG mode
+    #[arg(long, help_heading = GB_OPTIONS_HEADING)]
+    dmg_boot_rom: Option<bool>,
+
+    /// DMG boot ROM path
+    #[arg(long, help_heading = GB_OPTIONS_HEADING)]
+    dmg_boot_rom_path: Option<PathBuf>,
+
+    /// Boot from boot ROM when running in CGB mode
+    #[arg(long, help_heading = GB_OPTIONS_HEADING)]
+    cgb_boot_rom: Option<bool>,
+
+    /// CGB boot ROM path
+    #[arg(long, help_heading = GB_OPTIONS_HEADING)]
+    cgb_boot_rom_path: Option<PathBuf>,
 
     /// Aspect ratio
     #[arg(long, help_heading = GB_OPTIONS_HEADING)]
@@ -729,13 +749,22 @@ impl Args {
     fn apply_gb_overrides(&self, config: &mut AppConfig) {
         apply_overrides!(self, config.game_boy, [
             force_dmg_mode,
+            force_cgb_mode,
             pretend_to_be_gba,
+            dmg_boot_rom,
+            cgb_boot_rom,
             gb_aspect_ratio -> aspect_ratio,
             gb_palette,
             gbc_color_correction,
             gb_audio_resampler -> audio_resampler,
             gb_audio_60hz_hack -> audio_60hz_hack,
         ]);
+
+        apply_path_overrides!(self, config.game_boy, [dmg_boot_rom_path, cgb_boot_rom_path]);
+
+        if self.force_cgb_mode == Some(true) {
+            config.game_boy.cgb_boot_rom = true;
+        }
     }
 
     fn apply_video_overrides(&self, config: &mut AppConfig) {

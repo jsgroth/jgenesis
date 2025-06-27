@@ -5,12 +5,12 @@ mod fifo;
 mod registers;
 
 use crate::HardwareMode;
+use crate::cgb::{CgbRegisters, CpuSpeed};
 use crate::dma::DmaUnit;
 use crate::interrupts::InterruptRegisters;
 use crate::ppu::fifo::PixelFifo;
 use crate::ppu::registers::{CgbPaletteRam, Registers};
 use crate::sm83::InterruptType;
-use crate::speed::CpuSpeed;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::FrameSize;
 use jgenesis_common::num::GetBit;
@@ -197,23 +197,6 @@ pub struct Ppu {
     fifo: PixelFifo,
 }
 
-macro_rules! cgb_only_read {
-    ($ppu:ident => $op:expr) => {
-        match $ppu.hardware_mode {
-            HardwareMode::Dmg => 0xFF,
-            HardwareMode::Cgb => $op,
-        }
-    };
-}
-
-macro_rules! cgb_only_write {
-    ($ppu:ident => $op:expr) => {
-        if $ppu.hardware_mode == HardwareMode::Cgb {
-            $op;
-        }
-    };
-}
-
 impl Ppu {
     pub fn new(hardware_mode: HardwareMode, rom: &[u8], boot_rom_present: bool) -> Self {
         let mut vram = vec![0; VRAM_LEN];
@@ -238,7 +221,7 @@ impl Ppu {
 
     pub fn tick_dot(
         &mut self,
-        cpu_speed: CpuSpeed,
+        cgb_registers: CgbRegisters,
         dma_unit: &DmaUnit,
         interrupt_registers: &mut InterruptRegisters,
     ) {
@@ -304,6 +287,7 @@ impl Ppu {
             self.fifo.tick(
                 &self.vram,
                 &self.registers,
+                cgb_registers,
                 &self.bg_palette_ram,
                 &self.sprite_palette_ram,
                 frame_buffer,
@@ -338,9 +322,11 @@ impl Ppu {
                 self.sprite_buffer.clear();
 
                 // PPU cannot read OAM while an OAM DMA is in progress
+                // TODO does anything depend on partial OAM scan when an OAM DMA finishes during mode 2?
                 if !dma_unit.oam_dma_in_progress() {
                     scan_oam(
                         self.hardware_mode,
+                        cgb_registers.dmg_compatibility,
                         self.state.scanline,
                         self.registers.double_height_sprites,
                         &self.oam,
@@ -374,7 +360,7 @@ impl Ppu {
             }
         }
 
-        let stat_interrupt_line = self.stat_interrupt_line(cpu_speed);
+        let stat_interrupt_line = self.stat_interrupt_line(cgb_registers.speed);
         if !self.state.prev_stat_interrupt_line && stat_interrupt_line {
             self.state.stat_interrupt_pending = true;
             log::trace!(
@@ -490,15 +476,11 @@ impl Ppu {
             0x49 => self.registers.read_obp1(),
             0x4A => self.registers.window_y,
             0x4B => self.registers.window_x,
-            0x4F => cgb_only_read!(self => self.registers.read_vbk()),
-            0x68 => cgb_only_read!(self => self.bg_palette_ram.read_data_port_address()),
-            0x69 => {
-                cgb_only_read!(self => self.bg_palette_ram.read_data_port(self.cpu_can_access_vram()))
-            }
-            0x6A => cgb_only_read!(self => self.sprite_palette_ram.read_data_port_address()),
-            0x6B => {
-                cgb_only_read!(self => self.sprite_palette_ram.read_data_port(self.cpu_can_access_vram()))
-            }
+            0x4F => self.registers.read_vbk(),
+            0x68 => self.bg_palette_ram.read_data_port_address(),
+            0x69 => self.bg_palette_ram.read_data_port(self.cpu_can_access_vram()),
+            0x6A => self.sprite_palette_ram.read_data_port_address(),
+            0x6B => self.sprite_palette_ram.read_data_port(self.cpu_can_access_vram()),
             _ => {
                 log::warn!("PPU register read {address:04X}");
                 0xFF
@@ -532,15 +514,11 @@ impl Ppu {
             0x49 => self.registers.write_obp1(value),
             0x4A => self.registers.write_wy(value),
             0x4B => self.registers.write_wx(value),
-            0x4F => cgb_only_write!(self => self.registers.write_vbk(value)),
-            0x68 => cgb_only_write!(self => self.bg_palette_ram.write_data_port_address(value)),
-            0x69 => cgb_only_write!(
-                self => self.bg_palette_ram.write_data_port(value, self.cpu_can_access_vram())
-            ),
-            0x6A => cgb_only_write!(self => self.sprite_palette_ram.write_data_port_address(value)),
-            0x6B => cgb_only_write!(
-                self => self.sprite_palette_ram.write_data_port(value, self.cpu_can_access_vram())
-            ),
+            0x4F => self.registers.write_vbk(value),
+            0x68 => self.bg_palette_ram.write_data_port_address(value),
+            0x69 => self.bg_palette_ram.write_data_port(value, self.cpu_can_access_vram()),
+            0x6A => self.sprite_palette_ram.write_data_port_address(value),
+            0x6B => self.sprite_palette_ram.write_data_port(value, self.cpu_can_access_vram()),
             _ => log::warn!("PPU register write {address:04X} {value:02X}"),
         }
     }
@@ -595,6 +573,7 @@ fn map_vram_address(address: u16, vram_bank: u8) -> u16 {
 
 fn scan_oam(
     hardware_mode: HardwareMode,
+    cgb_dmg_compatibility: bool,
     scanline: u8,
     double_height_sprites: bool,
     oam: &Oam,
@@ -623,9 +602,9 @@ fn scan_oam(
         let low_priority = attributes.bit(7);
 
         // VRAM bank is only valid in CGB mode, and palette is read from different bits
-        let (vram_bank, palette) = match hardware_mode {
-            HardwareMode::Dmg => (0, attributes.bit(4).into()),
-            HardwareMode::Cgb => (attributes.bit(3).into(), attributes & 0x07),
+        let (vram_bank, palette) = match (hardware_mode, cgb_dmg_compatibility) {
+            (HardwareMode::Dmg, _) | (HardwareMode::Cgb, true) => (0, attributes.bit(4).into()),
+            (HardwareMode::Cgb, false) => (attributes.bit(3).into(), attributes & 0x07),
         };
 
         sprite_buffer.push(SpriteData {

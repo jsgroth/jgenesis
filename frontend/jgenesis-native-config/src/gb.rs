@@ -7,6 +7,8 @@ pub struct GameBoyAppConfig {
     #[serde(default)]
     pub force_dmg_mode: bool,
     #[serde(default)]
+    pub force_cgb_mode: bool,
+    #[serde(default)]
     pub pretend_to_be_gba: bool,
     #[serde(default)]
     pub dmg_boot_rom: bool,

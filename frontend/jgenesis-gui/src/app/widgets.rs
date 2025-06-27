@@ -73,6 +73,8 @@ impl<'a> OptionalPathSelector<'a> {
 impl Widget for OptionalPathSelector<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         ui.horizontal(|ui| {
+            ui.label(self.label);
+
             let button_label = match self.path {
                 Some(path) => path.to_string_lossy(),
                 None => "<None>".into(),
@@ -82,8 +84,6 @@ impl Widget for OptionalPathSelector<'_> {
                     *self.path = Some(path);
                 }
             }
-
-            ui.label(self.label);
         })
         .response
     }

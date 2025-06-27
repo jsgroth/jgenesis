@@ -476,6 +476,7 @@ impl AppConfigExt for AppConfig {
             inputs: self.input.game_boy.clone(),
             emulator_config: GameBoyEmulatorConfig {
                 force_dmg_mode: self.game_boy.force_dmg_mode,
+                force_cgb_mode: self.game_boy.force_cgb_mode,
                 pretend_to_be_gba: self.game_boy.pretend_to_be_gba,
                 aspect_ratio: self.game_boy.aspect_ratio,
                 gb_palette: self.game_boy.gb_palette,

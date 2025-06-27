@@ -3,6 +3,7 @@
 use crate::apu::Apu;
 use crate::bus::Bus;
 use crate::cartridge::{Cartridge, SoftwareType};
+use crate::cgb::CgbRegisters;
 use crate::dma::DmaUnit;
 use crate::graphics::RgbaFrameBuffer;
 use crate::inputs::InputState;
@@ -11,7 +12,6 @@ use crate::memory::Memory;
 use crate::ppu::Ppu;
 use crate::serial::SerialPort;
 use crate::sm83::Sm83;
-use crate::speed::SpeedRegister;
 use crate::timer::GbTimer;
 use crate::{HardwareMode, audio, ppu};
 use bincode::{Decode, Encode};
@@ -49,6 +49,7 @@ pub enum GameBoyError<RErr, AErr, SErr> {
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct GameBoyEmulatorConfig {
     pub force_dmg_mode: bool,
+    pub force_cgb_mode: bool,
     pub pretend_to_be_gba: bool,
     pub aspect_ratio: GbAspectRatio,
     pub gb_palette: GbPalette,
@@ -82,7 +83,7 @@ pub struct GameBoyEmulator {
     memory: Memory,
     serial_port: SerialPort,
     interrupt_registers: InterruptRegisters,
-    speed_register: SpeedRegister,
+    cgb_registers: CgbRegisters,
     #[partial_clone(partial)]
     cartridge: Cartridge,
     timer: GbTimer,
@@ -104,10 +105,24 @@ impl GameBoyEmulator {
         save_writer: &mut S,
     ) -> Result<Self, GameBoyLoadError> {
         let software_type = SoftwareType::from_rom(&rom);
-        let hardware_mode = match (config.force_dmg_mode, software_type) {
-            (true, _) | (_, SoftwareType::DmgOnly) => HardwareMode::Dmg,
-            (false, SoftwareType::CgbEnhanced | SoftwareType::CgbOnly) => HardwareMode::Cgb,
+        let hardware_mode = match software_type {
+            SoftwareType::DmgOnly => {
+                if config.force_cgb_mode {
+                    HardwareMode::Cgb
+                } else {
+                    HardwareMode::Dmg
+                }
+            }
+            SoftwareType::CgbEnhanced | SoftwareType::CgbOnly => {
+                if config.force_dmg_mode {
+                    HardwareMode::Dmg
+                } else {
+                    HardwareMode::Cgb
+                }
+            }
         };
+
+        log::info!("Running with hardware mode {hardware_mode}, software type {software_type}");
 
         let boot_rom = match hardware_mode {
             HardwareMode::Dmg => boot_roms.dmg,
@@ -123,8 +138,6 @@ impl GameBoyEmulator {
         jgenesis_common::rom::mirror_to_next_power_of_two(&mut rom);
         let cartridge = Cartridge::create(rom.into_boxed_slice(), initial_sram, save_writer)?;
 
-        log::info!("Running with hardware mode {hardware_mode}");
-
         Ok(Self {
             hardware_mode,
             cpu: Sm83::new(hardware_mode, config.pretend_to_be_gba, boot_rom_present),
@@ -133,7 +146,7 @@ impl GameBoyEmulator {
             memory,
             serial_port: SerialPort::new(hardware_mode),
             interrupt_registers: InterruptRegisters::default(),
-            speed_register: SpeedRegister::new(),
+            cgb_registers: CgbRegisters::new(),
             cartridge,
             timer: GbTimer::new(),
             dma_unit: DmaUnit::new(),
@@ -145,11 +158,11 @@ impl GameBoyEmulator {
     }
 
     pub fn copy_background(&self, tile_map: BackgroundTileMap, out: &mut [Color]) {
-        self.ppu.copy_background(tile_map, out);
+        self.ppu.copy_background(tile_map, self.cgb_registers.dmg_compatibility, out);
     }
 
     pub fn copy_sprites(&self, out: &mut [Color]) {
-        self.ppu.copy_sprites(out);
+        self.ppu.copy_sprites(self.cgb_registers.dmg_compatibility, out);
     }
 
     pub fn copy_palettes(&self, out: &mut [Color]) {
@@ -204,7 +217,7 @@ impl EmulatorTrait for GameBoyEmulator {
             serial_port: &mut self.serial_port,
             cartridge: &mut self.cartridge,
             interrupt_registers: &mut self.interrupt_registers,
-            speed_register: &mut self.speed_register,
+            cgb_registers: &mut self.cgb_registers,
             timer: &mut self.timer,
             dma_unit: &mut self.dma_unit,
             input_state: &mut self.input_state,
@@ -296,7 +309,7 @@ impl EmulatorTrait for GameBoyEmulator {
     }
 
     fn save_state_version() -> &'static str {
-        "0.10.1-0"
+        "0.10.1-1"
     }
 
     fn target_fps(&self) -> f64 {

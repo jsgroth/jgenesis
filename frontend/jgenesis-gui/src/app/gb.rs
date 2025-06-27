@@ -29,6 +29,8 @@ impl App {
                     self.state.help_text.insert(WINDOW, helptext::PRETEND_GBA_MODE);
                 }
 
+                ui.add_space(5.0);
+
                 let running_gb = self.emu_thread.status() != EmuThreadStatus::RunningGameBoy;
                 ui.add_enabled_ui(running_gb, |ui| {
                     let rect = ui
@@ -40,6 +42,19 @@ impl App {
                     if ui.rect_contains_pointer(rect) {
                         self.state.help_text.insert(WINDOW, helptext::FORCE_DMG_MODE);
                     }
+
+                    let rect = ui
+                        .checkbox(
+                            &mut self.config.game_boy.force_cgb_mode,
+                            "Force CGB mode in DMG-only software (requires CGB boot ROM)",
+                        )
+                        .interact_rect;
+                    if ui.rect_contains_pointer(rect) {
+                        self.state.help_text.insert(WINDOW, helptext::FORCE_CGB_MODE);
+                    }
+
+                    // Require CGB boot ROM when forcing CGB mode
+                    self.config.game_boy.cgb_boot_rom |= self.config.game_boy.force_cgb_mode;
 
                     ui.add_space(5.0);
 
@@ -53,15 +68,17 @@ impl App {
                         self.state.help_text.insert(WINDOW, helptext::BOOT_ROM);
                     }
 
-                    let rect = ui
-                        .checkbox(
-                            &mut self.config.game_boy.cgb_boot_rom,
-                            "Boot from boot ROM in CGB mode",
-                        )
-                        .interact_rect;
-                    if ui.rect_contains_pointer(rect) {
-                        self.state.help_text.insert(WINDOW, helptext::BOOT_ROM);
-                    }
+                    ui.add_enabled_ui(!self.config.game_boy.force_cgb_mode, |ui| {
+                        let rect = ui
+                            .checkbox(
+                                &mut self.config.game_boy.cgb_boot_rom,
+                                "Boot from boot ROM in CGB mode",
+                            )
+                            .interact_rect;
+                        if ui.rect_contains_pointer(rect) {
+                            self.state.help_text.insert(WINDOW, helptext::BOOT_ROM);
+                        }
+                    });
 
                     ui.add_space(5.0);
 

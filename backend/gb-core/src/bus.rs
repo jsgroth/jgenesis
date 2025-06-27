@@ -3,6 +3,7 @@
 use crate::HardwareMode;
 use crate::apu::Apu;
 use crate::cartridge::Cartridge;
+use crate::cgb::{CgbRegisters, CpuSpeed};
 use crate::dma::DmaUnit;
 use crate::inputs::InputState;
 use crate::interrupts::InterruptRegisters;
@@ -11,23 +12,7 @@ use crate::ppu::Ppu;
 use crate::serial::SerialPort;
 use crate::sm83::InterruptType;
 use crate::sm83::bus::BusInterface;
-use crate::speed::{CpuSpeed, SpeedRegister};
 use crate::timer::GbTimer;
-
-trait HardwareModeExt {
-    fn read_opri(self) -> u8;
-}
-
-impl HardwareModeExt for HardwareMode {
-    fn read_opri(self) -> u8 {
-        // OPRI: Object priority
-        // This CGB-only register is not writable by software; it should read $FE (?) on CGB and $FF on DMG
-        match self {
-            Self::Dmg => 0xFF,
-            Self::Cgb => 0xFE,
-        }
-    }
-}
 
 pub struct Bus<'a> {
     pub hardware_mode: HardwareMode,
@@ -37,26 +22,32 @@ pub struct Bus<'a> {
     pub serial_port: &'a mut SerialPort,
     pub cartridge: &'a mut Cartridge,
     pub interrupt_registers: &'a mut InterruptRegisters,
-    pub speed_register: &'a mut SpeedRegister,
+    pub cgb_registers: &'a mut CgbRegisters,
     pub timer: &'a mut GbTimer,
     pub dma_unit: &'a mut DmaUnit,
     pub input_state: &'a mut InputState,
 }
 
-macro_rules! cgb_only_read {
-    ($bus:ident.$($op:tt)*) => {
-        match $bus.hardware_mode {
-            HardwareMode::Dmg => 0xFF,
-            HardwareMode::Cgb => $bus.$($op)*,
-        }
+fn cgb_only_read(bus: &Bus<'_>, read_fn: impl FnOnce(&Bus<'_>) -> u8) -> u8 {
+    match (bus.hardware_mode, bus.cgb_registers.dmg_compatibility) {
+        (HardwareMode::Dmg, _) | (HardwareMode::Cgb, true) => 0xFF,
+        (HardwareMode::Cgb, false) => read_fn(bus),
     }
 }
 
-macro_rules! cgb_only_write {
-    ($bus:ident.$($op:tt)*) => {
-        if $bus.hardware_mode == HardwareMode::Cgb {
-            $bus.$($op)*;
-        }
+fn cgb_only_write(bus: &mut Bus<'_>, write_fn: impl FnOnce(&mut Bus<'_>)) {
+    // The CGB boot ROM depends on still being able to write to some CGB registers between writing
+    // to KEY0 (enable DMG compatibility mode) and writing to BANK (unmap boot ROM)
+    if bus.hardware_mode == HardwareMode::Cgb
+        && (!bus.cgb_registers.dmg_compatibility || bus.memory.boot_rom_mapped())
+    {
+        write_fn(bus);
+    }
+}
+
+fn cgb_boot_rom_only_write(bus: &mut Bus<'_>, write_fn: impl FnOnce(&mut Bus<'_>)) {
+    if bus.hardware_mode == HardwareMode::Cgb && bus.memory.boot_rom_mapped() {
+        write_fn(bus);
     }
 }
 
@@ -73,14 +64,15 @@ impl Bus<'_> {
             0x07 => self.timer.read_tac(),
             0x0F => self.interrupt_registers.read_if(),
             0x10..=0x3F => self.apu.read_register(address),
-            0x40..=0x45 | 0x47..=0x4B | 0x4F | 0x68..=0x6B => self.ppu.read_register(address),
+            0x40..=0x45 | 0x47..=0x4B => self.ppu.read_register(address),
+            0x4F | 0x68..=0x6B => cgb_only_read(self, |bus| bus.ppu.read_register(address)),
             0x46 => self.dma_unit.read_dma_register(),
-            0x4D => cgb_only_read!(self.speed_register.read_key1()),
-            0x55 => cgb_only_read!(self.dma_unit.read_hdma5()),
-            0x6C => self.hardware_mode.read_opri(),
-            0x70 => cgb_only_read!(self.memory.read_svbk()),
-            0x76 => cgb_only_read!(self.apu.read_pcm12()),
-            0x77 => cgb_only_read!(self.apu.read_pcm34()),
+            0x4D => cgb_only_read(self, |bus| bus.cgb_registers.read_key1()),
+            0x55 => cgb_only_read(self, |bus| bus.dma_unit.read_hdma5()),
+            0x6C => cgb_only_read(self, |bus| bus.cgb_registers.read_opri()),
+            0x70 => cgb_only_read(self, |bus| bus.memory.read_svbk()),
+            0x76 => cgb_only_read(self, |bus| bus.apu.read_pcm12()),
+            0x77 => cgb_only_read(self, |bus| bus.apu.read_pcm34()),
             _ => {
                 log::debug!("Unexpected I/O register read: {address:04X}");
                 0xFF
@@ -100,27 +92,29 @@ impl Bus<'_> {
             0x07 => self.timer.write_tac(value),
             0x0F => self.interrupt_registers.write_if(value),
             0x10..=0x3F => self.apu.write_register(address, value),
-            0x40..=0x45 | 0x47..=0x4B | 0x4F | 0x68..=0x6B => {
-                self.ppu.write_register(
-                    address,
-                    value,
-                    self.speed_register.speed,
-                    self.interrupt_registers,
-                );
+            0x40..=0x45 | 0x47..=0x4B => self.write_ppu_register(address, value),
+            0x4F | 0x68..=0x6B => {
+                cgb_only_write(self, |bus| bus.write_ppu_register(address, value));
             }
             0x46 => self.dma_unit.write_dma_register(value),
-            0x4D => cgb_only_write!(self.speed_register.write_key1(value)),
+            0x4C => cgb_boot_rom_only_write(self, |bus| bus.cgb_registers.write_key0(value)),
+            0x4D => cgb_only_write(self, |bus| bus.cgb_registers.write_key1(value)),
             0x50 => self.memory.write_bank(value),
-            0x51 => cgb_only_write!(self.dma_unit.write_hdma1(value)),
-            0x52 => cgb_only_write!(self.dma_unit.write_hdma2(value)),
-            0x53 => cgb_only_write!(self.dma_unit.write_hdma3(value)),
-            0x54 => cgb_only_write!(self.dma_unit.write_hdma4(value)),
-            0x55 => cgb_only_write!(self.dma_unit.write_hdma5(value, self.ppu.mode())),
-            0x70 => cgb_only_write!(self.memory.write_svbk(value)),
+            0x51 => cgb_only_write(self, |bus| bus.dma_unit.write_hdma1(value)),
+            0x52 => cgb_only_write(self, |bus| bus.dma_unit.write_hdma2(value)),
+            0x53 => cgb_only_write(self, |bus| bus.dma_unit.write_hdma3(value)),
+            0x54 => cgb_only_write(self, |bus| bus.dma_unit.write_hdma4(value)),
+            0x55 => cgb_only_write(self, |bus| bus.dma_unit.write_hdma5(value, bus.ppu.mode())),
+            0x6C => cgb_boot_rom_only_write(self, |bus| bus.cgb_registers.write_opri(value)),
+            0x70 => cgb_only_write(self, |bus| bus.memory.write_svbk(value)),
             _ => {
                 log::debug!("Unexpected I/O register write: {address:04X} {value:02X}");
             }
         }
+    }
+
+    fn write_ppu_register(&mut self, address: u16, value: u8) {
+        self.ppu.write_register(address, value, self.cgb_registers.speed, self.interrupt_registers);
     }
 
     fn tick_components(&mut self) {
@@ -128,10 +122,9 @@ impl Bus<'_> {
         self.dma_unit.oam_dma_tick_m_cycle(self.cartridge, self.memory, self.ppu);
         self.serial_port.tick(self.interrupt_registers);
 
-        if self.speed_register.speed == CpuSpeed::Double {
-            self.speed_register.double_speed_odd_cycle =
-                !self.speed_register.double_speed_odd_cycle;
-            if self.speed_register.double_speed_odd_cycle {
+        if self.cgb_registers.speed == CpuSpeed::Double {
+            self.cgb_registers.double_speed_odd_cycle = !self.cgb_registers.double_speed_odd_cycle;
+            if self.cgb_registers.double_speed_odd_cycle {
                 return;
             }
         }
@@ -141,10 +134,10 @@ impl Bus<'_> {
         }
 
         for _ in 0..4 {
-            self.ppu.tick_dot(self.speed_register.speed, self.dma_unit, self.interrupt_registers);
+            self.ppu.tick_dot(*self.cgb_registers, self.dma_unit, self.interrupt_registers);
         }
 
-        self.apu.tick_m_cycle(self.timer, self.speed_register.speed);
+        self.apu.tick_m_cycle(self.timer, self.cgb_registers.speed);
 
         self.cartridge.tick_cpu();
     }
@@ -219,10 +212,10 @@ impl BusInterface for Bus<'_> {
     }
 
     fn speed_switch_armed(&self) -> bool {
-        self.speed_register.switch_armed
+        self.cgb_registers.speed_switch_armed
     }
 
     fn perform_speed_switch(&mut self) {
-        self.speed_register.perform_speed_switch();
+        self.cgb_registers.perform_speed_switch();
     }
 }

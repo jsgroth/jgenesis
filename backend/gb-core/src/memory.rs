@@ -145,6 +145,10 @@ impl Memory {
     pub fn clone_boot_rom(&mut self) -> Option<Vec<u8>> {
         self.boot_rom_present.then(|| self.boot_rom.to_vec())
     }
+
+    pub fn boot_rom_mapped(&self) -> bool {
+        self.boot_rom_mapped
+    }
 }
 
 fn map_ram_address(address: u16, ram_bank: u8) -> u16 {
