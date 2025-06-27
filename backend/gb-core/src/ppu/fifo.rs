@@ -1,4 +1,5 @@
 use crate::HardwareMode;
+use crate::cgb::{CgbRegisters, ObjPriority};
 use crate::ppu::registers::{CgbPaletteRam, Registers, TileDataArea};
 use crate::ppu::{MAX_SPRITES_PER_LINE, PpuFrameBuffer, SCREEN_WIDTH, SpriteData, Vram};
 use bincode::{Decode, Encode};
@@ -115,6 +116,7 @@ impl PixelFifo {
         &mut self,
         vram: &Vram,
         registers: &Registers,
+        cgb_registers: CgbRegisters,
         bg_palette_ram: &CgbPaletteRam,
         sprite_palette_ram: &CgbPaletteRam,
         frame_buffer: Option<&mut PpuFrameBuffer>,
@@ -128,6 +130,7 @@ impl PixelFifo {
                     fields,
                     vram,
                     registers,
+                    cgb_registers,
                     bg_palette_ram,
                     sprite_palette_ram,
                     frame_buffer,
@@ -198,11 +201,13 @@ impl PixelFifo {
         });
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn handle_rendering_bg_tile(
         &mut self,
         mut fields: RenderingBgTileFields,
         vram: &Vram,
         registers: &Registers,
+        cgb_registers: CgbRegisters,
         bg_palette_ram: &CgbPaletteRam,
         sprite_palette_ram: &CgbPaletteRam,
         frame_buffer: Option<&mut PpuFrameBuffer>,
@@ -213,7 +218,7 @@ impl PixelFifo {
 
             // TODO GBC always fetches sprite tiles even when sprites are disabled
             if registers.sprites_enabled {
-                self.fetch_next_sprite_tile(sprite, vram, registers);
+                self.fetch_next_sprite_tile(sprite, vram, registers, cgb_registers.obj_priority);
 
                 // Sprite fetches take at minimum 6 cycles, and the fetch may be delayed by an additional 1-5 cycles if it
                 // needs to wait for a BG fetch to finish
@@ -323,24 +328,42 @@ impl PixelFifo {
                     && registers.bg_enabled
                     && (sprite_pixel.low_priority || bg_pixel.high_priority))
             {
-                match self.hardware_mode {
-                    HardwareMode::Dmg => registers.sprite_palettes[sprite_pixel.palette as usize]
-                        [sprite_pixel.color as usize]
-                        .into(),
-                    HardwareMode::Cgb => {
+                // Render sprite pixel
+                let read_dmg_color = |pixel: SpritePixel| {
+                    registers.sprite_palettes[pixel.palette as usize][pixel.color as usize]
+                };
+
+                match (self.hardware_mode, cgb_registers.dmg_compatibility) {
+                    (HardwareMode::Dmg, _) => read_dmg_color(sprite_pixel).into(),
+                    (HardwareMode::Cgb, false) => {
                         sprite_palette_ram.read_color(sprite_pixel.palette, sprite_pixel.color)
                     }
+                    (HardwareMode::Cgb, true) => {
+                        let dmg_color = read_dmg_color(sprite_pixel);
+                        sprite_palette_ram.read_color(sprite_pixel.palette, dmg_color)
+                    }
                 }
-            } else if registers.bg_enabled || self.hardware_mode == HardwareMode::Cgb {
-                match self.hardware_mode {
-                    HardwareMode::Dmg => registers.bg_palette[bg_pixel.color as usize].into(),
-                    HardwareMode::Cgb => {
+            } else if registers.bg_enabled
+                || (self.hardware_mode == HardwareMode::Cgb && !cgb_registers.dmg_compatibility)
+            {
+                // Render BG pixel
+                match (self.hardware_mode, cgb_registers.dmg_compatibility) {
+                    (HardwareMode::Dmg, _) => registers.bg_palette[bg_pixel.color as usize].into(),
+                    (HardwareMode::Cgb, false) => {
                         bg_palette_ram.read_color(bg_pixel.palette, bg_pixel.color)
+                    }
+                    (HardwareMode::Cgb, true) => {
+                        let dmg_color = registers.bg_palette[bg_pixel.color as usize];
+                        bg_palette_ram.read_color(0, dmg_color)
                     }
                 }
             } else {
                 // In DMG mode, if BG is disabled and sprite pixel is transparent, always display white
-                0
+                // In CGB mode (DMG compatibility), always look up BG color 0
+                match self.hardware_mode {
+                    HardwareMode::Dmg => 0,
+                    HardwareMode::Cgb => bg_palette_ram.read_color(0, 0),
+                }
             };
 
             if let Some(frame_buffer) = frame_buffer {
@@ -369,7 +392,13 @@ impl PixelFifo {
         }
     }
 
-    fn fetch_next_sprite_tile(&mut self, sprite: SpriteData, vram: &Vram, registers: &Registers) {
+    fn fetch_next_sprite_tile(
+        &mut self,
+        sprite: SpriteData,
+        vram: &Vram,
+        registers: &Registers,
+        cgb_obj_priority: ObjPriority,
+    ) {
         let sprite_tile = fetch_sprite_tile(sprite, self.y, vram, registers.double_height_sprites);
 
         while self.sprites.len() < 8 {
@@ -383,9 +412,10 @@ impl PixelFifo {
             }
 
             // Replace any transparent pixels in the FIFO
-            // If in CGB mode, also replace any non-transparent pixels from sprites with a higher OAM index
+            // If in CGB mode and OPRI=0, also replace any non-transparent pixels from sprites with a higher OAM index
             if self.sprites[i].color == 0
                 || (self.hardware_mode == HardwareMode::Cgb
+                    && cgb_obj_priority == ObjPriority::OamIndex
                     && sprite.oam_index < self.sprites[i].oam_index)
             {
                 self.sprites[i] = SpritePixel {

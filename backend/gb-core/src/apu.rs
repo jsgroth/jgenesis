@@ -11,7 +11,7 @@ use crate::apu::noise::NoiseChannel;
 use crate::apu::pulse::PulseChannel;
 use crate::apu::wavetable::WavetableChannel;
 use crate::audio::GameBoyResampler;
-use crate::speed::CpuSpeed;
+use crate::cgb::CpuSpeed;
 use crate::timer::GbTimer;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::AudioOutput;

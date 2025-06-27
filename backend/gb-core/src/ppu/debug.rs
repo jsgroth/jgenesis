@@ -11,7 +11,12 @@ impl Ppu {
         self.registers.double_height_sprites
     }
 
-    pub fn copy_background(&self, tile_map: BackgroundTileMap, out: &mut [Color]) {
+    pub fn copy_background(
+        &self,
+        tile_map: BackgroundTileMap,
+        cgb_dmg_compatibility: bool,
+        out: &mut [Color],
+    ) {
         let tile_map_addr = match tile_map {
             BackgroundTileMap::Zero => registers::TILE_MAP_AREA_0,
             BackgroundTileMap::One => registers::TILE_MAP_AREA_1,
@@ -55,11 +60,15 @@ impl Ppu {
                             HardwareMode::Dmg => {
                                 resolve_dmg_color(self.registers.bg_palette[color_id as usize])
                             }
-                            HardwareMode::Cgb => resolve_cgb_color(
-                                &self.bg_palette_ram,
-                                attributes.palette,
-                                color_id,
-                            ),
+                            HardwareMode::Cgb => {
+                                let (palette, color_id) = if cgb_dmg_compatibility {
+                                    (0, self.registers.bg_palette[color_id as usize])
+                                } else {
+                                    (attributes.palette, color_id)
+                                };
+
+                                resolve_cgb_color(&self.bg_palette_ram, palette, color_id)
+                            }
                         };
 
                         let out_idx =
@@ -71,7 +80,7 @@ impl Ppu {
         }
     }
 
-    pub fn copy_sprites(&self, out: &mut [Color]) {
+    pub fn copy_sprites(&self, cgb_dmg_compatibility: bool, out: &mut [Color]) {
         let double_height_sprites = self.registers.double_height_sprites;
         let sprite_height = if double_height_sprites { 16 } else { 8 };
 
@@ -117,7 +126,17 @@ impl Ppu {
                             self.registers.sprite_palettes[dmg_palette as usize][color_id as usize],
                         ),
                         HardwareMode::Cgb => {
-                            resolve_cgb_color(&self.sprite_palette_ram, cgb_palette, color_id)
+                            let (palette, color_id) = if cgb_dmg_compatibility {
+                                (
+                                    dmg_palette,
+                                    self.registers.sprite_palettes[dmg_palette as usize]
+                                        [color_id as usize],
+                                )
+                            } else {
+                                (cgb_palette, color_id)
+                            };
+
+                            resolve_cgb_color(&self.sprite_palette_ram, palette, color_id)
                         }
                     };
 

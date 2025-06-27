@@ -8,6 +8,14 @@ pub const FORCE_DMG_MODE: HelpText = HelpText {
     ],
 };
 
+pub const FORCE_CGB_MODE: HelpText = HelpText {
+    heading: "Force CGB Mode",
+    text: &[
+        "Force the emulator to operate as a Game Boy Color even when loading games with no GBC functionality.",
+        "Requires a CGB boot ROM in order to initialize the compatibility palettes.",
+    ],
+};
+
 pub const PRETEND_GBA_MODE: HelpText = HelpText {
     heading: "Pretend GBA Mode",
     text: &[
