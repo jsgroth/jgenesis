@@ -849,7 +849,7 @@ impl Bus {
         self.mapper.move_rom_from(&mut other.mapper);
     }
 
-    pub(crate) fn reload_config(&mut self, config: NesEmulatorConfig) {
+    pub(crate) fn reload_config(&mut self, config: &NesEmulatorConfig) {
         self.io_registers.overscan = config.overscan;
     }
 }

@@ -437,6 +437,7 @@ impl AppConfigExt for AppConfig {
             emulator_config: NesEmulatorConfig {
                 forced_timing_mode: self.nes.forced_timing_mode,
                 aspect_ratio: self.nes.aspect_ratio,
+                palette: self.nes.palette,
                 ntsc_crop_vertical_overscan: self.nes.ntsc_crop_vertical_overscan,
                 overscan: self.nes.overscan,
                 remove_sprite_limit: self.nes.remove_sprite_limit,

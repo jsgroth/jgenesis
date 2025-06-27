@@ -240,7 +240,7 @@ impl ApuState {
         }
     }
 
-    fn tick_cpu(&mut self, bus: &mut CpuBus<'_>, config: NesEmulatorConfig) {
+    fn tick_cpu(&mut self, bus: &mut CpuBus<'_>, config: &NesEmulatorConfig) {
         self.pulse_channel_1.tick_cpu();
         self.pulse_channel_2.tick_cpu();
         self.triangle_channel.tick_cpu(config.silence_ultrasonic_triangle_output);
@@ -352,7 +352,7 @@ fn mix_tnd_samples(triangle_sample: u8, noise_sample: u8, dmc_sample: u8) -> f64
 ///
 /// This function only updates internal state. It does not directly output audio samples anywhere.
 /// To retrieve the current audio sample, call `ApuState::sample`.
-pub fn tick(state: &mut ApuState, bus: &mut CpuBus<'_>, config: NesEmulatorConfig) {
+pub fn tick(state: &mut ApuState, bus: &mut CpuBus<'_>, config: &NesEmulatorConfig) {
     log::trace!("APU: Frame counter state: {:?}", state.frame_counter);
     log::trace!("APU: Pulse 1 state: {:?}", state.pulse_channel_1);
     log::trace!("APU: Pulse 2 state: {:?}", state.pulse_channel_2);

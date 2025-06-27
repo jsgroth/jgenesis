@@ -19,7 +19,7 @@ use thiserror::Error;
 
 pub use graphics::PatternTable;
 use mos6502_emu::bus::BusInterface;
-use nes_config::{NesAspectRatio, NesAudioResampler, NesButton, Overscan};
+use nes_config::{NesAspectRatio, NesAudioResampler, NesButton, NesPalette, Overscan};
 
 // The number of master clock ticks to run in one `Emulator::tick` call
 const PAL_MASTER_CLOCK_TICKS: u32 = 80;
@@ -34,6 +34,9 @@ pub struct NesEmulatorConfig {
     pub forced_timing_mode: Option<TimingMode>,
     /// Aspect ratio
     pub aspect_ratio: NesAspectRatio,
+    /// Palette
+    #[cfg_display(skip)]
+    pub palette: NesPalette,
     /// Crop frame vertically from 240px to 224px in NTSC mode
     pub ntsc_crop_vertical_overscan: bool,
     /// Overscan in pixels
@@ -109,7 +112,7 @@ impl NesEmulator {
         let ppu_state = PpuState::new(timing_mode, config.ntsc_crop_vertical_overscan);
         let mut apu_state = ApuState::new(timing_mode);
 
-        init_apu(&mut apu_state, &mut bus, config);
+        init_apu(&mut apu_state, &mut bus, &config);
 
         Ok(Self {
             bus,
@@ -131,17 +134,17 @@ impl NesEmulator {
 
     fn ntsc_tick(&mut self) {
         cpu::tick(&mut self.cpu_state, &mut self.bus.cpu(), self.apu_state.is_active_cycle());
-        apu::tick(&mut self.apu_state, &mut self.bus.cpu(), self.config);
-        ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), self.config);
+        apu::tick(&mut self.apu_state, &mut self.bus.cpu(), &self.config);
+        ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), &self.config);
         self.bus.tick_cpu();
         self.bus.tick();
 
         self.bus.poll_interrupt_lines();
 
-        ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), self.config);
+        ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), &self.config);
         self.bus.tick();
 
-        ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), self.config);
+        ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), &self.config);
         self.bus.tick();
 
         self.push_audio_sample();
@@ -150,8 +153,8 @@ impl NesEmulator {
     fn pal_tick(&mut self) {
         // Both CPU and PPU tick on the first master clock cycle
         cpu::tick(&mut self.cpu_state, &mut self.bus.cpu(), self.apu_state.is_active_cycle());
-        apu::tick(&mut self.apu_state, &mut self.bus.cpu(), self.config);
-        ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), self.config);
+        apu::tick(&mut self.apu_state, &mut self.bus.cpu(), &self.config);
+        ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), &self.config);
         self.bus.tick_cpu();
         self.bus.tick();
 
@@ -166,7 +169,7 @@ impl NesEmulator {
                     &mut self.bus.cpu(),
                     self.apu_state.is_active_cycle(),
                 );
-                apu::tick(&mut self.apu_state, &mut self.bus.cpu(), self.config);
+                apu::tick(&mut self.apu_state, &mut self.bus.cpu(), &self.config);
                 self.bus.tick_cpu();
                 self.bus.tick();
 
@@ -174,7 +177,7 @@ impl NesEmulator {
 
                 self.push_audio_sample();
             } else if i % PAL_PPU_DIVIDER == 0 {
-                ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), self.config);
+                ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), &self.config);
                 self.bus.tick();
             }
         }
@@ -192,6 +195,7 @@ impl NesEmulator {
             &mut self.rgba_frame_buffer,
             overscan,
             display_mode,
+            &self.config.palette,
         );
 
         let visible_screen_height = display_mode.visible_screen_height();
@@ -226,15 +230,15 @@ impl NesEmulator {
     }
 
     pub fn copy_nametables(&mut self, pattern_table: PatternTable, out: &mut [Color]) {
-        graphics::copy_nametables(pattern_table, &mut self.bus.ppu(), out);
+        graphics::copy_nametables(pattern_table, &mut self.bus.ppu(), out, &self.config.palette);
     }
 
     pub fn copy_oam(&mut self, pattern_table: PatternTable, out: &mut [Color]) {
-        graphics::copy_oam(pattern_table, &mut self.bus.ppu(), out);
+        graphics::copy_oam(pattern_table, &mut self.bus.ppu(), out, &self.config.palette);
     }
 
     pub fn copy_palette_ram(&mut self, out: &mut [Color]) {
-        graphics::copy_palette_ram(&self.bus.ppu(), out);
+        graphics::copy_palette_ram(&self.bus.ppu(), out, &self.config.palette);
     }
 
     #[inline]
@@ -320,7 +324,7 @@ impl EmulatorTrait for NesEmulator {
     fn reload_config(&mut self, config: &Self::Config) {
         self.config = *config;
 
-        self.bus.reload_config(*config);
+        self.bus.reload_config(config);
         self.audio_resampler.reload_config(config);
         self.ppu_state.ntsc_crop_vertical_overscan = config.ntsc_crop_vertical_overscan;
     }
@@ -336,7 +340,7 @@ impl EmulatorTrait for NesEmulator {
         ppu::reset(&mut self.ppu_state, &mut self.bus.ppu());
 
         for _ in 0..10 {
-            apu::tick(&mut self.apu_state, &mut self.bus.cpu(), self.config);
+            apu::tick(&mut self.apu_state, &mut self.bus.cpu(), &self.config);
             self.bus.tick();
         }
     }
@@ -363,7 +367,7 @@ impl EmulatorTrait for NesEmulator {
     }
 }
 
-fn init_apu(apu_state: &mut ApuState, bus: &mut Bus, config: NesEmulatorConfig) {
+fn init_apu(apu_state: &mut ApuState, bus: &mut Bus, config: &NesEmulatorConfig) {
     // Write 0x00 to JOY2 to reset the frame counter
     bus.cpu().write(0x4017, 0x00);
     bus.tick();

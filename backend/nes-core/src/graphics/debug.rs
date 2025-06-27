@@ -3,6 +3,7 @@ use crate::graphics;
 use crate::ppu::ColorEmphasis;
 use jgenesis_common::frontend::Color;
 use jgenesis_common::num::GetBit;
+use nes_config::NesPalette;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PatternTable {
@@ -11,7 +12,12 @@ pub enum PatternTable {
     One,
 }
 
-pub fn copy_nametables(pattern_table: PatternTable, bus: &mut PpuBus<'_>, out: &mut [Color]) {
+pub fn copy_nametables(
+    pattern_table: PatternTable,
+    bus: &mut PpuBus<'_>,
+    out: &mut [Color],
+    nes_palette: &NesPalette,
+) {
     let backdrop_color = bus.get_palette_ram()[0] & 0x3F;
 
     // Dump the pattern tables and nametables into Vecs because this function is horrendously slow if it needs to do
@@ -53,7 +59,8 @@ pub fn copy_nametables(pattern_table: PatternTable, bus: &mut PpuBus<'_>, out: &
                     + u32::from(nametable & 0x01) * 256
                     + u32::from(row) * 256 * 2
                     + u32::from(col);
-                out[out_idx as usize] = graphics::nes_color_to_rgba(nes_color, ColorEmphasis::NONE);
+                out[out_idx as usize] =
+                    graphics::nes_color_to_rgba(nes_color, ColorEmphasis::NONE, nes_palette);
             }
         }
     }
@@ -77,7 +84,12 @@ fn dump_pattern_table_into(pattern_table: PatternTable, bus: &mut PpuBus<'_>, ou
     }
 }
 
-pub fn copy_oam(pattern_table: PatternTable, bus: &mut PpuBus<'_>, out: &mut [Color]) {
+pub fn copy_oam(
+    pattern_table: PatternTable,
+    bus: &mut PpuBus<'_>,
+    out: &mut [Color],
+    nes_palette: &NesPalette,
+) {
     let backdrop_color = bus.get_palette_ram()[0] & 0x3F;
 
     let mut pattern_tables = vec![0; 0x2000];
@@ -134,15 +146,17 @@ pub fn copy_oam(pattern_table: PatternTable, bus: &mut PpuBus<'_>, out: &mut [Co
                 };
 
                 let out_idx = (sprite / 8) * 64 * rows + (sprite % 8) * 8 + row * 64 + col;
-                out[out_idx as usize] = graphics::nes_color_to_rgba(nes_color, ColorEmphasis::NONE);
+                out[out_idx as usize] =
+                    graphics::nes_color_to_rgba(nes_color, ColorEmphasis::NONE, nes_palette);
             }
         }
     }
 }
 
-pub fn copy_palette_ram(bus: &PpuBus<'_>, out: &mut [Color]) {
+pub fn copy_palette_ram(bus: &PpuBus<'_>, out: &mut [Color], nes_palette: &NesPalette) {
     let palette_ram = bus.get_palette_ram();
     for (&nes_color, out_color) in palette_ram.iter().zip(out) {
-        *out_color = graphics::nes_color_to_rgba(nes_color & 0x3F, ColorEmphasis::NONE);
+        *out_color =
+            graphics::nes_color_to_rgba(nes_color & 0x3F, ColorEmphasis::NONE, nes_palette);
     }
 }

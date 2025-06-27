@@ -9,7 +9,7 @@ mod snes;
 mod widgets;
 
 use crate::app::input::{GenericButton, InputMappingSet};
-use crate::app::nes::OverscanState;
+use crate::app::nes::{NesPaletteState, OverscanState};
 use crate::app::romlist::{RomListThreadHandle, RomMetadata};
 use crate::app::snes::HandledError;
 use crate::app::widgets::RenderErrorEffect;
@@ -144,6 +144,7 @@ struct AppState {
     audio_gain_text: String,
     audio_gain_invalid: bool,
     display_scanlines_warning: bool,
+    nes_palette: NesPaletteState,
     overscan: OverscanState,
     waiting_for_input: Option<(GenericButton, InputMappingSet)>,
     rom_list: Arc<Mutex<Vec<RomMetadata>>>,
@@ -157,8 +158,9 @@ struct AppState {
 }
 
 impl AppState {
-    fn from_config(config: &AppConfig) -> Self {
+    fn from_config(config: &AppConfig, ctx: &Context) -> Self {
         let recent_open_list = romlist::from_recent_opens(&config.recent_open_list);
+
         Self {
             current_file_path: PathBuf::new(),
             open_windows: HashSet::new(),
@@ -176,6 +178,7 @@ impl AppState {
             audio_buffer_size_invalid: false,
             audio_gain_text: format!("{:.1}", config.common.audio_gain_db),
             audio_gain_invalid: false,
+            nes_palette: NesPaletteState::create(ctx, &config.nes.palette),
             overscan: config.nes.overscan().into(),
             display_scanlines_warning: should_display_scanlines_warning(config),
             waiting_for_input: None,
@@ -237,7 +240,7 @@ impl App {
     pub fn new(config_path: PathBuf, load_at_startup: Option<LoadAtStartup>, ctx: Context) -> Self {
         let config = load_app_config(&config_path);
 
-        let state = AppState::from_config(&config);
+        let state = AppState::from_config(&config, &ctx);
         let emu_thread = emuthread::spawn(ctx.clone());
 
         let rom_list_thread = RomListThreadHandle::spawn(Arc::clone(&state.rom_list), ctx);
@@ -1225,6 +1228,8 @@ impl eframe::App for App {
             if let Err(err) = fs::write(&self.config_path, config_str) {
                 log::error!("Error serializing app config: {err}");
             }
+
+            nes::update_palette_textures(ctx, &self.state.nes_palette, &self.config.nes.palette);
         }
 
         self.state.rendered_first_frame = true;
