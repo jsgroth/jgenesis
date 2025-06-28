@@ -31,7 +31,7 @@ pub struct PaletteGenerationArgs {
 
 impl Default for PaletteGenerationArgs {
     fn default() -> Self {
-        Self { brightness: 1.0, saturation: 1.0, contrast: 1.0, gamma: 2.0, hue_offset: 0.0 }
+        Self { brightness: 1.0, saturation: 1.0, contrast: 1.0, gamma: 1.8, hue_offset: 0.0 }
     }
 }
 
@@ -87,6 +87,10 @@ const CHROMA_SATURATION_CORRECTION: f64 = 2.0 * (40.0 / 140.0) / (0.524 - 0.148)
 const SAMPLES: u8 = 12;
 const WEIGHT: f64 = 1.0 / (SAMPLES as f64);
 
+// NESDev wiki says 3.9 offset, but 2.9 produces much more accurate colors; probably due to a
+// difference in how the samples are aggregated
+const BASE_HUE_OFFSET: f64 = 2.9;
+
 fn nes_to_yuv(nes_color: u8, emphasis: ColorEmphasis, hue_offset: f64) -> (f64, f64, f64) {
     use std::f64::consts::PI;
 
@@ -96,7 +100,7 @@ fn nes_to_yuv(nes_color: u8, emphasis: ColorEmphasis, hue_offset: f64) -> (f64, 
 
     for phase in 0..SAMPLES {
         let ntsc_signal = WEIGHT * generate_normalized_ntsc_signal(nes_color, emphasis, phase);
-        let wave_phase = f64::from(phase) + 3.0 + hue_offset;
+        let wave_phase = f64::from(phase) + BASE_HUE_OFFSET + hue_offset;
 
         y += ntsc_signal;
         u += ntsc_signal * (wave_phase / 12.0 * 2.0 * PI).sin() * CHROMA_SATURATION_CORRECTION;
@@ -181,7 +185,7 @@ pub fn extrapolate_64_to_512(palette: &[(u8, u8, u8); 64]) -> NesPalette {
                 continue;
             }
 
-            let wave_phase = (f64::from(phase) + 3.0) / 12.0;
+            let wave_phase = (f64::from(phase) + BASE_HUE_OFFSET) / 12.0;
 
             y -= difference;
             u -= difference * (wave_phase * 2.0 * PI).sin() * CHROMA_SATURATION_CORRECTION;
