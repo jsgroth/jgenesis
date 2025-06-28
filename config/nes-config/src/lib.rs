@@ -3,6 +3,7 @@ pub mod palettes;
 #[cfg(feature = "serde")]
 mod serialization;
 
+use crate::palettes::PaletteGenerationArgs;
 use bincode::{Decode, Encode};
 use jgenesis_common::define_controller_inputs;
 use jgenesis_common::frontend::PixelAspectRatio;
@@ -13,6 +14,7 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::ops::Index;
 use std::path::Path;
+use std::sync::LazyLock;
 use std::{array, io};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
@@ -80,8 +82,6 @@ fn bytes_to_triples_array<const LEN: usize>(bytes: &[u8]) -> [(u8, u8, u8); LEN]
 pub struct NesPalette(pub [(u8, u8, u8); 512]);
 
 impl NesPalette {
-    const DEFAULT_BYTES: &'static [u8; 512 * 3] = include_bytes!("nespalette.pal");
-
     /// Load a 512-color or 64-color palette from a file.
     ///
     /// 64-color palettes will be extrapolated to 512 colors.
@@ -136,7 +136,10 @@ impl NesPalette {
 
 impl Default for NesPalette {
     fn default() -> Self {
-        Self(bytes_to_triples_array(Self::DEFAULT_BYTES))
+        static DEFAULT: LazyLock<NesPalette> =
+            LazyLock::new(|| palettes::generate(PaletteGenerationArgs::default()));
+
+        *DEFAULT
     }
 }
 
