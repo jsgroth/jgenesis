@@ -130,6 +130,8 @@ pub fn eeprom(rom: &[u8], checksum: u32) -> Option<EepromMetadata> {
                 0xB3ABB15E => Some(CODEMASTERS_24C08_METADATA),
                 // Micro Machines: Turbo Tournament 96 (E)
                 0x23319D0D => Some(CODEMASTERS_24C16_METADATA),
+                // Honoo no Toukyuuji - Dodge Danpei (J)
+                0x630F07C6 => Some(SEGA_CAPCOM_METADATA),
                 _ => None,
             }
         }
