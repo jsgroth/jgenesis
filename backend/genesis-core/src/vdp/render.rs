@@ -294,7 +294,13 @@ impl Vdp {
     fn fill_frame_buffer_row(&mut self, row: u32, starting_pixel: u16, color: u16) {
         let screen_width = self.screen_width();
 
-        let left_border = self.state.frame_h_resolution.left_border();
+        // TODO properly handle BG color changes inside the left border - requires adjusting when
+        // line rendering occurs, or adding some state to track which pixels not to overwrite
+        let left_border = if self.config.render_horizontal_border {
+            self.state.frame_h_resolution.left_border()
+        } else {
+            0
+        };
         let starting_col =
             if starting_pixel == 0 { 0 } else { u32::from(starting_pixel + left_border) };
 
