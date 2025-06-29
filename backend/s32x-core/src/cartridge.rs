@@ -1,5 +1,5 @@
 use bincode::{Decode, Encode};
-use genesis_core::cartridge::SegaMapper;
+use genesis_core::cartridge::SsfMapper;
 use genesis_core::cartridge::eeprom::X24C02Chip;
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
@@ -118,24 +118,21 @@ fn map_ram_address(address: u32, start_address: u32) -> usize {
 pub struct Cartridge {
     #[partial_clone(default)]
     pub rom: Rom,
-    mapper: Option<SegaMapper>,
+    mapper: Option<SsfMapper>,
     persistent: PersistentMemory,
     ram_mapped: bool,
 }
 
 impl Cartridge {
     pub fn new(rom: Box<[u8]>, initial_ram: Option<Vec<u8>>) -> Self {
-        let mapper = SegaMapper::should_use(&rom).then(SegaMapper::new);
-
-        log::info!("Using SSF mapper for ROM banking: {}", mapper.is_some());
-
         let has_ram = &rom[0x1B0..0x1B2] == "RA".as_bytes();
         let has_eeprom = has_ram && rom[0x1B2] == 0xE8;
-
-        // TODO check RAM type? assuming 8-bit at odd addresses
+        let mut initial_ram_mapped = false;
 
         let persistent = if has_eeprom {
             log::info!("Cartridge has EEPROM, assuming 24C02 chip mapped to $200000-$200001");
+
+            initial_ram_mapped = true;
 
             PersistentMemory::Eeprom {
                 chip: Box::new(X24C02Chip::new(initial_ram.as_ref())),
@@ -153,6 +150,8 @@ impl Cartridge {
 
             log::info!("Cartridge RAM address range: ${start_address:06X}-${end_address:06X}");
 
+            initial_ram_mapped = start_address >= rom.len() as u32;
+
             PersistentMemory::Ram {
                 ram,
                 start_address,
@@ -163,10 +162,13 @@ impl Cartridge {
             PersistentMemory::None
         };
 
-        // Map RAM by default unless there is none
-        let ram_mapped = !matches!(persistent, PersistentMemory::None);
+        let mapper = SsfMapper::should_use(&rom).then(|| SsfMapper::new(false));
 
-        Self { rom: Rom(rom), mapper, persistent, ram_mapped }
+        log::info!("Using SSF mapper for ROM banking: {}", mapper.is_some());
+
+        // TODO check RAM type? assuming 8-bit at odd addresses
+
+        Self { rom: Rom(rom), mapper, persistent, ram_mapped: initial_ram_mapped }
     }
 
     pub fn read_byte(&self, address: u32) -> u8 {
@@ -219,7 +221,7 @@ impl Cartridge {
 
     pub fn write_mapper_bank_register(&mut self, address: u32, value: u8) {
         let Some(mapper) = &mut self.mapper else { return };
-        mapper.write(address, value);
+        mapper.write_register(address, value);
     }
 
     pub fn persistent_memory(&self) -> &[u8] {

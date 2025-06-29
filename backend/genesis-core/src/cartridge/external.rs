@@ -6,6 +6,7 @@ use crate::cartridge::eeprom::{X24C01Chip, X24C02Chip, X24C08Chip, X24C16Chip};
 use crate::cartridge::external::metadata::{EepromMetadata, EepromType};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
+use std::ops::Range;
 
 // Games that expect to have 8KB of SRAM mapped to $200001-$203FFF but don't specify that in the header
 const FORCE_SRAM_CHECKSUMS: &[u32] = &[
@@ -150,10 +151,11 @@ impl Ram {
     fn read_word(&self, address: u32) -> Option<u16> {
         let msb = self.read_byte(address);
         let lsb = self.read_byte(address.wrapping_add(1));
-        if msb.is_none() && lsb.is_none() {
-            None
-        } else {
-            Some(u16::from_be_bytes([msb.unwrap_or(0x00), lsb.unwrap_or(0x00)]))
+        match (msb, lsb) {
+            (Some(msb), Some(lsb)) => Some(u16::from_be_bytes([msb, lsb])),
+            (Some(msb), None) => Some(u16::from_be_bytes([msb, msb])),
+            (None, Some(lsb)) => Some(u16::from_be_bytes([lsb, lsb])),
+            (None, None) => None,
         }
     }
 
@@ -365,6 +367,21 @@ impl ExternalMemory {
                 dirty
             }
             Self::Eeprom { chip, .. } => chip.get_and_clear_dirty_bit(),
+        }
+    }
+
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
+    #[allow(clippy::range_plus_one)]
+    pub fn address_range(&self) -> Range<u32> {
+        match self {
+            Self::None => 0..0,
+            Self::Ram(ram) => ram.start_address..ram.end_address + 1,
+            &Self::Eeprom { sda_in_addr, sda_out_addr, scl_addr, .. } => {
+                let start = [sda_in_addr, sda_out_addr, scl_addr].into_iter().min().unwrap();
+                let end = [sda_in_addr, sda_out_addr, scl_addr].into_iter().max().unwrap();
+                start..end + 1
+            }
         }
     }
 }

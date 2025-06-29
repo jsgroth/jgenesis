@@ -16,14 +16,16 @@ pub mod external;
 const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 
 #[derive(Debug, Clone, Default, FakeEncode, FakeDecode)]
-struct Rom(Box<[u16]>);
+pub struct Rom(pub Box<[u16]>);
 
 impl Rom {
-    fn new(bytes: Vec<u8>) -> Self {
+    #[must_use]
+    pub fn new(bytes: Vec<u8>) -> Self {
         Self(bytes_to_words(bytes))
     }
 
-    fn read_byte(&self, address: u32) -> Option<u8> {
+    #[must_use]
+    pub fn read_byte(&self, address: u32) -> Option<u8> {
         let word_addr = (address >> 1) as usize;
 
         if word_addr < self.0.len() {
@@ -36,7 +38,8 @@ impl Rom {
         }
     }
 
-    fn read_word(&self, address: u32) -> Option<u16> {
+    #[must_use]
+    pub fn read_word(&self, address: u32) -> Option<u16> {
         let word_addr = (address >> 1) as usize;
 
         if word_addr < self.0.len() {
@@ -65,31 +68,130 @@ fn words_to_bytes(words: Box<[u16]>) -> Vec<u8> {
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]
-pub struct SegaMapper {
-    bank_numbers: [u8; 8],
+pub struct BasicMapper {
+    ram_mapped: bool,
 }
 
-impl SegaMapper {
+impl BasicMapper {
     #[must_use]
-    pub fn new() -> Self {
-        Self { bank_numbers: array::from_fn(|i| i as u8) }
+    pub fn new(initial_ram_mapped: bool) -> Self {
+        Self { ram_mapped: initial_ram_mapped }
     }
 
-    pub fn write(&mut self, address: u32, value: u8) {
-        let idx = (address >> 1) & 0x07;
-        if idx == 0 {
-            // First bank can't be changed, always points to first 512KB of ROM
-            return;
+    #[must_use]
+    pub fn read_byte(self, address: u32, rom: &Rom, external: &ExternalMemory) -> Option<u8> {
+        if self.ram_mapped
+            && let Some(byte) = external.read_byte(address)
+        {
+            Some(byte)
+        } else {
+            rom.read_byte(address)
         }
+    }
 
-        self.bank_numbers[idx as usize] = value;
+    #[must_use]
+    pub fn read_word(self, address: u32, rom: &Rom, external: &ExternalMemory) -> Option<u16> {
+        if self.ram_mapped
+            && let Some(word) = external.read_word(address)
+        {
+            Some(word)
+        } else {
+            rom.read_word(address)
+        }
+    }
+
+    pub fn write_byte(self, address: u32, value: u8, external: &mut ExternalMemory) {
+        if self.ram_mapped {
+            external.write_byte(address, value);
+        }
+    }
+
+    pub fn write_word(self, address: u32, value: u16, external: &mut ExternalMemory) {
+        if self.ram_mapped {
+            external.write_word(address, value);
+        }
+    }
+
+    pub fn write_register(&mut self, address: u32, value: u8) {
+        if address == 0xA130F1 {
+            write_ram_mapped_register(&mut self.ram_mapped, value);
+        }
+    }
+}
+
+fn write_ram_mapped_register(ram_mapped: &mut bool, value: u8) {
+    *ram_mapped = value.bit(0);
+
+    log::debug!("RAM map register write: {value:02X} (mapped = {ram_mapped})");
+}
+
+#[derive(Debug, Clone, Copy, Encode, Decode)]
+pub struct SsfMapper {
+    rom_banks: [u8; 8],
+    ram_mapped: bool,
+}
+
+impl SsfMapper {
+    #[must_use]
+    pub fn new(initial_ram_mapped: bool) -> Self {
+        Self { rom_banks: array::from_fn(|i| i as u8), ram_mapped: initial_ram_mapped }
     }
 
     #[must_use]
     pub fn map_address(self, address: u32) -> u32 {
         let idx = (address >> 19) & 0x07;
-        let bank_number: u32 = self.bank_numbers[idx as usize].into();
+        let bank_number: u32 = self.rom_banks[idx as usize].into();
         (bank_number << 19) | (address & 0x07FFFF)
+    }
+
+    #[must_use]
+    pub fn read_byte(self, address: u32, rom: &Rom, external: &ExternalMemory) -> Option<u8> {
+        if self.ram_mapped
+            && let Some(byte) = external.read_byte(address)
+        {
+            Some(byte)
+        } else {
+            let rom_addr = self.map_address(address);
+            rom.read_byte(rom_addr)
+        }
+    }
+
+    #[must_use]
+    pub fn read_word(self, address: u32, rom: &Rom, external: &ExternalMemory) -> Option<u16> {
+        if self.ram_mapped
+            && let Some(word) = external.read_word(address)
+        {
+            Some(word)
+        } else {
+            let rom_addr = self.map_address(address);
+            rom.read_word(rom_addr)
+        }
+    }
+
+    pub fn write_byte(self, address: u32, value: u8, external: &mut ExternalMemory) {
+        if self.ram_mapped {
+            external.write_byte(address, value);
+        }
+    }
+
+    pub fn write_word(self, address: u32, value: u16, external: &mut ExternalMemory) {
+        if self.ram_mapped {
+            external.write_word(address, value);
+        }
+    }
+
+    pub fn write_register(&mut self, address: u32, value: u8) {
+        match address {
+            0xA130F1 => write_ram_mapped_register(&mut self.ram_mapped, value),
+            0xA130F3..=0xA130FF if address.bit(0) => {
+                // ROM bank registers
+                let idx = (address >> 1) & 7;
+                self.rom_banks[idx as usize] = value;
+
+                log::trace!("ROM bank {idx} set to {value:02X}");
+            }
+            _ => {}
+        }
     }
 
     #[must_use]
@@ -107,14 +209,93 @@ impl SegaMapper {
     }
 }
 
-impl Default for SegaMapper {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 fn is_super_street_fighter_2(serial_number: &[u8]) -> bool {
     serial_number == b"T-12056 " || serial_number == b"MK-12056" || serial_number == b"T-12043 "
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+enum Mapper {
+    Basic(BasicMapper),
+    Ssf(SsfMapper),
+    Svp(Box<Svp>),
+    // TODO this mapper is probably not implemented correctly - seems to have ROM banking
+    UnlRockmanX3,
+}
+
+impl Mapper {
+    fn read_byte(&mut self, address: u32, rom: &Rom, external: &ExternalMemory) -> Option<u8> {
+        match self {
+            Self::Basic(mapper) => mapper.read_byte(address, rom, external),
+            Self::Ssf(mapper) => mapper.read_byte(address, rom, external),
+            Self::Svp(svp) => {
+                let word = svp.m68k_read(address, &rom.0);
+                let byte = if !address.bit(0) { word.msb() } else { word.lsb() };
+                Some(byte)
+            }
+            Self::UnlRockmanX3 => rom.read_byte(address),
+        }
+    }
+
+    fn read_word(&mut self, address: u32, rom: &Rom, external: &ExternalMemory) -> Option<u16> {
+        match self {
+            Self::Basic(mapper) => mapper.read_word(address, rom, external),
+            Self::Ssf(mapper) => mapper.read_word(address, rom, external),
+            Self::Svp(svp) => Some(svp.m68k_read(address, &rom.0)),
+            Self::UnlRockmanX3 => {
+                match address {
+                    // The unlicensed Rockman X3 port depends on $A13000 reads returning a value where the lower
+                    // 4 bits are $C or else it will immediately crash and display "decode error"
+                    0xA13000 => Some(0xC),
+                    _ => rom.read_word(address),
+                }
+            }
+        }
+    }
+
+    fn write_byte(&mut self, address: u32, value: u8, external: &mut ExternalMemory) {
+        match self {
+            Self::Basic(mapper) => mapper.write_byte(address, value, external),
+            Self::Ssf(mapper) => mapper.write_byte(address, value, external),
+            Self::Svp(svp) => svp.m68k_write_byte(address, value),
+            Self::UnlRockmanX3 => {}
+        }
+    }
+
+    fn write_word(&mut self, address: u32, value: u16, external: &mut ExternalMemory) {
+        match self {
+            Self::Basic(mapper) => mapper.write_word(address, value, external),
+            Self::Ssf(mapper) => mapper.write_word(address, value, external),
+            Self::Svp(svp) => svp.m68k_write_word(address, value),
+            Self::UnlRockmanX3 => {}
+        }
+    }
+
+    fn write_register_byte(&mut self, address: u32, value: u8) {
+        match self {
+            Self::Basic(mapper) => mapper.write_register(address, value),
+            Self::Ssf(mapper) => mapper.write_register(address, value),
+            Self::Svp(svp) => svp.m68k_write_byte(address, value),
+            Self::UnlRockmanX3 => {}
+        }
+    }
+
+    fn write_register_word(&mut self, address: u32, value: u16) {
+        match self {
+            Self::Basic(mapper) => mapper.write_register(address | 1, value as u8),
+            Self::Ssf(mapper) => mapper.write_register(address | 1, value as u8),
+            Self::Svp(svp) => svp.m68k_write_word(address, value),
+            Self::UnlRockmanX3 => {}
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Basic(..) => "Basic",
+            Self::Ssf(..) => "SSF",
+            Self::Svp(..) => "SVP",
+            Self::UnlRockmanX3 => "Unlicensed Rockman X3",
+        }
+    }
 }
 
 pub trait GenesisRegionExt: Sized + Copy {
@@ -201,13 +382,10 @@ pub struct CartridgeHeader {
 pub struct Cartridge {
     #[partial_clone(default)]
     rom: Rom,
-    external_memory: ExternalMemory,
-    ram_mapped: bool,
-    mapper: Option<SegaMapper>,
-    svp: Option<Svp>,
+    external: ExternalMemory,
+    mapper: Mapper,
     region: GenesisRegion,
     program_title: String,
-    is_unlicensed_rockman_x3: bool,
 }
 
 const TRIPLE_PLAY_GOLD_SERIAL: &[u8] = b"T-172116";
@@ -218,6 +396,7 @@ const QUACKSHOT_REV_A_SERIAL: &[u8] = b"GM 00004054-01";
 const ROCKMAN_X3_CHECKSUM: u32 = 0x3EE639F0;
 
 impl Cartridge {
+    #[must_use]
     pub fn from_rom(
         rom_bytes: Vec<u8>,
         initial_ram_bytes: Option<Vec<u8>>,
@@ -239,23 +418,35 @@ impl Cartridge {
 
         let external_memory = ExternalMemory::from_rom(&rom_bytes, checksum, initial_ram_bytes);
 
-        // Initialize ram_mapped to true if external memory is present
-        // Only one game ever unmaps RAM (Phantasy Star 4)
-        let ram_mapped = !matches!(external_memory, ExternalMemory::None);
-
-        let mapper = SegaMapper::should_use(&rom_bytes).then(SegaMapper::new);
-        log::info!("Using Sega banked mapper: {}", mapper.is_some());
-
         let serial_number = &rom_bytes[0x183..0x18B];
-
-        // Only one game uses the SVP, Virtua Racing
-        let svp = is_virtua_racing(serial_number).then(Svp::new);
-
-        if rom_bytes.len() >= 0x300000
-            && (serial_number == TRIPLE_PLAY_GOLD_SERIAL || serial_number == TRIPLE_PLAY_96_SERIAL)
-        {
+        let is_triple_play = rom_bytes.len() >= 0x300000
+            && (serial_number == TRIPLE_PLAY_GOLD_SERIAL || serial_number == TRIPLE_PLAY_96_SERIAL);
+        if is_triple_play {
             fix_triple_play_rom(&mut rom_bytes);
         }
+
+        // Initialize ram_mapped to true if external memory is present and the address range is past
+        // the end of ROM.
+        // Some games with cartridge RAM will never write to $A130F1, assuming RAM is always mapped.
+        // Special case Triple Play because its RAM is mapped to $200000-$20FFFF while ROM is mapped
+        // to $000000-$1FFFFF + $300000-$3FFFFF, and it never writes to $A130F1
+        let ram_present = !matches!(external_memory, ExternalMemory::None);
+        let initial_ram_mapped = ram_present
+            && (external_memory.address_range().start >= rom_bytes.len() as u32 || is_triple_play);
+
+        let serial_number = &rom_bytes[0x183..0x18B];
+        let mapper = if is_virtua_racing(serial_number) {
+            // Only one game uses the SVP, Virtua Racing
+            Mapper::Svp(Box::new(Svp::new()))
+        } else if SsfMapper::should_use(&rom_bytes) {
+            Mapper::Ssf(SsfMapper::new(initial_ram_mapped))
+        } else if checksum == ROCKMAN_X3_CHECKSUM {
+            Mapper::UnlRockmanX3
+        } else {
+            Mapper::Basic(BasicMapper::new(initial_ram_mapped))
+        };
+
+        log::info!("Using mapper {}", mapper.name());
 
         if rom_bytes.len() == 0x80000 && &rom_bytes[0x180..0x18E] == QUACKSHOT_REV_A_SERIAL {
             rom_bytes = fix_quackshot_rev_a_rom(rom_bytes);
@@ -263,40 +454,13 @@ impl Cartridge {
 
         let program_title = parse_title_from_header(&rom_bytes, region);
 
-        let is_unlicensed_rockman_x3 = checksum == ROCKMAN_X3_CHECKSUM;
-
-        Self {
-            rom: Rom::new(rom_bytes),
-            external_memory,
-            ram_mapped,
-            mapper,
-            svp,
-            region,
-            program_title,
-            is_unlicensed_rockman_x3,
-        }
+        Self { rom: Rom::new(rom_bytes), external: external_memory, mapper, region, program_title }
     }
 
     #[inline]
     pub fn tick(&mut self, m68k_cycles: u32) {
-        if let Some(svp) = &mut self.svp {
+        if let Mapper::Svp(svp) = &mut self.mapper {
             svp.tick(&self.rom.0, m68k_cycles);
-        }
-    }
-
-    fn write_cartridge_register(&mut self, address: u32, value: u8) {
-        match address {
-            0xA130F1 => {
-                self.ram_mapped = value.bit(0);
-            }
-            0xA130F3..=0xA130FF => {
-                if let Some(mapper) = &mut self.mapper {
-                    mapper.write(address, value);
-                }
-            }
-            _ => log::error!(
-                "unexpected cartridge register write; address={address:06X}, value={value:02X}"
-            ),
         }
     }
 
@@ -312,17 +476,17 @@ impl Cartridge {
 
     #[must_use]
     pub fn external_ram(&self) -> &[u8] {
-        self.external_memory.get_memory()
+        self.external.get_memory()
     }
 
     #[must_use]
     pub fn is_ram_persistent(&self) -> bool {
-        self.external_memory.is_persistent()
+        self.external.is_persistent()
     }
 
     #[must_use]
     pub fn get_and_clear_ram_dirty(&mut self) -> bool {
-        self.external_memory.get_and_clear_dirty_bit()
+        self.external.get_and_clear_dirty_bit()
     }
 
     #[must_use]
@@ -470,71 +634,32 @@ fn is_virtua_racing(serial_number: &[u8]) -> bool {
 impl PhysicalMedium for Cartridge {
     #[inline]
     fn read_byte(&mut self, address: u32) -> u8 {
-        if let Some(svp) = &mut self.svp {
-            let word = svp.m68k_read(address & !1, &self.rom.0);
-            return if address.bit(0) { word.lsb() } else { word.msb() };
-        }
-
-        if self.ram_mapped {
-            if let Some(byte) = self.external_memory.read_byte(address) {
-                return byte;
-            }
-        }
-
-        let rom_addr = self.mapper.map_or(address, |mapper| mapper.map_address(address));
-        self.rom.read_byte(rom_addr).unwrap_or(0)
+        self.mapper.read_byte(address, &self.rom, &self.external).unwrap_or(!0)
     }
 
     #[inline]
     fn read_word(&mut self, address: u32) -> u16 {
-        if let Some(svp) = &mut self.svp {
-            return svp.m68k_read(address, &self.rom.0);
-        }
-
-        // The unlicensed Rockman X3 port depends on $A13000 reads returning a value where the lower
-        // 4 bits are $C or else it will immediately crash and display "decode error"
-        if self.is_unlicensed_rockman_x3 && address == 0xA13000 {
-            return 0x000C;
-        }
-
-        if self.ram_mapped {
-            if let Some(word) = self.external_memory.read_word(address) {
-                return word;
-            }
-        }
-
-        let rom_addr = self.mapper.map_or(address, |mapper| mapper.map_address(address));
-        self.rom.read_word(rom_addr).unwrap_or(0)
+        self.mapper.read_word(address, &self.rom, &self.external).unwrap_or(!0)
     }
 
     #[inline]
     fn read_word_for_dma(&mut self, address: u32) -> u16 {
-        if self.svp.is_some() {
-            // SVP cartridge memory has the same delay issue as Sega CD word RAM; Virtua Racing sets
-            // DMA source address 2 higher than the "correct" address
-            self.read_word(address.wrapping_sub(2))
-        } else {
-            self.read_word(address)
+        // SVP cartridge memory has the same delay issue as Sega CD word RAM; Virtua Racing sets
+        // DMA source address 2 higher than the "correct" address
+        match &mut self.mapper {
+            Mapper::Svp(svp) => svp.m68k_read(address.wrapping_sub(2), &self.rom.0),
+            _ => self.read_word(address),
         }
     }
 
     #[inline]
     fn write_byte(&mut self, address: u32, value: u8) {
-        if let Some(svp) = &mut self.svp {
-            svp.m68k_write_byte(address, value);
-            return;
-        }
-
         match address {
-            0x000000..=0x3FFFFF => {
-                if self.ram_mapped {
-                    self.external_memory.write_byte(address, value);
-                } else {
-                    log::debug!("Cartridge write with no RAM mapped: {address:06X} {value:02X}");
-                }
+            0x000000..=0x7FFFFF => {
+                self.mapper.write_byte(address, value, &mut self.external);
             }
-            0xA13000..=0xA130FF => {
-                self.write_cartridge_register(address, value);
+            0xA13000..=0xA15FFF => {
+                self.mapper.write_register_byte(address, value);
             }
             _ => {
                 log::debug!("Write to invalid cartridge address: {address:06X} {value:02X}");
@@ -544,21 +669,12 @@ impl PhysicalMedium for Cartridge {
 
     #[inline]
     fn write_word(&mut self, address: u32, value: u16) {
-        if let Some(svp) = &mut self.svp {
-            svp.m68k_write_word(address, value);
-            return;
-        }
-
         match address {
-            0x000000..=0x3FFFFF => {
-                if self.ram_mapped {
-                    self.external_memory.write_word(address, value);
-                } else {
-                    log::debug!("Cartridge write with no RAM mapped: {address:06X} {value:04X}");
-                }
+            0x000000..=0x7FFFFF => {
+                self.mapper.write_word(address, value, &mut self.external);
             }
-            0xA13000..=0xA130FF => {
-                self.write_cartridge_register(address + 1, value as u8);
+            0xA13000..=0xA15FFF => {
+                self.mapper.write_register_word(address, value);
             }
             _ => {
                 log::debug!("Write to invalid cartridge address: {address:06X} {value:04X}");
