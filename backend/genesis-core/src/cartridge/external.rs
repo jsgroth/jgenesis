@@ -25,7 +25,7 @@ pub(crate) enum RamType {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
-pub(crate) struct Ram {
+pub struct Ram {
     ram: Vec<u8>,
     address_mask: u32,
     ram_type: RamType,
@@ -36,7 +36,8 @@ pub(crate) struct Ram {
 }
 
 impl Ram {
-    pub(crate) fn from_rom_header(
+    #[must_use]
+    pub fn from_rom_header(
         mut rom: &[u8],
         checksum: u32,
         initial_ram: &mut Option<Vec<u8>>,
@@ -197,7 +198,7 @@ impl Ram {
 
 #[derive(Debug, Clone, Encode, Decode)]
 #[allow(clippy::large_enum_variant)]
-pub(crate) enum Eeprom {
+pub enum Eeprom {
     X24C01(X24C01Chip),
     X24C02(X24C02Chip),
     X24C08(X24C08Chip),
@@ -242,7 +243,7 @@ impl Eeprom {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
-pub(crate) enum ExternalMemory {
+pub enum ExternalMemory {
     None,
     Ram(Ram),
     Eeprom {
@@ -257,7 +258,8 @@ pub(crate) enum ExternalMemory {
 }
 
 impl ExternalMemory {
-    pub(crate) fn from_rom(rom: &[u8], checksum: u32, mut initial_ram: Option<Vec<u8>>) -> Self {
+    #[must_use]
+    pub fn from_rom(rom: &[u8], checksum: u32, mut initial_ram: Option<Vec<u8>>) -> Self {
         if let Some(ram) = Ram::from_rom_header(rom, checksum, &mut initial_ram) {
             return Self::Ram(ram);
         }
@@ -270,7 +272,8 @@ impl ExternalMemory {
         Self::None
     }
 
-    pub(crate) fn read_byte(&self, address: u32) -> Option<u8> {
+    #[must_use]
+    pub fn read_byte(&self, address: u32) -> Option<u8> {
         match self {
             Self::None => None,
             Self::Ram(ram) => ram.read_byte(address),
@@ -280,7 +283,8 @@ impl ExternalMemory {
         }
     }
 
-    pub(crate) fn read_word(&self, address: u32) -> Option<u16> {
+    #[must_use]
+    pub fn read_word(&self, address: u32) -> Option<u16> {
         match self {
             Self::None => None,
             Self::Ram(ram) => ram.read_word(address),
@@ -297,7 +301,7 @@ impl ExternalMemory {
         }
     }
 
-    pub(crate) fn write_byte(&mut self, address: u32, value: u8) {
+    pub fn write_byte(&mut self, address: u32, value: u8) {
         match self {
             Self::None => {
                 log::debug!("Write to invalid address {address:06X} {value:02X}");
@@ -317,7 +321,7 @@ impl ExternalMemory {
         }
     }
 
-    pub(crate) fn write_word(&mut self, address: u32, value: u16) {
+    pub fn write_word(&mut self, address: u32, value: u16) {
         match self {
             Self::None => {
                 log::debug!("Write to invalid address {address:06X} {value:04X}");
@@ -331,7 +335,8 @@ impl ExternalMemory {
         }
     }
 
-    pub(crate) fn get_memory(&self) -> &[u8] {
+    #[must_use]
+    pub fn get_memory(&self) -> &[u8] {
         const EMPTY_SLICE: &[u8] = &[];
 
         match self {
@@ -341,7 +346,8 @@ impl ExternalMemory {
         }
     }
 
-    pub(crate) fn is_persistent(&self) -> bool {
+    #[must_use]
+    pub fn is_persistent(&self) -> bool {
         match self {
             Self::None => false,
             Self::Ram(ram) => ram.persistent,
@@ -349,7 +355,8 @@ impl ExternalMemory {
         }
     }
 
-    pub(crate) fn get_and_clear_dirty_bit(&mut self) -> bool {
+    #[must_use]
+    pub fn get_and_clear_dirty_bit(&mut self) -> bool {
         match self {
             Self::None => false,
             Self::Ram(ram) => {

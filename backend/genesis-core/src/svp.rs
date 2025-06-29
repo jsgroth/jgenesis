@@ -316,7 +316,7 @@ impl Svp {
         }
     }
 
-    pub fn tick(&mut self, rom: &[u8], m68k_cycles: u32) {
+    pub fn tick(&mut self, rom: &[u16], m68k_cycles: u32) {
         if self.halted {
             return;
         }
@@ -345,13 +345,11 @@ impl Svp {
         }
     }
 
-    pub fn m68k_read(&mut self, address: u32, rom: &[u8]) -> u16 {
+    pub fn m68k_read(&mut self, address: u32, rom: &[u16]) -> u16 {
         match address {
             0x000000..=0x1FFFFF => {
                 // ROM
-                let msb = rom[address as usize];
-                let lsb = rom[(address + 1) as usize];
-                u16::from_be_bytes([msb, lsb])
+                rom[(address >> 1) as usize]
             }
             0x300000..=0x37FFFF => {
                 // DRAM, mirrored every 128KB / $1FFFF
@@ -425,7 +423,7 @@ impl Svp {
         }
     }
 
-    fn read_program_memory(&self, address: u16, rom: &[u8]) -> u16 {
+    fn read_program_memory(&self, address: u16, rom: &[u16]) -> u16 {
         match address {
             0x0000..=0x03FF => {
                 // IRAM
@@ -433,24 +431,18 @@ impl Svp {
             }
             0x0400..=0xFFFF => {
                 // ROM (first 128KB); program memory address maps to the same address in ROM
-                let byte_addr = u32::from(address) << 1;
-                let msb = rom[byte_addr as usize];
-                let lsb = rom[(byte_addr + 1) as usize];
-                u16::from_be_bytes([msb, lsb])
+                rom[address as usize]
             }
         }
     }
 
-    fn read_external_memory(&mut self, address: u32, rom: &[u8]) -> u16 {
+    fn read_external_memory(&mut self, address: u32, rom: &[u16]) -> u16 {
         log::trace!("External memory read: {address:06X}");
 
         match address {
             0x000000..=0x0FFFFF => {
                 // ROM
-                let byte_addr = address << 1;
-                let msb = rom[byte_addr as usize];
-                let lsb = rom[(byte_addr + 1) as usize];
-                u16::from_be_bytes([msb, lsb])
+                rom[address as usize]
             }
             0x180000..=0x18FFFF => {
                 // DRAM

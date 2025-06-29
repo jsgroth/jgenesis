@@ -31,7 +31,7 @@ pub trait PhysicalMedium {
     fn region(&self) -> GenesisRegion;
 }
 
-const MAIN_RAM_LEN: usize = 64 * 1024;
+const MAIN_RAM_LEN_WORDS: usize = 64 * 1024 / 2;
 const AUDIO_RAM_LEN: usize = 8 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
@@ -74,7 +74,7 @@ impl Signals {
 pub struct Memory<Medium> {
     #[partial_clone(partial)]
     physical_medium: Medium,
-    main_ram: Box<[u8; MAIN_RAM_LEN]>,
+    main_ram: Box<[u16; MAIN_RAM_LEN_WORDS]>,
     audio_ram: Box<[u8; AUDIO_RAM_LEN]>,
     z80_bank_register: Z80BankRegister,
     signals: Signals,
@@ -86,7 +86,7 @@ impl<Medium: PhysicalMedium> Memory<Medium> {
     pub fn new(physical_medium: Medium) -> Self {
         Self {
             physical_medium,
-            main_ram: vec![0; MAIN_RAM_LEN].into_boxed_slice().try_into().unwrap(),
+            main_ram: vec![0; MAIN_RAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             audio_ram: vec![0; AUDIO_RAM_LEN].into_boxed_slice().try_into().unwrap(),
             z80_bank_register: Z80BankRegister::default(),
             signals: Signals::default(),
@@ -97,13 +97,7 @@ impl<Medium: PhysicalMedium> Memory<Medium> {
     pub(crate) fn read_word_for_dma(&mut self, address: u32) -> u16 {
         match address {
             0x000000..=0x3FFFFF => self.physical_medium.read_word_for_dma(address),
-            0xE00000..=0xFFFFFF => {
-                let addr = (address & 0xFFFF) as usize;
-                u16::from_be_bytes([
-                    self.main_ram[addr],
-                    self.main_ram[addr.wrapping_add(1) & 0xFFFF],
-                ])
-            }
+            0xE00000..=0xFFFFFF => self.main_ram[((address & 0xFFFF) >> 1) as usize],
             _ => 0xFF,
         }
     }
@@ -144,7 +138,7 @@ impl Memory<Cartridge> {
 
     #[must_use]
     pub fn game_title(&self) -> String {
-        self.physical_medium.program_title()
+        self.physical_medium.program_title().into()
     }
 
     #[inline]
@@ -378,7 +372,13 @@ impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u32>
                 self.write_vdp_byte(address, value);
             }
             0xE00000..=0xFFFFFF => {
-                self.memory.main_ram[(address & 0xFFFF) as usize] = value;
+                let word_addr = ((address & 0xFFFF) >> 1) as usize;
+                let word = &mut self.memory.main_ram[word_addr];
+                if !address.bit(0) {
+                    word.set_msb(value);
+                } else {
+                    word.set_lsb(value);
+                }
             }
             _ => {}
         }
@@ -415,9 +415,7 @@ impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u32>
                 self.vdp.write_debug_register(value);
             }
             0xE00000..=0xFFFFFF => {
-                let ram_addr = (address & 0xFFFF) as usize;
-                self.memory.main_ram[ram_addr] = value.msb();
-                self.memory.main_ram[(ram_addr + 1) & 0xFFFF] = value.lsb();
+                self.memory.main_ram[((address & 0xFFFF) >> 1) as usize] = value;
             }
             _ => {}
         }
@@ -475,7 +473,10 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterfa
             0xA10000..=0xA1001F => self.read_io_register(address),
             0xA11100..=0xA11101 => (self.read_busack_register() >> 8) as u8,
             0xC00000..=0xC0001F => self.read_vdp_byte(address),
-            0xE00000..=0xFFFFFF => self.memory.main_ram[(address & 0xFFFF) as usize],
+            0xE00000..=0xFFFFFF => {
+                let word = self.memory.main_ram[((address & 0xFFFF) >> 1) as usize];
+                if !address.bit(0) { word.msb() } else { word.lsb() }
+            }
             _ => 0xFF,
         }
     }
@@ -507,13 +508,7 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterfa
             0xC00000..=0xC00003 => self.vdp.read_data(),
             0xC00004..=0xC00007 => self.read_vdp_status(),
             0xC00008..=0xC0000F => self.read_vdp_hv_counter(),
-            0xE00000..=0xFFFFFF => {
-                let ram_addr = (address & 0xFFFF) as usize;
-                u16::from_be_bytes([
-                    self.memory.main_ram[ram_addr],
-                    self.memory.main_ram[(ram_addr + 1) & 0xFFFF],
-                ])
-            }
+            0xE00000..=0xFFFFFF => self.memory.main_ram[((address & 0xFFFF) >> 1) as usize],
             _ => 0xFFFF,
         };
 

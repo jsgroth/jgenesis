@@ -7,7 +7,6 @@ use genesis_config::GenesisRegion;
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use regex::Regex;
-use std::ops::Index;
 use std::sync::LazyLock;
 use std::{array, iter, mem};
 
@@ -17,28 +16,52 @@ pub mod external;
 const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 
 #[derive(Debug, Clone, Default, FakeEncode, FakeDecode)]
-struct Rom(Vec<u8>);
+struct Rom(Box<[u16]>);
 
 impl Rom {
-    fn get(&self, i: usize) -> Option<u8> {
-        self.0.get(i).copied()
+    fn new(bytes: Vec<u8>) -> Self {
+        Self(bytes_to_words(bytes))
+    }
+
+    fn read_byte(&self, address: u32) -> Option<u8> {
+        let word_addr = (address >> 1) as usize;
+
+        if word_addr < self.0.len() {
+            let word = self.0[word_addr];
+            let byte = word >> (8 * ((address & 1) ^ 1));
+            Some(byte as u8)
+        } else {
+            log::debug!("Out of bounds ROM byte read {address:06X}");
+            None
+        }
+    }
+
+    fn read_word(&self, address: u32) -> Option<u16> {
+        let word_addr = (address >> 1) as usize;
+
+        if word_addr < self.0.len() {
+            Some(self.0[word_addr])
+        } else {
+            log::debug!("Out of bounds ROM word read {address:06X}");
+            None
+        }
     }
 }
 
-impl Index<usize> for Rom {
-    type Output = u8;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.0[index]
-    }
+fn bytes_to_words(bytes: Vec<u8>) -> Box<[u16]> {
+    let words: Vec<_> = bytes
+        .chunks(2)
+        .map(|chunk| {
+            let msb = chunk[0];
+            let lsb = chunk.get(1).copied().unwrap_or(0);
+            u16::from_be_bytes([msb, lsb])
+        })
+        .collect();
+    words.into_boxed_slice()
 }
 
-impl Index<u32> for Rom {
-    type Output = u8;
-
-    fn index(&self, index: u32) -> &Self::Output {
-        &self.0[index as usize]
-    }
+fn words_to_bytes(words: Box<[u16]>) -> Vec<u8> {
+    words.into_iter().flat_map(u16::to_be_bytes).collect()
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]
@@ -183,6 +206,7 @@ pub struct Cartridge {
     mapper: Option<SegaMapper>,
     svp: Option<Svp>,
     region: GenesisRegion,
+    program_title: String,
     is_unlicensed_rockman_x3: bool,
 }
 
@@ -237,15 +261,18 @@ impl Cartridge {
             rom_bytes = fix_quackshot_rev_a_rom(rom_bytes);
         }
 
+        let program_title = parse_title_from_header(&rom_bytes, region);
+
         let is_unlicensed_rockman_x3 = checksum == ROCKMAN_X3_CHECKSUM;
 
         Self {
-            rom: Rom(rom_bytes),
+            rom: Rom::new(rom_bytes),
             external_memory,
             ram_mapped,
             mapper,
             svp,
             region,
+            program_title,
             is_unlicensed_rockman_x3,
         }
     }
@@ -275,7 +302,8 @@ impl Cartridge {
 
     #[must_use]
     pub fn take_rom(&mut self) -> Vec<u8> {
-        mem::take(&mut self.rom).0
+        let words = mem::take(&mut self.rom.0);
+        words_to_bytes(words)
     }
 
     pub fn take_rom_from(&mut self, other: &mut Self) {
@@ -298,8 +326,8 @@ impl Cartridge {
     }
 
     #[must_use]
-    pub fn program_title(&self) -> String {
-        parse_title_from_header(&self.rom.0, self.region)
+    pub fn program_title(&self) -> &str {
+        &self.program_title
     }
 }
 
@@ -454,10 +482,7 @@ impl PhysicalMedium for Cartridge {
         }
 
         let rom_addr = self.mapper.map_or(address, |mapper| mapper.map_address(address));
-        self.rom.get(rom_addr as usize).unwrap_or_else(|| {
-            log::debug!("Out-of-bounds cartridge byte read: {address:06X}");
-            0xFF
-        })
+        self.rom.read_byte(rom_addr).unwrap_or(0)
     }
 
     #[inline]
@@ -479,12 +504,7 @@ impl PhysicalMedium for Cartridge {
         }
 
         let rom_addr = self.mapper.map_or(address, |mapper| mapper.map_address(address));
-        let msb = self.rom.get(rom_addr as usize).unwrap_or_else(|| {
-            log::debug!("Out-of-bounds cartridge word read: {address:06X}");
-            0xFF
-        });
-        let lsb = self.rom.get((rom_addr + 1) as usize).unwrap_or(0xFF);
-        u16::from_be_bytes([msb, lsb])
+        self.rom.read_word(rom_addr).unwrap_or(0)
     }
 
     #[inline]

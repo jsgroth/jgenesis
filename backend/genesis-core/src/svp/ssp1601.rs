@@ -146,7 +146,7 @@ impl Display for AddressingMode {
     }
 }
 
-pub fn execute_instruction(svp: &mut Svp, rom: &[u8]) {
+pub fn execute_instruction(svp: &mut Svp, rom: &[u16]) {
     let opcode = fetch_operand(svp, rom);
 
     log::trace!("PC={:04X}, opcode={opcode:04X}", svp.registers.pc.wrapping_sub(1));
@@ -235,13 +235,13 @@ pub fn execute_instruction(svp: &mut Svp, rom: &[u8]) {
     }
 }
 
-fn fetch_operand(svp: &mut Svp, rom: &[u8]) -> u16 {
+fn fetch_operand(svp: &mut Svp, rom: &[u16]) -> u16 {
     let operand = svp.read_program_memory(svp.registers.pc, rom);
     svp.registers.pc = svp.registers.pc.wrapping_add(1);
     operand
 }
 
-fn execute_load(svp: &mut Svp, rom: &[u8], source: AddressingMode, dest: AddressingMode) {
+fn execute_load(svp: &mut Svp, rom: &[u16], source: AddressingMode, dest: AddressingMode) {
     log::trace!("  LD source={source}, dest={dest}");
 
     match (source, dest) {
@@ -310,7 +310,7 @@ fn execute_load(svp: &mut Svp, rom: &[u8], source: AddressingMode, dest: Address
     }
 }
 
-fn execute_alu(svp: &mut Svp, rom: &[u8], opcode: u16) {
+fn execute_alu(svp: &mut Svp, rom: &[u16], opcode: u16) {
     let Some(op) = AluOp::from_opcode(opcode) else {
         panic!("Invalid SSP1601 opcode: {opcode:04X}");
     };
@@ -391,7 +391,7 @@ fn execute_mod(svp: &mut Svp, opcode: u16) {
     update_flags(svp, svp.registers.accumulator);
 }
 
-fn execute_call(svp: &mut Svp, rom: &[u8], opcode: u16) {
+fn execute_call(svp: &mut Svp, rom: &[u16], opcode: u16) {
     let address = fetch_operand(svp, rom);
     let condition = Condition::from_opcode(opcode);
 
@@ -403,7 +403,7 @@ fn execute_call(svp: &mut Svp, rom: &[u8], opcode: u16) {
     }
 }
 
-fn execute_bra(svp: &mut Svp, rom: &[u8], opcode: u16) {
+fn execute_bra(svp: &mut Svp, rom: &[u16], opcode: u16) {
     let address = fetch_operand(svp, rom);
     let condition = Condition::from_opcode(opcode);
 
@@ -450,13 +450,13 @@ fn execute_multiply_accumulate(svp: &mut Svp, opcode: u16, op: AccumulateOp) {
     log::trace!("  A={:08X}, P={:08X}", svp.registers.accumulator, svp.registers.product());
 }
 
-fn ld_d_s(svp: &mut Svp, rom: &[u8], opcode: u16) {
+fn ld_d_s(svp: &mut Svp, rom: &[u16], opcode: u16) {
     let source = AddressingMode::GeneralRegister(opcode & 0xF);
     let dest = AddressingMode::GeneralRegister((opcode >> 4) & 0xF);
     execute_load(svp, rom, source, dest);
 }
 
-fn ld_d_ri(svp: &mut Svp, rom: &[u8], opcode: u16) {
+fn ld_d_ri(svp: &mut Svp, rom: &[u16], opcode: u16) {
     let bank = RamBank::from_opcode(opcode);
     let pointer = opcode & 0x03;
     let source = AddressingMode::PointerRegister(bank, pointer);
@@ -466,7 +466,7 @@ fn ld_d_ri(svp: &mut Svp, rom: &[u8], opcode: u16) {
     execute_load(svp, rom, source, dest);
 }
 
-fn ld_ri_s(svp: &mut Svp, rom: &[u8], opcode: u16) {
+fn ld_ri_s(svp: &mut Svp, rom: &[u16], opcode: u16) {
     let bank = RamBank::from_opcode(opcode);
     let pointer = opcode & 0x03;
     let dest = AddressingMode::PointerRegister(bank, pointer);
@@ -476,7 +476,7 @@ fn ld_ri_s(svp: &mut Svp, rom: &[u8], opcode: u16) {
     execute_load(svp, rom, source, dest);
 }
 
-fn ld_d_ri_indirect(svp: &mut Svp, rom: &[u8], opcode: u16) {
+fn ld_d_ri_indirect(svp: &mut Svp, rom: &[u16], opcode: u16) {
     let bank = RamBank::from_opcode(opcode);
     let pointer = opcode & 0x03;
     let modifier = (opcode >> 2) & 0x03;
@@ -487,7 +487,7 @@ fn ld_d_ri_indirect(svp: &mut Svp, rom: &[u8], opcode: u16) {
     execute_load(svp, rom, source, dest);
 }
 
-fn ld_ri_s_indirect(svp: &mut Svp, rom: &[u8], opcode: u16) {
+fn ld_ri_s_indirect(svp: &mut Svp, rom: &[u16], opcode: u16) {
     let bank = RamBank::from_opcode(opcode);
     let pointer = opcode & 0x03;
     let modifier = (opcode >> 2) & 0x03;
@@ -498,7 +498,7 @@ fn ld_ri_s_indirect(svp: &mut Svp, rom: &[u8], opcode: u16) {
     execute_load(svp, rom, source, dest);
 }
 
-fn ld_d_ri_double_indirect(svp: &mut Svp, rom: &[u8], opcode: u16) {
+fn ld_d_ri_double_indirect(svp: &mut Svp, rom: &[u16], opcode: u16) {
     let bank = RamBank::from_opcode(opcode);
     let pointer = opcode & 0x03;
     let modifier = (opcode >> 2) & 0x03;
@@ -509,7 +509,7 @@ fn ld_d_ri_double_indirect(svp: &mut Svp, rom: &[u8], opcode: u16) {
     execute_load(svp, rom, source, dest);
 }
 
-fn ld_a_addr(svp: &mut Svp, rom: &[u8], opcode: u16) {
+fn ld_a_addr(svp: &mut Svp, rom: &[u16], opcode: u16) {
     let bank = RamBank::from_opcode(opcode);
     let address = opcode as u8;
     let source = AddressingMode::Direct { bank, address };
@@ -519,7 +519,7 @@ fn ld_a_addr(svp: &mut Svp, rom: &[u8], opcode: u16) {
     execute_load(svp, rom, source, dest);
 }
 
-fn ld_addr_a(svp: &mut Svp, rom: &[u8], opcode: u16) {
+fn ld_addr_a(svp: &mut Svp, rom: &[u16], opcode: u16) {
     let bank = RamBank::from_opcode(opcode);
     let address = opcode as u8;
     let dest = AddressingMode::Direct { bank, address };
@@ -529,13 +529,13 @@ fn ld_addr_a(svp: &mut Svp, rom: &[u8], opcode: u16) {
     execute_load(svp, rom, source, dest);
 }
 
-fn ldi_d_imm(svp: &mut Svp, rom: &[u8], opcode: u16) {
+fn ldi_d_imm(svp: &mut Svp, rom: &[u16], opcode: u16) {
     let source = AddressingMode::Immediate;
     let dest = AddressingMode::GeneralRegister((opcode >> 4) & 0xF);
     execute_load(svp, rom, source, dest);
 }
 
-fn ldi_ri_imm(svp: &mut Svp, rom: &[u8], opcode: u16) {
+fn ldi_ri_imm(svp: &mut Svp, rom: &[u16], opcode: u16) {
     let bank = RamBank::from_opcode(opcode);
     let pointer = opcode & 0x03;
     let modifier = (opcode >> 2) & 0x03;
@@ -546,7 +546,7 @@ fn ldi_ri_imm(svp: &mut Svp, rom: &[u8], opcode: u16) {
     execute_load(svp, rom, source, dest);
 }
 
-fn ldi_ri_simm(svp: &mut Svp, rom: &[u8], opcode: u16) {
+fn ldi_ri_simm(svp: &mut Svp, rom: &[u16], opcode: u16) {
     let source = AddressingMode::ShortImmediate(opcode as u8);
 
     let bank = if opcode.bit(10) { RamBank::One } else { RamBank::Zero };
@@ -556,7 +556,7 @@ fn ldi_ri_simm(svp: &mut Svp, rom: &[u8], opcode: u16) {
     execute_load(svp, rom, source, dest);
 }
 
-fn ld_d_a_indirect(svp: &mut Svp, rom: &[u8], opcode: u16) {
+fn ld_d_a_indirect(svp: &mut Svp, rom: &[u16], opcode: u16) {
     let source = AddressingMode::AccumulatorIndirect;
     let dest = AddressingMode::GeneralRegister((opcode >> 4) & 0xF);
     execute_load(svp, rom, source, dest);
@@ -607,7 +607,7 @@ fn parse_alu_addressing_mode(opcode: u16) -> AddressingMode {
     }
 }
 
-fn read_addressing_mode(svp: &mut Svp, rom: &[u8], source: AddressingMode) -> u16 {
+fn read_addressing_mode(svp: &mut Svp, rom: &[u16], source: AddressingMode) -> u16 {
     match source {
         AddressingMode::GeneralRegister(register) => read_register(svp, rom, register),
         AddressingMode::PointerRegister(bank, register) => match (bank, register) {
@@ -710,7 +710,7 @@ fn write_addressing_mode(svp: &mut Svp, dest: AddressingMode, value: u16) {
 }
 
 #[allow(clippy::match_same_arms)]
-fn read_register(svp: &mut Svp, rom: &[u8], register: u16) -> u16 {
+fn read_register(svp: &mut Svp, rom: &[u16], register: u16) -> u16 {
     match register {
         0 => {
             // Dummy/null register; always reads $FFFF
@@ -878,7 +878,7 @@ fn write_register(svp: &mut Svp, register: u16, value: u16) {
     }
 }
 
-fn pm_read(svp: &mut Svp, rom: &[u8], pm_idx: usize) -> u16 {
+fn pm_read(svp: &mut Svp, rom: &[u16], pm_idx: usize) -> u16 {
     log::trace!("PM{pm_idx} read");
 
     let pm_register = &mut svp.registers.pm_read[pm_idx];
