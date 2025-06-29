@@ -148,7 +148,7 @@ impl Sega32XEmulator {
 
     #[must_use]
     pub fn cartridge_title(&self) -> String {
-        genesis_core::memory::parse_title_from_header(
+        genesis_core::cartridge::parse_title_from_header(
             &self.memory.medium().cartridge().rom,
             self.region,
         )

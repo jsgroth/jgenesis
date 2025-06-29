@@ -1,14 +1,14 @@
 //! Genesis public interface and main loop
 
 use crate::audio::GenesisAudioResampler;
+use crate::cartridge::Cartridge;
 use crate::input::InputState;
-use crate::memory::{Cartridge, MainBus, MainBusSignals, MainBusWrites, Memory};
+use crate::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use crate::timing::{CycleCounters, GenesisCycleCounters};
 use crate::vdp::{Vdp, VdpConfig, VdpTickEffect};
 use crate::ym2612::Ym2612;
 use crate::{audio, timing, vdp};
 use bincode::{Decode, Encode};
-use crc::Crc;
 use genesis_config::{
     GenesisAspectRatio, GenesisButton, GenesisControllerType, GenesisInputs, GenesisRegion,
     Opn2BusyBehavior,
@@ -17,7 +17,6 @@ use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, PartialClone, Renderer, SaveWriter,
     TickEffect, TimingMode,
 };
-use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::ConfigDisplay;
 use m68000_emu::M68000;
 use smsgg_config::Sn76489Version;
@@ -39,82 +38,6 @@ pub enum GenesisError<RErr, AErr, SErr> {
 }
 
 pub type GenesisResult<RErr, AErr, SErr> = Result<TickEffect, GenesisError<RErr, AErr, SErr>>;
-
-pub trait GenesisRegionExt: Sized + Copy {
-    #[must_use]
-    fn from_rom(rom: &[u8]) -> Option<Self>;
-
-    #[must_use]
-    fn version_bit(self) -> bool;
-}
-
-impl GenesisRegionExt for GenesisRegion {
-    fn from_rom(rom: &[u8]) -> Option<Self> {
-        const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
-
-        // European games with incorrect region headers that indicate US or JP support
-        const DEFAULT_EUROPE_CHECKSUMS: &[u32] = &[
-            0x28165BD1, // Alisia Dragoon (Europe)
-            0x224256C7, // Andre Agassi Tennis (Europe)
-            0x90F5C2B7, // Brian Lara Cricket (Europe)
-            0xEB8F4374, // Indiana Jones and the Last Crusade (Europe)
-            0xFA537A45, // Winter Olympics (Europe)
-            0xDACA01C3, // World Class Leader Board (Europe)
-            0xC0DCE0E5, // Midway Presents Arcade's Greatest Hits (Europe)
-            0x4C926BF6, // Nuance Xmas-Intro 2024
-            0x0F51DD6A, // Chaekopon by Limp Ninja
-        ];
-
-        if DEFAULT_EUROPE_CHECKSUMS.contains(&CRC.checksum(rom)) {
-            return Some(GenesisRegion::Europe);
-        }
-
-        if &rom[0x1F0..0x1F6] == b"EUROPE" {
-            // Another World (E) has the string "EUROPE" in the region section; special case this
-            // so that it's not detected as U (this game does not work with NTSC timings)
-            return Some(GenesisRegion::Europe);
-        }
-
-        let region_bytes = &rom[0x1F0..0x1F3];
-
-        // Prefer Americas if region code contains a 'U'
-        if region_bytes.contains(&b'U') {
-            return Some(GenesisRegion::Americas);
-        }
-
-        // Otherwise, prefer Japan if it contains a 'J'
-        if region_bytes.contains(&b'J') {
-            return Some(GenesisRegion::Japan);
-        }
-
-        // Finally, prefer Europe if it contains an 'E'
-        if region_bytes.contains(&b'E') {
-            return Some(GenesisRegion::Europe);
-        }
-
-        // If region code contains neither a 'U' nor a 'J', treat it as a hex char
-        let c = region_bytes[0] as char;
-        let value = u8::from_str_radix(&c.to_string(), 16).ok()?;
-        if value.bit(2) {
-            // Bit 2 = Americas
-            Some(GenesisRegion::Americas)
-        } else if value.bit(0) {
-            // Bit 0 = Asia
-            Some(GenesisRegion::Japan)
-        } else if value.bit(3) {
-            // Bit 3 = Europe
-            Some(GenesisRegion::Europe)
-        } else {
-            // Invalid
-            None
-        }
-    }
-
-    #[inline]
-    fn version_bit(self) -> bool {
-        self != Self::Japan
-    }
-}
 
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct GenesisEmulatorConfig {

@@ -2,8 +2,8 @@
 
 mod metadata;
 
-use crate::memory::eeprom::{X24C01Chip, X24C02Chip, X24C08Chip, X24C16Chip};
-use crate::memory::external::metadata::{EepromMetadata, EepromType};
+use crate::cartridge::eeprom::{X24C01Chip, X24C02Chip, X24C08Chip, X24C16Chip};
+use crate::cartridge::external::metadata::{EepromMetadata, EepromType};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 
