@@ -325,6 +325,13 @@ impl GenesisRegionExt for GenesisRegion {
             return Some(GenesisRegion::Europe);
         }
 
+        // Shadow Squadron / Stellar Assault (UE) reports its region as E in the header,
+        // but it's NTSC-compatible; prefer Americas if region is not forced so it will run at
+        // 60Hz instead of 50Hz
+        if &rom[0x180..0x18E] == "GM MK-84509-00".as_bytes() {
+            return Some(GenesisRegion::Americas);
+        }
+
         if &rom[0x1F0..0x1F6] == b"EUROPE" {
             // Another World (E) has the string "EUROPE" in the region section; special case this
             // so that it's not detected as U (this game does not work with NTSC timings)
@@ -426,13 +433,16 @@ impl Cartridge {
         }
 
         // Initialize ram_mapped to true if external memory is present and the address range is past
-        // the end of ROM.
+        // the end of ROM, _or_ if the cartridge has EEPROM (some >2MB EEPROM games depend on this).
         // Some games with cartridge RAM will never write to $A130F1, assuming RAM is always mapped.
+        //
         // Special case Triple Play because its RAM is mapped to $200000-$20FFFF while ROM is mapped
         // to $000000-$1FFFFF + $300000-$3FFFFF, and it never writes to $A130F1
-        let ram_present = !matches!(external_memory, ExternalMemory::None);
-        let initial_ram_mapped = ram_present
-            && (external_memory.address_range().start >= rom_bytes.len() as u32 || is_triple_play);
+        let external_present = !matches!(external_memory, ExternalMemory::None);
+        let is_eeprom = matches!(external_memory, ExternalMemory::Eeprom { .. });
+        let ram_start_past_rom = external_memory.address_range().start >= rom_bytes.len() as u32;
+        let initial_ram_mapped =
+            external_present && (ram_start_past_rom || is_eeprom || is_triple_play);
 
         let serial_number = &rom_bytes[0x183..0x18B];
         let mapper = if is_virtua_racing(serial_number) {
@@ -474,24 +484,34 @@ impl Cartridge {
         self.rom = mem::take(&mut other.rom);
     }
 
+    #[inline]
     #[must_use]
     pub fn external_ram(&self) -> &[u8] {
         self.external.get_memory()
     }
 
+    #[inline]
     #[must_use]
     pub fn is_ram_persistent(&self) -> bool {
         self.external.is_persistent()
     }
 
+    #[inline]
     #[must_use]
     pub fn get_and_clear_ram_dirty(&mut self) -> bool {
         self.external.get_and_clear_dirty_bit()
     }
 
+    #[inline]
     #[must_use]
     pub fn program_title(&self) -> &str {
         &self.program_title
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn region(&self) -> GenesisRegion {
+        self.region
     }
 }
 

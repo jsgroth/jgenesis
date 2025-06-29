@@ -393,6 +393,10 @@ impl EmulatorTrait for GenesisEmulator {
         *self = GenesisEmulator::create(rom, self.config, save_writer);
     }
 
+    fn save_state_version() -> &'static str {
+        "0.10.1-0"
+    }
+
     fn target_fps(&self) -> f64 {
         target_framerate(&self.vdp, self.timing_mode)
     }

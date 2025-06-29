@@ -95,50 +95,51 @@ const CODEMASTERS_24C16_METADATA: EepromMetadata = EepromMetadata {
     scl_bit: 1,
 };
 
-pub fn eeprom(rom: &[u8], checksum: u32) -> Option<EepromMetadata> {
-    let serial_number: String = rom[0x183..0x18B].iter().map(|&b| b as char).collect();
-    match serial_number.as_str() {
-        // NBA Jam (UE)
-        // NBA Jam (J)
-        "T-081326" | "T-81033 " => Some(NBA_JAM_METADATA),
-        // NBA Jam Tournament Edition (JUE)
-        // NFL Quarterback Club (JUE)
-        "T-81406 " | "T-081276" => Some(ACCLAIM_24C02_METADATA),
-        // NFL Quarterback Club '96 (UE)
-        "T-081586" => Some(ACCLAIM_24C16_METADATA),
-        // Mega Man: The Wily Wars (E)
-        // Rockman: Mega World (J)
-        // Evander "Real Deal" Holyfield's Boxing (JUE)
-        // Greatest Heavyweights of the Ring (U)
-        // Greatest Heavyweights of the Ring (J)
-        // Greatest Heavyweights of the Ring (E)
-        // Wonder Boy in Monster World (UE)
-        // Wonder Boy V: Monster World III (J)
-        "T-12046 " | "T-12053 " | "MK-1215 " | "MK-1228 " | "G-5538  " | "PR-1993 "
-        | "G-4060  " => Some(SEGA_CAPCOM_METADATA),
-        // NHLPA Hockey '93 (UE)
-        // Rings of Power (UE)
-        "T-50396 " | "T-50176 " => Some(EA_METADATA),
-        _ => {
-            // Micro Machines 2: Turbo Tournament (E)
-            if is_micro_machines_2(rom) {
-                return Some(CODEMASTERS_24C08_METADATA);
-            }
+// Mostly from https://gendev.spritesmind.net/forum/viewtopic.php?p=2485#p2485
+const SERIAL_NUMBER_TO_METADATA: &[(&[u8], EepromMetadata)] = &[
+    (b"T-081326", NBA_JAM_METADATA),       // NBA Jam (U/E)
+    (b"T-81033 ", NBA_JAM_METADATA),       // NBA Jam (J)
+    (b"T-81406 ", ACCLAIM_24C02_METADATA), // NBA Jam Tournament Edition (World)
+    (b"T-8104B ", ACCLAIM_24C02_METADATA), // NBA Jam Tournament Edition (32X) (World)
+    (b"T-081276", ACCLAIM_24C02_METADATA), // NFL Quarterback Club (World)
+    (b"T-8102B ", ACCLAIM_24C02_METADATA), // NFL Quarterback Club (32X) (World)
+    (b"T-081586", ACCLAIM_24C16_METADATA), // NFL Quarterback Club 96 (U/E)
+    (b"T-12046 ", SEGA_CAPCOM_METADATA),   // Mega Man: The Wily Wars (E)
+    (b"T-12053 ", SEGA_CAPCOM_METADATA),   // Rockman Mega World (J)
+    (b"MK-1215 ", SEGA_CAPCOM_METADATA),   // Evander "Real Deal" Holyfield's Boxing (World)
+    (b"MK-1228 ", SEGA_CAPCOM_METADATA),   // Greatest Heavyweights (U/E)
+    (b"G-5538  ", SEGA_CAPCOM_METADATA),   // Greatest Heavyweights (J)
+    (b"G-4060  ", SEGA_CAPCOM_METADATA),   // Wonder Boy in Monster World (U/E)
+    (b"PR-1993 ", SEGA_CAPCOM_METADATA),   // Wonder Boy V: Monster World III (J)
+    (b"T-50176 ", EA_METADATA),            // Rings of Power (U/E)
+    (b"T-50396 ", EA_METADATA),            // NHLPA Hockey 93 (U/E)
+];
 
-            match checksum {
-                // Micro Machines: Military (E)
-                0xB3ABB15E => Some(CODEMASTERS_24C08_METADATA),
-                // Micro Machines: Turbo Tournament 96 (E)
-                0x23319D0D => Some(CODEMASTERS_24C16_METADATA),
-                // Honoo no Toukyuuji - Dodge Danpei (J)
-                0x630F07C6 => Some(SEGA_CAPCOM_METADATA),
-                _ => None,
-            }
+pub fn eeprom(rom: &[u8], checksum: u32) -> Option<EepromMetadata> {
+    let rom_serial_number = &rom[0x183..0x18B];
+    for (serial_number, metadata) in SERIAL_NUMBER_TO_METADATA {
+        if rom_serial_number == *serial_number {
+            return Some(metadata.clone());
         }
+    }
+
+    // Micro Machines 2: Turbo Tournament (E)
+    if is_micro_machines_2(rom) {
+        return Some(CODEMASTERS_24C08_METADATA);
+    }
+
+    match checksum {
+        // Micro Machines: Military (E)
+        0xB3ABB15E => Some(CODEMASTERS_24C08_METADATA),
+        // Micro Machines: Turbo Tournament 96 (E)
+        0x23319D0D => Some(CODEMASTERS_24C16_METADATA),
+        // Honoo no Toukyuuji - Dodge Danpei (J)
+        0x630F07C6 => Some(SEGA_CAPCOM_METADATA),
+        _ => None,
     }
 }
 
 pub fn is_micro_machines_2(rom: &[u8]) -> bool {
-    let extended_serial: String = rom[0x183..0x18E].iter().map(|&b| b as char).collect();
-    extended_serial.as_str() == "T-120096-50"
+    let extended_serial = &rom[0x183..0x18E];
+    extended_serial == b"T-120096-50"
 }

@@ -5,18 +5,18 @@ use crate::audio::PwmResampler;
 use crate::bootrom;
 use crate::bootrom::M68kVectors;
 use crate::bus::{OtherCpu, Sh2Bus, WhichCpu};
-use crate::cartridge::Cartridge;
 use crate::pwm::PwmChip;
 use crate::registers::SystemRegisters;
 use crate::vdp::Vdp;
 use bincode::{Decode, Encode};
 use genesis_config::GenesisRegion;
+use genesis_core::cartridge::Cartridge;
 use genesis_core::timing;
 use jgenesis_common::boxedarray::BoxedWordArray;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::PartialClone;
 use sh2_emu::Sh2;
-use std::{cmp, mem};
+use std::cmp;
 
 const M68K_DIVIDER: u64 = timing::NATIVE_M68K_DIVIDER;
 const SH2_MULTIPLIER: u64 = 3;
@@ -55,17 +55,18 @@ pub struct Sega32X {
     pub s32x_bus: Sega32XBus,
     pub m68k_vectors: Box<M68kVectors>,
     pub region: GenesisRegion,
+    pub timing_mode: TimingMode,
 }
 
 impl Sega32X {
-    pub fn new(
-        rom: Box<[u8]>,
-        initial_ram: Option<Vec<u8>>,
-        region: GenesisRegion,
-        timing_mode: TimingMode,
-        config: Sega32XEmulatorConfig,
-    ) -> Self {
-        let cartridge = Cartridge::new(rom, initial_ram);
+    pub fn new(rom: Vec<u8>, initial_ram: Option<Vec<u8>>, config: &Sega32XEmulatorConfig) -> Self {
+        let cartridge = Cartridge::from_rom(rom, initial_ram, config.genesis.forced_region);
+
+        let region = cartridge.region();
+        let timing_mode = config.genesis.forced_timing_mode.unwrap_or(match region {
+            GenesisRegion::Americas | GenesisRegion::Japan => TimingMode::Ntsc,
+            GenesisRegion::Europe => TimingMode::Pal,
+        });
 
         Self {
             sh2_master: Sh2::new("Master".into()),
@@ -84,6 +85,7 @@ impl Sega32X {
             },
             m68k_vectors: Box::new(*bootrom::M68K_VECTORS),
             region,
+            timing_mode,
         }
     }
 
@@ -157,7 +159,7 @@ impl Sega32X {
     }
 
     pub fn take_rom_from(&mut self, other: &mut Self) {
-        self.s32x_bus.cartridge.rom.0 = mem::take(&mut other.s32x_bus.cartridge.rom.0);
+        self.s32x_bus.cartridge.take_rom_from(&mut other.s32x_bus.cartridge);
     }
 
     pub fn reload_config(&mut self, config: Sega32XEmulatorConfig) {

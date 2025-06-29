@@ -11,7 +11,7 @@ use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::timing::GenesisCycleCounters;
 use genesis_core::vdp::{Vdp, VdpTickEffect};
 use genesis_core::ym2612::Ym2612;
-use genesis_core::{GenesisEmulatorConfig, GenesisInputs, GenesisRegionExt};
+use genesis_core::{GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, Renderer, SaveWriter, TickEffect,
     TickResult, TimingMode,
@@ -21,7 +21,6 @@ use m68000_emu::M68000;
 use smsgg_config::Sn76489Version;
 use smsgg_core::psg::{Sn76489, Sn76489TickEffect};
 use std::fmt::{Debug, Display};
-use std::mem;
 use thiserror::Error;
 use z80_emu::Z80;
 
@@ -87,28 +86,15 @@ pub struct Sega32XEmulator {
 
 impl Sega32XEmulator {
     pub fn create<S: SaveWriter>(
-        rom: Box<[u8]>,
+        rom: Vec<u8>,
         config: Sega32XEmulatorConfig,
         save_writer: &mut S,
     ) -> Self {
-        let region = config.genesis.forced_region.unwrap_or_else(|| {
-            // Shadow Squadron / Stellar Assault (UE) reports its region as E in the header,
-            // but it's NTSC-compatible; prefer Americas if region is not forced so it will run at
-            // 60Hz instead of 50Hz
-            if &rom[0x180..0x18E] == "GM MK-84509-00".as_bytes() {
-                return GenesisRegion::Americas;
-            }
+        let initial_cartridge_ram = save_writer.load_bytes("sav").ok();
+        let s32x = Sega32X::new(rom, initial_cartridge_ram, &config);
 
-            GenesisRegion::from_rom(&rom).unwrap_or_else(|| {
-                log::error!("Unable to determine ROM region; defaulting to Americas");
-                GenesisRegion::Americas
-            })
-        });
-
-        let timing_mode = config.genesis.forced_timing_mode.unwrap_or(match region {
-            GenesisRegion::Americas | GenesisRegion::Japan => TimingMode::Ntsc,
-            GenesisRegion::Europe => TimingMode::Pal,
-        });
+        let region = s32x.region;
+        let timing_mode = s32x.timing_mode;
 
         log::info!("Running with region {region:?} and timing mode {timing_mode:?}");
 
@@ -118,8 +104,6 @@ impl Sega32XEmulator {
         let ym2612 = Ym2612::new_from_config(&config.genesis);
         let psg = Sn76489::new(Sn76489Version::Standard);
 
-        let initial_cartridge_ram = save_writer.load_bytes("sav").ok();
-        let s32x = Sega32X::new(rom, initial_cartridge_ram, region, timing_mode, config);
         let memory = Memory::new(s32x);
 
         let input =
@@ -148,10 +132,7 @@ impl Sega32XEmulator {
 
     #[must_use]
     pub fn cartridge_title(&self) -> String {
-        genesis_core::cartridge::parse_title_from_header(
-            &self.memory.medium().cartridge().rom,
-            self.region,
-        )
+        self.memory.medium().cartridge().program_title().into()
     }
 
     #[inline]
@@ -265,10 +246,9 @@ impl EmulatorTrait for Sega32XEmulator {
             self.render_frame(renderer).map_err(Sega32XError::Render)?;
 
             let cartridge = self.memory.medium_mut().cartridge_mut();
-            if cartridge.persistent_memory_dirty() {
-                cartridge.clear_persistent_dirty_bit();
+            if cartridge.get_and_clear_ram_dirty() {
                 save_writer
-                    .persist_bytes("sav", cartridge.persistent_memory())
+                    .persist_bytes("sav", cartridge.external_ram())
                     .map_err(Sega32XError::SaveWrite)?;
             }
 
@@ -314,13 +294,13 @@ impl EmulatorTrait for Sega32XEmulator {
     }
 
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
-        let rom = mem::take(&mut self.memory.medium_mut().cartridge_mut().rom.0);
+        let rom = self.memory.medium_mut().cartridge_mut().take_rom();
 
         *self = Self::create(rom, self.config, save_writer);
     }
 
     fn save_state_version() -> &'static str {
-        "0.10.1-0"
+        "0.10.1-1"
     }
 
     fn target_fps(&self) -> f64 {

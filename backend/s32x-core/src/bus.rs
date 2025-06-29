@@ -48,13 +48,9 @@ const M68K_32X_ID_START: u32 = 0xA130EC;
 const M68K_32X_ID_END: u32 = 0xA130EF;
 const M68K_32X_ID: [u8; 4] = [b'M', b'A', b'R', b'S'];
 
-// $A130F1: Cartridge RAM register
-const M68K_CART_RAM_REGISTER_BYTE: u32 = 0xA130F1;
-const M68K_CART_RAM_REGISTER_WORD: u32 = 0xA130F0;
-
-// $A130F2-$A130FF: Cartridge bank registers (when using Sega SSF mapper)
-const M68K_SSF_BANK_REGISTERS_START: u32 = 0xA130F2;
-const M68K_SSF_BANK_REGISTERS_END: u32 = 0xA130FF;
+// $A130F0-$A130FF: Cartridge registers
+const M68K_CART_REGISTERS_START: u32 = 0xA130F0;
+const M68K_CART_REGISTERS_END: u32 = 0xA130FF;
 
 // $A15100-$A1512F: 32X system registers
 const M68K_SYSTEM_REGISTERS_START: u32 = 0xA15100;
@@ -131,7 +127,9 @@ impl PhysicalMedium for Sega32X {
                     (u32::from(self.s32x_bus.registers.m68k_rom_bank) << 20) | (address & 0xFFFFF);
                 self.s32x_bus.cartridge.read_byte(rom_addr)
             }
-            M68K_CART_RAM_REGISTER_BYTE => self.s32x_bus.cartridge.read_ram_register(),
+            M68K_CART_REGISTERS_START..=M68K_CART_REGISTERS_END => {
+                self.s32x_bus.cartridge.read_byte(address)
+            }
             M68K_SYSTEM_REGISTERS_START..=M68K_SYSTEM_REGISTERS_END => {
                 // System registers
                 log::trace!("M68K read byte {address:06X}");
@@ -279,9 +277,8 @@ impl PhysicalMedium for Sega32X {
                     log::warn!("Frame buffer write with FM=1: {address:06X} {value:02X}");
                 }
             }
-            M68K_CART_RAM_REGISTER_BYTE => self.s32x_bus.cartridge.write_ram_register(value),
-            M68K_SSF_BANK_REGISTERS_START..=M68K_SSF_BANK_REGISTERS_END => {
-                self.s32x_bus.cartridge.write_mapper_bank_register(address, value);
+            M68K_CART_REGISTERS_START..=M68K_CART_REGISTERS_END => {
+                self.s32x_bus.cartridge.write_byte(address, value);
             }
             M68K_SYSTEM_REGISTERS_START..=M68K_SYSTEM_REGISTERS_END => {
                 log::trace!("M68K write byte {address:06X} {value:02X}");
@@ -380,8 +377,9 @@ impl PhysicalMedium for Sega32X {
                     (u32::from(self.s32x_bus.registers.m68k_rom_bank) << 20) | (address & 0xFFFFF);
                 self.s32x_bus.cartridge.write_word(cart_addr, value);
             }
-            // Not sure this is right but Doom 32X Resurrection writes to this address
-            M68K_CART_RAM_REGISTER_WORD => self.s32x_bus.cartridge.write_ram_register(value as u8),
+            M68K_CART_REGISTERS_START..=M68K_CART_REGISTERS_END => {
+                self.s32x_bus.cartridge.write_word(address, value);
+            }
             // TODO Sega CD is $400000-$7FFFFF if plugged in
             M68K_VECTORS_START..=M68K_VECTORS_END | M68K_SEGA_CD_START..=M68K_SEGA_CD_END => {
                 log::debug!("M68K write to invalid address {address:06X} {value:04X}");
@@ -671,7 +669,10 @@ impl Sh2Bus<'_, '_> {
 
         if address & 0x400000 == 0 {
             // Cartridge
-            self.s32x_bus.cartridge.read_longword(address & 0x3FFFFF)
+            let rom_addr = address & 0x3FFFFF & !3;
+            let high_word = self.s32x_bus.cartridge.read_word(rom_addr);
+            let low_word = self.s32x_bus.cartridge.read_word(rom_addr | 2);
+            (u32::from(high_word) << 16) | u32::from(low_word)
         } else {
             // Not sure what these addresses are; Doom 32X Resurrection reads from them
             // Sega CD maybe?

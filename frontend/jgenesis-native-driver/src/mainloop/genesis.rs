@@ -291,8 +291,7 @@ pub fn create_32x(config: Box<Sega32XConfig>) -> NativeEmulatorResult<Native32XE
     let mut save_writer = FsSaveWriter::new(save_path);
 
     let emulator_config = config.emulator_config;
-    let emulator =
-        Sega32XEmulator::create(rom.into_boxed_slice(), emulator_config, &mut save_writer);
+    let emulator = Sega32XEmulator::create(rom, emulator_config, &mut save_writer);
 
     let cartridge_title = emulator.cartridge_title();
     let window_title = format!("32x - {cartridge_title}");
