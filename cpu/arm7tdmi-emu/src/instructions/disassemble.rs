@@ -36,7 +36,7 @@ pub fn arm(opcode: u32) -> String {
         }
     }
 
-    todo!("disassemble {opcode:08X}")
+    "(unknown)".into()
 }
 
 fn arm_bx(opcode: u32) -> String {
@@ -53,6 +53,8 @@ fn arm_b(opcode: u32) -> String {
 }
 
 fn arm_alu(opcode: u32) -> String {
+    use std::fmt::Write;
+
     let operation = match (opcode >> 21) & 0xF {
         0 => "AND",
         1 => "EOR",
@@ -94,14 +96,14 @@ fn arm_alu(opcode: u32) -> String {
 
             if shift.bit(0) {
                 let rs = shift >> 4;
-                s.push_str(&format!(", {shift_type} R{rs}"));
+                let _ = write!(s, ", {shift_type} R{rs}");
             } else {
                 let mut amount = shift >> 3;
                 if amount == 0 {
                     amount = 32;
                 }
 
-                s.push_str(&format!(", {shift_type} #{amount}"));
+                let _ = write!(s, ", {shift_type} #{amount}");
             }
         }
 
@@ -345,7 +347,7 @@ pub fn thumb(opcode: u16) -> String {
         }
     }
 
-    todo!("disassemble Thumb {opcode:04X}")
+    "(unknown)".into()
 }
 
 // Move shifted register

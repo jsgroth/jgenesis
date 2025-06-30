@@ -1,6 +1,6 @@
 mod disassemble;
 
-use crate::bus::BusInterface;
+use crate::bus::{BusInterface, MemoryCycle};
 use crate::{Arm7Tdmi, CpuMode, CpuState, Exception, Registers, StatusRegister};
 use jgenesis_common::num::GetBit;
 use std::array;
@@ -204,9 +204,6 @@ const ARM_DECODE_TABLE: &[ArmDecodeEntry] = &[
     ArmDecodeEntry::new(0b1111_1011_0000, 0b0011_0010_0000, arm_msr::<true>),
     ArmDecodeEntry::new(0b1110_0000_0000, 0b0000_0000_0000, arm_alu::<false>),
     ArmDecodeEntry::new(0b1110_0000_0000, 0b0010_0000_0000, arm_alu::<true>),
-    ArmDecodeEntry::new(0b1110_0000_0001, 0b0110_0000_0001, |_, opcode, _| {
-        todo!("undefined {opcode:08X}")
-    }),
     ArmDecodeEntry::new(0b1110_0001_0000, 0b0100_0000_0000, arm_load_word::<false, false>),
     ArmDecodeEntry::new(0b1110_0001_0000, 0b0100_0001_0000, arm_load_word::<true, false>),
     ArmDecodeEntry::new(0b1110_0001_0000, 0b0110_0000_0000, arm_load_word::<false, true>),
@@ -293,7 +290,7 @@ impl Arm7Tdmi {
         let condition = Condition::from_arm_opcode(opcode);
         if !condition.check(self.registers.cpsr) {
             // 1S if instruction is skipped
-            self.fetch_arm_opcode(bus);
+            self.fetch_arm_opcode(bus, MemoryCycle::S);
             return 1;
         }
 
@@ -350,6 +347,8 @@ fn branch<const LINK: bool, const OPCODE_LEN: u32>(
     offset: i32,
     bus: &mut dyn BusInterface,
 ) -> u32 {
+    cpu.fetch_opcode(bus, MemoryCycle::S);
+
     if LINK {
         cpu.registers.r[14] = cpu.registers.r[15].wrapping_sub(OPCODE_LEN);
     }
@@ -368,6 +367,8 @@ fn arm_bx(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface) -> u32 {
 }
 
 fn branch_exchange(cpu: &mut Arm7Tdmi, rn: u32, bus: &mut dyn BusInterface) -> u32 {
+    cpu.fetch_opcode(bus, MemoryCycle::S);
+
     let new_pc = cpu.registers.r[rn as usize];
     cpu.registers.cpsr.state = CpuState::from_bit(new_pc.bit(0));
 
@@ -375,8 +376,7 @@ fn branch_exchange(cpu: &mut Arm7Tdmi, rn: u32, bus: &mut dyn BusInterface) -> u
 
     cpu.registers.r[15] = new_pc;
     cpu.align_pc();
-    cpu.fetch_opcode(bus);
-    cpu.fetch_opcode(bus);
+    cpu.refill_prefetch(bus);
 
     // 2S + 1N
     3
@@ -397,7 +397,7 @@ fn arm_mrs(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface) -> u32 {
         cpu.registers.r[rd as usize] = cpu.registers.cpsr.into();
     }
 
-    cpu.fetch_opcode(bus);
+    cpu.fetch_opcode(bus, MemoryCycle::S);
 
     // 1S
     1
@@ -430,7 +430,7 @@ fn arm_msr<const IMMEDIATE: bool>(
         cpu.write_cpsr(operand);
     }
 
-    cpu.fetch_arm_opcode(bus);
+    cpu.fetch_arm_opcode(bus, MemoryCycle::S);
 
     // 1S
     1
@@ -644,7 +644,9 @@ fn alu_register_shift<const OPCODE_LEN: u32>(
         cpu.registers.r[rn as usize]
     };
 
-    alu(cpu, op, operand1, rd, set_condition_codes, operand2, shifter_out, bus)
+    // Register specified shift adds 1I
+    bus.internal_cycles(1);
+    1 + alu(cpu, op, operand1, rd, set_condition_codes, operand2, shifter_out, bus)
 }
 
 #[inline]
@@ -704,20 +706,19 @@ fn alu(
 
     // 1S always
     let mut cycles = 1;
+    cpu.fetch_opcode(bus, MemoryCycle::S);
 
     if !op.is_test() {
         cpu.registers.r[rd as usize] = result;
 
         if rd == 15 {
             cpu.align_pc();
-            cpu.fetch_opcode(bus);
+            cpu.refill_prefetch(bus);
 
             // +1N +1S if Rd = 15
             cycles += 2;
         }
     }
-
-    cpu.fetch_opcode(bus);
 
     cycles
 }
@@ -757,7 +758,7 @@ fn multiply(
     accumulate: bool,
     bus: &mut dyn BusInterface,
 ) -> u32 {
-    cpu.fetch_opcode(bus);
+    cpu.fetch_opcode(bus, MemoryCycle::S);
 
     let operand = cpu.registers.r[rs as usize];
     let mut product = cpu.registers.r[rm as usize].wrapping_mul(operand);
@@ -783,9 +784,12 @@ fn multiply(
         4
     };
 
+    let i_cycles = m + u32::from(accumulate);
+    bus.internal_cycles(i_cycles);
+
     // 1S + m*I
     // +1I for MLA
-    1 + m + u32::from(accumulate)
+    1 + i_cycles
 }
 
 fn arm_multiply_long(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface) -> u32 {
@@ -813,7 +817,7 @@ fn multiply_long(
     signed: bool,
     bus: &mut dyn BusInterface,
 ) -> u32 {
-    cpu.fetch_opcode(bus);
+    cpu.fetch_opcode(bus, MemoryCycle::S);
 
     let operand = cpu.registers.r[rs as usize];
     let product = if signed {
@@ -854,9 +858,12 @@ fn multiply_long(
         4
     };
 
+    let i_cycles = 1 + m + u32::from(accumulate);
+    bus.internal_cycles(i_cycles);
+
     // MULL: 1S + (m+1)*I
     // +1I for MLAL
-    2 + m + u32::from(accumulate)
+    1 + i_cycles
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -980,27 +987,31 @@ fn load_word<const LOAD: bool>(
     }
 
     if LOAD {
+        cpu.fetch_opcode(bus, MemoryCycle::S);
+
         cpu.registers.r[rd as usize] = match size {
             LoadSize::Word => {
-                let word = bus.read_word(address);
+                let word = bus.read_word(address, MemoryCycle::N);
                 word.rotate_right(8 * (address & 3))
             }
-            LoadSize::Byte => bus.read_byte(address).into(),
+            LoadSize::Byte => bus.read_byte(address, MemoryCycle::N).into(),
         };
+
+        // TODO when is this internal cycle taken?
+        bus.internal_cycles(1);
 
         if rd == 15 {
             cpu.align_pc();
-            cpu.fetch_opcode(bus);
+            cpu.refill_prefetch(bus);
         }
-        cpu.fetch_opcode(bus);
     } else {
-        cpu.fetch_opcode(bus);
-
         let value = cpu.registers.r[rd as usize];
         match size {
-            LoadSize::Word => bus.write_word(address, value),
-            LoadSize::Byte => bus.write_byte(address, value as u8),
+            LoadSize::Word => bus.write_word(address, value, MemoryCycle::N),
+            LoadSize::Byte => bus.write_byte(address, value as u8, MemoryCycle::N),
         }
+
+        cpu.fetch_opcode(bus, MemoryCycle::N);
     }
 
     // Write back only applies on loads if the base register and destination register are different
@@ -1072,31 +1083,35 @@ fn load_halfword<const LOAD: bool>(
     }
 
     if LOAD {
+        cpu.fetch_opcode(bus, MemoryCycle::S);
+
         let value = match load_type {
             HalfwordLoadType::UnsignedHalfword => {
-                let halfword: u32 = bus.read_halfword(address).into();
+                let halfword: u32 = bus.read_halfword(address, MemoryCycle::N).into();
                 halfword.rotate_right(8 * (address & 1))
             }
-            HalfwordLoadType::SignedByte => bus.read_byte(address) as i8 as u32,
+            HalfwordLoadType::SignedByte => bus.read_byte(address, MemoryCycle::N) as i8 as u32,
             HalfwordLoadType::SignedHalfword => {
                 if !address.bit(0) {
-                    bus.read_halfword(address) as i16 as u32
+                    bus.read_halfword(address, MemoryCycle::N) as i16 as u32
                 } else {
                     // Unaligned LDRSH seems to behave the same as LDRSB
-                    bus.read_byte(address) as i8 as u32
+                    bus.read_byte(address, MemoryCycle::N) as i8 as u32
                 }
             }
         };
         cpu.registers.r[rd as usize] = value;
 
+        bus.internal_cycles(1);
+
         if rd == 15 {
             cpu.align_pc();
-            cpu.fetch_opcode(bus);
+            cpu.refill_prefetch(bus);
         }
-        cpu.fetch_opcode(bus);
     } else {
-        cpu.fetch_opcode(bus);
-        bus.write_halfword(address, cpu.registers.r[rd as usize] as u16);
+        let halfword = cpu.registers.r[rd as usize] as u16;
+        bus.write_halfword(address, halfword, MemoryCycle::N);
+        cpu.fetch_opcode(bus, MemoryCycle::N);
     }
 
     // Write back only applies on loads if the base register and destination register are different
@@ -1160,13 +1175,23 @@ fn load_multiple<const LOAD: bool, const INCREMENT: bool, const AFTER: bool>(
 
     let mut address = if INCREMENT { base_addr } else { final_addr };
 
-    cpu.fetch_opcode(bus);
+    if LOAD {
+        cpu.fetch_opcode(bus, MemoryCycle::S);
+    }
 
+    let mut first = true;
     let mut need_write_back = write_back == WriteBack::Yes;
     for r in 0..16 {
         if !register_bits.bit(r) {
             continue;
         }
+
+        let memory_cycle = if first {
+            first = false;
+            MemoryCycle::N
+        } else {
+            MemoryCycle::S
+        };
 
         if LOAD && need_write_back {
             cpu.registers.r[rn as usize] = final_addr;
@@ -1180,19 +1205,19 @@ fn load_multiple<const LOAD: bool, const INCREMENT: bool, const AFTER: bool>(
 
         if LOAD {
             if r == 15 {
-                cpu.registers.r[15] = bus.read_word(address);
+                cpu.registers.r[15] = bus.read_word(address, memory_cycle);
+
+                if s_bit {
+                    cpu.spsr_to_cpsr();
+                }
 
                 cpu.align_pc();
-                cpu.fetch_opcode(bus);
-                cpu.fetch_opcode(bus);
-                if s_bit {
-                    todo!("SPSR -> CPSR")
-                }
+                cpu.refill_prefetch(bus);
             } else if s_bit && !r15_loaded {
                 let register = get_user_register(&mut cpu.registers, r.into());
-                *register = bus.read_word(address);
+                *register = bus.read_word(address, memory_cycle);
             } else {
-                cpu.registers.r[r as usize] = bus.read_word(address);
+                cpu.registers.r[r as usize] = bus.read_word(address, memory_cycle);
             }
             log::trace!("  LDM: Loaded R{r} from {address:08X}");
         } else {
@@ -1201,7 +1226,7 @@ fn load_multiple<const LOAD: bool, const INCREMENT: bool, const AFTER: bool>(
             } else {
                 cpu.registers.r[r as usize]
             };
-            bus.write_word(address, value);
+            bus.write_word(address, value, memory_cycle);
             log::trace!("  STM: Stored R{r} to {address:08X}");
         }
 
@@ -1214,6 +1239,13 @@ fn load_multiple<const LOAD: bool, const INCREMENT: bool, const AFTER: bool>(
             log::trace!("  Wrote back to R{rn}: {:08X}", cpu.registers.r[rn as usize]);
             need_write_back = false;
         }
+    }
+
+    if LOAD {
+        // TODO when does this I cycle actually happen?
+        bus.internal_cycles(1);
+    } else {
+        cpu.fetch_opcode(bus, MemoryCycle::N);
     }
 
     if LOAD {
@@ -1257,18 +1289,21 @@ fn swap(
 
     match size {
         LoadSize::Word => {
-            let value = bus.read_word(address).rotate_right(8 * (address & 3));
-            bus.write_word(address, cpu.registers.r[rm as usize]);
+            let value = bus.read_word(address, MemoryCycle::N).rotate_right(8 * (address & 3));
+            bus.write_word(address, cpu.registers.r[rm as usize], MemoryCycle::S);
             cpu.registers.r[rd as usize] = value;
         }
         LoadSize::Byte => {
-            let value = bus.read_byte(address);
-            bus.write_byte(address, cpu.registers.r[rm as usize] as u8);
+            let value = bus.read_byte(address, MemoryCycle::N);
+            bus.write_byte(address, cpu.registers.r[rm as usize] as u8, MemoryCycle::S);
             cpu.registers.r[rd as usize] = value.into();
         }
     }
 
-    cpu.fetch_opcode(bus);
+    // TODO when does this I cycle take place?
+    bus.internal_cycles(1);
+
+    cpu.fetch_opcode(bus, MemoryCycle::N);
 
     // 1S + 2N + 1I
     4
@@ -1738,7 +1773,7 @@ fn thumb_conditional_branch(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusIn
     let condition = Condition::from_bits((opcode >> 8).into());
     if !condition.check(cpu.registers.cpsr) {
         // 1S when condition fails
-        cpu.fetch_thumb_opcode(bus);
+        cpu.fetch_thumb_opcode(bus, MemoryCycle::S);
         return 1;
     }
 
@@ -1760,6 +1795,8 @@ fn thumb_unconditional_branch(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn Bus
 // Format 19: Long branch with link
 // This instruction has no ARM equivalent
 fn thumb_long_branch(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+    cpu.fetch_thumb_opcode(bus, MemoryCycle::S);
+
     // Offset is a signed 23-bit value split across two opcodes, with 11 bits in each
     // First opcode has H=0 and second opcode has H=1
     // It is possible to have an H=1 opcode without an H=0 opcode; Golden Sun: The Lost Age does this
@@ -1772,8 +1809,6 @@ fn thumb_long_branch(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface
 
         cpu.registers.r[14] = cpu.registers.r[15].wrapping_add_signed(offset);
 
-        cpu.fetch_thumb_opcode(bus);
-
         // 1S
         1
     } else {
@@ -1785,8 +1820,8 @@ fn thumb_long_branch(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface
         cpu.registers.r[14] = return_address | 1;
         cpu.registers.r[15] = jump_address & !1;
 
-        cpu.fetch_thumb_opcode(bus);
-        cpu.fetch_thumb_opcode(bus);
+        cpu.fetch_thumb_opcode(bus, MemoryCycle::N);
+        cpu.fetch_thumb_opcode(bus, MemoryCycle::S);
 
         // 1N + 2S
         3

@@ -1,7 +1,7 @@
 pub mod bus;
 mod instructions;
 
-use crate::bus::BusInterface;
+use crate::bus::{BusInterface, MemoryCycle};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 
@@ -231,12 +231,12 @@ impl Arm7Tdmi {
     fn refill_prefetch(&mut self, bus: &mut (impl BusInterface + ?Sized)) {
         match self.registers.cpsr.state {
             CpuState::Arm => {
-                self.fetch_arm_opcode(bus);
-                self.fetch_arm_opcode(bus);
+                self.fetch_arm_opcode(bus, MemoryCycle::N);
+                self.fetch_arm_opcode(bus, MemoryCycle::S);
             }
             CpuState::Thumb => {
-                self.fetch_thumb_opcode(bus);
-                self.fetch_thumb_opcode(bus);
+                self.fetch_thumb_opcode(bus, MemoryCycle::N);
+                self.fetch_thumb_opcode(bus, MemoryCycle::S);
             }
         }
     }
@@ -248,16 +248,16 @@ impl Arm7Tdmi {
         }
     }
 
-    fn fetch_opcode(&mut self, bus: &mut (impl BusInterface + ?Sized)) {
+    fn fetch_opcode(&mut self, bus: &mut (impl BusInterface + ?Sized), cycle: MemoryCycle) {
         match self.registers.cpsr.state {
-            CpuState::Arm => self.fetch_arm_opcode(bus),
-            CpuState::Thumb => self.fetch_thumb_opcode(bus),
+            CpuState::Arm => self.fetch_arm_opcode(bus, cycle),
+            CpuState::Thumb => self.fetch_thumb_opcode(bus, cycle),
         }
     }
 
-    fn fetch_arm_opcode(&mut self, bus: &mut (impl BusInterface + ?Sized)) {
+    fn fetch_arm_opcode(&mut self, bus: &mut (impl BusInterface + ?Sized), cycle: MemoryCycle) {
         self.prefetch[0] = self.prefetch[1];
-        self.prefetch[1] = bus.read_word(self.registers.r[15]);
+        self.prefetch[1] = bus.read_word(self.registers.r[15], cycle);
         self.registers.r[15] = self.registers.r[15].wrapping_add(4);
 
         log::trace!(
@@ -267,9 +267,9 @@ impl Arm7Tdmi {
         );
     }
 
-    fn fetch_thumb_opcode(&mut self, bus: &mut (impl BusInterface + ?Sized)) {
+    fn fetch_thumb_opcode(&mut self, bus: &mut (impl BusInterface + ?Sized), cycle: MemoryCycle) {
         self.prefetch[0] = self.prefetch[1];
-        self.prefetch[1] = bus.read_halfword(self.registers.r[15]).into();
+        self.prefetch[1] = bus.read_halfword(self.registers.r[15], cycle).into();
         self.registers.r[15] = self.registers.r[15].wrapping_add(2);
 
         log::trace!(

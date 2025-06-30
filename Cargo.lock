@@ -271,6 +271,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "arm7tdmi-emu"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "jgenesis-common",
+ "log",
+]
+
+[[package]]
 name = "arrayref"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
