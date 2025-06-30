@@ -137,8 +137,8 @@ impl DmaUnit {
             }
         }
 
-        // End VRAM DMA when length reaches 0 or destination address overflows out of VRAM
-        if self.vram_dma_length == 0 || self.vram_dma_destination_address > 0x9FFF {
+        // End VRAM DMA when length reaches 0 or destination address overflows to 0
+        if self.vram_dma_length == 0 || self.vram_dma_destination_address == 0x0000 {
             log::trace!("VRAM DMA complete");
 
             self.vram_dma_state = VramDmaState::Idle;
@@ -170,8 +170,9 @@ impl DmaUnit {
 
     pub fn write_hdma3(&mut self, value: u8) {
         // HDMA3: VRAM DMA destination address, MSB
-        // Ignore highest 3 bits, hardcode to $8000 (start of VRAM)
-        self.vram_dma_destination_address.set_msb(0x80 | (value & 0x1F));
+        // Highest 3 bits are not used directly since destination is always VRAM, but they are used
+        // for an overflow check
+        self.vram_dma_destination_address.set_msb(value);
 
         log::trace!("HDMA3 write, VRAM DMA destination address MSB: {value:02X}");
     }
