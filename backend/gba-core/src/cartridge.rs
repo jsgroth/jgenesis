@@ -1,9 +1,12 @@
 //! GBA cartridge / game pak code
 
 use bincode::{Decode, Encode};
+use jgenesis_common::boxedarray::BoxedByteArray;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use std::mem;
 use std::ops::Deref;
+
+const SRAM_LEN: usize = 32 * 1024;
 
 #[derive(Debug, FakeEncode, FakeDecode)]
 struct Rom(Box<[u8]>);
@@ -26,13 +29,14 @@ impl Deref for Rom {
 pub struct Cartridge {
     #[partial_clone(default)]
     rom: Rom,
+    sram: BoxedByteArray<SRAM_LEN>,
 }
 
 impl Cartridge {
     pub fn new(mut rom: Vec<u8>) -> Self {
         jgenesis_common::rom::mirror_to_next_power_of_two(&mut rom);
 
-        Self { rom: Rom(rom.into_boxed_slice()) }
+        Self { rom: Rom(rom.into_boxed_slice()), sram: BoxedByteArray::new() }
     }
 
     pub fn read_rom_byte(&self, address: u32) -> u8 {
@@ -56,5 +60,15 @@ impl Cartridge {
 
     pub fn take_rom_from(&mut self, other: &mut Self) {
         self.rom = mem::take(&mut other.rom);
+    }
+
+    pub fn read_sram(&self, address: u32) -> u8 {
+        let sram_addr = (address as usize) & (SRAM_LEN - 1);
+        self.sram[sram_addr]
+    }
+
+    pub fn write_sram(&mut self, address: u32, value: u8) {
+        let sram_addr = (address as usize) & (SRAM_LEN - 1);
+        self.sram[sram_addr] = value;
     }
 }

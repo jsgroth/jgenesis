@@ -3,6 +3,7 @@
 use crate::api::BusState;
 use crate::cartridge::Cartridge;
 use crate::input::GbaInputsExt;
+use crate::interrupts::InterruptRegisters;
 use crate::memory::Memory;
 use crate::ppu::Ppu;
 use arm7tdmi_emu::bus::{BusInterface, MemoryCycle};
@@ -12,6 +13,7 @@ pub struct Bus<'a> {
     pub ppu: &'a mut Ppu,
     pub memory: &'a mut Memory,
     pub cartridge: &'a mut Cartridge,
+    pub interrupts: &'a mut InterruptRegisters,
     pub inputs: &'a GbaInputs,
     pub state: BusState,
 }
@@ -35,7 +37,7 @@ impl Bus<'_> {
     fn read_bios_halfword(&mut self, address: u32) -> u16 {
         self.read_bios(address, |word| {
             let shift = 8 * (address & 2);
-            (address >> shift) as u16
+            (word >> shift) as u16
         })
     }
 
@@ -47,10 +49,14 @@ impl Bus<'_> {
         match address {
             0x4000000..=0x4000054 => {
                 // PPU registers
-                self.ppu.step_to(self.state.cycles);
+                self.ppu.step_to(self.state.cycles, self.interrupts);
                 self.ppu.read_register(address)
             }
             0x4000130 => self.inputs.to_keyinput(),
+            0x4000200 => self.interrupts.read_ie(),
+            0x4000202 => self.interrupts.read_if(),
+            0x4000204 => self.memory.waitcnt,
+            0x4000208 => self.interrupts.read_ime(),
             _ => {
                 log::warn!("Unhandled I/O register read {address:08X}");
                 0
@@ -62,9 +68,13 @@ impl Bus<'_> {
         match address {
             0x4000000..=0x4000054 => {
                 // PPU registers
-                self.ppu.step_to(self.state.cycles);
+                self.ppu.step_to(self.state.cycles, self.interrupts);
                 self.ppu.write_register(address, value);
             }
+            0x4000200 => self.interrupts.write_ie(value),
+            0x4000202 => self.interrupts.write_if(value),
+            0x4000204 => self.memory.waitcnt = value,
+            0x4000208 => self.interrupts.write_ime(value),
             _ => log::warn!("Unhandled I/O register halfword write {address:08X} {value:04X}"),
         }
     }
@@ -84,6 +94,7 @@ impl BusInterface for Bus<'_> {
                 (halfword >> (8 * (address & 1))) as u8
             }
             0x8000000..=0xDFFFFFF => self.cartridge.read_rom_byte(address),
+            0xE000000..=0xFFFFFFF => self.cartridge.read_sram(address),
             _ => todo!("read byte {address:08X}"),
         }
     }
@@ -97,6 +108,9 @@ impl BusInterface for Bus<'_> {
             0x2000000..=0x2FFFFFF => self.memory.read_ewram_halfword(address),
             0x3000000..=0x3FFFFFF => self.memory.read_iwram_halfword(address),
             0x4000000..=0x4FFFFFF => self.read_io_register(address),
+            0x5000000..=0x5FFFFFF => self.ppu.read_palette_ram(address),
+            0x6000000..=0x6FFFFFF => self.ppu.read_vram(address),
+            0x7000000..=0x7FFFFFF => self.ppu.read_oam(address),
             0x8000000..=0xDFFFFFF => self.cartridge.read_rom_halfword(address),
             _ => todo!("read halfword {address:08X}"),
         }
@@ -146,6 +160,7 @@ impl BusInterface for Bus<'_> {
             0x4000000..=0x4FFFFFF => {
                 log::warn!("I/O register write {address:08X} {value:02X}");
             }
+            0xE000000..=0xFFFFFFF => self.cartridge.write_sram(address, value),
             _ => todo!("write byte {address:08X} {value:02X}"),
         }
     }
@@ -198,7 +213,7 @@ impl BusInterface for Bus<'_> {
 
     #[inline]
     fn irq(&self) -> bool {
-        false
+        self.interrupts.pending()
     }
 
     #[inline]

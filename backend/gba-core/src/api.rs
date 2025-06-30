@@ -2,6 +2,7 @@
 
 use crate::bus::Bus;
 use crate::cartridge::Cartridge;
+use crate::interrupts::InterruptRegisters;
 use crate::memory::Memory;
 use crate::ppu;
 use crate::ppu::Ppu;
@@ -61,6 +62,7 @@ pub struct GameBoyAdvanceEmulator {
     memory: Memory,
     #[partial_clone(partial)]
     cartridge: Cartridge,
+    interrupts: InterruptRegisters,
     bus_state: BusState,
     config: GbaEmulatorConfig,
 }
@@ -77,6 +79,7 @@ impl GameBoyAdvanceEmulator {
         let mut ppu = Ppu::new();
         let mut memory = Memory::new(bios_rom)?;
         let mut cartridge = Cartridge::new(rom);
+        let mut interrupts = InterruptRegisters::new();
 
         // TODO BIOS boot
         let mut cpu = Arm7Tdmi::new();
@@ -93,12 +96,13 @@ impl GameBoyAdvanceEmulator {
                 ppu: &mut ppu,
                 memory: &mut memory,
                 cartridge: &mut cartridge,
+                interrupts: &mut interrupts,
                 inputs: &GbaInputs::default(),
                 state: BusState::new(),
             },
         );
 
-        Ok(Self { cpu, ppu, memory, cartridge, bus_state: BusState::new(), config })
+        Ok(Self { cpu, ppu, memory, cartridge, interrupts, bus_state: BusState::new(), config })
     }
 }
 
@@ -133,6 +137,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
             ppu: &mut self.ppu,
             memory: &mut self.memory,
             cartridge: &mut self.cartridge,
+            interrupts: &mut self.interrupts,
             inputs,
             state: self.bus_state,
         };
@@ -141,7 +146,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
 
         self.bus_state = bus.state;
 
-        self.ppu.step_to(self.bus_state.cycles);
+        self.ppu.step_to(self.bus_state.cycles, &mut self.interrupts);
         if self.ppu.frame_complete() {
             self.ppu.clear_frame_complete();
 

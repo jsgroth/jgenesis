@@ -2,10 +2,12 @@
 
 mod registers;
 
+use crate::interrupts::{InterruptRegisters, InterruptType};
 use crate::ppu::registers::{BgMode, BitmapFrameBuffer, Registers};
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::{BoxedByteArray, BoxedWordArray};
 use jgenesis_common::frontend::{Color, FrameSize};
+use jgenesis_common::num::GetBit;
 use std::ops::Range;
 
 const VRAM_LOW_LEN: usize = 64 * 1024;
@@ -85,16 +87,16 @@ impl Ppu {
         }
     }
 
-    pub fn step_to(&mut self, cycles: u64) {
+    pub fn step_to(&mut self, cycles: u64, interrupts: &mut InterruptRegisters) {
         let tick_cycles = cycles - self.cycles;
         self.cycles = cycles;
 
         for _ in 0..tick_cycles {
-            self.tick();
+            self.tick(interrupts);
         }
     }
 
-    fn tick(&mut self) {
+    fn tick(&mut self, interrupts: &mut InterruptRegisters) {
         self.state.dot += 1;
         if self.state.dot == DOTS_PER_LINE {
             self.state.dot = 0;
@@ -103,6 +105,10 @@ impl Ppu {
             if self.state.scanline == LINES_PER_FRAME {
                 self.state.scanline = 0;
             } else if self.state.scanline == SCREEN_HEIGHT {
+                if self.registers.vblank_irq_enabled {
+                    interrupts.set_flag(InterruptType::VBlank);
+                }
+
                 match self.registers.bg_mode {
                     BgMode::Three => self.render_frame_mode_3(),
                     BgMode::Four => self.render_frame_mode_4(),
@@ -114,6 +120,14 @@ impl Ppu {
 
                 self.state.frame_complete = true;
             }
+
+            if self.registers.v_counter_irq_enabled
+                && (self.state.scanline as u8) == self.registers.v_counter_match
+            {
+                interrupts.set_flag(InterruptType::VCounter);
+            }
+        } else if self.registers.hblank_irq_enabled && self.state.dot == HBLANK_START_DOT {
+            interrupts.set_flag(InterruptType::HBlank);
         }
     }
 
@@ -168,17 +182,34 @@ impl Ppu {
         &self.frame_buffer.0
     }
 
+    fn mask_vram_address(address: u32) -> usize {
+        let vram_addr = (address as usize) & VRAM_ADDR_MASK & !1;
+        if vram_addr >= 0x10000 { 0x10000 | (vram_addr & 0x7FFF) } else { vram_addr }
+    }
+
+    pub fn read_vram(&self, address: u32) -> u16 {
+        let vram_addr = Self::mask_vram_address(address);
+        u16::from_le_bytes(self.vram[vram_addr..vram_addr + 2].try_into().unwrap())
+    }
+
     pub fn write_vram(&mut self, address: u32, value: u16) {
-        let mut vram_addr = (address as usize) & VRAM_ADDR_MASK & !1;
-        if vram_addr >= 0x10000 {
-            vram_addr = 0x10000 | (vram_addr & 0x7FFF);
-        }
+        let vram_addr = Self::mask_vram_address(address);
         self.vram[vram_addr..vram_addr + 2].copy_from_slice(&value.to_le_bytes());
+    }
+
+    pub fn read_palette_ram(&self, address: u32) -> u16 {
+        let palette_ram_addr = ((address >> 1) as usize) & (PALETTE_RAM_LEN_HALFWORDS - 1);
+        self.palette_ram[palette_ram_addr]
     }
 
     pub fn write_palette_ram(&mut self, address: u32, value: u16) {
         let palette_ram_addr = ((address >> 1) as usize) & (PALETTE_RAM_LEN_HALFWORDS - 1);
         self.palette_ram[palette_ram_addr] = value;
+    }
+
+    pub fn read_oam(&self, address: u32) -> u16 {
+        let oam_addr = ((address >> 1) as usize) & (OAM_LEN_HALFWORDS - 1);
+        self.oam[oam_addr]
     }
 
     pub fn write_oam(&mut self, address: u32, value: u16) {
@@ -192,6 +223,15 @@ impl Ppu {
         match address {
             0x4000000 => self.registers.read_dispcnt(),
             0x4000004 => self.read_dispstat(),
+            0x4000006 => self.state.scanline as u16,
+            0x4000008..=0x400000E => {
+                let bg = (address & 7) >> 1;
+                self.registers.read_bgcnt(bg as usize)
+            }
+            0x4000048 => self.registers.read_winin(),
+            0x400004A => self.registers.read_winout(),
+            0x4000050 => self.registers.read_bldcnt(),
+            0x4000052 => self.registers.read_bldalpha(),
             _ => {
                 log::warn!("Unhandled PPU register read {address:08X}");
                 0
@@ -199,6 +239,7 @@ impl Ppu {
         }
     }
 
+    // $4000004: DISPSTAT (Display status)
     fn read_dispstat(&self) -> u16 {
         let in_vblank = VBLANK_LINES.contains(&self.state.scanline);
         let in_hblank = self.state.dot >= HBLANK_START_DOT;
@@ -219,6 +260,31 @@ impl Ppu {
         match address {
             0x4000000 => self.registers.write_dispcnt(value),
             0x4000004 => self.registers.write_dispstat(value),
+            0x4000008..=0x400000E => {
+                // BGxCNT
+                let bg = (address & 7) >> 1;
+                self.registers.write_bgcnt(bg as usize, value);
+            }
+            0x4000010..=0x400001E => {
+                // BGxHOFS / BGxVOFS
+                let bg = (address & 0xF) >> 2;
+                if !address.bit(1) {
+                    self.registers.write_bghofs(bg as usize, value);
+                } else {
+                    self.registers.write_bgvofs(bg as usize, value);
+                }
+            }
+            0x4000020..=0x400003E => self.registers.write_bg_affine_register(address, value),
+            0x4000040 => self.registers.write_winh(0, value),
+            0x4000042 => self.registers.write_winh(1, value),
+            0x4000044 => self.registers.write_winv(0, value),
+            0x4000046 => self.registers.write_winv(1, value),
+            0x4000048 => self.registers.write_winin(value),
+            0x400004A => self.registers.write_winout(value),
+            0x400004C => self.registers.write_mosaic(value),
+            0x4000050 => self.registers.write_bldcnt(value),
+            0x4000052 => self.registers.write_bldalpha(value),
+            0x4000054 => self.registers.write_bldy(value),
             _ => {
                 log::warn!("Unhandled PPU register write {address:08X} {value:04X}");
             }

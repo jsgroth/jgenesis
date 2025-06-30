@@ -13,6 +13,7 @@ pub struct Memory {
     bios_rom: BoxedByteArray<BIOS_ROM_LEN>,
     iwram: BoxedByteArray<IWRAM_LEN>,
     ewram: BoxedByteArray<EWRAM_LEN>,
+    pub waitcnt: u16,
 }
 
 impl Memory {
@@ -30,6 +31,7 @@ impl Memory {
             bios_rom: bios_rom.into(),
             iwram: BoxedByteArray::new(),
             ewram: BoxedByteArray::new(),
+            waitcnt: 0,
         })
     }
 
