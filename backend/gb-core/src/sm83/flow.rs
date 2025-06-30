@@ -154,7 +154,13 @@ impl Sm83 {
         if bus.speed_switch_armed() {
             bus.perform_speed_switch();
         } else {
-            todo!("STOP instruction executed outside of speed switch")
+            // TODO properly implement the (very buggy) STOP instruction:
+            // https://gbdev.io/pandocs/Reducing_Power_Consumption.html#using-the-stop-instruction
+            log::warn!(
+                "STOP instruction executed at PC={:04X}; this is probably a bug",
+                self.registers.pc.wrapping_sub(2)
+            );
+            self.state.halted = true;
         }
     }
 }
