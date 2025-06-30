@@ -1005,13 +1005,14 @@ fn load_word<const LOAD: bool>(
             cpu.refill_prefetch(bus);
         }
     } else {
+        // TODO is this right for stores?
+        cpu.fetch_opcode(bus, MemoryCycle::N);
+
         let value = cpu.registers.r[rd as usize];
         match size {
             LoadSize::Word => bus.write_word(address, value, MemoryCycle::N),
             LoadSize::Byte => bus.write_byte(address, value as u8, MemoryCycle::N),
         }
-
-        cpu.fetch_opcode(bus, MemoryCycle::N);
     }
 
     // Write back only applies on loads if the base register and destination register are different
@@ -1175,9 +1176,8 @@ fn load_multiple<const LOAD: bool, const INCREMENT: bool, const AFTER: bool>(
 
     let mut address = if INCREMENT { base_addr } else { final_addr };
 
-    if LOAD {
-        cpu.fetch_opcode(bus, MemoryCycle::S);
-    }
+    // TODO is this right for stores?
+    cpu.fetch_opcode(bus, if LOAD { MemoryCycle::S } else { MemoryCycle::N });
 
     let mut first = true;
     let mut need_write_back = write_back == WriteBack::Yes;
@@ -1244,8 +1244,6 @@ fn load_multiple<const LOAD: bool, const INCREMENT: bool, const AFTER: bool>(
     if LOAD {
         // TODO when does this I cycle actually happen?
         bus.internal_cycles(1);
-    } else {
-        cpu.fetch_opcode(bus, MemoryCycle::N);
     }
 
     if LOAD {

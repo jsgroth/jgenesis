@@ -4,7 +4,7 @@ use crate::bus::Bus;
 use crate::cartridge::Cartridge;
 use crate::memory::Memory;
 use crate::ppu;
-use crate::ppu::{Ppu, PpuTickEffect};
+use crate::ppu::Ppu;
 use arm7tdmi_emu::{Arm7Tdmi, Arm7TdmiResetArgs, CpuMode};
 use bincode::{Decode, Encode};
 use gba_config::{GbaButton, GbaInputs};
@@ -41,6 +41,19 @@ pub enum GbaError<RErr, AErr, SErr> {
     SaveWrite(SErr),
 }
 
+#[derive(Debug, Clone, Copy, Encode, Decode)]
+pub(crate) struct BusState {
+    pub cycles: u64,
+    pub cpu_pc: u32,
+    pub last_bios_read: u32,
+}
+
+impl BusState {
+    fn new() -> Self {
+        Self { cycles: 0, cpu_pc: 0, last_bios_read: 0 }
+    }
+}
+
 #[derive(Debug, PartialClone, Encode, Decode)]
 pub struct GameBoyAdvanceEmulator {
     cpu: Arm7Tdmi,
@@ -48,7 +61,7 @@ pub struct GameBoyAdvanceEmulator {
     memory: Memory,
     #[partial_clone(partial)]
     cartridge: Cartridge,
-    cycles: u64,
+    bus_state: BusState,
     config: GbaEmulatorConfig,
 }
 
@@ -73,13 +86,19 @@ impl GameBoyAdvanceEmulator {
                 sp_usr: 0x3007FF0,
                 sp_svc: 0x3007FE0,
                 sp_irq: 0x3007FA0,
-                sp_fiq: 0,
+                sp_fiq: 0x3007F60,
                 mode: CpuMode::System,
             },
-            &mut Bus { ppu: &mut ppu, memory: &mut memory, cartridge: &mut cartridge, cycles: 0 },
+            &mut Bus {
+                ppu: &mut ppu,
+                memory: &mut memory,
+                cartridge: &mut cartridge,
+                inputs: &GbaInputs::default(),
+                state: BusState::new(),
+            },
         );
 
-        Ok(Self { cpu, ppu, memory, cartridge, cycles: 0, config })
+        Ok(Self { cpu, ppu, memory, cartridge, bus_state: BusState::new(), config })
     }
 }
 
@@ -114,15 +133,18 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
             ppu: &mut self.ppu,
             memory: &mut self.memory,
             cartridge: &mut self.cartridge,
-            cycles: self.cycles,
+            inputs,
+            state: self.bus_state,
         };
 
         self.cpu.execute_instruction(&mut bus);
 
-        self.cycles = bus.cycles;
+        self.bus_state = bus.state;
 
-        let ppu_tick_effect = self.ppu.step_to(self.cycles);
-        if ppu_tick_effect == PpuTickEffect::FrameComplete {
+        self.ppu.step_to(self.bus_state.cycles);
+        if self.ppu.frame_complete() {
+            self.ppu.clear_frame_complete();
+
             renderer
                 .render_frame(
                     self.ppu.frame_buffer(),

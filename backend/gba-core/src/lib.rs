@@ -5,5 +5,6 @@
 pub mod api;
 mod bus;
 mod cartridge;
+mod input;
 mod memory;
 mod ppu;
