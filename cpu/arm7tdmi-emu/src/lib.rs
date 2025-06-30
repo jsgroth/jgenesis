@@ -257,7 +257,7 @@ impl Arm7Tdmi {
 
     fn fetch_arm_opcode(&mut self, bus: &mut (impl BusInterface + ?Sized), cycle: MemoryCycle) {
         self.prefetch[0] = self.prefetch[1];
-        self.prefetch[1] = bus.read_word(self.registers.r[15], cycle);
+        self.prefetch[1] = bus.fetch_opcode_word(self.registers.r[15], cycle);
         self.registers.r[15] = self.registers.r[15].wrapping_add(4);
 
         log::trace!(
@@ -269,7 +269,7 @@ impl Arm7Tdmi {
 
     fn fetch_thumb_opcode(&mut self, bus: &mut (impl BusInterface + ?Sized), cycle: MemoryCycle) {
         self.prefetch[0] = self.prefetch[1];
-        self.prefetch[1] = bus.read_halfword(self.registers.r[15], cycle).into();
+        self.prefetch[1] = bus.fetch_opcode_halfword(self.registers.r[15], cycle).into();
         self.registers.r[15] = self.registers.r[15].wrapping_add(2);
 
         log::trace!(
@@ -282,10 +282,10 @@ impl Arm7Tdmi {
     fn dummy_opcode_fetch(&self, bus: &mut (impl BusInterface + ?Sized), cycle: MemoryCycle) {
         match self.registers.cpsr.state {
             CpuState::Arm => {
-                bus.read_word(self.registers.r[15], cycle);
+                bus.fetch_opcode_word(self.registers.r[15], cycle);
             }
             CpuState::Thumb => {
-                bus.read_halfword(self.registers.r[15], cycle);
+                bus.fetch_opcode_halfword(self.registers.r[15], cycle);
             }
         }
     }

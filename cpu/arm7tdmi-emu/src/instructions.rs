@@ -1795,8 +1795,6 @@ fn thumb_unconditional_branch(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn Bus
 // Format 19: Long branch with link
 // This instruction has no ARM equivalent
 fn thumb_long_branch(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
-    cpu.fetch_thumb_opcode(bus, MemoryCycle::S);
-
     // Offset is a signed 23-bit value split across two opcodes, with 11 bits in each
     // First opcode has H=0 and second opcode has H=1
     // It is possible to have an H=1 opcode without an H=0 opcode; Golden Sun: The Lost Age does this
@@ -1809,6 +1807,8 @@ fn thumb_long_branch(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface
 
         cpu.registers.r[14] = cpu.registers.r[15].wrapping_add_signed(offset);
 
+        cpu.fetch_thumb_opcode(bus, MemoryCycle::S);
+
         // 1S
         1
     } else {
@@ -1818,6 +1818,9 @@ fn thumb_long_branch(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface
 
         let return_address = cpu.registers.r[15].wrapping_sub(2);
         cpu.registers.r[14] = return_address | 1;
+
+        cpu.dummy_opcode_fetch(bus, MemoryCycle::S);
+
         cpu.registers.r[15] = jump_address & !1;
 
         cpu.fetch_thumb_opcode(bus, MemoryCycle::N);
