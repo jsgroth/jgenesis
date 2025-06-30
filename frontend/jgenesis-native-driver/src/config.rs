@@ -254,6 +254,19 @@ pub struct GameBoyConfig {
     pub cgb_boot_rom_path: Option<PathBuf>,
 }
 
+#[cfg(feature = "gba")]
+#[derive(Debug, Clone, ConfigDisplay)]
+pub struct GameBoyAdvanceConfig {
+    #[cfg_display(indent_nested)]
+    pub common: CommonConfig,
+    #[cfg_display(indent_nested)]
+    pub inputs: jgenesis_native_config::input::mappings::GbaInputConfig,
+    #[cfg_display(indent_nested)]
+    pub emulator_config: gba_core::api::GbaEmulatorConfig,
+    #[cfg_display(path)]
+    pub bios_path: Option<PathBuf>,
+}
+
 pub trait AppConfigExt {
     #[must_use]
     fn common_config(&self, path: PathBuf) -> CommonConfig;
@@ -278,6 +291,10 @@ pub trait AppConfigExt {
 
     #[must_use]
     fn gb_config(&self, path: PathBuf) -> Box<GameBoyConfig>;
+
+    #[cfg(feature = "gba")]
+    #[must_use]
+    fn gba_config(&self, path: PathBuf) -> Box<GameBoyAdvanceConfig>;
 }
 
 impl AppConfigExt for AppConfig {
@@ -494,6 +511,18 @@ impl AppConfigExt for AppConfig {
             cgb_boot_rom: self.game_boy.cgb_boot_rom,
             dmg_boot_rom_path: self.game_boy.dmg_boot_rom_path.clone(),
             cgb_boot_rom_path: self.game_boy.cgb_boot_rom_path.clone(),
+        })
+    }
+
+    #[cfg(feature = "gba")]
+    fn gba_config(&self, path: PathBuf) -> Box<GameBoyAdvanceConfig> {
+        use gba_core::api::GbaEmulatorConfig;
+
+        Box::new(GameBoyAdvanceConfig {
+            common: self.common_config(path),
+            inputs: self.input.game_boy_advance.clone(),
+            emulator_config: GbaEmulatorConfig {},
+            bios_path: self.game_boy_advance.bios_path.clone(),
         })
     }
 }

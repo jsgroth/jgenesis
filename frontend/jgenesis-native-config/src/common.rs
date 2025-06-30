@@ -39,6 +39,11 @@ impl WindowSize {
     const GB_HEIGHT: f64 = 144.0;
     const GB_WIDTH: f64 = 160.0;
 
+    #[cfg(feature = "gba")]
+    const GBA_HEIGHT: f64 = 160.0;
+    #[cfg(feature = "gba")]
+    const GBA_WIDTH: f64 = 240.0;
+
     #[must_use]
     pub fn new(native_width: f64, native_height: f64, size: NonZeroU8) -> Self {
         let size: f64 = size.get().into();
@@ -147,6 +152,12 @@ impl WindowSize {
     pub fn new_gb(size: NonZeroU8) -> Self {
         // Only GB aspect ratio options are square pixels and stretched
         Self::new(Self::GB_WIDTH, Self::GB_HEIGHT, size)
+    }
+
+    #[cfg(feature = "gba")]
+    #[must_use]
+    pub fn new_gba(size: NonZeroU8) -> Self {
+        Self::new(Self::GBA_WIDTH, Self::GBA_HEIGHT, size)
     }
 
     #[must_use]

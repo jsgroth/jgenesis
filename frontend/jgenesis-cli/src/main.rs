@@ -35,6 +35,8 @@ enum Hardware {
     Nes,
     Snes,
     GameBoy,
+    #[cfg(feature = "gba")]
+    GameBoyAdvance,
 }
 
 const SMSGG_OPTIONS_HEADING: &str = "Master System / Game Gear Options";
@@ -44,6 +46,8 @@ const S32X_OPTIONS_HEADING: &str = "32X Options";
 const NES_OPTIONS_HEADING: &str = "NES Options";
 const SNES_OPTIONS_HEADING: &str = "SNES Options";
 const GB_OPTIONS_HEADING: &str = "Game Boy Options";
+#[cfg(feature = "gba")]
+const GBA_OPTIONS_HEADING: &str = "Game Boy Advance Options";
 const VIDEO_OPTIONS_HEADING: &str = "Video Options";
 const AUDIO_OPTIONS_HEADING: &str = "Audio Options";
 const HOTKEY_OPTIONS_HEADING: &str = "Hotkey Options";
@@ -441,6 +445,11 @@ struct Args {
     #[arg(long, help_heading = GB_OPTIONS_HEADING)]
     gb_audio_60hz_hack: Option<bool>,
 
+    /// Game Boy Advance BIOS ROM path (required for GBA emulation)
+    #[cfg(feature = "gba")]
+    #[arg(long, help_heading = GBA_OPTIONS_HEADING)]
+    gba_bios_path: Option<PathBuf>,
+
     /// Initial window width in pixels
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     window_width: Option<u32>,
@@ -586,6 +595,9 @@ impl Args {
         fix_optional_relative_path(&mut self.dmg_boot_rom_path);
         fix_optional_relative_path(&mut self.cgb_boot_rom_path);
 
+        #[cfg(feature = "gba")]
+        fix_optional_relative_path(&mut self.gba_bios_path);
+
         self
     }
 
@@ -601,6 +613,9 @@ impl Args {
         self.apply_video_overrides(config);
         self.apply_audio_overrides(config);
         self.apply_hotkey_overrides(config);
+
+        #[cfg(feature = "gba")]
+        self.apply_gba_overrides(config);
 
         Ok(())
     }
@@ -792,6 +807,13 @@ impl Args {
         }
     }
 
+    #[cfg(feature = "gba")]
+    fn apply_gba_overrides(&self, config: &mut AppConfig) {
+        if let Some(path) = &self.gba_bios_path {
+            config.game_boy_advance.bios_path = Some(path.clone());
+        }
+    }
+
     fn apply_video_overrides(&self, config: &mut AppConfig) {
         config.common.window_width = self.window_width;
         config.common.window_height = self.window_height;
@@ -940,6 +962,8 @@ fn main() -> anyhow::Result<()> {
         Hardware::Nes => run_nes(args, config),
         Hardware::Snes => run_snes(args, config),
         Hardware::GameBoy => run_gb(args, config),
+        #[cfg(feature = "gba")]
+        Hardware::GameBoyAdvance => run_gba(args, config),
     }
 }
 
@@ -964,6 +988,8 @@ fn guess_hardware(args: &Args) -> Hardware {
         Console::Nes => Hardware::Nes,
         Console::Snes => Hardware::Snes,
         Console::GameBoy | Console::GameBoyColor => Hardware::GameBoy,
+        #[cfg(feature = "gba")]
+        Console::GameBoyAdvance => Hardware::GameBoyAdvance,
     }
 }
 
@@ -1009,6 +1035,13 @@ fn run_snes(args: Args, config: AppConfig) -> anyhow::Result<()> {
 
 fn run_gb(args: Args, config: AppConfig) -> anyhow::Result<()> {
     let mut emulator = jgenesis_native_driver::create_gb(config.gb_config(args.file_path.clone()))?;
+    run_emulator(&mut emulator, &args)
+}
+
+#[cfg(feature = "gba")]
+fn run_gba(args: Args, config: AppConfig) -> anyhow::Result<()> {
+    let mut emulator =
+        jgenesis_native_driver::create_gba(config.gba_config(args.file_path.clone()))?;
     run_emulator(&mut emulator, &args)
 }
 

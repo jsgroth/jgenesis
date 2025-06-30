@@ -5,6 +5,10 @@ edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = []
+gba = ["jgenesis-native-driver/gba"]
+
 [dependencies]
 gb-config = { path = "../../config/gb-config", features = ["clap"] }
 genesis-config = { path = "../../config/genesis-config", features = ["clap"] }

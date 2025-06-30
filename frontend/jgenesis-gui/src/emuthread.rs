@@ -37,8 +37,9 @@ pub enum EmuThreadStatus {
     RunningNes = 5,
     RunningSnes = 6,
     RunningGameBoy = 7,
-    WaitingForFirstCommand = 8,
-    Terminated = 9,
+    RunningGba = 8,
+    WaitingForFirstCommand = 9,
+    Terminated = 10,
 }
 
 impl EmuThreadStatus {
@@ -52,8 +53,9 @@ impl EmuThreadStatus {
             5 => Self::RunningNes,
             6 => Self::RunningSnes,
             7 => Self::RunningGameBoy,
-            8 => Self::WaitingForFirstCommand,
-            9 => Self::Terminated,
+            8 => Self::RunningGba,
+            9 => Self::WaitingForFirstCommand,
+            10 => Self::Terminated,
             _ => panic!("invalid status discriminant: {discriminant}"),
         }
     }
@@ -68,6 +70,7 @@ impl EmuThreadStatus {
                 | Self::RunningNes
                 | Self::RunningSnes
                 | Self::RunningGameBoy
+                | Self::RunningGba
         )
     }
 }
@@ -86,6 +89,8 @@ impl ConsoleExt for Console {
             Self::Nes => EmuThreadStatus::RunningNes,
             Self::Snes => EmuThreadStatus::RunningSnes,
             Self::GameBoy | Self::GameBoyColor => EmuThreadStatus::RunningGameBoy,
+            #[cfg(feature = "gba")]
+            Self::GameBoyAdvance => EmuThreadStatus::RunningGba,
         }
     }
 }
@@ -312,6 +317,8 @@ enum GenericEmulator {
     Nes(Box<NativeNesEmulator>),
     Snes(Box<NativeSnesEmulator>),
     GameBoy(Box<NativeGameBoyEmulator>),
+    #[cfg(feature = "gba")]
+    GameBoyAdvance(Box<jgenesis_native_driver::NativeGbaEmulator>),
 }
 
 impl GenericEmulator {
@@ -345,6 +352,10 @@ impl GenericEmulator {
             Console::GameBoy | Console::GameBoyColor => {
                 Self::GameBoy(Box::new(jgenesis_native_driver::create_gb(config.gb_config(path))?))
             }
+            #[cfg(feature = "gba")]
+            Console::GameBoyAdvance => Self::GameBoyAdvance(Box::new(
+                jgenesis_native_driver::create_gba(config.gba_config(path))?,
+            )),
         };
 
         Ok(emulator)
@@ -392,6 +403,8 @@ impl GenericEmulator {
             Self::Nes(emulator) => emulator.reload_nes_config(config.nes_config(path)),
             Self::Snes(emulator) => emulator.reload_snes_config(config.snes_config(path)),
             Self::GameBoy(emulator) => emulator.reload_gb_config(config.gb_config(path)),
+            #[cfg(feature = "gba")]
+            Self::GameBoyAdvance(emulator) => emulator.reload_gba_config(config.gba_config(path)),
         }
     }
 

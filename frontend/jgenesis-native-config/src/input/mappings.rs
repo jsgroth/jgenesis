@@ -1,5 +1,7 @@
 use crate::input::{GenericInput, Hotkey};
 use gb_config::GameBoyButton;
+#[cfg(feature = "gba")]
+use gba_config::GbaButton;
 use genesis_config::{GenesisButton, GenesisControllerType};
 use jgenesis_common::input::Player;
 use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay};
@@ -638,6 +640,91 @@ fn default_gb_mapping_1() -> GameBoyInputMapping {
 impl Default for GameBoyInputConfig {
     fn default() -> Self {
         Self { mapping_1: default_gb_mapping_1(), mapping_2: GameBoyInputMapping::default() }
+    }
+}
+
+#[cfg(feature = "gba")]
+define_controller_mapping!(GbaInputMapping, GbaButton, [
+    up: Up,
+    left: Left,
+    right: Right,
+    down: Down,
+    a: A,
+    b: B,
+    l: L,
+    r: R,
+    start: Start,
+    select: Select,
+]);
+
+#[cfg(feature = "gba")]
+impl GbaInputMapping {
+    #[must_use]
+    pub fn keyboard_arrows() -> Self {
+        Self {
+            up: key_input!(Up),
+            left: key_input!(Left),
+            right: key_input!(Right),
+            down: key_input!(Down),
+            a: key_input!(A),
+            b: key_input!(S),
+            l: key_input!(Q),
+            r: key_input!(W),
+            start: key_input!(Return),
+            select: key_input!(RShift),
+        }
+    }
+
+    #[must_use]
+    pub fn keyboard_wasd() -> Self {
+        Self {
+            up: key_input!(W),
+            left: key_input!(A),
+            right: key_input!(D),
+            down: key_input!(S),
+            a: key_input!(L),
+            b: key_input!(K),
+            l: key_input!(I),
+            r: key_input!(O),
+            start: key_input!(Return),
+            select: key_input!(RShift),
+        }
+    }
+}
+
+#[cfg(feature = "gba")]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
+pub struct GbaInputConfig {
+    #[serde(default = "default_gba_mapping_1")]
+    #[cfg_display(indent_nested)]
+    pub mapping_1: GbaInputMapping,
+    #[serde(default)]
+    #[cfg_display(indent_nested)]
+    pub mapping_2: GbaInputMapping,
+}
+
+#[cfg(feature = "gba")]
+impl GbaInputConfig {
+    #[must_use]
+    pub fn to_mapping_vec(&self) -> ButtonMappingVec<'_, GbaButton> {
+        let mut out = Vec::new();
+
+        self.mapping_1.to_mapping_vec(Player::One, &mut out);
+        self.mapping_2.to_mapping_vec(Player::One, &mut out);
+
+        out
+    }
+}
+
+#[cfg(feature = "gba")]
+fn default_gba_mapping_1() -> GbaInputMapping {
+    GbaInputMapping::keyboard_arrows()
+}
+
+#[cfg(feature = "gba")]
+impl Default for GbaInputConfig {
+    fn default() -> Self {
+        Self { mapping_1: default_gba_mapping_1(), mapping_2: GbaInputMapping::default() }
     }
 }
 

@@ -1,0 +1,18 @@
+[package]
+name = "gba-config"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+serde = ["dep:serde"]
+
+[dependencies]
+jgenesis-common = { path = "../../common/jgenesis-common" }
+jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
+
+bincode = { workspace = true }
+serde = { workspace = true, optional = true }
+
+[lints]
+workspace = true

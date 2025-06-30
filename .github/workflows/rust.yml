@@ -37,6 +37,10 @@ jobs:
       run: |
         cargo build
 
+    - name: Build with GBA enabled
+      run: |
+        cargo build --features gba
+
     - name: Check Clippy warnings
       run: |
         cargo clippy -- -D warnings
@@ -44,6 +48,10 @@ jobs:
     - name: Run tests
       run: |
         cargo test
+
+    - name: Run tests with GBA enabled
+      run: |
+        cargo test --features gba
   build-web:
     runs-on: ubuntu-latest
 

@@ -1,0 +1,179 @@
+//! GBA emulator public interface
+
+use crate::bus::Bus;
+use crate::cartridge::Cartridge;
+use crate::memory::Memory;
+use crate::ppu;
+use crate::ppu::{Ppu, PpuTickEffect};
+use arm7tdmi_emu::{Arm7Tdmi, Arm7TdmiResetArgs, CpuMode};
+use bincode::{Decode, Encode};
+use gba_config::{GbaButton, GbaInputs};
+use jgenesis_common::frontend::{
+    AudioOutput, EmulatorConfigTrait, EmulatorTrait, PixelAspectRatio, Renderer, SaveWriter,
+    TickEffect, TickResult,
+};
+use jgenesis_proc_macros::PartialClone;
+use std::fmt::{Debug, Display, Formatter};
+use thiserror::Error;
+
+#[derive(Debug, Clone, Copy, Encode, Decode)]
+pub struct GbaEmulatorConfig;
+
+impl Display for GbaEmulatorConfig {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum GbaLoadError {
+    #[error("Invalid BIOS ROM; expected length of {expected} bytes, was {actual} bytes")]
+    InvalidBiosLength { expected: usize, actual: usize },
+}
+
+#[derive(Debug, Error)]
+pub enum GbaError<RErr, AErr, SErr> {
+    #[error("Error rendering video output: {0}")]
+    Render(RErr),
+    #[error("Error outputting audio samples: {0}")]
+    Audio(AErr),
+    #[error("Error persisting save file: {0}")]
+    SaveWrite(SErr),
+}
+
+#[derive(Debug, PartialClone, Encode, Decode)]
+pub struct GameBoyAdvanceEmulator {
+    cpu: Arm7Tdmi,
+    ppu: Ppu,
+    memory: Memory,
+    #[partial_clone(partial)]
+    cartridge: Cartridge,
+    cycles: u64,
+    config: GbaEmulatorConfig,
+}
+
+impl GameBoyAdvanceEmulator {
+    /// # Errors
+    ///
+    /// Returns an error if emulator initialization fails, e.g. because the BIOS ROM is invalid.
+    pub fn create(
+        rom: Vec<u8>,
+        bios_rom: Vec<u8>,
+        config: GbaEmulatorConfig,
+    ) -> Result<Self, GbaLoadError> {
+        let mut ppu = Ppu::new();
+        let mut memory = Memory::new(bios_rom)?;
+        let mut cartridge = Cartridge::new(rom);
+
+        // TODO BIOS boot
+        let mut cpu = Arm7Tdmi::new();
+        cpu.manual_reset(
+            Arm7TdmiResetArgs {
+                pc: 0x8000000,
+                sp_usr: 0x3007FF0,
+                sp_svc: 0x3007FE0,
+                sp_irq: 0x3007FA0,
+                sp_fiq: 0,
+                mode: CpuMode::System,
+            },
+            &mut Bus { ppu: &mut ppu, memory: &mut memory, cartridge: &mut cartridge, cycles: 0 },
+        );
+
+        Ok(Self { cpu, ppu, memory, cartridge, cycles: 0, config })
+    }
+}
+
+impl EmulatorConfigTrait for GbaEmulatorConfig {}
+
+impl EmulatorTrait for GameBoyAdvanceEmulator {
+    type Button = GbaButton;
+    type Inputs = GbaInputs;
+    type Config = GbaEmulatorConfig;
+    type Err<
+        RErr: Debug + Display + Send + Sync + 'static,
+        AErr: Debug + Display + Send + Sync + 'static,
+        SErr: Debug + Display + Send + Sync + 'static,
+    > = GbaError<RErr, AErr, SErr>;
+
+    fn tick<R, A, S>(
+        &mut self,
+        renderer: &mut R,
+        audio_output: &mut A,
+        inputs: &Self::Inputs,
+        save_writer: &mut S,
+    ) -> TickResult<Self::Err<R::Err, A::Err, S::Err>>
+    where
+        R: Renderer,
+        R::Err: Debug + Display + Send + Sync + 'static,
+        A: AudioOutput,
+        A::Err: Debug + Display + Send + Sync + 'static,
+        S: SaveWriter,
+        S::Err: Debug + Display + Send + Sync + 'static,
+    {
+        let mut bus = Bus {
+            ppu: &mut self.ppu,
+            memory: &mut self.memory,
+            cartridge: &mut self.cartridge,
+            cycles: self.cycles,
+        };
+
+        self.cpu.execute_instruction(&mut bus);
+
+        self.cycles = bus.cycles;
+
+        let ppu_tick_effect = self.ppu.step_to(self.cycles);
+        if ppu_tick_effect == PpuTickEffect::FrameComplete {
+            renderer
+                .render_frame(
+                    self.ppu.frame_buffer(),
+                    ppu::FRAME_SIZE,
+                    Some(PixelAspectRatio::SQUARE),
+                )
+                .map_err(GbaError::Render)?;
+
+            return Ok(TickEffect::FrameRendered);
+        }
+
+        Ok(TickEffect::None)
+    }
+
+    fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>
+    where
+        R: Renderer,
+    {
+        renderer.render_frame(
+            self.ppu.frame_buffer(),
+            ppu::FRAME_SIZE,
+            Some(PixelAspectRatio::SQUARE),
+        )
+    }
+
+    fn reload_config(&mut self, config: &Self::Config) {
+        // TODO reload when there is config to reload
+    }
+
+    fn take_rom_from(&mut self, other: &mut Self) {
+        self.cartridge.take_rom_from(&mut other.cartridge);
+    }
+
+    fn soft_reset(&mut self) {
+        log::warn!("GBA does not support soft reset except in software");
+    }
+
+    fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
+        let rom = self.cartridge.take_rom();
+        let bios_rom = self.memory.clone_bios_rom();
+
+        *self = Self::create(rom, bios_rom, self.config)
+            .expect("Emulator creation should never fail during hard reset");
+    }
+
+    fn target_fps(&self) -> f64 {
+        // Roughly 59.73 fps
+        f64::from(1 << 24) / f64::from(ppu::LINES_PER_FRAME) / f64::from(ppu::DOTS_PER_LINE)
+    }
+
+    fn update_audio_output_frequency(&mut self, output_frequency: u64) {
+        // TODO implement audio
+    }
+}

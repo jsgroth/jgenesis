@@ -1,5 +1,6 @@
 pub mod common;
 pub mod gb;
+pub mod gba;
 pub mod genesis;
 pub mod input;
 mod migration;
@@ -44,6 +45,9 @@ pub struct ListFilters {
     pub game_boy: bool,
     #[serde(default = "true_fn")]
     pub game_boy_color: bool,
+    #[cfg(feature = "gba")]
+    #[serde(default = "true_fn")]
+    pub game_boy_advance: bool,
 }
 
 fn true_fn() -> bool {
@@ -90,6 +94,9 @@ pub struct AppConfig {
     pub snes: SnesAppConfig,
     #[serde(default)]
     pub game_boy: GameBoyAppConfig,
+    #[cfg(feature = "gba")]
+    #[serde(default)]
+    pub game_boy_advance: gba::GameBoyAdvanceAppConfig,
     #[serde(default)]
     pub input: InputAppConfig,
     // TODO move GUI-specific config/state somewhere else - separate file?

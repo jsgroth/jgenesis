@@ -1,0 +1,20 @@
+[package]
+name = "gba-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+dsp = { path = "../../common/dsp" }
+jgenesis-common = { path = "../../common/jgenesis-common" }
+jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
+
+arm7tdmi-emu = { path = "../../cpu/arm7tdmi-emu" }
+
+gba-config = { path = "../../config/gba-config" }
+
+bincode = { workspace = true, features = ["derive"] }
+log = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

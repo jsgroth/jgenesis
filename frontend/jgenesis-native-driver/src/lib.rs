@@ -12,6 +12,8 @@ pub use mainloop::{
     SaveWriteError, create_32x, create_gb, create_genesis, create_nes, create_sega_cd,
     create_smsgg, create_snes,
 };
+#[cfg(feature = "gba")]
+pub use mainloop::{NativeGbaEmulator, create_gba};
 use sdl2::VideoSubsystem;
 
 #[must_use]

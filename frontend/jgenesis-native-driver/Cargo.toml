@@ -8,12 +8,14 @@ edition = "2024"
 [features]
 default = []
 clap = ["dep:clap"]
+gba = ["dep:gba-config", "dep:gba-core", "jgenesis-native-config/gba"]
 
 [dependencies]
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 jgenesis-common = { path = "../../common/jgenesis-common" }
 
 gb-core = { path = "../../backend/gb-core" }
+gba-core = { path = "../../backend/gba-core", optional = true }
 genesis-core = { path = "../../backend/genesis-core" }
 nes-core = { path = "../../backend/nes-core" }
 s32x-core = { path = "../../backend/s32x-core" }
@@ -22,6 +24,7 @@ smsgg-core = { path = "../../backend/smsgg-core" }
 snes-core = { path = "../../backend/snes-core" }
 
 gb-config = { path = "../../config/gb-config" }
+gba-config = { path = "../../config/gba-config", optional = true }
 nes-config = { path = "../../config/nes-config" }
 smsgg-config = { path = "../../config/smsgg-config" }
 snes-config = { path = "../../config/snes-config" }

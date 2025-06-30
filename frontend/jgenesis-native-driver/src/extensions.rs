@@ -18,6 +18,10 @@ pub const NES: &[&str] = &["nes"];
 pub const SNES: &[&str] = &["sfc", "smc"];
 pub const GAME_BOY: &[&str] = &["gb"];
 pub const GAME_BOY_COLOR: &[&str] = &["gbc"];
+#[cfg(feature = "gba")]
+pub const GAME_BOY_ADVANCE: &[&str] = &["gba"];
+#[cfg(not(feature = "gba"))]
+pub const GAME_BOY_ADVANCE: &[&str] = &[];
 
 pub const SUPPORTED_ARCHIVES: &[&str] = &["zip", "7z"];
 
@@ -30,10 +34,20 @@ pub static GB_GBC: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
 });
 
 pub static ALL_CARTRIDGE_BASED: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
-    [MASTER_SYSTEM, GAME_GEAR, GENESIS, SEGA_32X, NES, SNES, GAME_BOY, GAME_BOY_COLOR]
-        .into_iter()
-        .flat_map(|system| system.iter().copied())
-        .collect()
+    [
+        MASTER_SYSTEM,
+        GAME_GEAR,
+        GENESIS,
+        SEGA_32X,
+        NES,
+        SNES,
+        GAME_BOY,
+        GAME_BOY_COLOR,
+        GAME_BOY_ADVANCE,
+    ]
+    .into_iter()
+    .flat_map(|system| system.iter().copied())
+    .collect()
 });
 
 pub static ALL: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
@@ -99,6 +113,8 @@ fn build_extension_lookup() -> HashMap<&'static str, Console> {
         (SNES, Console::Snes),
         (GAME_BOY, Console::GameBoy),
         (GAME_BOY_COLOR, Console::GameBoyColor),
+        #[cfg(feature = "gba")]
+        (GAME_BOY_ADVANCE, Console::GameBoyAdvance),
     ]
     .into_iter()
     .flat_map(|(extensions, console)| extensions.iter().map(move |&extension| (extension, console)))
@@ -127,6 +143,8 @@ pub enum Console {
     Snes,
     GameBoy,
     GameBoyColor,
+    #[cfg(feature = "gba")]
+    GameBoyAdvance,
 }
 
 impl Console {
@@ -201,6 +219,8 @@ impl Console {
             Self::Snes => "SNES",
             Self::GameBoy => "Game Boy",
             Self::GameBoyColor => "Game Boy Color",
+            #[cfg(feature = "gba")]
+            Self::GameBoyAdvance => "Game Boy Advance",
         }
     }
 
@@ -215,6 +235,8 @@ impl Console {
             Self::Nes => NES,
             Self::Snes => SNES,
             Self::GameBoy | Self::GameBoyColor => &GB_GBC,
+            #[cfg(feature = "gba")]
+            Self::GameBoyAdvance => GAME_BOY_ADVANCE,
         }
     }
 }

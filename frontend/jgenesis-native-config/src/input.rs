@@ -283,6 +283,9 @@ pub struct InputAppConfig {
     pub snes: SnesInputConfig,
     #[serde(default)]
     pub game_boy: GameBoyInputConfig,
+    #[cfg(feature = "gba")]
+    #[serde(default)]
+    pub game_boy_advance: mappings::GbaInputConfig,
     #[serde(default)]
     pub hotkeys: HotkeyConfig,
     #[serde(default = "default_axis_deadzone")]

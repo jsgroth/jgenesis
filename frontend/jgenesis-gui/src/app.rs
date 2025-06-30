@@ -1,5 +1,7 @@
 mod common;
 mod gb;
+#[cfg(feature = "gba")]
+mod gba;
 mod genesis;
 mod input;
 mod nes;
@@ -62,6 +64,8 @@ impl ListFiltersExt for ListFilters {
             self.snes.then_some(Console::Snes),
             self.game_boy.then_some(Console::GameBoy),
             self.game_boy_color.then_some(Console::GameBoyColor),
+            #[cfg(feature = "gba")]
+            self.game_boy_advance.then_some(Console::GameBoyAdvance),
         ]
         .into_iter()
         .flatten()
@@ -981,6 +985,8 @@ impl App {
             ui.checkbox(&mut self.config.list_filters.snes, "SNES");
             ui.checkbox(&mut self.config.list_filters.game_boy, "GB");
             ui.checkbox(&mut self.config.list_filters.game_boy_color, "GBC");
+            #[cfg(feature = "gba")]
+            ui.checkbox(&mut self.config.list_filters.game_boy_advance, "GBA");
 
             if prev_list_filters != self.config.list_filters {
                 self.refresh_filtered_rom_list();
@@ -1066,6 +1072,8 @@ impl App {
                         HandledError::No => Self::render_generic_error_window(ctx, err, &mut open),
                     }
                 }
+                #[cfg(feature = "gba")]
+                NativeEmulatorError::GbaNoBios => self.render_gba_bios_error(ctx, &mut open),
                 _ => Self::render_generic_error_window(ctx, err, &mut open),
             };
 

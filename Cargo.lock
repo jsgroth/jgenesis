@@ -1814,6 +1814,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "gba-config"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "jgenesis-common",
+ "jgenesis-proc-macros",
+ "serde",
+]
+
+[[package]]
+name = "gba-core"
+version = "0.1.0"
+dependencies = [
+ "arm7tdmi-emu",
+ "bincode",
+ "dsp",
+ "gba-config",
+ "jgenesis-common",
+ "jgenesis-proc-macros",
+ "log",
+ "thiserror 2.0.12",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2321,6 +2345,7 @@ dependencies = [
  "emath",
  "env_logger",
  "gb-config",
+ "gba-config",
  "genesis-config",
  "genesis-core",
  "jgenesis-common",
@@ -2354,6 +2379,7 @@ dependencies = [
  "clap",
  "directories",
  "gb-config",
+ "gba-config",
  "genesis-config",
  "jgenesis-common",
  "jgenesis-proc-macros",
@@ -2380,6 +2406,8 @@ dependencies = [
  "egui-wgpu",
  "gb-config",
  "gb-core",
+ "gba-config",
+ "gba-core",
  "genesis-core",
  "jgenesis-common",
  "jgenesis-native-config",

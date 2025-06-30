@@ -5,6 +5,10 @@ edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = []
+gba = ["dep:gba-config", "jgenesis-native-driver/gba", "jgenesis-native-config/gba"]
+
 [dependencies]
 jgenesis-common = { path = "../../common/jgenesis-common", features = ["serde"] }
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
@@ -16,6 +20,7 @@ smsgg-core = { path = "../../backend/smsgg-core" }
 snes-core = { path = "../../backend/snes-core" }
 
 gb-config = { path = "../../config/gb-config" }
+gba-config = { path = "../../config/gba-config", optional = true }
 genesis-config = { path = "../../config/genesis-config" }
 nes-config = { path = "../../config/nes-config" }
 smsgg-config = { path = "../../config/smsgg-config" }
