@@ -32,7 +32,6 @@ Linux, Windows, and web (WASM) are officially supported. Other platforms may wor
 
 TODOs:
 * Support multiple Sega CD BIOS versions in GUI and automatically use the correct one based on disc region
-* Support 24C64 EEPROM chips (used only in _Frank Thomas Big Hurt Baseball_ and _College Slam_)
 
 ## Dev Builds
 

@@ -2,7 +2,7 @@
 
 mod metadata;
 
-use crate::cartridge::eeprom::{X24C01Chip, X24C02Chip, X24C08Chip, X24C16Chip};
+use crate::cartridge::eeprom::{X24C01Chip, X24C02Chip, X24C08Chip, X24C16Chip, X24C64Chip};
 use crate::cartridge::external::metadata::{EepromMetadata, EepromType};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
@@ -205,6 +205,7 @@ pub enum Eeprom {
     X24C02(X24C02Chip),
     X24C08(X24C08Chip),
     X24C16(X24C16Chip),
+    X24C64(X24C64Chip),
 }
 
 macro_rules! match_each_eeprom {
@@ -214,6 +215,7 @@ macro_rules! match_each_eeprom {
             Eeprom::X24C02($chip) => $match_arm,
             Eeprom::X24C08($chip) => $match_arm,
             Eeprom::X24C16($chip) => $match_arm,
+            Eeprom::X24C64($chip) => $match_arm,
         }
     };
 }
@@ -405,6 +407,7 @@ fn new_eeprom(
             }
         }
         EepromType::X24C16 => Eeprom::X24C16(X24C16Chip::new(initial_ram.as_ref())),
+        EepromType::X24C64 => Eeprom::X24C64(X24C64Chip::new(initial_ram.as_ref())),
     });
 
     ExternalMemory::Eeprom {
