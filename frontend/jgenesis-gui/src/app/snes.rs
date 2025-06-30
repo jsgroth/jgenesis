@@ -6,6 +6,7 @@ use crate::emuthread::EmuThreadStatus;
 use egui::{Context, Grid, Ui, Window};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_config::snes::SnesAppConfig;
+use jgenesis_proc_macros::EnumAll;
 use rfd::FileDialog;
 use snes_config::{AudioInterpolationMode, SnesAspectRatio};
 use snes_core::api::SnesLoadError;
@@ -18,7 +19,7 @@ pub enum HandledError {
     Yes(RenderErrorEffect),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumAll)]
 enum CoprocessorRom {
     Dsp1,
     Dsp2,
@@ -26,6 +27,7 @@ enum CoprocessorRom {
     Dsp4,
     St010,
     St011,
+    St018,
 }
 
 impl CoprocessorRom {
@@ -37,6 +39,7 @@ impl CoprocessorRom {
             Self::Dsp4 => "DSP-4",
             Self::St010 => "ST010",
             Self::St011 => "ST011",
+            Self::St018 => "ST018",
         }
     }
 
@@ -48,6 +51,7 @@ impl CoprocessorRom {
             Self::Dsp4 => &mut config.dsp4_rom_path,
             Self::St010 => &mut config.st010_rom_path,
             Self::St011 => &mut config.st011_rom_path,
+            Self::St018 => &mut config.st018_rom_path,
         }
     }
 }
@@ -128,15 +132,10 @@ impl App {
                 .group(|ui| {
                     ui.label("Coprocessor ROM Paths");
                     Grid::new("coprocessor_path_grid").show(ui, |ui| {
-                        for (label, path) in [
-                            ("DSP-1 ROM path", &mut self.config.snes.dsp1_rom_path),
-                            ("DSP-2 ROM path", &mut self.config.snes.dsp2_rom_path),
-                            ("DSP-3 ROM path", &mut self.config.snes.dsp3_rom_path),
-                            ("DSP-4 ROM path", &mut self.config.snes.dsp4_rom_path),
-                            ("ST010 ROM path", &mut self.config.snes.st010_rom_path),
-                            ("ST011 ROM path", &mut self.config.snes.st011_rom_path),
-                        ] {
-                            render_coprocessor_path_select(label, path, ui);
+                        for coprocessor_type in CoprocessorRom::ALL {
+                            let label = format!("{} ROM path", coprocessor_type.name());
+                            let path = coprocessor_type.path_field(&mut self.config.snes);
+                            render_coprocessor_path_select(&label, path, ui);
                         }
                     });
                 })
@@ -269,7 +268,10 @@ impl App {
             SnesLoadError::MissingDsp4Rom => CoprocessorRom::Dsp4,
             SnesLoadError::MissingSt010Rom => CoprocessorRom::St010,
             SnesLoadError::MissingSt011Rom => CoprocessorRom::St011,
-            SnesLoadError::CoprocessorRomLoad { .. } => return HandledError::No,
+            SnesLoadError::MissingSt018Rom => CoprocessorRom::St018,
+            SnesLoadError::CoprocessorRomLoad { .. } | SnesLoadError::St018RomLoad(..) => {
+                return HandledError::No;
+            }
         };
 
         let name = coprocessor_rom.name();
@@ -294,16 +296,15 @@ impl App {
 }
 
 fn render_coprocessor_path_select(label: &str, value: &mut Option<PathBuf>, ui: &mut Ui) {
+    ui.label(label);
+
     let button_label =
         value.as_deref().map_or_else(|| "<None>".into(), |path| path.display().to_string());
-
     if ui.button(button_label).clicked() {
         if let Some(path) = pick_coprocessor_rom_path() {
             *value = Some(path);
         }
     }
-
-    ui.label(label);
 
     ui.end_row();
 }

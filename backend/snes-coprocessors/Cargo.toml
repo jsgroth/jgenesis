@@ -8,11 +8,14 @@ edition = "2024"
 [dependencies]
 jgenesis-common = { path = "../../common/jgenesis-common" }
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
+
+arm7tdmi-emu = { path = "../../cpu/arm7tdmi-emu" }
 wdc65816-emu = { path = "../../cpu/wdc65816-emu" }
 
 bincode = { workspace = true }
 bytemuck = { workspace = true }
 log = { workspace = true }
+thiserror = { workspace = true }
 time = { workspace = true }
 
 [lints]

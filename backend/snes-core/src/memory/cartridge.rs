@@ -11,6 +11,7 @@ use snes_coprocessors::sa1::Sa1;
 use snes_coprocessors::sdd1::Sdd1;
 use snes_coprocessors::spc7110::Spc7110;
 use snes_coprocessors::srtc::SRtc;
+use snes_coprocessors::st018::St018;
 use snes_coprocessors::superfx::SuperFx;
 use snes_coprocessors::upd77c25::{Upd77c25, Upd77c25Variant};
 use snes_coprocessors::{superfx, upd77c25};
@@ -161,6 +162,12 @@ pub enum Cartridge {
         rom: Rom,
         upd77c25: Upd77c25,
     },
+    St018 {
+        #[partial_clone(default)]
+        rom: Rom,
+        sram: Box<[u8]>,
+        st018: St018,
+    },
 }
 
 impl Cartridge {
@@ -251,6 +258,19 @@ impl Cartridge {
             let upd77c25 = Upd77c25::new(&st01x_rom, st01x_variant.into(), &sram, timing_mode);
 
             return Ok(Self::St01x { rom: Rom(rom), upd77c25 });
+        }
+
+        let is_st018 = chipset_byte == 0xF5 && rom[rom_header_addr - 1] == 0x02;
+        if is_st018 {
+            log::info!("Detected ST018 coprocessor");
+
+            let st018_rom_fn =
+                coprocessor_roms.st018.as_ref().ok_or(SnesLoadError::MissingSt018Rom)?;
+            let st018_rom = st018_rom_fn()
+                .map_err(|(source, path)| SnesLoadError::CoprocessorRomLoad { source, path })?;
+            let st018 = St018::new(&st018_rom).map_err(SnesLoadError::St018RomLoad)?;
+
+            return Ok(Self::St018 { rom: Rom(rom), sram, st018 });
         }
 
         let rom_checksum = CRC.checksum(&rom);
@@ -353,6 +373,19 @@ impl Cartridge {
                     },
                 };
             }
+            Self::St018 { rom, sram, st018 } => {
+                return match (bank, offset) {
+                    (0x00..=0x3F | 0x80..=0xBF, 0x3800..=0x3804) => st018.snes_read(address),
+                    (0x68..=0x6F, 0x0000..=0x7FFF) => {
+                        let sram_addr = (offset as usize) & (sram.len() - 1);
+                        Some(sram[sram_addr])
+                    }
+                    _ => match lorom_map_address(address, rom.len() as u32, 0) {
+                        CartridgeAddress::Rom(rom_addr) => Some(rom[rom_addr as usize]),
+                        _ => None,
+                    },
+                };
+            }
         };
 
         match mapped_address {
@@ -440,6 +473,14 @@ impl Cartridge {
                 }
                 _ => {}
             },
+            Self::St018 { sram, st018, .. } => match (bank, offset) {
+                (0x00..=0x3F | 0x80..=0xBF, 0x3800..=0x3804) => st018.snes_write(address, value),
+                (0x68..=0x6F, 0x0000..=0x7FFF) => {
+                    let sram_addr = (address as usize) & (sram.len() - 1);
+                    sram[sram_addr] = value;
+                }
+                _ => {}
+            },
         }
     }
 
@@ -458,7 +499,8 @@ impl Cartridge {
             | Self::ExHiRom { rom, .. }
             | Self::DspLoRom { rom, .. }
             | Self::DspHiRom { rom, .. }
-            | Self::St01x { rom, .. } => mem::take(&mut rom.0).into_vec(),
+            | Self::St01x { rom, .. }
+            | Self::St018 { rom, .. } => mem::take(&mut rom.0).into_vec(),
             Self::Cx4(cx4) => cx4.take_rom(),
             Self::Obc1(obc1) => obc1.take_rom(),
             Self::Sa1(sa1) => sa1.take_rom(),
@@ -477,7 +519,8 @@ impl Cartridge {
             | Self::ExHiRom { rom, .. }
             | Self::DspLoRom { rom, .. }
             | Self::DspHiRom { rom, .. }
-            | Self::St01x { rom, .. } => {
+            | Self::St01x { rom, .. }
+            | Self::St018 { rom, .. } => {
                 *rom = Rom(other_rom.into_boxed_slice());
             }
             Self::Cx4(cx4) => {
@@ -504,7 +547,11 @@ impl Cartridge {
     pub fn has_battery(&self) -> bool {
         match self {
             Self::Cx4(..) => false,
-            Self::ExHiRom { .. } | Self::Obc1(..) | Self::Spc7110(..) | Self::St01x { .. } => true,
+            Self::ExHiRom { .. }
+            | Self::Obc1(..)
+            | Self::Spc7110(..)
+            | Self::St01x { .. }
+            | Self::St018 { .. } => true,
             Self::LoRom { sram, .. }
             | Self::HiRom { sram, .. }
             | Self::DspLoRom { sram, .. }
@@ -538,6 +585,7 @@ impl Cartridge {
             Self::Spc7110(spc7110) => Some(spc7110.sram()),
             Self::SuperFx(sfx) => Some(sfx.sram()),
             Self::St01x { upd77c25, .. } => Some(upd77c25.sram()),
+            Self::St018 { sram, .. } => Some(sram),
         }
     }
 
@@ -572,6 +620,9 @@ impl Cartridge {
             }
             Self::SuperFx(sfx) => {
                 sfx.tick(master_cycles_elapsed);
+            }
+            Self::St018 { st018, .. } => {
+                st018.tick(master_cycles_elapsed);
             }
             _ => {}
         }

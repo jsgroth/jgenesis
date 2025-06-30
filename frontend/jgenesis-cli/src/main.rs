@@ -389,6 +389,10 @@ struct Args {
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
     st011_rom_path: Option<PathBuf>,
 
+    /// Specify SNES ST018 ROM path (required for ST018 games)
+    #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
+    st018_rom_path: Option<PathBuf>,
+
     /// Force DMG / original Game Boy mode in software with Game Boy Color support
     #[arg(long, help_heading = GB_OPTIONS_HEADING)]
     force_dmg_mode: Option<bool>,
@@ -568,13 +572,19 @@ impl Args {
         fix_optional_relative_path(&mut self.custom_save_path);
         fix_optional_relative_path(&mut self.custom_state_path);
 
-        fix_optional_relative_path(&mut self.bios_path);
         fix_optional_relative_path(&mut self.dsp1_rom_path);
         fix_optional_relative_path(&mut self.dsp2_rom_path);
         fix_optional_relative_path(&mut self.dsp3_rom_path);
         fix_optional_relative_path(&mut self.dsp4_rom_path);
         fix_optional_relative_path(&mut self.st010_rom_path);
         fix_optional_relative_path(&mut self.st011_rom_path);
+        fix_optional_relative_path(&mut self.st018_rom_path);
+
+        fix_optional_relative_path(&mut self.bios_path);
+        fix_optional_relative_path(&mut self.sms_bios_path);
+        fix_optional_relative_path(&mut self.gg_bios_path);
+        fix_optional_relative_path(&mut self.dmg_boot_rom_path);
+        fix_optional_relative_path(&mut self.cgb_boot_rom_path);
 
         self
     }
@@ -756,6 +766,7 @@ impl Args {
                 dsp4_rom_path,
                 st010_rom_path,
                 st011_rom_path,
+                st018_rom_path,
             ]
         );
     }

@@ -4425,11 +4425,13 @@ dependencies = [
 name = "snes-coprocessors"
 version = "0.7.1"
 dependencies = [
+ "arm7tdmi-emu",
  "bincode",
  "bytemuck",
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",
+ "thiserror 2.0.12",
  "time",
  "wdc65816-emu",
 ]

@@ -10,5 +10,8 @@ doc-valid-idents = [
     "AxROM",
     "GxROM",
     "AppImage",
+    "ARMv3",
+    "ARMv4",
+    "ARMv4T",
     "..",
 ]

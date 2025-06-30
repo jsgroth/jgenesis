@@ -23,6 +23,7 @@ pub struct SnesAppConfig {
     pub dsp4_rom_path: Option<PathBuf>,
     pub st010_rom_path: Option<PathBuf>,
     pub st011_rom_path: Option<PathBuf>,
+    pub st018_rom_path: Option<PathBuf>,
 }
 
 const fn true_fn() -> bool {

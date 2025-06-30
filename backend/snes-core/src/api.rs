@@ -16,6 +16,7 @@ use jgenesis_common::frontend::{
 };
 use jgenesis_proc_macros::{ConfigDisplay, FakeDecode, FakeEncode};
 use snes_config::{AudioInterpolationMode, SnesAspectRatio, SnesButton};
+use snes_coprocessors::st018::St018LoadError;
 use std::fmt::{Debug, Display};
 use std::num::NonZeroU64;
 use std::{io, mem};
@@ -50,6 +51,7 @@ pub struct CoprocessorRoms {
     pub dsp4: Option<Box<CoprocessorRomFn>>,
     pub st010: Option<Box<CoprocessorRomFn>>,
     pub st011: Option<Box<CoprocessorRomFn>>,
+    pub st018: Option<Box<CoprocessorRomFn>>,
 }
 
 impl CoprocessorRoms {
@@ -85,12 +87,16 @@ pub enum SnesLoadError {
     MissingSt010Rom,
     #[error("Cannot load ST011 cartridge because ST011 ROM is not configured")]
     MissingSt011Rom,
+    #[error("Cannot load ST018 cartridge because ST018 ROM is not configured")]
+    MissingSt018Rom,
     #[error("Failed to load required coprocessor ROM from '{path}': {source}")]
     CoprocessorRomLoad {
         #[source]
         source: io::Error,
         path: String,
     },
+    #[error("Invalid ST018 coprocessor ROM: {0}")]
+    St018RomLoad(St018LoadError),
 }
 
 pub type SnesLoadResult<T> = Result<T, SnesLoadError>;

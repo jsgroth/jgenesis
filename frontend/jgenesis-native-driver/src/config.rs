@@ -216,6 +216,8 @@ pub struct SnesConfig {
     pub st010_rom_path: Option<PathBuf>,
     #[cfg_display(path)]
     pub st011_rom_path: Option<PathBuf>,
+    #[cfg_display(path)]
+    pub st018_rom_path: Option<PathBuf>,
 }
 
 impl SnesConfig {
@@ -226,8 +228,9 @@ impl SnesConfig {
         let dsp4 = self.dsp4_rom_path.clone().map(coprocessor_read_fn);
         let st010 = self.st010_rom_path.clone().map(coprocessor_read_fn);
         let st011 = self.st011_rom_path.clone().map(coprocessor_read_fn);
+        let st018 = self.st018_rom_path.clone().map(coprocessor_read_fn);
 
-        CoprocessorRoms { dsp1, dsp2, dsp3, dsp4, st010, st011 }
+        CoprocessorRoms { dsp1, dsp2, dsp3, dsp4, st010, st011, st018 }
     }
 }
 
@@ -468,6 +471,7 @@ impl AppConfigExt for AppConfig {
             dsp4_rom_path: self.snes.dsp4_rom_path.clone(),
             st010_rom_path: self.snes.st010_rom_path.clone(),
             st011_rom_path: self.snes.st011_rom_path.clone(),
+            st018_rom_path: self.snes.st018_rom_path.clone(),
         })
     }
 
