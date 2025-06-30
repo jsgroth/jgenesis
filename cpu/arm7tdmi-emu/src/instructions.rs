@@ -347,7 +347,7 @@ fn branch<const LINK: bool, const OPCODE_LEN: u32>(
     offset: i32,
     bus: &mut dyn BusInterface,
 ) -> u32 {
-    cpu.fetch_opcode(bus, MemoryCycle::S);
+    cpu.dummy_opcode_fetch(bus, MemoryCycle::S);
 
     if LINK {
         cpu.registers.r[14] = cpu.registers.r[15].wrapping_sub(OPCODE_LEN);
@@ -367,7 +367,7 @@ fn arm_bx(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface) -> u32 {
 }
 
 fn branch_exchange(cpu: &mut Arm7Tdmi, rn: u32, bus: &mut dyn BusInterface) -> u32 {
-    cpu.fetch_opcode(bus, MemoryCycle::S);
+    cpu.dummy_opcode_fetch(bus, MemoryCycle::S);
 
     let new_pc = cpu.registers.r[rn as usize];
     cpu.registers.cpsr.state = CpuState::from_bit(new_pc.bit(0));

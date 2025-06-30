@@ -279,6 +279,17 @@ impl Arm7Tdmi {
         );
     }
 
+    fn dummy_opcode_fetch(&self, bus: &mut (impl BusInterface + ?Sized), cycle: MemoryCycle) {
+        match self.registers.cpsr.state {
+            CpuState::Arm => {
+                bus.read_word(self.registers.r[15], cycle);
+            }
+            CpuState::Thumb => {
+                bus.read_halfword(self.registers.r[15], cycle);
+            }
+        }
+    }
+
     fn write_cpsr(&mut self, value: u32) {
         log::trace!("CPSR write: {value:08X}");
 
