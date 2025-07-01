@@ -4,8 +4,6 @@ use crate::traits::BusInterface;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 
-const DEFAULT_STACK_POINTER: u16 = 0x0100;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum SizeBits {
     Eight,
@@ -106,7 +104,7 @@ impl Registers {
             a: 0,
             x: 0,
             y: 0,
-            s: DEFAULT_STACK_POINTER,
+            s: 0x01FF,
             d: 0,
             pbr: 0,
             pc: 0,
