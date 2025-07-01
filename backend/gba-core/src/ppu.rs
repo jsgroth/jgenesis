@@ -3,7 +3,7 @@
 mod registers;
 
 use crate::interrupts::{InterruptRegisters, InterruptType};
-use crate::ppu::registers::{BgMode, BitmapFrameBuffer, Registers};
+use crate::ppu::registers::{BgMode, BitmapFrameBuffer, Registers, ScreenSize};
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::{BoxedByteArray, BoxedWordArray};
 use jgenesis_common::frontend::{Color, FrameSize};
@@ -110,6 +110,7 @@ impl Ppu {
                 }
 
                 match self.registers.bg_mode {
+                    BgMode::Zero => self.render_frame_mode_0(),
                     BgMode::Three => self.render_frame_mode_3(),
                     BgMode::Four => self.render_frame_mode_4(),
                     mode => {
@@ -131,18 +132,94 @@ impl Ppu {
         }
     }
 
+    fn render_frame_mode_0(&mut self) {
+        let backdrop = gba_color_to_rgb8(self.palette_ram[0]);
+
+        for line in 0..SCREEN_HEIGHT {
+            for pixel in 0..SCREEN_WIDTH {
+                let mut min_priority = 4;
+                let mut color = backdrop;
+
+                for bg in 0..4 {
+                    if !self.registers.bg_enabled[bg] {
+                        continue;
+                    }
+
+                    let bg_control = &self.registers.bg_control[bg];
+                    if bg_control.priority >= min_priority {
+                        continue;
+                    }
+
+                    let y = line + u32::from(self.registers.bg_v_scroll[bg]);
+                    let x = pixel + u32::from(self.registers.bg_h_scroll[bg]);
+
+                    let tile_map_width = bg_control.size.tile_map_width_pixels() / 8;
+                    let tile_map_height = bg_control.size.tile_map_height_pixels() / 8;
+
+                    let mut tile_map_row = (y / 8) & (tile_map_height - 1);
+                    let mut tile_map_col = (x / 8) & (tile_map_width - 1);
+
+                    let mut base_tile_map_addr = bg_control.tile_map_addr;
+                    if tile_map_row >= 32 {
+                        match bg_control.size {
+                            ScreenSize::Two => {
+                                base_tile_map_addr = base_tile_map_addr.wrapping_add(2 * 32 * 32);
+                            }
+                            _ => {
+                                base_tile_map_addr =
+                                    base_tile_map_addr.wrapping_add(2 * 2 * 32 * 32);
+                            }
+                        }
+                        tile_map_row %= 32;
+                    }
+
+                    if tile_map_col >= 32 {
+                        base_tile_map_addr = base_tile_map_addr.wrapping_add(2 * 32 * 32);
+                        tile_map_col %= 32;
+                    }
+
+                    let tile_map_offset = 32 * tile_map_row + tile_map_col;
+                    let tile_map_addr =
+                        base_tile_map_addr.wrapping_add((2 * tile_map_offset) as u16) as usize;
+                    let tile = u16::from_le_bytes([
+                        self.vram[tile_map_addr],
+                        self.vram[tile_map_addr + 1],
+                    ]);
+
+                    let tile_number = tile & 0x3FF;
+                    let h_flip = tile.bit(10);
+                    let v_flip = tile.bit(11);
+                    let palette = (tile >> 12) as u8;
+
+                    let base_tile_addr =
+                        bg_control.tile_data_addr.wrapping_add(32 * tile_number) as usize;
+
+                    let tile_row = if v_flip { 7 - (y & 7) } else { y & 7 };
+                    let tile_col = if h_flip { 7 - (x & 7) } else { x & 7 };
+                    let tile_offset = (8 * tile_row + tile_col) as usize;
+                    let tile_addr = base_tile_addr + (tile_offset >> 1);
+
+                    let color_id = (self.vram[tile_addr] >> (4 * (tile_offset & 1))) & 0xF;
+                    if color_id == 0 {
+                        continue;
+                    }
+
+                    min_priority = bg_control.priority;
+                    color = gba_color_to_rgb8(self.palette_ram[(16 * palette + color_id) as usize]);
+                }
+
+                self.frame_buffer.set(line, pixel, color);
+            }
+        }
+    }
+
     fn render_frame_mode_3(&mut self) {
         for line in 0..SCREEN_HEIGHT {
             for pixel in 0..SCREEN_WIDTH {
                 let vram_addr = (2 * (line * SCREEN_WIDTH + pixel)) as usize;
                 let gba_color =
                     u16::from_le_bytes([self.vram[vram_addr], self.vram[vram_addr + 1]]);
-
-                let rgb8_color = Color::rgb(
-                    RGB_5_TO_8[(gba_color & 0x1F) as usize],
-                    RGB_5_TO_8[((gba_color >> 5) & 0x1F) as usize],
-                    RGB_5_TO_8[((gba_color >> 10) & 0x1F) as usize],
-                );
+                let rgb8_color = gba_color_to_rgb8(gba_color);
                 self.frame_buffer.set(line, pixel, rgb8_color);
             }
         }
@@ -159,12 +236,7 @@ impl Ppu {
                 let vram_addr = base_addr + (line * SCREEN_WIDTH + pixel) as usize;
                 let color_id = self.vram[vram_addr];
                 let gba_color = self.palette_ram[color_id as usize];
-
-                let rgb8_color = Color::rgb(
-                    RGB_5_TO_8[(gba_color & 0x1F) as usize],
-                    RGB_5_TO_8[((gba_color >> 5) & 0x1F) as usize],
-                    RGB_5_TO_8[((gba_color >> 10) & 0x1F) as usize],
-                );
+                let rgb8_color = gba_color_to_rgb8(gba_color);
                 self.frame_buffer.set(line, pixel, rgb8_color);
             }
         }
@@ -290,4 +362,12 @@ impl Ppu {
             }
         }
     }
+}
+
+fn gba_color_to_rgb8(gba_color: u16) -> Color {
+    Color::rgb(
+        RGB_5_TO_8[(gba_color & 0x1F) as usize],
+        RGB_5_TO_8[((gba_color >> 5) & 0x1F) as usize],
+        RGB_5_TO_8[((gba_color >> 10) & 0x1F) as usize],
+    )
 }

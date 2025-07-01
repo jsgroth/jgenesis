@@ -82,6 +82,20 @@ impl ScreenSize {
             _ => unreachable!("value & 3 is always <= 3"),
         }
     }
+
+    pub fn tile_map_width_pixels(self) -> u32 {
+        match self {
+            Self::Zero | Self::Two => 256,
+            Self::One | Self::Three => 512,
+        }
+    }
+
+    pub fn tile_map_height_pixels(self) -> u32 {
+        match self {
+            Self::Zero | Self::One => 256,
+            Self::Two | Self::Three => 512,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, Encode, Decode)]
@@ -348,14 +362,14 @@ impl Registers {
 
     // $4000010/$4000014/$4000018/$400001C: BG1HOFS/BG2HOFS/BG3HOFS/BG4HOFS (BG0-3 horizontal offset)
     pub fn write_bghofs(&mut self, index: usize, value: u16) {
-        self.bg_h_scroll[index] = value & 0xFF;
+        self.bg_h_scroll[index] = value & 0x1FF;
 
         log::debug!("BG{index}HOFS write: {value:04X}");
     }
 
     // $4000012/$4000016/$400001A/$400001E: BG1VOFS/BG2VOFS/BG3VOFS/BG4VOFS (BG0-3 vertical offset)
     pub fn write_bgvofs(&mut self, index: usize, value: u16) {
-        self.bg_v_scroll[index] = value & 0xFF;
+        self.bg_v_scroll[index] = value & 0x1FF;
 
         log::debug!("BG{index}VOFS write: {value:04X}");
     }
