@@ -437,6 +437,10 @@ struct Args {
     #[arg(long, help_heading = GB_OPTIONS_HEADING)]
     gbc_color_correction: Option<GbcColorCorrection>,
 
+    /// Enable frame blending (LCD ghosting emulation)
+    #[arg(long, help_heading = GB_OPTIONS_HEADING)]
+    gb_frame_blending: Option<bool>,
+
     /// Audio resampling algorithm
     #[arg(long, help_heading = GB_OPTIONS_HEADING)]
     gb_audio_resampler: Option<GbAudioResampler>,
@@ -796,6 +800,7 @@ impl Args {
             gb_aspect_ratio -> aspect_ratio,
             gb_palette,
             gbc_color_correction,
+            gb_frame_blending -> frame_blending,
             gb_audio_resampler -> audio_resampler,
             gb_audio_60hz_hack -> audio_60hz_hack,
         ]);

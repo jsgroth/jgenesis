@@ -140,6 +140,17 @@ impl App {
                 self.state.help_text.insert(WINDOW, helptext::ASPECT_RATIO);
             }
 
+            ui.add_space(5.0);
+
+            let rect = ui
+                .checkbox(&mut self.config.game_boy.frame_blending, "Frame blending enabled")
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::FRAME_BLENDING);
+            }
+
+            ui.add_space(5.0);
+
             let rect = ui
                 .group(|ui| {
                     ui.label("GB color palette");

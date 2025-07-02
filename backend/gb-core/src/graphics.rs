@@ -1,11 +1,12 @@
-use crate::ppu::PpuFrameBuffer;
+use crate::api::GameBoyEmulatorConfig;
+use crate::ppu::PpuFrameBuffers;
 use crate::{HardwareMode, ppu};
 use gb_config::{GbPalette, GbcColorCorrection};
 use jgenesis_common::frontend::Color;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
-use std::array;
 use std::ops::{Deref, DerefMut};
 use std::sync::LazyLock;
+use std::{array, iter};
 
 // 0/0/0 = black and 255/255/255 = white, so linearly map [0,3] to [255,0]
 const GB_COLOR_TO_RGB_BW: [[u8; 3]; 4] =
@@ -31,105 +32,127 @@ pub struct RgbaFrameBuffer(Box<[Color; ppu::FRAME_BUFFER_LEN]>);
 impl RgbaFrameBuffer {
     pub fn copy_from(
         &mut self,
-        ppu_frame_buffer: &PpuFrameBuffer,
+        ppu_frame_buffers: PpuFrameBuffers<'_>,
         hardware_mode: HardwareMode,
-        gb_palette: GbPalette,
-        gb_custom_palette: [(u8, u8, u8); 4],
-        gbc_color_correction: GbcColorCorrection,
+        config: &GameBoyEmulatorConfig,
     ) {
         match hardware_mode {
             HardwareMode::Dmg => {
-                self.copy_from_dmg(ppu_frame_buffer, gb_palette, gb_custom_palette);
+                self.do_copy(ppu_frame_buffers, config.frame_blending, dmg_map_color(config));
             }
-            HardwareMode::Cgb => match gbc_color_correction {
-                GbcColorCorrection::None => self.copy_from_cgb(ppu_frame_buffer),
-                GbcColorCorrection::GbcLcd => self.copy_gbc_correction(ppu_frame_buffer),
-                GbcColorCorrection::GbaLcd => self.copy_gba_correction(ppu_frame_buffer),
+            HardwareMode::Cgb => match config.gbc_color_correction {
+                GbcColorCorrection::None => {
+                    self.do_copy(ppu_frame_buffers, config.frame_blending, cgb_map_color);
+                }
+                GbcColorCorrection::GbcLcd => self.do_copy(
+                    ppu_frame_buffers,
+                    config.frame_blending,
+                    cgb_map_color_gbc_correction,
+                ),
+                GbcColorCorrection::GbaLcd => self.do_copy(
+                    ppu_frame_buffers,
+                    config.frame_blending,
+                    cgb_map_color_gba_correction,
+                ),
             },
         }
     }
 
-    fn copy_from_dmg(
+    fn do_copy(
         &mut self,
-        ppu_frame_buffer: &PpuFrameBuffer,
-        gb_palette: GbPalette,
-        custom_palette: [(u8, u8, u8); 4],
+        ppu_frame_buffers: PpuFrameBuffers<'_>,
+        frame_blending: bool,
+        map_color: impl Fn(u16) -> Color,
     ) {
-        let color_mapping = match gb_palette {
-            GbPalette::BlackAndWhite => GB_COLOR_TO_RGB_BW,
-            GbPalette::GreenTint => GB_COLOR_TO_RGB_GREEN_TINT,
-            GbPalette::LimeGreen => GB_COLOR_TO_RGB_LIME_GREEN,
-            GbPalette::Custom => custom_palette.map(|(r, g, b)| [r, g, b]),
-        };
-
-        for (ppu_color, rgba_color) in ppu_frame_buffer.iter().zip(self.iter_mut()) {
-            let [r, g, b] = color_mapping[ppu_color as usize];
-            *rgba_color = Color::rgb(r, g, b);
+        if frame_blending {
+            for ((ppu_color_current, ppu_color_prev), rgba_color) in iter::zip(
+                iter::zip(ppu_frame_buffers.current.iter(), ppu_frame_buffers.previous.iter()),
+                self.iter_mut(),
+            ) {
+                let rgba_current = map_color(ppu_color_current);
+                let rgba_prev = map_color(ppu_color_prev);
+                *rgba_color = blend(rgba_current, rgba_prev);
+            }
+        } else {
+            for (ppu_color, rgba_color) in
+                iter::zip(ppu_frame_buffers.current.iter(), self.iter_mut())
+            {
+                *rgba_color = map_color(ppu_color);
+            }
         }
     }
+}
 
-    fn copy_from_cgb(&mut self, ppu_frame_buffer: &PpuFrameBuffer) {
-        for (ppu_color, rgba_color) in ppu_frame_buffer.iter().zip(self.iter_mut()) {
-            let (r, g, b) = parse_cgb_color(ppu_color);
+fn dmg_map_color(config: &GameBoyEmulatorConfig) -> impl Fn(u16) -> Color {
+    let color_mapping = match config.gb_palette {
+        GbPalette::BlackAndWhite => GB_COLOR_TO_RGB_BW,
+        GbPalette::GreenTint => GB_COLOR_TO_RGB_GREEN_TINT,
+        GbPalette::LimeGreen => GB_COLOR_TO_RGB_LIME_GREEN,
+        GbPalette::Custom => config.gb_custom_palette.map(|(r, g, b)| [r, g, b]),
+    };
 
-            // Convert from RGB555 to RGB888
-            *rgba_color =
-                Color::rgb(RGB_5_TO_8[r as usize], RGB_5_TO_8[g as usize], RGB_5_TO_8[b as usize]);
-        }
+    move |ppu_color| {
+        let [r, g, b] = color_mapping[ppu_color as usize];
+        Color::rgb(r, g, b)
+    }
+}
+
+fn cgb_map_color(ppu_color: u16) -> Color {
+    let (r, g, b) = parse_cgb_color(ppu_color);
+    Color::rgb(RGB_5_TO_8[r as usize], RGB_5_TO_8[g as usize], RGB_5_TO_8[b as usize])
+}
+
+fn cgb_map_color_gbc_correction(ppu_color: u16) -> Color {
+    // Based on this public domain shader:
+    // https://github.com/libretro/common-shaders/blob/master/handheld/shaders/color/gbc-color.cg
+    static COLOR_TABLE: LazyLock<Box<[Color; 32768]>> = LazyLock::new(|| {
+        Box::new(array::from_fn(|ppu_color| {
+            let (r, g, b) = parse_cgb_color(ppu_color as u16);
+            let r: f64 = r.into();
+            let g: f64 = g.into();
+            let b: f64 = b.into();
+
+            let corrected_r = ((0.78824 * r + 0.12157 * g) * 255.0 / 31.0).round() as u8;
+            let corrected_g = ((0.025 * r + 0.72941 * g + 0.275 * b) * 255.0 / 31.0).round() as u8;
+            let corrected_b = ((0.12039 * r + 0.12157 * g + 0.82 * b) * 255.0 / 31.0).round() as u8;
+
+            Color::rgb(corrected_r, corrected_g, corrected_b)
+        }))
+    });
+
+    COLOR_TABLE[(ppu_color & 0x7FFF) as usize]
+}
+
+fn cgb_map_color_gba_correction(ppu_color: u16) -> Color {
+    // Based on this public domain shader:
+    // https://github.com/libretro/common-shaders/blob/master/handheld/shaders/color/gba-color.cg
+    static COLOR_TABLE: LazyLock<Box<[Color; 32768]>> = LazyLock::new(|| {
+        Box::new(array::from_fn(|ppu_color| {
+            let (r, g, b) = parse_cgb_color(ppu_color as u16);
+            let r: f64 = r.into();
+            let g: f64 = g.into();
+            let b: f64 = b.into();
+
+            let corrected_r =
+                ((0.845 * r + 0.17 * g - 0.015 * b) * 255.0 / 31.0).powf(2.2 / 2.7).round() as u8;
+            let corrected_g =
+                ((0.09 * r + 0.68 * g + 0.23 * b) * 255.0 / 31.0).powf(2.2 / 2.7).round() as u8;
+            let corrected_b =
+                ((0.16 * r + 0.085 * g + 0.755 * b) * 255.0 / 31.0).powf(2.2 / 2.7).round() as u8;
+
+            Color::rgb(corrected_r, corrected_g, corrected_b)
+        }))
+    });
+
+    COLOR_TABLE[(ppu_color & 0x7FFF) as usize]
+}
+
+fn blend(a: Color, b: Color) -> Color {
+    fn blend_component(a: u8, b: u8) -> u8 {
+        ((u16::from(a) + u16::from(b) + 1) >> 1) as u8
     }
 
-    fn copy_gbc_correction(&mut self, ppu_frame_buffer: &PpuFrameBuffer) {
-        // Based on this public domain shader:
-        // https://github.com/libretro/common-shaders/blob/master/handheld/shaders/color/gbc-color.cg
-        static COLOR_TABLE: LazyLock<Box<[Color; 32768]>> = LazyLock::new(|| {
-            Box::new(array::from_fn(|ppu_color| {
-                let (r, g, b) = parse_cgb_color(ppu_color as u16);
-                let r: f64 = r.into();
-                let g: f64 = g.into();
-                let b: f64 = b.into();
-
-                let corrected_r = ((0.78824 * r + 0.12157 * g) * 255.0 / 31.0).round() as u8;
-                let corrected_g =
-                    ((0.025 * r + 0.72941 * g + 0.275 * b) * 255.0 / 31.0).round() as u8;
-                let corrected_b =
-                    ((0.12039 * r + 0.12157 * g + 0.82 * b) * 255.0 / 31.0).round() as u8;
-
-                Color::rgb(corrected_r, corrected_g, corrected_b)
-            }))
-        });
-
-        for (ppu_color, rgba_color) in ppu_frame_buffer.iter().zip(self.iter_mut()) {
-            *rgba_color = COLOR_TABLE[(ppu_color & 0x7FFF) as usize];
-        }
-    }
-
-    fn copy_gba_correction(&mut self, ppu_frame_buffer: &PpuFrameBuffer) {
-        // Based on this public domain shader:
-        // https://github.com/libretro/common-shaders/blob/master/handheld/shaders/color/gba-color.cg
-        static COLOR_TABLE: LazyLock<Box<[Color; 32768]>> = LazyLock::new(|| {
-            Box::new(array::from_fn(|ppu_color| {
-                let (r, g, b) = parse_cgb_color(ppu_color as u16);
-                let r: f64 = r.into();
-                let g: f64 = g.into();
-                let b: f64 = b.into();
-
-                let corrected_r = ((0.845 * r + 0.17 * g - 0.015 * b) * 255.0 / 31.0)
-                    .powf(2.2 / 2.7)
-                    .round() as u8;
-                let corrected_g =
-                    ((0.09 * r + 0.68 * g + 0.23 * b) * 255.0 / 31.0).powf(2.2 / 2.7).round() as u8;
-                let corrected_b = ((0.16 * r + 0.085 * g + 0.755 * b) * 255.0 / 31.0)
-                    .powf(2.2 / 2.7)
-                    .round() as u8;
-
-                Color::rgb(corrected_r, corrected_g, corrected_b)
-            }))
-        });
-
-        for (ppu_color, rgba_color) in ppu_frame_buffer.iter().zip(self.iter_mut()) {
-            *rgba_color = COLOR_TABLE[(ppu_color & 0x7FFF) as usize];
-        }
-    }
+    Color::rgb(blend_component(a.r, b.r), blend_component(a.g, b.g), blend_component(a.b, b.b))
 }
 
 pub(crate) fn parse_cgb_color(ppu_color: u16) -> (u8, u8, u8) {

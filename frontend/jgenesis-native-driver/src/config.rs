@@ -504,6 +504,7 @@ impl AppConfigExt for AppConfig {
                 gb_palette: self.game_boy.gb_palette,
                 gb_custom_palette: self.game_boy.gb_custom_palette,
                 gbc_color_correction: self.game_boy.gbc_color_correction,
+                frame_blending: self.game_boy.frame_blending,
                 audio_resampler: self.game_boy.audio_resampler,
                 audio_60hz_hack: self.game_boy.audio_60hz_hack,
             },

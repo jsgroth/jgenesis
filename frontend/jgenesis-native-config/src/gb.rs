@@ -26,10 +26,16 @@ pub struct GameBoyAppConfig {
     pub gb_custom_palette: [(u8, u8, u8); 4],
     #[serde(default)]
     pub gbc_color_correction: GbcColorCorrection,
+    #[serde(default = "true_fn")]
+    pub frame_blending: bool,
     #[serde(default)]
     pub audio_resampler: GbAudioResampler,
     #[serde(default)]
     pub audio_60hz_hack: bool,
+}
+
+const fn true_fn() -> bool {
+    true
 }
 
 #[must_use]

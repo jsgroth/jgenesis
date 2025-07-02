@@ -46,6 +46,14 @@ pub const ASPECT_RATIO: HelpText = HelpText {
     ],
 };
 
+pub const FRAME_BLENDING: HelpText = HelpText {
+    heading: "Frame Blending",
+    text: &[
+        "If enabled, blend each frame with the previous frame to emulate the effect of LCD ghosting.",
+        "Some games and demos depend on this for correct display due to rapidly alternating between two different images or layers that are intended to blend together.",
+    ],
+};
+
 pub const GB_COLOR_PALETTE: HelpText = HelpText {
     heading: "GB Color Palette",
     text: &[

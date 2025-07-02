@@ -15,6 +15,7 @@ use bincode::{Decode, Encode};
 use jgenesis_common::frontend::FrameSize;
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
+use std::mem;
 use std::ops::{Deref, DerefMut, Range};
 
 const SCREEN_WIDTH: usize = 160;
@@ -69,6 +70,11 @@ impl DerefMut for PpuFrameBuffer {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
+}
+
+pub struct PpuFrameBuffers<'ppu> {
+    pub current: &'ppu PpuFrameBuffer,
+    pub previous: &'ppu PpuFrameBuffer,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -187,6 +193,7 @@ struct SpriteData {
 pub struct Ppu {
     hardware_mode: HardwareMode,
     frame_buffer: PpuFrameBuffer,
+    prev_frame_buffer: PpuFrameBuffer,
     vram: Box<Vram>,
     oam: Box<Oam>,
     registers: Registers,
@@ -208,6 +215,7 @@ impl Ppu {
         Self {
             hardware_mode,
             frame_buffer: PpuFrameBuffer::default(),
+            prev_frame_buffer: PpuFrameBuffer::default(),
             vram: vram.into_boxed_slice().try_into().unwrap(),
             oam: vec![0; OAM_LEN].into_boxed_slice().try_into().unwrap(),
             registers: Registers::new(boot_rom_present),
@@ -314,6 +322,8 @@ impl Ppu {
             if self.state.scanline == LINES_PER_FRAME {
                 self.state.scanline = 0;
                 self.fifo.reset_window_state();
+
+                mem::swap(&mut self.frame_buffer, &mut self.prev_frame_buffer);
             }
 
             if self.state.scanline < SCREEN_HEIGHT as u8 {
@@ -376,6 +386,8 @@ impl Ppu {
     fn clear_frame_buffer(&mut self) {
         log::trace!("Clearing PPU frame buffer");
 
+        mem::swap(&mut self.frame_buffer, &mut self.prev_frame_buffer);
+
         // Disabling display makes the entire display white, which is color 0 on DMG
         // and color 31/31/31 ($7FFF) on CGB
         let fill_color = match self.hardware_mode {
@@ -400,8 +412,8 @@ impl Ppu {
             || (mode_0_interrupt_enabled && self.state.mode == PpuMode::HBlank)
     }
 
-    pub fn frame_buffer(&self) -> &PpuFrameBuffer {
-        &self.frame_buffer
+    pub fn frame_buffers(&self) -> PpuFrameBuffers<'_> {
+        PpuFrameBuffers { current: &self.frame_buffer, previous: &self.prev_frame_buffer }
     }
 
     pub fn frame_complete(&self) -> bool {
