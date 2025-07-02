@@ -21,6 +21,7 @@ pub struct SerialPort {
     gbc_high_speed: bool,
     internal_clock: bool,
     transfer_cycles_remaining: u32,
+    transfer_data: u8,
 }
 
 impl SerialPort {
@@ -31,6 +32,7 @@ impl SerialPort {
             gbc_high_speed: false,
             internal_clock: false,
             transfer_cycles_remaining: 0,
+            transfer_data: 0,
         }
     }
 
@@ -44,6 +46,18 @@ impl SerialPort {
             self.transfer_enabled = false;
             interrupt_registers.set_flag(InterruptType::Serial);
         }
+    }
+
+    // $FF01: SB (Serial transfer data)
+    pub fn read_data(&self) -> u8 {
+        self.transfer_data
+    }
+
+    // $FF01: SB (Serial transfer data)
+    pub fn write_data(&mut self, value: u8) {
+        self.transfer_data = value;
+
+        log::trace!("SB write: {value:02X}");
     }
 
     // $FF02: SC (Serial transfer control)

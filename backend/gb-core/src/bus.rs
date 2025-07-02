@@ -57,6 +57,7 @@ impl Bus<'_> {
 
         match address & 0x7F {
             0x00 => self.input_state.read_joyp(),
+            0x01 => self.serial_port.read_data(),
             0x02 => self.serial_port.read_control(),
             0x04 => self.timer.read_div(),
             0x05 => self.timer.read_tima(),
@@ -85,6 +86,7 @@ impl Bus<'_> {
 
         match address & 0x7F {
             0x00 => self.input_state.write_joyp(value),
+            0x01 => self.serial_port.write_data(value),
             0x02 => self.serial_port.write_control(value),
             0x04 => self.timer.write_div(),
             0x05 => self.timer.write_tima(value),
