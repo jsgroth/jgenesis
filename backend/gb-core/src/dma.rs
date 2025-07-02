@@ -199,11 +199,12 @@ impl DmaUnit {
             if !value.bit(7) {
                 // Writing HDMA5 with bit 7 clear while an HDMA is in progress immediately cancels it
                 self.vram_dma_state = VramDmaState::Idle;
+            } else {
+                // HDMA5 writes with bit 7 set can alter the length of an in-progress HDMA
+                // NASCAR 2000 depends on this
+                // TODO does the length also change when bit 7 is clear?
+                self.vram_dma_length = dma_length;
             }
-
-            // HDMA5 writes with bit 7 set can alter the length of an in-progress HDMA
-            // NASCAR 2000 depends on this
-            self.vram_dma_length = dma_length;
 
             return;
         }
