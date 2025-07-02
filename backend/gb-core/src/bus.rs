@@ -65,8 +65,8 @@ impl Bus<'_> {
             0x07 => self.timer.read_tac(),
             0x0F => self.interrupt_registers.read_if(),
             0x10..=0x3F => self.apu.read_register(address),
-            0x40..=0x45 | 0x47..=0x4B => self.ppu.read_register(address),
-            0x4F | 0x68..=0x6B => cgb_only_read(self, |bus| bus.ppu.read_register(address)),
+            0x40..=0x45 | 0x47..=0x4B => self.read_ppu_register(address),
+            0x4F | 0x68..=0x6B => cgb_only_read(self, |bus| bus.read_ppu_register(address)),
             0x46 => self.dma_unit.read_dma_register(),
             0x4D => cgb_only_read(self, |bus| bus.cgb_registers.read_key1()),
             0x55 => cgb_only_read(self, |bus| bus.dma_unit.read_hdma5()),
@@ -79,6 +79,10 @@ impl Bus<'_> {
                 0xFF
             }
         }
+    }
+
+    fn read_ppu_register(&self, address: u16) -> u8 {
+        self.ppu.read_register(address, *self.cgb_registers)
     }
 
     fn write_io_register(&mut self, address: u16, value: u8) {

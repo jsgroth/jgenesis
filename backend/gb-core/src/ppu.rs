@@ -462,10 +462,10 @@ impl Ppu {
         self.state.mode
     }
 
-    pub fn read_register(&self, address: u16) -> u8 {
+    pub fn read_register(&self, address: u16, cgb_registers: CgbRegisters) -> u8 {
         match address & 0xFF {
             0x40 => self.registers.read_lcdc(),
-            0x41 => self.registers.read_stat(&self.state),
+            0x41 => self.registers.read_stat(&self.state, cgb_registers.speed),
             0x42 => self.registers.bg_y_scroll,
             0x43 => self.registers.bg_x_scroll,
             // LY: Line number

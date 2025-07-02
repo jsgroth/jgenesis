@@ -1,3 +1,4 @@
+use crate::cgb::CpuSpeed;
 use crate::ppu::{PpuMode, State};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
@@ -155,9 +156,12 @@ impl Registers {
         log::trace!("  Mode 0 (HBlank) interrupt enabled: {}", self.mode_0_interrupt_enabled);
     }
 
-    pub fn read_stat(&self, state: &State) -> u8 {
-        let ly_lyc_bit =
-            if self.ppu_enabled { state.ly() == self.ly_compare } else { state.frozen_ly_lyc_bit };
+    pub fn read_stat(&self, state: &State, speed: CpuSpeed) -> u8 {
+        let ly_lyc_bit = if self.ppu_enabled {
+            state.ly_for_compare(speed) == self.ly_compare
+        } else {
+            state.frozen_ly_lyc_bit
+        };
 
         // Have the CPU read mode 0->2 and mode 1->2 transitions one M-cycle late to account for the
         // read occurring mid-M-cycle on actual hardware.
