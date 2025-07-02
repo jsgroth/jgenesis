@@ -193,16 +193,22 @@ impl DmaUnit {
 
     pub fn write_hdma5(&mut self, value: u8, ppu_mode: PpuMode) {
         // HDMA5: VRAM DMA length/mode + initiate VRAM DMA
+        let dma_length = 16 * u16::from((value & 0x7F) + 1);
+
         if self.vram_dma_state != VramDmaState::Idle {
             if !value.bit(7) {
                 // Writing HDMA5 with bit 7 clear while an HDMA is in progress immediately cancels it
                 self.vram_dma_state = VramDmaState::Idle;
             }
 
+            // HDMA5 writes with bit 7 set can alter the length of an in-progress HDMA
+            // NASCAR 2000 depends on this
+            self.vram_dma_length = dma_length;
+
             return;
         }
 
-        self.vram_dma_length = 16 * u16::from((value & 0x7F) + 1);
+        self.vram_dma_length = dma_length;
 
         self.vram_dma_state = if value.bit(7) {
             // HDMA
