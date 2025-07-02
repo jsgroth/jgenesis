@@ -58,7 +58,7 @@ impl InputState {
             (self.buttons_selected && self.inputs.a) || (self.d_pad_selected && self.inputs.right);
 
         0xC0 | (u8::from(!self.buttons_selected) << 5)
-            | (u8::from(!self.buttons_selected) << 4)
+            | (u8::from(!self.d_pad_selected) << 4)
             | (u8::from(!bit_3_inverted) << 3)
             | (u8::from(!bit_2_inverted) << 2)
             | (u8::from(!bit_1_inverted) << 1)
