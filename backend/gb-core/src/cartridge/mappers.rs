@@ -206,7 +206,7 @@ impl Mbc3 {
             }
             0x2000..=0x3FFF => {
                 // ROM bank
-                self.rom_bank = value & 0x7F;
+                self.rom_bank = value;
             }
             0x4000..=0x5FFF => {
                 // RAM bank number / RTC register select
@@ -224,7 +224,7 @@ impl Mbc3 {
 
     pub fn read_ram(&self, address: u16, sram: &[u8]) -> u8 {
         match self.ram_bank {
-            0x00..=0x03 => {
+            0x00..=0x07 => {
                 // SRAM
                 basic_map_ram_address(
                     self.ram_enabled,
@@ -244,7 +244,7 @@ impl Mbc3 {
 
     pub fn write_ram(&mut self, address: u16, value: u8, sram: &mut [u8]) {
         match self.ram_bank {
-            0x00..=0x03 => {
+            0x00..=0x07 => {
                 // SRAM
                 let ram_addr = basic_map_ram_address(
                     self.ram_enabled,
