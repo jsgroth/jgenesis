@@ -127,17 +127,25 @@ impl WavetableChannel {
     }
 
     pub fn tick_m_cycle(&mut self) {
-        if self.timer.tick_m_cycle() == TimerTickEffect::Clocked {
-            let sample_byte = self.ram[(self.timer.phase >> 1) as usize];
+        if !self.channel_enabled {
+            return;
+        }
 
-            // First sample in high nibble, second in low nibble
-            self.sample_buffer =
-                if !self.timer.phase.bit(0) { sample_byte >> 4 } else { sample_byte & 0x0F };
+        if self.timer.tick_m_cycle() == TimerTickEffect::Clocked {
+            self.sample_buffer = self.ram[(self.timer.phase >> 1) as usize];
         }
     }
 
     pub fn clock_length_counter(&mut self) {
+        let prev_enabled = self.channel_enabled;
         self.length_counter.clock(&mut self.channel_enabled);
+
+        if prev_enabled && !self.channel_enabled {
+            // Explicitly clear the sample buffer when the length counter disables the channel.
+            // Necessary because the wavetable channel continues to output the current sample buffer
+            // when disabled, as long as the DAC is still enabled
+            self.sample_buffer = 0;
+        }
     }
 
     pub fn sample(&self) -> Option<u8> {
@@ -145,11 +153,20 @@ impl WavetableChannel {
             return None;
         }
 
-        if !self.channel_enabled || self.volume == 0 {
+        // A disabled wavetable channel with an enabled DAC outputs the current sample buffer, not 0!
+        // Some games depend on this, e.g. Cannon Fodder
+
+        if self.volume == 0 {
             return Some(0);
         }
 
-        Some(self.sample_buffer >> (self.volume - 1))
+        // First sample in high nibble, second sample in low nibble
+        let sample = if !self.timer.phase.bit(0) {
+            self.sample_buffer >> 4
+        } else {
+            self.sample_buffer & 0xF
+        };
+        Some(sample >> (self.volume - 1))
     }
 
     pub fn enabled(&self) -> bool {

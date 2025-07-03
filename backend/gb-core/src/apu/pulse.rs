@@ -159,7 +159,6 @@ pub struct PulseChannel {
     timer: PulseTimer,
     channel_enabled: bool,
     dac_enabled: bool,
-    just_powered_on: bool,
     suppress_output: bool,
 }
 
@@ -173,7 +172,6 @@ impl PulseChannel {
             timer: PulseTimer::new(),
             channel_enabled: false,
             dac_enabled: false,
-            just_powered_on: true,
             suppress_output: true,
         }
     }
@@ -192,8 +190,8 @@ impl PulseChannel {
 
     pub fn tick_m_cycle(&mut self) {
         // Obscure behavior: After power-on, pulse channels do not progress through their duty
-        // cycles until after the first trigger
-        if self.just_powered_on {
+        // cycles until after triggering
+        if !self.channel_enabled {
             return;
         }
 
@@ -208,7 +206,7 @@ impl PulseChannel {
             return None;
         }
 
-        if !self.channel_enabled || self.suppress_output {
+        if self.suppress_output {
             return Some(0);
         }
 
@@ -302,6 +300,7 @@ impl PulseChannel {
 
         if value.bit(7) {
             // Channel triggered
+            let prev_enabled = self.channel_enabled;
             self.channel_enabled = true;
 
             self.length_counter.trigger(frame_sequencer_step);
@@ -311,12 +310,11 @@ impl PulseChannel {
 
             self.channel_enabled &= self.dac_enabled;
 
-            if self.just_powered_on {
+            if !prev_enabled && self.channel_enabled {
                 // Not sure this is accurate, but adding a 1-cycle delay to the first phase increment
                 // after power-on fixes voice samples in Keitai Denjuu Telefang
                 self.timer.counter += 1;
             }
-            self.just_powered_on = false;
         }
 
         log::trace!("NRx4 write");
