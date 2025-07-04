@@ -10,7 +10,7 @@ use crate::api::GameBoyEmulatorConfig;
 use crate::apu::noise::NoiseChannel;
 use crate::apu::pulse::PulseChannel;
 use crate::apu::wavetable::WavetableChannel;
-use crate::audio::GameBoyResampler;
+use crate::audio::{GB_APU_FREQUENCY, GameBoyResampler};
 use crate::cgb::CpuSpeed;
 use crate::timer::GbTimer;
 use bincode::{Decode, Encode};
@@ -87,6 +87,44 @@ fn stereo_channels_to_nibble(channels: [bool; 4]) -> u8 {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
+struct Dac {
+    analog_sample: f64,
+    output_level: f64,
+}
+
+impl Dac {
+    fn new() -> Self {
+        Self { analog_sample: 0.0, output_level: 0.0 }
+    }
+
+    fn digital_to_analog(&mut self, sample: Option<u8>) -> f64 {
+        // When the DAC is enabled or disabled, gradually fade in/out over a very short period.
+        // Some games depend on this to avoid buzzing due to how they use the wavetable channel, e.g. Cannon Fodder
+        // 1/20000th of a second period is based on what SameBoy does; I think in actual hardware this can vary
+        // because it's an emergent property of the hardware, not an intentional audio effect
+        const FADE_DELTA: f64 = 20000.0 / GB_APU_FREQUENCY;
+
+        match sample {
+            Some(sample) => {
+                // Convert from digital [0, 15] to analog [-1, +1] but inverted
+                //   Digital 0  -> Analog +1
+                //   Digital 15 -> Analog -1
+                self.analog_sample = (f64::from(15 - sample) - 7.5) / 7.5;
+
+                // Gradually fade in if DAC was just enabled
+                self.output_level = (self.output_level + FADE_DELTA).clamp(0.0, 1.0);
+            }
+            None => {
+                // DAC is disabled; gradually fade out, keep current analog sample output
+                self.output_level = (self.output_level - FADE_DELTA).clamp(0.0, 1.0);
+            }
+        }
+
+        self.analog_sample * self.output_level
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct Apu {
     hardware_mode: HardwareMode,
     enabled: bool,
@@ -95,6 +133,7 @@ pub struct Apu {
     wavetable: WavetableChannel,
     noise: NoiseChannel,
     stereo_control: StereoControl,
+    dacs: [Dac; 4],
     frame_sequencer_step: u8,
     previous_div_bit: bool,
     resampler: GameBoyResampler,
@@ -110,6 +149,7 @@ impl Apu {
             wavetable: WavetableChannel::new(hardware_mode),
             noise: NoiseChannel::new(),
             stereo_control: StereoControl::new(),
+            dacs: array::from_fn(|_| Dac::new()),
             frame_sequencer_step: 0,
             previous_div_bit: false,
             resampler: GameBoyResampler::new(&config),
@@ -160,37 +200,32 @@ impl Apu {
     }
 
     fn generate_sample(&mut self) {
-        // Sample values in the range [-15, +15]
-        let channel_1_sample = digital_to_analog(self.pulse_1.sample());
-        let channel_2_sample = digital_to_analog(self.pulse_2.sample());
-        let channel_3_sample = digital_to_analog(self.wavetable.sample());
-        let channel_4_sample = digital_to_analog(self.noise.sample());
+        // Analog samples in range [-1, +1]
+        let channel_samples = [
+            self.dacs[0].digital_to_analog(self.pulse_1.sample()),
+            self.dacs[1].digital_to_analog(self.pulse_2.sample()),
+            self.dacs[2].digital_to_analog(self.wavetable.sample()),
+            self.dacs[3].digital_to_analog(self.noise.sample()),
+        ];
 
-        let mut sample_l = 0;
-        let mut sample_r = 0;
+        // Sum channel samples; now in range [-4, +4]
+        let mut sample_l = (0..4)
+            .map(|i| channel_samples[i] * f64::from(self.stereo_control.left_channels[i]))
+            .sum::<f64>();
+        let mut sample_r = (0..4)
+            .map(|i| channel_samples[i] * f64::from(self.stereo_control.right_channels[i]))
+            .sum::<f64>();
 
-        sample_l += i32::from(self.stereo_control.left_channels[0]) * channel_1_sample;
-        sample_r += i32::from(self.stereo_control.right_channels[0]) * channel_1_sample;
+        // Apply volume multiplier (1-8); now in range [-32, +32]
+        sample_l *= f64::from(self.stereo_control.left_volume + 1);
+        sample_r *= f64::from(self.stereo_control.right_volume + 1);
 
-        sample_l += i32::from(self.stereo_control.left_channels[1]) * channel_2_sample;
-        sample_r += i32::from(self.stereo_control.right_channels[1]) * channel_2_sample;
+        // Normalize back from [-32, +32] to [-1, +1] range
+        // Additionally multiply by 0.5 because otherwise sound is way too loud
+        sample_l /= 64.0;
+        sample_r /= 64.0;
 
-        sample_l += i32::from(self.stereo_control.left_channels[2]) * channel_3_sample;
-        sample_r += i32::from(self.stereo_control.right_channels[2]) * channel_3_sample;
-
-        sample_l += i32::from(self.stereo_control.left_channels[3]) * channel_4_sample;
-        sample_r += i32::from(self.stereo_control.right_channels[3]) * channel_4_sample;
-
-        // L/R samples are in the range [-60, +60] after adding in all 4 channels
-        // Volume multiplier is 1-8, so after this they will be in the range [-480, +480]
-        sample_l *= i32::from(self.stereo_control.left_volume + 1);
-        sample_r *= i32::from(self.stereo_control.right_volume + 1);
-
-        // Convert to floating point and store
-        // Multiply by 0.5 because otherwise the sound will be way too loud
-        let sample_l_f64 = f64::from(sample_l) / 960.0;
-        let sample_r_f64 = f64::from(sample_r) / 960.0;
-        self.resampler.collect_sample(sample_l_f64, sample_r_f64);
+        self.resampler.collect_sample(sample_l, sample_r);
     }
 
     fn clock_length_counters(&mut self) {
@@ -331,13 +366,4 @@ impl Apu {
     pub fn update_output_frequency(&mut self, output_frequency: u64) {
         self.resampler.update_output_frequency(output_frequency);
     }
-}
-
-fn digital_to_analog(sample: Option<u8>) -> i32 {
-    let Some(sample) = sample else { return 0 };
-
-    // Map [0, 15] to [-15, 15]
-    // [-15, 15] used instead of [-7.5, 7.5] in order to avoid needing to deal with floating-point
-    // until the very end of sample generation
-    (2 * i32::from(sample)) - 15
 }
