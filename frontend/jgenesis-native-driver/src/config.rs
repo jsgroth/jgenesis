@@ -8,9 +8,7 @@ use gba_core::api::{GbaAudioConfig, GbaEmulatorConfig};
 use genesis_config::{S32XVoidColor, S32XVoidColorType};
 use genesis_core::GenesisEmulatorConfig;
 use jgenesis_native_config::AppConfig;
-use jgenesis_native_config::common::{
-    ConfigSavePath, FullscreenMode, HideMouseCursor, SavePath, WindowSize,
-};
+use jgenesis_native_config::common::{ConfigSavePath, HideMouseCursor, SavePath, WindowSize};
 use jgenesis_native_config::input::mappings::{
     GameBoyInputConfig, GenesisInputConfig, HotkeyConfig, NesInputConfig, SmsGgInputConfig,
     SnesInputConfig,
@@ -47,7 +45,6 @@ pub struct CommonConfig {
     pub audio_output_frequency: u64,
     pub audio_sync: bool,
     pub audio_dynamic_resampling_ratio: bool,
-    pub audio_hardware_queue_size: u16,
     pub audio_buffer_size: u32,
     pub audio_gain_db: f64,
     pub save_path: SavePath,
@@ -62,7 +59,6 @@ pub struct CommonConfig {
     pub rewind_buffer_length_seconds: u64,
     pub load_recent_state_at_launch: bool,
     pub launch_in_fullscreen: bool,
-    pub fullscreen_mode: FullscreenMode,
     pub initial_window_size: NonZeroU8,
     pub axis_deadzone: i16,
     #[cfg_display(indent_nested)]
@@ -325,7 +321,6 @@ impl AppConfigExt for AppConfig {
             audio_output_frequency: self.common.audio_output_frequency,
             audio_sync: self.common.audio_sync,
             audio_dynamic_resampling_ratio: self.common.audio_dynamic_resampling_ratio,
-            audio_hardware_queue_size: self.common.audio_hardware_queue_size,
             audio_buffer_size: self.common.audio_buffer_size,
             audio_gain_db: self.common.audio_gain_db,
             save_path: save_path(self.common.save_path, &self.common.custom_save_path),
@@ -352,7 +347,6 @@ impl AppConfigExt for AppConfig {
             rewind_buffer_length_seconds: self.common.rewind_buffer_length_seconds,
             load_recent_state_at_launch: self.common.load_recent_state_at_launch,
             launch_in_fullscreen: self.common.launch_in_fullscreen,
-            fullscreen_mode: self.common.fullscreen_mode,
             initial_window_size: self.common.initial_window_size,
             axis_deadzone: self.input.axis_deadzone,
             hotkey_config: self.input.hotkeys.clone(),

@@ -5,7 +5,6 @@ use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, Scanlines, VSyncMode, WgpuBackend,
 };
 use nes_config::NesAspectRatio;
-use sdl2::video::FullscreenType;
 use serde::{Deserialize, Serialize};
 use smsgg_config::{GgAspectRatio, SmsAspectRatio};
 use snes_config::SnesAspectRatio;
@@ -192,27 +191,6 @@ impl Display for SavePath {
     Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumAll,
 )]
 #[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum FullscreenMode {
-    #[default]
-    Borderless,
-    Exclusive,
-}
-
-impl FullscreenMode {
-    #[inline]
-    #[must_use]
-    pub fn to_sdl_fullscreen(self) -> FullscreenType {
-        match self {
-            Self::Borderless => FullscreenType::Desktop,
-            Self::Exclusive => FullscreenType::True,
-        }
-    }
-}
-
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumAll,
-)]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum HideMouseCursor {
     #[default]
     Fullscreen,
@@ -249,8 +227,6 @@ pub struct CommonAppConfig {
     pub audio_sync: bool,
     #[serde(default = "true_fn")]
     pub audio_dynamic_resampling_ratio: bool,
-    #[serde(default = "default_audio_hardware_queue_size")]
-    pub audio_hardware_queue_size: u16,
     #[serde(default = "default_audio_buffer_size")]
     pub audio_buffer_size: u32,
     #[serde(default)]
@@ -268,8 +244,6 @@ pub struct CommonAppConfig {
     pub window_scale_factor: Option<f32>,
     #[serde(default)]
     pub launch_in_fullscreen: bool,
-    #[serde(default)]
-    pub fullscreen_mode: FullscreenMode,
     #[serde(default = "default_initial_window_size")]
     pub initial_window_size: NonZeroU8,
     #[serde(default)]
@@ -323,10 +297,6 @@ const fn true_fn() -> bool {
 
 const fn default_audio_output_frequency() -> u64 {
     jgenesis_common::audio::DEFAULT_OUTPUT_FREQUENCY
-}
-
-const fn default_audio_hardware_queue_size() -> u16 {
-    512
 }
 
 const fn default_audio_buffer_size() -> u32 {

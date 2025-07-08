@@ -5,10 +5,10 @@ use jgenesis_native_config::input::{
     AxisDirection, GamepadAction, GenericInput, HatDirection, Hotkey,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
-use sdl2::event::{Event, WindowEvent};
-use sdl2::joystick::{HatState, Joystick};
-use sdl2::keyboard::Keycode;
-use sdl2::{IntegerOrSdlError, JoystickSubsystem};
+use sdl3::event::{Event, WindowEvent};
+use sdl3::joystick::{HatState, Joystick};
+use sdl3::keyboard::Keycode;
+use sdl3::{IntegerOrSdlError, JoystickSubsystem};
 use std::array;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -90,7 +90,7 @@ impl Joysticks {
 
         log::info!("Added joystick {joystick_idx}: '{}'", joystick.name());
 
-        self.instance_id_to_device_id.insert(joystick.instance_id(), joystick_idx);
+        self.instance_id_to_device_id.insert(joystick.id(), joystick_idx);
         self.devices.insert(joystick_idx, joystick);
 
         Ok(())
@@ -407,7 +407,7 @@ where
                     self.state.inputs.handle_mouse_motion(x, y, frame_size, display_area);
                 }
             }
-            Event::Window { win_event: WindowEvent::Leave, window_id, .. }
+            Event::Window { win_event: WindowEvent::MouseLeave, window_id, .. }
                 if window_id == emulator_window_id =>
             {
                 self.state.inputs.handle_mouse_leave();

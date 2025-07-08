@@ -6,8 +6,11 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = []
+default = ["sdl3-build-from-source"]
 unstable-cores = []
+
+sdl3-build-from-source = ["sdl3/build-from-source"]
+sdl3-static-link = ["sdl3/static-link"]
 
 [dependencies]
 jgenesis-common = { path = "../../common/jgenesis-common", features = ["serde"] }
@@ -29,7 +32,7 @@ snes-config = { path = "../../config/snes-config" }
 jgenesis-native-config = { path = "../jgenesis-native-config"}
 jgenesis-native-driver = { path = "../jgenesis-native-driver" }
 jgenesis-renderer = { path = "../jgenesis-renderer" }
-egui-sdl2-platform = { path = "../egui-sdl2-platform" }
+egui-sdl3-platform = { path = "../egui-sdl3-platform" }
 
 anyhow = { workspace = true }
 clap = { workspace = true }
@@ -43,7 +46,7 @@ log = { workspace = true, features = ["release_max_level_info"] }
 pollster = { workspace = true }
 regex = { workspace = true }
 rfd = { workspace = true }
-sdl2 = { workspace = true }
+sdl3 = { workspace = true }
 time = { workspace = true, features = ["formatting", "local-offset"] }
 toml = { workspace = true }
 wgpu = { workspace = true }
@@ -54,10 +57,11 @@ xrandr = { workspace = true }
 [package.metadata.packager]
 icons = ["../32x32.png"]
 # Nightly toolchain used because of -Ztune-cpu codegen arg
+# Statically link SDL3 because otherwise the AppImage fails to build when building SDL3 from source
 before-packaging-command = """
 RUSTFLAGS='-C target-cpu=x86-64-v2 -Z tune-cpu=x86-64-v3' \
 JGENESIS_APPIMAGE_BUILD=1 \
-cargo +nightly build --profile release-lto"""
+cargo +nightly build --profile release-lto --features sdl3-static-link"""
 
 [package.metadata.packager.appimage]
 # Including any Wayland-related libraries in the AppImage package can cause the app to fail to start on some distros,

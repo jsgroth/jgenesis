@@ -1,54 +1,82 @@
 use crate::config::CommonConfig;
 use jgenesis_common::audio::DynamicResamplingRate;
 use jgenesis_common::frontend::AudioOutput;
-use sdl2::AudioSubsystem;
-use sdl2::audio::{AudioCallback, AudioDevice, AudioSpecDesired};
+use sdl3::AudioSubsystem;
+use sdl3::audio::{AudioCallback, AudioFormat, AudioSpec, AudioStream, AudioStreamWithCallback};
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
+use std::thread::Thread;
 use std::time::Duration;
 use thiserror::Error;
 
 // Always output in stereo
-const CHANNELS: u8 = 2;
+const CHANNELS: i32 = 2;
 
 // Number of samples to buffer before locking and pushing to the audio queue
-const INTERNAL_AUDIO_BUFFER_LEN: usize = 32;
+const INTERNAL_AUDIO_BUFFER_LEN: usize = 16;
 
 #[derive(Debug, Error)]
 pub enum AudioError {
-    #[error("Error opening SDL2 audio queue: {0}")]
-    OpenQueue(String),
-    #[error("Error pushing audio samples to SDL2 audio queue: {0}")]
-    QueueAudio(String),
+    #[error("Error opening SDL3 audio stream: {0}")]
+    OpenStream(sdl3::Error),
+    #[error("Error pausing SDL3 audio stream: {0}")]
+    PauseStream(sdl3::Error),
+    #[error("Error pushing audio samples to SDL3 audio stream: {0}")]
+    QueueAudio(sdl3::Error),
+}
+
+pub type AudioResult<T> = Result<T, AudioError>;
+
+struct AudioCallbackState {
+    queue: VecDeque<(f32, f32)>,
+    unpark_threshold: u32,
+    error: Option<sdl3::Error>,
 }
 
 struct AudioQueueCallback {
-    queue: Arc<Mutex<VecDeque<(f32, f32)>>>,
+    state: Arc<Mutex<AudioCallbackState>>,
+    main_thread: Thread,
 }
 
-impl AudioCallback for AudioQueueCallback {
-    type Channel = f32;
+impl AudioCallback<f32> for AudioQueueCallback {
+    fn callback(&mut self, stream: &mut AudioStream, requested: i32) {
+        let mut state = self.state.lock().unwrap();
 
-    fn callback(&mut self, out: &mut [Self::Channel]) {
-        let mut queue = self.queue.lock().unwrap();
+        let requested_stereo = (requested + 1) / 2;
+        for _ in 0..requested_stereo {
+            let Some((sample_l, sample_r)) = state.queue.pop_front() else { break };
 
-        let mut last = (0.0, 0.0);
-        for chunk in out.chunks_exact_mut(2) {
-            last = queue.pop_front().unwrap_or(last);
-            (chunk[0], chunk[1]) = last;
+            if let Err(err) = stream.put_data_f32(&[sample_l, sample_r]) {
+                log::error!("Error pushing audio samples: {err}");
+                state.error = Some(err);
+                self.main_thread.unpark();
+                break;
+            }
+        }
+
+        if state.queue.len() <= state.unpark_threshold as usize {
+            self.main_thread.unpark();
         }
     }
 }
 
+struct SdlAudioDevice {
+    stream: AudioStreamWithCallback<AudioQueueCallback>,
+    state: Arc<Mutex<AudioCallbackState>>,
+}
+
 pub struct SdlAudioOutput {
     muted: bool,
-    audio_device: AudioDevice<AudioQueueCallback>,
-    audio_queue: Arc<Mutex<VecDeque<(f32, f32)>>>,
+    audio_subsystem: AudioSubsystem,
+    audio_stream: AudioStreamWithCallback<AudioQueueCallback>,
+    callback_state: Arc<Mutex<AudioCallbackState>>,
     audio_buffer: Vec<(f32, f32)>,
     audio_sync: bool,
+    audio_sync_threshold: u32,
     dynamic_resampling_ratio_enabled: bool,
     dynamic_resampling_rate: DynamicResamplingRate,
+    output_frequency: u64,
     audio_buffer_size: u32,
     audio_gain_multiplier: f64,
     sample_count: u64,
@@ -57,23 +85,25 @@ pub struct SdlAudioOutput {
 
 impl SdlAudioOutput {
     pub fn create_and_init(
-        audio: &AudioSubsystem,
+        audio_subsystem: AudioSubsystem,
         config: &CommonConfig,
-    ) -> Result<Self, AudioError> {
-        let OpenedAudioDevice { device, queue } = open_audio_device(audio, config)?;
-        let output_frequency = device.spec().freq;
+    ) -> AudioResult<Self> {
+        let SdlAudioDevice { stream, state } = open_audio_stream(&audio_subsystem, config)?;
 
         Ok(Self {
             muted: config.mute_audio,
-            audio_device: device,
-            audio_queue: queue,
+            audio_subsystem,
+            audio_stream: stream,
+            callback_state: state,
             audio_buffer: Vec::with_capacity(INTERNAL_AUDIO_BUFFER_LEN),
             audio_sync: config.audio_sync,
+            audio_sync_threshold: audio_sync_threshold(config),
             dynamic_resampling_ratio_enabled: config.audio_dynamic_resampling_ratio,
             dynamic_resampling_rate: DynamicResamplingRate::new(
-                output_frequency as u32,
+                config.audio_output_frequency as u32,
                 config.audio_buffer_size,
             ),
+            output_frequency: config.audio_output_frequency,
             audio_buffer_size: config.audio_buffer_size,
             audio_gain_multiplier: decibels_to_multiplier(config.audio_gain_db),
             sample_count: 0,
@@ -81,35 +111,50 @@ impl SdlAudioOutput {
         })
     }
 
-    pub fn reload_config(&mut self, config: &CommonConfig) -> Result<(), AudioError> {
+    pub fn reload_config(&mut self, config: &CommonConfig) -> AudioResult<()> {
+        let freq_changed = self.output_frequency != config.audio_output_frequency;
+        let buffer_size_changed = self.audio_buffer_size != config.audio_buffer_size;
+
         self.muted = config.mute_audio;
         self.audio_sync = config.audio_sync;
         self.dynamic_resampling_ratio_enabled = config.audio_dynamic_resampling_ratio;
+        self.output_frequency = config.audio_output_frequency;
         self.audio_buffer_size = config.audio_buffer_size;
         self.audio_gain_multiplier = decibels_to_multiplier(config.audio_gain_db);
+        self.audio_sync_threshold = audio_sync_threshold(config);
 
-        let spec = self.audio_device.spec();
-        if config.audio_output_frequency != spec.freq as u64
-            || config.audio_hardware_queue_size != spec.samples
-        {
-            log::info!(
-                "Recreating SDL audio queue with freq {} and size {}",
-                config.audio_output_frequency,
-                config.audio_hardware_queue_size
-            );
-            self.audio_device.pause();
+        if freq_changed {
+            // Recreate audio stream on sample rate changes
+            self.output_frequency = config.audio_output_frequency;
 
-            let OpenedAudioDevice { device, queue } =
-                open_audio_device(self.audio_device.subsystem(), config)?;
-            self.audio_device = device;
-            self.audio_queue = queue;
-        } else if self.audio_queue_len_samples() >= 4 * self.audio_buffer_size {
-            // Truncate audio queue on config reloads if it is way oversized
-            self.audio_queue.lock().unwrap().clear();
+            log::info!("Recreating SDL audio queue with freq {}", config.audio_output_frequency,);
+            self.audio_stream.pause().map_err(AudioError::PauseStream)?;
+
+            let SdlAudioDevice { stream, state } =
+                open_audio_stream(&self.audio_subsystem, config)?;
+            self.audio_stream = stream;
+            self.callback_state = state;
+
+            self.dynamic_resampling_rate
+                .update_config(self.output_frequency as u32, self.audio_buffer_size);
         }
 
-        self.dynamic_resampling_rate
-            .update_config(self.audio_device.spec().freq as u32, self.audio_buffer_size);
+        {
+            let mut state = self.callback_state.lock().unwrap();
+            state.unpark_threshold = self.audio_sync_threshold;
+
+            // Truncate audio queue on config reloads if it is way oversized
+            if state.queue.len() >= (4 * config.audio_buffer_size) as usize {
+                state.queue.clear();
+            }
+        }
+
+        if buffer_size_changed {
+            self.dynamic_resampling_rate.update_config(
+                self.dynamic_resampling_rate.current_output_frequency(),
+                self.audio_buffer_size,
+            );
+        }
 
         Ok(())
     }
@@ -123,7 +168,8 @@ impl SdlAudioOutput {
             return;
         }
 
-        self.dynamic_resampling_rate.adjust(self.audio_queue_len_samples());
+        let audio_queue_len = self.callback_state.lock().unwrap().queue.len();
+        self.dynamic_resampling_rate.adjust(audio_queue_len as u32);
     }
 
     #[must_use]
@@ -131,50 +177,34 @@ impl SdlAudioOutput {
         if self.dynamic_resampling_ratio_enabled {
             self.dynamic_resampling_rate.current_output_frequency().into()
         } else {
-            self.audio_device.spec().freq as u64
+            self.output_frequency
         }
     }
-
-    fn audio_queue_len_samples(&self) -> u32 {
-        self.audio_queue.lock().unwrap().len() as u32
-    }
 }
 
-struct OpenedAudioDevice {
-    device: AudioDevice<AudioQueueCallback>,
-    queue: Arc<Mutex<VecDeque<(f32, f32)>>>,
-}
+fn open_audio_stream(audio: &AudioSubsystem, config: &CommonConfig) -> AudioResult<SdlAudioDevice> {
+    let callback_state = Arc::new(Mutex::new(AudioCallbackState {
+        queue: VecDeque::with_capacity(2 * config.audio_buffer_size as usize),
+        unpark_threshold: audio_sync_threshold(config),
+        error: None,
+    }));
 
-fn open_audio_device(
-    audio: &AudioSubsystem,
-    config: &CommonConfig,
-) -> Result<OpenedAudioDevice, AudioError> {
-    let queue =
-        Arc::new(Mutex::new(VecDeque::with_capacity(2 * config.audio_buffer_size as usize)));
-    let audio_callback = AudioQueueCallback { queue: Arc::clone(&queue) };
+    let audio_callback =
+        AudioQueueCallback { state: Arc::clone(&callback_state), main_thread: thread::current() };
 
-    let device = audio
-        .open_playback(
-            None,
-            &AudioSpecDesired {
+    let stream = audio
+        .open_playback_stream(
+            &AudioSpec {
                 freq: Some(config.audio_output_frequency as i32),
                 channels: Some(CHANNELS),
-                samples: Some(config.audio_hardware_queue_size),
+                format: Some(AudioFormat::f32_sys()),
             },
-            move |_| audio_callback,
+            audio_callback,
         )
-        .map_err(AudioError::OpenQueue)?;
-    device.resume();
+        .map_err(AudioError::OpenStream)?;
+    stream.resume().map_err(AudioError::OpenStream)?;
 
-    if config.audio_output_frequency as i32 != device.spec().freq {
-        log::error!(
-            "Audio device does not support requested frequency {}; set to {} instead",
-            config.audio_output_frequency,
-            device.spec().freq
-        );
-    }
-
-    Ok(OpenedAudioDevice { device, queue })
+    Ok(SdlAudioDevice { stream, state: callback_state })
 }
 
 fn decibels_to_multiplier(decibels: f64) -> f64 {
@@ -201,41 +231,70 @@ impl AudioOutput for SdlAudioOutput {
 
         self.audio_buffer.push((sample_l as f32, sample_r as f32));
 
-        if self.audio_buffer.len() >= INTERNAL_AUDIO_BUFFER_LEN {
-            let audio_buffer_threshold = if self.dynamic_resampling_ratio_enabled {
-                // If dynamic resampling ratio is enabled, let the audio buffer grow to double size
-                // before dropping samples because the audio buffer size is also the target length
-                // for dynamic resampling
-                2 * self.audio_buffer_size
-            } else {
-                self.audio_buffer_size
-            };
+        if self.audio_buffer.len() < INTERNAL_AUDIO_BUFFER_LEN {
+            return Ok(());
+        }
 
-            if self.audio_sync {
-                // Block until audio queue is not full
-                while self.audio_queue_len_samples() > audio_buffer_threshold {
-                    thread::sleep(Duration::from_micros(250));
-                }
-            } else if self.audio_queue_len_samples() > audio_buffer_threshold {
+        let queue_threshold = self.audio_sync_threshold as usize;
+
+        let mut state_lock = if self.audio_sync {
+            perform_audio_sync(&self.callback_state, queue_threshold)?
+        } else {
+            let state_lock = self.callback_state.lock().unwrap();
+
+            if state_lock.queue.len() > queue_threshold {
                 // Audio queue is full; drop samples
                 log::debug!("Dropping audio samples because buffer is full");
                 self.audio_buffer.clear();
                 return Ok(());
             }
 
-            {
-                let mut audio_queue = self.audio_queue.lock().unwrap();
+            state_lock
+        };
 
-                if audio_queue.is_empty() {
-                    log::debug!("Potential audio buffer underflow");
-                }
+        state_lock.queue.extend(&self.audio_buffer);
+        let callback_error = state_lock.error.take();
 
-                audio_queue.extend(&self.audio_buffer);
+        drop(state_lock);
+
+        self.audio_buffer.clear();
+
+        match callback_error {
+            None => Ok(()),
+            Some(err) => Err(AudioError::QueueAudio(err)),
+        }
+    }
+}
+
+fn audio_sync_threshold(config: &CommonConfig) -> u32 {
+    if config.audio_dynamic_resampling_ratio {
+        // If dynamic resampling ratio is enabled, let the audio buffer grow to double size
+        // before dropping samples because the audio buffer size is also the target length
+        // for dynamic resampling
+        2 * config.audio_buffer_size
+    } else {
+        config.audio_buffer_size
+    }
+}
+
+fn perform_audio_sync(
+    state: &Arc<Mutex<AudioCallbackState>>,
+    queue_threshold: usize,
+) -> AudioResult<MutexGuard<'_, AudioCallbackState>> {
+    // Block until audio queue is not full
+    loop {
+        {
+            let mut state = state.lock().unwrap();
+
+            if let Some(err) = state.error.take() {
+                return Err(AudioError::QueueAudio(err));
             }
 
-            self.audio_buffer.clear();
+            if state.queue.len() <= queue_threshold {
+                return Ok(state);
+            }
         }
 
-        Ok(())
+        thread::park_timeout(Duration::from_secs(1));
     }
 }

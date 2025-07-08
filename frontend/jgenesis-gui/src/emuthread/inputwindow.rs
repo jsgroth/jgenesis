@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use egui_wgpu::ScreenDescriptor;
-use sdl2::event::{Event, WindowEvent};
-use sdl2::video::Window;
+use sdl3::event::{Event, WindowEvent};
+use sdl3::video::Window;
 use std::iter;
 use std::time::SystemTime;
 
@@ -10,7 +10,7 @@ pub struct InputWindow {
     surface_config: wgpu::SurfaceConfiguration,
     device: wgpu::Device,
     queue: wgpu::Queue,
-    platform: egui_sdl2_platform::Platform,
+    platform: egui_sdl3_platform::Platform,
     renderer: egui_wgpu::Renderer,
     start_time: SystemTime,
     // SAFETY: The window must be declared after the surface so that the surface is dropped first
@@ -49,7 +49,7 @@ impl InputWindow {
         };
         surface.configure(&device, &surface_config);
 
-        let platform = egui_sdl2_platform::Platform::new(&window, scale_factor);
+        let platform = egui_sdl3_platform::Platform::new(&window, scale_factor);
         let start_time = SystemTime::now();
 
         let renderer = egui_wgpu::Renderer::new(&device, surface_format, None, 1, false);
@@ -135,7 +135,7 @@ impl InputWindow {
         match event {
             Event::Window {
                 window_id,
-                win_event: WindowEvent::Resized(..) | WindowEvent::SizeChanged(..),
+                win_event: WindowEvent::Resized(..) | WindowEvent::PixelSizeChanged(..),
                 ..
             } if *window_id == self.window.id() => {
                 let (width, height) = self.window.size();

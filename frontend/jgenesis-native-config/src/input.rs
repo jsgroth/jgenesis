@@ -6,8 +6,8 @@ use crate::input::mappings::{
     SnesInputConfig,
 };
 use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
-use sdl2::keyboard::Keycode;
-use sdl2::mouse::MouseButton;
+use sdl3::keyboard::Keycode;
+use sdl3::mouse::MouseButton;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
@@ -150,6 +150,11 @@ fn keycode_to_str(keycode: Keycode) -> Cow<'static, str> {
 
 fn keycode_from_str(s: &str) -> Option<Keycode> {
     match s {
+        // SDL2 -> SDL3 keycode name changes
+        "Backquote" => Some(Keycode::Grave),
+        "Quote" => Some(Keycode::Apostrophe),
+        "Quotedbl" => Some(Keycode::DblApostrophe),
+        // Modifier keys
         "Shift" => Some(Keycode::LShift),
         "Ctrl" => Some(Keycode::LCtrl),
         "Alt" => Some(Keycode::LAlt),

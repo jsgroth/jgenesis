@@ -14,9 +14,9 @@ use jgenesis_native_driver::{
     SaveStateMetadata,
 };
 use jgenesis_proc_macros::MatchEachVariantMacro;
-use sdl2::EventPump;
-use sdl2::event::Event;
-use sdl2::joystick::{HatState, Joystick};
+use sdl3::EventPump;
+use sdl3::event::Event;
+use sdl3::joystick::{HatState, Joystick};
 use segacd_core::api::SegaCdLoadResult;
 use smsgg_core::SmsGgHardware;
 use std::collections::HashSet;
@@ -282,7 +282,7 @@ fn thread_run(ctx: EmuThreadContext) {
                         ctx.egui_ctx.request_repaint();
                     }
                     Err(err) => {
-                        log::error!("Error collecting SDL2 input: {err}");
+                        log::error!("Error collecting SDL3 input: {err}");
                     }
                 }
             }
@@ -547,14 +547,14 @@ fn collect_input_not_running(
     axis_deadzone: i16,
     scale_factor: f32,
 ) -> anyhow::Result<Option<Vec<GenericInput>>> {
-    let sdl = sdl2::init().map_err(|err| anyhow!("Error initializing SDL2: {err}"))?;
+    let sdl = sdl3::init().map_err(|err| anyhow!("Error initializing SDL3: {err}"))?;
     let video =
-        sdl.video().map_err(|err| anyhow!("Error initializing SDL2 video subsystem: {err}"))?;
+        sdl.video().map_err(|err| anyhow!("Error initializing SDL3 video subsystem: {err}"))?;
     let joystick_subsystem = sdl
         .joystick()
-        .map_err(|err| anyhow!("Error initializing SDL2 joystick subsystem: {err}"))?;
+        .map_err(|err| anyhow!("Error initializing SDL3 joystick subsystem: {err}"))?;
     let mut event_pump =
-        sdl.event_pump().map_err(|err| anyhow!("Error initializing SDL2 event pump: {err}"))?;
+        sdl.event_pump().map_err(|err| anyhow!("Error initializing SDL3 event pump: {err}"))?;
 
     let mut sdl_window = video
         .window(
