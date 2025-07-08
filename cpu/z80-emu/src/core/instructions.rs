@@ -220,7 +220,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                         13
                     }
                     InterruptMode::Mode2 => {
-                        todo!("interrupt mode 2");
+                        log::error!("Interrupt mode 2 is not implemented; treating as mode 1");
+
+                        self.push_stack(self.registers.pc);
+                        self.registers.pc = 0x0038;
 
                         19
                     }

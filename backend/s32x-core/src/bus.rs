@@ -243,7 +243,10 @@ impl PhysicalMedium for Sega32X {
                 log::debug!("Invalid word read {address:06X}");
                 0
             }
-            _ => todo!("read word {address:06X}"),
+            _ => {
+                log::error!("M68K word read from unexpected address {address:06X}");
+                0
+            }
         }
     }
 

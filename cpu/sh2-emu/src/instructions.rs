@@ -56,8 +56,19 @@ fn sleep(cpu: &mut Sh2, _opcode: u16, _bus: &mut dyn BusInterface) {
     cpu.registers.pc = cpu.registers.pc.wrapping_sub(2);
 }
 
-fn illegal_opcode(cpu: &mut Sh2, opcode: u16, _bus: &mut dyn BusInterface) {
-    todo!("[{}] illegal (?) SH-2 opcode {opcode:04X}, PC={:08X}", cpu.name, cpu.registers.pc)
+fn illegal_opcode(cpu: &mut Sh2, opcode: u16, bus: &mut dyn BusInterface) {
+    const ILLEGAL_OPCODE_VECTOR_NUMBER: u32 = 4;
+
+    // Roll back PC to point to the illegal opcode
+    cpu.registers.pc = cpu.registers.pc.wrapping_sub(2);
+
+    log::error!(
+        "[{}] SH-2 executed illegal opcode {opcode:04X}, PC={:08X}",
+        cpu.name,
+        cpu.registers.pc
+    );
+
+    cpu.handle_exception(None, ILLEGAL_OPCODE_VECTOR_NUMBER, bus);
 }
 
 fn decode_inner(opcode: u16) -> OpcodeFn {

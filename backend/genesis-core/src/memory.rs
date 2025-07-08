@@ -600,9 +600,10 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> z80_emu::BusInterface
                     <Self as m68000_emu::BusInterface>::read_byte(self, m68k_addr)
                 } else {
                     // TODO this should lock up the system
-                    panic!(
+                    log::error!(
                         "Z80 attempted to read its own memory from the 68k bus; z80_addr={address:04X}, m68k_addr={m68k_addr:08X}"
                     );
+                    0xFF
                 }
             }
         }
@@ -646,8 +647,8 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> z80_emu::BusInterface
                     self.apply_byte_write(m68k_addr, value);
                 } else {
                     // TODO this should lock up the system
-                    panic!(
-                        "Z80 attempted to read its own memory from the 68k bus; z80_addr={address:04X}, m68k_addr={m68k_addr:08X}"
+                    log::error!(
+                        "Z80 attempted to write to its own memory from the 68k bus; z80_addr={address:04X}, m68k_addr={m68k_addr:08X}, value={value:02X}"
                     );
                 }
             }

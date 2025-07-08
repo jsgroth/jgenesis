@@ -57,6 +57,7 @@ struct Registers {
     address_error: bool,
     last_instruction_was_muldiv: bool,
     stopped: bool,
+    frozen: bool,
 }
 
 const DEFAULT_INTERRUPT_MASK: u8 = 7;
@@ -78,6 +79,7 @@ impl Registers {
             address_error: false,
             last_instruction_was_muldiv: false,
             stopped: false,
+            frozen: false,
         }
     }
 
@@ -420,6 +422,7 @@ const ADDRESS_ERROR_VECTOR: u32 = 3;
 const ILLEGAL_OPCODE_VECTOR: u32 = 4;
 const DIVIDE_BY_ZERO_VECTOR: u32 = 5;
 const CHECK_REGISTER_VECTOR: u32 = 6;
+const PRIVILEGE_VIOLATION_VECTOR: u32 = 8;
 const LINE_1010_VECTOR: u32 = 10;
 const LINE_1111_VECTOR: u32 = 11;
 const AUTO_VECTORED_INTERRUPT_BASE_ADDRESS: u32 = 0x60;
@@ -902,9 +905,11 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             self.registers.pending_interrupt_level = None;
             self.bus.acknowledge_interrupt(interrupt_level);
             self.registers.stopped = false;
-            return self
-                .handle_auto_vectored_interrupt(interrupt_level)
-                .unwrap_or_else(|_err| todo!("address error during interrupt service routine"));
+
+            return match self.handle_auto_vectored_interrupt(interrupt_level) {
+                Ok(cycles) => cycles,
+                Err(exception) => self.handle_exception(exception),
+            };
         }
 
         // TODO properly handle non-maskable level 7 interrupts?
@@ -939,13 +944,27 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
                 self.registers.address_error = true;
                 if self.handle_address_error(address, op_type).is_err() {
-                    todo!("address error triggered while handling address error")
+                    // An address error while handling address error halts the CPU until reset
+                    log::error!("address error triggered while handling address error");
+                    self.registers.frozen = true;
                 }
 
                 // Not completely accurate but close enough; this shouldn't occur in real software
                 50
             }
-            Exception::PrivilegeViolation => todo!("privilege violation"),
+            Exception::PrivilegeViolation => {
+                if let Err(Exception::AddressError(address, op_type)) =
+                    self.handle_trap(PRIVILEGE_VIOLATION_VECTOR, self.registers.pc.wrapping_sub(2))
+                {
+                    log::error!(
+                        "address error triggered while handling privilege violation exception"
+                    );
+                    return self.handle_exception(Exception::AddressError(address, op_type));
+                }
+
+                // TODO what should this actually be?
+                34
+            }
             Exception::IllegalInstruction(opcode) => {
                 // If the highest 4 bits of the opcode are 1010 or 1111, the CPU uses different
                 // exception vectors. Zaxxon's Motherbase 2000 (32X) depends on this
@@ -961,32 +980,43 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                     }
                 };
 
-                if self.handle_trap(vector, self.registers.pc.wrapping_sub(2)).is_err() {
-                    todo!("address error triggered while handling illegal opcode exception")
+                if let Err(Exception::AddressError(address, op_type)) =
+                    self.handle_trap(vector, self.registers.pc.wrapping_sub(2))
+                {
+                    log::error!("address error triggered while handling illegal opcode exception");
+                    return self.handle_exception(Exception::AddressError(address, op_type));
                 }
 
-                // TODO this shouldn't happen in real software
                 34
             }
             Exception::DivisionByZero { cycles } => {
                 log::warn!("[{}] Encountered 68000 divide by zero exception", self.name);
 
-                if self.handle_trap(DIVIDE_BY_ZERO_VECTOR, self.registers.pc).is_err() {
-                    todo!("address error triggered while handling divide by zero exception")
+                if let Err(Exception::AddressError(address, op_type)) =
+                    self.handle_trap(DIVIDE_BY_ZERO_VECTOR, self.registers.pc)
+                {
+                    log::error!("address error triggered while handling divide by zero exception");
+                    return self.handle_exception(Exception::AddressError(address, op_type));
                 }
 
                 38 + cycles
             }
             Exception::Trap(vector) => {
-                if self.handle_trap(vector, self.registers.pc).is_err() {
-                    todo!("address error triggered while executing TRAP instruction")
+                if let Err(Exception::AddressError(address, op_type)) =
+                    self.handle_trap(vector, self.registers.pc)
+                {
+                    log::error!("address error triggered while executing TRAP instruction");
+                    return self.handle_exception(Exception::AddressError(address, op_type));
                 }
 
                 34
             }
             Exception::CheckRegister { cycles } => {
-                if self.handle_trap(CHECK_REGISTER_VECTOR, self.registers.pc).is_err() {
-                    todo!("address error triggered while executing CHK instruction")
+                if let Err(Exception::AddressError(address, op_type)) =
+                    self.handle_trap(CHECK_REGISTER_VECTOR, self.registers.pc)
+                {
+                    log::error!("address error triggered while executing CHK instruction");
+                    return self.handle_exception(Exception::AddressError(address, op_type));
                 }
 
                 30 + cycles
@@ -1067,6 +1097,7 @@ impl M68000 {
         self.registers.interrupt_priority_mask = DEFAULT_INTERRUPT_MASK;
 
         self.registers.stopped = false;
+        self.registers.frozen = false;
 
         // Read SSP from $000000 and PC from $000004
         self.registers.ssp = bus.read_long_word(0);
@@ -1163,7 +1194,7 @@ impl M68000 {
             return RESET_CYCLES;
         }
 
-        if bus.halt() {
+        if bus.halt() || self.registers.frozen {
             return 1;
         }
 

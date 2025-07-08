@@ -150,13 +150,13 @@ impl Sh2 {
             && external_interrupt_level >= internal_interrupt_level
         {
             let vector_number = BASE_IRL_VECTOR_NUMBER + u32::from(external_interrupt_level >> 1);
-            self.handle_interrupt(external_interrupt_level, vector_number, bus);
+            self.handle_exception(Some(external_interrupt_level), vector_number, bus);
             return;
         }
 
         if internal_interrupt_level > self.registers.sr.interrupt_mask {
             let vector_number: u32 = self.sh7604.internal_interrupt.vector_number.into();
-            self.handle_interrupt(internal_interrupt_level, vector_number, bus);
+            self.handle_exception(Some(internal_interrupt_level), vector_number, bus);
             return;
         }
 
@@ -213,9 +213,13 @@ impl Sh2 {
                 self.cache.associative_purge(address);
                 0
             }
+            3..=5 => {
+                log::error!("Unexpected SH-2 address, byte read: {address:08X}");
+                0
+            }
             6 => self.cache.read_data_array_u8(address),
             7 => self.read_internal_register_byte(address),
-            _ => todo!("Unexpected SH-2 address, byte read: {address:08X}"),
+            _ => unreachable!("u32 >> 29 is always 0-7"),
         }
     }
 
@@ -254,9 +258,13 @@ impl Sh2 {
                 self.cache.associative_purge(address);
                 0
             }
+            3..=5 => {
+                log::error!("Unexpected SH-2 address, word read: {address:08X}");
+                0
+            }
             6 => self.cache.read_data_array_u16(address),
             7 => self.read_internal_register_word(address),
-            _ => todo!("Unexpected SH-2 address, word read: {address:08X}"),
+            _ => unreachable!("u32 >> 29 is always 0-7"),
         }
     }
 
@@ -291,9 +299,13 @@ impl Sh2 {
                 0
             }
             3 => self.cache.read_address_array(address),
+            4 | 5 => {
+                log::error!("Unexpected SH-2 address, longword read: {address:08X}");
+                0
+            }
             6 => self.cache.read_data_array_u32(address),
             7 => self.read_internal_register_longword(address),
-            _ => todo!("Unexpected SH-2 address, longword read: {address:08X}"),
+            _ => unreachable!("u32 >> 29 is always 0-7"),
         }
     }
 
@@ -317,9 +329,12 @@ impl Sh2 {
             }
             1 => bus.write_byte(address & EXTERNAL_ADDRESS_MASK, value),
             2 => self.cache.associative_purge(address),
+            3..=5 => {
+                log::error!("Unexpected SH-2 address, byte write: {address:08X} {value:02X}");
+            }
             6 => self.cache.write_data_array_u8(address, value),
             7 => self.write_internal_register_byte(address, value),
-            _ => todo!("Unexpected SH-2 address, byte write: {address:08X} {value:02X}"),
+            _ => unreachable!("u32 >> 29 is always 0-7"),
         }
     }
 
@@ -331,9 +346,12 @@ impl Sh2 {
             }
             1 => bus.write_word(address & EXTERNAL_ADDRESS_MASK, value),
             2 => self.cache.associative_purge(address),
+            3..=5 => {
+                log::error!("Unexpected SH-2 address, word write: {address:08X} {value:04X}");
+            }
             6 => self.cache.write_data_array_u16(address, value),
             7 => self.write_internal_register_word(address, value),
-            _ => todo!("Unexpected SH-2 address, word write: {address:08X} {value:04X}"),
+            _ => unreachable!("u32 >> 29 is always 0-7"),
         }
     }
 
@@ -347,15 +365,18 @@ impl Sh2 {
             1 => bus.write_longword(address & EXTERNAL_ADDRESS_MASK, value),
             2 => self.cache.associative_purge(address),
             3 => self.cache.write_address_array(address, value),
+            4 | 5 => {
+                log::error!("Unexpected SH-2 address, longword write: {address:08X} {value:08X}");
+            }
             6 => self.cache.write_data_array_u32(address, value),
             7 => self.write_internal_register_longword(address, value),
-            _ => todo!("Unexpected SH-2 address, longword write: {address:08X} {value:08X}"),
+            _ => unreachable!("u32 >> 29 is always 0-7"),
         }
     }
 
-    fn handle_interrupt<B: BusInterface>(
+    fn handle_exception<B: BusInterface + ?Sized>(
         &mut self,
-        interrupt_level: u8,
+        interrupt_level: Option<u8>,
         vector_number: u32,
         bus: &mut B,
     ) {
@@ -366,7 +387,9 @@ impl Sh2 {
         self.write_longword(sp, self.registers.pc, bus);
 
         self.registers.gpr[SP] = sp;
-        self.registers.sr.interrupt_mask = interrupt_level;
+        if let Some(interrupt_level) = interrupt_level {
+            self.registers.sr.interrupt_mask = interrupt_level;
+        }
 
         let vector_addr = self.registers.vbr.wrapping_add(vector_number << 2);
         self.registers.pc = self.read_longword(vector_addr, bus);
@@ -377,7 +400,7 @@ impl Sh2 {
         bus.increment_cycle_counter(5);
 
         log::debug!(
-            "[{}] Handled interrupt of level {interrupt_level} with vector number {vector_number}, jumped to {:08X}",
+            "[{}] Handled interrupt of level {interrupt_level:?} with vector number {vector_number}, jumped to {:08X}",
             self.name,
             self.registers.pc
         );
