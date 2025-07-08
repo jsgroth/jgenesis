@@ -4,21 +4,33 @@
 
 This project requires the latest stable version of the [Rust toolchain](https://doc.rust-lang.org/book/ch01-01-installation.html) to build.
 
-## SDL2
+## SDL3
 
-This project requires [SDL2](https://www.libsdl.org/) core headers to build. SDL2 is used for windowing, audio playback, and reading keyboard/gamepad/mouse inputs.
+This project uses [SDL3](https://www.libsdl.org/) for windowing, audio playback, and reading keyboard/gamepad/mouse inputs.
 
-Linux (Debian-based):
+By default, SDL3 is fetched and built from source while building this project, and it is dynamically linked at runtime.
+This behavior is customizable using [Cargo features](https://doc.rust-lang.org/cargo/reference/features.html):
+
+| Feature                  | Description                      | Default |
+|--------------------------|----------------------------------|---------|
+| `sdl3-build-from-source` | Fetch and build SDL3 from source | Yes     |
+| `sdl3-static-link`       | Statically link SDL3             | No      |
+
+Building SDL3 from source requires a C build toolchain. See also:
+* [SDL3 Linux README](https://github.com/libsdl-org/SDL/blob/main/docs/README-linux.md)
+* [SDL3 Windows README](https://github.com/libsdl-org/SDL/blob/main/docs/README-windows.md)
+
+Example command to disable building SDL3 from source:
 
 ```shell
-sudo apt install libsdl2-dev
+cargo build --no-default-features
 ```
 
-Windows:
+Example command to build while statically linking SDL3:
 
-* <https://github.com/libsdl-org/SDL/releases> (Download a 2.x version)
-
-[Windows installation instructions](https://github.com/Rust-SDL2/rust-sdl2?tab=readme-ov-file#windows-msvc)
+```shell
+cargo build --features sdl3-static-link
+```
 
 ### DirectX Shader Compiler (Windows DX12 backend only)
 

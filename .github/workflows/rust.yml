@@ -25,9 +25,17 @@ jobs:
       run: |
         rustup toolchain add nightly --component rustfmt --component rust-src
 
-    - name: Install system library dependencies
+    # https://github.com/libsdl-org/SDL/blob/main/docs/README-linux.md#build-dependencies
+    - name: Install SDL3 system dependencies
       run: |
-        sudo apt update && sudo apt install -y libsdl2-dev
+        sudo apt-get update && \
+        sudo apt-get -y install build-essential git make \
+        pkg-config cmake ninja-build gnome-desktop-testing libasound2-dev libpulse-dev \
+        libaudio-dev libjack-dev libsndio-dev libx11-dev libxext-dev \
+        libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
+        libxkbcommon-dev libdrm-dev libgbm-dev libgl1-mesa-dev libgles2-mesa-dev \
+        libegl1-mesa-dev libdbus-1-dev libibus-1.0-dev libudev-dev \
+        libpipewire-0.3-dev libwayland-dev libdecor-0-dev liburing-dev
 
     - name: Check formatting
       run: |
@@ -80,7 +88,6 @@ jobs:
           && RUSTFLAGS='--cfg getrandom_backend="wasm_js"' cargo +nightly clippy --target wasm32-unknown-unknown
   linux-release-appimage:
     runs-on: ubuntu-22.04
-    if: github.ref == 'refs/heads/master'
 
     steps:
       - uses: actions/checkout@v4
@@ -93,9 +100,17 @@ jobs:
         run: |
           rustup toolchain add nightly --component rustfmt --component rust-src
 
-      - name: Install system library dependencies
+      # https://github.com/libsdl-org/SDL/blob/main/docs/README-linux.md#build-dependencies
+      - name: Install SDL3 system dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y libsdl2-dev
+          sudo apt-get update && \
+          sudo apt-get -y install build-essential git make \
+          pkg-config cmake ninja-build gnome-desktop-testing libasound2-dev libpulse-dev \
+          libaudio-dev libjack-dev libsndio-dev libx11-dev libxext-dev \
+          libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
+          libxkbcommon-dev libdrm-dev libgbm-dev libgl1-mesa-dev libgles2-mesa-dev \
+          libegl1-mesa-dev libdbus-1-dev libibus-1.0-dev libudev-dev \
+          libpipewire-0.3-dev libwayland-dev libdecor-0-dev liburing-dev
 
       - name: Get latest cargo-packager version
         id: get-packager-version
@@ -131,10 +146,9 @@ jobs:
           path: target/release-lto/jgenesis-gui_${{ env.JGENESIS_VERSION }}_x86_64.AppImage
   windows-release:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/master'
 
     env:
-      SDL_VERSION: 2.30.9
+      SDL_VERSION: 3.2.16
       DXC_RELEASE_TAG: v1.8.2407
       DXC_ZIP_FILE: dxc_2024_07_31.zip
 
@@ -161,12 +175,10 @@ jobs:
         run: |
           rustup target add --toolchain nightly x86_64-pc-windows-gnu
 
-      - name: Download & extract Windows SDL2 libraries
+      - name: Download & extract Windows SDL3 libraries
         run: |
-          wget https://github.com/libsdl-org/SDL/releases/download/release-$SDL_VERSION/SDL2-devel-$SDL_VERSION-mingw.tar.gz && \
-          wget https://github.com/libsdl-org/SDL/releases/download/release-$SDL_VERSION/SDL2-$SDL_VERSION-win32-x64.zip && \
-          tar -xzvf SDL2-devel-$SDL_VERSION-mingw.tar.gz && \
-          unzip SDL2-$SDL_VERSION-win32-x64.zip
+          wget https://github.com/libsdl-org/SDL/releases/download/release-$SDL_VERSION/SDL3-$SDL_VERSION-win32-x64.zip && \
+          unzip SDL3-$SDL_VERSION-win32-x64.zip -d sdl3
 
       - name: Download & extract DirectX shader compiler
         run: |
@@ -177,27 +189,24 @@ jobs:
 
       - name: Build CLI release
         run: |
-          RUSTFLAGS=" \
-            -C target-cpu=x86-64-v2 -Z tune-cpu=x86-64-v3 \
-            -C link-arg=-ISDL2-$SDL_VERSION/x86_64-w64-mingw32/include \
-            -C link-arg=-LSDL2-$SDL_VERSION/x86_64-w64-mingw32/lib" \
+          RUSTFLAGS="-C target-cpu=x86-64-v2 -Z tune-cpu=x86-64-v3" \
           cargo +nightly build --profile release-lto --target x86_64-pc-windows-gnu -p jgenesis-cli
 
       - name: Build GUI release
         run: |
-          RUSTFLAGS=" \
-            -C target-cpu=x86-64-v2 -Z tune-cpu=x86-64-v3 \
-            -C link-arg=-ISDL2-$SDL_VERSION/x86_64-w64-mingw32/include \
-            -C link-arg=-LSDL2-$SDL_VERSION/x86_64-w64-mingw32/lib" \
+          RUSTFLAGS="-C target-cpu=x86-64-v2 -Z tune-cpu=x86-64-v3" \
           cargo +nightly build --profile release-lto --target x86_64-pc-windows-gnu -p jgenesis-gui
 
       - name: Compress binaries
         run: |
           mv LICENSE LICENSE-jgenesis.txt && \
           mv target/x86_64-pc-windows-gnu/release-lto/*.exe ./ && \
+          mv sdl3/SDL3.dll ./ && \
+          mv sdl3/README.md ./README-SDL3.md && \
+          mv sdl3/LICENSE.txt ./LICENSE-SDL3.txt && \
           mv dxcompiler/bin/x64/*.dll ./ && \
           mv dxcompiler/LICENSE* ./ && \
-          zip -r jgenesis-${JGENESIS_VERSION}-windows-x86_64.zip LICENSE* README-SDL.txt *.dll jgenesis-cli.exe jgenesis-gui.exe
+          zip -r jgenesis-${JGENESIS_VERSION}-windows-x86_64.zip LICENSE* README-SDL3.md *.dll jgenesis-cli.exe jgenesis-gui.exe
 
       - name: Upload binaries
         uses: actions/upload-artifact@v4

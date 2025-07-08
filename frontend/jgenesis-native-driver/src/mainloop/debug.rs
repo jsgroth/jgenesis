@@ -4,12 +4,12 @@ pub mod nes;
 pub mod smsgg;
 pub mod snes;
 
-use sdl2::event::{Event, WindowEvent};
+use sdl3::event::{Event, WindowEvent};
 
 use egui::{Button, Response, Ui, Widget, WidgetText};
 use egui_wgpu::ScreenDescriptor;
-use sdl2::VideoSubsystem;
-use sdl2::video::{Window, WindowBuildError};
+use sdl3::VideoSubsystem;
+use sdl3::video::{Window, WindowBuildError};
 use std::iter;
 use std::time::SystemTime;
 use thiserror::Error;
@@ -20,7 +20,7 @@ use wgpu::rwh::HandleError;
 pub enum DebuggerError {
     #[error("Failed to create surface from window handle: {0}")]
     WindowHandleError(#[from] HandleError),
-    #[error("Failed to create SDL2 window: {0}")]
+    #[error("Failed to create SDL3 window: {0}")]
     SdlWindowCreateFailed(#[from] WindowBuildError),
     #[error("Failed to create wgpu surface: {0}")]
     CreateSurfaceFailed(#[from] wgpu::CreateSurfaceError),
@@ -47,7 +47,7 @@ pub struct DebuggerWindow<Emulator> {
     surface_config: wgpu::SurfaceConfiguration,
     device: wgpu::Device,
     queue: wgpu::Queue,
-    platform: egui_sdl2_platform::Platform,
+    platform: egui_sdl3_platform::Platform,
     egui_renderer: egui_wgpu::Renderer,
     start_time: SystemTime,
     render_fn: Box<DebugRenderFn<Emulator>>,
@@ -61,12 +61,10 @@ impl<Emulator> DebuggerWindow<Emulator> {
         scale_factor: Option<f32>,
         render_fn: Box<DebugRenderFn<Emulator>>,
     ) -> Result<Self, DebuggerError> {
-        let mut window_width = 800;
-        let mut window_height = 700;
-        if let Some(scale_factor) = scale_factor {
-            window_width = (window_width as f32 * scale_factor).round() as u32;
-            window_height = (window_height as f32 * scale_factor).round() as u32;
-        }
+        let scale_factor =
+            scale_factor.or_else(|| crate::try_get_primary_display_scale(video)).unwrap_or(1.0);
+        let window_width = (800.0 * scale_factor).round() as u32;
+        let window_height = (700.0 * scale_factor).round() as u32;
 
         let window = video
             .window("Memory Viewer", window_width, window_height)
@@ -123,13 +121,10 @@ impl<Emulator> DebuggerWindow<Emulator> {
         };
         surface.configure(&device, &surface_config);
 
-        let scale_factor = scale_factor.unwrap_or_else(|| {
-            let display_idx = window.display_index().ok();
-            crate::guess_sdl2_scale_factor(video, display_idx).unwrap_or(1.0)
-        });
-        log::info!("Guessed scale factor {scale_factor}");
+        let window_scale = window.display_scale();
+        log::info!("Window scale factor {window_scale}");
 
-        let platform = egui_sdl2_platform::Platform::new(&window, scale_factor);
+        let platform = egui_sdl3_platform::Platform::new(&window, window_scale);
         let start_time = SystemTime::now();
 
         let egui_renderer = egui_wgpu::Renderer::new(&device, surface_format, None, 1, false);
@@ -236,7 +231,7 @@ impl<Emulator> DebuggerWindow<Emulator> {
         match event {
             Event::Window {
                 window_id,
-                win_event: WindowEvent::Resized(..) | WindowEvent::SizeChanged(..),
+                win_event: WindowEvent::Resized(..) | WindowEvent::PixelSizeChanged(..),
                 ..
             } if *window_id == self.window.id() => {
                 let (width, height) = self.window.size();
