@@ -4,7 +4,6 @@ use crate::app::widgets::NumericTextEdit;
 use crate::app::{App, OpenWindow, widgets};
 use eframe::epaint::Color32;
 use egui::{Context, Slider, Ui, Window};
-use jgenesis_native_config::common::FullscreenMode;
 use jgenesis_renderer::config::{FilterMode, PreprocessShader, Scanlines, VSyncMode, WgpuBackend};
 use std::num::{NonZeroU8, NonZeroU32};
 
@@ -57,29 +56,6 @@ impl App {
             .interact_rect;
         if ui.rect_contains_pointer(rect) {
             self.state.help_text.insert(window, helptext::FULLSCREEN);
-        }
-
-        let rect = ui
-            .group(|ui| {
-                ui.label("Fullscreen mode");
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.config.common.fullscreen_mode,
-                        FullscreenMode::Borderless,
-                        "Borderless",
-                    );
-                    ui.radio_value(
-                        &mut self.config.common.fullscreen_mode,
-                        FullscreenMode::Exclusive,
-                        "Exclusive",
-                    );
-                });
-            })
-            .response
-            .interact_rect;
-        if ui.rect_contains_pointer(rect) {
-            self.state.help_text.insert(window, helptext::FULLSCREEN_MODE);
         }
     }
 
@@ -343,76 +319,103 @@ impl App {
         const WINDOW: OpenWindow = OpenWindow::Synchronization;
 
         const TEXT_EDIT_WIDTH: f32 = 50.0;
-        const MIN_DEVICE_QUEUE_SIZE: u16 = 8;
         const MIN_AUDIO_SYNC_THRESHOLD: u32 = 8;
 
         let mut open = true;
         Window::new("Synchronization Settings").open(&mut open).show(ctx, |ui| {
-            let rect = ui.group(|ui| {
-                ui.add_enabled_ui(self.config.common.wgpu_backend != WgpuBackend::OpenGl, |ui| {
-                    let disabled_text = "VSync mode is not configurable with the OpenGL backend";
+            let rect = ui
+                .group(|ui| {
+                    ui.add_enabled_ui(
+                        self.config.common.wgpu_backend != WgpuBackend::OpenGl,
+                        |ui| {
+                            let disabled_text =
+                                "VSync mode is not configurable with the OpenGL backend";
 
-                    ui.label("VSync mode").on_disabled_hover_text(disabled_text);
+                            ui.label("VSync mode").on_disabled_hover_text(disabled_text);
 
-                    ui.horizontal(|ui| {
-                        ui.radio_value(
-                            &mut self.config.common.vsync_mode,
-                            VSyncMode::Enabled,
-                            "Enabled",
-                        ).on_disabled_hover_text(disabled_text);
-                        ui.radio_value(
-                            &mut self.config.common.vsync_mode,
-                            VSyncMode::Disabled,
-                            "Disabled",
-                        ).on_disabled_hover_text(disabled_text);
-                        ui.radio_value(&mut self.config.common.vsync_mode, VSyncMode::Fast, "Fast")
-                            .on_disabled_hover_text(disabled_text);
-                    });
-                });
-            }).response.interact_rect;
+                            ui.horizontal(|ui| {
+                                ui.radio_value(
+                                    &mut self.config.common.vsync_mode,
+                                    VSyncMode::Enabled,
+                                    "Enabled",
+                                )
+                                .on_disabled_hover_text(disabled_text);
+                                ui.radio_value(
+                                    &mut self.config.common.vsync_mode,
+                                    VSyncMode::Disabled,
+                                    "Disabled",
+                                )
+                                .on_disabled_hover_text(disabled_text);
+                                ui.radio_value(
+                                    &mut self.config.common.vsync_mode,
+                                    VSyncMode::Fast,
+                                    "Fast",
+                                )
+                                .on_disabled_hover_text(disabled_text);
+                            });
+                        },
+                    );
+                })
+                .response
+                .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::VSYNC_MODE);
             }
 
             ui.add_space(10.0);
 
-            let rect = ui.checkbox(&mut self.config.common.frame_time_sync, "Frame time sync enabled").interact_rect;
+            let rect = ui
+                .checkbox(&mut self.config.common.frame_time_sync, "Frame time sync enabled")
+                .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::FRAME_TIME_SYNC);
             }
 
-            let rect = ui.checkbox(&mut self.config.common.audio_sync, "Audio sync enabled").interact_rect;
+            let rect =
+                ui.checkbox(&mut self.config.common.audio_sync, "Audio sync enabled").interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::AUDIO_SYNC);
             }
 
-            let rect = ui.checkbox(&mut self.config.common.audio_dynamic_resampling_ratio, "Audio dynamic resampling ratio enabled")
+            let rect = ui
+                .checkbox(
+                    &mut self.config.common.audio_dynamic_resampling_ratio,
+                    "Audio dynamic resampling ratio enabled",
+                )
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::AUDIO_DYNAMIC_RESAMPLING);
             }
 
-            let any_sync_enabled = self.config.common.vsync_mode == VSyncMode::Enabled || self.config.common.audio_sync || self.config.common.frame_time_sync;
+            let any_sync_enabled = self.config.common.vsync_mode == VSyncMode::Enabled
+                || self.config.common.audio_sync
+                || self.config.common.frame_time_sync;
             if !any_sync_enabled {
                 ui.add_space(5.0);
-                ui.colored_label(Color32::RED, "No sync enabled; emulator will run at uncapped speed");
+                ui.colored_label(
+                    Color32::RED,
+                    "No sync enabled; emulator will run at uncapped speed",
+                );
             }
 
             ui.add_space(10.0);
 
-            let rect = ui.horizontal(|ui| {
-                ui.add(
-                    NumericTextEdit::new(
-                        &mut self.state.audio_buffer_size_text,
-                        &mut self.config.common.audio_buffer_size,
-                        &mut self.state.audio_buffer_size_invalid,
-                    )
+            let rect = ui
+                .horizontal(|ui| {
+                    ui.add(
+                        NumericTextEdit::new(
+                            &mut self.state.audio_buffer_size_text,
+                            &mut self.config.common.audio_buffer_size,
+                            &mut self.state.audio_buffer_size_invalid,
+                        )
                         .with_validation(|value| value >= MIN_AUDIO_SYNC_THRESHOLD)
-                        .desired_width(TEXT_EDIT_WIDTH)
-                );
+                        .desired_width(TEXT_EDIT_WIDTH),
+                    );
 
-                ui.label("Audio buffer size (samples)");
-            }).response.interact_rect;
+                    ui.label("Audio buffer size (samples)");
+                })
+                .response
+                .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::AUDIO_BUFFER_SIZE);
             }
@@ -422,27 +425,6 @@ impl App {
                     Color32::RED,
                     format!("Audio sync threshold must be at least {MIN_AUDIO_SYNC_THRESHOLD}"),
                 );
-            }
-
-            let rect = ui.horizontal(|ui| {
-                ui.add(
-                    NumericTextEdit::new(
-                        &mut self.state.audio_hardware_queue_size_text,
-                        &mut self.config.common.audio_hardware_queue_size,
-                        &mut self.state.audio_hardware_queue_size_invalid,
-                    )
-                        .with_validation(|value| value.is_power_of_two() && value >= MIN_DEVICE_QUEUE_SIZE)
-                        .desired_width(TEXT_EDIT_WIDTH)
-                );
-
-                ui.label("Audio hardware queue size (samples)");
-            }).response.interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::AUDIO_HARDWARE_QUEUE_SIZE);
-            }
-
-            if self.state.audio_hardware_queue_size_invalid {
-                ui.colored_label(Color32::RED, format!("Audio device queue size must be a power of 2 and must be at least {MIN_DEVICE_QUEUE_SIZE}"));
             }
 
             ui.add_space(5.0);
@@ -459,9 +441,7 @@ impl App {
 
     fn estimate_audio_latency_ms(&self) -> u32 {
         let audio_buffer_size: f64 = self.config.common.audio_buffer_size.into();
-        let total_queue_size =
-            f64::from(self.config.common.audio_hardware_queue_size) + audio_buffer_size;
-        let latency_secs = total_queue_size / (self.config.common.audio_output_frequency as f64);
+        let latency_secs = audio_buffer_size / (self.config.common.audio_output_frequency as f64);
 
         (latency_secs * 1000.0).round() as u32
     }

@@ -5,8 +5,8 @@ use genesis_config::{GenesisButton, GenesisControllerType};
 use jgenesis_common::input::Player;
 use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay};
 use nes_config::NesButton;
-use sdl2::keyboard::Keycode;
-use sdl2::mouse::MouseButton;
+use sdl3::keyboard::Keycode;
+use sdl3::mouse::MouseButton;
 use serde::{Deserialize, Serialize};
 use smsgg_config::SmsGgButton;
 use snes_config::SnesButton;
@@ -787,9 +787,9 @@ define_hotkey_mapping!(
     pause: Pause default P,
     step_frame: StepFrame default N,
     fast_forward: FastForward default Tab,
-    rewind: Rewind default Backquote,
+    rewind: Rewind default Grave,
     toggle_overclocking: ToggleOverclocking default Semicolon,
-    open_debugger: OpenDebugger default Quote,
+    open_debugger: OpenDebugger default Apostrophe,
     save_state_slot_0: SaveStateSlot0 default none,
     save_state_slot_1: SaveStateSlot1 default none,
     save_state_slot_2: SaveStateSlot2 default none,

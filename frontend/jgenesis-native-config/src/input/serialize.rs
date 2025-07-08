@@ -1,6 +1,6 @@
 use crate::input::{GamepadAction, GenericInput};
-use sdl2::keyboard::Keycode;
-use sdl2::mouse::MouseButton;
+use sdl3::keyboard::Keycode;
+use sdl3::mouse::MouseButton;
 use serde::de::{Error, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::Formatter;
@@ -37,7 +37,7 @@ impl<'de> Deserialize<'de> for SerializableKeycode {
                 E: Error,
             {
                 let keycode = super::keycode_from_str(v)
-                    .ok_or_else(|| Error::custom(format!("Invalid SDL2 keycode string: '{v}'")))?;
+                    .ok_or_else(|| Error::custom(format!("Invalid SDL3 keycode string: '{v}'")))?;
                 Ok(SerializableKeycode(keycode))
             }
         }

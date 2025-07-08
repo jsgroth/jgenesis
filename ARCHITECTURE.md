@@ -135,7 +135,7 @@ GPU-based implementation of the `Renderer` trait in `jgenesis-traits`, built on 
 
 ### `jgenesis-native-driver`
 
-Native emulation frontend that uses SDL2 for windowing, audio, and input.
+Native emulation frontend that uses SDL3 for windowing, audio, and input.
 
 ### `jgenesis-native-config`
 

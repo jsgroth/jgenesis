@@ -33,15 +33,18 @@ use crate::mainloop::state::SaveStatePaths;
 pub use audio::AudioError;
 use bincode::error::{DecodeError, EncodeError};
 use gb_core::api::GameBoyLoadError;
+use gba_core::api::GbaLoadError;
 use jgenesis_common::frontend::{EmulatorConfigTrait, EmulatorTrait, TickEffect};
+use jgenesis_native_config::common::{HideMouseCursor, WindowSize};
+use jgenesis_native_config::input::mappings::ButtonMappingVec;
+use jgenesis_native_config::input::{CompactHotkey, Hotkey};
 use jgenesis_renderer::renderer;
 use jgenesis_renderer::renderer::{RendererError, WgpuRenderer};
 use nes_core::api::NesInitializationError;
 pub use save::SaveWriteError;
-use sdl2::event::{Event, WindowEvent};
-use sdl2::render::TextureValueError;
-use sdl2::video::{FullscreenType, Window, WindowBuildError};
-use sdl2::{AudioSubsystem, EventPump, IntegerOrSdlError, JoystickSubsystem, Sdl, VideoSubsystem};
+use sdl3::event::{Event, WindowEvent};
+use sdl3::video::{FullscreenType, Window, WindowBuildError};
+use sdl3::{AudioSubsystem, EventPump, IntegerOrSdlError, JoystickSubsystem, Sdl, VideoSubsystem};
 use segacd_core::api::SegaCdLoadError;
 use snes_core::api::SnesLoadError;
 use std::cell::RefCell;
@@ -63,9 +66,7 @@ trait RendererExt {
 
     fn is_fullscreen(&self) -> bool;
 
-    fn update_fullscreen_mode(&mut self, fullscreen_mode: FullscreenMode) -> Result<(), String>;
-
-    fn toggle_fullscreen(&mut self, fullscreen_mode: FullscreenMode) -> Result<(), String>;
+    fn toggle_fullscreen(&mut self) -> Result<(), sdl3::Error>;
 }
 
 impl RendererExt for WgpuRenderer<Window> {
@@ -84,36 +85,17 @@ impl RendererExt for WgpuRenderer<Window> {
         matches!(self.window().fullscreen_state(), FullscreenType::Desktop | FullscreenType::True)
     }
 
-    fn update_fullscreen_mode(&mut self, fullscreen_mode: FullscreenMode) -> Result<(), String> {
+    fn toggle_fullscreen(&mut self) -> Result<(), sdl3::Error> {
         // SAFETY: This is not reassigning the window
         unsafe {
             let window = self.window_mut();
-            let existing_fullscreen = window.fullscreen_state();
-            if existing_fullscreen == FullscreenType::Off
-                || existing_fullscreen == fullscreen_mode.to_sdl_fullscreen()
-            {
-                return Ok(());
-            }
-
-            window.set_fullscreen(fullscreen_mode.to_sdl_fullscreen())
-        }
-    }
-
-    fn toggle_fullscreen(&mut self, fullscreen_mode: FullscreenMode) -> Result<(), String> {
-        // SAFETY: This is not reassigning the window
-        unsafe {
-            let window = self.window_mut();
-            let new_fullscreen = match window.fullscreen_state() {
-                FullscreenType::Off => fullscreen_mode.to_sdl_fullscreen(),
-                FullscreenType::Desktop | FullscreenType::True => FullscreenType::Off,
-            };
-            window.set_fullscreen(new_fullscreen)
+            let currently_fullscreen = window.fullscreen_state() != FullscreenType::Off;
+            window.set_fullscreen(!currently_fullscreen)
         }
     }
 }
 
 struct HotkeyState<Emulator> {
-    fullscreen_mode: FullscreenMode,
     hide_mouse_cursor: HideMouseCursor,
     base_save_state_path: PathBuf,
     save_state_paths: SaveStatePaths,
@@ -142,7 +124,6 @@ impl<Emulator: EmulatorTrait> HotkeyState<Emulator> {
         log::debug!("Save state paths: {save_state_paths:?}");
 
         Ok(Self {
-            fullscreen_mode: common_config.fullscreen_mode,
             hide_mouse_cursor: common_config.hide_mouse_cursor,
             base_save_state_path: save_state_path,
             save_state_paths,
@@ -210,10 +191,6 @@ impl<Emulator: EmulatorTrait> NativeEmulator<Emulator> {
         self.emulator.update_audio_output_frequency(self.audio_output.output_frequency());
 
         self.hotkey_state.hide_mouse_cursor = config.hide_mouse_cursor;
-        self.hotkey_state.fullscreen_mode = config.fullscreen_mode;
-        if let Err(err) = self.renderer.update_fullscreen_mode(config.fullscreen_mode) {
-            log::error!("Error updating fullscreen mode to {}: {err}", config.fullscreen_mode);
-        }
 
         self.hotkey_state.fast_forward_multiplier = config.fast_forward_multiplier;
         // Reset speed multiplier in case the fast forward hotkey changed
@@ -286,17 +263,17 @@ pub enum NativeEmulatorError {
     Audio(#[from] AudioError),
     #[error("{0}")]
     SaveWrite(#[from] SaveWriteError),
-    #[error("Error initializing SDL2: {0}")]
-    SdlInit(String),
-    #[error("Error initializing SDL2 video subsystem: {0}")]
-    SdlVideoInit(String),
-    #[error("Error initializing SDL2 audio subsystem: {0}")]
-    SdlAudioInit(String),
-    #[error("Error initializing SDL2 joystick subsystem: {0}")]
-    SdlJoystickInit(String),
-    #[error("Error initializing SDL2 event pump: {0}")]
-    SdlEventPumpInit(String),
-    #[error("Error creating SDL2 window: {0}")]
+    #[error("Error initializing SDL3: {0}")]
+    SdlInit(sdl3::Error),
+    #[error("Error initializing SDL3 video subsystem: {0}")]
+    SdlVideoInit(sdl3::Error),
+    #[error("Error initializing SDL3 audio subsystem: {0}")]
+    SdlAudioInit(sdl3::Error),
+    #[error("Error initializing SDL3 joystick subsystem: {0}")]
+    SdlJoystickInit(sdl3::Error),
+    #[error("Error initializing SDL3 event pump: {0}")]
+    SdlEventPumpInit(sdl3::Error),
+    #[error("Error creating SDL3 window: {0}")]
     SdlCreateWindow(#[from] WindowBuildError),
     #[error("Error changing window title to '{title}': {source}")]
     SdlSetWindowTitle {
@@ -304,24 +281,14 @@ pub enum NativeEmulatorError {
         #[source]
         source: NulError,
     },
-    #[error("Error creating SDL2 canvas/renderer: {0}")]
-    SdlCreateCanvas(#[source] IntegerOrSdlError),
-    #[error("Error creating SDL2 texture: {0}")]
-    SdlCreateTexture(#[from] TextureValueError),
     #[error("Error toggling window fullscreen: {0}")]
-    SdlSetFullscreen(String),
+    SdlSetFullscreen(sdl3::Error),
     #[error("Error opening joystick {device_id}: {source}")]
     SdlJoystickOpen {
         device_id: u32,
         #[source]
         source: IntegerOrSdlError,
     },
-    #[error("SDL2 error rendering CRAM debug window: {0}")]
-    SdlCramDebug(String),
-    #[error("SDL2 error rendering VRAM debug window: {0}")]
-    SdlVramDebug(String),
-    #[error("Invalid SDL2 keycode: '{0}'")]
-    InvalidKeycode(String),
     #[error("Unable to determine file name for path: '{0}'")]
     ParseFileName(String),
     #[error("Unable to determine file extension for path: '{0}'")]
@@ -420,7 +387,7 @@ where
         initial_inputs: Emulator::Inputs,
         debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
     ) -> NativeEmulatorResult<Self> {
-        let (sdl, video, audio, joystick, event_pump) = init_sdl2(&common_config)?;
+        let (sdl, video, audio, joystick, event_pump) = init_sdl3(&common_config)?;
 
         let mut initial_window_size = common_config.window_size.unwrap_or(default_window_size);
         if let Some(scale_factor) = common_config.window_scale_factor {
@@ -432,7 +399,7 @@ where
             window_title,
             initial_window_size.width,
             initial_window_size.height,
-            common_config.launch_in_fullscreen.then_some(common_config.fullscreen_mode),
+            common_config.launch_in_fullscreen,
         )?;
 
         let window_size = sdl_window_size(&window);
@@ -443,7 +410,7 @@ where
         ))?;
         renderer.set_target_fps(emulator.target_fps());
 
-        let audio_output = SdlAudioOutput::create_and_init(&audio, &common_config)?;
+        let audio_output = SdlAudioOutput::create_and_init(audio, &common_config)?;
         emulator.update_audio_output_frequency(audio_output.output_frequency());
 
         let input_mapper = InputMapper::new(
@@ -548,7 +515,7 @@ where
                     return Ok(Some(NativeTickEffect::PowerOff));
                 }
                 Event::Window { win_event, window_id, .. } => {
-                    if win_event == WindowEvent::Close {
+                    if win_event == WindowEvent::CloseRequested {
                         if window_id == self.renderer.window_id() {
                             return Ok(Some(NativeTickEffect::PowerOff));
                         }
@@ -746,9 +713,7 @@ where
     }
 
     fn toggle_fullscreen(&mut self) -> NativeEmulatorResult<()> {
-        self.renderer
-            .toggle_fullscreen(self.hotkey_state.fullscreen_mode)
-            .map_err(NativeEmulatorError::SdlSetFullscreen)?;
+        self.renderer.toggle_fullscreen().map_err(NativeEmulatorError::SdlSetFullscreen)?;
         self.sdl.mouse().show_cursor(
             !self.hotkey_state.hide_mouse_cursor.should_hide(self.renderer.is_fullscreen()),
         );
@@ -826,18 +791,18 @@ fn file_name_no_ext<P: AsRef<Path>>(path: P) -> NativeEmulatorResult<String> {
         .ok_or_else(|| NativeEmulatorError::ParseFileName(path.as_ref().display().to_string()))
 }
 
-fn init_sdl2(
+fn init_sdl3(
     config: &CommonConfig,
 ) -> NativeEmulatorResult<(Sdl, VideoSubsystem, AudioSubsystem, JoystickSubsystem, EventPump)> {
-    let sdl = sdl2::init().map_err(NativeEmulatorError::SdlInit)?;
+    let sdl = sdl3::init().map_err(NativeEmulatorError::SdlInit)?;
     let video = sdl.video().map_err(NativeEmulatorError::SdlVideoInit)?;
     let audio = sdl.audio().map_err(NativeEmulatorError::SdlAudioInit)?;
     let joystick = sdl.joystick().map_err(NativeEmulatorError::SdlJoystickInit)?;
     let event_pump = sdl.event_pump().map_err(NativeEmulatorError::SdlEventPumpInit)?;
 
     // Allow gamepad inputs while window does not have focus
-    // https://wiki.libsdl.org/SDL2/SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS
-    sdl2::hint::set("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
+    // https://wiki.libsdl.org/SDL3/SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS
+    sdl3::hint::set("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
 
     sdl.mouse().show_cursor(!config.hide_mouse_cursor.should_hide(config.launch_in_fullscreen));
 
@@ -849,16 +814,18 @@ fn create_window(
     title: &str,
     width: u32,
     height: u32,
-    fullscreen: Option<FullscreenMode>,
+    fullscreen: bool,
 ) -> NativeEmulatorResult<Window> {
-    let mut window = video.window(title, width, height).metal_view().resizable().build()?;
+    let mut window_builder = video.window(title, width, height);
+    window_builder.metal_view();
+    window_builder.resizable();
+    window_builder.position_centered();
 
-    if let Some(fullscreen) = fullscreen {
-        window
-            .set_fullscreen(fullscreen.to_sdl_fullscreen())
-            .map_err(NativeEmulatorError::SdlSetFullscreen)?;
+    if fullscreen {
+        window_builder.fullscreen();
     }
 
+    let window = window_builder.build()?;
     Ok(window)
 }
 
@@ -869,7 +836,7 @@ fn sdl_window_size(window: &Window) -> renderer::WindowSize {
 
 fn handle_window_event(win_event: WindowEvent, renderer: &mut WgpuRenderer<Window>) {
     match win_event {
-        WindowEvent::Resized(..) | WindowEvent::SizeChanged(..) | WindowEvent::Maximized => {
+        WindowEvent::Resized(..) | WindowEvent::PixelSizeChanged(..) | WindowEvent::Maximized => {
             let window_size = sdl_window_size(renderer.window());
             renderer.handle_resize(window_size);
         }
@@ -887,7 +854,3 @@ macro_rules! bincode_config {
 }
 
 use bincode_config;
-use gba_core::api::GbaLoadError;
-use jgenesis_native_config::common::{FullscreenMode, HideMouseCursor, WindowSize};
-use jgenesis_native_config::input::mappings::ButtonMappingVec;
-use jgenesis_native_config::input::{CompactHotkey, Hotkey};

@@ -7,15 +7,15 @@ pub enum Player {
 #[inline]
 #[must_use]
 pub fn viewport_position_to_frame_position(
-    x: i32,
-    y: i32,
+    x: f32,
+    y: f32,
     frame_size: FrameSize,
     display_area: DisplayArea,
 ) -> Option<(u16, u16)> {
-    let display_left = display_area.x as i32;
-    let display_right = display_left + display_area.width as i32;
-    let display_top = display_area.y as i32;
-    let display_bottom = display_top + display_area.height as i32;
+    let display_left = display_area.x as f32;
+    let display_right = display_left + display_area.width as f32;
+    let display_top = display_area.y as f32;
+    let display_bottom = display_top + display_area.height as f32;
 
     if !(display_left..display_right).contains(&x) || !(display_top..display_bottom).contains(&y) {
         return None;

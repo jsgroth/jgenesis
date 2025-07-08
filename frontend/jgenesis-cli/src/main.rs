@@ -10,7 +10,7 @@ use genesis_config::S32XVideoOut;
 use genesis_config::{GenesisAspectRatio, GenesisControllerType, GenesisRegion, Opn2BusyBehavior};
 use jgenesis_common::frontend::{EmulatorTrait, TimingMode};
 use jgenesis_native_config::AppConfig;
-use jgenesis_native_config::common::{ConfigSavePath, FullscreenMode, HideMouseCursor};
+use jgenesis_native_config::common::{ConfigSavePath, HideMouseCursor};
 use jgenesis_native_config::input::mappings::{NesControllerType, SnesControllerType};
 use jgenesis_native_driver::config::AppConfigExt;
 use jgenesis_native_driver::extensions::{Console, ConsoleWithSize};
@@ -476,10 +476,6 @@ struct Args {
     #[arg(long, default_value_t, help_heading = VIDEO_OPTIONS_HEADING)]
     fullscreen: bool,
 
-    /// Fullscreen mode
-    #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
-    fullscreen_mode: Option<FullscreenMode>,
-
     /// wgpu backend
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     wgpu_backend: Option<WgpuBackend>,
@@ -531,10 +527,6 @@ struct Args {
     /// Enable audio dynamic resampling ratio
     #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
     audio_dynamic_resampling_ratio: Option<bool>,
-
-    /// Audio hardware queue size in samples
-    #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
-    audio_hardware_queue_size: Option<u16>,
 
     /// Audio buffer size in samples
     #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
@@ -833,31 +825,21 @@ impl Args {
         config.common.window_width = self.window_width;
         config.common.window_height = self.window_height;
 
-        match self.window_scale_factor {
-            Some(scale_factor) => {
-                config.common.window_scale_factor = Some(scale_factor);
-            }
-            None => {
-                if config.common.window_scale_factor.is_none() {
-                    let scale_factor = try_determine_scale_factor();
-                    config.common.window_scale_factor = scale_factor;
-
-                    if let Some(scale_factor) = scale_factor {
-                        log::info!("Detected scale factor of {scale_factor} using SDL2");
-                    }
-                }
-            }
-        }
-
         if self.fullscreen {
             config.common.launch_in_fullscreen = true;
+        }
+
+        if let Some(scale_factor) = self.window_scale_factor {
+            config.common.window_scale_factor = Some(scale_factor);
+        } else if let Some(scale_factor) = try_get_primary_display_scale() {
+            log::info!("Got primary display scale factor {scale_factor}");
+            config.common.window_scale_factor = Some(scale_factor);
         }
 
         apply_overrides!(
             self,
             config.common,
             [
-                fullscreen_mode,
                 wgpu_backend,
                 vsync_mode,
                 frame_time_sync,
@@ -884,7 +866,6 @@ impl Args {
                 audio_output_frequency,
                 audio_sync,
                 audio_dynamic_resampling_ratio,
-                audio_hardware_queue_size,
                 audio_buffer_size,
                 audio_gain_db,
             ]
@@ -912,10 +893,11 @@ fn fix_optional_relative_path(option: &mut Option<PathBuf>) {
     *option = Some(jgenesis_common::fix_appimage_relative_path(path));
 }
 
-fn try_determine_scale_factor() -> Option<f32> {
-    let sdl_ctx = sdl2::init().ok()?;
-    let video = sdl_ctx.video().ok()?;
-    jgenesis_native_driver::guess_sdl2_scale_factor(&video, None)
+fn try_get_primary_display_scale() -> Option<f32> {
+    sdl3::init()
+        .ok()
+        .and_then(|sdl| sdl.video().ok())
+        .and_then(|video| jgenesis_native_driver::try_get_primary_display_scale(&video))
 }
 
 fn main() -> anyhow::Result<()> {

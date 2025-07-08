@@ -24,7 +24,7 @@ cfg-if = { workspace = true }
 clap = { workspace = true, optional = true }
 directories = { workspace = true }
 log = { workspace = true }
-sdl2 = { workspace = true }
+sdl3 = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }
 

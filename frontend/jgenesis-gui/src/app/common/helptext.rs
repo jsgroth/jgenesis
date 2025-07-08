@@ -5,13 +5,6 @@ pub const FULLSCREEN: HelpText = HelpText {
     text: &["If enabled, launch fullscreen instead of windowed."],
 };
 
-pub const FULLSCREEN_MODE: HelpText = HelpText {
-    heading: "Fullscreen Mode",
-    text: &[
-        "Choose whether fullscreen is borderless or exclusive. Exclusive fullscreen may not work correctly on some platforms.",
-    ],
-};
-
 pub const INITIAL_WINDOW_SIZE: HelpText = HelpText {
     heading: "Initial Window Size",
     text: &[
@@ -109,15 +102,6 @@ pub const AUDIO_DYNAMIC_RESAMPLING: HelpText = HelpText {
         "If enabled, periodically adjust the audio resampling ratio to try and keep the audio buffer as close as possible to the target buffer size. The audio buffer is allowed to grow to double size when this is enabled.",
         "This should reduce audio pops caused by audio buffer underflow and overflow when using frame time sync or VSync.",
         "Changing the resampling ratio this way does slightly change the audio pitch, but the difference should be inaudible - the adjusted ratio is restricted to being within 0.5% of the original ratio.",
-    ],
-};
-
-pub const AUDIO_HARDWARE_QUEUE_SIZE: HelpText = HelpText {
-    heading: "Audio Hardware Queue Size",
-    text: &[
-        "Configure audio device queue size in samples.",
-        "Decreasing this value can increase CPU usage, and decreasing it too much can also cause various audio playback issues.",
-        "Increasing this value makes audio sync and dynamic resampling ratio less accurate, and it will also increase audio latency.",
     ],
 };
 
