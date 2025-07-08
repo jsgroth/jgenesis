@@ -2,7 +2,9 @@ use crate::config::CommonConfig;
 use jgenesis_common::audio::DynamicResamplingRate;
 use jgenesis_common::frontend::AudioOutput;
 use sdl2::AudioSubsystem;
-use sdl2::audio::{AudioQueue, AudioSpecDesired};
+use sdl2::audio::{AudioCallback, AudioDevice, AudioSpecDesired};
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use thiserror::Error;
@@ -21,10 +23,29 @@ pub enum AudioError {
     QueueAudio(String),
 }
 
+struct AudioQueueCallback {
+    queue: Arc<Mutex<VecDeque<(f32, f32)>>>,
+}
+
+impl AudioCallback for AudioQueueCallback {
+    type Channel = f32;
+
+    fn callback(&mut self, out: &mut [Self::Channel]) {
+        let mut queue = self.queue.lock().unwrap();
+
+        let mut last = (0.0, 0.0);
+        for chunk in out.chunks_exact_mut(2) {
+            last = queue.pop_front().unwrap_or(last);
+            (chunk[0], chunk[1]) = last;
+        }
+    }
+}
+
 pub struct SdlAudioOutput {
     muted: bool,
-    audio_queue: AudioQueue<f32>,
-    audio_buffer: Vec<f32>,
+    audio_device: AudioDevice<AudioQueueCallback>,
+    audio_queue: Arc<Mutex<VecDeque<(f32, f32)>>>,
+    audio_buffer: Vec<(f32, f32)>,
     audio_sync: bool,
     dynamic_resampling_ratio_enabled: bool,
     dynamic_resampling_rate: DynamicResamplingRate,
@@ -39,12 +60,13 @@ impl SdlAudioOutput {
         audio: &AudioSubsystem,
         config: &CommonConfig,
     ) -> Result<Self, AudioError> {
-        let audio_queue = open_audio_queue(audio, config)?;
-        let output_frequency = audio_queue.spec().freq;
+        let OpenedAudioDevice { device, queue } = open_audio_device(audio, config)?;
+        let output_frequency = device.spec().freq;
 
         Ok(Self {
             muted: config.mute_audio,
-            audio_queue,
+            audio_device: device,
+            audio_queue: queue,
             audio_buffer: Vec::with_capacity(INTERNAL_AUDIO_BUFFER_LEN),
             audio_sync: config.audio_sync,
             dynamic_resampling_ratio_enabled: config.audio_dynamic_resampling_ratio,
@@ -66,7 +88,7 @@ impl SdlAudioOutput {
         self.audio_buffer_size = config.audio_buffer_size;
         self.audio_gain_multiplier = decibels_to_multiplier(config.audio_gain_db);
 
-        let spec = self.audio_queue.spec();
+        let spec = self.audio_device.spec();
         if config.audio_output_frequency != spec.freq as u64
             || config.audio_hardware_queue_size != spec.samples
         {
@@ -75,17 +97,19 @@ impl SdlAudioOutput {
                 config.audio_output_frequency,
                 config.audio_hardware_queue_size
             );
-            self.audio_queue.pause();
+            self.audio_device.pause();
 
-            let new_audio_queue = open_audio_queue(self.audio_queue.subsystem(), config)?;
-            self.audio_queue = new_audio_queue;
+            let OpenedAudioDevice { device, queue } =
+                open_audio_device(self.audio_device.subsystem(), config)?;
+            self.audio_device = device;
+            self.audio_queue = queue;
         } else if self.audio_queue_len_samples() >= 4 * self.audio_buffer_size {
             // Truncate audio queue on config reloads if it is way oversized
-            self.audio_queue.clear();
+            self.audio_queue.lock().unwrap().clear();
         }
 
         self.dynamic_resampling_rate
-            .update_config(self.audio_queue.spec().freq as u32, self.audio_buffer_size);
+            .update_config(self.audio_device.spec().freq as u32, self.audio_buffer_size);
 
         Ok(())
     }
@@ -107,41 +131,50 @@ impl SdlAudioOutput {
         if self.dynamic_resampling_ratio_enabled {
             self.dynamic_resampling_rate.current_output_frequency().into()
         } else {
-            self.audio_queue.spec().freq as u64
+            self.audio_device.spec().freq as u64
         }
     }
 
     fn audio_queue_len_samples(&self) -> u32 {
-        // 2 channels, 4 bytes per sample
-        self.audio_queue.size() / 2 / 4
+        self.audio_queue.lock().unwrap().len() as u32
     }
 }
 
-fn open_audio_queue(
+struct OpenedAudioDevice {
+    device: AudioDevice<AudioQueueCallback>,
+    queue: Arc<Mutex<VecDeque<(f32, f32)>>>,
+}
+
+fn open_audio_device(
     audio: &AudioSubsystem,
     config: &CommonConfig,
-) -> Result<AudioQueue<f32>, AudioError> {
-    let audio_queue = audio
-        .open_queue(
+) -> Result<OpenedAudioDevice, AudioError> {
+    let queue =
+        Arc::new(Mutex::new(VecDeque::with_capacity(2 * config.audio_buffer_size as usize)));
+    let audio_callback = AudioQueueCallback { queue: Arc::clone(&queue) };
+
+    let device = audio
+        .open_playback(
             None,
             &AudioSpecDesired {
                 freq: Some(config.audio_output_frequency as i32),
                 channels: Some(CHANNELS),
                 samples: Some(config.audio_hardware_queue_size),
             },
+            move |_| audio_callback,
         )
         .map_err(AudioError::OpenQueue)?;
-    audio_queue.resume();
+    device.resume();
 
-    if config.audio_output_frequency as i32 != audio_queue.spec().freq {
+    if config.audio_output_frequency as i32 != device.spec().freq {
         log::error!(
             "Audio device does not support requested frequency {}; set to {} instead",
             config.audio_output_frequency,
-            audio_queue.spec().freq
+            device.spec().freq
         );
     }
 
-    Ok(audio_queue)
+    Ok(OpenedAudioDevice { device, queue })
 }
 
 fn decibels_to_multiplier(decibels: f64) -> f64 {
@@ -163,8 +196,10 @@ impl AudioOutput for SdlAudioOutput {
             sample_r = 0.0;
         }
 
-        self.audio_buffer.push((sample_l * self.audio_gain_multiplier) as f32);
-        self.audio_buffer.push((sample_r * self.audio_gain_multiplier) as f32);
+        sample_l *= self.audio_gain_multiplier;
+        sample_r *= self.audio_gain_multiplier;
+
+        self.audio_buffer.push((sample_l as f32, sample_r as f32));
 
         if self.audio_buffer.len() >= INTERNAL_AUDIO_BUFFER_LEN {
             let audio_buffer_threshold = if self.dynamic_resampling_ratio_enabled {
@@ -188,11 +223,16 @@ impl AudioOutput for SdlAudioOutput {
                 return Ok(());
             }
 
-            if log::log_enabled!(log::Level::Debug) && self.audio_queue.size() == 0 {
-                log::debug!("Potential audio buffer underflow");
+            {
+                let mut audio_queue = self.audio_queue.lock().unwrap();
+
+                if audio_queue.is_empty() {
+                    log::debug!("Potential audio buffer underflow");
+                }
+
+                audio_queue.extend(&self.audio_buffer);
             }
 
-            self.audio_queue.queue_audio(&self.audio_buffer).map_err(AudioError::QueueAudio)?;
             self.audio_buffer.clear();
         }
 
