@@ -1,3 +1,46 @@
+# 0.10.2
+
+## New Features
+* (**Genesis**) Added an option to ignore configured aspect ratio and display square pixels when the VDP is in H40/H320px mode (#442)
+* (**Genesis**) Added support for games with 24C64 EEPROM chips; _College Slam_ and _Frank Thomas Big Hurt Baseball_ are now playable (#459)
+* (**NES**) Added palette customization options (#424)
+  * Can now load a custom palette from a file; both 64-color and full 512-color palette files supported
+  * GUI now has a builtin NTSC palette generator with a graphic displaying the current palette
+* (**SNES**) Added support for the ST018 coprocessor, used by _Hayazashi Nidan Morita Shougi 2_
+  * This is emulated using an ARM7TDMI implementation (ARMv4T) rather than an ARM6 (ARMv3), but this should not make any functional difference
+* (**GB**) Added a frame blending option that simulates LCD ghosting, enabled by default; enabling this fixes graphical effects in a few games and demos (#469)
+* (**GB**) Added support for booting from a boot ROM (#404)
+* (**GB**) Added an option to run original Game Boy software in Game Boy Color mode (#150)
+  * This feature requires a GBC boot ROM in order to initialize the compatibility palettes, and it is off by default because it (accurately) causes major bugs in a few games
+* (**GB**) Added (proper) support for the MBC30 mapper, used by the Japanese version of _Pocket Monsters Crystal Version_ (#478)
+* (**Game Gear**) Added support for booting from a BIOS / boot ROM (#404)
+
+## Fixes
+* Fixed a number of cases that would cause the emulator to crash, none triggered by official releases (as far as I know) but some triggered by homebrew/demos/test ROMs
+  * (**Genesis**) Loading a ROM file smaller than 1 KB or so (#434)
+  * (**Genesis**) Z80 tries to access its own memory through the 32KB 68K memory bank by mapping it to \$A00000-\$A07FFF or \$A08000-\$A0FFFF
+  * (**Genesis** / **Sega CD**) 68000 triggers a privilege violation exception
+  * (**Genesis** / **Sega CD**) 68000 triggers an address error while handling an exception
+  * (**32X**) One of the SH-2s executes a SLEEP instruction (#431)
+  * (**32X**) One of the SH-2s executes an illegal opcode
+  * (**32X**) One of the SH-2s tries to access certain invalid memory addresses (highest 3 bits set to 100 or 101)
+  * (**32X**) 68000 performs a 16-bit read from certain invalid memory addresses
+  * (**SMS** / **Game Gear** / **Genesis**) Z80 handles an IRQ while in interrupt mode 2
+  * (**GB**) CPU executes a STOP instruction with no CGB speed switch armed (#465)
+* (**Genesis**) Fixed a missing 24C01 EEPROM mapping for _Honoo no Toukyuuji: Dodge Danpei_; this fixes the game failing to boot (#460)
+* (**Genesis**) Fixed the VDP rendering too many pixels of the previous color when a game makes a mid-scanline backdrop color change while display is disabled; this improves accuracy of the glitchy lines in _Gouketsuji Ichizoku_ / _Power Instinct_ (#462)
+* (**Genesis**) The emulator now defaults to PAL timings for a few demos that depend on them (#433 / #435)
+* (**Genesis**) Fixed the 6-button controller timeout period being a little too short (#445)
+* (**32X**) Improved accuracy of VDP auto fill timing; this fixes occasional major graphical glitches in _Shadow Squadron_ / _Stellar Assault_ during the intro and takeoff sequences (#225 / #439)
+* (**32X**) Fixed some inaccuracies around VDP register latching; this fixes some early demos not working properly (#430)
+* (**SNES**) The 65816 stack pointer is now initialized to \$01FF instead of \$0100; this fixes some homebrew games failing to boot due to stack corruption (#468)
+* (**GB**) Slightly adjusted timing of when the STAT LY=LYC bit reads 1; this fixes a glitchy line in _Elevator Action_ (#472)
+* (**GB**) The serial port transfer data register (SB / \$FF01) is now read/write; this fixes _Card Game_ not allowing you to start the game (#471)
+* (**GB**) Fixed sample output behavior of pulse and wavetable channels when the DAC is enabled but the channel is inactive
+* (**GB**) Added approximate emulation of DAC fading when a channel's DAC is turned on or off; combined with the above change, this fixes buzzing noises in _Cannon Fodder_, _3D Pocket Pool_, and others (#475)
+* (**GBC**) Fixed VRAM DMA incorrectly terminating prematurely when the destination address increments from \$9FFF to \$A000; this fixes freezing in _F1 Championship Season 2000_ (#464)
+* (**GBC**) HDMA5 writes with bit 7 set are now allowed to change the length of in-progress HDMAs; this fixes corrupted graphics in _NASCAR 2000_ (#467)
+
 # 0.10.1
 
 ## Fixes
