@@ -89,7 +89,7 @@ impl ConsoleExt for Console {
             Self::Nes => EmuThreadStatus::RunningNes,
             Self::Snes => EmuThreadStatus::RunningSnes,
             Self::GameBoy | Self::GameBoyColor => EmuThreadStatus::RunningGameBoy,
-            #[cfg(feature = "gba")]
+            #[cfg(feature = "unstable-cores")]
             Self::GameBoyAdvance => EmuThreadStatus::RunningGba,
         }
     }
@@ -317,7 +317,7 @@ enum GenericEmulator {
     Nes(Box<NativeNesEmulator>),
     Snes(Box<NativeSnesEmulator>),
     GameBoy(Box<NativeGameBoyEmulator>),
-    #[cfg(feature = "gba")]
+    #[cfg(feature = "unstable-cores")]
     GameBoyAdvance(Box<jgenesis_native_driver::NativeGbaEmulator>),
 }
 
@@ -352,7 +352,7 @@ impl GenericEmulator {
             Console::GameBoy | Console::GameBoyColor => {
                 Self::GameBoy(Box::new(jgenesis_native_driver::create_gb(config.gb_config(path))?))
             }
-            #[cfg(feature = "gba")]
+            #[cfg(feature = "unstable-cores")]
             Console::GameBoyAdvance => Self::GameBoyAdvance(Box::new(
                 jgenesis_native_driver::create_gba(config.gba_config(path))?,
             )),
@@ -403,7 +403,7 @@ impl GenericEmulator {
             Self::Nes(emulator) => emulator.reload_nes_config(config.nes_config(path)),
             Self::Snes(emulator) => emulator.reload_snes_config(config.snes_config(path)),
             Self::GameBoy(emulator) => emulator.reload_gb_config(config.gb_config(path)),
-            #[cfg(feature = "gba")]
+            #[cfg(feature = "unstable-cores")]
             Self::GameBoyAdvance(emulator) => emulator.reload_gba_config(config.gba_config(path)),
         }
     }

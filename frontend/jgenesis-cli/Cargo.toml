@@ -7,7 +7,7 @@ edition = "2024"
 
 [features]
 default = []
-gba = ["jgenesis-native-driver/gba"]
+unstable-cores = ["jgenesis-native-driver/gba"]
 
 [dependencies]
 gb-config = { path = "../../config/gb-config", features = ["clap"] }

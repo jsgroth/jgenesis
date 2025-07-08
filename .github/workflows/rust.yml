@@ -37,9 +37,9 @@ jobs:
       run: |
         cargo build
 
-    - name: Build with GBA enabled
+    - name: Build with unstable cores enabled
       run: |
-        cargo build --features gba
+        cargo build --features unstable-cores
 
     - name: Check Clippy warnings
       run: |
@@ -49,9 +49,9 @@ jobs:
       run: |
         cargo test
 
-    - name: Run tests with GBA enabled
+    - name: Run tests with unstable cores enabled
       run: |
-        cargo test --features gba
+        cargo test --features unstable-cores
   build-web:
     runs-on: ubuntu-latest
 

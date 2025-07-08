@@ -7,7 +7,7 @@ edition = "2024"
 
 [features]
 default = []
-gba = ["dep:gba-config", "jgenesis-native-driver/gba", "jgenesis-native-config/gba"]
+unstable-cores = ["dep:gba-config", "jgenesis-native-driver/gba", "jgenesis-native-config/gba"]
 
 [dependencies]
 jgenesis-common = { path = "../../common/jgenesis-common", features = ["serde"] }
