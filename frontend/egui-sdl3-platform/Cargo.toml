@@ -1,11 +1,11 @@
 [package]
-name = "egui-sdl2-platform"
+name = "egui-sdl3-platform"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 egui = { workspace = true }
-sdl2 = { workspace = true }
+sdl3 = { workspace = true }
 
 [lints]
 workspace = true
