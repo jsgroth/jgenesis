@@ -25,7 +25,7 @@ use crate::vdp::sprites::{SpriteBuffers, SpriteState};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{Color, FrameSize, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext};
-use jgenesis_proc_macros::{FakeDecode, FakeEncode};
+use jgenesis_proc_macros::{EnumAll, FakeDecode, FakeEncode};
 use std::collections::VecDeque;
 use std::ops::{Deref, DerefMut, Range};
 use std::{array, cmp};
@@ -125,6 +125,14 @@ impl HorizontalDisplaySize {
 
     const fn rendering_begin_h(self) -> u16 {
         self.active_display_h_range().start - 16
+    }
+
+    // H at which to execute sprite processing phase 2 (fetch sprite attributes)
+    const fn fetch_sprite_attributes_h(self) -> u16 {
+        // Chaekopon demo by Limp Ninja is sensitive to when phase 2 is executed
+        // This demo sometimes modifies the sprite attribute table address shortly before HINT,
+        // seemingly just after attributes are fetched for the last sprite scanned in phase 1
+        self.active_display_h_range().end - 16 - 8
     }
 
     // H where HBlank begins (should line up with the two consecutive external access slots)
@@ -498,14 +506,19 @@ pub struct VdpConfig {
     pub backdrop_enabled: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, EnumAll)]
 enum VdpEvent {
     VInterrupt,
     RenderLine,
+    FetchSpriteAttributes,
     HBlankStart,
     HInterrupt,
     LatchRegisters,
     None,
+}
+
+impl VdpEvent {
+    const NUM: usize = 7;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -563,7 +576,7 @@ pub struct Vdp {
     sprite_buffers: SpriteBuffers,
     interlaced_sprite_buffers: SpriteBuffers,
     config: VdpConfig,
-    vdp_event_times: [VdpEventWithTime; 6],
+    vdp_event_times: [VdpEventWithTime; VdpEvent::NUM],
     vdp_event_idx: u8,
 }
 
@@ -1521,12 +1534,16 @@ impl Vdp {
         );
     }
 
-    fn vdp_event_times(h_display_size: HorizontalDisplaySize) -> [VdpEventWithTime; 6] {
+    fn vdp_event_times(h_display_size: HorizontalDisplaySize) -> [VdpEventWithTime; VdpEvent::NUM] {
         let events = [
             VdpEventWithTime::new(h_display_size.v_interrupt_h(), VdpEvent::VInterrupt),
             VdpEventWithTime::new(
                 h_display_size.active_display_h_range().start,
                 VdpEvent::RenderLine,
+            ),
+            VdpEventWithTime::new(
+                h_display_size.fetch_sprite_attributes_h(),
+                VdpEvent::FetchSpriteAttributes,
             ),
             VdpEventWithTime::new(h_display_size.hblank_begin_h(), VdpEvent::HBlankStart),
             VdpEventWithTime::new(h_display_size.h_interrupt_h(), VdpEvent::HInterrupt),
@@ -1534,7 +1551,17 @@ impl Vdp {
             VdpEventWithTime::new(u16::MAX, VdpEvent::None),
         ];
 
-        debug_assert!((0..events.len() - 1).all(|i| events[i + 1].h >= events[i].h));
+        debug_assert!(
+            (0..events.len() - 1).all(|i| events[i + 1].h >= events[i].h),
+            "Events must be in H-sorted order"
+        );
+
+        let count_occurrences =
+            |event: VdpEvent| events.iter().filter(|e| e.event == event).count();
+        debug_assert!(
+            VdpEvent::ALL.into_iter().all(|event| count_occurrences(event) == 1),
+            "Every VdpEvent value must be present exactly once"
+        );
 
         events
     }
@@ -1564,16 +1591,17 @@ impl Vdp {
                 // Render current line
                 self.render_scanline(self.state.scanline, 0);
             }
+            VdpEvent::FetchSpriteAttributes => {
+                // Sprite processing phase 2
+                // In actual hardware this takes place during active display
+                log::trace!("Fetching sprite attributes");
+                self.fetch_sprite_attributes();
+            }
             VdpEvent::HBlankStart => {
                 self.sprite_state.handle_hblank_start(
                     self.registers.horizontal_display_size,
                     self.registers.display_enabled,
                 );
-
-                // Sprite processing phase 2
-                // In actual hardware this takes place during active display
-                log::trace!("Fetching sprite attributes");
-                self.fetch_sprite_attributes();
 
                 let active_scanlines = self.registers.vertical_display_size.active_scanlines();
                 let scanlines_per_frame = self.scanlines_in_current_frame();
