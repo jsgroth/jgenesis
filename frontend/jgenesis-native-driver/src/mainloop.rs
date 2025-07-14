@@ -66,7 +66,8 @@ trait RendererExt {
 
     fn is_fullscreen(&self) -> bool;
 
-    fn toggle_fullscreen(&mut self) -> Result<(), sdl3::Error>;
+    // Returns new fullscreen state
+    fn toggle_fullscreen(&mut self) -> Result<bool, sdl3::Error>;
 }
 
 impl RendererExt for WgpuRenderer<Window> {
@@ -85,12 +86,15 @@ impl RendererExt for WgpuRenderer<Window> {
         matches!(self.window().fullscreen_state(), FullscreenType::Desktop | FullscreenType::True)
     }
 
-    fn toggle_fullscreen(&mut self) -> Result<(), sdl3::Error> {
+    fn toggle_fullscreen(&mut self) -> Result<bool, sdl3::Error> {
         // SAFETY: This is not reassigning the window
         unsafe {
             let window = self.window_mut();
             let currently_fullscreen = window.fullscreen_state() != FullscreenType::Off;
-            window.set_fullscreen(!currently_fullscreen)
+            let new_fullscreen = !currently_fullscreen;
+            window.set_fullscreen(new_fullscreen)?;
+
+            Ok(new_fullscreen)
         }
     }
 }
@@ -713,10 +717,9 @@ where
     }
 
     fn toggle_fullscreen(&mut self) -> NativeEmulatorResult<()> {
-        self.renderer.toggle_fullscreen().map_err(NativeEmulatorError::SdlSetFullscreen)?;
-        self.sdl.mouse().show_cursor(
-            !self.hotkey_state.hide_mouse_cursor.should_hide(self.renderer.is_fullscreen()),
-        );
+        let fullscreen =
+            self.renderer.toggle_fullscreen().map_err(NativeEmulatorError::SdlSetFullscreen)?;
+        self.sdl.mouse().show_cursor(!self.hotkey_state.hide_mouse_cursor.should_hide(fullscreen));
 
         Ok(())
     }
