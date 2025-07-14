@@ -29,7 +29,7 @@ nes-config = { path = "../../config/nes-config" }
 smsgg-config = { path = "../../config/smsgg-config" }
 snes-config = { path = "../../config/snes-config" }
 
-egui-sdl2-platform = { path = "../egui-sdl2-platform" }
+egui-sdl3-platform = { path = "../egui-sdl3-platform" }
 jgenesis-native-config = { path = "../jgenesis-native-config" }
 jgenesis-renderer = { path = "../jgenesis-renderer", features = ["serde", "ttf"] }
 
@@ -42,7 +42,7 @@ egui-wgpu = { workspace = true }
 log = { workspace = true }
 pollster = { workspace = true }
 rustc-hash = { workspace = true }
-sdl2 = { workspace = true }
+sdl3 = { workspace = true }
 sevenz-rust = { workspace = true }
 thiserror = { workspace = true }
 wgpu = { workspace = true }

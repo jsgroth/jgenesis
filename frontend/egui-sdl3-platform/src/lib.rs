@@ -3,9 +3,9 @@
 
 use egui::ahash::HashMapExt;
 use egui::{MouseWheelUnit, ViewportIdMap, ViewportInfo};
-use sdl2::event::Event as SdlEvent;
-use sdl2::event::WindowEvent as SdlWindowEvent;
-use sdl2::mouse::MouseWheelDirection;
+use sdl3::event::Event as SdlEvent;
+use sdl3::event::WindowEvent as SdlWindowEvent;
+use sdl3::mouse::MouseWheelDirection;
 
 pub struct Platform {
     window_id: u32,
@@ -16,7 +16,7 @@ pub struct Platform {
 
 impl Platform {
     #[must_use]
-    pub fn new(window: &sdl2::video::Window, scale_factor: f32) -> Self {
+    pub fn new(window: &sdl3::video::Window, scale_factor: f32) -> Self {
         let context = egui::Context::default();
 
         let mut viewports = ViewportIdMap::new();
@@ -44,7 +44,8 @@ impl Platform {
             SdlEvent::Window {
                 window_id,
                 win_event:
-                    SdlWindowEvent::Resized(width, height) | SdlWindowEvent::SizeChanged(width, height),
+                    SdlWindowEvent::Resized(width, height)
+                    | SdlWindowEvent::PixelSizeChanged(width, height),
                 ..
             } if window_id == self.window_id => {
                 self.raw_input.screen_rect = Some(egui::Rect::from_min_size(
@@ -53,8 +54,7 @@ impl Platform {
                 ));
             }
             SdlEvent::MouseMotion { window_id, x, y, .. } if window_id == self.window_id => {
-                let pointer_pos =
-                    egui::Pos2::new(x as f32 / self.scale_factor, y as f32 / self.scale_factor);
+                let pointer_pos = egui::Pos2::new(x / self.scale_factor, y / self.scale_factor);
                 self.raw_input.events.push(egui::Event::PointerMoved(pointer_pos));
             }
             SdlEvent::MouseButtonDown { window_id, mouse_btn, x, y, .. }
@@ -62,8 +62,7 @@ impl Platform {
             {
                 let Some(egui_button) = sdl_mouse_button_to_egui(mouse_btn) else { return };
 
-                let pointer_pos =
-                    egui::Pos2::new(x as f32 / self.scale_factor, y as f32 / self.scale_factor);
+                let pointer_pos = egui::Pos2::new(x / self.scale_factor, y / self.scale_factor);
                 self.raw_input.events.push(egui::Event::PointerButton {
                     pos: pointer_pos,
                     button: egui_button,
@@ -76,8 +75,7 @@ impl Platform {
             {
                 let Some(egui_button) = sdl_mouse_button_to_egui(mouse_btn) else { return };
 
-                let pointer_pos =
-                    egui::Pos2::new(x as f32 / self.scale_factor, y as f32 / self.scale_factor);
+                let pointer_pos = egui::Pos2::new(x / self.scale_factor, y / self.scale_factor);
                 self.raw_input.events.push(egui::Event::PointerButton {
                     pos: pointer_pos,
                     button: egui_button,
@@ -85,11 +83,11 @@ impl Platform {
                     modifiers: egui::Modifiers::default(),
                 });
             }
-            SdlEvent::MouseWheel { window_id, direction, precise_x, precise_y, .. }
+            SdlEvent::MouseWheel { window_id, direction, x, y, .. }
                 if window_id == self.window_id =>
             {
                 // Multiplier of 15 somewhat arbitrary - scrolling is way too slow without any multiplier
-                let mut delta = 15.0 * egui::Vec2::new(precise_x, precise_y);
+                let mut delta = 15.0 * egui::Vec2::new(x, y);
                 if direction == MouseWheelDirection::Flipped {
                     delta *= -1.0;
                 }
@@ -115,8 +113,8 @@ impl Platform {
     }
 }
 
-fn sdl_mouse_button_to_egui(button: sdl2::mouse::MouseButton) -> Option<egui::PointerButton> {
-    use sdl2::mouse::MouseButton::*;
+fn sdl_mouse_button_to_egui(button: sdl3::mouse::MouseButton) -> Option<egui::PointerButton> {
+    use sdl3::mouse::MouseButton::*;
 
     match button {
         Left => Some(egui::PointerButton::Primary),
