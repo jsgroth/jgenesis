@@ -11,7 +11,6 @@ use sdl3::keyboard::Keycode;
 use sdl3::{IntegerOrSdlError, JoystickSubsystem};
 use std::array;
 use std::cell::RefCell;
-use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::rc::Rc;
@@ -74,40 +73,75 @@ pub enum HotkeyEvent {
 
 pub struct Joysticks {
     subsystem: JoystickSubsystem,
-    devices: BTreeMap<u32, Joystick>,
-    instance_id_to_device_id: FxHashMap<u32, u32>,
+    open_joysticks: Vec<Joystick>,
+    joystick_id_to_device_id: FxHashMap<u32, u32>,
+    device_id_to_idx: FxHashMap<u32, usize>,
 }
 
 impl Joysticks {
     #[must_use]
     pub fn new(subsystem: JoystickSubsystem) -> Self {
-        Self { subsystem, devices: BTreeMap::new(), instance_id_to_device_id: FxHashMap::default() }
+        Self {
+            subsystem,
+            open_joysticks: Vec::new(),
+            joystick_id_to_device_id: FxHashMap::default(),
+            device_id_to_idx: FxHashMap::default(),
+        }
     }
 
     #[allow(clippy::missing_errors_doc)]
-    pub fn handle_device_added(&mut self, joystick_idx: u32) -> Result<(), IntegerOrSdlError> {
-        let joystick = self.subsystem.open(joystick_idx)?;
+    pub fn handle_device_added(&mut self, joystick_id: u32) -> Result<(), IntegerOrSdlError> {
+        let joystick = self.subsystem.open(joystick_id)?;
 
-        log::info!("Added joystick {joystick_idx}: '{}'", joystick.name());
+        let name = joystick.name();
 
-        self.instance_id_to_device_id.insert(joystick.id(), joystick_idx);
-        self.devices.insert(joystick_idx, joystick);
+        self.open_joysticks.push(joystick);
+        self.regenerate_id_maps().map_err(IntegerOrSdlError::SdlError)?;
+
+        if let Some(&device_id) = self.joystick_id_to_device_id.get(&joystick_id) {
+            log::info!("Added joystick ID {joystick_id}: '{name}' (Device ID {device_id})");
+        }
 
         Ok(())
     }
 
-    pub fn handle_device_removed(&mut self, instance_id: u32) -> Option<u32> {
-        let device_id = self.instance_id_to_device_id.remove(&instance_id)?;
-        let Some(_) = self.devices.remove(&device_id) else { return Some(device_id) };
+    #[allow(clippy::missing_errors_doc)]
+    pub fn handle_device_removed(&mut self, joystick_id: u32) -> Result<Option<u32>, sdl3::Error> {
+        let device_id = self.joystick_id_to_device_id.get(&joystick_id).copied();
 
-        log::info!("Removed joystick {device_id}");
+        self.open_joysticks.retain(|joystick| joystick.id() != joystick_id);
+        self.regenerate_id_maps()?;
 
-        Some(device_id)
+        if let Some(device_id) = device_id {
+            log::info!("Removed joystick ID {joystick_id} (Device ID {device_id})");
+        }
+
+        Ok(device_id)
+    }
+
+    fn regenerate_id_maps(&mut self) -> Result<(), sdl3::Error> {
+        // Clear maps before making joysticks() call that could potentially return an error
+        self.joystick_id_to_device_id.clear();
+        self.device_id_to_idx.clear();
+
+        let joystick_ids = self.subsystem.joysticks()?;
+        for (device_id, joystick_id) in joystick_ids.into_iter().enumerate() {
+            let Some(idx) =
+                self.open_joysticks.iter().position(|joystick| joystick.id() == joystick_id)
+            else {
+                continue;
+            };
+
+            self.joystick_id_to_device_id.insert(joystick_id, device_id as u32);
+            self.device_id_to_idx.insert(device_id as u32, idx);
+        }
+
+        Ok(())
     }
 
     #[must_use]
     pub fn map_to_device_id(&mut self, instance_id: u32) -> Option<u32> {
-        self.instance_id_to_device_id.get(&instance_id).copied()
+        self.joystick_id_to_device_id.get(&instance_id).copied()
     }
 
     #[must_use]
@@ -117,11 +151,13 @@ impl Joysticks {
 
     #[must_use]
     pub fn device(&self, device_id: u32) -> Option<&Joystick> {
-        self.devices.get(&device_id)
+        self.device_id_to_idx.get(&device_id).map(|&idx| &self.open_joysticks[idx])
     }
 
     pub fn all_devices(&self) -> impl Iterator<Item = (u32, &'_ Joystick)> + '_ {
-        self.devices.iter().map(|(&device_id, joystick)| (device_id, joystick))
+        self.device_id_to_idx
+            .iter()
+            .map(|(&device_id, &idx)| (device_id, &self.open_joysticks[idx]))
     }
 }
 
@@ -315,17 +351,9 @@ where
         }
     }
 
-    fn unset_all_gamepad_inputs(&mut self, idx: u32) {
+    fn unset_all_gamepad_inputs(&mut self) {
         // Allocation to avoid borrow checker issues is fine, this won't be called frequently
-        let gamepad_inputs: Vec<_> = self
-            .inputs_to_buttons
-            .keys()
-            .copied()
-            .filter(|&input| match input.0 {
-                GenericInput::Gamepad { gamepad_idx, .. } => gamepad_idx == idx,
-                _ => false,
-            })
-            .collect();
+        let gamepad_inputs: Vec<_> = self.inputs_to_buttons.keys().copied().collect();
 
         for input in gamepad_inputs {
             self.handle_input(input.0, false);
@@ -442,12 +470,15 @@ where
             }
             Event::JoyDeviceAdded { which, .. } => {
                 if let Err(err) = self.joysticks.handle_device_added(which) {
-                    log::error!("Error opening joystick with device id {which}: {err}");
+                    log::error!("Error opening joystick with joystick id {which}: {err}");
                 }
+                self.state.unset_all_gamepad_inputs();
             }
             Event::JoyDeviceRemoved { which, .. } => {
-                let Some(gamepad_idx) = self.joysticks.handle_device_removed(which) else { return };
-                self.state.unset_all_gamepad_inputs(gamepad_idx);
+                if let Err(err) = self.joysticks.handle_device_removed(which) {
+                    log::error!("Error closing joystick with joystick id {which}: {err}");
+                }
+                self.state.unset_all_gamepad_inputs();
             }
             _ => {}
         }
