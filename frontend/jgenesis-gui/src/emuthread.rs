@@ -693,17 +693,21 @@ fn collect_input(
                 Event::KeyUp { .. } | Event::JoyButtonUp { .. } | Event::MouseButtonUp { .. } => {
                     return Some(inputs.consume());
                 }
-                Event::JoyDeviceAdded { which: device_id, .. } => {
-                    if let Err(err) = joysticks.handle_device_added(device_id) {
-                        log::error!("Error adding joystick with device id {device_id}: {err}");
+                Event::JoyDeviceAdded { which: joystick_id, .. } => {
+                    if let Err(err) = joysticks.handle_device_added(joystick_id) {
+                        log::error!("Error adding joystick with joystick id {joystick_id}: {err}");
                     }
 
-                    if let Some(joystick) = joysticks.device(device_id) {
-                        inputs.add_device(device_id, joystick, axis_deadzone);
+                    if let Some(joystick) = joysticks.device(joystick_id) {
+                        inputs.add_device(joystick_id, joystick, axis_deadzone);
                     }
                 }
-                Event::JoyDeviceRemoved { which: instance_id, .. } => {
-                    joysticks.handle_device_removed(instance_id);
+                Event::JoyDeviceRemoved { which: joystick_id, .. } => {
+                    if let Err(err) = joysticks.handle_device_removed(joystick_id) {
+                        log::error!(
+                            "Error removing joystick with joystick id {joystick_id}: {err}"
+                        );
+                    }
                 }
                 Event::JoyButtonDown { which: instance_id, button_idx, .. } => {
                     if let Some(device_id) = joysticks.map_to_device_id(instance_id)
