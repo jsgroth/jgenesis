@@ -90,8 +90,16 @@ impl RendererExt for WgpuRenderer<Window> {
         unsafe {
             let window = self.window_mut();
             let currently_fullscreen = window.fullscreen_state() != FullscreenType::Off;
-            window.set_fullscreen(!currently_fullscreen)
+            window.set_fullscreen(!currently_fullscreen)?;
+            if !window.sync() {
+                log::error!(
+                    "Window failed to sync after setting fullscreen to {}",
+                    !currently_fullscreen
+                );
+            }
         }
+
+        Ok(())
     }
 }
 
