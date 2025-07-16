@@ -169,6 +169,11 @@ impl Cartridge {
             let sram_len_byte = rom[0x0149];
             match sram_len_byte {
                 0x00 => 0,
+                0x01 => {
+                    // $01 (2KB) is an unofficial value used by some homebrew/bootlegs
+                    log::warn!("Cartridge header reports 2KB of SRAM ($01); this is unusual");
+                    2 * 1024
+                }
                 0x02 => 8 * 1024,
                 0x03 => 32 * 1024,
                 0x04 => 128 * 1024,
