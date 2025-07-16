@@ -126,7 +126,7 @@ macro_rules! impl_cmp {
 macro_rules! impl_cmp_cycles_byte_word {
     ($name:ident, $size:expr) => {
         #[inline]
-        fn $name(source: AddressingMode, dest: AddressingMode) -> u32 {
+        pub(super) fn $name(source: AddressingMode, dest: AddressingMode) -> u32 {
             match (source, dest) {
                 // CMPM.b / CMPM.w
                 (
@@ -147,7 +147,7 @@ impl_cmp_cycles_byte_word!(cmp_cycles_byte, OpSize::Byte);
 impl_cmp_cycles_byte_word!(cmp_cycles_word, OpSize::Word);
 
 #[inline]
-fn cmp_cycles_long_word(source: AddressingMode, dest: AddressingMode) -> u32 {
+pub(super) fn cmp_cycles_long_word(source: AddressingMode, dest: AddressingMode) -> u32 {
     match (source, dest) {
         // CMPM.l
         (

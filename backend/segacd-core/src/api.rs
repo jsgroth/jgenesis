@@ -387,10 +387,6 @@ impl EmulatorTrait for SegaCdEmulator {
 
         self.main_bus_writes = main_bus.take_writes();
 
-        if !m68k_wait {
-            self.vdp.clear_interrupt_delays();
-        }
-
         self.sega_cd_mclk_cycle_product += genesis_mclk_elapsed * SEGA_CD_MASTER_CLOCK_RATE;
         let scd_mclk_elapsed = match self.timing_mode {
             TimingMode::Ntsc => {
@@ -445,9 +441,6 @@ impl EmulatorTrait for SegaCdEmulator {
         // Sub 68000
         self.tick_sub_cpu(sub_cpu_cycles);
 
-        // Apply main CPU writes after ticking the sub CPU; this fixes random freezing in Silpheed
-        self.main_bus_writes = new_main_bus!(self, m68k_reset: false).apply_writes();
-
         // Input state (for 6-button controller reset)
         self.input.tick(main_cpu_cycles);
 
@@ -499,6 +492,13 @@ impl EmulatorTrait for SegaCdEmulator {
         }
 
         genesis_core::check_for_long_dma_skip(&self.vdp, &mut self.cycles);
+
+        if !m68k_wait {
+            self.vdp.clear_interrupt_delays();
+        }
+
+        // Apply main CPU writes after ticking the sub CPU; this fixes random freezing in Silpheed
+        self.main_bus_writes = new_main_bus!(self, m68k_reset: false).apply_writes();
 
         Ok(tick_effect)
     }

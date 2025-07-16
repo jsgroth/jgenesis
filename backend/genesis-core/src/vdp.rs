@@ -1153,7 +1153,7 @@ impl Vdp {
         // Using the same value for everything will break either Overdrive 1 (background on the
         // heart screen) or Overdrive 2 (plasma twisters). It needs to vary based on what instruction
         // is performing the read
-        match m68000_emu::cycles_if_move_or_btst(m68k_opcode) {
+        match m68000_emu::cycles_if_move_btst_cmp(m68k_opcode) {
             Some(cycles) => u64::from(cycles - 4) * m68k_divider,
             None => 8 * m68k_divider,
         }

@@ -6,7 +6,7 @@ use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::EnumAll;
 use std::fmt::{Display, Formatter};
 
-pub use instructions::cycles_if_move_or_btst;
+pub use instructions::cycles_if_move_btst_cmp;
 
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]

@@ -516,7 +516,7 @@ fn binary_op_cycles(size: OpSize, source: AddressingMode, dest: AddressingMode) 
 
 #[inline]
 #[must_use]
-pub fn cycles_if_move_or_btst(opcode: u16) -> Option<u32> {
+pub fn cycles_if_move_btst_cmp(opcode: u16) -> Option<u32> {
     match table::decode(opcode) {
         Instruction::Move { size, source, dest } => {
             // -(An) destinations take 2 fewer cycles than they do in other operations
@@ -545,6 +545,11 @@ pub fn cycles_if_move_or_btst(opcode: u16) -> Option<u32> {
 
             Some(4 + source_cycles + dest_cycles)
         }
+        Instruction::Compare { size, source, dest } => Some(match size {
+            OpSize::Byte => arithmetic::cmp_cycles_byte(source, dest),
+            OpSize::Word => arithmetic::cmp_cycles_word(source, dest),
+            OpSize::LongWord => arithmetic::cmp_cycles_long_word(source, dest),
+        }),
         _ => None,
     }
 }
