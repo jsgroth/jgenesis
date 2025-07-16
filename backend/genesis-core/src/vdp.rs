@@ -1458,7 +1458,7 @@ impl Vdp {
                 self.maybe_update_sprite_cache(vram_addr as u16, byte);
             }
             DataPortLocation::Cram => {
-                // CRAM fill is bugged: uses the value from the next FIFO slot instead of fill data
+                // CRAM fill is bugged; uses the value from the next FIFO slot instead of fill data
                 let word = self.fifo.next_slot_word();
                 let cram_addr = (self.control_port.data_port_address & 0x7F) >> 1;
                 self.cram[cram_addr as usize] = word;
@@ -1485,10 +1485,10 @@ impl Vdp {
             return;
         }
 
-        let source_addr = (self.registers.dma_source_address >> 1) ^ 1;
+        let source_addr = ((self.registers.dma_source_address >> 1) ^ 1) & 0xFFFF;
         self.increment_dma_source_address();
 
-        let dest_addr = (self.control_port.data_port_address & 0xFFFF) ^ 1;
+        let dest_addr = (self.control_port.data_port_address ^ 1) & 0xFFFF;
         self.control_port.increment_data_port_address(&self.registers);
 
         let byte = self.vram[source_addr as usize];
