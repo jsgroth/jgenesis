@@ -51,10 +51,10 @@ impl CramDotBuffer {
         let active_display_range = h_display_size.active_display_h_range();
         let left_border = h_display_size.left_border();
 
-        // +4 is necessary for correct alignment of Direct Color DMA demos
+        // +5 is necessary for correct alignment of Direct Color DMA demos
         // Also to avoid CRAM dots being visible within active display on some screens in Overdrive 1
-        let left = active_display_range.start - left_border + 4;
-        let right = active_display_range.end + RIGHT_BORDER + 4;
+        let left = active_display_range.start - left_border + 5;
+        let right = active_display_range.end + RIGHT_BORDER + 5;
 
         self.check_for_dot_inner(left..right, pixel, color);
 

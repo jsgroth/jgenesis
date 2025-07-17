@@ -4,7 +4,7 @@ use std::array;
 
 // Direct color DMA demos demonstrate that there's a ~3-slot latency between when an entry is
 // written to the FIFO and when it can be popped
-const INITIAL_FIFO_LATENCY: u8 = 3;
+pub const INITIAL_FIFO_LATENCY: u8 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum VramWriteFlag {

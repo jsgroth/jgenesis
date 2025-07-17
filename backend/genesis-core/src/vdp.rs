@@ -667,14 +667,12 @@ impl Vdp {
                     // OutRunners depends on there being a delay to FIFO writes when starting
                     // memory-to-VRAM DMA
                     if self.registers.dma_mode == DmaMode::MemoryToVram {
-                        // Hack: Fewer than 7 slots doesn't consistently fix OutRunners, but 7 slots
-                        // breaks Overdrive 2's plasma twisters effect. Use a shorter delay when
+                        // Hack: 8 slots gets roughly correct alignment for direct color DMA demos,
+                        // but 8 breaks Overdrive 2's plasma twisters effect. Use a shorter delay when
                         // DMAing to VSRAM (almost certainly working around other timing issues)
-                        self.dma_latency = if self.control_port.location == DataPortLocation::Vsram
-                        {
-                            5
-                        } else {
-                            7
+                        self.dma_latency = match self.control_port.location {
+                            DataPortLocation::Vsram => 5,
+                            _ => 8,
                         };
                     }
 
@@ -1336,15 +1334,23 @@ impl Vdp {
             let pixel = self.state.pixel;
             if !pixel.bit(0) {
                 let slot_idx = (pixel >> 1) as u8;
+                let in_blank_refresh_slot = blank_refresh_slots[slot_idx as usize];
+
+                // TODO correct refresh slot locations for active display
+                if !in_blank_refresh_slot {
+                    // Need to do DMA read before FIFO pop - reverse order breaks Overdrive 512-color
+                    self.progress_memory_to_vram_dma(slot_idx, blank_refresh_slots, memory);
+                }
+
                 let blank = !self.registers.display_enabled || self.state.in_vblank;
                 if (blank && !blank_refresh_slots[slot_idx as usize])
                     || (!blank && access_slots[slot_idx as usize])
                 {
-                    self.handle_access_slot(blank, slot_idx, blank_refresh_slots, memory);
+                    self.handle_access_slot();
                 }
 
                 // TODO correct refresh slot locations for active display
-                if !blank_refresh_slots[slot_idx as usize] {
+                if !in_blank_refresh_slot {
                     self.fifo.decrement_latency();
                 }
             }
@@ -1396,33 +1402,11 @@ impl Vdp {
         self.state.pixel = end_pixel;
     }
 
-    fn handle_access_slot<Medium: PhysicalMedium>(
-        &mut self,
-        blank: bool,
-        slot_idx: u8,
-        blank_refresh_slots: &[bool; 256],
-        memory: &mut Memory<Medium>,
-    ) {
-        self.dma_latency = self.dma_latency.saturating_sub(1);
-
-        // Bus read slot for memory-to-VRAM DMA
-        if self.control_port.dma_active
-            && self.registers.dma_mode == DmaMode::MemoryToVram
-            && !self.fifo.is_full()
-        {
-            // Lose an extra read slot for every VRAM refresh slot during blanking
-            // Direct color DMA demos depend on this
-            let should_skip_read =
-                blank && slot_idx != 0 && blank_refresh_slots[(slot_idx - 1) as usize];
-            if !should_skip_read {
-                self.progress_memory_to_vram_dma(memory);
-            }
-        }
-
+    fn handle_access_slot(&mut self) {
         // Video memory write slot
         // FIFO takes priority over VRAM fill/copy DMA
         if !self.fifo.is_empty() {
-            if self.dma_latency == 0 && self.fifo.front().latency == 0 {
+            if self.fifo.front().latency == 0 {
                 self.pop_fifo();
             }
         } else if self.control_port.dma_active {
@@ -1434,11 +1418,36 @@ impl Vdp {
         }
     }
 
-    fn progress_memory_to_vram_dma<Medium: PhysicalMedium>(&mut self, memory: &mut Memory<Medium>) {
+    fn progress_memory_to_vram_dma<Medium: PhysicalMedium>(
+        &mut self,
+        slot_idx: u8,
+        refresh_slots: &[bool; 256],
+        memory: &mut Memory<Medium>,
+    ) {
+        if !self.control_port.dma_active || self.registers.dma_mode != DmaMode::MemoryToVram {
+            return;
+        }
+
+        self.dma_latency = self.dma_latency.saturating_sub(1);
+
+        if self.fifo.is_full() {
+            return;
+        }
+
+        // Lose an extra read slot for every VRAM refresh slot
+        // Direct color DMA demos depend on this
+        let should_skip_read = slot_idx != 0 && refresh_slots[(slot_idx - 1) as usize];
+        if should_skip_read {
+            return;
+        }
+
         let word = memory.read_word_for_dma(self.registers.dma_source_address);
         self.increment_dma_source_address();
 
-        self.push_fifo(self.control_port.new_fifo_entry(word, self.registers.vram_size));
+        self.push_fifo(VdpFifoEntry {
+            latency: cmp::max(self.dma_latency, fifo::INITIAL_FIFO_LATENCY),
+            ..self.control_port.new_fifo_entry(word, self.registers.vram_size)
+        });
         self.control_port.increment_data_port_address(&self.registers);
 
         self.decrement_dma_length();
@@ -1512,11 +1521,6 @@ impl Vdp {
         }
 
         self.control_port.dma_active = false;
-
-        // Hack: If a memory-to-VRAM DMA finishes in fewer than 5 slots, keep a small latency
-        // before allowing FIFO writes through. This fixes the VDPFIFOTesting FIFO wait states
-        // test from occasionally failing
-        self.dma_latency = cmp::min(2, self.dma_latency);
 
         if !self.state.pending_writes.is_empty() {
             // If any port writes were enqueued after starting a memory-to-VRAM DMA, wait 5
