@@ -426,11 +426,13 @@ pub struct Sh2Bus<'bus, 'other> {
 }
 
 // All values are minus one because every access takes at least 1 cycle
-const SH2_CARTRIDGE_CYCLES: u64 = 5;
+const SH2_CARTRIDGE_CYCLES: u64 = 7;
 const SH2_FRAME_BUFFER_READ_CYCLES: u64 = 4;
 const SH2_VDP_CYCLES: u64 = 4;
-const SH2_SDRAM_READ_CYCLES: u64 = 11;
-const SH2_SDRAM_WRITE_CYCLES: u64 = 1;
+// SDRAM burst reads take between 10 and 12 cycles; assume always 10 for simplicity
+const SH2_SDRAM_READ_CYCLES: u64 = 9;
+// SDRAM writes take between 1 and 3 cycles; assume always 1 for simplicity
+const SH2_SDRAM_WRITE_CYCLES: u64 = 0;
 
 impl Sh2Bus<'_, '_> {
     // Brutal Unleashed: Above the Claw requires fairly close synchronization to prevent
@@ -1066,7 +1068,8 @@ impl Sh2Bus<'_, '_> {
             return;
         }
 
-        self.cycle_counter += 2 * (1 + SH2_SDRAM_WRITE_CYCLES);
+        // No latency difference between 16-bit SDRAM writes and 32-bit SDRAM writes
+        self.cycle_counter += 1 + SH2_SDRAM_WRITE_CYCLES;
 
         let sdram_addr = (((address & SDRAM_MASK) >> 1) & !1) as usize;
         self.s32x_bus.sdram[sdram_addr] = (value >> 16) as u16;
