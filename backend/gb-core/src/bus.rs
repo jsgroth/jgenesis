@@ -124,28 +124,40 @@ impl Bus<'_> {
     }
 
     fn tick_components(&mut self) {
-        self.timer.tick_m_cycle(self.interrupt_registers);
-        self.dma_unit.oam_dma_tick_m_cycle(self.cartridge, self.memory, self.ppu);
-        self.serial_port.tick(self.interrupt_registers);
+        loop {
+            self.timer.tick_m_cycle(self.interrupt_registers);
+            self.dma_unit.oam_dma_tick_m_cycle(self.cartridge, self.memory, self.ppu);
+            self.serial_port.tick(self.interrupt_registers);
 
-        if self.cgb_registers.speed == CpuSpeed::Double {
-            self.cgb_registers.double_speed_odd_cycle = !self.cgb_registers.double_speed_odd_cycle;
-            if self.cgb_registers.double_speed_odd_cycle {
+            if self.cgb_registers.speed == CpuSpeed::Double {
+                self.cgb_registers.double_speed_odd_cycle =
+                    !self.cgb_registers.double_speed_odd_cycle;
+                if self.cgb_registers.double_speed_odd_cycle {
+                    if self.dma_unit.vram_dma_active() {
+                        continue;
+                    }
+                    return;
+                }
+            }
+
+            for _ in 0..2 {
+                self.dma_unit.vram_dma_copy_byte(self.cartridge, self.memory, self.ppu);
+            }
+
+            for _ in 0..4 {
+                self.ppu.tick_dot(*self.cgb_registers, self.dma_unit, self.interrupt_registers);
+            }
+
+            self.apu.tick_m_cycle(self.timer, self.cgb_registers.speed);
+
+            self.cartridge.tick_cpu();
+
+            // Execute all non-CPU components indefinitely while CPU is halted due to VRAM DMA
+            // This allows HDMA to halt the CPU mid-instruction (fixes glitches in Toy Story Racer)
+            if !self.dma_unit.vram_dma_active() {
                 return;
             }
         }
-
-        for _ in 0..2 {
-            self.dma_unit.vram_dma_copy_byte(self.cartridge, self.memory, self.ppu);
-        }
-
-        for _ in 0..4 {
-            self.ppu.tick_dot(*self.cgb_registers, self.dma_unit, self.interrupt_registers);
-        }
-
-        self.apu.tick_m_cycle(self.timer, self.cgb_registers.speed);
-
-        self.cartridge.tick_cpu();
     }
 }
 
