@@ -63,7 +63,9 @@ impl Sh2Interrupts {
     }
 
     fn clear_v(&mut self) {
-        self.v_pending = false;
+        // Clear pending flag only if VINTs are enabled (verified on hardware)
+        // TODO do the other interrupt types also work this way?
+        self.v_pending &= !self.v_enabled;
         self.update_interrupt_level();
     }
 
@@ -85,7 +87,7 @@ impl Sh2Interrupts {
     fn update_interrupt_level(&mut self) {
         self.current_interrupt_level = if self.reset_pending {
             14
-        } else if self.v_pending {
+        } else if self.v_pending && self.v_enabled {
             12
         } else if self.h_pending {
             10
@@ -194,9 +196,17 @@ impl SystemRegisters {
         }
     }
 
-    pub fn notify_vblank(&mut self) {
-        self.master_interrupts.v_pending |= self.master_interrupts.v_enabled;
-        self.slave_interrupts.v_pending |= self.slave_interrupts.v_enabled;
+    pub fn notify_vblank_start(&mut self) {
+        self.master_interrupts.v_pending = true;
+        self.slave_interrupts.v_pending = true;
+
+        self.master_interrupts.update_interrupt_level();
+        self.slave_interrupts.update_interrupt_level();
+    }
+
+    pub fn notify_vblank_end(&mut self) {
+        self.master_interrupts.v_pending = false;
+        self.slave_interrupts.v_pending = false;
 
         self.master_interrupts.update_interrupt_level();
         self.slave_interrupts.update_interrupt_level();

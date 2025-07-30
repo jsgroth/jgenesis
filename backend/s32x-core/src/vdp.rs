@@ -216,13 +216,14 @@ impl Vdp {
                     );
                 }
                 self.state.display_frame_buffer = self.registers.display_frame_buffer;
-                registers.notify_vblank();
+                registers.notify_vblank_start();
 
                 // Grab scanlines in frame at start of VBlank to avoid a dependency on which order
                 // the VDPs execute in, since interlacing state is latched at the start of line 0
                 self.state.scanlines_in_current_frame = genesis_vdp.scanlines_in_current_frame();
             } else if self.state.scanline >= self.state.scanlines_in_current_frame {
                 self.state.scanline = 0;
+                registers.notify_vblank_end();
             }
 
             if self.state.scanline < active_lines_per_frame {
