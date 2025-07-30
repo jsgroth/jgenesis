@@ -255,7 +255,7 @@ impl EmulatorTrait for Sega32XEmulator {
         debug_assert_eq!(self.vdp.scanline_mclk(), self.memory.medium_mut().vdp().scanline_mclk());
 
         if !m68k_wait {
-            self.vdp.clear_interrupt_delays();
+            self.vdp.update_interrupt_latches();
         }
 
         self.main_bus_writes = new_main_bus!(self, m68k_reset: false).apply_writes();

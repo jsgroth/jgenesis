@@ -494,7 +494,7 @@ impl EmulatorTrait for SegaCdEmulator {
         genesis_core::check_for_long_dma_skip(&self.vdp, &mut self.cycles);
 
         if !m68k_wait {
-            self.vdp.clear_interrupt_delays();
+            self.vdp.update_interrupt_latches();
         }
 
         // Apply main CPU writes after ticking the sub CPU; this fixes random freezing in Silpheed

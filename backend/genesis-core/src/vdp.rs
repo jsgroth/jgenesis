@@ -273,9 +273,11 @@ impl Default for PendingWrite {
 struct InternalState {
     // Whether the VDP is actively raising INT6
     v_interrupt_pending: bool,
-    delayed_v_interrupt: bool,
     h_interrupt_pending: bool,
-    delayed_h_interrupt: bool,
+    // V/H interrupts must be delayed by 1 CPU instruction if they are enabled while an interrupt is
+    // pending; Sesame Street Counting Cafe and Fatal Rewind depend on this
+    v_interrupt_enabled_latch: bool,
+    h_interrupt_enabled_latch: bool,
     h_interrupt_counter: u16,
     latched_hv_counter: Option<u16>,
     v_border_forgotten: bool,
@@ -306,9 +308,9 @@ impl InternalState {
     fn new(timing_mode: TimingMode) -> Self {
         Self {
             v_interrupt_pending: false,
-            delayed_v_interrupt: false,
-            delayed_h_interrupt: false,
             h_interrupt_pending: false,
+            v_interrupt_enabled_latch: false,
+            h_interrupt_enabled_latch: false,
             h_interrupt_counter: 0,
             latched_hv_counter: None,
             v_border_forgotten: false,
@@ -695,8 +697,6 @@ impl Vdp {
     }
 
     fn write_vdp_register(&mut self, value: u16) {
-        let prev_h_interrupt_enabled = self.registers.h_interrupt_enabled;
-        let prev_v_interrupt_enabled = self.registers.v_interrupt_enabled;
         let prev_h_display_size = self.registers.horizontal_display_size;
         let prev_v_display_size = self.registers.vertical_display_size;
 
@@ -738,17 +738,7 @@ impl Vdp {
                 );
                 self.state.v_border_forgotten = true;
             }
-
-            // V interrupts must be delayed by 1 CPU instruction if they are enabled
-            // while a V interrupt is pending; Sesame Street Counting Cafe depends on this
-            self.state.delayed_v_interrupt =
-                !prev_v_interrupt_enabled && self.registers.v_interrupt_enabled;
         }
-
-        // Fatal Rewind / The Killing Game Show depends on both HINT and VINT being delayed by 1
-        // instruction when enabled by software while an interrupt is pending
-        self.state.delayed_h_interrupt |=
-            !prev_h_interrupt_enabled && self.registers.h_interrupt_enabled;
 
         if prev_h_display_size != self.registers.horizontal_display_size {
             self.handle_h_resolution_change();
@@ -1784,15 +1774,9 @@ impl Vdp {
     #[must_use]
     pub fn m68k_interrupt_level(&self) -> u8 {
         // TODO external interrupts at level 2
-        if self.state.v_interrupt_pending
-            && self.registers.v_interrupt_enabled
-            && !self.state.delayed_v_interrupt
-        {
+        if self.state.v_interrupt_pending && self.state.v_interrupt_enabled_latch {
             6
-        } else if self.state.h_interrupt_pending
-            && self.registers.h_interrupt_enabled
-            && !self.state.delayed_h_interrupt
-        {
+        } else if self.state.h_interrupt_pending && self.state.h_interrupt_enabled_latch {
             4
         } else {
             0
@@ -1800,9 +1784,9 @@ impl Vdp {
     }
 
     #[inline]
-    pub fn clear_interrupt_delays(&mut self) {
-        self.state.delayed_v_interrupt = false;
-        self.state.delayed_h_interrupt = false;
+    pub fn update_interrupt_latches(&mut self) {
+        self.state.v_interrupt_enabled_latch = self.registers.v_interrupt_enabled;
+        self.state.h_interrupt_enabled_latch = self.registers.h_interrupt_enabled;
     }
 
     pub fn acknowledge_m68k_interrupt(&mut self) {
