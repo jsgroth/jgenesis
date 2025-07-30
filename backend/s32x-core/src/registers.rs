@@ -443,7 +443,7 @@ impl SystemRegisters {
 
     // 68000: $A1510A
     fn write_dreq_source_low(&mut self, value: u16) {
-        self.dma.source_address = (self.dma.source_address & 0xFFFF0000) | u32::from(value);
+        self.dma.source_address = (self.dma.source_address & 0xFFFF0000) | u32::from(value & !1);
 
         log::trace!("DREQ source address low write: {value:04X}");
         log::trace!("  New address: {:06X}", self.dma.source_address);
