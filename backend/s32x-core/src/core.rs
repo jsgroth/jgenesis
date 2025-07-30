@@ -83,7 +83,7 @@ impl Sega32X {
                 sdram: BoxedWordArray::new(),
                 serial: SerialInterface::default(),
             },
-            m68k_vectors: Box::new(*bootrom::M68K_VECTORS),
+            m68k_vectors: Box::new(bootrom::new_m68k_vectors()),
             region,
             timing_mode,
         }
