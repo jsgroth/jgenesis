@@ -1109,8 +1109,7 @@ impl Vdp {
             let vint_mclk = self.registers.horizontal_display_size.v_interrupt_scanline_mclk();
             let original_scanline_mclk = self.state.scanline_mclk_cycles;
             scanline_mclk >= vint_mclk
-                && (original_scanline_mclk < vint_mclk
-                    || original_scanline_mclk >= MCLK_CYCLES_PER_SCANLINE - vint_mclk)
+                && (original_scanline_mclk < vint_mclk || original_scanline_mclk > scanline_mclk)
         };
         let vint_flag = self.state.v_interrupt_pending || passed_vint;
 
