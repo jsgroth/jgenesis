@@ -6,17 +6,19 @@ use crate::{SP, Sh2};
 
 // JMP @Rm
 // Unconditional jump
-pub fn jmp(cpu: &mut Sh2, opcode: u16) {
+pub fn jmp(cpu: &mut Sh2, opcode: u16, bus: &mut dyn BusInterface) {
     let n = rn(opcode);
     cpu.registers.next_pc = cpu.registers.gpr[n];
     cpu.registers.next_op_in_delay_slot = true;
+
+    bus.increment_cycle_counter(1);
 }
 
 // JSR @Rm
 // Jump to subroutine
-pub fn jsr(cpu: &mut Sh2, opcode: u16) {
+pub fn jsr(cpu: &mut Sh2, opcode: u16, bus: &mut dyn BusInterface) {
     cpu.registers.pr = cpu.registers.next_pc;
-    jmp(cpu, opcode);
+    jmp(cpu, opcode, bus);
 }
 
 fn i12(opcode: u16) -> i16 {
@@ -25,41 +27,47 @@ fn i12(opcode: u16) -> i16 {
 
 // BRA label
 // Unconditional branch
-pub fn bra(cpu: &mut Sh2, opcode: u16) {
+pub fn bra(cpu: &mut Sh2, opcode: u16, bus: &mut dyn BusInterface) {
     let disp = i12(opcode) << 1;
     cpu.registers.next_pc = cpu.registers.next_pc.wrapping_add(disp as u32);
     cpu.registers.next_op_in_delay_slot = true;
+
+    bus.increment_cycle_counter(1);
 }
 
 // BRAF Rm
 // Unconditional branch far
-pub fn braf(cpu: &mut Sh2, opcode: u16) {
+pub fn braf(cpu: &mut Sh2, opcode: u16, bus: &mut dyn BusInterface) {
     let n = rn(opcode);
     cpu.registers.next_pc = cpu.registers.next_pc.wrapping_add(cpu.registers.gpr[n]);
     cpu.registers.next_op_in_delay_slot = true;
+
+    bus.increment_cycle_counter(1);
 }
 
 // BSR label
 // Branch to subroutine
-pub fn bsr(cpu: &mut Sh2, opcode: u16) {
+pub fn bsr(cpu: &mut Sh2, opcode: u16, bus: &mut dyn BusInterface) {
     cpu.registers.pr = cpu.registers.next_pc;
-    bra(cpu, opcode);
+    bra(cpu, opcode, bus);
 }
 
 // BSRF Rm
 // Branch to subroutine far
-pub fn bsrf(cpu: &mut Sh2, opcode: u16) {
+pub fn bsrf(cpu: &mut Sh2, opcode: u16, bus: &mut dyn BusInterface) {
     cpu.registers.pr = cpu.registers.next_pc;
-    braf(cpu, opcode);
+    braf(cpu, opcode, bus);
 }
 
 macro_rules! impl_conditional_branch {
     ($name:ident $(, $not:tt)?) => {
-        pub fn $name(cpu: &mut Sh2, opcode: u16) {
+        pub fn $name(cpu: &mut Sh2, opcode: u16, bus: &mut dyn BusInterface) {
             if $($not)? cpu.registers.sr.t {
                 let disp = i32::from(opcode as i8) << 1;
                 cpu.registers.pc = cpu.registers.next_pc.wrapping_add(disp as u32);
                 cpu.registers.next_pc = cpu.registers.pc.wrapping_add(2);
+
+                bus.increment_cycle_counter(2);
             }
         }
     }
@@ -75,11 +83,13 @@ impl_conditional_branch!(bt);
 
 macro_rules! impl_delayed_conditional_branch {
     ($name:ident $(, $not:tt)?) => {
-        pub fn $name(cpu: &mut Sh2, opcode: u16) {
+        pub fn $name(cpu: &mut Sh2, opcode: u16, bus: &mut dyn BusInterface) {
             if $($not)? cpu.registers.sr.t {
                 let disp = i32::from(opcode as i8) << 1;
                 cpu.registers.next_pc = cpu.registers.next_pc.wrapping_add(disp as u32);
                 cpu.registers.next_op_in_delay_slot = true;
+
+                bus.increment_cycle_counter(1);
             }
         }
     }
@@ -95,9 +105,11 @@ impl_delayed_conditional_branch!(bt_s);
 
 // RTS
 // Return from subroutine
-pub fn rts(cpu: &mut Sh2) {
+pub fn rts(cpu: &mut Sh2, bus: &mut dyn BusInterface) {
     cpu.registers.next_pc = cpu.registers.pr;
     cpu.registers.next_op_in_delay_slot = true;
+
+    bus.increment_cycle_counter(1);
 }
 
 // RTE
@@ -124,4 +136,6 @@ pub fn trapa<B: BusInterface + ?Sized>(cpu: &mut Sh2, opcode: u16, bus: &mut B) 
     let vector_addr = cpu.registers.vbr.wrapping_add((vector_number << 2).into());
     cpu.registers.pc = cpu.read_longword(vector_addr, bus);
     cpu.registers.next_pc = cpu.registers.pc.wrapping_add(2);
+
+    bus.increment_cycle_counter(7);
 }

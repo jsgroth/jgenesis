@@ -419,6 +419,8 @@ pub fn ldc_postinc_sr<B: BusInterface + ?Sized>(cpu: &mut Sh2, opcode: u16, bus:
     cpu.registers.gpr[m] = address.wrapping_add(4);
 
     cpu.registers.sr = cpu.read_longword(address, bus).into();
+
+    bus.increment_cycle_counter(2);
 }
 
 // LDC.L @Rm+, GBR
@@ -429,6 +431,8 @@ pub fn ldc_postinc_gbr<B: BusInterface + ?Sized>(cpu: &mut Sh2, opcode: u16, bus
     cpu.registers.gpr[m] = address.wrapping_add(4);
 
     cpu.registers.gbr = cpu.read_longword(address, bus);
+
+    bus.increment_cycle_counter(2);
 }
 
 // LDC.L @Rm+, VBR
@@ -439,6 +443,8 @@ pub fn ldc_postinc_vbr<B: BusInterface + ?Sized>(cpu: &mut Sh2, opcode: u16, bus
     cpu.registers.gpr[m] = address.wrapping_add(4);
 
     cpu.registers.vbr = cpu.read_longword(address, bus);
+
+    bus.increment_cycle_counter(2);
 }
 
 // LDS Rm, MACH
@@ -521,6 +527,8 @@ pub fn stc_sr_rn_predec<B: BusInterface + ?Sized>(cpu: &mut Sh2, opcode: u16, bu
     cpu.registers.gpr[n] = address;
 
     cpu.write_longword(address, cpu.registers.sr.into(), bus);
+
+    bus.increment_cycle_counter(1);
 }
 
 // STC.L GBR, @-Rn
@@ -531,6 +539,8 @@ pub fn stc_gbr_rn_predec<B: BusInterface + ?Sized>(cpu: &mut Sh2, opcode: u16, b
     cpu.registers.gpr[n] = address;
 
     cpu.write_longword(address, cpu.registers.gbr, bus);
+
+    bus.increment_cycle_counter(1);
 }
 
 // STC.L VBR, @-Rn
@@ -541,6 +551,8 @@ pub fn stc_vbr_rn_predec<B: BusInterface + ?Sized>(cpu: &mut Sh2, opcode: u16, b
     cpu.registers.gpr[n] = address;
 
     cpu.write_longword(address, cpu.registers.vbr, bus);
+
+    bus.increment_cycle_counter(1);
 }
 
 // STS MACH, Rn
