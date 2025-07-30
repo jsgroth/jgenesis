@@ -73,7 +73,7 @@ impl Sh2 {
             watchdog_timer: WatchdogTimer::new(),
             divu: DivisionUnit::new(),
             serial: SerialInterface::new(name.clone()),
-            reset_pending: false,
+            reset_pending: true,
             name,
             trace_log_enabled,
         }

@@ -155,7 +155,7 @@ impl DmaFifo {
     }
 }
 
-#[derive(Debug, Clone, Default, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct DmaRegisters {
     pub rom_to_vram_dma: bool,
     // TODO not sure what this does - seems like maybe something to do with Sega CD?
@@ -165,6 +165,20 @@ pub struct DmaRegisters {
     pub destination_address: u32,
     pub length: u16,
     pub fifo: DmaFifo,
+}
+
+impl Default for DmaRegisters {
+    fn default() -> Self {
+        Self {
+            rom_to_vram_dma: false,
+            bit_1: false,
+            active: false,
+            source_address: 0,
+            destination_address: 0,
+            length: 0xFFFF,
+            fifo: DmaFifo::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -177,22 +191,22 @@ pub struct SystemRegisters {
     pub master_interrupts: Sh2Interrupts,
     pub slave_interrupts: Sh2Interrupts,
     pub dma: DmaRegisters,
-    // Functionality not emulated, only this bit being R/W
-    pub sega_tv_bit: bool,
+    // Functionality not emulated, only bits 0 and 8 being R/W
+    pub sega_tv_bits: u16,
 }
 
 impl SystemRegisters {
     pub fn new() -> Self {
         Self {
             adapter_enabled: false,
-            reset_sh2: true,
+            reset_sh2: false,
             vdp_access: Access::M68k,
             m68k_rom_bank: 0,
             communication_ports: array::from_fn(|_| 0),
             master_interrupts: Sh2Interrupts::default(),
             slave_interrupts: Sh2Interrupts::default(),
             dma: DmaRegisters::default(),
-            sega_tv_bit: false,
+            sega_tv_bits: 0,
         }
     }
 
@@ -251,7 +265,7 @@ impl SystemRegisters {
             0xA1510C => self.read_dreq_destination_high(),
             0xA1510E => self.read_dreq_destination_low(),
             0xA15110 => self.dma.length,
-            0xA1511A => self.sega_tv_bit.into(),
+            0xA1511A => self.sega_tv_bits,
             0xA15120..=0xA1512F => self.read_communication_port(address),
             _ => {
                 log::warn!("M68K invalid register read: {address:06X}");
@@ -283,7 +297,9 @@ impl SystemRegisters {
             0xA15110 => self.write_dreq_length(value),
             0xA15112 => self.write_dreq_fifo(value),
             0xA1511A => {
-                self.sega_tv_bit = value.bit(0);
+                // Only bits 0 and 8 are writable per testpico
+                // TODO is this actually a single bit mirrored?
+                self.sega_tv_bits = value & 0x0101;
             }
             0xA15120..=0xA1512F => self.write_communication_port(address, value),
             0xA15130..=0xA15138 => {
@@ -327,6 +343,11 @@ impl SystemRegisters {
     pub fn sh2_write(&mut self, address: u32, value: u16, which: WhichCpu, vdp: &mut Vdp) {
         match address {
             0x4000 => self.write_interrupt_mask(value, which, vdp),
+            0x4002 => {
+                // The master SH-2 writes to this register when it resets while the 32X adapter is
+                // not enabled, after which it executes a SLEEP instruction and waits for a reset
+                log::debug!("SH-2 {which:?} wrote to standby register $4002");
+            }
             0x4004 => vdp.write_h_interrupt_interval(value),
             0x4014 => self.clear_reset_interrupt(which),
             0x4016 => self.clear_v_interrupt(which),

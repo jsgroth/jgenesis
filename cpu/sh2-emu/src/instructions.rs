@@ -53,7 +53,7 @@ fn sleep(cpu: &mut Sh2, _opcode: u16, _bus: &mut dyn BusInterface) {
     // In actual hardware, SLEEP causes the CPU to enter a low-power state.
     // Since nothing uses SLEEP except for a handful of demos, use a simpler implementation that
     // is inefficient but doesn't require checking whether the CPU is sleeping after every instruction
-    cpu.registers.pc = cpu.registers.pc.wrapping_sub(2);
+    cpu.registers.next_pc = cpu.registers.pc.wrapping_sub(2);
 }
 
 fn illegal_opcode(cpu: &mut Sh2, opcode: u16, bus: &mut dyn BusInterface) {

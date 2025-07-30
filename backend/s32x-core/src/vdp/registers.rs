@@ -56,7 +56,7 @@ impl SelectedFrameBuffer {
     }
 }
 
-#[derive(Debug, Clone, Default, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct Registers {
     pub frame_buffer_mode: FrameBufferMode,
     pub v_resolution: VerticalResolution,
@@ -68,6 +68,23 @@ pub struct Registers {
     pub auto_fill_data: u16,
     pub h_interrupt_interval: u16,
     pub h_interrupt_in_vblank: bool,
+}
+
+impl Default for Registers {
+    fn default() -> Self {
+        Self {
+            frame_buffer_mode: FrameBufferMode::default(),
+            v_resolution: VerticalResolution::default(),
+            priority: false,
+            display_frame_buffer: SelectedFrameBuffer::default(),
+            screen_left_shift: false,
+            auto_fill_length: 1,
+            auto_fill_start_address: 0,
+            auto_fill_data: 0,
+            h_interrupt_interval: 0,
+            h_interrupt_in_vblank: false,
+        }
+    }
 }
 
 impl Registers {
