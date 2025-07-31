@@ -21,7 +21,7 @@ pub struct Bus<'a> {
 impl Bus<'_> {
     fn read_bios<T>(&mut self, address: u32, word_converter: impl FnOnce(u32) -> T) -> T {
         if self.state.cpu_pc >= 0x1FFFFFF {
-            log::warn!("BIOS ROM read while PC is {address:08X}");
+            log::warn!("BIOS ROM read while PC is {:08X}", self.state.cpu_pc);
             return word_converter(self.state.last_bios_read);
         }
 
@@ -118,6 +118,12 @@ impl BusInterface for Bus<'_> {
 
     #[inline]
     fn read_word(&mut self, address: u32, _cycle: MemoryCycle) -> u32 {
+        fn two_halfword_reads(address: u32, mut read_fn: impl FnMut(u32) -> u16) -> u32 {
+            let low_halfword = read_fn(address);
+            let high_halfword = read_fn(address | 2);
+            (u32::from(high_halfword) << 16) | u32::from(low_halfword)
+        }
+
         self.state.cycles += 1;
 
         match address {
@@ -125,9 +131,16 @@ impl BusInterface for Bus<'_> {
             0x2000000..=0x2FFFFFF => self.memory.read_ewram_word(address),
             0x3000000..=0x3FFFFFF => self.memory.read_iwram_word(address),
             0x4000000..=0x4FFFFFF => {
-                let low_halfword = self.read_io_register(address);
-                let high_halfword = self.read_io_register(address | 2);
-                (u32::from(high_halfword) << 16) | u32::from(low_halfword)
+                two_halfword_reads(address, |address| self.read_io_register(address))
+            }
+            0x5000000..=0x5FFFFFF => {
+                two_halfword_reads(address, |address| self.ppu.read_palette_ram(address))
+            }
+            0x6000000..=0x6FFFFFF => {
+                two_halfword_reads(address, |address| self.ppu.read_vram(address))
+            }
+            0x7000000..=0x7FFFFFF => {
+                two_halfword_reads(address, |address| self.ppu.read_oam(address))
             }
             0x8000000..=0xDFFFFFF => self.cartridge.read_rom_word(address),
             0x10000000..=0xFFFFFFFF => {
@@ -155,6 +168,9 @@ impl BusInterface for Bus<'_> {
         self.state.cycles += 1;
 
         match address {
+            0x0000000..=0x1FFFFFF => {
+                log::warn!("BIOS ROM write {address:08X} {value:02X}");
+            }
             0x2000000..=0x2FFFFFF => self.memory.write_ewram_byte(address, value),
             0x3000000..=0x3FFFFFF => self.memory.write_iwram_byte(address, value),
             0x4000000..=0x4FFFFFF => {
@@ -170,6 +186,9 @@ impl BusInterface for Bus<'_> {
         self.state.cycles += 1;
 
         match address {
+            0x0000000..=0x1FFFFFF => {
+                log::warn!("BIOS ROM write {address:08X} {value:04X}");
+            }
             0x2000000..=0x2FFFFFF => self.memory.write_ewram_halfword(address, value),
             0x3000000..=0x3FFFFFF => self.memory.write_iwram_halfword(address, value),
             0x4000000..=0x4FFFFFF => self.write_io_register(address, value),
@@ -185,6 +204,9 @@ impl BusInterface for Bus<'_> {
         self.state.cycles += 1;
 
         match address {
+            0x0000000..=0x1FFFFFF => {
+                log::warn!("BIOS ROM write {address:08X} {value:08X}");
+            }
             0x2000000..=0x2FFFFFF => self.memory.write_ewram_word(address, value),
             0x3000000..=0x3FFFFFF => self.memory.write_iwram_word(address, value),
             0x4000000..=0x4FFFFFF => {

@@ -3,7 +3,9 @@
 mod registers;
 
 use crate::interrupts::{InterruptRegisters, InterruptType};
-use crate::ppu::registers::{BgMode, BitsPerPixel, Registers};
+use crate::ppu::registers::{
+    BgMode, BitsPerPixel, ObjVramMapDimensions, Registers, Window, WindowEnabled,
+};
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::{BoxedByteArray, BoxedWordArray};
 use jgenesis_common::frontend::{Color, FrameSize};
@@ -129,6 +131,136 @@ impl Layer {
     const BG: [Self; 4] = [Self::Bg0, Self::Bg1, Self::Bg2, Self::Bg3];
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpriteMode {
+    Normal,
+    SemiTransparent,
+    ObjWindow,
+    Invalid,
+}
+
+impl SpriteMode {
+    fn from_bits(bits: u16) -> Self {
+        match bits & 3 {
+            0 => Self::Normal,
+            1 => Self::SemiTransparent,
+            2 => Self::ObjWindow,
+            3 => Self::Invalid,
+            _ => unreachable!("value & 3 is always <= 3"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpriteSize {
+    Zero,
+    One,
+    Two,
+    Three,
+}
+
+impl SpriteSize {
+    fn from_bits(bits: u16) -> Self {
+        match bits & 3 {
+            0 => Self::Zero,
+            1 => Self::One,
+            2 => Self::Two,
+            3 => Self::Three,
+            _ => unreachable!("value & 3 is always <= 3"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpriteShape {
+    Square,
+    HorizontalRect,
+    VerticalRect,
+    Invalid,
+}
+
+impl SpriteShape {
+    fn from_bits(bits: u16) -> Self {
+        match bits & 3 {
+            0 => Self::Square,
+            1 => Self::HorizontalRect,
+            2 => Self::VerticalRect,
+            3 => Self::Invalid,
+            _ => unreachable!("value & 3 is always <= 3"),
+        }
+    }
+
+    #[allow(clippy::match_same_arms)]
+    fn size_pixels(self, size: SpriteSize) -> (u32, u32) {
+        use SpriteShape::{HorizontalRect, Invalid, Square, VerticalRect};
+        use SpriteSize::{One, Three, Two, Zero};
+
+        match (self, size) {
+            (Square, Zero) => (8, 8),
+            (Square, One) => (16, 16),
+            (Square, Two) => (32, 32),
+            (Square, Three) => (64, 64),
+            (HorizontalRect, Zero) => (16, 8),
+            (HorizontalRect, One) => (32, 8),
+            (HorizontalRect, Two) => (32, 16),
+            (HorizontalRect, Three) => (64, 32),
+            (VerticalRect, Zero) => (8, 16),
+            (VerticalRect, One) => (8, 32),
+            (VerticalRect, Two) => (16, 32),
+            (VerticalRect, Three) => (32, 64),
+            (Invalid, _) => {
+                // TODO ???
+                (8, 8)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct OamEntry {
+    x: u32,
+    y: u32,
+    tile_number: u32,
+    affine: bool,
+    affine_double_size: bool,
+    affine_parameter_group: u16,
+    disabled: bool,
+    mode: SpriteMode,
+    mosaic: bool,
+    bpp: BitsPerPixel,
+    shape: SpriteShape,
+    size: SpriteSize,
+    h_flip: bool,
+    v_flip: bool,
+    priority: u8,
+    palette: u16,
+}
+
+impl OamEntry {
+    fn parse(attributes: [u16; 3]) -> Self {
+        let affine = attributes[0].bit(8);
+
+        Self {
+            x: (attributes[1] & 0x1FF).into(),
+            y: (attributes[0] & 0xFF).into(),
+            tile_number: (attributes[2] & 0x3FF).into(),
+            affine,
+            affine_double_size: affine && attributes[0].bit(9),
+            affine_parameter_group: (attributes[1] >> 9) & 0x1F,
+            disabled: !affine && attributes[0].bit(9),
+            mode: SpriteMode::from_bits(attributes[0] >> 10),
+            mosaic: attributes[0].bit(12),
+            bpp: BitsPerPixel::from_bit(attributes[0].bit(13)),
+            shape: SpriteShape::from_bits(attributes[0] >> 14),
+            size: SpriteSize::from_bits(attributes[1] >> 14),
+            h_flip: !affine && attributes[1].bit(12),
+            v_flip: !affine && attributes[1].bit(13),
+            priority: ((attributes[2] >> 10) & 3) as u8,
+            palette: attributes[2] >> 12,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Ppu {
     frame_buffer: FrameBuffer,
@@ -219,6 +351,7 @@ impl Ppu {
         }
     }
 
+    #[allow(clippy::match_same_arms)]
     fn render_bg_layers(&mut self) {
         match self.registers.bg_mode {
             BgMode::Zero => {
@@ -312,7 +445,10 @@ impl Ppu {
             let tile_number: u32 = (tile_map_entry & 0x3FF).into();
             let h_flip = tile_map_entry.bit(10);
             let v_flip = tile_map_entry.bit(11);
-            let palette = tile_map_entry >> 12;
+            let palette = match bg_control.bpp {
+                BitsPerPixel::Four => tile_map_entry >> 12,
+                BitsPerPixel::Eight => 0,
+            };
 
             let tile_base_addr = bg_control.tile_data_addr + tile_number * tile_size_bytes;
             let tile_row = if v_flip { 7 - tile_row } else { tile_row };
@@ -426,6 +562,8 @@ impl Ppu {
     }
 
     fn merge_layers(&mut self) {
+        let scanline = self.state.scanline;
+
         let backdrop_color = Pixel::new_transparent(self.palette_ram[0]);
 
         // TODO windows
@@ -434,7 +572,42 @@ impl Ppu {
             self.registers.bg_enabled[bg] && self.registers.bg_mode.bg_active_in_mode(bg)
         });
 
+        let any_window_enabled = self.registers.window_enabled[0]
+            || self.registers.window_enabled[1]
+            || self.registers.obj_window_enabled;
+
+        let window_x1 = self.registers.window_x1;
+        let window_x2 = self.registers.window_x2;
+        let window_y1 = self.registers.window_y1;
+        let window_y2 = self.registers.window_y2;
+
+        let window_y_active = [0, 1].map(|i| {
+            self.registers.window_enabled[i]
+                && scanline >= window_y1[i]
+                && (scanline < window_y2[i] || window_y2[i] < window_y1[i])
+        });
+
         for pixel in 0..SCREEN_WIDTH {
+            let window_active = [0, 1].map(|i| {
+                window_y_active[i]
+                    && pixel >= window_x1[i]
+                    && (pixel < window_x2[i] || window_x2[i] < window_x1[i])
+            });
+
+            let window_layers_enabled = if any_window_enabled {
+                // TODO OBJ window
+                let window = if window_active[0] {
+                    Window::Inside0
+                } else if window_active[1] {
+                    Window::Inside1
+                } else {
+                    Window::Outside
+                };
+                self.registers.window_layers_enabled(window)
+            } else {
+                WindowEnabled::ALL
+            };
+
             let mut first_color = backdrop_color;
             let mut first_layer = Layer::Backdrop;
             let mut first_priority = u8::MAX;
@@ -467,7 +640,7 @@ impl Ppu {
                 }
             };
 
-            if self.registers.obj_enabled {
+            if self.registers.obj_enabled && window_layers_enabled.obj {
                 check_pixel(
                     self.buffers.obj_pixels[pixel as usize],
                     Layer::Obj,
@@ -476,7 +649,7 @@ impl Ppu {
             }
 
             for (bg, enabled) in bg_enabled.into_iter().enumerate() {
-                if !enabled {
+                if !enabled || !window_layers_enabled.bg[bg] {
                     continue;
                 }
 
@@ -494,7 +667,157 @@ impl Ppu {
     }
 
     fn render_next_sprite_line(&mut self) {
-        // TODO implement
+        if self.registers.forced_blanking
+            || (self.state.scanline >= SCREEN_HEIGHT && self.state.scanline != LINES_PER_FRAME - 1)
+        {
+            return;
+        }
+
+        // TODO mosaic
+        // TODO affine
+        // TODO OBJ window
+
+        let is_bitmap_mode =
+            matches!(self.registers.bg_mode, BgMode::Three | BgMode::Four | BgMode::Five);
+
+        self.buffers.obj_pixels.fill(Pixel::TRANSPARENT);
+        self.buffers.obj_priority.fill(u8::MAX);
+        self.buffers.obj_semi_transparent.fill(false);
+
+        let target_line =
+            if self.state.scanline == LINES_PER_FRAME - 1 { 0 } else { self.state.scanline + 1 };
+
+        // One memory access every 2 cycles
+        // When OAM is free during HBlank, sprite rendering runs from dots 40 to 1006 (HBlank start)
+        let mut memory_accesses = if self.registers.oam_free_during_hblank {
+            (HBLANK_START_DOT - 40) / 2
+        } else {
+            DOTS_PER_LINE / 2
+        };
+
+        'outer: for oam_idx in 0..128 {
+            let oam_addr = 4 * oam_idx;
+            let oam_attributes =
+                [self.oam[oam_addr], self.oam[oam_addr + 1], self.oam[oam_addr + 2]];
+
+            // 32-bit read of first two attribute words
+            memory_accesses -= 1;
+            if memory_accesses == 0 {
+                break 'outer;
+            }
+
+            let oam_entry = OamEntry::parse(oam_attributes);
+
+            let (sprite_width, sprite_height) = oam_entry.shape.size_pixels(oam_entry.size);
+            let sprite_y = target_line.wrapping_sub(oam_entry.y) & 0xFF;
+            if sprite_y >= sprite_height {
+                // Sprite does not overlap this scanline
+                continue;
+            }
+
+            let sprite_width_tiles = sprite_width / 8;
+
+            // 16-bit read of third attribute word
+            memory_accesses -= 1;
+            if memory_accesses == 0 {
+                break 'outer;
+            }
+
+            let sprite_row = if oam_entry.v_flip { sprite_height - 1 - sprite_y } else { sprite_y };
+            let sprite_tile_row = sprite_row / 8;
+            let row_in_tile = sprite_row % 8;
+
+            let map_step = match oam_entry.bpp {
+                BitsPerPixel::Four => 1,
+                BitsPerPixel::Eight => 2,
+            };
+
+            let map_row_width = match self.registers.obj_vram_map_dimensions {
+                ObjVramMapDimensions::Two => 32,
+                ObjVramMapDimensions::One => map_step * sprite_width_tiles,
+            };
+
+            let palette = match oam_entry.bpp {
+                BitsPerPixel::Four => oam_entry.palette,
+                BitsPerPixel::Eight => 0,
+            };
+
+            for sprite_x in 0..sprite_width {
+                // One VRAM read for every 2 pixels
+                memory_accesses -= (sprite_x & 1) ^ 1;
+                if memory_accesses == 0 {
+                    break 'outer;
+                }
+
+                let pixel = (oam_entry.x + sprite_x) & 0x1FF;
+                if !(0..SCREEN_WIDTH).contains(&pixel) {
+                    continue;
+                }
+
+                let sprite_col =
+                    if oam_entry.h_flip { sprite_width - 1 - sprite_x } else { sprite_x };
+                let sprite_tile_col = sprite_col / 8;
+                let col_in_tile = sprite_col % 8;
+
+                // TODO how should out-of-bounds tile numbers behave?
+                let tile_number = (oam_entry.tile_number
+                    + sprite_tile_row * map_row_width
+                    + sprite_tile_col * map_step)
+                    & 0x3FF;
+
+                if is_bitmap_mode && tile_number < 512 {
+                    // Sprite tile numbers 0-511 are not usable in bitmap modes; tiles are fully transparent
+                    continue;
+                }
+
+                let tile_base_addr = 0x10000 | (tile_number * 32);
+                let color_id = match oam_entry.bpp {
+                    BitsPerPixel::Four => {
+                        let tile_addr = tile_base_addr + 4 * row_in_tile + (col_in_tile >> 1);
+                        let tile_byte = self.vram[tile_addr as usize];
+                        (tile_byte >> (4 * (col_in_tile & 1))) & 0xF
+                    }
+                    BitsPerPixel::Eight => {
+                        let tile_addr = tile_base_addr + 8 * row_in_tile + col_in_tile;
+                        if tile_addr <= 0x17FFF {
+                            self.vram[tile_addr as usize]
+                        } else {
+                            // TODO what should this do? can happen when using an odd tile number
+                            0
+                        }
+                    }
+                };
+
+                let existing_opaque = !self.buffers.obj_pixels[pixel as usize].transparent();
+                let existing_priority = self.buffers.obj_priority[pixel as usize];
+
+                if existing_opaque && oam_entry.priority >= existing_priority {
+                    // Existing opaque pixel with the same or lower priority
+                    continue;
+                }
+
+                if color_id == 0 && !existing_opaque {
+                    // Both new pixel and existing pixel are transparent
+                    continue;
+                }
+
+                // Hardware bug: A transparent pixel that overlaps with an opaque pixel from a sprite
+                // with lower OAM index and higher priority will overwrite the priority and semi-transparency
+                // flags
+                self.buffers.obj_priority[pixel as usize] = oam_entry.priority;
+                self.buffers.obj_semi_transparent[pixel as usize] =
+                    oam_entry.mode == SpriteMode::SemiTransparent;
+
+                if color_id == 0 {
+                    // Transparent pixel
+                    continue;
+                }
+
+                let palette_ram_addr = 0x100 | (16 * palette + u16::from(color_id));
+                let color = self.palette_ram[palette_ram_addr as usize];
+                self.buffers.obj_pixels[pixel as usize] = Pixel::new_opaque(color);
+            }
+        }
     }
 
     pub fn frame_complete(&self) -> bool {
@@ -620,7 +943,11 @@ impl Ppu {
     }
 
     pub fn write_register(&mut self, address: u32, value: u16) {
-        log::trace!("PPU register write {address:08X} {value:04X}");
+        log::debug!(
+            "PPU register write {address:08X} {value:04X} (line {} dot {})",
+            self.state.scanline,
+            self.state.dot
+        );
 
         match address {
             0x4000000 => self.registers.write_dispcnt(value),

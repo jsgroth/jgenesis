@@ -12,7 +12,7 @@ macro_rules! define_bit_enum {
         }
 
         impl $name {
-            fn from_bit(bit: bool) -> Self {
+            pub fn from_bit(bit: bool) -> Self {
                 if bit { Self::$one } else { Self::$zero }
             }
         }
@@ -213,6 +213,25 @@ impl BlendMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Window {
+    Inside0,
+    Inside1,
+    InsideObj,
+    Outside,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowEnabled {
+    pub bg: [bool; 4],
+    pub obj: bool,
+    pub blend: bool,
+}
+
+impl WindowEnabled {
+    pub const ALL: Self = Self { bg: [true; 4], obj: true, blend: true };
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Registers {
     // DISPCNT (Display control)
@@ -239,11 +258,11 @@ pub struct Registers {
     // BG2/3 affine registers
     pub bg_affine_parameters: [BgAffineParameters; 2],
     // WINxH (Window horizontal coordinates)
-    pub window_x1: [u8; 2],
-    pub window_x2: [u8; 2],
+    pub window_x1: [u32; 2],
+    pub window_x2: [u32; 2],
     // WINxV (Window vertical coordinates)
-    pub window_y1: [u8; 2],
-    pub window_y2: [u8; 2],
+    pub window_y1: [u32; 2],
+    pub window_y2: [u32; 2],
     // WININ (Window inside control)
     pub window_in_bg_enabled: [[bool; 4]; 2],
     pub window_in_obj_enabled: [bool; 2],
@@ -473,7 +492,7 @@ impl Registers {
 
     // $4000040/$4000042: WIN0H/WIN1H (Window 0/1 horizontal coordinates)
     pub fn write_winh(&mut self, window: usize, value: u16) {
-        [self.window_x1[window], self.window_x2[window]] = value.to_be_bytes();
+        [self.window_x1[window], self.window_x2[window]] = value.to_be_bytes().map(u32::from);
 
         log::debug!("WIN{window}H write: {value:04X}");
         log::debug!("  X1: {}", self.window_x1[window]);
@@ -482,7 +501,7 @@ impl Registers {
 
     // $4000044/$4000046: WIN0V/WIN1V (Window 0/1 vertical coordinates)
     pub fn write_winv(&mut self, window: usize, value: u16) {
-        [self.window_y1[window], self.window_y2[window]] = value.to_be_bytes();
+        [self.window_y1[window], self.window_y2[window]] = value.to_be_bytes().map(u32::from);
 
         log::debug!("WIN{window}V write: {value:04X}");
         log::debug!("  Y1: {}", self.window_y1[window]);
@@ -543,12 +562,12 @@ impl Registers {
         self.obj_window_blend_enabled = value.bit(13);
 
         log::debug!("WINOUT write: {value:04X}");
-        log::debug!("  Window outside BG enabled: {:?}", self.window_in_bg_enabled[0]);
-        log::debug!("  Window outside OBJ enabled: {}", self.window_in_obj_enabled[0]);
-        log::debug!("  Window outside blending enabled: {}", self.window_in_blend_enabled[0]);
-        log::debug!("  OBJ window BG enabled: {:?}", self.window_in_bg_enabled[1]);
-        log::debug!("  OBJ window OBJ enabled: {}", self.window_in_obj_enabled[1]);
-        log::debug!("  OBJ window blending enabled: {}", self.window_in_blend_enabled[1]);
+        log::debug!("  Window outside BG enabled: {:?}", self.window_out_bg_enabled);
+        log::debug!("  Window outside OBJ enabled: {}", self.window_out_obj_enabled);
+        log::debug!("  Window outside blending enabled: {}", self.window_out_blend_enabled);
+        log::debug!("  OBJ window BG enabled: {:?}", self.obj_window_bg_enabled);
+        log::debug!("  OBJ window OBJ enabled: {}", self.obj_window_obj_enabled);
+        log::debug!("  OBJ window blending enabled: {}", self.obj_window_blend_enabled);
     }
 
     // $4000004C: MOSAIC (Mosaic size)
@@ -619,6 +638,31 @@ impl Registers {
         self.blend_brightness = (value & 0x1F) as u8;
 
         log::debug!("BLDY write: {value:04X} (coefficient = {})", self.blend_brightness);
+    }
+
+    pub fn window_layers_enabled(&self, window: Window) -> WindowEnabled {
+        match window {
+            Window::Inside0 => WindowEnabled {
+                bg: self.window_in_bg_enabled[0],
+                obj: self.window_in_obj_enabled[0],
+                blend: self.window_in_blend_enabled[0],
+            },
+            Window::Inside1 => WindowEnabled {
+                bg: self.window_in_bg_enabled[1],
+                obj: self.window_in_obj_enabled[1],
+                blend: self.window_in_blend_enabled[1],
+            },
+            Window::InsideObj => WindowEnabled {
+                bg: self.obj_window_bg_enabled,
+                obj: self.obj_window_obj_enabled,
+                blend: self.obj_window_blend_enabled,
+            },
+            Window::Outside => WindowEnabled {
+                bg: self.window_out_bg_enabled,
+                obj: self.window_out_obj_enabled,
+                blend: self.obj_window_blend_enabled,
+            },
+        }
     }
 }
 
