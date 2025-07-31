@@ -12,7 +12,7 @@ mod sprites;
 mod tests;
 
 use crate::memory::{Memory, PhysicalMedium};
-use crate::vdp::colors::ColorModifier;
+use crate::vdp::colors::{ColorModifier, ColorTables};
 use crate::vdp::cramdots::CramDotBuffer;
 use crate::vdp::fifo::{VdpFifo, VdpFifoEntry, VramWriteSize};
 use crate::vdp::registers::{
@@ -578,6 +578,7 @@ pub struct Vdp {
     sprite_buffers: SpriteBuffers,
     interlaced_sprite_buffers: SpriteBuffers,
     config: VdpConfig,
+    color_tables: ColorTables,
     vdp_event_times: [VdpEventWithTime; VdpEvent::NUM],
     vdp_event_idx: u8,
 }
@@ -615,6 +616,7 @@ impl Vdp {
             sprite_buffers: SpriteBuffers::new(),
             interlaced_sprite_buffers: SpriteBuffers::new(),
             config,
+            color_tables: ColorTables::from_config(&config),
             vdp_event_times: Self::vdp_event_times(HorizontalDisplaySize::default()),
             vdp_event_idx: 0,
         }
@@ -1951,6 +1953,7 @@ impl Vdp {
     #[inline]
     pub fn reload_config(&mut self, config: VdpConfig) {
         self.config = config;
+        self.color_tables = ColorTables::from_config(&self.config);
     }
 
     #[inline]

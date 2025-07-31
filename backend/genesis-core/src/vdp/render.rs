@@ -1,4 +1,4 @@
-use crate::vdp::colors::ColorModifier;
+use crate::vdp::colors::{ColorModifier, ColorTables};
 use crate::vdp::registers::{
     DebugRegister, HorizontalDisplaySize, HorizontalScrollMode, InterlacingMode, Plane,
     RIGHT_BORDER, Registers, ScrollSize, VerticalDisplaySize, VerticalScrollMode,
@@ -312,7 +312,7 @@ impl Vdp {
                 color,
                 ColorModifier::None,
                 screen_width,
-                self.config.non_linear_color_scale,
+                &self.color_tables,
             );
         }
     }
@@ -606,7 +606,7 @@ impl Vdp {
                 pixel_color,
                 color_modifier,
                 screen_width,
-                self.config.non_linear_color_scale,
+                &self.color_tables,
             );
         }
     }
@@ -692,7 +692,7 @@ impl Vdp {
                         color,
                         ColorModifier::None,
                         screen_width,
-                        self.config.non_linear_color_scale,
+                        &self.color_tables,
                     );
                 }
             }
@@ -720,7 +720,7 @@ impl Vdp {
                         bg_color,
                         ColorModifier::None,
                         screen_width,
-                        self.config.non_linear_color_scale,
+                        &self.color_tables,
                     );
                 }
             }
@@ -735,7 +735,7 @@ impl Vdp {
                         color_0,
                         ColorModifier::None,
                         screen_width,
-                        self.config.non_linear_color_scale,
+                        &self.color_tables,
                     );
                 }
             }
@@ -757,7 +757,7 @@ impl Vdp {
                         color_0,
                         ColorModifier::None,
                         screen_width,
-                        self.config.non_linear_color_scale,
+                        &self.color_tables,
                     );
                 }
             }
@@ -798,7 +798,7 @@ impl Vdp {
                         bg_color,
                         ColorModifier::None,
                         screen_width.into(),
-                        self.config.non_linear_color_scale,
+                        &self.color_tables,
                     );
                 }
             }
@@ -813,7 +813,7 @@ impl Vdp {
                         color_0,
                         ColorModifier::None,
                         screen_width.into(),
-                        self.config.non_linear_color_scale,
+                        &self.color_tables,
                     );
                 }
             }
@@ -873,7 +873,7 @@ impl Vdp {
             color,
             ColorModifier::None,
             screen_width,
-            self.config.non_linear_color_scale,
+            &self.color_tables,
         );
     }
 
@@ -897,13 +897,13 @@ pub(super) fn set_in_frame_buffer(
     color: u16,
     modifier: ColorModifier,
     screen_width: u32,
-    emulate_non_linear_dac: bool,
+    color_tables: &ColorTables,
 ) {
     let r = ((color >> 1) & 0x07) as u8;
     let g = ((color >> 5) & 0x07) as u8;
     let b = ((color >> 9) & 0x07) as u8;
     let a = (color >> 15) as u8;
-    let rgb_color = colors::gen_to_rgba(r, g, b, a, modifier, emulate_non_linear_dac);
+    let rgb_color = colors::gen_to_rgba(r, g, b, a, modifier, color_tables);
 
     frame_buffer[(row * screen_width + col) as usize] = rgb_color;
 }

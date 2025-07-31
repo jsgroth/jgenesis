@@ -155,14 +155,8 @@ impl Vdp {
             // Reuse "alpha" from the existing pixel; some 32X games depend on this (e.g. Toughman Contest)
             let a = self.frame_buffer[fb_idx].a;
 
-            let rgba_color = colors::gen_to_rgba(
-                r,
-                g,
-                b,
-                a,
-                ColorModifier::None,
-                self.config.non_linear_color_scale,
-            );
+            let rgba_color =
+                colors::gen_to_rgba(r, g, b, a, ColorModifier::None, &self.color_tables);
 
             self.frame_buffer[fb_idx] = rgba_color;
         }
