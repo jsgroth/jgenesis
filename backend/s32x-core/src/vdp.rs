@@ -11,6 +11,7 @@ use jgenesis_common::frontend::{Color, FrameSize, PixelAspectRatio, Renderer, Ti
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::cmp;
+use std::collections::VecDeque;
 use std::ops::{Deref, DerefMut, Range};
 
 const MCLK_CYCLES_PER_SCANLINE: u64 = genesis_core::vdp::MCLK_CYCLES_PER_SCANLINE;
@@ -99,8 +100,9 @@ struct State {
     scanlines_in_current_frame: u16,
     h_interrupt_counter: u16,
     display_frame_buffer: SelectedFrameBuffer,
-    // 7 * SH-2 cycles
     auto_fill_mclk_remaining: u64,
+    fb_write_timing_fifo: VecDeque<u64>,
+    last_fb_write_cycles: u64,
 }
 
 impl State {
@@ -113,6 +115,8 @@ impl State {
             h_interrupt_counter: 0,
             display_frame_buffer: SelectedFrameBuffer::default(),
             auto_fill_mclk_remaining: 0,
+            fb_write_timing_fifo: VecDeque::with_capacity(4),
+            last_fb_write_cycles: 0,
         }
     }
 }
@@ -478,6 +482,44 @@ impl Vdp {
         if lsb != 0 {
             frame_buffer[frame_buffer_addr].set_lsb(lsb);
         }
+    }
+
+    #[must_use]
+    pub fn frame_buffer_write_latency(&mut self, cycles: u64) -> u64 {
+        if cycles <= self.state.last_fb_write_cycles {
+            // Can happen if both SH-2s are writing to the frame buffer simultaneously
+            // Just ignore and return minimum latency
+            return 1;
+        }
+
+        // Progress times in FIFO
+        let cycle_diff = cycles - self.state.last_fb_write_cycles;
+        for _ in 0..cycle_diff {
+            let Some(front) = self.state.fb_write_timing_fifo.front_mut() else { break };
+
+            *front -= 1;
+            if *front == 0 {
+                self.state.fb_write_timing_fifo.pop_front();
+            }
+        }
+
+        // VDP can only accept 1 write every 4 cycles
+        let initial_write_time = if cycle_diff < 3 { 3 - (cycle_diff - 1) } else { 1 };
+
+        // If the 4-entry FIFO is full, must wait for an empty slot
+        let fifo_wait_time = if self.state.fb_write_timing_fifo.len() == 4 {
+            1 + self.state.fb_write_timing_fifo.pop_front().unwrap()
+        } else {
+            0
+        };
+
+        let wait_cycles = cmp::max(initial_write_time, fifo_wait_time);
+        debug_assert!((1..=5).contains(&wait_cycles));
+
+        self.state.fb_write_timing_fifo.push_back(5);
+        self.state.last_fb_write_cycles = cycles + wait_cycles - 1;
+
+        wait_cycles
     }
 
     pub fn read_cram(&self, address: u32) -> u16 {

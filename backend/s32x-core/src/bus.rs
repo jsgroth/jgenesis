@@ -973,62 +973,55 @@ impl Sh2Bus<'_, '_> {
 
     // $04000000-$05FFFFFF: Frame buffer
     fn write_byte_04(&mut self, address: u32, value: u8) {
-        self.cycle_counter += 1;
-
-        if self.s32x_bus.registers.vdp_access == Access::Sh2 {
-            // Treat normal mapping and overwrite image identically because 0 bytes are never
-            // written in either case
-            self.s32x_bus.vdp.write_frame_buffer_byte(address, value);
-        } else {
-            log::warn!("Frame buffer write with FM=0: {address:08X} {value:02X}");
+        if self.s32x_bus.registers.vdp_access != Access::Sh2 {
+            log::warn!("Frame buffer write with FM=0: {address:08X} {value:04X}");
+            return;
         }
+
+        self.cycle_counter += self.s32x_bus.vdp.frame_buffer_write_latency(self.cycle_counter);
+
+        // Treat normal mapping and overwrite image identically because 0 bytes are never
+        // written in either case
+        self.s32x_bus.vdp.write_frame_buffer_byte(address, value);
     }
 
     // $04000000-$05FFFFFF: Frame buffer
     fn write_word_04(&mut self, address: u32, value: u16) {
-        self.cycle_counter += 1;
+        if self.s32x_bus.registers.vdp_access != Access::Sh2 {
+            log::warn!("Frame buffer write with FM=0: {address:08X} {value:04X}");
+            return;
+        }
+
+        self.cycle_counter += self.s32x_bus.vdp.frame_buffer_write_latency(self.cycle_counter);
 
         if address & 0x20000 == 0 {
             // Normal frame buffer mapping
-            if self.s32x_bus.registers.vdp_access == Access::Sh2 {
-                self.s32x_bus.vdp.write_frame_buffer_word(address, value);
-            } else {
-                log::warn!("Frame buffer write with FM=0: {address:08X} {value:04X}");
-            }
+            self.s32x_bus.vdp.write_frame_buffer_word(address, value);
         } else {
             // Overwrite image
-            if self.s32x_bus.registers.vdp_access == Access::Sh2 {
-                self.s32x_bus.vdp.frame_buffer_overwrite_word(address, value);
-            } else {
-                log::warn!(
-                    "Frame buffer overwrite image write with FM=0: {address:08X} {value:04X}"
-                );
-            }
+            self.s32x_bus.vdp.frame_buffer_overwrite_word(address, value);
         }
     }
 
     // $04000000-$05FFFFFF: Frame buffer
     fn write_longword_04(&mut self, address: u32, value: u32) {
-        self.cycle_counter += 2;
+        if self.s32x_bus.registers.vdp_access != Access::Sh2 {
+            log::warn!("Frame buffer write with FM=0: {address:08X} {value:04X}");
+            return;
+        }
+
+        for _ in 0..2 {
+            self.cycle_counter += self.s32x_bus.vdp.frame_buffer_write_latency(self.cycle_counter);
+        }
 
         if address & 0x20000 == 0 {
             // Normal frame buffer mapping
-            if self.s32x_bus.registers.vdp_access == Access::Sh2 {
-                self.s32x_bus.vdp.write_frame_buffer_word(address, (value >> 16) as u16);
-                self.s32x_bus.vdp.write_frame_buffer_word(address | 2, value as u16);
-            } else {
-                log::warn!("Frame buffer write with FM=0: {address:08X} {value:08X}");
-            }
+            self.s32x_bus.vdp.write_frame_buffer_word(address, (value >> 16) as u16);
+            self.s32x_bus.vdp.write_frame_buffer_word(address | 2, value as u16);
         } else {
             // Overwrite image
-            if self.s32x_bus.registers.vdp_access == Access::Sh2 {
-                self.s32x_bus.vdp.frame_buffer_overwrite_word(address, (value >> 16) as u16);
-                self.s32x_bus.vdp.frame_buffer_overwrite_word(address | 2, value as u16);
-            } else {
-                log::warn!(
-                    "Frame buffer overwrite image write with FM=0: {address:08X} {value:08X}"
-                );
-            }
+            self.s32x_bus.vdp.frame_buffer_overwrite_word(address, (value >> 16) as u16);
+            self.s32x_bus.vdp.frame_buffer_overwrite_word(address | 2, value as u16);
         }
     }
 
