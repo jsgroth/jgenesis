@@ -22,8 +22,8 @@ macro_rules! define_bit_enum {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum BgMode {
     #[default]
-    Zero, // 4 tile map BGs
-    One,   // 2 tile map BGs + 1 affine BG
+    Zero, // 4 text mode BGs
+    One,   // 2 text mode BGs + 1 affine BG
     Two,   // 2 affine BGs
     Three, // 15bpp bitmap, one frame buffer
     Four,  // 8bpp bitmap, two frame buffers
@@ -56,20 +56,51 @@ impl BgMode {
             _ => unreachable!("value & 7 is always <= 7"),
         }
     }
+
+    #[allow(clippy::manual_range_patterns)]
+    pub fn bg_active_in_mode(self, bg: usize) -> bool {
+        matches!(
+            (self, bg),
+            (BgMode::Zero, _)
+                | (BgMode::One, 0 | 1 | 2)
+                | (BgMode::Two, 2 | 3)
+                | (BgMode::Three | BgMode::Four | BgMode::Five, 2)
+        )
+    }
 }
 
 define_bit_enum!(BitmapFrameBuffer, [Zero, One]);
+
+impl BitmapFrameBuffer {
+    pub fn vram_address(self) -> u32 {
+        match self {
+            Self::Zero => 0x00000,
+            Self::One => 0x09000,
+        }
+    }
+}
+
 define_bit_enum!(ObjVramMapDimensions, [Two, One]);
 define_bit_enum!(BitsPerPixel, [Four, Eight]);
+
+impl BitsPerPixel {
+    pub fn tile_size_bytes(self) -> u32 {
+        match self {
+            Self::Four => 32,
+            Self::Eight => 64,
+        }
+    }
+}
+
 define_bit_enum!(AffineOverflowBehavior, [Transparent, Wrap]);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum ScreenSize {
     #[default]
-    Zero = 0, // 256x256 tile map / 128x128 affine
-    One = 1,   // 512x256 tile map / 256x256 affine
-    Two = 2,   // 256x512 tile map / 512x512 affine
-    Three = 3, // 512x512 tile map / 1024x1024 affine
+    Zero = 0, // 256x256 text / 128x128 affine
+    One = 1,   // 512x256 text / 256x256 affine
+    Two = 2,   // 256x512 text / 512x512 affine
+    Three = 3, // 512x512 text / 1024x1024 affine
 }
 
 impl ScreenSize {
@@ -83,28 +114,36 @@ impl ScreenSize {
         }
     }
 
-    pub fn tile_map_width_pixels(self) -> u32 {
+    pub fn text_width_pixels(self) -> u32 {
         match self {
             Self::Zero | Self::Two => 256,
             Self::One | Self::Three => 512,
         }
     }
 
-    pub fn tile_map_height_pixels(self) -> u32 {
+    pub fn text_width_tiles(self) -> u32 {
+        self.text_width_pixels() / 8
+    }
+
+    pub fn text_height_pixels(self) -> u32 {
         match self {
             Self::Zero | Self::One => 256,
             Self::Two | Self::Three => 512,
         }
+    }
+
+    pub fn text_height_tiles(self) -> u32 {
+        self.text_height_pixels() / 8
     }
 }
 
 #[derive(Debug, Clone, Copy, Default, Encode, Decode)]
 pub struct BgControl {
     pub priority: u8,
-    pub tile_data_addr: u16,
+    pub tile_data_addr: u32,
     pub mosaic: bool,
     pub bpp: BitsPerPixel,
-    pub tile_map_addr: u16,
+    pub tile_map_addr: u32,
     pub affine_overflow: AffineOverflowBehavior,
     pub size: ScreenSize,
 }
@@ -112,10 +151,10 @@ pub struct BgControl {
 impl BgControl {
     fn read(&self) -> u16 {
         u16::from(self.priority)
-            | ((self.tile_data_addr >> 14) << 2)
+            | (((self.tile_data_addr as u16) >> 14) << 2)
             | (u16::from(self.mosaic) << 6)
             | ((self.bpp as u16) << 7)
-            | ((self.tile_map_addr >> 11) << 8)
+            | (((self.tile_map_addr as u16) >> 11) << 8)
             | ((self.affine_overflow as u16) << 13)
             | ((self.size as u16) << 14)
     }
@@ -124,13 +163,13 @@ impl BgControl {
         self.priority = (value & 3) as u8;
 
         let tile_data_addr_16kb = (value >> 2) & 3;
-        self.tile_data_addr = tile_data_addr_16kb << 14;
+        self.tile_data_addr = (tile_data_addr_16kb << 14).into();
 
         self.mosaic = value.bit(6);
         self.bpp = BitsPerPixel::from_bit(value.bit(7));
 
         let tile_map_addr_2kb = (value >> 8) & 0x1F;
-        self.tile_map_addr = tile_map_addr_2kb << 11;
+        self.tile_map_addr = (tile_map_addr_2kb << 11).into();
 
         self.affine_overflow = AffineOverflowBehavior::from_bit(value.bit(13));
         self.size = ScreenSize::from_bits(value >> 14);
@@ -194,9 +233,9 @@ pub struct Registers {
     // BGxCNT (BG0-3 control)
     pub bg_control: [BgControl; 4],
     // BGxHOFS (BG0-3 horizontal offset)
-    pub bg_h_scroll: [u16; 4],
+    pub bg_h_scroll: [u32; 4],
     // BGxVOFS (BG0-3 vertical offset)
-    pub bg_v_scroll: [u16; 4],
+    pub bg_v_scroll: [u32; 4],
     // BG2/3 affine registers
     pub bg_affine_parameters: [BgAffineParameters; 2],
     // WINxH (Window horizontal coordinates)
@@ -362,14 +401,14 @@ impl Registers {
 
     // $4000010/$4000014/$4000018/$400001C: BG1HOFS/BG2HOFS/BG3HOFS/BG4HOFS (BG0-3 horizontal offset)
     pub fn write_bghofs(&mut self, index: usize, value: u16) {
-        self.bg_h_scroll[index] = value & 0x1FF;
+        self.bg_h_scroll[index] = (value & 0x1FF).into();
 
         log::debug!("BG{index}HOFS write: {value:04X}");
     }
 
     // $4000012/$4000016/$400001A/$400001E: BG1VOFS/BG2VOFS/BG3VOFS/BG4VOFS (BG0-3 vertical offset)
     pub fn write_bgvofs(&mut self, index: usize, value: u16) {
-        self.bg_v_scroll[index] = value & 0x1FF;
+        self.bg_v_scroll[index] = (value & 0x1FF).into();
 
         log::debug!("BG{index}VOFS write: {value:04X}");
     }

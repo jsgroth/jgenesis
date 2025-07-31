@@ -3,11 +3,12 @@
 mod registers;
 
 use crate::interrupts::{InterruptRegisters, InterruptType};
-use crate::ppu::registers::{BgMode, BitmapFrameBuffer, Registers, ScreenSize};
+use crate::ppu::registers::{BgMode, BitsPerPixel, Registers};
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::{BoxedByteArray, BoxedWordArray};
 use jgenesis_common::frontend::{Color, FrameSize};
 use jgenesis_common::num::GetBit;
+use std::array;
 use std::ops::Range;
 
 const VRAM_LOW_LEN: usize = 64 * 1024;
@@ -63,6 +64,71 @@ impl State {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
+struct Pixel(u16);
+
+impl Pixel {
+    const TRANSPARENT: Self = Self(0);
+
+    fn transparent(self) -> bool {
+        !self.0.bit(15)
+    }
+
+    fn red(self) -> u16 {
+        self.0 & 0x1F
+    }
+
+    fn green(self) -> u16 {
+        (self.0 >> 5) & 0x1F
+    }
+
+    fn blue(self) -> u16 {
+        (self.0 >> 10) & 0x1F
+    }
+
+    fn new_opaque(color: u16) -> Self {
+        Self(color | 0x8000)
+    }
+
+    fn new_transparent(color: u16) -> Self {
+        Self(color & 0x7FFF)
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+struct Buffers {
+    bg_pixels: [[Pixel; SCREEN_WIDTH as usize]; 4],
+    obj_pixels: [Pixel; SCREEN_WIDTH as usize],
+    obj_priority: [u8; SCREEN_WIDTH as usize],
+    obj_semi_transparent: [bool; SCREEN_WIDTH as usize],
+}
+
+impl Buffers {
+    fn new() -> Self {
+        Self {
+            bg_pixels: array::from_fn(|_| array::from_fn(|_| Pixel::default())),
+            obj_pixels: array::from_fn(|_| Pixel::default()),
+            obj_priority: array::from_fn(|_| u8::MAX),
+            obj_semi_transparent: array::from_fn(|_| false),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Layer {
+    Bg0,
+    Bg1,
+    Bg2,
+    Bg3,
+    Obj,
+    Backdrop,
+    None,
+}
+
+impl Layer {
+    const BG: [Self; 4] = [Self::Bg0, Self::Bg1, Self::Bg2, Self::Bg3];
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Ppu {
     frame_buffer: FrameBuffer,
@@ -71,6 +137,7 @@ pub struct Ppu {
     oam: BoxedWordArray<OAM_LEN_HALFWORDS>,
     registers: Registers,
     state: State,
+    buffers: Box<Buffers>,
     cycles: u64,
 }
 
@@ -83,6 +150,7 @@ impl Ppu {
             oam: BoxedWordArray::new(),
             registers: Registers::new(),
             state: State::new(),
+            buffers: Box::new(Buffers::new()),
             cycles: 0,
         }
     }
@@ -97,8 +165,14 @@ impl Ppu {
     }
 
     fn tick(&mut self, interrupts: &mut InterruptRegisters) {
+        // Arbitrary dot around the middle of the line
+        const RENDER_DOT: u32 = 526;
+
         self.state.dot += 1;
-        if self.state.dot == DOTS_PER_LINE {
+        if self.state.dot == RENDER_DOT {
+            self.render_current_line();
+            self.render_next_sprite_line();
+        } else if self.state.dot == DOTS_PER_LINE {
             self.state.dot = 0;
 
             self.state.scanline += 1;
@@ -107,16 +181,6 @@ impl Ppu {
             } else if self.state.scanline == SCREEN_HEIGHT {
                 if self.registers.vblank_irq_enabled {
                     interrupts.set_flag(InterruptType::VBlank);
-                }
-
-                match self.registers.bg_mode {
-                    BgMode::Zero => self.render_frame_mode_0(),
-                    BgMode::Three => self.render_frame_mode_3(),
-                    BgMode::Four => self.render_frame_mode_4(),
-                    mode => {
-                        log::warn!("BG mode {mode:?} not implemented");
-                        self.render_frame_mode_3();
-                    }
                 }
 
                 self.state.frame_complete = true;
@@ -132,114 +196,305 @@ impl Ppu {
         }
     }
 
-    fn render_frame_mode_0(&mut self) {
-        let backdrop = gba_color_to_rgb8(self.palette_ram[0]);
+    fn render_current_line(&mut self) {
+        if self.state.scanline >= SCREEN_HEIGHT {
+            return;
+        }
 
-        for line in 0..SCREEN_HEIGHT {
-            for pixel in 0..SCREEN_WIDTH {
-                let mut min_priority = 4;
-                let mut color = backdrop;
+        if self.registers.forced_blanking {
+            self.clear_current_line();
+            return;
+        }
 
+        self.render_bg_layers();
+
+        self.merge_layers();
+    }
+
+    fn clear_current_line(&mut self) {
+        const WHITE: Color = Color::rgb(255, 255, 255);
+
+        for pixel in 0..SCREEN_WIDTH {
+            self.frame_buffer.set(self.state.scanline, pixel, WHITE);
+        }
+    }
+
+    fn render_bg_layers(&mut self) {
+        match self.registers.bg_mode {
+            BgMode::Zero => {
+                // BG0-3 in text mode
                 for bg in 0..4 {
-                    if !self.registers.bg_enabled[bg] {
-                        continue;
-                    }
+                    self.render_text_bg(bg);
+                }
+            }
+            BgMode::One => {
+                // BG0-1 in text mode, BG2 in affine mode
+                for bg in 0..2 {
+                    self.render_text_bg(bg);
+                }
+                // TODO affine BG2
+            }
+            BgMode::Two => {
+                // BG2-3 in affine mode
+                // TODO affine BG2-3
+            }
+            BgMode::Three => {
+                // Bitmap mode: 240x160, 15bpp, single frame buffer
+                self.render_bg_mode_3();
+            }
+            BgMode::Four => {
+                // Bitmap mode: 240x160, 8bpp, two frame buffers
+                self.render_bg_mode_4();
+            }
+            BgMode::Five => {
+                // Bitmap mode: 160x128, 15bpp, two frame buffers
+                self.render_bg_mode_5();
+            }
+            BgMode::Invalid(_) => {}
+        }
+    }
 
-                    let bg_control = &self.registers.bg_control[bg];
-                    if bg_control.priority >= min_priority {
-                        continue;
-                    }
+    fn render_text_bg(&mut self, bg: usize) {
+        self.buffers.bg_pixels[bg].fill(Pixel::TRANSPARENT);
 
-                    let y = line + u32::from(self.registers.bg_v_scroll[bg]);
-                    let x = pixel + u32::from(self.registers.bg_h_scroll[bg]);
+        if !self.registers.bg_enabled[bg] {
+            return;
+        }
 
-                    let tile_map_width = bg_control.size.tile_map_width_pixels() / 8;
-                    let tile_map_height = bg_control.size.tile_map_height_pixels() / 8;
+        // TODO mosaic
 
-                    let mut tile_map_row = (y / 8) & (tile_map_height - 1);
-                    let mut tile_map_col = (x / 8) & (tile_map_width - 1);
+        let bg_control = &self.registers.bg_control[bg];
 
-                    let mut base_tile_map_addr = bg_control.tile_map_addr;
-                    if tile_map_row >= 32 {
-                        match bg_control.size {
-                            ScreenSize::Two => {
-                                base_tile_map_addr = base_tile_map_addr.wrapping_add(2 * 32 * 32);
-                            }
-                            _ => {
-                                base_tile_map_addr =
-                                    base_tile_map_addr.wrapping_add(2 * 2 * 32 * 32);
-                            }
+        let width_tiles = bg_control.size.text_width_tiles();
+        let width_screens = width_tiles / 32;
+        let height_tiles = bg_control.size.text_height_tiles();
+
+        let h_scroll = self.registers.bg_h_scroll[bg];
+        let fine_h_scroll = h_scroll % 8;
+        let coarse_h_scroll = h_scroll / 8;
+
+        let v_scroll = self.registers.bg_v_scroll[bg];
+        let scrolled_line = self.state.scanline + v_scroll;
+        let (tile_map_row, screen_map_row) = {
+            let tile_map_row = (scrolled_line / 8) & (height_tiles - 1);
+            let screen_map_row = tile_map_row / 32;
+            (tile_map_row % 32, screen_map_row)
+        };
+        let tile_row = scrolled_line % 8;
+
+        let tile_size_bytes = bg_control.bpp.tile_size_bytes();
+
+        let end_tile = if fine_h_scroll != 0 { SCREEN_WIDTH / 8 + 1 } else { SCREEN_WIDTH / 8 };
+
+        for tile_idx in 0..end_tile {
+            let base_pixel = (8 * tile_idx) as i32 - fine_h_scroll as i32;
+
+            let (tile_map_col, screen_map_col) = {
+                let tile_map_col = (tile_idx + coarse_h_scroll) & (width_tiles - 1);
+                let screen_map_col = tile_map_col / 32;
+                (tile_map_col % 32, screen_map_col)
+            };
+
+            let screen_idx = screen_map_row * width_screens + screen_map_col;
+            let screen_addr = bg_control.tile_map_addr + screen_idx * 2 * 32 * 32;
+
+            let tile_map_addr = screen_addr + 2 * (tile_map_row * 32 + tile_map_col);
+            let tile_map_entry = if tile_map_addr <= 0xFFFF {
+                u16::from_le_bytes([
+                    self.vram[tile_map_addr as usize],
+                    self.vram[(tile_map_addr + 1) as usize],
+                ])
+            } else {
+                // TODO should read VRAM open bus?
+                0
+            };
+
+            let tile_number: u32 = (tile_map_entry & 0x3FF).into();
+            let h_flip = tile_map_entry.bit(10);
+            let v_flip = tile_map_entry.bit(11);
+            let palette = tile_map_entry >> 12;
+
+            let tile_base_addr = bg_control.tile_data_addr + tile_number * tile_size_bytes;
+            let tile_row = if v_flip { 7 - tile_row } else { tile_row };
+
+            match bg_control.bpp {
+                BitsPerPixel::Four => {
+                    let tile_row_addr = tile_base_addr + tile_row * 4;
+
+                    for pixel_idx in 0..8 {
+                        let pixel = pixel_idx as i32 + base_pixel;
+                        if !(0..SCREEN_WIDTH as i32).contains(&pixel) {
+                            continue;
                         }
-                        tile_map_row %= 32;
+                        let pixel = pixel as usize;
+
+                        let tile_col = if h_flip { 7 - pixel_idx } else { pixel_idx };
+                        let tile_addr = tile_row_addr + (tile_col >> 1);
+
+                        let tile_byte = if tile_addr <= 0xFFFF {
+                            self.vram[tile_addr as usize]
+                        } else {
+                            // TODO should read VRAM open bus?
+                            0
+                        };
+
+                        let color_id = (tile_byte >> (4 * (tile_col & 1))) & 0xF;
+                        if color_id == 0 {
+                            // Transparent pixel
+                            continue;
+                        }
+
+                        let palette_ram_addr = 16 * palette + u16::from(color_id);
+                        let color = self.palette_ram[palette_ram_addr as usize];
+                        self.buffers.bg_pixels[bg][pixel] = Pixel::new_opaque(color);
                     }
+                }
+                BitsPerPixel::Eight => {
+                    todo!("8bpp BG")
+                }
+            }
+        }
+    }
 
-                    if tile_map_col >= 32 {
-                        base_tile_map_addr = base_tile_map_addr.wrapping_add(2 * 32 * 32);
-                        tile_map_col %= 32;
-                    }
+    fn render_bg_mode_3(&mut self) {
+        if !self.registers.bg_enabled[2] {
+            self.buffers.bg_pixels[2].fill(Pixel::TRANSPARENT);
+            return;
+        }
 
-                    let tile_map_offset = 32 * tile_map_row + tile_map_col;
-                    let tile_map_addr =
-                        base_tile_map_addr.wrapping_add((2 * tile_map_offset) as u16) as usize;
-                    let tile = u16::from_le_bytes([
-                        self.vram[tile_map_addr],
-                        self.vram[tile_map_addr + 1],
-                    ]);
+        // TODO BG2 can be affine
+        // TODO mosaic
 
-                    let tile_number = tile & 0x3FF;
-                    let h_flip = tile.bit(10);
-                    let v_flip = tile.bit(11);
-                    let palette = (tile >> 12) as u8;
+        let line_addr = self.state.scanline * 2 * SCREEN_WIDTH;
 
-                    let base_tile_addr =
-                        bg_control.tile_data_addr.wrapping_add(32 * tile_number) as usize;
+        for pixel in 0..SCREEN_WIDTH {
+            let pixel_addr = (line_addr + 2 * pixel) as usize;
+            let color = u16::from_le_bytes([self.vram[pixel_addr], self.vram[pixel_addr + 1]]);
+            self.buffers.bg_pixels[2][pixel as usize] = Pixel::new_opaque(color);
+        }
+    }
 
-                    let tile_row = if v_flip { 7 - (y & 7) } else { y & 7 };
-                    let tile_col = if h_flip { 7 - (x & 7) } else { x & 7 };
-                    let tile_offset = (8 * tile_row + tile_col) as usize;
-                    let tile_addr = base_tile_addr + (tile_offset >> 1);
+    fn render_bg_mode_4(&mut self) {
+        self.buffers.bg_pixels[2].fill(Pixel::TRANSPARENT);
 
-                    let color_id = (self.vram[tile_addr] >> (4 * (tile_offset & 1))) & 0xF;
-                    if color_id == 0 {
-                        continue;
-                    }
+        if !self.registers.bg_enabled[2] {
+            return;
+        }
 
-                    min_priority = bg_control.priority;
-                    color = gba_color_to_rgb8(self.palette_ram[(16 * palette + color_id) as usize]);
+        // TODO BG2 can be affine
+        // TODO mosaic
+
+        let fb_addr = self.registers.bitmap_frame_buffer.vram_address();
+        let line_addr = fb_addr + self.state.scanline * SCREEN_WIDTH;
+
+        for pixel in 0..SCREEN_WIDTH {
+            let pixel_addr = (line_addr + pixel) as usize;
+            let color_id = self.vram[pixel_addr];
+
+            if color_id != 0 {
+                let color = self.palette_ram[color_id as usize];
+                self.buffers.bg_pixels[2][pixel as usize] = Pixel::new_opaque(color);
+            }
+        }
+    }
+
+    fn render_bg_mode_5(&mut self) {
+        const MODE_5_WIDTH: u32 = 160;
+        const MODE_5_HEIGHT: u32 = 128;
+
+        self.buffers.bg_pixels[2].fill(Pixel::TRANSPARENT);
+
+        if !self.registers.bg_enabled[2] {
+            return;
+        }
+
+        // TODO BG2 can be affine
+        // TODO mosaic
+
+        if self.state.scanline >= MODE_5_HEIGHT {
+            return;
+        }
+
+        let fb_addr = self.registers.bitmap_frame_buffer.vram_address();
+        let line_addr = fb_addr + self.state.scanline * 2 * MODE_5_WIDTH;
+
+        for pixel in 0..MODE_5_WIDTH {
+            let pixel_addr = (line_addr + 2 * pixel) as usize;
+            let color = u16::from_le_bytes([self.vram[pixel_addr], self.vram[pixel_addr + 1]]);
+            self.buffers.bg_pixels[2][pixel as usize] = Pixel::new_opaque(color);
+        }
+    }
+
+    fn merge_layers(&mut self) {
+        let backdrop_color = Pixel::new_transparent(self.palette_ram[0]);
+
+        // TODO windows
+
+        let bg_enabled: [bool; 4] = array::from_fn(|bg| {
+            self.registers.bg_enabled[bg] && self.registers.bg_mode.bg_active_in_mode(bg)
+        });
+
+        for pixel in 0..SCREEN_WIDTH {
+            let mut first_color = backdrop_color;
+            let mut first_layer = Layer::Backdrop;
+            let mut first_priority = u8::MAX;
+
+            let mut second_color = Pixel::TRANSPARENT;
+            let mut second_layer = Layer::None;
+            let mut second_priority = u8::MAX;
+
+            let mut check_pixel = |color: Pixel, layer: Layer, priority: u8| {
+                if color.transparent() {
+                    return;
                 }
 
-                self.frame_buffer.set(line, pixel, color);
+                if first_color.transparent() || priority < first_priority {
+                    second_color = first_color;
+                    second_layer = first_layer;
+                    second_priority = first_priority;
+
+                    first_color = color;
+                    first_layer = layer;
+                    first_priority = priority;
+
+                    return;
+                }
+
+                if second_color.transparent() || priority < second_priority {
+                    second_color = color;
+                    second_layer = layer;
+                    second_priority = priority;
+                }
+            };
+
+            if self.registers.obj_enabled {
+                check_pixel(
+                    self.buffers.obj_pixels[pixel as usize],
+                    Layer::Obj,
+                    self.buffers.obj_priority[pixel as usize],
+                );
             }
+
+            for (bg, enabled) in bg_enabled.into_iter().enumerate() {
+                if !enabled {
+                    continue;
+                }
+
+                check_pixel(
+                    self.buffers.bg_pixels[bg][pixel as usize],
+                    Layer::BG[bg],
+                    self.registers.bg_control[bg].priority,
+                );
+            }
+
+            // TODO blending
+
+            self.frame_buffer.set(self.state.scanline, pixel, gba_color_to_rgb8(first_color));
         }
     }
 
-    fn render_frame_mode_3(&mut self) {
-        for line in 0..SCREEN_HEIGHT {
-            for pixel in 0..SCREEN_WIDTH {
-                let vram_addr = (2 * (line * SCREEN_WIDTH + pixel)) as usize;
-                let gba_color =
-                    u16::from_le_bytes([self.vram[vram_addr], self.vram[vram_addr + 1]]);
-                let rgb8_color = gba_color_to_rgb8(gba_color);
-                self.frame_buffer.set(line, pixel, rgb8_color);
-            }
-        }
-    }
-
-    fn render_frame_mode_4(&mut self) {
-        let base_addr = match self.registers.bitmap_frame_buffer {
-            BitmapFrameBuffer::Zero => 0x0000,
-            BitmapFrameBuffer::One => 0xA000,
-        };
-
-        for line in 0..SCREEN_HEIGHT {
-            for pixel in 0..SCREEN_WIDTH {
-                let vram_addr = base_addr + (line * SCREEN_WIDTH + pixel) as usize;
-                let color_id = self.vram[vram_addr];
-                let gba_color = self.palette_ram[color_id as usize];
-                let rgb8_color = gba_color_to_rgb8(gba_color);
-                self.frame_buffer.set(line, pixel, rgb8_color);
-            }
-        }
+    fn render_next_sprite_line(&mut self) {
+        // TODO implement
     }
 
     pub fn frame_complete(&self) -> bool {
@@ -256,7 +511,7 @@ impl Ppu {
 
     fn mask_vram_address(address: u32) -> usize {
         let vram_addr = (address as usize) & VRAM_ADDR_MASK & !1;
-        if vram_addr >= 0x10000 { 0x10000 | (vram_addr & 0x7FFF) } else { vram_addr }
+        if vram_addr & 0x10000 != 0 { 0x10000 | (vram_addr & 0x7FFF) } else { vram_addr }
     }
 
     pub fn read_vram(&self, address: u32) -> u16 {
@@ -267,6 +522,14 @@ impl Ppu {
     pub fn write_vram(&mut self, address: u32, value: u16) {
         let vram_addr = Self::mask_vram_address(address);
         self.vram[vram_addr..vram_addr + 2].copy_from_slice(&value.to_le_bytes());
+
+        if !(self.in_vblank() || self.in_hblank() || self.registers.forced_blanking) {
+            log::debug!(
+                "VRAM write to {address:08X} during active rendering (line {} dot {})",
+                self.state.scanline,
+                self.state.dot
+            );
+        }
     }
 
     pub fn read_palette_ram(&self, address: u32) -> u16 {
@@ -277,6 +540,14 @@ impl Ppu {
     pub fn write_palette_ram(&mut self, address: u32, value: u16) {
         let palette_ram_addr = ((address >> 1) as usize) & (PALETTE_RAM_LEN_HALFWORDS - 1);
         self.palette_ram[palette_ram_addr] = value;
+
+        if !(self.in_vblank() || self.in_hblank() || self.registers.forced_blanking) {
+            log::debug!(
+                "Palette RAM write to {address:08X} during active rendering (line {} dot {})",
+                self.state.scanline,
+                self.state.dot
+            );
+        }
     }
 
     pub fn read_oam(&self, address: u32) -> u16 {
@@ -285,8 +556,22 @@ impl Ppu {
     }
 
     pub fn write_oam(&mut self, address: u32, value: u16) {
+        // Dots when OAM is in use when the "OAM free during HBlank" bit is set (DISPCNT bit 5)
+        const OAM_USE_DOTS: Range<u32> = 40..1006;
+
         let oam_addr = ((address >> 1) as usize) & (OAM_LEN_HALFWORDS - 1);
         self.oam[oam_addr] = value;
+
+        if !(self.in_vblank()
+            || (self.registers.oam_free_during_hblank && OAM_USE_DOTS.contains(&self.state.dot))
+            || self.registers.forced_blanking)
+        {
+            log::debug!(
+                "OAM write to {address:08X} during active rendering (line {} dot {})",
+                self.state.scanline,
+                self.state.dot
+            );
+        }
     }
 
     pub fn read_register(&self, address: u32) -> u16 {
@@ -313,8 +598,8 @@ impl Ppu {
 
     // $4000004: DISPSTAT (Display status)
     fn read_dispstat(&self) -> u16 {
-        let in_vblank = VBLANK_LINES.contains(&self.state.scanline);
-        let in_hblank = self.state.dot >= HBLANK_START_DOT;
+        let in_vblank = self.in_vblank();
+        let in_hblank = self.in_hblank();
         let v_counter_match = (self.state.scanline as u8) == self.registers.v_counter_match;
 
         u16::from(in_vblank)
@@ -324,6 +609,14 @@ impl Ppu {
             | (u16::from(self.registers.hblank_irq_enabled) << 4)
             | (u16::from(self.registers.v_counter_irq_enabled) << 5)
             | (u16::from(self.registers.v_counter_match) << 8)
+    }
+
+    fn in_vblank(&self) -> bool {
+        VBLANK_LINES.contains(&self.state.scanline)
+    }
+
+    fn in_hblank(&self) -> bool {
+        self.state.dot >= HBLANK_START_DOT
     }
 
     pub fn write_register(&mut self, address: u32, value: u16) {
@@ -364,10 +657,10 @@ impl Ppu {
     }
 }
 
-fn gba_color_to_rgb8(gba_color: u16) -> Color {
+fn gba_color_to_rgb8(gba_color: Pixel) -> Color {
     Color::rgb(
-        RGB_5_TO_8[(gba_color & 0x1F) as usize],
-        RGB_5_TO_8[((gba_color >> 5) & 0x1F) as usize],
-        RGB_5_TO_8[((gba_color >> 10) & 0x1F) as usize],
+        RGB_5_TO_8[gba_color.red() as usize],
+        RGB_5_TO_8[gba_color.green() as usize],
+        RGB_5_TO_8[gba_color.blue() as usize],
     )
 }
