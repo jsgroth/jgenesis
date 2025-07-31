@@ -1,4 +1,4 @@
-# 0.10.2
+# 0.11.0
 
 ## New Features
 * (**Genesis**) Added an option to ignore configured aspect ratio and display square pixels when the VDP is in H40/H320px mode (#442)

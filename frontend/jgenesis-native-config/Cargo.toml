@@ -1,6 +1,6 @@
 [package]
 name = "jgenesis-native-config"
-version = "0.10.2"
+version = "0.11.0"
 edition = "2024"
 
 [features]
