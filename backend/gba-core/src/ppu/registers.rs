@@ -499,6 +499,18 @@ impl Registers {
         log::debug!("  X2: {}", self.window_x2[window]);
     }
 
+    pub fn write_winh_low(&mut self, window: usize, value: u8) {
+        self.window_x2[window] = value.into();
+
+        log::debug!("WIN{window}H_L write: {value:02X}");
+    }
+
+    pub fn write_winh_high(&mut self, window: usize, value: u8) {
+        self.window_x1[window] = value.into();
+
+        log::debug!("WIN{window}H_H write: {value:02X}");
+    }
+
     // $4000044/$4000046: WIN0V/WIN1V (Window 0/1 vertical coordinates)
     pub fn write_winv(&mut self, window: usize, value: u16) {
         [self.window_y1[window], self.window_y2[window]] = value.to_be_bytes().map(u32::from);
@@ -506,6 +518,18 @@ impl Registers {
         log::debug!("WIN{window}V write: {value:04X}");
         log::debug!("  Y1: {}", self.window_y1[window]);
         log::debug!("  Y2: {}", self.window_y2[window]);
+    }
+
+    pub fn write_winv_low(&mut self, window: usize, value: u8) {
+        self.window_y2[window] = value.into();
+
+        log::debug!("WIN{window}V_L write: {value:02X}");
+    }
+
+    pub fn write_winv_high(&mut self, window: usize, value: u8) {
+        self.window_y1[window] = value.into();
+
+        log::debug!("WIN{window}V_H write: {value:02X}");
     }
 
     // $4000048: WININ (Window inside control)

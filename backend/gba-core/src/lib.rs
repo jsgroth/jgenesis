@@ -5,6 +5,7 @@
 pub mod api;
 mod bus;
 mod cartridge;
+mod dma;
 mod input;
 mod interrupts;
 mod memory;

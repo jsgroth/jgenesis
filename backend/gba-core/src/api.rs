@@ -2,6 +2,7 @@
 
 use crate::bus::Bus;
 use crate::cartridge::Cartridge;
+use crate::dma::DmaState;
 use crate::interrupts::InterruptRegisters;
 use crate::memory::Memory;
 use crate::ppu;
@@ -62,6 +63,7 @@ pub struct GameBoyAdvanceEmulator {
     memory: Memory,
     #[partial_clone(partial)]
     cartridge: Cartridge,
+    dma: DmaState,
     interrupts: InterruptRegisters,
     bus_state: BusState,
     config: GbaEmulatorConfig,
@@ -79,6 +81,7 @@ impl GameBoyAdvanceEmulator {
         let mut ppu = Ppu::new();
         let mut memory = Memory::new(bios_rom)?;
         let mut cartridge = Cartridge::new(rom);
+        let mut dma = DmaState::new();
         let mut interrupts = InterruptRegisters::new();
 
         // TODO BIOS boot
@@ -96,13 +99,23 @@ impl GameBoyAdvanceEmulator {
                 ppu: &mut ppu,
                 memory: &mut memory,
                 cartridge: &mut cartridge,
+                dma: &mut dma,
                 interrupts: &mut interrupts,
                 inputs: &GbaInputs::default(),
                 state: BusState::new(),
             },
         );
 
-        Ok(Self { cpu, ppu, memory, cartridge, interrupts, bus_state: BusState::new(), config })
+        Ok(Self {
+            cpu,
+            ppu,
+            memory,
+            cartridge,
+            dma,
+            interrupts,
+            bus_state: BusState::new(),
+            config,
+        })
     }
 }
 
@@ -137,16 +150,19 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
             ppu: &mut self.ppu,
             memory: &mut self.memory,
             cartridge: &mut self.cartridge,
+            dma: &mut self.dma,
             interrupts: &mut self.interrupts,
             inputs,
             state: self.bus_state,
         };
 
-        self.cpu.execute_instruction(&mut bus);
+        if !bus.try_progress_dma() {
+            self.cpu.execute_instruction(&mut bus);
+        }
 
         self.bus_state = bus.state;
 
-        self.ppu.step_to(self.bus_state.cycles, &mut self.interrupts);
+        self.ppu.step_to(self.bus_state.cycles, &mut self.interrupts, &mut self.dma);
         if self.ppu.frame_complete() {
             self.ppu.clear_frame_complete();
 

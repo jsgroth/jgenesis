@@ -2,6 +2,7 @@
 
 mod registers;
 
+use crate::dma::DmaState;
 use crate::interrupts::{InterruptRegisters, InterruptType};
 use crate::ppu::registers::{
     BgMode, BitsPerPixel, ObjVramMapDimensions, Registers, Window, WindowEnabled,
@@ -9,9 +10,9 @@ use crate::ppu::registers::{
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::{BoxedByteArray, BoxedWordArray};
 use jgenesis_common::frontend::{Color, FrameSize};
-use jgenesis_common::num::GetBit;
-use std::array;
+use jgenesis_common::num::{GetBit, U16Ext};
 use std::ops::Range;
+use std::{array, cmp};
 
 const VRAM_LOW_LEN: usize = 64 * 1024;
 const VRAM_HIGH_LEN: usize = 32 * 1024;
@@ -287,44 +288,86 @@ impl Ppu {
         }
     }
 
-    pub fn step_to(&mut self, cycles: u64, interrupts: &mut InterruptRegisters) {
-        let tick_cycles = cycles - self.cycles;
+    pub fn step_to(
+        &mut self,
+        cycles: u64,
+        interrupts: &mut InterruptRegisters,
+        dma: &mut DmaState,
+    ) {
+        let elapsed_cycles = cycles - self.cycles;
         self.cycles = cycles;
 
-        for _ in 0..tick_cycles {
-            self.tick(interrupts);
-        }
+        self.tick(elapsed_cycles as u32, interrupts, dma);
     }
 
-    fn tick(&mut self, interrupts: &mut InterruptRegisters) {
-        // Arbitrary dot around the middle of the line
-        const RENDER_DOT: u32 = 526;
+    fn tick(
+        &mut self,
+        mut elapsed_cycles: u32,
+        interrupts: &mut InterruptRegisters,
+        dma: &mut DmaState,
+    ) {
+        fn render_line(ppu: &mut Ppu, _: &mut InterruptRegisters, _: &mut DmaState) {
+            ppu.render_current_line();
+            ppu.render_next_sprite_line();
+        }
 
-        self.state.dot += 1;
-        if self.state.dot == RENDER_DOT {
-            self.render_current_line();
-            self.render_next_sprite_line();
-        } else if self.state.dot == DOTS_PER_LINE {
-            self.state.dot = 0;
+        fn hblank_start(ppu: &mut Ppu, interrupts: &mut InterruptRegisters, dma: &mut DmaState) {
+            if !ppu.in_vblank() {
+                if ppu.registers.hblank_irq_enabled {
+                    interrupts.set_flag(InterruptType::HBlank);
+                }
 
-            self.state.scanline += 1;
-            if self.state.scanline == LINES_PER_FRAME {
-                self.state.scanline = 0;
-            } else if self.state.scanline == SCREEN_HEIGHT {
-                if self.registers.vblank_irq_enabled {
+                dma.notify_hblank_start();
+            }
+        }
+
+        fn end_of_line(ppu: &mut Ppu, interrupts: &mut InterruptRegisters, dma: &mut DmaState) {
+            ppu.state.dot = 0;
+
+            ppu.state.scanline += 1;
+            if ppu.state.scanline == LINES_PER_FRAME {
+                ppu.state.scanline = 0;
+            } else if ppu.state.scanline == SCREEN_HEIGHT {
+                if ppu.registers.vblank_irq_enabled {
                     interrupts.set_flag(InterruptType::VBlank);
                 }
 
-                self.state.frame_complete = true;
+                dma.notify_vblank_start();
+
+                ppu.state.frame_complete = true;
             }
 
-            if self.registers.v_counter_irq_enabled
-                && (self.state.scanline as u8) == self.registers.v_counter_match
+            if ppu.registers.v_counter_irq_enabled
+                && (ppu.state.scanline as u8) == ppu.registers.v_counter_match
             {
                 interrupts.set_flag(InterruptType::VCounter);
             }
-        } else if self.registers.hblank_irq_enabled && self.state.dot == HBLANK_START_DOT {
-            interrupts.set_flag(InterruptType::HBlank);
+        }
+
+        type EventFn = fn(&mut Ppu, &mut InterruptRegisters, &mut DmaState);
+
+        // Arbitrary dot around the middle of the line
+        const RENDER_DOT: u32 = 526;
+
+        const LINE_EVENTS: &[(u32, EventFn)] = &[
+            (RENDER_DOT, render_line),
+            (HBLANK_START_DOT, hblank_start),
+            (DOTS_PER_LINE, end_of_line),
+        ];
+
+        while elapsed_cycles != 0 {
+            let mut event_idx = 0;
+            while self.state.dot >= LINE_EVENTS[event_idx].0 {
+                event_idx += 1;
+            }
+
+            let change = cmp::min(elapsed_cycles, LINE_EVENTS[event_idx].0 - self.state.dot);
+            self.state.dot += change;
+            elapsed_cycles -= change;
+
+            if self.state.dot == LINE_EVENTS[event_idx].0 {
+                (LINE_EVENTS[event_idx].1)(self, interrupts, dma);
+            }
         }
     }
 
@@ -486,7 +529,33 @@ impl Ppu {
                     }
                 }
                 BitsPerPixel::Eight => {
-                    todo!("8bpp BG")
+                    let tile_row_addr = tile_base_addr + tile_row * 8;
+
+                    for pixel_idx in 0..8 {
+                        let pixel = pixel_idx as i32 + base_pixel;
+                        if !(0..SCREEN_WIDTH as i32).contains(&pixel) {
+                            continue;
+                        }
+                        let pixel = pixel as usize;
+
+                        let tile_col = if h_flip { 7 - pixel_idx } else { pixel_idx };
+                        let tile_addr = tile_row_addr + tile_col;
+
+                        let color_id = if tile_addr <= 0xFFFF {
+                            self.vram[tile_addr as usize]
+                        } else {
+                            // TODO should read VRAM open bus?
+                            0
+                        };
+
+                        if color_id == 0 {
+                            // Transparent pixel
+                            continue;
+                        }
+
+                        let color = self.palette_ram[color_id as usize];
+                        self.buffers.bg_pixels[bg][pixel] = Pixel::new_opaque(color);
+                    }
                 }
             }
         }
@@ -979,6 +1048,35 @@ impl Ppu {
             0x4000054 => self.registers.write_bldy(value),
             _ => {
                 log::warn!("Unhandled PPU register write {address:08X} {value:04X}");
+            }
+        }
+    }
+
+    pub fn write_register_byte(&mut self, address: u32, value: u8) {
+        // TODO BGxHOFS, BGxVOFS, MOSAIC, blend registers
+        match address {
+            0x4000000 | 0x4000004 | 0x4000008 | 0x400000A | 0x400000C | 0x400000E | 0x4000048
+            | 0x400004A | 0x4000050 | 0x4000052 => {
+                let mut halfword = self.read_register(address);
+                halfword.set_lsb(value);
+                self.write_register(address, halfword);
+            }
+            0x4000001 | 0x4000005 | 0x4000009 | 0x400000B | 0x400000D | 0x400000F | 0x4000049
+            | 0x400004B | 0x4000051 | 0x4000053 => {
+                let mut halfword = self.read_register(address & !1);
+                halfword.set_msb(value);
+                self.write_register(address & !1, halfword);
+            }
+            0x4000040 => self.registers.write_winh_low(0, value),
+            0x4000041 => self.registers.write_winh_high(0, value),
+            0x4000042 => self.registers.write_winh_low(1, value),
+            0x4000043 => self.registers.write_winh_high(1, value),
+            0x4000044 => self.registers.write_winv_low(0, value),
+            0x4000045 => self.registers.write_winv_high(0, value),
+            0x4000046 => self.registers.write_winv_low(1, value),
+            0x4000047 => self.registers.write_winv_high(1, value),
+            _ => {
+                log::warn!("Unhandled PPU byte register write {address:08X} {value:02X}");
             }
         }
     }

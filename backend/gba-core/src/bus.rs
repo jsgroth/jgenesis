@@ -2,6 +2,7 @@
 
 use crate::api::BusState;
 use crate::cartridge::Cartridge;
+use crate::dma::{DmaState, TransferUnit};
 use crate::input::GbaInputsExt;
 use crate::interrupts::InterruptRegisters;
 use crate::memory::Memory;
@@ -13,6 +14,7 @@ pub struct Bus<'a> {
     pub ppu: &'a mut Ppu,
     pub memory: &'a mut Memory,
     pub cartridge: &'a mut Cartridge,
+    pub dma: &'a mut DmaState,
     pub interrupts: &'a mut InterruptRegisters,
     pub inputs: &'a GbaInputs,
     pub state: BusState,
@@ -21,7 +23,7 @@ pub struct Bus<'a> {
 impl Bus<'_> {
     fn read_bios<T>(&mut self, address: u32, word_converter: impl FnOnce(u32) -> T) -> T {
         if self.state.cpu_pc >= 0x1FFFFFF {
-            log::warn!("BIOS ROM read while PC is {:08X}", self.state.cpu_pc);
+            log::debug!("BIOS ROM read {address:08X} while PC is {:08X}", self.state.cpu_pc);
             return word_converter(self.state.last_bios_read);
         }
 
@@ -49,8 +51,12 @@ impl Bus<'_> {
         match address {
             0x4000000..=0x4000054 => {
                 // PPU registers
-                self.ppu.step_to(self.state.cycles, self.interrupts);
+                self.ppu.step_to(self.state.cycles, self.interrupts, self.dma);
                 self.ppu.read_register(address)
+            }
+            0x40000B0..=0x40000DF => {
+                // DMA registers
+                self.dma.read_register(address)
             }
             0x4000130 => self.inputs.to_keyinput(),
             0x4000200 => self.interrupts.read_ie(),
@@ -68,8 +74,12 @@ impl Bus<'_> {
         match address {
             0x4000000..=0x4000054 => {
                 // PPU registers
-                self.ppu.step_to(self.state.cycles, self.interrupts);
+                self.ppu.step_to(self.state.cycles, self.interrupts, self.dma);
                 self.ppu.write_register(address, value);
+            }
+            0x40000B0..=0x40000DF => {
+                // DMA registers
+                self.dma.write_register(address, value);
             }
             0x4000200 => self.interrupts.write_ie(value),
             0x4000202 => self.interrupts.write_if(value),
@@ -77,6 +87,48 @@ impl Bus<'_> {
             0x4000208 => self.interrupts.write_ime(value),
             _ => log::warn!("Unhandled I/O register halfword write {address:08X} {value:04X}"),
         }
+    }
+
+    fn write_io_register_byte(&mut self, address: u32, value: u8) {
+        match address {
+            0x4000000..=0x4000054 => {
+                // PPU registers
+                self.ppu.step_to(self.state.cycles, self.interrupts, self.dma);
+                self.ppu.write_register_byte(address, value);
+            }
+            0x4000301 => {
+                // TODO HALTCNT (undocumented halt register)
+            }
+            _ => log::warn!("Unhandled I/O register byte write {address:08X} {value:02X}"),
+        }
+    }
+
+    // Returns whether a DMA is still actively in progress
+    pub fn try_progress_dma(&mut self) -> bool {
+        // Limit number of iterations in order to occasionally step other components, particularly the PPU
+        for _ in 0..20 {
+            self.dma.decrement_start_latency(self.state.cycles);
+
+            let Some(transfer) = self.dma.next_transfer(self.interrupts) else { return false };
+
+            // TODO better timing (e.g. N vs. S cycles)
+
+            match transfer.unit {
+                TransferUnit::Halfword => {
+                    let value = self.read_halfword(transfer.source & !1, MemoryCycle::S);
+                    self.write_halfword(transfer.destination & !1, value, MemoryCycle::S);
+                }
+                TransferUnit::Word => {
+                    let value = self.read_word(transfer.source & !3, MemoryCycle::S);
+                    self.write_word(transfer.destination & !3, value, MemoryCycle::S);
+                }
+            }
+
+            self.ppu.step_to(self.state.cycles, self.interrupts, self.dma);
+            // TODO APU
+        }
+
+        true
     }
 }
 
@@ -173,9 +225,7 @@ impl BusInterface for Bus<'_> {
             }
             0x2000000..=0x2FFFFFF => self.memory.write_ewram_byte(address, value),
             0x3000000..=0x3FFFFFF => self.memory.write_iwram_byte(address, value),
-            0x4000000..=0x4FFFFFF => {
-                log::warn!("I/O register write {address:08X} {value:02X}");
-            }
+            0x4000000..=0x4FFFFFF => self.write_io_register_byte(address, value),
             0xE000000..=0xFFFFFFF => self.cartridge.write_sram(address, value),
             _ => todo!("write byte {address:08X} {value:02X}"),
         }

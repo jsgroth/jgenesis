@@ -21,6 +21,8 @@ pub enum InterruptType {
 }
 
 impl InterruptType {
+    pub const DMA: [Self; 4] = [Self::Dma0, Self::Dma1, Self::Dma2, Self::Dma3];
+
     fn name(self) -> &'static str {
         match self {
             Self::VBlank => "VBlank",
