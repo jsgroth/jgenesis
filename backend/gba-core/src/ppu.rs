@@ -777,6 +777,10 @@ impl Ppu {
 
             let oam_entry = OamEntry::parse(oam_attributes);
 
+            if oam_entry.disabled {
+                continue;
+            }
+
             let (sprite_width, sprite_height) = oam_entry.shape.size_pixels(oam_entry.size);
             let sprite_y = target_line.wrapping_sub(oam_entry.y) & 0xFF;
             if sprite_y >= sprite_height {
