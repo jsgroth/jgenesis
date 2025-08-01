@@ -312,11 +312,11 @@ impl Ppu {
         }
 
         fn hblank_start(ppu: &mut Ppu, interrupts: &mut InterruptRegisters, dma: &mut DmaState) {
-            if !ppu.in_vblank() {
-                if ppu.registers.hblank_irq_enabled {
-                    interrupts.set_flag(InterruptType::HBlank);
-                }
+            if ppu.registers.hblank_irq_enabled {
+                interrupts.set_flag(InterruptType::HBlank);
+            }
 
+            if ppu.state.scanline < SCREEN_HEIGHT {
                 dma.notify_hblank_start();
             }
         }
