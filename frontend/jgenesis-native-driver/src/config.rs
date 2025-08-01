@@ -417,6 +417,8 @@ impl AppConfigExt for AppConfig {
             emulator_config: Sega32XEmulatorConfig {
                 genesis: genesis_emu_config,
                 video_out: self.sega_32x.video_out,
+                darken_genesis_colors: self.sega_32x.darken_genesis_colors,
+                color_tint: self.sega_32x.color_tint,
                 apply_genesis_lpf_to_pwm: self.sega_32x.apply_genesis_lpf_to_pwm,
                 pwm_enabled: self.sega_32x.pwm_enabled,
             },

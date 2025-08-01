@@ -128,6 +128,22 @@ pub const ENABLED_LAYERS: HelpText = HelpText {
     ],
 };
 
+pub const S32X_DARKEN_GEN_COLORS: HelpText = HelpText {
+    heading: "Darken Genesis Colors",
+    text: &[
+        "On actual hardware, the brightest 32X colors are slightly brighter than the brightest Genesis colors.",
+        "This setting simulates that behavior by slightly darkening Genesis colors relative to 32X colors.",
+    ],
+};
+
+pub const S32X_COLOR_TINT: HelpText = HelpText {
+    heading: "32X Color Tint",
+    text: &[
+        "Most 32X consoles have been observed to have a slight yellow or purple tint in their video output, with yellow seemingly being more common.",
+        "Games were probably not designed around this, but a slight color tint is more accurate to actual hardware.",
+    ],
+};
+
 pub const S32X_VIDEO_OUT: HelpText = HelpText {
     heading: "32X Video Output",
     text: &[

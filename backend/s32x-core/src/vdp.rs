@@ -2,10 +2,11 @@
 
 mod registers;
 
+use crate::api::Sega32XEmulatorConfig;
 use crate::registers::SystemRegisters;
 use crate::vdp::registers::{FrameBufferMode, Registers, SelectedFrameBuffer};
 use bincode::{Decode, Encode};
-use genesis_config::S32XVideoOut;
+use genesis_config::{S32XColorTint, S32XVideoOut};
 use genesis_core::vdp::BorderSize;
 use jgenesis_common::frontend::{Color, FrameSize, PixelAspectRatio, Renderer, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext};
@@ -38,11 +39,6 @@ const H32_FRAME_BUFFER_LEN: usize = genesis_core::vdp::FRAME_BUFFER_LEN * 4;
 // to the 32X VDP always assuming H40 mode, the Genesis and 32X frames are slightly offset when the
 // Genesis VDP is in H32 mode.
 const H32_H_OFFSET: u32 = 13;
-
-const RGB_5_TO_8: &[u8; 32] = &[
-    0, 8, 16, 25, 33, 41, 49, 58, 66, 74, 82, 90, 99, 107, 115, 123, 132, 140, 148, 156, 165, 173,
-    181, 189, 197, 206, 214, 222, 230, 239, 247, 255,
-];
 
 type GenesisVdp = genesis_core::vdp::Vdp;
 
@@ -137,6 +133,7 @@ pub struct Vdp {
     state: State,
     timing_mode: TimingMode,
     video_out: S32XVideoOut,
+    color_tint: S32XColorTint,
 }
 
 macro_rules! front_frame_buffer {
@@ -167,7 +164,7 @@ macro_rules! back_frame_buffer_mut {
 }
 
 impl Vdp {
-    pub fn new(timing_mode: TimingMode, video_out: S32XVideoOut) -> Self {
+    pub fn new(timing_mode: TimingMode, config: &Sega32XEmulatorConfig) -> Self {
         Self {
             frame_buffer_0: new_frame_buffer(),
             frame_buffer_1: new_frame_buffer(),
@@ -178,7 +175,8 @@ impl Vdp {
             latched: Registers::default(),
             state: State::new(),
             timing_mode,
-            video_out,
+            video_out: config.video_out,
+            color_tint: config.color_tint,
         }
     }
 
@@ -706,6 +704,8 @@ impl Vdp {
 
         let top_offset = border_size.top << interlaced_frame;
 
+        let color_tables = ColorTables::from_tint(self.color_tint);
+
         for line in 0..active_lines_per_frame {
             let effective_line = (line << interlaced_frame) + interlaced_odd;
             let fb_row_addr = ((effective_line + top_offset) * frame_width + left_offset) as usize;
@@ -717,13 +717,13 @@ impl Vdp {
                     let fb_addr = fb_row_addr + 4 * pixel as usize;
                     for i in 0..4 {
                         if should_use_32x_pixel(s32x_only, s32x_pixel, frame_buffer[fb_addr + i]) {
-                            frame_buffer[fb_addr + i] = u16_to_rgb(s32x_pixel);
+                            frame_buffer[fb_addr + i] = u16_to_rgb(s32x_pixel, color_tables);
                         }
                     }
                 } else {
                     let fb_addr = fb_row_addr + pixel as usize;
                     if should_use_32x_pixel(s32x_only, s32x_pixel, frame_buffer[fb_addr]) {
-                        frame_buffer[fb_addr] = u16_to_rgb(s32x_pixel);
+                        frame_buffer[fb_addr] = u16_to_rgb(s32x_pixel, color_tables);
                     }
                 }
             }
@@ -801,17 +801,68 @@ impl Vdp {
         renderer.render_frame(self.h32_frame_buffer.as_ref(), frame_size, aspect_ratio)
     }
 
-    pub fn update_video_out(&mut self, video_out: S32XVideoOut) {
-        self.video_out = video_out;
+    pub fn reload_config(&mut self, config: &Sega32XEmulatorConfig) {
+        self.video_out = config.video_out;
+        self.color_tint = config.color_tint;
     }
 }
 
-fn u16_to_rgb(s32x_pixel: u16) -> Color {
+const RGB_5_TO_8: &[u8; 32] = &[
+    0, 8, 16, 25, 33, 41, 49, 58, 66, 74, 82, 90, 99, 107, 115, 123, 132, 140, 148, 156, 165, 173,
+    181, 189, 197, 206, 214, 222, 230, 239, 247, 255,
+];
+
+// Scaled to 0-251 instead of 0-255
+const RGB_5_TO_8_SLIGHT_DARK: &[u8; 32] = &[
+    0, 8, 16, 24, 32, 40, 49, 57, 65, 73, 81, 89, 97, 105, 113, 121, 130, 138, 146, 154, 162, 170,
+    178, 186, 194, 202, 211, 219, 227, 235, 243, 251,
+];
+
+// Scaled to 0-247 instead of 0-255
+const RGB_5_TO_8_DARK: &[u8; 32] = &[
+    0, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 127, 135, 143, 151, 159, 167,
+    175, 183, 191, 199, 207, 215, 223, 231, 239, 247,
+];
+
+#[derive(Debug, Clone, Copy)]
+struct ColorTables {
+    red: &'static [u8; 32],
+    green: &'static [u8; 32],
+    blue: &'static [u8; 32],
+}
+
+impl ColorTables {
+    fn from_tint(color_tint: S32XColorTint) -> Self {
+        match color_tint {
+            S32XColorTint::None => Self { red: RGB_5_TO_8, green: RGB_5_TO_8, blue: RGB_5_TO_8 },
+            // yellow tint = blue deficiency
+            S32XColorTint::SlightYellow => {
+                Self { red: RGB_5_TO_8, green: RGB_5_TO_8, blue: RGB_5_TO_8_SLIGHT_DARK }
+            }
+            S32XColorTint::Yellow => {
+                Self { red: RGB_5_TO_8, green: RGB_5_TO_8, blue: RGB_5_TO_8_DARK }
+            }
+            // purple tint = green deficiency
+            S32XColorTint::SlightPurple => {
+                Self { red: RGB_5_TO_8, green: RGB_5_TO_8_SLIGHT_DARK, blue: RGB_5_TO_8 }
+            }
+            S32XColorTint::Purple => {
+                Self { red: RGB_5_TO_8, green: RGB_5_TO_8_DARK, blue: RGB_5_TO_8 }
+            }
+        }
+    }
+}
+
+fn u16_to_rgb(s32x_pixel: u16, color_tables: ColorTables) -> Color {
     let r = s32x_pixel & 0x1F;
     let g = (s32x_pixel >> 5) & 0x1F;
     let b = (s32x_pixel >> 10) & 0x1F;
 
-    Color::rgb(RGB_5_TO_8[r as usize], RGB_5_TO_8[g as usize], RGB_5_TO_8[b as usize])
+    Color::rgb(
+        color_tables.red[r as usize],
+        color_tables.green[g as usize],
+        color_tables.blue[b as usize],
+    )
 }
 
 fn determine_h32_buffer_width(frame_size: FrameSize, border_size: BorderSize) -> u32 {

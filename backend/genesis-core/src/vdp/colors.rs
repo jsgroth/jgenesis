@@ -1,4 +1,4 @@
-use crate::vdp::{Cram, VdpConfig};
+use crate::vdp::{Cram, DarkenColors, VdpConfig};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::Color;
 use std::ops::{Add, AddAssign};
@@ -19,16 +19,32 @@ impl ColorTables {
     };
 
     pub const LINEAR: Self = Self {
-        // round(i * 255 / 7)
-        normal: [0, 36, 73, 109, 146, 182, 219, 255],
-        // round(i * 255 / 7 / 2)
-        shadow: [0, 18, 36, 55, 73, 91, 109, 128],
-        // round(255 / 2 + i * 255 / 7 / 2)
-        highlight: [128, 146, 164, 182, 200, 219, 237, 255],
+        normal: [0, 36, 73, 109, 146, 182, 219, 255], // round(i * 255 / 7)
+        shadow: [0, 18, 36, 55, 73, 91, 109, 128],    // round(i * 255 / 7 / 2)
+        highlight: [128, 146, 164, 182, 200, 219, 237, 255], // round(255 / 2 + i * 255 / 7 / 2)
+    };
+
+    // All values -8 relative to NON_LINEAR
+    pub const NON_LINEAR_DARK: Self = Self {
+        normal: [0, 44, 79, 108, 136, 164, 198, 247],
+        shadow: [0, 21, 44, 62, 79, 93, 108, 122],
+        highlight: [122, 136, 150, 164, 179, 198, 220, 247],
+    };
+
+    // All values -8 relative to LINEAR
+    pub const LINEAR_DARK: Self = Self {
+        normal: [0, 28, 65, 101, 138, 174, 211, 247],
+        shadow: [0, 10, 28, 47, 65, 83, 101, 120],
+        highlight: [120, 138, 156, 174, 192, 211, 229, 247],
     };
 
     pub fn from_config(config: &VdpConfig) -> Self {
-        if config.non_linear_color_scale { Self::NON_LINEAR } else { Self::LINEAR }
+        match (config.non_linear_color_scale, config.color_adjustment) {
+            (true, DarkenColors::No) => Self::NON_LINEAR,
+            (true, DarkenColors::Yes) => Self::NON_LINEAR_DARK,
+            (false, DarkenColors::No) => Self::LINEAR,
+            (false, DarkenColors::Yes) => Self::LINEAR_DARK,
+        }
     }
 }
 

@@ -157,6 +157,18 @@ pub enum S32XVideoOut {
     S32XOnly,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum S32XColorTint {
+    #[default]
+    None,
+    SlightYellow,
+    Yellow,
+    SlightPurple,
+    Purple,
+}
+
 define_controller_inputs! {
     buttons: GenesisButton {
         Up -> up,

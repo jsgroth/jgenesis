@@ -12,7 +12,7 @@ use genesis_config::{GenesisButton, GenesisRegion, PcmInterpolation};
 use genesis_core::input::InputState;
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::timing::CycleCounters;
-use genesis_core::vdp::{Vdp, VdpTickEffect};
+use genesis_core::vdp::{DarkenColors, Vdp, VdpTickEffect};
 use genesis_core::ym2612::Ym2612;
 use genesis_core::{GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_common::frontend::{
@@ -221,7 +221,7 @@ impl SegaCdEmulator {
         let main_cpu = M68000::builder().allow_tas_writes(false).name("Main".into()).build();
         let sub_cpu = M68000::builder().name("Sub".into()).build();
         let z80 = Z80::new();
-        let vdp = Vdp::new(timing_mode, emulator_config.genesis.to_vdp_config());
+        let vdp = Vdp::new(timing_mode, emulator_config.genesis.to_vdp_config(DarkenColors::No));
         let graphics_coprocessor = GraphicsCoprocessor::new();
         let ym2612 = Ym2612::new_from_config(&emulator_config.genesis);
         let psg = Sn76489::new(Sn76489Version::Standard);
@@ -511,7 +511,7 @@ impl EmulatorTrait for SegaCdEmulator {
     }
 
     fn reload_config(&mut self, config: &Self::Config) {
-        self.vdp.reload_config(config.genesis.to_vdp_config());
+        self.vdp.reload_config(config.genesis.to_vdp_config(DarkenColors::No));
         self.ym2612.reload_config(config.genesis);
         self.pcm.reload_config(config);
         self.input.reload_config(config.genesis);

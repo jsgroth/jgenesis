@@ -6,9 +6,9 @@ use crate::emuthread::EmuThreadStatus;
 use crate::widgets::OverclockSlider;
 use egui::style::ScrollStyle;
 use egui::{Context, Slider, Ui, Window};
-use genesis_config::PcmInterpolation;
 use genesis_config::S32XVideoOut;
 use genesis_config::{GenesisAspectRatio, GenesisRegion, Opn2BusyBehavior};
+use genesis_config::{PcmInterpolation, S32XColorTint};
 use jgenesis_common::frontend::TimingMode;
 use rfd::FileDialog;
 use std::num::{NonZeroU16, NonZeroU64};
@@ -199,70 +199,77 @@ impl App {
 
         let mut open = true;
         Window::new("Genesis Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            self.render_aspect_ratio_settings(ui, WINDOW);
+            widgets::render_vertical_scroll_area(ui, |ui| {
+                self.render_aspect_ratio_settings(ui, WINDOW);
 
-            let rect = ui
-                .checkbox(&mut self.config.genesis.deinterlace, "Deinterlacing enabled")
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::DEINTERLACING);
-            }
+                let rect = ui
+                    .checkbox(&mut self.config.genesis.deinterlace, "Deinterlacing enabled")
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::DEINTERLACING);
+                }
 
-            let rect = ui
-                .checkbox(
-                    &mut self.config.genesis.adjust_aspect_ratio_in_2x_resolution,
-                    "Automatically double pixel aspect ratio in double-screen interlaced mode",
-                )
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::DOUBLE_SCREEN_INTERLACED_ASPECT);
-            }
+                let rect = ui
+                    .checkbox(
+                        &mut self.config.genesis.adjust_aspect_ratio_in_2x_resolution,
+                        "Automatically double pixel aspect ratio in double-screen interlaced mode",
+                    )
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::DOUBLE_SCREEN_INTERLACED_ASPECT);
+                }
 
-            let rect = ui
-                .checkbox(
-                    &mut self.config.genesis.non_linear_color_scale,
-                    "Emulate non-linear VDP color scale",
-                )
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::NON_LINEAR_COLOR_SCALE);
-            }
+                let rect = ui
+                    .checkbox(
+                        &mut self.config.genesis.non_linear_color_scale,
+                        "Emulate non-linear VDP color scale",
+                    )
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::NON_LINEAR_COLOR_SCALE);
+                }
 
-            let rect = ui
-                .checkbox(
-                    &mut self.config.genesis.remove_sprite_limits,
-                    "Remove sprite-per-scanline and sprite-pixel-per-scanline limits",
-                )
-                .on_hover_text("Can reduce sprite flickering, but can also cause visual glitches")
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::REMOVE_SPRITE_LIMITS);
-            }
+                let rect = ui
+                    .checkbox(
+                        &mut self.config.genesis.remove_sprite_limits,
+                        "Remove sprite-per-scanline and sprite-pixel-per-scanline limits",
+                    )
+                    .on_hover_text(
+                        "Can reduce sprite flickering, but can also cause visual glitches",
+                    )
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::REMOVE_SPRITE_LIMITS);
+                }
 
-            let rect = ui
-                .checkbox(&mut self.config.genesis.render_vertical_border, "Render vertical border")
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::RENDER_BORDERS);
-            }
+                let rect = ui
+                    .checkbox(
+                        &mut self.config.genesis.render_vertical_border,
+                        "Render vertical border",
+                    )
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::RENDER_BORDERS);
+                }
 
-            let rect = ui
-                .checkbox(
-                    &mut self.config.genesis.render_horizontal_border,
-                    "Render horizontal border",
-                )
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::RENDER_BORDERS);
-            }
+                let rect = ui
+                    .checkbox(
+                        &mut self.config.genesis.render_horizontal_border,
+                        "Render horizontal border",
+                    )
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::RENDER_BORDERS);
+                }
 
-            ui.add_space(5.0);
+                ui.add_space(5.0);
 
-            self.render_enabled_layers_setting(ui, WINDOW);
+                self.render_enabled_layers_setting(ui, WINDOW);
 
-            ui.add_space(5.0);
+                ui.add_space(5.0);
 
-            self.render_32x_video_out_setting(ui, WINDOW);
+                self.render_32x_video_settings(ui, WINDOW);
+            });
 
             self.render_help_text(ui, WINDOW);
         });
@@ -354,27 +361,53 @@ impl App {
         }
     }
 
-    fn render_32x_video_out_setting(&mut self, ui: &mut Ui, window: OpenWindow) {
+    fn render_32x_video_settings(&mut self, ui: &mut Ui, window: OpenWindow) {
+        let rect = ui
+            .checkbox(
+                &mut self.config.sega_32x.darken_genesis_colors,
+                "(32X) Darken Genesis colors",
+            )
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(window, helptext::S32X_DARKEN_GEN_COLORS);
+        }
+
+        ui.add_space(5.0);
+
+        let rect = ui
+            .group(|ui| {
+                ui.label("32X color tint");
+
+                ui.horizontal(|ui| {
+                    for (value, label) in [
+                        (S32XColorTint::None, "None"),
+                        (S32XColorTint::SlightYellow, "Slight yellow"),
+                        (S32XColorTint::Yellow, "Yellow"),
+                        (S32XColorTint::SlightPurple, "Slight purple"),
+                        (S32XColorTint::Purple, "Purple"),
+                    ] {
+                        ui.radio_value(&mut self.config.sega_32x.color_tint, value, label);
+                    }
+                });
+            })
+            .response
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(window, helptext::S32X_COLOR_TINT);
+        }
+
         let rect = ui
             .group(|ui| {
                 ui.label("32X video output");
 
                 ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.config.sega_32x.video_out,
-                        S32XVideoOut::Combined,
-                        "Combined",
-                    );
-                    ui.radio_value(
-                        &mut self.config.sega_32x.video_out,
-                        S32XVideoOut::GenesisOnly,
-                        "Genesis VDP only",
-                    );
-                    ui.radio_value(
-                        &mut self.config.sega_32x.video_out,
-                        S32XVideoOut::S32XOnly,
-                        "32X VDP only",
-                    );
+                    for (value, label) in [
+                        (S32XVideoOut::Combined, "Combined"),
+                        (S32XVideoOut::GenesisOnly, "Genesis VDP only"),
+                        (S32XVideoOut::S32XOnly, "32X VDP only"),
+                    ] {
+                        ui.radio_value(&mut self.config.sega_32x.video_out, value, label);
+                    }
                 });
             })
             .response

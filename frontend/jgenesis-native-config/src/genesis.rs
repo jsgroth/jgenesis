@@ -1,5 +1,6 @@
 use genesis_config::{
-    GenesisAspectRatio, GenesisRegion, Opn2BusyBehavior, PcmInterpolation, S32XVideoOut,
+    GenesisAspectRatio, GenesisRegion, Opn2BusyBehavior, PcmInterpolation, S32XColorTint,
+    S32XVideoOut,
 };
 use jgenesis_common::frontend::TimingMode;
 use serde::{Deserialize, Serialize};
@@ -133,6 +134,10 @@ pub struct Sega32XAppConfig {
     pub video_out: S32XVideoOut,
     #[serde(default = "true_fn")]
     pub apply_genesis_lpf_to_pwm: bool,
+    #[serde(default = "true_fn")]
+    pub darken_genesis_colors: bool,
+    #[serde(default)]
+    pub color_tint: S32XColorTint,
     #[serde(default = "true_fn")]
     pub pwm_enabled: bool,
 }

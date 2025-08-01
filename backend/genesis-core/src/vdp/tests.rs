@@ -6,6 +6,7 @@ fn new_vdp() -> Vdp {
         VdpConfig {
             enforce_sprite_limits: true,
             non_linear_color_scale: false,
+            color_adjustment: DarkenColors::No,
             deinterlace: true,
             render_vertical_border: false,
             render_horizontal_border: false,

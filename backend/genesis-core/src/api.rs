@@ -5,7 +5,7 @@ use crate::cartridge::Cartridge;
 use crate::input::InputState;
 use crate::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use crate::timing::{CycleCounters, GenesisCycleCounters};
-use crate::vdp::{Vdp, VdpConfig, VdpTickEffect};
+use crate::vdp::{DarkenColors, Vdp, VdpConfig, VdpTickEffect};
 use crate::ym2612::Ym2612;
 use crate::{audio, timing, vdp};
 use bincode::{Decode, Encode};
@@ -72,7 +72,7 @@ pub struct GenesisEmulatorConfig {
 
 impl GenesisEmulatorConfig {
     #[must_use]
-    pub fn to_vdp_config(&self) -> VdpConfig {
+    pub fn to_vdp_config(&self, color_adjustment: DarkenColors) -> VdpConfig {
         VdpConfig {
             enforce_sprite_limits: !self.remove_sprite_limits,
             non_linear_color_scale: self.non_linear_color_scale,
@@ -84,6 +84,7 @@ impl GenesisEmulatorConfig {
             sprites_enabled: self.sprites_enabled,
             window_enabled: self.window_enabled,
             backdrop_enabled: self.backdrop_enabled,
+            color_adjustment,
         }
     }
 
@@ -167,7 +168,7 @@ impl GenesisEmulator {
         log::info!("Using timing / display mode {timing_mode}");
 
         let z80 = Z80::new();
-        let vdp = Vdp::new(timing_mode, config.to_vdp_config());
+        let vdp = Vdp::new(timing_mode, config.to_vdp_config(DarkenColors::No));
         let psg = Sn76489::new(Sn76489Version::Standard);
         let ym2612 = Ym2612::new_from_config(&config);
         let input = InputState::new(config.p1_controller_type, config.p2_controller_type);
@@ -365,7 +366,7 @@ impl EmulatorTrait for GenesisEmulator {
     }
 
     fn reload_config(&mut self, config: &Self::Config) {
-        self.vdp.reload_config(config.to_vdp_config());
+        self.vdp.reload_config(config.to_vdp_config(DarkenColors::No));
         self.ym2612.reload_config(*config);
         self.input.reload_config(*config);
         self.audio_resampler.reload_config(self.timing_mode, *config);

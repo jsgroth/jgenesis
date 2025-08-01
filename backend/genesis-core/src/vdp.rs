@@ -495,6 +495,12 @@ pub struct BorderSize {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+pub enum DarkenColors {
+    No,
+    Yes,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub struct VdpConfig {
     pub enforce_sprite_limits: bool,
     pub non_linear_color_scale: bool,
@@ -506,6 +512,7 @@ pub struct VdpConfig {
     pub sprites_enabled: bool,
     pub window_enabled: bool,
     pub backdrop_enabled: bool,
+    pub color_adjustment: DarkenColors,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, EnumAll)]

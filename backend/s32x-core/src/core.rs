@@ -77,7 +77,7 @@ impl Sega32X {
             slave_cycles: 0,
             s32x_bus: Sega32XBus {
                 cartridge,
-                vdp: Vdp::new(timing_mode, config.video_out),
+                vdp: Vdp::new(timing_mode, config),
                 pwm: PwmChip::new(timing_mode),
                 registers: SystemRegisters::new(),
                 sdram: BoxedWordArray::new(),
@@ -162,8 +162,8 @@ impl Sega32X {
         self.s32x_bus.cartridge.take_rom_from(&mut other.s32x_bus.cartridge);
     }
 
-    pub fn reload_config(&mut self, config: Sega32XEmulatorConfig) {
-        self.s32x_bus.vdp.update_video_out(config.video_out);
+    pub fn reload_config(&mut self, config: &Sega32XEmulatorConfig) {
+        self.s32x_bus.vdp.reload_config(config);
     }
 
     pub fn reset(&mut self) {

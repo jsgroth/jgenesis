@@ -5,11 +5,11 @@
 use crate::audio::Sega32XResampler;
 use crate::core::Sega32X;
 use bincode::{Decode, Encode};
-use genesis_config::{GenesisButton, GenesisRegion, S32XVideoOut};
+use genesis_config::{GenesisButton, GenesisRegion, S32XColorTint, S32XVideoOut};
 use genesis_core::input::InputState;
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::timing::GenesisCycleCounters;
-use genesis_core::vdp::{Vdp, VdpTickEffect};
+use genesis_core::vdp::{DarkenColors, Vdp, VdpTickEffect};
 use genesis_core::ym2612::Ym2612;
 use genesis_core::{GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_common::frontend::{
@@ -39,8 +39,16 @@ pub struct Sega32XEmulatorConfig {
     #[cfg_display(skip)]
     pub genesis: GenesisEmulatorConfig,
     pub video_out: S32XVideoOut,
+    pub darken_genesis_colors: bool,
+    pub color_tint: S32XColorTint,
     pub apply_genesis_lpf_to_pwm: bool,
     pub pwm_enabled: bool,
+}
+
+impl Sega32XEmulatorConfig {
+    fn genesis_color_adjustment(&self) -> DarkenColors {
+        if self.darken_genesis_colors { DarkenColors::Yes } else { DarkenColors::No }
+    }
 }
 
 impl EmulatorConfigTrait for Sega32XEmulatorConfig {
@@ -100,7 +108,8 @@ impl Sega32XEmulator {
 
         let m68k = M68000::builder().allow_tas_writes(false).build();
         let z80 = Z80::new();
-        let vdp = Vdp::new(timing_mode, config.genesis.to_vdp_config());
+        let vdp =
+            Vdp::new(timing_mode, config.genesis.to_vdp_config(config.genesis_color_adjustment()));
         let ym2612 = Ym2612::new_from_config(&config.genesis);
         let psg = Sn76489::new(Sn76489Version::Standard);
 
@@ -271,10 +280,10 @@ impl EmulatorTrait for Sega32XEmulator {
     }
 
     fn reload_config(&mut self, config: &Self::Config) {
-        self.vdp.reload_config(config.genesis.to_vdp_config());
+        self.vdp.reload_config(config.genesis.to_vdp_config(config.genesis_color_adjustment()));
         self.ym2612.reload_config(config.genesis);
         self.input.reload_config(config.genesis);
-        self.memory.medium_mut().reload_config(*config);
+        self.memory.medium_mut().reload_config(config);
         self.audio_resampler.reload_config(self.timing_mode, *config);
         self.cycles.update_m68k_divider(config.genesis.clamped_m68k_divider());
 
