@@ -7,6 +7,7 @@ use crate::input::GbaInputsExt;
 use crate::interrupts::InterruptRegisters;
 use crate::memory::Memory;
 use crate::ppu::Ppu;
+use crate::timers::Timers;
 use arm7tdmi_emu::bus::{BusInterface, MemoryCycle};
 use gba_config::GbaInputs;
 
@@ -15,6 +16,7 @@ pub struct Bus<'a> {
     pub memory: &'a mut Memory,
     pub cartridge: &'a mut Cartridge,
     pub dma: &'a mut DmaState,
+    pub timers: &'a mut Timers,
     pub interrupts: &'a mut InterruptRegisters,
     pub inputs: &'a GbaInputs,
     pub state: BusState,
@@ -58,6 +60,10 @@ impl Bus<'_> {
                 // DMA registers
                 self.dma.read_register(address)
             }
+            0x4000100..=0x400010F => {
+                // Timer registers
+                self.timers.read_register(address, self.state.cycles, self.interrupts)
+            }
             0x4000130 => self.inputs.to_keyinput(),
             0x4000200 => self.interrupts.read_ie(),
             0x4000202 => self.interrupts.read_if(),
@@ -81,6 +87,10 @@ impl Bus<'_> {
                 // DMA registers
                 self.dma.write_register(address, value);
             }
+            0x4000100..=0x400010F => {
+                // Timer registers
+                self.timers.write_register(address, value, self.state.cycles, self.interrupts);
+            }
             0x4000200 => self.interrupts.write_ie(value),
             0x4000202 => self.interrupts.write_if(value),
             0x4000204 => self.memory.waitcnt = value,
@@ -96,6 +106,7 @@ impl Bus<'_> {
                 self.ppu.step_to(self.state.cycles, self.interrupts, self.dma);
                 self.ppu.write_register_byte(address, value);
             }
+            0x4000208 => self.interrupts.write_ime(value.into()),
             0x4000301 => {
                 // TODO HALTCNT (undocumented halt register)
             }

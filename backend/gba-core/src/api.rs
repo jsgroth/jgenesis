@@ -7,6 +7,7 @@ use crate::interrupts::InterruptRegisters;
 use crate::memory::Memory;
 use crate::ppu;
 use crate::ppu::Ppu;
+use crate::timers::Timers;
 use arm7tdmi_emu::{Arm7Tdmi, Arm7TdmiResetArgs, CpuMode};
 use bincode::{Decode, Encode};
 use gba_config::{GbaButton, GbaInputs};
@@ -64,6 +65,7 @@ pub struct GameBoyAdvanceEmulator {
     #[partial_clone(partial)]
     cartridge: Cartridge,
     dma: DmaState,
+    timers: Timers,
     interrupts: InterruptRegisters,
     bus_state: BusState,
     config: GbaEmulatorConfig,
@@ -82,6 +84,7 @@ impl GameBoyAdvanceEmulator {
         let mut memory = Memory::new(bios_rom)?;
         let mut cartridge = Cartridge::new(rom);
         let mut dma = DmaState::new();
+        let mut timers = Timers::new();
         let mut interrupts = InterruptRegisters::new();
 
         // TODO BIOS boot
@@ -100,6 +103,7 @@ impl GameBoyAdvanceEmulator {
                 memory: &mut memory,
                 cartridge: &mut cartridge,
                 dma: &mut dma,
+                timers: &mut timers,
                 interrupts: &mut interrupts,
                 inputs: &GbaInputs::default(),
                 state: BusState::new(),
@@ -112,6 +116,7 @@ impl GameBoyAdvanceEmulator {
             memory,
             cartridge,
             dma,
+            timers,
             interrupts,
             bus_state: BusState::new(),
             config,
@@ -151,6 +156,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
             memory: &mut self.memory,
             cartridge: &mut self.cartridge,
             dma: &mut self.dma,
+            timers: &mut self.timers,
             interrupts: &mut self.interrupts,
             inputs,
             state: self.bus_state,
@@ -161,6 +167,8 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
         }
 
         self.bus_state = bus.state;
+
+        self.timers.step_to(self.bus_state.cycles, &mut self.interrupts);
 
         self.ppu.step_to(self.bus_state.cycles, &mut self.interrupts, &mut self.dma);
         if self.ppu.frame_complete() {

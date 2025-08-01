@@ -10,3 +10,4 @@ mod input;
 mod interrupts;
 mod memory;
 mod ppu;
+mod timers;

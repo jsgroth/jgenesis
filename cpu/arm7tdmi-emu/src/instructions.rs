@@ -1110,9 +1110,10 @@ fn load_halfword<const LOAD: bool>(
             cpu.refill_prefetch(bus);
         }
     } else {
+        cpu.fetch_opcode(bus, MemoryCycle::N);
+
         let halfword = cpu.registers.r[rd as usize] as u16;
         bus.write_halfword(address, halfword, MemoryCycle::N);
-        cpu.fetch_opcode(bus, MemoryCycle::N);
     }
 
     // Write back only applies on loads if the base register and destination register are different

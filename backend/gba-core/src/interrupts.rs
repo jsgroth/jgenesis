@@ -23,6 +23,8 @@ pub enum InterruptType {
 impl InterruptType {
     pub const DMA: [Self; 4] = [Self::Dma0, Self::Dma1, Self::Dma2, Self::Dma3];
 
+    pub const TIMER: [Self; 4] = [Self::Timer0, Self::Timer1, Self::Timer2, Self::Timer3];
+
     fn name(self) -> &'static str {
         match self {
             Self::VBlank => "VBlank",
