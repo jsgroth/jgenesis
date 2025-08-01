@@ -3,6 +3,7 @@ pub mod audio;
 pub mod boxedarray;
 pub mod frontend;
 pub mod input;
+pub mod macros;
 pub mod num;
 pub mod rom;
 pub mod timeutils;

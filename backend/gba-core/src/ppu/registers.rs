@@ -1,25 +1,9 @@
 use crate::ppu::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use bincode::{Decode, Encode};
+use jgenesis_common::define_bit_enum;
 use jgenesis_common::num::{GetBit, U16Ext};
 use std::array;
 use std::ops::Range;
-
-macro_rules! define_bit_enum {
-    ($name:ident, [$zero:ident, $one:ident]) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
-        pub enum $name {
-            #[default]
-            $zero = 0,
-            $one = 1,
-        }
-
-        impl $name {
-            pub fn from_bit(bit: bool) -> Self {
-                if bit { Self::$one } else { Self::$zero }
-            }
-        }
-    };
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum BgMode {
@@ -636,6 +620,7 @@ impl Registers {
         self.backdrop_blend_2nd_target = value.bit(13);
 
         log::debug!("BLDCNT write: {value:04X}");
+        log::debug!("  Blend mode: {:?}", self.blend_mode);
         log::debug!("  BG 1st target: {:?}", self.bg_blend_1st_target);
         log::debug!("  OBJ 1st target: {:?}", self.obj_blend_1st_target);
         log::debug!("  Backdrop 1st target: {:?}", self.backdrop_blend_1st_target);

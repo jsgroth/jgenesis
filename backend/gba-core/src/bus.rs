@@ -1,6 +1,7 @@
 //! GBA memory map
 
 use crate::api::BusState;
+use crate::apu::Apu;
 use crate::cartridge::Cartridge;
 use crate::dma::{DmaState, TransferUnit};
 use crate::input::GbaInputsExt;
@@ -13,6 +14,7 @@ use gba_config::GbaInputs;
 
 pub struct Bus<'a> {
     pub ppu: &'a mut Ppu,
+    pub apu: &'a mut Apu,
     pub memory: &'a mut Memory,
     pub cartridge: &'a mut Cartridge,
     pub dma: &'a mut DmaState,
@@ -56,13 +58,24 @@ impl Bus<'_> {
                 self.ppu.step_to(self.state.cycles, self.interrupts, self.dma);
                 self.ppu.read_register(address)
             }
+            0x4000060..=0x40000AF => {
+                // APU registers
+                self.apu.step_to(self.state.cycles);
+                self.apu.read_register_halfword(address)
+            }
             0x40000B0..=0x40000DF => {
                 // DMA registers
                 self.dma.read_register(address)
             }
             0x4000100..=0x400010F => {
                 // Timer registers
-                self.timers.read_register(address, self.state.cycles, self.interrupts)
+                self.timers.read_register(
+                    address,
+                    self.state.cycles,
+                    self.apu,
+                    self.dma,
+                    self.interrupts,
+                )
             }
             0x4000130 => self.inputs.to_keyinput(),
             0x4000200 => self.interrupts.read_ie(),
@@ -83,13 +96,25 @@ impl Bus<'_> {
                 self.ppu.step_to(self.state.cycles, self.interrupts, self.dma);
                 self.ppu.write_register(address, value);
             }
+            0x4000060..=0x40000AF => {
+                // APU registers
+                self.apu.step_to(self.state.cycles);
+                self.apu.write_register_halfword(address, value);
+            }
             0x40000B0..=0x40000DF => {
                 // DMA registers
                 self.dma.write_register(address, value);
             }
             0x4000100..=0x400010F => {
                 // Timer registers
-                self.timers.write_register(address, value, self.state.cycles, self.interrupts);
+                self.timers.write_register(
+                    address,
+                    value,
+                    self.state.cycles,
+                    self.apu,
+                    self.dma,
+                    self.interrupts,
+                );
             }
             0x4000200 => self.interrupts.write_ie(value),
             0x4000202 => self.interrupts.write_if(value),
@@ -105,6 +130,11 @@ impl Bus<'_> {
                 // PPU registers
                 self.ppu.step_to(self.state.cycles, self.interrupts, self.dma);
                 self.ppu.write_register_byte(address, value);
+            }
+            0x4000060..=0x40000AF => {
+                // APU registers
+                self.apu.step_to(self.state.cycles);
+                self.apu.write_register(address, value);
             }
             0x4000208 => self.interrupts.write_ime(value.into()),
             0x4000301 => {

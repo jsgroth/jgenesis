@@ -207,7 +207,7 @@ impl DmaChannel {
 
             self.latched_source_address = self.source_address;
             self.latched_destination_address = self.destination_address;
-            self.latched_length = self.length;
+            self.latched_length = self.effective_length();
 
             if self.start_timing == StartTiming::Immediate {
                 self.dma_active = true;
@@ -237,6 +237,13 @@ impl DmaChannel {
             | ((self.start_timing as u16) << 12)
             | (u16::from(self.irq_enabled) << 14)
             | (u16::from(self.dma_enabled) << 15)
+    }
+
+    fn effective_length(&self) -> u16 {
+        match self.start_timing {
+            StartTiming::Special => 4,
+            _ => self.length,
+        }
     }
 }
 
@@ -293,21 +300,26 @@ impl DmaState {
                 continue;
             }
 
-            let unit = channel.unit;
+            let unit = match channel.start_timing {
+                StartTiming::Special => TransferUnit::Word,
+                _ => channel.unit,
+            };
             let increment = unit.address_increment();
 
             let source = channel.latched_source_address;
             channel.latched_source_address = channel.source_increment.apply(source, increment);
 
             let destination = channel.latched_destination_address;
-            channel.latched_destination_address =
-                channel.destination_increment.apply(destination, increment);
+            if channel.start_timing != StartTiming::Special {
+                channel.latched_destination_address =
+                    channel.destination_increment.apply(destination, increment);
+            }
 
             channel.latched_length = channel.latched_length.wrapping_sub(1) & channel.length_mask;
             if channel.latched_length == 0 {
                 channel.dma_active = false;
                 channel.dma_enabled = channel.repeat;
-                channel.latched_length = channel.length;
+                channel.latched_length = channel.effective_length();
 
                 if channel.destination_increment == AddressIncrement::IncrementReload {
                     channel.latched_destination_address = channel.destination_address;
@@ -327,16 +339,32 @@ impl DmaState {
     }
 
     pub fn notify_vblank_start(&mut self) {
-        self.activate_matching_channels(StartTiming::VBlank);
+        self.activate_matching_channels(|channel| channel.start_timing == StartTiming::VBlank);
     }
 
     pub fn notify_hblank_start(&mut self) {
-        self.activate_matching_channels(StartTiming::HBlank);
+        self.activate_matching_channels(|channel| channel.start_timing == StartTiming::HBlank);
     }
 
-    fn activate_matching_channels(&mut self, start_timing: StartTiming) {
+    pub fn notify_apu_fifo_a(&mut self) {
+        self.notify_apu_fifo(0x40000A0);
+    }
+
+    pub fn notify_apu_fifo_b(&mut self) {
+        self.notify_apu_fifo(0x40000A4);
+    }
+
+    fn notify_apu_fifo(&mut self, fifo_address: u32) {
+        self.activate_matching_channels(|channel| {
+            (channel.idx == 1 || channel.idx == 2)
+                && channel.start_timing == StartTiming::Special
+                && channel.destination_address == fifo_address
+        });
+    }
+
+    fn activate_matching_channels(&mut self, predicate: impl Fn(&mut DmaChannel) -> bool) {
         for channel in &mut self.channels {
-            if channel.dma_enabled && !channel.dma_active && channel.start_timing == start_timing {
+            if channel.dma_enabled && !channel.dma_active && predicate(channel) {
                 channel.dma_active = true;
                 channel.start_latency = INITIAL_START_LATENCY;
 

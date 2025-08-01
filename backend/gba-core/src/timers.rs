@@ -1,3 +1,5 @@
+use crate::apu::Apu;
+use crate::dma::DmaState;
 use crate::interrupts::{InterruptRegisters, InterruptType};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
@@ -91,7 +93,12 @@ impl Timer {
     }
 
     fn apply_control_write(&mut self, value: u16) {
-        const CLOCK_SHIFTS: [u8; 4] = [0, 6, 8, 10];
+        const CLOCK_SHIFTS: [u8; 4] = [
+            0,  // Divider 1 (16777216 Hz)
+            6,  // Divider 64 (262144 Hz)
+            8,  // Divider 256 (65536 Hz)
+            10, // Divider 1024 (16384 Hz)
+        ];
 
         self.clock_shift = CLOCK_SHIFTS[(value & 3) as usize];
         self.cascading = self.idx != 0 && value.bit(2);
@@ -130,13 +137,24 @@ impl Timers {
         Self { timers: array::from_fn(|i| Timer::new(i as u8)), cycles: 0 }
     }
 
-    pub fn step_to(&mut self, cycles: u64, interrupts: &mut InterruptRegisters) {
+    pub fn step_to(
+        &mut self,
+        cycles: u64,
+        apu: &mut Apu,
+        dma: &mut DmaState,
+        interrupts: &mut InterruptRegisters,
+    ) {
+        // TODO this is extremely slow; optimize
         while self.cycles < cycles {
             self.cycles += 1;
 
-            let mut prev_overflowed = false;
-            for timer in &mut self.timers {
-                prev_overflowed = timer.tick(prev_overflowed, self.cycles, interrupts);
+            let mut overflowed = false;
+            for (i, timer) in self.timers.iter_mut().enumerate() {
+                overflowed = timer.tick(overflowed, self.cycles, interrupts);
+
+                if overflowed && i <= 1 {
+                    apu.handle_timer_overflow(i, self.cycles, dma);
+                }
             }
         }
     }
@@ -145,6 +163,8 @@ impl Timers {
         &mut self,
         address: u32,
         cycles: u64,
+        apu: &mut Apu,
+        dma: &mut DmaState,
         interrupts: &mut InterruptRegisters,
     ) -> u16 {
         log::trace!("Timer read {address:08X} at cycles {cycles}");
@@ -152,7 +172,7 @@ impl Timers {
         let timer_idx = (address >> 2) & 3;
 
         if !address.bit(1) {
-            self.step_to(cycles, interrupts);
+            self.step_to(cycles, apu, dma, interrupts);
             self.timers[timer_idx as usize].counter
         } else {
             self.timers[timer_idx as usize].read_control()
@@ -164,11 +184,13 @@ impl Timers {
         address: u32,
         value: u16,
         cycles: u64,
+        apu: &mut Apu,
+        dma: &mut DmaState,
         interrupts: &mut InterruptRegisters,
     ) {
         log::trace!("Timer write {address:08X} {value:04X} at cycles {cycles}");
 
-        self.step_to(cycles, interrupts);
+        self.step_to(cycles, apu, dma, interrupts);
 
         let timer_idx = (address >> 2) & 3;
 

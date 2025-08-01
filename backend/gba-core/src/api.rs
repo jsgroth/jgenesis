@@ -1,5 +1,6 @@
 //! GBA emulator public interface
 
+use crate::apu::Apu;
 use crate::bus::Bus;
 use crate::cartridge::Cartridge;
 use crate::dma::DmaState;
@@ -61,6 +62,7 @@ impl BusState {
 pub struct GameBoyAdvanceEmulator {
     cpu: Arm7Tdmi,
     ppu: Ppu,
+    apu: Apu,
     memory: Memory,
     #[partial_clone(partial)]
     cartridge: Cartridge,
@@ -81,6 +83,7 @@ impl GameBoyAdvanceEmulator {
         config: GbaEmulatorConfig,
     ) -> Result<Self, GbaLoadError> {
         let mut ppu = Ppu::new();
+        let mut apu = Apu::new();
         let mut memory = Memory::new(bios_rom)?;
         let mut cartridge = Cartridge::new(rom);
         let mut dma = DmaState::new();
@@ -100,6 +103,7 @@ impl GameBoyAdvanceEmulator {
             },
             &mut Bus {
                 ppu: &mut ppu,
+                apu: &mut apu,
                 memory: &mut memory,
                 cartridge: &mut cartridge,
                 dma: &mut dma,
@@ -113,6 +117,7 @@ impl GameBoyAdvanceEmulator {
         Ok(Self {
             cpu,
             ppu,
+            apu,
             memory,
             cartridge,
             dma,
@@ -153,6 +158,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
     {
         let mut bus = Bus {
             ppu: &mut self.ppu,
+            apu: &mut self.apu,
             memory: &mut self.memory,
             cartridge: &mut self.cartridge,
             dma: &mut self.dma,
@@ -168,7 +174,15 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
 
         self.bus_state = bus.state;
 
-        self.timers.step_to(self.bus_state.cycles, &mut self.interrupts);
+        self.timers.step_to(
+            self.bus_state.cycles,
+            &mut self.apu,
+            &mut self.dma,
+            &mut self.interrupts,
+        );
+
+        self.apu.step_to(self.bus_state.cycles);
+        self.apu.drain_audio_output(audio_output).map_err(GbaError::Audio)?;
 
         self.ppu.step_to(self.bus_state.cycles, &mut self.interrupts, &mut self.dma);
         if self.ppu.frame_complete() {
@@ -221,10 +235,12 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
 
     fn target_fps(&self) -> f64 {
         // Roughly 59.73 fps
-        f64::from(1 << 24) / f64::from(ppu::LINES_PER_FRAME) / f64::from(ppu::DOTS_PER_LINE)
+        (crate::GBA_CLOCK_SPEED as f64)
+            / f64::from(ppu::LINES_PER_FRAME)
+            / f64::from(ppu::DOTS_PER_LINE)
     }
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
-        // TODO implement audio
+        self.apu.update_output_frequency(output_frequency);
     }
 }
