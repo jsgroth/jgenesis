@@ -1,6 +1,8 @@
+use crate::ppu::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, U16Ext};
 use std::array;
+use std::ops::Range;
 
 macro_rules! define_bit_enum {
     ($name:ident, [$zero:ident, $one:ident]) => {
@@ -684,9 +686,33 @@ impl Registers {
             Window::Outside => WindowEnabled {
                 bg: self.window_out_bg_enabled,
                 obj: self.window_out_obj_enabled,
-                blend: self.obj_window_blend_enabled,
+                blend: self.window_out_blend_enabled,
             },
         }
+    }
+
+    pub fn effective_window_x2(&self) -> [u32; 2] {
+        // If X2 < X1, the window is active for the entire line from X1 onwards
+        array::from_fn(|i| {
+            if self.window_x2[i] < self.window_x1[i] { SCREEN_WIDTH } else { self.window_x2[i] }
+        })
+    }
+
+    pub fn effective_window_y2(&self) -> [u32; 2] {
+        // If Y2 < Y1, the window is active for all lines from Y1 onwards
+        array::from_fn(|i| {
+            if self.window_y2[i] < self.window_y1[i] { SCREEN_HEIGHT } else { self.window_y2[i] }
+        })
+    }
+
+    pub fn window_x_ranges(&self) -> [Range<u32>; 2] {
+        let effective_x2 = self.effective_window_x2();
+        array::from_fn(|i| self.window_x1[i]..effective_x2[i])
+    }
+
+    pub fn window_y_ranges(&self) -> [Range<u32>; 2] {
+        let effective_y2 = self.effective_window_y2();
+        array::from_fn(|i| self.window_y1[i]..effective_y2[i])
     }
 }
 

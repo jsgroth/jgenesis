@@ -5,7 +5,7 @@ mod registers;
 use crate::dma::DmaState;
 use crate::interrupts::{InterruptRegisters, InterruptType};
 use crate::ppu::registers::{
-    BgMode, BitsPerPixel, ObjVramMapDimensions, Registers, Window, WindowEnabled,
+    BgMode, BitsPerPixel, BlendMode, ObjVramMapDimensions, Registers, Window, WindowEnabled,
 };
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::{BoxedByteArray, BoxedWordArray};
@@ -93,6 +93,10 @@ impl Pixel {
         Self(color | 0x8000)
     }
 
+    fn new_opaque_rgb(r: u16, g: u16, b: u16) -> Self {
+        Self(0x8000 | r | (g << 5) | (b << 10))
+    }
+
     fn new_transparent(color: u16) -> Self {
         Self(color & 0x7FFF)
     }
@@ -130,6 +134,30 @@ enum Layer {
 
 impl Layer {
     const BG: [Self; 4] = [Self::Bg0, Self::Bg1, Self::Bg2, Self::Bg3];
+
+    fn is_1st_target_enabled(self, registers: &Registers) -> bool {
+        match self {
+            Self::Bg0 => registers.bg_blend_1st_target[0],
+            Self::Bg1 => registers.bg_blend_1st_target[1],
+            Self::Bg2 => registers.bg_blend_1st_target[2],
+            Self::Bg3 => registers.bg_blend_1st_target[3],
+            Self::Obj => registers.obj_blend_1st_target,
+            Self::Backdrop => registers.backdrop_blend_1st_target,
+            Self::None => false,
+        }
+    }
+
+    fn is_2nd_target_enabled(self, registers: &Registers) -> bool {
+        match self {
+            Self::Bg0 => registers.bg_blend_2nd_target[0],
+            Self::Bg1 => registers.bg_blend_2nd_target[1],
+            Self::Bg2 => registers.bg_blend_2nd_target[2],
+            Self::Bg3 => registers.bg_blend_2nd_target[3],
+            Self::Obj => registers.obj_blend_2nd_target,
+            Self::Backdrop => registers.backdrop_blend_2nd_target,
+            Self::None => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -631,11 +659,23 @@ impl Ppu {
     }
 
     fn merge_layers(&mut self) {
+        #[derive(Debug, Clone, Copy)]
+        struct MergePixel {
+            color: Pixel,
+            layer: Layer,
+            priority: u8,
+        }
+
         let scanline = self.state.scanline;
 
         let backdrop_color = Pixel::new_transparent(self.palette_ram[0]);
 
-        // TODO windows
+        // Alpha blending coefficients
+        let eva: u16 = cmp::min(16, self.registers.blend_alpha_a).into();
+        let evb: u16 = cmp::min(16, self.registers.blend_alpha_b).into();
+
+        // Brightness increase/decrease coefficient
+        let evy: u16 = cmp::min(16, self.registers.blend_brightness).into();
 
         let bg_enabled: [bool; 4] = array::from_fn(|bg| {
             self.registers.bg_enabled[bg] && self.registers.bg_mode.bg_active_in_mode(bg)
@@ -645,23 +685,14 @@ impl Ppu {
             || self.registers.window_enabled[1]
             || self.registers.obj_window_enabled;
 
-        let window_x1 = self.registers.window_x1;
-        let window_x2 = self.registers.window_x2;
-        let window_y1 = self.registers.window_y1;
-        let window_y2 = self.registers.window_y2;
+        let window_x = self.registers.window_x_ranges();
+        let window_y = self.registers.window_y_ranges();
 
-        let window_y_active = [0, 1].map(|i| {
-            self.registers.window_enabled[i]
-                && scanline >= window_y1[i]
-                && (scanline < window_y2[i] || window_y2[i] < window_y1[i])
-        });
+        let window_y_active =
+            [0, 1].map(|i| self.registers.window_enabled[i] && window_y[i].contains(&scanline));
 
         for pixel in 0..SCREEN_WIDTH {
-            let window_active = [0, 1].map(|i| {
-                window_y_active[i]
-                    && pixel >= window_x1[i]
-                    && (pixel < window_x2[i] || window_x2[i] < window_x1[i])
-            });
+            let window_active = [0, 1].map(|i| window_y_active[i] && window_x[i].contains(&pixel));
 
             let window_layers_enabled = if any_window_enabled {
                 // TODO OBJ window
@@ -677,35 +708,25 @@ impl Ppu {
                 WindowEnabled::ALL
             };
 
-            let mut first_color = backdrop_color;
-            let mut first_layer = Layer::Backdrop;
-            let mut first_priority = u8::MAX;
+            let mut first_pixel =
+                MergePixel { color: backdrop_color, layer: Layer::Backdrop, priority: u8::MAX };
 
-            let mut second_color = Pixel::TRANSPARENT;
-            let mut second_layer = Layer::None;
-            let mut second_priority = u8::MAX;
+            let mut second_pixel =
+                MergePixel { color: Pixel::TRANSPARENT, layer: Layer::None, priority: u8::MAX };
 
             let mut check_pixel = |color: Pixel, layer: Layer, priority: u8| {
                 if color.transparent() {
                     return;
                 }
 
-                if first_color.transparent() || priority < first_priority {
-                    second_color = first_color;
-                    second_layer = first_layer;
-                    second_priority = first_priority;
-
-                    first_color = color;
-                    first_layer = layer;
-                    first_priority = priority;
-
+                if first_pixel.color.transparent() || priority < first_pixel.priority {
+                    second_pixel = first_pixel;
+                    first_pixel = MergePixel { color, layer, priority };
                     return;
                 }
 
-                if second_color.transparent() || priority < second_priority {
-                    second_color = color;
-                    second_layer = layer;
-                    second_priority = priority;
+                if second_pixel.color.transparent() || priority < second_pixel.priority {
+                    second_pixel = MergePixel { color, layer, priority };
                 }
             };
 
@@ -729,9 +750,40 @@ impl Ppu {
                 );
             }
 
-            // TODO blending
+            let mut blend_color = first_pixel.color;
 
-            self.frame_buffer.set(self.state.scanline, pixel, gba_color_to_rgb8(first_color));
+            // Semi-transparent OBJs are always 1st target enabled and force blend mode to alpha blending
+            let is_semi_transparent_obj = first_pixel.layer == Layer::Obj
+                && self.buffers.obj_semi_transparent[pixel as usize];
+
+            if window_layers_enabled.blend
+                && (first_pixel.layer.is_1st_target_enabled(&self.registers)
+                    || is_semi_transparent_obj)
+            {
+                let blend_mode = if is_semi_transparent_obj {
+                    BlendMode::AlphaBlending
+                } else {
+                    self.registers.blend_mode
+                };
+
+                match blend_mode {
+                    BlendMode::AlphaBlending => {
+                        if second_pixel.layer.is_2nd_target_enabled(&self.registers) {
+                            blend_color =
+                                alpha_blend(first_pixel.color, second_pixel.color, eva, evb);
+                        }
+                    }
+                    BlendMode::BrightnessIncrease => {
+                        blend_color = adjust_brightness::<true>(first_pixel.color, evy);
+                    }
+                    BlendMode::BrightnessDecrease => {
+                        blend_color = adjust_brightness::<false>(first_pixel.color, evy);
+                    }
+                    BlendMode::None => {}
+                }
+            }
+
+            self.frame_buffer.set(self.state.scanline, pixel, gba_color_to_rgb8(blend_color));
         }
     }
 
@@ -1084,6 +1136,33 @@ impl Ppu {
             }
         }
     }
+}
+
+fn alpha_blend(first: Pixel, second: Pixel, eva: u16, evb: u16) -> Pixel {
+    let alpha_blend_component =
+        |first: u16, second: u16| cmp::min(31, (eva * first + evb * second) >> 4);
+
+    let r = alpha_blend_component(first.red(), second.red());
+    let g = alpha_blend_component(first.green(), second.green());
+    let b = alpha_blend_component(first.blue(), second.blue());
+
+    Pixel::new_opaque_rgb(r, g, b)
+}
+
+fn adjust_brightness<const INCREASE: bool>(color: Pixel, evy: u16) -> Pixel {
+    let adjust_component = |component: u16| {
+        if INCREASE {
+            component + ((evy * (31 - component)) >> 4)
+        } else {
+            component - ((evy * component) >> 4)
+        }
+    };
+
+    let r = adjust_component(color.red());
+    let g = adjust_component(color.green());
+    let b = adjust_component(color.blue());
+
+    Pixel::new_opaque_rgb(r, g, b)
 }
 
 fn gba_color_to_rgb8(gba_color: Pixel) -> Color {
