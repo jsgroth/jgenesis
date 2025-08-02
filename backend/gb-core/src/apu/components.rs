@@ -7,7 +7,14 @@ pub struct LengthCounter<const MAX: u16> {
     pub counter: u16,
 }
 
+impl<const MAX: u16> Default for LengthCounter<MAX> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<const MAX: u16> LengthCounter<MAX> {
+    #[must_use]
     pub fn new() -> Self {
         Self { enabled: false, counter: MAX }
     }
@@ -87,7 +94,14 @@ pub struct Envelope {
     configured_period: u8,
 }
 
+impl Default for Envelope {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Envelope {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             volume: 0,
@@ -101,6 +115,7 @@ impl Envelope {
         }
     }
 
+    #[must_use]
     pub fn read_register(self) -> u8 {
         (self.initial_volume << 4)
             | (u8::from(self.configured_direction.to_bit()) << 3)
@@ -172,7 +187,19 @@ pub struct PhaseTimer<const MAX_PHASE: u8, const SPEED_MULTIPLIER: u16> {
     period: u16,
 }
 
+impl<const MAX_PHASE: u8, const SPEED_MULTIPLIER: u16> Default
+    for PhaseTimer<MAX_PHASE, SPEED_MULTIPLIER>
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<const MAX_PHASE: u8, const SPEED_MULTIPLIER: u16> PhaseTimer<MAX_PHASE, SPEED_MULTIPLIER> {
+    /// # Panics
+    ///
+    /// If `(MAX_PHASE + 1)` is not a power of 2
+    #[must_use]
     pub fn new() -> Self {
         // Sanity check that (MAX_PHASE + 1) is a power of 2
         assert_eq!(MAX_PHASE.trailing_ones() + MAX_PHASE.leading_zeros(), u8::BITS);
@@ -180,10 +207,12 @@ impl<const MAX_PHASE: u8, const SPEED_MULTIPLIER: u16> PhaseTimer<MAX_PHASE, SPE
         Self { phase: 0, counter: 2048, period: 2048, frequency: 0 }
     }
 
+    #[must_use]
     pub fn just_reloaded(self) -> bool {
         self.counter == self.period
     }
 
+    #[must_use]
     pub fn frequency(self) -> u16 {
         self.frequency
     }

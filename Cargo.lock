@@ -1830,6 +1830,7 @@ dependencies = [
  "arm7tdmi-emu",
  "bincode",
  "dsp",
+ "gb-core",
  "gba-config",
  "jgenesis-common",
  "jgenesis-proc-macros",

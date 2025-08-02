@@ -1,8 +1,8 @@
 //! Game Boy APU (audio processing unit)
 
-mod components;
-mod noise;
-mod pulse;
+pub mod components;
+pub mod noise;
+pub mod pulse;
 mod wavetable;
 
 use crate::HardwareMode;
@@ -19,16 +19,23 @@ use jgenesis_common::num::GetBit;
 use std::array;
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]
-struct StereoControl {
-    left_volume: u8,
-    right_volume: u8,
-    left_channels: [bool; 4],
-    right_channels: [bool; 4],
+pub struct StereoControl {
+    pub left_volume: u8,
+    pub right_volume: u8,
+    pub left_channels: [bool; 4],
+    pub right_channels: [bool; 4],
     // Vin functionality is not emulated but some test ROMs depend on these bits being R/W
     vin_bits: u8,
 }
 
+impl Default for StereoControl {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StereoControl {
+    #[must_use]
     pub fn new() -> Self {
         // Initial state from https://gbdev.io/pandocs/Power_Up_Sequence.html#hardware-registers
         Self {
@@ -40,6 +47,7 @@ impl StereoControl {
         }
     }
 
+    #[must_use]
     pub fn zero() -> Self {
         Self {
             left_volume: 0,
@@ -50,6 +58,7 @@ impl StereoControl {
         }
     }
 
+    #[must_use]
     pub fn read_volume(&self) -> u8 {
         (self.left_volume << 4) | self.right_volume | self.vin_bits
     }
@@ -65,6 +74,7 @@ impl StereoControl {
         log::trace!("  R volume: {}", self.right_volume);
     }
 
+    #[must_use]
     pub fn read_enabled(&self) -> u8 {
         let high_nibble = stereo_channels_to_nibble(self.left_channels);
         let low_nibble = stereo_channels_to_nibble(self.right_channels);
@@ -125,7 +135,7 @@ impl Dac {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
-pub struct Apu {
+pub(crate) struct Apu {
     hardware_mode: HardwareMode,
     enabled: bool,
     pulse_1: PulseChannel,

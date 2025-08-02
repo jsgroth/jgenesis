@@ -9,7 +9,7 @@ pub struct GbaAudioResampler {
     dc_offset_l: FirstOrderIirFilter,
     dc_offset_r: FirstOrderIirFilter,
     resampler: QualitySincResampler<2>,
-    source_frequency: f64,
+    source_frequency: u64,
 }
 
 fn new_dc_offset_filter(source_frequency: f64) -> FirstOrderIirFilter {
@@ -24,19 +24,17 @@ impl GbaAudioResampler {
             dc_offset_l: new_dc_offset_filter(DEFAULT_SOURCE_FREQUENCY),
             dc_offset_r: new_dc_offset_filter(DEFAULT_SOURCE_FREQUENCY),
             resampler: QualitySincResampler::new(DEFAULT_SOURCE_FREQUENCY, 48000.0),
-            source_frequency: DEFAULT_SOURCE_FREQUENCY,
+            source_frequency: DEFAULT_SOURCE_FREQUENCY as u64,
         }
     }
 
-    // Floats are constants passed in from APU code, not arithmetic results
-    #[allow(clippy::float_cmp)]
-    pub fn update_source_frequency(&mut self, source_frequency: f64) {
-        self.resampler.update_source_frequency(source_frequency);
+    pub fn update_source_frequency(&mut self, source_frequency: u64) {
+        self.resampler.update_source_frequency(source_frequency as f64);
 
         // TODO would be better to initialize these to the last sample to avoid a pop when frequency changes
         if source_frequency != self.source_frequency {
-            self.dc_offset_l = new_dc_offset_filter(source_frequency);
-            self.dc_offset_r = new_dc_offset_filter(source_frequency);
+            self.dc_offset_l = new_dc_offset_filter(source_frequency as f64);
+            self.dc_offset_r = new_dc_offset_filter(source_frequency as f64);
         }
         self.source_frequency = source_frequency;
     }

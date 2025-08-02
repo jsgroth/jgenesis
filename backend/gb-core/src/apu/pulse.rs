@@ -162,7 +162,14 @@ pub struct PulseChannel {
     suppress_output: bool,
 }
 
+impl Default for PulseChannel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PulseChannel {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             duty_cycle: DutyCycle::default(),
@@ -201,6 +208,7 @@ impl PulseChannel {
         self.suppress_output &= tick != TimerTickEffect::Clocked;
     }
 
+    #[must_use]
     pub fn sample(&self) -> Option<u8> {
         if !self.dac_enabled {
             return None;
@@ -214,6 +222,7 @@ impl PulseChannel {
         Some(u8::from(waveform_step) * self.envelope.volume)
     }
 
+    #[must_use]
     pub fn read_register_0(&self) -> u8 {
         self.sweep.read_register()
     }
@@ -225,6 +234,7 @@ impl PulseChannel {
         log::trace!("NR10 write, sweep: {:?}", self.sweep);
     }
 
+    #[must_use]
     pub fn read_register_1(&self) -> u8 {
         0x3F | self.duty_cycle.to_bits()
     }
@@ -242,6 +252,7 @@ impl PulseChannel {
         log::trace!("  Length counter: {}", self.length_counter.counter);
     }
 
+    #[must_use]
     pub fn read_register_2(&self) -> u8 {
         self.envelope.read_register()
     }
@@ -277,6 +288,7 @@ impl PulseChannel {
         log::trace!("  Timer frequency: {}", self.timer.frequency());
     }
 
+    #[must_use]
     pub fn read_register_4(&self) -> u8 {
         0xBF | (u8::from(self.length_counter.enabled) << 6)
     }
@@ -323,6 +335,7 @@ impl PulseChannel {
         log::trace!("  Triggered: {}", value.bit(7));
     }
 
+    #[must_use]
     pub fn enabled(&self) -> bool {
         self.channel_enabled
     }

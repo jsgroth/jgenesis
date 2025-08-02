@@ -32,7 +32,14 @@ pub struct NoiseChannel {
     dac_enabled: bool,
 }
 
+impl Default for NoiseChannel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NoiseChannel {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             counter: 2,
@@ -54,6 +61,7 @@ impl NoiseChannel {
         log::trace!("NR41 write, length counter: {}", self.length_counter.counter);
     }
 
+    #[must_use]
     pub fn read_register_2(&self) -> u8 {
         self.envelope.read_register()
     }
@@ -72,6 +80,7 @@ impl NoiseChannel {
         log::trace!("  DAC enabled: {}", self.dac_enabled);
     }
 
+    #[must_use]
     pub fn read_register_3(&self) -> u8 {
         (self.clock_shift << 4) | (u8::from(self.lfsr_width.to_bit()) << 3) | self.clock_divider
     }
@@ -88,6 +97,7 @@ impl NoiseChannel {
         log::trace!("  Divider code: {}", self.clock_divider);
     }
 
+    #[must_use]
     pub fn read_register_4(&self) -> u8 {
         0xBF | (u8::from(self.length_counter.enabled) << 6)
     }
@@ -137,6 +147,7 @@ impl NoiseChannel {
         self.envelope.clock();
     }
 
+    #[must_use]
     pub fn sample(&self) -> Option<u8> {
         if !self.dac_enabled {
             return None;
@@ -149,6 +160,7 @@ impl NoiseChannel {
         Some(u8::from(!self.lfsr.bit(0)) * self.envelope.volume)
     }
 
+    #[must_use]
     pub fn enabled(&self) -> bool {
         self.channel_enabled
     }

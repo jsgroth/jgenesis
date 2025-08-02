@@ -1,5 +1,10 @@
 //! GBA APU (audio processing unit)
+//!
+//! Contains the 4 Game Boy Color APU channels (slightly modified) plus two 8-bit PCM channels (Direct Sound)
 
+mod psg;
+
+use crate::apu::psg::Psg;
 use crate::audio::GbaAudioResampler;
 use crate::dma::DmaState;
 use bincode::{Decode, Encode};
@@ -72,6 +77,7 @@ impl PwmClockShift {
     }
 
     fn gba_clock_downshift(self) -> u8 {
+        // Downshifting from ~16.77 MHz
         match self {
             Self::Nine => 9,
             Self::Eight => 8,
@@ -90,8 +96,8 @@ impl PwmClockShift {
         }
     }
 
-    fn source_frequency(self) -> f64 {
-        (crate::GBA_CLOCK_SPEED >> self.gba_clock_downshift()) as f64
+    fn source_frequency(self) -> u64 {
+        crate::GBA_CLOCK_SPEED >> self.gba_clock_downshift()
     }
 }
 
@@ -112,6 +118,8 @@ pub struct Apu {
     enabled: bool,
     pcm_a: DirectSoundChannel,
     pcm_b: DirectSoundChannel,
+    psg: Psg,
+    psg_volume_shift: u8,
     pwm: PwmControl,
     resampler: GbaAudioResampler,
     cycles: u64,
@@ -123,6 +131,8 @@ impl Apu {
             enabled: false,
             pcm_a: DirectSoundChannel::new("A".into()),
             pcm_b: DirectSoundChannel::new("B".into()),
+            psg: Psg::new(),
+            psg_volume_shift: 2,
             pwm: PwmControl::new(),
             resampler: GbaAudioResampler::new(),
             cycles: 0,
@@ -138,6 +148,11 @@ impl Apu {
         let pwm_samples_elapsed = (cycles >> clock_shift) - (self.cycles >> clock_shift);
 
         for _ in 0..pwm_samples_elapsed {
+            let psg_ticks = 1 << (20 - (24 - clock_shift));
+            for _ in 0..psg_ticks {
+                self.psg.tick_1mhz(self.enabled);
+            }
+
             self.generate_sample();
         }
 
@@ -164,6 +179,17 @@ impl Apu {
     }
 
     fn sample(&self) -> (u16, u16) {
+        // Mixed PSG samples are unsigned 9-bit (4 unsigned 4-bit channels, 3-bit master volume)
+        // Shift to unsigned 10-bit, then downshift based on volume
+        let (mut psg_l, mut psg_r) = self.psg.sample();
+        psg_l = (psg_l << 1) >> self.psg_volume_shift;
+        psg_r = (psg_r << 1) >> self.psg_volume_shift;
+
+        let psg_l = psg_l as i16;
+        let psg_r = psg_r as i16;
+
+        // PCM samples are signed 8-bit
+        // Shift to signed 10-bit, then downshift based on volume
         let pcm_a = (i16::from(self.pcm_a.current_sample) << 2) >> self.pcm_a.volume_shift;
         let pcm_b = (i16::from(self.pcm_b.current_sample) << 2) >> self.pcm_b.volume_shift;
 
@@ -172,8 +198,9 @@ impl Apu {
         let pcm_r =
             i16::from(self.pcm_a.r_enabled) * pcm_a + i16::from(self.pcm_b.r_enabled) * pcm_b;
 
-        let sample_l = (pcm_l + self.pwm.sound_bias).clamp(0x000, 0x3FF) as u16;
-        let sample_r = (pcm_r + self.pwm.sound_bias).clamp(0x000, 0x3FF) as u16;
+        // Final results are clamped to unsigned 10-bit after adding sound bias
+        let sample_l = (psg_l + pcm_l + self.pwm.sound_bias).clamp(0x000, 0x3FF) as u16;
+        let sample_r = (psg_r + pcm_r + self.pwm.sound_bias).clamp(0x000, 0x3FF) as u16;
         (sample_l, sample_r)
     }
 
@@ -211,16 +238,34 @@ impl Apu {
         self.enabled && self.pcm_b.fifo.len() <= FIFO_LEN_SAMPLES / 2
     }
 
+    #[allow(clippy::match_same_arms)]
     pub fn read_register(&self, address: u32) -> u8 {
         match address {
+            0x4000060 => self.psg.read_sound1cnt_l(),
+            0x4000061 => 0xFF, // SOUND1CNT_L high
+            0x4000062 => self.psg.read_sound1cnt_h_low(),
+            0x4000063 => self.psg.read_sound1cnt_h_high(),
+            0x4000064 => 0xFF, // SOUND1CNT_X low
+            0x4000065 => self.psg.read_sound1cnt_x_high(),
+            0x4000068 => self.psg.read_sound2cnt_l_low(),
+            0x4000069 => self.psg.read_sound2cnt_l_high(),
+            0x400006C => 0xFF, // SOUND2CNT_H low
+            0x400006D => self.psg.read_sound2cnt_h_high(),
+            0x4000078 => 0xFF, // SOUND4CNT_L low
+            0x4000079 => self.psg.read_sound4cnt_l_high(),
+            0x400007C => self.psg.read_sound4cnt_h_low(),
+            0x400007D => self.psg.read_sound4cnt_h_high(),
+            0x4000080 => self.psg.read_soundcnt_l_low(),
+            0x4000081 => self.psg.read_soundcnt_l_high(),
             0x4000082 => self.read_soundcnt_h_low(),
             0x4000083 => self.read_soundcnt_h_high(),
             0x4000084 => self.read_soundcnt_x(),
+            0x4000085 => 0xFF, // SOUNDCNT_X high
             0x4000088 => self.read_soundbias_low(),
             0x4000089 => self.read_soundbias_high(),
             _ => {
                 log::warn!("Unimplemented APU register read: {address:08X}");
-                0
+                0xFF
             }
         }
     }
@@ -231,17 +276,34 @@ impl Apu {
         u16::from_le_bytes([lsb, msb])
     }
 
+    #[allow(clippy::match_same_arms)]
     pub fn write_register(&mut self, address: u32, value: u8) {
-        // Registers below $4000082 are not writable when APU is disabled
-        if !self.enabled && address < 0x4000082 {
+        // Registers outside of $4000082-$4000089 are not writable when APU is disabled
+        if !self.enabled && !(0x4000082..0x400008A).contains(&address) {
             return;
         }
 
         match address {
+            0x4000060 => self.psg.write_sound1cnt_l(value),
+            0x4000061 => {} // SOUND1CNT_L high
+            0x4000062 => self.psg.write_sound1cnt_h_low(value),
+            0x4000063 => self.psg.write_sound1cnt_h_high(value),
+            0x4000064 => self.psg.write_sound1cnt_x_low(value),
+            0x4000065 => self.psg.write_sound1cnt_x_high(value),
+            0x4000068 => self.psg.write_sound2cnt_l_low(value),
+            0x4000069 => self.psg.write_sound2cnt_l_high(value),
+            0x400006C => self.psg.write_sound2cnt_h_low(value),
+            0x400006D => self.psg.write_sound2cnt_h_high(value),
+            0x4000078 => self.psg.write_sound4cnt_l_low(value),
+            0x4000079 => self.psg.write_sound4cnt_l_high(value),
+            0x400007C => self.psg.write_sound4cnt_h_low(value),
+            0x400007D => self.psg.write_sound4cnt_h_high(value),
+            0x4000080 => self.psg.write_soundcnt_l_low(value),
+            0x4000081 => self.psg.write_soundcnt_l_high(value),
             0x4000082 => self.write_soundcnt_h_low(value),
             0x4000083 => self.write_soundcnt_h_high(value),
             0x4000084 => self.write_soundcnt_x(value),
-            0x4000085 => {} // Non-existent SOUNDCNT_X high byte
+            0x4000085 => {} // SOUNDCNT_X high
             0x4000088 => self.write_soundbias_low(value),
             0x4000089 => self.write_soundbias_high(value),
             0x40000A0..=0x40000A3 => self.pcm_a.try_push_fifo(value as i8),
@@ -260,19 +322,22 @@ impl Apu {
 
     // $4000082: SOUNDCNT_H low byte (GBA-specific volume control)
     fn write_soundcnt_h_low(&mut self, value: u8) {
-        // TODO PSG volume bits 0-1
+        // TODO what should volume 3 (prohibited) do?
+        self.psg_volume_shift = 2_u8.saturating_sub(value & 3);
         self.pcm_a.volume_shift = 1 - ((value >> 2) & 1);
         self.pcm_b.volume_shift = 1 - ((value >> 3) & 1);
 
         log::trace!("SOUNDCNT_H low write: {value:02X}");
+        log::trace!("  PSG volume: {}%", 100 >> self.psg_volume_shift);
         log::trace!("  PCM A volume: {}%", 100 >> self.pcm_a.volume_shift);
         log::trace!("  PCM B volume: {}%", 100 >> self.pcm_b.volume_shift);
     }
 
     // $4000082: SOUNDCNT_H low byte (GBA-specific volume control)
     fn read_soundcnt_h_low(&self) -> u8 {
-        // TODO PSG volume bits 0-1
-        ((1 - self.pcm_a.volume_shift) << 2) | ((1 - self.pcm_b.volume_shift) << 3)
+        (2 - self.psg_volume_shift)
+            | ((1 - self.pcm_a.volume_shift) << 2)
+            | ((1 - self.pcm_b.volume_shift) << 3)
     }
 
     // $4000083: SOUNDCNT_H high byte (Direct Sound mixing and timer control)
@@ -317,8 +382,8 @@ impl Apu {
         self.enabled = value.bit(7);
 
         if !self.enabled {
-            // Disabling the APU resets all registers except for SOUNDCNT_H, SOUNDCNT_X, SOUNDBIAS
-            // TODO clear registers
+            // Disabling the APU resets all PSG registers to 0
+            self.psg.disable();
         }
 
         log::trace!("SOUNDCNT_X write: {value:02X}");
@@ -327,8 +392,7 @@ impl Apu {
 
     // $4000084: SOUNDCNT_X / NR52 (channel enabled status, enable/disable APU)
     fn read_soundcnt_x(&self) -> u8 {
-        // TODO PSG channel enabled bits
-        u8::from(self.enabled) << 7
+        self.psg.read_soundcnt_x(self.enabled)
     }
 
     // $4000088: SOUNDBIAS low byte (sound bias lowest 7 bits)
@@ -353,7 +417,7 @@ impl Apu {
 
         log::trace!("SOUNDBIAS high write: {value:02X}");
         log::trace!("  PWM sound bias: {:03X}", self.pwm.sound_bias);
-        log::trace!("  PWM sample rate: {} Hz", self.pwm.clock_shift.source_frequency() as u64);
+        log::trace!("  PWM sample rate: {} Hz", self.pwm.clock_shift.source_frequency());
     }
 
     // $4000089: SOUNDBIAS high byte (PWM sampling cycle, sound bias highest 2 bits)

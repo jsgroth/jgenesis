@@ -12,6 +12,9 @@ arm7tdmi-emu = { path = "../../cpu/arm7tdmi-emu" }
 
 gba-config = { path = "../../config/gba-config" }
 
+# For some of the GBC APU functionality
+gb-core = { path = "../gb-core" }
+
 bincode = { workspace = true, features = ["derive"] }
 log = { workspace = true }
 thiserror = { workspace = true }
