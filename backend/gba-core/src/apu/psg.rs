@@ -2,6 +2,9 @@
 //!
 //! Mostly the same as the Game Boy Color APU channels, though the wavetable channel works a bit differently
 
+mod wavetable;
+
+use crate::apu::psg::wavetable::WavetableChannel;
 use bincode::{Decode, Encode};
 use gb_core::apu::StereoControl;
 use gb_core::apu::noise::NoiseChannel;
@@ -15,6 +18,7 @@ const FRAME_SEQUENCER_DIVIDER: u64 = (1 << 20) / 512;
 pub struct Psg {
     pulse_1: PulseChannel,
     pulse_2: PulseChannel,
+    wavetable: WavetableChannel,
     noise: NoiseChannel,
     stereo_control: StereoControl,
     frame_sequencer_step: u8,
@@ -26,6 +30,7 @@ impl Psg {
         Self {
             pulse_1: PulseChannel::new(),
             pulse_2: PulseChannel::new(),
+            wavetable: WavetableChannel::new(),
             noise: NoiseChannel::new(),
             stereo_control: StereoControl::new(),
             frame_sequencer_step: 0,
@@ -38,7 +43,7 @@ impl Psg {
 
         self.pulse_1.tick_m_cycle();
         self.pulse_2.tick_m_cycle();
-        // TODO wavetable
+        self.wavetable.tick_1mhz();
         self.noise.tick_m_cycle();
     }
 
@@ -59,7 +64,7 @@ impl Psg {
         if !self.frame_sequencer_step.bit(0) {
             self.pulse_1.clock_length_counter();
             self.pulse_2.clock_length_counter();
-            // TODO wavetable
+            self.wavetable.clock_length_counter();
             self.noise.clock_length_counter();
         }
 
@@ -80,7 +85,7 @@ impl Psg {
         let samples = [
             self.pulse_1.sample().unwrap_or(0),
             self.pulse_2.sample().unwrap_or(0),
-            0, // TODO wavetable
+            self.wavetable.sample(),
             self.noise.sample().unwrap_or(0),
         ]
         .map(u16::from);
@@ -190,7 +195,45 @@ impl Psg {
         self.pulse_2.read_register_4()
     }
 
-    // TODO wavetable registers and wave RAM
+    // $4000070: SOUND3CNT_L / NR30 (Channel 3 enabled and wave RAM control)
+    pub fn write_sound3cnt_l(&mut self, value: u8) {
+        self.wavetable.write_nr30(value);
+    }
+
+    // $4000070: SOUND3CNT_L / NR30 (Channel 3 enabled and wave RAM control)
+    pub fn read_sound3cnt_l(&self) -> u8 {
+        self.wavetable.read_nr30()
+    }
+
+    // $4000072: SOUND3CNT_H low / NR31 (Channel 3 length counter)
+    pub fn write_sound3cnt_h_low(&mut self, value: u8) {
+        self.wavetable.write_nr31(value);
+    }
+
+    // $4000073: SOUND3CNT_H high / NR32 (Channel 3 volume)
+    pub fn write_sound3cnt_h_high(&mut self, value: u8) {
+        self.wavetable.write_nr32(value);
+    }
+
+    // $4000073: SOUND3CNT_H high / NR32 (Channel 3 volume)
+    pub fn read_sound3cnt_h_high(&self) -> u8 {
+        self.wavetable.read_nr32()
+    }
+
+    // $4000074: SOUND3CNT_X low / NR33 (Channel 3 frequency low bits)
+    pub fn write_sound3cnt_x_low(&mut self, value: u8) {
+        self.wavetable.write_nr33(value);
+    }
+
+    // $4000075: SOUND3CNT_X high / NR34 (Channel 3 control)
+    pub fn write_sound3cnt_x_high(&mut self, value: u8) {
+        self.wavetable.write_nr34(value, self.frame_sequencer_step);
+    }
+
+    // $4000075: SOUND3CNT_X high / NR34 (Channel 3 control)
+    pub fn read_sound3cnt_x_high(&self) -> u8 {
+        self.wavetable.read_nr34()
+    }
 
     // $4000078: SOUND4CNT_L low / NR41 (Channel 4 length counter)
     pub fn write_sound4cnt_l_low(&mut self, value: u8) {
@@ -249,10 +292,20 @@ impl Psg {
 
     // $4000084: SOUNDCNT_X / NR52 (Channels and APU enabled)
     pub fn read_soundcnt_x(&self, apu_enabled: bool) -> u8 {
-        // TODO wavetable
         (u8::from(self.pulse_1.enabled()))
             | (u8::from(self.pulse_2.enabled()) << 1)
+            | (u8::from(self.wavetable.active()) << 2)
             | (u8::from(self.noise.enabled()) << 3)
             | (u8::from(apu_enabled) << 7)
+    }
+
+    // $4000090-$400009F: Wave RAM
+    pub fn read_wave_ram(&self, address: u32) -> u8 {
+        self.wavetable.read_wave_ram(address)
+    }
+
+    // $4000090-$400009F: Wave RAM
+    pub fn write_wave_ram(&mut self, address: u32, value: u8) {
+        self.wavetable.write_wave_ram(address, value);
     }
 }

@@ -251,6 +251,12 @@ impl Apu {
             0x4000069 => self.psg.read_sound2cnt_l_high(),
             0x400006C => 0xFF, // SOUND2CNT_H low
             0x400006D => self.psg.read_sound2cnt_h_high(),
+            0x4000070 => self.psg.read_sound3cnt_l(),
+            0x4000071 => 0xFF, // SOUND3CNT_L high
+            0x4000072 => 0xFF, // SOUND3CNT_H low
+            0x4000073 => self.psg.read_sound3cnt_h_high(),
+            0x4000074 => 0xFF, // SOUND3CNT_X low
+            0x4000075 => self.psg.read_sound3cnt_x_high(),
             0x4000078 => 0xFF, // SOUND4CNT_L low
             0x4000079 => self.psg.read_sound4cnt_l_high(),
             0x400007C => self.psg.read_sound4cnt_h_low(),
@@ -263,6 +269,7 @@ impl Apu {
             0x4000085 => 0xFF, // SOUNDCNT_X high
             0x4000088 => self.read_soundbias_low(),
             0x4000089 => self.read_soundbias_high(),
+            0x4000090..=0x400009F => self.psg.read_wave_ram(address),
             _ => {
                 log::warn!("Unimplemented APU register read: {address:08X}");
                 0xFF
@@ -294,6 +301,12 @@ impl Apu {
             0x4000069 => self.psg.write_sound2cnt_l_high(value),
             0x400006C => self.psg.write_sound2cnt_h_low(value),
             0x400006D => self.psg.write_sound2cnt_h_high(value),
+            0x4000070 => self.psg.write_sound3cnt_l(value),
+            0x4000071 => {} // SOUND3CNT_L high
+            0x4000072 => self.psg.write_sound3cnt_h_low(value),
+            0x4000073 => self.psg.write_sound3cnt_h_high(value),
+            0x4000074 => self.psg.write_sound3cnt_x_low(value),
+            0x4000075 => self.psg.write_sound3cnt_x_high(value),
             0x4000078 => self.psg.write_sound4cnt_l_low(value),
             0x4000079 => self.psg.write_sound4cnt_l_high(value),
             0x400007C => self.psg.write_sound4cnt_h_low(value),
@@ -306,6 +319,7 @@ impl Apu {
             0x4000085 => {} // SOUNDCNT_X high
             0x4000088 => self.write_soundbias_low(value),
             0x4000089 => self.write_soundbias_high(value),
+            0x4000090..=0x400009F => self.psg.write_wave_ram(address, value),
             0x40000A0..=0x40000A3 => self.pcm_a.try_push_fifo(value as i8),
             0x40000A4..=0x40000A7 => self.pcm_b.try_push_fifo(value as i8),
             _ => {
