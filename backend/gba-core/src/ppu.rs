@@ -5,14 +5,15 @@ mod registers;
 use crate::dma::DmaState;
 use crate::interrupts::{InterruptRegisters, InterruptType};
 use crate::ppu::registers::{
-    BgMode, BitsPerPixel, BlendMode, ObjVramMapDimensions, Registers, Window, WindowEnabled,
+    AffineOverflowBehavior, BgMode, BitsPerPixel, BlendMode, ObjVramMapDimensions, Registers,
+    Window, WindowEnabled,
 };
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::{BoxedByteArray, BoxedWordArray};
 use jgenesis_common::frontend::{Color, FrameSize};
 use jgenesis_common::num::{GetBit, U16Ext};
 use std::ops::Range;
-use std::{array, cmp};
+use std::{array, cmp, iter};
 
 const VRAM_LOW_LEN: usize = 64 * 1024;
 const VRAM_HIGH_LEN: usize = 32 * 1024;
@@ -54,16 +55,44 @@ impl FrameBuffer {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
+struct BgAffineLatch {
+    x: [i32; 2],
+    y: [i32; 2],
+}
+
+impl BgAffineLatch {
+    // Called once per frame during VBlank
+    fn latch_reference_points(&mut self, registers: &Registers) {
+        self.x = registers.bg_affine_parameters.map(|params| params.reference_x);
+        self.y = registers.bg_affine_parameters.map(|params| params.reference_y);
+    }
+
+    // Called once per line during active display
+    fn increment_reference_latches(&mut self, registers: &Registers) {
+        for (i, (x, y)) in iter::zip(&mut self.x, &mut self.y).enumerate() {
+            *x += registers.bg_affine_parameters[i].b;
+            *y += registers.bg_affine_parameters[i].d;
+        }
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 struct State {
     scanline: u32,
     dot: u32,
     frame_complete: bool,
+    bg_affine_latch: BgAffineLatch,
 }
 
 impl State {
     fn new() -> Self {
-        Self { scanline: 0, dot: 0, frame_complete: false }
+        Self {
+            scanline: 0,
+            dot: 0,
+            frame_complete: false,
+            bg_affine_latch: BgAffineLatch::default(),
+        }
     }
 }
 
@@ -345,6 +374,8 @@ impl Ppu {
             }
 
             if ppu.state.scanline < SCREEN_HEIGHT {
+                ppu.state.bg_affine_latch.increment_reference_latches(&ppu.registers);
+
                 dma.notify_hblank_start();
             }
         }
@@ -361,6 +392,8 @@ impl Ppu {
                 }
 
                 dma.notify_vblank_start();
+
+                ppu.state.bg_affine_latch.latch_reference_points(&ppu.registers);
 
                 ppu.state.frame_complete = true;
             }
@@ -436,11 +469,13 @@ impl Ppu {
                 for bg in 0..2 {
                     self.render_text_bg(bg);
                 }
-                // TODO affine BG2
+                self.render_affine_bg(2);
             }
             BgMode::Two => {
                 // BG2-3 in affine mode
-                // TODO affine BG2-3
+                for bg in 2..4 {
+                    self.render_affine_bg(bg);
+                }
             }
             BgMode::Three => {
                 // Bitmap mode: 240x160, 15bpp, single frame buffer
@@ -586,6 +621,89 @@ impl Ppu {
                     }
                 }
             }
+        }
+    }
+
+    fn render_affine_bg(&mut self, bg: usize) {
+        assert!(bg == 2 || bg == 3);
+
+        self.buffers.bg_pixels[bg].fill(Pixel::TRANSPARENT);
+
+        if !self.registers.bg_enabled[bg] {
+            return;
+        }
+
+        // TODO mosaic
+
+        let bg_control = &self.registers.bg_control[bg];
+
+        let dimension_tiles = bg_control.size.affine_dimension_tiles();
+        let dimension_pixels = (8 * dimension_tiles) as i32;
+
+        let dx = self.registers.bg_affine_parameters[bg - 2].a;
+        let dy = self.registers.bg_affine_parameters[bg - 2].c;
+
+        let mut x = self.state.bg_affine_latch.x[bg - 2] - dx;
+        let mut y = self.state.bg_affine_latch.y[bg - 2] - dy;
+
+        for pixel in 0..SCREEN_WIDTH {
+            x += dx;
+            y += dy;
+
+            // Affine coordinates are in 1/256 pixel units - convert to pixel
+            let mut x_pixel = x >> 8;
+            let mut y_pixel = y >> 8;
+
+            if !(0..dimension_pixels).contains(&x_pixel)
+                || !(0..dimension_pixels).contains(&y_pixel)
+            {
+                match bg_control.affine_overflow {
+                    AffineOverflowBehavior::Transparent => continue,
+                    AffineOverflowBehavior::Wrap => {
+                        x_pixel &= dimension_pixels - 1;
+                        y_pixel &= dimension_pixels - 1;
+                    }
+                }
+            }
+
+            let x_pixel = x_pixel as u32;
+            let y_pixel = y_pixel as u32;
+
+            let tile_map_row = y_pixel / 8;
+            let tile_row = y_pixel % 8;
+
+            let tile_map_col = x_pixel / 8;
+            let tile_col = x_pixel % 8;
+
+            let tile_map_addr =
+                bg_control.tile_map_addr + tile_map_row * dimension_tiles + tile_map_col;
+            let tile_number = if tile_map_addr <= 0xFFFF {
+                self.vram[tile_map_addr as usize]
+            } else {
+                // TODO should be VRAM open bus?
+                0
+            };
+            let tile_number: u32 = tile_number.into();
+
+            // Affine tiles are always 8bpp
+
+            let tile_base_addr = bg_control.tile_data_addr + 64 * tile_number;
+
+            // Tile data address will never exceed $FFFF because tile numbers are 8-bit and tile
+            // data base address is in 16KB steps
+            assert!(tile_base_addr <= 0x10000 - 64);
+
+            let tile_row_addr = tile_base_addr + 8 * tile_row;
+            let tile_addr = tile_row_addr + tile_col;
+            let color_id = self.vram[tile_addr as usize];
+
+            if color_id == 0 {
+                // Transparent
+                continue;
+            }
+
+            let color = self.palette_ram[color_id as usize];
+            self.buffers.bg_pixels[bg][pixel as usize] = Pixel::new_opaque(color);
         }
     }
 
@@ -1091,7 +1209,11 @@ impl Ppu {
                     self.registers.write_bgvofs(bg as usize, value);
                 }
             }
-            0x4000020..=0x400003E => self.registers.write_bg_affine_register(address, value),
+            0x4000020..=0x400003E => self.registers.write_bg_affine_register(
+                address,
+                value,
+                &mut self.state.bg_affine_latch,
+            ),
             0x4000040 => self.registers.write_winh(0, value),
             0x4000042 => self.registers.write_winh(1, value),
             0x4000044 => self.registers.write_winv(0, value),

@@ -82,6 +82,10 @@ impl Bus<'_> {
             0x4000202 => self.interrupts.read_if(),
             0x4000204 => self.memory.waitcnt,
             0x4000208 => self.interrupts.read_ime(),
+            0x400020A => {
+                // High halfword of word reads to IME
+                0
+            }
             _ => {
                 log::warn!("Unhandled I/O register read {address:08X}");
                 0
@@ -120,6 +124,7 @@ impl Bus<'_> {
             0x4000202 => self.interrupts.write_if(value),
             0x4000204 => self.memory.waitcnt = value,
             0x4000208 => self.interrupts.write_ime(value),
+            0x400020A => {} // High halfword of word writes to IME
             _ => log::warn!("Unhandled I/O register halfword write {address:08X} {value:04X}"),
         }
     }

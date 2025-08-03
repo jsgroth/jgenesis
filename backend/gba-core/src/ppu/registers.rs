@@ -1,4 +1,4 @@
-use crate::ppu::{SCREEN_HEIGHT, SCREEN_WIDTH};
+use crate::ppu::{BgAffineLatch, SCREEN_HEIGHT, SCREEN_WIDTH};
 use bincode::{Decode, Encode};
 use jgenesis_common::define_bit_enum;
 use jgenesis_common::num::{GetBit, U16Ext};
@@ -121,6 +121,15 @@ impl ScreenSize {
     pub fn text_height_tiles(self) -> u32 {
         self.text_height_pixels() / 8
     }
+
+    pub fn affine_dimension_tiles(self) -> u32 {
+        match self {
+            Self::Zero => 16,
+            Self::One => 32,
+            Self::Two => 64,
+            Self::Three => 128,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, Encode, Decode)]
@@ -162,20 +171,20 @@ impl BgControl {
     }
 }
 
-#[derive(Debug, Clone, Default, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
 pub struct BgAffineParameters {
     // BG2X / BG3X
-    pub reference_x: u32,
+    pub reference_x: i32,
     // BG2Y / BG3Y
-    pub reference_y: u32,
+    pub reference_y: i32,
     // BG2PA / BG3PA
-    pub a: u16,
+    pub a: i32,
     // BG2PB / BG3PB
-    pub b: u16,
+    pub b: i32,
     // BG2PC / BG3PC
-    pub c: u16,
+    pub c: i32,
     // BG2PD / BG3PD
-    pub d: u16,
+    pub d: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
@@ -419,56 +428,84 @@ impl Registers {
     }
 
     // $4000020-$400003E: BG2/3 affine parameter registers
-    pub fn write_bg_affine_register(&mut self, address: u32, value: u16) {
+    pub fn write_bg_affine_register(
+        &mut self,
+        address: u32,
+        value: u16,
+        latch: &mut BgAffineLatch,
+    ) {
+        fn cast_parameter(parameter: u16) -> i32 {
+            // Parameters are signed 16-bit; sign extend to 32-bit
+            i32::from(parameter as i16)
+        }
+
         let bg_idx = ((address >> 4) & 1) as usize;
         let affine_parameters = &mut self.bg_affine_parameters[bg_idx];
 
         match address & 0xE {
             0x0 => {
                 // BG2PA / BG3PA
-                affine_parameters.a = value;
+                affine_parameters.a = cast_parameter(value);
                 log::debug!("BG{}PA write: {value:04X}", bg_idx + 2);
             }
             0x2 => {
                 // BG2PB // BG3PB
-                affine_parameters.b = value;
+                affine_parameters.b = cast_parameter(value);
                 log::debug!("BG{}PB write: {value:04X}", bg_idx + 2);
             }
             0x4 => {
                 // BG2PC // BG3PC
-                affine_parameters.c = value;
+                affine_parameters.c = cast_parameter(value);
                 log::debug!("BG{}PC write: {value:04X}", bg_idx + 2);
             }
             0x6 => {
                 // BG2PD // BG3PD
-                affine_parameters.d = value;
+                affine_parameters.d = cast_parameter(value);
                 log::debug!("BG{}PD write: {value:04X}", bg_idx + 2);
             }
             0x8 => {
                 // BG2X_L / BG3X_L
                 affine_parameters.reference_x =
-                    (affine_parameters.reference_x & !0xFFFF) | u32::from(value);
+                    (affine_parameters.reference_x & !0xFFFF) | i32::from(value);
+
+                // Update X latch on register writes
+                latch.x[bg_idx] = affine_parameters.reference_x;
+
                 log::debug!("BG{}X_L write: {value:04X}", bg_idx + 2);
                 log::debug!("  Reference point X: {:07X}", affine_parameters.reference_x);
             }
             0xA => {
                 // BG2X_H / BG3X_H
+                // Truncate highest 4 bits (sign extend)
                 affine_parameters.reference_x =
-                    (affine_parameters.reference_x & 0xFFFF) | (u32::from(value & 0x0FFF) << 16);
+                    (affine_parameters.reference_x & 0xFFFF) | ((i32::from(value) << 20) >> 4);
+
+                // Update X latch on register writes
+                latch.x[bg_idx] = affine_parameters.reference_x;
+
                 log::debug!("BG{}X_H write: {value:04X}", bg_idx + 2);
                 log::debug!("  Reference point X: {:07X}", affine_parameters.reference_x);
             }
             0xC => {
                 // BG2Y_L / BG3Y_L
                 affine_parameters.reference_y =
-                    (affine_parameters.reference_y & !0xFFFF) | u32::from(value);
+                    (affine_parameters.reference_y & !0xFFFF) | i32::from(value);
+
+                // Update Y latch on register writes
+                latch.y[bg_idx] = affine_parameters.reference_y;
+
                 log::debug!("BG{}Y_L write: {value:04X}", bg_idx + 2);
                 log::debug!("  Reference point Y: {:07X}", affine_parameters.reference_y);
             }
             0xE => {
                 // BG2Y_H / BG3Y_H
+                // Truncate highest 4 bits (sign extend)
                 affine_parameters.reference_y =
-                    (affine_parameters.reference_y & 0xFFFF) | (u32::from(value & 0x0FFF) << 16);
+                    (affine_parameters.reference_y & 0xFFFF) | ((i32::from(value) << 20) >> 4);
+
+                // Update Y latch on register writes
+                latch.y[bg_idx] = affine_parameters.reference_y;
+
                 log::debug!("BG{}X_H write: {value:04X}", bg_idx + 2);
                 log::debug!("  Reference point X: {:07X}", affine_parameters.reference_y);
             }
