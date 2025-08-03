@@ -75,12 +75,22 @@ impl BgAffineLatch {
     }
 }
 
+#[derive(Debug, Clone, Default, Encode, Decode)]
+struct MosaicState {
+    bg_v_counter: u8,
+    bg_text_line: u32,
+    bg_affine: BgAffineLatch,
+    obj_v_counter: u8,
+    obj_line: u32,
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 struct State {
     scanline: u32,
     dot: u32,
     frame_complete: bool,
     bg_affine_latch: BgAffineLatch,
+    mosaic: MosaicState,
 }
 
 impl State {
@@ -90,6 +100,30 @@ impl State {
             dot: 0,
             frame_complete: false,
             bg_affine_latch: BgAffineLatch::default(),
+            mosaic: MosaicState::default(),
+        }
+    }
+
+    // Should be called at the start of each line
+    fn update_mosaic_v_state(&mut self, registers: &Registers) {
+        // BG V mosaic
+        if self.scanline == 0 || self.mosaic.bg_v_counter == registers.bg_mosaic_v_size {
+            self.mosaic.bg_v_counter = 0;
+            self.mosaic.bg_text_line = self.scanline;
+            self.mosaic.bg_affine = self.bg_affine_latch;
+        } else {
+            self.mosaic.bg_v_counter = (self.mosaic.bg_v_counter + 1) & 0xF;
+        }
+
+        // OBJ V mosaic
+        if self.scanline == LINES_PER_FRAME - 1 {
+            self.mosaic.obj_v_counter = 0;
+            self.mosaic.obj_line = 0;
+        } else if self.mosaic.obj_v_counter == registers.obj_mosaic_v_size {
+            self.mosaic.obj_v_counter = 0;
+            self.mosaic.obj_line = self.scanline + 1;
+        } else {
+            self.mosaic.obj_v_counter = (self.mosaic.obj_v_counter + 1) & 0xF;
         }
     }
 }
@@ -430,6 +464,8 @@ impl Ppu {
                 ppu.state.frame_complete = true;
             }
 
+            ppu.state.update_mosaic_v_state(&ppu.registers);
+
             if ppu.registers.v_counter_irq_enabled
                 && (ppu.state.scanline as u8) == ppu.registers.v_counter_match
             {
@@ -532,8 +568,6 @@ impl Ppu {
             return;
         }
 
-        // TODO mosaic
-
         let bg_control = &self.registers.bg_control[bg];
 
         let width_tiles = bg_control.size.text_width_tiles();
@@ -544,8 +578,11 @@ impl Ppu {
         let fine_h_scroll = h_scroll % 8;
         let coarse_h_scroll = h_scroll / 8;
 
+        let scanline =
+            if bg_control.mosaic { self.state.mosaic.bg_text_line } else { self.state.scanline };
         let v_scroll = self.registers.bg_v_scroll[bg];
-        let scrolled_line = self.state.scanline + v_scroll;
+        let scrolled_line = scanline + v_scroll;
+
         let (tile_map_row, screen_map_row) = {
             let tile_map_row = (scrolled_line / 8) & (height_tiles - 1);
             let screen_map_row = tile_map_row / 32;
@@ -654,6 +691,8 @@ impl Ppu {
                 }
             }
         }
+
+        self.apply_bg_h_mosaic(bg);
     }
 
     fn render_affine_bg(&mut self, bg: usize, sample_fn: impl Fn(&Self, i32, i32) -> Pixel) {
@@ -665,8 +704,6 @@ impl Ppu {
             return;
         }
 
-        // TODO mosaic
-
         let bg_control = &self.registers.bg_control[bg];
 
         let dimension_tiles = bg_control.size.affine_dimension_tiles();
@@ -675,8 +712,13 @@ impl Ppu {
         let dx = self.registers.bg_affine_parameters[bg - 2].a;
         let dy = self.registers.bg_affine_parameters[bg - 2].c;
 
-        let mut x = self.state.bg_affine_latch.x[bg - 2];
-        let mut y = self.state.bg_affine_latch.y[bg - 2];
+        let bg_affine_latch = if bg_control.mosaic {
+            self.state.mosaic.bg_affine
+        } else {
+            self.state.bg_affine_latch
+        };
+        let mut x = bg_affine_latch.x[bg - 2];
+        let mut y = bg_affine_latch.y[bg - 2];
 
         for pixel in 0..SCREEN_WIDTH {
             // Affine coordinates are in 1/256 pixel units - convert to pixel
@@ -688,6 +730,8 @@ impl Ppu {
             x += dx;
             y += dy;
         }
+
+        self.apply_bg_h_mosaic(bg);
     }
 
     fn affine_sample_tile_map(&self, bg: usize) -> impl Fn(&Self, i32, i32) -> Pixel + 'static {
@@ -805,6 +849,24 @@ impl Ppu {
         }
     }
 
+    fn apply_bg_h_mosaic(&mut self, bg: usize) {
+        if !self.registers.bg_control[bg].mosaic {
+            return;
+        }
+
+        let mut h_counter = 0;
+        let mut color_latch = self.buffers.bg_pixels[bg][0];
+        for pixel in 1..SCREEN_WIDTH {
+            if h_counter == self.registers.bg_mosaic_h_size {
+                h_counter = 0;
+                color_latch = self.buffers.bg_pixels[bg][pixel as usize];
+            } else {
+                h_counter += 1;
+                self.buffers.bg_pixels[bg][pixel as usize] = color_latch;
+            }
+        }
+    }
+
     fn merge_layers(&mut self) {
         #[derive(Debug, Clone, Copy)]
         struct MergePixel {
@@ -838,6 +900,9 @@ impl Ppu {
 
         let window_y_active =
             [0, 1].map(|i| self.registers.window_enabled[i] && window_y[i].contains(&scanline));
+
+        let mut obj_mosaic_h_counter = self.registers.obj_mosaic_h_size;
+        let mut obj_mosaic_latch = ObjPixel::default();
 
         for pixel in 0..SCREEN_WIDTH {
             let window_active = [0, 1].map(|i| window_y_active[i] && window_x[i].contains(&pixel));
@@ -887,14 +952,33 @@ impl Ppu {
                 }
             };
 
-            if self.registers.obj_enabled && window_layers_enabled.obj {
+            // When priority value is equal, layer priority is OBJ > BG0 > BG1 > BG2 > BG3
+            // Process layers in that order
+
+            if self.registers.obj_enabled {
                 let obj_pixel = self.buffers.obj_pixels[pixel as usize];
-                check_pixel(MergePixel {
-                    color: obj_pixel.color,
-                    layer: Layer::Obj,
-                    priority: obj_pixel.priority,
-                    semi_transparent: obj_pixel.semi_transparent,
-                });
+
+                if obj_mosaic_h_counter == self.registers.obj_mosaic_h_size {
+                    obj_mosaic_h_counter = 0;
+                    obj_mosaic_latch = obj_pixel;
+                } else {
+                    obj_mosaic_h_counter += 1;
+                }
+
+                // Update the mosaic latch if the latched pixel or the current pixel is not mosaic-enabled
+                // e.g. sprite-hmosaic test ROM
+                if !obj_mosaic_latch.mosaic || !obj_pixel.mosaic {
+                    obj_mosaic_latch = obj_pixel;
+                }
+
+                if window_layers_enabled.obj {
+                    check_pixel(MergePixel {
+                        color: obj_mosaic_latch.color,
+                        layer: Layer::Obj,
+                        priority: obj_mosaic_latch.priority,
+                        semi_transparent: obj_mosaic_latch.semi_transparent,
+                    });
+                }
             }
 
             for (bg, enabled) in bg_enabled.into_iter().enumerate() {
@@ -955,8 +1039,6 @@ impl Ppu {
             return;
         }
 
-        // TODO mosaic
-
         let is_bitmap_mode =
             matches!(self.registers.bg_mode, BgMode::Three | BgMode::Four | BgMode::Five);
 
@@ -1003,11 +1085,25 @@ impl Ppu {
                 continue;
             }
 
-            let sprite_y = target_line.wrapping_sub(oam_entry.y) & 0xFF;
-            if sprite_y >= display_height {
-                // Sprite does not overlap this scanline
-                continue;
-            }
+            let sprite_y = {
+                let mut sprite_y = target_line.wrapping_sub(oam_entry.y) & 0xFF;
+                if sprite_y >= display_height {
+                    // Sprite does not overlap this scanline
+                    continue;
+                }
+
+                if oam_entry.mosaic {
+                    let mosaic_line = self.state.mosaic.obj_line;
+                    sprite_y = mosaic_line.wrapping_sub(oam_entry.y) & 0xFF;
+                    if sprite_y >= display_height {
+                        // If mosaic moves the Y coordinate out of bounds, clamp to 0
+                        // e.g. Castlevania: Aria of Sorrow, Shrek 2, sprite-vmosaic test ROM
+                        sprite_y = 0;
+                    }
+                }
+
+                sprite_y
+            };
 
             // 16-bit OAM read of third attribute word
             memory_accesses -= 1;
