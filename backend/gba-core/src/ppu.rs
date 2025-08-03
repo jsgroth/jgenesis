@@ -294,25 +294,47 @@ struct OamEntry {
 
 impl OamEntry {
     fn parse(attributes: [u16; 3]) -> Self {
+        // First halfword
+        // Bit 9 means double size for affine sprites and disabled for non-affine
+        let y: u32 = (attributes[0] & 0xFF).into();
         let affine = attributes[0].bit(8);
+        let affine_double_size = affine && attributes[0].bit(9);
+        let disabled = !affine && attributes[0].bit(9);
+        let mode = SpriteMode::from_bits(attributes[0] >> 10);
+        let mosaic = attributes[0].bit(12);
+        let bpp = BitsPerPixel::from_bit(attributes[0].bit(13));
+        let shape = SpriteShape::from_bits(attributes[0] >> 14);
+
+        // Second halfword
+        // Bits 9-13 are parameter group for affine sprites and H/V flip for non-affine
+        let x: u32 = (attributes[1] & 0x1FF).into();
+        let affine_parameter_group = (attributes[1] >> 9) & 0x1F;
+        let h_flip = !affine && attributes[1].bit(12);
+        let v_flip = !affine && attributes[1].bit(13);
+        let size = SpriteSize::from_bits(attributes[1] >> 14);
+
+        // Third halfword
+        let tile_number: u32 = (attributes[2] & 0x3FF).into();
+        let priority = ((attributes[2] >> 10) & 3) as u8;
+        let palette = attributes[2] >> 12;
 
         Self {
-            x: (attributes[1] & 0x1FF).into(),
-            y: (attributes[0] & 0xFF).into(),
-            tile_number: (attributes[2] & 0x3FF).into(),
+            x,
+            y,
+            tile_number,
             affine,
-            affine_double_size: affine && attributes[0].bit(9),
-            affine_parameter_group: (attributes[1] >> 9) & 0x1F,
-            disabled: !affine && attributes[0].bit(9),
-            mode: SpriteMode::from_bits(attributes[0] >> 10),
-            mosaic: attributes[0].bit(12),
-            bpp: BitsPerPixel::from_bit(attributes[0].bit(13)),
-            shape: SpriteShape::from_bits(attributes[0] >> 14),
-            size: SpriteSize::from_bits(attributes[1] >> 14),
-            h_flip: !affine && attributes[1].bit(12),
-            v_flip: !affine && attributes[1].bit(13),
-            priority: ((attributes[2] >> 10) & 3) as u8,
-            palette: attributes[2] >> 12,
+            affine_double_size,
+            affine_parameter_group,
+            disabled,
+            mode,
+            mosaic,
+            bpp,
+            shape,
+            size,
+            h_flip,
+            v_flip,
+            priority,
+            palette,
         }
     }
 }
@@ -910,6 +932,7 @@ impl Ppu {
         }
     }
 
+    #[allow(clippy::many_single_char_names)]
     fn render_next_sprite_line(&mut self) {
         if self.registers.forced_blanking
             || (self.state.scanline >= SCREEN_HEIGHT && self.state.scanline != LINES_PER_FRAME - 1)
@@ -918,7 +941,6 @@ impl Ppu {
         }
 
         // TODO mosaic
-        // TODO affine
         // TODO OBJ window
 
         let is_bitmap_mode =
@@ -939,133 +961,234 @@ impl Ppu {
             DOTS_PER_LINE / 2
         };
 
-        'outer: for oam_idx in 0..128 {
-            let oam_addr = 4 * oam_idx;
-            let oam_attributes =
-                [self.oam[oam_addr], self.oam[oam_addr + 1], self.oam[oam_addr + 2]];
+        // Add 1 so that the loop breaks on the access *after* the last access
+        memory_accesses += 1;
 
-            // 32-bit read of first two attribute words
+        'outer: for oam_idx in 0..128 {
+            // 32-bit OAM read of first two attribute words
             memory_accesses -= 1;
             if memory_accesses == 0 {
                 break 'outer;
             }
 
-            let oam_entry = OamEntry::parse(oam_attributes);
+            let oam_addr = 4 * oam_idx;
+            let oam_entry = OamEntry::parse([
+                self.oam[oam_addr],
+                self.oam[oam_addr + 1],
+                self.oam[oam_addr + 2],
+            ]);
 
             if oam_entry.disabled {
                 continue;
             }
 
             let (sprite_width, sprite_height) = oam_entry.shape.size_pixels(oam_entry.size);
+
+            let display_height = sprite_height << u8::from(oam_entry.affine_double_size);
+            if oam_entry.y + display_height > 256 && target_line > 128 {
+                // 128px tall sprites with Y>128 never display on lines >128
+                continue;
+            }
+
             let sprite_y = target_line.wrapping_sub(oam_entry.y) & 0xFF;
-            if sprite_y >= sprite_height {
+            if sprite_y >= display_height {
                 // Sprite does not overlap this scanline
                 continue;
             }
 
-            let sprite_width_tiles = sprite_width / 8;
-
-            // 16-bit read of third attribute word
+            // 16-bit OAM read of third attribute word
             memory_accesses -= 1;
             if memory_accesses == 0 {
                 break 'outer;
             }
 
-            let sprite_row = if oam_entry.v_flip { sprite_height - 1 - sprite_y } else { sprite_y };
-            let sprite_tile_row = sprite_row / 8;
-            let row_in_tile = sprite_row % 8;
-
-            let map_step = match oam_entry.bpp {
-                BitsPerPixel::Four => 1,
-                BitsPerPixel::Eight => 2,
-            };
-
-            let map_row_width = match self.registers.obj_vram_map_dimensions {
-                ObjVramMapDimensions::Two => 32,
-                ObjVramMapDimensions::One => map_step * sprite_width_tiles,
-            };
-
-            let palette = match oam_entry.bpp {
-                BitsPerPixel::Four => oam_entry.palette,
-                BitsPerPixel::Eight => 0,
-            };
-
-            for sprite_x in 0..sprite_width {
-                // One VRAM read for every 2 pixels
-                memory_accesses -= (sprite_x & 1) ^ 1;
+            if oam_entry.affine {
+                // 1 idle access cycle plus 4 OAM reads for the affine parameters
+                memory_accesses = memory_accesses.saturating_sub(5);
                 if memory_accesses == 0 {
                     break 'outer;
                 }
 
-                let pixel = (oam_entry.x + sprite_x) & 0x1FF;
-                if !(0..SCREEN_WIDTH).contains(&pixel) {
-                    continue;
-                }
+                let group_base_addr = 16 * oam_entry.affine_parameter_group as usize;
+                let [a, b, c, d] = [
+                    self.oam[group_base_addr + 3],
+                    self.oam[group_base_addr + 7],
+                    self.oam[group_base_addr + 11],
+                    self.oam[group_base_addr + 15],
+                ]
+                .map(|p| i32::from(p as i16));
 
-                let sprite_col =
-                    if oam_entry.h_flip { sprite_width - 1 - sprite_x } else { sprite_x };
-                let sprite_tile_col = sprite_col / 8;
-                let col_in_tile = sprite_col % 8;
+                let display_width = sprite_width << u8::from(oam_entry.affine_double_size);
 
-                // TODO how should out-of-bounds tile numbers behave?
-                let tile_number = (oam_entry.tile_number
-                    + sprite_tile_row * map_row_width
-                    + sprite_tile_col * map_step)
-                    & 0x3FF;
+                let half_sprite_width = (sprite_width / 2) as i32;
+                let half_sprite_height = (sprite_height / 2) as i32;
+                let half_display_width = (display_width / 2) as i32;
+                let half_display_height = (display_height / 2) as i32;
 
-                if is_bitmap_mode && tile_number < 512 {
-                    // Sprite tile numbers 0-511 are not usable in bitmap modes; tiles are fully transparent
-                    continue;
-                }
+                let y_offset = (sprite_y as i32) - half_display_height;
+                let x_offset = -half_display_width;
 
-                let tile_base_addr = 0x10000 | (tile_number * 32);
-                let color_id = match oam_entry.bpp {
-                    BitsPerPixel::Four => {
-                        let tile_addr = tile_base_addr + 4 * row_in_tile + (col_in_tile >> 1);
-                        let tile_byte = self.vram[tile_addr as usize];
-                        (tile_byte >> (4 * (col_in_tile & 1))) & 0xF
+                let mut x = a * x_offset + b * y_offset - a;
+                let mut y = c * x_offset + d * y_offset - c;
+
+                for sprite_x in 0..display_width {
+                    // 1 VRAM read per pixel for affine sprites
+                    memory_accesses -= 1;
+                    if memory_accesses == 0 {
+                        break 'outer;
                     }
-                    BitsPerPixel::Eight => {
-                        let tile_addr = tile_base_addr + 8 * row_in_tile + col_in_tile;
-                        if tile_addr <= 0x17FFF {
-                            self.vram[tile_addr as usize]
-                        } else {
-                            // TODO what should this do? can happen when using an odd tile number
-                            0
+
+                    x += a;
+                    y += c;
+
+                    let pixel = (oam_entry.x + sprite_x) & 0x1FF;
+                    if !(0..SCREEN_WIDTH).contains(&pixel) {
+                        // Sprite pixel is offscreen
+                        continue;
+                    }
+
+                    let sample_x = (x >> 8) + half_sprite_width;
+                    let sample_y = (y >> 8) + half_sprite_height;
+
+                    if !(0..sprite_width as i32).contains(&sample_x)
+                        || !(0..sprite_height as i32).contains(&sample_y)
+                    {
+                        // Sampling point is out of bounds; pixel is transparent
+                        continue;
+                    }
+
+                    self.render_sprite_pixel(
+                        pixel,
+                        &oam_entry,
+                        sample_x as u32,
+                        sample_y as u32,
+                        sprite_width,
+                        is_bitmap_mode,
+                    );
+                }
+            } else {
+                // Non-affine sprite
+                let sample_y =
+                    if oam_entry.v_flip { sprite_height - 1 - sprite_y } else { sprite_y };
+
+                for sprite_x in 0..sprite_width {
+                    // 1 VRAM read per 2 pixels for non-affine sprites
+                    if sprite_x & 1 == 0 {
+                        memory_accesses -= 1;
+                        if memory_accesses == 0 {
+                            break 'outer;
                         }
                     }
-                };
 
-                let existing_opaque = !self.buffers.obj_pixels[pixel as usize].transparent();
-                let existing_priority = self.buffers.obj_priority[pixel as usize];
+                    let pixel = (oam_entry.x + sprite_x) & 0x1FF;
+                    if !(0..SCREEN_WIDTH).contains(&pixel) {
+                        // Sprite pixel is offscreen
+                        continue;
+                    }
 
-                if existing_opaque && oam_entry.priority >= existing_priority {
-                    // Existing opaque pixel with the same or lower priority
-                    continue;
+                    let sample_x =
+                        if oam_entry.h_flip { sprite_width - 1 - sprite_x } else { sprite_x };
+
+                    self.render_sprite_pixel(
+                        pixel,
+                        &oam_entry,
+                        sample_x,
+                        sample_y,
+                        sprite_width,
+                        is_bitmap_mode,
+                    );
                 }
-
-                if color_id == 0 && !existing_opaque {
-                    // Both new pixel and existing pixel are transparent
-                    continue;
-                }
-
-                // Hardware bug: A transparent pixel that overlaps with an opaque pixel from a sprite
-                // with lower OAM index and higher priority will overwrite the priority and semi-transparency
-                // flags
-                self.buffers.obj_priority[pixel as usize] = oam_entry.priority;
-                self.buffers.obj_semi_transparent[pixel as usize] =
-                    oam_entry.mode == SpriteMode::SemiTransparent;
-
-                if color_id == 0 {
-                    // Transparent pixel
-                    continue;
-                }
-
-                let palette_ram_addr = 0x100 | (16 * palette + u16::from(color_id));
-                let color = self.palette_ram[palette_ram_addr as usize];
-                self.buffers.obj_pixels[pixel as usize] = Pixel::new_opaque(color);
             }
+
+            // Next 2 OAM reads overlap with VRAM reads from the previous sprite
+            memory_accesses += 2;
         }
+    }
+
+    fn render_sprite_pixel(
+        &mut self,
+        pixel: u32,
+        oam_entry: &OamEntry,
+        sample_x: u32,
+        sample_y: u32,
+        sprite_width: u32,
+        is_bitmap_mode: bool,
+    ) {
+        let map_step = match oam_entry.bpp {
+            BitsPerPixel::Four => 1,
+            BitsPerPixel::Eight => 2,
+        };
+
+        let sprite_width_tiles = sprite_width / 8;
+        let map_row_width = match self.registers.obj_vram_map_dimensions {
+            ObjVramMapDimensions::Two => 32,
+            ObjVramMapDimensions::One => map_step * sprite_width_tiles,
+        };
+
+        let sprite_tile_x = sample_x / 8;
+        let sprite_tile_y = sample_y / 8;
+
+        // TODO how should out-of-bounds tile numbers behave?
+        let tile_number =
+            (oam_entry.tile_number + sprite_tile_y * map_row_width + sprite_tile_x * map_step)
+                & 0x3FF;
+
+        if is_bitmap_mode && tile_number < 512 {
+            // Sprite tile numbers 0-511 are not usable in bitmap modes; tiles are fully transparent
+            return;
+        }
+
+        let tile_col = sample_x % 8;
+        let tile_row = sample_y % 8;
+        let tile_base_addr = 0x10000 | (tile_number * 32);
+
+        let color_id = match oam_entry.bpp {
+            BitsPerPixel::Four => {
+                let tile_addr = tile_base_addr + 4 * tile_row + (tile_col >> 1);
+                let tile_byte = self.vram[tile_addr as usize];
+                (tile_byte >> (4 * (tile_col & 1))) & 0xF
+            }
+            BitsPerPixel::Eight => {
+                let tile_addr = tile_base_addr + 8 * tile_row + tile_col;
+                if tile_addr <= 0x17FFF {
+                    self.vram[tile_addr as usize]
+                } else {
+                    // TODO what should this do? can happen when using an odd tile number
+                    0
+                }
+            }
+        };
+
+        if oam_entry.priority >= self.buffers.obj_priority[pixel as usize] {
+            // Existing opaque pixel with the same or lower priority
+            return;
+        }
+
+        if color_id == 0 && self.buffers.obj_pixels[pixel as usize].transparent() {
+            // Both new pixel and existing pixel are transparent
+            return;
+        }
+
+        // Hardware bug: A transparent pixel that overlaps with an opaque pixel from a sprite
+        // with lower OAM index and higher priority will overwrite the priority and semi-transparency
+        // flags
+        self.buffers.obj_priority[pixel as usize] = oam_entry.priority;
+
+        if color_id == 0 {
+            // Transparent pixel
+            return;
+        }
+
+        self.buffers.obj_semi_transparent[pixel as usize] =
+            oam_entry.mode == SpriteMode::SemiTransparent;
+
+        let palette = match oam_entry.bpp {
+            BitsPerPixel::Four => oam_entry.palette,
+            BitsPerPixel::Eight => 0,
+        };
+        let palette_ram_addr = 0x100 | (16 * palette + u16::from(color_id));
+        let color = self.palette_ram[palette_ram_addr as usize];
+        self.buffers.obj_pixels[pixel as usize] = Pixel::new_opaque(color);
     }
 
     pub fn frame_complete(&self) -> bool {
