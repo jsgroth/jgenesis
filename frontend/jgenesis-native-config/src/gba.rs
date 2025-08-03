@@ -1,5 +1,6 @@
 #![cfg(feature = "gba")]
 
+use gba_config::{GbaAspectRatio, GbaColorCorrection};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -7,6 +8,10 @@ use std::path::PathBuf;
 pub struct GameBoyAdvanceAppConfig {
     #[serde(default)]
     pub bios_path: Option<PathBuf>,
+    #[serde(default)]
+    pub aspect_ratio: GbaAspectRatio,
+    #[serde(default)]
+    pub color_correction: GbaColorCorrection,
 }
 
 impl Default for GameBoyAdvanceAppConfig {

@@ -524,7 +524,10 @@ impl AppConfigExt for AppConfig {
         Box::new(GameBoyAdvanceConfig {
             common: self.common_config(path),
             inputs: self.input.game_boy_advance.clone(),
-            emulator_config: GbaEmulatorConfig {},
+            emulator_config: GbaEmulatorConfig {
+                aspect_ratio: self.game_boy_advance.aspect_ratio,
+                color_correction: self.game_boy_advance.color_correction,
+            },
             bios_path: self.game_boy_advance.bios_path.clone(),
         })
     }

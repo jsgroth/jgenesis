@@ -5,7 +5,7 @@ mod bus;
 mod cartridge;
 mod cgb;
 mod dma;
-mod graphics;
+pub mod graphics;
 pub mod inputs;
 mod interrupts;
 mod memory;

@@ -27,10 +27,10 @@ pub(crate) const RGB_5_TO_8: &[u8; 32] = &[
 ];
 
 #[derive(Debug, Clone, FakeEncode, FakeDecode)]
-pub struct RgbaFrameBuffer(Box<[Color; ppu::FRAME_BUFFER_LEN]>);
+pub(crate) struct RgbaFrameBuffer(Box<[Color; ppu::FRAME_BUFFER_LEN]>);
 
 impl RgbaFrameBuffer {
-    pub fn copy_from(
+    pub(crate) fn copy_from(
         &mut self,
         ppu_frame_buffers: PpuFrameBuffers<'_>,
         hardware_mode: HardwareMode,
@@ -145,8 +145,9 @@ fn gbc_lcd_correction(color: usize) -> Color {
     )
 }
 
+#[must_use]
 #[rustfmt::skip]
-fn gba_lcd_correction(color: usize) -> Color {
+pub fn gba_lcd_correction(color: usize) -> Color {
     // Based on this public domain shader:
     // https://github.com/libretro/common-shaders/blob/master/handheld/shaders/color/gba-color.cg
     correct_gbc_color(

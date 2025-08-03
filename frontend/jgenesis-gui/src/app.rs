@@ -106,6 +106,8 @@ enum OpenWindow {
     NesVideo,
     SnesVideo,
     GameBoyVideo,
+    #[cfg(feature = "unstable-cores")]
+    GbaVideo,
     CommonAudio,
     SmsGgAudio,
     GenesisAudio,
@@ -756,6 +758,12 @@ impl App {
                 self.state.open_windows.insert(OpenWindow::GameBoyVideo);
                 ui.close_menu();
             }
+
+            #[cfg(feature = "unstable-cores")]
+            if ui.button("Game Boy Advance").clicked() {
+                self.state.open_windows.insert(OpenWindow::GbaVideo);
+                ui.close_menu();
+            }
         });
     }
 
@@ -1012,6 +1020,8 @@ impl App {
                 OpenWindow::NesVideo => self.render_nes_video_settings(ctx),
                 OpenWindow::SnesVideo => self.render_snes_video_settings(ctx),
                 OpenWindow::GameBoyVideo => self.render_gb_video_settings(ctx),
+                #[cfg(feature = "unstable-cores")]
+                OpenWindow::GbaVideo => self.render_gba_video_settings(ctx),
                 OpenWindow::CommonAudio => self.render_common_audio_settings(ctx),
                 OpenWindow::SmsGgAudio => self.render_smsgg_audio_settings(ctx),
                 OpenWindow::GenesisAudio => self.render_genesis_audio_settings(ctx),

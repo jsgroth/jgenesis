@@ -11,22 +11,18 @@ use crate::ppu::Ppu;
 use crate::timers::Timers;
 use arm7tdmi_emu::{Arm7Tdmi, Arm7TdmiResetArgs, CpuMode};
 use bincode::{Decode, Encode};
-use gba_config::{GbaButton, GbaInputs};
+use gba_config::{GbaAspectRatio, GbaButton, GbaColorCorrection, GbaInputs};
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorConfigTrait, EmulatorTrait, PixelAspectRatio, Renderer, SaveWriter,
-    TickEffect, TickResult,
+    AudioOutput, EmulatorConfigTrait, EmulatorTrait, Renderer, SaveWriter, TickEffect, TickResult,
 };
-use jgenesis_proc_macros::PartialClone;
-use std::fmt::{Debug, Display, Formatter};
+use jgenesis_proc_macros::{ConfigDisplay, PartialClone};
+use std::fmt::{Debug, Display};
 use thiserror::Error;
 
-#[derive(Debug, Clone, Copy, Encode, Decode)]
-pub struct GbaEmulatorConfig;
-
-impl Display for GbaEmulatorConfig {
-    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
-        Ok(())
-    }
+#[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
+pub struct GbaEmulatorConfig {
+    pub aspect_ratio: GbaAspectRatio,
+    pub color_correction: GbaColorCorrection,
 }
 
 #[derive(Debug, Error)]
@@ -82,7 +78,7 @@ impl GameBoyAdvanceEmulator {
         bios_rom: Vec<u8>,
         config: GbaEmulatorConfig,
     ) -> Result<Self, GbaLoadError> {
-        let mut ppu = Ppu::new();
+        let mut ppu = Ppu::new(config);
         let mut apu = Apu::new();
         let mut memory = Memory::new(bios_rom)?;
         let mut cartridge = Cartridge::new(rom);
@@ -192,7 +188,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
                 .render_frame(
                     self.ppu.frame_buffer(),
                     ppu::FRAME_SIZE,
-                    Some(PixelAspectRatio::SQUARE),
+                    self.config.aspect_ratio.to_pixel_aspect_ratio(),
                 )
                 .map_err(GbaError::Render)?;
 
@@ -209,12 +205,13 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
         renderer.render_frame(
             self.ppu.frame_buffer(),
             ppu::FRAME_SIZE,
-            Some(PixelAspectRatio::SQUARE),
+            self.config.aspect_ratio.to_pixel_aspect_ratio(),
         )
     }
 
     fn reload_config(&mut self, config: &Self::Config) {
-        // TODO reload when there is config to reload
+        self.ppu.reload_config(*config);
+        self.config = *config;
     }
 
     fn take_rom_from(&mut self, other: &mut Self) {
