@@ -66,8 +66,8 @@ pub const GBC_COLOR_CORRECTION: HelpText = HelpText {
     heading: "GBC Color Correction",
     text: &[
         "Configure what color correction to apply to GBC rendering output, if any.",
-        "The Game Boy Color LCD is infamously fairly dark, which causes games to appear differently on actual hardware compared to naively rendering the RGB values that games output. This option attempts to correct for that.",
-        "There is also an option to attempt to emulate how the original Game Boy Advance LCD displays colors, which is significantly darker than even the GBC LCD.",
+        "GBC colors appear differently on its LCD screen compared to naively rendering the RGB values that games output. This option attempts to correct for that.",
+        "There is also an option to attempt to emulate how the Game Boy Advance LCD displays colors.",
     ],
 };
 

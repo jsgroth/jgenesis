@@ -102,54 +102,105 @@ fn cgb_map_color(ppu_color: u16) -> Color {
     Color::rgb(RGB_5_TO_8[r as usize], RGB_5_TO_8[g as usize], RGB_5_TO_8[b as usize])
 }
 
-fn cgb_map_color_gbc_correction(ppu_color: u16) -> Color {
+fn correct_gbc_color(
+    color: usize,
+    screen_gamma: f64,
+    display_gamma: f64,
+    mat: &[[f64; 3]; 3],
+) -> Color {
+    fn u8_to_f64(component: u8, gamma: f64) -> f64 {
+        (f64::from(component) / 31.0).powf(gamma)
+    }
+
+    fn f64_to_u8(component: f64, gamma: f64) -> u8 {
+        (255.0 * component.powf(1.0 / gamma)).clamp(0.0, 255.0).round() as u8
+    }
+
+    let (r, g, b) = parse_cgb_color(color as u16);
+    let [r, g, b] = [r, g, b].map(|c| u8_to_f64(c, screen_gamma));
+
+    let [r, g, b] = [
+        mat[0][0] * r + mat[0][1] * g + mat[0][2] * b,
+        mat[1][0] * r + mat[1][1] * g + mat[1][2] * b,
+        mat[2][0] * r + mat[2][1] * g + mat[2][2] * b,
+    ];
+
+    let [r, g, b] = [r, g, b].map(|c| f64_to_u8(c, display_gamma));
+    Color::rgb(r, g, b)
+}
+
+#[rustfmt::skip]
+fn gbc_lcd_correction(color: usize) -> Color {
     // Based on this public domain shader:
     // https://github.com/libretro/common-shaders/blob/master/handheld/shaders/color/gbc-color.cg
-    static COLOR_TABLE: LazyLock<Box<[Color; 32768]>> = LazyLock::new(|| {
-        Box::new(array::from_fn(|ppu_color| {
-            let (r, g, b) = parse_cgb_color(ppu_color as u16);
-            let r: f64 = r.into();
-            let g: f64 = g.into();
-            let b: f64 = b.into();
+    correct_gbc_color(
+        color,
+        2.0, // Slightly brighten
+        2.2,
+        &[
+            [0.78824, 0.12157, 0.0  ],
+            [0.025  , 0.72941, 0.275],
+            [0.12039, 0.12157, 0.82 ],
+        ],
+    )
+}
 
-            let corrected_r = ((0.78824 * r + 0.12157 * g) * 255.0 / 31.0).round() as u8;
-            let corrected_g = ((0.025 * r + 0.72941 * g + 0.275 * b) * 255.0 / 31.0).round() as u8;
-            let corrected_b = ((0.12039 * r + 0.12157 * g + 0.82 * b) * 255.0 / 31.0).round() as u8;
+#[rustfmt::skip]
+fn gba_lcd_correction(color: usize) -> Color {
+    // Based on this public domain shader:
+    // https://github.com/libretro/common-shaders/blob/master/handheld/shaders/color/gba-color.cg
+    correct_gbc_color(
+        color,
+        3.2, // Significantly darken
+        2.2,
+        &[
+            [0.845, 0.17 , 0.015],
+            [0.09 , 0.68 , 0.23 ],
+            [0.16 , 0.085, 0.755],
+        ],
+    )
+}
 
-            Color::rgb(corrected_r, corrected_g, corrected_b)
-        }))
-    });
+fn cgb_map_color_gbc_correction(ppu_color: u16) -> Color {
+    static COLOR_TABLE: LazyLock<Box<[Color; 32768]>> =
+        LazyLock::new(|| Box::new(array::from_fn(gbc_lcd_correction)));
 
     COLOR_TABLE[(ppu_color & 0x7FFF) as usize]
 }
 
 fn cgb_map_color_gba_correction(ppu_color: u16) -> Color {
-    // Based on this public domain shader:
-    // https://github.com/libretro/common-shaders/blob/master/handheld/shaders/color/gba-color.cg
-    static COLOR_TABLE: LazyLock<Box<[Color; 32768]>> = LazyLock::new(|| {
-        Box::new(array::from_fn(|ppu_color| {
-            let (r, g, b) = parse_cgb_color(ppu_color as u16);
-            let r: f64 = r.into();
-            let g: f64 = g.into();
-            let b: f64 = b.into();
-
-            let corrected_r =
-                ((0.845 * r + 0.17 * g - 0.015 * b) * 255.0 / 31.0).powf(2.2 / 2.7).round() as u8;
-            let corrected_g =
-                ((0.09 * r + 0.68 * g + 0.23 * b) * 255.0 / 31.0).powf(2.2 / 2.7).round() as u8;
-            let corrected_b =
-                ((0.16 * r + 0.085 * g + 0.755 * b) * 255.0 / 31.0).powf(2.2 / 2.7).round() as u8;
-
-            Color::rgb(corrected_r, corrected_g, corrected_b)
-        }))
-    });
+    static COLOR_TABLE: LazyLock<Box<[Color; 32768]>> =
+        LazyLock::new(|| Box::new(array::from_fn(gba_lcd_correction)));
 
     COLOR_TABLE[(ppu_color & 0x7FFF) as usize]
 }
 
 fn blend(a: Color, b: Color) -> Color {
+    // TODO this should really be done on the GPU, not the CPU
+    // a GPU implementation would also make this easier to use for other systems (e.g. GBA)
+    const GAMMA: f64 = 2.2;
+
+    // Using a 64K lookup table for this seems to be significantly faster than not, from limited testing
+    static BLEND_TABLE: LazyLock<Box<[u8; 65536]>> = LazyLock::new(|| {
+        Box::new(array::from_fn(|i| {
+            let a = i >> 8;
+            let b = i & 0xFF;
+
+            // Convert to linear color space
+            let a = (a as f64 / 255.0).powf(GAMMA);
+            let b = (b as f64 / 255.0).powf(GAMMA);
+
+            // Average
+            let c = 0.5 * (a + b);
+
+            // Convert back to sRGB 0-255 scale
+            (c.powf(1.0 / GAMMA) * 255.0).clamp(0.0, 255.0).round() as u8
+        }))
+    });
+
     fn blend_component(a: u8, b: u8) -> u8 {
-        ((u16::from(a) + u16::from(b) + 1) >> 1) as u8
+        let table_idx = (usize::from(a) << 8) | usize::from(b);
+        BLEND_TABLE[table_idx]
     }
 
     Color::rgb(blend_component(a.r, b.r), blend_component(a.g, b.g), blend_component(a.b, b.b))
