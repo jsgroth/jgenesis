@@ -129,21 +129,27 @@ impl Pixel {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
+struct ObjPixel {
+    color: Pixel,
+    priority: u8,
+    mosaic: bool,
+    semi_transparent: bool,
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 struct Buffers {
     bg_pixels: [[Pixel; SCREEN_WIDTH as usize]; 4],
-    obj_pixels: [Pixel; SCREEN_WIDTH as usize],
-    obj_priority: [u8; SCREEN_WIDTH as usize],
-    obj_semi_transparent: [bool; SCREEN_WIDTH as usize],
+    obj_pixels: [ObjPixel; SCREEN_WIDTH as usize],
+    obj_window: [bool; SCREEN_WIDTH as usize],
 }
 
 impl Buffers {
     fn new() -> Self {
         Self {
             bg_pixels: array::from_fn(|_| array::from_fn(|_| Pixel::default())),
-            obj_pixels: array::from_fn(|_| Pixel::default()),
-            obj_priority: array::from_fn(|_| u8::MAX),
-            obj_semi_transparent: array::from_fn(|_| false),
+            obj_pixels: array::from_fn(|_| ObjPixel::default()),
+            obj_window: array::from_fn(|_| false),
         }
     }
 }
@@ -805,6 +811,7 @@ impl Ppu {
             color: Pixel,
             layer: Layer,
             priority: u8,
+            semi_transparent: bool,
         }
 
         let scanline = self.state.scanline;
@@ -836,11 +843,12 @@ impl Ppu {
             let window_active = [0, 1].map(|i| window_y_active[i] && window_x[i].contains(&pixel));
 
             let window_layers_enabled = if any_window_enabled {
-                // TODO OBJ window
                 let window = if window_active[0] {
                     Window::Inside0
                 } else if window_active[1] {
                     Window::Inside1
+                } else if self.buffers.obj_window[pixel as usize] {
+                    Window::InsideObj
                 } else {
                     Window::Outside
                 };
@@ -849,34 +857,44 @@ impl Ppu {
                 WindowEnabled::ALL
             };
 
-            let mut first_pixel =
-                MergePixel { color: backdrop_color, layer: Layer::Backdrop, priority: u8::MAX };
+            let mut first_pixel = MergePixel {
+                color: backdrop_color,
+                layer: Layer::Backdrop,
+                priority: u8::MAX,
+                semi_transparent: false,
+            };
 
-            let mut second_pixel =
-                MergePixel { color: Pixel::TRANSPARENT, layer: Layer::None, priority: u8::MAX };
+            let mut second_pixel = MergePixel {
+                color: Pixel::TRANSPARENT,
+                layer: Layer::None,
+                priority: u8::MAX,
+                semi_transparent: false,
+            };
 
-            let mut check_pixel = |color: Pixel, layer: Layer, priority: u8| {
-                if color.transparent() {
+            let mut check_pixel = |pixel: MergePixel| {
+                if pixel.color.transparent() {
                     return;
                 }
 
-                if first_pixel.color.transparent() || priority < first_pixel.priority {
+                if first_pixel.color.transparent() || pixel.priority < first_pixel.priority {
                     second_pixel = first_pixel;
-                    first_pixel = MergePixel { color, layer, priority };
+                    first_pixel = pixel;
                     return;
                 }
 
-                if second_pixel.color.transparent() || priority < second_pixel.priority {
-                    second_pixel = MergePixel { color, layer, priority };
+                if second_pixel.color.transparent() || pixel.priority < second_pixel.priority {
+                    second_pixel = pixel;
                 }
             };
 
             if self.registers.obj_enabled && window_layers_enabled.obj {
-                check_pixel(
-                    self.buffers.obj_pixels[pixel as usize],
-                    Layer::Obj,
-                    self.buffers.obj_priority[pixel as usize],
-                );
+                let obj_pixel = self.buffers.obj_pixels[pixel as usize];
+                check_pixel(MergePixel {
+                    color: obj_pixel.color,
+                    layer: Layer::Obj,
+                    priority: obj_pixel.priority,
+                    semi_transparent: obj_pixel.semi_transparent,
+                });
             }
 
             for (bg, enabled) in bg_enabled.into_iter().enumerate() {
@@ -884,24 +902,21 @@ impl Ppu {
                     continue;
                 }
 
-                check_pixel(
-                    self.buffers.bg_pixels[bg][pixel as usize],
-                    Layer::BG[bg],
-                    self.registers.bg_control[bg].priority,
-                );
+                check_pixel(MergePixel {
+                    color: self.buffers.bg_pixels[bg][pixel as usize],
+                    layer: Layer::BG[bg],
+                    priority: self.registers.bg_control[bg].priority,
+                    semi_transparent: false,
+                });
             }
 
             let mut blend_color = first_pixel.color;
 
-            // Semi-transparent OBJs are always 1st target enabled and force blend mode to alpha blending
-            let is_semi_transparent_obj = first_pixel.layer == Layer::Obj
-                && self.buffers.obj_semi_transparent[pixel as usize];
-
             if window_layers_enabled.blend
                 && (first_pixel.layer.is_1st_target_enabled(&self.registers)
-                    || is_semi_transparent_obj)
+                    || first_pixel.semi_transparent)
             {
-                let blend_mode = if is_semi_transparent_obj {
+                let blend_mode = if first_pixel.semi_transparent {
                     BlendMode::AlphaBlending
                 } else {
                     self.registers.blend_mode
@@ -941,14 +956,12 @@ impl Ppu {
         }
 
         // TODO mosaic
-        // TODO OBJ window
 
         let is_bitmap_mode =
             matches!(self.registers.bg_mode, BgMode::Three | BgMode::Four | BgMode::Five);
 
-        self.buffers.obj_pixels.fill(Pixel::TRANSPARENT);
-        self.buffers.obj_priority.fill(u8::MAX);
-        self.buffers.obj_semi_transparent.fill(false);
+        self.buffers.obj_pixels.fill(ObjPixel::default());
+        self.buffers.obj_window.fill(false);
 
         let target_line =
             if self.state.scanline == LINES_PER_FRAME - 1 { 0 } else { self.state.scanline + 1 };
@@ -1159,28 +1172,29 @@ impl Ppu {
             }
         };
 
-        if oam_entry.priority >= self.buffers.obj_priority[pixel as usize] {
-            // Existing opaque pixel with the same or lower priority
+        if oam_entry.mode == SpriteMode::ObjWindow && color_id != 0 {
+            // Opaque OBJ window pixel; mark OBJ window and don't update any other buffers
+            self.buffers.obj_window[pixel as usize] = true;
             return;
         }
 
-        if color_id == 0 && self.buffers.obj_pixels[pixel as usize].transparent() {
-            // Both new pixel and existing pixel are transparent
+        let buffer_pixel = &mut self.buffers.obj_pixels[pixel as usize];
+
+        if oam_entry.priority >= buffer_pixel.priority && !buffer_pixel.color.transparent() {
+            // Existing opaque pixel with the same or lower priority; do nothing
             return;
         }
 
-        // Hardware bug: A transparent pixel that overlaps with an opaque pixel from a sprite
-        // with lower OAM index and higher priority will overwrite the priority and semi-transparency
-        // flags
-        self.buffers.obj_priority[pixel as usize] = oam_entry.priority;
+        // Always update priority and mosaic flags here because of a hardware bug:
+        // A transparent pixel that overlaps an opaque pixel from a sprite with lower OAM index and
+        // higher priority will overwrite the priority and mosaic flags
+        buffer_pixel.priority = oam_entry.priority;
+        buffer_pixel.mosaic = oam_entry.mosaic;
 
         if color_id == 0 {
-            // Transparent pixel
+            // Transparent pixel; don't update color or semi-transparency flag
             return;
         }
-
-        self.buffers.obj_semi_transparent[pixel as usize] =
-            oam_entry.mode == SpriteMode::SemiTransparent;
 
         let palette = match oam_entry.bpp {
             BitsPerPixel::Four => oam_entry.palette,
@@ -1188,7 +1202,9 @@ impl Ppu {
         };
         let palette_ram_addr = 0x100 | (16 * palette + u16::from(color_id));
         let color = self.palette_ram[palette_ram_addr as usize];
-        self.buffers.obj_pixels[pixel as usize] = Pixel::new_opaque(color);
+
+        buffer_pixel.color = Pixel::new_opaque(color);
+        buffer_pixel.semi_transparent = oam_entry.mode == SpriteMode::SemiTransparent;
     }
 
     pub fn frame_complete(&self) -> bool {
