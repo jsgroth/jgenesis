@@ -61,7 +61,7 @@ impl BitmapFrameBuffer {
     pub fn vram_address(self) -> u32 {
         match self {
             Self::Zero => 0x00000,
-            Self::One => 0x09000,
+            Self::One => 0x0A000,
         }
     }
 }
@@ -171,7 +171,7 @@ impl BgControl {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct BgAffineParameters {
     // BG2X / BG3X
     pub reference_x: i32,
@@ -185,6 +185,12 @@ pub struct BgAffineParameters {
     pub c: i32,
     // BG2PD / BG3PD
     pub d: i32,
+}
+
+impl Default for BgAffineParameters {
+    fn default() -> Self {
+        Self { reference_x: 0, reference_y: 0, a: 1 << 8, b: 0, c: 0, d: 1 << 8 }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]

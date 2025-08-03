@@ -469,25 +469,25 @@ impl Ppu {
                 for bg in 0..2 {
                     self.render_text_bg(bg);
                 }
-                self.render_affine_bg(2);
+                self.render_affine_bg(2, self.affine_sample_tile_map(2));
             }
             BgMode::Two => {
                 // BG2-3 in affine mode
                 for bg in 2..4 {
-                    self.render_affine_bg(bg);
+                    self.render_affine_bg(bg, self.affine_sample_tile_map(bg));
                 }
             }
             BgMode::Three => {
                 // Bitmap mode: 240x160, 15bpp, single frame buffer
-                self.render_bg_mode_3();
+                self.render_affine_bg(2, Self::affine_sample_mode_3);
             }
             BgMode::Four => {
                 // Bitmap mode: 240x160, 8bpp, two frame buffers
-                self.render_bg_mode_4();
+                self.render_affine_bg(2, self.affine_sample_mode_4());
             }
             BgMode::Five => {
                 // Bitmap mode: 160x128, 15bpp, two frame buffers
-                self.render_bg_mode_5();
+                self.render_affine_bg(2, self.affine_sample_mode_5());
             }
             BgMode::Invalid(_) => {}
         }
@@ -624,7 +624,7 @@ impl Ppu {
         }
     }
 
-    fn render_affine_bg(&mut self, bg: usize) {
+    fn render_affine_bg(&mut self, bg: usize, sample_fn: impl Fn(&Self, i32, i32) -> Pixel) {
         assert!(bg == 2 || bg == 3);
 
         self.buffers.bg_pixels[bg].fill(Pixel::TRANSPARENT);
@@ -643,42 +643,54 @@ impl Ppu {
         let dx = self.registers.bg_affine_parameters[bg - 2].a;
         let dy = self.registers.bg_affine_parameters[bg - 2].c;
 
-        let mut x = self.state.bg_affine_latch.x[bg - 2] - dx;
-        let mut y = self.state.bg_affine_latch.y[bg - 2] - dy;
+        let mut x = self.state.bg_affine_latch.x[bg - 2];
+        let mut y = self.state.bg_affine_latch.y[bg - 2];
 
         for pixel in 0..SCREEN_WIDTH {
+            // Affine coordinates are in 1/256 pixel units - convert to pixel
+            let x_pixel = x >> 8;
+            let y_pixel = y >> 8;
+
+            self.buffers.bg_pixels[bg][pixel as usize] = sample_fn(self, x_pixel, y_pixel);
+
             x += dx;
             y += dy;
+        }
+    }
 
-            // Affine coordinates are in 1/256 pixel units - convert to pixel
-            let mut x_pixel = x >> 8;
-            let mut y_pixel = y >> 8;
+    fn affine_sample_tile_map(&self, bg: usize) -> impl Fn(&Self, i32, i32) -> Pixel + 'static {
+        let bg_control = &self.registers.bg_control[bg];
 
-            if !(0..dimension_pixels).contains(&x_pixel)
-                || !(0..dimension_pixels).contains(&y_pixel)
-            {
-                match bg_control.affine_overflow {
-                    AffineOverflowBehavior::Transparent => continue,
+        let dimension_tiles = bg_control.size.affine_dimension_tiles();
+        let dimension_pixels = (8 * dimension_tiles) as i32;
+
+        let base_tile_map_addr = bg_control.tile_map_addr;
+        let base_tile_data_addr = bg_control.tile_data_addr;
+        let affine_overflow = bg_control.affine_overflow;
+
+        move |ppu, mut x, mut y| {
+            if !(0..dimension_pixels).contains(&x) || !(0..dimension_pixels).contains(&y) {
+                match affine_overflow {
+                    AffineOverflowBehavior::Transparent => return Pixel::TRANSPARENT,
                     AffineOverflowBehavior::Wrap => {
-                        x_pixel &= dimension_pixels - 1;
-                        y_pixel &= dimension_pixels - 1;
+                        x &= dimension_pixels - 1;
+                        y &= dimension_pixels - 1;
                     }
                 }
             }
 
-            let x_pixel = x_pixel as u32;
-            let y_pixel = y_pixel as u32;
+            let x = x as u32;
+            let y = y as u32;
 
-            let tile_map_row = y_pixel / 8;
-            let tile_row = y_pixel % 8;
+            let tile_map_row = y / 8;
+            let tile_row = y % 8;
 
-            let tile_map_col = x_pixel / 8;
-            let tile_col = x_pixel % 8;
+            let tile_map_col = x / 8;
+            let tile_col = x % 8;
 
-            let tile_map_addr =
-                bg_control.tile_map_addr + tile_map_row * dimension_tiles + tile_map_col;
+            let tile_map_addr = base_tile_map_addr + tile_map_row * dimension_tiles + tile_map_col;
             let tile_number = if tile_map_addr <= 0xFFFF {
-                self.vram[tile_map_addr as usize]
+                ppu.vram[tile_map_addr as usize]
             } else {
                 // TODO should be VRAM open bus?
                 0
@@ -686,8 +698,7 @@ impl Ppu {
             let tile_number: u32 = tile_number.into();
 
             // Affine tiles are always 8bpp
-
-            let tile_base_addr = bg_control.tile_data_addr + 64 * tile_number;
+            let tile_base_addr = base_tile_data_addr + 64 * tile_number;
 
             // Tile data address will never exceed $FFFF because tile numbers are 8-bit and tile
             // data base address is in 16KB steps
@@ -695,84 +706,70 @@ impl Ppu {
 
             let tile_row_addr = tile_base_addr + 8 * tile_row;
             let tile_addr = tile_row_addr + tile_col;
-            let color_id = self.vram[tile_addr as usize];
+            let color_id = ppu.vram[tile_addr as usize];
 
             if color_id == 0 {
-                // Transparent
-                continue;
+                return Pixel::TRANSPARENT;
             }
 
-            let color = self.palette_ram[color_id as usize];
-            self.buffers.bg_pixels[bg][pixel as usize] = Pixel::new_opaque(color);
+            let color = ppu.palette_ram[color_id as usize];
+            Pixel::new_opaque(color)
         }
     }
 
-    fn render_bg_mode_3(&mut self) {
-        if !self.registers.bg_enabled[2] {
-            self.buffers.bg_pixels[2].fill(Pixel::TRANSPARENT);
-            return;
+    fn affine_sample_mode_3(&self, x: i32, y: i32) -> Pixel {
+        if !(0..SCREEN_WIDTH as i32).contains(&x) || !(0..SCREEN_HEIGHT as i32).contains(&y) {
+            return Pixel::TRANSPARENT;
         }
 
-        // TODO BG2 can be affine
-        // TODO mosaic
+        let x = x as u32;
+        let y = y as u32;
 
-        let line_addr = self.state.scanline * 2 * SCREEN_WIDTH;
-
-        for pixel in 0..SCREEN_WIDTH {
-            let pixel_addr = (line_addr + 2 * pixel) as usize;
-            let color = u16::from_le_bytes([self.vram[pixel_addr], self.vram[pixel_addr + 1]]);
-            self.buffers.bg_pixels[2][pixel as usize] = Pixel::new_opaque(color);
-        }
+        let pixel_addr = (2 * (y * SCREEN_WIDTH + x)) as usize;
+        let color = u16::from_le_bytes([self.vram[pixel_addr], self.vram[pixel_addr + 1]]);
+        Pixel::new_opaque(color)
     }
 
-    fn render_bg_mode_4(&mut self) {
-        self.buffers.bg_pixels[2].fill(Pixel::TRANSPARENT);
-
-        if !self.registers.bg_enabled[2] {
-            return;
-        }
-
-        // TODO BG2 can be affine
-        // TODO mosaic
-
+    fn affine_sample_mode_4(&self) -> impl Fn(&Self, i32, i32) -> Pixel + 'static {
         let fb_addr = self.registers.bitmap_frame_buffer.vram_address();
-        let line_addr = fb_addr + self.state.scanline * SCREEN_WIDTH;
 
-        for pixel in 0..SCREEN_WIDTH {
-            let pixel_addr = (line_addr + pixel) as usize;
-            let color_id = self.vram[pixel_addr];
-
-            if color_id != 0 {
-                let color = self.palette_ram[color_id as usize];
-                self.buffers.bg_pixels[2][pixel as usize] = Pixel::new_opaque(color);
+        move |ppu, x, y| {
+            if !(0..SCREEN_WIDTH as i32).contains(&x) || !(0..SCREEN_HEIGHT as i32).contains(&y) {
+                return Pixel::TRANSPARENT;
             }
+
+            let x = x as u32;
+            let y = y as u32;
+
+            let pixel_addr = (fb_addr + y * SCREEN_WIDTH + x) as usize;
+            let color_id = ppu.vram[pixel_addr];
+
+            if color_id == 0 {
+                return Pixel::TRANSPARENT;
+            }
+
+            let color = ppu.palette_ram[color_id as usize];
+            Pixel::new_opaque(color)
         }
     }
 
-    fn render_bg_mode_5(&mut self) {
+    fn affine_sample_mode_5(&self) -> impl Fn(&Self, i32, i32) -> Pixel + 'static {
         const MODE_5_WIDTH: u32 = 160;
         const MODE_5_HEIGHT: u32 = 128;
 
-        self.buffers.bg_pixels[2].fill(Pixel::TRANSPARENT);
-
-        if !self.registers.bg_enabled[2] {
-            return;
-        }
-
-        // TODO BG2 can be affine
-        // TODO mosaic
-
-        if self.state.scanline >= MODE_5_HEIGHT {
-            return;
-        }
-
         let fb_addr = self.registers.bitmap_frame_buffer.vram_address();
-        let line_addr = fb_addr + self.state.scanline * 2 * MODE_5_WIDTH;
 
-        for pixel in 0..MODE_5_WIDTH {
-            let pixel_addr = (line_addr + 2 * pixel) as usize;
-            let color = u16::from_le_bytes([self.vram[pixel_addr], self.vram[pixel_addr + 1]]);
-            self.buffers.bg_pixels[2][pixel as usize] = Pixel::new_opaque(color);
+        move |ppu, x, y| {
+            if !(0..MODE_5_WIDTH as i32).contains(&x) || !(0..MODE_5_HEIGHT as i32).contains(&y) {
+                return Pixel::TRANSPARENT;
+            }
+
+            let x = x as u32;
+            let y = y as u32;
+
+            let pixel_addr = (fb_addr + 2 * (y * MODE_5_WIDTH + x)) as usize;
+            let color = u16::from_le_bytes([ppu.vram[pixel_addr], ppu.vram[pixel_addr + 1]]);
+            Pixel::new_opaque(color)
         }
     }
 
