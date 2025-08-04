@@ -374,12 +374,10 @@ impl DmaState {
         }
     }
 
-    pub fn read_register(&self, address: u32) -> u16 {
-        // Only the control registers are readable, but many games do 32-bit reads that also read
-        // the length registers
-        match address {
+    pub fn read_register(&self, address: u32) -> Option<u16> {
+        let value = match address {
             0x40000B8 | 0x40000C4 | 0x40000D0 | 0x40000DC => {
-                // Length register reads; probably should return open bus
+                // Low halfword of word-size control reads (length is not readable)
                 0
             }
             0x40000BA => self.channels[0].read_control(),
@@ -388,9 +386,11 @@ impl DmaState {
             0x40000DE => self.channels[3].read_control(),
             _ => {
                 log::error!("Unexpected read from write-only DMA register {address:08X}");
-                0
+                return None;
             }
-        }
+        };
+
+        Some(value)
     }
 
     pub fn write_register(&mut self, address: u32, value: u16) {

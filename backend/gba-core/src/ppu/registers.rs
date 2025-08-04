@@ -53,6 +53,10 @@ impl BgMode {
                 | (BgMode::Three | BgMode::Four | BgMode::Five, 2)
         )
     }
+
+    pub fn is_bitmap(self) -> bool {
+        matches!(self, Self::Three | Self::Four | Self::Five)
+    }
 }
 
 define_bit_enum!(BitmapFrameBuffer, [Zero, One]);
@@ -519,6 +523,23 @@ impl Registers {
         }
     }
 
+    pub fn read_bg_affine_register(&self, address: u32) -> u16 {
+        let bg_idx = ((address >> 4) & 1) as usize;
+        let affine_parameters = &self.bg_affine_parameters[bg_idx];
+
+        match address & 0xE {
+            0x0 => affine_parameters.a as u16,
+            0x2 => affine_parameters.b as u16,
+            0x4 => affine_parameters.c as u16,
+            0x6 => affine_parameters.d as u16,
+            0x8 => affine_parameters.reference_x as u16,
+            0xA => (affine_parameters.reference_x >> 16) as u16,
+            0xC => affine_parameters.reference_y as u16,
+            0xE => (affine_parameters.reference_y >> 16) as u16,
+            _ => unreachable!("value & 0xE is always one of the above values"),
+        }
+    }
+
     // $4000040/$4000042: WIN0H/WIN1H (Window 0/1 horizontal coordinates)
     pub fn write_winh(&mut self, window: usize, value: u16) {
         [self.window_x1[window], self.window_x2[window]] = value.to_be_bytes().map(u32::from);
@@ -625,15 +646,27 @@ impl Registers {
 
     // $4000004C: MOSAIC (Mosaic size)
     pub fn write_mosaic(&mut self, value: u16) {
-        let [bg_mosaic, obj_mosaic] = value.to_le_bytes();
-        self.bg_mosaic_h_size = bg_mosaic & 0xF;
-        self.bg_mosaic_v_size = bg_mosaic >> 4;
-        self.obj_mosaic_h_size = obj_mosaic & 0xF;
-        self.obj_mosaic_v_size = obj_mosaic >> 4;
-
         log::debug!("MOSAIC write: {value:04X}");
+
+        let [bg_mosaic, obj_mosaic] = value.to_le_bytes();
+        self.write_bg_mosaic(bg_mosaic);
+        self.write_obj_mosaic(obj_mosaic);
+    }
+
+    pub fn write_bg_mosaic(&mut self, value: u8) {
+        self.bg_mosaic_h_size = value & 0xF;
+        self.bg_mosaic_v_size = value >> 4;
+
+        log::debug!("MOSAIC low write: {value:02X}");
         log::debug!("  BG H size: {}", self.bg_mosaic_h_size);
         log::debug!("  BG V size: {}", self.bg_mosaic_v_size);
+    }
+
+    pub fn write_obj_mosaic(&mut self, value: u8) {
+        self.obj_mosaic_h_size = value & 0xF;
+        self.obj_mosaic_v_size = value >> 4;
+
+        log::debug!("MOSAIC high write: {value:02X}");
         log::debug!("  OBJ H size: {}", self.obj_mosaic_h_size);
         log::debug!("  OBJ V size: {}", self.obj_mosaic_v_size);
     }

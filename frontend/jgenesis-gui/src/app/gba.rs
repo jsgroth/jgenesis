@@ -1,5 +1,5 @@
 use crate::app::widgets::{BiosErrorStrings, RenderErrorEffect};
-use crate::app::{App, widgets};
+use crate::app::{App, OpenWindow, widgets};
 use egui::{Context, Window};
 use gba_config::{GbaAspectRatio, GbaColorCorrection};
 use jgenesis_native_driver::extensions::Console;
@@ -8,6 +8,8 @@ use std::path::PathBuf;
 
 impl App {
     pub(super) fn render_gba_video_settings(&mut self, ctx: &Context) {
+        const WINDOW: OpenWindow = OpenWindow::GbaVideo;
+
         let mut open = true;
 
         Window::new("GBA Video Settings").open(&mut open).show(ctx, |ui| {
@@ -45,6 +47,10 @@ impl App {
                 });
             });
         });
+
+        if !open {
+            self.state.open_windows.remove(&WINDOW);
+        }
     }
 
     pub(super) fn render_gba_bios_error(

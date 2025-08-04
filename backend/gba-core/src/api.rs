@@ -9,7 +9,7 @@ use crate::memory::Memory;
 use crate::ppu;
 use crate::ppu::Ppu;
 use crate::timers::Timers;
-use arm7tdmi_emu::{Arm7Tdmi, Arm7TdmiResetArgs, CpuMode};
+use arm7tdmi_emu::Arm7Tdmi;
 use bincode::{Decode, Encode};
 use gba_config::{GbaAspectRatio, GbaButton, GbaColorCorrection, GbaInputs};
 use jgenesis_common::frontend::{
@@ -57,15 +57,8 @@ impl BusState {
 #[derive(Debug, PartialClone, Encode, Decode)]
 pub struct GameBoyAdvanceEmulator {
     cpu: Arm7Tdmi,
-    ppu: Ppu,
-    apu: Apu,
-    memory: Memory,
     #[partial_clone(partial)]
-    cartridge: Cartridge,
-    dma: DmaState,
-    timers: Timers,
-    interrupts: InterruptRegisters,
-    bus_state: BusState,
+    bus: Bus,
     config: GbaEmulatorConfig,
 }
 
@@ -78,40 +71,16 @@ impl GameBoyAdvanceEmulator {
         bios_rom: Vec<u8>,
         config: GbaEmulatorConfig,
     ) -> Result<Self, GbaLoadError> {
-        let mut ppu = Ppu::new(config);
-        let mut apu = Apu::new();
-        let mut memory = Memory::new(bios_rom)?;
-        let mut cartridge = Cartridge::new(rom);
-        let mut dma = DmaState::new();
-        let mut timers = Timers::new();
-        let mut interrupts = InterruptRegisters::new();
+        let ppu = Ppu::new(config);
+        let apu = Apu::new();
+        let memory = Memory::new(bios_rom)?;
+        let cartridge = Cartridge::new(rom);
+        let dma = DmaState::new();
+        let timers = Timers::new();
+        let interrupts = InterruptRegisters::new();
 
-        // TODO BIOS boot
         let mut cpu = Arm7Tdmi::new();
-        cpu.manual_reset(
-            Arm7TdmiResetArgs {
-                pc: 0x8000000,
-                sp_usr: 0x3007FF0,
-                sp_svc: 0x3007FE0,
-                sp_irq: 0x3007FA0,
-                sp_fiq: 0x3007F60,
-                mode: CpuMode::System,
-            },
-            &mut Bus {
-                ppu: &mut ppu,
-                apu: &mut apu,
-                memory: &mut memory,
-                cartridge: &mut cartridge,
-                dma: &mut dma,
-                timers: &mut timers,
-                interrupts: &mut interrupts,
-                inputs: &GbaInputs::default(),
-                state: BusState::new(),
-            },
-        );
-
-        Ok(Self {
-            cpu,
+        let mut bus = Bus {
             ppu,
             apu,
             memory,
@@ -119,9 +88,13 @@ impl GameBoyAdvanceEmulator {
             dma,
             timers,
             interrupts,
-            bus_state: BusState::new(),
-            config,
-        })
+            inputs: GbaInputs::default(),
+            state: BusState::new(),
+        };
+
+        cpu.reset(&mut bus);
+
+        Ok(Self { cpu, bus, config })
     }
 }
 
@@ -152,41 +125,29 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
-        let mut bus = Bus {
-            ppu: &mut self.ppu,
-            apu: &mut self.apu,
-            memory: &mut self.memory,
-            cartridge: &mut self.cartridge,
-            dma: &mut self.dma,
-            timers: &mut self.timers,
-            interrupts: &mut self.interrupts,
-            inputs,
-            state: self.bus_state,
-        };
+        self.bus.inputs = *inputs;
 
-        if !bus.try_progress_dma() {
-            self.cpu.execute_instruction(&mut bus);
+        if !self.bus.try_progress_dma() {
+            self.cpu.execute_instruction(&mut self.bus);
         }
 
-        self.bus_state = bus.state;
-
-        self.timers.step_to(
-            self.bus_state.cycles,
-            &mut self.apu,
-            &mut self.dma,
-            &mut self.interrupts,
+        self.bus.timers.step_to(
+            self.bus.state.cycles,
+            &mut self.bus.apu,
+            &mut self.bus.dma,
+            &mut self.bus.interrupts,
         );
 
-        self.apu.step_to(self.bus_state.cycles);
-        self.apu.drain_audio_output(audio_output).map_err(GbaError::Audio)?;
+        self.bus.apu.step_to(self.bus.state.cycles);
+        self.bus.apu.drain_audio_output(audio_output).map_err(GbaError::Audio)?;
 
-        self.ppu.step_to(self.bus_state.cycles, &mut self.interrupts, &mut self.dma);
-        if self.ppu.frame_complete() {
-            self.ppu.clear_frame_complete();
+        self.bus.sync_ppu();
+        if self.bus.ppu.frame_complete() {
+            self.bus.ppu.clear_frame_complete();
 
             renderer
                 .render_frame(
-                    self.ppu.frame_buffer(),
+                    self.bus.ppu.frame_buffer(),
                     ppu::FRAME_SIZE,
                     self.config.aspect_ratio.to_pixel_aspect_ratio(),
                 )
@@ -203,19 +164,19 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
         R: Renderer,
     {
         renderer.render_frame(
-            self.ppu.frame_buffer(),
+            self.bus.ppu.frame_buffer(),
             ppu::FRAME_SIZE,
             self.config.aspect_ratio.to_pixel_aspect_ratio(),
         )
     }
 
     fn reload_config(&mut self, config: &Self::Config) {
-        self.ppu.reload_config(*config);
+        self.bus.ppu.reload_config(*config);
         self.config = *config;
     }
 
     fn take_rom_from(&mut self, other: &mut Self) {
-        self.cartridge.take_rom_from(&mut other.cartridge);
+        self.bus.cartridge.take_rom_from(&mut other.bus.cartridge);
     }
 
     fn soft_reset(&mut self) {
@@ -223,8 +184,8 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
     }
 
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
-        let rom = self.cartridge.take_rom();
-        let bios_rom = self.memory.clone_bios_rom();
+        let rom = self.bus.cartridge.take_rom();
+        let bios_rom = self.bus.memory.clone_bios_rom();
 
         *self = Self::create(rom, bios_rom, self.config)
             .expect("Emulator creation should never fail during hard reset");
@@ -238,6 +199,6 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
     }
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
-        self.apu.update_output_frequency(output_frequency);
+        self.bus.apu.update_output_frequency(output_frequency);
     }
 }

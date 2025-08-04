@@ -1039,8 +1039,7 @@ impl Ppu {
             return;
         }
 
-        let is_bitmap_mode =
-            matches!(self.registers.bg_mode, BgMode::Three | BgMode::Four | BgMode::Five);
+        let is_bitmap_mode = self.registers.bg_mode.is_bitmap();
 
         self.buffers.obj_pixels.fill(ObjPixel::default());
         self.buffers.obj_window.fill(false);
@@ -1338,6 +1337,24 @@ impl Ppu {
         }
     }
 
+    pub fn write_vram_byte(&mut self, address: u32, value: u8) {
+        let in_obj_vram = if self.registers.bg_mode.is_bitmap() {
+            // $14000-$17FFF
+            address & 0x10000 != 0 && address & 0x04000 != 0
+        } else {
+            // $10000-$17FFF
+            address & 0x10000 != 0
+        };
+
+        if in_obj_vram {
+            // 8-bit writes to OBJ VRAM are ignored
+            return;
+        }
+
+        // 8-bit writes to BG VRAM duplicate the byte
+        self.write_vram(address & !1, u16::from_le_bytes([value; 2]));
+    }
+
     pub fn read_palette_ram(&self, address: u32) -> u16 {
         let palette_ram_addr = ((address >> 1) as usize) & (PALETTE_RAM_LEN_HALFWORDS - 1);
         self.palette_ram[palette_ram_addr]
@@ -1380,11 +1397,30 @@ impl Ppu {
         }
     }
 
-    pub fn read_register(&self, address: u32) -> u16 {
+    pub fn palette_ram_in_use(&self) -> bool {
+        !self.in_vblank()
+    }
+
+    pub fn vram_in_use(&self) -> bool {
+        !self.in_vblank()
+    }
+
+    pub fn oam_in_use(&self) -> bool {
+        !self.in_vblank()
+            && (!self.registers.oam_free_during_hblank
+                || (40..HBLANK_START_DOT).contains(&self.state.dot))
+    }
+
+    pub fn read_register(&self, address: u32) -> Option<u16> {
         log::trace!("PPU register read {address:08X}");
 
-        match address {
+        let value = match address {
             0x4000000 => self.registers.read_dispcnt(),
+            0x4000002 => {
+                // TODO undocumented green swap register
+                log::warn!("Read of undocumented green swap register {address:08X}");
+                0
+            }
             0x4000004 => self.read_dispstat(),
             0x4000006 => self.state.scanline as u16,
             0x4000008..=0x400000E => {
@@ -1397,9 +1433,11 @@ impl Ppu {
             0x4000052 => self.registers.read_bldalpha(),
             _ => {
                 log::warn!("Unhandled PPU register read {address:08X}");
-                0
+                return None;
             }
-        }
+        };
+
+        Some(value)
     }
 
     // $4000004: DISPSTAT (Display status)
@@ -1425,6 +1463,7 @@ impl Ppu {
         self.state.dot >= HBLANK_START_DOT
     }
 
+    #[allow(clippy::match_same_arms)]
     pub fn write_register(&mut self, address: u32, value: u16) {
         log::debug!(
             "PPU register write {address:08X} {value:04X} (line {} dot {})",
@@ -1434,7 +1473,13 @@ impl Ppu {
 
         match address {
             0x4000000 => self.registers.write_dispcnt(value),
+            0x4000002 => {
+                log::warn!(
+                    "Ignoring write {value:04X} to unimplemented green swap register {address:08X}"
+                );
+            }
             0x4000004 => self.registers.write_dispstat(value),
+            0x4000006 => {} // High halfword of word-size writes to DISPSTAT
             0x4000008..=0x400000E => {
                 // BGxCNT
                 let bg = (address & 7) >> 1;
@@ -1461,9 +1506,11 @@ impl Ppu {
             0x4000048 => self.registers.write_winin(value),
             0x400004A => self.registers.write_winout(value),
             0x400004C => self.registers.write_mosaic(value),
+            0x400004E => {} // High halfword of word-size writes to MOSAIC
             0x4000050 => self.registers.write_bldcnt(value),
             0x4000052 => self.registers.write_bldalpha(value),
             0x4000054 => self.registers.write_bldy(value),
+            0x4000056 => {} // High halfword of word-size writes to BLDY
             _ => {
                 log::warn!("Unhandled PPU register write {address:08X} {value:04X}");
             }
@@ -1471,19 +1518,53 @@ impl Ppu {
     }
 
     pub fn write_register_byte(&mut self, address: u32, value: u8) {
+        trait U16Ext {
+            fn set_byte(&mut self, i: bool, value: u8);
+        }
+
+        impl U16Ext for u16 {
+            fn set_byte(&mut self, i: bool, value: u8) {
+                if !i {
+                    self.set_lsb(value);
+                } else {
+                    self.set_msb(value);
+                }
+            }
+        }
+
         // TODO BGxHOFS, BGxVOFS, MOSAIC, blend registers
         match address {
-            0x4000000 | 0x4000004 | 0x4000008 | 0x400000A | 0x400000C | 0x400000E | 0x4000048
-            | 0x400004A | 0x4000050 | 0x4000052 => {
-                let mut halfword = self.read_register(address);
-                halfword.set_lsb(value);
-                self.write_register(address, halfword);
-            }
-            0x4000001 | 0x4000005 | 0x4000009 | 0x400000B | 0x400000D | 0x400000F | 0x4000049
-            | 0x400004B | 0x4000051 | 0x4000053 => {
-                let mut halfword = self.read_register(address & !1);
-                halfword.set_msb(value);
+            0x4000000..=0x4000005
+            | 0x4000008..=0x400000F
+            | 0x4000048..=0x400004B
+            | 0x4000050..=0x4000053 => {
+                // R/W registers: DISPCNT, green swap, DISPSTAT, BGxCNT, WININ, WINOUT, BLDCNT, BLDALPHA
+                let Some(mut halfword) = self.read_register(address & !1) else { return };
+                halfword.set_byte(address.bit(0), value);
                 self.write_register(address & !1, halfword);
+            }
+            0x4000010..=0x400001F => {
+                // BGxHOFS / BGxVOFS
+                let bg = ((address >> 2) & 3) as usize;
+                if !address.bit(1) {
+                    let mut hofs = self.registers.bg_h_scroll[bg] as u16;
+                    hofs.set_byte(address.bit(0), value);
+                    self.registers.write_bghofs(bg, hofs);
+                } else {
+                    let mut vofs = self.registers.bg_v_scroll[bg] as u16;
+                    vofs.set_byte(address.bit(0), value);
+                    self.registers.write_bgvofs(bg, vofs);
+                }
+            }
+            0x4000020..=0x400003F => {
+                // BG affine registers
+                let mut halfword = self.registers.read_bg_affine_register(address & !1);
+                halfword.set_byte(address.bit(0), value);
+                self.registers.write_bg_affine_register(
+                    address & !1,
+                    halfword,
+                    &mut self.state.bg_affine_latch,
+                );
             }
             0x4000040 => self.registers.write_winh_low(0, value),
             0x4000041 => self.registers.write_winh_high(0, value),
@@ -1493,8 +1574,11 @@ impl Ppu {
             0x4000045 => self.registers.write_winv_high(0, value),
             0x4000046 => self.registers.write_winv_low(1, value),
             0x4000047 => self.registers.write_winv_high(1, value),
+            0x400004C => self.registers.write_bg_mosaic(value),
+            0x400004D => self.registers.write_obj_mosaic(value),
+            0x4000054 => self.registers.write_bldy(value.into()), // BLDY is only a 5-bit register
             _ => {
-                log::warn!("Unhandled PPU byte register write {address:08X} {value:02X}");
+                log::warn!("Unexpected PPU byte register write {address:08X} {value:02X}");
             }
         }
     }

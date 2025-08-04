@@ -3,17 +3,79 @@
 use crate::api::GbaLoadError;
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::BoxedByteArray;
+use jgenesis_common::num::GetBit;
+use std::array;
 
 const BIOS_ROM_LEN: usize = 16 * 1024;
 const IWRAM_LEN: usize = 32 * 1024;
 const EWRAM_LEN: usize = 256 * 1024;
 
 #[derive(Debug, Clone, Encode, Decode)]
+pub struct MemoryControl {
+    pub sram_wait: u64,
+    pub cartridge_n_wait: [u64; 3],
+    pub cartridge_s_wait: [u64; 3],
+    pub prefetch_enabled: bool,
+    pub raw_value: u16,
+}
+
+impl MemoryControl {
+    const SRAM_WAIT: [u64; 4] = [4, 3, 2, 8];
+    const CARTRIDGE_N_WAIT: [u64; 4] = [4, 3, 2, 8];
+    const CARTRIDGE_0_S_WAIT: [u64; 2] = [2, 1];
+    const CARTRIDGE_1_S_WAIT: [u64; 2] = [4, 1];
+    const CARTRIDGE_2_S_WAIT: [u64; 2] = [8, 1];
+
+    pub fn new() -> Self {
+        Self {
+            sram_wait: Self::SRAM_WAIT[0],
+            cartridge_n_wait: array::from_fn(|_| Self::CARTRIDGE_N_WAIT[0]),
+            cartridge_s_wait: [
+                Self::CARTRIDGE_0_S_WAIT[0],
+                Self::CARTRIDGE_1_S_WAIT[0],
+                Self::CARTRIDGE_2_S_WAIT[0],
+            ],
+            prefetch_enabled: false,
+            raw_value: 0x0000,
+        }
+    }
+
+    pub fn read(&self) -> u16 {
+        self.raw_value
+    }
+
+    pub fn write(&mut self, value: u16) {
+        self.sram_wait = Self::SRAM_WAIT[(value & 3) as usize];
+        self.cartridge_n_wait =
+            array::from_fn(|i| Self::CARTRIDGE_N_WAIT[((value >> (2 + 3 * i)) & 3) as usize]);
+        self.cartridge_s_wait = [
+            Self::CARTRIDGE_0_S_WAIT[usize::from(value.bit(4))],
+            Self::CARTRIDGE_1_S_WAIT[usize::from(value.bit(7))],
+            Self::CARTRIDGE_2_S_WAIT[usize::from(value.bit(10))],
+        ];
+        self.prefetch_enabled = value.bit(14);
+
+        self.raw_value = value;
+
+        log::debug!("WAITCNT write: {value:04X}");
+        log::debug!("  SRAM wait states: {}", self.sram_wait);
+        log::debug!("  Cartridge 0 N wait states: {}", self.cartridge_n_wait[0]);
+        log::debug!("  Cartridge 0 S wait states: {}", self.cartridge_s_wait[0]);
+        log::debug!("  Cartridge 1 N wait states: {}", self.cartridge_n_wait[1]);
+        log::debug!("  Cartridge 1 S wait states: {}", self.cartridge_s_wait[1]);
+        log::debug!("  Cartridge 2 N wait states: {}", self.cartridge_n_wait[2]);
+        log::debug!("  Cartridge 2 S wait states: {}", self.cartridge_s_wait[2]);
+        log::debug!("  Cartridge ROM prefetch enabled: {}", self.prefetch_enabled);
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct Memory {
     bios_rom: BoxedByteArray<BIOS_ROM_LEN>,
     iwram: BoxedByteArray<IWRAM_LEN>,
     ewram: BoxedByteArray<EWRAM_LEN>,
-    pub waitcnt: u16,
+    memory_control: MemoryControl,
+    post_boot: bool,
 }
 
 impl Memory {
@@ -31,7 +93,8 @@ impl Memory {
             bios_rom: bios_rom.into(),
             iwram: BoxedByteArray::new(),
             ewram: BoxedByteArray::new(),
-            waitcnt: 0,
+            memory_control: MemoryControl::new(),
+            post_boot: false,
         })
     }
 
@@ -86,6 +149,38 @@ impl Memory {
 
     pub fn write_ewram_word(&mut self, address: u32, value: u32) {
         write_word(&mut self.ewram, address, value);
+    }
+
+    pub fn control(&self) -> &MemoryControl {
+        &self.memory_control
+    }
+
+    // $4000204: WAITCNT (Waitstate control)
+    pub fn read_waitcnt(&self) -> u16 {
+        self.memory_control.read()
+    }
+
+    // $4000204: WAITCNT (Waitstate control)
+    pub fn write_waitcnt(&mut self, value: u16) {
+        self.memory_control.write(value);
+    }
+
+    // $4000300: POSTFLG (Post boot flag)
+    pub fn read_postflg(&self) -> u8 {
+        self.post_boot.into()
+    }
+
+    // $4000300: POSTFLG (Post boot flag)
+    pub fn write_postflg(&mut self, value: u8) {
+        self.post_boot = value.bit(0);
+    }
+
+    // $4000300: POSTFLG (Post boot flag)
+    // $4000301: HALTCNT (Halt control)
+    pub fn write_postflg_haltcnt(&mut self, value: u16) {
+        let [lsb, msb] = value.to_le_bytes();
+        self.write_postflg(value as u8);
+        // TODO HALTCNT
     }
 
     pub fn clone_bios_rom(&mut self) -> Vec<u8> {
