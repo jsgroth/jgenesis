@@ -67,13 +67,12 @@ impl Bus {
     }
 
     #[allow(clippy::match_same_arms)]
-    fn read_io_register(&mut self, address: u32) -> u16 {
+    fn read_io_register(&mut self, address: u32) -> Option<u16> {
         match address {
             0x4000000..=0x4000057 => {
                 // PPU registers
                 self.ppu.step_to(self.state.cycles, &mut self.interrupts, &mut self.dma);
-                // TODO open bus if invalid address
-                self.ppu.read_register(address).unwrap_or(0)
+                self.ppu.read_register(address)
             }
             0x4000060..=0x40000AF => {
                 // APU registers
@@ -82,37 +81,32 @@ impl Bus {
             }
             0x40000B0..=0x40000DF => {
                 // DMA registers
-                // TODO open bus if invalid address
-                self.dma.read_register(address).unwrap_or(0)
+                self.dma.read_register(address)
             }
             0x4000100..=0x400010F => {
                 // Timer registers
-                self.timers.read_register(
+                Some(self.timers.read_register(
                     address,
                     self.state.cycles,
                     &mut self.apu,
                     &mut self.dma,
                     &mut self.interrupts,
-                )
+                ))
             }
             0x4000120..=0x400012F | 0x4000134..=0x400015F => {
                 // SIO registers
-                self.sio.read_register(address)
+                Some(self.sio.read_register(address))
             }
-            0x4000130 => self.inputs.to_keyinput(),
-            0x4000200 => self.interrupts.read_ie(),
-            0x4000202 => self.interrupts.read_if(),
-            0x4000204 => self.memory.read_waitcnt(),
-            0x4000206 => 0, // High halfword of word-size WAITCNT reads
-            0x4000208 => self.interrupts.read_ime(),
-            0x400020A => 0, // High halfword of word-size IME reads
-            0x4000300 => self.memory.read_postflg().into(),
-            0x4000302 => 0, // High halfword of word-size POSTFLG reads
-            _ => {
-                log::warn!("Unhandled I/O register read {address:08X}");
-                // TODO open bus if invalid address
-                0
-            }
+            0x4000130 => Some(self.inputs.to_keyinput()),
+            0x4000200 => Some(self.interrupts.read_ie()),
+            0x4000202 => Some(self.interrupts.read_if()),
+            0x4000204 => Some(self.memory.read_waitcnt()),
+            0x4000206 => Some(0), // High halfword of word-size WAITCNT reads
+            0x4000208 => Some(self.interrupts.read_ime()),
+            0x400020A => Some(0), // High halfword of word-size IME reads
+            0x4000300 => Some(self.memory.read_postflg().into()),
+            0x4000302 => Some(0), // High halfword of word-size POSTFLG reads
+            _ => None,
         }
     }
 
@@ -288,7 +282,9 @@ impl BusInterface for Bus {
             }
             0x3000000..=0x3FFFFFF => self.memory.read_iwram_byte(address),
             0x4000000..=0x4FFFFFF => {
-                let halfword = self.read_io_register(address & !1);
+                let Some(halfword) = self.read_io_register(address & !1) else {
+                    return self.read_open_bus_byte(address);
+                };
                 halfword.to_le_bytes()[(address & 1) as usize]
             }
             0x5000000..=0x5FFFFFF => {
@@ -346,7 +342,12 @@ impl BusInterface for Bus {
                 self.memory.read_ewram_halfword(address)
             }
             0x3000000..=0x3FFFFFF => self.memory.read_iwram_halfword(address),
-            0x4000000..=0x4FFFFFF => self.read_io_register(address),
+            0x4000000..=0x4FFFFFF => {
+                let Some(value) = self.read_io_register(address) else {
+                    return self.read_open_bus_halfword(address);
+                };
+                value
+            }
             0x5000000..=0x5FFFFFF => {
                 self.sync_ppu();
                 self.state.cycles += u64::from(self.ppu.palette_ram_in_use());
@@ -407,7 +408,13 @@ impl BusInterface for Bus {
             }
             0x3000000..=0x3FFFFFF => self.memory.read_iwram_word(address),
             0x4000000..=0x4FFFFFF => {
-                two_halfword_reads(address, |address| self.read_io_register(address))
+                let Some(low) = self.read_io_register(address & !3) else {
+                    return self.read_open_bus_word(address);
+                };
+                let Some(high) = self.read_io_register((address & !3) | 2) else {
+                    return self.read_open_bus_word(address);
+                };
+                u32::from(low) | (u32::from(high) << 16)
             }
             0x5000000..=0x5FFFFFF => {
                 self.sync_ppu();

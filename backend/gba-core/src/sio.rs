@@ -29,6 +29,7 @@ impl SerialPort {
         match address {
             0x4000128 => self.read_rcnt(),
             0x4000134 => self.read_siocnt(),
+            0x4000136 | 0x4000142 | 0x400015A => 0, // Invalid addresses that return 0
             _ => {
                 log::warn!("Unimplemented SIO read {address:08X}");
                 !0

@@ -145,12 +145,15 @@ pub struct BgControl {
     pub tile_map_addr: u32,
     pub affine_overflow: AffineOverflowBehavior,
     pub size: ScreenSize,
+    // Bits 4-5: Unused but R/W
+    pub tile_data_extra_bits: u16,
 }
 
 impl BgControl {
     fn read(&self) -> u16 {
         u16::from(self.priority)
             | (((self.tile_data_addr as u16) >> 14) << 2)
+            | (self.tile_data_extra_bits << 4)
             | (u16::from(self.mosaic) << 6)
             | ((self.bpp as u16) << 7)
             | (((self.tile_map_addr as u16) >> 11) << 8)
@@ -158,11 +161,13 @@ impl BgControl {
             | ((self.size as u16) << 14)
     }
 
-    fn write(&mut self, value: u16) {
+    fn write(&mut self, value: u16, supports_affine: bool) {
         self.priority = (value & 3) as u8;
 
         let tile_data_addr_16kb = (value >> 2) & 3;
         self.tile_data_addr = (tile_data_addr_16kb << 14).into();
+
+        self.tile_data_extra_bits = (value >> 4) & 3;
 
         self.mosaic = value.bit(6);
         self.bpp = BitsPerPixel::from_bit(value.bit(7));
@@ -170,7 +175,10 @@ impl BgControl {
         let tile_map_addr_2kb = (value >> 8) & 0x1F;
         self.tile_map_addr = (tile_map_addr_2kb << 11).into();
 
-        self.affine_overflow = AffineOverflowBehavior::from_bit(value.bit(13));
+        if supports_affine {
+            self.affine_overflow = AffineOverflowBehavior::from_bit(value.bit(13));
+        }
+
         self.size = ScreenSize::from_bits(value >> 14);
     }
 }
@@ -411,7 +419,8 @@ impl Registers {
 
     // $4000008-$400000E: BG0CNT/BG1CNT/BG2CNT/BG3CNT (BG0-3 control)
     pub fn write_bgcnt(&mut self, index: usize, value: u16) {
-        self.bg_control[index].write(value);
+        let supports_affine = index >= 2;
+        self.bg_control[index].write(value, supports_affine);
 
         log::debug!("BG{index}CNT write: {value:04X}");
         log::debug!("  Priority: {}", self.bg_control[index].priority);

@@ -95,6 +95,7 @@ struct DmaChannel {
     start_timing: StartTiming,
     irq_enabled: bool,
     dma_enabled: bool,
+    game_pak_drq_enabled: bool,
     // Internal latches used for in-progress DMA
     latched_source_address: u32,
     latched_destination_address: u32,
@@ -146,6 +147,7 @@ impl DmaChannel {
             start_timing: StartTiming::default(),
             irq_enabled: false,
             dma_enabled: false,
+            game_pak_drq_enabled: false,
             latched_source_address: 0,
             latched_destination_address: 0,
             latched_length: 0,
@@ -221,6 +223,7 @@ impl DmaChannel {
         self.source_increment = AddressIncrement::from_bits(value >> 7);
         self.repeat = value.bit(9);
         self.unit = TransferUnit::from_bit(value.bit(10));
+        self.game_pak_drq_enabled = self.idx == 3 && value.bit(11);
         self.start_timing = StartTiming::from_bits(value >> 12);
         self.irq_enabled = value.bit(14);
 
@@ -248,6 +251,7 @@ impl DmaChannel {
         log::trace!("  Start timing: {:?}", self.start_timing);
         log::trace!("  IRQ enabled: {}", self.irq_enabled);
         log::trace!("  DMA enabled: {}", self.dma_enabled);
+        log::trace!("  Game Pak DRQ enabled: {}", self.game_pak_drq_enabled);
     }
 
     // $40000BA: DMA0CNT_H (DMA0 control high)
@@ -259,6 +263,7 @@ impl DmaChannel {
             | ((self.source_increment as u16) << 7)
             | (u16::from(self.repeat) << 9)
             | ((self.unit as u16) << 10)
+            | (u16::from(self.game_pak_drq_enabled) << 11)
             | ((self.start_timing as u16) << 12)
             | (u16::from(self.irq_enabled) << 14)
             | (u16::from(self.dma_enabled) << 15)

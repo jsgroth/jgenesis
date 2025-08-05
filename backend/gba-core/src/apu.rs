@@ -122,6 +122,7 @@ pub struct Apu {
     pcm_a: DirectSoundChannel,
     pcm_b: DirectSoundChannel,
     psg: Psg,
+    psg_volume: u8,
     psg_volume_shift: u8,
     pwm: PwmControl,
     resampler: GbaAudioResampler,
@@ -135,6 +136,7 @@ impl Apu {
             pcm_a: DirectSoundChannel::new("A".into()),
             pcm_b: DirectSoundChannel::new("B".into()),
             psg: Psg::new(),
+            psg_volume: 0,
             psg_volume_shift: 2,
             pwm: PwmControl::new(),
             resampler: GbaAudioResampler::new(),
@@ -247,48 +249,66 @@ impl Apu {
     }
 
     #[allow(clippy::match_same_arms)]
-    pub fn read_register(&self, address: u32) -> u8 {
-        match address {
+    pub fn read_register(&self, address: u32) -> Option<u8> {
+        let value = match address {
             0x4000060 => self.psg.read_sound1cnt_l(),
-            0x4000061 => 0xFF, // SOUND1CNT_L high
+            0x4000061 => 0, // SOUND1CNT_L high
             0x4000062 => self.psg.read_sound1cnt_h_low(),
             0x4000063 => self.psg.read_sound1cnt_h_high(),
-            0x4000064 => 0xFF, // SOUND1CNT_X low
+            0x4000064 => 0, // SOUND1CNT_X low
             0x4000065 => self.psg.read_sound1cnt_x_high(),
+            0x4000066 => 0,
+            0x4000067 => 0,
             0x4000068 => self.psg.read_sound2cnt_l_low(),
             0x4000069 => self.psg.read_sound2cnt_l_high(),
-            0x400006C => 0xFF, // SOUND2CNT_H low
+            0x400006A => 0,
+            0x400006B => 0,
+            0x400006C => 0, // SOUND2CNT_H low
             0x400006D => self.psg.read_sound2cnt_h_high(),
+            0x400006E => 0,
+            0x400006F => 0,
             0x4000070 => self.psg.read_sound3cnt_l(),
-            0x4000071 => 0xFF, // SOUND3CNT_L high
-            0x4000072 => 0xFF, // SOUND3CNT_H low
+            0x4000071 => 0, // SOUND3CNT_L high
+            0x4000072 => 0, // SOUND3CNT_H low
             0x4000073 => self.psg.read_sound3cnt_h_high(),
-            0x4000074 => 0xFF, // SOUND3CNT_X low
+            0x4000074 => 0, // SOUND3CNT_X low
             0x4000075 => self.psg.read_sound3cnt_x_high(),
-            0x4000078 => 0xFF, // SOUND4CNT_L low
+            0x4000076 => 0,
+            0x4000077 => 0,
+            0x4000078 => 0, // SOUND4CNT_L low
             0x4000079 => self.psg.read_sound4cnt_l_high(),
+            0x400007A => 0,
+            0x400007B => 0,
             0x400007C => self.psg.read_sound4cnt_h_low(),
             0x400007D => self.psg.read_sound4cnt_h_high(),
+            0x400007E => 0,
+            0x400007F => 0,
             0x4000080 => self.psg.read_soundcnt_l_low(),
             0x4000081 => self.psg.read_soundcnt_l_high(),
             0x4000082 => self.read_soundcnt_h_low(),
             0x4000083 => self.read_soundcnt_h_high(),
             0x4000084 => self.read_soundcnt_x(),
-            0x4000085 => 0xFF, // SOUNDCNT_X high
+            0x4000085 => 0, // SOUNDCNT_X high
+            0x4000086 => 0,
+            0x4000087 => 0,
             0x4000088 => self.read_soundbias_low(),
             0x4000089 => self.read_soundbias_high(),
+            0x400008A => 0,
+            0x400008B => 0,
             0x4000090..=0x400009F => self.psg.read_wave_ram(address),
             _ => {
                 log::warn!("Unimplemented APU register read: {address:08X}");
-                0xFF
+                return None;
             }
-        }
+        };
+
+        Some(value)
     }
 
-    pub fn read_register_halfword(&mut self, address: u32) -> u16 {
-        let lsb = self.read_register(address);
-        let msb = self.read_register(address | 1);
-        u16::from_le_bytes([lsb, msb])
+    pub fn read_register_halfword(&mut self, address: u32) -> Option<u16> {
+        let lsb = self.read_register(address)?;
+        let msb = self.read_register(address | 1)?;
+        Some(u16::from_le_bytes([lsb, msb]))
     }
 
     #[allow(clippy::match_same_arms)]
@@ -345,8 +365,9 @@ impl Apu {
 
     // $4000082: SOUNDCNT_H low byte (GBA-specific volume control)
     fn write_soundcnt_h_low(&mut self, value: u8) {
-        // TODO what should volume 3 (prohibited) do?
-        self.psg_volume_shift = 2_u8.saturating_sub(value & 3);
+        self.psg_volume = value & 3;
+        // TODO how should PSG volume 3 behave?
+        self.psg_volume_shift = 2_u8.saturating_sub(self.psg_volume);
         self.pcm_a.volume_shift = 1 - ((value >> 2) & 1);
         self.pcm_b.volume_shift = 1 - ((value >> 3) & 1);
 
@@ -358,7 +379,7 @@ impl Apu {
 
     // $4000082: SOUNDCNT_H low byte (GBA-specific volume control)
     fn read_soundcnt_h_low(&self) -> u8 {
-        (2 - self.psg_volume_shift)
+        (self.psg_volume)
             | ((1 - self.pcm_a.volume_shift) << 2)
             | ((1 - self.pcm_b.volume_shift) << 3)
     }

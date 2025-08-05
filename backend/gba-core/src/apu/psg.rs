@@ -122,7 +122,7 @@ impl Psg {
 
     // $4000060: SOUND1CNT_L / NR10 (Channel 1 sweep)
     pub fn read_sound1cnt_l(&self) -> u8 {
-        self.pulse_1.read_register_0()
+        self.pulse_1.read_register_0() & 0x7F
     }
 
     // $4000062: SOUND1CNT_H low / NR11 (Channel 1 duty cycle and length counter)
@@ -132,7 +132,7 @@ impl Psg {
 
     // $4000062: SOUND1CNT_H low / NR11 (Channel 1 duty cycle and length counter)
     pub fn read_sound1cnt_h_low(&self) -> u8 {
-        self.pulse_1.read_register_1()
+        self.pulse_1.read_register_1() & 0xC0
     }
 
     // $4000063: SOUND1CNT_H high / NR12 (Channel 1 envelope)
@@ -157,7 +157,7 @@ impl Psg {
 
     // $4000065: SOUND1CNT_X high / NR14 (Channel 1 control)
     pub fn read_sound1cnt_x_high(&self) -> u8 {
-        self.pulse_1.read_register_4()
+        self.pulse_1.read_register_4() & 0x40
     }
 
     // $4000068: SOUND2CNT_L low / NR21 (Channel 2 duty cycle and length counter)
@@ -167,7 +167,7 @@ impl Psg {
 
     // $4000068: SOUND2CNT_L low / NR21 (Channel 2 duty cycle and length counter)
     pub fn read_sound2cnt_l_low(&self) -> u8 {
-        self.pulse_2.read_register_1()
+        self.pulse_2.read_register_1() & 0xC0
     }
 
     // $4000069: SOUND2CNT_L high / NR22 (Channel 2 envelope)
@@ -192,7 +192,7 @@ impl Psg {
 
     // $400006D: SOUND2CNT_H high / NR24 (Channel 2 control)
     pub fn read_sound2cnt_h_high(&self) -> u8 {
-        self.pulse_2.read_register_4()
+        self.pulse_2.read_register_4() & 0x40
     }
 
     // $4000070: SOUND3CNT_L / NR30 (Channel 3 enabled and wave RAM control)
@@ -202,7 +202,7 @@ impl Psg {
 
     // $4000070: SOUND3CNT_L / NR30 (Channel 3 enabled and wave RAM control)
     pub fn read_sound3cnt_l(&self) -> u8 {
-        self.wavetable.read_nr30()
+        self.wavetable.read_nr30() & 0xE0
     }
 
     // $4000072: SOUND3CNT_H low / NR31 (Channel 3 length counter)
@@ -217,7 +217,7 @@ impl Psg {
 
     // $4000073: SOUND3CNT_H high / NR32 (Channel 3 volume)
     pub fn read_sound3cnt_h_high(&self) -> u8 {
-        self.wavetable.read_nr32()
+        self.wavetable.read_nr32() & 0xE0
     }
 
     // $4000074: SOUND3CNT_X low / NR33 (Channel 3 frequency low bits)
@@ -232,7 +232,7 @@ impl Psg {
 
     // $4000075: SOUND3CNT_X high / NR34 (Channel 3 control)
     pub fn read_sound3cnt_x_high(&self) -> u8 {
-        self.wavetable.read_nr34()
+        self.wavetable.read_nr34() & 0x40
     }
 
     // $4000078: SOUND4CNT_L low / NR41 (Channel 4 length counter)
@@ -267,7 +267,7 @@ impl Psg {
 
     // $400007D: SOUND4CNT_H high / NR44 (Channel 4 control)
     pub fn read_sound4cnt_h_high(&self) -> u8 {
-        self.noise.read_register_4()
+        self.noise.read_register_4() & 0x40
     }
 
     // $4000080: SOUNDCNT_L low / NR50 (PSG master volume)
@@ -277,7 +277,7 @@ impl Psg {
 
     // $4000080: SOUNDCNT_L low / NR50 (PSG master volume)
     pub fn read_soundcnt_l_low(&self) -> u8 {
-        self.stereo_control.read_volume()
+        self.stereo_control.read_volume() & 0x77
     }
 
     // $4000081: SOUNDCNT_L high / NR51 (PSG stereo control)
