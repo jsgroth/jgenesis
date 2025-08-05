@@ -846,7 +846,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         self.push_stack_u16(status_word)?;
 
         let vector = self.bus.read_long_word(ADDRESS_ERROR_VECTOR * 4);
-        self.registers.pc = vector;
+        self.jump_to_address(vector)?;
 
         Ok(())
     }
@@ -943,9 +943,13 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 );
 
                 self.registers.address_error = true;
-                if self.handle_address_error(address, op_type).is_err() {
+                if let Err(Exception::AddressError(address, _)) =
+                    self.handle_address_error(address, op_type)
+                {
                     // An address error while handling address error halts the CPU until reset
-                    log::error!("address error triggered while handling address error");
+                    log::error!(
+                        "address error triggered while handling address error; CPU is now frozen (address={address:06X})"
+                    );
                     self.registers.frozen = true;
                 }
 
@@ -957,7 +961,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                     self.handle_trap(PRIVILEGE_VIOLATION_VECTOR, self.registers.pc.wrapping_sub(2))
                 {
                     log::error!(
-                        "address error triggered while handling privilege violation exception"
+                        "address error triggered while handling privilege violation exception (address={address:06X})"
                     );
                     return self.handle_exception(Exception::AddressError(address, op_type));
                 }
@@ -983,7 +987,9 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 if let Err(Exception::AddressError(address, op_type)) =
                     self.handle_trap(vector, self.registers.pc.wrapping_sub(2))
                 {
-                    log::error!("address error triggered while handling illegal opcode exception");
+                    log::error!(
+                        "address error triggered while handling illegal opcode exception (opcode={opcode:04X}, address={address:06X})"
+                    );
                     return self.handle_exception(Exception::AddressError(address, op_type));
                 }
 
@@ -995,7 +1001,9 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 if let Err(Exception::AddressError(address, op_type)) =
                     self.handle_trap(DIVIDE_BY_ZERO_VECTOR, self.registers.pc)
                 {
-                    log::error!("address error triggered while handling divide by zero exception");
+                    log::error!(
+                        "address error triggered while handling divide by zero exception (address={address:06X})"
+                    );
                     return self.handle_exception(Exception::AddressError(address, op_type));
                 }
 
@@ -1005,7 +1013,9 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 if let Err(Exception::AddressError(address, op_type)) =
                     self.handle_trap(vector, self.registers.pc)
                 {
-                    log::error!("address error triggered while executing TRAP instruction");
+                    log::error!(
+                        "address error triggered while executing TRAP instruction (address={address:06X})"
+                    );
                     return self.handle_exception(Exception::AddressError(address, op_type));
                 }
 
@@ -1015,7 +1025,9 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 if let Err(Exception::AddressError(address, op_type)) =
                     self.handle_trap(CHECK_REGISTER_VECTOR, self.registers.pc)
                 {
-                    log::error!("address error triggered while executing CHK instruction");
+                    log::error!(
+                        "address error triggered while executing CHK instruction (address={address:06X})"
+                    );
                     return self.handle_exception(Exception::AddressError(address, op_type));
                 }
 
