@@ -391,6 +391,7 @@ impl BusInterface for Bus {
     #[inline]
     fn read_word(&mut self, address: u32, _cycle: MemoryCycle) -> u32 {
         fn two_halfword_reads(address: u32, mut read_fn: impl FnMut(u32) -> u16) -> u32 {
+            let address = address & !3;
             let low_halfword = read_fn(address);
             let high_halfword = read_fn(address | 2);
             (u32::from(high_halfword) << 16) | u32::from(low_halfword)
@@ -550,6 +551,12 @@ impl BusInterface for Bus {
 
     #[inline]
     fn write_word(&mut self, address: u32, value: u32, _cycle: MemoryCycle) {
+        fn two_halfword_stores(address: u32, value: u32, mut write_fn: impl FnMut(u32, u16)) {
+            let address = address & !3;
+            write_fn(address, value as u16);
+            write_fn(address | 2, (value >> 16) as u16);
+        }
+
         self.state.cycles += 1;
 
         match address {
@@ -560,36 +567,42 @@ impl BusInterface for Bus {
             0x3000000..=0x3FFFFFF => self.memory.write_iwram_word(address, value),
             0x4000000..=0x4FFFFFF => {
                 // TODO do any I/O registers need to write all 32 bits at once?
-                self.write_io_register(address, value as u16);
-                self.write_io_register(address | 2, (value >> 16) as u16);
+                two_halfword_stores(address, value, |address, value| {
+                    self.write_io_register(address, value);
+                });
             }
             0x5000000..=0x5FFFFFF => {
                 self.sync_ppu();
                 // Extra cycle for word-size palette RAM writes
                 self.state.cycles += 1 + u64::from(self.ppu.palette_ram_in_use());
 
-                self.ppu.write_palette_ram(address, value as u16);
-                self.ppu.write_palette_ram(address | 2, (value >> 16) as u16);
+                two_halfword_stores(address, value, |address, value| {
+                    self.ppu.write_palette_ram(address, value);
+                });
             }
             0x6000000..=0x6FFFFFF => {
                 self.sync_ppu();
                 // Extra cycle for word-size VRAM writes
                 self.state.cycles += 1 + u64::from(self.ppu.vram_in_use());
 
-                self.ppu.write_vram(address, value as u16);
-                self.ppu.write_vram(address | 2, (value >> 16) as u16);
+                two_halfword_stores(address, value, |address, value| {
+                    self.ppu.write_vram(address, value);
+                });
             }
             0x7000000..=0x7FFFFFF => {
                 self.sync_ppu();
                 self.state.cycles += u64::from(self.ppu.oam_in_use());
 
-                self.ppu.write_oam(address, value as u16);
-                self.ppu.write_oam(address | 2, (value >> 16) as u16);
+                two_halfword_stores(address, value, |address, value| {
+                    self.ppu.write_oam(address, value);
+                });
             }
             0x8000000..=0xDFFFFFF => {
                 self.state.cycles += 1 + 2 * ROM_WAIT;
-                self.cartridge.write_rom(address, value as u16);
-                self.cartridge.write_rom(address | 2, (value >> 16) as u16);
+
+                two_halfword_stores(address, value, |address, value| {
+                    self.cartridge.write_rom(address, value);
+                });
             }
             0xE000000..=0xFFFFFFF => {
                 self.state.cycles += self.memory.control().sram_wait;

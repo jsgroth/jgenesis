@@ -4,7 +4,6 @@ use crate::interrupts::{InterruptRegisters, InterruptType};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use std::array;
-use std::ops::Range;
 
 const INITIAL_START_LATENCY: u64 = 2;
 
@@ -81,10 +80,11 @@ impl StartTiming {
 #[derive(Debug, Clone, Encode, Decode)]
 struct DmaChannel {
     idx: u8,
-    valid_address_range: Range<u32>,
     last_read: u32,
     source_address: u32,
+    source_addr_mask: u32,
     destination_address: u32,
+    dest_addr_mask: u32,
     length: u16,
     length_mask: u16,
     // Control register fields
@@ -104,21 +104,39 @@ struct DmaChannel {
 }
 
 impl DmaChannel {
-    fn new(idx: u8, length_mask: u16) -> Self {
-        let valid_address_range = if idx == 3 {
-            // DMA3 can't access BIOS ROM
-            0x02000000..0x10000000
+    fn new(idx: u8) -> Self {
+        let length_mask = if idx != 3 {
+            // DMA0-2 have 14-bit length
+            0x3FFF
         } else {
-            // DMA0-2 can't access BIOS ROM or the cartridge
-            0x02000000..0x08000000
+            // DMA3 has 16-bit length
+            0xFFFF
+        };
+
+        let (source_addr_mask, dest_addr_mask) = match idx {
+            0 => {
+                // DMA0 can only access $0000000-$7FFFFFF (can't access cartridge)
+                (0x7FFFFFF, 0x7FFFFFF)
+            }
+            1 | 2 => {
+                // DMA1-2 can read from $0000000-$FFFFFFF and write to $0000000-$7FFFFFF
+                // (can't write to cartridge)
+                (0xFFFFFFF, 0x7FFFFFF)
+            }
+            3 => {
+                // DMA3 can access all valid addresses (except BIOS ROM)
+                (0xFFFFFFF, 0xFFFFFFF)
+            }
+            _ => panic!("invalid DMA channel {idx}, must be 0-3"),
         };
 
         Self {
             idx,
-            valid_address_range,
             last_read: 0,
             source_address: 0,
+            source_addr_mask,
             destination_address: 0,
+            dest_addr_mask,
             length: 0,
             length_mask,
             source_increment: AddressIncrement::default(),
@@ -134,14 +152,6 @@ impl DmaChannel {
             dma_active: false,
             start_latency: 0,
         }
-    }
-
-    fn new_dma012(idx: u8) -> Self {
-        Self::new(idx, 0x3FFF)
-    }
-
-    fn new_dma3() -> Self {
-        Self::new(3, 0xFFFF)
     }
 
     // $40000B0: DMA0SAD_L (DMA0 source address low)
@@ -288,9 +298,7 @@ pub struct DmaState {
 impl DmaState {
     pub fn new() -> Self {
         Self {
-            channels: array::from_fn(|ch| {
-                if ch < 3 { DmaChannel::new_dma012(ch as u8) } else { DmaChannel::new_dma3() }
-            }),
+            channels: array::from_fn(|ch| DmaChannel::new(ch as u8)),
             cycles: 0,
             any_active: false,
             any_start_latency: false,
@@ -330,8 +338,8 @@ impl DmaState {
             };
             let increment = unit.address_increment();
 
-            let source_address = channel.latched_source_address;
-            let source = if channel.valid_address_range.contains(&source_address) {
+            let source_address = channel.latched_source_address & channel.source_addr_mask;
+            let source = if source_address >= 0x2000000 {
                 channel.latched_source_address =
                     channel.source_increment.apply(source_address, increment);
                 TransferSource::Memory { address: source_address }
@@ -341,7 +349,7 @@ impl DmaState {
                 TransferSource::Value(channel.last_read)
             };
 
-            let destination = channel.latched_destination_address;
+            let destination = channel.latched_destination_address & channel.dest_addr_mask;
             if channel.start_timing != StartTiming::Special {
                 // Destination address does not increment for audio FIFO DMA
                 channel.latched_destination_address =

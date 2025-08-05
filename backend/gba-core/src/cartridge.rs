@@ -152,7 +152,13 @@ impl Cartridge {
             return bit.into();
         }
 
-        let rom_addr = (address as usize) & (self.rom.len() - 1);
+        let rom_addr = (address as usize) & 0x1FFFFFF;
+        if rom_addr >= self.rom.len() {
+            // Out of bounds
+            let open_bus = rom_addr >> 1;
+            return if !rom_addr.bit(0) { open_bus as u8 } else { (open_bus >> 8) as u8 };
+        }
+
         self.rom[rom_addr]
     }
 
@@ -163,7 +169,13 @@ impl Cartridge {
             return bit.into();
         }
 
-        let rom_addr = (address as usize) & (self.rom.len() - 1) & !1;
+        let rom_addr = (address as usize) & 0x1FFFFFF & !1;
+        if rom_addr >= self.rom.len() {
+            // Out of bounds
+            let open_bus = rom_addr >> 1;
+            return open_bus as u16;
+        }
+
         u16::from_le_bytes(self.rom[rom_addr..rom_addr + 2].try_into().unwrap())
     }
 
@@ -175,7 +187,14 @@ impl Cartridge {
             return u32::from(first_bit) | (u32::from(second_bit) << 16);
         }
 
-        let rom_addr = (address as usize) & (self.rom.len() - 1) & !3;
+        let rom_addr = (address as usize) & 0x1FFFFFF & !3;
+        if rom_addr >= self.rom.len() {
+            // Out of bounds
+            let open_bus = ((rom_addr >> 1) & 0xFFFF) as u32;
+            let open_bus_next = (open_bus + 1) & 0xFFFF;
+            return open_bus | (open_bus_next << 16);
+        }
+
         u32::from_le_bytes(self.rom[rom_addr..rom_addr + 4].try_into().unwrap())
     }
 
