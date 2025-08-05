@@ -1,8 +1,10 @@
+use crate::apu;
 use crate::cartridge::Cartridge;
 use crate::interrupts::{InterruptRegisters, InterruptType};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use std::array;
+use std::ops::Range;
 
 const INITIAL_START_LATENCY: u64 = 2;
 
@@ -79,6 +81,8 @@ impl StartTiming {
 #[derive(Debug, Clone, Encode, Decode)]
 struct DmaChannel {
     idx: u8,
+    valid_address_range: Range<u32>,
+    last_read: u32,
     source_address: u32,
     destination_address: u32,
     length: u16,
@@ -101,8 +105,18 @@ struct DmaChannel {
 
 impl DmaChannel {
     fn new(idx: u8, length_mask: u16) -> Self {
+        let valid_address_range = if idx == 3 {
+            // DMA3 can't access BIOS ROM
+            0x02000000..0x10000000
+        } else {
+            // DMA0-2 can't access BIOS ROM or the cartridge
+            0x02000000..0x08000000
+        };
+
         Self {
             idx,
+            valid_address_range,
+            last_read: 0,
             source_address: 0,
             destination_address: 0,
             length: 0,
@@ -241,6 +255,7 @@ impl DmaChannel {
     }
 
     fn effective_length(&self) -> u16 {
+        // Audio FIFO DMA is always 4 words
         match self.start_timing {
             StartTiming::Special => 4,
             _ => self.length,
@@ -249,8 +264,15 @@ impl DmaChannel {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub enum TransferSource {
+    Memory { address: u32 },
+    Value(u32),
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct DmaTransfer {
-    pub source: u32,
+    pub channel: u8,
+    pub source: TransferSource,
     pub destination: u32,
     pub unit: TransferUnit,
 }
@@ -301,17 +323,27 @@ impl DmaState {
                 continue;
             }
 
+            // Audio FIFO DMA is always word-size
             let unit = match channel.start_timing {
                 StartTiming::Special => TransferUnit::Word,
                 _ => channel.unit,
             };
             let increment = unit.address_increment();
 
-            let source = channel.latched_source_address;
-            channel.latched_source_address = channel.source_increment.apply(source, increment);
+            let source_address = channel.latched_source_address;
+            let source = if channel.valid_address_range.contains(&source_address) {
+                channel.latched_source_address =
+                    channel.source_increment.apply(source_address, increment);
+                TransferSource::Memory { address: source_address }
+            } else {
+                // When DMA reads an invalid address, source address does not increment and the
+                // channel returns the last value that it read from a valid address
+                TransferSource::Value(channel.last_read)
+            };
 
             let destination = channel.latched_destination_address;
             if channel.start_timing != StartTiming::Special {
+                // Destination address does not increment for audio FIFO DMA
                 channel.latched_destination_address =
                     channel.destination_increment.apply(destination, increment);
             }
@@ -331,12 +363,25 @@ impl DmaState {
                 }
             }
 
+            let channel_idx = channel.idx;
+
             self.any_active = self.channels.iter().any(|channel| channel.dma_active);
 
-            return Some(DmaTransfer { source, destination, unit });
+            return Some(DmaTransfer { channel: channel_idx, source, destination, unit });
         }
 
         None
+    }
+
+    pub fn update_read_latch_halfword(&mut self, idx: u8, value: u16) {
+        // Halfword reads duplicate the value in both low and high halfwords
+        // Lufia: The Ruins of Lore depends on this
+        let word = (u32::from(value) << 16) | u32::from(value);
+        self.channels[idx as usize].last_read = word;
+    }
+
+    pub fn update_read_latch_word(&mut self, idx: u8, value: u32) {
+        self.channels[idx as usize].last_read = value;
     }
 
     pub fn notify_vblank_start(&mut self) {
@@ -348,11 +393,11 @@ impl DmaState {
     }
 
     pub fn notify_apu_fifo_a(&mut self) {
-        self.notify_apu_fifo(0x40000A0);
+        self.notify_apu_fifo(apu::FIFO_A_ADDRESS);
     }
 
     pub fn notify_apu_fifo_b(&mut self) {
-        self.notify_apu_fifo(0x40000A4);
+        self.notify_apu_fifo(apu::FIFO_B_ADDRESS);
     }
 
     fn notify_apu_fifo(&mut self, fifo_address: u32) {

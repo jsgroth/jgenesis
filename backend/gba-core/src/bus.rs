@@ -3,7 +3,7 @@
 use crate::api::BusState;
 use crate::apu::Apu;
 use crate::cartridge::Cartridge;
-use crate::dma::{DmaState, TransferUnit};
+use crate::dma::{DmaState, TransferSource, TransferUnit};
 use crate::input::GbaInputsExt;
 use crate::interrupts::InterruptRegisters;
 use crate::memory::Memory;
@@ -197,11 +197,25 @@ impl Bus {
 
             match transfer.unit {
                 TransferUnit::Halfword => {
-                    let value = self.read_halfword(transfer.source & !1, MemoryCycle::S);
+                    let value = match transfer.source {
+                        TransferSource::Memory { address } => {
+                            let value = self.read_halfword(address & !1, MemoryCycle::S);
+                            self.dma.update_read_latch_halfword(transfer.channel, value);
+                            value
+                        }
+                        TransferSource::Value(value) => value as u16,
+                    };
                     self.write_halfword(transfer.destination & !1, value, MemoryCycle::S);
                 }
                 TransferUnit::Word => {
-                    let value = self.read_word(transfer.source & !3, MemoryCycle::S);
+                    let value = match transfer.source {
+                        TransferSource::Memory { address } => {
+                            let value = self.read_word(address & !3, MemoryCycle::S);
+                            self.dma.update_read_latch_word(transfer.channel, value);
+                            value
+                        }
+                        TransferSource::Value(value) => value,
+                    };
                     self.write_word(transfer.destination & !3, value, MemoryCycle::S);
                 }
             }
