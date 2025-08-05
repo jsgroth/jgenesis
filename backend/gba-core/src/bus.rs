@@ -230,6 +230,49 @@ impl Bus {
     pub fn sync_ppu(&mut self) {
         self.ppu.step_to(self.state.cycles, &mut self.interrupts, &mut self.dma);
     }
+
+    fn read_open_bus_byte(&self, address: u32) -> u8 {
+        let byte = self.state.open_bus.to_le_bytes()[(address & 3) as usize];
+        log::warn!("Open bus byte read {address:08X}, returning {byte:02X}");
+        byte
+    }
+
+    fn update_open_bus_byte(&mut self, address: u32, byte: u8) {
+        if address >> 24 == 0x03 {
+            // IWRAM: Only update the accessed byte
+            let shift = 8 * (address & 3);
+            let mask = 0xFF << shift;
+            self.state.open_bus = (self.state.open_bus & !mask) | (u32::from(byte) << shift);
+        } else {
+            // Duplicate byte in all 4 bytes
+            // TODO OAM behaves differently?
+            self.state.open_bus = u32::from_le_bytes([byte; 4]);
+        }
+    }
+
+    fn read_open_bus_halfword(&self, address: u32) -> u16 {
+        let halfword = (self.state.open_bus >> (8 * (address & 2))) as u16;
+        log::warn!("Open bus halfword read {address:08X}, returning {halfword:04X}");
+        halfword
+    }
+
+    fn update_open_bus_halfword(&mut self, address: u32, halfword: u16) {
+        if address >> 24 == 0x03 {
+            // IWRAM: Only update the accessed halfword
+            let shift = 8 * (address & 2);
+            let mask = 0xFFFF << shift;
+            self.state.open_bus = (self.state.open_bus & !mask) | (u32::from(halfword) << shift);
+        } else {
+            // Duplicate halfwordin both halfwords
+            // TODO OAM behaves differently?
+            self.state.open_bus = (u32::from(halfword) << 16) | u32::from(halfword);
+        }
+    }
+
+    fn read_open_bus_word(&self, address: u32) -> u32 {
+        log::warn!("Open bus word read {address:08X}, returning {:08X}", self.state.open_bus);
+        self.state.open_bus
+    }
 }
 
 impl BusInterface for Bus {
@@ -237,7 +280,7 @@ impl BusInterface for Bus {
     fn read_byte(&mut self, address: u32, _cycle: MemoryCycle) -> u8 {
         self.state.cycles += 1;
 
-        match address {
+        let value = match address {
             0x0000000..=0x0003FFF => self.read_bios_byte(address),
             0x2000000..=0x2FFFFFF => {
                 self.state.cycles += EWRAM_WAIT;
@@ -276,22 +319,27 @@ impl BusInterface for Bus {
             0xE000000..=0xFFFFFFF => {
                 self.state.cycles += self.memory.control().sram_wait;
 
-                // TODO open bus if invalid
-                self.cartridge.read_sram(address).unwrap_or(0)
+                let Some(byte) = self.cartridge.read_sram(address) else {
+                    return self.read_open_bus_byte(address);
+                };
+
+                byte
             }
             0x0004000..=0x1FFFFFF | 0x10000000..=0xFFFFFFFF => {
-                // TODO open bus
-                log::warn!("Open bus byte read {address:08X}");
-                0
+                return self.read_open_bus_byte(address);
             }
-        }
+        };
+
+        self.update_open_bus_byte(address, value);
+
+        value
     }
 
     #[inline]
     fn read_halfword(&mut self, address: u32, _cycle: MemoryCycle) -> u16 {
         self.state.cycles += 1;
 
-        match address {
+        let value = match address {
             0x0000000..=0x0003FFF => self.read_bios_halfword(address),
             0x2000000..=0x2FFFFFF => {
                 self.state.cycles += EWRAM_WAIT;
@@ -324,16 +372,20 @@ impl BusInterface for Bus {
             0xE000000..=0xFFFFFFF => {
                 self.state.cycles += self.memory.control().sram_wait;
 
-                // TODO open bus if invalid
-                let byte = self.cartridge.read_sram(address).unwrap_or(0);
+                let Some(byte) = self.cartridge.read_sram(address) else {
+                    return self.read_open_bus_halfword(address);
+                };
+
                 u16::from_le_bytes([byte; 2])
             }
             0x0004000..=0x1FFFFFF | 0x10000000..=0xFFFFFFFF => {
-                // TODO open bus
-                log::warn!("Open bus halfword read {address:08X}");
-                0
+                return self.read_open_bus_halfword(address);
             }
-        }
+        };
+
+        self.update_open_bus_halfword(address, value);
+
+        value
     }
 
     #[inline]
@@ -346,7 +398,7 @@ impl BusInterface for Bus {
 
         self.state.cycles += 1;
 
-        match address {
+        self.state.open_bus = match address {
             0x0000000..=0x0003FFF => self.read_bios_word(address),
             0x2000000..=0x2FFFFFF => {
                 self.state.cycles += EWRAM_WAIT_WORD;
@@ -385,16 +437,18 @@ impl BusInterface for Bus {
             0xE000000..=0xFFFFFFF => {
                 self.state.cycles += self.memory.control().sram_wait;
 
-                // TODO open bus if invalid
-                let byte = self.cartridge.read_sram(address).unwrap_or(0);
+                let Some(byte) = self.cartridge.read_sram(address) else {
+                    return self.read_open_bus_word(address);
+                };
+
                 u32::from_le_bytes([byte; 4])
             }
             0x0004000..=0x1FFFFFF | 0x10000000..=0xFFFFFFFF => {
-                // TODO open bus
-                log::warn!("Open bus word read {address:08X}");
-                0
+                return self.read_open_bus_word(address);
             }
-        }
+        };
+
+        self.state.open_bus
     }
 
     #[inline]
@@ -447,6 +501,8 @@ impl BusInterface for Bus {
             }
             _ => log::warn!("invalid address byte write {address:08X} {value:02X}"),
         }
+
+        self.update_open_bus_byte(address, value);
     }
 
     #[inline]
@@ -488,6 +544,8 @@ impl BusInterface for Bus {
             }
             _ => log::warn!("invalid address halfword write {address:08X} {value:04X}"),
         }
+
+        self.update_open_bus_halfword(address, value);
     }
 
     #[inline]
@@ -539,6 +597,8 @@ impl BusInterface for Bus {
             }
             _ => log::warn!("invalid address word write {address:08X} {value:08X}"),
         }
+
+        self.state.open_bus = value;
     }
 
     #[inline]

@@ -47,11 +47,12 @@ pub(crate) struct BusState {
     pub cycles: u64,
     pub cpu_pc: u32,
     pub last_bios_read: u32,
+    pub open_bus: u32,
 }
 
 impl BusState {
     fn new() -> Self {
-        Self { cycles: 0, cpu_pc: 0, last_bios_read: 0 }
+        Self { cycles: 0, cpu_pc: 0, last_bios_read: 0, open_bus: 0 }
     }
 }
 
