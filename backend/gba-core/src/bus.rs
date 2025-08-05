@@ -8,6 +8,7 @@ use crate::input::GbaInputsExt;
 use crate::interrupts::InterruptRegisters;
 use crate::memory::Memory;
 use crate::ppu::Ppu;
+use crate::sio::SerialPort;
 use crate::timers::Timers;
 use arm7tdmi_emu::bus::{BusInterface, MemoryCycle};
 use bincode::{Decode, Encode};
@@ -33,6 +34,7 @@ pub struct Bus {
     pub dma: DmaState,
     pub timers: Timers,
     pub interrupts: InterruptRegisters,
+    pub sio: SerialPort,
     pub inputs: GbaInputs,
     pub state: BusState,
 }
@@ -93,6 +95,10 @@ impl Bus {
                     &mut self.interrupts,
                 )
             }
+            0x4000120..=0x400012F | 0x4000134..=0x400015F => {
+                // SIO registers
+                self.sio.read_register(address)
+            }
             0x4000130 => self.inputs.to_keyinput(),
             0x4000200 => self.interrupts.read_ie(),
             0x4000202 => self.interrupts.read_if(),
@@ -137,6 +143,10 @@ impl Bus {
                     &mut self.dma,
                     &mut self.interrupts,
                 );
+            }
+            0x4000120..=0x400012F | 0x4000134..=0x400015F => {
+                // SIO registers
+                self.sio.write_register(address, value);
             }
             0x4000200 => self.interrupts.write_ie(value),
             0x4000202 => self.interrupts.write_if(value),

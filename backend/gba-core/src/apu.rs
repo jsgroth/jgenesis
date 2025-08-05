@@ -327,6 +327,7 @@ impl Apu {
             0x4000090..=0x400009F => self.psg.write_wave_ram(address, value),
             0x40000A0..=0x40000A3 => self.pcm_a.try_push_fifo(value as i8),
             0x40000A4..=0x40000A7 => self.pcm_b.try_push_fifo(value as i8),
+            0x40000A8..=0x40000AF => {} // Unused
             _ => {
                 log::warn!("Unimplemented APU register write: {address:08X} {value:02X}");
             }

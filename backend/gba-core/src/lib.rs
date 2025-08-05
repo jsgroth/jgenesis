@@ -12,6 +12,7 @@ mod input;
 mod interrupts;
 mod memory;
 mod ppu;
+mod sio;
 mod timers;
 
 // 16.777216 MHz

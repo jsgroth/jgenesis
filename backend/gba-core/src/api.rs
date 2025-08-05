@@ -8,6 +8,7 @@ use crate::interrupts::InterruptRegisters;
 use crate::memory::Memory;
 use crate::ppu;
 use crate::ppu::Ppu;
+use crate::sio::SerialPort;
 use crate::timers::Timers;
 use arm7tdmi_emu::Arm7Tdmi;
 use bincode::{Decode, Encode};
@@ -81,6 +82,7 @@ impl GameBoyAdvanceEmulator {
         let dma = DmaState::new();
         let timers = Timers::new();
         let interrupts = InterruptRegisters::new();
+        let sio = SerialPort::new();
 
         let mut cpu = Arm7Tdmi::new();
         let mut bus = Bus {
@@ -91,6 +93,7 @@ impl GameBoyAdvanceEmulator {
             dma,
             timers,
             interrupts,
+            sio,
             inputs: GbaInputs::default(),
             state: BusState::new(),
         };
