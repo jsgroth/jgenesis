@@ -171,11 +171,16 @@ impl Apu {
         pwm_l >>= sample_downshift;
         pwm_r >>= sample_downshift;
 
+        // Remap from [0x000, 0x3FF >> shift] to [0, 1]
         let max_sample = f64::from(0x3FF >> sample_downshift);
-        let sample_l = f64::from(pwm_l) / max_sample;
-        let sample_r = f64::from(pwm_r) / max_sample;
+        let mut sample_l = f64::from(pwm_l) / max_sample;
+        let mut sample_r = f64::from(pwm_r) / max_sample;
 
-        self.resampler.collect_sample(sample_l - 0.5, sample_r - 0.5);
+        // Remap from [0, 1] to [-1, +1], if only for volume purposes
+        sample_l = 2.0 * (sample_l - 0.5);
+        sample_r = 2.0 * (sample_r - 0.5);
+
+        self.resampler.collect_sample(sample_l, sample_r);
     }
 
     fn sample(&self) -> (u16, u16) {
