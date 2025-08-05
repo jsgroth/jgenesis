@@ -37,8 +37,8 @@ enum RwMemory {
     Unknown,
     Sram(BoxedByteArray<SRAM_LEN>),
     EepromUnknownSize,
-    Eeprom512(Box<Eeprom512>),
-    Eeprom8K(Box<Eeprom8K>),
+    Eeprom512(Eeprom512),
+    Eeprom8K(Eeprom8K),
     FlashRom64K(FlashRom64K),
     FlashRom128K(FlashRom128K),
 }
@@ -222,16 +222,14 @@ impl Cartridge {
         match length {
             9 => {
                 // 6-bit address; 512 B EEPROM
-                self.rw_memory =
-                    RwMemory::Eeprom512(Box::new(Eeprom512::new(self.initial_save.as_ref())));
+                self.rw_memory = RwMemory::Eeprom512(Eeprom512::new(self.initial_save.as_ref()));
                 self.min_eeprom_address = self.rw_memory.min_eeprom_address(rom_len);
 
                 log::info!("Auto-detected EEPROM size of 512 bytes from DMA of length {length}");
             }
             17 => {
                 // 14-bit address; 8 KB EEPROM
-                self.rw_memory =
-                    RwMemory::Eeprom8K(Box::new(Eeprom8K::new(self.initial_save.as_ref())));
+                self.rw_memory = RwMemory::Eeprom8K(Eeprom8K::new(self.initial_save.as_ref()));
                 self.min_eeprom_address = self.rw_memory.min_eeprom_address(rom_len);
 
                 log::info!("Auto-detected EEPROM size of 8 KB from DMA of length {length}");
