@@ -1,3 +1,4 @@
+use crate::cartridge::Cartridge;
 use crate::interrupts::{InterruptRegisters, InterruptType};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
@@ -393,7 +394,7 @@ impl DmaState {
         Some(value)
     }
 
-    pub fn write_register(&mut self, address: u32, value: u16) {
+    pub fn write_register(&mut self, address: u32, value: u16, cartridge: &mut Cartridge) {
         match address {
             0x40000B0 => self.channels[0].write_source_low(value),
             0x40000B2 => self.channels[0].write_source_high(value),
@@ -418,7 +419,7 @@ impl DmaState {
             0x40000D8 => self.channels[3].write_destination_low(value),
             0x40000DA => self.channels[3].write_destination_high(value),
             0x40000DC => self.channels[3].write_length(value),
-            0x40000DE => self.channels[3].write_control(value),
+            0x40000DE => self.write_channel_3_control(value, cartridge),
             _ => {
                 log::error!("Invalid DMA register address: {address:08X} {value:04X}");
             }
@@ -426,5 +427,21 @@ impl DmaState {
 
         self.any_active = self.channels.iter().any(|channel| channel.dma_active);
         self.any_start_latency = self.channels.iter().any(|channel| channel.start_latency != 0);
+    }
+
+    fn write_channel_3_control(&mut self, value: u16, cartridge: &mut Cartridge) {
+        let prev_enabled = self.channels[3].dma_enabled;
+        self.channels[3].write_control(value);
+
+        if !prev_enabled
+            && self.channels[3].dma_enabled
+            && (0xD000000..0xE000000).contains(&self.channels[3].destination_address)
+        {
+            cartridge.notify_dma_to_rom(
+                self.channels[3].destination_address,
+                self.channels[3].length,
+                self.channels[3].unit,
+            );
+        }
     }
 }

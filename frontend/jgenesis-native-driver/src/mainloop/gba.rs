@@ -59,10 +59,11 @@ pub fn create_gba(config: Box<GameBoyAdvanceConfig>) -> NativeEmulatorResult<Nat
         &extension,
     )?;
 
-    let save_writer = FsSaveWriter::new(save_path);
+    let mut save_writer = FsSaveWriter::new(save_path);
 
     let emulator_config = config.emulator_config;
-    let emulator = GameBoyAdvanceEmulator::create(rom, bios_rom, emulator_config)?;
+    let emulator =
+        GameBoyAdvanceEmulator::create(rom, bios_rom, emulator_config, &mut save_writer)?;
 
     let rom_title = file_name_no_ext(rom_path)?;
     let window_title = format!("gba - {rom_title}");

@@ -1836,6 +1836,7 @@ dependencies = [
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",
+ "rand 0.9.1",
  "thiserror 2.0.12",
 ]
 

@@ -19,5 +19,8 @@ bincode = { workspace = true, features = ["derive"] }
 log = { workspace = true }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+rand = { workspace = true }
+
 [lints]
 workspace = true

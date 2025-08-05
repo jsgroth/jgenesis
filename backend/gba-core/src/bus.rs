@@ -125,7 +125,7 @@ impl Bus {
             }
             0x40000B0..=0x40000DF => {
                 // DMA registers
-                self.dma.write_register(address, value);
+                self.dma.write_register(address, value, &mut self.cartridge);
             }
             0x4000100..=0x400010F => {
                 // Timer registers
@@ -252,7 +252,8 @@ impl BusInterface for Bus {
             0xE000000..=0xFFFFFFF => {
                 self.state.cycles += self.memory.control().sram_wait;
 
-                self.cartridge.read_sram(address)
+                // TODO open bus if invalid
+                self.cartridge.read_sram(address).unwrap_or(0)
             }
             0x0004000..=0x1FFFFFF | 0x10000000..=0xFFFFFFFF => {
                 // TODO open bus
@@ -299,7 +300,8 @@ impl BusInterface for Bus {
             0xE000000..=0xFFFFFFF => {
                 self.state.cycles += self.memory.control().sram_wait;
 
-                let byte = self.cartridge.read_sram(address);
+                // TODO open bus if invalid
+                let byte = self.cartridge.read_sram(address).unwrap_or(0);
                 u16::from_le_bytes([byte; 2])
             }
             0x0004000..=0x1FFFFFF | 0x10000000..=0xFFFFFFFF => {
@@ -359,7 +361,8 @@ impl BusInterface for Bus {
             0xE000000..=0xFFFFFFF => {
                 self.state.cycles += self.memory.control().sram_wait;
 
-                let byte = self.cartridge.read_sram(address);
+                // TODO open bus if invalid
+                let byte = self.cartridge.read_sram(address).unwrap_or(0);
                 u32::from_le_bytes([byte; 4])
             }
             0x0004000..=0x1FFFFFF | 0x10000000..=0xFFFFFFFF => {
@@ -409,7 +412,11 @@ impl BusInterface for Bus {
             0x7000000..=0x7FFFFFF => {
                 // 8-bit writes to OAM are ignored
             }
-            // TODO EEPROM writes
+            0x8000000..=0xDFFFFFF => {
+                // TODO 8-bit write to EEPROM???
+                self.state.cycles += ROM_WAIT;
+                self.cartridge.write_rom(address, value.into());
+            }
             0xE000000..=0xFFFFFFF => {
                 self.state.cycles += self.memory.control().sram_wait;
                 self.cartridge.write_sram(address, value);
@@ -447,7 +454,10 @@ impl BusInterface for Bus {
 
                 self.ppu.write_oam(address, value);
             }
-            // TODO EEPROM writes
+            0x8000000..=0xDFFFFFF => {
+                self.state.cycles += ROM_WAIT;
+                self.cartridge.write_rom(address, value);
+            }
             0xE000000..=0xFFFFFFF => {
                 self.state.cycles += self.memory.control().sram_wait;
                 self.cartridge.write_sram(address, value as u8);
@@ -494,7 +504,11 @@ impl BusInterface for Bus {
                 self.ppu.write_oam(address, value as u16);
                 self.ppu.write_oam(address | 2, (value >> 16) as u16);
             }
-            // TODO EEPROM writes
+            0x8000000..=0xDFFFFFF => {
+                self.state.cycles += 1 + 2 * ROM_WAIT;
+                self.cartridge.write_rom(address, value as u16);
+                self.cartridge.write_rom(address | 2, (value >> 16) as u16);
+            }
             0xE000000..=0xFFFFFFF => {
                 self.state.cycles += self.memory.control().sram_wait;
                 self.cartridge.write_sram(address, value as u8);

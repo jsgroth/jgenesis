@@ -66,15 +66,18 @@ impl GameBoyAdvanceEmulator {
     /// # Errors
     ///
     /// Returns an error if emulator initialization fails, e.g. because the BIOS ROM is invalid.
-    pub fn create(
+    pub fn create<S: SaveWriter>(
         rom: Vec<u8>,
         bios_rom: Vec<u8>,
         config: GbaEmulatorConfig,
+        save_writer: &mut S,
     ) -> Result<Self, GbaLoadError> {
+        let initial_save = save_writer.load_bytes("sav").ok();
+
         let ppu = Ppu::new(config);
         let apu = Apu::new();
         let memory = Memory::new(bios_rom)?;
-        let cartridge = Cartridge::new(rom);
+        let cartridge = Cartridge::new(rom, initial_save);
         let dma = DmaState::new();
         let timers = Timers::new();
         let interrupts = InterruptRegisters::new();
@@ -153,6 +156,12 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
                 )
                 .map_err(GbaError::Render)?;
 
+            if self.bus.cartridge.take_rw_memory_dirty()
+                && let Some(rw_memory) = self.bus.cartridge.rw_memory()
+            {
+                save_writer.persist_bytes("sav", rw_memory).map_err(GbaError::SaveWrite)?;
+            }
+
             return Ok(TickEffect::FrameRendered);
         }
 
@@ -187,7 +196,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
         let rom = self.bus.cartridge.take_rom();
         let bios_rom = self.bus.memory.clone_bios_rom();
 
-        *self = Self::create(rom, bios_rom, self.config)
+        *self = Self::create(rom, bios_rom, self.config, save_writer)
             .expect("Emulator creation should never fail during hard reset");
     }
 
