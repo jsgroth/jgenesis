@@ -107,7 +107,7 @@ impl<const LEN: usize, const ADDRESS_BITS: u8> Eeprom<LEN, ADDRESS_BITS> {
 
                 if remaining == 0 {
                     let byte_addr = ((address << 3) as usize) & (LEN - 1);
-                    self.memory[byte_addr..byte_addr + 8].copy_from_slice(&bits.to_le_bytes());
+                    self.memory[byte_addr..byte_addr + 8].copy_from_slice(&bits.to_be_bytes());
                     EepromState::AwaitingEndMarker { request: Request::Write, address }
                 } else {
                     EepromState::ReceivingData { bits, remaining, address }
@@ -122,7 +122,7 @@ impl<const LEN: usize, const ADDRESS_BITS: u8> Eeprom<LEN, ADDRESS_BITS> {
             EepromState::AwaitingEndMarker { request, address } => match request {
                 Request::Read => {
                     let byte_addr = ((address << 3) as usize) & (LEN - 1);
-                    let bits = u64::from_le_bytes(
+                    let bits = u64::from_be_bytes(
                         self.memory[byte_addr..byte_addr + 8].try_into().unwrap(),
                     );
                     EepromState::PreparingSend { bits, wait_remaining: 4 }
