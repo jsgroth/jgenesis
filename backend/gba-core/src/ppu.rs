@@ -40,16 +40,37 @@ const VBLANK_LINES: Range<u32> = 160..227;
 const HBLANK_START_DOT: u32 = 1006;
 
 #[derive(Debug, Clone, Encode, Decode)]
-struct FrameBuffer(Box<[Color]>);
+struct GbaFrameBuffer(Box<[u16]>);
 
-impl FrameBuffer {
+impl GbaFrameBuffer {
+    fn new() -> Self {
+        Self(vec![0; FRAME_BUFFER_LEN].into_boxed_slice())
+    }
+
+    fn set(&mut self, line: u32, pixel: u32, color: u16) {
+        let frame_buffer_addr = (line * SCREEN_WIDTH + pixel) as usize;
+        self.0[frame_buffer_addr] = color;
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+struct RgbaFrameBuffer(Box<[Color]>);
+
+impl RgbaFrameBuffer {
     fn new() -> Self {
         Self(vec![Color::default(); FRAME_BUFFER_LEN].into_boxed_slice())
     }
 
-    fn set(&mut self, line: u32, pixel: u32, color: Color) {
-        let frame_buffer_addr = (line * SCREEN_WIDTH + pixel) as usize;
-        self.0[frame_buffer_addr] = color;
+    fn copy_from(&mut self, frame_buffer: &GbaFrameBuffer, color_correction: GbaColorCorrection) {
+        let mut address = 0;
+
+        for _ in 0..SCREEN_HEIGHT {
+            for _ in 0..SCREEN_WIDTH {
+                let gba_color = frame_buffer.0[address];
+                self.0[address] = gba_color_to_rgb8(gba_color, color_correction);
+                address += 1;
+            }
+        }
     }
 }
 
@@ -381,7 +402,8 @@ impl OamEntry {
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Ppu {
-    frame_buffer: FrameBuffer,
+    frame_buffer: GbaFrameBuffer,
+    ready_frame_buffer: RgbaFrameBuffer,
     vram: BoxedByteArray<VRAM_LEN>,
     palette_ram: BoxedWordArray<PALETTE_RAM_LEN_HALFWORDS>,
     oam: BoxedWordArray<OAM_LEN_HALFWORDS>,
@@ -395,7 +417,8 @@ pub struct Ppu {
 impl Ppu {
     pub fn new(config: GbaEmulatorConfig) -> Self {
         Self {
-            frame_buffer: FrameBuffer::new(),
+            frame_buffer: GbaFrameBuffer::new(),
+            ready_frame_buffer: RgbaFrameBuffer::new(),
             vram: BoxedByteArray::new(),
             palette_ram: BoxedWordArray::new(),
             oam: BoxedWordArray::new(),
@@ -470,6 +493,7 @@ impl Ppu {
                 ppu.state.bg_affine_latch.latch_reference_points(&ppu.registers);
 
                 ppu.state.frame_complete = true;
+                ppu.ready_frame_buffer.copy_from(&ppu.frame_buffer, ppu.color_correction);
             }
 
             ppu.state.update_mosaic_v_state(&ppu.registers);
@@ -525,7 +549,7 @@ impl Ppu {
     }
 
     fn clear_current_line(&mut self) {
-        const WHITE: Color = Color::rgb(255, 255, 255);
+        const WHITE: u16 = 0x7FFF;
 
         for pixel in 0..SCREEN_WIDTH {
             self.frame_buffer.set(self.state.scanline, pixel, WHITE);
@@ -1032,11 +1056,7 @@ impl Ppu {
                 }
             }
 
-            self.frame_buffer.set(
-                self.state.scanline,
-                pixel,
-                gba_color_to_rgb8(blend_color, self.color_correction),
-            );
+            self.frame_buffer.set(self.state.scanline, pixel, blend_color.0);
         }
     }
 
@@ -1320,7 +1340,7 @@ impl Ppu {
     }
 
     pub fn frame_buffer(&self) -> &[Color] {
-        &self.frame_buffer.0
+        &self.ready_frame_buffer.0
     }
 
     fn mask_vram_address(address: u32) -> usize {
@@ -1620,6 +1640,6 @@ fn adjust_brightness<const INCREASE: bool>(color: Pixel, evy: u16) -> Pixel {
     Pixel::new_opaque_rgb(r, g, b)
 }
 
-fn gba_color_to_rgb8(gba_color: Pixel, color_correction: GbaColorCorrection) -> Color {
-    colors::table(color_correction)[(gba_color.0 & 0x7FFF) as usize]
+fn gba_color_to_rgb8(gba_color: u16, color_correction: GbaColorCorrection) -> Color {
+    colors::table(color_correction)[(gba_color & 0x7FFF) as usize]
 }

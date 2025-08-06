@@ -1,6 +1,5 @@
 //! GBA memory map
 
-use crate::api::BusState;
 use crate::apu::Apu;
 use crate::cartridge::Cartridge;
 use crate::dma::{DmaState, TransferSource, TransferUnit};
@@ -14,6 +13,7 @@ use arm7tdmi_emu::bus::{BusInterface, MemoryCycle};
 use bincode::{Decode, Encode};
 use gba_config::GbaInputs;
 use jgenesis_proc_macros::PartialClone;
+use std::cmp;
 
 const EWRAM_WAIT: u64 = 2;
 
@@ -23,6 +23,29 @@ const EWRAM_WAIT_WORD: u64 = 1 + 2 * EWRAM_WAIT;
 // TODO accurate cartridge timing
 // using the full number of wait cycles will produce too-slow timing without prefetch emulation
 const ROM_WAIT: u64 = 1;
+
+#[derive(Debug, Clone, Copy, Encode, Decode)]
+pub(crate) struct BusState {
+    pub cycles: u64,
+    pub cpu_pc: u32,
+    pub last_bios_read: u32,
+    pub open_bus: u32,
+    pub dma_running: bool,
+    pub locked: bool,
+}
+
+impl BusState {
+    pub fn new() -> Self {
+        Self {
+            cycles: 0,
+            cpu_pc: 0,
+            last_bios_read: 0,
+            open_bus: 0,
+            dma_running: false,
+            locked: false,
+        }
+    }
+}
 
 #[derive(Debug, PartialClone, Encode, Decode)]
 pub struct Bus {
@@ -125,6 +148,7 @@ impl Bus {
             }
             0x40000B0..=0x40000DF => {
                 // DMA registers
+                self.dma.sync(self.state.cycles);
                 self.dma.write_register(address, value, &mut self.cartridge);
             }
             0x4000100..=0x400010F => {
@@ -180,16 +204,30 @@ impl Bus {
         }
     }
 
-    // Returns whether a DMA is still actively in progress
-    pub fn try_progress_dma(&mut self) -> bool {
-        // Limit number of iterations in order to occasionally step other components, particularly the PPU
-        for _ in 0..20 {
-            self.dma.decrement_start_latency(self.state.cycles);
+    pub fn try_progress_dma(&mut self) {
+        if self.state.dma_running || self.state.locked {
+            return;
+        }
+
+        loop {
+            self.dma.sync(self.state.cycles);
 
             let Some(transfer) = self.dma.next_transfer(&mut self.interrupts, self.state.cycles)
             else {
-                return false;
+                if self.state.dma_running {
+                    // Idle cycle when DMA finishes
+                    self.state.cycles += 1;
+                }
+
+                self.state.dma_running = false;
+                return;
             };
+
+            if !self.state.dma_running {
+                // Idle cycle when DMA starts
+                self.state.cycles += 1;
+            }
+            self.state.dma_running = true;
 
             // TODO better timing (e.g. N vs. S cycles)
 
@@ -219,14 +257,17 @@ impl Bus {
             }
 
             self.sync_ppu();
-            // TODO APU
+            self.sync_timers();
+            self.apu.step_to(self.state.cycles);
         }
-
-        true
     }
 
     pub fn sync_ppu(&mut self) {
         self.ppu.step_to(self.state.cycles, &mut self.interrupts, &mut self.dma);
+    }
+
+    pub fn sync_timers(&mut self) {
+        self.timers.step_to(self.state.cycles, &mut self.apu, &mut self.dma, &mut self.interrupts);
     }
 
     fn read_open_bus_byte(&self, address: u32) -> u8 {
@@ -276,6 +317,8 @@ impl Bus {
 impl BusInterface for Bus {
     #[inline]
     fn read_byte(&mut self, address: u32, _cycle: MemoryCycle) -> u8 {
+        self.try_progress_dma();
+
         self.state.cycles += 1;
 
         let value = match address {
@@ -337,6 +380,8 @@ impl BusInterface for Bus {
 
     #[inline]
     fn read_halfword(&mut self, address: u32, _cycle: MemoryCycle) -> u16 {
+        self.try_progress_dma();
+
         self.state.cycles += 1;
 
         let value = match address {
@@ -401,6 +446,8 @@ impl BusInterface for Bus {
             let high_halfword = read_fn(address | 2);
             (u32::from(high_halfword) << 16) | u32::from(low_halfword)
         }
+
+        self.try_progress_dma();
 
         self.state.cycles += 1;
 
@@ -477,6 +524,8 @@ impl BusInterface for Bus {
 
     #[inline]
     fn write_byte(&mut self, address: u32, value: u8, _cycle: MemoryCycle) {
+        self.try_progress_dma();
+
         self.state.cycles += 1;
 
         match address {
@@ -519,6 +568,8 @@ impl BusInterface for Bus {
 
     #[inline]
     fn write_halfword(&mut self, address: u32, value: u16, _cycle: MemoryCycle) {
+        self.try_progress_dma();
+
         self.state.cycles += 1;
 
         match address {
@@ -567,6 +618,8 @@ impl BusInterface for Bus {
             write_fn(address, value as u16);
             write_fn(address | 2, (value >> 16) as u16);
         }
+
+        self.try_progress_dma();
 
         self.state.cycles += 1;
 
@@ -632,6 +685,19 @@ impl BusInterface for Bus {
 
     #[inline]
     fn internal_cycles(&mut self, cycles: u32) {
-        self.state.cycles += u64::from(cycles);
+        // It seems like DMA can run during internal cycles without halting the CPU?
+        let new_cycles = self.state.cycles + u64::from(cycles);
+        self.try_progress_dma();
+        self.state.cycles = cmp::max(self.state.cycles, new_cycles);
+    }
+
+    #[inline]
+    fn lock(&mut self) {
+        self.state.locked = true;
+    }
+
+    #[inline]
+    fn unlock(&mut self) {
+        self.state.locked = false;
     }
 }

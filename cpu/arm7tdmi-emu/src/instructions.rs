@@ -1140,6 +1140,8 @@ fn arm_swap(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface) {
 fn swap(cpu: &mut Arm7Tdmi, rm: u32, rd: u32, rn: u32, size: LoadSize, bus: &mut dyn BusInterface) {
     let address = cpu.registers.r[rn as usize];
 
+    bus.lock();
+
     match size {
         LoadSize::Word => {
             let value = bus.read_word(address, MemoryCycle::N).rotate_right(8 * (address & 3));
@@ -1152,6 +1154,8 @@ fn swap(cpu: &mut Arm7Tdmi, rm: u32, rd: u32, rn: u32, size: LoadSize, bus: &mut
             cpu.registers.r[rd as usize] = value.into();
         }
     }
+
+    bus.unlock();
 
     bus.internal_cycles(1);
 }

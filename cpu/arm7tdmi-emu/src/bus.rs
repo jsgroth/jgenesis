@@ -44,4 +44,10 @@ pub trait BusInterface {
 
     /// Called when instructions have internal cycles
     fn internal_cycles(&mut self, cycles: u32);
+
+    /// Lock the bus (used by SWAP instruction)
+    fn lock(&mut self) {}
+
+    /// Unlock the bus (used by SWAP instruction)
+    fn unlock(&mut self) {}
 }

@@ -1,7 +1,7 @@
 //! GBA emulator public interface
 
 use crate::apu::Apu;
-use crate::bus::Bus;
+use crate::bus::{Bus, BusState};
 use crate::cartridge::Cartridge;
 use crate::dma::DmaState;
 use crate::interrupts::InterruptRegisters;
@@ -44,20 +44,6 @@ pub enum GbaError<RErr, AErr, SErr> {
     SaveWrite(SErr),
 }
 
-#[derive(Debug, Clone, Copy, Encode, Decode)]
-pub(crate) struct BusState {
-    pub cycles: u64,
-    pub cpu_pc: u32,
-    pub last_bios_read: u32,
-    pub open_bus: u32,
-}
-
-impl BusState {
-    fn new() -> Self {
-        Self { cycles: 0, cpu_pc: 0, last_bios_read: 0, open_bus: 0 }
-    }
-}
-
 #[derive(Debug, PartialClone, Encode, Decode)]
 pub struct GameBoyAdvanceEmulator {
     cpu: Arm7Tdmi,
@@ -78,25 +64,19 @@ impl GameBoyAdvanceEmulator {
     ) -> Result<Self, GbaLoadError> {
         let initial_save = save_writer.load_bytes("sav").ok();
 
-        let ppu = Ppu::new(config);
-        let apu = Apu::new();
         let memory = Memory::new(bios_rom, config)?;
         let cartridge = Cartridge::new(rom, initial_save);
-        let dma = DmaState::new();
-        let timers = Timers::new();
-        let interrupts = InterruptRegisters::new();
-        let sio = SerialPort::new();
 
         let mut cpu = Arm7Tdmi::new();
         let mut bus = Bus {
-            ppu,
-            apu,
+            ppu: Ppu::new(config),
+            apu: Apu::new(),
             memory,
             cartridge,
-            dma,
-            timers,
-            interrupts,
-            sio,
+            dma: DmaState::new(),
+            timers: Timers::new(),
+            interrupts: InterruptRegisters::new(),
+            sio: SerialPort::new(),
             inputs: GbaInputs::default(),
             state: BusState::new(),
         };
@@ -151,20 +131,13 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
         self.bus.inputs = *inputs;
 
         self.bus.interrupts.sync(self.bus.state.cycles);
-        if !self.bus.try_progress_dma() {
-            if !self.bus.interrupts.cpu_halted() {
-                self.cpu.execute_instruction(&mut self.bus);
-            } else {
-                self.bus.internal_cycles(1);
-            }
+        if !self.bus.interrupts.cpu_halted() {
+            self.cpu.execute_instruction(&mut self.bus);
+        } else {
+            self.bus.internal_cycles(1);
         }
 
-        self.bus.timers.step_to(
-            self.bus.state.cycles,
-            &mut self.bus.apu,
-            &mut self.bus.dma,
-            &mut self.bus.interrupts,
-        );
+        self.bus.sync_timers();
 
         self.bus.apu.step_to(self.bus.state.cycles);
         self.bus.apu.drain_audio_output(audio_output).map_err(GbaError::Audio)?;

@@ -310,7 +310,7 @@ impl DmaState {
         }
     }
 
-    pub fn decrement_start_latency(&mut self, cycles: u64) {
+    pub fn sync(&mut self, cycles: u64) {
         if !self.any_start_latency {
             self.cycles = cycles;
             return;
