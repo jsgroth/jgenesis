@@ -2,6 +2,7 @@ mod disassemble;
 
 use crate::bus::{BusInterface, MemoryCycle};
 use crate::{Arm7Tdmi, CpuMode, CpuState, Exception, Registers, StatusRegister};
+use jgenesis_common::define_bit_enum;
 use jgenesis_common::num::GetBit;
 use std::array;
 use std::cmp::Ordering;
@@ -176,7 +177,7 @@ impl AluOp {
     }
 }
 
-type ArmFn = fn(&mut Arm7Tdmi, u32, &mut dyn BusInterface) -> u32;
+type ArmFn = fn(&mut Arm7Tdmi, u32, &mut dyn BusInterface);
 
 struct ArmDecodeEntry {
     mask: u32,
@@ -221,7 +222,7 @@ const ARM_DECODE_TABLE: &[ArmDecodeEntry] = &[
     ArmDecodeEntry::new(0b1111_0000_0000, 0b1111_0000_0000, arm_swi),
 ];
 
-type ThumbFn = fn(&mut Arm7Tdmi, u16, &mut dyn BusInterface) -> u32;
+type ThumbFn = fn(&mut Arm7Tdmi, u16, &mut dyn BusInterface);
 
 struct ThumbDecodeEntry {
     mask: u16,
@@ -261,7 +262,7 @@ const ARM_OPCODE_LEN: u32 = 4;
 const THUMB_OPCODE_LEN: u32 = 2;
 
 impl Arm7Tdmi {
-    pub(crate) fn execute_arm_opcode(&mut self, opcode: u32, bus: &mut impl BusInterface) -> u32 {
+    pub(crate) fn execute_arm_opcode(&mut self, opcode: u32, bus: &mut impl BusInterface) {
         static TABLE: LazyLock<Box<[ArmFn; 4096]>> = LazyLock::new(|| {
             Box::new(array::from_fn(|opcode_mask| {
                 let opcode_mask = opcode_mask as u32;
@@ -273,7 +274,7 @@ impl Arm7Tdmi {
 
                 |cpu, opcode, bus| {
                     log::error!("Executed undefined ARM opcode: {opcode:08X}");
-                    cpu.handle_exception(Exception::UndefinedInstruction, bus)
+                    cpu.handle_exception(Exception::UndefinedInstruction, bus);
                 }
             }))
         });
@@ -289,16 +290,14 @@ impl Arm7Tdmi {
 
         let condition = Condition::from_arm_opcode(opcode);
         if !condition.check(self.registers.cpsr) {
-            // 1S if instruction is skipped
-            self.fetch_arm_opcode(bus, MemoryCycle::S);
-            return 1;
+            return;
         }
 
         let opcode_mask = ((opcode >> 16) & 0xFF0) | ((opcode >> 4) & 0xF);
-        TABLE[opcode_mask as usize](self, opcode, bus)
+        TABLE[opcode_mask as usize](self, opcode, bus);
     }
 
-    pub(crate) fn execute_thumb_opcode(&mut self, opcode: u16, bus: &mut impl BusInterface) -> u32 {
+    pub(crate) fn execute_thumb_opcode(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         static TABLE: LazyLock<Box<[ThumbFn; 256]>> = LazyLock::new(|| {
             Box::new(array::from_fn(|opcode_mask| {
                 let opcode_mask = opcode_mask as u16;
@@ -311,7 +310,7 @@ impl Arm7Tdmi {
 
                 |cpu, opcode, bus| {
                     log::error!("Executed undefined Thumb opcode: {opcode:04X}");
-                    cpu.handle_exception(Exception::UndefinedInstruction, bus)
+                    cpu.handle_exception(Exception::UndefinedInstruction, bus);
                 }
             }))
         });
@@ -326,64 +325,48 @@ impl Arm7Tdmi {
         }
 
         let opcode_mask = opcode >> 8;
-        TABLE[opcode_mask as usize](self, opcode, bus)
+        TABLE[opcode_mask as usize](self, opcode, bus);
     }
 }
 
 // B: Branch
 // BL: Branch and link
-fn arm_branch<const LINK: bool>(
-    cpu: &mut Arm7Tdmi,
-    opcode: u32,
-    bus: &mut dyn BusInterface,
-) -> u32 {
+fn arm_branch<const LINK: bool>(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface) {
     // Offset is a 24-bit signed value, shifted left 2
     let offset = (((opcode & 0xFFFFFF) as i32) << 8) >> 6;
-    branch::<LINK, ARM_OPCODE_LEN>(cpu, offset, bus)
+    branch::<LINK, ARM_OPCODE_LEN>(cpu, offset, bus);
 }
 
 fn branch<const LINK: bool, const OPCODE_LEN: u32>(
     cpu: &mut Arm7Tdmi,
     offset: i32,
     bus: &mut dyn BusInterface,
-) -> u32 {
-    cpu.dummy_opcode_fetch(bus, MemoryCycle::S);
-
+) {
     if LINK {
-        cpu.registers.r[14] = cpu.registers.r[15].wrapping_sub(OPCODE_LEN);
+        cpu.registers.r[14] = cpu.prev_r15.wrapping_sub(OPCODE_LEN);
     }
 
-    cpu.registers.r[15] = cpu.registers.r[15].wrapping_add_signed(offset);
-    cpu.align_pc();
+    cpu.registers.r[15] = cpu.prev_r15.wrapping_add_signed(offset);
     cpu.refill_prefetch(bus);
-
-    // 2S + 1N
-    3
 }
 
 // BX: Branch and exchange ARM/Thumb state
-fn arm_bx(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface) -> u32 {
-    branch_exchange(cpu, opcode & 0xF, bus)
+fn arm_bx(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface) {
+    branch_exchange(cpu, opcode & 0xF, bus);
 }
 
-fn branch_exchange(cpu: &mut Arm7Tdmi, rn: u32, bus: &mut dyn BusInterface) -> u32 {
-    cpu.dummy_opcode_fetch(bus, MemoryCycle::S);
-
-    let new_pc = cpu.registers.r[rn as usize];
+fn branch_exchange(cpu: &mut Arm7Tdmi, rn: u32, bus: &mut dyn BusInterface) {
+    let new_pc = cpu.read_register(rn);
     cpu.registers.cpsr.state = CpuState::from_bit(new_pc.bit(0));
 
     log::trace!("CPU state is now {:?}", cpu.registers.cpsr.state);
 
     cpu.registers.r[15] = new_pc;
-    cpu.align_pc();
     cpu.refill_prefetch(bus);
-
-    // 2S + 1N
-    3
 }
 
 // MRS: Transfer PSR contents to register
-fn arm_mrs(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface) -> u32 {
+fn arm_mrs(cpu: &mut Arm7Tdmi, opcode: u32, _bus: &mut dyn BusInterface) {
     let rd = (opcode >> 12) & 0xF;
     let spsr = opcode.bit(22);
 
@@ -396,24 +379,15 @@ fn arm_mrs(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface) -> u32 {
     } else {
         cpu.registers.r[rd as usize] = cpu.registers.cpsr.into();
     }
-
-    cpu.fetch_opcode(bus, MemoryCycle::S);
-
-    // 1S
-    1
 }
 
 // MSR: Transfer register contents to PSR
-fn arm_msr<const IMMEDIATE: bool>(
-    cpu: &mut Arm7Tdmi,
-    opcode: u32,
-    bus: &mut dyn BusInterface,
-) -> u32 {
+fn arm_msr<const IMMEDIATE: bool>(cpu: &mut Arm7Tdmi, opcode: u32, _bus: &mut dyn BusInterface) {
     let operand = if IMMEDIATE {
         let (immediate, rotation) = arm_parse_rotated_immediate(opcode);
         immediate.rotate_right(rotation)
     } else {
-        cpu.registers.r[(opcode & 0xF) as usize]
+        cpu.read_register(opcode & 0xF)
     };
 
     let spsr = opcode.bit(22);
@@ -429,11 +403,6 @@ fn arm_msr<const IMMEDIATE: bool>(
     } else {
         cpu.write_cpsr(operand);
     }
-
-    cpu.fetch_arm_opcode(bus, MemoryCycle::S);
-
-    // 1S
-    1
 }
 
 // Data processing instructions
@@ -453,11 +422,7 @@ fn arm_msr<const IMMEDIATE: bool>(
 //   MOV: Move
 //   BIC: Bit clear
 //   MVN: Move negated
-fn arm_alu<const IMMEDIATE: bool>(
-    cpu: &mut Arm7Tdmi,
-    opcode: u32,
-    bus: &mut dyn BusInterface,
-) -> u32 {
+fn arm_alu<const IMMEDIATE: bool>(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface) {
     let alu_op = AluOp::from_bits(opcode >> 21);
     let set_condition_codes = opcode.bit(20);
     let rn = (opcode >> 16) & 0xF;
@@ -465,7 +430,7 @@ fn arm_alu<const IMMEDIATE: bool>(
 
     if IMMEDIATE {
         let (immediate, rotation) = arm_parse_rotated_immediate(opcode);
-        alu_rotated_immediate(cpu, alu_op, rn, rd, set_condition_codes, immediate, rotation, bus)
+        alu_rotated_immediate(cpu, alu_op, rn, rd, set_condition_codes, immediate, rotation, bus);
     } else if opcode.bit(4) {
         let rm = opcode & 0xF;
         let rs = (opcode >> 8) & 0xF;
@@ -480,12 +445,12 @@ fn arm_alu<const IMMEDIATE: bool>(
             shift_type,
             rs,
             bus,
-        )
+        );
     } else {
         let rm = opcode & 0xF;
         let shift_type = ShiftType::from_bits(opcode >> 5);
         let shift = (opcode >> 7) & 0x1F;
-        alu_immediate_shift(cpu, alu_op, rn, rd, set_condition_codes, rm, shift_type, shift, bus)
+        alu_immediate_shift(cpu, alu_op, rn, rd, set_condition_codes, rm, shift_type, shift, bus);
     }
 }
 
@@ -507,14 +472,14 @@ fn alu_rotated_immediate(
     immediate: u32,
     rotation: u32,
     bus: &mut dyn BusInterface,
-) -> u32 {
+) {
     let (operand2, shifter_out) = if rotation != 0 {
         (immediate.rotate_right(rotation), immediate.bit((rotation - 1) as u8))
     } else {
         (immediate, cpu.registers.cpsr.carry)
     };
 
-    alu(cpu, op, cpu.registers.r[rn as usize], rd, set_condition_codes, operand2, shifter_out, bus)
+    alu(cpu, op, cpu.read_register(rn), rd, set_condition_codes, operand2, shifter_out, bus);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -549,13 +514,13 @@ fn alu_immediate_shift(
     shift_type: ShiftType,
     shift: u32,
     bus: &mut dyn BusInterface,
-) -> u32 {
-    let value = cpu.registers.r[rm as usize];
+) {
+    let value = cpu.read_register(rm);
 
     let (operand2, shifter_out) =
         apply_immediate_shift(value, shift_type, shift, cpu.registers.cpsr.carry);
 
-    alu(cpu, op, cpu.registers.r[rn as usize], rd, set_condition_codes, operand2, shifter_out, bus)
+    alu(cpu, op, cpu.read_register(rn), rd, set_condition_codes, operand2, shifter_out, bus);
 }
 
 fn apply_immediate_shift(
@@ -594,12 +559,8 @@ fn alu_register_shift<const OPCODE_LEN: u32>(
     shift_type: ShiftType,
     rs: u32,
     bus: &mut dyn BusInterface,
-) -> u32 {
-    let mut value = cpu.registers.r[rm as usize];
-    if rm == 15 {
-        value = value.wrapping_add(OPCODE_LEN);
-    }
-
+) {
+    let value = cpu.registers.r[rm as usize];
     let shift = cpu.registers.r[rs as usize] & 0xFF;
 
     let (operand2, shifter_out) = if shift == 0 {
@@ -638,15 +599,12 @@ fn alu_register_shift<const OPCODE_LEN: u32>(
         }
     };
 
-    let operand1 = if rn == 15 {
-        cpu.registers.r[15].wrapping_add(OPCODE_LEN)
-    } else {
-        cpu.registers.r[rn as usize]
-    };
+    let operand1 = cpu.registers.r[rn as usize];
 
     // Register specified shift adds 1I
     bus.internal_cycles(1);
-    1 + alu(cpu, op, operand1, rd, set_condition_codes, operand2, shifter_out, bus)
+
+    alu(cpu, op, operand1, rd, set_condition_codes, operand2, shifter_out, bus);
 }
 
 #[inline]
@@ -660,7 +618,7 @@ fn alu(
     operand2: u32,
     shifter_out: bool,
     bus: &mut dyn BusInterface,
-) -> u32 {
+) {
     let (result, codes) = match op {
         AluOp::And | AluOp::Test => {
             let result = operand1 & operand2;
@@ -704,23 +662,13 @@ fn alu(
         }
     }
 
-    // 1S always
-    let mut cycles = 1;
-    cpu.fetch_opcode(bus, MemoryCycle::S);
-
     if !op.is_test() {
         cpu.registers.r[rd as usize] = result;
 
         if rd == 15 {
-            cpu.align_pc();
             cpu.refill_prefetch(bus);
-
-            // +1N +1S if Rd = 15
-            cycles += 2;
         }
     }
-
-    cycles
 }
 
 fn alu_add(operand1: u32, operand2: u32, carry_in: bool) -> (u32, ConditionCodes) {
@@ -736,7 +684,7 @@ fn alu_add(operand1: u32, operand2: u32, carry_in: bool) -> (u32, ConditionCodes
     (sum, ConditionCodes { sign: sum.bit(31), zero: sum == 0, carry, overflow })
 }
 
-fn arm_multiply(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface) -> u32 {
+fn arm_multiply(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface) {
     let rm = opcode & 0xF;
     let rs = (opcode >> 8) & 0xF;
     let rn = (opcode >> 12) & 0xF;
@@ -744,7 +692,7 @@ fn arm_multiply(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface) -> 
     let set_condition_codes = opcode.bit(20);
     let accumulate = opcode.bit(21);
 
-    multiply(cpu, rm, rs, rn, rd, set_condition_codes, accumulate, bus)
+    multiply(cpu, rm, rs, rn, rd, set_condition_codes, accumulate, bus);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -757,9 +705,7 @@ fn multiply(
     set_condition_codes: bool,
     accumulate: bool,
     bus: &mut dyn BusInterface,
-) -> u32 {
-    cpu.fetch_opcode(bus, MemoryCycle::S);
-
+) {
     let operand = cpu.registers.r[rs as usize];
     let mut product = cpu.registers.r[rm as usize].wrapping_mul(operand);
     if accumulate {
@@ -786,13 +732,9 @@ fn multiply(
 
     let i_cycles = m + u32::from(accumulate);
     bus.internal_cycles(i_cycles);
-
-    // 1S + m*I
-    // +1I for MLA
-    1 + i_cycles
 }
 
-fn arm_multiply_long(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface) -> u32 {
+fn arm_multiply_long(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface) {
     let rm = opcode & 0xF;
     let rs = (opcode >> 8) & 0xF;
     let rdlo = (opcode >> 12) & 0xF;
@@ -801,7 +743,7 @@ fn arm_multiply_long(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface
     let accumulate = opcode.bit(21);
     let signed = opcode.bit(22);
 
-    multiply_long(cpu, rm, rs, rdlo, rdhi, set_condition_codes, accumulate, signed, bus)
+    multiply_long(cpu, rm, rs, rdlo, rdhi, set_condition_codes, accumulate, signed, bus);
 }
 
 #[inline]
@@ -816,9 +758,7 @@ fn multiply_long(
     accumulate: bool,
     signed: bool,
     bus: &mut dyn BusInterface,
-) -> u32 {
-    cpu.fetch_opcode(bus, MemoryCycle::S);
-
+) {
     let operand = cpu.registers.r[rs as usize];
     let product = if signed {
         let mut product =
@@ -860,47 +800,11 @@ fn multiply_long(
 
     let i_cycles = 1 + m + u32::from(accumulate);
     bus.internal_cycles(i_cycles);
-
-    // MULL: 1S + (m+1)*I
-    // +1I for MLAL
-    1 + i_cycles
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LoadIndexing {
-    Post = 0,
-    Pre = 1,
-}
-
-impl LoadIndexing {
-    fn from_bit(bit: bool) -> Self {
-        if bit { Self::Pre } else { Self::Post }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum IndexOp {
-    Subtract = 0,
-    Add = 1,
-}
-
-impl IndexOp {
-    fn from_bit(bit: bool) -> Self {
-        if bit { Self::Add } else { Self::Subtract }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum WriteBack {
-    No = 0,
-    Yes = 1,
-}
-
-impl WriteBack {
-    fn from_bit(bit: bool) -> Self {
-        if bit { Self::Yes } else { Self::No }
-    }
-}
+define_bit_enum!(LoadIndexing, [Post, Pre]);
+define_bit_enum!(IndexOp, [Subtract, Add]);
+define_bit_enum!(WriteBack, [No, Yes]);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HalfwordLoadType {
@@ -927,7 +831,7 @@ fn arm_load_word<const LOAD: bool, const REGISTER_OFFSET: bool>(
     cpu: &mut Arm7Tdmi,
     opcode: u32,
     bus: &mut dyn BusInterface,
-) -> u32 {
+) {
     let indexing = LoadIndexing::from_bit(opcode.bit(24));
     let index_op = IndexOp::from_bit(opcode.bit(23));
     let size = LoadSize::from_bit(opcode.bit(22));
@@ -948,20 +852,10 @@ fn arm_load_word<const LOAD: bool, const REGISTER_OFFSET: bool>(
         opcode & 0xFFF
     };
 
-    load_word::<LOAD>(cpu, rn, rd, offset, size, indexing, index_op, write_back, bus)
+    load_word::<LOAD>(cpu, rn, rd, offset, size, indexing, index_op, write_back, bus);
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LoadSize {
-    Word = 0,
-    Byte = 1,
-}
-
-impl LoadSize {
-    fn from_bit(bit: bool) -> Self {
-        if bit { Self::Byte } else { Self::Word }
-    }
-}
+define_bit_enum!(LoadSize, [Word, Byte]);
 
 #[inline]
 #[allow(clippy::too_many_arguments)]
@@ -975,20 +869,18 @@ fn load_word<const LOAD: bool>(
     index_op: IndexOp,
     write_back: WriteBack,
     bus: &mut dyn BusInterface,
-) -> u32 {
+) {
     if index_op == IndexOp::Subtract {
         offset = (!offset).wrapping_add(1);
     }
 
-    let mut address = cpu.registers.r[rn as usize];
+    let mut address = cpu.read_register(rn);
 
     if indexing == LoadIndexing::Pre {
         address = address.wrapping_add(offset);
     }
 
     if LOAD {
-        cpu.fetch_opcode(bus, MemoryCycle::S);
-
         cpu.registers.r[rd as usize] = match size {
             LoadSize::Word => {
                 let word = bus.read_word(address, MemoryCycle::N);
@@ -997,22 +889,20 @@ fn load_word<const LOAD: bool>(
             LoadSize::Byte => bus.read_byte(address, MemoryCycle::N).into(),
         };
 
-        // TODO when is this internal cycle taken?
         bus.internal_cycles(1);
 
         if rd == 15 {
-            cpu.align_pc();
             cpu.refill_prefetch(bus);
         }
     } else {
-        // TODO is this right for stores?
-        cpu.fetch_opcode(bus, MemoryCycle::N);
-
         let value = cpu.registers.r[rd as usize];
         match size {
             LoadSize::Word => bus.write_word(address, value, MemoryCycle::N),
             LoadSize::Byte => bus.write_byte(address, value as u8, MemoryCycle::N),
         }
+
+        // Next opcode fetch is N
+        cpu.fetch_cycle = MemoryCycle::N;
     }
 
     // Write back only applies on loads if the base register and destination register are different
@@ -1022,15 +912,6 @@ fn load_word<const LOAD: bool>(
         } else if write_back == WriteBack::Yes {
             cpu.registers.r[rn as usize] = address;
         }
-    }
-
-    if LOAD {
-        // 1S + 1N + 1I always
-        // +1S +1N if Rd = 15
-        3 + (u32::from(rd == 15) << 1)
-    } else {
-        // 2N
-        2
     }
 }
 
@@ -1042,7 +923,7 @@ fn arm_load_halfword<const LOAD: bool, const IMMEDIATE_OFFSET: bool>(
     cpu: &mut Arm7Tdmi,
     opcode: u32,
     bus: &mut dyn BusInterface,
-) -> u32 {
+) {
     let indexing = LoadIndexing::from_bit(opcode.bit(24));
     let index_op = IndexOp::from_bit(opcode.bit(23));
     let write_back = WriteBack::from_bit(opcode.bit(21));
@@ -1053,12 +934,12 @@ fn arm_load_halfword<const LOAD: bool, const IMMEDIATE_OFFSET: bool>(
         ((opcode >> 4) & 0xF0) | (opcode & 0xF)
     } else {
         let rm = opcode & 0xF;
-        cpu.registers.r[rm as usize]
+        cpu.read_register(rm)
     };
 
     let load_type = HalfwordLoadType::from_bits(opcode >> 5);
 
-    load_halfword::<LOAD>(cpu, rn, rd, offset, load_type, indexing, index_op, write_back, bus)
+    load_halfword::<LOAD>(cpu, rn, rd, offset, load_type, indexing, index_op, write_back, bus);
 }
 
 #[inline]
@@ -1073,19 +954,17 @@ fn load_halfword<const LOAD: bool>(
     index_op: IndexOp,
     write_back: WriteBack,
     bus: &mut dyn BusInterface,
-) -> u32 {
+) {
     if index_op == IndexOp::Subtract {
         offset = (!offset).wrapping_add(1);
     }
 
-    let mut address = cpu.registers.r[rn as usize];
+    let mut address = cpu.read_register(rn);
     if indexing == LoadIndexing::Pre {
         address = address.wrapping_add(offset);
     }
 
     if LOAD {
-        cpu.fetch_opcode(bus, MemoryCycle::S);
-
         let value = match load_type {
             HalfwordLoadType::UnsignedHalfword => {
                 let halfword: u32 = bus.read_halfword(address, MemoryCycle::N).into();
@@ -1106,14 +985,14 @@ fn load_halfword<const LOAD: bool>(
         bus.internal_cycles(1);
 
         if rd == 15 {
-            cpu.align_pc();
             cpu.refill_prefetch(bus);
         }
     } else {
-        cpu.fetch_opcode(bus, MemoryCycle::N);
-
         let halfword = cpu.registers.r[rd as usize] as u16;
         bus.write_halfword(address, halfword, MemoryCycle::N);
+
+        // Next opcode fetch is N
+        cpu.fetch_cycle = MemoryCycle::N;
     }
 
     // Write back only applies on loads if the base register and destination register are different
@@ -1124,28 +1003,19 @@ fn load_halfword<const LOAD: bool>(
             cpu.registers.r[rn as usize] = address;
         }
     }
-
-    if LOAD {
-        // 1S + 1N + 1I always
-        // +1S +1N if Rd = 15
-        3 + (u32::from(rd == 15) << 1)
-    } else {
-        // 2N
-        2
-    }
 }
 
 fn arm_ldm_stm<const LOAD: bool, const INCREMENT: bool, const AFTER: bool>(
     cpu: &mut Arm7Tdmi,
     opcode: u32,
     bus: &mut dyn BusInterface,
-) -> u32 {
+) {
     let register_bits = opcode & 0xFFFF;
     let rn = (opcode >> 16) & 0xF;
     let write_back = WriteBack::from_bit(opcode.bit(21));
     let s_bit = opcode.bit(22);
 
-    load_multiple::<LOAD, INCREMENT, AFTER>(cpu, register_bits, rn, write_back, s_bit, bus)
+    load_multiple::<LOAD, INCREMENT, AFTER>(cpu, register_bits, rn, write_back, s_bit, bus);
 }
 
 #[inline]
@@ -1156,7 +1026,7 @@ fn load_multiple<const LOAD: bool, const INCREMENT: bool, const AFTER: bool>(
     write_back: WriteBack,
     s_bit: bool,
     bus: &mut dyn BusInterface,
-) -> u32 {
+) {
     let mut empty_list = false;
     if register_bits == 0 {
         // Hardware quirk: empty list loads/stores only R15, and Rb is adjusted by 4 * 16
@@ -1167,7 +1037,7 @@ fn load_multiple<const LOAD: bool, const INCREMENT: bool, const AFTER: bool>(
     let count = register_bits.count_ones();
     let r15_loaded = register_bits.bit(15);
 
-    let base_addr = cpu.registers.r[rn as usize];
+    let base_addr = cpu.read_register(rn);
     let count_for_final_addr = if empty_list { 16 } else { count };
     let final_addr = if INCREMENT {
         base_addr.wrapping_add(4 * count_for_final_addr)
@@ -1176,9 +1046,6 @@ fn load_multiple<const LOAD: bool, const INCREMENT: bool, const AFTER: bool>(
     };
 
     let mut address = if INCREMENT { base_addr } else { final_addr };
-
-    // TODO is this right for stores?
-    cpu.fetch_opcode(bus, if LOAD { MemoryCycle::S } else { MemoryCycle::N });
 
     let mut first = true;
     let mut need_write_back = write_back == WriteBack::Yes;
@@ -1211,9 +1078,6 @@ fn load_multiple<const LOAD: bool, const INCREMENT: bool, const AFTER: bool>(
                 if s_bit {
                     cpu.spsr_to_cpsr();
                 }
-
-                cpu.align_pc();
-                cpu.refill_prefetch(bus);
             } else if s_bit && !r15_loaded {
                 let register = get_user_register(&mut cpu.registers, r.into());
                 *register = bus.read_word(address, memory_cycle);
@@ -1243,17 +1107,14 @@ fn load_multiple<const LOAD: bool, const INCREMENT: bool, const AFTER: bool>(
     }
 
     if LOAD {
-        // TODO when does this I cycle actually happen?
         bus.internal_cycles(1);
-    }
 
-    if LOAD {
-        // LDM: n*S + 1N + 1I
-        // +1S +1N if R15 loaded
-        2 + count + (u32::from(r15_loaded) << 1)
+        if r15_loaded {
+            cpu.refill_prefetch(bus);
+        }
     } else {
-        // STM: (n-1)*S + 2N
-        1 + count
+        // Next opcode fetch is N
+        cpu.fetch_cycle = MemoryCycle::N;
     }
 }
 
@@ -1267,53 +1128,40 @@ fn get_user_register(registers: &mut Registers, r: u32) -> &mut u32 {
     }
 }
 
-fn arm_swap(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface) -> u32 {
+fn arm_swap(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface) {
     let rm = opcode & 0xF;
     let rd = (opcode >> 12) & 0xF;
     let rn = (opcode >> 16) & 0xF;
     let size = LoadSize::from_bit(opcode.bit(22));
 
-    swap(cpu, rm, rd, rn, size, bus)
+    swap(cpu, rm, rd, rn, size, bus);
 }
 
-fn swap(
-    cpu: &mut Arm7Tdmi,
-    rm: u32,
-    rd: u32,
-    rn: u32,
-    size: LoadSize,
-    bus: &mut dyn BusInterface,
-) -> u32 {
+fn swap(cpu: &mut Arm7Tdmi, rm: u32, rd: u32, rn: u32, size: LoadSize, bus: &mut dyn BusInterface) {
     let address = cpu.registers.r[rn as usize];
 
     match size {
         LoadSize::Word => {
             let value = bus.read_word(address, MemoryCycle::N).rotate_right(8 * (address & 3));
-            bus.write_word(address, cpu.registers.r[rm as usize], MemoryCycle::S);
+            bus.write_word(address, cpu.read_register(rm), MemoryCycle::S);
             cpu.registers.r[rd as usize] = value;
         }
         LoadSize::Byte => {
             let value = bus.read_byte(address, MemoryCycle::N);
-            bus.write_byte(address, cpu.registers.r[rm as usize] as u8, MemoryCycle::S);
+            bus.write_byte(address, cpu.read_register(rm) as u8, MemoryCycle::S);
             cpu.registers.r[rd as usize] = value.into();
         }
     }
 
-    // TODO when does this I cycle take place?
     bus.internal_cycles(1);
-
-    cpu.fetch_opcode(bus, MemoryCycle::N);
-
-    // 1S + 2N + 1I
-    4
 }
 
-fn arm_swi(cpu: &mut Arm7Tdmi, _opcode: u32, bus: &mut dyn BusInterface) -> u32 {
-    cpu.handle_exception(Exception::SoftwareInterrupt, bus)
+fn arm_swi(cpu: &mut Arm7Tdmi, _opcode: u32, bus: &mut dyn BusInterface) {
+    cpu.handle_exception(Exception::SoftwareInterrupt, bus);
 }
 
 // Format 1: Move shifted register
-fn thumb_move_shifted_register(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+fn thumb_move_shifted_register(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) {
     let rd = opcode & 7;
     let rs = (opcode >> 3) & 7;
     let shift = (opcode >> 6) & 0x1F;
@@ -1329,11 +1177,11 @@ fn thumb_move_shifted_register(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn Bu
         shift_type,
         shift.into(),
         bus,
-    )
+    );
 }
 
 // Format 2: Add/subtract
-fn thumb_add_sub(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+fn thumb_add_sub(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) {
     let rd = opcode & 7;
     let rs = (opcode >> 3) & 7;
     let rn = (opcode >> 6) & 7;
@@ -1341,7 +1189,7 @@ fn thumb_add_sub(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) ->
 
     let immediate = opcode.bit(10);
     if immediate {
-        alu_rotated_immediate(cpu, alu_op, rs.into(), rd.into(), true, rn.into(), 0, bus)
+        alu_rotated_immediate(cpu, alu_op, rs.into(), rd.into(), true, rn.into(), 0, bus);
     } else {
         alu_immediate_shift(
             cpu,
@@ -1353,12 +1201,12 @@ fn thumb_add_sub(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) ->
             ShiftType::Left,
             0,
             bus,
-        )
+        );
     }
 }
 
 // Format 3: Move/compare/add/subtract immediate
-fn thumb_alu_immediate(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+fn thumb_alu_immediate(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) {
     let immediate = opcode & 0xFF;
     let rd = (opcode >> 8) & 7;
     let alu_op = match (opcode >> 11) & 3 {
@@ -1369,11 +1217,11 @@ fn thumb_alu_immediate(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterfa
         _ => unreachable!("value & 3 is always <= 3"),
     };
 
-    alu_rotated_immediate(cpu, alu_op, rd.into(), rd.into(), true, immediate.into(), 0, bus)
+    alu_rotated_immediate(cpu, alu_op, rd.into(), rd.into(), true, immediate.into(), 0, bus);
 }
 
 // Format 4: ALU operations
-fn thumb_alu(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+fn thumb_alu(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) {
     let rd = opcode & 7;
     let rs = (opcode >> 3) & 7;
 
@@ -1440,11 +1288,11 @@ fn thumb_alu(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32
         ShiftType::Left,
         0,
         bus,
-    )
+    );
 }
 
 // Format 5: Hi register operations / branch exchange
-fn thumb_high_register_op(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+fn thumb_high_register_op(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) {
     let mut rd = opcode & 7;
     let mut rs = (opcode >> 3) & 7;
 
@@ -1476,15 +1324,14 @@ fn thumb_high_register_op(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInte
         ShiftType::Left,
         0,
         bus,
-    )
+    );
 }
 
 // Format 6: PC-relative load
-fn thumb_pc_relative_load(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+fn thumb_pc_relative_load(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) {
     // Bit 1 of PC is forcibly cleared for PC-relative loads
-    // Fake this by subtracting 2 from the offset if bit 1 of PC is set
     let mut offset: u32 = ((opcode & 0xFF) << 2).into();
-    offset = offset.wrapping_sub(cpu.registers.r[15] & 2);
+    offset = offset.wrapping_sub(cpu.prev_r15 & 2);
 
     let rd = (opcode >> 8) & 7;
 
@@ -1498,18 +1345,18 @@ fn thumb_pc_relative_load(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInte
         IndexOp::Add,
         WriteBack::No,
         bus,
-    )
+    );
 }
 
 // Format 7: Load/store with register offset
-fn thumb_load_register_offset(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+fn thumb_load_register_offset(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) {
     let rd = opcode & 7;
     let rb = (opcode >> 3) & 7;
     let ro = (opcode >> 6) & 7;
     let size = LoadSize::from_bit(opcode.bit(10));
     let load = opcode.bit(11);
 
-    let offset = cpu.registers.r[ro as usize];
+    let offset = cpu.read_register(ro.into());
 
     if load {
         load_word::<true>(
@@ -1522,7 +1369,7 @@ fn thumb_load_register_offset(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn Bus
             IndexOp::Add,
             WriteBack::No,
             bus,
-        )
+        );
     } else {
         load_word::<false>(
             cpu,
@@ -1534,17 +1381,17 @@ fn thumb_load_register_offset(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn Bus
             IndexOp::Add,
             WriteBack::No,
             bus,
-        )
+        );
     }
 }
 
 // Format 8: Load/store sign-extended byte/halfword
-fn thumb_load_sign_extended(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+fn thumb_load_sign_extended(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) {
     let rd = opcode & 7;
     let rb = (opcode >> 3) & 7;
     let ro = (opcode >> 6) & 7;
 
-    let offset = cpu.registers.r[ro as usize];
+    let offset = cpu.read_register(ro.into());
 
     let sh_bits = (opcode >> 10) & 3;
     if sh_bits == 0 {
@@ -1559,7 +1406,7 @@ fn thumb_load_sign_extended(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusIn
             IndexOp::Add,
             WriteBack::No,
             bus,
-        )
+        );
     } else {
         let load_type = match sh_bits {
             1 => HalfwordLoadType::SignedByte,
@@ -1578,12 +1425,12 @@ fn thumb_load_sign_extended(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusIn
             IndexOp::Add,
             WriteBack::No,
             bus,
-        )
+        );
     }
 }
 
 // Format 9: Load/store with immediate offset
-fn thumb_load_immediate_offset(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+fn thumb_load_immediate_offset(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) {
     let rd = opcode & 7;
     let rb = (opcode >> 3) & 7;
     let mut offset = (opcode >> 6) & 0x1F;
@@ -1605,7 +1452,7 @@ fn thumb_load_immediate_offset(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn Bu
             IndexOp::Add,
             WriteBack::No,
             bus,
-        )
+        );
     } else {
         load_word::<false>(
             cpu,
@@ -1617,12 +1464,12 @@ fn thumb_load_immediate_offset(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn Bu
             IndexOp::Add,
             WriteBack::No,
             bus,
-        )
+        );
     }
 }
 
 // Format 10: Load/store halfword
-fn thumb_load_halfword(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+fn thumb_load_halfword(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) {
     let rd = opcode & 7;
     let rb = (opcode >> 3) & 7;
     let offset = ((opcode >> 6) & 0x1F) << 1;
@@ -1639,7 +1486,7 @@ fn thumb_load_halfword(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterfa
             IndexOp::Add,
             WriteBack::No,
             bus,
-        )
+        );
     } else {
         load_halfword::<false>(
             cpu,
@@ -1651,12 +1498,12 @@ fn thumb_load_halfword(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterfa
             IndexOp::Add,
             WriteBack::No,
             bus,
-        )
+        );
     }
 }
 
 // Format 11: SP-relative load/store
-fn thumb_load_sp_relative(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+fn thumb_load_sp_relative(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) {
     let offset = (opcode & 0xFF) << 2;
     let rd = (opcode >> 8) & 7;
     let load = opcode.bit(11);
@@ -1672,7 +1519,7 @@ fn thumb_load_sp_relative(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInte
             IndexOp::Add,
             WriteBack::No,
             bus,
-        )
+        );
     } else {
         load_word::<false>(
             cpu,
@@ -1684,12 +1531,12 @@ fn thumb_load_sp_relative(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInte
             IndexOp::Add,
             WriteBack::No,
             bus,
-        )
+        );
     }
 }
 
 // Format 12: Load address
-fn thumb_load_address(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+fn thumb_load_address(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) {
     let mut immediate: u32 = ((opcode & 0xFF) << 2).into();
     let rd = (opcode >> 8) & 7;
 
@@ -1697,26 +1544,25 @@ fn thumb_load_address(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterfac
     let rn = if opcode.bit(11) { 13 } else { 15 };
 
     // Bit 1 is forced clear when PC is used as Rn
-    // Fake by subtracting 2 from immediate if bit 1 is set
     if rn == 15 {
-        immediate = immediate.wrapping_sub(cpu.registers.r[15] & 2);
+        immediate = immediate.wrapping_sub(cpu.prev_r15 & 2);
     }
 
-    alu_rotated_immediate(cpu, AluOp::Add, rn, rd.into(), false, immediate, 0, bus)
+    alu_rotated_immediate(cpu, AluOp::Add, rn, rd.into(), false, immediate, 0, bus);
 }
 
 // Format 13: Add offset to stack pointer
-fn thumb_add_offset_sp(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+fn thumb_add_offset_sp(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) {
     let mut offset: u32 = ((opcode & 0x7F) << 2).into();
     if opcode.bit(7) {
         offset = (!offset).wrapping_add(1);
     }
 
-    alu_rotated_immediate(cpu, AluOp::Add, 13, 13, false, offset, 0, bus)
+    alu_rotated_immediate(cpu, AluOp::Add, 13, 13, false, offset, 0, bus);
 }
 
 // Format 14: Push/pop registers
-fn thumb_push_pop(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+fn thumb_push_pop(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) {
     let lr_pc_bit = opcode.bit(8);
     let load = opcode.bit(11);
 
@@ -1727,7 +1573,14 @@ fn thumb_push_pop(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -
     }
 
     if load {
-        load_multiple::<true, true, true>(cpu, register_bits.into(), 13, WriteBack::Yes, false, bus)
+        load_multiple::<true, true, true>(
+            cpu,
+            register_bits.into(),
+            13,
+            WriteBack::Yes,
+            false,
+            bus,
+        );
     } else {
         load_multiple::<false, false, false>(
             cpu,
@@ -1736,12 +1589,12 @@ fn thumb_push_pop(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -
             WriteBack::Yes,
             false,
             bus,
-        )
+        );
     }
 }
 
 // Format 15: Multiple load/store
-fn thumb_load_multiple(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+fn thumb_load_multiple(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) {
     let register_bits = opcode & 0xFF;
     let rb = (opcode >> 8) & 7;
     let load = opcode.bit(11);
@@ -1754,7 +1607,7 @@ fn thumb_load_multiple(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterfa
             WriteBack::Yes,
             false,
             bus,
-        )
+        );
     } else {
         load_multiple::<false, true, true>(
             cpu,
@@ -1763,37 +1616,35 @@ fn thumb_load_multiple(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterfa
             WriteBack::Yes,
             false,
             bus,
-        )
+        );
     }
 }
 
 // Format 16: Conditional branch
-fn thumb_conditional_branch(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+fn thumb_conditional_branch(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) {
     let condition = Condition::from_bits((opcode >> 8).into());
     if !condition.check(cpu.registers.cpsr) {
-        // 1S when condition fails
-        cpu.fetch_thumb_opcode(bus, MemoryCycle::S);
-        return 1;
+        return;
     }
 
     let offset = i32::from(opcode as i8) << 1;
-    branch::<false, THUMB_OPCODE_LEN>(cpu, offset, bus)
+    branch::<false, THUMB_OPCODE_LEN>(cpu, offset, bus);
 }
 
 // Format 17: Software interrupt
-fn thumb_software_interrupt(cpu: &mut Arm7Tdmi, _opcode: u16, bus: &mut dyn BusInterface) -> u32 {
-    cpu.handle_exception(Exception::SoftwareInterrupt, bus)
+fn thumb_software_interrupt(cpu: &mut Arm7Tdmi, _opcode: u16, bus: &mut dyn BusInterface) {
+    cpu.handle_exception(Exception::SoftwareInterrupt, bus);
 }
 
 // Format 18: Unconditional branch
-fn thumb_unconditional_branch(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+fn thumb_unconditional_branch(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) {
     let offset = (i32::from(opcode & 0x7FF) << 21) >> 20;
-    branch::<false, THUMB_OPCODE_LEN>(cpu, offset, bus)
+    branch::<false, THUMB_OPCODE_LEN>(cpu, offset, bus);
 }
 
 // Format 19: Long branch with link
 // This instruction has no ARM equivalent
-fn thumb_long_branch(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+fn thumb_long_branch(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) {
     // Offset is a signed 23-bit value split across two opcodes, with 11 bits in each
     // First opcode has H=0 and second opcode has H=1
     // It is possible to have an H=1 opcode without an H=0 opcode; Golden Sun: The Lost Age does this
@@ -1804,28 +1655,16 @@ fn thumb_long_branch(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface
         // Clip to signed 23-bit
         let offset = (unsigned_offset << 9) >> 9;
 
-        cpu.registers.r[14] = cpu.registers.r[15].wrapping_add_signed(offset);
-
-        cpu.fetch_thumb_opcode(bus, MemoryCycle::S);
-
-        // 1S
-        1
+        cpu.registers.r[14] = cpu.prev_r15.wrapping_add_signed(offset);
     } else {
         // Second opcode: Add lowest 11 bits of jump address to LR, jump, and write return address to LR
         let offset_low = u32::from(opcode & 0x7FF) << 1;
         let jump_address = cpu.registers.r[14].wrapping_add(offset_low);
 
-        let return_address = cpu.registers.r[15].wrapping_sub(2);
+        let return_address = cpu.prev_r15.wrapping_sub(2);
         cpu.registers.r[14] = return_address | 1;
 
-        cpu.dummy_opcode_fetch(bus, MemoryCycle::S);
-
-        cpu.registers.r[15] = jump_address & !1;
-
-        cpu.fetch_thumb_opcode(bus, MemoryCycle::N);
-        cpu.fetch_thumb_opcode(bus, MemoryCycle::S);
-
-        // 1N + 2S
-        3
+        cpu.registers.r[15] = jump_address;
+        cpu.refill_prefetch(bus);
     }
 }

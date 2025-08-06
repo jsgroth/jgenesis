@@ -1,4 +1,6 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+use bincode::{Decode, Encode};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum MemoryCycle {
     // Non-sequential
     N,

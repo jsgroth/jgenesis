@@ -174,6 +174,8 @@ impl Exception {
 pub struct Arm7Tdmi {
     registers: Registers,
     prefetch: [u32; 2],
+    fetch_cycle: MemoryCycle,
+    prev_r15: u32,
 }
 
 impl Default for Arm7Tdmi {
@@ -194,7 +196,12 @@ pub struct Arm7TdmiResetArgs {
 impl Arm7Tdmi {
     #[must_use]
     pub fn new() -> Self {
-        Self { registers: Registers::default(), prefetch: [0, 0] }
+        Self {
+            registers: Registers::default(),
+            prefetch: [0, 0],
+            fetch_cycle: MemoryCycle::N,
+            prev_r15: 0,
+        }
     }
 
     pub fn reset(&mut self, bus: &mut impl BusInterface) {
@@ -215,12 +222,14 @@ impl Arm7Tdmi {
         self.refill_prefetch(bus);
     }
 
-    pub fn execute_instruction(&mut self, bus: &mut impl BusInterface) -> u32 {
-        if !self.registers.cpsr.irq_disabled && bus.irq() {
+    pub fn execute_instruction(&mut self, bus: &mut impl BusInterface) {
+        let irq = !self.registers.cpsr.irq_disabled && bus.irq();
+        let opcode = self.prefetch[0];
+        self.fetch_opcode(bus);
+
+        if irq {
             return self.handle_exception(Exception::Irq, bus);
         }
-
-        let opcode = self.prefetch[0];
 
         match self.registers.cpsr.state {
             CpuState::Arm => self.execute_arm_opcode(opcode, bus),
@@ -229,64 +238,56 @@ impl Arm7Tdmi {
     }
 
     fn refill_prefetch(&mut self, bus: &mut (impl BusInterface + ?Sized)) {
+        self.fetch_cycle = MemoryCycle::N;
+
         match self.registers.cpsr.state {
             CpuState::Arm => {
-                self.fetch_arm_opcode(bus, MemoryCycle::N);
-                self.fetch_arm_opcode(bus, MemoryCycle::S);
+                self.registers.r[15] &= !3;
+
+                self.fetch_opcode_state::<true>(bus);
+                self.fetch_opcode_state::<true>(bus);
             }
             CpuState::Thumb => {
-                self.fetch_thumb_opcode(bus, MemoryCycle::N);
-                self.fetch_thumb_opcode(bus, MemoryCycle::S);
+                self.registers.r[15] &= !1;
+
+                self.fetch_opcode_state::<false>(bus);
+                self.fetch_opcode_state::<false>(bus);
             }
         }
     }
 
-    fn align_pc(&mut self) {
+    fn fetch_opcode(&mut self, bus: &mut (impl BusInterface + ?Sized)) {
         match self.registers.cpsr.state {
-            CpuState::Arm => self.registers.r[15] &= !3,
-            CpuState::Thumb => self.registers.r[15] &= !1,
+            CpuState::Arm => self.fetch_opcode_state::<true>(bus),
+            CpuState::Thumb => self.fetch_opcode_state::<false>(bus),
         }
     }
 
-    fn fetch_opcode(&mut self, bus: &mut (impl BusInterface + ?Sized), cycle: MemoryCycle) {
-        match self.registers.cpsr.state {
-            CpuState::Arm => self.fetch_arm_opcode(bus, cycle),
-            CpuState::Thumb => self.fetch_thumb_opcode(bus, cycle),
-        }
-    }
+    fn fetch_opcode_state<const ARM: bool>(&mut self, bus: &mut (impl BusInterface + ?Sized)) {
+        let fetch_cycle = self.fetch_cycle;
+        self.fetch_cycle = MemoryCycle::S;
+        self.prev_r15 = self.registers.r[15];
 
-    fn fetch_arm_opcode(&mut self, bus: &mut (impl BusInterface + ?Sized), cycle: MemoryCycle) {
         self.prefetch[0] = self.prefetch[1];
-        self.prefetch[1] = bus.fetch_opcode_word(self.registers.r[15], cycle);
-        self.registers.r[15] = self.registers.r[15].wrapping_add(4);
+        if ARM {
+            self.prefetch[1] = bus.fetch_opcode_word(self.registers.r[15], fetch_cycle);
+            self.registers.r[15] = self.registers.r[15].wrapping_add(4);
 
-        log::trace!(
-            "Fetched ARM opcode {:08X} from {:08X}",
-            self.prefetch[1],
-            self.registers.r[15].wrapping_sub(4)
-        );
-    }
+            log::trace!(
+                "Fetched ARM opcode {:08X} from {:08X}",
+                self.prefetch[1],
+                self.registers.r[15].wrapping_sub(4)
+            );
+        } else {
+            // Thumb
+            self.prefetch[1] = bus.fetch_opcode_halfword(self.registers.r[15], fetch_cycle).into();
+            self.registers.r[15] = self.registers.r[15].wrapping_add(2);
 
-    fn fetch_thumb_opcode(&mut self, bus: &mut (impl BusInterface + ?Sized), cycle: MemoryCycle) {
-        self.prefetch[0] = self.prefetch[1];
-        self.prefetch[1] = bus.fetch_opcode_halfword(self.registers.r[15], cycle).into();
-        self.registers.r[15] = self.registers.r[15].wrapping_add(2);
-
-        log::trace!(
-            "Fetched Thumb opcode {:04X} from {:08X}",
-            self.prefetch[1],
-            self.registers.r[15].wrapping_sub(2)
-        );
-    }
-
-    fn dummy_opcode_fetch(&self, bus: &mut (impl BusInterface + ?Sized), cycle: MemoryCycle) {
-        match self.registers.cpsr.state {
-            CpuState::Arm => {
-                bus.fetch_opcode_word(self.registers.r[15], cycle);
-            }
-            CpuState::Thumb => {
-                bus.fetch_opcode_halfword(self.registers.r[15], cycle);
-            }
+            log::trace!(
+                "Fetched Thumb opcode {:04X} from {:08X}",
+                self.prefetch[1],
+                self.registers.r[15].wrapping_sub(2)
+            );
         }
     }
 
@@ -400,11 +401,7 @@ impl Arm7Tdmi {
         self.registers.cpsr.mode = new_mode;
     }
 
-    fn handle_exception(
-        &mut self,
-        exception: Exception,
-        bus: &mut (impl BusInterface + ?Sized),
-    ) -> u32 {
+    fn handle_exception(&mut self, exception: Exception, bus: &mut (impl BusInterface + ?Sized)) {
         log::trace!("Handling exception of type {exception:?}");
 
         let old_cpsr = self.registers.cpsr;
@@ -414,7 +411,7 @@ impl Arm7Tdmi {
         self.registers.cpsr.state = CpuState::Arm;
 
         if exception != Exception::Reset {
-            self.registers.r[14] = exception.return_address(old_cpsr.state, self.registers.r[15]);
+            self.registers.r[14] = exception.return_address(old_cpsr.state, self.prev_r15);
             if let Some(spsr) = mode.spsr(&mut self.registers) {
                 *spsr = old_cpsr;
             }
@@ -427,9 +424,14 @@ impl Arm7Tdmi {
 
         self.registers.r[15] = exception.vector_address();
         self.refill_prefetch(bus);
+    }
 
-        // 2S + 1N
-        // TODO do different exception types take more cycles?
-        3
+    fn read_register(&self, r: u32) -> u32 {
+        if r == 15 {
+            // Return R15 from before the opcode fetch
+            self.prev_r15
+        } else {
+            self.registers.r[r as usize]
+        }
     }
 }
