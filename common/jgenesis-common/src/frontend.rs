@@ -201,8 +201,8 @@ pub trait MappableInputs<Button> {
     #[allow(unused_variables)]
     fn handle_mouse_motion(
         &mut self,
-        x: i32,
-        y: i32,
+        x: f32,
+        y: f32,
         frame_size: FrameSize,
         display_area: DisplayArea,
     ) {

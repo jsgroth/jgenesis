@@ -13,9 +13,9 @@ use jgenesis_native_driver::{
     NativeSmsGgEmulator, NativeSnesEmulator, NativeTickEffect, SaveStateMetadata,
 };
 use jgenesis_proc_macros::MatchEachVariantMacro;
-use sdl2::EventPump;
-use sdl2::event::Event;
-use sdl2::joystick::{HatState, Joystick};
+use sdl3::EventPump;
+use sdl3::event::Event;
+use sdl3::joystick::{HatState, Joystick};
 use segacd_core::api::SegaCdLoadResult;
 use smsgg_core::SmsGgHardware;
 use std::collections::HashSet;
@@ -278,7 +278,7 @@ fn thread_run(ctx: EmuThreadContext) {
                         ctx.egui_ctx.request_repaint();
                     }
                     Err(err) => {
-                        log::error!("Error collecting SDL2 input: {err}");
+                        log::error!("Error collecting SDL3 input: {err}");
                     }
                 }
             }
@@ -546,14 +546,14 @@ fn collect_input_not_running(
     axis_deadzone: i16,
     scale_factor: f32,
 ) -> anyhow::Result<Option<Vec<GenericInput>>> {
-    let sdl = sdl2::init().map_err(|err| anyhow!("Error initializing SDL2: {err}"))?;
+    let sdl = sdl3::init().map_err(|err| anyhow!("Error initializing SDL3: {err}"))?;
     let video =
-        sdl.video().map_err(|err| anyhow!("Error initializing SDL2 video subsystem: {err}"))?;
+        sdl.video().map_err(|err| anyhow!("Error initializing SDL3 video subsystem: {err}"))?;
     let joystick_subsystem = sdl
         .joystick()
-        .map_err(|err| anyhow!("Error initializing SDL2 joystick subsystem: {err}"))?;
+        .map_err(|err| anyhow!("Error initializing SDL3 joystick subsystem: {err}"))?;
     let mut event_pump =
-        sdl.event_pump().map_err(|err| anyhow!("Error initializing SDL2 event pump: {err}"))?;
+        sdl.event_pump().map_err(|err| anyhow!("Error initializing SDL3 event pump: {err}"))?;
 
     let mut sdl_window = video
         .window(
@@ -692,17 +692,21 @@ fn collect_input(
                 Event::KeyUp { .. } | Event::JoyButtonUp { .. } | Event::MouseButtonUp { .. } => {
                     return Some(inputs.consume());
                 }
-                Event::JoyDeviceAdded { which: device_id, .. } => {
-                    if let Err(err) = joysticks.handle_device_added(device_id) {
-                        log::error!("Error adding joystick with device id {device_id}: {err}");
+                Event::JoyDeviceAdded { which: joystick_id, .. } => {
+                    if let Err(err) = joysticks.handle_device_added(joystick_id) {
+                        log::error!("Error adding joystick with joystick id {joystick_id}: {err}");
                     }
 
-                    if let Some(joystick) = joysticks.device(device_id) {
-                        inputs.add_device(device_id, joystick, axis_deadzone);
+                    if let Some(joystick) = joysticks.device(joystick_id) {
+                        inputs.add_device(joystick_id, joystick, axis_deadzone);
                     }
                 }
-                Event::JoyDeviceRemoved { which: instance_id, .. } => {
-                    joysticks.handle_device_removed(instance_id);
+                Event::JoyDeviceRemoved { which: joystick_id, .. } => {
+                    if let Err(err) = joysticks.handle_device_removed(joystick_id) {
+                        log::error!(
+                            "Error removing joystick with joystick id {joystick_id}: {err}"
+                        );
+                    }
                 }
                 Event::JoyButtonDown { which: instance_id, button_idx, .. } => {
                     if let Some(device_id) = joysticks.map_to_device_id(instance_id) {
