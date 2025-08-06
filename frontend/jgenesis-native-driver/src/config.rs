@@ -525,6 +525,7 @@ impl AppConfigExt for AppConfig {
             common: self.common_config(path),
             inputs: self.input.game_boy_advance.clone(),
             emulator_config: GbaEmulatorConfig {
+                skip_bios_animation: self.game_boy_advance.skip_bios_animation,
                 aspect_ratio: self.game_boy_advance.aspect_ratio,
                 color_correction: self.game_boy_advance.color_correction,
             },

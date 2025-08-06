@@ -454,6 +454,11 @@ struct Args {
     #[arg(long, help_heading = GBA_OPTIONS_HEADING)]
     gba_bios_path: Option<PathBuf>,
 
+    /// Skip BIOS intro animation
+    #[cfg(feature = "unstable-cores")]
+    #[arg(long, help_heading = GBA_OPTIONS_HEADING)]
+    gba_skip_bios_animation: Option<bool>,
+
     /// Initial window width in pixels
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     window_width: Option<u32>,
@@ -817,6 +822,10 @@ impl Args {
         if let Some(path) = &self.gba_bios_path {
             config.game_boy_advance.bios_path = Some(path.clone());
         }
+
+        apply_overrides!(self, config.game_boy_advance, [
+            gba_skip_bios_animation -> skip_bios_animation,
+        ]);
     }
 
     fn apply_video_overrides(&self, config: &mut AppConfig) {

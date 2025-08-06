@@ -7,6 +7,23 @@ use rfd::FileDialog;
 use std::path::PathBuf;
 
 impl App {
+    pub(super) fn render_gba_general_settings(&mut self, ctx: &Context) {
+        const WINDOW: OpenWindow = OpenWindow::GbaGeneral;
+
+        let mut open = true;
+
+        Window::new("GBA General Settings").open(&mut open).show(ctx, |ui| {
+            ui.checkbox(
+                &mut self.config.game_boy_advance.skip_bios_animation,
+                "Skip BIOS intro animation",
+            );
+        });
+
+        if !open {
+            self.state.open_windows.remove(&WINDOW);
+        }
+    }
+
     pub(super) fn render_gba_video_settings(&mut self, ctx: &Context) {
         const WINDOW: OpenWindow = OpenWindow::GbaVideo;
 

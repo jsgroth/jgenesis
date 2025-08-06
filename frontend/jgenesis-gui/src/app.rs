@@ -97,6 +97,8 @@ enum OpenWindow {
     NesGeneral,
     SnesGeneral,
     GameBoyGeneral,
+    #[cfg(feature = "unstable-cores")]
+    GbaGeneral,
     Synchronization,
     Paths,
     Interface,
@@ -706,6 +708,12 @@ impl App {
                 ui.close_menu();
             }
 
+            #[cfg(feature = "unstable-cores")]
+            if ui.button("Game Boy Advance").clicked() {
+                self.state.open_windows.insert(OpenWindow::GbaGeneral);
+                ui.close_menu();
+            }
+
             ui.separator();
 
             if ui.button("Synchronization").clicked() {
@@ -1011,6 +1019,8 @@ impl App {
                 OpenWindow::NesGeneral => self.render_nes_general_settings(ctx),
                 OpenWindow::SnesGeneral => self.render_snes_general_settings(ctx),
                 OpenWindow::GameBoyGeneral => self.render_gb_general_settings(ctx),
+                #[cfg(feature = "unstable-cores")]
+                OpenWindow::GbaGeneral => self.render_gba_general_settings(ctx),
                 OpenWindow::Synchronization => self.render_sync_settings(ctx),
                 OpenWindow::Paths => self.render_path_settings(ctx),
                 OpenWindow::Interface => self.render_interface_settings(ctx),

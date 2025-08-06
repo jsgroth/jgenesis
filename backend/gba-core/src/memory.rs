@@ -1,6 +1,6 @@
 //! GBA internal memory
 
-use crate::api::GbaLoadError;
+use crate::api::{GbaEmulatorConfig, GbaLoadError};
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::BoxedByteArray;
 use jgenesis_common::num::GetBit;
@@ -79,7 +79,7 @@ pub struct Memory {
 }
 
 impl Memory {
-    pub fn new(bios_rom: Vec<u8>) -> Result<Self, GbaLoadError> {
+    pub fn new(bios_rom: Vec<u8>, config: GbaEmulatorConfig) -> Result<Self, GbaLoadError> {
         if bios_rom.len() != BIOS_ROM_LEN {
             return Err(GbaLoadError::InvalidBiosLength {
                 expected: BIOS_ROM_LEN,
@@ -94,7 +94,7 @@ impl Memory {
             iwram: BoxedByteArray::new(),
             ewram: BoxedByteArray::new(),
             memory_control: MemoryControl::new(),
-            post_boot: false,
+            post_boot: config.skip_bios_animation,
         })
     }
 

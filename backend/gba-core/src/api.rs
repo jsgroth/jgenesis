@@ -10,8 +10,8 @@ use crate::ppu;
 use crate::ppu::Ppu;
 use crate::sio::SerialPort;
 use crate::timers::Timers;
-use arm7tdmi_emu::Arm7Tdmi;
 use arm7tdmi_emu::bus::BusInterface;
+use arm7tdmi_emu::{Arm7Tdmi, Arm7TdmiResetArgs, CpuMode};
 use bincode::{Decode, Encode};
 use gba_config::{GbaAspectRatio, GbaButton, GbaColorCorrection, GbaInputs};
 use jgenesis_common::frontend::{
@@ -23,6 +23,7 @@ use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct GbaEmulatorConfig {
+    pub skip_bios_animation: bool,
     pub aspect_ratio: GbaAspectRatio,
     pub color_correction: GbaColorCorrection,
 }
@@ -79,7 +80,7 @@ impl GameBoyAdvanceEmulator {
 
         let ppu = Ppu::new(config);
         let apu = Apu::new();
-        let memory = Memory::new(bios_rom)?;
+        let memory = Memory::new(bios_rom, config)?;
         let cartridge = Cartridge::new(rom, initial_save);
         let dma = DmaState::new();
         let timers = Timers::new();
@@ -100,7 +101,21 @@ impl GameBoyAdvanceEmulator {
             state: BusState::new(),
         };
 
-        cpu.reset(&mut bus);
+        if !config.skip_bios_animation {
+            cpu.reset(&mut bus);
+        } else {
+            cpu.manual_reset(
+                Arm7TdmiResetArgs {
+                    pc: 0x8000000,
+                    sp_usr: 0x3007F00,
+                    sp_svc: 0x3007FE0,
+                    sp_irq: 0x3007FA0,
+                    sp_fiq: 0,
+                    mode: CpuMode::System,
+                },
+                &mut bus,
+            );
+        }
 
         Ok(Self { cpu, bus, config })
     }

@@ -210,12 +210,23 @@ impl Arm7Tdmi {
 
     pub fn manual_reset(&mut self, args: Arm7TdmiResetArgs, bus: &mut impl BusInterface) {
         self.registers = Registers::default();
+        self.registers.r[..13].fill(0);
+        self.registers.r[14] = args.pc;
         self.registers.r[15] = args.pc;
         self.registers.r[13] = args.sp_usr;
         self.registers.r13_svc = args.sp_svc;
         self.registers.r13_irq = args.sp_irq;
         self.registers.r13_fiq = args.sp_fiq;
-        self.registers.cpsr.mode = args.mode;
+        self.registers.cpsr = StatusRegister {
+            sign: false,
+            zero: false,
+            carry: false,
+            overflow: false,
+            irq_disabled: false,
+            fiq_disabled: false,
+            state: CpuState::Arm,
+            mode: args.mode,
+        };
         self.registers.spsr_svc = 0_u32.into();
         self.registers.spsr_irq = 0_u32.into();
 

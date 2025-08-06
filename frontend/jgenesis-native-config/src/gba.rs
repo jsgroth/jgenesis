@@ -9,6 +9,8 @@ pub struct GameBoyAdvanceAppConfig {
     #[serde(default)]
     pub bios_path: Option<PathBuf>,
     #[serde(default)]
+    pub skip_bios_animation: bool,
+    #[serde(default)]
     pub aspect_ratio: GbaAspectRatio,
     #[serde(default)]
     pub color_correction: GbaColorCorrection,
