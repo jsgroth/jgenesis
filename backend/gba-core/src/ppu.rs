@@ -739,9 +739,6 @@ impl Ppu {
 
         let bg_control = &self.registers.bg_control[bg];
 
-        let dimension_tiles = bg_control.size.affine_dimension_tiles();
-        let dimension_pixels = (8 * dimension_tiles) as i32;
-
         let dx = self.registers.bg_affine_parameters[bg - 2].a;
         let dy = self.registers.bg_affine_parameters[bg - 2].c;
 

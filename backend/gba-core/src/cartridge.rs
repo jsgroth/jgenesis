@@ -58,10 +58,6 @@ impl RwMemory {
         Self::Sram(sram)
     }
 
-    fn new_eeprom(_initial_save: Option<&Vec<u8>>) -> Self {
-        Self::EepromUnknownSize
-    }
-
     fn new_flash_rom_64k(initial_save: Option<&Vec<u8>>) -> Self {
         Self::FlashRom64K(FlashRom64K::new(initial_save))
     }
