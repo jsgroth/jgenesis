@@ -418,8 +418,6 @@ impl Ppu {
         dma: &mut DmaState,
     ) {
         let elapsed_cycles = cycles - self.cycles;
-        self.cycles = cycles;
-
         self.tick(elapsed_cycles as u32, interrupts, dma);
     }
 
@@ -429,14 +427,19 @@ impl Ppu {
         interrupts: &mut InterruptRegisters,
         dma: &mut DmaState,
     ) {
-        fn render_line(ppu: &mut Ppu, _: &mut InterruptRegisters, _: &mut DmaState) {
+        fn render_line(ppu: &mut Ppu, _: &mut InterruptRegisters, _: &mut DmaState, _: u64) {
             ppu.render_current_line();
             ppu.render_next_sprite_line();
         }
 
-        fn hblank_start(ppu: &mut Ppu, interrupts: &mut InterruptRegisters, dma: &mut DmaState) {
+        fn hblank_start(
+            ppu: &mut Ppu,
+            interrupts: &mut InterruptRegisters,
+            dma: &mut DmaState,
+            cycles: u64,
+        ) {
             if ppu.registers.hblank_irq_enabled {
-                interrupts.set_flag(InterruptType::HBlank);
+                interrupts.set_flag(InterruptType::HBlank, cycles);
             }
 
             if ppu.state.scanline < SCREEN_HEIGHT {
@@ -446,7 +449,12 @@ impl Ppu {
             }
         }
 
-        fn end_of_line(ppu: &mut Ppu, interrupts: &mut InterruptRegisters, dma: &mut DmaState) {
+        fn end_of_line(
+            ppu: &mut Ppu,
+            interrupts: &mut InterruptRegisters,
+            dma: &mut DmaState,
+            cycles: u64,
+        ) {
             ppu.state.dot = 0;
 
             ppu.state.scanline += 1;
@@ -454,7 +462,7 @@ impl Ppu {
                 ppu.state.scanline = 0;
             } else if ppu.state.scanline == SCREEN_HEIGHT {
                 if ppu.registers.vblank_irq_enabled {
-                    interrupts.set_flag(InterruptType::VBlank);
+                    interrupts.set_flag(InterruptType::VBlank, cycles);
                 }
 
                 dma.notify_vblank_start();
@@ -469,11 +477,11 @@ impl Ppu {
             if ppu.registers.v_counter_irq_enabled
                 && (ppu.state.scanline as u8) == ppu.registers.v_counter_match
             {
-                interrupts.set_flag(InterruptType::VCounter);
+                interrupts.set_flag(InterruptType::VCounter, cycles);
             }
         }
 
-        type EventFn = fn(&mut Ppu, &mut InterruptRegisters, &mut DmaState);
+        type EventFn = fn(&mut Ppu, &mut InterruptRegisters, &mut DmaState, u64);
 
         // Arbitrary dot around the middle of the line
         const RENDER_DOT: u32 = 526;
@@ -493,9 +501,10 @@ impl Ppu {
             let change = cmp::min(elapsed_cycles, LINE_EVENTS[event_idx].0 - self.state.dot);
             self.state.dot += change;
             elapsed_cycles -= change;
+            self.cycles += u64::from(change);
 
             if self.state.dot == LINE_EVENTS[event_idx].0 {
-                (LINE_EVENTS[event_idx].1)(self, interrupts, dma);
+                (LINE_EVENTS[event_idx].1)(self, interrupts, dma, self.cycles);
             }
         }
     }

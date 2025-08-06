@@ -142,13 +142,16 @@ impl Bus {
                 // SIO registers
                 self.sio.write_register(address, value);
             }
-            0x4000200 => self.interrupts.write_ie(value),
-            0x4000202 => self.interrupts.write_if(value),
+            0x4000200 => self.interrupts.write_ie(value, self.state.cycles),
+            0x4000202 => self.interrupts.write_if(value, self.state.cycles),
             0x4000204 => self.memory.write_waitcnt(value),
             0x4000206 => {} // High halfword of word writes to WAITCNT
-            0x4000208 => self.interrupts.write_ime(value),
+            0x4000208 => self.interrupts.write_ime(value, self.state.cycles),
             0x400020A => {} // High halfword of word writes to IME
-            0x4000300 => self.memory.write_postflg_haltcnt(value),
+            0x4000300 => {
+                self.memory.write_postflg(value as u8);
+                self.interrupts.halt_cpu();
+            }
             0x4000302 => {} // High halfword of word writes to POSTFLG/HALTCNT
             _ => log::warn!("Unhandled I/O register halfword write {address:08X} {value:04X}"),
         }
@@ -167,13 +170,11 @@ impl Bus {
                 self.apu.step_to(self.state.cycles);
                 self.apu.write_register(address, value);
             }
-            0x4000202 => self.interrupts.write_if(value.into()),
-            0x4000203 => self.interrupts.write_if(u16::from(value) << 8),
-            0x4000208 => self.interrupts.write_ime(value.into()),
+            0x4000202 => self.interrupts.write_if(value.into(), self.state.cycles),
+            0x4000203 => self.interrupts.write_if(u16::from(value) << 8, self.state.cycles),
+            0x4000208 => self.interrupts.write_ime(value.into(), self.state.cycles),
             0x4000300 => self.memory.write_postflg(value),
-            0x4000301 => {
-                // TODO HALTCNT (undocumented halt register)
-            }
+            0x4000301 => self.interrupts.halt_cpu(),
             0x4000410 => {} // Unknown; BIOS writes 0xFF to this register
             _ => log::warn!("Unhandled I/O register byte write {address:08X} {value:02X}"),
         }
@@ -185,7 +186,10 @@ impl Bus {
         for _ in 0..20 {
             self.dma.decrement_start_latency(self.state.cycles);
 
-            let Some(transfer) = self.dma.next_transfer(&mut self.interrupts) else { return false };
+            let Some(transfer) = self.dma.next_transfer(&mut self.interrupts, self.state.cycles)
+            else {
+                return false;
+            };
 
             // TODO better timing (e.g. N vs. S cycles)
 

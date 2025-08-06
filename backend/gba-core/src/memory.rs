@@ -173,14 +173,7 @@ impl Memory {
     // $4000300: POSTFLG (Post boot flag)
     pub fn write_postflg(&mut self, value: u8) {
         self.post_boot = value.bit(0);
-    }
-
-    // $4000300: POSTFLG (Post boot flag)
-    // $4000301: HALTCNT (Halt control)
-    pub fn write_postflg_haltcnt(&mut self, value: u16) {
-        let [lsb, msb] = value.to_le_bytes();
-        self.write_postflg(value as u8);
-        // TODO HALTCNT
+        log::trace!("POSTFLG write {value:02X}");
     }
 
     pub fn clone_bios_rom(&mut self) -> Vec<u8> {

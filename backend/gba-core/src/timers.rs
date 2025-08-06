@@ -67,7 +67,7 @@ impl Timer {
             self.counter = self.reload;
 
             if self.irq_enabled {
-                interrupts.set_flag(InterruptType::TIMER[self.idx as usize]);
+                interrupts.set_flag(InterruptType::TIMER[self.idx as usize], current_cycles);
             }
         }
 

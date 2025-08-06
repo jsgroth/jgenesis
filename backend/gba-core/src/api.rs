@@ -11,6 +11,7 @@ use crate::ppu::Ppu;
 use crate::sio::SerialPort;
 use crate::timers::Timers;
 use arm7tdmi_emu::Arm7Tdmi;
+use arm7tdmi_emu::bus::BusInterface;
 use bincode::{Decode, Encode};
 use gba_config::{GbaAspectRatio, GbaButton, GbaColorCorrection, GbaInputs};
 use jgenesis_common::frontend::{
@@ -134,8 +135,13 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
     {
         self.bus.inputs = *inputs;
 
+        self.bus.interrupts.sync(self.bus.state.cycles);
         if !self.bus.try_progress_dma() {
-            self.cpu.execute_instruction(&mut self.bus);
+            if !self.bus.interrupts.cpu_halted() {
+                self.cpu.execute_instruction(&mut self.bus);
+            } else {
+                self.bus.internal_cycles(1);
+            }
         }
 
         self.bus.timers.step_to(

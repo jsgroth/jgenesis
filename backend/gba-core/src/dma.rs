@@ -326,7 +326,11 @@ impl DmaState {
         self.any_start_latency = self.channels.iter().any(|channel| channel.start_latency != 0);
     }
 
-    pub fn next_transfer(&mut self, interrupts: &mut InterruptRegisters) -> Option<DmaTransfer> {
+    pub fn next_transfer(
+        &mut self,
+        interrupts: &mut InterruptRegisters,
+        cycles: u64,
+    ) -> Option<DmaTransfer> {
         if !self.any_active {
             return None;
         }
@@ -372,7 +376,7 @@ impl DmaState {
                 }
 
                 if channel.irq_enabled {
-                    interrupts.set_flag(InterruptType::DMA[i]);
+                    interrupts.set_flag(InterruptType::DMA[i], cycles);
                 }
             }
 
