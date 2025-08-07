@@ -118,6 +118,8 @@ impl RwMemory {
 pub struct Cartridge {
     #[partial_clone(default)]
     rom: Rom,
+    burst_active: bool,
+    burst_address: u32,
     rw_memory: RwMemory,
     rw_memory_dirty: bool,
     min_eeprom_address: u32,
@@ -134,6 +136,8 @@ impl Cartridge {
 
         Self {
             rom: Rom(rom.into_boxed_slice()),
+            burst_active: false,
+            burst_address: 0,
             rw_memory,
             rw_memory_dirty: false,
             min_eeprom_address,
@@ -141,24 +145,35 @@ impl Cartridge {
         }
     }
 
-    pub fn read_rom_byte(&mut self, address: u32) -> u8 {
-        if address >= self.min_eeprom_address
-            && let Some(bit) = self.try_eeprom_read()
-        {
-            return bit.into();
-        }
-
-        let rom_addr = (address as usize) & 0x1FFFFFF;
-        if rom_addr >= self.rom.len() {
-            // Out of bounds
-            let open_bus = rom_addr >> 1;
-            return if !rom_addr.bit(0) { open_bus as u8 } else { (open_bus >> 8) as u8 };
-        }
-
-        self.rom[rom_addr]
+    pub fn end_rom_burst(&mut self) {
+        self.burst_active = false;
     }
 
-    pub fn read_rom_halfword(&mut self, address: u32) -> u16 {
+    // Returns address that should be used for the ROM access
+    #[must_use]
+    fn update_burst_state(&mut self, address: u32) -> u32 {
+        if !self.burst_active {
+            // Non-sequential ROM accesses begin a burst and latch A1-16
+            self.burst_active = true;
+            self.burst_address = address & 0x1FFFE;
+        } else if address & 0x1FFFE != self.burst_address {
+            println!("!!! {address:08X} {:05X}", self.burst_address);
+        }
+
+        let rom_addr = (address & !0x1FFFF) | self.burst_address;
+        self.burst_address = (self.burst_address + 2) & 0x1FFFF;
+
+        if address & 0x1FFFE == 0x1FFFE {
+            // Bursts always end when the final halfword of a 128KB page is requested
+            self.burst_active = false;
+        }
+
+        rom_addr
+    }
+
+    pub fn read_rom(&mut self, address: u32) -> u16 {
+        let address = self.update_burst_state(address);
+
         if address >= self.min_eeprom_address
             && let Some(bit) = self.try_eeprom_read()
         {
@@ -175,25 +190,6 @@ impl Cartridge {
         u16::from_le_bytes(self.rom[rom_addr..rom_addr + 2].try_into().unwrap())
     }
 
-    pub fn read_rom_word(&mut self, address: u32) -> u32 {
-        if address >= self.min_eeprom_address {
-            // TODO what actually happens with 32-bit EEPROM reads?
-            let first_bit = self.try_eeprom_read().unwrap_or(false);
-            let second_bit = self.try_eeprom_read().unwrap_or(false);
-            return u32::from(first_bit) | (u32::from(second_bit) << 16);
-        }
-
-        let rom_addr = (address as usize) & 0x1FFFFFF & !3;
-        if rom_addr >= self.rom.len() {
-            // Out of bounds
-            let open_bus = ((rom_addr >> 1) & 0xFFFF) as u32;
-            let open_bus_next = (open_bus + 1) & 0xFFFF;
-            return open_bus | (open_bus_next << 16);
-        }
-
-        u32::from_le_bytes(self.rom[rom_addr..rom_addr + 4].try_into().unwrap())
-    }
-
     fn try_eeprom_read(&mut self) -> Option<bool> {
         match &mut self.rw_memory {
             RwMemory::Eeprom512(eeprom) => Some(eeprom.read()),
@@ -203,6 +199,8 @@ impl Cartridge {
     }
 
     pub fn write_rom(&mut self, address: u32, value: u16) {
+        let address = self.update_burst_state(address);
+
         if address < self.min_eeprom_address {
             log::warn!("Ignoring write to ROM address: {address:08X} {value:04X}");
             return;

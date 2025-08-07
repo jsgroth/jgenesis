@@ -24,13 +24,20 @@ const EWRAM_WAIT_WORD: u64 = 1 + 2 * EWRAM_WAIT;
 // using the full number of wait cycles will produce too-slow timing without prefetch emulation
 const ROM_WAIT: u64 = 1;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AccessContext {
+    CpuInstruction,
+    CpuData,
+    Dma,
+}
+
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 pub(crate) struct BusState {
     pub cycles: u64,
     pub cpu_pc: u32,
     pub last_bios_read: u32,
     pub open_bus: u32,
-    pub dma_running: bool,
+    pub active_dma_channel: Option<u8>,
     pub locked: bool,
 }
 
@@ -41,7 +48,7 @@ impl BusState {
             cpu_pc: 0,
             last_bios_read: 0,
             open_bus: 0,
-            dma_running: false,
+            active_dma_channel: None,
             locked: false,
         }
     }
@@ -205,7 +212,8 @@ impl Bus {
     }
 
     pub fn try_progress_dma(&mut self) {
-        if self.state.dma_running || self.state.locked {
+        if self.state.locked {
+            // DMA cannot run while CPU is locking the bus (SWAP instruction)
             return;
         }
 
@@ -214,45 +222,66 @@ impl Bus {
 
             let Some(transfer) = self.dma.next_transfer(&mut self.interrupts, self.state.cycles)
             else {
-                if self.state.dma_running {
-                    // Idle cycle when DMA finishes
+                if self.state.active_dma_channel.is_some() {
+                    // Idle cycle and end ROM burst when DMA finishes
                     self.state.cycles += 1;
+                    self.cartridge.end_rom_burst();
                 }
+                self.state.active_dma_channel = None;
 
-                self.state.dma_running = false;
                 return;
             };
 
-            if !self.state.dma_running {
-                // Idle cycle when DMA starts
+            if self.state.active_dma_channel.is_none() {
+                // Idle cycle and end ROM burst when DMA starts
                 self.state.cycles += 1;
+                self.cartridge.end_rom_burst();
+            } else if self.state.active_dma_channel != Some(transfer.channel) {
+                // End ROM burst when channel changes
+                self.cartridge.end_rom_burst();
             }
-            self.state.dma_running = true;
-
-            // TODO better timing (e.g. N vs. S cycles)
+            self.state.active_dma_channel = Some(transfer.channel);
 
             match transfer.unit {
                 TransferUnit::Halfword => {
                     let value = match transfer.source {
                         TransferSource::Memory { address } => {
-                            let value = self.read_halfword(address & !1, MemoryCycle::S);
+                            let value = self.read_halfword_internal(
+                                address & !1,
+                                MemoryCycle::S,
+                                AccessContext::Dma,
+                            );
                             self.dma.update_read_latch_halfword(transfer.channel, value);
                             value
                         }
                         TransferSource::Value(value) => value as u16,
                     };
-                    self.write_halfword(transfer.destination & !1, value, MemoryCycle::S);
+                    self.write_halfword_internal(
+                        transfer.destination & !1,
+                        value,
+                        MemoryCycle::S,
+                        AccessContext::Dma,
+                    );
                 }
                 TransferUnit::Word => {
                     let value = match transfer.source {
                         TransferSource::Memory { address } => {
-                            let value = self.read_word(address & !3, MemoryCycle::S);
+                            let value = self.read_word_internal(
+                                address & !3,
+                                MemoryCycle::S,
+                                AccessContext::Dma,
+                            );
                             self.dma.update_read_latch_word(transfer.channel, value);
                             value
                         }
                         TransferSource::Value(value) => value,
                     };
-                    self.write_word(transfer.destination & !3, value, MemoryCycle::S);
+                    self.write_word_internal(
+                        transfer.destination & !3,
+                        value,
+                        MemoryCycle::S,
+                        AccessContext::Dma,
+                    );
                 }
             }
 
@@ -312,11 +341,17 @@ impl Bus {
         log::warn!("Open bus word read {address:08X}, returning {:08X}", self.state.open_bus);
         self.state.open_bus
     }
-}
 
-impl BusInterface for Bus {
+    fn maybe_end_rom_burst(&mut self, cycle: MemoryCycle) {
+        // N cycles always end ROM burst
+        // TODO except instruction fetches when prefetch is enabled
+        if cycle == MemoryCycle::N {
+            self.cartridge.end_rom_burst();
+        }
+    }
+
     #[inline]
-    fn read_byte(&mut self, address: u32, _cycle: MemoryCycle) -> u8 {
+    fn read_byte_internal(&mut self, address: u32, cycle: MemoryCycle) -> u8 {
         self.try_progress_dma();
 
         self.state.cycles += 1;
@@ -357,7 +392,11 @@ impl BusInterface for Bus {
             }
             0x8000000..=0xDFFFFFF => {
                 self.state.cycles += ROM_WAIT;
-                self.cartridge.read_rom_byte(address)
+
+                self.maybe_end_rom_burst(cycle);
+
+                let halfword = self.cartridge.read_rom(address);
+                halfword.to_le_bytes()[(address & 1) as usize]
             }
             0xE000000..=0xFFFFFFF => {
                 self.state.cycles += self.memory.control().sram_wait;
@@ -379,8 +418,15 @@ impl BusInterface for Bus {
     }
 
     #[inline]
-    fn read_halfword(&mut self, address: u32, _cycle: MemoryCycle) -> u16 {
-        self.try_progress_dma();
+    fn read_halfword_internal(
+        &mut self,
+        address: u32,
+        cycle: MemoryCycle,
+        ctx: AccessContext,
+    ) -> u16 {
+        if ctx != AccessContext::Dma {
+            self.try_progress_dma();
+        }
 
         self.state.cycles += 1;
 
@@ -417,7 +463,9 @@ impl BusInterface for Bus {
             }
             0x8000000..=0xDFFFFFF => {
                 self.state.cycles += ROM_WAIT;
-                self.cartridge.read_rom_halfword(address)
+
+                self.maybe_end_rom_burst(cycle);
+                self.cartridge.read_rom(address)
             }
             0xE000000..=0xFFFFFFF => {
                 self.state.cycles += self.memory.control().sram_wait;
@@ -439,7 +487,7 @@ impl BusInterface for Bus {
     }
 
     #[inline]
-    fn read_word(&mut self, address: u32, _cycle: MemoryCycle) -> u32 {
+    fn read_word_internal(&mut self, address: u32, cycle: MemoryCycle, ctx: AccessContext) -> u32 {
         fn two_halfword_reads(address: u32, mut read_fn: impl FnMut(u32) -> u16) -> u32 {
             let address = address & !3;
             let low_halfword = read_fn(address);
@@ -447,7 +495,9 @@ impl BusInterface for Bus {
             (u32::from(high_halfword) << 16) | u32::from(low_halfword)
         }
 
-        self.try_progress_dma();
+        if ctx != AccessContext::Dma {
+            self.try_progress_dma();
+        }
 
         self.state.cycles += 1;
 
@@ -490,7 +540,12 @@ impl BusInterface for Bus {
             0x8000000..=0xCFFFFFF => {
                 // Cartridge ROM has a 16-bit data bus
                 self.state.cycles += 1 + 2 * ROM_WAIT;
-                self.cartridge.read_rom_word(address)
+
+                self.maybe_end_rom_burst(cycle);
+
+                let low: u32 = self.cartridge.read_rom(address & !2).into();
+                let high: u32 = self.cartridge.read_rom(address | 2).into();
+                low | (high << 16)
             }
             0xD000000..=0xDFFFFFF => 0xFFFF,
             0xE000000..=0xFFFFFFF => {
@@ -511,19 +566,7 @@ impl BusInterface for Bus {
     }
 
     #[inline]
-    fn fetch_opcode_halfword(&mut self, address: u32, cycle: MemoryCycle) -> u16 {
-        self.state.cpu_pc = address;
-        self.read_halfword(address, cycle)
-    }
-
-    #[inline]
-    fn fetch_opcode_word(&mut self, address: u32, cycle: MemoryCycle) -> u32 {
-        self.state.cpu_pc = address;
-        self.read_word(address, cycle)
-    }
-
-    #[inline]
-    fn write_byte(&mut self, address: u32, value: u8, _cycle: MemoryCycle) {
+    fn write_byte_internal(&mut self, address: u32, value: u8, cycle: MemoryCycle) {
         self.try_progress_dma();
 
         self.state.cycles += 1;
@@ -554,6 +597,8 @@ impl BusInterface for Bus {
             0x8000000..=0xDFFFFFF => {
                 // TODO 8-bit write to EEPROM???
                 self.state.cycles += ROM_WAIT;
+
+                self.maybe_end_rom_burst(cycle);
                 self.cartridge.write_rom(address, value.into());
             }
             0xE000000..=0xFFFFFFF => {
@@ -567,8 +612,16 @@ impl BusInterface for Bus {
     }
 
     #[inline]
-    fn write_halfword(&mut self, address: u32, value: u16, _cycle: MemoryCycle) {
-        self.try_progress_dma();
+    fn write_halfword_internal(
+        &mut self,
+        address: u32,
+        value: u16,
+        cycle: MemoryCycle,
+        ctx: AccessContext,
+    ) {
+        if ctx != AccessContext::Dma {
+            self.try_progress_dma();
+        }
 
         self.state.cycles += 1;
 
@@ -599,6 +652,8 @@ impl BusInterface for Bus {
             }
             0x8000000..=0xDFFFFFF => {
                 self.state.cycles += ROM_WAIT;
+
+                self.maybe_end_rom_burst(cycle);
                 self.cartridge.write_rom(address, value);
             }
             0xE000000..=0xFFFFFFF => {
@@ -612,14 +667,22 @@ impl BusInterface for Bus {
     }
 
     #[inline]
-    fn write_word(&mut self, address: u32, value: u32, _cycle: MemoryCycle) {
+    fn write_word_internal(
+        &mut self,
+        address: u32,
+        value: u32,
+        cycle: MemoryCycle,
+        ctx: AccessContext,
+    ) {
         fn two_halfword_stores(address: u32, value: u32, mut write_fn: impl FnMut(u32, u16)) {
             let address = address & !3;
             write_fn(address, value as u16);
             write_fn(address | 2, (value >> 16) as u16);
         }
 
-        self.try_progress_dma();
+        if ctx != AccessContext::Dma {
+            self.try_progress_dma();
+        }
 
         self.state.cycles += 1;
 
@@ -664,6 +727,8 @@ impl BusInterface for Bus {
             0x8000000..=0xDFFFFFF => {
                 self.state.cycles += 1 + 2 * ROM_WAIT;
 
+                self.maybe_end_rom_burst(cycle);
+
                 two_halfword_stores(address, value, |address, value| {
                     self.cartridge.write_rom(address, value);
                 });
@@ -677,6 +742,50 @@ impl BusInterface for Bus {
 
         self.state.open_bus = value;
     }
+}
+
+impl BusInterface for Bus {
+    #[inline]
+    fn read_byte(&mut self, address: u32, cycle: MemoryCycle) -> u8 {
+        self.read_byte_internal(address, cycle)
+    }
+
+    #[inline]
+    fn read_halfword(&mut self, address: u32, cycle: MemoryCycle) -> u16 {
+        self.read_halfword_internal(address, cycle, AccessContext::CpuData)
+    }
+
+    #[inline]
+    fn read_word(&mut self, address: u32, cycle: MemoryCycle) -> u32 {
+        self.read_word_internal(address, cycle, AccessContext::CpuData)
+    }
+
+    #[inline]
+    fn fetch_opcode_halfword(&mut self, address: u32, cycle: MemoryCycle) -> u16 {
+        self.state.cpu_pc = address;
+        self.read_halfword_internal(address, cycle, AccessContext::CpuInstruction)
+    }
+
+    #[inline]
+    fn fetch_opcode_word(&mut self, address: u32, cycle: MemoryCycle) -> u32 {
+        self.state.cpu_pc = address;
+        self.read_word_internal(address, cycle, AccessContext::CpuInstruction)
+    }
+
+    #[inline]
+    fn write_byte(&mut self, address: u32, value: u8, cycle: MemoryCycle) {
+        self.write_byte_internal(address, value, cycle);
+    }
+
+    #[inline]
+    fn write_halfword(&mut self, address: u32, value: u16, cycle: MemoryCycle) {
+        self.write_halfword_internal(address, value, cycle, AccessContext::CpuData);
+    }
+
+    #[inline]
+    fn write_word(&mut self, address: u32, value: u32, cycle: MemoryCycle) {
+        self.write_word_internal(address, value, cycle, AccessContext::CpuData);
+    }
 
     #[inline]
     fn irq(&self) -> bool {
@@ -689,6 +798,12 @@ impl BusInterface for Bus {
         let new_cycles = self.state.cycles + u64::from(cycles);
         self.try_progress_dma();
         self.state.cycles = cmp::max(self.state.cycles, new_cycles);
+
+        // "Prefetch disabled bug"
+        // When the CPU takes an internal cycle while prefetch is disabled, any in-progress ROM burst ends
+        // This forces the next ROM access to use N-cycle timings
+        // TODO actually check whether prefetch is enabled (requires implementing prefetch)
+        self.cartridge.end_rom_burst();
     }
 
     #[inline]
