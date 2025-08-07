@@ -255,12 +255,10 @@ impl App {
                         if ui
                             .add(Slider::new(&mut self.state.prescale_factor_raw, 1..=16))
                             .changed()
-                        {
-                            if let Some(prescale_factor) =
+                            && let Some(prescale_factor) =
                                 NonZeroU32::new(self.state.prescale_factor_raw)
-                            {
-                                self.config.common.prescale_factor = prescale_factor.into();
-                            }
+                        {
+                            self.config.common.prescale_factor = prescale_factor.into();
                         }
                     });
                 });

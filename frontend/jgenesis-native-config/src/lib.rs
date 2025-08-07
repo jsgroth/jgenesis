@@ -161,14 +161,14 @@ fn default_linux_config_path() -> PathBuf {
     };
 
     let jgenesis_dir = base_dirs.config_dir().join("jgenesis");
-    if !jgenesis_dir.exists() {
-        if let Err(err) = fs::create_dir_all(&jgenesis_dir) {
-            log::error!(
-                "Unable to create config directory '{}', app config will probably not save: {err}",
-                jgenesis_dir.display()
-            );
-            return CONFIG_FILENAME.into();
-        }
+    if !jgenesis_dir.exists()
+        && let Err(err) = fs::create_dir_all(&jgenesis_dir)
+    {
+        log::error!(
+            "Unable to create config directory '{}', app config will probably not save: {err}",
+            jgenesis_dir.display()
+        );
+        return CONFIG_FILENAME.into();
     }
 
     jgenesis_dir.join(CONFIG_FILENAME)

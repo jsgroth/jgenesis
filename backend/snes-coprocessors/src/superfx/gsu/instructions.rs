@@ -172,12 +172,10 @@ fn read_memory(bank: u8, address: u16, rom: &[u8], ram: &[u8]) -> (u8, MemoryTyp
 
 fn fetch_opcode(gsu: &mut GraphicsSupportUnit, rom: &[u8], ram: &[u8]) {
     let is_cacheable = gsu.code_cache.pc_is_cacheable(gsu.r[15]);
-    if is_cacheable {
-        if let Some(opcode) = gsu.code_cache.get(gsu.r[15]) {
-            gsu.state.opcode_buffer = opcode;
-            gsu.r[15] = gsu.r[15].wrapping_add(1);
-            return;
-        }
+    if is_cacheable && let Some(opcode) = gsu.code_cache.get(gsu.r[15]) {
+        gsu.state.opcode_buffer = opcode;
+        gsu.r[15] = gsu.r[15].wrapping_add(1);
+        return;
     }
 
     let (opcode, _) = read_memory(gsu.pbr, gsu.r[15], rom, ram);

@@ -637,10 +637,10 @@ impl CollectedInputs {
             return CollectionDone::No;
         }
 
-        if let Some(opposite) = opposite_input(input) {
-            if self.inputs.0.contains(&opposite) {
-                return CollectionDone::Yes;
-            }
+        if let Some(opposite) = opposite_input(input)
+            && self.inputs.0.contains(&opposite)
+        {
+            return CollectionDone::Yes;
         }
 
         self.inputs.insert(input);
@@ -705,14 +705,13 @@ fn collect_input(
                     joysticks.handle_device_removed(instance_id);
                 }
                 Event::JoyButtonDown { which: instance_id, button_idx, .. } => {
-                    if let Some(device_id) = joysticks.map_to_device_id(instance_id) {
-                        if inputs.insert(GenericInput::Gamepad {
+                    if let Some(device_id) = joysticks.map_to_device_id(instance_id)
+                        && inputs.insert(GenericInput::Gamepad {
                             gamepad_idx: device_id,
                             action: GamepadAction::Button(button_idx),
                         }) == CollectionDone::Yes
-                        {
-                            return Some(inputs.consume());
-                        }
+                    {
+                        return Some(inputs.consume());
                     }
                 }
                 Event::JoyAxisMotion { which: instance_id, axis_idx, value, .. } => {
@@ -759,14 +758,13 @@ fn collect_input(
                         continue;
                     }
 
-                    if let Some(direction) = hat_direction_for(state) {
-                        if inputs.insert(GenericInput::Gamepad {
+                    if let Some(direction) = hat_direction_for(state)
+                        && inputs.insert(GenericInput::Gamepad {
                             gamepad_idx,
                             action: GamepadAction::Hat(hat_idx, direction),
                         }) == CollectionDone::Yes
-                        {
-                            return Some(inputs.consume());
-                        }
+                    {
+                        return Some(inputs.consume());
                     }
                 }
                 Event::MouseButtonDown { mouse_btn, .. } => {

@@ -1078,10 +1078,10 @@ impl Vdp {
         self.state.vram_fill_data = Some(entry.word);
 
         self.fifo.pop();
-        if !self.fifo.is_full() {
-            if let Some(pending_write) = self.pending_fifo_writes.pop_front() {
-                self.push_fifo(pending_write);
-            }
+        if !self.fifo.is_full()
+            && let Some(pending_write) = self.pending_fifo_writes.pop_front()
+        {
+            self.push_fifo(pending_write);
         }
 
         self.state.data_port_read_wait &= !self.fifo.is_empty();

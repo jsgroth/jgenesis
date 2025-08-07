@@ -49,16 +49,16 @@ impl Memory {
 
         // If boot ROM is present, validate that it's the expected length
         // Allow CGB boot ROMs to be either 2048 bytes or 2048+256 bytes (with a filler $01 page)
-        if let Some(boot_rom) = &mut boot_rom {
-            if boot_rom.len() != boot_rom_len {
-                if hardware_mode == HardwareMode::Cgb && boot_rom.len() == boot_rom_len - 256 {
-                    *boot_rom = pad_cgb_boot_rom(boot_rom);
-                } else {
-                    return Err(GameBoyLoadError::InvalidBootRomSize {
-                        actual: boot_rom.len(),
-                        expected: boot_rom_len,
-                    });
-                }
+        if let Some(boot_rom) = &mut boot_rom
+            && boot_rom.len() != boot_rom_len
+        {
+            if hardware_mode == HardwareMode::Cgb && boot_rom.len() == boot_rom_len - 256 {
+                *boot_rom = pad_cgb_boot_rom(boot_rom);
+            } else {
+                return Err(GameBoyLoadError::InvalidBootRomSize {
+                    actual: boot_rom.len(),
+                    expected: boot_rom_len,
+                });
             }
         }
 

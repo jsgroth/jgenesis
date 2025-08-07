@@ -136,10 +136,10 @@ impl Vdp {
                     false,
                 );
 
-                if self.config.deinterlace {
-                    if let Some(frame_buffer_row) = frame_buffer_row {
-                        self.copy_frame_buffer_row(frame_buffer_row, frame_buffer_row ^ 1);
-                    }
+                if self.config.deinterlace
+                    && let Some(frame_buffer_row) = frame_buffer_row
+                {
+                    self.copy_frame_buffer_row(frame_buffer_row, frame_buffer_row ^ 1);
                 }
             }
             InterlacingMode::InterlacedDouble => {

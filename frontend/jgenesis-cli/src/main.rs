@@ -949,16 +949,16 @@ fn main() -> anyhow::Result<()> {
     });
 
     // Persist default config if the file doesn't exist
-    if let Ok(config_file_exists) = fs::exists(&config_path) {
-        if !config_file_exists {
-            let config_str = toml::to_string_pretty(&config)?;
-            log::info!("Persisting default config to '{}'", config_path.display());
-            if let Err(err) = fs::write(&config_path, &config_str) {
-                log::error!(
-                    "Error serializing default config file to '{}': {err}",
-                    config_path.display()
-                );
-            }
+    if let Ok(config_file_exists) = fs::exists(&config_path)
+        && !config_file_exists
+    {
+        let config_str = toml::to_string_pretty(&config)?;
+        log::info!("Persisting default config to '{}'", config_path.display());
+        if let Err(err) = fs::write(&config_path, &config_str) {
+            log::error!(
+                "Error serializing default config file to '{}': {err}",
+                config_path.display()
+            );
         }
     }
 

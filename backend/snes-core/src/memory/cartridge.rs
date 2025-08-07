@@ -760,10 +760,10 @@ fn guess_cartridge_type(rom: &[u8]) -> Option<CartridgeType> {
     }
 
     // Check for any coprocessors that put the header in the LoROM header location
-    if lorom_points >= hirom_points {
-        if let Some(coprocessor) = check_for_lorom_coprocessor(rom) {
-            return Some(coprocessor);
-        }
+    if lorom_points >= hirom_points
+        && let Some(coprocessor) = check_for_lorom_coprocessor(rom)
+    {
+        return Some(coprocessor);
     }
 
     // Check for SPC7110

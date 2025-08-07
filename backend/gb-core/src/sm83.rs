@@ -284,11 +284,11 @@ impl Sm83 {
             self.state.pending_ime_set = false;
         }
 
-        if let Some(b_override) = self.state.pending_b_override {
-            if self.registers.pc == CARTRIDGE_ENTRY_POINT {
-                self.registers.b = b_override;
-                self.state.pending_b_override = None;
-            }
+        if let Some(b_override) = self.state.pending_b_override
+            && self.registers.pc == CARTRIDGE_ENTRY_POINT
+        {
+            self.registers.b = b_override;
+            self.state.pending_b_override = None;
         }
 
         let opcode = self.fetch_operand(bus);

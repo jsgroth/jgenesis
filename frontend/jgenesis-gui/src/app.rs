@@ -231,12 +231,12 @@ fn load_app_config(config_path: &Path) -> AppConfig {
         AppConfig::default()
     });
 
-    if let Some(migrated_config) = jgenesis_native_config::migrate_config(&config, &config_str) {
-        if config != migrated_config {
-            config = migrated_config;
-            if let Err(err) = fs::write(config_path, toml::to_string_pretty(&config).unwrap()) {
-                log::error!("Error serializing app config: {err}");
-            }
+    if let Some(migrated_config) = jgenesis_native_config::migrate_config(&config, &config_str)
+        && config != migrated_config
+    {
+        config = migrated_config;
+        if let Err(err) = fs::write(config_path, toml::to_string_pretty(&config).unwrap()) {
+            log::error!("Error serializing app config: {err}");
         }
     }
 
@@ -1130,10 +1130,10 @@ impl App {
                 self.state.waiting_for_input = None;
 
                 log::info!("Received input {input:?} for button {button:?}");
-                if let Some(input) = input {
-                    if !input.is_empty() {
-                        *button.access_value(mapping, &mut self.config.input) = Some(input);
-                    }
+                if let Some(input) = input
+                    && !input.is_empty()
+                {
+                    *button.access_value(mapping, &mut self.config.input) = Some(input);
                 }
             } else if self.emu_thread.status().is_running() {
                 Window::new("Input Configuration").resizable(false).show(ctx, |ui| {
@@ -1218,16 +1218,16 @@ impl eframe::App for App {
             self.refresh_filtered_rom_list();
         }
 
-        if self.state.rendered_first_frame {
-            if let Some(load_at_startup) = self.load_at_startup.take() {
-                self.launch_emulator(load_at_startup.file_path, None);
+        if self.state.rendered_first_frame
+            && let Some(load_at_startup) = self.load_at_startup.take()
+        {
+            self.launch_emulator(load_at_startup.file_path, None);
 
-                if let Some(load_state_slot) = load_at_startup.load_state_slot {
-                    self.emu_thread.send(EmuThreadCommand::LoadState { slot: load_state_slot });
-                }
-
-                self.state.close_on_emulator_exit = true;
+            if let Some(load_state_slot) = load_at_startup.load_state_slot {
+                self.emu_thread.send(EmuThreadCommand::LoadState { slot: load_state_slot });
             }
+
+            self.state.close_on_emulator_exit = true;
         }
 
         let prev_config = self.config.clone();

@@ -524,10 +524,10 @@ where
 
         self.hotkey_state.should_step_frame = false;
 
-        if let Some(debugger_window) = &mut self.hotkey_state.debugger_window {
-            if let Err(err) = debugger_window.update(&mut self.emulator) {
-                log::error!("Debugger window error: {err}");
-            }
+        if let Some(debugger_window) = &mut self.hotkey_state.debugger_window
+            && let Err(err) = debugger_window.update(&mut self.emulator)
+        {
+            log::error!("Debugger window error: {err}");
         }
 
         // Gymnastics to avoid borrow checker errors that would otherwise occur due to

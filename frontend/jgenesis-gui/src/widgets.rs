@@ -36,10 +36,10 @@ impl Widget for SavePathSelect<'_> {
                     ui.label("Custom path:");
 
                     let button_label = self.custom_path.to_string_lossy();
-                    if ui.button(button_label).clicked() {
-                        if let Some(path) = FileDialog::new().pick_folder() {
-                            *self.custom_path = path;
-                        }
+                    if ui.button(button_label).clicked()
+                        && let Some(path) = FileDialog::new().pick_folder()
+                    {
+                        *self.custom_path = path;
                     }
                 });
             });

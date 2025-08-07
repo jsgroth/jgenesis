@@ -240,12 +240,12 @@ impl Namco163 {
 
         let mut internal_ram = [0; 128];
 
-        if has_battery && prg_ram_len == 0 {
-            if let Some(sav_bytes) = sav_bytes {
-                if sav_bytes.len() == internal_ram.len() {
-                    internal_ram.copy_from_slice(&sav_bytes);
-                }
-            }
+        if has_battery
+            && prg_ram_len == 0
+            && let Some(sav_bytes) = sav_bytes
+            && sav_bytes.len() == internal_ram.len()
+        {
+            internal_ram.copy_from_slice(&sav_bytes);
         }
 
         log::info!("Namco 163 volume variant: {volume_variant:?}");

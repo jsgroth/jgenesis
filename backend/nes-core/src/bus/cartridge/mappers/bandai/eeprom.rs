@@ -247,10 +247,10 @@ pub struct EepromChip<State, const N: usize> {
 impl<State: EepromState + Debug, const N: usize> EepromChip<State, N> {
     pub fn new(sav_bytes: Option<&Vec<u8>>) -> Self {
         let mut memory = [0; N];
-        if let Some(sav_bytes) = sav_bytes {
-            if sav_bytes.len() == N {
-                memory.copy_from_slice(sav_bytes);
-            }
+        if let Some(sav_bytes) = sav_bytes
+            && sav_bytes.len() == N
+        {
+            memory.copy_from_slice(sav_bytes);
         }
 
         Self { memory, dirty: true, state: State::default(), last_data: false, last_clock: false }

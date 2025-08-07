@@ -300,10 +300,10 @@ fn render_coprocessor_path_select(label: &str, value: &mut Option<PathBuf>, ui: 
 
     let button_label =
         value.as_deref().map_or_else(|| "<None>".into(), |path| path.display().to_string());
-    if ui.button(button_label).clicked() {
-        if let Some(path) = pick_coprocessor_rom_path() {
-            *value = Some(path);
-        }
+    if ui.button(button_label).clicked()
+        && let Some(path) = pick_coprocessor_rom_path()
+    {
+        *value = Some(path);
     }
 
     ui.end_row();

@@ -45,11 +45,12 @@ impl SerialInterface {
     }
 
     pub fn process<B: BusInterface>(&mut self, sh2_clocks_elapsed: u64, bus: &mut B) {
-        if self.rx_enabled && !self.rx_data_full {
-            if let Some(rx) = bus.serial_rx() {
-                self.receive_data = rx;
-                self.rx_data_full = true;
-            }
+        if self.rx_enabled
+            && !self.rx_data_full
+            && let Some(rx) = bus.serial_rx()
+        {
+            self.receive_data = rx;
+            self.rx_data_full = true;
         }
 
         if self.transfer_clocks == 0 {

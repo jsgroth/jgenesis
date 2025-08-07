@@ -79,10 +79,10 @@ impl Widget for OptionalPathSelector<'_> {
                 Some(path) => path.to_string_lossy(),
                 None => "<None>".into(),
             };
-            if ui.button(button_label).clicked() {
-                if let Some(path) = (self.pick_bios_path)() {
-                    *self.path = Some(path);
-                }
+            if ui.button(button_label).clicked()
+                && let Some(path) = (self.pick_bios_path)()
+            {
+                *self.path = Some(path);
             }
         })
         .response
@@ -142,11 +142,11 @@ where
 
         ui.horizontal(|ui| {
             ui.label("Configure now:");
-            if ui.button(button_label).clicked() {
-                if let Some(bios_path) = pick_path() {
-                    *path = Some(bios_path);
-                    path_configured = true;
-                }
+            if ui.button(button_label).clicked()
+                && let Some(bios_path) = pick_path()
+            {
+                *path = Some(bios_path);
+                path_configured = true;
             }
         });
     });
