@@ -67,6 +67,22 @@ impl MemoryControl {
         log::debug!("  Cartridge 2 S wait states: {}", self.cartridge_s_wait[2]);
         log::debug!("  Cartridge ROM prefetch enabled: {}", self.prefetch_enabled);
     }
+
+    pub fn rom_n_wait_states(&self, address: u32) -> u64 {
+        self.cartridge_n_wait[wait_states_area(address)]
+    }
+
+    pub fn rom_s_wait_states(&self, address: u32) -> u64 {
+        self.cartridge_s_wait[wait_states_area(address)]
+    }
+}
+
+fn wait_states_area(address: u32) -> usize {
+    // Area 0: $08000000-$09FFFFFF
+    // Area 1: $0A000000-$0BFFFFFF
+    // Area 2: $0C000000-$0DFFFFFF
+    assert!((0x08000000..0x0E000000).contains(&address), "{address:08X}");
+    ((address >> 25) & 3) as usize
 }
 
 #[derive(Debug, Clone, Encode, Decode)]

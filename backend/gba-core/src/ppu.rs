@@ -1424,11 +1424,13 @@ impl Ppu {
     }
 
     pub fn palette_ram_in_use(&self) -> bool {
-        !self.registers.forced_blanking && !self.in_vblank()
+        // TODO this is not accurate
+        !self.registers.forced_blanking && !self.in_vblank() && self.state.dot % 2 == 0
     }
 
     pub fn vram_in_use(&self) -> bool {
-        !self.registers.forced_blanking && !self.in_vblank()
+        // TODO this is not accurate
+        !self.registers.forced_blanking && !self.in_vblank() && self.state.dot % 2 == 0
     }
 
     pub fn read_register(&self, address: u32) -> Option<u16> {

@@ -1275,7 +1275,7 @@ fn thumb_alu(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) {
         0xC => AluOp::Or,
         0xD => {
             // MUL
-            return multiply(cpu, rd.into(), rs.into(), rd.into(), rd.into(), true, false, bus);
+            return multiply(cpu, rs.into(), rd.into(), rd.into(), rd.into(), true, false, bus);
         }
         0xE => AluOp::BitClear,
         0xF => AluOp::MoveNegate,

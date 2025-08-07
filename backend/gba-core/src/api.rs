@@ -8,6 +8,7 @@ use crate::interrupts::InterruptRegisters;
 use crate::memory::Memory;
 use crate::ppu;
 use crate::ppu::Ppu;
+use crate::prefetch::GamePakPrefetcher;
 use crate::sio::SerialPort;
 use crate::timers::Timers;
 use arm7tdmi_emu::bus::BusInterface;
@@ -73,6 +74,7 @@ impl GameBoyAdvanceEmulator {
             apu: Apu::new(),
             memory,
             cartridge,
+            prefetch: GamePakPrefetcher::new(),
             dma: DmaState::new(),
             timers: Timers::new(),
             interrupts: InterruptRegisters::new(),

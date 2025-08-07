@@ -8,6 +8,7 @@ mod input;
 mod interrupts;
 mod memory;
 mod ppu;
+mod prefetch;
 mod sio;
 mod timers;
 

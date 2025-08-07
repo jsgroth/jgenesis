@@ -167,12 +167,14 @@ impl Timers {
         dma: &mut DmaState,
         interrupts: &mut InterruptRegisters,
     ) -> u16 {
-        log::trace!("Timer read {address:08X} at cycles {cycles}");
-
         let timer_idx = (address >> 2) & 3;
 
         if !address.bit(1) {
             self.step_to(cycles, apu, dma, interrupts);
+            log::trace!(
+                "Timer read {address:08X} at cycles {cycles}, counter {:04X}",
+                self.timers[timer_idx as usize].counter
+            );
             self.timers[timer_idx as usize].counter
         } else {
             self.timers[timer_idx as usize].read_control()

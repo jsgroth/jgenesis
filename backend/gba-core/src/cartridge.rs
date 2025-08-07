@@ -145,6 +145,10 @@ impl Cartridge {
         }
     }
 
+    pub fn rom_burst_active(&self) -> bool {
+        self.burst_active
+    }
+
     pub fn end_rom_burst(&mut self) {
         self.burst_active = false;
     }
@@ -157,7 +161,10 @@ impl Cartridge {
             self.burst_active = true;
             self.burst_address = address & 0x1FFFE;
         } else if address & 0x1FFFE != self.burst_address {
-            println!("!!! {address:08X} {:05X}", self.burst_address);
+            log::debug!(
+                "Cartridge read address does not match burst address! {address:08X} {:05X}",
+                self.burst_address
+            );
         }
 
         let rom_addr = (address & !0x1FFFF) | self.burst_address;
