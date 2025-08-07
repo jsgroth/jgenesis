@@ -70,30 +70,320 @@ pub struct Bus {
 }
 
 impl Bus {
-    fn read_bios<T>(&mut self, address: u32, word_converter: impl FnOnce(u32) -> T) -> T {
-        if self.state.cpu_pc >= 0x1FFFFFF {
-            log::debug!("BIOS ROM read {address:08X} while PC is {:08X}", self.state.cpu_pc);
-            return word_converter(self.state.last_bios_read);
+    #[inline]
+    fn read_byte_internal(&mut self, address: u32, cycle: MemoryCycle) -> u8 {
+        self.try_progress_dma();
+
+        match address {
+            0x00000000..=0x00003FFF => self.read_bios_byte(address),
+            0x02000000..=0x02FFFFFF => self.read_ewram_byte(address),
+            0x03000000..=0x03FFFFFF => self.read_iwram_byte(address),
+            0x04000000..=0x04FFFFFF => self.read_io_register_byte(address),
+            0x05000000..=0x05FFFFFF => self.read_palette_ram_byte(address),
+            0x06000000..=0x06FFFFFF => self.read_vram_byte(address),
+            0x07000000..=0x07FFFFFF => self.read_oam_byte(address),
+            0x08000000..=0x0DFFFFFF => self.read_cartridge_rom_byte(address, cycle),
+            0x0E000000..=0x0FFFFFFF => self.read_cartridge_sram_byte(address),
+            0x00004000..=0x01FFFFFF | 0x10000000..=0xFFFFFFFF => self.invalid_read_byte(address),
+        }
+    }
+
+    #[inline]
+    fn read_halfword_internal(
+        &mut self,
+        address: u32,
+        cycle: MemoryCycle,
+        ctx: AccessContext,
+    ) -> u16 {
+        if ctx != AccessContext::Dma {
+            self.try_progress_dma();
         }
 
-        let word = self.memory.read_bios_rom(address);
-        self.state.last_bios_read = word;
-        word_converter(word)
+        match address {
+            0x00000000..=0x00003FFF => self.read_bios_halfword(address),
+            0x02000000..=0x02FFFFFF => self.read_ewram_halfword(address),
+            0x03000000..=0x03FFFFFF => self.read_iwram_halfword(address),
+            0x04000000..=0x04FFFFFF => self.read_io_register_halfword(address),
+            0x05000000..=0x05FFFFFF => self.read_palette_ram_halfword(address),
+            0x06000000..=0x06FFFFFF => self.read_vram_halfword(address),
+            0x07000000..=0x07FFFFFF => self.read_oam_halfword(address),
+            0x08000000..=0x0DFFFFFF => self.read_cartridge_rom_halfword(address, cycle),
+            0x0E000000..=0x0FFFFFFF => self.read_cartridge_sram_halfword(address),
+            0x00004000..=0x01FFFFFF | 0x10000000..=0xFFFFFFFF => {
+                self.invalid_read_halfword(address)
+            }
+        }
     }
 
+    #[inline]
+    fn read_word_internal(&mut self, address: u32, cycle: MemoryCycle, ctx: AccessContext) -> u32 {
+        if ctx != AccessContext::Dma {
+            self.try_progress_dma();
+        }
+
+        match address {
+            0x00000000..=0x00003FFF => self.read_bios_word(address),
+            0x02000000..=0x02FFFFFF => self.read_ewram_word(address),
+            0x03000000..=0x03FFFFFF => self.read_iwram_word(address),
+            0x04000000..=0x04FFFFFF => self.read_io_register_word(address),
+            0x05000000..=0x05FFFFFF => self.read_palette_ram_word(address),
+            0x06000000..=0x06FFFFFF => self.read_vram_word(address),
+            0x07000000..=0x07FFFFFF => self.read_oam_word(address),
+            0x08000000..=0x0DFFFFFF => self.read_cartridge_rom_word(address, cycle),
+            0x0E000000..=0x0FFFFFFF => self.read_cartridge_sram_word(address),
+            0x00004000..=0x01FFFFFF | 0x10000000..=0xFFFFFFFF => self.invalid_read_word(),
+        }
+    }
+
+    #[inline]
+    fn write_byte_internal(&mut self, address: u32, value: u8, cycle: MemoryCycle) {
+        self.try_progress_dma();
+
+        match address {
+            0x02000000..=0x02FFFFFF => self.write_ewram_byte(address, value),
+            0x03000000..=0x03FFFFFF => self.write_iwram_byte(address, value),
+            0x04000000..=0x04FFFFFF => self.write_io_register_byte(address, value),
+            0x05000000..=0x05FFFFFF => self.write_palette_ram_byte(address, value),
+            0x06000000..=0x06FFFFFF => self.write_vram_byte(address, value),
+            0x07000000..=0x07FFFFFF => self.write_oam_byte(value),
+            0x08000000..=0x0DFFFFFF => self.write_cartridge_rom_byte(address, value, cycle),
+            0x0E000000..=0x0FFFFFFF => self.write_cartridge_sram_byte(address, value),
+            0x00000000..=0x01FFFFFF | 0x10000000..=0xFFFFFFFF => self.invalid_write(),
+        }
+    }
+
+    #[inline]
+    fn write_halfword_internal(
+        &mut self,
+        address: u32,
+        value: u16,
+        cycle: MemoryCycle,
+        ctx: AccessContext,
+    ) {
+        if ctx != AccessContext::Dma {
+            self.try_progress_dma();
+        }
+
+        match address {
+            0x02000000..=0x02FFFFFF => self.write_ewram_halfword(address, value),
+            0x03000000..=0x03FFFFFF => self.write_iwram_halfword(address, value),
+            0x04000000..=0x04FFFFFF => self.write_io_register_halfword(address, value),
+            0x05000000..=0x05FFFFFF => self.write_palette_ram_halfword(address, value),
+            0x06000000..=0x06FFFFFF => self.write_vram_halfword(address, value),
+            0x07000000..=0x07FFFFFF => self.write_oam_halfword(address, value),
+            0x08000000..=0x0DFFFFFF => self.write_cartridge_rom_halfword(address, value, cycle),
+            0x0E000000..=0x0FFFFFFF => self.write_cartridge_sram_halfword(address, value),
+            0x00000000..=0x01FFFFFF | 0x10000000..=0xFFFFFFFF => self.invalid_write(),
+        }
+    }
+
+    #[inline]
+    fn write_word_internal(
+        &mut self,
+        address: u32,
+        value: u32,
+        cycle: MemoryCycle,
+        ctx: AccessContext,
+    ) {
+        if ctx != AccessContext::Dma {
+            self.try_progress_dma();
+        }
+
+        match address {
+            0x02000000..=0x02FFFFFF => self.write_ewram_word(address, value),
+            0x03000000..=0x03FFFFFF => self.write_iwram_word(address, value),
+            0x04000000..=0x04FFFFFF => self.write_io_register_word(address, value),
+            0x05000000..=0x05FFFFFF => self.write_palette_ram_word(address, value),
+            0x06000000..=0x06FFFFFF => self.write_vram_word(address, value),
+            0x07000000..=0x07FFFFFF => self.write_oam_word(address, value),
+            0x08000000..=0x0DFFFFFF => self.write_cartridge_rom_word(address, value, cycle),
+            0x0E000000..=0x0FFFFFFF => self.write_cartridge_sram_word(address, value),
+            0x00000000..=0x01FFFFFF | 0x10000000..=0xFFFFFFFF => self.invalid_write(),
+        }
+    }
+
+    fn read_open_bus_byte(&self, address: u32) -> u8 {
+        let byte = self.state.open_bus.to_le_bytes()[(address & 3) as usize];
+        log::warn!("Open bus byte read {address:08X}, returning {byte:02X}");
+        byte
+    }
+
+    fn update_open_bus_byte(&mut self, byte: u8) {
+        self.state.open_bus = u32::from_ne_bytes([byte; 4]);
+    }
+
+    fn read_open_bus_halfword(&self, address: u32) -> u16 {
+        let halfword = (self.state.open_bus >> (8 * (address & 2))) as u16;
+        log::warn!("Open bus halfword read {address:08X}, returning {halfword:04X}");
+        halfword
+    }
+
+    fn update_open_bus_halfword(&mut self, halfword: u16) {
+        let halfword: u32 = halfword.into();
+        self.state.open_bus = halfword | (halfword << 16);
+    }
+
+    fn read_open_bus_word(&self, address: u32) -> u32 {
+        log::warn!("Open bus word read {address:08X}, returning {:08X}", self.state.open_bus);
+        self.state.open_bus
+    }
+
+    fn try_read_bios(&mut self, address: u32) -> u32 {
+        // BIOS ROM is only readable while executing out of BIOS ROM
+        if self.state.cpu_pc < 0x00004000 {
+            self.state.last_bios_read = self.memory.read_bios_rom(address);
+        } else {
+            log::debug!("BIOS ROM read {address:08X} while PC is {:08X}", self.state.cpu_pc);
+        }
+
+        self.state.last_bios_read
+    }
+
+    // $00000000-$00003FFF: BIOS ROM
     fn read_bios_byte(&mut self, address: u32) -> u8 {
-        self.read_bios(address, |word| word.to_le_bytes()[(address & 3) as usize])
+        self.state.cycles += 1;
+
+        let byte = self.try_read_bios(address).to_le_bytes()[(address & 3) as usize];
+        self.update_open_bus_byte(byte);
+
+        byte
     }
 
+    // $00000000-$00003FFF: BIOS ROM
     fn read_bios_halfword(&mut self, address: u32) -> u16 {
-        self.read_bios(address, |word| {
-            let shift = 8 * (address & 2);
-            (word >> shift) as u16
-        })
+        self.state.cycles += 1;
+
+        let word = self.try_read_bios(address);
+        let halfword = (word >> (8 * (address & 2))) as u16;
+        self.update_open_bus_halfword(halfword);
+
+        halfword
     }
 
+    // $00000000-$00003FFF: BIOS ROM
     fn read_bios_word(&mut self, address: u32) -> u32 {
-        self.read_bios(address, |word| word)
+        self.state.cycles += 1;
+
+        self.state.open_bus = self.try_read_bios(address);
+        self.state.open_bus
+    }
+
+    // $02000000-$02FFFFFF: EWRAM
+    fn read_ewram_byte(&mut self, address: u32) -> u8 {
+        self.state.cycles += 1 + EWRAM_WAIT;
+
+        let byte = self.memory.read_ewram_byte(address);
+        self.update_open_bus_byte(byte);
+
+        byte
+    }
+
+    // $02000000-$02FFFFFF: EWRAM
+    fn read_ewram_halfword(&mut self, address: u32) -> u16 {
+        self.state.cycles += 1 + EWRAM_WAIT;
+
+        let halfword = self.memory.read_ewram_halfword(address);
+        self.update_open_bus_halfword(halfword);
+
+        halfword
+    }
+
+    // $02000000-$02FFFFFF: EWRAM
+    fn read_ewram_word(&mut self, address: u32) -> u32 {
+        self.state.cycles += 1 + EWRAM_WAIT_WORD;
+
+        self.state.open_bus = self.memory.read_ewram_word(address);
+        self.state.open_bus
+    }
+
+    // $02000000-$02FFFFFF: EWRAM
+    fn write_ewram_byte(&mut self, address: u32, value: u8) {
+        self.state.cycles += 1 + EWRAM_WAIT;
+        self.update_open_bus_byte(value);
+
+        self.memory.write_ewram_byte(address, value);
+    }
+
+    // $02000000-$02FFFFFF: EWRAM
+    fn write_ewram_halfword(&mut self, address: u32, value: u16) {
+        self.state.cycles += 1 + EWRAM_WAIT;
+        self.update_open_bus_halfword(value);
+
+        self.memory.write_ewram_halfword(address, value);
+    }
+
+    // $02000000-$02FFFFFF: EWRAM
+    fn write_ewram_word(&mut self, address: u32, value: u32) {
+        self.state.cycles += 1 + EWRAM_WAIT_WORD;
+        self.state.open_bus = value;
+
+        self.memory.write_ewram_word(address, value);
+    }
+
+    fn iwram_update_open_bus_byte(&mut self, address: u32, byte: u8) {
+        // IWRAM byte accesses update only the accessed 8 data lines, not all 32
+        let shift = 8 * (address & 3);
+        let mask = 0xFF << shift;
+        self.state.open_bus = (self.state.open_bus & !mask) | (u32::from(byte) << shift);
+    }
+
+    fn iwram_update_open_bus_halfword(&mut self, address: u32, halfword: u16) {
+        // IWRAM halfword accesses update only the accessed 16 data lines, not all 32
+        let shift = 8 * (address & 2);
+        let mask = 0xFFFF << shift;
+        self.state.open_bus = (self.state.open_bus & !mask) | (u32::from(halfword) << shift);
+    }
+
+    // $03000000-$03FFFFFF: IWRAM
+    fn read_iwram_byte(&mut self, address: u32) -> u8 {
+        self.state.cycles += 1;
+
+        let byte = self.memory.read_iwram_byte(address);
+        self.iwram_update_open_bus_byte(address, byte);
+
+        byte
+    }
+
+    // $03000000-$03FFFFFF: IWRAM
+    fn read_iwram_halfword(&mut self, address: u32) -> u16 {
+        self.state.cycles += 1;
+
+        let halfword = self.memory.read_iwram_halfword(address);
+        self.iwram_update_open_bus_halfword(address, halfword);
+
+        halfword
+    }
+
+    // $03000000-$03FFFFFF: IWRAM
+    fn read_iwram_word(&mut self, address: u32) -> u32 {
+        self.state.cycles += 1;
+
+        self.state.open_bus = self.memory.read_iwram_word(address);
+        self.state.open_bus
+    }
+
+    // $03000000-$03FFFFFF: IWRAM
+    fn write_iwram_byte(&mut self, address: u32, value: u8) {
+        self.state.cycles += 1;
+        self.iwram_update_open_bus_byte(address, value);
+
+        self.memory.write_iwram_byte(address, value);
+    }
+
+    // $03000000-$03FFFFFF: IWRAM
+    fn write_iwram_halfword(&mut self, address: u32, value: u16) {
+        self.state.cycles += 1;
+        self.iwram_update_open_bus_halfword(address, value);
+
+        self.memory.write_iwram_halfword(address, value);
+    }
+
+    // $03000000-$03FFFFFF: IWRAM
+    fn write_iwram_word(&mut self, address: u32, value: u32) {
+        self.state.cycles += 1;
+        self.state.open_bus = value;
+
+        self.memory.write_iwram_word(address, value);
     }
 
     #[allow(clippy::match_same_arms)]
@@ -138,6 +428,44 @@ impl Bus {
             0x4000302 => Some(0), // High halfword of word-size POSTFLG reads
             _ => None,
         }
+    }
+
+    // $04000000-$04FFFFFF: Memory-mapped I/O registers
+    fn read_io_register_byte(&mut self, address: u32) -> u8 {
+        self.state.cycles += 1;
+
+        let Some(halfword) = self.read_io_register(address & !1) else {
+            return self.read_open_bus_byte(address);
+        };
+        let byte = halfword.to_le_bytes()[(address & 1) as usize];
+        self.update_open_bus_byte(byte);
+
+        byte
+    }
+
+    // $04000000-$04FFFFFF: Memory-mapped I/O registers
+    fn read_io_register_halfword(&mut self, address: u32) -> u16 {
+        self.state.cycles += 1;
+
+        let Some(halfword) = self.read_io_register(address & !1) else {
+            return self.read_open_bus_halfword(address);
+        };
+        self.update_open_bus_halfword(halfword);
+
+        halfword
+    }
+
+    // $04000000-$04FFFFFF: Memory-mapped I/O registers
+    fn read_io_register_word(&mut self, address: u32) -> u32 {
+        self.state.cycles += 1;
+
+        let Some(low) = self.read_io_register(address & !3) else { return self.state.open_bus };
+        let Some(high) = self.read_io_register((address & !3) | 2) else {
+            return self.state.open_bus;
+        };
+
+        self.state.open_bus = u32::from(low) | (u32::from(high) << 16);
+        self.state.open_bus
     }
 
     #[allow(clippy::match_same_arms)]
@@ -188,8 +516,12 @@ impl Bus {
         }
     }
 
+    // $04000000-$04FFFFFF: Memory-mapped I/O registers
     #[allow(clippy::match_same_arms)]
     fn write_io_register_byte(&mut self, address: u32, value: u8) {
+        self.state.cycles += 1;
+        self.update_open_bus_byte(value);
+
         match address {
             0x4000000..=0x4000057 => {
                 // PPU registers
@@ -209,6 +541,374 @@ impl Bus {
             0x4000410 => {} // Unknown; BIOS writes 0xFF to this register
             _ => log::warn!("Unhandled I/O register byte write {address:08X} {value:02X}"),
         }
+    }
+
+    // $04000000-$04FFFFFF: Memory-mapped I/O registers
+    fn write_io_register_halfword(&mut self, address: u32, value: u16) {
+        self.state.cycles += 1;
+        self.update_open_bus_halfword(value);
+
+        self.write_io_register(address, value);
+    }
+
+    // $04000000-$04FFFFFF: Memory-mapped I/O registers
+    fn write_io_register_word(&mut self, address: u32, value: u32) {
+        self.state.cycles += 1;
+        self.state.open_bus = value;
+
+        self.write_io_register(address & !2, value as u16);
+        self.write_io_register(address | 2, (value >> 16) as u16);
+    }
+
+    // $05000000-$05FFFFFF: Palette RAM
+    fn read_palette_ram_byte(&mut self, address: u32) -> u8 {
+        self.sync_ppu();
+
+        self.state.cycles += 1 + u64::from(self.ppu.palette_ram_in_use());
+
+        let halfword = self.ppu.read_palette_ram(address);
+        let byte = halfword.to_le_bytes()[(address & 1) as usize];
+        self.update_open_bus_byte(byte);
+
+        byte
+    }
+
+    // $05000000-$05FFFFFF: Palette RAM
+    fn read_palette_ram_halfword(&mut self, address: u32) -> u16 {
+        self.sync_ppu();
+
+        self.state.cycles += 1 + u64::from(self.ppu.palette_ram_in_use());
+
+        let halfword = self.ppu.read_palette_ram(address);
+        self.update_open_bus_halfword(halfword);
+
+        halfword
+    }
+
+    // $05000000-$05FFFFFF: Palette RAM
+    fn read_palette_ram_word(&mut self, address: u32) -> u32 {
+        self.sync_ppu();
+
+        self.state.cycles += 2 + u64::from(self.ppu.palette_ram_in_use());
+
+        let low: u32 = self.ppu.read_palette_ram(address & !2).into();
+        let high: u32 = self.ppu.read_palette_ram(address | 2).into();
+        self.state.open_bus = low | (high << 16);
+        self.state.open_bus
+    }
+
+    // $05000000-$05FFFFFF: Palette RAM
+    fn write_palette_ram_byte(&mut self, address: u32, value: u8) {
+        self.sync_ppu();
+
+        self.state.cycles += 1 + u64::from(self.ppu.palette_ram_in_use());
+        self.update_open_bus_byte(value);
+
+        // 8-bit writes to palette RAM duplicate the byte
+        self.ppu.write_palette_ram(address, u16::from_ne_bytes([value; 2]));
+    }
+
+    // $05000000-$05FFFFFF: Palette RAM
+    fn write_palette_ram_halfword(&mut self, address: u32, value: u16) {
+        self.sync_ppu();
+
+        self.state.cycles += 1 + u64::from(self.ppu.palette_ram_in_use());
+        self.update_open_bus_halfword(value);
+
+        self.ppu.write_palette_ram(address, value);
+    }
+
+    // $05000000-$05FFFFFF: Palette RAM
+    fn write_palette_ram_word(&mut self, address: u32, value: u32) {
+        self.sync_ppu();
+
+        self.state.cycles += 2 + u64::from(self.ppu.palette_ram_in_use());
+        self.state.open_bus = value;
+
+        self.ppu.write_palette_ram(address & !2, value as u16);
+        self.ppu.write_palette_ram(address | 2, (value >> 16) as u16);
+    }
+
+    // $06000000-$06FFFFFF: VRAM
+    fn read_vram_byte(&mut self, address: u32) -> u8 {
+        self.sync_ppu();
+
+        self.state.cycles += 1 + u64::from(self.ppu.vram_in_use());
+
+        let byte = self.ppu.read_vram(address).to_le_bytes()[(address & 1) as usize];
+        self.update_open_bus_byte(byte);
+
+        byte
+    }
+
+    // $06000000-$06FFFFFF: VRAM
+    fn read_vram_halfword(&mut self, address: u32) -> u16 {
+        self.sync_ppu();
+
+        self.state.cycles += 1 + u64::from(self.ppu.vram_in_use());
+
+        let halfword = self.ppu.read_vram(address);
+        self.update_open_bus_halfword(halfword);
+
+        halfword
+    }
+
+    // $06000000-$06FFFFFF: VRAM
+    fn read_vram_word(&mut self, address: u32) -> u32 {
+        self.sync_ppu();
+
+        self.state.cycles += 2 + u64::from(self.ppu.vram_in_use());
+
+        let low: u32 = self.ppu.read_vram(address & !2).into();
+        let high: u32 = self.ppu.read_vram(address | 2).into();
+        self.state.open_bus = low | (high << 16);
+        self.state.open_bus
+    }
+
+    // $06000000-$06FFFFFF: VRAM
+    fn write_vram_byte(&mut self, address: u32, value: u8) {
+        self.sync_ppu();
+
+        self.state.cycles += 1 + u64::from(self.ppu.vram_in_use());
+        self.update_open_bus_byte(value);
+
+        self.ppu.write_vram_byte(address, value);
+    }
+
+    // $06000000-$06FFFFFF: VRAM
+    fn write_vram_halfword(&mut self, address: u32, value: u16) {
+        self.sync_ppu();
+
+        self.state.cycles += 1 + u64::from(self.ppu.vram_in_use());
+        self.update_open_bus_halfword(value);
+
+        self.ppu.write_vram(address, value);
+    }
+
+    // $06000000-$06FFFFFF: VRAM
+    fn write_vram_word(&mut self, address: u32, value: u32) {
+        self.sync_ppu();
+
+        self.state.cycles += 2 + u64::from(self.ppu.vram_in_use());
+        self.state.open_bus = value;
+
+        self.ppu.write_vram(address & !2, value as u16);
+        self.ppu.write_vram(address | 2, (value >> 16) as u16);
+    }
+
+    // $07000000-$07FFFFFF: OAM
+    fn read_oam_byte(&mut self, address: u32) -> u8 {
+        self.sync_ppu();
+
+        self.state.cycles += 1;
+
+        let byte = self.ppu.read_oam(address).to_le_bytes()[(address & 1) as usize];
+        // TODO OAM open bus supposedly behaves differently?
+        self.update_open_bus_byte(byte);
+
+        byte
+    }
+
+    // $07000000-$07FFFFFF: OAM
+    fn read_oam_halfword(&mut self, address: u32) -> u16 {
+        self.sync_ppu();
+
+        self.state.cycles += 1;
+
+        let halfword = self.ppu.read_oam(address);
+        // TODO OAM open bus supposedly behaves differently?
+        self.update_open_bus_halfword(halfword);
+
+        halfword
+    }
+
+    // $07000000-$07FFFFFF: OAM
+    fn read_oam_word(&mut self, address: u32) -> u32 {
+        self.sync_ppu();
+
+        self.state.cycles += 1;
+
+        let low: u32 = self.ppu.read_oam(address & !2).into();
+        let high: u32 = self.ppu.read_oam(address | 2).into();
+        self.state.open_bus = low | (high << 16);
+        self.state.open_bus
+    }
+
+    // $07000000-$07FFFFFF: OAM
+    fn write_oam_byte(&mut self, value: u8) {
+        // 8-bit OAM writes are ignored
+        self.state.cycles += 1;
+        // TODO OAM open bus supposedly behaves differently?
+        self.update_open_bus_byte(value);
+    }
+
+    // $07000000-$07FFFFFF: OAM
+    fn write_oam_halfword(&mut self, address: u32, value: u16) {
+        self.state.cycles += 1;
+        // TODO OAM open bus supposedly behaves differently?
+        self.update_open_bus_halfword(value);
+
+        self.ppu.write_oam(address, value);
+    }
+
+    // $07000000-$07FFFFFF: OAM
+    fn write_oam_word(&mut self, address: u32, value: u32) {
+        self.state.cycles += 1;
+        self.state.open_bus = value;
+
+        self.ppu.write_oam(address & !2, value as u16);
+        self.ppu.write_oam(address | 2, (value >> 16) as u16);
+    }
+
+    // $08000000-$0DFFFFFF: Cartridge ROM
+    fn read_cartridge_rom_byte(&mut self, address: u32, cycle: MemoryCycle) -> u8 {
+        self.state.cycles += 1 + ROM_WAIT;
+
+        self.maybe_end_rom_burst(cycle);
+
+        let byte = self.cartridge.read_rom(address).to_le_bytes()[(address & 1) as usize];
+        self.update_open_bus_byte(byte);
+
+        byte
+    }
+
+    // $08000000-$0DFFFFFF: Cartridge ROM
+    fn read_cartridge_rom_halfword(&mut self, address: u32, cycle: MemoryCycle) -> u16 {
+        self.state.cycles += 1 + ROM_WAIT;
+
+        self.maybe_end_rom_burst(cycle);
+
+        let halfword = self.cartridge.read_rom(address);
+        self.update_open_bus_halfword(halfword);
+
+        halfword
+    }
+
+    // $08000000-$0DFFFFFF: Cartridge ROM
+    fn read_cartridge_rom_word(&mut self, address: u32, cycle: MemoryCycle) -> u32 {
+        self.state.cycles += 2 * (1 + ROM_WAIT);
+
+        self.maybe_end_rom_burst(cycle);
+
+        let low: u32 = self.cartridge.read_rom(address & !2).into();
+        let high: u32 = self.cartridge.read_rom(address | 2).into();
+        self.state.open_bus = low | (high << 16);
+        self.state.open_bus
+    }
+
+    // $08000000-$0DFFFFFF: Cartridge ROM
+    fn write_cartridge_rom_byte(&mut self, address: u32, value: u8, cycle: MemoryCycle) {
+        self.state.cycles += 1 + ROM_WAIT;
+        self.update_open_bus_byte(value);
+
+        self.maybe_end_rom_burst(cycle);
+
+        self.cartridge.write_rom(address, value.into());
+    }
+
+    // $08000000-$0DFFFFFF: Cartridge ROM
+    fn write_cartridge_rom_halfword(&mut self, address: u32, value: u16, cycle: MemoryCycle) {
+        self.state.cycles += 1 + ROM_WAIT;
+        self.update_open_bus_halfword(value);
+
+        self.maybe_end_rom_burst(cycle);
+
+        self.cartridge.write_rom(address, value);
+    }
+
+    // $08000000-$0DFFFFFF: Cartridge ROM
+    fn write_cartridge_rom_word(&mut self, address: u32, value: u32, cycle: MemoryCycle) {
+        self.state.cycles += 2 * (1 + ROM_WAIT);
+        self.state.open_bus = value;
+
+        self.maybe_end_rom_burst(cycle);
+
+        self.cartridge.write_rom(address & !2, value as u16);
+        self.cartridge.write_rom(address | 2, (value >> 16) as u16);
+    }
+
+    // $0E000000-$0FFFFFFF: Cartridge SRAM
+    fn read_cartridge_sram_byte(&mut self, address: u32) -> u8 {
+        self.state.cycles += 1 + self.memory.control().sram_wait;
+
+        let Some(byte) = self.cartridge.read_sram(address) else {
+            return self.read_open_bus_byte(address);
+        };
+        self.update_open_bus_byte(byte);
+
+        byte
+    }
+
+    // $0E000000-$0FFFFFFF: Cartridge SRAM
+    fn read_cartridge_sram_halfword(&mut self, address: u32) -> u16 {
+        self.state.cycles += 1 + self.memory.control().sram_wait;
+
+        let Some(byte) = self.cartridge.read_sram(address) else {
+            return self.read_open_bus_halfword(address);
+        };
+
+        // 16-bit reads from SRAM duplicate the byte
+        let halfword = u16::from_ne_bytes([byte; 2]);
+        self.update_open_bus_halfword(halfword);
+
+        halfword
+    }
+
+    // $0E000000-$0FFFFFFF: Cartridge SRAM
+    fn read_cartridge_sram_word(&mut self, address: u32) -> u32 {
+        self.state.cycles += 1 + self.memory.control().sram_wait;
+
+        let Some(byte) = self.cartridge.read_sram(address) else {
+            return self.read_open_bus_word(address);
+        };
+
+        // 32-bit reads from SRAM duplicate the byte
+        self.state.open_bus = u32::from_ne_bytes([byte; 4]);
+        self.state.open_bus
+    }
+
+    // $0E000000-$0FFFFFFF: Cartridge SRAM
+    fn write_cartridge_sram_byte(&mut self, address: u32, value: u8) {
+        self.state.cycles += 1 + self.memory.control().sram_wait;
+        self.update_open_bus_byte(value);
+
+        self.cartridge.write_sram(address, value);
+    }
+
+    // $0E000000-$0FFFFFFF: Cartridge SRAM
+    fn write_cartridge_sram_halfword(&mut self, address: u32, value: u16) {
+        self.state.cycles += 1 + self.memory.control().sram_wait;
+        self.update_open_bus_halfword(value);
+
+        self.cartridge.write_sram(address, value as u8);
+    }
+
+    // $0E000000-$0FFFFFFF: Cartridge SRAM
+    fn write_cartridge_sram_word(&mut self, address: u32, value: u32) {
+        self.state.cycles += 1 + self.memory.control().sram_wait;
+        self.state.open_bus = value;
+
+        self.cartridge.write_sram(address, value as u8);
+    }
+
+    fn invalid_read_byte(&mut self, address: u32) -> u8 {
+        self.state.cycles += 1;
+        self.read_open_bus_byte(address)
+    }
+
+    fn invalid_read_halfword(&mut self, address: u32) -> u16 {
+        self.state.cycles += 1;
+        self.read_open_bus_halfword(address)
+    }
+
+    fn invalid_read_word(&mut self) -> u32 {
+        self.state.cycles += 1;
+        self.state.open_bus
+    }
+
+    fn invalid_write(&mut self) {
+        self.state.cycles += 1;
+        // TODO do writes to invalid addresses update open bus?
     }
 
     pub fn try_progress_dma(&mut self) {
@@ -299,448 +999,12 @@ impl Bus {
         self.timers.step_to(self.state.cycles, &mut self.apu, &mut self.dma, &mut self.interrupts);
     }
 
-    fn read_open_bus_byte(&self, address: u32) -> u8 {
-        let byte = self.state.open_bus.to_le_bytes()[(address & 3) as usize];
-        log::warn!("Open bus byte read {address:08X}, returning {byte:02X}");
-        byte
-    }
-
-    fn update_open_bus_byte(&mut self, address: u32, byte: u8) {
-        if address >> 24 == 0x03 {
-            // IWRAM: Only update the accessed byte
-            let shift = 8 * (address & 3);
-            let mask = 0xFF << shift;
-            self.state.open_bus = (self.state.open_bus & !mask) | (u32::from(byte) << shift);
-        } else {
-            // Duplicate byte in all 4 bytes
-            // TODO OAM behaves differently?
-            self.state.open_bus = u32::from_le_bytes([byte; 4]);
-        }
-    }
-
-    fn read_open_bus_halfword(&self, address: u32) -> u16 {
-        let halfword = (self.state.open_bus >> (8 * (address & 2))) as u16;
-        log::warn!("Open bus halfword read {address:08X}, returning {halfword:04X}");
-        halfword
-    }
-
-    fn update_open_bus_halfword(&mut self, address: u32, halfword: u16) {
-        if address >> 24 == 0x03 {
-            // IWRAM: Only update the accessed halfword
-            let shift = 8 * (address & 2);
-            let mask = 0xFFFF << shift;
-            self.state.open_bus = (self.state.open_bus & !mask) | (u32::from(halfword) << shift);
-        } else {
-            // Duplicate halfwordin both halfwords
-            // TODO OAM behaves differently?
-            self.state.open_bus = (u32::from(halfword) << 16) | u32::from(halfword);
-        }
-    }
-
-    fn read_open_bus_word(&self, address: u32) -> u32 {
-        log::warn!("Open bus word read {address:08X}, returning {:08X}", self.state.open_bus);
-        self.state.open_bus
-    }
-
     fn maybe_end_rom_burst(&mut self, cycle: MemoryCycle) {
         // N cycles always end ROM burst
         // TODO except instruction fetches when prefetch is enabled
         if cycle == MemoryCycle::N {
             self.cartridge.end_rom_burst();
         }
-    }
-
-    #[inline]
-    fn read_byte_internal(&mut self, address: u32, cycle: MemoryCycle) -> u8 {
-        self.try_progress_dma();
-
-        self.state.cycles += 1;
-
-        let value = match address {
-            0x0000000..=0x0003FFF => self.read_bios_byte(address),
-            0x2000000..=0x2FFFFFF => {
-                self.state.cycles += EWRAM_WAIT;
-                self.memory.read_ewram_byte(address)
-            }
-            0x3000000..=0x3FFFFFF => self.memory.read_iwram_byte(address),
-            0x4000000..=0x4FFFFFF => {
-                let Some(halfword) = self.read_io_register(address & !1) else {
-                    return self.read_open_bus_byte(address);
-                };
-                halfword.to_le_bytes()[(address & 1) as usize]
-            }
-            0x5000000..=0x5FFFFFF => {
-                self.sync_ppu();
-                self.state.cycles += u64::from(self.ppu.palette_ram_in_use());
-
-                let halfword = self.ppu.read_palette_ram(address & !1);
-                halfword.to_le_bytes()[(address & 1) as usize]
-            }
-            0x6000000..=0x6FFFFFF => {
-                self.sync_ppu();
-                self.state.cycles += u64::from(self.ppu.vram_in_use());
-
-                let halfword = self.ppu.read_vram(address & !1);
-                halfword.to_le_bytes()[(address & 1) as usize]
-            }
-            0x7000000..=0x7FFFFFF => {
-                self.sync_ppu();
-                self.state.cycles += u64::from(self.ppu.oam_in_use());
-
-                let halfword = self.ppu.read_oam(address & !1);
-                halfword.to_le_bytes()[(address & 1) as usize]
-            }
-            0x8000000..=0xDFFFFFF => {
-                self.state.cycles += ROM_WAIT;
-
-                self.maybe_end_rom_burst(cycle);
-
-                let halfword = self.cartridge.read_rom(address);
-                halfword.to_le_bytes()[(address & 1) as usize]
-            }
-            0xE000000..=0xFFFFFFF => {
-                self.state.cycles += self.memory.control().sram_wait;
-
-                let Some(byte) = self.cartridge.read_sram(address) else {
-                    return self.read_open_bus_byte(address);
-                };
-
-                byte
-            }
-            0x0004000..=0x1FFFFFF | 0x10000000..=0xFFFFFFFF => {
-                return self.read_open_bus_byte(address);
-            }
-        };
-
-        self.update_open_bus_byte(address, value);
-
-        value
-    }
-
-    #[inline]
-    fn read_halfword_internal(
-        &mut self,
-        address: u32,
-        cycle: MemoryCycle,
-        ctx: AccessContext,
-    ) -> u16 {
-        if ctx != AccessContext::Dma {
-            self.try_progress_dma();
-        }
-
-        self.state.cycles += 1;
-
-        let value = match address {
-            0x0000000..=0x0003FFF => self.read_bios_halfword(address),
-            0x2000000..=0x2FFFFFF => {
-                self.state.cycles += EWRAM_WAIT;
-                self.memory.read_ewram_halfword(address)
-            }
-            0x3000000..=0x3FFFFFF => self.memory.read_iwram_halfword(address),
-            0x4000000..=0x4FFFFFF => {
-                let Some(value) = self.read_io_register(address) else {
-                    return self.read_open_bus_halfword(address);
-                };
-                value
-            }
-            0x5000000..=0x5FFFFFF => {
-                self.sync_ppu();
-                self.state.cycles += u64::from(self.ppu.palette_ram_in_use());
-
-                self.ppu.read_palette_ram(address)
-            }
-            0x6000000..=0x6FFFFFF => {
-                self.sync_ppu();
-                self.state.cycles += u64::from(self.ppu.vram_in_use());
-
-                self.ppu.read_vram(address)
-            }
-            0x7000000..=0x7FFFFFF => {
-                self.sync_ppu();
-                self.state.cycles += u64::from(self.ppu.oam_in_use());
-
-                self.ppu.read_oam(address)
-            }
-            0x8000000..=0xDFFFFFF => {
-                self.state.cycles += ROM_WAIT;
-
-                self.maybe_end_rom_burst(cycle);
-                self.cartridge.read_rom(address)
-            }
-            0xE000000..=0xFFFFFFF => {
-                self.state.cycles += self.memory.control().sram_wait;
-
-                let Some(byte) = self.cartridge.read_sram(address) else {
-                    return self.read_open_bus_halfword(address);
-                };
-
-                u16::from_le_bytes([byte; 2])
-            }
-            0x0004000..=0x1FFFFFF | 0x10000000..=0xFFFFFFFF => {
-                return self.read_open_bus_halfword(address);
-            }
-        };
-
-        self.update_open_bus_halfword(address, value);
-
-        value
-    }
-
-    #[inline]
-    fn read_word_internal(&mut self, address: u32, cycle: MemoryCycle, ctx: AccessContext) -> u32 {
-        fn two_halfword_reads(address: u32, mut read_fn: impl FnMut(u32) -> u16) -> u32 {
-            let address = address & !3;
-            let low_halfword = read_fn(address);
-            let high_halfword = read_fn(address | 2);
-            (u32::from(high_halfword) << 16) | u32::from(low_halfword)
-        }
-
-        if ctx != AccessContext::Dma {
-            self.try_progress_dma();
-        }
-
-        self.state.cycles += 1;
-
-        self.state.open_bus = match address {
-            0x0000000..=0x0003FFF => self.read_bios_word(address),
-            0x2000000..=0x2FFFFFF => {
-                self.state.cycles += EWRAM_WAIT_WORD;
-                self.memory.read_ewram_word(address)
-            }
-            0x3000000..=0x3FFFFFF => self.memory.read_iwram_word(address),
-            0x4000000..=0x4FFFFFF => {
-                let Some(low) = self.read_io_register(address & !3) else {
-                    return self.read_open_bus_word(address);
-                };
-                let Some(high) = self.read_io_register((address & !3) | 2) else {
-                    return self.read_open_bus_word(address);
-                };
-                u32::from(low) | (u32::from(high) << 16)
-            }
-            0x5000000..=0x5FFFFFF => {
-                self.sync_ppu();
-                // Extra cycle for word-size palette RAM reads
-                self.state.cycles += 1 + u64::from(self.ppu.palette_ram_in_use());
-
-                two_halfword_reads(address, |address| self.ppu.read_palette_ram(address))
-            }
-            0x6000000..=0x6FFFFFF => {
-                self.sync_ppu();
-                // Extra cycle for word-size VRAM reads
-                self.state.cycles += 1 + u64::from(self.ppu.vram_in_use());
-
-                two_halfword_reads(address, |address| self.ppu.read_vram(address))
-            }
-            0x7000000..=0x7FFFFFF => {
-                self.sync_ppu();
-                self.state.cycles += u64::from(self.ppu.oam_in_use());
-
-                two_halfword_reads(address, |address| self.ppu.read_oam(address))
-            }
-            0x8000000..=0xCFFFFFF => {
-                // Cartridge ROM has a 16-bit data bus
-                self.state.cycles += 1 + 2 * ROM_WAIT;
-
-                self.maybe_end_rom_burst(cycle);
-
-                let low: u32 = self.cartridge.read_rom(address & !2).into();
-                let high: u32 = self.cartridge.read_rom(address | 2).into();
-                low | (high << 16)
-            }
-            0xD000000..=0xDFFFFFF => 0xFFFF,
-            0xE000000..=0xFFFFFFF => {
-                self.state.cycles += self.memory.control().sram_wait;
-
-                let Some(byte) = self.cartridge.read_sram(address) else {
-                    return self.read_open_bus_word(address);
-                };
-
-                u32::from_le_bytes([byte; 4])
-            }
-            0x0004000..=0x1FFFFFF | 0x10000000..=0xFFFFFFFF => {
-                return self.read_open_bus_word(address);
-            }
-        };
-
-        self.state.open_bus
-    }
-
-    #[inline]
-    fn write_byte_internal(&mut self, address: u32, value: u8, cycle: MemoryCycle) {
-        self.try_progress_dma();
-
-        self.state.cycles += 1;
-
-        match address {
-            0x2000000..=0x2FFFFFF => {
-                self.state.cycles += EWRAM_WAIT;
-                self.memory.write_ewram_byte(address, value);
-            }
-            0x3000000..=0x3FFFFFF => self.memory.write_iwram_byte(address, value),
-            0x4000000..=0x4FFFFFF => self.write_io_register_byte(address, value),
-            0x5000000..=0x5FFFFFF => {
-                self.sync_ppu();
-                self.state.cycles += u64::from(self.ppu.palette_ram_in_use());
-
-                // 8-bit writes to palette RAM duplicate the byte
-                self.ppu.write_palette_ram(address & !1, u16::from_le_bytes([value; 2]));
-            }
-            0x6000000..=0x6FFFFFF => {
-                self.sync_ppu();
-                self.state.cycles += u64::from(self.ppu.vram_in_use());
-
-                self.ppu.write_vram_byte(address, value);
-            }
-            0x7000000..=0x7FFFFFF => {
-                // 8-bit writes to OAM are ignored
-            }
-            0x8000000..=0xDFFFFFF => {
-                // TODO 8-bit write to EEPROM???
-                self.state.cycles += ROM_WAIT;
-
-                self.maybe_end_rom_burst(cycle);
-                self.cartridge.write_rom(address, value.into());
-            }
-            0xE000000..=0xFFFFFFF => {
-                self.state.cycles += self.memory.control().sram_wait;
-                self.cartridge.write_sram(address, value);
-            }
-            _ => log::warn!("invalid address byte write {address:08X} {value:02X}"),
-        }
-
-        self.update_open_bus_byte(address, value);
-    }
-
-    #[inline]
-    fn write_halfword_internal(
-        &mut self,
-        address: u32,
-        value: u16,
-        cycle: MemoryCycle,
-        ctx: AccessContext,
-    ) {
-        if ctx != AccessContext::Dma {
-            self.try_progress_dma();
-        }
-
-        self.state.cycles += 1;
-
-        match address {
-            0x2000000..=0x2FFFFFF => {
-                self.state.cycles += EWRAM_WAIT;
-                self.memory.write_ewram_halfword(address, value);
-            }
-            0x3000000..=0x3FFFFFF => self.memory.write_iwram_halfword(address, value),
-            0x4000000..=0x4FFFFFF => self.write_io_register(address, value),
-            0x5000000..=0x5FFFFFF => {
-                self.sync_ppu();
-                self.state.cycles += u64::from(self.ppu.palette_ram_in_use());
-
-                self.ppu.write_palette_ram(address, value);
-            }
-            0x6000000..=0x6FFFFFF => {
-                self.sync_ppu();
-                self.state.cycles += u64::from(self.ppu.vram_in_use());
-
-                self.ppu.write_vram(address, value);
-            }
-            0x7000000..=0x7FFFFFF => {
-                self.sync_ppu();
-                self.state.cycles += u64::from(self.ppu.oam_in_use());
-
-                self.ppu.write_oam(address, value);
-            }
-            0x8000000..=0xDFFFFFF => {
-                self.state.cycles += ROM_WAIT;
-
-                self.maybe_end_rom_burst(cycle);
-                self.cartridge.write_rom(address, value);
-            }
-            0xE000000..=0xFFFFFFF => {
-                self.state.cycles += self.memory.control().sram_wait;
-                self.cartridge.write_sram(address, value as u8);
-            }
-            _ => log::warn!("invalid address halfword write {address:08X} {value:04X}"),
-        }
-
-        self.update_open_bus_halfword(address, value);
-    }
-
-    #[inline]
-    fn write_word_internal(
-        &mut self,
-        address: u32,
-        value: u32,
-        cycle: MemoryCycle,
-        ctx: AccessContext,
-    ) {
-        fn two_halfword_stores(address: u32, value: u32, mut write_fn: impl FnMut(u32, u16)) {
-            let address = address & !3;
-            write_fn(address, value as u16);
-            write_fn(address | 2, (value >> 16) as u16);
-        }
-
-        if ctx != AccessContext::Dma {
-            self.try_progress_dma();
-        }
-
-        self.state.cycles += 1;
-
-        match address {
-            0x2000000..=0x2FFFFFF => {
-                self.state.cycles += EWRAM_WAIT_WORD;
-                self.memory.write_ewram_word(address, value);
-            }
-            0x3000000..=0x3FFFFFF => self.memory.write_iwram_word(address, value),
-            0x4000000..=0x4FFFFFF => {
-                // TODO do any I/O registers need to write all 32 bits at once?
-                two_halfword_stores(address, value, |address, value| {
-                    self.write_io_register(address, value);
-                });
-            }
-            0x5000000..=0x5FFFFFF => {
-                self.sync_ppu();
-                // Extra cycle for word-size palette RAM writes
-                self.state.cycles += 1 + u64::from(self.ppu.palette_ram_in_use());
-
-                two_halfword_stores(address, value, |address, value| {
-                    self.ppu.write_palette_ram(address, value);
-                });
-            }
-            0x6000000..=0x6FFFFFF => {
-                self.sync_ppu();
-                // Extra cycle for word-size VRAM writes
-                self.state.cycles += 1 + u64::from(self.ppu.vram_in_use());
-
-                two_halfword_stores(address, value, |address, value| {
-                    self.ppu.write_vram(address, value);
-                });
-            }
-            0x7000000..=0x7FFFFFF => {
-                self.sync_ppu();
-                self.state.cycles += u64::from(self.ppu.oam_in_use());
-
-                two_halfword_stores(address, value, |address, value| {
-                    self.ppu.write_oam(address, value);
-                });
-            }
-            0x8000000..=0xDFFFFFF => {
-                self.state.cycles += 1 + 2 * ROM_WAIT;
-
-                self.maybe_end_rom_burst(cycle);
-
-                two_halfword_stores(address, value, |address, value| {
-                    self.cartridge.write_rom(address, value);
-                });
-            }
-            0xE000000..=0xFFFFFFF => {
-                self.state.cycles += self.memory.control().sram_wait;
-                self.cartridge.write_sram(address, value as u8);
-            }
-            _ => log::warn!("invalid address word write {address:08X} {value:08X}"),
-        }
-
-        self.state.open_bus = value;
     }
 }
 
