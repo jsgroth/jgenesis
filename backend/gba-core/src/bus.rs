@@ -3,7 +3,7 @@
 use crate::apu::Apu;
 use crate::cartridge::Cartridge;
 use crate::dma::{DmaState, TransferSource, TransferUnit};
-use crate::input::GbaInputsExt;
+use crate::input::InputState;
 use crate::interrupts::InterruptRegisters;
 use crate::memory::Memory;
 use crate::ppu::Ppu;
@@ -12,7 +12,6 @@ use crate::sio::SerialPort;
 use crate::timers::Timers;
 use arm7tdmi_emu::bus::{BusInterface, MemoryCycle};
 use bincode::{Decode, Encode};
-use gba_config::GbaInputs;
 use jgenesis_proc_macros::PartialClone;
 use std::cmp;
 
@@ -63,7 +62,7 @@ pub struct Bus {
     pub timers: Timers,
     pub interrupts: InterruptRegisters,
     pub sio: SerialPort,
-    pub inputs: GbaInputs,
+    pub inputs: InputState,
     pub state: BusState,
 }
 
@@ -426,7 +425,8 @@ impl Bus {
                 // SIO registers
                 Some(self.sio.read_register(address))
             }
-            0x4000130 => Some(self.inputs.to_keyinput()),
+            0x4000130 => Some(self.inputs.read_keyinput()),
+            0x4000132 => Some(self.inputs.read_keycnt()),
             0x4000200 => Some(self.interrupts.read_ie()),
             0x4000202 => Some(self.interrupts.read_if()),
             0x4000204 => Some(self.memory.read_waitcnt()),
@@ -508,8 +508,9 @@ impl Bus {
             }
             0x4000120..=0x400012F | 0x4000134..=0x400015F => {
                 // SIO registers
-                self.sio.write_register(address, value);
+                self.sio.write_register(address, value, self.state.cycles);
             }
+            0x4000132 => self.inputs.write_keycnt(value, self.state.cycles, &mut self.interrupts),
             0x4000200 => self.interrupts.write_ie(value, self.state.cycles),
             0x4000202 => self.interrupts.write_if(value, self.state.cycles),
             0x4000204 => self.memory.write_waitcnt(value),

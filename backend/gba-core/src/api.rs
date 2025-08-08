@@ -4,6 +4,7 @@ use crate::apu::Apu;
 use crate::bus::{Bus, BusState};
 use crate::cartridge::Cartridge;
 use crate::dma::DmaState;
+use crate::input::InputState;
 use crate::interrupts::InterruptRegisters;
 use crate::memory::Memory;
 use crate::ppu;
@@ -79,7 +80,7 @@ impl GameBoyAdvanceEmulator {
             timers: Timers::new(),
             interrupts: InterruptRegisters::new(),
             sio: SerialPort::new(),
-            inputs: GbaInputs::default(),
+            inputs: InputState::new(),
             state: BusState::new(),
         };
 
@@ -130,7 +131,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
-        self.bus.inputs = *inputs;
+        self.bus.inputs.update_inputs(*inputs, self.bus.state.cycles, &mut self.bus.interrupts);
 
         self.bus.interrupts.sync(self.bus.state.cycles);
         if !self.bus.interrupts.cpu_halted() {
@@ -143,6 +144,8 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
 
         self.bus.apu.step_to(self.bus.state.cycles);
         self.bus.apu.drain_audio_output(audio_output).map_err(GbaError::Audio)?;
+
+        self.bus.sio.check_for_interrupt(self.bus.state.cycles, &mut self.bus.interrupts);
 
         self.bus.sync_ppu();
         if self.bus.ppu.frame_complete() {
