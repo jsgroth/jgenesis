@@ -1,9 +1,9 @@
-use crate::ppu::{BgAffineLatch, SCREEN_HEIGHT, SCREEN_WIDTH};
+use crate::ppu::{BgAffineLatch, SCREEN_WIDTH, State};
 use bincode::{Decode, Encode};
 use jgenesis_common::define_bit_enum;
 use jgenesis_common::num::{GetBit, U16Ext};
-use std::array;
 use std::ops::Range;
+use std::{array, iter};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum BgMode {
@@ -257,6 +257,8 @@ pub struct Registers {
     pub obj_enabled: bool,
     pub window_enabled: [bool; 2],
     pub obj_window_enabled: bool,
+    // Undocumented green swap register ($4000002)
+    pub green_swap: bool,
     // DISPSTAT (Display status)
     pub vblank_irq_enabled: bool,
     pub hblank_irq_enabled: bool,
@@ -319,6 +321,7 @@ impl Registers {
             obj_enabled: false,
             window_enabled: [false; 2],
             obj_window_enabled: false,
+            green_swap: false,
             vblank_irq_enabled: false,
             hblank_irq_enabled: false,
             v_counter_irq_enabled: false,
@@ -358,7 +361,11 @@ impl Registers {
     }
 
     // $4000000: DISPCNT (Display control)
-    pub fn write_dispcnt(&mut self, value: u16) {
+    pub fn write_dispcnt(&mut self, value: u16, state: &mut State) {
+        let prev_bg_enabled = self.bg_enabled;
+        let prev_obj_enabled = self.obj_enabled;
+        let prev_forced_blanking = self.forced_blanking;
+
         self.bg_mode = BgMode::from_bits(value);
         self.bitmap_frame_buffer = BitmapFrameBuffer::from_bit(value.bit(4));
         self.oam_free_during_hblank = value.bit(5);
@@ -369,7 +376,29 @@ impl Registers {
         self.window_enabled = [value.bit(13), value.bit(14)];
         self.obj_window_enabled = value.bit(15);
 
-        log::debug!("DISPCNT write: {value:04X}");
+        // Somewhat arbitrary threshold - produces closest-to-correct results in mgba test
+        // suite's video layout 2 test and Lady Sia
+        // Pretty sure there's more going on here than just a dot threshold though
+        //
+        // Enable latency also shouldn't apply to bitmap modes (e.g. Pinball Tycoon)
+        let layer_enable_latency = if state.dot < 30 { 2 } else { 3 };
+
+        for (i, (prev_enabled, enabled)) in iter::zip(prev_bg_enabled, self.bg_enabled).enumerate()
+        {
+            if !prev_enabled && enabled {
+                state.bg_enabled_latency[i] = layer_enable_latency;
+            }
+        }
+
+        if !prev_obj_enabled && self.obj_enabled {
+            state.obj_enabled_latency = layer_enable_latency;
+        }
+
+        if prev_forced_blanking && !self.forced_blanking {
+            state.forced_blanking_latency = layer_enable_latency;
+        }
+
+        log::debug!("DISPCNT write (line {} dot {}): {value:04X}", state.scanline, state.dot);
         log::debug!("  BG mode: {:?}", self.bg_mode);
         log::debug!("  Bitmap frame buffer: {:?}", self.bitmap_frame_buffer);
         log::debug!("  OAM accessible during HBlank: {}", self.oam_free_during_hblank);
@@ -396,6 +425,16 @@ impl Registers {
             | (u16::from(self.window_enabled[0]) << 13)
             | (u16::from(self.window_enabled[1]) << 14)
             | (u16::from(self.obj_window_enabled) << 15)
+    }
+
+    pub fn write_green_swap(&mut self, value: u16) {
+        self.green_swap = value.bit(0);
+
+        log::debug!("Green swap write: {value:04X}");
+    }
+
+    pub fn read_green_swap(&self) -> u16 {
+        self.green_swap.into()
     }
 
     // $4000004: DISPSTAT (Display status)
@@ -488,7 +527,7 @@ impl Registers {
                     (affine_parameters.reference_x & !0xFFFF) | i32::from(value);
 
                 // Update X latch on register writes
-                latch.x[bg_idx] = affine_parameters.reference_x;
+                latch.x_written[bg_idx] = true;
 
                 log::debug!("BG{}X_L write: {value:04X}", bg_idx + 2);
                 log::debug!("  Reference point X: {:07X}", affine_parameters.reference_x);
@@ -500,7 +539,7 @@ impl Registers {
                     (affine_parameters.reference_x & 0xFFFF) | ((i32::from(value) << 20) >> 4);
 
                 // Update X latch on register writes
-                latch.x[bg_idx] = affine_parameters.reference_x;
+                latch.x_written[bg_idx] = true;
 
                 log::debug!("BG{}X_H write: {value:04X}", bg_idx + 2);
                 log::debug!("  Reference point X: {:07X}", affine_parameters.reference_x);
@@ -511,7 +550,7 @@ impl Registers {
                     (affine_parameters.reference_y & !0xFFFF) | i32::from(value);
 
                 // Update Y latch on register writes
-                latch.y[bg_idx] = affine_parameters.reference_y;
+                latch.y_written[bg_idx] = true;
 
                 log::debug!("BG{}Y_L write: {value:04X}", bg_idx + 2);
                 log::debug!("  Reference point Y: {:07X}", affine_parameters.reference_y);
@@ -523,7 +562,7 @@ impl Registers {
                     (affine_parameters.reference_y & 0xFFFF) | ((i32::from(value) << 20) >> 4);
 
                 // Update Y latch on register writes
-                latch.y[bg_idx] = affine_parameters.reference_y;
+                latch.y_written[bg_idx] = true;
 
                 log::debug!("BG{}X_H write: {value:04X}", bg_idx + 2);
                 log::debug!("  Reference point X: {:07X}", affine_parameters.reference_y);
@@ -768,21 +807,9 @@ impl Registers {
         })
     }
 
-    pub fn effective_window_y2(&self) -> [u32; 2] {
-        // If Y2 < Y1, the window is active for all lines from Y1 onwards
-        array::from_fn(|i| {
-            if self.window_y2[i] < self.window_y1[i] { SCREEN_HEIGHT } else { self.window_y2[i] }
-        })
-    }
-
     pub fn window_x_ranges(&self) -> [Range<u32>; 2] {
         let effective_x2 = self.effective_window_x2();
         array::from_fn(|i| self.window_x1[i]..effective_x2[i])
-    }
-
-    pub fn window_y_ranges(&self) -> [Range<u32>; 2] {
-        let effective_y2 = self.effective_window_y2();
-        array::from_fn(|i| self.window_y1[i]..effective_y2[i])
     }
 }
 

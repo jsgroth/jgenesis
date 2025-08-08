@@ -272,7 +272,7 @@ impl DmaChannel {
     fn effective_length(&self) -> u16 {
         // Audio FIFO DMA is always 4 words
         match self.start_timing {
-            StartTiming::Special => 4,
+            StartTiming::Special if self.idx != 3 => 4,
             _ => self.length,
         }
     }
@@ -341,10 +341,8 @@ impl DmaState {
             }
 
             // Audio FIFO DMA is always word-size
-            let unit = match channel.start_timing {
-                StartTiming::Special => TransferUnit::Word,
-                _ => channel.unit,
-            };
+            let audio_dma = channel.idx != 3 && channel.start_timing == StartTiming::Special;
+            let unit = if audio_dma { TransferUnit::Word } else { channel.unit };
             let increment = unit.address_increment();
 
             let source_address = channel.latched_source_address & channel.source_addr_mask;
@@ -359,7 +357,7 @@ impl DmaState {
             };
 
             let destination = channel.latched_destination_address & channel.dest_addr_mask;
-            if channel.start_timing != StartTiming::Special {
+            if !audio_dma {
                 // Destination address does not increment for audio FIFO DMA
                 channel.latched_destination_address =
                     channel.destination_increment.apply(destination, increment);
@@ -407,6 +405,23 @@ impl DmaState {
 
     pub fn notify_hblank_start(&mut self) {
         self.activate_matching_channels(|channel| channel.start_timing == StartTiming::HBlank);
+    }
+
+    pub fn notify_video_capture(&mut self) {
+        self.activate_matching_channels(|channel| {
+            channel.idx == 3 && channel.start_timing == StartTiming::Special
+        });
+    }
+
+    pub fn end_video_capture(&mut self) {
+        if self.channels[3].dma_enabled && self.channels[3].start_timing == StartTiming::Special {
+            self.channels[3].dma_enabled = false;
+            self.channels[3].dma_active = false;
+        }
+    }
+
+    pub fn video_capture_active(&self) -> bool {
+        self.channels[3].dma_enabled && self.channels[3].start_timing == StartTiming::Special
     }
 
     pub fn notify_apu_fifo_a(&mut self) {

@@ -483,7 +483,7 @@ impl Bus {
             0x4000000..=0x4000057 => {
                 // PPU registers
                 self.ppu.step_to(self.state.cycles, &mut self.interrupts, &mut self.dma);
-                self.ppu.write_register(address, value);
+                self.ppu.write_register(address, value, self.state.cycles, &mut self.interrupts);
             }
             0x4000060..=0x40000AF => {
                 // APU registers
@@ -535,7 +535,12 @@ impl Bus {
             0x4000000..=0x4000057 => {
                 // PPU registers
                 self.sync_ppu();
-                self.ppu.write_register_byte(address, value);
+                self.ppu.write_register_byte(
+                    address,
+                    value,
+                    self.state.cycles,
+                    &mut self.interrupts,
+                );
             }
             0x4000060..=0x40000AF => {
                 // APU registers
@@ -1031,7 +1036,10 @@ impl Bus {
                             self.dma.update_read_latch_halfword(transfer.channel, value);
                             value
                         }
-                        TransferSource::Value(value) => value as u16,
+                        TransferSource::Value(value) => {
+                            let shift = 8 * (transfer.destination & 2);
+                            (value >> shift) as u16
+                        }
                     };
                     self.write_halfword_internal(
                         transfer.destination & !1,

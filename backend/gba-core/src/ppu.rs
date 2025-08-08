@@ -16,7 +16,7 @@ use jgenesis_common::boxedarray::{BoxedByteArray, BoxedWordArray};
 use jgenesis_common::frontend::{Color, FrameSize};
 use jgenesis_common::num::{GetBit, U16Ext};
 use std::ops::Range;
-use std::{array, cmp, iter};
+use std::{array, cmp, iter, mem};
 
 const VRAM_LOW_LEN: usize = 64 * 1024;
 const VRAM_HIGH_LEN: usize = 32 * 1024;
@@ -78,6 +78,8 @@ impl RgbaFrameBuffer {
 struct BgAffineLatch {
     x: [i32; 2],
     y: [i32; 2],
+    x_written: [bool; 2],
+    y_written: [bool; 2],
 }
 
 impl BgAffineLatch {
@@ -88,10 +90,25 @@ impl BgAffineLatch {
     }
 
     // Called once per line during active display
-    fn increment_reference_latches(&mut self, registers: &Registers) {
+    fn increment_reference_latches(&mut self, registers: &Registers, bg_enabled_latency: [u8; 4]) {
         for (i, (x, y)) in iter::zip(&mut self.x, &mut self.y).enumerate() {
-            *x += registers.bg_affine_parameters[i].b;
-            *y += registers.bg_affine_parameters[i].d;
+            // Only increment latched X/Y if they haven't been written within the last scanline
+            // e.g. Iridion 3D (game over screen), Star Wars Episode II (text scroll)
+            //
+            // Also, only increment latches when corresponding BG is enabled (e.g. Pinball Tycoon)
+            let bg_enabled = registers.bg_enabled[i + 2] && bg_enabled_latency[i + 2] == 0;
+
+            if mem::take(&mut self.x_written[i]) {
+                *x = registers.bg_affine_parameters[i].reference_x;
+            } else if bg_enabled {
+                *x += registers.bg_affine_parameters[i].b;
+            }
+
+            if mem::take(&mut self.y_written[i]) {
+                *y = registers.bg_affine_parameters[i].reference_y;
+            } else if bg_enabled {
+                *y += registers.bg_affine_parameters[i].d;
+            }
         }
     }
 }
@@ -112,6 +129,11 @@ struct State {
     frame_complete: bool,
     bg_affine_latch: BgAffineLatch,
     mosaic: MosaicState,
+    bg_enabled_latency: [u8; 4],
+    obj_enabled_latency: u8,
+    forced_blanking_latency: u8,
+    window_y_active: [bool; 2],
+    video_capture_latch: bool,
 }
 
 impl State {
@@ -122,6 +144,11 @@ impl State {
             frame_complete: false,
             bg_affine_latch: BgAffineLatch::default(),
             mosaic: MosaicState::default(),
+            bg_enabled_latency: [0; 4],
+            obj_enabled_latency: 0,
+            forced_blanking_latency: 0,
+            window_y_active: [false; 2],
+            video_capture_latch: false,
         }
     }
 
@@ -248,8 +275,9 @@ impl Layer {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum SpriteMode {
+    #[default]
     Normal,
     SemiTransparent,
     ObjWindow,
@@ -268,8 +296,9 @@ impl SpriteMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum SpriteSize {
+    #[default]
     Zero,
     One,
     Two,
@@ -288,8 +317,9 @@ impl SpriteSize {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum SpriteShape {
+    #[default]
     Square,
     HorizontalRect,
     VerticalRect,
@@ -333,7 +363,7 @@ impl SpriteShape {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default, Encode, Decode)]
 struct OamEntry {
     x: u32,
     y: u32,
@@ -407,6 +437,7 @@ pub struct Ppu {
     vram: BoxedByteArray<VRAM_LEN>,
     palette_ram: BoxedWordArray<PALETTE_RAM_LEN_HALFWORDS>,
     oam: BoxedWordArray<OAM_LEN_HALFWORDS>,
+    oam_parsed: Box<[OamEntry; 128]>,
     registers: Registers,
     state: State,
     buffers: Box<Buffers>,
@@ -422,6 +453,7 @@ impl Ppu {
             vram: BoxedByteArray::new(),
             palette_ram: BoxedWordArray::new(),
             oam: BoxedWordArray::new(),
+            oam_parsed: Box::new(array::from_fn(|_| OamEntry::default())),
             registers: Registers::new(),
             state: State::new(),
             buffers: Box::new(Buffers::new()),
@@ -466,7 +498,9 @@ impl Ppu {
             }
 
             if ppu.state.scanline < SCREEN_HEIGHT {
-                ppu.state.bg_affine_latch.increment_reference_latches(&ppu.registers);
+                ppu.state
+                    .bg_affine_latch
+                    .increment_reference_latches(&ppu.registers, ppu.state.bg_enabled_latency);
 
                 dma.notify_hblank_start();
             }
@@ -481,19 +515,35 @@ impl Ppu {
             ppu.state.dot = 0;
 
             ppu.state.scanline += 1;
-            if ppu.state.scanline == LINES_PER_FRAME {
-                ppu.state.scanline = 0;
-            } else if ppu.state.scanline == SCREEN_HEIGHT {
-                if ppu.registers.vblank_irq_enabled {
-                    interrupts.set_flag(InterruptType::VBlank, cycles);
+            match ppu.state.scanline {
+                LINES_PER_FRAME => {
+                    ppu.state.scanline = 0;
+
+                    ppu.state.bg_affine_latch.latch_reference_points(&ppu.registers);
+                    ppu.state.bg_affine_latch.x_written = [false; 2];
+                    ppu.state.bg_affine_latch.y_written = [false; 2];
                 }
+                SCREEN_HEIGHT => {
+                    if ppu.registers.vblank_irq_enabled {
+                        interrupts.set_flag(InterruptType::VBlank, cycles);
+                    }
 
-                dma.notify_vblank_start();
+                    dma.notify_vblank_start();
 
-                ppu.state.bg_affine_latch.latch_reference_points(&ppu.registers);
+                    ppu.state.frame_complete = true;
+                    ppu.ready_frame_buffer.copy_from(&ppu.frame_buffer, ppu.color_correction);
+                }
+                162 => {
+                    if ppu.state.video_capture_latch {
+                        dma.end_video_capture();
+                    }
+                    ppu.state.video_capture_latch = dma.video_capture_active();
+                }
+                _ => {}
+            }
 
-                ppu.state.frame_complete = true;
-                ppu.ready_frame_buffer.copy_from(&ppu.frame_buffer, ppu.color_correction);
+            if ppu.state.video_capture_latch && (2..162).contains(&ppu.state.scanline) {
+                dma.notify_video_capture();
             }
 
             ppu.state.update_mosaic_v_state(&ppu.registers);
@@ -502,6 +552,17 @@ impl Ppu {
                 && (ppu.state.scanline as u8) == ppu.registers.v_counter_match
             {
                 interrupts.set_flag(InterruptType::VCounter, cycles);
+            }
+
+            for latency in &mut ppu.state.bg_enabled_latency {
+                *latency = latency.saturating_sub(1);
+            }
+            ppu.state.obj_enabled_latency = ppu.state.obj_enabled_latency.saturating_sub(1);
+            ppu.state.forced_blanking_latency = ppu.state.forced_blanking_latency.saturating_sub(1);
+
+            for (i, window_y_active) in ppu.state.window_y_active.iter_mut().enumerate() {
+                *window_y_active |= ppu.state.scanline == ppu.registers.window_y1[i];
+                *window_y_active &= ppu.state.scanline != ppu.registers.window_y2[i];
             }
         }
 
@@ -538,7 +599,7 @@ impl Ppu {
             return;
         }
 
-        if self.registers.forced_blanking {
+        if self.registers.forced_blanking || self.state.forced_blanking_latency != 0 {
             self.clear_current_line();
             return;
         }
@@ -906,8 +967,6 @@ impl Ppu {
             semi_transparent: bool,
         }
 
-        let scanline = self.state.scanline;
-
         let backdrop_color = Pixel::new_transparent(self.palette_ram[0]);
 
         // Alpha blending coefficients
@@ -918,7 +977,9 @@ impl Ppu {
         let evy: u16 = cmp::min(16, self.registers.blend_brightness).into();
 
         let bg_enabled: [bool; 4] = array::from_fn(|bg| {
-            self.registers.bg_enabled[bg] && self.registers.bg_mode.bg_active_in_mode(bg)
+            self.registers.bg_enabled[bg]
+                && self.registers.bg_mode.bg_active_in_mode(bg)
+                && self.state.bg_enabled_latency[bg] == 0
         });
 
         let any_window_enabled = self.registers.window_enabled[0]
@@ -926,10 +987,11 @@ impl Ppu {
             || self.registers.obj_window_enabled;
 
         let window_x = self.registers.window_x_ranges();
-        let window_y = self.registers.window_y_ranges();
 
         let window_y_active =
-            [0, 1].map(|i| self.registers.window_enabled[i] && window_y[i].contains(&scanline));
+            [0, 1].map(|i| self.registers.window_enabled[i] && self.state.window_y_active[i]);
+
+        let obj_enabled = self.registers.obj_enabled && self.state.obj_enabled_latency == 0;
 
         let mut obj_mosaic_h_counter = self.registers.obj_mosaic_h_size;
         let mut obj_mosaic_latch = ObjPixel::default();
@@ -966,26 +1028,10 @@ impl Ppu {
                 semi_transparent: false,
             };
 
-            let mut check_pixel = |pixel: MergePixel| {
-                if pixel.color.transparent() {
-                    return;
-                }
-
-                if first_pixel.color.transparent() || pixel.priority < first_pixel.priority {
-                    second_pixel = first_pixel;
-                    first_pixel = pixel;
-                    return;
-                }
-
-                if second_pixel.color.transparent() || pixel.priority < second_pixel.priority {
-                    second_pixel = pixel;
-                }
-            };
-
             // When priority value is equal, layer priority is OBJ > BG0 > BG1 > BG2 > BG3
             // Process layers in that order
 
-            if self.registers.obj_enabled {
+            if obj_enabled {
                 let obj_pixel = self.buffers.obj_pixels[pixel as usize];
 
                 if obj_mosaic_h_counter == self.registers.obj_mosaic_h_size {
@@ -1001,13 +1047,14 @@ impl Ppu {
                     obj_mosaic_latch = obj_pixel;
                 }
 
-                if window_layers_enabled.obj {
-                    check_pixel(MergePixel {
+                if window_layers_enabled.obj && !obj_mosaic_latch.color.transparent() {
+                    second_pixel = first_pixel;
+                    first_pixel = MergePixel {
                         color: obj_mosaic_latch.color,
                         layer: Layer::Obj,
-                        priority: obj_mosaic_latch.priority,
-                        semi_transparent: obj_mosaic_latch.semi_transparent,
-                    });
+                        priority: obj_pixel.priority,
+                        semi_transparent: obj_pixel.semi_transparent,
+                    };
                 }
             }
 
@@ -1016,12 +1063,28 @@ impl Ppu {
                     continue;
                 }
 
-                check_pixel(MergePixel {
-                    color: self.buffers.bg_pixels[bg][pixel as usize],
-                    layer: Layer::BG[bg],
-                    priority: self.registers.bg_control[bg].priority,
-                    semi_transparent: false,
-                });
+                let bg_pixel = self.buffers.bg_pixels[bg][pixel as usize];
+                if bg_pixel.transparent() {
+                    continue;
+                }
+
+                let priority = self.registers.bg_control[bg].priority;
+                if priority < first_pixel.priority {
+                    second_pixel = first_pixel;
+                    first_pixel = MergePixel {
+                        color: bg_pixel,
+                        layer: Layer::BG[bg],
+                        priority,
+                        semi_transparent: false,
+                    };
+                } else if priority < second_pixel.priority {
+                    second_pixel = MergePixel {
+                        color: bg_pixel,
+                        layer: Layer::BG[bg],
+                        priority,
+                        semi_transparent: false,
+                    };
+                }
             }
 
             let mut blend_color = first_pixel.color;
@@ -1055,6 +1118,23 @@ impl Ppu {
 
             self.frame_buffer.set(self.state.scanline, pixel, blend_color.0);
         }
+
+        if self.registers.green_swap {
+            self.green_swap_line();
+        }
+    }
+
+    fn green_swap_line(&mut self) {
+        let scanline_addr = (self.state.scanline * SCREEN_WIDTH) as usize;
+        for chunk in self.frame_buffer.0[scanline_addr..scanline_addr + SCREEN_WIDTH as usize]
+            .chunks_exact_mut(2)
+        {
+            let g0 = chunk[0] & (0x1F << 5);
+            let g1 = chunk[1] & (0x1F << 5);
+
+            chunk[0] = (chunk[0] & !(0x1F << 5)) | g1;
+            chunk[1] = (chunk[1] & !(0x1F << 5)) | g0;
+        }
     }
 
     #[allow(clippy::many_single_char_names)]
@@ -1076,13 +1156,11 @@ impl Ppu {
         // One memory access every 2 cycles
         // When OAM is free during HBlank, sprite rendering runs from dots 40 to 1006 (HBlank start)
         let mut memory_accesses = if self.registers.oam_free_during_hblank {
-            (HBLANK_START_DOT - 40) / 2
+            // -3 based on Sprite_Last_VRAM_Access_Free test ROM
+            (HBLANK_START_DOT - 40) / 2 - 3
         } else {
             DOTS_PER_LINE / 2
         };
-
-        // Add 1 so that the loop breaks on the access *after* the last access
-        memory_accesses += 1;
 
         'outer: for oam_idx in 0..128 {
             // 32-bit OAM read of first two attribute words
@@ -1091,12 +1169,7 @@ impl Ppu {
                 break 'outer;
             }
 
-            let oam_addr = 4 * oam_idx;
-            let oam_entry = OamEntry::parse([
-                self.oam[oam_addr],
-                self.oam[oam_addr + 1],
-                self.oam[oam_addr + 2],
-            ]);
+            let oam_entry = &self.oam_parsed[oam_idx as usize];
 
             if oam_entry.disabled {
                 continue;
@@ -1136,6 +1209,8 @@ impl Ppu {
                 break 'outer;
             }
 
+            let oam_entry = oam_entry.clone();
+
             if oam_entry.affine {
                 // 1 idle access cycle plus 4 OAM reads for the affine parameters
                 memory_accesses = memory_accesses.saturating_sub(5);
@@ -1166,12 +1241,6 @@ impl Ppu {
                 let mut y = c * x_offset + d * y_offset - c;
 
                 for sprite_x in 0..display_width {
-                    // 1 VRAM read per pixel for affine sprites
-                    memory_accesses -= 1;
-                    if memory_accesses == 0 {
-                        break 'outer;
-                    }
-
                     x += a;
                     y += c;
 
@@ -1179,6 +1248,12 @@ impl Ppu {
                     if !(0..SCREEN_WIDTH).contains(&pixel) {
                         // Sprite pixel is offscreen
                         continue;
+                    }
+
+                    // 1 VRAM read per pixel for affine sprites
+                    memory_accesses -= 1;
+                    if memory_accesses == 0 {
+                        break 'outer;
                     }
 
                     let sample_x = (x >> 8) + half_sprite_width;
@@ -1206,18 +1281,18 @@ impl Ppu {
                     if oam_entry.v_flip { sprite_height - 1 - sprite_y } else { sprite_y };
 
                 for sprite_x in 0..sprite_width {
+                    let pixel = (oam_entry.x + sprite_x) & 0x1FF;
+                    if !(0..SCREEN_WIDTH).contains(&pixel) {
+                        // Sprite pixel is offscreen
+                        continue;
+                    }
+
                     // 1 VRAM read per 2 pixels for non-affine sprites
                     if sprite_x & 1 == 0 {
                         memory_accesses -= 1;
                         if memory_accesses == 0 {
                             break 'outer;
                         }
-                    }
-
-                    let pixel = (oam_entry.x + sprite_x) & 0x1FF;
-                    if !(0..SCREEN_WIDTH).contains(&pixel) {
-                        // Sprite pixel is offscreen
-                        continue;
                     }
 
                     let sample_x =
@@ -1345,22 +1420,28 @@ impl Ppu {
         if vram_addr & 0x10000 != 0 { 0x10000 | (vram_addr & 0x7FFF) } else { vram_addr }
     }
 
+    fn should_ignore_vram_access(&self, address: u32) -> bool {
+        // When the PPU is in a bitmap mode, accesses to mirrored VRAM at $18000-$1C000 do not work (vram-mirror test ROM)
+        // Reads always return 0 (or open bus?) and writes are discarded
+        self.registers.bg_mode.is_bitmap() && (0x18000..0x1C000).contains(&(address & 0x1FFFF))
+    }
+
     pub fn read_vram(&self, address: u32) -> u16 {
+        if self.should_ignore_vram_access(address) {
+            return 0;
+        }
+
         let vram_addr = Self::mask_vram_address(address);
         u16::from_le_bytes(self.vram[vram_addr..vram_addr + 2].try_into().unwrap())
     }
 
     pub fn write_vram(&mut self, address: u32, value: u16) {
+        if self.should_ignore_vram_access(address) {
+            return;
+        }
+
         let vram_addr = Self::mask_vram_address(address);
         self.vram[vram_addr..vram_addr + 2].copy_from_slice(&value.to_le_bytes());
-
-        if !(self.in_vblank() || self.in_hblank() || self.registers.forced_blanking) {
-            log::debug!(
-                "VRAM write to {address:08X} during active rendering (line {} dot {})",
-                self.state.scanline,
-                self.state.dot
-            );
-        }
     }
 
     pub fn write_vram_byte(&mut self, address: u32, value: u8) {
@@ -1389,14 +1470,6 @@ impl Ppu {
     pub fn write_palette_ram(&mut self, address: u32, value: u16) {
         let palette_ram_addr = ((address >> 1) as usize) & (PALETTE_RAM_LEN_HALFWORDS - 1);
         self.palette_ram[palette_ram_addr] = value;
-
-        if !(self.in_vblank() || self.in_hblank() || self.registers.forced_blanking) {
-            log::debug!(
-                "Palette RAM write to {address:08X} during active rendering (line {} dot {})",
-                self.state.scanline,
-                self.state.dot
-            );
-        }
     }
 
     pub fn read_oam(&self, address: u32) -> u16 {
@@ -1405,21 +1478,16 @@ impl Ppu {
     }
 
     pub fn write_oam(&mut self, address: u32, value: u16) {
-        // Dots when OAM is in use when the "OAM free during HBlank" bit is set (DISPCNT bit 5)
-        const OAM_USE_DOTS: Range<u32> = 40..1006;
-
         let oam_addr = ((address >> 1) as usize) & (OAM_LEN_HALFWORDS - 1);
         self.oam[oam_addr] = value;
 
-        if !(self.in_vblank()
-            || (self.registers.oam_free_during_hblank && OAM_USE_DOTS.contains(&self.state.dot))
-            || self.registers.forced_blanking)
-        {
-            log::debug!(
-                "OAM write to {address:08X} during active rendering (line {} dot {})",
-                self.state.scanline,
-                self.state.dot
-            );
+        if address & 3 != 3 {
+            let oam_idx = oam_addr >> 2;
+            self.oam_parsed[oam_idx] = OamEntry::parse([
+                self.oam[4 * oam_idx],
+                self.oam[4 * oam_idx + 1],
+                self.oam[4 * oam_idx + 2],
+            ]);
         }
     }
 
@@ -1438,13 +1506,9 @@ impl Ppu {
 
         let value = match address {
             0x4000000 => self.registers.read_dispcnt(),
-            0x4000002 => {
-                // TODO undocumented green swap register
-                log::warn!("Read of undocumented green swap register {address:08X}");
-                0
-            }
+            0x4000002 => self.registers.read_green_swap(),
             0x4000004 => self.read_dispstat(),
-            0x4000006 => self.state.scanline as u16,
+            0x4000006 => self.v_counter().into(),
             0x4000008..=0x400000E => {
                 let bg = (address & 7) >> 1;
                 self.registers.read_bgcnt(bg as usize)
@@ -1466,7 +1530,7 @@ impl Ppu {
     fn read_dispstat(&self) -> u16 {
         let in_vblank = self.in_vblank();
         let in_hblank = self.in_hblank();
-        let v_counter_match = (self.state.scanline as u8) == self.registers.v_counter_match;
+        let v_counter_match = self.v_counter() == self.registers.v_counter_match;
 
         u16::from(in_vblank)
             | (u16::from(in_hblank) << 1)
@@ -1477,16 +1541,53 @@ impl Ppu {
             | (u16::from(self.registers.v_counter_match) << 8)
     }
 
+    // $4000004: DISPSTAT (Display status)
+    fn write_dispstat(&mut self, value: u16, cycles: u64, interrupts: &mut InterruptRegisters) {
+        let prev_v_count_enabled = self.registers.v_counter_irq_enabled;
+        let v_counter = self.v_counter();
+        let prev_v_count_match = self.registers.v_counter_match == v_counter;
+
+        self.registers.write_dispstat(value);
+
+        // Changing VCOUNT match mid-line can trigger VCOUNT match IRQs
+        // e.g. lyc_midline and window_midframe test ROMs
+        // TODO is it right that this only happens if VCOUNT enabled status doesn't change?
+        if prev_v_count_enabled
+            && self.registers.v_counter_irq_enabled
+            && !prev_v_count_match
+            && self.registers.v_counter_match == v_counter
+        {
+            interrupts.set_flag(InterruptType::VCounter, cycles + 1);
+        }
+    }
+
     fn in_vblank(&self) -> bool {
         VBLANK_LINES.contains(&self.state.scanline)
     }
 
     fn in_hblank(&self) -> bool {
-        self.state.dot >= HBLANK_START_DOT
+        (HBLANK_START_DOT..DOTS_PER_LINE - 1).contains(&self.state.dot)
+    }
+
+    fn v_counter(&self) -> u8 {
+        let mut line = self.state.scanline;
+        if self.state.dot == DOTS_PER_LINE - 1 {
+            line += 1;
+            if line == LINES_PER_FRAME {
+                line = 0;
+            }
+        }
+        line as u8
     }
 
     #[allow(clippy::match_same_arms)]
-    pub fn write_register(&mut self, address: u32, value: u16) {
+    pub fn write_register(
+        &mut self,
+        address: u32,
+        value: u16,
+        cycles: u64,
+        interrupts: &mut InterruptRegisters,
+    ) {
         log::debug!(
             "PPU register write {address:08X} {value:04X} (line {} dot {})",
             self.state.scanline,
@@ -1494,13 +1595,9 @@ impl Ppu {
         );
 
         match address {
-            0x4000000 => self.registers.write_dispcnt(value),
-            0x4000002 => {
-                log::warn!(
-                    "Ignoring write {value:04X} to unimplemented green swap register {address:08X}"
-                );
-            }
-            0x4000004 => self.registers.write_dispstat(value),
+            0x4000000 => self.registers.write_dispcnt(value, &mut self.state),
+            0x4000002 => self.registers.write_green_swap(value),
+            0x4000004 => self.write_dispstat(value, cycles, interrupts),
             0x4000006 => {} // High halfword of word-size writes to DISPSTAT
             0x4000008..=0x400000E => {
                 // BGxCNT
@@ -1539,7 +1636,13 @@ impl Ppu {
         }
     }
 
-    pub fn write_register_byte(&mut self, address: u32, value: u8) {
+    pub fn write_register_byte(
+        &mut self,
+        address: u32,
+        value: u8,
+        cycles: u64,
+        interrupts: &mut InterruptRegisters,
+    ) {
         trait U16Ext {
             fn set_byte(&mut self, i: bool, value: u8);
         }
@@ -1563,7 +1666,7 @@ impl Ppu {
                 // R/W registers: DISPCNT, green swap, DISPSTAT, BGxCNT, WININ, WINOUT, BLDCNT, BLDALPHA
                 let Some(mut halfword) = self.read_register(address & !1) else { return };
                 halfword.set_byte(address.bit(0), value);
-                self.write_register(address & !1, halfword);
+                self.write_register(address & !1, halfword, cycles, interrupts);
             }
             0x4000010..=0x400001F => {
                 // BGxHOFS / BGxVOFS
