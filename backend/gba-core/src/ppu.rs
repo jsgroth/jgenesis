@@ -442,6 +442,7 @@ pub struct Ppu {
     state: State,
     buffers: Box<Buffers>,
     cycles: u64,
+    next_event_cycles: u64,
     color_correction: GbaColorCorrection,
 }
 
@@ -458,6 +459,7 @@ impl Ppu {
             state: State::new(),
             buffers: Box::new(Buffers::new()),
             cycles: 0,
+            next_event_cycles: 0,
             color_correction: config.color_correction,
         }
     }
@@ -472,16 +474,20 @@ impl Ppu {
         interrupts: &mut InterruptRegisters,
         dma: &mut DmaState,
     ) {
-        let elapsed_cycles = cycles - self.cycles;
-        self.tick(elapsed_cycles as u32, interrupts, dma);
+        if cycles <= self.cycles {
+            return;
+        }
+
+        if cycles < self.next_event_cycles {
+            self.state.dot += (cycles - self.cycles) as u32;
+            self.cycles = cycles;
+            return;
+        }
+
+        self.tick(cycles, interrupts, dma);
     }
 
-    fn tick(
-        &mut self,
-        mut elapsed_cycles: u32,
-        interrupts: &mut InterruptRegisters,
-        dma: &mut DmaState,
-    ) {
+    fn tick(&mut self, cycles: u64, interrupts: &mut InterruptRegisters, dma: &mut DmaState) {
         fn render_line(ppu: &mut Ppu, _: &mut InterruptRegisters, _: &mut DmaState, _: u64) {
             ppu.render_current_line();
             ppu.render_next_sprite_line();
@@ -577,8 +583,13 @@ impl Ppu {
             (DOTS_PER_LINE, end_of_line),
         ];
 
+        if cycles <= self.cycles {
+            return;
+        }
+
+        let mut elapsed_cycles = (cycles - self.cycles) as u32;
+        let mut event_idx = 0;
         while elapsed_cycles != 0 {
-            let mut event_idx = 0;
             while self.state.dot >= LINE_EVENTS[event_idx].0 {
                 event_idx += 1;
             }
@@ -590,8 +601,13 @@ impl Ppu {
 
             if self.state.dot == LINE_EVENTS[event_idx].0 {
                 (LINE_EVENTS[event_idx].1)(self, interrupts, dma, self.cycles);
+                if event_idx == LINE_EVENTS.len() - 1 {
+                    event_idx = 0;
+                }
             }
         }
+
+        self.next_event_cycles = self.cycles + u64::from(LINE_EVENTS[event_idx].0 - self.state.dot);
     }
 
     fn render_current_line(&mut self) {
@@ -1501,7 +1517,15 @@ impl Ppu {
         !self.registers.forced_blanking && !self.in_vblank() && self.state.dot % 2 == 0
     }
 
-    pub fn read_register(&self, address: u32) -> Option<u16> {
+    pub fn read_register(
+        &mut self,
+        address: u32,
+        cycles: u64,
+        dma: &mut DmaState,
+        interrupts: &mut InterruptRegisters,
+    ) -> Option<u16> {
+        self.step_to(cycles, interrupts, dma);
+
         log::trace!("PPU register read {address:08X}");
 
         let value = match address {
@@ -1586,6 +1610,7 @@ impl Ppu {
         address: u32,
         value: u16,
         cycles: u64,
+        dma: &mut DmaState,
         interrupts: &mut InterruptRegisters,
     ) {
         log::debug!(
@@ -1593,6 +1618,8 @@ impl Ppu {
             self.state.scanline,
             self.state.dot
         );
+
+        self.step_to(cycles, interrupts, dma);
 
         match address {
             0x4000000 => self.registers.write_dispcnt(value, &mut self.state),
@@ -1641,6 +1668,7 @@ impl Ppu {
         address: u32,
         value: u8,
         cycles: u64,
+        dma: &mut DmaState,
         interrupts: &mut InterruptRegisters,
     ) {
         trait U16Ext {
@@ -1657,6 +1685,8 @@ impl Ppu {
             }
         }
 
+        self.step_to(cycles, interrupts, dma);
+
         // TODO BGxHOFS, BGxVOFS, MOSAIC, blend registers
         match address {
             0x4000000..=0x4000005
@@ -1664,9 +1694,12 @@ impl Ppu {
             | 0x4000048..=0x400004B
             | 0x4000050..=0x4000053 => {
                 // R/W registers: DISPCNT, green swap, DISPSTAT, BGxCNT, WININ, WINOUT, BLDCNT, BLDALPHA
-                let Some(mut halfword) = self.read_register(address & !1) else { return };
+                let Some(mut halfword) = self.read_register(address & !1, cycles, dma, interrupts)
+                else {
+                    return;
+                };
                 halfword.set_byte(address.bit(0), value);
-                self.write_register(address & !1, halfword, cycles, interrupts);
+                self.write_register(address & !1, halfword, cycles, dma, interrupts);
             }
             0x4000010..=0x400001F => {
                 // BGxHOFS / BGxVOFS

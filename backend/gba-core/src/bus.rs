@@ -394,8 +394,12 @@ impl Bus {
         match address {
             0x4000000..=0x4000057 => {
                 // PPU registers
-                self.ppu.step_to(self.state.cycles, &mut self.interrupts, &mut self.dma);
-                self.ppu.read_register(address)
+                self.ppu.read_register(
+                    address,
+                    self.state.cycles,
+                    &mut self.dma,
+                    &mut self.interrupts,
+                )
             }
             0x4000060..=0x40000AF => {
                 // APU registers
@@ -477,8 +481,13 @@ impl Bus {
         match address {
             0x4000000..=0x4000057 => {
                 // PPU registers
-                self.ppu.step_to(self.state.cycles, &mut self.interrupts, &mut self.dma);
-                self.ppu.write_register(address, value, self.state.cycles, &mut self.interrupts);
+                self.ppu.write_register(
+                    address,
+                    value,
+                    self.state.cycles,
+                    &mut self.dma,
+                    &mut self.interrupts,
+                );
             }
             0x4000058..=0x400005F => {} // Invalid addresses
             0x4000060..=0x40000AF => {
@@ -535,11 +544,11 @@ impl Bus {
         match address {
             0x4000000..=0x4000057 => {
                 // PPU registers
-                self.sync_ppu();
                 self.ppu.write_register_byte(
                     address,
                     value,
                     self.state.cycles,
+                    &mut self.dma,
                     &mut self.interrupts,
                 );
             }

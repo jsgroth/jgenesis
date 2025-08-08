@@ -233,6 +233,7 @@ impl Arm7Tdmi {
         self.refill_prefetch(bus);
     }
 
+    #[inline]
     pub fn execute_instruction(&mut self, bus: &mut impl BusInterface) {
         let irq = !self.registers.cpsr.irq_disabled && bus.irq();
         let opcode = self.prefetch[0];

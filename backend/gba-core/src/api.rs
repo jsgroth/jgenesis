@@ -53,6 +53,7 @@ pub struct GameBoyAdvanceEmulator {
     #[partial_clone(partial)]
     bus: Bus,
     config: GbaEmulatorConfig,
+    last_apu_sync_cycles: u64,
 }
 
 impl GameBoyAdvanceEmulator {
@@ -101,7 +102,16 @@ impl GameBoyAdvanceEmulator {
             );
         }
 
-        Ok(Self { cpu, bus, config })
+        Ok(Self { cpu, bus, config, last_apu_sync_cycles: 0 })
+    }
+
+    fn drain_apu<A: AudioOutput>(&mut self, audio_output: &mut A) -> Result<(), A::Err> {
+        self.bus.apu.step_to(self.bus.state.cycles);
+        self.bus.apu.drain_audio_output(audio_output)?;
+
+        self.last_apu_sync_cycles = self.bus.state.cycles;
+
+        Ok(())
     }
 }
 
@@ -117,6 +127,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
         SErr: Debug + Display + Send + Sync + 'static,
     > = GbaError<RErr, AErr, SErr>;
 
+    #[inline]
     fn tick<R, A, S>(
         &mut self,
         renderer: &mut R,
@@ -143,14 +154,18 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
 
         self.bus.sync_timers();
 
-        self.bus.apu.step_to(self.bus.state.cycles);
-        self.bus.apu.drain_audio_output(audio_output).map_err(GbaError::Audio)?;
+        // Forcibly sync the APU roughly once per line
+        if self.bus.state.cycles - self.last_apu_sync_cycles >= u64::from(ppu::DOTS_PER_LINE) {
+            self.drain_apu(audio_output).map_err(GbaError::Audio)?;
+        }
 
         self.bus.sio.check_for_interrupt(self.bus.state.cycles, &mut self.bus.interrupts);
 
         self.bus.sync_ppu();
         if self.bus.ppu.frame_complete() {
             self.bus.ppu.clear_frame_complete();
+
+            self.drain_apu(audio_output).map_err(GbaError::Audio)?;
 
             renderer
                 .render_frame(
@@ -204,6 +219,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
             .expect("Emulator creation should never fail during hard reset");
     }
 
+    #[inline]
     fn target_fps(&self) -> f64 {
         // Roughly 59.73 fps
         (crate::GBA_CLOCK_SPEED as f64)
@@ -211,6 +227,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
             / f64::from(ppu::DOTS_PER_LINE)
     }
 
+    #[inline]
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
         self.bus.apu.update_output_frequency(output_frequency);
     }
