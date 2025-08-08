@@ -15,7 +15,7 @@ use crate::timers::Timers;
 use arm7tdmi_emu::bus::BusInterface;
 use arm7tdmi_emu::{Arm7Tdmi, Arm7TdmiResetArgs, CpuMode};
 use bincode::{Decode, Encode};
-use gba_config::{GbaAspectRatio, GbaButton, GbaColorCorrection, GbaInputs};
+use gba_config::{GbaAspectRatio, GbaButton, GbaColorCorrection, GbaInputs, GbaSaveMemory};
 use jgenesis_common::frontend::{
     AudioOutput, EmulatorConfigTrait, EmulatorTrait, Renderer, SaveWriter, TickEffect, TickResult,
 };
@@ -28,6 +28,7 @@ pub struct GbaEmulatorConfig {
     pub skip_bios_animation: bool,
     pub aspect_ratio: GbaAspectRatio,
     pub color_correction: GbaColorCorrection,
+    pub forced_save_memory_type: Option<GbaSaveMemory>,
 }
 
 #[derive(Debug, Error)]
@@ -67,7 +68,7 @@ impl GameBoyAdvanceEmulator {
         let initial_save = save_writer.load_bytes("sav").ok();
 
         let memory = Memory::new(bios_rom, config)?;
-        let cartridge = Cartridge::new(rom, initial_save);
+        let cartridge = Cartridge::new(rom, initial_save, config.forced_save_memory_type);
 
         let mut cpu = Arm7Tdmi::new();
         let mut bus = Bus {

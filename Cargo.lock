@@ -2305,6 +2305,7 @@ dependencies = [
  "clap",
  "env_logger",
  "gb-config",
+ "gba-config",
  "genesis-config",
  "jgenesis-common",
  "jgenesis-native-config",

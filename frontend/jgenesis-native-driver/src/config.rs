@@ -528,6 +528,7 @@ impl AppConfigExt for AppConfig {
                 skip_bios_animation: self.game_boy_advance.skip_bios_animation,
                 aspect_ratio: self.game_boy_advance.aspect_ratio,
                 color_correction: self.game_boy_advance.color_correction,
+                forced_save_memory_type: self.game_boy_advance.forced_save_memory_type,
             },
             bios_path: self.game_boy_advance.bios_path.clone(),
         })

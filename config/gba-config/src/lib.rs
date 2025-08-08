@@ -57,3 +57,31 @@ pub enum GbaColorCorrection {
     #[default]
     GbaLcd,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, EnumAll, EnumFromStr, EnumDisplay)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum GbaSaveMemory {
+    Sram,
+    EepromUnknownSize,
+    Eeprom512,
+    Eeprom8K,
+    FlashRom64K,
+    FlashRom128K,
+    None,
+}
+
+impl GbaSaveMemory {
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Sram => "SRAM",
+            Self::EepromUnknownSize => "EEPROM (unspecified size)",
+            Self::Eeprom512 => "EEPROM 512 bytes",
+            Self::Eeprom8K => "EEPROM 8 KB",
+            Self::FlashRom64K => "Flash ROM 64 KB",
+            Self::FlashRom128K => "Flash ROM 128 KB",
+            Self::None => "None",
+        }
+    }
+}

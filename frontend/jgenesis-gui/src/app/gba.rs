@@ -1,7 +1,7 @@
 use crate::app::widgets::{BiosErrorStrings, RenderErrorEffect};
 use crate::app::{App, OpenWindow, widgets};
 use egui::{Context, Window};
-use gba_config::{GbaAspectRatio, GbaColorCorrection};
+use gba_config::{GbaAspectRatio, GbaColorCorrection, GbaSaveMemory};
 use jgenesis_native_driver::extensions::Console;
 use rfd::FileDialog;
 use std::path::PathBuf;
@@ -17,6 +17,27 @@ impl App {
                 &mut self.config.game_boy_advance.skip_bios_animation,
                 "Skip BIOS intro animation",
             );
+
+            ui.group(|ui| {
+                ui.label("Save memory type");
+
+                for (value, label) in [
+                    (None, "Auto-detect"),
+                    (Some(GbaSaveMemory::Sram), "SRAM"),
+                    (Some(GbaSaveMemory::EepromUnknownSize), "EEPROM - Auto-detect size"),
+                    (Some(GbaSaveMemory::Eeprom512), "EEPROM - 512 bytes"),
+                    (Some(GbaSaveMemory::Eeprom8K), "EEPROM - 8 KB"),
+                    (Some(GbaSaveMemory::FlashRom64K), "Flash ROM - 64 KB"),
+                    (Some(GbaSaveMemory::FlashRom128K), "Flash ROM - 128 KB"),
+                    (Some(GbaSaveMemory::None), "No save memory"),
+                ] {
+                    ui.radio_value(
+                        &mut self.config.game_boy_advance.forced_save_memory_type,
+                        value,
+                        label,
+                    );
+                }
+            });
         });
 
         if !open {

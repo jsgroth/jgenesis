@@ -7,6 +7,7 @@ use crate::cartridge::eeprom::{Eeprom8K, Eeprom512};
 use crate::cartridge::flashrom::{FlashRom64K, FlashRom128K};
 use crate::dma::TransferUnit;
 use bincode::{Decode, Encode};
+use gba_config::GbaSaveMemory;
 use jgenesis_common::boxedarray::BoxedByteArray;
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
@@ -44,6 +45,7 @@ enum RwMemory {
     Eeprom8K(Eeprom8K),
     FlashRom64K(FlashRom64K),
     FlashRom128K(FlashRom128K),
+    None,
 }
 
 impl RwMemory {
@@ -69,7 +71,23 @@ impl RwMemory {
         Self::FlashRom128K(FlashRom128K::new(initial_save))
     }
 
-    fn initial(rom: &[u8], initial_save: Option<&Vec<u8>>) -> Self {
+    fn from_forced_type(initial_save: Option<&Vec<u8>>, forced_type: GbaSaveMemory) -> Self {
+        match forced_type {
+            GbaSaveMemory::Sram => Self::new_sram(initial_save),
+            GbaSaveMemory::EepromUnknownSize => Self::EepromUnknownSize,
+            GbaSaveMemory::Eeprom512 => Self::Eeprom512(Eeprom512::new(initial_save)),
+            GbaSaveMemory::Eeprom8K => Self::Eeprom8K(Eeprom8K::new(initial_save)),
+            GbaSaveMemory::FlashRom64K => Self::new_flash_rom_64k(initial_save),
+            GbaSaveMemory::FlashRom128K => Self::new_flash_rom_128k(initial_save),
+            GbaSaveMemory::None => Self::None,
+        }
+    }
+
+    fn initial(
+        rom: &[u8],
+        initial_save: Option<&Vec<u8>>,
+        forced_type: Option<GbaSaveMemory>,
+    ) -> Self {
         type RwMemoryFn = fn(Option<&Vec<u8>>) -> RwMemory;
 
         // If the given ASCII string exists in ROM and followed by 3 digits, assume that type
@@ -81,6 +99,11 @@ impl RwMemory {
             (b"FLASH512_V", "Flash ROM 64 KB", RwMemory::new_flash_rom_64k),
             (b"FLASH1M_V", "Flash ROM 128 KB", RwMemory::new_flash_rom_128k),
         ];
+
+        if let Some(forced_type) = forced_type {
+            log::info!("Forcing save memory type to {}", forced_type.name());
+            return Self::from_forced_type(initial_save, forced_type);
+        }
 
         for &(string, name, init_fn) in MEMORY_STRINGS {
             for i in 0..rom.len().saturating_sub(string.len() + 3) {
@@ -107,12 +130,12 @@ impl RwMemory {
     }
 
     fn min_eeprom_address(&self, rom_len: u32) -> u32 {
-        // EEPROM is at $D000000-$DFFFFFF for ROMs <=32MB, and $DFFFF00-$DFFFFFF for >32MB
+        // EEPROM is at $D000000-$DFFFFFF for ROMs <=16MB, and $DFFFF00-$DFFFFFF for 32MB
         match self {
             Self::EepromUnknownSize | Self::Eeprom8K(_) | Self::Eeprom512(_) => {
-                if rom_len <= 32 * 1024 * 1024 { 0xD000000 } else { 0xDFFFF00 }
+                if rom_len <= 16 * 1024 * 1024 { 0xD000000 } else { 0xDFFFF00 }
             }
-            _ => 0xFFFFFFFF,
+            _ => u32::MAX,
         }
     }
 }
@@ -142,6 +165,7 @@ fn pad_if_classic_nes_rom(rom: &mut Vec<u8>) {
 pub struct Cartridge {
     #[partial_clone(default)]
     rom: Rom,
+    rom_len: u32,
     burst_active: bool,
     burst_address: u32,
     rw_memory: RwMemory,
@@ -152,15 +176,24 @@ pub struct Cartridge {
 }
 
 impl Cartridge {
-    pub fn new(mut rom: Vec<u8>, initial_save: Option<Vec<u8>>) -> Self {
+    pub fn new(
+        mut rom: Vec<u8>,
+        initial_save: Option<Vec<u8>>,
+        forced_save_memory_type: Option<GbaSaveMemory>,
+    ) -> Self {
         jgenesis_common::rom::mirror_to_next_power_of_two(&mut rom);
+
+        // Record ROM length before possibly mirroring; Classic NES Series games depend on this to
+        // map EEPROM correctly
+        let rom_len = rom.len() as u32;
         pad_if_classic_nes_rom(&mut rom);
 
-        let rw_memory = RwMemory::initial(&rom, initial_save.as_ref());
-        let min_eeprom_address = rw_memory.min_eeprom_address(rom.len() as u32);
+        let rw_memory = RwMemory::initial(&rom, initial_save.as_ref(), forced_save_memory_type);
+        let min_eeprom_address = rw_memory.min_eeprom_address(rom_len);
 
         Self {
             rom: Rom(rom.into_boxed_slice()),
+            rom_len,
             burst_active: false,
             burst_address: 0,
             rw_memory,
@@ -204,6 +237,8 @@ impl Cartridge {
     }
 
     pub fn read_rom(&mut self, address: u32) -> u16 {
+        debug_assert!((0x08000000..0x0E000000).contains(&address));
+
         let address = self.update_burst_state(address);
 
         if address >= self.min_eeprom_address
@@ -214,7 +249,7 @@ impl Cartridge {
 
         let rom_addr = (address as usize) & 0x1FFFFFF & !1;
         if rom_addr >= self.rom.len() {
-            log::warn!(
+            log::debug!(
                 "Out of bounds cartridge ROM read {address:07X}, len {:07X}",
                 self.rom.len()
             );
@@ -234,6 +269,8 @@ impl Cartridge {
     }
 
     pub fn write_rom(&mut self, address: u32, value: u16) {
+        debug_assert!((0x08000000..0x0E000000).contains(&address));
+
         let address = self.update_burst_state(address);
 
         if address < self.min_eeprom_address {
@@ -262,7 +299,8 @@ impl Cartridge {
             return;
         }
 
-        let rom_len = self.rom.len() as u32;
+        // Check against original ROM length instead of possibly-padded length (Classic NES Series)
+        let rom_len = self.rom_len;
         if address < RwMemory::EepromUnknownSize.min_eeprom_address(rom_len) {
             return;
         }
@@ -273,14 +311,18 @@ impl Cartridge {
                 self.rw_memory = RwMemory::Eeprom512(Eeprom512::new(self.initial_save.as_ref()));
                 self.min_eeprom_address = self.rw_memory.min_eeprom_address(rom_len);
 
-                log::info!("Auto-detected EEPROM size of 512 bytes from DMA of length {length}");
+                log::info!(
+                    "Auto-detected EEPROM size of 512 bytes from DMA of length {length} to ${address:07X}"
+                );
             }
             17 => {
                 // 14-bit address; 8 KB EEPROM
                 self.rw_memory = RwMemory::Eeprom8K(Eeprom8K::new(self.initial_save.as_ref()));
                 self.min_eeprom_address = self.rw_memory.min_eeprom_address(rom_len);
 
-                log::info!("Auto-detected EEPROM size of 8 KB from DMA of length {length}");
+                log::info!(
+                    "Auto-detected EEPROM size of 8 KB from DMA of length {length} to ${address:07X}"
+                );
             }
             _ => {
                 log::warn!("Unexpected initial EEPROM DMA length: {length}");
@@ -296,7 +338,9 @@ impl Cartridge {
         self.rom = mem::take(&mut other.rom);
     }
 
-    pub fn read_sram(&mut self, address: u32) -> Option<u8> {
+    pub fn read_sram(&mut self, address: u32) -> u8 {
+        debug_assert!((0x0E000000..0x10000000).contains(&address));
+
         if matches!(self.rw_memory, RwMemory::Unknown) {
             self.rw_memory = RwMemory::new_sram(self.initial_save.as_ref());
             log::info!("Auto-detected save memory type as SRAM due to read ${address:08X}");
@@ -305,22 +349,28 @@ impl Cartridge {
         match &self.rw_memory {
             RwMemory::Sram(sram) => {
                 let sram_addr = (address as usize) & (SRAM_LEN - 1);
-                Some(sram[sram_addr])
+                sram[sram_addr]
             }
-            RwMemory::FlashRom64K(flash_rom) => Some(flash_rom.read(address)),
-            RwMemory::FlashRom128K(flash_rom) => Some(flash_rom.read(address)),
-            _ => None,
+            RwMemory::FlashRom64K(flash_rom) => flash_rom.read(address),
+            RwMemory::FlashRom128K(flash_rom) => flash_rom.read(address),
+            _ => {
+                // SRAM area reads always return 0xFF when no SRAM or flash ROM is present
+                // (save/none in jsmolka gba-tests)
+                0xFF
+            }
         }
     }
 
     pub fn write_sram(&mut self, address: u32, value: u8) {
+        debug_assert!((0x0E000000..0x10000000).contains(&address));
+
         if matches!(self.rw_memory, RwMemory::Unknown) {
             if address & 0xFFFF == 0x5555 && value == 0xAA {
                 // Probably Flash ROM
                 // TODO is it possible to auto-detect 64K vs. 128K?
                 self.rw_memory = RwMemory::new_flash_rom_128k(self.initial_save.as_ref());
                 log::info!(
-                    "Auto-detected save memory type as Flash ROM 64 KB due to write ${address:08X} {value:02X}"
+                    "Auto-detected save memory type as Flash ROM 64 KB due to write ${address:08X} 0x{value:02X}"
                 );
             } else {
                 // Probably SRAM
@@ -357,7 +407,7 @@ impl Cartridge {
             RwMemory::Eeprom512(eeprom) => Some(eeprom.memory()),
             RwMemory::FlashRom64K(flash_rom) => Some(flash_rom.memory()),
             RwMemory::FlashRom128K(flash_rom) => Some(flash_rom.memory()),
-            RwMemory::Unknown | RwMemory::EepromUnknownSize => None,
+            RwMemory::Unknown | RwMemory::EepromUnknownSize | RwMemory::None => None,
         }
     }
 }

@@ -207,7 +207,7 @@ impl Bus {
 
     fn read_open_bus_byte(&self, address: u32) -> u8 {
         let byte = self.state.open_bus.to_le_bytes()[(address & 3) as usize];
-        log::warn!("Open bus byte read {address:08X}, returning {byte:02X}");
+        log::debug!("Open bus byte read {address:08X}, returning {byte:02X}");
         byte
     }
 
@@ -217,18 +217,13 @@ impl Bus {
 
     fn read_open_bus_halfword(&self, address: u32) -> u16 {
         let halfword = (self.state.open_bus >> (8 * (address & 2))) as u16;
-        log::warn!("Open bus halfword read {address:08X}, returning {halfword:04X}");
+        log::debug!("Open bus halfword read {address:08X}, returning {halfword:04X}");
         halfword
     }
 
     fn update_open_bus_halfword(&mut self, halfword: u16) {
         let halfword: u32 = halfword.into();
         self.state.open_bus = halfword | (halfword << 16);
-    }
-
-    fn read_open_bus_word(&self, address: u32) -> u32 {
-        log::warn!("Open bus word read {address:08X}, returning {:08X}", self.state.open_bus);
-        self.state.open_bus
     }
 
     fn increment_cycles_with_prefetch(&mut self, cycles: u64) {
@@ -485,6 +480,7 @@ impl Bus {
                 self.ppu.step_to(self.state.cycles, &mut self.interrupts, &mut self.dma);
                 self.ppu.write_register(address, value, self.state.cycles, &mut self.interrupts);
             }
+            0x4000058..=0x400005F => {} // Invalid addresses
             0x4000060..=0x40000AF => {
                 // APU registers
                 self.apu.step_to(self.state.cycles);
@@ -495,6 +491,7 @@ impl Bus {
                 self.dma.sync(self.state.cycles);
                 self.dma.write_register(address, value, &mut self.cartridge);
             }
+            0x40000E0..=0x40000FF => {} // Invalid addresses
             0x4000100..=0x400010F => {
                 // Timer registers
                 self.timers.write_register(
@@ -506,17 +503,20 @@ impl Bus {
                     &mut self.interrupts,
                 );
             }
+            0x4000110..=0x400011F => {} // Invalid addresses
             0x4000120..=0x400012F | 0x4000134..=0x400015F => {
                 // SIO registers
                 self.sio.write_register(address, value, self.state.cycles);
             }
+            0x4000130 => {} // KEYINPUT, not writable
             0x4000132 => self.inputs.write_keycnt(value, self.state.cycles, &mut self.interrupts),
             0x4000200 => self.interrupts.write_ie(value, self.state.cycles),
             0x4000202 => self.interrupts.write_if(value, self.state.cycles),
             0x4000204 => self.memory.write_waitcnt(value),
             0x4000206 => {} // High halfword of word writes to WAITCNT
             0x4000208 => self.interrupts.write_ime(value, self.state.cycles),
-            0x400020A => {} // High halfword of word writes to IME
+            0x400020A => {}             // High halfword of word writes to IME
+            0x400020C..=0x40002FF => {} // Invalid addresses
             0x4000300 => {
                 self.memory.write_postflg(value as u8);
                 self.interrupts.halt_cpu();
@@ -548,6 +548,7 @@ impl Bus {
                 self.apu.step_to(self.state.cycles);
                 self.apu.write_register(address, value);
             }
+            0x4000140 => self.sio.write_register(address, value.into(), self.state.cycles),
             0x4000202 => self.interrupts.write_if(value.into(), self.state.cycles),
             0x4000203 => self.interrupts.write_if(u16::from(value) << 8, self.state.cycles),
             0x4000208 => self.interrupts.write_ime(value.into(), self.state.cycles),
@@ -902,9 +903,7 @@ impl Bus {
 
         self.state.cycles += 1 + self.memory.control().sram_wait;
 
-        let Some(byte) = self.cartridge.read_sram(address) else {
-            return self.read_open_bus_byte(address);
-        };
+        let byte = self.cartridge.read_sram(address);
         self.update_open_bus_byte(byte);
 
         byte
@@ -916,9 +915,7 @@ impl Bus {
 
         self.state.cycles += 1 + self.memory.control().sram_wait;
 
-        let Some(byte) = self.cartridge.read_sram(address) else {
-            return self.read_open_bus_halfword(address);
-        };
+        let byte = self.cartridge.read_sram(address);
 
         // 16-bit reads from SRAM duplicate the byte
         let halfword = u16::from_ne_bytes([byte; 2]);
@@ -933,9 +930,7 @@ impl Bus {
 
         self.state.cycles += 1 + self.memory.control().sram_wait;
 
-        let Some(byte) = self.cartridge.read_sram(address) else {
-            return self.read_open_bus_word(address);
-        };
+        let byte = self.cartridge.read_sram(address);
 
         // 32-bit reads from SRAM duplicate the byte
         self.state.open_bus = u32::from_ne_bytes([byte; 4]);
@@ -959,7 +954,8 @@ impl Bus {
         self.state.cycles += 1 + self.memory.control().sram_wait;
         self.update_open_bus_halfword(value);
 
-        self.cartridge.write_sram(address, value as u8);
+        // 16-bit SRAM writes only write the addressed byte
+        self.cartridge.write_sram(address, value.to_le_bytes()[(address & 1) as usize]);
     }
 
     // $0E000000-$0FFFFFFF: Cartridge SRAM
@@ -969,24 +965,29 @@ impl Bus {
         self.state.cycles += 1 + self.memory.control().sram_wait;
         self.state.open_bus = value;
 
-        self.cartridge.write_sram(address, value as u8);
+        // 32-bit SRAM writes only write the addressed byte
+        self.cartridge.write_sram(address, value.to_le_bytes()[(address & 3) as usize]);
     }
 
+    // $00004000-$01FFFFFF / $10000000-$FFFFFFFF: Invalid addresses
     fn invalid_read_byte(&mut self, address: u32) -> u8 {
         self.increment_cycles_with_prefetch(1);
         self.read_open_bus_byte(address)
     }
 
+    // $00004000-$01FFFFFF / $10000000-$FFFFFFFF: Invalid addresses
     fn invalid_read_halfword(&mut self, address: u32) -> u16 {
         self.increment_cycles_with_prefetch(1);
         self.read_open_bus_halfword(address)
     }
 
+    // $00004000-$01FFFFFF / $10000000-$FFFFFFFF: Invalid addresses
     fn invalid_read_word(&mut self) -> u32 {
         self.increment_cycles_with_prefetch(1);
         self.state.open_bus
     }
 
+    // $00004000-$01FFFFFF / $10000000-$FFFFFFFF: Invalid addresses
     fn invalid_write(&mut self) {
         self.increment_cycles_with_prefetch(1);
         // TODO do writes to invalid addresses update open bus?

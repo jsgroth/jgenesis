@@ -48,7 +48,7 @@ impl SerialPort {
             0x4000134 => self.read_rcnt(),
             0x4000136 | 0x4000142 | 0x400015A => 0, // Invalid addresses that return 0
             _ => {
-                log::warn!("Unimplemented SIO read {address:08X}");
+                log::debug!("Unimplemented SIO read {address:08X}");
                 !0
             }
         }
@@ -71,7 +71,7 @@ impl SerialPort {
             }
             0x4000134 => self.write_rcnt(value),
             _ => {
-                log::warn!("Unimplemented SIO write {address:08X} {value:04X}");
+                log::debug!("Unimplemented SIO write {address:08X} {value:04X}");
             }
         }
     }

@@ -459,6 +459,11 @@ struct Args {
     #[arg(long, help_heading = GBA_OPTIONS_HEADING)]
     gba_skip_bios_animation: Option<bool>,
 
+    /// Force save memory type
+    #[cfg(feature = "unstable-cores")]
+    #[arg(long, help_heading = GBA_OPTIONS_HEADING)]
+    gba_save_memory_type: Option<gba_config::GbaSaveMemory>,
+
     /// Initial window width in pixels
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     window_width: Option<u32>,
@@ -821,6 +826,10 @@ impl Args {
     fn apply_gba_overrides(&self, config: &mut AppConfig) {
         if let Some(path) = &self.gba_bios_path {
             config.game_boy_advance.bios_path = Some(path.clone());
+        }
+
+        if let Some(save_memory_type) = self.gba_save_memory_type {
+            config.game_boy_advance.forced_save_memory_type = Some(save_memory_type);
         }
 
         apply_overrides!(self, config.game_boy_advance, [
