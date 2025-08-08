@@ -13,7 +13,10 @@ use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use std::mem;
 use std::ops::Deref;
 
+const MAX_ROM_LEN: usize = 32 * 1024 * 1024;
 const SRAM_LEN: usize = 32 * 1024;
+
+const GAME_CODE_ADDRESS: usize = 0x00000AC;
 
 #[derive(Debug, FakeEncode, FakeDecode)]
 struct Rom(Box<[u8]>);
@@ -114,6 +117,27 @@ impl RwMemory {
     }
 }
 
+fn pad_if_classic_nes_rom(rom: &mut Vec<u8>) {
+    if rom.len() <= GAME_CODE_ADDRESS {
+        return;
+    }
+
+    // Classic NES series games uniquely have a game code of 'F' (uppercase ASCII character)
+    // Most other games have 'A' or 'B', some cartridges with special hardware use other characters
+    if rom[GAME_CODE_ADDRESS] == b'F' {
+        log::info!(
+            "Detected Classic NES Series cartridge; padding to 32 MB to emulate ROM mirroring"
+        );
+
+        // Manually mirror ROM up to 32 MB
+        while rom.len() < MAX_ROM_LEN {
+            for i in 0..rom.len() {
+                rom.push(rom[i]);
+            }
+        }
+    }
+}
+
 #[derive(Debug, PartialClone, Encode, Decode)]
 pub struct Cartridge {
     #[partial_clone(default)]
@@ -130,6 +154,7 @@ pub struct Cartridge {
 impl Cartridge {
     pub fn new(mut rom: Vec<u8>, initial_save: Option<Vec<u8>>) -> Self {
         jgenesis_common::rom::mirror_to_next_power_of_two(&mut rom);
+        pad_if_classic_nes_rom(&mut rom);
 
         let rw_memory = RwMemory::initial(&rom, initial_save.as_ref());
         let min_eeprom_address = rw_memory.min_eeprom_address(rom.len() as u32);
@@ -189,7 +214,10 @@ impl Cartridge {
 
         let rom_addr = (address as usize) & 0x1FFFFFF & !1;
         if rom_addr >= self.rom.len() {
-            // Out of bounds
+            log::warn!(
+                "Out of bounds cartridge ROM read {address:07X}, len {:07X}",
+                self.rom.len()
+            );
             let open_bus = rom_addr >> 1;
             return open_bus as u16;
         }
