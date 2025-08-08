@@ -3,7 +3,7 @@ use crate::dma::DmaState;
 use crate::interrupts::{InterruptRegisters, InterruptType};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
-use std::array;
+use std::{array, cmp};
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct Timer {
@@ -38,6 +38,7 @@ impl Timer {
     fn tick(
         &mut self,
         prev_overflowed: bool,
+        prev_cycles: u64,
         current_cycles: u64,
         interrupts: &mut InterruptRegisters,
     ) -> bool {
@@ -54,14 +55,14 @@ impl Timer {
             return false;
         }
 
-        let increment = if self.cascading {
-            prev_overflowed
+        let increment: u64 = if self.cascading {
+            prev_overflowed.into()
         } else {
-            current_cycles & ((1 << self.clock_shift) - 1) == 0
+            (current_cycles >> self.clock_shift) - (prev_cycles >> self.clock_shift)
         };
 
         let overflowed;
-        (self.counter, overflowed) = self.counter.overflowing_add(increment.into());
+        (self.counter, overflowed) = self.counter.overflowing_add(increment as u16);
 
         if overflowed {
             self.counter = self.reload;
@@ -124,17 +125,44 @@ impl Timer {
             | (u16::from(self.irq_enabled) << 6)
             | (u16::from(self.enabled) << 7)
     }
+
+    fn next_event_cycles(&self, cycles: u64) -> Option<u64> {
+        if self.pending_reload_write.is_some()
+            || self.pending_control_write.is_some()
+            || self.just_enabled
+        {
+            // Force an update on the next cycle after register writes
+            return Some(cycles + 1);
+        }
+
+        if !self.enabled || self.cascading {
+            // Disabled timers never overflow, and cascading timers can only overflow when another
+            // timer overflows
+            return None;
+        }
+
+        let increments_until_overflow = 0x10000 - u64::from(self.counter);
+        let mut cycles_until_overflow = increments_until_overflow << self.clock_shift;
+        cycles_until_overflow -= cycles & ((1 << self.clock_shift) - 1);
+
+        Some(cycles + cycles_until_overflow)
+    }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Timers {
     timers: [Timer; 4],
     cycles: u64,
+    next_overflow_cycles: u64,
 }
 
 impl Timers {
     pub fn new() -> Self {
-        Self { timers: array::from_fn(|i| Timer::new(i as u8)), cycles: 0 }
+        Self {
+            timers: array::from_fn(|i| Timer::new(i as u8)),
+            cycles: 0,
+            next_overflow_cycles: u64::MAX,
+        }
     }
 
     pub fn step_to(
@@ -144,19 +172,44 @@ impl Timers {
         dma: &mut DmaState,
         interrupts: &mut InterruptRegisters,
     ) {
-        // TODO this is extremely slow; optimize
+        if cycles < self.next_overflow_cycles {
+            return;
+        }
+
+        self.step_to_internal(cycles, apu, dma, interrupts);
+    }
+
+    fn step_to_internal(
+        &mut self,
+        cycles: u64,
+        apu: &mut Apu,
+        dma: &mut DmaState,
+        interrupts: &mut InterruptRegisters,
+    ) {
         while self.cycles < cycles {
-            self.cycles += 1;
+            let tick_cycles = cmp::min(self.next_overflow_cycles, cycles);
 
             let mut overflowed = false;
             for (i, timer) in self.timers.iter_mut().enumerate() {
-                overflowed = timer.tick(overflowed, self.cycles, interrupts);
+                overflowed = timer.tick(overflowed, self.cycles, tick_cycles, interrupts);
 
                 if overflowed && i <= 1 {
-                    apu.handle_timer_overflow(i, self.cycles, dma);
+                    apu.handle_timer_overflow(i, tick_cycles, dma);
                 }
             }
+
+            self.cycles = tick_cycles;
+            self.update_next_overflow_cycles();
         }
+    }
+
+    fn update_next_overflow_cycles(&mut self) {
+        self.next_overflow_cycles = self
+            .timers
+            .iter()
+            .filter_map(|timer| timer.next_event_cycles(self.cycles))
+            .min()
+            .unwrap_or(u64::MAX);
     }
 
     pub fn read_register(
@@ -170,7 +223,7 @@ impl Timers {
         let timer_idx = (address >> 2) & 3;
 
         if !address.bit(1) {
-            self.step_to(cycles, apu, dma, interrupts);
+            self.step_to_internal(cycles, apu, dma, interrupts);
             log::trace!(
                 "Timer read {address:08X} at cycles {cycles}, counter {:04X}",
                 self.timers[timer_idx as usize].counter
@@ -192,7 +245,7 @@ impl Timers {
     ) {
         log::trace!("Timer write {address:08X} {value:04X} at cycles {cycles}");
 
-        self.step_to(cycles, apu, dma, interrupts);
+        self.step_to_internal(cycles, apu, dma, interrupts);
 
         let timer_idx = (address >> 2) & 3;
 
@@ -201,5 +254,7 @@ impl Timers {
         } else {
             self.timers[timer_idx as usize].pending_control_write = Some(value);
         }
+
+        self.update_next_overflow_cycles();
     }
 }

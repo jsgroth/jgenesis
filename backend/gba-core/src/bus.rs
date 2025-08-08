@@ -1074,7 +1074,6 @@ impl Bus {
 
             self.sync_ppu();
             self.sync_timers();
-            self.apu.step_to(self.state.cycles);
         }
     }
 
