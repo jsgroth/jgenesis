@@ -2,17 +2,21 @@
 
 mod eeprom;
 mod flashrom;
+pub mod rtc;
 
 use crate::cartridge::eeprom::{Eeprom8K, Eeprom512};
 use crate::cartridge::flashrom::{FlashRom64K, FlashRom128K};
+use crate::cartridge::rtc::{RtcWrite, SeikoRealTimeClock};
 use crate::dma::TransferUnit;
+use crate::interrupts::InterruptRegisters;
 use bincode::{Decode, Encode};
 use gba_config::GbaSaveMemory;
 use jgenesis_common::boxedarray::BoxedByteArray;
+use jgenesis_common::define_bit_enum;
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
-use std::mem;
 use std::ops::Deref;
+use std::{array, mem};
 
 const MAX_ROM_LEN: usize = 32 * 1024 * 1024;
 const SRAM_LEN: usize = 32 * 1024;
@@ -140,6 +144,87 @@ impl RwMemory {
     }
 }
 
+define_bit_enum!(GpioPinDirection, [Input, Output]);
+define_bit_enum!(GpioMode, [WriteOnly, ReadWrite]);
+
+#[derive(Debug, Clone, Encode, Decode)]
+struct GpioPort {
+    pin_directions: [GpioPinDirection; 4],
+    mode: GpioMode,
+}
+
+impl GpioPort {
+    fn new() -> Self {
+        Self { pin_directions: [GpioPinDirection::default(); 4], mode: GpioMode::default() }
+    }
+
+    // $080000C4
+    fn write_data(&mut self, value: u16, rtc: &mut SeikoRealTimeClock) {
+        let pin = |i: u8| match self.pin_directions[i as usize] {
+            GpioPinDirection::Input => true,
+            GpioPinDirection::Output => value.bit(i),
+        };
+
+        log::trace!("GPIO data write: {:04b}", value & 0b1111);
+
+        rtc.write(RtcWrite { chip_select: pin(2), clock: pin(0), data: pin(1) });
+    }
+
+    // $080000C4
+    fn read_data(&self, rtc: &mut SeikoRealTimeClock) -> Option<u16> {
+        if self.mode == GpioMode::WriteOnly {
+            return None;
+        }
+
+        let data = match self.pin_directions[1] {
+            GpioPinDirection::Input => rtc.read(),
+            GpioPinDirection::Output => true,
+        };
+
+        Some(0b1101 | (u16::from(data) << 1))
+    }
+
+    // $080000C6
+    fn write_pin_directions(&mut self, value: u16) {
+        self.pin_directions = array::from_fn(|i| GpioPinDirection::from_bit(value.bit(i as u8)));
+
+        log::trace!("GPIO pin directions write ({value:04X}): {:?}", self.pin_directions);
+    }
+
+    // $080000C6
+    fn read_pin_directions(&self) -> Option<u16> {
+        if self.mode == GpioMode::WriteOnly {
+            return None;
+        }
+
+        let value = self
+            .pin_directions
+            .into_iter()
+            .enumerate()
+            .map(|(i, direction)| (direction as u16) << i)
+            .reduce(|a, b| a | b)
+            .unwrap();
+
+        Some(value)
+    }
+
+    // $080000C8
+    fn write_mode(&mut self, value: u16) {
+        self.mode = GpioMode::from_bit(value.bit(0));
+
+        log::debug!("GPIO mode write ({value:04X}): {:?}", self.mode);
+    }
+
+    // $080000C8
+    fn read_mode(&self) -> Option<u16> {
+        if self.mode == GpioMode::WriteOnly {
+            return None;
+        }
+
+        Some(self.mode as u16)
+    }
+}
+
 fn pad_if_classic_nes_rom(rom: &mut Vec<u8>) {
     if rom.len() <= GAME_CODE_ADDRESS {
         return;
@@ -171,14 +256,18 @@ pub struct Cartridge {
     rw_memory: RwMemory,
     rw_memory_dirty: bool,
     min_eeprom_address: u32,
-    // Kept here so that it can be copied into R/W memory after auto-detection
+    gpio: GpioPort,
+    rtc: Option<SeikoRealTimeClock>,
+    // Kept here so that they can be copied into R/W memory after auto-detection
     initial_save: Option<Vec<u8>>,
+    initial_rtc: Option<SeikoRealTimeClock>,
 }
 
 impl Cartridge {
     pub fn new(
         mut rom: Vec<u8>,
         initial_save: Option<Vec<u8>>,
+        initial_rtc: Option<SeikoRealTimeClock>,
         forced_save_memory_type: Option<GbaSaveMemory>,
     ) -> Self {
         jgenesis_common::rom::mirror_to_next_power_of_two(&mut rom);
@@ -191,6 +280,8 @@ impl Cartridge {
         let rw_memory = RwMemory::initial(&rom, initial_save.as_ref(), forced_save_memory_type);
         let min_eeprom_address = rw_memory.min_eeprom_address(rom_len);
 
+        // TODO allow forcing RTC?
+
         Self {
             rom: Rom(rom.into_boxed_slice()),
             rom_len,
@@ -199,7 +290,10 @@ impl Cartridge {
             rw_memory,
             rw_memory_dirty: false,
             min_eeprom_address,
+            gpio: GpioPort::new(),
+            rtc: None,
             initial_save,
+            initial_rtc,
         }
     }
 
@@ -247,6 +341,12 @@ impl Cartridge {
             return bit.into();
         }
 
+        if (0x080000C4..0x080000CA).contains(&address)
+            && let Some(gpio_value) = self.try_gpio_read(address)
+        {
+            return gpio_value;
+        }
+
         let rom_addr = (address as usize) & 0x1FFFFFF & !1;
         if rom_addr >= self.rom.len() {
             log::debug!(
@@ -268,10 +368,24 @@ impl Cartridge {
         }
     }
 
+    fn try_gpio_read(&mut self, address: u32) -> Option<u16> {
+        match address {
+            0x080000C4 => self.rtc.as_mut().and_then(|rtc| self.gpio.read_data(rtc)),
+            0x080000C6 => self.gpio.read_pin_directions(),
+            0x080000C8 => self.gpio.read_mode(),
+            _ => None,
+        }
+    }
+
     pub fn write_rom(&mut self, address: u32, value: u16) {
         debug_assert!((0x08000000..0x0E000000).contains(&address));
 
         let address = self.update_burst_state(address);
+
+        if (0x080000C4..0x080000CA).contains(&address) {
+            self.gpio_write(address, value);
+            return;
+        }
 
         if address < self.min_eeprom_address {
             log::warn!("Ignoring write to ROM address: {address:08X} {value:04X}");
@@ -286,6 +400,20 @@ impl Cartridge {
             _ => {
                 log::warn!("Ignoring write to ROM address: {address:08X} {value:04X}");
             }
+        }
+    }
+
+    fn gpio_write(&mut self, address: u32, value: u16) {
+        let rtc = self.rtc.get_or_insert_with(|| {
+            log::info!("Auto-detected RTC based on write to ${address:07X}");
+            self.initial_rtc.clone().unwrap_or_else(SeikoRealTimeClock::new)
+        });
+
+        match address {
+            0x080000C4 => self.gpio.write_data(value, rtc),
+            0x080000C6 => self.gpio.write_pin_directions(value),
+            0x080000C8 => self.gpio.write_mode(value),
+            _ => {}
         }
     }
 
@@ -409,5 +537,15 @@ impl Cartridge {
             RwMemory::FlashRom128K(flash_rom) => Some(flash_rom.memory()),
             RwMemory::Unknown | RwMemory::EepromUnknownSize | RwMemory::None => None,
         }
+    }
+
+    pub fn update_rtc_time(&mut self, cycles: u64, interrupts: &mut InterruptRegisters) {
+        if let Some(rtc) = &mut self.rtc {
+            rtc.update_time(cycles, interrupts);
+        }
+    }
+
+    pub fn rtc(&self) -> Option<impl Encode> {
+        self.rtc.as_ref()
     }
 }

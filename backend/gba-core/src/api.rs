@@ -54,6 +54,7 @@ pub struct GameBoyAdvanceEmulator {
     bus: Bus,
     config: GbaEmulatorConfig,
     last_apu_sync_cycles: u64,
+    frame_count: u64,
 }
 
 impl GameBoyAdvanceEmulator {
@@ -67,9 +68,11 @@ impl GameBoyAdvanceEmulator {
         save_writer: &mut S,
     ) -> Result<Self, GbaLoadError> {
         let initial_save = save_writer.load_bytes("sav").ok();
+        let initial_rtc = save_writer.load_serialized("rtc").ok();
 
         let memory = Memory::new(bios_rom, config)?;
-        let cartridge = Cartridge::new(rom, initial_save, config.forced_save_memory_type);
+        let cartridge =
+            Cartridge::new(rom, initial_save, initial_rtc, config.forced_save_memory_type);
 
         let mut cpu = Arm7Tdmi::new();
         let mut bus = Bus {
@@ -102,7 +105,7 @@ impl GameBoyAdvanceEmulator {
             );
         }
 
-        Ok(Self { cpu, bus, config, last_apu_sync_cycles: 0 })
+        Ok(Self { cpu, bus, config, last_apu_sync_cycles: 0, frame_count: 0 })
     }
 
     fn drain_apu<A: AudioOutput>(&mut self, audio_output: &mut A) -> Result<(), A::Err> {
@@ -175,10 +178,21 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
                 )
                 .map_err(GbaError::Render)?;
 
+            self.bus.cartridge.update_rtc_time(self.bus.state.cycles, &mut self.bus.interrupts);
+
             if self.bus.cartridge.take_rw_memory_dirty()
                 && let Some(rw_memory) = self.bus.cartridge.rw_memory()
             {
                 save_writer.persist_bytes("sav", rw_memory).map_err(GbaError::SaveWrite)?;
+            }
+
+            self.frame_count += 1;
+
+            if let Some(rtc) = self.bus.cartridge.rtc() {
+                // Limit how frequently RTC state is persisted to disk (roughly once per 10 seconds)
+                if self.frame_count % 600 == 0 {
+                    save_writer.persist_serialized("rtc", rtc).map_err(GbaError::SaveWrite)?;
+                }
             }
 
             return Ok(TickEffect::FrameRendered);
