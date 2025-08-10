@@ -3,9 +3,13 @@ use crate::app::{App, OpenWindow};
 use crate::emuthread::EmuThreadCommand;
 use egui::{Button, Color32, ComboBox, Context, Grid, ScrollArea, Slider, Ui, Window};
 use gb_config::GameBoyButton;
+#[cfg(feature = "unstable-cores")]
+use gba_config::GbaButton;
 use genesis_config::{GenesisButton, GenesisControllerType};
 use jgenesis_common::input::Player;
 use jgenesis_native_config::input::InputAppConfig;
+#[cfg(feature = "unstable-cores")]
+use jgenesis_native_config::input::mappings::GbaInputMapping;
 use jgenesis_native_config::input::mappings::{
     GameBoyInputMapping, GenesisControllerMapping, GenesisInputMapping, HotkeyMapping,
     NesControllerMapping, NesControllerType, NesInputMapping, NesZapperMapping,
@@ -68,6 +72,14 @@ impl InputMappingSet {
         }
     }
 
+    #[cfg(feature = "unstable-cores")]
+    fn gba(self, config: &mut InputAppConfig) -> &mut GbaInputMapping {
+        match self {
+            Self::One => &mut config.game_boy_advance.mapping_1,
+            Self::Two => &mut config.game_boy_advance.mapping_2,
+        }
+    }
+
     fn hotkey(self, config: &mut InputAppConfig) -> &mut HotkeyMapping {
         match self {
             Self::One => &mut config.hotkeys.mapping_1,
@@ -83,6 +95,8 @@ pub enum GenericButton {
     Nes(NesButton, Player),
     Snes(SnesButton, Player),
     GameBoy(GameBoyButton),
+    #[cfg(feature = "unstable-cores")]
+    Gba(GbaButton),
     Hotkey(Hotkey),
 }
 
@@ -94,6 +108,8 @@ impl GenericButton {
             Self::Nes(button, _) => nes_label(button),
             Self::Snes(button, _) => snes_label(button),
             Self::GameBoy(button) => gb_label(button),
+            #[cfg(feature = "unstable-cores")]
+            Self::Gba(button) => gba_label(button),
             Self::Hotkey(hotkey) => hotkey_label(hotkey),
         }
     }
@@ -109,6 +125,8 @@ impl GenericButton {
             Self::Nes(button, player) => access_nes_value(mapping, button, player, config),
             Self::Snes(button, player) => access_snes_value(mapping, button, player, config),
             Self::GameBoy(button) => access_gb_value(mapping, button, config),
+            #[cfg(feature = "unstable-cores")]
+            Self::Gba(button) => access_gba_value(mapping, button, config),
             Self::Hotkey(hotkey) => access_hotkey(mapping, hotkey, config),
         }
     }
@@ -197,6 +215,24 @@ fn gb_label(button: GameBoyButton) -> &'static str {
         Down => "Down:",
         A => "A:",
         B => "B:",
+        Start => "Start:",
+        Select => "Select:",
+    }
+}
+
+#[cfg(feature = "unstable-cores")]
+fn gba_label(button: GbaButton) -> &'static str {
+    use GbaButton::*;
+
+    match button {
+        Up => "Up:",
+        Left => "Left:",
+        Right => "Right:",
+        Down => "Down:",
+        A => "A:",
+        B => "B:",
+        L => "L:",
+        R => "R:",
         Start => "Start:",
         Select => "Select:",
     }
@@ -392,6 +428,28 @@ fn access_gb_value(
         GameBoyButton::B => &mut mapping_config.b,
         GameBoyButton::Start => &mut mapping_config.start,
         GameBoyButton::Select => &mut mapping_config.select,
+    }
+}
+
+#[cfg(feature = "unstable-cores")]
+fn access_gba_value(
+    mapping: InputMappingSet,
+    button: GbaButton,
+    config: &mut InputAppConfig,
+) -> &mut Option<Vec<GenericInput>> {
+    let mapping_config = mapping.gba(config);
+
+    match button {
+        GbaButton::Up => &mut mapping_config.up,
+        GbaButton::Left => &mut mapping_config.left,
+        GbaButton::Right => &mut mapping_config.right,
+        GbaButton::Down => &mut mapping_config.down,
+        GbaButton::A => &mut mapping_config.a,
+        GbaButton::B => &mut mapping_config.b,
+        GbaButton::L => &mut mapping_config.l,
+        GbaButton::R => &mut mapping_config.r,
+        GbaButton::Start => &mut mapping_config.start,
+        GbaButton::Select => &mut mapping_config.select,
     }
 }
 
@@ -922,6 +980,47 @@ impl App {
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GameBoyInput);
+        }
+    }
+
+    #[cfg(feature = "unstable-cores")]
+    pub(super) fn render_gba_input_settings(&mut self, ctx: &Context) {
+        static BUTTONS: LazyLock<Vec<GenericButton>> =
+            LazyLock::new(|| GbaButton::ALL.into_iter().map(GenericButton::Gba).collect());
+
+        let mut open = true;
+        Window::new("GBA Input Settings").open(&mut open).show(ctx, |ui| {
+            self.disable_if_waiting_for_input(ui);
+
+            let mapping = self.render_mapping_set_selector(OpenWindow::GbaInput, ui);
+            ui.separator();
+
+            self.render_input_buttons("gba_inputs", mapping, &BUTTONS, ui);
+
+            ui.add_space(15.0);
+
+            let mapping_config = mapping.gba(&mut self.config.input);
+            ui.horizontal(|ui| {
+                ComboBox::new("gba_presets", "").selected_text("Apply preset...").show_ui(
+                    ui,
+                    |ui| {
+                        if ui.selectable_label(false, "Keyboard - Arrow movement").clicked() {
+                            *mapping_config = GbaInputMapping::keyboard_arrows();
+                        }
+
+                        if ui.selectable_label(false, "Keyboard - WASD movement").clicked() {
+                            *mapping_config = GbaInputMapping::keyboard_wasd();
+                        }
+                    },
+                );
+
+                if ui.button("Clear All").clicked() {
+                    *mapping_config = GbaInputMapping::default();
+                }
+            });
+        });
+        if !open {
+            self.state.open_windows.remove(&OpenWindow::GbaInput);
         }
     }
 

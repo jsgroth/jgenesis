@@ -124,6 +124,8 @@ enum OpenWindow {
     SnesInput,
     SnesPeripherals,
     GameBoyInput,
+    #[cfg(feature = "unstable-cores")]
+    GbaInput,
     Hotkeys,
     About,
 }
@@ -859,6 +861,12 @@ impl App {
                 ui.close_menu();
             }
 
+            #[cfg(feature = "unstable-cores")]
+            if ui.button("Game Boy Advance").clicked() {
+                self.state.open_windows.insert(OpenWindow::GbaInput);
+                ui.close_menu();
+            }
+
             ui.separator();
 
             if ui.button("Hotkeys").clicked() {
@@ -1046,6 +1054,8 @@ impl App {
                 OpenWindow::SnesInput => self.render_snes_input_settings(ctx),
                 OpenWindow::SnesPeripherals => self.render_snes_peripheral_settings(ctx),
                 OpenWindow::GameBoyInput => self.render_gb_input_settings(ctx),
+                #[cfg(feature = "unstable-cores")]
+                OpenWindow::GbaInput => self.render_gba_input_settings(ctx),
                 OpenWindow::Hotkeys => self.render_hotkey_settings(ctx),
                 OpenWindow::About => self.render_about(ctx),
             }
