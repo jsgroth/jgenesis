@@ -1,4 +1,3 @@
-use crate::apu;
 use crate::cartridge::Cartridge;
 use crate::interrupts::{InterruptRegisters, InterruptType};
 use bincode::{Decode, Encode};
@@ -425,18 +424,14 @@ impl DmaState {
     }
 
     pub fn notify_apu_fifo_a(&mut self) {
-        self.notify_apu_fifo(apu::FIFO_A_ADDRESS);
+        self.activate_matching_channels(|channel| {
+            channel.idx == 1 && channel.start_timing == StartTiming::Special
+        });
     }
 
     pub fn notify_apu_fifo_b(&mut self) {
-        self.notify_apu_fifo(apu::FIFO_B_ADDRESS);
-    }
-
-    fn notify_apu_fifo(&mut self, fifo_address: u32) {
         self.activate_matching_channels(|channel| {
-            (channel.idx == 1 || channel.idx == 2)
-                && channel.start_timing == StartTiming::Special
-                && channel.destination_address == fifo_address
+            channel.idx == 2 && channel.start_timing == StartTiming::Special
         });
     }
 

@@ -13,9 +13,6 @@ use jgenesis_common::frontend::AudioOutput;
 use jgenesis_common::num::GetBit;
 use std::collections::VecDeque;
 
-pub const FIFO_A_ADDRESS: u32 = 0x40000A0;
-pub const FIFO_B_ADDRESS: u32 = 0x40000A4;
-
 const FIFO_LEN_SAMPLES: usize = 32;
 
 define_bit_enum!(DirectSoundTimer, [Zero, One]);
