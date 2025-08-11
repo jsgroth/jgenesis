@@ -1,5 +1,3 @@
-#![cfg(feature = "gba")]
-
 use gba_config::{GbaAspectRatio, GbaColorCorrection, GbaSaveMemory};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;

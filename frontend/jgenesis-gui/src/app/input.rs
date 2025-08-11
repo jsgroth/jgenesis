@@ -3,16 +3,13 @@ use crate::app::{App, OpenWindow};
 use crate::emuthread::EmuThreadCommand;
 use egui::{Button, Color32, ComboBox, Context, Grid, ScrollArea, Slider, Ui, Window};
 use gb_config::GameBoyButton;
-#[cfg(feature = "unstable-cores")]
 use gba_config::GbaButton;
 use genesis_config::{GenesisButton, GenesisControllerType};
 use jgenesis_common::input::Player;
 use jgenesis_native_config::input::InputAppConfig;
-#[cfg(feature = "unstable-cores")]
-use jgenesis_native_config::input::mappings::GbaInputMapping;
 use jgenesis_native_config::input::mappings::{
-    GameBoyInputMapping, GenesisControllerMapping, GenesisInputMapping, HotkeyMapping,
-    NesControllerMapping, NesControllerType, NesInputMapping, NesZapperMapping,
+    GameBoyInputMapping, GbaInputMapping, GenesisControllerMapping, GenesisInputMapping,
+    HotkeyMapping, NesControllerMapping, NesControllerType, NesInputMapping, NesZapperMapping,
     SmsGgControllerMapping, SmsGgInputMapping, SnesControllerMapping, SnesControllerType,
     SnesInputMapping, SnesSuperScopeMapping,
 };
@@ -72,7 +69,6 @@ impl InputMappingSet {
         }
     }
 
-    #[cfg(feature = "unstable-cores")]
     fn gba(self, config: &mut InputAppConfig) -> &mut GbaInputMapping {
         match self {
             Self::One => &mut config.game_boy_advance.mapping_1,
@@ -95,7 +91,6 @@ pub enum GenericButton {
     Nes(NesButton, Player),
     Snes(SnesButton, Player),
     GameBoy(GameBoyButton),
-    #[cfg(feature = "unstable-cores")]
     Gba(GbaButton),
     Hotkey(Hotkey),
 }
@@ -108,7 +103,6 @@ impl GenericButton {
             Self::Nes(button, _) => nes_label(button),
             Self::Snes(button, _) => snes_label(button),
             Self::GameBoy(button) => gb_label(button),
-            #[cfg(feature = "unstable-cores")]
             Self::Gba(button) => gba_label(button),
             Self::Hotkey(hotkey) => hotkey_label(hotkey),
         }
@@ -125,7 +119,6 @@ impl GenericButton {
             Self::Nes(button, player) => access_nes_value(mapping, button, player, config),
             Self::Snes(button, player) => access_snes_value(mapping, button, player, config),
             Self::GameBoy(button) => access_gb_value(mapping, button, config),
-            #[cfg(feature = "unstable-cores")]
             Self::Gba(button) => access_gba_value(mapping, button, config),
             Self::Hotkey(hotkey) => access_hotkey(mapping, hotkey, config),
         }
@@ -220,7 +213,6 @@ fn gb_label(button: GameBoyButton) -> &'static str {
     }
 }
 
-#[cfg(feature = "unstable-cores")]
 fn gba_label(button: GbaButton) -> &'static str {
     use GbaButton::*;
 
@@ -431,7 +423,6 @@ fn access_gb_value(
     }
 }
 
-#[cfg(feature = "unstable-cores")]
 fn access_gba_value(
     mapping: InputMappingSet,
     button: GbaButton,
@@ -983,7 +974,6 @@ impl App {
         }
     }
 
-    #[cfg(feature = "unstable-cores")]
     pub(super) fn render_gba_input_settings(&mut self, ctx: &Context) {
         static BUTTONS: LazyLock<Vec<GenericButton>> =
             LazyLock::new(|| GbaButton::ALL.into_iter().map(GenericButton::Gba).collect());

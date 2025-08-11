@@ -7,11 +7,11 @@ edition = "2024"
 
 [features]
 default = []
-unstable-cores = ["dep:gba-config", "jgenesis-native-driver/gba"]
+unstable-cores = []
 
 [dependencies]
 gb-config = { path = "../../config/gb-config", features = ["clap"] }
-gba-config = { path = "../../config/gba-config", features = ["clap"], optional = true }
+gba-config = { path = "../../config/gba-config", features = ["clap"] }
 genesis-config = { path = "../../config/genesis-config", features = ["clap"] }
 nes-config = { path = "../../config/nes-config", features = ["clap"] }
 smsgg-config = { path = "../../config/smsgg-config", features = ["clap"] }

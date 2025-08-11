@@ -12,6 +12,7 @@ pub use migration::{current_config_version, migrate_config};
 
 use crate::common::CommonAppConfig;
 use crate::gb::GameBoyAppConfig;
+use crate::gba::GameBoyAdvanceAppConfig;
 use crate::genesis::{GenesisAppConfig, Sega32XAppConfig, SegaCdAppConfig};
 use crate::input::InputAppConfig;
 use crate::nes::NesAppConfig;
@@ -45,7 +46,6 @@ pub struct ListFilters {
     pub game_boy: bool,
     #[serde(default = "true_fn")]
     pub game_boy_color: bool,
-    #[cfg(feature = "gba")]
     #[serde(default = "true_fn")]
     pub game_boy_advance: bool,
 }
@@ -94,9 +94,8 @@ pub struct AppConfig {
     pub snes: SnesAppConfig,
     #[serde(default)]
     pub game_boy: GameBoyAppConfig,
-    #[cfg(feature = "gba")]
     #[serde(default)]
-    pub game_boy_advance: gba::GameBoyAdvanceAppConfig,
+    pub game_boy_advance: GameBoyAdvanceAppConfig,
     #[serde(default)]
     pub input: InputAppConfig,
     // TODO move GUI-specific config/state somewhere else - separate file?

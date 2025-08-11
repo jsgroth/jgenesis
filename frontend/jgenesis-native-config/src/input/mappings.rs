@@ -1,6 +1,5 @@
 use crate::input::{GenericInput, Hotkey};
 use gb_config::GameBoyButton;
-#[cfg(feature = "gba")]
 use gba_config::GbaButton;
 use genesis_config::{GenesisButton, GenesisControllerType};
 use jgenesis_common::input::Player;
@@ -643,7 +642,6 @@ impl Default for GameBoyInputConfig {
     }
 }
 
-#[cfg(feature = "gba")]
 define_controller_mapping!(GbaInputMapping, GbaButton, [
     up: Up,
     left: Left,
@@ -657,7 +655,6 @@ define_controller_mapping!(GbaInputMapping, GbaButton, [
     select: Select,
 ]);
 
-#[cfg(feature = "gba")]
 impl GbaInputMapping {
     #[must_use]
     pub fn keyboard_arrows() -> Self {
@@ -692,7 +689,6 @@ impl GbaInputMapping {
     }
 }
 
-#[cfg(feature = "gba")]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
 pub struct GbaInputConfig {
     #[serde(default = "default_gba_mapping_1")]
@@ -703,7 +699,6 @@ pub struct GbaInputConfig {
     pub mapping_2: GbaInputMapping,
 }
 
-#[cfg(feature = "gba")]
 impl GbaInputConfig {
     #[must_use]
     pub fn to_mapping_vec(&self) -> ButtonMappingVec<'_, GbaButton> {
@@ -716,12 +711,10 @@ impl GbaInputConfig {
     }
 }
 
-#[cfg(feature = "gba")]
 fn default_gba_mapping_1() -> GbaInputMapping {
     GbaInputMapping::keyboard_arrows()
 }
 
-#[cfg(feature = "gba")]
 impl Default for GbaInputConfig {
     fn default() -> Self {
         Self { mapping_1: default_gba_mapping_1(), mapping_2: GbaInputMapping::default() }

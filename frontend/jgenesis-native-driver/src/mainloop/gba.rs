@@ -1,5 +1,3 @@
-#![cfg(feature = "gba")]
-
 use crate::config::{GameBoyAdvanceConfig, RomReadResult};
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{file_name_no_ext, save};

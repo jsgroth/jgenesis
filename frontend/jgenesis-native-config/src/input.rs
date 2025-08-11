@@ -283,7 +283,6 @@ pub struct InputAppConfig {
     pub snes: SnesInputConfig,
     #[serde(default)]
     pub game_boy: GameBoyInputConfig,
-    #[cfg(feature = "gba")]
     #[serde(default)]
     pub game_boy_advance: mappings::GbaInputConfig,
     #[serde(default)]

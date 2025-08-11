@@ -2,6 +2,7 @@ use crate::archive::{ArchiveEntry, ArchiveError};
 use crate::mainloop::NativeEmulatorError;
 use crate::{NativeEmulatorResult, archive, extensions};
 use gb_core::api::GameBoyEmulatorConfig;
+use gba_core::api::GbaEmulatorConfig;
 use genesis_core::GenesisEmulatorConfig;
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::common::{
@@ -254,7 +255,6 @@ pub struct GameBoyConfig {
     pub cgb_boot_rom_path: Option<PathBuf>,
 }
 
-#[cfg(feature = "gba")]
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct GameBoyAdvanceConfig {
     #[cfg_display(indent_nested)]
@@ -292,7 +292,6 @@ pub trait AppConfigExt {
     #[must_use]
     fn gb_config(&self, path: PathBuf) -> Box<GameBoyConfig>;
 
-    #[cfg(feature = "gba")]
     #[must_use]
     fn gba_config(&self, path: PathBuf) -> Box<GameBoyAdvanceConfig>;
 }
@@ -517,10 +516,7 @@ impl AppConfigExt for AppConfig {
         })
     }
 
-    #[cfg(feature = "gba")]
     fn gba_config(&self, path: PathBuf) -> Box<GameBoyAdvanceConfig> {
-        use gba_core::api::GbaEmulatorConfig;
-
         Box::new(GameBoyAdvanceConfig {
             common: self.common_config(path),
             inputs: self.input.game_boy_advance.clone(),

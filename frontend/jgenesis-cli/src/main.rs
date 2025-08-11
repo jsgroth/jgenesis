@@ -4,6 +4,7 @@ use anyhow::Context;
 use clap::Parser;
 use env_logger::Env;
 use gb_config::{GbAspectRatio, GbAudioResampler, GbPalette, GbcColorCorrection};
+use gba_config::GbaSaveMemory;
 use genesis_config::PcmInterpolation;
 use genesis_config::S32XVideoOut;
 use genesis_config::{GenesisAspectRatio, GenesisControllerType, GenesisRegion, Opn2BusyBehavior};
@@ -35,7 +36,6 @@ enum Hardware {
     Nes,
     Snes,
     GameBoy,
-    #[cfg(feature = "unstable-cores")]
     GameBoyAdvance,
 }
 
@@ -46,7 +46,6 @@ const S32X_OPTIONS_HEADING: &str = "32X Options";
 const NES_OPTIONS_HEADING: &str = "NES Options";
 const SNES_OPTIONS_HEADING: &str = "SNES Options";
 const GB_OPTIONS_HEADING: &str = "Game Boy Options";
-#[cfg(feature = "unstable-cores")]
 const GBA_OPTIONS_HEADING: &str = "Game Boy Advance Options";
 const VIDEO_OPTIONS_HEADING: &str = "Video Options";
 const AUDIO_OPTIONS_HEADING: &str = "Audio Options";
@@ -450,19 +449,16 @@ struct Args {
     gb_audio_60hz_hack: Option<bool>,
 
     /// Game Boy Advance BIOS ROM path (required for GBA emulation)
-    #[cfg(feature = "unstable-cores")]
     #[arg(long, help_heading = GBA_OPTIONS_HEADING)]
     gba_bios_path: Option<PathBuf>,
 
     /// Skip BIOS intro animation
-    #[cfg(feature = "unstable-cores")]
     #[arg(long, help_heading = GBA_OPTIONS_HEADING)]
     gba_skip_bios_animation: Option<bool>,
 
     /// Force save memory type
-    #[cfg(feature = "unstable-cores")]
     #[arg(long, help_heading = GBA_OPTIONS_HEADING)]
-    gba_save_memory_type: Option<gba_config::GbaSaveMemory>,
+    gba_save_memory_type: Option<GbaSaveMemory>,
 
     /// Initial window width in pixels
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
@@ -609,7 +605,6 @@ impl Args {
         fix_optional_relative_path(&mut self.dmg_boot_rom_path);
         fix_optional_relative_path(&mut self.cgb_boot_rom_path);
 
-        #[cfg(feature = "unstable-cores")]
         fix_optional_relative_path(&mut self.gba_bios_path);
 
         self
@@ -624,12 +619,10 @@ impl Args {
         self.apply_nes_overrides(config)?;
         self.apply_snes_overrides(config);
         self.apply_gb_overrides(config);
+        self.apply_gba_overrides(config);
         self.apply_video_overrides(config);
         self.apply_audio_overrides(config);
         self.apply_hotkey_overrides(config);
-
-        #[cfg(feature = "unstable-cores")]
-        self.apply_gba_overrides(config);
 
         Ok(())
     }
@@ -822,7 +815,6 @@ impl Args {
         }
     }
 
-    #[cfg(feature = "unstable-cores")]
     fn apply_gba_overrides(&self, config: &mut AppConfig) {
         if let Some(path) = &self.gba_bios_path {
             config.game_boy_advance.bios_path = Some(path.clone());
@@ -985,7 +977,6 @@ fn main() -> anyhow::Result<()> {
         Hardware::Nes => run_nes(args, config),
         Hardware::Snes => run_snes(args, config),
         Hardware::GameBoy => run_gb(args, config),
-        #[cfg(feature = "unstable-cores")]
         Hardware::GameBoyAdvance => run_gba(args, config),
     }
 }
@@ -1011,7 +1002,6 @@ fn guess_hardware(args: &Args) -> Hardware {
         Console::Nes => Hardware::Nes,
         Console::Snes => Hardware::Snes,
         Console::GameBoy | Console::GameBoyColor => Hardware::GameBoy,
-        #[cfg(feature = "unstable-cores")]
         Console::GameBoyAdvance => Hardware::GameBoyAdvance,
     }
 }
@@ -1061,7 +1051,6 @@ fn run_gb(args: Args, config: AppConfig) -> anyhow::Result<()> {
     run_emulator(&mut emulator, &args)
 }
 
-#[cfg(feature = "unstable-cores")]
 fn run_gba(args: Args, config: AppConfig) -> anyhow::Result<()> {
     let mut emulator =
         jgenesis_native_driver::create_gba(config.gba_config(args.file_path.clone()))?;

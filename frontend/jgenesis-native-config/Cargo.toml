@@ -6,14 +6,13 @@ edition = "2024"
 [features]
 default = []
 clap = ["dep:clap"]
-gba = ["dep:gba-config"]
 
 [dependencies]
 jgenesis-common = { path = "../../common/jgenesis-common", features = ["serde"] }
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 
 gb-config = { path = "../../config/gb-config", features = ["serde"] }
-gba-config = { path = "../../config/gba-config", features = ["serde"], optional = true }
+gba-config = { path = "../../config/gba-config", features = ["serde"] }
 genesis-config = { path = "../../config/genesis-config", features = ["serde"] }
 nes-config = { path = "../../config/nes-config", features = ["serde"] }
 smsgg-config = { path = "../../config/smsgg-config", features = ["serde"] }
