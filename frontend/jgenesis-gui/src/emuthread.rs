@@ -237,6 +237,7 @@ fn thread_run(ctx: EmuThreadContext) {
                     Err(err) => {
                         log::error!("Error initializing emulator: {err}");
                         *ctx.emulator_error.lock().unwrap() = Some(err);
+                        ctx.egui_ctx.request_repaint();
                         continue;
                     }
                 };
@@ -244,6 +245,7 @@ fn thread_run(ctx: EmuThreadContext) {
 
                 if run_result == RunEmuResult::Terminate {
                     ctx.status.store(EmuThreadStatus::Terminated as u8, Ordering::Relaxed);
+                    ctx.egui_ctx.request_repaint();
                     return;
                 }
             }
@@ -261,6 +263,7 @@ fn thread_run(ctx: EmuThreadContext) {
                     Err(err) => {
                         log::error!("Error initializing emulator: {err}");
                         *ctx.emulator_error.lock().unwrap() = Some(err);
+                        ctx.egui_ctx.request_repaint();
                         continue;
                     }
                 };
@@ -268,6 +271,7 @@ fn thread_run(ctx: EmuThreadContext) {
 
                 if run_result == RunEmuResult::Terminate {
                     ctx.status.store(EmuThreadStatus::Terminated as u8, Ordering::Relaxed);
+                    ctx.egui_ctx.request_repaint();
                     return;
                 }
             }
