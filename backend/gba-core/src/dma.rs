@@ -2,7 +2,7 @@ use crate::apu;
 use crate::cartridge::Cartridge;
 use crate::interrupts::{InterruptRegisters, InterruptType};
 use bincode::{Decode, Encode};
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext};
 use std::array;
 
 const INITIAL_START_LATENCY: u64 = 2;
@@ -463,7 +463,7 @@ impl DmaState {
             0x40000D2 => self.channels[2].read_control(),
             0x40000DE => self.channels[3].read_control(),
             _ => {
-                log::error!("Unexpected read from write-only DMA register {address:08X}");
+                log::debug!("Unexpected read from write-only DMA register {address:08X}");
                 return None;
             }
         };
@@ -472,31 +472,25 @@ impl DmaState {
     }
 
     pub fn write_register(&mut self, address: u32, value: u16, cartridge: &mut Cartridge) {
-        match address {
-            0x40000B0 => self.channels[0].write_source_low(value),
-            0x40000B2 => self.channels[0].write_source_high(value),
-            0x40000B4 => self.channels[0].write_destination_low(value),
-            0x40000B6 => self.channels[0].write_destination_high(value),
-            0x40000B8 => self.channels[0].write_length(value),
-            0x40000BA => self.channels[0].write_control(value),
-            0x40000BC => self.channels[1].write_source_low(value),
-            0x40000BE => self.channels[1].write_source_high(value),
-            0x40000C0 => self.channels[1].write_destination_low(value),
-            0x40000C2 => self.channels[1].write_destination_high(value),
-            0x40000C4 => self.channels[1].write_length(value),
-            0x40000C6 => self.channels[1].write_control(value),
-            0x40000C8 => self.channels[2].write_source_low(value),
-            0x40000CA => self.channels[2].write_source_high(value),
-            0x40000CC => self.channels[2].write_destination_low(value),
-            0x40000CE => self.channels[2].write_destination_high(value),
-            0x40000D0 => self.channels[2].write_length(value),
-            0x40000D2 => self.channels[2].write_control(value),
-            0x40000D4 => self.channels[3].write_source_low(value),
-            0x40000D6 => self.channels[3].write_source_high(value),
-            0x40000D8 => self.channels[3].write_destination_low(value),
-            0x40000DA => self.channels[3].write_destination_high(value),
-            0x40000DC => self.channels[3].write_length(value),
-            0x40000DE => self.write_channel_3_control(value, cartridge),
+        debug_assert!((0x40000B0..0x40000E0).contains(&address));
+
+        let dma_base_address = address - 0x40000B0;
+        let channel = (dma_base_address / 0xC) as usize;
+        let offset = dma_base_address % 0xC;
+
+        match offset {
+            0x0 => self.channels[channel].write_source_low(value),
+            0x2 => self.channels[channel].write_source_high(value),
+            0x4 => self.channels[channel].write_destination_low(value),
+            0x6 => self.channels[channel].write_destination_high(value),
+            0x8 => self.channels[channel].write_length(value),
+            0xA => {
+                if channel == 3 {
+                    self.write_channel_3_control(value, cartridge);
+                } else {
+                    self.channels[channel].write_control(value);
+                }
+            }
             _ => {
                 log::error!("Invalid DMA register address: {address:08X} {value:04X}");
             }
@@ -504,6 +498,64 @@ impl DmaState {
 
         self.any_active = self.channels.iter().any(|channel| channel.dma_active);
         self.any_start_latency = self.channels.iter().any(|channel| channel.start_latency != 0);
+    }
+
+    // TODO I'm not sure any of this is correct
+    pub fn write_register_byte(&mut self, address: u32, value: u8, cartridge: &mut Cartridge) {
+        fn set_byte(mut halfword: u16, i: u32, byte: u8) -> u16 {
+            if i & 1 == 0 {
+                halfword.set_lsb(byte);
+            } else {
+                halfword.set_msb(byte);
+            }
+            halfword
+        }
+
+        debug_assert!((0x40000B0..0x40000E0).contains(&address));
+
+        log::debug!("DMA byte write: {address:08X} {value:02X}");
+
+        let dma_base_address = address - 0x40000B0;
+        let channel = (dma_base_address / 0xC) as usize;
+        let offset = dma_base_address % 0xC;
+
+        match offset {
+            0x0 => {
+                let source_low = self.channels[channel].source_address as u16;
+                let source_low = set_byte(source_low, address, value);
+                self.channels[channel].write_source_low(source_low);
+            }
+            0x2 => {
+                let source_high = (self.channels[channel].source_address >> 16) as u16;
+                let source_high = set_byte(source_high, address, value);
+                self.channels[channel].write_source_high(source_high);
+            }
+            0x4 => {
+                let destination_low = self.channels[channel].destination_address as u16;
+                let destination_low = set_byte(destination_low, address, value);
+                self.channels[channel].write_destination_low(destination_low);
+            }
+            0x6 => {
+                let destination_high = (self.channels[channel].destination_address >> 16) as u16;
+                let destination_high = set_byte(destination_high, address, value);
+                self.channels[channel].write_destination_high(destination_high);
+            }
+            0x8 => {
+                let length = set_byte(self.channels[channel].length, address, value);
+                self.channels[channel].write_length(length);
+            }
+            0xA => {
+                let control = set_byte(self.channels[channel].read_control(), address, value);
+                if channel == 3 {
+                    self.write_channel_3_control(control, cartridge);
+                } else {
+                    self.channels[channel].write_control(control);
+                }
+            }
+            _ => {
+                log::error!("Invalid DMA register address: {address:08X} {value:02X}");
+            }
+        }
     }
 
     fn write_channel_3_control(&mut self, value: u16, cartridge: &mut Cartridge) {

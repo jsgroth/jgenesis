@@ -12,6 +12,7 @@ use crate::sio::SerialPort;
 use crate::timers::Timers;
 use arm7tdmi_emu::bus::{BusInterface, MemoryCycle};
 use bincode::{Decode, Encode};
+use jgenesis_common::num::U16Ext;
 use jgenesis_proc_macros::PartialClone;
 use std::cmp;
 
@@ -538,6 +539,15 @@ impl Bus {
     // $04000000-$04FFFFFF: Memory-mapped I/O registers
     #[allow(clippy::match_same_arms)]
     fn write_io_register_byte(&mut self, address: u32, value: u8) {
+        fn set_byte(mut halfword: u16, i: u32, byte: u8) -> u16 {
+            if i & 1 == 0 {
+                halfword.set_lsb(byte);
+            } else {
+                halfword.set_msb(byte);
+            }
+            halfword
+        }
+
         self.increment_cycles_with_prefetch(1);
         self.update_open_bus_byte(value);
 
@@ -557,9 +567,53 @@ impl Bus {
                 self.apu.step_to(self.state.cycles);
                 self.apu.write_register(address, value);
             }
-            0x4000140 => self.sio.write_register(address, value.into(), self.state.cycles),
+            0x40000B0..=0x40000DF => {
+                // DMA registers
+                // TODO byte-size writes to these aren't really sensible - do they even work on hardware?
+                self.dma.write_register_byte(address, value, &mut self.cartridge);
+            }
+            0x4000100..=0x400010F => {
+                // Timer registers
+                // TODO byte-size writes to these aren't really sensible - do they even work on hardware?
+                let halfword = self.timers.read_register(
+                    address,
+                    self.state.cycles,
+                    &mut self.apu,
+                    &mut self.dma,
+                    &mut self.interrupts,
+                );
+                let halfword = set_byte(halfword, address, value);
+                self.timers.write_register(
+                    address,
+                    halfword,
+                    self.state.cycles,
+                    &mut self.apu,
+                    &mut self.dma,
+                    &mut self.interrupts,
+                );
+            }
+            0x4000120..=0x400012F | 0x4000134..=0x400015A => {
+                // Serial port registers
+                // TODO this is not how all 8-bit writes to these registers should work, probably
+                self.sio.write_register(address, value.into(), self.state.cycles);
+            }
+            0x4000132 | 0x4000133 => {
+                let halfword = self.inputs.read_keycnt();
+                let halfword = set_byte(halfword, address, value);
+                self.inputs.write_keycnt(halfword, self.state.cycles, &mut self.interrupts);
+            }
+            0x4000200 | 0x4000201 => {
+                let halfword = self.interrupts.read_ie();
+                let halfword = set_byte(halfword, address, value);
+                self.interrupts.write_ie(halfword, self.state.cycles);
+            }
             0x4000202 => self.interrupts.write_if(value.into(), self.state.cycles),
             0x4000203 => self.interrupts.write_if(u16::from(value) << 8, self.state.cycles),
+            0x4000204 | 0x4000205 => {
+                let halfword = self.memory.read_waitcnt();
+                let halfword = set_byte(halfword, address, value);
+                self.memory.write_waitcnt(halfword);
+            }
             0x4000208 => self.interrupts.write_ime(value.into(), self.state.cycles),
             0x4000300 => self.memory.write_postflg(value),
             0x4000301 => self.interrupts.halt_cpu(),
