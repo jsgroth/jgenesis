@@ -39,9 +39,7 @@ impl WindowSize {
     const GB_HEIGHT: f64 = 144.0;
     const GB_WIDTH: f64 = 160.0;
 
-    #[cfg(feature = "gba")]
     const GBA_HEIGHT: f64 = 160.0;
-    #[cfg(feature = "gba")]
     const GBA_WIDTH: f64 = 240.0;
 
     #[must_use]
@@ -154,7 +152,6 @@ impl WindowSize {
         Self::new(Self::GB_WIDTH, Self::GB_HEIGHT, size)
     }
 
-    #[cfg(feature = "gba")]
     #[must_use]
     pub fn new_gba(size: NonZeroU8) -> Self {
         Self::new(Self::GBA_WIDTH, Self::GBA_HEIGHT, size)

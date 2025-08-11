@@ -11,7 +11,6 @@ mod snes;
 mod state;
 
 pub use gb::{NativeGameBoyEmulator, create_gb};
-#[cfg(feature = "gba")]
 pub use gba::{NativeGbaEmulator, create_gba};
 pub use genesis::{
     Native32XEmulator, NativeGenesisEmulator, NativeSegaCdEmulator, create_32x, create_genesis,
@@ -373,15 +372,12 @@ pub enum NativeEmulatorError {
     GbBootRomLoad(io::Error),
     #[error("{0}")]
     GameBoyLoad(#[from] GameBoyLoadError),
-    #[cfg(feature = "gba")]
     #[error("No Game Boy Advance BIOS provided")]
     GbaNoBios,
-    #[cfg(feature = "gba")]
     #[error("Failed to load GBA BIOS: {0}")]
     GbaBiosLoad(io::Error),
-    #[cfg(feature = "gba")]
     #[error("Failed to initialize GBA emulator: {0}")]
-    GbaLoad(#[from] gba_core::api::GbaLoadError),
+    GbaLoad(#[from] GbaLoadError),
     #[error("I/O error opening save state file '{path}': {source}")]
     StateFileOpen {
         path: String,
@@ -888,6 +884,7 @@ macro_rules! bincode_config {
 }
 
 use bincode_config;
+use gba_core::api::GbaLoadError;
 use jgenesis_native_config::common::{FullscreenMode, HideMouseCursor, WindowSize};
 use jgenesis_native_config::input::mappings::ButtonMappingVec;
 use jgenesis_native_config::input::{CompactHotkey, Hotkey};

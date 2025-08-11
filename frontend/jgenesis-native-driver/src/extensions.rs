@@ -18,10 +18,7 @@ pub const NES: &[&str] = &["nes"];
 pub const SNES: &[&str] = &["sfc", "smc"];
 pub const GAME_BOY: &[&str] = &["gb"];
 pub const GAME_BOY_COLOR: &[&str] = &["gbc"];
-#[cfg(feature = "gba")]
 pub const GAME_BOY_ADVANCE: &[&str] = &["gba"];
-#[cfg(not(feature = "gba"))]
-pub const GAME_BOY_ADVANCE: &[&str] = &[];
 
 pub const SUPPORTED_ARCHIVES: &[&str] = &["zip", "7z"];
 
@@ -113,7 +110,6 @@ fn build_extension_lookup() -> HashMap<&'static str, Console> {
         (SNES, Console::Snes),
         (GAME_BOY, Console::GameBoy),
         (GAME_BOY_COLOR, Console::GameBoyColor),
-        #[cfg(feature = "gba")]
         (GAME_BOY_ADVANCE, Console::GameBoyAdvance),
     ]
     .into_iter()
@@ -143,7 +139,6 @@ pub enum Console {
     Snes,
     GameBoy,
     GameBoyColor,
-    #[cfg(feature = "gba")]
     GameBoyAdvance,
 }
 
@@ -219,7 +214,6 @@ impl Console {
             Self::Snes => "SNES",
             Self::GameBoy => "Game Boy",
             Self::GameBoyColor => "Game Boy Color",
-            #[cfg(feature = "gba")]
             Self::GameBoyAdvance => "Game Boy Advance",
         }
     }
@@ -235,7 +229,6 @@ impl Console {
             Self::Nes => NES,
             Self::Snes => SNES,
             Self::GameBoy | Self::GameBoyColor => &GB_GBC,
-            #[cfg(feature = "gba")]
             Self::GameBoyAdvance => GAME_BOY_ADVANCE,
         }
     }

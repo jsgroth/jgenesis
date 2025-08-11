@@ -1,6 +1,5 @@
 mod common;
 mod gb;
-#[cfg(feature = "unstable-cores")]
 mod gba;
 mod genesis;
 mod input;
@@ -64,7 +63,6 @@ impl ListFiltersExt for ListFilters {
             self.snes.then_some(Console::Snes),
             self.game_boy.then_some(Console::GameBoy),
             self.game_boy_color.then_some(Console::GameBoyColor),
-            #[cfg(feature = "unstable-cores")]
             self.game_boy_advance.then_some(Console::GameBoyAdvance),
         ]
         .into_iter()
@@ -97,7 +95,6 @@ enum OpenWindow {
     NesGeneral,
     SnesGeneral,
     GameBoyGeneral,
-    #[cfg(feature = "unstable-cores")]
     GbaGeneral,
     Synchronization,
     Paths,
@@ -108,7 +105,6 @@ enum OpenWindow {
     NesVideo,
     SnesVideo,
     GameBoyVideo,
-    #[cfg(feature = "unstable-cores")]
     GbaVideo,
     CommonAudio,
     SmsGgAudio,
@@ -124,7 +120,6 @@ enum OpenWindow {
     SnesInput,
     SnesPeripherals,
     GameBoyInput,
-    #[cfg(feature = "unstable-cores")]
     GbaInput,
     Hotkeys,
     About,
@@ -710,7 +705,6 @@ impl App {
                 ui.close_menu();
             }
 
-            #[cfg(feature = "unstable-cores")]
             if ui.button("Game Boy Advance").clicked() {
                 self.state.open_windows.insert(OpenWindow::GbaGeneral);
                 ui.close_menu();
@@ -769,7 +763,6 @@ impl App {
                 ui.close_menu();
             }
 
-            #[cfg(feature = "unstable-cores")]
             if ui.button("Game Boy Advance").clicked() {
                 self.state.open_windows.insert(OpenWindow::GbaVideo);
                 ui.close_menu();
@@ -861,7 +854,6 @@ impl App {
                 ui.close_menu();
             }
 
-            #[cfg(feature = "unstable-cores")]
             if ui.button("Game Boy Advance").clicked() {
                 self.state.open_windows.insert(OpenWindow::GbaInput);
                 ui.close_menu();
@@ -1009,7 +1001,6 @@ impl App {
             ui.checkbox(&mut self.config.list_filters.snes, "SNES");
             ui.checkbox(&mut self.config.list_filters.game_boy, "GB");
             ui.checkbox(&mut self.config.list_filters.game_boy_color, "GBC");
-            #[cfg(feature = "unstable-cores")]
             ui.checkbox(&mut self.config.list_filters.game_boy_advance, "GBA");
 
             if prev_list_filters != self.config.list_filters {
@@ -1027,7 +1018,6 @@ impl App {
                 OpenWindow::NesGeneral => self.render_nes_general_settings(ctx),
                 OpenWindow::SnesGeneral => self.render_snes_general_settings(ctx),
                 OpenWindow::GameBoyGeneral => self.render_gb_general_settings(ctx),
-                #[cfg(feature = "unstable-cores")]
                 OpenWindow::GbaGeneral => self.render_gba_general_settings(ctx),
                 OpenWindow::Synchronization => self.render_sync_settings(ctx),
                 OpenWindow::Paths => self.render_path_settings(ctx),
@@ -1038,7 +1028,6 @@ impl App {
                 OpenWindow::NesVideo => self.render_nes_video_settings(ctx),
                 OpenWindow::SnesVideo => self.render_snes_video_settings(ctx),
                 OpenWindow::GameBoyVideo => self.render_gb_video_settings(ctx),
-                #[cfg(feature = "unstable-cores")]
                 OpenWindow::GbaVideo => self.render_gba_video_settings(ctx),
                 OpenWindow::CommonAudio => self.render_common_audio_settings(ctx),
                 OpenWindow::SmsGgAudio => self.render_smsgg_audio_settings(ctx),
@@ -1054,7 +1043,6 @@ impl App {
                 OpenWindow::SnesInput => self.render_snes_input_settings(ctx),
                 OpenWindow::SnesPeripherals => self.render_snes_peripheral_settings(ctx),
                 OpenWindow::GameBoyInput => self.render_gb_input_settings(ctx),
-                #[cfg(feature = "unstable-cores")]
                 OpenWindow::GbaInput => self.render_gba_input_settings(ctx),
                 OpenWindow::Hotkeys => self.render_hotkey_settings(ctx),
                 OpenWindow::About => self.render_about(ctx),
@@ -1102,7 +1090,6 @@ impl App {
                         HandledError::No => Self::render_generic_error_window(ctx, err, &mut open),
                     }
                 }
-                #[cfg(feature = "unstable-cores")]
                 NativeEmulatorError::GbaNoBios => self.render_gba_bios_error(ctx, &mut open),
                 _ => Self::render_generic_error_window(ctx, err, &mut open),
             };
