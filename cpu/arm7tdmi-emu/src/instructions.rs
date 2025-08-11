@@ -373,7 +373,7 @@ fn arm_mrs(cpu: &mut Arm7Tdmi, opcode: u32, _bus: &mut dyn BusInterface) {
     if spsr {
         let spsr = match cpu.registers.cpsr.mode.spsr(&mut cpu.registers) {
             Some(spsr) => *spsr,
-            None => panic!("MRS R{rd}, SPSR executed in mode {:?}", cpu.registers.cpsr.mode),
+            None => cpu.registers.cpsr,
         };
         cpu.registers.r[rd as usize] = spsr.into();
     } else {
@@ -395,7 +395,8 @@ fn arm_msr<const IMMEDIATE: bool>(cpu: &mut Arm7Tdmi, opcode: u32, _bus: &mut dy
 
     if spsr {
         let Some(spsr) = cpu.registers.cpsr.mode.spsr(&mut cpu.registers) else {
-            panic!("MSR SPSR, 0x{operand:X} executed in mode {:?}", cpu.registers.cpsr.mode)
+            cpu.registers.cpsr = operand.into();
+            return;
         };
         *spsr = operand.into();
     } else if flags_only {
@@ -909,8 +910,14 @@ fn load_word<const LOAD: bool>(
     if !(LOAD && rn == rd) {
         if indexing == LoadIndexing::Post {
             cpu.registers.r[rn as usize] = address.wrapping_add(offset);
+            if rn == 15 {
+                cpu.refill_prefetch(bus);
+            }
         } else if write_back == WriteBack::Yes {
             cpu.registers.r[rn as usize] = address;
+            if rn == 15 {
+                cpu.refill_prefetch(bus);
+            }
         }
     }
 }
