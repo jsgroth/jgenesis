@@ -61,8 +61,9 @@ impl Timer {
             (current_cycles >> self.clock_shift) - (prev_cycles >> self.clock_shift)
         };
 
-        let overflowed;
+        let mut overflowed;
         (self.counter, overflowed) = self.counter.overflowing_add(increment as u16);
+        overflowed |= increment >= u64::from(u16::MAX);
 
         if overflowed {
             self.counter = self.reload;
