@@ -9,6 +9,7 @@ mod smsgg;
 mod snes;
 mod widgets;
 
+use crate::app::genesis::S32XPriorityState;
 use crate::app::input::{GenericButton, InputMappingSet};
 use crate::app::nes::{NesPaletteState, OverscanState};
 use crate::app::romlist::{RomListThreadHandle, RomMetadata};
@@ -150,6 +151,7 @@ struct AppState {
     audio_gain_invalid: bool,
     display_scanlines_warning: bool,
     nes_palette: NesPaletteState,
+    s32x_priority: S32XPriorityState,
     overscan: OverscanState,
     waiting_for_input: Option<(GenericButton, InputMappingSet)>,
     rom_list: Arc<Mutex<Vec<RomMetadata>>>,
@@ -184,6 +186,7 @@ impl AppState {
             audio_gain_text: format!("{:.1}", config.common.audio_gain_db),
             audio_gain_invalid: false,
             nes_palette: NesPaletteState::create(ctx, &config.nes.palette),
+            s32x_priority: S32XPriorityState::from_config(&config.sega_32x),
             overscan: config.nes.overscan().into(),
             display_scanlines_warning: should_display_scanlines_warning(config),
             waiting_for_input: None,

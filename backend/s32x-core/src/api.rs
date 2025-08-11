@@ -5,7 +5,7 @@
 use crate::audio::Sega32XResampler;
 use crate::core::Sega32X;
 use bincode::{Decode, Encode};
-use genesis_config::{GenesisButton, GenesisRegion, S32XColorTint, S32XVideoOut};
+use genesis_config::{GenesisButton, GenesisRegion, S32XColorTint, S32XVideoOut, S32XVoidColor};
 use genesis_core::input::InputState;
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::timing::GenesisCycleCounters;
@@ -41,6 +41,9 @@ pub struct Sega32XEmulatorConfig {
     pub video_out: S32XVideoOut,
     pub darken_genesis_colors: bool,
     pub color_tint: S32XColorTint,
+    pub show_high_priority: bool,
+    pub show_low_priority: bool,
+    pub void_color: S32XVoidColor,
     pub apply_genesis_lpf_to_pwm: bool,
     pub pwm_enabled: bool,
 }

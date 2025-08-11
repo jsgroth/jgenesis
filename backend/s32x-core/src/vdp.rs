@@ -6,7 +6,7 @@ use crate::api::Sega32XEmulatorConfig;
 use crate::registers::SystemRegisters;
 use crate::vdp::registers::{FrameBufferMode, Registers, SelectedFrameBuffer};
 use bincode::{Decode, Encode};
-use genesis_config::{S32XColorTint, S32XVideoOut};
+use genesis_config::{S32XColorTint, S32XVideoOut, S32XVoidColor};
 use genesis_core::vdp::BorderSize;
 use jgenesis_common::frontend::{Color, FrameSize, PixelAspectRatio, Renderer, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext};
@@ -118,6 +118,27 @@ impl State {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
+struct VdpConfig {
+    video_out: S32XVideoOut,
+    color_tint: S32XColorTint,
+    show_high_priority: bool,
+    show_low_priority: bool,
+    void_color: S32XVoidColor,
+}
+
+impl VdpConfig {
+    fn from_emu_config(config: &Sega32XEmulatorConfig) -> Self {
+        Self {
+            video_out: config.video_out,
+            color_tint: config.color_tint,
+            show_high_priority: config.show_high_priority,
+            show_low_priority: config.show_low_priority,
+            void_color: config.void_color,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct Vdp {
     frame_buffer_0: Box<FrameBufferRam>,
     frame_buffer_1: Box<FrameBufferRam>,
@@ -132,8 +153,7 @@ pub struct Vdp {
     latched: Registers,
     state: State,
     timing_mode: TimingMode,
-    video_out: S32XVideoOut,
-    color_tint: S32XColorTint,
+    config: VdpConfig,
 }
 
 macro_rules! front_frame_buffer {
@@ -175,8 +195,7 @@ impl Vdp {
             latched: Registers::default(),
             state: State::new(),
             timing_mode,
-            video_out: config.video_out,
-            color_tint: config.color_tint,
+            config: VdpConfig::from_emu_config(config),
         }
     }
 
@@ -289,6 +308,29 @@ impl Vdp {
         }
     }
 
+    fn priority_mask_fn(&self) -> impl Fn(u16) -> u16 + 'static {
+        let vdp_priority = u16::from(self.latched.priority) << 15;
+        let show_high_priority = self.config.show_high_priority;
+        let show_low_priority = self.config.show_low_priority;
+        let void_color = match self.config.void_color {
+            S32XVoidColor::PaletteRam { idx } => self.cram[idx as usize],
+            S32XVoidColor::Direct { r, g, b, a } => {
+                u16::from(r & 0x1F)
+                    | (u16::from(g & 0x1F) << 5)
+                    | (u16::from(b & 0x1F) << 10)
+                    | (u16::from(a) << 15)
+            }
+        };
+
+        move |mut pixel| {
+            let pixel_priority = pixel.bit(15);
+            if (pixel_priority && !show_high_priority) || (!pixel_priority && !show_low_priority) {
+                pixel = void_color;
+            }
+            pixel ^ vdp_priority
+        }
+    }
+
     fn render_packed_pixel(&mut self) {
         let line = self.state.scanline as usize;
         let frame_buffer = front_frame_buffer!(self);
@@ -299,23 +341,22 @@ impl Vdp {
             self.state.display_frame_buffer
         );
 
-        let priority = u16::from(self.latched.priority) << 15;
+        let mask_fn = self.priority_mask_fn();
 
         if self.latched.screen_left_shift {
             for pixel in 0..FRAME_WIDTH as u16 {
                 let frame_buffer_addr = line_addr.wrapping_add((pixel + 1) >> 1);
                 let color = (frame_buffer[frame_buffer_addr as usize] >> (8 * (pixel & 1))) & 0xFF;
 
-                self.rendered_frame[line][pixel as usize] = self.cram[color as usize] ^ priority;
+                self.rendered_frame[line][pixel as usize] = mask_fn(self.cram[color as usize]);
             }
         } else {
             for pixel in (0..FRAME_WIDTH as u16).step_by(2) {
                 let frame_buffer_addr = line_addr.wrapping_add(pixel >> 1);
                 let [msb, lsb] = frame_buffer[frame_buffer_addr as usize].to_be_bytes();
 
-                self.rendered_frame[line][pixel as usize] = self.cram[msb as usize] ^ priority;
-                self.rendered_frame[line][(pixel + 1) as usize] =
-                    self.cram[lsb as usize] ^ priority;
+                self.rendered_frame[line][pixel as usize] = mask_fn(self.cram[msb as usize]);
+                self.rendered_frame[line][(pixel + 1) as usize] = mask_fn(self.cram[lsb as usize]);
             }
         }
     }
@@ -330,11 +371,11 @@ impl Vdp {
             self.state.display_frame_buffer
         );
 
-        let priority = u16::from(self.latched.priority) << 15;
+        let mask_fn = self.priority_mask_fn();
 
         for pixel in 0..FRAME_WIDTH as u16 {
             let color = frame_buffer[line_addr.wrapping_add(pixel) as usize];
-            self.rendered_frame[line][pixel as usize] = color ^ priority;
+            self.rendered_frame[line][pixel as usize] = mask_fn(color);
         }
     }
 
@@ -348,7 +389,7 @@ impl Vdp {
             self.state.display_frame_buffer
         );
 
-        let priority = u16::from(self.latched.priority) << 15;
+        let mask_fn = self.priority_mask_fn();
 
         let mut pixel = 0;
         while pixel < FRAME_WIDTH {
@@ -358,7 +399,7 @@ impl Vdp {
             let color = self.cram[color_idx as usize];
             let mut run_length = u16::from(run_length_byte) + 1;
             while pixel < FRAME_WIDTH && run_length != 0 {
-                self.rendered_frame[line][pixel as usize] = color ^ priority;
+                self.rendered_frame[line][pixel as usize] = mask_fn(color);
                 pixel += 1;
                 run_length -= 1;
             }
@@ -627,9 +668,9 @@ impl Vdp {
         // Default to rendering from the Genesis VDP frame buffer, switch later if necessary
         self.state.next_render_buffer = WhichFrameBuffer::Genesis;
 
-        if (self.video_out != S32XVideoOut::S32XOnly
+        if (self.config.video_out != S32XVideoOut::S32XOnly
             && self.latched.frame_buffer_mode == FrameBufferMode::Blank)
-            || self.video_out == S32XVideoOut::GenesisOnly
+            || self.config.video_out == S32XVideoOut::GenesisOnly
         {
             // Leave Genesis frame as-is
             // TODO what if 32X VDP was switched to blank mode mid-frame?
@@ -662,7 +703,7 @@ impl Vdp {
 
         self.state.next_render_buffer = WhichFrameBuffer::H32;
 
-        if self.video_out != S32XVideoOut::S32XOnly {
+        if self.config.video_out != S32XVideoOut::S32XOnly {
             self.copy_genesis_frame_buffer_to_h32(
                 genesis_frame_size,
                 border_size,
@@ -693,7 +734,7 @@ impl Vdp {
 
         let active_lines_per_frame: u32 =
             self.latched.v_resolution.active_scanlines_per_frame().into();
-        let s32x_only = self.video_out == S32XVideoOut::S32XOnly;
+        let s32x_only = self.config.video_out == S32XVideoOut::S32XOnly;
 
         let frame_width = if H32 {
             determine_h32_buffer_width(frame_size, border_size)
@@ -704,7 +745,7 @@ impl Vdp {
 
         let top_offset = border_size.top << interlaced_frame;
 
-        let color_tables = ColorTables::from_tint(self.color_tint);
+        let color_tables = ColorTables::from_tint(self.config.color_tint);
 
         for line in 0..active_lines_per_frame {
             let effective_line = (line << interlaced_frame) + interlaced_odd;
@@ -802,8 +843,7 @@ impl Vdp {
     }
 
     pub fn reload_config(&mut self, config: &Sega32XEmulatorConfig) {
-        self.video_out = config.video_out;
-        self.color_tint = config.color_tint;
+        self.config = VdpConfig::from_emu_config(config);
     }
 }
 

@@ -2412,6 +2412,7 @@ dependencies = [
  "gb-core",
  "gba-config",
  "gba-core",
+ "genesis-config",
  "genesis-core",
  "jgenesis-common",
  "jgenesis-native-config",

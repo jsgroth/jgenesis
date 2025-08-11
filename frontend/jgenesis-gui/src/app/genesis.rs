@@ -1,18 +1,39 @@
 mod helptext;
 
-use crate::app::widgets::{BiosErrorStrings, OptionalPathSelector, RenderErrorEffect};
+use crate::app::widgets::{
+    BiosErrorStrings, NumericTextEdit, OptionalPathSelector, RenderErrorEffect,
+};
 use crate::app::{App, Console, OpenWindow, widgets};
 use crate::emuthread::EmuThreadStatus;
 use crate::widgets::OverclockSlider;
 use egui::style::ScrollStyle;
 use egui::{Context, Slider, Ui, Window};
-use genesis_config::S32XVideoOut;
 use genesis_config::{GenesisAspectRatio, GenesisRegion, Opn2BusyBehavior};
 use genesis_config::{PcmInterpolation, S32XColorTint};
+use genesis_config::{S32XVideoOut, S32XVoidColorType};
 use jgenesis_common::frontend::TimingMode;
+use jgenesis_native_config::genesis::Sega32XAppConfig;
 use rfd::FileDialog;
 use std::num::{NonZeroU16, NonZeroU64};
 use std::path::PathBuf;
+
+pub struct S32XPriorityState {
+    pub void_palette: String,
+    pub void_direct_r: String,
+    pub void_direct_g: String,
+    pub void_direct_b: String,
+}
+
+impl S32XPriorityState {
+    pub fn from_config(config: &Sega32XAppConfig) -> Self {
+        Self {
+            void_palette: config.void_palette_index.to_string(),
+            void_direct_r: config.void_direct[0].to_string(),
+            void_direct_g: config.void_direct[1].to_string(),
+            void_direct_b: config.void_direct[2].to_string(),
+        }
+    }
+}
 
 impl App {
     pub(super) fn render_genesis_general_settings(&mut self, ctx: &Context) {
@@ -414,6 +435,87 @@ impl App {
             .interact_rect;
         if ui.rect_contains_pointer(rect) {
             self.state.help_text.insert(window, helptext::S32X_VIDEO_OUT);
+        }
+
+        let response = ui.collapsing("32X priority masking", |ui| {
+            ui.checkbox(&mut self.config.sega_32x.show_high_priority, "Show high-priority pixels");
+            ui.checkbox(&mut self.config.sega_32x.show_low_priority, "Show low-priority pixels");
+
+            ui.add_space(5.0);
+
+            ui.label("Replace hidden pixels with:");
+
+            let mut invalid_ignored = false;
+
+            let valid_rgb5 = |color: u8| color < 32;
+
+            ui.horizontal(|ui| {
+                ui.radio_value(
+                    &mut self.config.sega_32x.void_color_type,
+                    S32XVoidColorType::Direct,
+                    "Direct color (0-31):",
+                );
+
+                ui.label("R");
+                ui.add(
+                    NumericTextEdit::new(
+                        &mut self.state.s32x_priority.void_direct_r,
+                        &mut self.config.sega_32x.void_direct[0],
+                        &mut invalid_ignored,
+                    )
+                    .with_validation(valid_rgb5)
+                    .desired_width(20.0),
+                );
+
+                ui.label("G");
+                ui.add(
+                    NumericTextEdit::new(
+                        &mut self.state.s32x_priority.void_direct_g,
+                        &mut self.config.sega_32x.void_direct[1],
+                        &mut invalid_ignored,
+                    )
+                    .with_validation(valid_rgb5)
+                    .desired_width(20.0),
+                );
+
+                ui.label("B");
+                ui.add(
+                    NumericTextEdit::new(
+                        &mut self.state.s32x_priority.void_direct_b,
+                        &mut self.config.sega_32x.void_direct[2],
+                        &mut invalid_ignored,
+                    )
+                    .with_validation(valid_rgb5)
+                    .desired_width(20.0),
+                );
+
+                ui.label("P");
+                ui.checkbox(&mut self.config.sega_32x.void_direct_priority, "");
+            });
+
+            ui.horizontal(|ui| {
+                ui.radio_value(
+                    &mut self.config.sega_32x.void_color_type,
+                    S32XVoidColorType::PaletteRam,
+                    "Palette color (0-255):",
+                );
+
+                ui.add(
+                    NumericTextEdit::new(
+                        &mut self.state.s32x_priority.void_palette,
+                        &mut self.config.sega_32x.void_palette_index,
+                        &mut invalid_ignored,
+                    )
+                    .desired_width(40.0),
+                );
+            });
+        });
+        let contains_rect = ui.rect_contains_pointer(response.header_response.interact_rect)
+            || response
+                .body_response
+                .is_some_and(|resp| ui.rect_contains_pointer(resp.interact_rect));
+        if contains_rect {
+            self.state.help_text.insert(window, helptext::S32X_PRIORITY_MASKING);
         }
     }
 

@@ -3,6 +3,7 @@ use crate::mainloop::NativeEmulatorError;
 use crate::{NativeEmulatorResult, archive, extensions};
 use gb_core::api::GameBoyEmulatorConfig;
 use gba_core::api::GbaEmulatorConfig;
+use genesis_config::{S32XVoidColor, S32XVoidColorType};
 use genesis_core::GenesisEmulatorConfig;
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::common::{
@@ -262,7 +263,7 @@ pub struct GameBoyAdvanceConfig {
     #[cfg_display(indent_nested)]
     pub inputs: jgenesis_native_config::input::mappings::GbaInputConfig,
     #[cfg_display(indent_nested)]
-    pub emulator_config: gba_core::api::GbaEmulatorConfig,
+    pub emulator_config: GbaEmulatorConfig,
     #[cfg_display(path)]
     pub bios_path: Option<PathBuf>,
 }
@@ -418,6 +419,17 @@ impl AppConfigExt for AppConfig {
                 video_out: self.sega_32x.video_out,
                 darken_genesis_colors: self.sega_32x.darken_genesis_colors,
                 color_tint: self.sega_32x.color_tint,
+                show_high_priority: self.sega_32x.show_high_priority,
+                show_low_priority: self.sega_32x.show_low_priority,
+                void_color: match self.sega_32x.void_color_type {
+                    S32XVoidColorType::PaletteRam => {
+                        S32XVoidColor::PaletteRam { idx: self.sega_32x.void_palette_index }
+                    }
+                    S32XVoidColorType::Direct => {
+                        let [r, g, b] = self.sega_32x.void_direct;
+                        S32XVoidColor::Direct { r, g, b, a: self.sega_32x.void_direct_priority }
+                    }
+                },
                 apply_genesis_lpf_to_pwm: self.sega_32x.apply_genesis_lpf_to_pwm,
                 pwm_enabled: self.sega_32x.pwm_enabled,
             },

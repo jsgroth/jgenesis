@@ -1,6 +1,6 @@
 use genesis_config::{
     GenesisAspectRatio, GenesisRegion, Opn2BusyBehavior, PcmInterpolation, S32XColorTint,
-    S32XVideoOut,
+    S32XVideoOut, S32XVoidColorType,
 };
 use jgenesis_common::frontend::TimingMode;
 use serde::{Deserialize, Serialize};
@@ -139,7 +139,27 @@ pub struct Sega32XAppConfig {
     #[serde(default)]
     pub color_tint: S32XColorTint,
     #[serde(default = "true_fn")]
+    pub show_high_priority: bool,
+    #[serde(default = "true_fn")]
+    pub show_low_priority: bool,
+    #[serde(default)]
+    pub void_color_type: S32XVoidColorType,
+    #[serde(default = "default_void_palette_index")]
+    pub void_palette_index: u8,
+    #[serde(default = "default_void_direct")]
+    pub void_direct: [u8; 3],
+    #[serde(default)]
+    pub void_direct_priority: bool,
+    #[serde(default = "true_fn")]
     pub pwm_enabled: bool,
+}
+
+fn default_void_palette_index() -> u8 {
+    0
+}
+
+fn default_void_direct() -> [u8; 3] {
+    [0; 3]
 }
 
 impl Default for Sega32XAppConfig {

@@ -2,6 +2,7 @@ use bincode::{Decode, Encode};
 use jgenesis_common::define_controller_inputs;
 use jgenesis_common::frontend::{FrameSize, PixelAspectRatio, TimingMode};
 use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
+use std::fmt::{Display, Formatter};
 
 pub const NATIVE_M68K_DIVIDER: u64 = 7;
 
@@ -167,6 +168,37 @@ pub enum S32XColorTint {
     Yellow,
     SlightPurple,
     Purple,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum S32XVoidColor {
+    PaletteRam { idx: u8 },
+    Direct { r: u8, g: u8, b: u8, a: bool },
+}
+
+impl Default for S32XVoidColor {
+    fn default() -> Self {
+        Self::Direct { r: 0, g: 0, b: 0, a: false }
+    }
+}
+
+impl Display for S32XVoidColor {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Self::PaletteRam { idx } => write!(f, "Palette RAM index {idx}"),
+            Self::Direct { r, g, b, a } => write!(f, "RGBA({r}, {g}, {b}, {})", u8::from(a)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum S32XVoidColorType {
+    PaletteRam,
+    #[default]
+    Direct,
 }
 
 define_controller_inputs! {

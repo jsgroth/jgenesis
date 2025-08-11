@@ -151,6 +151,14 @@ pub const S32X_VIDEO_OUT: HelpText = HelpText {
     ],
 };
 
+pub const S32X_PRIORITY_MASKING: HelpText = HelpText {
+    heading: "32X Priority Masking",
+    text: &[
+        "Optionally replace all 32X pixels of a given priority with a fixed color.",
+        "The fixed color can come from 32X palette RAM or it can be set to a specific RGBA5551 color value.",
+    ],
+};
+
 pub const QUANTIZE_YM2612_OUTPUT: HelpText = HelpText {
     heading: "Quantize YM2612 Output",
     text: &[
