@@ -651,6 +651,9 @@ where
             return Err(err);
         }
 
+        // Force renderer to clear any interframe state
+        self.renderer.reload();
+
         self.renderer.add_modal(format!("Loaded state from slot {slot}"), MODAL_DURATION);
         self.hotkey_state.save_state_slot = slot;
 

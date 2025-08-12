@@ -14,7 +14,7 @@ use jgenesis_native_config::input::mappings::{
     SnesInputConfig,
 };
 use jgenesis_proc_macros::ConfigDisplay;
-use jgenesis_renderer::config::{PrescaleMode, RendererConfig};
+use jgenesis_renderer::config::{PerEmulatorRenderConfig, PrescaleMode, RendererConfig};
 use nes_core::api::NesEmulatorConfig;
 use s32x_core::api::Sega32XEmulatorConfig;
 use segacd_core::api::SegaCdEmulatorConfig;
@@ -270,7 +270,11 @@ pub struct GameBoyAdvanceConfig {
 
 pub trait AppConfigExt {
     #[must_use]
-    fn common_config(&self, path: PathBuf) -> CommonConfig;
+    fn common_config(
+        &self,
+        path: PathBuf,
+        per_emulator_render_config: PerEmulatorRenderConfig,
+    ) -> CommonConfig;
 
     #[must_use]
     fn genesis_config(&self, path: PathBuf) -> Box<GenesisConfig>;
@@ -298,7 +302,11 @@ pub trait AppConfigExt {
 }
 
 impl AppConfigExt for AppConfig {
-    fn common_config(&self, path: PathBuf) -> CommonConfig {
+    fn common_config(
+        &self,
+        path: PathBuf,
+        per_emulator_render_config: PerEmulatorRenderConfig,
+    ) -> CommonConfig {
         fn save_path(path: ConfigSavePath, custom_path: &Path) -> SavePath {
             match path {
                 ConfigSavePath::RomFolder => SavePath::RomFolder,
@@ -334,6 +342,7 @@ impl AppConfigExt for AppConfig {
                 filter_mode: self.common.filter_mode,
                 preprocess_shader: self.common.preprocess_shader,
                 use_webgl2_limits: false,
+                per_emulator_config: per_emulator_render_config,
             },
             fast_forward_multiplier: self.common.fast_forward_multiplier,
             rewind_buffer_length_seconds: self.common.rewind_buffer_length_seconds,
@@ -349,7 +358,7 @@ impl AppConfigExt for AppConfig {
 
     fn genesis_config(&self, path: PathBuf) -> Box<GenesisConfig> {
         Box::new(GenesisConfig {
-            common: self.common_config(path),
+            common: self.common_config(path, PerEmulatorRenderConfig::default()),
             inputs: self.input.genesis.clone(),
             emulator_config: GenesisEmulatorConfig {
                 p1_controller_type: self.input.genesis.p1_type,
@@ -438,7 +447,7 @@ impl AppConfigExt for AppConfig {
 
     fn smsgg_config(&self, path: PathBuf, hardware: Option<SmsGgHardware>) -> Box<SmsGgConfig> {
         Box::new(SmsGgConfig {
-            common: self.common_config(path),
+            common: self.common_config(path, PerEmulatorRenderConfig::default()),
             inputs: self.input.smsgg.clone(),
             hardware,
             emulator_config: SmsGgEmulatorConfig {
@@ -465,7 +474,7 @@ impl AppConfigExt for AppConfig {
 
     fn nes_config(&self, path: PathBuf) -> Box<NesConfig> {
         Box::new(NesConfig {
-            common: self.common_config(path),
+            common: self.common_config(path, PerEmulatorRenderConfig::default()),
             inputs: self.input.nes.clone(),
             emulator_config: NesEmulatorConfig {
                 forced_timing_mode: self.nes.forced_timing_mode,
@@ -485,7 +494,7 @@ impl AppConfigExt for AppConfig {
 
     fn snes_config(&self, path: PathBuf) -> Box<SnesConfig> {
         Box::new(SnesConfig {
-            common: self.common_config(path),
+            common: self.common_config(path, PerEmulatorRenderConfig::default()),
             inputs: self.input.snes.clone(),
             emulator_config: SnesEmulatorConfig {
                 forced_timing_mode: self.snes.forced_timing_mode,
@@ -507,7 +516,10 @@ impl AppConfigExt for AppConfig {
 
     fn gb_config(&self, path: PathBuf) -> Box<GameBoyConfig> {
         Box::new(GameBoyConfig {
-            common: self.common_config(path),
+            common: self.common_config(
+                path,
+                PerEmulatorRenderConfig { frame_blending: self.game_boy.frame_blending },
+            ),
             inputs: self.input.game_boy.clone(),
             emulator_config: GameBoyEmulatorConfig {
                 force_dmg_mode: self.game_boy.force_dmg_mode,
@@ -517,7 +529,6 @@ impl AppConfigExt for AppConfig {
                 gb_palette: self.game_boy.gb_palette,
                 gb_custom_palette: self.game_boy.gb_custom_palette,
                 gbc_color_correction: self.game_boy.gbc_color_correction,
-                frame_blending: self.game_boy.frame_blending,
                 audio_resampler: self.game_boy.audio_resampler,
                 audio_60hz_hack: self.game_boy.audio_60hz_hack,
             },
@@ -530,7 +541,10 @@ impl AppConfigExt for AppConfig {
 
     fn gba_config(&self, path: PathBuf) -> Box<GameBoyAdvanceConfig> {
         Box::new(GameBoyAdvanceConfig {
-            common: self.common_config(path),
+            common: self.common_config(
+                path,
+                PerEmulatorRenderConfig { frame_blending: self.game_boy_advance.frame_blending },
+            ),
             inputs: self.input.game_boy_advance.clone(),
             emulator_config: GbaEmulatorConfig {
                 skip_bios_animation: self.game_boy_advance.skip_bios_animation,

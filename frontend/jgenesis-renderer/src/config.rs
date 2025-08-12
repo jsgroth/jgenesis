@@ -142,6 +142,11 @@ pub enum PreprocessShader {
     AntiDitherStrong,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ConfigDisplay)]
+pub struct PerEmulatorRenderConfig {
+    pub frame_blending: bool,
+}
+
 #[derive(Debug, Clone, Copy, ConfigDisplay)]
 pub struct RendererConfig {
     pub wgpu_backend: WgpuBackend,
@@ -153,4 +158,6 @@ pub struct RendererConfig {
     pub filter_mode: FilterMode,
     pub preprocess_shader: PreprocessShader,
     pub use_webgl2_limits: bool,
+    #[cfg_display(indent_nested)]
+    pub per_emulator_config: PerEmulatorRenderConfig,
 }

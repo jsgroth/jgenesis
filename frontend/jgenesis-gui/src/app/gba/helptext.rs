@@ -34,3 +34,10 @@ pub const COLOR_CORRECTION: HelpText = HelpText {
         "This usually makes video output darker and less saturated.",
     ],
 };
+
+pub const FRAME_BLENDING: HelpText = HelpText {
+    heading: "Frame Blending",
+    text: &[
+        "If enabled, blend each frame with the previous frame to emulate the effect of LCD ghosting.",
+    ],
+};

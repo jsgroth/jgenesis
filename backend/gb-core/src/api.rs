@@ -56,7 +56,6 @@ pub struct GameBoyEmulatorConfig {
     #[cfg_display(debug_fmt)]
     pub gb_custom_palette: [(u8, u8, u8); 4],
     pub gbc_color_correction: GbcColorCorrection,
-    pub frame_blending: bool,
     pub audio_resampler: GbAudioResampler,
     pub audio_60hz_hack: bool,
 }
@@ -230,7 +229,7 @@ impl EmulatorTrait for GameBoyEmulator {
 
         if self.ppu.frame_complete() {
             self.ppu.clear_frame_complete();
-            self.rgba_buffer.copy_from(self.ppu.frame_buffers(), self.hardware_mode, &self.config);
+            self.rgba_buffer.copy_from(self.ppu.frame_buffer(), self.hardware_mode, &self.config);
             renderer
                 .render_frame(
                     self.rgba_buffer.as_ref(),
@@ -263,7 +262,7 @@ impl EmulatorTrait for GameBoyEmulator {
     where
         R: Renderer,
     {
-        self.rgba_buffer.copy_from(self.ppu.frame_buffers(), self.hardware_mode, &self.config);
+        self.rgba_buffer.copy_from(self.ppu.frame_buffer(), self.hardware_mode, &self.config);
         renderer.render_frame(
             self.rgba_buffer.as_ref(),
             ppu::FRAME_SIZE,

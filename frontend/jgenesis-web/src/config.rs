@@ -4,8 +4,8 @@ use genesis_config::{
 use genesis_core::GenesisEmulatorConfig;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_renderer::config::{
-    FilterMode, PreprocessShader, PrescaleFactor, PrescaleMode, RendererConfig, Scanlines,
-    VSyncMode, WgpuBackend,
+    FilterMode, PerEmulatorRenderConfig, PreprocessShader, PrescaleFactor, PrescaleMode,
+    RendererConfig, Scanlines, VSyncMode, WgpuBackend,
 };
 use segacd_core::api::SegaCdEmulatorConfig;
 use smsgg_config::{GgAspectRatio, SmsAspectRatio, SmsModel};
@@ -49,6 +49,7 @@ impl CommonWebConfig {
             filter_mode: self.filter_mode,
             preprocess_shader: self.preprocess_shader,
             use_webgl2_limits: true,
+            per_emulator_config: PerEmulatorRenderConfig::default(),
         }
     }
 }

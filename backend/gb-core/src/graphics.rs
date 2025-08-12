@@ -1,5 +1,5 @@
 use crate::api::GameBoyEmulatorConfig;
-use crate::ppu::PpuFrameBuffers;
+use crate::ppu::PpuFrameBuffer;
 use crate::{HardwareMode, ppu};
 use gb_config::{GbPalette, GbcColorCorrection};
 use jgenesis_common::frontend::Color;
@@ -32,53 +32,31 @@ pub(crate) struct RgbaFrameBuffer(Box<[Color; ppu::FRAME_BUFFER_LEN]>);
 impl RgbaFrameBuffer {
     pub(crate) fn copy_from(
         &mut self,
-        ppu_frame_buffers: PpuFrameBuffers<'_>,
+        ppu_frame_buffer: &PpuFrameBuffer,
         hardware_mode: HardwareMode,
         config: &GameBoyEmulatorConfig,
     ) {
         match hardware_mode {
             HardwareMode::Dmg => {
-                self.do_copy(ppu_frame_buffers, config.frame_blending, dmg_map_color(config));
+                self.do_copy(ppu_frame_buffer, dmg_map_color(config));
             }
             HardwareMode::Cgb => match config.gbc_color_correction {
                 GbcColorCorrection::None => {
-                    self.do_copy(ppu_frame_buffers, config.frame_blending, cgb_map_color);
+                    self.do_copy(ppu_frame_buffer, cgb_map_color);
                 }
-                GbcColorCorrection::GbcLcd => self.do_copy(
-                    ppu_frame_buffers,
-                    config.frame_blending,
-                    cgb_map_color_gbc_correction,
-                ),
-                GbcColorCorrection::GbaLcd => self.do_copy(
-                    ppu_frame_buffers,
-                    config.frame_blending,
-                    cgb_map_color_gba_correction,
-                ),
+                GbcColorCorrection::GbcLcd => {
+                    self.do_copy(ppu_frame_buffer, cgb_map_color_gbc_correction);
+                }
+                GbcColorCorrection::GbaLcd => {
+                    self.do_copy(ppu_frame_buffer, cgb_map_color_gba_correction);
+                }
             },
         }
     }
 
-    fn do_copy(
-        &mut self,
-        ppu_frame_buffers: PpuFrameBuffers<'_>,
-        frame_blending: bool,
-        map_color: impl Fn(u16) -> Color,
-    ) {
-        if frame_blending {
-            for ((ppu_color_current, ppu_color_prev), rgba_color) in iter::zip(
-                iter::zip(ppu_frame_buffers.current.iter(), ppu_frame_buffers.previous.iter()),
-                self.iter_mut(),
-            ) {
-                let rgba_current = map_color(ppu_color_current);
-                let rgba_prev = map_color(ppu_color_prev);
-                *rgba_color = blend(rgba_current, rgba_prev);
-            }
-        } else {
-            for (ppu_color, rgba_color) in
-                iter::zip(ppu_frame_buffers.current.iter(), self.iter_mut())
-            {
-                *rgba_color = map_color(ppu_color);
-            }
+    fn do_copy(&mut self, ppu_frame_buffer: &PpuFrameBuffer, map_color: impl Fn(u16) -> Color) {
+        for (ppu_color, rgba_color) in iter::zip(ppu_frame_buffer.iter(), self.iter_mut()) {
+            *rgba_color = map_color(ppu_color);
         }
     }
 }
@@ -174,37 +152,6 @@ fn cgb_map_color_gba_correction(ppu_color: u16) -> Color {
         LazyLock::new(|| Box::new(array::from_fn(gba_lcd_correction)));
 
     COLOR_TABLE[(ppu_color & 0x7FFF) as usize]
-}
-
-fn blend(a: Color, b: Color) -> Color {
-    // TODO this should really be done on the GPU, not the CPU
-    // a GPU implementation would also make this easier to use for other systems (e.g. GBA)
-    const GAMMA: f64 = 2.2;
-
-    // Using a 64K lookup table for this seems to be significantly faster than not, from limited testing
-    static BLEND_TABLE: LazyLock<Box<[u8; 65536]>> = LazyLock::new(|| {
-        Box::new(array::from_fn(|i| {
-            let a = i >> 8;
-            let b = i & 0xFF;
-
-            // Convert to linear color space
-            let a = (a as f64 / 255.0).powf(GAMMA);
-            let b = (b as f64 / 255.0).powf(GAMMA);
-
-            // Average
-            let c = 0.5 * (a + b);
-
-            // Convert back to sRGB 0-255 scale
-            (c.powf(1.0 / GAMMA) * 255.0).clamp(0.0, 255.0).round() as u8
-        }))
-    });
-
-    fn blend_component(a: u8, b: u8) -> u8 {
-        let table_idx = (usize::from(a) << 8) | usize::from(b);
-        BLEND_TABLE[table_idx]
-    }
-
-    Color::rgb(blend_component(a.r, b.r), blend_component(a.g, b.g), blend_component(a.b, b.b))
 }
 
 pub(crate) fn parse_cgb_color(ppu_color: u16) -> (u8, u8, u8) {
