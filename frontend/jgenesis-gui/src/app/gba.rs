@@ -1,7 +1,8 @@
 use crate::app::widgets::{BiosErrorStrings, OptionalPathSelector, RenderErrorEffect};
 use crate::app::{App, OpenWindow, widgets};
-use egui::{Context, Window};
+use egui::{Context, Slider, Window};
 use gba_config::{GbaAspectRatio, GbaColorCorrection, GbaSaveMemory};
+use jgenesis_native_config::gba::GameBoyAdvanceAppConfig;
 use jgenesis_native_driver::extensions::Console;
 use rfd::FileDialog;
 use std::path::PathBuf;
@@ -120,6 +121,28 @@ impl App {
                             );
                         }
                     });
+
+                    ui.add_enabled_ui(
+                        self.config.game_boy_advance.color_correction == GbaColorCorrection::GbaLcd,
+                        |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("Console screen gamma");
+
+                                ui.add(
+                                    Slider::new(
+                                        &mut self.config.game_boy_advance.color_correction_gamma,
+                                        0.1..=5.0,
+                                    )
+                                    .custom_formatter(|value, _| format!("{value:.1}")),
+                                );
+
+                                if ui.button("Default").clicked() {
+                                    self.config.game_boy_advance.color_correction_gamma =
+                                        GameBoyAdvanceAppConfig::default().color_correction_gamma;
+                                }
+                            });
+                        },
+                    );
                 })
                 .response
                 .interact_rect;

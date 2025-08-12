@@ -2,7 +2,7 @@ use gb_config::{GbAspectRatio, GbAudioResampler, GbPalette, GbcColorCorrection};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GameBoyAppConfig {
     #[serde(default)]
     pub force_dmg_mode: bool,
@@ -26,6 +26,10 @@ pub struct GameBoyAppConfig {
     pub gb_custom_palette: [(u8, u8, u8); 4],
     #[serde(default)]
     pub gbc_color_correction: GbcColorCorrection,
+    #[serde(default = "default_gbc_gamma")]
+    pub gbc_correction_gamma: f32,
+    #[serde(default = "default_gba_gamma")]
+    pub gba_correction_gamma: f32,
     #[serde(default = "true_fn")]
     pub frame_blending: bool,
     #[serde(default)]
@@ -36,6 +40,14 @@ pub struct GameBoyAppConfig {
 
 const fn true_fn() -> bool {
     true
+}
+
+const fn default_gbc_gamma() -> f32 {
+    2.0 // Slightly brighten
+}
+
+const fn default_gba_gamma() -> f32 {
+    3.2 // Significantly darken
 }
 
 #[must_use]

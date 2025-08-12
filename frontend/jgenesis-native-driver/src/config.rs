@@ -1,7 +1,9 @@
 use crate::archive::{ArchiveEntry, ArchiveError};
 use crate::mainloop::NativeEmulatorError;
 use crate::{NativeEmulatorResult, archive, extensions};
+use gb_config::GbcColorCorrection;
 use gb_core::api::GameBoyEmulatorConfig;
+use gba_config::GbaColorCorrection;
 use gba_core::api::GbaEmulatorConfig;
 use genesis_config::{S32XVoidColor, S32XVoidColorType};
 use genesis_core::GenesisEmulatorConfig;
@@ -14,7 +16,9 @@ use jgenesis_native_config::input::mappings::{
     SnesInputConfig,
 };
 use jgenesis_proc_macros::ConfigDisplay;
-use jgenesis_renderer::config::{PerEmulatorRenderConfig, PrescaleMode, RendererConfig};
+use jgenesis_renderer::config::{
+    ColorCorrection, PerEmulatorRenderConfig, PrescaleMode, RendererConfig,
+};
 use nes_core::api::NesEmulatorConfig;
 use s32x_core::api::Sega32XEmulatorConfig;
 use segacd_core::api::SegaCdEmulatorConfig;
@@ -515,10 +519,23 @@ impl AppConfigExt for AppConfig {
     }
 
     fn gb_config(&self, path: PathBuf) -> Box<GameBoyConfig> {
+        let color_correction = match self.game_boy.gbc_color_correction {
+            GbcColorCorrection::None => ColorCorrection::None,
+            GbcColorCorrection::GbcLcd => {
+                ColorCorrection::GbcLcd { screen_gamma: self.game_boy.gbc_correction_gamma }
+            }
+            GbcColorCorrection::GbaLcd => {
+                ColorCorrection::GbaLcd { screen_gamma: self.game_boy.gba_correction_gamma }
+            }
+        };
+
         Box::new(GameBoyConfig {
             common: self.common_config(
                 path,
-                PerEmulatorRenderConfig { frame_blending: self.game_boy.frame_blending },
+                PerEmulatorRenderConfig {
+                    frame_blending: self.game_boy.frame_blending,
+                    color_correction,
+                },
             ),
             inputs: self.input.game_boy.clone(),
             emulator_config: GameBoyEmulatorConfig {
@@ -528,7 +545,6 @@ impl AppConfigExt for AppConfig {
                 aspect_ratio: self.game_boy.aspect_ratio,
                 gb_palette: self.game_boy.gb_palette,
                 gb_custom_palette: self.game_boy.gb_custom_palette,
-                gbc_color_correction: self.game_boy.gbc_color_correction,
                 audio_resampler: self.game_boy.audio_resampler,
                 audio_60hz_hack: self.game_boy.audio_60hz_hack,
             },
@@ -540,16 +556,25 @@ impl AppConfigExt for AppConfig {
     }
 
     fn gba_config(&self, path: PathBuf) -> Box<GameBoyAdvanceConfig> {
+        let color_correction = match self.game_boy_advance.color_correction {
+            GbaColorCorrection::None => ColorCorrection::None,
+            GbaColorCorrection::GbaLcd => ColorCorrection::GbaLcd {
+                screen_gamma: self.game_boy_advance.color_correction_gamma,
+            },
+        };
+
         Box::new(GameBoyAdvanceConfig {
             common: self.common_config(
                 path,
-                PerEmulatorRenderConfig { frame_blending: self.game_boy_advance.frame_blending },
+                PerEmulatorRenderConfig {
+                    frame_blending: self.game_boy_advance.frame_blending,
+                    color_correction,
+                },
             ),
             inputs: self.input.game_boy_advance.clone(),
             emulator_config: GbaEmulatorConfig {
                 skip_bios_animation: self.game_boy_advance.skip_bios_animation,
                 aspect_ratio: self.game_boy_advance.aspect_ratio,
-                color_correction: self.game_boy_advance.color_correction,
                 forced_save_memory_type: self.game_boy_advance.forced_save_memory_type,
             },
             bios_path: self.game_boy_advance.bios_path.clone(),

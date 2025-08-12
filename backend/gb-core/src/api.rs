@@ -15,9 +15,7 @@ use crate::sm83::Sm83;
 use crate::timer::GbTimer;
 use crate::{HardwareMode, audio, ppu};
 use bincode::{Decode, Encode};
-use gb_config::{
-    GameBoyButton, GameBoyInputs, GbAspectRatio, GbAudioResampler, GbPalette, GbcColorCorrection,
-};
+use gb_config::{GameBoyButton, GameBoyInputs, GbAspectRatio, GbAudioResampler, GbPalette};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, Renderer, SaveWriter, TickEffect,
     TickResult,
@@ -55,7 +53,6 @@ pub struct GameBoyEmulatorConfig {
     pub gb_palette: GbPalette,
     #[cfg_display(debug_fmt)]
     pub gb_custom_palette: [(u8, u8, u8); 4],
-    pub gbc_color_correction: GbcColorCorrection,
     pub audio_resampler: GbAudioResampler,
     pub audio_60hz_hack: bool,
 }

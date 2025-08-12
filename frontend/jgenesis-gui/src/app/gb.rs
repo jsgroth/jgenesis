@@ -3,8 +3,9 @@ mod helptext;
 use crate::app::widgets::{BiosErrorStrings, OptionalPathSelector, RenderErrorEffect};
 use crate::app::{App, OpenWindow, widgets};
 use crate::emuthread::EmuThreadStatus;
-use egui::{Context, Ui, Window};
+use egui::{Context, Slider, Ui, Window};
 use gb_config::{GbAspectRatio, GbAudioResampler, GbPalette, GbcColorCorrection};
+use jgenesis_native_config::gb::GameBoyAppConfig;
 use jgenesis_native_driver::extensions::Console;
 use rfd::FileDialog;
 use std::path::PathBuf;
@@ -213,6 +214,36 @@ impl App {
                             "Game Boy Advance LCD",
                         );
                     });
+
+                    ui.add_enabled_ui(
+                        self.config.game_boy.gbc_color_correction != GbcColorCorrection::None,
+                        |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("Console screen gamma");
+
+                                let (gamma, default) =
+                                    match self.config.game_boy.gbc_color_correction {
+                                        GbcColorCorrection::GbaLcd => (
+                                            &mut self.config.game_boy.gba_correction_gamma,
+                                            GameBoyAppConfig::default().gba_correction_gamma,
+                                        ),
+                                        _ => (
+                                            &mut self.config.game_boy.gbc_correction_gamma,
+                                            GameBoyAppConfig::default().gbc_correction_gamma,
+                                        ),
+                                    };
+
+                                ui.add(
+                                    Slider::new(gamma, 0.1..=5.0)
+                                        .custom_formatter(|value, _| format!("{value:.1}")),
+                                );
+
+                                if ui.button("Default").clicked() {
+                                    *gamma = default;
+                                }
+                            });
+                        },
+                    );
                 })
                 .response
                 .interact_rect;

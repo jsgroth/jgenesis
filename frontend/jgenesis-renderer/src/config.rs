@@ -142,8 +142,33 @@ pub enum PreprocessShader {
     AntiDitherStrong,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ConfigDisplay)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum ColorCorrection {
+    #[default]
+    None,
+    GbcLcd {
+        screen_gamma: f32,
+    },
+    GbaLcd {
+        screen_gamma: f32,
+    },
+}
+
+impl Display for ColorCorrection {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::None => write!(f, "None"),
+            Self::GbcLcd { screen_gamma } => write!(f, "Game Boy Color LCD (gamma {screen_gamma})"),
+            Self::GbaLcd { screen_gamma } => {
+                write!(f, "Game Boy Advance LCD (gamma {screen_gamma})")
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default, ConfigDisplay)]
 pub struct PerEmulatorRenderConfig {
+    pub color_correction: ColorCorrection,
     pub frame_blending: bool,
 }
 

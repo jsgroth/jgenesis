@@ -1,4 +1,6 @@
-use crate::config::{PreprocessShader, PrescaleMode, RendererConfig, Scanlines, WgpuBackend};
+use crate::config::{
+    ColorCorrection, PreprocessShader, PrescaleMode, RendererConfig, Scanlines, WgpuBackend,
+};
 use cfg_if::cfg_if;
 use jgenesis_common::frontend::{Color, DisplayArea, FrameSize, PixelAspectRatio, Renderer};
 use jgenesis_common::timeutils;
@@ -45,6 +47,161 @@ trait PipelineShader {
     fn draw(&mut self, encoder: &mut wgpu::CommandEncoder);
 
     fn output_texture(&self) -> &Arc<wgpu::Texture>;
+}
+
+struct ColorCorrectionShader {
+    output: Arc<wgpu::Texture>,
+    bind_group: wgpu::BindGroup,
+    pipeline: wgpu::RenderPipeline,
+}
+
+impl ColorCorrectionShader {
+    fn new(
+        correction: ColorCorrection,
+        input: &wgpu::Texture,
+        device: &wgpu::Device,
+        shaders: &Shaders,
+    ) -> Option<Self> {
+        let (fs_main, screen_gamma) = match correction {
+            ColorCorrection::GbcLcd { screen_gamma } => ("gbc_color_correction", screen_gamma),
+            ColorCorrection::GbaLcd { screen_gamma } => ("gba_color_correction", screen_gamma),
+            ColorCorrection::None => return None,
+        };
+
+        let output = device.create_texture(&wgpu::TextureDescriptor {
+            label: "color_correction_texture".into(),
+            size: input.size(),
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: input.format(),
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: "color_correction_bind_group_layout".into(),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+        let input_view = input.create_view(&wgpu::TextureViewDescriptor::default());
+        let gamma_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: "color_correction_gamma_buffer".into(),
+            contents: bytemuck::cast_slice(&padded_f32(screen_gamma)),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: "color_correction_bind_group".into(),
+            layout: &bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&input_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer(
+                        gamma_buffer.as_entire_buffer_binding(),
+                    ),
+                },
+            ],
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: "color_correction_pipeline_layout".into(),
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: "color_correction_pipeline".into(),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shaders.identity,
+                entry_point: None,
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &[],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shaders.gb_color,
+                entry_point: Some(fs_main),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: input.format(),
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview: None,
+            cache: None,
+        });
+
+        Some(Self { output: Arc::new(output), bind_group, pipeline })
+    }
+}
+
+impl PipelineShader for ColorCorrectionShader {
+    fn draw(&mut self, encoder: &mut wgpu::CommandEncoder) {
+        let output_view = self.output.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: "color_correction_render_pass".into(),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &output_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+
+        render_pass.set_bind_group(0, &self.bind_group, &[]);
+        render_pass.set_pipeline(&self.pipeline);
+
+        render_pass.draw(0..VERTICES.len() as u32, 0..1);
+    }
+
+    fn output_texture(&self) -> &Arc<wgpu::Texture> {
+        &self.output
+    }
 }
 
 struct FrameBlendShader {
@@ -435,7 +592,7 @@ impl PrescaleShader {
         };
         let prescale_factor = clamp_prescale_factor(prescale_factor, input.size(), limits);
 
-        if prescale_factor == 1 {
+        if prescale_factor <= 1 {
             return None;
         }
 
@@ -609,6 +766,10 @@ fn padded_u32(value: u32) -> [u32; 4] {
     [value, 0, 0, 0]
 }
 
+fn padded_f32(value: f32) -> [f32; 4] {
+    [value, 0.0, 0.0, 0.0]
+}
+
 struct RenderingPipeline {
     frame_size: FrameSize,
     display_area: DisplayArea,
@@ -692,9 +853,25 @@ impl RenderingPipeline {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::VERTEX,
         });
 
+        // Pipeline shaders (all optional):
+        //   1. Color correction
+        //   2. Frame blending
+        //   3. Horizontal blur
+        //   4. Prescale/scanlines
         let mut shader_pipeline: Vec<Box<dyn PipelineShader>> = Vec::new();
 
+        if let Some(color_correction_shader) = ColorCorrectionShader::new(
+            renderer_config.per_emulator_config.color_correction,
+            &current_output_texture(&shader_pipeline, &input_texture),
+            device,
+            shaders,
+        ) {
+            log::debug!("Adding color correction shader");
+            shader_pipeline.push(Box::new(color_correction_shader));
+        }
+
         if renderer_config.per_emulator_config.frame_blending {
+            log::debug!("Adding frame blending shader");
             shader_pipeline.push(Box::new(FrameBlendShader::create(
                 current_output_texture(&shader_pipeline, &input_texture),
                 device,
@@ -708,6 +885,7 @@ impl RenderingPipeline {
             &current_output_texture(&shader_pipeline, &input_texture),
             shaders,
         ) {
+            log::debug!("Adding blur shader");
             shader_pipeline.push(Box::new(blur_shader));
         }
 
@@ -722,6 +900,7 @@ impl RenderingPipeline {
             limits,
             shaders,
         ) {
+            log::debug!("Adding prescale/scanlines shader");
             shader_pipeline.push(Box::new(prescale_shader));
         }
 
@@ -1073,6 +1252,7 @@ struct Shaders {
     identity: wgpu::ShaderModule,
     hblur: wgpu::ShaderModule,
     frame_blend: wgpu::ShaderModule,
+    gb_color: wgpu::ShaderModule,
 }
 
 impl Shaders {
@@ -1082,8 +1262,9 @@ impl Shaders {
         let identity = device.create_shader_module(wgpu::include_wgsl!("identity.wgsl"));
         let hblur = device.create_shader_module(wgpu::include_wgsl!("hblur.wgsl"));
         let frame_blend = device.create_shader_module(wgpu::include_wgsl!("frameblend.wgsl"));
+        let gb_color = device.create_shader_module(wgpu::include_wgsl!("gb_color.wgsl"));
 
-        Self { render, prescale, identity, hblur, frame_blend }
+        Self { render, prescale, identity, hblur, frame_blend, gb_color }
     }
 }
 

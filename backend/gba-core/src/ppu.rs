@@ -1,9 +1,7 @@
 //! GBA PPU (picture processing unit)
 
-mod colors;
 mod registers;
 
-use crate::api::GbaEmulatorConfig;
 use crate::dma::DmaState;
 use crate::interrupts::{InterruptRegisters, InterruptType};
 use crate::ppu::registers::{
@@ -11,7 +9,6 @@ use crate::ppu::registers::{
     Window, WindowEnabled,
 };
 use bincode::{Decode, Encode};
-use gba_config::GbaColorCorrection;
 use jgenesis_common::boxedarray::{BoxedByteArray, BoxedWordArray};
 use jgenesis_common::frontend::{Color, FrameSize};
 use jgenesis_common::num::{GetBit, U16Ext};
@@ -61,13 +58,13 @@ impl RgbaFrameBuffer {
         Self(vec![Color::default(); FRAME_BUFFER_LEN].into_boxed_slice())
     }
 
-    fn copy_from(&mut self, frame_buffer: &GbaFrameBuffer, color_correction: GbaColorCorrection) {
+    fn copy_from(&mut self, frame_buffer: &GbaFrameBuffer) {
         let mut address = 0;
 
         for _ in 0..SCREEN_HEIGHT {
             for _ in 0..SCREEN_WIDTH {
                 let gba_color = frame_buffer.0[address];
-                self.0[address] = gba_color_to_rgb8(gba_color, color_correction);
+                self.0[address] = gba_color_to_rgb8(gba_color);
                 address += 1;
             }
         }
@@ -443,11 +440,10 @@ pub struct Ppu {
     buffers: Box<Buffers>,
     cycles: u64,
     next_event_cycles: u64,
-    color_correction: GbaColorCorrection,
 }
 
 impl Ppu {
-    pub fn new(config: GbaEmulatorConfig) -> Self {
+    pub fn new() -> Self {
         Self {
             frame_buffer: GbaFrameBuffer::new(),
             ready_frame_buffer: RgbaFrameBuffer::new(),
@@ -460,12 +456,7 @@ impl Ppu {
             buffers: Box::new(Buffers::new()),
             cycles: 0,
             next_event_cycles: 0,
-            color_correction: config.color_correction,
         }
-    }
-
-    pub fn reload_config(&mut self, config: GbaEmulatorConfig) {
-        self.color_correction = config.color_correction;
     }
 
     pub fn step_to(
@@ -537,7 +528,7 @@ impl Ppu {
                     dma.notify_vblank_start();
 
                     ppu.state.frame_complete = true;
-                    ppu.ready_frame_buffer.copy_from(&ppu.frame_buffer, ppu.color_correction);
+                    ppu.ready_frame_buffer.copy_from(&ppu.frame_buffer);
                 }
                 162 => {
                     if ppu.state.video_capture_latch {
@@ -1769,6 +1760,15 @@ fn adjust_brightness<const INCREASE: bool>(color: Pixel, evy: u16) -> Pixel {
     Pixel::new_opaque_rgb(r, g, b)
 }
 
-fn gba_color_to_rgb8(gba_color: u16, color_correction: GbaColorCorrection) -> Color {
-    colors::table(color_correction)[(gba_color & 0x7FFF) as usize]
+fn gba_color_to_rgb8(gba_color: u16) -> Color {
+    const RGB_5_TO_8: &[u8; 32] = &[
+        0, 8, 16, 25, 33, 41, 49, 58, 66, 74, 82, 90, 99, 107, 115, 123, 132, 140, 148, 156, 165,
+        173, 181, 189, 197, 206, 214, 222, 230, 239, 247, 255,
+    ];
+
+    let r = gba_color & 0x1F;
+    let g = (gba_color >> 5) & 0x1F;
+    let b = (gba_color >> 10) & 0x1F;
+
+    Color::rgb(RGB_5_TO_8[r as usize], RGB_5_TO_8[g as usize], RGB_5_TO_8[b as usize])
 }

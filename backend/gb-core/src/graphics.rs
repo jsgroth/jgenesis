@@ -1,12 +1,11 @@
 use crate::api::GameBoyEmulatorConfig;
 use crate::ppu::PpuFrameBuffer;
 use crate::{HardwareMode, ppu};
-use gb_config::{GbPalette, GbcColorCorrection};
+use gb_config::GbPalette;
 use jgenesis_common::frontend::Color;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
+use std::iter;
 use std::ops::{Deref, DerefMut};
-use std::sync::LazyLock;
-use std::{array, iter};
 
 // 0/0/0 = black and 255/255/255 = white, so linearly map [0,3] to [255,0]
 const GB_COLOR_TO_RGB_BW: [[u8; 3]; 4] =
@@ -40,17 +39,9 @@ impl RgbaFrameBuffer {
             HardwareMode::Dmg => {
                 self.do_copy(ppu_frame_buffer, dmg_map_color(config));
             }
-            HardwareMode::Cgb => match config.gbc_color_correction {
-                GbcColorCorrection::None => {
-                    self.do_copy(ppu_frame_buffer, cgb_map_color);
-                }
-                GbcColorCorrection::GbcLcd => {
-                    self.do_copy(ppu_frame_buffer, cgb_map_color_gbc_correction);
-                }
-                GbcColorCorrection::GbaLcd => {
-                    self.do_copy(ppu_frame_buffer, cgb_map_color_gba_correction);
-                }
-            },
+            HardwareMode::Cgb => {
+                self.do_copy(ppu_frame_buffer, cgb_map_color);
+            }
         }
     }
 
@@ -78,80 +69,6 @@ fn dmg_map_color(config: &GameBoyEmulatorConfig) -> impl Fn(u16) -> Color {
 fn cgb_map_color(ppu_color: u16) -> Color {
     let (r, g, b) = parse_cgb_color(ppu_color);
     Color::rgb(RGB_5_TO_8[r as usize], RGB_5_TO_8[g as usize], RGB_5_TO_8[b as usize])
-}
-
-fn correct_gbc_color(
-    color: usize,
-    screen_gamma: f64,
-    display_gamma: f64,
-    mat: &[[f64; 3]; 3],
-) -> Color {
-    fn u8_to_f64(component: u8, gamma: f64) -> f64 {
-        (f64::from(component) / 31.0).powf(gamma)
-    }
-
-    fn f64_to_u8(component: f64, gamma: f64) -> u8 {
-        (255.0 * component.powf(1.0 / gamma)).clamp(0.0, 255.0).round() as u8
-    }
-
-    let (r, g, b) = parse_cgb_color(color as u16);
-    let [r, g, b] = [r, g, b].map(|c| u8_to_f64(c, screen_gamma));
-
-    let [r, g, b] = [
-        mat[0][0] * r + mat[0][1] * g + mat[0][2] * b,
-        mat[1][0] * r + mat[1][1] * g + mat[1][2] * b,
-        mat[2][0] * r + mat[2][1] * g + mat[2][2] * b,
-    ];
-
-    let [r, g, b] = [r, g, b].map(|c| f64_to_u8(c, display_gamma));
-    Color::rgb(r, g, b)
-}
-
-#[rustfmt::skip]
-fn gbc_lcd_correction(color: usize) -> Color {
-    // Based on this public domain shader:
-    // https://github.com/libretro/common-shaders/blob/master/handheld/shaders/color/gbc-color.cg
-    correct_gbc_color(
-        color,
-        2.0, // Slightly brighten
-        2.2,
-        &[
-            [0.78824, 0.12157, 0.0  ],
-            [0.025  , 0.72941, 0.275],
-            [0.12039, 0.12157, 0.82 ],
-        ],
-    )
-}
-
-#[must_use]
-#[rustfmt::skip]
-pub fn gba_lcd_correction(color: usize) -> Color {
-    // Based on this public domain shader:
-    // https://github.com/libretro/common-shaders/blob/master/handheld/shaders/color/gba-color.cg
-    correct_gbc_color(
-        color,
-        3.2, // Significantly darken
-        2.2,
-        &[
-            [0.845, 0.17 , 0.015],
-            [0.09 , 0.68 , 0.23 ],
-            [0.16 , 0.085, 0.755],
-        ],
-    )
-}
-
-fn cgb_map_color_gbc_correction(ppu_color: u16) -> Color {
-    static COLOR_TABLE: LazyLock<Box<[Color; 32768]>> =
-        LazyLock::new(|| Box::new(array::from_fn(gbc_lcd_correction)));
-
-    COLOR_TABLE[(ppu_color & 0x7FFF) as usize]
-}
-
-fn cgb_map_color_gba_correction(ppu_color: u16) -> Color {
-    static COLOR_TABLE: LazyLock<Box<[Color; 32768]>> =
-        LazyLock::new(|| Box::new(array::from_fn(gba_lcd_correction)));
-
-    COLOR_TABLE[(ppu_color & 0x7FFF) as usize]
 }
 
 pub(crate) fn parse_cgb_color(ppu_color: u16) -> (u8, u8, u8) {
