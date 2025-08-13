@@ -18,6 +18,22 @@ pub struct GameBoyAdvanceAppConfig {
     pub frame_blending: bool,
     #[serde(default)]
     pub forced_save_memory_type: Option<GbaSaveMemory>,
+    #[serde(default = "true_fn")]
+    pub pulse_1_enabled: bool,
+    #[serde(default = "true_fn")]
+    pub pulse_2_enabled: bool,
+    #[serde(default = "true_fn")]
+    pub wavetable_enabled: bool,
+    #[serde(default = "true_fn")]
+    pub noise_enabled: bool,
+    #[serde(default = "true_fn")]
+    pub pcm_a_enabled: bool,
+    #[serde(default = "true_fn")]
+    pub pcm_b_enabled: bool,
+}
+
+const fn true_fn() -> bool {
+    true
 }
 
 const fn default_correction_gamma() -> f32 {

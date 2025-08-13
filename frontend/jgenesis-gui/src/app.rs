@@ -113,6 +113,7 @@ enum OpenWindow {
     NesAudio,
     SnesAudio,
     GameBoyAudio,
+    GbaAudio,
     GeneralInput,
     SmsGgInput,
     GenesisInput,
@@ -806,6 +807,11 @@ impl App {
                 self.state.open_windows.insert(OpenWindow::GameBoyAudio);
                 ui.close_menu();
             }
+
+            if ui.button("Game Boy Advance").clicked() {
+                self.state.open_windows.insert(OpenWindow::GbaAudio);
+                ui.close_menu();
+            }
         });
     }
 
@@ -1038,6 +1044,7 @@ impl App {
                 OpenWindow::NesAudio => self.render_nes_audio_settings(ctx),
                 OpenWindow::SnesAudio => self.render_snes_audio_settings(ctx),
                 OpenWindow::GameBoyAudio => self.render_gb_audio_settings(ctx),
+                OpenWindow::GbaAudio => self.render_gba_audio_settings(ctx),
                 OpenWindow::GeneralInput => self.render_general_input_settings(ctx),
                 OpenWindow::SmsGgInput => self.render_smsgg_input_settings(ctx),
                 OpenWindow::GenesisInput => self.render_genesis_input_settings(ctx),

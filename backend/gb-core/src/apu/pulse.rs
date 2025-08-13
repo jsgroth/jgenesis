@@ -223,6 +223,15 @@ impl PulseChannel {
     }
 
     #[must_use]
+    pub fn volume(&self) -> u8 {
+        if !self.dac_enabled || self.suppress_output {
+            return 0;
+        }
+
+        self.envelope.volume
+    }
+
+    #[must_use]
     pub fn read_register_0(&self) -> u8 {
         self.sweep.read_register()
     }

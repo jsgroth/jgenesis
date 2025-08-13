@@ -10,6 +10,7 @@ use gb_core::apu::StereoControl;
 use gb_core::apu::noise::NoiseChannel;
 use gb_core::apu::pulse::PulseChannel;
 use jgenesis_common::num::GetBit;
+use std::array;
 
 // Number of 1 MHz cycles for a tick rate of 512 Hz
 const FRAME_SEQUENCER_DIVIDER: u64 = (1 << 20) / 512;
@@ -32,7 +33,7 @@ impl Psg {
             pulse_2: PulseChannel::new(),
             wavetable: WavetableChannel::new(),
             noise: NoiseChannel::new(),
-            stereo_control: StereoControl::new(),
+            stereo_control: StereoControl::zero(),
             frame_sequencer_step: 0,
             frame_sequencer_divider: FRAME_SEQUENCER_DIVIDER,
         }
@@ -81,28 +82,41 @@ impl Psg {
         }
     }
 
-    pub fn sample(&self) -> (u16, u16) {
-        let samples = [
+    pub fn sample(&self, channels_enabled: [bool; 4]) -> (i16, i16) {
+        let channels_enabled = channels_enabled.map(i16::from);
+
+        // On GBA, DAC-disabled channels behave as if they're outputting 0
+        let raw_samples = [
             self.pulse_1.sample().unwrap_or(0),
             self.pulse_2.sample().unwrap_or(0),
             self.wavetable.sample(),
             self.noise.sample().unwrap_or(0),
         ]
-        .map(u16::from);
+        .map(i16::from);
 
-        let mut sample_l: u16 = samples
-            .into_iter()
-            .enumerate()
-            .map(|(i, sample)| u16::from(self.stereo_control.left_channels[i]) * sample)
-            .sum();
-        let mut sample_r: u16 = samples
-            .into_iter()
-            .enumerate()
-            .map(|(i, sample)| u16::from(self.stereo_control.right_channels[i]) * sample)
-            .sum();
+        // To try and emulate the GBC's DACs, GBA biases each channel by its current volume
+        // Wavetable channel is always biased by -15 (tested on hardware)
+        let channel_bias =
+            [self.pulse_1.volume(), self.pulse_2.volume(), 15, self.noise.volume()].map(i16::from);
 
-        sample_l *= u16::from(self.stereo_control.left_volume + 1);
-        sample_r *= u16::from(self.stereo_control.right_volume + 1);
+        // Convert from unsigned 4-bit to signed 5-bit while applying bias
+        let samples: [i16; 4] =
+            array::from_fn(|i| channels_enabled[i] * (2 * raw_samples[i] - channel_bias[i]));
+
+        // Mix channels; result is signed 7-bit
+        let stereo_l = self.stereo_control.left_channels.map(i16::from);
+        let stereo_r = self.stereo_control.right_channels.map(i16::from);
+        let mut sample_l: i16 =
+            samples.into_iter().enumerate().map(|(i, sample)| stereo_l[i] * sample).sum();
+        let mut sample_r: i16 =
+            samples.into_iter().enumerate().map(|(i, sample)| stereo_r[i] * sample).sum();
+
+        // Apply master volume (1-8); result is signed 10-bit
+        sample_l *= i16::from(self.stereo_control.left_volume + 1);
+        sample_r *= i16::from(self.stereo_control.right_volume + 1);
+
+        debug_assert!((-0x200..0x200).contains(&sample_l));
+        debug_assert!((-0x200..0x200).contains(&sample_r));
 
         (sample_l, sample_r)
     }

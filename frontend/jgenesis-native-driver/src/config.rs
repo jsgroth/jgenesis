@@ -4,7 +4,7 @@ use crate::{NativeEmulatorResult, archive, extensions};
 use gb_config::GbcColorCorrection;
 use gb_core::api::GameBoyEmulatorConfig;
 use gba_config::GbaColorCorrection;
-use gba_core::api::GbaEmulatorConfig;
+use gba_core::api::{GbaAudioConfig, GbaEmulatorConfig};
 use genesis_config::{S32XVoidColor, S32XVoidColorType};
 use genesis_core::GenesisEmulatorConfig;
 use jgenesis_native_config::AppConfig;
@@ -576,6 +576,14 @@ impl AppConfigExt for AppConfig {
                 skip_bios_animation: self.game_boy_advance.skip_bios_animation,
                 aspect_ratio: self.game_boy_advance.aspect_ratio,
                 forced_save_memory_type: self.game_boy_advance.forced_save_memory_type,
+                audio: GbaAudioConfig {
+                    pulse_1_enabled: self.game_boy_advance.pulse_1_enabled,
+                    pulse_2_enabled: self.game_boy_advance.pulse_2_enabled,
+                    wavetable_enabled: self.game_boy_advance.wavetable_enabled,
+                    noise_enabled: self.game_boy_advance.noise_enabled,
+                    pcm_a_enabled: self.game_boy_advance.pcm_a_enabled,
+                    pcm_b_enabled: self.game_boy_advance.pcm_b_enabled,
+                },
             },
             bios_path: self.game_boy_advance.bios_path.clone(),
         })

@@ -4,6 +4,7 @@
 
 mod psg;
 
+use crate::api::GbaAudioConfig;
 use crate::apu::psg::Psg;
 use crate::audio::GbaAudioResampler;
 use crate::dma::DmaState;
@@ -124,10 +125,11 @@ pub struct Apu {
     pwm: PwmControl,
     resampler: GbaAudioResampler,
     cycles: u64,
+    config: GbaAudioConfig,
 }
 
 impl Apu {
-    pub fn new() -> Self {
+    pub fn new(config: GbaAudioConfig) -> Self {
         Self {
             enabled: false,
             pcm_a: DirectSoundChannel::new("A".into()),
@@ -138,6 +140,7 @@ impl Apu {
             pwm: PwmControl::new(),
             resampler: GbaAudioResampler::new(),
             cycles: 0,
+            config,
         }
     }
 
@@ -185,27 +188,35 @@ impl Apu {
         self.resampler.collect_sample(sample_l, sample_r);
     }
 
+    fn sample_pcm(&self, channels_enabled: [bool; 2]) -> (i16, i16) {
+        let channels_enabled = channels_enabled.map(i16::from);
+
+        // Left shift from signed 8-bit to signed 10-bit, then apply optional 50% volume reduction
+        let raw_samples = [self.pcm_a.current_sample, self.pcm_b.current_sample].map(i16::from);
+        let samples = [
+            ((channels_enabled[0] * raw_samples[0]) << 2) >> self.pcm_a.volume_shift,
+            ((channels_enabled[1] * raw_samples[1]) << 2) >> self.pcm_b.volume_shift,
+        ];
+
+        let l_enabled = [self.pcm_a.l_enabled, self.pcm_b.l_enabled].map(i16::from);
+        let r_enabled = [self.pcm_a.r_enabled, self.pcm_b.r_enabled].map(i16::from);
+
+        // PCM sum is clamped before mixing with PSG (tested on hardware)
+        let pcm_l = (l_enabled[0] * samples[0] + l_enabled[1] * samples[1]).clamp(-0x200, 0x1FF);
+        let pcm_r = (r_enabled[0] * samples[0] + r_enabled[1] * samples[1]).clamp(-0x200, 0x1FF);
+
+        (pcm_l, pcm_r)
+    }
+
     fn sample(&self) -> (u16, u16) {
-        // Mixed PSG samples are unsigned 9-bit (4 unsigned 4-bit channels, 3-bit master volume)
-        // Shift to unsigned 10-bit, then downshift based on volume
-        let (mut psg_l, mut psg_r) = self.psg.sample();
-        psg_l = (psg_l << 1) >> self.psg_volume_shift;
-        psg_r = (psg_r << 1) >> self.psg_volume_shift;
+        let (pcm_l, pcm_r) = self.sample_pcm(self.config.pcm_channels_enabled());
 
-        let psg_l = psg_l as i16;
-        let psg_r = psg_r as i16;
+        // Mixed PSG sample is already signed 10-bit
+        let (mut psg_l, mut psg_r) = self.psg.sample(self.config.psg_channels_enabled());
+        psg_l >>= self.psg_volume_shift;
+        psg_r >>= self.psg_volume_shift;
 
-        // PCM samples are signed 8-bit
-        // Shift to signed 10-bit, then downshift based on volume
-        let pcm_a = (i16::from(self.pcm_a.current_sample) << 2) >> self.pcm_a.volume_shift;
-        let pcm_b = (i16::from(self.pcm_b.current_sample) << 2) >> self.pcm_b.volume_shift;
-
-        let pcm_l =
-            i16::from(self.pcm_a.l_enabled) * pcm_a + i16::from(self.pcm_b.l_enabled) * pcm_b;
-        let pcm_r =
-            i16::from(self.pcm_a.r_enabled) * pcm_a + i16::from(self.pcm_b.r_enabled) * pcm_b;
-
-        // Final results are clamped to unsigned 10-bit after adding sound bias
+        // Final PCM + PSG + bias result is clamped to unsigned 10-bit
         let sample_l = (psg_l + pcm_l + self.pwm.sound_bias).clamp(0x000, 0x3FF) as u16;
         let sample_r = (psg_r + pcm_r + self.pwm.sound_bias).clamp(0x000, 0x3FF) as u16;
         (sample_l, sample_r)
@@ -363,8 +374,10 @@ impl Apu {
     // $4000082: SOUNDCNT_H low byte (GBA-specific volume control)
     fn write_soundcnt_h_low(&mut self, value: u8) {
         self.psg_volume = value & 3;
-        // TODO how should PSG volume 3 behave?
-        self.psg_volume_shift = 2_u8.saturating_sub(self.psg_volume);
+
+        // PSG volume 3 "prohibited" functions same as 0 (tested on hardware)
+        self.psg_volume_shift = 2 - (self.psg_volume % 3);
+
         self.pcm_a.volume_shift = 1 - ((value >> 2) & 1);
         self.pcm_b.volume_shift = 1 - ((value >> 3) & 1);
 
@@ -475,5 +488,9 @@ impl Apu {
         audio_output: &mut A,
     ) -> Result<(), A::Err> {
         self.resampler.drain_audio_output(audio_output)
+    }
+
+    pub fn reload_config(&mut self, config: GbaAudioConfig) {
+        self.config = config;
     }
 }

@@ -24,10 +24,32 @@ use std::fmt::{Debug, Display};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
+pub struct GbaAudioConfig {
+    pub pulse_1_enabled: bool,
+    pub pulse_2_enabled: bool,
+    pub wavetable_enabled: bool,
+    pub noise_enabled: bool,
+    pub pcm_a_enabled: bool,
+    pub pcm_b_enabled: bool,
+}
+
+impl GbaAudioConfig {
+    pub(crate) fn psg_channels_enabled(self) -> [bool; 4] {
+        [self.pulse_1_enabled, self.pulse_2_enabled, self.wavetable_enabled, self.noise_enabled]
+    }
+
+    pub(crate) fn pcm_channels_enabled(self) -> [bool; 2] {
+        [self.pcm_a_enabled, self.pcm_b_enabled]
+    }
+}
+
+#[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct GbaEmulatorConfig {
     pub skip_bios_animation: bool,
     pub aspect_ratio: GbaAspectRatio,
     pub forced_save_memory_type: Option<GbaSaveMemory>,
+    #[cfg_display(indent_nested)]
+    pub audio: GbaAudioConfig,
 }
 
 #[derive(Debug, Error)]
@@ -76,7 +98,7 @@ impl GameBoyAdvanceEmulator {
         let mut cpu = Arm7Tdmi::new();
         let mut bus = Bus {
             ppu: Ppu::new(),
-            apu: Apu::new(),
+            apu: Apu::new(config.audio),
             memory,
             cartridge,
             prefetch: GamePakPrefetcher::new(),
@@ -213,6 +235,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
 
     fn reload_config(&mut self, config: &Self::Config) {
         self.config = *config;
+        self.bus.apu.reload_config(config.audio);
     }
 
     fn take_rom_from(&mut self, other: &mut Self) {

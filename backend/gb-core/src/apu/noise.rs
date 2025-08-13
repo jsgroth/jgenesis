@@ -161,6 +161,15 @@ impl NoiseChannel {
     }
 
     #[must_use]
+    pub fn volume(&self) -> u8 {
+        if !self.dac_enabled || !self.channel_enabled {
+            return 0;
+        }
+
+        self.envelope.volume
+    }
+
+    #[must_use]
     pub fn enabled(&self) -> bool {
         self.channel_enabled
     }

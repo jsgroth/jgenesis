@@ -15,7 +15,7 @@ impl App {
 
         let mut open = true;
 
-        Window::new("GBA General Settings").open(&mut open).show(ctx, |ui| {
+        Window::new("GBA General Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             let rect = ui
                 .add(OptionalPathSelector::new(
                     "BIOS path",
@@ -81,7 +81,7 @@ impl App {
 
         let mut open = true;
 
-        Window::new("GBA Video Settings").open(&mut open).show(ctx, |ui| {
+        Window::new("GBA Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             let rect = ui
                 .group(|ui| {
                     ui.label("Aspect ratio");
@@ -163,6 +163,40 @@ impl App {
             }
 
             self.render_help_text(ui, WINDOW);
+        });
+
+        if !open {
+            self.state.open_windows.remove(&WINDOW);
+        }
+    }
+
+    pub(super) fn render_gba_audio_settings(&mut self, ctx: &Context) {
+        const WINDOW: OpenWindow = OpenWindow::GbaAudio;
+
+        let mut open = true;
+        Window::new("GBA Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.group(|ui| {
+                ui.label("Enabled audio channels");
+
+                ui.checkbox(
+                    &mut self.config.game_boy_advance.pulse_1_enabled,
+                    "Channel 1 (Pulse with sweep)",
+                );
+                ui.checkbox(&mut self.config.game_boy_advance.pulse_2_enabled, "Channel 2 (Pulse)");
+                ui.checkbox(
+                    &mut self.config.game_boy_advance.wavetable_enabled,
+                    "Channel 3 (Wavetable)",
+                );
+                ui.checkbox(&mut self.config.game_boy_advance.noise_enabled, "Channel 4 (Noise)");
+                ui.checkbox(
+                    &mut self.config.game_boy_advance.pcm_a_enabled,
+                    "Channel A (Direct Sound)",
+                );
+                ui.checkbox(
+                    &mut self.config.game_boy_advance.pcm_b_enabled,
+                    "Channel B (Direct Sound)",
+                );
+            });
         });
 
         if !open {
