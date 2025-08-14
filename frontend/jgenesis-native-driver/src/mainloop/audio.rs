@@ -5,9 +5,9 @@ use sdl3::AudioSubsystem;
 use sdl3::audio::{AudioCallback, AudioFormat, AudioSpec, AudioStream, AudioStreamWithCallback};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::thread;
 use std::thread::Thread;
 use std::time::Duration;
+use std::{cmp, thread};
 use thiserror::Error;
 
 // Always output in stereo
@@ -30,6 +30,7 @@ pub type AudioResult<T> = Result<T, AudioError>;
 
 struct AudioCallbackState {
     queue: VecDeque<(f32, f32)>,
+    hardware_queue_size: u32,
     unpark_threshold: u32,
     error: Option<sdl3::Error>,
 }
@@ -41,10 +42,14 @@ struct AudioQueueCallback {
 
 impl AudioCallback<f32> for AudioQueueCallback {
     fn callback(&mut self, stream: &mut AudioStream, requested: i32) {
+        if requested <= 0 {
+            return;
+        }
+
         let mut state = self.state.lock().unwrap();
 
-        let requested_stereo = (requested + 1) / 2;
-        for _ in 0..requested_stereo {
+        let stereo_samples = cmp::max(state.hardware_queue_size, ((requested + 1) / 2) as u32);
+        for _ in 0..stereo_samples {
             let Some((sample_l, sample_r)) = state.queue.pop_front() else { break };
 
             if let Err(err) = stream.put_data_f32(&[sample_l, sample_r]) {
@@ -141,6 +146,7 @@ impl SdlAudioOutput {
 
         {
             let mut state = self.callback_state.lock().unwrap();
+            state.hardware_queue_size = config.audio_hardware_queue_size;
             state.unpark_threshold = self.audio_sync_threshold;
 
             // Truncate audio queue on config reloads if it is way oversized
@@ -185,6 +191,7 @@ impl SdlAudioOutput {
 fn open_audio_stream(audio: &AudioSubsystem, config: &CommonConfig) -> AudioResult<SdlAudioDevice> {
     let callback_state = Arc::new(Mutex::new(AudioCallbackState {
         queue: VecDeque::with_capacity(2 * config.audio_buffer_size as usize),
+        hardware_queue_size: config.audio_hardware_queue_size,
         unpark_threshold: audio_sync_threshold(config),
         error: None,
     }));
