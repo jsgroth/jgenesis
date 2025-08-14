@@ -229,6 +229,8 @@ pub struct CommonAppConfig {
     pub audio_dynamic_resampling_ratio: bool,
     #[serde(default = "default_audio_buffer_size")]
     pub audio_buffer_size: u32,
+    #[serde(default = "default_audio_hardware_queue_size")]
+    pub audio_hardware_queue_size: u32,
     #[serde(default)]
     pub audio_gain_db: f64,
     #[serde(default)]
@@ -301,6 +303,10 @@ const fn default_audio_output_frequency() -> u64 {
 
 const fn default_audio_buffer_size() -> u32 {
     2048
+}
+
+const fn default_audio_hardware_queue_size() -> u32 {
+    256
 }
 
 fn default_custom_path(subdir: &str) -> PathBuf {

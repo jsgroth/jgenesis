@@ -319,6 +319,7 @@ impl App {
         const WINDOW: OpenWindow = OpenWindow::Synchronization;
 
         const TEXT_EDIT_WIDTH: f32 = 50.0;
+        const MIN_DEVICE_QUEUE_SIZE: u32 = 8;
         const MIN_AUDIO_SYNC_THRESHOLD: u32 = 8;
 
         let mut open = true;
@@ -427,6 +428,33 @@ impl App {
                 );
             }
 
+            let rect = ui
+                .horizontal(|ui| {
+                    ui.add(
+                        NumericTextEdit::new(
+                            &mut self.state.audio_hardware_queue_size_text,
+                            &mut self.config.common.audio_hardware_queue_size,
+                            &mut self.state.audio_hardware_queue_size_invalid,
+                        )
+                        .with_validation(|value| value >= MIN_DEVICE_QUEUE_SIZE)
+                        .desired_width(TEXT_EDIT_WIDTH),
+                    );
+
+                    ui.label("Audio hardware queue size (samples)");
+                })
+                .response
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::AUDIO_HARDWARE_QUEUE_SIZE);
+            }
+
+            if self.state.audio_hardware_queue_size_invalid {
+                ui.colored_label(
+                    Color32::RED,
+                    format!("Audio device queue size must be at least {MIN_DEVICE_QUEUE_SIZE}"),
+                );
+            }
+
             ui.add_space(5.0);
 
             let estimated_audio_latency_ms = self.estimate_audio_latency_ms();
@@ -441,7 +469,9 @@ impl App {
 
     fn estimate_audio_latency_ms(&self) -> u32 {
         let audio_buffer_size: f64 = self.config.common.audio_buffer_size.into();
-        let latency_secs = audio_buffer_size / (self.config.common.audio_output_frequency as f64);
+        let audio_hardware_queue_size: f64 = self.config.common.audio_hardware_queue_size.into();
+        let latency_secs = (audio_buffer_size + audio_hardware_queue_size)
+            / (self.config.common.audio_output_frequency as f64);
 
         (latency_secs * 1000.0).round() as u32
     }

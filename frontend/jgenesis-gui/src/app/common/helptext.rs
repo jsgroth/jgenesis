@@ -115,6 +115,15 @@ pub const AUDIO_BUFFER_SIZE: HelpText = HelpText {
     ],
 };
 
+pub const AUDIO_HARDWARE_QUEUE_SIZE: HelpText = HelpText {
+    heading: "Audio Hardware Queue Size",
+    text: &[
+        "Configure the number of samples to push whenever the audio device asks for more audio data.",
+        "Decreasing this value can increase CPU usage, and decreasing it too much can also cause various audio playback issues.",
+        "Increasing this value makes audio sync and dynamic resampling ratio less accurate, and it will also increase audio latency.",
+    ],
+};
+
 pub const AUDIO_GAIN: HelpText = HelpText {
     heading: "Audio Gain",
     text: &[
