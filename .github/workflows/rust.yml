@@ -206,10 +206,17 @@ jobs:
           mv sdl3/LICENSE.txt ./LICENSE-SDL3.txt && \
           mv dxcompiler/bin/x64/*.dll ./ && \
           mv dxcompiler/LICENSE* ./ && \
-          zip -r jgenesis-${JGENESIS_VERSION}-windows-x86_64.zip LICENSE* README-SDL3.md *.dll jgenesis-cli.exe jgenesis-gui.exe
+          zip -r jgenesis-${JGENESIS_VERSION}-cli-windows-x86_64.zip LICENSE* README-SDL3.md *.dll jgenesis-cli.exe && \
+          zip -r jgenesis-${JGENESIS_VERSION}-gui-windows-x86_64.zip LICENSE* README-SDL3.md *.dll jgenesis-gui.exe
 
-      - name: Upload binaries
+      - name: Upload CLI binaries
         uses: actions/upload-artifact@v4
         with:
-          name: windows-x86_64-exe
-          path: jgenesis-${{ env.JGENESIS_VERSION }}-windows-x86_64.zip
+          name: windows-x86_64-cli-exe
+          path: jgenesis-${{ env.JGENESIS_VERSION }}-cli-windows-x86_64.zip
+
+      - name: Upload GUI binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64-gui-exe
+          path: jgenesis-${{ env.JGENESIS_VERSION }}-gui-windows-x86_64.zip
