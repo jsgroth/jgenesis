@@ -27,9 +27,9 @@ pub struct GameBoyAppConfig {
     #[serde(default)]
     pub gbc_color_correction: GbcColorCorrection,
     #[serde(default = "default_gbc_gamma")]
-    pub gbc_correction_gamma: f32,
+    pub gbc_correction_gamma: f64,
     #[serde(default = "default_gba_gamma")]
-    pub gba_correction_gamma: f32,
+    pub gba_correction_gamma: f64,
     #[serde(default = "true_fn")]
     pub frame_blending: bool,
     #[serde(default)]
@@ -42,11 +42,11 @@ const fn true_fn() -> bool {
     true
 }
 
-const fn default_gbc_gamma() -> f32 {
+const fn default_gbc_gamma() -> f64 {
     2.0 // Slightly brighten
 }
 
-const fn default_gba_gamma() -> f32 {
+const fn default_gba_gamma() -> f64 {
     3.2 // Significantly darken
 }
 

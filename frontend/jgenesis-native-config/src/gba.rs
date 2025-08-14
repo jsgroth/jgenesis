@@ -13,7 +13,7 @@ pub struct GameBoyAdvanceAppConfig {
     #[serde(default)]
     pub color_correction: GbaColorCorrection,
     #[serde(default = "default_correction_gamma")]
-    pub color_correction_gamma: f32,
+    pub color_correction_gamma: f64,
     #[serde(default)]
     pub frame_blending: bool,
     #[serde(default)]
@@ -36,7 +36,7 @@ const fn true_fn() -> bool {
     true
 }
 
-const fn default_correction_gamma() -> f32 {
+const fn default_correction_gamma() -> f64 {
     3.2 // Significantly darken
 }
 

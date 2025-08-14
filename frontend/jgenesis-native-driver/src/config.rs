@@ -522,10 +522,10 @@ impl AppConfigExt for AppConfig {
         let color_correction = match self.game_boy.gbc_color_correction {
             GbcColorCorrection::None => ColorCorrection::None,
             GbcColorCorrection::GbcLcd => {
-                ColorCorrection::GbcLcd { screen_gamma: self.game_boy.gbc_correction_gamma }
+                ColorCorrection::GbcLcd { screen_gamma: self.game_boy.gbc_correction_gamma as f32 }
             }
             GbcColorCorrection::GbaLcd => {
-                ColorCorrection::GbaLcd { screen_gamma: self.game_boy.gba_correction_gamma }
+                ColorCorrection::GbaLcd { screen_gamma: self.game_boy.gba_correction_gamma as f32 }
             }
         };
 
@@ -559,7 +559,7 @@ impl AppConfigExt for AppConfig {
         let color_correction = match self.game_boy_advance.color_correction {
             GbaColorCorrection::None => ColorCorrection::None,
             GbaColorCorrection::GbaLcd => ColorCorrection::GbaLcd {
-                screen_gamma: self.game_boy_advance.color_correction_gamma,
+                screen_gamma: self.game_boy_advance.color_correction_gamma as f32,
             },
         };
 
