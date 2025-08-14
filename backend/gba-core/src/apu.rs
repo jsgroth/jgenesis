@@ -2,13 +2,15 @@
 //!
 //! Contains the 4 Game Boy Color APU channels (slightly modified) plus two 8-bit PCM channels (Direct Sound)
 
+mod audio;
 mod psg;
 
 use crate::api::GbaAudioConfig;
+use crate::apu::audio::{BasicResampler, InterpolatingResampler};
 use crate::apu::psg::Psg;
-use crate::audio::GbaAudioResampler;
 use crate::dma::DmaState;
 use bincode::{Decode, Encode};
+use gba_config::GbaAudioInterpolation;
 use jgenesis_common::define_bit_enum;
 use jgenesis_common::frontend::AudioOutput;
 use jgenesis_common::num::GetBit;
@@ -115,6 +117,111 @@ impl PwmControl {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
+enum AudioResampler {
+    Basic(Box<BasicResampler>),
+    Interpolating(Box<InterpolatingResampler>),
+}
+
+impl AudioResampler {
+    fn new(
+        config: GbaAudioConfig,
+        clock_shift: PwmClockShift,
+        output_frequency: u64,
+        pcm_frequencies: [Option<f64>; 2],
+    ) -> Self {
+        match config.audio_interpolation {
+            GbaAudioInterpolation::NearestNeighbor => {
+                Self::Basic(Box::new(BasicResampler::new(clock_shift, output_frequency)))
+            }
+            GbaAudioInterpolation::WindowedSinc => Self::Interpolating(Box::new(
+                InterpolatingResampler::new(output_frequency, pcm_frequencies),
+            )),
+        }
+    }
+
+    fn update_source_frequency(&mut self, clock_shift: PwmClockShift) {
+        if let Self::Basic(resampler) = self {
+            resampler.update_source_frequency(clock_shift);
+        }
+    }
+
+    fn update_output_frequency(&mut self, output_frequency: u64) {
+        match self {
+            Self::Basic(resampler) => resampler.update_output_frequency(output_frequency),
+            Self::Interpolating(resampler) => resampler.update_output_frequency(output_frequency),
+        }
+    }
+
+    fn push_mixed_sample(&mut self, sample: [f64; 2]) {
+        if let Self::Basic(resampler) = self {
+            resampler.push_mixed_sample(sample);
+        }
+    }
+
+    fn push_psg(&mut self, sample: (i16, i16)) {
+        if let Self::Interpolating(resampler) = self {
+            resampler.push_psg(sample);
+        }
+    }
+
+    fn push_pcm_a(&mut self, sample: i8) {
+        if let Self::Interpolating(resampler) = self {
+            resampler.push_pcm_a(sample);
+        }
+    }
+
+    fn push_pcm_b(&mut self, sample: i8) {
+        if let Self::Interpolating(resampler) = self {
+            resampler.push_pcm_b(sample);
+        }
+    }
+
+    fn reset_pcm_a(&mut self) {
+        if let Self::Interpolating(resampler) = self {
+            resampler.reset_pcm_a();
+        }
+    }
+
+    fn reset_pcm_b(&mut self) {
+        if let Self::Interpolating(resampler) = self {
+            resampler.reset_pcm_b();
+        }
+    }
+
+    fn update_pcm_a_frequency(&mut self, frequency: Option<f64>) {
+        if let Self::Interpolating(resampler) = self {
+            resampler.update_pcm_a_frequency(frequency);
+        }
+    }
+
+    fn update_pcm_b_frequency(&mut self, frequency: Option<f64>) {
+        if let Self::Interpolating(resampler) = self {
+            resampler.update_pcm_b_frequency(frequency);
+        }
+    }
+
+    fn drain_audio_output<A: AudioOutput>(
+        &mut self,
+        audio_output: &mut A,
+        pcm_volume_shifts: [bool; 2],
+        psg_volume_shift: u8,
+        pcm_a_enabled: [bool; 2],
+        pcm_b_enabled: [bool; 2],
+    ) -> Result<(), A::Err> {
+        match self {
+            Self::Basic(resampler) => resampler.drain_audio_output(audio_output),
+            Self::Interpolating(resampler) => resampler.drain_audio_output(
+                audio_output,
+                pcm_volume_shifts,
+                psg_volume_shift,
+                pcm_a_enabled,
+                pcm_b_enabled,
+            ),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct Apu {
     enabled: bool,
     pcm_a: DirectSoundChannel,
@@ -123,13 +230,17 @@ pub struct Apu {
     psg_volume: u8,
     psg_volume_shift: u8,
     pwm: PwmControl,
-    resampler: GbaAudioResampler,
+    resampler: AudioResampler,
+    output_frequency: u64,
+    timer_frequencies: [Option<f64>; 2],
     cycles: u64,
     config: GbaAudioConfig,
 }
 
 impl Apu {
     pub fn new(config: GbaAudioConfig) -> Self {
+        const DEFAULT_OUTPUT_FREQUENCY: u64 = 48000;
+
         Self {
             enabled: false,
             pcm_a: DirectSoundChannel::new("A".into()),
@@ -138,7 +249,14 @@ impl Apu {
             psg_volume: 0,
             psg_volume_shift: 2,
             pwm: PwmControl::new(),
-            resampler: GbaAudioResampler::new(),
+            resampler: AudioResampler::new(
+                config,
+                PwmClockShift::default(),
+                DEFAULT_OUTPUT_FREQUENCY,
+                [None; 2],
+            ),
+            output_frequency: DEFAULT_OUTPUT_FREQUENCY,
+            timer_frequencies: [None; 2],
             cycles: 0,
             config,
         }
@@ -151,23 +269,33 @@ impl Apu {
 
         let clock_shift = self.pwm.clock_shift.gba_clock_downshift();
         let pwm_samples_elapsed = (cycles >> clock_shift) - (self.cycles >> clock_shift);
+        let psg_ticks = 1 << (20 - (24 - clock_shift));
 
-        for _ in 0..pwm_samples_elapsed {
-            let psg_ticks = 1 << (20 - (24 - clock_shift));
-            for _ in 0..psg_ticks {
-                self.psg.tick_1mhz(self.enabled);
+        match self.config.audio_interpolation {
+            GbaAudioInterpolation::NearestNeighbor => {
+                for _ in 0..pwm_samples_elapsed {
+                    for _ in 0..psg_ticks {
+                        self.psg.tick_1mhz(self.enabled);
+                    }
+
+                    let (sample_l, sample_r) = self.generate_mixed_pwm_sample();
+                    self.resampler.push_mixed_sample([sample_l, sample_r]);
+                }
             }
-
-            self.generate_sample();
+            GbaAudioInterpolation::WindowedSinc => {
+                for _ in 0..pwm_samples_elapsed * psg_ticks {
+                    self.psg.tick_1mhz(self.enabled);
+                    self.resampler.push_psg(self.psg.sample(self.config.psg_channels_enabled()));
+                }
+            }
         }
 
         self.cycles = cycles;
     }
 
-    fn generate_sample(&mut self) {
+    fn generate_mixed_pwm_sample(&self) -> (f64, f64) {
         if !self.enabled {
-            self.resampler.collect_sample(0.0, 0.0);
-            return;
+            return (0.0, 0.0);
         }
 
         let (mut pwm_l, mut pwm_r) = self.sample();
@@ -185,7 +313,7 @@ impl Apu {
         sample_l = 2.0 * (sample_l - 0.5);
         sample_r = 2.0 * (sample_r - 0.5);
 
-        self.resampler.collect_sample(sample_l, sample_r);
+        (sample_l, sample_r)
     }
 
     fn sample_pcm(&self, channels_enabled: [bool; 2]) -> (i16, i16) {
@@ -233,6 +361,8 @@ impl Apu {
 
         if self.pcm_a.timer == timer {
             self.pcm_a.pop_fifo();
+            self.resampler
+                .push_pcm_a(self.pcm_a.current_sample * i8::from(self.config.pcm_a_enabled));
 
             if self.dma_request_a() {
                 dma.notify_apu_fifo_a();
@@ -241,6 +371,8 @@ impl Apu {
 
         if self.pcm_b.timer == timer {
             self.pcm_b.pop_fifo();
+            self.resampler
+                .push_pcm_b(self.pcm_b.current_sample * i8::from(self.config.pcm_b_enabled));
 
             if self.dma_request_b() {
                 dma.notify_apu_fifo_b();
@@ -402,6 +534,7 @@ impl Apu {
 
         if value.bit(3) {
             self.pcm_a.reset_fifo();
+            self.resampler.reset_pcm_a();
         }
 
         self.pcm_b.r_enabled = value.bit(4);
@@ -410,7 +543,11 @@ impl Apu {
 
         if value.bit(7) {
             self.pcm_b.reset_fifo();
+            self.resampler.reset_pcm_b();
         }
+
+        self.resampler.update_pcm_a_frequency(self.timer_frequencies[self.pcm_a.timer as usize]);
+        self.resampler.update_pcm_b_frequency(self.timer_frequencies[self.pcm_b.timer as usize]);
 
         log::trace!("SOUNDCNT_H high write: {value:02X}");
         log::trace!("  PCM A stereo enabled: [{}, {}]", self.pcm_a.l_enabled, self.pcm_a.r_enabled);
@@ -438,6 +575,10 @@ impl Apu {
         if !self.enabled {
             // Disabling the APU resets all PSG registers to 0
             self.psg.disable();
+            self.pcm_a.reset_fifo();
+            self.pcm_b.reset_fifo();
+            self.resampler.reset_pcm_a();
+            self.resampler.reset_pcm_b();
         }
 
         log::trace!("SOUNDCNT_X write: {value:02X}");
@@ -467,7 +608,7 @@ impl Apu {
         self.pwm.sound_bias = (self.pwm.sound_bias & 0xFF) | (i16::from(value & 3) << 8);
         self.pwm.clock_shift = PwmClockShift::from_bits(value >> 6);
 
-        self.resampler.update_source_frequency(self.pwm.clock_shift.source_frequency());
+        self.resampler.update_source_frequency(self.pwm.clock_shift);
 
         log::trace!("SOUNDBIAS high write: {value:02X}");
         log::trace!("  PWM sound bias: {:03X}", self.pwm.sound_bias);
@@ -487,10 +628,41 @@ impl Apu {
         &mut self,
         audio_output: &mut A,
     ) -> Result<(), A::Err> {
-        self.resampler.drain_audio_output(audio_output)
+        self.resampler.drain_audio_output(
+            audio_output,
+            [self.pcm_a.volume_shift != 0, self.pcm_b.volume_shift != 0],
+            self.psg_volume_shift,
+            [self.pcm_a.l_enabled, self.pcm_a.r_enabled],
+            [self.pcm_b.l_enabled, self.pcm_b.r_enabled],
+        )
     }
 
     pub fn reload_config(&mut self, config: GbaAudioConfig) {
+        let prev_interpolation = self.config.audio_interpolation;
         self.config = config;
+
+        if prev_interpolation != self.config.audio_interpolation {
+            self.resampler = AudioResampler::new(
+                self.config,
+                self.pwm.clock_shift,
+                self.output_frequency,
+                [
+                    self.timer_frequencies[self.pcm_a.timer as usize],
+                    self.timer_frequencies[self.pcm_b.timer as usize],
+                ],
+            );
+        }
+    }
+
+    pub fn notify_timer_frequency_update(&mut self, timer_idx: u8, frequency: Option<f64>) {
+        self.timer_frequencies[timer_idx as usize] = frequency;
+
+        if self.pcm_a.timer as u8 == timer_idx {
+            self.resampler.update_pcm_a_frequency(frequency);
+        }
+
+        if self.pcm_b.timer as u8 == timer_idx {
+            self.resampler.update_pcm_b_frequency(frequency);
+        }
     }
 }

@@ -577,6 +577,7 @@ impl AppConfigExt for AppConfig {
                 aspect_ratio: self.game_boy_advance.aspect_ratio,
                 forced_save_memory_type: self.game_boy_advance.forced_save_memory_type,
                 audio: GbaAudioConfig {
+                    audio_interpolation: self.game_boy_advance.audio_interpolation,
                     pulse_1_enabled: self.game_boy_advance.pulse_1_enabled,
                     pulse_2_enabled: self.game_boy_advance.pulse_2_enabled,
                     wavetable_enabled: self.game_boy_advance.wavetable_enabled,

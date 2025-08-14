@@ -41,3 +41,16 @@ pub const FRAME_BLENDING: HelpText = HelpText {
         "If enabled, blend each frame with the previous frame to emulate the effect of LCD ghosting.",
     ],
 };
+
+pub const AUDIO_INTERPOLATION: HelpText = HelpText {
+    heading: "Audio Interpolation",
+    text: &[
+        "Optionally perform much higher quality audio interpolation than actual hardware does.",
+        "Sinc interpolation significantly reduces audio aliasing and noise, but it can also make audio sound more muffled.",
+    ],
+};
+
+pub const AUDIO_CHANNELS_ENABLED: HelpText = HelpText {
+    heading: "Audio Channels Enabled",
+    text: &["Enable or disable individual audio channels."],
+};

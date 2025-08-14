@@ -85,3 +85,14 @@ impl GbaSaveMemory {
         }
     }
 }
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumAll, EnumFromStr, EnumDisplay,
+)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum GbaAudioInterpolation {
+    #[default]
+    NearestNeighbor,
+    WindowedSinc,
+}

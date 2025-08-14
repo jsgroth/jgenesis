@@ -1,4 +1,4 @@
-use gba_config::{GbaAspectRatio, GbaColorCorrection, GbaSaveMemory};
+use gba_config::{GbaAspectRatio, GbaAudioInterpolation, GbaColorCorrection, GbaSaveMemory};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -18,6 +18,8 @@ pub struct GameBoyAdvanceAppConfig {
     pub frame_blending: bool,
     #[serde(default)]
     pub forced_save_memory_type: Option<GbaSaveMemory>,
+    #[serde(default)]
+    pub audio_interpolation: GbaAudioInterpolation,
     #[serde(default = "true_fn")]
     pub pulse_1_enabled: bool,
     #[serde(default = "true_fn")]

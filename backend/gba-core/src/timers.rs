@@ -40,17 +40,18 @@ impl Timer {
         prev_overflowed: bool,
         prev_cycles: u64,
         current_cycles: u64,
+        apu: &mut Apu,
         interrupts: &mut InterruptRegisters,
     ) -> bool {
         if !self.enabled {
-            self.apply_pending_writes();
+            self.apply_pending_writes(apu);
             return false;
         }
 
         if self.just_enabled {
             self.just_enabled = false;
             self.counter = self.reload;
-            self.apply_pending_writes();
+            self.apply_pending_writes(apu);
 
             return false;
         }
@@ -73,18 +74,27 @@ impl Timer {
             }
         }
 
-        self.apply_pending_writes();
+        self.apply_pending_writes(apu);
 
         overflowed
     }
 
-    fn apply_pending_writes(&mut self) {
+    fn apply_pending_writes(&mut self, apu: &mut Apu) {
         if let Some(reload) = self.pending_reload_write.take() {
             self.apply_reload_write(reload);
         }
 
         if let Some(control) = self.pending_control_write.take() {
             self.apply_control_write(control);
+        }
+
+        if self.idx <= 1 {
+            let frequency = (self.enabled && !self.cascading).then(|| {
+                let increments_per_overflow = 0x10000 - u32::from(self.reload);
+                let cycles_per_overflow = increments_per_overflow << self.clock_shift;
+                (crate::GBA_CLOCK_SPEED as f64) / f64::from(cycles_per_overflow)
+            });
+            apu.notify_timer_frequency_update(self.idx, frequency);
         }
     }
 
@@ -192,7 +202,7 @@ impl Timers {
 
             let mut overflowed = false;
             for (i, timer) in self.timers.iter_mut().enumerate() {
-                overflowed = timer.tick(overflowed, self.cycles, tick_cycles, interrupts);
+                overflowed = timer.tick(overflowed, self.cycles, tick_cycles, apu, interrupts);
 
                 if overflowed && i <= 1 {
                     apu.handle_timer_overflow(i, tick_cycles, dma);

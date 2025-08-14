@@ -1,7 +1,7 @@
 use crate::app::widgets::{BiosErrorStrings, OptionalPathSelector, RenderErrorEffect};
 use crate::app::{App, OpenWindow, widgets};
 use egui::{Context, Slider, Window};
-use gba_config::{GbaAspectRatio, GbaColorCorrection, GbaSaveMemory};
+use gba_config::{GbaAspectRatio, GbaAudioInterpolation, GbaColorCorrection, GbaSaveMemory};
 use jgenesis_native_config::gba::GameBoyAdvanceAppConfig;
 use jgenesis_native_driver::extensions::Console;
 use rfd::FileDialog;
@@ -175,28 +175,63 @@ impl App {
 
         let mut open = true;
         Window::new("GBA Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.group(|ui| {
-                ui.label("Enabled audio channels");
+            let rect = ui
+                .group(|ui| {
+                    ui.label("Audio interpolation");
 
-                ui.checkbox(
-                    &mut self.config.game_boy_advance.pulse_1_enabled,
-                    "Channel 1 (Pulse with sweep)",
-                );
-                ui.checkbox(&mut self.config.game_boy_advance.pulse_2_enabled, "Channel 2 (Pulse)");
-                ui.checkbox(
-                    &mut self.config.game_boy_advance.wavetable_enabled,
-                    "Channel 3 (Wavetable)",
-                );
-                ui.checkbox(&mut self.config.game_boy_advance.noise_enabled, "Channel 4 (Noise)");
-                ui.checkbox(
-                    &mut self.config.game_boy_advance.pcm_a_enabled,
-                    "Channel A (Direct Sound)",
-                );
-                ui.checkbox(
-                    &mut self.config.game_boy_advance.pcm_b_enabled,
-                    "Channel B (Direct Sound)",
-                );
-            });
+                    ui.radio_value(
+                        &mut self.config.game_boy_advance.audio_interpolation,
+                        GbaAudioInterpolation::NearestNeighbor,
+                        "Nearest neighbor (Native)",
+                    );
+                    ui.radio_value(
+                        &mut self.config.game_boy_advance.audio_interpolation,
+                        GbaAudioInterpolation::WindowedSinc,
+                        "Windowed sinc (Anti-aliased)",
+                    );
+                })
+                .response
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::AUDIO_INTERPOLATION);
+            }
+
+            let rect = ui
+                .group(|ui| {
+                    ui.label("Enabled audio channels");
+
+                    ui.checkbox(
+                        &mut self.config.game_boy_advance.pulse_1_enabled,
+                        "Channel 1 (Pulse with sweep)",
+                    );
+                    ui.checkbox(
+                        &mut self.config.game_boy_advance.pulse_2_enabled,
+                        "Channel 2 (Pulse)",
+                    );
+                    ui.checkbox(
+                        &mut self.config.game_boy_advance.wavetable_enabled,
+                        "Channel 3 (Wavetable)",
+                    );
+                    ui.checkbox(
+                        &mut self.config.game_boy_advance.noise_enabled,
+                        "Channel 4 (Noise)",
+                    );
+                    ui.checkbox(
+                        &mut self.config.game_boy_advance.pcm_a_enabled,
+                        "Channel A (Direct Sound)",
+                    );
+                    ui.checkbox(
+                        &mut self.config.game_boy_advance.pcm_b_enabled,
+                        "Channel B (Direct Sound)",
+                    );
+                })
+                .response
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::AUDIO_CHANNELS_ENABLED);
+            }
+
+            self.render_help_text(ui, WINDOW);
         });
 
         if !open {

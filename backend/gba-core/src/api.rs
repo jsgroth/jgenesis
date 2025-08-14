@@ -15,7 +15,7 @@ use crate::timers::Timers;
 use arm7tdmi_emu::bus::BusInterface;
 use arm7tdmi_emu::{Arm7Tdmi, Arm7TdmiResetArgs, CpuMode};
 use bincode::{Decode, Encode};
-use gba_config::{GbaAspectRatio, GbaButton, GbaInputs, GbaSaveMemory};
+use gba_config::{GbaAspectRatio, GbaAudioInterpolation, GbaButton, GbaInputs, GbaSaveMemory};
 use jgenesis_common::frontend::{
     AudioOutput, EmulatorConfigTrait, EmulatorTrait, Renderer, SaveWriter, TickEffect, TickResult,
 };
@@ -25,6 +25,7 @@ use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct GbaAudioConfig {
+    pub audio_interpolation: GbaAudioInterpolation,
     pub pulse_1_enabled: bool,
     pub pulse_2_enabled: bool,
     pub wavetable_enabled: bool,
