@@ -32,13 +32,13 @@ Example command to build while statically linking SDL3:
 cargo build --features sdl3-static-link
 ```
 
-### DirectX Shader Compiler (Windows DX12 backend only)
+## DirectX Shader Compiler (Windows DX12 backend only)
 
 The DirectX 12 wgpu backend is currently configured in such a way that it requires DLLs for Microsoft's DirectX shader compiler. The latest release is available here: <https://github.com/microsoft/DirectXShaderCompiler/releases>
 
 `dxcompiler.dll` and `dxil.dll` must be present in the current working directory for the DirectX 12 backend to work.
 
-## Build & Run
+# Build & Run
 
 Build and run GUI:
 
