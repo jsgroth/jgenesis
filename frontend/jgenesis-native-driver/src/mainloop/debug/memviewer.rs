@@ -6,6 +6,8 @@ use jgenesis_common::debug::{DebugMemoryView, Endian};
 use std::fmt::Write;
 use std::{array, cmp};
 
+const MONOSPACE: FontId = FontId::monospace(12.0);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemoryViewerColumns {
     Byte,
@@ -77,30 +79,45 @@ pub fn render(ctx: &Context, memory: &mut dyn DebugMemoryView, state: &mut Memor
             .show_inside(ui, |ui| {
                 ui.heading("Go to address");
 
-                let resp = ui.add(TextEdit::singleline(&mut state.goto_text).desired_width(60.0));
-                let enter_pressed =
-                    resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                ui.horizontal(|ui| {
+                    let resp = ui.add(
+                        TextEdit::singleline(&mut state.goto_text)
+                            .desired_width(70.0)
+                            .font(MONOSPACE),
+                    );
+                    let enter_pressed =
+                        resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
 
-                let goto_address = ui.button("Go").clicked() || enter_pressed;
+                    let goto_address = ui.button("Go").clicked() || enter_pressed;
 
-                if goto_address && let Ok(address) = usize::from_str_radix(&state.goto_text, 16) {
-                    state.goto_address = Some(address);
-                }
+                    if goto_address && let Ok(address) = usize::from_str_radix(&state.goto_text, 16)
+                    {
+                        state.goto_address = Some(address);
+                    }
+                });
 
-                ui.add_space(30.0);
+                ui.add_space(20.0);
 
                 ui.heading("Edit memory");
 
                 ui.horizontal(|ui| {
                     ui.label("Address");
 
-                    ui.add(TextEdit::singleline(&mut state.set_address_text).desired_width(60.0));
+                    ui.add(
+                        TextEdit::singleline(&mut state.set_address_text)
+                            .desired_width(70.0)
+                            .font(MONOSPACE),
+                    );
                 });
 
                 ui.horizontal(|ui| {
                     ui.label("Value");
 
-                    ui.add(TextEdit::singleline(&mut state.value_text).desired_width(70.0));
+                    ui.add(
+                        TextEdit::singleline(&mut state.value_text)
+                            .desired_width(70.0)
+                            .font(MONOSPACE),
+                    );
                 });
 
                 if ui.button("Set byte (8-bit)").clicked() {
@@ -119,7 +136,7 @@ pub fn render(ctx: &Context, memory: &mut dyn DebugMemoryView, state: &mut Memor
                     ui.colored_label(Color32::RED, "Invalid address or value");
                 }
 
-                ui.add_space(30.0);
+                ui.add_space(20.0);
 
                 ui.heading("Column size");
                 ui.radio_value(&mut state.columns, MemoryViewerColumns::Byte, "Byte (8-bit)");
@@ -129,6 +146,12 @@ pub fn render(ctx: &Context, memory: &mut dyn DebugMemoryView, state: &mut Memor
                     MemoryViewerColumns::Longword,
                     "Longword (32-bit)",
                 );
+
+                ui.add_space(20.0);
+
+                ui.heading("Endianness");
+                ui.radio_value(&mut state.endian, Endian::Big, "Big-endian");
+                ui.radio_value(&mut state.endian, Endian::Little, "Little-endian");
             });
 
         CentralPanel::default().show_inside(ui, |ui| {
@@ -138,7 +161,8 @@ pub fn render(ctx: &Context, memory: &mut dyn DebugMemoryView, state: &mut Memor
             let mut builder = TableBuilder::new(ui)
                 .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
                 .column(Column::auto().at_least(60.0))
-                .columns(Column::auto().at_least(column_width), num_columns);
+                .columns(Column::auto().at_least(column_width), num_columns)
+                .column(Column::remainder().at_least(10.0));
 
             if let Some(address) = state.goto_address.take() {
                 builder = builder
@@ -151,10 +175,7 @@ pub fn render(ctx: &Context, memory: &mut dyn DebugMemoryView, state: &mut Memor
                     let data: [_; 16] = array::from_fn(|i| memory.read(address + i));
 
                     row.col(|ui| {
-                        ui.label(
-                            RichText::new(fmt_address(address, address_len))
-                                .font(FontId::monospace(12.0)),
-                        );
+                        ui.label(RichText::new(fmt_address(address, address_len)).font(MONOSPACE));
                     });
 
                     match state.columns {
@@ -163,8 +184,7 @@ pub fn render(ctx: &Context, memory: &mut dyn DebugMemoryView, state: &mut Memor
                                 if address + i < memory_len {
                                     row.col(|ui| {
                                         ui.label(
-                                            RichText::new(format!("{byte:02X}"))
-                                                .font(FontId::monospace(12.0)),
+                                            RichText::new(format!("{byte:02X}")).font(MONOSPACE),
                                         );
                                     });
                                 }
@@ -182,8 +202,7 @@ pub fn render(ctx: &Context, memory: &mut dyn DebugMemoryView, state: &mut Memor
 
                                     row.col(|ui| {
                                         ui.label(
-                                            RichText::new(format!("{word:04X}"))
-                                                .font(FontId::monospace(12.0)),
+                                            RichText::new(format!("{word:04X}")).font(MONOSPACE),
                                         );
                                     });
                                 }
@@ -202,13 +221,16 @@ pub fn render(ctx: &Context, memory: &mut dyn DebugMemoryView, state: &mut Memor
                                     row.col(|ui| {
                                         ui.label(
                                             RichText::new(format!("{longword:08X}"))
-                                                .font(FontId::monospace(12.0)),
+                                                .font(MONOSPACE),
                                         );
                                     });
                                 }
                             }
                         }
                     }
+
+                    // Hack to make scroll bar not overlap the rightmost data column
+                    row.col(|_ui| {});
                 });
             });
         });
