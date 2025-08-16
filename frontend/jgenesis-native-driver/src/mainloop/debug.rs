@@ -1,5 +1,6 @@
 pub mod gb;
 pub mod genesis;
+mod memviewer;
 pub mod nes;
 pub mod smsgg;
 pub mod snes;
@@ -72,6 +73,8 @@ impl<Emulator> DebuggerWindow<Emulator> {
             .metal_view()
             .build()?;
         let (width, height) = window.size();
+
+        video.text_input().start(&window);
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),

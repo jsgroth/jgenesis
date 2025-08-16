@@ -516,11 +516,13 @@ where
 
             match event {
                 Event::Quit { .. } => {
+                    self.hotkey_state.debugger_window = None;
                     return Ok(Some(NativeTickEffect::PowerOff));
                 }
                 Event::Window { win_event, window_id, .. } => {
                     if win_event == WindowEvent::CloseRequested {
                         if window_id == self.renderer.window_id() {
+                            self.hotkey_state.debugger_window = None;
                             return Ok(Some(NativeTickEffect::PowerOff));
                         }
 
@@ -547,8 +549,14 @@ where
             let mut hotkey_events = hotkey_events.borrow_mut();
             for &hotkey_event in &*hotkey_events {
                 match self.handle_hotkey_event(hotkey_event)? {
-                    Some(HotkeyEffect::PowerOff) => return Ok(Some(NativeTickEffect::PowerOff)),
-                    Some(HotkeyEffect::Exit) => return Ok(Some(NativeTickEffect::Exit)),
+                    Some(HotkeyEffect::PowerOff) => {
+                        self.hotkey_state.debugger_window = None;
+                        return Ok(Some(NativeTickEffect::PowerOff));
+                    }
+                    Some(HotkeyEffect::Exit) => {
+                        self.hotkey_state.debugger_window = None;
+                        return Ok(Some(NativeTickEffect::Exit));
+                    }
                     None => {}
                 }
             }

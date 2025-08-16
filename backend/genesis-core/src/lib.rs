@@ -1,4 +1,4 @@
-mod api;
+pub mod api;
 pub mod audio;
 pub mod cartridge;
 pub mod input;

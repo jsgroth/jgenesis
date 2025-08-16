@@ -1,5 +1,7 @@
 //! 32X PWM sound chip
 
+mod debug;
+
 use crate::audio::PwmResampler;
 use crate::registers::SystemRegisters;
 use bincode::{Decode, Encode};
@@ -7,6 +9,7 @@ use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::GetBit;
 use std::cmp;
 use std::collections::VecDeque;
+use std::fmt::{Display, Formatter};
 
 // 53.693175 MHz * 3 / 7 / (1047 - 1) ~= 22 KHz
 const TWENTY_TWO_KHZ_CYCLE_REGISTER: u16 = 1047;
@@ -33,6 +36,17 @@ impl OutputDirection {
 
     fn is_off(self) -> bool {
         matches!(self, Self::Off | Self::Prohibited)
+    }
+}
+
+impl Display for OutputDirection {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Off => write!(f, "Off"),
+            Self::Same => write!(f, "Same side"),
+            Self::Opposite => write!(f, "Opposite side"),
+            Self::Prohibited => write!(f, "Prohibited"),
+        }
     }
 }
 

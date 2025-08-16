@@ -24,6 +24,7 @@ use crate::registers::{Sh2Registers, Sh7604Registers};
 use crate::sci::SerialInterface;
 use crate::wdt::WatchdogTimer;
 use bincode::{Decode, Encode};
+use jgenesis_common::debug::DebugMemoryView;
 use std::env;
 
 const RESET_PC_VECTOR: u32 = 0x00000000;
@@ -408,5 +409,9 @@ impl Sh2 {
 
     fn update_internal_interrupt_level(&mut self) {
         self.sh7604.update_interrupt_level(&self.dmac, &self.watchdog_timer, &self.serial);
+    }
+
+    pub fn debug_cache_view(&mut self) -> impl DebugMemoryView {
+        self.cache.debug_view()
     }
 }

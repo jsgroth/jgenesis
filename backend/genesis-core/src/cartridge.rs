@@ -4,6 +4,7 @@ use crate::svp::Svp;
 use bincode::{Decode, Encode};
 use crc::Crc;
 use genesis_config::GenesisRegion;
+use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use regex::Regex;
@@ -512,6 +513,11 @@ impl Cartridge {
     #[must_use]
     pub fn region(&self) -> GenesisRegion {
         self.region
+    }
+
+    #[must_use]
+    pub fn debug_rom_view(&mut self) -> impl DebugMemoryView {
+        DebugWordsView(self.rom.0.as_mut(), Endian::Big)
     }
 }
 

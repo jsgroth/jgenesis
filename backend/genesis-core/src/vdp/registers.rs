@@ -335,7 +335,7 @@ pub enum DmaMode {
 impl Display for DmaMode {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::MemoryToVram => write!(f, "ROM/RAM to VRAM"),
+            Self::MemoryToVram => write!(f, "Memory to VRAM"),
             Self::VramFill => write!(f, "VRAM fill"),
             Self::VramCopy => write!(f, "VRAM-to-VRAM copy"),
         }
@@ -352,8 +352,8 @@ pub enum VramSizeKb {
 impl Display for VramSizeKb {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::SixtyFour => write!(f, "64KB"),
-            Self::OneTwentyEight => write!(f, "128KB"),
+            Self::SixtyFour => write!(f, "64 KB"),
+            Self::OneTwentyEight => write!(f, "128 KB"),
         }
     }
 }

@@ -3,6 +3,7 @@
 use crate::api::SegaCdEmulatorConfig;
 use bincode::{Decode, Encode};
 use genesis_config::PcmInterpolation;
+use jgenesis_common::debug::{DebugBytesView, DebugMemoryView};
 use jgenesis_common::num::{GetBit, U16Ext};
 use std::array;
 
@@ -442,5 +443,9 @@ impl Rf5c164 {
 
     pub fn reload_config(&mut self, config: &SegaCdEmulatorConfig) {
         self.interpolation = config.pcm_interpolation;
+    }
+
+    pub fn debug_ram_view(&mut self) -> impl DebugMemoryView {
+        DebugBytesView(self.waveform_ram.as_mut_slice())
     }
 }

@@ -2,6 +2,8 @@
 //!
 //! At some point common code should probably be collapsed between the Genesis/SCD/32X crates
 
+pub mod debug;
+
 use crate::audio::Sega32XResampler;
 use crate::core::Sega32X;
 use bincode::{Decode, Encode};
@@ -13,8 +15,8 @@ use genesis_core::vdp::{DarkenColors, Vdp, VdpTickEffect};
 use genesis_core::ym2612::Ym2612;
 use genesis_core::{GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, Renderer, SaveWriter, TickEffect,
-    TickResult, TimingMode,
+    AudioOutput, EmulatorConfigTrait, EmulatorTrait, Renderer, SaveWriter, TickEffect, TickResult,
+    TimingMode,
 };
 use jgenesis_proc_macros::{ConfigDisplay, PartialClone};
 use m68000_emu::M68000;
@@ -151,18 +153,6 @@ impl Sega32XEmulator {
     #[must_use]
     pub fn timing_mode(&self) -> TimingMode {
         self.timing_mode
-    }
-
-    pub fn copy_cram(&self, out: &mut [Color]) {
-        self.vdp.copy_cram(out);
-    }
-
-    pub fn copy_vram(&self, out: &mut [Color], palette: u8, row_len: usize) {
-        self.vdp.copy_vram(out, palette, row_len);
-    }
-
-    pub fn dump_vdp_registers(&self, callback: impl FnMut(&str, &[(&str, &str)])) {
-        self.vdp.dump_registers(callback);
     }
 
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {

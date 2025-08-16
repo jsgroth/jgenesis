@@ -13,6 +13,7 @@ use genesis_config::GenesisRegion;
 use genesis_core::cartridge::Cartridge;
 use genesis_core::timing;
 use jgenesis_common::boxedarray::BoxedWordArray;
+use jgenesis_common::debug::DebugMemoryView;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::PartialClone;
 use sh2_emu::Sh2;
@@ -180,5 +181,13 @@ impl Sega32X {
 
     pub fn cartridge_mut(&mut self) -> &mut Cartridge {
         &mut self.s32x_bus.cartridge
+    }
+
+    pub fn debug_master_sh2_cache(&mut self) -> impl DebugMemoryView {
+        self.sh2_master.debug_cache_view()
+    }
+
+    pub fn debug_slave_sh2_cache(&mut self) -> impl DebugMemoryView {
+        self.sh2_slave.debug_cache_view()
     }
 }

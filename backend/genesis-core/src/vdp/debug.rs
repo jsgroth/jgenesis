@@ -1,15 +1,15 @@
 use crate::vdp;
 use crate::vdp::{ColorModifier, Vdp, colors, render};
+use jgenesis_common::debug::{DebugBytesView, DebugMemoryView, DebugWordsView, Endian};
 
 use crate::vdp::colors::ColorTables;
 use crate::vdp::render::PatternGeneratorRowArgs;
 use jgenesis_common::frontend::Color;
 
 impl Vdp {
-    pub fn copy_cram(&self, out: &mut [Color]) {
+    pub fn copy_cram(&self, out: &mut [Color], modifier: ColorModifier) {
         for (out_color, &cram_color) in out.iter_mut().zip(self.cram.as_ref()) {
-            *out_color = parse_gen_color(cram_color);
-            out_color.a = 255;
+            *out_color = parse_gen_color(cram_color, modifier, &self.color_tables);
         }
     }
 
@@ -32,7 +32,7 @@ impl Vdp {
                 for (col, color_id) in colors.into_iter().enumerate() {
                     let out_idx = base_idx + row * row_len * 8 + col;
                     let color = colors::resolve_color(&self.cram, palette, color_id);
-                    out[out_idx] = parse_gen_color(color);
+                    out[out_idx] = parse_gen_color(color, ColorModifier::None, &self.color_tables);
                     out[out_idx].a = 255;
                 }
             }
@@ -96,7 +96,7 @@ impl Vdp {
             "Register #7",
             &[
                 ("Backdrop palette", &self.registers.background_palette.to_string()),
-                ("Backdrop color ID", &self.registers.background_color_id.to_string()),
+                ("Backdrop color index", &self.registers.background_color_id.to_string()),
             ],
         );
 
@@ -117,7 +117,7 @@ impl Vdp {
             "Register #12",
             &[
                 ("Horizontal resolution", &self.registers.horizontal_display_size.to_string()),
-                ("Shadow/highlight flag", bool_str(self.registers.shadow_highlight_flag)),
+                ("Shadow/highlight enabled", bool_str(self.registers.shadow_highlight_flag)),
                 ("Screen mode", &self.registers.interlacing_mode.to_string()),
             ],
         );
@@ -134,7 +134,7 @@ impl Vdp {
             "Register #15",
             &[(
                 "Data port auto-increment",
-                &format!("${:X}", self.registers.data_port_auto_increment),
+                &format!("0x{:X}", self.registers.data_port_auto_increment),
             )],
         );
 
@@ -180,15 +180,27 @@ impl Vdp {
             ],
         );
     }
+
+    pub fn debug_vram_view(&mut self) -> impl DebugMemoryView {
+        DebugBytesView(self.vram.as_mut_slice())
+    }
+
+    pub fn debug_cram_view(&mut self) -> impl DebugMemoryView {
+        DebugWordsView(self.cram.as_mut_slice(), Endian::Big)
+    }
+
+    pub fn debug_vsram_view(&mut self) -> impl DebugMemoryView {
+        DebugBytesView(self.vsram.as_mut_slice())
+    }
 }
 
 fn bool_str(b: bool) -> &'static str {
     if b { "true" } else { "false" }
 }
 
-fn parse_gen_color(gen_color: u16) -> Color {
+fn parse_gen_color(gen_color: u16, modifier: ColorModifier, tables: &ColorTables) -> Color {
     let r = ((gen_color >> 1) & 0x07) as u8;
     let g = ((gen_color >> 5) & 0x07) as u8;
     let b = ((gen_color >> 9) & 0x07) as u8;
-    colors::gen_to_rgba(r, g, b, 0, ColorModifier::None, &ColorTables::NON_LINEAR)
+    colors::gen_to_rgba(r, g, b, 255, modifier, tables)
 }

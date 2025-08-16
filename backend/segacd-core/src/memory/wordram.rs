@@ -4,6 +4,7 @@
 use crate::memory::ScdCpu;
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::BoxedByteArray;
+use jgenesis_common::debug::{DebugBytesView, DebugMemoryView};
 use jgenesis_common::num::GetBit;
 
 // Word RAM is 256KB
@@ -399,6 +400,10 @@ impl WordRam {
 
     pub fn priority_mode(&self) -> WordRamPriorityMode {
         self.priority_mode
+    }
+
+    pub fn debug_view(&mut self) -> impl DebugMemoryView {
+        DebugBytesView(self.ram.as_mut_slice())
     }
 }
 

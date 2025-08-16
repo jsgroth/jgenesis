@@ -12,7 +12,7 @@ mod sprites;
 mod tests;
 
 use crate::memory::{Memory, PhysicalMedium};
-use crate::vdp::colors::{ColorModifier, ColorTables};
+use crate::vdp::colors::ColorTables;
 use crate::vdp::cramdots::CramDotBuffer;
 use crate::vdp::fifo::{VdpFifo, VdpFifoEntry, VramWriteSize};
 use crate::vdp::registers::{
@@ -30,6 +30,8 @@ use std::collections::VecDeque;
 use std::ops::{Deref, DerefMut, Range};
 use std::{array, cmp};
 use z80_emu::traits::InterruptLine;
+
+pub use crate::vdp::colors::ColorModifier;
 
 const VRAM_LEN: usize = 64 * 1024;
 const CRAM_LEN_WORDS: usize = 64;

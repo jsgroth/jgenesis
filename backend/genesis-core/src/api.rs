@@ -1,5 +1,7 @@
 //! Genesis public interface and main loop
 
+pub mod debug;
+
 use crate::audio::GenesisAudioResampler;
 use crate::cartridge::Cartridge;
 use crate::input::InputState;
@@ -14,7 +16,7 @@ use genesis_config::{
     Opn2BusyBehavior,
 };
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, PartialClone, Renderer, SaveWriter,
+    AudioOutput, EmulatorConfigTrait, EmulatorTrait, PartialClone, Renderer, SaveWriter,
     TickEffect, TimingMode,
 };
 use jgenesis_proc_macros::ConfigDisplay;
@@ -216,18 +218,6 @@ impl GenesisEmulator {
 
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
         render_frame(self.timing_mode, &self.vdp, &self.config, renderer)
-    }
-
-    pub fn copy_cram(&self, out: &mut [Color]) {
-        self.vdp.copy_cram(out);
-    }
-
-    pub fn copy_vram(&self, out: &mut [Color], palette: u8, row_len: usize) {
-        self.vdp.copy_vram(out, palette, row_len);
-    }
-
-    pub fn dump_vdp_registers(&self, callback: impl FnMut(&str, &[(&str, &str)])) {
-        self.vdp.dump_registers(callback);
     }
 }
 

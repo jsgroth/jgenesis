@@ -1,5 +1,6 @@
 //! 32X VDP (Video Display Processor)
 
+mod debug;
 mod registers;
 
 use crate::api::Sega32XEmulatorConfig;

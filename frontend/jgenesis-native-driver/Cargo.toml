@@ -38,6 +38,7 @@ bincode = { workspace = true }
 bytemuck = { workspace = true }
 clap = { workspace = true, optional = true }
 egui = { workspace = true }
+egui_extras = { workspace = true }
 egui-wgpu = { workspace = true }
 log = { workspace = true }
 pollster = { workspace = true }

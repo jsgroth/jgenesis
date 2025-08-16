@@ -1,3 +1,5 @@
+mod debug;
+
 use crate::bus::WhichCpu;
 use crate::vdp::Vdp;
 use bincode::{Decode, Encode};

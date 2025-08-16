@@ -1,6 +1,7 @@
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::GetBit;
+use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum FrameBufferMode {
@@ -23,6 +24,17 @@ impl FrameBufferMode {
     }
 }
 
+impl Display for FrameBufferMode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Blank => write!(f, "Blank"),
+            Self::PackedPixel => write!(f, "Packed pixel"),
+            Self::DirectColor => write!(f, "Direct color"),
+            Self::RunLength => write!(f, "Run length"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum VerticalResolution {
     #[default]
@@ -40,6 +52,15 @@ impl VerticalResolution {
 
     fn from_bit(bit: bool) -> Self {
         if bit { Self::V30 } else { Self::V28 }
+    }
+}
+
+impl Display for VerticalResolution {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::V28 => write!(f, "V28 (224px)"),
+            Self::V30 => write!(f, "V30 (240px)"),
+        }
     }
 }
 

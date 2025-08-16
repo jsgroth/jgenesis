@@ -2398,6 +2398,7 @@ dependencies = [
  "egui",
  "egui-sdl3-platform",
  "egui-wgpu",
+ "egui_extras",
  "gb-config",
  "gb-core",
  "gba-config",

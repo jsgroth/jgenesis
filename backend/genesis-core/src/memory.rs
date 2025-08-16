@@ -8,6 +8,7 @@ use crate::vdp::Vdp;
 use crate::ym2612::Ym2612;
 use bincode::{Decode, Encode};
 use genesis_config::GenesisRegion;
+use jgenesis_common::debug::{DebugBytesView, DebugMemoryView, DebugWordsView, Endian};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::PartialClone;
@@ -123,6 +124,16 @@ impl<Medium: PhysicalMedium> Memory<Medium> {
     #[inline]
     pub fn reset_z80_signals(&mut self) {
         self.signals = Signals::default();
+    }
+
+    #[must_use]
+    pub fn debug_working_ram_view(&mut self) -> impl DebugMemoryView {
+        DebugWordsView(self.main_ram.as_mut_slice(), Endian::Big)
+    }
+
+    #[must_use]
+    pub fn debug_audio_ram_view(&mut self) -> impl DebugMemoryView {
+        DebugBytesView(self.audio_ram.as_mut_slice())
     }
 }
 

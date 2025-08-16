@@ -10,6 +10,7 @@
 
 use crate::bus::BusInterface;
 use bincode::{Decode, Encode};
+use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
 use jgenesis_common::num::{GetBit, U16Ext};
 use std::array;
 
@@ -371,6 +372,10 @@ impl CpuCache {
         let address = ((address >> 1) as usize) & (CACHE_RAM_LEN_WORDS - 1) & !1;
         self.ram[address] = (value >> 16) as u16;
         self.ram[address + 1] = value as u16;
+    }
+
+    pub fn debug_view(&mut self) -> impl DebugMemoryView {
+        DebugWordsView(self.ram.as_mut_slice(), Endian::Big)
     }
 }
 

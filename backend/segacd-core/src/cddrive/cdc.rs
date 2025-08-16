@@ -6,6 +6,7 @@ use crate::memory::ScdCpu;
 use crate::memory::wordram::{WordRam, WordRamMode};
 use crate::rf5c164::Rf5c164;
 use bincode::{Decode, Encode};
+use jgenesis_common::debug::{DebugBytesView, DebugMemoryView};
 use jgenesis_common::num::{GetBit, U16Ext};
 
 // The register address is supposedly 4 bits, but internally it's actually 5 bits
@@ -791,5 +792,9 @@ impl Rchip {
 
     pub fn acknowledge_interrupt(&mut self) {
         self.scd_interrupt_flag = false;
+    }
+
+    pub fn debug_ram_view(&mut self) -> impl DebugMemoryView {
+        DebugBytesView(self.buffer_ram.as_mut_slice())
     }
 }
