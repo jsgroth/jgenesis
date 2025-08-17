@@ -1,5 +1,6 @@
 //! GBA memory map
 
+use crate::apu;
 use crate::apu::Apu;
 use crate::cartridge::Cartridge;
 use crate::dma::{DmaState, TransferSource, TransferUnit};
@@ -634,6 +635,12 @@ impl Bus {
     fn write_io_register_word(&mut self, address: u32, value: u32) {
         self.increment_cycles_with_prefetch(1);
         self.state.open_bus = value;
+
+        if (apu::FIFO_A_ADDRESS..apu::FIFO_B_ADDRESS + 4).contains(&address) {
+            // Special case 32-bit Direct Sound FIFO writes
+            self.apu.write_register_word(address, value);
+            return;
+        }
 
         self.write_io_register(address & !2, value as u16);
         self.write_io_register(address | 2, (value >> 16) as u16);

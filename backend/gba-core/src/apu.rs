@@ -14,16 +14,104 @@ use gba_config::GbaAudioInterpolation;
 use jgenesis_common::define_bit_enum;
 use jgenesis_common::frontend::AudioOutput;
 use jgenesis_common::num::GetBit;
-use std::collections::VecDeque;
+use std::array;
 
-const FIFO_LEN_SAMPLES: usize = 32;
+pub const FIFO_A_ADDRESS: u32 = 0x40000A0;
+pub const FIFO_B_ADDRESS: u32 = 0x40000A4;
+
+const FIFO_CAPACITY: u8 = 7;
 
 define_bit_enum!(DirectSoundTimer, [Zero, One]);
+
+// Implementation based on https://github.com/mgba-emu/mgba/issues/1847
+#[derive(Debug, Clone, Encode, Decode)]
+struct DirectSoundFifo {
+    buffer: [u32; FIFO_CAPACITY as usize],
+    read_idx: u8,
+    write_idx: u8,
+    len: u8,
+    playing: [i8; 4],
+    playing_idx: u8,
+}
+
+impl DirectSoundFifo {
+    fn new() -> Self {
+        Self {
+            buffer: array::from_fn(|_| 0),
+            read_idx: 0,
+            write_idx: 0,
+            len: 0,
+            playing: array::from_fn(|_| 0),
+            playing_idx: 0,
+        }
+    }
+
+    fn push(&mut self, word: u32) {
+        self.buffer[self.write_idx as usize] = word;
+
+        self.write_idx += 1;
+        if self.write_idx == FIFO_CAPACITY {
+            self.write_idx = 0;
+        }
+
+        self.len += 1;
+        if self.len > FIFO_CAPACITY {
+            self.reset();
+        }
+    }
+
+    fn push_halfword(&mut self, address: u32, halfword: u16) {
+        let existing = self.buffer[self.write_idx as usize];
+
+        let word = if !address.bit(1) {
+            u32::from(halfword) | (existing & !0xFFFF)
+        } else {
+            (u32::from(halfword) << 16) | (existing & 0xFFFF)
+        };
+
+        self.push(word);
+    }
+
+    fn push_byte(&mut self, address: u32, byte: u8) {
+        let mut bytes = self.buffer[self.write_idx as usize].to_le_bytes();
+        bytes[(address & 3) as usize] = byte;
+
+        self.push(u32::from_le_bytes(bytes));
+    }
+
+    fn pop(&mut self) -> Option<i8> {
+        if self.playing_idx == 0 {
+            if self.len == 0 {
+                return None;
+            }
+
+            let word = self.buffer[self.read_idx as usize];
+
+            self.read_idx += 1;
+            if self.read_idx == FIFO_CAPACITY {
+                self.read_idx = 0;
+            }
+
+            self.len -= 1;
+
+            self.playing = word.to_le_bytes().map(|b| b as i8);
+        }
+
+        let sample = self.playing[self.playing_idx as usize];
+        self.playing_idx = (self.playing_idx + 1) % 4;
+
+        Some(sample)
+    }
+
+    fn reset(&mut self) {
+        *self = Self::new();
+    }
+}
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct DirectSoundChannel {
     name: String,
-    fifo: VecDeque<i8>,
+    fifo: DirectSoundFifo,
     current_sample: i8,
     volume_shift: u8,
     l_enabled: bool,
@@ -35,7 +123,7 @@ impl DirectSoundChannel {
     fn new(name: String) -> Self {
         Self {
             name,
-            fifo: VecDeque::with_capacity(FIFO_LEN_SAMPLES),
+            fifo: DirectSoundFifo::new(),
             current_sample: 0,
             volume_shift: 1,
             l_enabled: false,
@@ -44,34 +132,27 @@ impl DirectSoundChannel {
         }
     }
 
-    fn try_push_fifo(&mut self, sample: i8) {
-        if self.fifo.len() == FIFO_LEN_SAMPLES {
-            // TODO what happens when pushing into a full FIFO?
-            log::warn!("Push into FIFO {} while full", self.name);
-            return;
-        }
-
-        self.fifo.push_back(sample);
-    }
-
     fn pop_fifo(&mut self) {
-        self.current_sample = self.fifo.pop_front().unwrap_or(self.current_sample);
+        self.current_sample = self.fifo.pop().unwrap_or(self.current_sample);
     }
 
     fn reset_fifo(&mut self) {
-        // TODO what does this actually do?
-        self.fifo.clear();
+        self.fifo.reset();
         self.current_sample = 0;
+    }
+
+    fn dma_request(&self) -> bool {
+        self.fifo.len <= FIFO_CAPACITY - 4
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum PwmClockShift {
-    #[default]
     Nine = 0, // 32768 Hz, 9-bit samples
+    #[default]
     Eight = 1, // 65536 Hz, 8-bit samples
     Seven = 2, // 131072 Hz, 7-bit samples
-    Six = 3,   // 262144 Hz, 6-bit samples
+    Six = 3,  // 262144 Hz, 6-bit samples
 }
 
 impl PwmClockShift {
@@ -360,32 +441,24 @@ impl Apu {
         };
 
         if self.pcm_a.timer == timer {
+            if self.pcm_a.dma_request() {
+                dma.notify_apu_fifo_a();
+            }
+
             self.pcm_a.pop_fifo();
             self.resampler
                 .push_pcm_a(self.pcm_a.current_sample * i8::from(self.config.pcm_a_enabled));
-
-            if self.dma_request_a() {
-                dma.notify_apu_fifo_a();
-            }
         }
 
         if self.pcm_b.timer == timer {
+            if self.pcm_b.dma_request() {
+                dma.notify_apu_fifo_b();
+            }
+
             self.pcm_b.pop_fifo();
             self.resampler
                 .push_pcm_b(self.pcm_b.current_sample * i8::from(self.config.pcm_b_enabled));
-
-            if self.dma_request_b() {
-                dma.notify_apu_fifo_b();
-            }
         }
-    }
-
-    pub fn dma_request_a(&self) -> bool {
-        self.enabled && self.pcm_a.fifo.len() <= FIFO_LEN_SAMPLES / 2
-    }
-
-    pub fn dma_request_b(&self) -> bool {
-        self.enabled && self.pcm_b.fifo.len() <= FIFO_LEN_SAMPLES / 2
     }
 
     #[allow(clippy::match_same_arms)]
@@ -488,8 +561,8 @@ impl Apu {
             0x4000088 => self.write_soundbias_low(value),
             0x4000089 => self.write_soundbias_high(value),
             0x4000090..=0x400009F => self.psg.write_wave_ram(address, value),
-            0x40000A0..=0x40000A3 => self.pcm_a.try_push_fifo(value as i8),
-            0x40000A4..=0x40000A7 => self.pcm_b.try_push_fifo(value as i8),
+            0x40000A0..=0x40000A3 => self.pcm_a.fifo.push_byte(address, value),
+            0x40000A4..=0x40000A7 => self.pcm_b.fifo.push_byte(address, value),
             0x40000A8..=0x40000AF => {} // Unused
             _ => {
                 log::warn!("Unimplemented APU register write: {address:08X} {value:02X}");
@@ -498,9 +571,29 @@ impl Apu {
     }
 
     pub fn write_register_halfword(&mut self, address: u32, value: u16) {
-        let [lsb, msb] = value.to_le_bytes();
-        self.write_register(address, lsb);
-        self.write_register(address | 1, msb);
+        match address & !1 {
+            0x40000A0 | 0x40000A2 => self.pcm_a.fifo.push_halfword(address, value),
+            0x40000A4 | 0x40000A6 => self.pcm_b.fifo.push_halfword(address, value),
+            address => {
+                let [lsb, msb] = value.to_le_bytes();
+                self.write_register(address, lsb);
+                self.write_register(address | 1, msb);
+            }
+        }
+    }
+
+    pub fn write_register_word(&mut self, address: u32, value: u32) {
+        match address & !3 {
+            0x40000A0 => self.pcm_a.fifo.push(value),
+            0x40000A4 => self.pcm_b.fifo.push(value),
+            address => {
+                let bytes = value.to_le_bytes();
+                for (i, byte) in bytes.into_iter().enumerate() {
+                    let i = i as u32;
+                    self.write_register(address | i, byte);
+                }
+            }
+        }
     }
 
     // $4000082: SOUNDCNT_H low byte (GBA-specific volume control)
