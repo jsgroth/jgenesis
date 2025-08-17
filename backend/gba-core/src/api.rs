@@ -1,5 +1,7 @@
 //! GBA emulator public interface
 
+pub mod debug;
+
 use crate::apu::Apu;
 use crate::bus::{Bus, BusState};
 use crate::cartridge::Cartridge;

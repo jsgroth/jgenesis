@@ -3,6 +3,7 @@
 use crate::api::{GbaEmulatorConfig, GbaLoadError};
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::BoxedByteArray;
+use jgenesis_common::debug::{DebugBytesView, DebugMemoryView};
 use jgenesis_common::num::GetBit;
 use std::array;
 
@@ -194,6 +195,18 @@ impl Memory {
 
     pub fn clone_bios_rom(&mut self) -> Vec<u8> {
         self.bios_rom.to_vec()
+    }
+
+    pub fn debug_ewram_view(&mut self) -> impl DebugMemoryView {
+        DebugBytesView(self.ewram.as_mut_slice())
+    }
+
+    pub fn debug_iwram_view(&mut self) -> impl DebugMemoryView {
+        DebugBytesView(self.iwram.as_mut_slice())
+    }
+
+    pub fn debug_bios_view(&mut self) -> impl DebugMemoryView {
+        DebugBytesView(self.bios_rom.as_mut_slice())
     }
 }
 

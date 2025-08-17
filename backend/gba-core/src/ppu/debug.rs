@@ -1,4 +1,4 @@
-use crate::ppu::{gba_color_to_rgb8, Ppu};
+use crate::ppu::{Ppu, gba_color_to_rgb8};
 use jgenesis_common::debug::{DebugBytesView, DebugMemoryView, DebugWordsView, Endian};
 use jgenesis_common::frontend::Color;
 

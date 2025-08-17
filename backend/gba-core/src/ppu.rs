@@ -1,5 +1,6 @@
 //! GBA PPU (picture processing unit)
 
+mod debug;
 mod registers;
 
 use crate::dma::DmaState;

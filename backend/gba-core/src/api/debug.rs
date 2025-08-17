@@ -51,7 +51,7 @@ impl<'emu> GbaDebugView<'emu> {
             GbaMemoryArea::BiosRom => Box::new(self.0.bus.memory.debug_bios_view()),
         }
     }
-    
+
     pub fn copy_palette_ram(&self, out: &mut [Color]) {
         self.0.bus.ppu.copy_palette_ram(out);
     }

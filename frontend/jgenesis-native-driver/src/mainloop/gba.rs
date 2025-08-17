@@ -1,6 +1,6 @@
 use crate::config::{GameBoyAdvanceConfig, RomReadResult};
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
-use crate::mainloop::{file_name_no_ext, save};
+use crate::mainloop::{debug, file_name_no_ext, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
 use gba_config::GbaInputs;
 use gba_core::api::GameBoyAdvanceEmulator;
@@ -79,6 +79,6 @@ pub fn create_gba(config: Box<GameBoyAdvanceConfig>) -> NativeEmulatorResult<Nat
         save_state_path,
         &config.inputs.to_mapping_vec(),
         GbaInputs::default(),
-        || Box::new(|_ctx| {}),
+        debug::gba::render_fn,
     )
 }

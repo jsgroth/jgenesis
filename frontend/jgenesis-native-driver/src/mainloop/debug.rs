@@ -1,4 +1,5 @@
 pub mod gb;
+pub mod gba;
 pub mod genesis;
 mod memviewer;
 pub mod nes;
@@ -7,11 +8,18 @@ pub mod snes;
 
 use sdl3::event::{Event, WindowEvent};
 
-use egui::{Button, Response, Ui, Widget, WidgetText};
+use egui::epaint::ImageDelta;
+use egui::{
+    Button, Color32, ColorImage, ImageData, Response, ScrollArea, TextureFilter, TextureOptions,
+    TextureWrapMode, Ui, Widget, WidgetText,
+};
+use egui_extras::{Column, TableBuilder};
 use egui_wgpu::ScreenDescriptor;
+use jgenesis_common::frontend::Color;
 use sdl3::VideoSubsystem;
 use sdl3::video::{Window, WindowBuildError};
 use std::iter;
+use std::sync::Arc;
 use std::time::SystemTime;
 use thiserror::Error;
 use wgpu::SurfaceTargetUnsafe;
@@ -335,4 +343,117 @@ fn write_textures<Emulator>(
         wgpu::FilterMode::Nearest,
         egui_texture,
     );
+}
+
+fn update_egui_texture(
+    ctx: &egui::Context,
+    size: [usize; 2],
+    image: &[Color],
+    texture: &mut Option<egui::TextureId>,
+) -> egui::TextureId {
+    let tex_manager = ctx.tex_manager();
+
+    match *texture {
+        Some(texture) => {
+            tex_manager.write().set(
+                texture,
+                ImageDelta {
+                    image: ImageData::Color(Arc::new(ColorImage::from_rgba_unmultiplied(
+                        size,
+                        bytemuck::cast_slice(image),
+                    ))),
+                    options: TextureOptions {
+                        magnification: TextureFilter::Nearest,
+                        minification: TextureFilter::Nearest,
+                        wrap_mode: TextureWrapMode::ClampToEdge,
+                        mipmap_mode: None,
+                    },
+                    pos: None,
+                },
+            );
+
+            texture
+        }
+        None => {
+            let id = tex_manager.write().alloc(
+                "cram_texture".into(),
+                ImageData::Color(Arc::new(ColorImage::from_rgba_unmultiplied(
+                    size,
+                    bytemuck::cast_slice(image),
+                ))),
+                TextureOptions {
+                    magnification: TextureFilter::Nearest,
+                    minification: TextureFilter::Nearest,
+                    wrap_mode: TextureWrapMode::ClampToEdge,
+                    mipmap_mode: None,
+                },
+            );
+            *texture = Some(id);
+
+            id
+        }
+    }
+}
+
+fn render_registers_window(
+    ctx: &egui::Context,
+    window_title: &str,
+    open: &mut bool,
+    render_registers: impl FnOnce(&mut egui::Ui),
+) {
+    egui::Window::new(window_title).open(open).show(ctx, |ui| {
+        ScrollArea::vertical().show(ui, |ui| {
+            let color = ui.visuals_mut().faint_bg_color;
+
+            // Make stripes a little lighter
+            ui.visuals_mut().faint_bg_color = Color32::from_rgba_premultiplied(
+                color.r().saturating_add(10),
+                color.g().saturating_add(10),
+                color.b().saturating_add(10),
+                color.a(),
+            );
+
+            render_registers(ui);
+        });
+    });
+}
+
+fn render_registers_table(ui: &mut egui::Ui, register: &str, values: &[(&str, &str)]) {
+    TableBuilder::new(ui)
+        .id_salt(register)
+        .column(Column::exact(200.0))
+        .column(Column::exact(150.0))
+        .vscroll(false)
+        .striped(true)
+        .header(25.0, |mut header| {
+            header.col(|ui| {
+                ui.heading(register);
+            });
+        })
+        .body(|mut body| {
+            for &(field, value) in values {
+                body.row(17.0, |mut row| {
+                    row.col(|ui| {
+                        ui.label(field);
+                    });
+
+                    row.col(|ui| {
+                        ui.label(value);
+                    });
+                });
+            }
+        });
+}
+
+fn dump_registers_callback(ui: &mut egui::Ui) -> impl FnMut(&str, &[(&str, &str)]) {
+    let mut first = true;
+
+    move |register, values| {
+        if !first {
+            ui.separator();
+        }
+        first = false;
+
+        render_registers_table(ui, register, values);
+    }
 }

@@ -1,13 +1,8 @@
 use crate::mainloop::debug;
 use crate::mainloop::debug::memviewer::MemoryViewerState;
 use crate::mainloop::debug::{DebugRenderContext, DebugRenderFn, memviewer};
-use egui::epaint::ImageDelta;
 use egui::panel::TopBottomSide;
-use egui::{
-    Color32, ColorImage, ImageData, ScrollArea, TextureFilter, TextureOptions, TextureWrapMode,
-    TopBottomPanel, Vec2, Window, menu,
-};
-use egui_extras::{Column, TableBuilder};
+use egui::{TopBottomPanel, Vec2, Window, menu};
 use genesis_core::GenesisEmulator;
 use genesis_core::api::debug::GenesisMemoryArea;
 use genesis_core::vdp::ColorModifier;
@@ -20,7 +15,6 @@ use segacd_core::api::SegaCdEmulator;
 use segacd_core::api::debug::SegaCdMemoryArea;
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum MemoryArea {
@@ -372,59 +366,10 @@ fn render_cram_window(
         }
         let width = height * 4.0;
 
-        let texture = update_texture(ctx, [16, 4], state.buffer.as_slice(), &mut state.texture);
+        let texture =
+            debug::update_egui_texture(ctx, [16, 4], state.buffer.as_slice(), &mut state.texture);
         ui.image((texture, Vec2::new(width, height)));
     });
-}
-
-fn update_texture(
-    ctx: &egui::Context,
-    size: [usize; 2],
-    image: &[Color],
-    texture: &mut Option<egui::TextureId>,
-) -> egui::TextureId {
-    let tex_manager = ctx.tex_manager();
-
-    match *texture {
-        Some(texture) => {
-            tex_manager.write().set(
-                texture,
-                ImageDelta {
-                    image: ImageData::Color(Arc::new(ColorImage::from_rgba_unmultiplied(
-                        size,
-                        bytemuck::cast_slice(image),
-                    ))),
-                    options: TextureOptions {
-                        magnification: TextureFilter::Nearest,
-                        minification: TextureFilter::Nearest,
-                        wrap_mode: TextureWrapMode::ClampToEdge,
-                        mipmap_mode: None,
-                    },
-                    pos: None,
-                },
-            );
-
-            texture
-        }
-        None => {
-            let id = tex_manager.write().alloc(
-                "cram_texture".into(),
-                ImageData::Color(Arc::new(ColorImage::from_rgba_unmultiplied(
-                    size,
-                    bytemuck::cast_slice(image),
-                ))),
-                TextureOptions {
-                    magnification: TextureFilter::Nearest,
-                    minification: TextureFilter::Nearest,
-                    wrap_mode: TextureWrapMode::ClampToEdge,
-                    mipmap_mode: None,
-                },
-            );
-            *texture = Some(id);
-
-            id
-        }
-    }
 }
 
 fn render_vram_window(
@@ -450,8 +395,12 @@ fn render_vram_window(
         }
         let width = height * 2.0;
 
-        let texture =
-            update_texture(ctx, [64 * 8, 32 * 8], state.buffer.as_slice(), &mut state.texture);
+        let texture = debug::update_egui_texture(
+            ctx,
+            [64 * 8, 32 * 8],
+            state.buffer.as_slice(),
+            &mut state.texture,
+        );
         ui.image((texture, Vec2::new(width, height)));
     });
 }
@@ -474,73 +423,14 @@ fn render_32x_palette_window(
                 size = ui.available_height();
             }
 
-            let texture =
-                update_texture(ctx, [16, 16], state.buffer.as_slice(), &mut state.texture);
+            let texture = debug::update_egui_texture(
+                ctx,
+                [16, 16],
+                state.buffer.as_slice(),
+                &mut state.texture,
+            );
             ui.image((texture, Vec2::new(size, size)));
         });
-}
-
-fn render_registers_window(
-    ctx: &egui::Context,
-    window_title: &str,
-    open: &mut bool,
-    render_registers: impl FnOnce(&mut egui::Ui),
-) {
-    Window::new(window_title).open(open).show(ctx, |ui| {
-        ScrollArea::vertical().show(ui, |ui| {
-            let color = ui.visuals_mut().faint_bg_color;
-
-            // Make stripes a little lighter
-            ui.visuals_mut().faint_bg_color = Color32::from_rgba_premultiplied(
-                color.r().saturating_add(10),
-                color.g().saturating_add(10),
-                color.b().saturating_add(10),
-                color.a(),
-            );
-
-            render_registers(ui);
-        });
-    });
-}
-
-fn render_registers_table(ui: &mut egui::Ui, register: &str, values: &[(&str, &str)]) {
-    TableBuilder::new(ui)
-        .id_salt(register)
-        .column(Column::exact(200.0))
-        .column(Column::exact(150.0))
-        .vscroll(false)
-        .striped(true)
-        .header(25.0, |mut header| {
-            header.col(|ui| {
-                ui.heading(register);
-            });
-        })
-        .body(|mut body| {
-            for &(field, value) in values {
-                body.row(17.0, |mut row| {
-                    row.col(|ui| {
-                        ui.label(field);
-                    });
-
-                    row.col(|ui| {
-                        ui.label(value);
-                    });
-                });
-            }
-        });
-}
-
-fn dump_registers_callback(ui: &mut egui::Ui) -> impl FnMut(&str, &[(&str, &str)]) {
-    let mut first = true;
-
-    move |register, values| {
-        if !first {
-            ui.separator();
-        }
-        first = false;
-
-        render_registers_table(ui, register, values);
-    }
 }
 
 fn render_vdp_registers_window(
@@ -548,8 +438,8 @@ fn render_vdp_registers_window(
     emulator: &mut GenesisBasedEmulator<'_>,
     open: &mut bool,
 ) {
-    render_registers_window(ctx, "VDP Registers", open, |ui| {
-        emulator.dump_vdp_registers(dump_registers_callback(ui));
+    debug::render_registers_window(ctx, "VDP Registers", open, |ui| {
+        emulator.dump_vdp_registers(debug::dump_registers_callback(ui));
     });
 }
 
@@ -558,8 +448,8 @@ fn render_32x_system_registers_window(
     emulator: &mut Sega32XEmulator,
     open: &mut bool,
 ) {
-    render_registers_window(ctx, "32X System Registers", open, |ui| {
-        emulator.debug().dump_32x_system_registers(dump_registers_callback(ui));
+    debug::render_registers_window(ctx, "32X System Registers", open, |ui| {
+        emulator.debug().dump_32x_system_registers(debug::dump_registers_callback(ui));
     });
 }
 
@@ -568,8 +458,8 @@ fn render_32x_vdp_registers_window(
     emulator: &mut Sega32XEmulator,
     open: &mut bool,
 ) {
-    render_registers_window(ctx, "32X VDP Registers", open, |ui| {
-        emulator.debug().dump_32x_vdp_registers(dump_registers_callback(ui));
+    debug::render_registers_window(ctx, "32X VDP Registers", open, |ui| {
+        emulator.debug().dump_32x_vdp_registers(debug::dump_registers_callback(ui));
     });
 }
 
@@ -578,7 +468,7 @@ fn render_32x_pwm_registers_window(
     emulator: &mut Sega32XEmulator,
     open: &mut bool,
 ) {
-    render_registers_window(ctx, "32X PWM Registers", open, |ui| {
-        emulator.debug().dump_pwm_registers(dump_registers_callback(ui));
+    debug::render_registers_window(ctx, "32X PWM Registers", open, |ui| {
+        emulator.debug().dump_pwm_registers(debug::dump_registers_callback(ui));
     });
 }

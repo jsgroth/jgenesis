@@ -12,6 +12,7 @@ use crate::interrupts::InterruptRegisters;
 use bincode::{Decode, Encode};
 use gba_config::GbaSaveMemory;
 use jgenesis_common::boxedarray::BoxedByteArray;
+use jgenesis_common::debug::{DebugBytesView, DebugMemoryView};
 use jgenesis_common::define_bit_enum;
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
@@ -547,5 +548,9 @@ impl Cartridge {
 
     pub fn rtc(&self) -> Option<impl Encode> {
         self.rtc.as_ref()
+    }
+
+    pub fn debug_rom_view(&mut self) -> impl DebugMemoryView {
+        DebugBytesView(self.rom.0.as_mut())
     }
 }
