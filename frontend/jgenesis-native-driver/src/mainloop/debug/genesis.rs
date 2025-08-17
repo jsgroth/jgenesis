@@ -383,7 +383,7 @@ fn render<Emulator: GenesisBase>(ctx: DebugRenderContext<'_, Emulator>, state: &
     render_sprite_attributes_window(ctx.egui_ctx, &mut emulator, &mut state.sprite_attributes);
 
     if let GenesisBasedEmulator::Sega32X(emulator) = &mut emulator {
-        render_32x_palette_window(ctx.egui_ctx, screen_width, emulator, &mut state.s32x_palette);
+        render_32x_palette_window(ctx.egui_ctx, emulator, &mut state.s32x_palette);
         render_32x_system_registers_window(
             ctx.egui_ctx,
             emulator,
@@ -589,15 +589,12 @@ fn render_sprite_attributes_window(
 
 fn render_32x_palette_window(
     ctx: &egui::Context,
-    screen_width: f32,
     emulator: &mut Sega32XEmulator,
     state: &mut S32XPaletteRamState,
 ) {
-    Window::new("32X Palette RAM")
-        .open(&mut state.open)
-        .default_width(screen_width * 0.6)
-        .default_height(screen_width * 0.6)
-        .show(ctx, |ui| {
+    Window::new("32X Palette RAM").open(&mut state.open).default_size([500.0, 550.0]).show(
+        ctx,
+        |ui| {
             emulator.debug().copy_palette(state.buffer.as_mut_slice());
 
             let mut size = ui.available_width();
@@ -612,7 +609,8 @@ fn render_32x_palette_window(
                 &mut state.texture,
             );
             ui.image((texture, Vec2::new(size, size)));
-        });
+        },
+    );
 }
 
 fn render_vdp_registers_window(
