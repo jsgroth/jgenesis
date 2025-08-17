@@ -1,5 +1,7 @@
 use crate::api::SegaCdEmulator;
-use genesis_core::api::debug::GenesisMemoryArea;
+use genesis_core::api::debug::{
+    CopySpriteAttributesResult, GenesisMemoryArea, SpriteAttributeEntry,
+};
 use genesis_core::vdp::ColorModifier;
 use jgenesis_common::debug::{DebugMemoryView, EmptyDebugView};
 use jgenesis_common::frontend::Color;
@@ -33,6 +35,17 @@ impl<'emu> SegaCdDebugView<'emu> {
 
     pub fn dump_vdp_registers(&self, callback: impl FnMut(&str, &[(&str, &str)])) {
         self.0.vdp.dump_registers(callback);
+    }
+
+    pub fn copy_h_scroll(&self, out: &mut [(u16, u16)]) {
+        self.0.vdp.copy_h_scroll(out);
+    }
+
+    pub fn copy_sprite_attributes(
+        &self,
+        out: &mut [SpriteAttributeEntry],
+    ) -> CopySpriteAttributesResult {
+        self.0.vdp.copy_sprite_attributes(out)
     }
 
     #[must_use]

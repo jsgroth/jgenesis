@@ -3,6 +3,27 @@ use crate::vdp::ColorModifier;
 use jgenesis_common::debug::DebugMemoryView;
 use jgenesis_common::frontend::Color;
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SpriteAttributeEntry {
+    pub tile_number: u16,
+    pub x: u16,
+    pub y: u16,
+    pub h_cells: u8,
+    pub v_cells: u8,
+    pub palette: u8,
+    pub priority: bool,
+    pub h_flip: bool,
+    pub v_flip: bool,
+    pub link: u8,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CopySpriteAttributesResult {
+    pub sprite_table_len: u16,
+    pub top_left_x: u16,
+    pub top_left_y: u16,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GenesisMemoryArea {
     CartridgeRom,
@@ -33,6 +54,17 @@ impl<'emu> GenesisDebugView<'emu> {
 
     pub fn dump_vdp_registers(&self, callback: impl FnMut(&str, &[(&str, &str)])) {
         self.0.vdp.dump_registers(callback);
+    }
+
+    pub fn copy_h_scroll(&self, out: &mut [(u16, u16)]) {
+        self.0.vdp.copy_h_scroll(out);
+    }
+
+    pub fn copy_sprite_attributes(
+        &self,
+        out: &mut [SpriteAttributeEntry],
+    ) -> CopySpriteAttributesResult {
+        self.0.vdp.copy_sprite_attributes(out)
     }
 
     #[must_use]

@@ -4,7 +4,7 @@ use crate::vdp::{CachedSpriteData, SpriteData, TilePixel, Vdp};
 use bincode::{Decode, Encode};
 
 // Sprites with X = $080 display at the left edge of the screen
-const SPRITE_H_DISPLAY_START: u16 = 0x080;
+pub const SPRITE_H_DISPLAY_START: u16 = 0x080;
 
 #[derive(Debug, Clone, Default, Encode, Decode)]
 pub struct SpriteState {
@@ -158,6 +158,7 @@ impl Vdp {
         let sprite_scanline = (interlacing_mode.sprite_display_top() + raster_line.line)
             & interlacing_mode.sprite_display_mask();
         let cell_height = interlacing_mode.cell_height();
+        let y_mask = y_position_mask(interlacing_mode);
 
         let max_sprites_per_line = h_size.max_sprites_per_line() as usize;
 
@@ -168,7 +169,7 @@ impl Vdp {
                 self.latched_sprite_attributes[sprite_idx as usize];
 
             // Check if sprite falls on this scanline
-            let sprite_top = sprite_y_position(v_position, interlacing_mode);
+            let sprite_top = v_position & y_mask;
             let sprite_bottom = sprite_top + cell_height * u16::from(v_size_cells);
             if (sprite_top..sprite_bottom).contains(&sprite_scanline) {
                 // Check if sprite-per-scanline limit has been hit
@@ -259,6 +260,7 @@ impl Vdp {
         let interlacing_mode = self.latched_registers.interlacing_mode;
         let sprite_scanline = interlacing_mode.sprite_display_top() + raster_line.line;
         let cell_height_shift = interlacing_mode.cell_height_shift();
+        let y_mask = y_position_mask(interlacing_mode);
 
         // Apply max sprite pixel per scanline limit.
         //
@@ -299,9 +301,7 @@ impl Vdp {
             //
             // Sprite V position is not necessarily in range of the current line because V position can change between the
             // sprite scan and tile fetching; Titan Overdrive 2's textured cube depends on handling this correctly
-            let sprite_row = sprite_scanline
-                .wrapping_sub(sprite_y_position(sprite.v_position, interlacing_mode))
-                & 0x1F;
+            let sprite_row = sprite_scanline.wrapping_sub(sprite.v_position & y_mask) & 0x1F;
             let sprite_row = if sprite.vertical_flip {
                 ((v_size_cells << cell_height_shift) - 1).wrapping_sub(sprite_row) & 0x1F
             } else {
@@ -391,11 +391,11 @@ impl Vdp {
     }
 }
 
-fn sprite_y_position(v_position: u16, interlacing_mode: InterlacingMode) -> u16 {
+pub fn y_position_mask(interlacing_mode: InterlacingMode) -> u16 {
     // V position is 9 bits in progressive mode and interlaced mode 1, and 10 bits in
     // interlaced mode 2
     match interlacing_mode {
-        InterlacingMode::Progressive | InterlacingMode::Interlaced => v_position & 0x1FF,
-        InterlacingMode::InterlacedDouble => v_position & 0x3FF,
+        InterlacingMode::Progressive | InterlacingMode::Interlaced => 0x1FF,
+        InterlacingMode::InterlacedDouble => 0x3FF,
     }
 }

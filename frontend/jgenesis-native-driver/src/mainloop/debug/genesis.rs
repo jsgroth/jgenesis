@@ -2,9 +2,13 @@ use crate::mainloop::debug;
 use crate::mainloop::debug::memviewer::MemoryViewerState;
 use crate::mainloop::debug::{DebugRenderContext, DebugRenderFn, memviewer};
 use egui::panel::TopBottomSide;
+use egui::scroll_area::ScrollBarVisibility;
 use egui::{TopBottomPanel, Vec2, Window, menu};
+use egui_extras::{Column, TableBuilder};
 use genesis_core::GenesisEmulator;
-use genesis_core::api::debug::GenesisMemoryArea;
+use genesis_core::api::debug::{
+    CopySpriteAttributesResult, GenesisMemoryArea, SpriteAttributeEntry,
+};
 use genesis_core::vdp::ColorModifier;
 use jgenesis_common::debug::{DebugMemoryView, Endian};
 use jgenesis_common::frontend::Color;
@@ -116,6 +120,36 @@ impl VramWindowState {
     }
 }
 
+struct HScrollWindowState {
+    open: bool,
+    buffer: Box<[(u16, u16); 256]>,
+}
+
+impl HScrollWindowState {
+    fn new() -> Self {
+        Self { open: false, buffer: vec![(0, 0); 256].into_boxed_slice().try_into().unwrap() }
+    }
+}
+
+struct SpriteAttributesWindowState {
+    open: bool,
+    buffer: Box<[SpriteAttributeEntry; 80]>,
+    adjust_coordinates: bool,
+}
+
+impl SpriteAttributesWindowState {
+    fn new() -> Self {
+        Self {
+            open: false,
+            buffer: vec![SpriteAttributeEntry::default(); 80]
+                .into_boxed_slice()
+                .try_into()
+                .unwrap(),
+            adjust_coordinates: false,
+        }
+    }
+}
+
 struct S32XPaletteRamState {
     open: bool,
     buffer: Box<[Color; 256]>,
@@ -136,6 +170,8 @@ struct State {
     memory_viewers: HashMap<MemoryArea, MemoryViewerState>,
     cram: CramWindowState,
     vram: VramWindowState,
+    h_scroll: HScrollWindowState,
+    sprite_attributes: SpriteAttributesWindowState,
     s32x_palette: S32XPaletteRamState,
     vdp_registers_open: bool,
     s32x_system_registers_open: bool,
@@ -149,6 +185,8 @@ impl State {
             memory_viewers: MemoryArea::new_states(),
             cram: CramWindowState::new(),
             vram: VramWindowState::new(),
+            h_scroll: HScrollWindowState::new(),
+            sprite_attributes: SpriteAttributesWindowState::new(),
             s32x_palette: S32XPaletteRamState::new(),
             vdp_registers_open: false,
             s32x_system_registers_open: false,
@@ -176,6 +214,17 @@ impl GenesisBasedEmulator<'_> {
 
     fn dump_vdp_registers(&mut self, callback: impl FnMut(&str, &[(&str, &str)])) {
         match_each_variant!(self, emulator => emulator.debug().dump_vdp_registers(callback));
+    }
+
+    fn copy_h_scroll(&mut self, out: &mut [(u16, u16)]) {
+        match_each_variant!(self, emulator => emulator.debug().copy_h_scroll(out));
+    }
+
+    fn copy_sprite_attributes(
+        &mut self,
+        out: &mut [SpriteAttributeEntry],
+    ) -> CopySpriteAttributesResult {
+        match_each_variant!(self, emulator => emulator.debug().copy_sprite_attributes(out))
     }
 
     fn has_memory(&self, memory_area: MemoryArea) -> bool {
@@ -302,6 +351,16 @@ fn render<Emulator: GenesisBase>(ctx: DebugRenderContext<'_, Emulator>, state: &
                     ui.close_menu();
                 }
 
+                if ui.button("Sprite Attributes").clicked() {
+                    state.sprite_attributes.open = true;
+                    ui.close_menu();
+                }
+
+                if ui.button("H Scroll Table").clicked() {
+                    state.h_scroll.open = true;
+                    ui.close_menu();
+                }
+
                 if matches!(emulator, GenesisBasedEmulator::Sega32X(_))
                     && ui.button("32X Palette RAM").clicked()
                 {
@@ -320,6 +379,8 @@ fn render<Emulator: GenesisBase>(ctx: DebugRenderContext<'_, Emulator>, state: &
 
     render_cram_window(ctx.egui_ctx, screen_width, &mut emulator, &mut state.cram);
     render_vram_window(ctx.egui_ctx, screen_width, &mut emulator, &mut state.vram);
+    render_h_scroll_window(ctx.egui_ctx, &mut emulator, &mut state.h_scroll);
+    render_sprite_attributes_window(ctx.egui_ctx, &mut emulator, &mut state.sprite_attributes);
 
     if let GenesisBasedEmulator::Sega32X(emulator) = &mut emulator {
         render_32x_palette_window(ctx.egui_ctx, screen_width, emulator, &mut state.s32x_palette);
@@ -403,6 +464,127 @@ fn render_vram_window(
         );
         ui.image((texture, Vec2::new(width, height)));
     });
+}
+
+fn render_h_scroll_window(
+    ctx: &egui::Context,
+    emulator: &mut GenesisBasedEmulator<'_>,
+    state: &mut HScrollWindowState,
+) {
+    Window::new("H Scroll Table").default_width(200.0).open(&mut state.open).show(ctx, |ui| {
+        emulator.copy_h_scroll(state.buffer.as_mut_slice());
+
+        debug::brighten_faint_bg_color(ui);
+
+        TableBuilder::new(ui)
+            .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
+            .column(Column::auto().at_least(50.0))
+            .columns(Column::auto(), 2)
+            .column(Column::remainder())
+            .striped(true)
+            .header(20.0, |mut header| {
+                header.col(|ui| {
+                    ui.heading("Line");
+                });
+                header.col(|ui| {
+                    ui.heading("Plane A");
+                });
+                header.col(|ui| {
+                    ui.heading("Plane B");
+                });
+                header.col(|_ui| {});
+            })
+            .body(|body| {
+                body.rows(18.0, 256, |mut row| {
+                    let line = row.index();
+                    let (h_scroll_a, h_scroll_b) = state.buffer[line];
+
+                    row.col(|ui| {
+                        ui.label(line.to_string());
+                    });
+                    row.col(|ui| {
+                        ui.label(h_scroll_a.to_string());
+                    });
+                    row.col(|ui| {
+                        ui.label(h_scroll_b.to_string());
+                    });
+                    row.col(|_ui| {});
+                });
+            });
+    });
+}
+
+fn render_sprite_attributes_window(
+    ctx: &egui::Context,
+    emulator: &mut GenesisBasedEmulator<'_>,
+    state: &mut SpriteAttributesWindowState,
+) {
+    Window::new("Sprite Attribute Table").open(&mut state.open).default_width(500.0).show(
+        ctx,
+        |ui| {
+            let CopySpriteAttributesResult { sprite_table_len, top_left_x, top_left_y } =
+                emulator.copy_sprite_attributes(state.buffer.as_mut_slice());
+
+            ui.checkbox(&mut state.adjust_coordinates, "Shift coordinates to top-left of screen");
+
+            let (x_offset, y_offset) = if state.adjust_coordinates {
+                (-i32::from(top_left_x), -i32::from(top_left_y))
+            } else {
+                (0, 0)
+            };
+
+            debug::brighten_faint_bg_color(ui);
+
+            TableBuilder::new(ui)
+                .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
+                .columns(Column::auto().at_least(50.0), 11)
+                .column(Column::remainder())
+                .striped(true)
+                .header(20.0, |mut header| {
+                    for heading in [
+                        "Index",
+                        "Tile",
+                        "X",
+                        "Y",
+                        "Cell Size",
+                        "Palette",
+                        "Priority",
+                        "H Flip",
+                        "V Flip",
+                        "Link",
+                    ] {
+                        header.col(|ui| {
+                            ui.heading(heading);
+                        });
+                    }
+                    header.col(|_ui| {});
+                })
+                .body(|body| {
+                    body.rows(18.0, sprite_table_len as usize, |mut row| {
+                        let idx = row.index();
+                        let sprite = state.buffer[idx];
+
+                        for value in [
+                            idx.to_string(),
+                            sprite.tile_number.to_string(),
+                            (i32::from(sprite.x) + x_offset).to_string(),
+                            (i32::from(sprite.y) + y_offset).to_string(),
+                            format!("{}x{}", sprite.h_cells, sprite.v_cells),
+                            sprite.palette.to_string(),
+                            u8::from(sprite.priority).to_string(),
+                            u8::from(sprite.h_flip).to_string(),
+                            u8::from(sprite.v_flip).to_string(),
+                            sprite.link.to_string(),
+                        ] {
+                            row.col(|ui| {
+                                ui.label(value);
+                            });
+                        }
+                        row.col(|_ui| {});
+                    });
+                });
+        },
+    );
 }
 
 fn render_32x_palette_window(

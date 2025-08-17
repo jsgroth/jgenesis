@@ -403,19 +403,22 @@ fn render_registers_window(
 ) {
     egui::Window::new(window_title).open(open).show(ctx, |ui| {
         ScrollArea::vertical().show(ui, |ui| {
-            let color = ui.visuals_mut().faint_bg_color;
-
-            // Make stripes a little lighter
-            ui.visuals_mut().faint_bg_color = Color32::from_rgba_premultiplied(
-                color.r().saturating_add(10),
-                color.g().saturating_add(10),
-                color.b().saturating_add(10),
-                color.a(),
-            );
+            brighten_faint_bg_color(ui);
 
             render_registers(ui);
         });
     });
+}
+
+fn brighten_faint_bg_color(ui: &mut Ui) {
+    // Make stripes a little lighter
+    let color = ui.visuals_mut().faint_bg_color;
+    ui.visuals_mut().faint_bg_color = Color32::from_rgba_premultiplied(
+        color.r().saturating_add(10),
+        color.g().saturating_add(10),
+        color.b().saturating_add(10),
+        color.a(),
+    );
 }
 
 fn render_registers_table(ui: &mut egui::Ui, register: &str, values: &[(&str, &str)]) {

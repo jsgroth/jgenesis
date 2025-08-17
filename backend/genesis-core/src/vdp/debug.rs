@@ -1,7 +1,8 @@
 use crate::vdp;
-use crate::vdp::{ColorModifier, Vdp, colors, render};
+use crate::vdp::{ColorModifier, SpriteData, Vdp, colors, render, sprites};
 use jgenesis_common::debug::{DebugBytesView, DebugMemoryView, DebugWordsView, Endian};
 
+use crate::api::debug::{CopySpriteAttributesResult, SpriteAttributeEntry};
 use crate::vdp::colors::ColorTables;
 use crate::vdp::render::PatternGeneratorRowArgs;
 use jgenesis_common::frontend::Color;
@@ -36,6 +37,21 @@ impl Vdp {
                     out[out_idx].a = 255;
                 }
             }
+        }
+    }
+
+    pub fn copy_h_scroll(&self, out: &mut [(u16, u16)]) {
+        let h_scroll_table_addr = self.latched_registers.h_scroll_table_base_addr;
+
+        for i in 0..256 {
+            let h_scroll_addr = h_scroll_table_addr.wrapping_add(4 * i) as usize;
+            let h_scroll_a =
+                u16::from_be_bytes([self.vram[h_scroll_addr], self.vram[h_scroll_addr + 1]])
+                    & 0x3FF;
+            let h_scroll_b =
+                u16::from_be_bytes([self.vram[h_scroll_addr + 2], self.vram[h_scroll_addr + 3]])
+                    & 0x3FF;
+            out[i as usize] = (h_scroll_a, h_scroll_b);
         }
     }
 
@@ -179,6 +195,46 @@ impl Vdp {
                 ("Forced layer", &self.debug_register.forced_plane.to_string()),
             ],
         );
+    }
+
+    pub fn copy_sprite_attributes(
+        &self,
+        out: &mut [SpriteAttributeEntry],
+    ) -> CopySpriteAttributesResult {
+        let h_display_size = self.registers.horizontal_display_size;
+        let base_sprite_table_addr = self.registers.sprite_attribute_table_base_addr
+            & h_display_size.sprite_attribute_table_mask();
+        let len = h_display_size.sprite_table_len();
+
+        let interlacing_mode = self.registers.interlacing_mode;
+        let y_mask = sprites::y_position_mask(interlacing_mode);
+
+        for i in 0..len {
+            let sprite_table_addr = base_sprite_table_addr.wrapping_add(8 * i) as usize;
+            let data = SpriteData::create(
+                self.cached_sprite_attributes[i as usize],
+                &self.vram[sprite_table_addr + 4..sprite_table_addr + 8],
+            );
+
+            out[i as usize] = SpriteAttributeEntry {
+                tile_number: data.pattern_generator,
+                x: data.h_position,
+                y: data.v_position & y_mask,
+                h_cells: data.h_size_cells,
+                v_cells: data.v_size_cells,
+                palette: data.palette,
+                priority: data.priority,
+                h_flip: data.horizontal_flip,
+                v_flip: data.vertical_flip,
+                link: data.link_data,
+            };
+        }
+
+        CopySpriteAttributesResult {
+            sprite_table_len: len,
+            top_left_x: sprites::SPRITE_H_DISPLAY_START,
+            top_left_y: interlacing_mode.sprite_display_top(),
+        }
     }
 
     pub fn debug_vram_view(&mut self) -> impl DebugMemoryView {
