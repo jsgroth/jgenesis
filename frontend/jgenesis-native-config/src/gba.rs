@@ -14,7 +14,7 @@ pub struct GameBoyAdvanceAppConfig {
     pub color_correction: GbaColorCorrection,
     #[serde(default = "default_correction_gamma")]
     pub color_correction_gamma: f64,
-    #[serde(default)]
+    #[serde(default = "true_fn")]
     pub frame_blending: bool,
     #[serde(default)]
     pub forced_save_memory_type: Option<GbaSaveMemory>,
