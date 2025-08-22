@@ -106,20 +106,20 @@ impl Bus {
         }
 
         while cycles != 0 {
+            if self.prefetch.full() {
+                // When prefetch fills up, it stops until a read occurs while the buffer is empty
+                self.pause_prefetch();
+                break;
+            }
+
             if cycles >= self.prefetch.fetch_cycles_remaining {
                 cycles -= self.prefetch.fetch_cycles_remaining;
 
                 let opcode = self.cartridge.read_rom(self.prefetch.write_address);
                 self.prefetch.push(opcode);
 
-                if self.prefetch.full()
-                    || self.prefetch.write_address & 0x1FFFF == 0
-                    || !self.memory.control().prefetch_enabled
-                {
-                    // When buffer fills up or prefetch crosses a 128KB page boundary, prefetch
-                    // pauses until the buffer is empty
-                    self.prefetch.active = false;
-                    self.cartridge.end_rom_burst();
+                if !self.memory.control().prefetch_enabled {
+                    self.pause_prefetch();
                     break;
                 }
 
@@ -130,6 +130,12 @@ impl Bus {
                 break;
             }
         }
+    }
+
+    fn pause_prefetch(&mut self) {
+        self.prefetch.active = false;
+        self.prefetch.fetch_cycles_remaining = 0;
+        self.cartridge.end_rom_burst();
     }
 
     pub fn stop_prefetch(&mut self) {

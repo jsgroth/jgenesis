@@ -1501,12 +1501,15 @@ impl Ppu {
 
     pub fn palette_ram_in_use(&self) -> bool {
         // TODO this is not accurate
-        !self.registers.forced_blanking && !self.in_vblank() && self.state.dot % 2 == 0
+        !self.registers.forced_blanking
+            && !self.in_vblank()
+            && self.state.dot < HBLANK_START_DOT
+            && self.state.dot % 4 == 0
     }
 
     pub fn vram_in_use(&self) -> bool {
         // TODO this is not accurate
-        !self.registers.forced_blanking && !self.in_vblank() && self.state.dot % 2 == 0
+        !self.registers.forced_blanking && !self.in_vblank() && self.state.dot < HBLANK_START_DOT
     }
 
     pub fn read_register(
