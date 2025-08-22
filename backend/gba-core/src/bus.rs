@@ -71,7 +71,7 @@ impl Bus {
     #[inline]
     fn read_byte_internal(&mut self, address: u32, cycle: MemoryCycle) -> u8 {
         self.try_progress_dma();
-        self.maybe_end_rom_burst_if_not_accessed(address);
+        self.end_rom_burst_if_not_accessed(address);
 
         match address {
             0x00000000..=0x00003FFF => self.read_bios_byte(address),
@@ -96,7 +96,7 @@ impl Bus {
     ) -> u16 {
         if ctx != AccessContext::Dma {
             self.try_progress_dma();
-            self.maybe_end_rom_burst_if_not_accessed(address);
+            self.end_rom_burst_if_not_accessed(address);
         }
 
         match address {
@@ -119,7 +119,7 @@ impl Bus {
     fn read_word_internal(&mut self, address: u32, cycle: MemoryCycle, ctx: AccessContext) -> u32 {
         if ctx != AccessContext::Dma {
             self.try_progress_dma();
-            self.maybe_end_rom_burst_if_not_accessed(address);
+            self.end_rom_burst_if_not_accessed(address);
         }
 
         match address {
@@ -139,7 +139,7 @@ impl Bus {
     #[inline]
     fn write_byte_internal(&mut self, address: u32, value: u8, cycle: MemoryCycle) {
         self.try_progress_dma();
-        self.maybe_end_rom_burst_if_not_accessed(address);
+        self.end_rom_burst_if_not_accessed(address);
 
         match address {
             0x02000000..=0x02FFFFFF => self.write_ewram_byte(address, value),
@@ -164,7 +164,7 @@ impl Bus {
     ) {
         if ctx != AccessContext::Dma {
             self.try_progress_dma();
-            self.maybe_end_rom_burst_if_not_accessed(address);
+            self.end_rom_burst_if_not_accessed(address);
         }
 
         match address {
@@ -190,7 +190,7 @@ impl Bus {
     ) {
         if ctx != AccessContext::Dma {
             self.try_progress_dma();
-            self.maybe_end_rom_burst_if_not_accessed(address);
+            self.end_rom_burst_if_not_accessed(address);
         }
 
         match address {
@@ -873,11 +873,16 @@ impl Bus {
         cycle: MemoryCycle,
         ctx: AccessContext,
     ) -> u16 {
+        let prefetch_enabled = self.memory.control().prefetch_enabled;
         let halfword = match ctx {
-            AccessContext::CpuInstruction if self.memory.control().prefetch_enabled => {
-                self.state.cycles += 1;
+            AccessContext::CpuInstruction
+                if prefetch_enabled || self.prefetch.can_use_for(address) =>
+            {
+                if prefetch_enabled {
+                    self.prepare_prefetch_read(address);
+                }
 
-                self.begin_prefetch_read(address);
+                self.state.cycles += 1;
                 self.advance_prefetch(1);
                 self.prefetch_read()
             }
@@ -902,15 +907,26 @@ impl Bus {
         cycle: MemoryCycle,
         ctx: AccessContext,
     ) -> u32 {
+        let prefetch_enabled = self.memory.control().prefetch_enabled;
         let word = match ctx {
-            AccessContext::CpuInstruction if self.memory.control().prefetch_enabled => {
-                self.state.cycles += 1;
+            AccessContext::CpuInstruction
+                if prefetch_enabled || self.prefetch.can_use_for(address) =>
+            {
+                if prefetch_enabled {
+                    self.prepare_prefetch_read(address);
+                }
 
-                self.begin_prefetch_read(address);
+                self.state.cycles += 1;
                 self.advance_prefetch(1);
 
                 let low: u32 = self.prefetch_read().into();
-                let high: u32 = self.prefetch_read().into();
+                let high: u32 = if prefetch_enabled || self.prefetch.can_use_for(address + 2) {
+                    self.prefetch_read().into()
+                } else {
+                    self.stop_prefetch();
+                    self.state.cycles += self.rom_access_cycles(address + 2);
+                    self.cartridge.read_rom(address + 2).into()
+                };
                 low | (high << 16)
             }
             _ => {
@@ -1166,7 +1182,7 @@ impl Bus {
         }
     }
 
-    fn maybe_end_rom_burst_if_not_accessed(&mut self, address: u32) {
+    fn end_rom_burst_if_not_accessed(&mut self, address: u32) {
         // When prefetch is disabled, cycles that don't access ROM end any in-progress ROM burst
         // mgba-suite timing tests exercise this (LDMIA that overflows from OAM to ROM)
         // This does not apply to DMA

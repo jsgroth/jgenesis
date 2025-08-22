@@ -39,6 +39,10 @@ impl GamePakPrefetcher {
         self.len == PREFETCH_LEN
     }
 
+    pub fn can_use_for(&self, address: u32) -> bool {
+        self.read_address == address && (self.active || !self.empty())
+    }
+
     fn push(&mut self, opcode: u16) {
         self.buffer[self.write_idx as usize] = opcode;
         self.write_address += 2;
@@ -57,18 +61,13 @@ impl GamePakPrefetcher {
 }
 
 impl Bus {
-    pub fn begin_prefetch_read(&mut self, address: u32) {
-        if self.prefetch.read_address == address && (self.prefetch.active || !self.prefetch.empty())
-        {
+    pub fn prepare_prefetch_read(&mut self, address: u32) {
+        if self.prefetch.can_use_for(address) {
             // Prefetch is already in the right spot
             return;
         }
 
-        if self.prefetch.fetch_cycles_remaining == 1 {
-            self.state.cycles += 1;
-        }
-
-        self.cartridge.end_rom_burst();
+        self.finish_in_progress_fetch();
 
         self.prefetch.read_address = address;
         self.prefetch.write_address = address;
@@ -79,10 +78,18 @@ impl Bus {
         self.prefetch.fetch_cycles_remaining = 1 + self.memory.control().rom_n_wait_states(address);
     }
 
+    fn finish_in_progress_fetch(&mut self) {
+        if self.prefetch.fetch_cycles_remaining == 1 {
+            // 1-cycle delay when stopping prefetch during last cycle of a fetch
+            self.state.cycles += 1;
+        }
+        self.cartridge.end_rom_burst();
+    }
+
     pub fn prefetch_read(&mut self) -> u16 {
         if self.prefetch.empty() {
             if !self.prefetch.active {
-                self.begin_prefetch_read(self.prefetch.write_address);
+                self.prepare_prefetch_read(self.prefetch.write_address);
             }
 
             // Block until the first fetch completes
@@ -98,12 +105,6 @@ impl Bus {
             return;
         }
 
-        if !self.memory.control().prefetch_enabled {
-            // TODO this is not correct behavior per AGBEEG Aging test ROM
-            self.stop_prefetch();
-            return;
-        }
-
         while cycles != 0 {
             if cycles >= self.prefetch.fetch_cycles_remaining {
                 cycles -= self.prefetch.fetch_cycles_remaining;
@@ -111,7 +112,10 @@ impl Bus {
                 let opcode = self.cartridge.read_rom(self.prefetch.write_address);
                 self.prefetch.push(opcode);
 
-                if self.prefetch.full() || self.prefetch.write_address & 0x1FFFF == 0 {
+                if self.prefetch.full()
+                    || self.prefetch.write_address & 0x1FFFF == 0
+                    || !self.memory.control().prefetch_enabled
+                {
                     // When buffer fills up or prefetch crosses a 128KB page boundary, prefetch
                     // pauses until the buffer is empty
                     self.prefetch.active = false;
@@ -130,12 +134,7 @@ impl Bus {
 
     pub fn stop_prefetch(&mut self) {
         if self.prefetch.active {
-            if self.prefetch.fetch_cycles_remaining == 1 {
-                // 1-cycle delay when stopping prefetch during last cycle of a fetch
-                self.state.cycles += 1;
-            }
-
-            self.cartridge.end_rom_burst();
+            self.finish_in_progress_fetch();
         }
 
         self.prefetch.active = false;
