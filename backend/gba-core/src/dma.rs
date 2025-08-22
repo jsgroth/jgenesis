@@ -356,8 +356,8 @@ impl DmaState {
             };
 
             let destination = channel.latched_destination_address & channel.dest_addr_mask;
-            if !audio_dma {
-                // Destination address does not increment for audio FIFO DMA
+            if !audio_dma && destination >= 0x2000000 {
+                // Destination address does not increment for audio FIFO DMA or invalid address writes
                 channel.latched_destination_address =
                     channel.destination_increment.apply(destination, increment);
             }

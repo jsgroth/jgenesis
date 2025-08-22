@@ -15,7 +15,6 @@ use arm7tdmi_emu::bus::{BusInterface, MemoryCycle};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::U16Ext;
 use jgenesis_proc_macros::PartialClone;
-use std::cmp;
 
 const EWRAM_WAIT: u64 = 2;
 
@@ -1109,6 +1108,8 @@ impl Bus {
                             value
                         }
                         TransferSource::Value(value) => {
+                            self.increment_cycles_with_prefetch(1);
+
                             let shift = 8 * (transfer.destination & 2);
                             (value >> shift) as u16
                         }
@@ -1131,7 +1132,10 @@ impl Bus {
                             self.dma.update_read_latch_word(transfer.channel, value);
                             value
                         }
-                        TransferSource::Value(value) => value,
+                        TransferSource::Value(value) => {
+                            self.increment_cycles_with_prefetch(1);
+                            value
+                        }
                     };
                     self.write_word_internal(
                         transfer.destination & !3,
@@ -1222,11 +1226,15 @@ impl BusInterface for Bus {
 
     #[inline]
     fn internal_cycles(&mut self, cycles: u32) {
-        // It seems like DMA can run during internal cycles without halting the CPU?
+        // DMA can run during internal cycles without halting the CPU
         let new_cycles = self.state.cycles + u64::from(cycles);
-        self.try_progress_dma();
-        self.state.cycles = cmp::max(self.state.cycles, new_cycles);
-        self.advance_prefetch(cycles.into());
+        while self.state.cycles < new_cycles {
+            self.try_progress_dma();
+
+            if self.state.cycles < new_cycles {
+                self.increment_cycles_with_prefetch(1);
+            }
+        }
 
         // "Prefetch disabled bug"
         // When the CPU takes an internal cycle while prefetch is disabled, any in-progress ROM burst ends
