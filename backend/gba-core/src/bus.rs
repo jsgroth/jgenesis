@@ -1079,10 +1079,23 @@ impl Bus {
     }
 
     pub fn try_progress_dma(&mut self) {
+        struct AccessedRom(bool);
+
+        impl AccessedRom {
+            fn check(&mut self, address: u32, end_rom_burst: impl FnOnce()) {
+                if !self.0 && address >= 0x8000000 {
+                    end_rom_burst();
+                    self.0 = true;
+                }
+            }
+        }
+
         if self.state.locked {
             // DMA cannot run while CPU is locking the bus (SWAP instruction)
             return;
         }
+
+        let mut accessed_rom = AccessedRom(false);
 
         loop {
             self.dma.sync(self.state.cycles);
@@ -1090,11 +1103,12 @@ impl Bus {
             let Some(transfer) = self.dma.next_transfer(&mut self.interrupts, self.state.cycles)
             else {
                 if self.state.active_dma_channel.is_some() {
-                    // TODO fix this - should only end ROM burst if DMA accesses ROM
                     // Idle cycle and end ROM burst when DMA finishes
                     self.increment_cycles_with_prefetch(1);
 
-                    self.cartridge.end_rom_burst();
+                    if accessed_rom.0 || !self.memory.control().prefetch_enabled {
+                        self.cartridge.end_rom_burst();
+                    }
                 }
                 self.state.active_dma_channel = None;
 
@@ -1104,10 +1118,12 @@ impl Bus {
             if self.state.active_dma_channel.is_none() {
                 // Idle cycle and end ROM burst when DMA starts
                 self.increment_cycles_with_prefetch(1);
-                self.cartridge.end_rom_burst();
             } else if self.state.active_dma_channel != Some(transfer.channel) {
-                // End ROM burst when channel changes
-                self.cartridge.end_rom_burst();
+                // End ROM burst when channel changes if previous channel accessed ROM
+                if accessed_rom.0 {
+                    self.cartridge.end_rom_burst();
+                }
+                accessed_rom.0 = false;
             }
             self.state.active_dma_channel = Some(transfer.channel);
 
@@ -1115,6 +1131,8 @@ impl Bus {
                 TransferUnit::Halfword => {
                     let value = match transfer.source {
                         TransferSource::Memory { address } => {
+                            accessed_rom.check(address, || self.cartridge.end_rom_burst());
+
                             let value = self.read_halfword_internal(
                                 address & !1,
                                 MemoryCycle::S,
@@ -1130,6 +1148,8 @@ impl Bus {
                             (value >> shift) as u16
                         }
                     };
+
+                    accessed_rom.check(transfer.destination, || self.cartridge.end_rom_burst());
                     self.write_halfword_internal(
                         transfer.destination & !1,
                         value,
@@ -1140,6 +1160,8 @@ impl Bus {
                 TransferUnit::Word => {
                     let value = match transfer.source {
                         TransferSource::Memory { address } => {
+                            accessed_rom.check(address, || self.cartridge.end_rom_burst());
+
                             let value = self.read_word_internal(
                                 address & !3,
                                 MemoryCycle::S,
@@ -1153,6 +1175,8 @@ impl Bus {
                             value
                         }
                     };
+
+                    accessed_rom.check(transfer.destination, || self.cartridge.end_rom_burst());
                     self.write_word_internal(
                         transfer.destination & !3,
                         value,
