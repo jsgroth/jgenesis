@@ -1340,19 +1340,22 @@ impl Ppu {
             BitsPerPixel::Eight => 2,
         };
 
-        let sprite_width_tiles = sprite_width / 8;
-        let map_row_width = match self.registers.obj_vram_map_dimensions {
-            ObjVramMapDimensions::Two => 32,
-            ObjVramMapDimensions::One => map_step * sprite_width_tiles,
-        };
-
         let sprite_tile_x = sample_x / 8;
         let sprite_tile_y = sample_y / 8;
 
-        // TODO how should out-of-bounds tile numbers behave?
-        let tile_number =
-            (oam_entry.tile_number + sprite_tile_y * map_row_width + sprite_tile_x * map_step)
-                & 0x3FF;
+        let tile_number = match self.registers.obj_vram_map_dimensions {
+            ObjVramMapDimensions::Two => {
+                let map_col = (oam_entry.tile_number + sprite_tile_x * map_step) & 0x1F;
+                let map_row = (oam_entry.tile_number + sprite_tile_y * 32) & 0x3FF & !0x1F;
+                map_row | map_col
+            }
+            ObjVramMapDimensions::One => {
+                let sprite_width_tiles = sprite_width / 8;
+                let map_row_width = map_step * sprite_width_tiles;
+                (oam_entry.tile_number + sprite_tile_y * map_row_width + sprite_tile_x * map_step)
+                    & 0x3FF
+            }
+        };
 
         if is_bitmap_mode && tile_number < 512 {
             // Sprite tile numbers 0-511 are not usable in bitmap modes; tiles are fully transparent
