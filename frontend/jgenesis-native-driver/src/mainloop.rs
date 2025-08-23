@@ -24,7 +24,7 @@ pub use state::{SAVE_STATE_SLOTS, SaveStateMetadata};
 use crate::archive::ArchiveError;
 use crate::config::CommonConfig;
 use crate::fpstracker::FpsTracker;
-use crate::input::{HotkeyEvent, InputMapper, Joysticks};
+use crate::input::{InputEvent, InputMapper, Joysticks};
 use crate::mainloop::audio::SdlAudioOutput;
 use crate::mainloop::debug::{DebugRenderFn, DebuggerWindow};
 use crate::mainloop::rewind::Rewinder;
@@ -34,7 +34,7 @@ pub use audio::AudioError;
 use bincode::error::{DecodeError, EncodeError};
 use gb_core::api::GameBoyLoadError;
 use gba_core::api::GbaLoadError;
-use jgenesis_common::frontend::{EmulatorConfigTrait, EmulatorTrait, TickEffect};
+use jgenesis_common::frontend::{EmulatorConfigTrait, EmulatorTrait, MappableInputs, TickEffect};
 use jgenesis_native_config::common::{HideMouseCursor, WindowSize};
 use jgenesis_native_config::input::mappings::ButtonMappingVec;
 use jgenesis_native_config::input::{CompactHotkey, Hotkey};
@@ -175,7 +175,8 @@ pub struct NativeEmulator<Emulator: EmulatorTrait> {
     common_config: CommonConfig,
     renderer: WgpuRenderer<Window>,
     audio_output: SdlAudioOutput,
-    input_mapper: InputMapper<Emulator::Inputs, Emulator::Button>,
+    input_mapper: InputMapper<Emulator::Button>,
+    inputs: Emulator::Inputs,
     save_writer: FsSaveWriter,
     sdl: Sdl,
     event_pump: EventPump,
@@ -418,7 +419,6 @@ where
         emulator.update_audio_output_frequency(audio_output.output_frequency());
 
         let input_mapper = InputMapper::new(
-            initial_inputs,
             joystick,
             common_config.axis_deadzone,
             button_mappings,
@@ -435,6 +435,7 @@ where
             renderer,
             audio_output,
             input_mapper,
+            inputs: initial_inputs,
             save_writer,
             sdl,
             event_pump,
@@ -473,7 +474,7 @@ where
                 .tick(
                     &mut self.renderer,
                     &mut self.audio_output,
-                    self.input_mapper.inputs(),
+                    &self.inputs,
                     &mut self.save_writer,
                 )
                 .map_err(|err| NativeEmulatorError::Emulator(err.into()))?
@@ -544,23 +545,8 @@ where
             }
         }
 
-        let hotkey_events = self.input_mapper.hotkey_events();
-        {
-            let mut hotkey_events = hotkey_events.borrow_mut();
-            for &hotkey_event in &*hotkey_events {
-                match self.handle_hotkey_event(hotkey_event)? {
-                    Some(HotkeyEffect::PowerOff) => {
-                        self.hotkey_state.debugger_window = None;
-                        return Ok(Some(NativeTickEffect::PowerOff));
-                    }
-                    Some(HotkeyEffect::Exit) => {
-                        self.hotkey_state.debugger_window = None;
-                        return Ok(Some(NativeTickEffect::Exit));
-                    }
-                    None => {}
-                }
-            }
-            hotkey_events.clear();
+        if let Some(effect) = self.process_input_events()? {
+            return Ok(Some(effect));
         }
 
         if rewinding {
@@ -574,6 +560,39 @@ where
         if !should_run_emulator {
             // Don't spin loop when the emulator is paused or rewinding
             thread::sleep(Duration::from_millis(1));
+        }
+
+        Ok(None)
+    }
+
+    fn process_input_events(&mut self) -> NativeEmulatorResult<Option<NativeTickEffect>> {
+        let input_events = self.input_mapper.input_events();
+        for event in input_events.borrow_mut().drain(..) {
+            match event {
+                InputEvent::Button { button, player, pressed } => {
+                    self.inputs.set_field(button, player, pressed);
+                }
+                InputEvent::MouseMotion { x, y, frame_size, display_area } => {
+                    self.inputs.handle_mouse_motion(x, y, frame_size, display_area);
+                }
+                InputEvent::MouseLeave => {
+                    self.inputs.handle_mouse_leave();
+                }
+                InputEvent::Hotkey { hotkey, pressed } => {
+                    let effect = self.handle_hotkey_event(hotkey, pressed)?;
+                    match effect {
+                        Some(HotkeyEffect::PowerOff) => {
+                            self.hotkey_state.debugger_window = None;
+                            return Ok(Some(NativeTickEffect::PowerOff));
+                        }
+                        Some(HotkeyEffect::Exit) => {
+                            self.hotkey_state.debugger_window = None;
+                            return Ok(Some(NativeTickEffect::Exit));
+                        }
+                        None => {}
+                    }
+                }
+            }
         }
 
         Ok(None)
@@ -669,24 +688,24 @@ where
 
     fn handle_hotkey_event(
         &mut self,
-        event: HotkeyEvent,
+        hotkey: Hotkey,
+        pressed: bool,
     ) -> NativeEmulatorResult<Option<HotkeyEffect>> {
-        match event {
-            HotkeyEvent::Pressed(hotkey) => {
-                if let Some(effect) = self.handle_hotkey_pressed(hotkey)? {
-                    return Ok(Some(effect));
-                }
+        if pressed {
+            let effect = self.handle_hotkey_pressed(hotkey)?;
+            return Ok(effect);
+        }
+        // else, hotkey released
+
+        match hotkey {
+            Hotkey::FastForward => {
+                self.renderer.set_speed_multiplier(1);
+                self.audio_output.set_speed_multiplier(1);
             }
-            HotkeyEvent::Released(hotkey) => match hotkey {
-                Hotkey::FastForward => {
-                    self.renderer.set_speed_multiplier(1);
-                    self.audio_output.set_speed_multiplier(1);
-                }
-                Hotkey::Rewind => {
-                    self.hotkey_state.rewinder.stop_rewinding();
-                }
-                _ => {}
-            },
+            Hotkey::Rewind => {
+                self.hotkey_state.rewinder.stop_rewinding();
+            }
+            _ => {}
         }
 
         Ok(None)

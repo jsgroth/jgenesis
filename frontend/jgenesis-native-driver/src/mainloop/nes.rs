@@ -44,7 +44,7 @@ impl NativeNesEmulator {
             &config.inputs.to_mapping_vec(),
             &config.common.hotkey_config.to_mapping_vec(),
         );
-        self.input_mapper.inputs_mut().p2 = config.inputs.p2_type.to_input_device();
+        self.inputs.p2 = config.inputs.p2_type.to_input_device();
 
         Ok(())
     }

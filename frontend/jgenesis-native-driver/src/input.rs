@@ -1,5 +1,5 @@
 use arrayvec::ArrayVec;
-use jgenesis_common::frontend::{DisplayArea, FrameSize, MappableInputs};
+use jgenesis_common::frontend::{DisplayArea, FrameSize};
 use jgenesis_common::input::Player;
 use jgenesis_native_config::input::{
     AxisDirection, GamepadAction, GenericInput, HatDirection, Hotkey,
@@ -65,10 +65,12 @@ pub enum GenericButton<Button> {
     Hotkey(Hotkey),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum HotkeyEvent {
-    Pressed(Hotkey),
-    Released(Hotkey),
+#[derive(Debug, Clone, Copy)]
+pub enum InputEvent<Button> {
+    Button { button: Button, player: Player, pressed: bool },
+    MouseMotion { x: f32, y: f32, frame_size: FrameSize, display_area: DisplayArea },
+    MouseLeave,
+    Hotkey { hotkey: Hotkey, pressed: bool },
 }
 
 pub struct Joysticks {
@@ -161,9 +163,8 @@ impl Joysticks {
     }
 }
 
-struct InputMapperState<Inputs, Button> {
-    inputs: Inputs,
-    hotkey_events: Rc<RefCell<Vec<HotkeyEvent>>>,
+struct InputMapperState<Button> {
+    input_events: Rc<RefCell<Vec<InputEvent<Button>>>>,
     mappings: FxHashMap<GenericButton<Button>, Vec<MappingArrayVec>>,
     inputs_to_buttons: FxHashMap<CanonicalInput, Vec<GenericButton<Button>>>,
     active_inputs: FxHashSet<GenericInput>,
@@ -172,15 +173,13 @@ struct InputMapperState<Inputs, Button> {
     changed_button_buffers: [Vec<GenericButton<Button>>; MAX_MAPPING_LEN + 1],
 }
 
-impl<Inputs, Button> InputMapperState<Inputs, Button>
+impl<Button> InputMapperState<Button>
 where
     Button: Debug + Copy + Hash + Eq,
-    Inputs: MappableInputs<Button>,
 {
-    fn new(initial_inputs: Inputs) -> Self {
+    fn new() -> Self {
         Self {
-            inputs: initial_inputs,
-            hotkey_events: Rc::new(RefCell::new(Vec::with_capacity(10))),
+            input_events: Rc::new(RefCell::new(Vec::with_capacity(10))),
             mappings: FxHashMap::default(),
             inputs_to_buttons: FxHashMap::default(),
             active_inputs: FxHashSet::default(),
@@ -325,13 +324,21 @@ where
 
                 match button {
                     GenericButton::Button(button, player) => {
-                        self.inputs.set_field(button, player, pressed);
+                        self.input_events.borrow_mut().push(InputEvent::Button {
+                            button,
+                            player,
+                            pressed,
+                        });
                     }
                     GenericButton::Hotkey(hotkey) => {
                         if pressed && self.active_hotkeys.insert(hotkey) {
-                            self.hotkey_events.borrow_mut().push(HotkeyEvent::Pressed(hotkey));
+                            self.input_events
+                                .borrow_mut()
+                                .push(InputEvent::Hotkey { hotkey, pressed: true });
                         } else if !pressed && self.active_hotkeys.remove(&hotkey) {
-                            self.hotkey_events.borrow_mut().push(HotkeyEvent::Released(hotkey));
+                            self.input_events
+                                .borrow_mut()
+                                .push(InputEvent::Hotkey { hotkey, pressed: false });
                         }
                     }
                 }
@@ -361,19 +368,17 @@ where
     }
 }
 
-pub struct InputMapper<Inputs, Button> {
+pub struct InputMapper<Button> {
     joysticks: Joysticks,
     axis_deadzone: i16,
-    state: InputMapperState<Inputs, Button>,
+    state: InputMapperState<Button>,
 }
 
-impl<Inputs, Button> InputMapper<Inputs, Button>
+impl<Button> InputMapper<Button>
 where
     Button: Debug + Copy + Hash + Eq,
-    Inputs: MappableInputs<Button>,
 {
     pub fn new(
-        initial_inputs: Inputs,
         joystick_subsystem: JoystickSubsystem,
         axis_deadzone: i16,
         button_mappings: &[((Button, Player), &Vec<GenericInput>)],
@@ -381,14 +386,10 @@ where
     ) -> Self {
         let joysticks = Joysticks::new(joystick_subsystem);
 
-        let mut state = InputMapperState::new(initial_inputs);
+        let mut state = InputMapperState::new();
         state.update_mappings(button_mappings, hotkey_mappings);
 
         Self { joysticks, axis_deadzone, state }
-    }
-
-    pub fn inputs_mut(&mut self) -> &mut Inputs {
-        &mut self.state.inputs
     }
 
     pub fn update_mappings(
@@ -432,13 +433,18 @@ where
             }
             Event::MouseMotion { x, y, window_id, .. } if window_id == emulator_window_id => {
                 if let Some((frame_size, display_area)) = display_info {
-                    self.state.inputs.handle_mouse_motion(x, y, frame_size, display_area);
+                    self.state.input_events.borrow_mut().push(InputEvent::MouseMotion {
+                        x,
+                        y,
+                        frame_size,
+                        display_area,
+                    });
                 }
             }
             Event::Window { win_event: WindowEvent::MouseLeave, window_id, .. }
                 if window_id == emulator_window_id =>
             {
-                self.state.inputs.handle_mouse_leave();
+                self.state.input_events.borrow_mut().push(InputEvent::MouseLeave);
             }
             Event::JoyButtonDown { which, button_idx, .. } => {
                 let Some(gamepad_idx) = self.joysticks.map_to_device_id(which) else { return };
@@ -529,16 +535,13 @@ where
         }
     }
 
-    pub fn hotkey_events(&self) -> Rc<RefCell<Vec<HotkeyEvent>>> {
-        Rc::clone(&self.state.hotkey_events)
+    #[must_use]
+    pub fn input_events(&self) -> Rc<RefCell<Vec<InputEvent<Button>>>> {
+        Rc::clone(&self.state.input_events)
     }
 }
 
-impl<Inputs, Button> InputMapper<Inputs, Button> {
-    pub fn inputs(&self) -> &Inputs {
-        &self.state.inputs
-    }
-
+impl<Button> InputMapper<Button> {
     pub fn joysticks_mut(&mut self) -> &mut Joysticks {
         &mut self.joysticks
     }
@@ -559,21 +562,72 @@ fn is_hat_direction_pressed(direction: HatDirection, state: HatState) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use jgenesis_common::frontend::MappableInputs;
     use smsgg_config::{SmsGgButton, SmsGgInputs};
-    use std::mem;
+    use std::marker::PhantomData;
 
-    fn take_hotkey_events<I, B>(state: &mut InputMapperState<I, B>) -> Vec<HotkeyEvent> {
-        mem::take(&mut *state.hotkey_events.borrow_mut())
+    struct TestState<B, I: MappableInputs<B>> {
+        inputs: I,
+        hotkeys: FxHashSet<Hotkey>,
+        _marker: PhantomData<B>,
     }
 
-    fn into_hash_set<T: Hash + Eq>(v: impl IntoIterator<Item = T>) -> FxHashSet<T> {
-        v.into_iter().collect()
+    impl<B, I> TestState<B, I>
+    where
+        B: Debug + Copy + Eq + Hash,
+        I: Default + MappableInputs<B>,
+    {
+        fn new() -> Self {
+            Self { inputs: I::default(), hotkeys: FxHashSet::default(), _marker: PhantomData }
+        }
+
+        fn handle_input(
+            &mut self,
+            state: &mut InputMapperState<B>,
+            input: GenericInput,
+            pressed: bool,
+        ) {
+            state.handle_input(input, pressed);
+            take_events(&mut self.inputs, &mut self.hotkeys, state);
+        }
+    }
+
+    fn new_smsgg_state() -> TestState<SmsGgButton, SmsGgInputs> {
+        TestState::new()
+    }
+
+    fn take_events<I, B>(
+        inputs: &mut I,
+        hotkeys: &mut FxHashSet<Hotkey>,
+        state: &mut InputMapperState<B>,
+    ) where
+        I: MappableInputs<B>,
+    {
+        for event in state.input_events.borrow_mut().drain(..) {
+            match event {
+                InputEvent::Button { button, player, pressed } => {
+                    inputs.set_field(button, player, pressed);
+                }
+                InputEvent::Hotkey { hotkey, pressed } => {
+                    if pressed {
+                        hotkeys.insert(hotkey);
+                    } else {
+                        hotkeys.remove(&hotkey);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn into_hash_set<H: Eq + Hash>(iter: impl IntoIterator<Item = H>) -> FxHashSet<H> {
+        iter.into_iter().collect()
     }
 
     #[test]
     fn basic_mapping() {
-        let mut state = InputMapperState::new(SmsGgInputs::default());
-        state.update_mappings(
+        let mut input_state = InputMapperState::new();
+        input_state.update_mappings(
             &[
                 ((SmsGgButton::Button1, Player::One), &vec![GenericInput::Keyboard(Keycode::F)]),
                 ((SmsGgButton::Button1, Player::Two), &vec![GenericInput::Keyboard(Keycode::G)]),
@@ -582,70 +636,67 @@ mod tests {
             &[(Hotkey::FastForward, &vec![GenericInput::Keyboard(Keycode::H)])],
         );
 
+        let mut state = new_smsgg_state();
         let mut expected = SmsGgInputs::default();
         assert_eq!(expected, state.inputs);
-        assert_eq!(*state.hotkey_events.borrow(), vec![]);
+        assert_eq!(state.hotkeys, FxHashSet::default());
 
-        state.handle_input(GenericInput::Keyboard(Keycode::F), true);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::F), true);
         expected.p1.button1 = true;
         assert_eq!(expected, state.inputs);
-        assert_eq!(*state.hotkey_events.borrow(), vec![]);
+        assert_eq!(state.hotkeys, FxHashSet::default());
 
-        state.handle_input(GenericInput::Keyboard(Keycode::G), true);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::G), true);
         expected.p2.button1 = true;
         assert_eq!(expected, state.inputs);
-        assert_eq!(*state.hotkey_events.borrow(), vec![]);
+        assert_eq!(state.hotkeys, FxHashSet::default());
 
-        state.handle_input(GenericInput::Keyboard(Keycode::F), false);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::F), false);
         expected.p1.button1 = false;
         assert_eq!(expected, state.inputs);
-        assert_eq!(*state.hotkey_events.borrow(), vec![]);
+        assert_eq!(state.hotkeys, FxHashSet::default());
 
-        state.handle_input(GenericInput::Keyboard(Keycode::H), true);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::H), true);
         assert_eq!(expected, state.inputs);
-        assert_eq!(*state.hotkey_events.borrow(), vec![HotkeyEvent::Pressed(Hotkey::FastForward)]);
+        assert_eq!(state.hotkeys, into_hash_set([Hotkey::FastForward]));
 
-        state.handle_input(GenericInput::Keyboard(Keycode::H), false);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::H), false);
         assert_eq!(expected, state.inputs);
-        assert_eq!(
-            *state.hotkey_events.borrow(),
-            vec![
-                HotkeyEvent::Pressed(Hotkey::FastForward),
-                HotkeyEvent::Released(Hotkey::FastForward),
-            ]
-        );
+        assert_eq!(state.hotkeys, FxHashSet::default());
     }
 
     #[test]
     fn one_mapping_button_and_hotkey() {
-        let mut state = InputMapperState::new(SmsGgInputs::default());
-        state.update_mappings(
+        let mut input_state = InputMapperState::new();
+        input_state.update_mappings(
             &[((SmsGgButton::Button1, Player::One), &vec![GenericInput::Keyboard(Keycode::F)])],
             &[(Hotkey::SaveState, &vec![GenericInput::Keyboard(Keycode::F)])],
         );
 
+        let mut state = new_smsgg_state();
+
         let mut expected_inputs = SmsGgInputs::default();
-        let mut expected_hotkeys: Vec<HotkeyEvent> = vec![];
+        let mut expected_hotkeys: FxHashSet<Hotkey> = FxHashSet::default();
         assert_eq!(expected_inputs, state.inputs);
-        assert_eq!(expected_hotkeys, take_hotkey_events(&mut state));
+        assert_eq!(expected_hotkeys, state.hotkeys);
 
-        state.handle_input(GenericInput::Keyboard(Keycode::F), true);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::F), true);
         expected_inputs.p1.button1 = true;
-        expected_hotkeys = vec![HotkeyEvent::Pressed(Hotkey::SaveState)];
+        expected_hotkeys.insert(Hotkey::SaveState);
         assert_eq!(expected_inputs, state.inputs);
-        assert_eq!(expected_hotkeys, take_hotkey_events(&mut state));
+        assert_eq!(expected_hotkeys, state.hotkeys);
 
-        state.handle_input(GenericInput::Keyboard(Keycode::F), false);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::F), false);
         expected_inputs.p1.button1 = false;
-        expected_hotkeys = vec![HotkeyEvent::Released(Hotkey::SaveState)];
+        expected_hotkeys.remove(&Hotkey::SaveState);
         assert_eq!(expected_inputs, state.inputs);
-        assert_eq!(expected_hotkeys, take_hotkey_events(&mut state));
+        assert_eq!(expected_hotkeys, state.hotkeys);
     }
 
     #[test]
     fn two_mappings_same_button() {
-        let mut state = InputMapperState::new(SmsGgInputs::default());
-        state.update_mappings(
+        let mut input_state = InputMapperState::new();
+        input_state.update_mappings(
             &[
                 ((SmsGgButton::Button1, Player::One), &vec![GenericInput::Keyboard(Keycode::F)]),
                 ((SmsGgButton::Button1, Player::One), &vec![GenericInput::Keyboard(Keycode::G)]),
@@ -653,28 +704,30 @@ mod tests {
             &[],
         );
 
+        let mut state = new_smsgg_state();
+
         let mut expected = SmsGgInputs::default();
         assert_eq!(expected, state.inputs);
 
-        state.handle_input(GenericInput::Keyboard(Keycode::F), true);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::F), true);
         expected.p1.button1 = true;
         assert_eq!(expected, state.inputs, "one mapping pressed");
 
-        state.handle_input(GenericInput::Keyboard(Keycode::G), true);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::G), true);
         assert_eq!(expected, state.inputs, "two mappings pressed");
 
-        state.handle_input(GenericInput::Keyboard(Keycode::G), false);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::G), false);
         assert_eq!(expected, state.inputs, "one mapping released, one still pressed");
 
-        state.handle_input(GenericInput::Keyboard(Keycode::F), false);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::F), false);
         expected.p1.button1 = false;
         assert_eq!(expected, state.inputs, "both mappings released");
     }
 
     #[test]
     fn one_mapping_three_buttons() {
-        let mut state = InputMapperState::new(SmsGgInputs::default());
-        state.update_mappings(
+        let mut input_state = InputMapperState::new();
+        input_state.update_mappings(
             &[
                 ((SmsGgButton::Button1, Player::One), &vec![GenericInput::Keyboard(Keycode::F)]),
                 ((SmsGgButton::Button2, Player::One), &vec![GenericInput::Keyboard(Keycode::F)]),
@@ -683,16 +736,18 @@ mod tests {
             &[],
         );
 
+        let mut state = new_smsgg_state();
+
         let mut expected = SmsGgInputs::default();
         assert_eq!(expected, state.inputs);
 
-        state.handle_input(GenericInput::Keyboard(Keycode::F), true);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::F), true);
         expected.p1.button1 = true;
         expected.p1.button2 = true;
         expected.pause = true;
         assert_eq!(expected, state.inputs, "mapping pressed");
 
-        state.handle_input(GenericInput::Keyboard(Keycode::F), false);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::F), false);
         expected.p1.button1 = false;
         expected.p1.button2 = false;
         expected.pause = false;
@@ -701,8 +756,8 @@ mod tests {
 
     #[test]
     fn combination_mapping() {
-        let mut state = InputMapperState::new(SmsGgInputs::default());
-        state.update_mappings(
+        let mut input_state = InputMapperState::new();
+        input_state.update_mappings(
             &[(
                 (SmsGgButton::Button1, Player::One),
                 &vec![
@@ -714,42 +769,44 @@ mod tests {
             &[],
         );
 
+        let mut state = new_smsgg_state();
+
         let mut expected = SmsGgInputs::default();
         assert_eq!(expected, state.inputs);
 
-        state.handle_input(GenericInput::Keyboard(Keycode::F), true);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::F), true);
         assert_eq!(expected, state.inputs, "1/3 pressed (1)");
 
-        state.handle_input(GenericInput::Keyboard(Keycode::H), true);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::H), true);
         assert_eq!(expected, state.inputs, "2/3 pressed (2)");
 
-        state.handle_input(GenericInput::Keyboard(Keycode::F), false);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::F), false);
         assert_eq!(expected, state.inputs, "1/3 pressed (3)");
 
-        state.handle_input(GenericInput::Keyboard(Keycode::G), true);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::G), true);
         assert_eq!(expected, state.inputs, "2/3 pressed (4)");
 
-        state.handle_input(GenericInput::Keyboard(Keycode::F), true);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::F), true);
         expected.p1.button1 = true;
         assert_eq!(expected, state.inputs, "3/3 pressed (5)");
 
-        state.handle_input(GenericInput::Keyboard(Keycode::H), false);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::H), false);
         expected.p1.button1 = false;
         assert_eq!(expected, state.inputs, "2/3 pressed (6)");
 
-        state.handle_input(GenericInput::Keyboard(Keycode::H), true);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::H), true);
         expected.p1.button1 = true;
         assert_eq!(expected, state.inputs, "3/3 pressed (7)");
 
-        state.handle_input(GenericInput::Keyboard(Keycode::G), false);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::G), false);
         expected.p1.button1 = false;
         assert_eq!(expected, state.inputs, "2/3 pressed (8)");
     }
 
     #[test]
     fn combination_length_priority_basic() {
-        let mut state = InputMapperState::new(SmsGgInputs::default());
-        state.update_mappings(
+        let mut input_state = InputMapperState::new();
+        input_state.update_mappings(
             &[],
             &[
                 (
@@ -763,38 +820,38 @@ mod tests {
             ],
         );
 
-        let mut expected: Vec<HotkeyEvent> = vec![];
-        assert_eq!(expected, take_hotkey_events(&mut state));
+        let mut state = new_smsgg_state();
 
-        state.handle_input(GenericInput::Keyboard(Keycode::F1), true);
-        expected = vec![HotkeyEvent::Pressed(Hotkey::LoadState)];
-        assert_eq!(expected, take_hotkey_events(&mut state), "single key pressed");
+        let mut expected: FxHashSet<Hotkey> = FxHashSet::default();
+        assert_eq!(expected, state.hotkeys);
 
-        state.handle_input(GenericInput::Keyboard(Keycode::F1), false);
-        expected = vec![HotkeyEvent::Released(Hotkey::LoadState)];
-        assert_eq!(expected, take_hotkey_events(&mut state), "single key pressed & released");
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::F1), true);
+        expected.insert(Hotkey::LoadState);
+        assert_eq!(expected, state.hotkeys, "single key pressed");
 
-        state.handle_input(GenericInput::Keyboard(Keycode::LShift), true);
-        expected = vec![];
-        assert_eq!(expected, take_hotkey_events(&mut state), "1/2 pressed");
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::F1), false);
+        expected.remove(&Hotkey::LoadState);
+        assert_eq!(expected, state.hotkeys, "single key pressed & released");
 
-        state.handle_input(GenericInput::Keyboard(Keycode::F1), true);
-        expected = vec![HotkeyEvent::Pressed(Hotkey::SaveState)];
-        assert_eq!(expected, take_hotkey_events(&mut state), "2/2 pressed");
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::LShift), true);
+        assert_eq!(expected, state.hotkeys, "1/2 pressed");
 
-        state.handle_input(GenericInput::Keyboard(Keycode::F1), false);
-        expected = vec![HotkeyEvent::Released(Hotkey::SaveState)];
-        assert_eq!(expected, take_hotkey_events(&mut state), "1/2 released");
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::F1), true);
+        expected.insert(Hotkey::SaveState);
+        assert_eq!(expected, state.hotkeys, "2/2 pressed");
 
-        state.handle_input(GenericInput::Keyboard(Keycode::LShift), false);
-        expected = vec![];
-        assert_eq!(expected, take_hotkey_events(&mut state), "2/2 released");
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::F1), false);
+        expected.remove(&Hotkey::SaveState);
+        assert_eq!(expected, state.hotkeys, "1/2 released");
+
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::LShift), false);
+        assert_eq!(expected, state.hotkeys, "2/2 released");
     }
 
     #[test]
     fn combination_length_priority_weird() {
-        let mut state = InputMapperState::new(SmsGgInputs::default());
-        state.update_mappings(
+        let mut input_state = InputMapperState::new();
+        input_state.update_mappings(
             &[],
             &[
                 (
@@ -808,45 +865,40 @@ mod tests {
             ],
         );
 
-        let mut expected: Vec<HotkeyEvent> = vec![];
-        assert_eq!(expected, take_hotkey_events(&mut state));
+        let mut state = new_smsgg_state();
 
-        state.handle_input(GenericInput::Keyboard(Keycode::F1), true);
-        expected = vec![HotkeyEvent::Pressed(Hotkey::LoadState)];
-        assert_eq!(expected, take_hotkey_events(&mut state), "single key pressed");
+        let mut expected: FxHashSet<Hotkey> = FxHashSet::default();
+        assert_eq!(expected, state.hotkeys);
 
-        state.handle_input(GenericInput::Keyboard(Keycode::LShift), true);
-        expected = vec![HotkeyEvent::Pressed(Hotkey::SaveState)];
-        assert_eq!(expected, take_hotkey_events(&mut state), "combination secondary key pressed");
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::F1), true);
+        expected.insert(Hotkey::LoadState);
+        assert_eq!(expected, state.hotkeys, "single key pressed");
 
-        state.handle_input(GenericInput::Keyboard(Keycode::F1), false);
-        expected = vec![
-            HotkeyEvent::Released(Hotkey::SaveState),
-            HotkeyEvent::Released(Hotkey::LoadState),
-        ];
-        assert_eq!(
-            into_hash_set(expected),
-            into_hash_set(take_hotkey_events(&mut state)),
-            "single key + combination released"
-        );
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::LShift), true);
+        expected.insert(Hotkey::SaveState);
+        assert_eq!(expected, state.hotkeys, "combination secondary key pressed");
 
-        state.handle_input(GenericInput::Keyboard(Keycode::F1), true);
-        expected = vec![HotkeyEvent::Pressed(Hotkey::SaveState)];
-        assert_eq!(expected, take_hotkey_events(&mut state), "combination pressed second time");
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::F1), false);
+        expected.remove(&Hotkey::LoadState);
+        expected.remove(&Hotkey::SaveState);
+        assert_eq!(expected, state.hotkeys, "single key + combination released");
 
-        state.handle_input(GenericInput::Keyboard(Keycode::F1), false);
-        expected = vec![HotkeyEvent::Released(Hotkey::SaveState)];
-        assert_eq!(expected, take_hotkey_events(&mut state), "combination released second time");
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::F1), true);
+        expected.insert(Hotkey::SaveState);
+        assert_eq!(expected, state.hotkeys, "combination pressed second time");
 
-        state.handle_input(GenericInput::Keyboard(Keycode::LShift), false);
-        expected = vec![];
-        assert_eq!(expected, take_hotkey_events(&mut state), "combination secondary key released");
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::F1), false);
+        expected.remove(&Hotkey::SaveState);
+        assert_eq!(expected, state.hotkeys, "combination released second time");
+
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::LShift), false);
+        assert_eq!(expected, state.hotkeys, "combination secondary key released");
     }
 
     #[test]
     fn shift_canonicalization_basic() {
-        let mut state = InputMapperState::new(SmsGgInputs::default());
-        state.update_mappings(
+        let mut input_state = InputMapperState::new();
+        input_state.update_mappings(
             &[
                 (
                     (SmsGgButton::Button1, Player::One),
@@ -860,25 +912,27 @@ mod tests {
             &[],
         );
 
+        let mut state = new_smsgg_state();
+
         let mut expected = SmsGgInputs::default();
         assert_eq!(expected, state.inputs);
 
-        state.handle_input(GenericInput::Keyboard(Keycode::LShift), true);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::LShift), true);
         expected.p1.button1 = true;
         expected.p1.button2 = true;
         assert_eq!(expected, state.inputs, "Pressing LShift should trigger both Shift mappings");
 
-        state.handle_input(GenericInput::Keyboard(Keycode::LShift), false);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::LShift), false);
         expected.p1.button1 = false;
         expected.p1.button2 = false;
         assert_eq!(expected, state.inputs, "Releasing LShift should trigger both Shift mappings");
 
-        state.handle_input(GenericInput::Keyboard(Keycode::RShift), true);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::RShift), true);
         expected.p1.button1 = true;
         expected.p1.button2 = true;
         assert_eq!(expected, state.inputs, "Pressing RShift should trigger both Shift mappings");
 
-        state.handle_input(GenericInput::Keyboard(Keycode::RShift), false);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::RShift), false);
         expected.p1.button1 = false;
         expected.p1.button2 = false;
         assert_eq!(expected, state.inputs, "Releasing RShift should trigger both Shift mappings");
@@ -886,8 +940,8 @@ mod tests {
 
     #[test]
     fn shift_canonicalization_simultaneous() {
-        let mut state = InputMapperState::new(SmsGgInputs::default());
-        state.update_mappings(
+        let mut input_state = InputMapperState::new();
+        input_state.update_mappings(
             &[
                 (
                     (SmsGgButton::Button1, Player::One),
@@ -901,34 +955,36 @@ mod tests {
             &[],
         );
 
+        let mut state = new_smsgg_state();
+
         let mut expected = SmsGgInputs::default();
         assert_eq!(expected, state.inputs);
 
-        state.handle_input(GenericInput::Keyboard(Keycode::LShift), true);
-        state.handle_input(GenericInput::Keyboard(Keycode::RShift), true);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::LShift), true);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::RShift), true);
         expected.p1.button1 = true;
         expected.p1.button2 = true;
         assert_eq!(expected, state.inputs);
 
-        state.handle_input(GenericInput::Keyboard(Keycode::RShift), false);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::RShift), false);
         assert_eq!(
             expected, state.inputs,
             "Releasing RShift while LShift is held should not change mapping"
         );
 
-        state.handle_input(GenericInput::Keyboard(Keycode::RShift), true);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::RShift), true);
         assert_eq!(
             expected, state.inputs,
             "Pressing RShift while LShift is held should not change mapping"
         );
 
-        state.handle_input(GenericInput::Keyboard(Keycode::LShift), false);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::LShift), false);
         assert_eq!(
             expected, state.inputs,
             "Releasing LShift while RShift is held should not change mapping"
         );
 
-        state.handle_input(GenericInput::Keyboard(Keycode::RShift), false);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::RShift), false);
         expected.p1.button1 = false;
         expected.p1.button2 = false;
         assert_eq!(
