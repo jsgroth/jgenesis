@@ -642,7 +642,7 @@ impl Default for GameBoyInputConfig {
     }
 }
 
-define_controller_mapping!(GbaInputMapping, GbaButton, [
+define_controller_mapping!(GbaJoypadMapping, GbaButton, [
     up: Up,
     left: Left,
     right: Right,
@@ -655,7 +655,7 @@ define_controller_mapping!(GbaInputMapping, GbaButton, [
     select: Select,
 ]);
 
-impl GbaInputMapping {
+impl GbaJoypadMapping {
     #[must_use]
     pub fn keyboard_arrows() -> Self {
         Self {
@@ -689,6 +689,30 @@ impl GbaInputMapping {
     }
 }
 
+define_controller_mapping!(GbaSolarMapping, GbaButton, [
+    increase_brightness: SolarIncreaseBrightness,
+    decrease_brightness: SolarDecreaseBrightness,
+    min_brightness: SolarMinBrightness,
+    max_brightness: SolarMaxBrightness,
+]);
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ConfigDisplay)]
+pub struct GbaInputMapping {
+    #[serde(default)]
+    #[cfg_display(indent_nested)]
+    pub joypad: GbaJoypadMapping,
+    #[serde(default)]
+    #[cfg_display(indent_nested)]
+    pub solar: GbaSolarMapping,
+}
+
+impl GbaInputMapping {
+    fn to_mapping_vec<'a>(&'a self, out: &mut ButtonMappingVec<'a, GbaButton>) {
+        self.joypad.to_mapping_vec(Player::One, out);
+        self.solar.to_mapping_vec(Player::One, out);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
 pub struct GbaInputConfig {
     #[serde(default = "default_gba_mapping_1")]
@@ -704,15 +728,18 @@ impl GbaInputConfig {
     pub fn to_mapping_vec(&self) -> ButtonMappingVec<'_, GbaButton> {
         let mut out = Vec::new();
 
-        self.mapping_1.to_mapping_vec(Player::One, &mut out);
-        self.mapping_2.to_mapping_vec(Player::One, &mut out);
+        self.mapping_1.to_mapping_vec(&mut out);
+        self.mapping_2.to_mapping_vec(&mut out);
 
         out
     }
 }
 
 fn default_gba_mapping_1() -> GbaInputMapping {
-    GbaInputMapping::keyboard_arrows()
+    GbaInputMapping {
+        joypad: GbaJoypadMapping::keyboard_arrows(),
+        solar: GbaSolarMapping::default(),
+    }
 }
 
 impl Default for GbaInputConfig {

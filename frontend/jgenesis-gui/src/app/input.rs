@@ -8,15 +8,17 @@ use genesis_config::{GenesisButton, GenesisControllerType};
 use jgenesis_common::input::Player;
 use jgenesis_native_config::input::InputAppConfig;
 use jgenesis_native_config::input::mappings::{
-    GameBoyInputMapping, GbaInputMapping, GenesisControllerMapping, GenesisInputMapping,
-    HotkeyMapping, NesControllerMapping, NesControllerType, NesInputMapping, NesZapperMapping,
-    SmsGgControllerMapping, SmsGgInputMapping, SnesControllerMapping, SnesControllerType,
-    SnesInputMapping, SnesSuperScopeMapping,
+    GameBoyInputMapping, GbaInputMapping, GbaJoypadMapping, GbaSolarMapping,
+    GenesisControllerMapping, GenesisInputMapping, HotkeyMapping, NesControllerMapping,
+    NesControllerType, NesInputMapping, NesZapperMapping, SmsGgControllerMapping,
+    SmsGgInputMapping, SnesControllerMapping, SnesControllerType, SnesInputMapping,
+    SnesSuperScopeMapping,
 };
 use jgenesis_native_config::input::{GenericInput, Hotkey};
 use nes_config::NesButton;
 use smsgg_config::SmsGgButton;
 use snes_config::SnesButton;
+use std::mem;
 use std::sync::LazyLock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -227,6 +229,10 @@ fn gba_label(button: GbaButton) -> &'static str {
         R => "R:",
         Start => "Start:",
         Select => "Select:",
+        SolarIncreaseBrightness => "Increase brightness:",
+        SolarDecreaseBrightness => "Decrease brightness:",
+        SolarMinBrightness => "Set brightness to minimum:",
+        SolarMaxBrightness => "Set brightness to maximum:",
     }
 }
 
@@ -431,16 +437,20 @@ fn access_gba_value(
     let mapping_config = mapping.gba(config);
 
     match button {
-        GbaButton::Up => &mut mapping_config.up,
-        GbaButton::Left => &mut mapping_config.left,
-        GbaButton::Right => &mut mapping_config.right,
-        GbaButton::Down => &mut mapping_config.down,
-        GbaButton::A => &mut mapping_config.a,
-        GbaButton::B => &mut mapping_config.b,
-        GbaButton::L => &mut mapping_config.l,
-        GbaButton::R => &mut mapping_config.r,
-        GbaButton::Start => &mut mapping_config.start,
-        GbaButton::Select => &mut mapping_config.select,
+        GbaButton::Up => &mut mapping_config.joypad.up,
+        GbaButton::Left => &mut mapping_config.joypad.left,
+        GbaButton::Right => &mut mapping_config.joypad.right,
+        GbaButton::Down => &mut mapping_config.joypad.down,
+        GbaButton::A => &mut mapping_config.joypad.a,
+        GbaButton::B => &mut mapping_config.joypad.b,
+        GbaButton::L => &mut mapping_config.joypad.l,
+        GbaButton::R => &mut mapping_config.joypad.r,
+        GbaButton::Start => &mut mapping_config.joypad.start,
+        GbaButton::Select => &mut mapping_config.joypad.select,
+        GbaButton::SolarIncreaseBrightness => &mut mapping_config.solar.increase_brightness,
+        GbaButton::SolarDecreaseBrightness => &mut mapping_config.solar.decrease_brightness,
+        GbaButton::SolarMinBrightness => &mut mapping_config.solar.min_brightness,
+        GbaButton::SolarMaxBrightness => &mut mapping_config.solar.max_brightness,
     }
 }
 
@@ -975,8 +985,12 @@ impl App {
     }
 
     pub(super) fn render_gba_input_settings(&mut self, ctx: &Context) {
-        static BUTTONS: LazyLock<Vec<GenericButton>> =
-            LazyLock::new(|| GbaButton::ALL.into_iter().map(GenericButton::Gba).collect());
+        static BUTTONS: LazyLock<Vec<GenericButton>> = LazyLock::new(|| {
+            GbaButton::ALL
+                .into_iter()
+                .filter_map(|button| button.is_joypad().then_some(GenericButton::Gba(button)))
+                .collect()
+        });
 
         let mut open = true;
         Window::new("GBA Input Settings").open(&mut open).show(ctx, |ui| {
@@ -995,22 +1009,106 @@ impl App {
                     ui,
                     |ui| {
                         if ui.selectable_label(false, "Keyboard - Arrow movement").clicked() {
-                            *mapping_config = GbaInputMapping::keyboard_arrows();
+                            mapping_config.joypad = GbaJoypadMapping::keyboard_arrows();
                         }
 
                         if ui.selectable_label(false, "Keyboard - WASD movement").clicked() {
-                            *mapping_config = GbaInputMapping::keyboard_wasd();
+                            mapping_config.joypad = GbaJoypadMapping::keyboard_wasd();
                         }
                     },
                 );
 
                 if ui.button("Clear All").clicked() {
-                    *mapping_config = GbaInputMapping::default();
+                    mapping_config.joypad = GbaJoypadMapping::default();
                 }
             });
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GbaInput);
+        }
+    }
+
+    pub(super) fn render_gba_peripheral_settings(&mut self, ctx: &Context) {
+        const WINDOW: OpenWindow = OpenWindow::GbaPeripherals;
+
+        static SOLAR_BUTTONS: LazyLock<Vec<GenericButton>> = LazyLock::new(|| {
+            GbaButton::ALL
+                .into_iter()
+                .filter_map(|button| button.is_solar_sensor().then_some(GenericButton::Gba(button)))
+                .collect()
+        });
+
+        let mut open = true;
+        Window::new("GBA Peripheral Settings").open(&mut open).show(ctx, |ui| {
+            self.disable_if_waiting_for_input(ui);
+
+            let mapping = self.render_mapping_set_selector(WINDOW, ui);
+            ui.separator();
+
+            ui.heading("Solar Sensor");
+
+            self.render_input_buttons("solar_sensor_inputs", mapping, &SOLAR_BUTTONS, ui);
+
+            ui.add_space(15.0);
+
+            let mapping_config = mapping.gba(&mut self.config.input);
+            if ui.button("Clear All").clicked() {
+                mapping_config.solar = GbaSolarMapping::default();
+            }
+
+            ui.add_space(15.0);
+
+            let prev_slider_width = mem::replace(&mut ui.style_mut().spacing.slider_width, 200.0);
+
+            Grid::new("gba_solar_grid").show(ui, |ui| {
+                ui.label("Brightness step");
+
+                ui.add(Slider::new(
+                    &mut self.config.game_boy_advance.solar_brightness_step,
+                    1..=255,
+                ));
+
+                if ui.button("Default").clicked() {
+                    self.config.game_boy_advance.solar_brightness_step =
+                        gba_config::DEFAULT_SOLAR_BRIGHTNESS_STEP;
+                }
+
+                ui.end_row();
+
+                ui.label("Minimum brightness");
+
+                ui.add(Slider::new(
+                    &mut self.config.game_boy_advance.solar_min_brightness,
+                    0..=255,
+                ));
+
+                if ui.button("Default").clicked() {
+                    self.config.game_boy_advance.solar_min_brightness =
+                        gba_config::DEFAULT_SOLAR_MIN_BRIGHTNESS;
+                }
+
+                ui.end_row();
+
+                ui.label("Maximum brightness");
+
+                ui.add(Slider::new(
+                    &mut self.config.game_boy_advance.solar_max_brightness,
+                    0..=255,
+                ));
+
+                if ui.button("Default").clicked() {
+                    self.config.game_boy_advance.solar_max_brightness =
+                        gba_config::DEFAULT_SOLAR_MAX_BRIGHTNESS;
+                }
+
+                ui.end_row();
+            });
+
+            ui.style_mut().spacing.slider_width = prev_slider_width;
+        });
+
+        if !open {
+            self.state.open_windows.remove(&OpenWindow::GbaPeripherals);
         }
     }
 

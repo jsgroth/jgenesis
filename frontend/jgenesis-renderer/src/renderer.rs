@@ -5,6 +5,7 @@ use cfg_if::cfg_if;
 use jgenesis_common::frontend::{Color, DisplayArea, FrameSize, PixelAspectRatio, Renderer};
 use jgenesis_common::timeutils;
 use raw_window_handle::{HandleError, HasDisplayHandle, HasWindowHandle};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Debug;
@@ -1599,7 +1600,17 @@ impl<Window> WgpuRenderer<Window> {
 
     #[cfg(feature = "ttf")]
     pub fn add_modal(&mut self, text: String, duration: std::time::Duration) {
-        self.modal_renderer.add_modal(text, duration);
+        self.add_or_update_modal(None, text, duration);
+    }
+
+    #[cfg(feature = "ttf")]
+    pub fn add_or_update_modal(
+        &mut self,
+        id: Option<Cow<'static, str>>,
+        text: String,
+        duration: std::time::Duration,
+    ) {
+        self.modal_renderer.add_or_update_modal(id, text, duration);
     }
 
     pub fn reload(&mut self) {

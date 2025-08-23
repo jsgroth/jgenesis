@@ -4,7 +4,7 @@ use glyphon::{
     TextAtlas, TextBounds, TextRenderer,
 };
 use jgenesis_common::timeutils;
-use std::mem;
+use std::borrow::Cow;
 use std::time::Duration;
 use wgpu::util::DeviceExt;
 
@@ -23,13 +23,14 @@ impl Vertex {
     const ATTRIBUTES: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array![0 => Float32x2];
 
     const LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
-        array_stride: mem::size_of::<Self>() as u64,
+        array_stride: size_of::<Self>() as u64,
         step_mode: wgpu::VertexStepMode::Vertex,
         attributes: &Self::ATTRIBUTES,
     };
 }
 
 pub struct Modal {
+    id: Option<Cow<'static, str>>,
     text: String,
     expiry_nanos: u128,
 }
@@ -107,9 +108,25 @@ impl ModalRenderer {
         }
     }
 
-    pub fn add_modal(&mut self, text: String, duration: Duration) {
+    pub fn add_or_update_modal(
+        &mut self,
+        id: Option<Cow<'static, str>>,
+        text: String,
+        duration: Duration,
+    ) {
         let expiry_nanos = timeutils::current_time_nanos() + duration.as_nanos();
-        self.modals.push(Modal { text, expiry_nanos });
+
+        if let Some(id) = &id {
+            for modal in &mut self.modals {
+                if modal.id.as_ref().is_some_and(|other_id| other_id == id) {
+                    modal.text = text;
+                    modal.expiry_nanos = expiry_nanos;
+                    return;
+                }
+            }
+        }
+
+        self.modals.push(Modal { id, text, expiry_nanos });
     }
 
     pub fn prepare_modals(

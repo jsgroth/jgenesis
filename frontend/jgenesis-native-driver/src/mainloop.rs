@@ -571,6 +571,9 @@ where
             match event {
                 InputEvent::Button { button, player, pressed } => {
                     self.inputs.set_field(button, player, pressed);
+                    if let Some(modal) = self.inputs.modal_for_input(button, player, pressed) {
+                        self.renderer.add_or_update_modal(modal.id, modal.text, MODAL_DURATION);
+                    }
                 }
                 InputEvent::MouseMotion { x, y, frame_size, display_area } => {
                     self.inputs.handle_mouse_motion(x, y, frame_size, display_area);

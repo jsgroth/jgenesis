@@ -123,6 +123,7 @@ enum OpenWindow {
     SnesPeripherals,
     GameBoyInput,
     GbaInput,
+    GbaPeripherals,
     Hotkeys,
     About,
 }
@@ -863,10 +864,17 @@ impl App {
                 ui.close_menu();
             }
 
-            if ui.button("Game Boy Advance").clicked() {
-                self.state.open_windows.insert(OpenWindow::GbaInput);
-                ui.close_menu();
-            }
+            ui.menu_button("Game Boy Advance", |ui| {
+                if ui.button("Gamepad").clicked() {
+                    self.state.open_windows.insert(OpenWindow::GbaInput);
+                    ui.close_menu();
+                }
+
+                if ui.button("Peripherals").clicked() {
+                    self.state.open_windows.insert(OpenWindow::GbaPeripherals);
+                    ui.close_menu();
+                }
+            });
 
             ui.separator();
 
@@ -1054,6 +1062,7 @@ impl App {
                 OpenWindow::SnesPeripherals => self.render_snes_peripheral_settings(ctx),
                 OpenWindow::GameBoyInput => self.render_gb_input_settings(ctx),
                 OpenWindow::GbaInput => self.render_gba_input_settings(ctx),
+                OpenWindow::GbaPeripherals => self.render_gba_peripheral_settings(ctx),
                 OpenWindow::Hotkeys => self.render_hotkey_settings(ctx),
                 OpenWindow::About => self.render_about(ctx),
             }

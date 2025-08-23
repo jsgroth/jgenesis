@@ -39,16 +39,16 @@ impl InputState {
     // $4000130: KEYINPUT (Keypad input)
     pub fn read_keyinput(&self) -> u16 {
         [
-            (self.inputs.a, 0),
-            (self.inputs.b, 1),
-            (self.inputs.select, 2),
-            (self.inputs.start, 3),
-            (self.inputs.right, 4),
-            (self.inputs.left, 5),
-            (self.inputs.up, 6),
-            (self.inputs.down, 7),
-            (self.inputs.r, 8),
-            (self.inputs.l, 9),
+            (self.inputs.joypad.a, 0),
+            (self.inputs.joypad.b, 1),
+            (self.inputs.joypad.select, 2),
+            (self.inputs.joypad.start, 3),
+            (self.inputs.joypad.right, 4),
+            (self.inputs.joypad.left, 5),
+            (self.inputs.joypad.up, 6),
+            (self.inputs.joypad.down, 7),
+            (self.inputs.joypad.r, 8),
+            (self.inputs.joypad.l, 9),
         ]
         .into_iter()
         .map(|(pressed, bit)| u16::from(!pressed) << bit)

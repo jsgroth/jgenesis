@@ -1,5 +1,6 @@
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
+use std::borrow::Cow;
 use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
@@ -195,6 +196,11 @@ pub enum TickEffect {
 
 pub type TickResult<Err> = Result<TickEffect, Err>;
 
+pub struct InputModal {
+    pub id: Option<Cow<'static, str>>,
+    pub text: String,
+}
+
 pub trait MappableInputs<Button> {
     fn set_field(&mut self, button: Button, player: Player, pressed: bool);
 
@@ -209,6 +215,11 @@ pub trait MappableInputs<Button> {
     }
 
     fn handle_mouse_leave(&mut self) {}
+
+    #[allow(unused_variables)]
+    fn modal_for_input(&self, button: Button, player: Player, pressed: bool) -> Option<InputModal> {
+        None
+    }
 }
 
 pub trait EmulatorConfigTrait: Clone {
