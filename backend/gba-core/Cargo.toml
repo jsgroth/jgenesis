@@ -16,6 +16,7 @@ gba-config = { path = "../../config/gba-config" }
 gb-core = { path = "../gb-core" }
 
 bincode = { workspace = true, features = ["derive"] }
+crc = { workspace = true }
 log = { workspace = true }
 thiserror = { workspace = true }
 

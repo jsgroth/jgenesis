@@ -14,6 +14,7 @@ use crate::cartridge::solar::SolarSensor;
 use crate::dma::TransferUnit;
 use crate::interrupts::InterruptRegisters;
 use bincode::{Decode, Encode};
+use crc::Crc;
 use gba_config::GbaSaveMemory;
 use jgenesis_common::boxedarray::BoxedByteArray;
 use jgenesis_common::debug::{DebugBytesView, DebugMemoryView};
@@ -26,6 +27,8 @@ const MAX_ROM_LEN: usize = 32 * 1024 * 1024;
 const SRAM_LEN: usize = 32 * 1024;
 
 const GAME_CODE_ADDRESS: usize = 0x00000AC;
+
+const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 
 #[derive(Debug, FakeEncode, FakeDecode)]
 struct Rom(Box<[u8]>);
@@ -111,6 +114,15 @@ impl RwMemory {
         if let Some(forced_type) = forced_type {
             log::info!("Forcing save memory type to {}", forced_type.name());
             return Self::from_forced_type(initial_save, forced_type);
+        }
+
+        let rom_checksum = CRC.checksum(rom);
+        if rom_checksum == 0xDFC88D3E {
+            // Top Gun - Combat Zones (USA)
+            // Acts like it has save memory but hangs at the main menu if it can successfully write
+            // to anything
+            log::info!("Disabling save memory due to CRC32 match: {rom_checksum:08X}");
+            return Self::None;
         }
 
         for i in 0..rom.len() {
