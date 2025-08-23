@@ -1,8 +1,7 @@
-use crate::ppu::{BgAffineLatch, SCREEN_WIDTH, State};
+use crate::ppu::{BgAffineLatch, State};
 use bincode::{Decode, Encode};
 use jgenesis_common::define_bit_enum;
 use jgenesis_common::num::{GetBit, U16Ext};
-use std::ops::Range;
 use std::{array, iter};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
@@ -798,18 +797,6 @@ impl Registers {
                 blend: self.window_out_blend_enabled,
             },
         }
-    }
-
-    pub fn effective_window_x2(&self) -> [u32; 2] {
-        // If X2 < X1, the window is active for the entire line from X1 onwards
-        array::from_fn(|i| {
-            if self.window_x2[i] < self.window_x1[i] { SCREEN_WIDTH } else { self.window_x2[i] }
-        })
-    }
-
-    pub fn window_x_ranges(&self) -> [Range<u32>; 2] {
-        let effective_x2 = self.effective_window_x2();
-        array::from_fn(|i| self.window_x1[i]..effective_x2[i])
     }
 }
 

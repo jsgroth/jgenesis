@@ -994,10 +994,11 @@ impl Ppu {
             || self.registers.window_enabled[1]
             || self.registers.obj_window_enabled;
 
-        let window_x = self.registers.window_x_ranges();
+        let mut window_x_active: [bool; 2] =
+            array::from_fn(|i| self.registers.window_x1[i] > self.registers.window_x2[i]);
 
-        let window_y_active =
-            [0, 1].map(|i| self.registers.window_enabled[i] && self.state.window_y_active[i]);
+        let window_y_active: [bool; 2] =
+            array::from_fn(|i| self.registers.window_enabled[i] && self.state.window_y_active[i]);
 
         let obj_enabled = self.registers.obj_enabled && self.state.obj_enabled_latency == 0;
 
@@ -1005,12 +1006,15 @@ impl Ppu {
         let mut obj_mosaic_latch = ObjPixel::default();
 
         for pixel in 0..SCREEN_WIDTH {
-            let window_active = [0, 1].map(|i| window_y_active[i] && window_x[i].contains(&pixel));
+            for (i, window_x_active) in window_x_active.iter_mut().enumerate() {
+                *window_x_active |= pixel == self.registers.window_x1[i];
+                *window_x_active &= pixel != self.registers.window_x2[i];
+            }
 
             let window_layers_enabled = if any_window_enabled {
-                let window = if window_active[0] {
+                let window = if window_y_active[0] && window_x_active[0] {
                     Window::Inside0
-                } else if window_active[1] {
+                } else if window_y_active[1] && window_x_active[1] {
                     Window::Inside1
                 } else if self.buffers.obj_window[pixel as usize] {
                     Window::InsideObj
