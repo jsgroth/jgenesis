@@ -5,6 +5,7 @@ use cfg_if::cfg_if;
 use jgenesis_common::frontend::{Color, DisplayArea, FrameSize, PixelAspectRatio, Renderer};
 use jgenesis_common::timeutils;
 use raw_window_handle::{HandleError, HasDisplayHandle, HasWindowHandle};
+#[cfg(feature = "ttf")]
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::error::Error;
@@ -574,28 +575,22 @@ impl PrescaleShader {
         limits: &wgpu::Limits,
         shaders: &Shaders,
     ) -> Option<Self> {
-        let prescale_factor = match renderer_config.prescale_mode {
-            PrescaleMode::Auto => {
-                let width_ratio = (f64::from(display_area.width)
-                    / f64::from(frame_size.width)
-                    / f64::from(pixel_aspect_ratio.unwrap_or(PixelAspectRatio::SQUARE)))
-                .floor() as u32;
-                let height_ratio = display_area.height / frame_size.height;
-                let prescale_factor = cmp::max(1, cmp::max(width_ratio, height_ratio));
+        let (prescale_width, prescale_height) = determine_prescale_factors(
+            renderer_config.prescale_mode,
+            frame_size,
+            pixel_aspect_ratio,
+            display_area,
+            input.size(),
+            limits,
+        );
 
-                log::info!(
-                    "Auto-prescale setting prescale factor to {prescale_factor}x (measured width scale {width_ratio} and height_scale {height_ratio})"
-                );
-
-                prescale_factor
-            }
-            PrescaleMode::Manual(factor) => factor.get(),
-        };
-        let prescale_factor = clamp_prescale_factor(prescale_factor, input.size(), limits);
-
-        if prescale_factor <= 1 {
+        if prescale_width <= 1 && prescale_height <= 1 {
             return None;
         }
+
+        log::info!(
+            "Creating prescale shader with width factor {prescale_width}x and height factor {prescale_height}x",
+        );
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: "prescale_bind_group_layout".into(),
@@ -625,7 +620,7 @@ impl PrescaleShader {
 
         let prescale_factor_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: "prescale_factor_buffer".into(),
-            contents: bytemuck::cast_slice(&padded_u32(prescale_factor)),
+            contents: bytemuck::cast_slice(&padded_two_u32(prescale_width, prescale_height)),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
         });
 
@@ -659,8 +654,8 @@ impl PrescaleShader {
         let scaled_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: "scaled_texture".into(),
             size: wgpu::Extent3d {
-                width: prescale_factor * input.width(),
-                height: prescale_factor * input.height(),
+                width: prescale_width * input.width(),
+                height: prescale_height * input.height(),
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -765,6 +760,10 @@ impl PreprocessShaderExt for PreprocessShader {
 // WebGL requires all uniforms to be padded to a multiple of 16 bytes
 fn padded_u32(value: u32) -> [u32; 4] {
     [value, 0, 0, 0]
+}
+
+fn padded_two_u32(value_0: u32, value_1: u32) -> [u32; 4] {
+    [value_0, value_1, 0, 0]
 }
 
 fn padded_f32(value: f32) -> [f32; 4] {
@@ -1087,24 +1086,54 @@ impl RenderingPipeline {
     }
 }
 
-fn clamp_prescale_factor(
-    prescale_factor: u32,
+fn determine_prescale_factors(
+    mode: PrescaleMode,
+    frame_size: FrameSize,
+    pixel_aspect_ratio: Option<PixelAspectRatio>,
+    display_area: DisplayArea,
     input_size: wgpu::Extent3d,
     limits: &wgpu::Limits,
-) -> u32 {
+) -> (u32, u32) {
+    let (target_width, target_height) = match mode {
+        PrescaleMode::Auto => {
+            let width = match pixel_aspect_ratio {
+                Some(par) => {
+                    let frame_aspect_ratio =
+                        f64::from(frame_size.width) / f64::from(frame_size.height);
+                    let screen_aspect_ratio = f64::from(par) * frame_aspect_ratio;
+                    f64::from(display_area.height) * screen_aspect_ratio
+                }
+                None => f64::from(display_area.width),
+            };
+            let height = f64::from(display_area.height);
+            (width, height)
+        }
+        PrescaleMode::Manual(factor) => {
+            let width = f64::from(factor.get() * frame_size.width);
+            let height = f64::from(factor.get() * frame_size.height);
+            (width, height)
+        }
+    };
+
+    let width_ratio = (target_width / f64::from(input_size.width)) as u32;
+    let height_ratio = (target_height / f64::from(input_size.height)) as u32;
+    let prescale_width = clamp_prescale_factor(width_ratio, input_size.width, limits);
+    let prescale_height = clamp_prescale_factor(height_ratio, input_size.height, limits);
+
+    (prescale_width, prescale_height)
+}
+
+fn clamp_prescale_factor(prescale_factor: u32, input_dimension: u32, limits: &wgpu::Limits) -> u32 {
     let max_dimension = limits.max_texture_dimension_2d;
-    let max_prescale_factor =
-        cmp::min(max_dimension / input_size.width, max_dimension / input_size.height);
+    let max_prescale_factor = max_dimension / input_dimension;
 
     if max_prescale_factor < prescale_factor {
         log::warn!(
-            "Prescale factor {prescale_factor} is too high for frame size {}x{}; reducing to {max_prescale_factor}",
-            input_size.width,
-            input_size.height
+            "Prescale factor {prescale_factor} is too high for frame dimension {input_dimension}; reducing to {max_prescale_factor}",
         );
     }
 
-    cmp::min(max_prescale_factor, prescale_factor)
+    prescale_factor.clamp(1, max_prescale_factor)
 }
 
 fn compute_vertices(
@@ -1537,6 +1566,11 @@ impl<Window> WgpuRenderer<Window> {
     }
 
     pub fn handle_resize(&mut self, size: WindowSize) {
+        if self.window_size == size {
+            // No change
+            return;
+        }
+
         self.window_size = size;
 
         self.surface_config.width = size.width;
@@ -1679,5 +1713,157 @@ impl<Window> Renderer for WgpuRenderer<Window> {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::PrescaleFactor;
+
+    fn basic_auto_prescale_test(
+        width: u32,
+        height: u32,
+        width_scale: u32,
+        height_scale: u32,
+    ) -> (u32, u32) {
+        determine_prescale_factors(
+            PrescaleMode::Auto,
+            FrameSize { width, height },
+            None,
+            DisplayArea { width: width * width_scale, height: height * height_scale, x: 0, y: 0 },
+            wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            &wgpu::Limits::default(),
+        )
+    }
+
+    #[test]
+    fn auto_prescale_square() {
+        let (width, height) = basic_auto_prescale_test(320, 240, 4, 4);
+
+        assert_eq!(width, 4);
+        assert_eq!(height, 4);
+    }
+
+    #[test]
+    fn auto_prescale_horizontal_rect() {
+        let (width, height) = basic_auto_prescale_test(320, 240, 4, 2);
+
+        assert_eq!(width, 4);
+        assert_eq!(height, 2);
+    }
+
+    #[test]
+    fn auto_prescale_vertical_rect() {
+        let (width, height) = basic_auto_prescale_test(320, 240, 2, 4);
+
+        assert_eq!(width, 2);
+        assert_eq!(height, 4);
+    }
+
+    #[test]
+    fn auto_prescale_squish_vertical() {
+        let (width, height) = determine_prescale_factors(
+            PrescaleMode::Auto,
+            FrameSize { width: 320, height: 480 },
+            Some(PixelAspectRatio::try_from(2.0).unwrap()),
+            DisplayArea { width: 320 * 4, height: 240 * 4, x: 0, y: 0 },
+            wgpu::Extent3d { width: 320, height: 480, depth_or_array_layers: 1 },
+            &wgpu::Limits::default(),
+        );
+
+        assert_eq!(width, 4);
+        assert_eq!(height, 2);
+    }
+
+    #[test]
+    fn auto_prescale_squish_horizontal() {
+        let (width, height) = determine_prescale_factors(
+            PrescaleMode::Auto,
+            FrameSize { width: 512, height: 240 },
+            Some(PixelAspectRatio::try_from(0.5).unwrap()),
+            DisplayArea { width: 256 * 4, height: 240 * 4, x: 0, y: 0 },
+            wgpu::Extent3d { width: 512, height: 240, depth_or_array_layers: 1 },
+            &wgpu::Limits::default(),
+        );
+
+        assert_eq!(width, 2);
+        assert_eq!(height, 4);
+    }
+
+    #[test]
+    fn auto_prescale_scaled_input() {
+        let (width, height) = determine_prescale_factors(
+            PrescaleMode::Auto,
+            FrameSize { width: 320, height: 240 },
+            None,
+            DisplayArea { width: 320 * 4, height: 240 * 4, x: 0, y: 0 },
+            wgpu::Extent3d { width: 320 * 2, height: 240, depth_or_array_layers: 1 },
+            &wgpu::Limits::default(),
+        );
+
+        assert_eq!(width, 2);
+        assert_eq!(height, 4);
+    }
+
+    #[test]
+    fn auto_prescale_round_down() {
+        let (width, height) = determine_prescale_factors(
+            PrescaleMode::Auto,
+            FrameSize { width: 320, height: 240 },
+            None,
+            DisplayArea { width: 320 * 11 / 4, height: 240 * 7 / 4, x: 0, y: 0 },
+            wgpu::Extent3d { width: 320, height: 240, depth_or_array_layers: 1 },
+            &wgpu::Limits::default(),
+        );
+
+        assert_eq!(width, 2);
+        assert_eq!(height, 1);
+    }
+
+    #[test]
+    fn auto_prescale_pixel_aspect_ratio() {
+        let (width, height) = determine_prescale_factors(
+            PrescaleMode::Auto,
+            FrameSize { width: 320, height: 240 },
+            Some(PixelAspectRatio::try_from(0.9).unwrap()),
+            DisplayArea { width: 320 * 2 * 9 / 10, height: 240 * 2, x: 0, y: 0 },
+            wgpu::Extent3d { width: 320, height: 240, depth_or_array_layers: 1 },
+            &wgpu::Limits::default(),
+        );
+
+        // Sub-1 pixel aspect ratio should drop prescale factor
+        assert_eq!(width, 1);
+        assert_eq!(height, 2);
+    }
+
+    #[test]
+    fn manual_prescale_basic() {
+        let (width, height) = determine_prescale_factors(
+            PrescaleMode::Manual(PrescaleFactor::try_from(5).unwrap()),
+            FrameSize { width: 320, height: 240 },
+            None,
+            DisplayArea { width: 320 * 5, height: 240 * 5, x: 0, y: 0 },
+            wgpu::Extent3d { width: 320, height: 240, depth_or_array_layers: 1 },
+            &wgpu::Limits::default(),
+        );
+
+        assert_eq!(width, 5);
+        assert_eq!(height, 5);
+    }
+
+    #[test]
+    fn manual_prescale_scaled_input() {
+        let (width, height) = determine_prescale_factors(
+            PrescaleMode::Manual(PrescaleFactor::try_from(5).unwrap()),
+            FrameSize { width: 320, height: 240 },
+            None,
+            DisplayArea { width: 320 * 5, height: 240 * 5, x: 0, y: 0 },
+            wgpu::Extent3d { width: 320 * 2, height: 240, depth_or_array_layers: 1 },
+            &wgpu::Limits::default(),
+        );
+
+        assert_eq!(width, 2);
+        assert_eq!(height, 5);
     }
 }

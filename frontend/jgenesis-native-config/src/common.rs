@@ -254,7 +254,7 @@ pub struct CommonAppConfig {
     pub vsync_mode: VSyncMode,
     #[serde(default = "true_fn")]
     pub frame_time_sync: bool,
-    #[serde(default)]
+    #[serde(default = "true_fn")]
     pub auto_prescale: bool,
     #[serde(default = "default_prescale_factor")]
     pub prescale_factor: PrescaleFactor,

@@ -224,6 +224,8 @@ impl App {
             .group(|ui| {
                 ui.label("Prescaling");
 
+                ui.checkbox(&mut self.config.common.auto_prescale, "Enable auto-prescale");
+
                 ui.horizontal(|ui| {
                     ui.add_enabled_ui(!self.config.common.auto_prescale, |ui| {
                         ui.label("Prescale factor:");
@@ -238,8 +240,6 @@ impl App {
                         }
                     });
                 });
-
-                ui.checkbox(&mut self.config.common.auto_prescale, "Enable auto-prescale");
             })
             .response
             .interact_rect;
