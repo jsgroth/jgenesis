@@ -1097,9 +1097,9 @@ impl Ppu {
 
             let mut blend_color = first_pixel.color;
 
-            if window_layers_enabled.blend
-                && (first_pixel.layer.is_1st_target_enabled(&self.registers)
-                    || first_pixel.semi_transparent)
+            if first_pixel.semi_transparent
+                || (window_layers_enabled.blend
+                    && first_pixel.layer.is_1st_target_enabled(&self.registers))
             {
                 let blend_mode = if first_pixel.semi_transparent {
                     BlendMode::AlphaBlending
@@ -1499,17 +1499,131 @@ impl Ppu {
         }
     }
 
+    // TODO this is not accurate
+    // PPU usually performs 1 palette RAM access per 4 cycles, but it will perform a second access
+    // if it needs to for alpha blending.
+    // In modes 3 and 5, it also skips accesses where the layer is BG2 (direct color bitmap)
     pub fn palette_ram_in_use(&self) -> bool {
-        // TODO this is not accurate
+        const RENDER_START_DOT: u32 = 46;
+
         !self.registers.forced_blanking
-            && !self.in_vblank()
-            && self.state.dot < HBLANK_START_DOT
+            && self.state.scanline < SCREEN_HEIGHT
+            && (RENDER_START_DOT..HBLANK_START_DOT).contains(&self.state.dot)
             && self.state.dot % 4 == 0
     }
 
-    pub fn vram_in_use(&self) -> bool {
-        // TODO this is not accurate
-        !self.registers.forced_blanking && !self.in_vblank() && self.state.dot < HBLANK_START_DOT
+    pub fn vram_in_use(&self, address: u32) -> bool {
+        if self.registers.forced_blanking || self.state.forced_blanking_latency != 0 {
+            return false;
+        }
+
+        let sprite_vram_start = if self.registers.bg_mode.is_bitmap() { 0x14000 } else { 0x10000 };
+        if address & 0x1FFFF < sprite_vram_start {
+            self.bg_vram_in_use()
+        } else {
+            self.sprite_vram_in_use()
+        }
+    }
+
+    fn bg_vram_in_use(&self) -> bool {
+        const FETCH_START_DOT: u32 = 30;
+
+        if self.state.scanline >= SCREEN_HEIGHT || self.state.dot >= HBLANK_START_DOT {
+            // No BG fetching during VBlank or HBlank
+            return false;
+        }
+
+        let is_bg_enabled =
+            |bg: usize| self.registers.bg_enabled[bg] && self.state.bg_enabled_latency[bg] == 0;
+
+        // Text BG access pattern (32-cycle batches):
+        //   4bpp: M--- T--- ---- ---- ---- T--- ---- ----
+        //   8bpp: M--- T--- ---- T--- ---- T--- ---- T---
+        // In mode 0, slots constantly cycle: BG0, BG1, BG2, BG3, BG0, BG1, etc.
+        // In mode 1, the BG2 and BG3 slots are both used for affine BG2
+        let check_text_bg = |bg: usize| {
+            if !is_bg_enabled(bg) {
+                return false;
+            }
+
+            // Fetching starts earlier if BG is using fine horizontal scrolling
+            let start_dot =
+                FETCH_START_DOT + (bg as u32) - 4 * (self.registers.bg_h_scroll[bg] % 8);
+            if self.state.dot < start_dot {
+                return false;
+            }
+
+            let offset = (self.state.dot - start_dot) % 32;
+            if offset % 4 != 0 {
+                return false;
+            }
+
+            // Check slots used for both 4bpp and 8bpp accesses
+            let slot = offset / 4;
+            if slot == 0 || slot == 1 || slot == 5 {
+                return true;
+            }
+
+            // If 8bpp, additionally check slots used for only 8bpp accesses
+            self.registers.bg_control[bg].bpp == BitsPerPixel::Eight && (slot == 3 || slot == 7)
+        };
+
+        // Affine BGs access during every cycle if enabled
+        // In mode 1, alternates between 2 cycles of BG0/1 (text), 2 cycles of BG2, 2 cycles of BG0/1, etc.
+        // In mode 2, alternates between 2 cycles of BG3, 2 cycles of BG2, 2 cycles of BG3, etc.
+        let check_affine_bg = |bg: usize| is_bg_enabled(bg) && self.state.dot >= FETCH_START_DOT;
+
+        let offset = self.state.dot % 4;
+        match self.registers.bg_mode {
+            BgMode::Zero => check_text_bg(offset as usize),
+            BgMode::One => {
+                if offset < 2 {
+                    check_text_bg(offset as usize)
+                } else {
+                    check_affine_bg(2)
+                }
+            }
+            BgMode::Two => check_affine_bg(2 + usize::from(offset < 2)),
+            _ => {
+                // Bitmap modes supposedly never block access to VRAM?
+                false
+            }
+        }
+    }
+
+    // TODO this is not entirely accurate - some even cycles only perform an OAM access, and some
+    // even cycles don't perform an access at all (e.g. for affine sprites)
+    fn sprite_vram_in_use(&self) -> bool {
+        const FETCH_START_DOT: u32 = 40;
+
+        if !self.registers.obj_enabled || self.state.obj_enabled_latency != 0 {
+            return false;
+        }
+
+        if self.state.dot % 2 != 0 {
+            // Sprite hardware only accesses VRAM/OAM on even cycles
+            return false;
+        }
+
+        if (SCREEN_HEIGHT..LINES_PER_FRAME - 1).contains(&self.state.scanline) {
+            // VBlank lines; sprite hardware is idle
+            return false;
+        }
+
+        if (self.state.scanline == SCREEN_HEIGHT - 1 && self.state.dot >= FETCH_START_DOT)
+            || (self.state.scanline == LINES_PER_FRAME - 1 && self.state.dot < FETCH_START_DOT)
+        {
+            // Too late in the last line (159) or too early in the first line (227)
+            return false;
+        }
+
+        let interval = if self.registers.oam_free_during_hblank {
+            FETCH_START_DOT..HBLANK_START_DOT
+        } else {
+            0..DOTS_PER_LINE
+        };
+
+        interval.contains(&self.state.dot)
     }
 
     pub fn read_register(

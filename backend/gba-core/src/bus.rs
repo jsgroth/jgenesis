@@ -714,11 +714,20 @@ impl Bus {
         self.ppu.write_palette_ram(address | 2, (value >> 16) as u16);
     }
 
+    fn block_until_vram_free(&mut self, address: u32) {
+        loop {
+            self.increment_cycles_with_prefetch(1);
+            self.sync_ppu();
+
+            if !self.ppu.vram_in_use(address) {
+                break;
+            }
+        }
+    }
+
     // $06000000-$06FFFFFF: VRAM
     fn read_vram_byte(&mut self, address: u32) -> u8 {
-        self.sync_ppu();
-
-        self.increment_cycles_with_prefetch(1 + u64::from(self.ppu.vram_in_use()));
+        self.block_until_vram_free(address);
 
         let byte = self.ppu.read_vram(address).to_le_bytes()[(address & 1) as usize];
         self.update_open_bus_byte(byte);
@@ -728,9 +737,7 @@ impl Bus {
 
     // $06000000-$06FFFFFF: VRAM
     fn read_vram_halfword(&mut self, address: u32) -> u16 {
-        self.sync_ppu();
-
-        self.increment_cycles_with_prefetch(1 + u64::from(self.ppu.vram_in_use()));
+        self.block_until_vram_free(address);
 
         let halfword = self.ppu.read_vram(address);
         self.update_open_bus_halfword(halfword);
@@ -740,9 +747,8 @@ impl Bus {
 
     // $06000000-$06FFFFFF: VRAM
     fn read_vram_word(&mut self, address: u32) -> u32 {
-        self.sync_ppu();
-
-        self.increment_cycles_with_prefetch(2 + u64::from(self.ppu.vram_in_use()));
+        self.block_until_vram_free(address);
+        self.block_until_vram_free(address);
 
         let low: u32 = self.ppu.read_vram(address & !2).into();
         let high: u32 = self.ppu.read_vram(address | 2).into();
@@ -752,9 +758,8 @@ impl Bus {
 
     // $06000000-$06FFFFFF: VRAM
     fn write_vram_byte(&mut self, address: u32, value: u8) {
-        self.sync_ppu();
+        self.block_until_vram_free(address);
 
-        self.increment_cycles_with_prefetch(1 + u64::from(self.ppu.vram_in_use()));
         self.update_open_bus_byte(value);
 
         self.ppu.write_vram_byte(address, value);
@@ -762,9 +767,8 @@ impl Bus {
 
     // $06000000-$06FFFFFF: VRAM
     fn write_vram_halfword(&mut self, address: u32, value: u16) {
-        self.sync_ppu();
+        self.block_until_vram_free(address);
 
-        self.increment_cycles_with_prefetch(1 + u64::from(self.ppu.vram_in_use()));
         self.update_open_bus_halfword(value);
 
         self.ppu.write_vram(address, value);
@@ -772,9 +776,9 @@ impl Bus {
 
     // $06000000-$06FFFFFF: VRAM
     fn write_vram_word(&mut self, address: u32, value: u32) {
-        self.sync_ppu();
+        self.block_until_vram_free(address);
+        self.block_until_vram_free(address);
 
-        self.increment_cycles_with_prefetch(2 + u64::from(self.ppu.vram_in_use()));
         self.state.open_bus = value;
 
         self.ppu.write_vram(address & !2, value as u16);
