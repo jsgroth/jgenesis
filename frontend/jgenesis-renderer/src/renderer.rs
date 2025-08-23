@@ -49,6 +49,8 @@ trait PipelineShader {
     fn draw(&mut self, encoder: &mut wgpu::CommandEncoder);
 
     fn output_texture(&self) -> &Arc<wgpu::Texture>;
+
+    fn reset_interframe_state(&mut self) {}
 }
 
 struct ColorCorrectionShader {
@@ -380,6 +382,10 @@ impl PipelineShader for FrameBlendShader {
 
     fn output_texture(&self) -> &Arc<wgpu::Texture> {
         &self.output
+    }
+
+    fn reset_interframe_state(&mut self) {
+        self.skip_next_frame = true;
     }
 }
 
@@ -1630,6 +1636,14 @@ impl<Window> WgpuRenderer<Window> {
     #[must_use]
     pub fn current_display_info(&self) -> Option<(FrameSize, DisplayArea)> {
         self.pipelines.last_display_info
+    }
+
+    pub fn reset_interframe_state(&mut self) {
+        for pipeline in self.pipelines.pipelines.values_mut() {
+            for shader in &mut pipeline.shader_pipeline {
+                shader.reset_interframe_state();
+            }
+        }
     }
 
     #[cfg(feature = "ttf")]

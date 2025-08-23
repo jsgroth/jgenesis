@@ -550,6 +550,7 @@ where
         }
 
         if rewinding {
+            self.renderer.reset_interframe_state();
             self.hotkey_state.rewinder.tick(
                 &mut self.emulator,
                 &mut self.renderer,
