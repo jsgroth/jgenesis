@@ -532,7 +532,7 @@ impl Bus {
                 self.interrupts.halt_cpu();
             }
             0x4000302 => {} // High halfword of word writes to POSTFLG/HALTCNT
-            _ => log::warn!("Unhandled I/O register halfword write {address:08X} {value:04X}"),
+            _ => log::debug!("Unhandled I/O register halfword write {address:08X} {value:04X}"),
         }
     }
 
@@ -618,7 +618,7 @@ impl Bus {
             0x4000300 => self.memory.write_postflg(value),
             0x4000301 => self.interrupts.halt_cpu(),
             0x4000410 => {} // Unknown; BIOS writes 0xFF to this register
-            _ => log::warn!("Unhandled I/O register byte write {address:08X} {value:02X}"),
+            _ => log::debug!("Unhandled I/O register byte write {address:08X} {value:02X}"),
         }
     }
 

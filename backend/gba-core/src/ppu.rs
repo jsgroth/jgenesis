@@ -1537,7 +1537,7 @@ impl Ppu {
             0x4000050 => self.registers.read_bldcnt(),
             0x4000052 => self.registers.read_bldalpha(),
             _ => {
-                log::warn!("Unhandled PPU register read {address:08X}");
+                log::debug!("Unhandled PPU register read {address:08X}");
                 return None;
             }
         };
@@ -1653,7 +1653,7 @@ impl Ppu {
             0x4000054 => self.registers.write_bldy(value),
             0x4000056 => {} // High halfword of word-size writes to BLDY
             _ => {
-                log::warn!("Unhandled PPU register write {address:08X} {value:04X}");
+                log::debug!("Unhandled PPU register write {address:08X} {value:04X}");
             }
         }
     }
@@ -1731,7 +1731,7 @@ impl Ppu {
             0x400004D => self.registers.write_obj_mosaic(value),
             0x4000054 => self.registers.write_bldy(value.into()), // BLDY is only a 5-bit register
             _ => {
-                log::warn!("Unexpected PPU byte register write {address:08X} {value:02X}");
+                log::debug!("Unexpected PPU byte register write {address:08X} {value:02X}");
             }
         }
     }

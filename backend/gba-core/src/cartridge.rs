@@ -319,7 +319,7 @@ impl Cartridge {
         }
 
         if address < self.min_eeprom_address {
-            log::warn!("Ignoring write to ROM address: {address:08X} {value:04X}");
+            log::debug!("Ignoring write to ROM address: {address:08X} {value:04X}");
             return;
         }
 
@@ -329,7 +329,7 @@ impl Cartridge {
             RwMemory::Eeprom512(eeprom) => eeprom.write(value.bit(0)),
             RwMemory::Eeprom8K(eeprom) => eeprom.write(value.bit(0)),
             _ => {
-                log::warn!("Ignoring write to ROM address: {address:08X} {value:04X}");
+                log::debug!("Ignoring write to ROM address: {address:08X} {value:04X}");
             }
         }
     }
@@ -450,7 +450,7 @@ impl Cartridge {
             RwMemory::FlashRom64K(flash_rom) => flash_rom.write(address, value),
             RwMemory::FlashRom128K(flash_rom) => flash_rom.write(address, value),
             _ => {
-                log::warn!("Unexpected SRAM address write {address:08X} {value:02X}");
+                log::debug!("Unexpected SRAM address write {address:08X} {value:02X}");
             }
         }
     }

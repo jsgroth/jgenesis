@@ -54,7 +54,8 @@ impl CpuMode {
             Self::Fiq => Some(&mut registers.spsr_fiq),
             Self::Supervisor => Some(&mut registers.spsr_svc),
             Self::Undefined => Some(&mut registers.spsr_und),
-            Self::User | Self::System | Self::Illegal | Self::Abort => None,
+            Self::Abort => Some(&mut registers.spsr_abt),
+            Self::User | Self::System | Self::Illegal => None,
         }
     }
 }
@@ -112,6 +113,8 @@ struct Registers {
     r14_irq: u32,
     r13_und: u32,
     r14_und: u32,
+    r13_abt: u32,
+    r14_abt: u32,
     r13_fiq: u32,
     r14_fiq: u32,
     // R8-R12 are banked only for FIQ vs. non-FIQ
@@ -123,6 +126,7 @@ struct Registers {
     spsr_svc: StatusRegister,
     spsr_irq: StatusRegister,
     spsr_und: StatusRegister,
+    spsr_abt: StatusRegister,
     spsr_fiq: StatusRegister,
 }
 
@@ -332,7 +336,7 @@ impl Arm7Tdmi {
         let spsr = match self.registers.cpsr.mode.spsr(&mut self.registers) {
             Some(spsr) => *spsr,
             None => {
-                log::error!("Attempted to read SPSR in mode {:?}", self.registers.cpsr.mode);
+                log::warn!("Attempted to read SPSR in mode {:?}", self.registers.cpsr.mode);
                 return;
             }
         };
@@ -366,6 +370,10 @@ impl Arm7Tdmi {
                 self.registers.r13_und = self.registers.r[13];
                 self.registers.r14_und = self.registers.r[14];
             }
+            CpuMode::Abort => {
+                self.registers.r13_abt = self.registers.r[13];
+                self.registers.r14_abt = self.registers.r[14];
+            }
             CpuMode::Fiq => {
                 self.registers.r13_fiq = self.registers.r[13];
                 self.registers.r14_fiq = self.registers.r[14];
@@ -374,8 +382,11 @@ impl Arm7Tdmi {
                 self.registers.fiq_r_8_12.copy_from_slice(&self.registers.r[8..13]);
                 self.registers.r[8..13].copy_from_slice(&self.registers.other_r_8_12);
             }
-            _ => {
-                log::error!("Unexpected mode {:?}", self.registers.cpsr.mode);
+            CpuMode::Illegal => {
+                log::warn!(
+                    "Exiting unusual CPU mode {:?}, changing to mode {new_mode:?}",
+                    self.registers.cpsr.mode
+                );
             }
         }
 
@@ -397,6 +408,10 @@ impl Arm7Tdmi {
                 self.registers.r[13] = self.registers.r13_und;
                 self.registers.r[14] = self.registers.r14_und;
             }
+            CpuMode::Abort => {
+                self.registers.r[13] = self.registers.r13_abt;
+                self.registers.r[14] = self.registers.r14_abt;
+            }
             CpuMode::Fiq => {
                 // Bank and update R8-12 if switching into FIQ mode
                 self.registers.other_r_8_12.copy_from_slice(&self.registers.r[8..13]);
@@ -405,8 +420,11 @@ impl Arm7Tdmi {
                 self.registers.r[13] = self.registers.r13_fiq;
                 self.registers.r[14] = self.registers.r14_fiq;
             }
-            _ => {
-                log::error!("Unexpected mode {new_mode:?}");
+            CpuMode::Illegal => {
+                log::warn!(
+                    "Entering unusual CPU mode {new_mode:?}, changing from mode {:?}",
+                    self.registers.cpsr.mode
+                );
             }
         }
 

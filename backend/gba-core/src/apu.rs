@@ -510,7 +510,7 @@ impl Apu {
             0x400008B => 0,
             0x4000090..=0x400009F => self.psg.read_wave_ram(address),
             _ => {
-                log::warn!("Unimplemented APU register read: {address:08X}");
+                log::debug!("Unimplemented APU register read: {address:08X}");
                 return None;
             }
         };
@@ -565,7 +565,7 @@ impl Apu {
             0x40000A4..=0x40000A7 => self.pcm_b.fifo.push_byte(address, value),
             0x40000A8..=0x40000AF => {} // Unused
             _ => {
-                log::warn!("Unimplemented APU register write: {address:08X} {value:02X}");
+                log::debug!("Unimplemented APU register write: {address:08X} {value:02X}");
             }
         }
     }
