@@ -17,8 +17,11 @@ pub const REGION: HelpText = HelpText {
 };
 
 pub const SCD_BIOS_PATH: HelpText = HelpText {
-    heading: "Sega CD BIOS Path",
-    text: &["Path to a Sega CD BIOS ROM. This is required for Sega CD emulation."],
+    heading: "Sega CD BIOS Paths",
+    text: &[
+        "Path to a Sega CD BIOS ROM for each region. This is required for Sega CD emulation.",
+        "Can optionally use the US BIOS for all regions rather than using a different BIOS per region.",
+    ],
 };
 
 pub const SCD_RAM_CARTRIDGE: HelpText = HelpText {

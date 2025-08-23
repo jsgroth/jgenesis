@@ -326,6 +326,12 @@ impl GenesisRegionExt for GenesisRegion {
             return Some(GenesisRegion::Europe);
         }
 
+        // $100 contains the system name
+        // If it's "SEGA GENESIS" instead of "SEGA MEGA DRIVE", ignore region string and assume US
+        if &rom[0x100..0x100 + b"SEGA GENESIS".len()] == b"SEGA GENESIS" {
+            return Some(GenesisRegion::Americas);
+        }
+
         // Shadow Squadron / Stellar Assault (UE) reports its region as E in the header,
         // but it's NTSC-compatible; prefer Americas if region is not forced so it will run at
         // 60Hz instead of 50Hz

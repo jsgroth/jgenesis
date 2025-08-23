@@ -623,9 +623,16 @@ impl SegaCd {
     }
 }
 
-fn parse_disc_region(disc: &mut CdRom) -> SegaCdLoadResult<GenesisRegion> {
+/// Attempt to parse a console region out of the CD-ROM's data track.
+///
+/// Returns None if unable to confidently determine region.
+///
+/// # Errors
+///
+/// Propagates any errors encountered while reading the CD-ROM files from disk.
+pub fn parse_disc_region(disc: &mut CdRom) -> SegaCdLoadResult<GenesisRegion> {
     // ROM header is always located at track 1 sector 0
-    let mut rom_header = [0; cdrom::BYTES_PER_SECTOR as usize];
+    let mut rom_header = vec![0; cdrom::BYTES_PER_SECTOR as usize];
     disc.read_sector(1, CdTime::SECTOR_0_START, &mut rom_header)?;
 
     // Sega CD ROM header starts at $010 because the first 16 bytes are sync + CD-ROM data track header

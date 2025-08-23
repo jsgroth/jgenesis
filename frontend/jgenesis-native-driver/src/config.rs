@@ -178,6 +178,11 @@ pub struct SegaCdConfig {
     pub emulator_config: SegaCdEmulatorConfig,
     #[cfg_display(path)]
     pub bios_file_path: Option<PathBuf>,
+    #[cfg_display(path)]
+    pub eu_bios_file_path: Option<PathBuf>,
+    #[cfg_display(path)]
+    pub jp_bios_file_path: Option<PathBuf>,
+    pub per_region_bios: bool,
     pub run_without_disc: bool,
 }
 
@@ -403,6 +408,9 @@ impl AppConfigExt for AppConfig {
         Box::new(SegaCdConfig {
             genesis: genesis_config,
             bios_file_path: self.sega_cd.bios_path.clone(),
+            eu_bios_file_path: self.sega_cd.eu_bios_path.clone(),
+            jp_bios_file_path: self.sega_cd.jp_bios_path.clone(),
+            per_region_bios: self.sega_cd.per_region_bios,
             run_without_disc: false,
             emulator_config: SegaCdEmulatorConfig {
                 genesis: genesis_emu_config,

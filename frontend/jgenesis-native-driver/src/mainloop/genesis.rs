@@ -3,6 +3,8 @@ use crate::config::{GenesisConfig, Sega32XConfig, SegaCdConfig};
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{NativeEmulatorError, debug, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorResult, extensions};
+use cdrom::reader::CdRom;
+use genesis_config::GenesisRegion;
 use genesis_core::{GenesisEmulator, GenesisInputs};
 use jgenesis_native_config::common::WindowSize;
 use s32x_core::api::Sega32XEmulator;
@@ -189,7 +191,12 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
 
     log::info!("Running with config: {config}");
 
-    let bios_file_path = config.bios_file_path.as_ref().ok_or(NativeEmulatorError::SegaCdNoBios)?;
+    let (region, bios_file_path) = determine_scd_bios_path(&config);
+    let Some(bios_file_path) = bios_file_path else {
+        return Err(NativeEmulatorError::SegaCdNoBios(region));
+    };
+
+    log::info!("Using BIOS for region {}", region.long_name());
 
     let rom_path: &Path;
     let rom_format: CdRomFileFormat;
@@ -221,7 +228,7 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
         let determined_paths = save::determine_save_paths(
             &config.genesis.common.save_path,
             &config.genesis.common.state_path,
-            bios_file_path,
+            &bios_file_path,
             SCD_SAVE_EXTENSION,
         )?;
         save_path = determined_paths.save_path;
@@ -230,7 +237,7 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
 
     let mut save_writer = FsSaveWriter::new(save_path);
 
-    let bios = fs::read(bios_file_path).map_err(|source| NativeEmulatorError::SegaCdBiosRead {
+    let bios = fs::read(&bios_file_path).map_err(|source| NativeEmulatorError::SegaCdBiosRead {
         path: bios_file_path.clone(),
         source,
     })?;
@@ -267,6 +274,37 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
         GenesisInputs::default(),
         debug::genesis::render_fn,
     )
+}
+
+fn determine_scd_bios_path(config: &SegaCdConfig) -> (GenesisRegion, Option<PathBuf>) {
+    if !config.per_region_bios {
+        return (GenesisRegion::Americas, bios_path_for_region(config, GenesisRegion::Americas));
+    }
+
+    if let Some(region) = config.genesis.emulator_config.forced_region {
+        return (region, bios_path_for_region(config, region));
+    }
+
+    let file_path = &config.genesis.common.rom_file_path;
+    let region = CdRomFileFormat::from_file_path(file_path)
+        .and_then(|cdrom_format| CdRom::open(file_path, cdrom_format).ok())
+        .and_then(|mut disc| {
+            segacd_core::parse_disc_region(&mut disc).ok()
+        })
+        .unwrap_or_else(|| {
+            log::error!("Unable to determine region of disc at '{}' for purposes of selecting BIOS path; defaulting to US", file_path.display());
+            GenesisRegion::Americas
+        });
+
+    (region, bios_path_for_region(config, region))
+}
+
+fn bios_path_for_region(config: &SegaCdConfig, region: GenesisRegion) -> Option<PathBuf> {
+    match region {
+        GenesisRegion::Americas => config.bios_file_path.clone(),
+        GenesisRegion::Europe => config.eu_bios_file_path.clone(),
+        GenesisRegion::Japan => config.jp_bios_file_path.clone(),
+    }
 }
 
 /// Create an emulator with the 32X core with the given config.

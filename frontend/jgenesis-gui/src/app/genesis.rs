@@ -108,12 +108,35 @@ impl App {
             }
 
             ui.add_space(5.0);
+
             let rect = ui
-                .add(OptionalPathSelector::new(
-                    "Sega CD BIOS path",
-                    &mut self.config.sega_cd.bios_path,
-                    pick_scd_bios_path,
-                ))
+                .group(|ui| {
+                    ui.label("Sega CD BIOS paths");
+
+                    ui.add(OptionalPathSelector::new(
+                        "US",
+                        &mut self.config.sega_cd.bios_path,
+                        pick_scd_bios_path,
+                    ));
+
+                    ui.add_enabled_ui(self.config.sega_cd.per_region_bios, |ui| {
+                        ui.add(OptionalPathSelector::new(
+                            "Europe",
+                            &mut self.config.sega_cd.eu_bios_path,
+                            pick_scd_bios_path,
+                        ));
+                        ui.add(OptionalPathSelector::new(
+                            "Japan",
+                            &mut self.config.sega_cd.jp_bios_path,
+                            pick_scd_bios_path,
+                        ));
+                    });
+
+                    let mut us_bios_only = !self.config.sega_cd.per_region_bios;
+                    ui.checkbox(&mut us_bios_only, "Use US BIOS for all regions");
+                    self.config.sega_cd.per_region_bios = !us_bios_only;
+                })
+                .response
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::SCD_BIOS_PATH);
@@ -791,16 +814,26 @@ impl App {
         &mut self,
         ctx: &Context,
         open: &mut bool,
+        region: GenesisRegion,
     ) -> RenderErrorEffect {
+        let bios_path = match region {
+            GenesisRegion::Americas => &mut self.config.sega_cd.bios_path,
+            GenesisRegion::Europe => &mut self.config.sega_cd.eu_bios_path,
+            GenesisRegion::Japan => &mut self.config.sega_cd.jp_bios_path,
+        };
+
         widgets::render_bios_error(
             ctx,
             open,
             BiosErrorStrings {
-                title: "Missing Sega CD BIOS",
-                text: "No Sega CD BIOS path is configured. A Sega CD BIOS ROM is required for Sega CD emulation.",
-                button_label: "Configure Sega CD BIOS path",
+                title: format!("Missing Sega CD {} BIOS", region.short_name()),
+                text: format!(
+                    "No Sega CD {} BIOS path is configured. A Sega CD BIOS ROM is required for Sega CD emulation.",
+                    region.long_name()
+                ),
+                button_label: format!("Configure Sega CD {} BIOS path", region.short_name()),
             },
-            &mut self.config.sega_cd.bios_path,
+            bios_path,
             Console::SegaCd,
             pick_scd_bios_path,
         )

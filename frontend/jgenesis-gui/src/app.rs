@@ -1096,7 +1096,9 @@ impl App {
             let render_effect = match err {
                 NativeEmulatorError::SmsNoBios => self.render_sms_bios_error(ctx, &mut open),
                 NativeEmulatorError::GgNoBios => self.render_gg_bios_error(ctx, &mut open),
-                NativeEmulatorError::SegaCdNoBios => self.render_scd_bios_error(ctx, &mut open),
+                &NativeEmulatorError::SegaCdNoBios(region) => {
+                    self.render_scd_bios_error(ctx, &mut open, region)
+                }
                 NativeEmulatorError::GbNoDmgBootRom => {
                     self.render_dmg_boot_rom_error(ctx, &mut open)
                 }

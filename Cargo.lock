@@ -2394,6 +2394,7 @@ dependencies = [
  "arrayvec",
  "bincode",
  "bytemuck",
+ "cdrom",
  "clap",
  "egui",
  "egui-sdl3-platform",

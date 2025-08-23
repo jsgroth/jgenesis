@@ -322,8 +322,8 @@ pub enum NativeEmulatorError {
         #[source]
         source: io::Error,
     },
-    #[error("BIOS is required for Sega CD emulation")]
-    SegaCdNoBios,
+    #[error("{0} BIOS is required for Sega CD emulation")]
+    SegaCdNoBios(GenesisRegion),
     #[error("Error opening BIOS file at '{path}': {source}")]
     SegaCdBiosRead {
         path: PathBuf,
@@ -887,3 +887,4 @@ macro_rules! bincode_config {
 }
 
 use bincode_config;
+use genesis_config::GenesisRegion;

@@ -10,6 +10,7 @@ default = []
 clap = ["dep:clap"]
 
 [dependencies]
+cdrom = { path = "../../common/cdrom" }
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 jgenesis-common = { path = "../../common/jgenesis-common" }
 

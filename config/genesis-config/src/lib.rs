@@ -115,6 +115,26 @@ pub enum GenesisRegion {
     Europe,
 }
 
+impl GenesisRegion {
+    #[must_use]
+    pub fn short_name(self) -> &'static str {
+        match self {
+            Self::Americas => "US",
+            Self::Europe => "EU",
+            Self::Japan => "JP",
+        }
+    }
+
+    #[must_use]
+    pub fn long_name(self) -> &'static str {
+        match self {
+            Self::Americas => "US",
+            Self::Europe => "Europe",
+            Self::Japan => "Japan",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumAll, EnumDisplay)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]

@@ -86,6 +86,10 @@ impl Default for GenesisAppConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SegaCdAppConfig {
     pub bios_path: Option<PathBuf>,
+    pub eu_bios_path: Option<PathBuf>,
+    pub jp_bios_path: Option<PathBuf>,
+    #[serde(default = "true_fn")]
+    pub per_region_bios: bool,
     #[serde(default)]
     pub pcm_interpolation: PcmInterpolation,
     #[serde(default = "true_fn")]

@@ -30,9 +30,6 @@ Linux, Windows, and web (WASM) are officially supported. Other platforms may wor
 * Optional 2-4x GSU overclocking for SNES Super FX games
 * Can run the Titan Overdrive and Titan Overdrive 2 demos for the Mega Drive
 
-TODOs:
-* Support multiple Sega CD BIOS versions in GUI and automatically use the correct one based on disc region
-
 ## Dev Builds
 
 The GitHub Actions workflow compiles release builds on every commit, which will stay available for 90 days afterwards:
