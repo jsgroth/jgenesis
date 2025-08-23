@@ -115,7 +115,7 @@ impl RwMemory {
 
         for i in 0..rom.len() {
             for &(string, name, init_fn) in MEMORY_STRINGS {
-                if i + string.len() + 3 >= rom.len() {
+                if i + string.len() + 3 > rom.len() {
                     continue;
                 }
 
