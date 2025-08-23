@@ -120,7 +120,7 @@ impl MappableInputs<GbaButton> for GbaInputs {
             return None;
         }
 
-        let text = format!("Solar sensor brightness: {}/255", self.solar.brightness);
+        let text = format!("Solar sensor brightness: {}", self.solar.brightness);
         Some(InputModal { id: Some("solar_sensor".into()), text })
     }
 }

@@ -1,3 +1,7 @@
+//! EEPROM save memory code
+//!
+//! Comes in 512-byte and 8KB variants; protocol is the same except for the number of address bits
+
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 

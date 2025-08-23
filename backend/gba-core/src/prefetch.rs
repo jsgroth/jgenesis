@@ -1,3 +1,5 @@
+//! Game Pak prefetcher-related code
+
 use crate::bus::Bus;
 use bincode::{Decode, Encode};
 use std::array;

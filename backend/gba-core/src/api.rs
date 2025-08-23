@@ -1,4 +1,4 @@
-//! GBA emulator public interface
+//! GBA emulator public interface and main loop
 
 pub mod debug;
 
@@ -171,6 +171,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
         S::Err: Debug + Display + Send + Sync + 'static,
     {
         self.bus.inputs.update_inputs(*inputs, self.bus.state.cycles, &mut self.bus.interrupts);
+        self.bus.cartridge.set_solar_brightness(inputs.solar.brightness);
 
         self.bus.interrupts.sync(self.bus.state.cycles);
         if !self.bus.interrupts.cpu_halted() {

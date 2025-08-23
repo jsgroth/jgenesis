@@ -1,5 +1,6 @@
-//! SIO / the serial port is largely not emulated, only stubbed out enough for games that access
-//! it to kind of work
+//! GBA SIO / serial port
+//!
+//! SIO is largely not emulated, only stubbed out enough for games that access it to kind of work
 
 use crate::interrupts::{InterruptRegisters, InterruptType};
 use bincode::{Decode, Encode};

@@ -1,3 +1,7 @@
+//! GBA DMA transfer state
+//!
+//! The actual bus reads/writes are performed in [`crate::bus::Bus::try_progress_dma`]
+
 use crate::cartridge::Cartridge;
 use crate::interrupts::{InterruptRegisters, InterruptType};
 use bincode::{Decode, Encode};

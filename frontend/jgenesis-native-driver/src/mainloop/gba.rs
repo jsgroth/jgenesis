@@ -2,7 +2,7 @@ use crate::config::{GameBoyAdvanceConfig, RomReadResult};
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{debug, file_name_no_ext, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
-use gba_config::GbaInputs;
+use gba_config::{GbaInputs, SolarSensorState};
 use gba_core::api::GameBoyAdvanceEmulator;
 use jgenesis_native_config::common::WindowSize;
 use std::fs;
@@ -30,7 +30,21 @@ impl NativeGbaEmulator {
             &config.common.hotkey_config.to_mapping_vec(),
         );
 
+        self.inputs.solar = SolarSensorState {
+            brightness: self.inputs.solar.brightness,
+            ..new_solar_state(&config)
+        };
+
         Ok(())
+    }
+}
+
+fn new_solar_state(config: &GameBoyAdvanceConfig) -> SolarSensorState {
+    SolarSensorState {
+        brightness: config.solar_min_brightness,
+        brightness_step: config.solar_brightness_step,
+        min_brightness: config.solar_min_brightness,
+        max_brightness: config.solar_max_brightness,
     }
 }
 
@@ -68,6 +82,8 @@ pub fn create_gba(config: Box<GameBoyAdvanceConfig>) -> NativeEmulatorResult<Nat
 
     let default_window_size = WindowSize::new_gba(config.common.initial_window_size);
 
+    let initial_inputs = GbaInputs { solar: new_solar_state(&config), ..GbaInputs::default() };
+
     NativeGbaEmulator::new(
         emulator,
         emulator_config,
@@ -78,7 +94,7 @@ pub fn create_gba(config: Box<GameBoyAdvanceConfig>) -> NativeEmulatorResult<Nat
         save_writer,
         save_state_path,
         &config.inputs.to_mapping_vec(),
-        GbaInputs::default(),
+        initial_inputs,
         debug::gba::render_fn,
     )
 }

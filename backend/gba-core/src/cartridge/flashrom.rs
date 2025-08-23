@@ -1,3 +1,7 @@
+//! GBA flash ROM code
+//!
+//! Comes in 64KB and 128KB variants; only difference is that 128KB supports a bank switch command
+
 use bincode::{Decode, Encode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]

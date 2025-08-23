@@ -1,3 +1,5 @@
+//! Audio resampling code
+
 use crate::apu::PwmClockShift;
 use bincode::{Decode, Encode};
 use dsp::sinc::{PerformanceSincResampler, QualitySincResampler};

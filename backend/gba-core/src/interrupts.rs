@@ -1,3 +1,5 @@
+//! GBA interrupt registers
+
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::EnumAll;

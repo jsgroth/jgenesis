@@ -267,6 +267,9 @@ pub struct GameBoyAdvanceConfig {
     pub emulator_config: GbaEmulatorConfig,
     #[cfg_display(path)]
     pub bios_path: Option<PathBuf>,
+    pub solar_brightness_step: u8,
+    pub solar_min_brightness: u8,
+    pub solar_max_brightness: u8,
 }
 
 pub trait AppConfigExt {
@@ -583,6 +586,9 @@ impl AppConfigExt for AppConfig {
                 },
             },
             bios_path: self.game_boy_advance.bios_path.clone(),
+            solar_brightness_step: self.game_boy_advance.solar_brightness_step,
+            solar_min_brightness: self.game_boy_advance.solar_min_brightness,
+            solar_max_brightness: self.game_boy_advance.solar_max_brightness,
         })
     }
 }

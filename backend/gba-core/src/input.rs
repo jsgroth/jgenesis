@@ -1,3 +1,5 @@
+//! GBA input state and registers
+
 use crate::interrupts::{InterruptRegisters, InterruptType};
 use bincode::{Decode, Encode};
 use gba_config::GbaInputs;

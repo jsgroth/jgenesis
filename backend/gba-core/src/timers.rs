@@ -1,3 +1,5 @@
+//! GBA hardware timers
+
 use crate::apu::Apu;
 use crate::dma::DmaState;
 use crate::interrupts::{InterruptRegisters, InterruptType};

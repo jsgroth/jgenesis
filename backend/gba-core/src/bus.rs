@@ -1,4 +1,4 @@
-//! GBA memory map
+//! GBA memory map and bus code
 
 use crate::apu;
 use crate::apu::Apu;
