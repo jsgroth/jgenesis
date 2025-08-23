@@ -113,8 +113,12 @@ impl RwMemory {
             return Self::from_forced_type(initial_save, forced_type);
         }
 
-        for &(string, name, init_fn) in MEMORY_STRINGS {
-            for i in 0..rom.len().saturating_sub(string.len() + 3) {
+        for i in 0..rom.len() {
+            for &(string, name, init_fn) in MEMORY_STRINGS {
+                if i + string.len() + 3 >= rom.len() {
+                    continue;
+                }
+
                 if &rom[i..i + string.len()] != string {
                     continue;
                 }
