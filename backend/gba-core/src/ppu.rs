@@ -1188,8 +1188,14 @@ impl Ppu {
             }
 
             let (sprite_width, sprite_height) = oam_entry.shape.size_pixels(oam_entry.size);
-
+            let display_width = sprite_width << u8::from(oam_entry.affine_double_size);
             let display_height = sprite_height << u8::from(oam_entry.affine_double_size);
+
+            if oam_entry.x >= SCREEN_WIDTH && oam_entry.x + display_width <= 512 {
+                // Sprite is fully horizontally offscreen
+                continue;
+            }
+
             if oam_entry.y + display_height > 256 && target_line > 128 {
                 // 128px tall sprites with Y>128 never display on lines >128
                 continue;
@@ -1224,7 +1230,7 @@ impl Ppu {
             let oam_entry = oam_entry.clone();
 
             if oam_entry.affine {
-                // 1 idle access cycle plus 4 OAM reads for the affine parameters
+                // 4 OAM reads for the affine parameters plus 1 idle slot at the beginning of VRAM fetch
                 memory_accesses = memory_accesses.saturating_sub(5);
                 if memory_accesses == 0 {
                     break 'outer;
@@ -1239,8 +1245,6 @@ impl Ppu {
                 ]
                 .map(|p| i32::from(p as i16));
 
-                let display_width = sprite_width << u8::from(oam_entry.affine_double_size);
-
                 let half_sprite_width = (sprite_width / 2) as i32;
                 let half_sprite_height = (sprite_height / 2) as i32;
                 let half_display_width = (display_width / 2) as i32;
@@ -1252,13 +1256,14 @@ impl Ppu {
                 let mut x = a * x_offset + b * y_offset - a;
                 let mut y = c * x_offset + d * y_offset - c;
 
+                let start_x = if oam_entry.x < SCREEN_WIDTH { 0 } else { 512 - oam_entry.x };
+
                 for sprite_x in 0..display_width {
                     x += a;
                     y += c;
 
-                    let pixel = (oam_entry.x + sprite_x) & 0x1FF;
-                    if !(0..SCREEN_WIDTH).contains(&pixel) {
-                        // Sprite pixel is offscreen
+                    if sprite_x < start_x {
+                        // Pixel is offscreen to left of frame; PPU skips VRAM fetch
                         continue;
                     }
 
@@ -1266,6 +1271,13 @@ impl Ppu {
                     memory_accesses -= 1;
                     if memory_accesses == 0 {
                         break 'outer;
+                    }
+
+                    let pixel = (oam_entry.x + sprite_x) & 0x1FF;
+                    if !(0..SCREEN_WIDTH).contains(&pixel) {
+                        // Pixel is offscreen to right of frame; PPU does _not_ skip VRAM fetch
+                        // Famicom Mini - Metroid depends on this
+                        continue;
                     }
 
                     let sample_x = (x >> 8) + half_sprite_width;
@@ -1292,19 +1304,22 @@ impl Ppu {
                 let sample_y =
                     if oam_entry.v_flip { sprite_height - 1 - sprite_y } else { sprite_y };
 
-                for sprite_x in 0..sprite_width {
-                    let pixel = (oam_entry.x + sprite_x) & 0x1FF;
-                    if !(0..SCREEN_WIDTH).contains(&pixel) {
-                        // Sprite pixel is offscreen
-                        continue;
-                    }
+                // Skip over VRAM fetches for pixels that are offscreen to left of frame, aligned to a 2-pixel boundary
+                let start_x = if oam_entry.x < SCREEN_WIDTH { 0 } else { (512 - oam_entry.x) & !1 };
 
+                for sprite_x in start_x..sprite_width {
                     // 1 VRAM read per 2 pixels for non-affine sprites
                     if sprite_x & 1 == 0 {
                         memory_accesses -= 1;
                         if memory_accesses == 0 {
                             break 'outer;
                         }
+                    }
+
+                    let pixel = (oam_entry.x + sprite_x) & 0x1FF;
+                    if !(0..SCREEN_WIDTH).contains(&pixel) {
+                        // Sprite pixel is offscreen
+                        continue;
                     }
 
                     let sample_x =
