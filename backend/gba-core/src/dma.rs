@@ -368,8 +368,11 @@ impl DmaState {
 
             channel.latched_length = channel.latched_length.wrapping_sub(1) & channel.length_mask;
             if channel.latched_length == 0 {
+                // Ignore repeat bit for immediate start timing
+                // Several games depend on this (e.g. NFL Blitz 2002, Kong: The Animated Series)
+                channel.dma_enabled =
+                    channel.repeat && channel.start_timing != StartTiming::Immediate;
                 channel.dma_active = false;
-                channel.dma_enabled = channel.repeat;
                 channel.latched_length = channel.effective_length();
 
                 if channel.destination_increment == AddressIncrement::IncrementReload {
