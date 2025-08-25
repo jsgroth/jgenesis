@@ -36,14 +36,16 @@ pub enum CpuMode {
 
 impl CpuMode {
     fn from_bits(bits: u32) -> Self {
-        match bits & 0x1F {
-            0x10 => Self::User,
-            0x11 => Self::Fiq,
-            0x12 => Self::Irq,
-            0x13 => Self::Supervisor,
-            0x17 => Self::Abort,
-            0x1B => Self::Undefined,
-            0x1F => Self::System,
+        // Only lowest 4 bits are checked on mode writes; highest bit is forced to 1
+        // (alyosha-tas/gba-tests PSR tests)
+        match bits & 0xF {
+            0x0 => Self::User,
+            0x1 => Self::Fiq,
+            0x2 => Self::Irq,
+            0x3 => Self::Supervisor,
+            0x7 => Self::Abort,
+            0xB => Self::Undefined,
+            0xF => Self::System,
             _ => Self::Illegal,
         }
     }
@@ -180,6 +182,7 @@ pub struct Arm7Tdmi {
     prefetch: [u32; 2],
     fetch_cycle: MemoryCycle,
     prev_r15: u32,
+    irq_disabled_latch: bool,
 }
 
 impl Default for Arm7Tdmi {
@@ -205,6 +208,7 @@ impl Arm7Tdmi {
             prefetch: [0, 0],
             fetch_cycle: MemoryCycle::N,
             prev_r15: 0,
+            irq_disabled_latch: false,
         }
     }
 
@@ -239,7 +243,7 @@ impl Arm7Tdmi {
 
     #[inline]
     pub fn execute_instruction(&mut self, bus: &mut impl BusInterface) {
-        let irq = !self.registers.cpsr.irq_disabled && bus.irq();
+        let irq = !self.irq_disabled_latch && bus.irq();
         let opcode = self.prefetch[0];
         self.fetch_opcode(bus);
 
@@ -280,6 +284,8 @@ impl Arm7Tdmi {
     }
 
     fn fetch_opcode_state<const ARM: bool>(&mut self, bus: &mut (impl BusInterface + ?Sized)) {
+        self.irq_disabled_latch = self.registers.cpsr.irq_disabled;
+
         let fetch_cycle = self.fetch_cycle;
         self.fetch_cycle = MemoryCycle::S;
         self.prev_r15 = self.registers.r[15];
@@ -316,20 +322,15 @@ impl Arm7Tdmi {
 
             self.registers.cpsr = value.into();
         } else {
-            // Only condition codes can be modified in user mode
-            self.write_cpsr_flags(value);
+            // Cannot modify control bits in user mode
+            self.registers.cpsr = StatusRegister {
+                mode: self.registers.cpsr.mode,
+                state: self.registers.cpsr.state,
+                fiq_disabled: self.registers.cpsr.fiq_disabled,
+                irq_disabled: self.registers.cpsr.irq_disabled,
+                ..StatusRegister::from(value)
+            };
         }
-    }
-
-    fn write_cpsr_flags(&mut self, value: u32) {
-        let new_cpsr: StatusRegister = value.into();
-        self.registers.cpsr = StatusRegister {
-            sign: new_cpsr.sign,
-            zero: new_cpsr.zero,
-            carry: new_cpsr.carry,
-            overflow: new_cpsr.overflow,
-            ..self.registers.cpsr
-        };
     }
 
     fn spsr_to_cpsr(&mut self) {
@@ -350,7 +351,9 @@ impl Arm7Tdmi {
             return;
         }
 
-        log::trace!("Changing CPU mode to {new_mode:?}");
+        let old_cpsr = self.registers.cpsr;
+
+        log::trace!("Changing CPU mode to {new_mode:?} from {:?}", self.registers.cpsr.mode);
 
         // Bank R13 and R14, as well as R8-12 if changing out of FIQ mode
         match self.registers.cpsr.mode {
@@ -429,24 +432,29 @@ impl Arm7Tdmi {
         }
 
         self.registers.cpsr.mode = new_mode;
+
+        // All mode changes perform CPSR-to-SPSR copy (alyosha-tas/gba-tests PSR tests)
+        if let Some(spsr) = new_mode.spsr(&mut self.registers) {
+            *spsr = old_cpsr;
+        }
     }
 
     fn handle_exception(&mut self, exception: Exception, bus: &mut (impl BusInterface + ?Sized)) {
         log::trace!("Handling exception of type {exception:?}");
 
-        let old_cpsr = self.registers.cpsr;
-
         let mode = exception.new_mode();
-        self.change_mode(mode);
-        self.registers.cpsr.state = CpuState::Arm;
-
-        if exception != Exception::Reset {
-            self.registers.r[14] = exception.return_address(old_cpsr.state, self.prev_r15);
-            if let Some(spsr) = mode.spsr(&mut self.registers) {
-                *spsr = old_cpsr;
+        match exception {
+            Exception::Reset => {
+                self.registers.cpsr.mode = mode;
+            }
+            _ => {
+                self.change_mode(mode);
+                self.registers.r[14] =
+                    exception.return_address(self.registers.cpsr.state, self.prev_r15);
             }
         }
 
+        self.registers.cpsr.state = CpuState::Arm;
         self.registers.cpsr.irq_disabled = true;
         if exception == Exception::Reset {
             self.registers.cpsr.fiq_disabled = true;

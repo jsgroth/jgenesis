@@ -383,24 +383,42 @@ fn arm_mrs(cpu: &mut Arm7Tdmi, opcode: u32, _bus: &mut dyn BusInterface) {
 
 // MSR: Transfer register contents to PSR
 fn arm_msr<const IMMEDIATE: bool>(cpu: &mut Arm7Tdmi, opcode: u32, _bus: &mut dyn BusInterface) {
-    let operand = if IMMEDIATE {
+    const CONTROL_MASK: u32 = 0xFF;
+    const FLAGS_MASK: u32 = 0xF << 28;
+
+    let mut operand = if IMMEDIATE {
         let (immediate, rotation) = arm_parse_rotated_immediate(opcode);
         immediate.rotate_right(rotation)
     } else {
         cpu.read_register(opcode & 0xF)
     };
 
-    let spsr = opcode.bit(22);
-    let flags_only = !opcode.bit(16);
+    let mut spsr = opcode.bit(22);
+    let psr = if spsr {
+        match cpu.registers.cpsr.mode.spsr(&mut cpu.registers) {
+            Some(spsr) => spsr,
+            None => {
+                // SPSR accesses in user/system mode go to CPSR
+                spsr = false;
+                &mut cpu.registers.cpsr
+            }
+        }
+    } else {
+        &mut cpu.registers.cpsr
+    };
+
+    let control = opcode.bit(16);
+    let flags = opcode.bit(19);
+
+    if !control {
+        operand = (operand & !CONTROL_MASK) | (u32::from(*psr) & CONTROL_MASK);
+    }
+    if !flags {
+        operand = (operand & !FLAGS_MASK) | (u32::from(*psr) & FLAGS_MASK);
+    }
 
     if spsr {
-        let Some(spsr) = cpu.registers.cpsr.mode.spsr(&mut cpu.registers) else {
-            cpu.registers.cpsr = operand.into();
-            return;
-        };
-        *spsr = operand.into();
-    } else if flags_only {
-        cpu.write_cpsr_flags(operand);
+        *psr = operand.into();
     } else {
         cpu.write_cpsr(operand);
     }

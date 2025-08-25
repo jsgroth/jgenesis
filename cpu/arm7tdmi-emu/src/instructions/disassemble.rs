@@ -21,7 +21,7 @@ const ARM_DECODE_TABLE: &[DecodeTableEntry] = &[
     DecodeTableEntry::new(0x0FB00FF0, 0x01000090, arm_swap),
     DecodeTableEntry::new(0x0E000090, 0x00000090, arm_ldrh),
     DecodeTableEntry::new(0x0FBF0FFF, 0x010F0000, arm_mrs),
-    DecodeTableEntry::new(0x0DBEF000, 0x0128F000, arm_msr),
+    DecodeTableEntry::new(0x0DB6F000, 0x0120F000, arm_msr),
     DecodeTableEntry::new(0x0C000000, 0x00000000, arm_alu),
     DecodeTableEntry::new(0x0E000010, 0x06000010, |_| "Undefined".into()),
     DecodeTableEntry::new(0x0C000000, 0x04000000, arm_ldr),
@@ -140,7 +140,8 @@ fn arm_mrs(opcode: u32) -> String {
 fn arm_msr(opcode: u32) -> String {
     let cond = Condition::from_arm_opcode(opcode).suffix();
     let psr = if opcode.bit(22) { "SPSR" } else { "CPSR" };
-    let flags_only = if opcode.bit(16) { "" } else { "_flg" };
+    let control = if opcode.bit(16) { "c" } else { "" };
+    let flags = if opcode.bit(19) { "f" } else { "" };
 
     let expression = if !opcode.bit(16) && opcode.bit(25) {
         let immediate = opcode & 0xFF;
@@ -152,7 +153,7 @@ fn arm_msr(opcode: u32) -> String {
         format!("R{rm}")
     };
 
-    format!("MSR{cond} {psr}{flags_only}, {expression}")
+    format!("MSR{cond} {psr}_{control}{flags}, {expression}")
 }
 
 fn arm_mul(opcode: u32) -> String {
