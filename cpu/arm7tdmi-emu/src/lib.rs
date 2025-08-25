@@ -351,8 +351,6 @@ impl Arm7Tdmi {
             return;
         }
 
-        let old_cpsr = self.registers.cpsr;
-
         log::trace!("Changing CPU mode to {new_mode:?} from {:?}", self.registers.cpsr.mode);
 
         // Bank R13 and R14, as well as R8-12 if changing out of FIQ mode
@@ -432,11 +430,6 @@ impl Arm7Tdmi {
         }
 
         self.registers.cpsr.mode = new_mode;
-
-        // All mode changes perform CPSR-to-SPSR copy (alyosha-tas/gba-tests PSR tests)
-        if let Some(spsr) = new_mode.spsr(&mut self.registers) {
-            *spsr = old_cpsr;
-        }
     }
 
     fn handle_exception(&mut self, exception: Exception, bus: &mut (impl BusInterface + ?Sized)) {
@@ -448,7 +441,13 @@ impl Arm7Tdmi {
                 self.registers.cpsr.mode = mode;
             }
             _ => {
+                let old_cpsr = self.registers.cpsr;
+
                 self.change_mode(mode);
+                if let Some(spsr) = mode.spsr(&mut self.registers) {
+                    *spsr = old_cpsr;
+                }
+
                 self.registers.r[14] =
                     exception.return_address(self.registers.cpsr.state, self.prev_r15);
             }

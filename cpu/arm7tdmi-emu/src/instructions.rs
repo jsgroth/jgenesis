@@ -373,7 +373,10 @@ fn arm_mrs(cpu: &mut Arm7Tdmi, opcode: u32, _bus: &mut dyn BusInterface) {
     if spsr {
         let spsr = match cpu.registers.cpsr.mode.spsr(&mut cpu.registers) {
             Some(spsr) => *spsr,
-            None => cpu.registers.cpsr,
+            None => {
+                // SPSR reads in user/system mode access CPSR
+                cpu.registers.cpsr
+            }
         };
         cpu.registers.r[rd as usize] = spsr.into();
     } else {
@@ -393,14 +396,13 @@ fn arm_msr<const IMMEDIATE: bool>(cpu: &mut Arm7Tdmi, opcode: u32, _bus: &mut dy
         cpu.read_register(opcode & 0xF)
     };
 
-    let mut spsr = opcode.bit(22);
+    let spsr = opcode.bit(22);
     let psr = if spsr {
         match cpu.registers.cpsr.mode.spsr(&mut cpu.registers) {
             Some(spsr) => spsr,
             None => {
-                // SPSR accesses in user/system mode go to CPSR
-                spsr = false;
-                &mut cpu.registers.cpsr
+                // SPSR writes in user/system mode do nothing
+                return;
             }
         }
     } else {
