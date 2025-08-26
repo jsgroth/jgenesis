@@ -31,10 +31,12 @@ struct Control {
 
 impl Default for Control {
     fn default() -> Self {
-        // Initialized to 0x82 at power-on (POWER and INTFE set)
+        // Per the datasheet, defaults to 0x82 at power-on (POWER and INTFE set)
+        // However, Sennen Kazoku depends on the chip initially being in 24-hour mode, and some games
+        // assume the chip is broken if they ever see the POWER bit set after first boot
         Self {
-            power_cycled: true,
-            hours: Hours::default(),
+            power_cycled: false,
+            hours: Hours::TwentyFour,
             alarm_interrupt: false,
             per_minute_interrupt: false,
             frequency_interrupt: false,
