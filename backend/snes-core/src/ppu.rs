@@ -49,6 +49,8 @@ type Cgram = [u16; CGRAM_LEN_WORDS];
 struct State {
     scanline: u16,
     scanline_master_cycles: u64,
+    v_mosaic_counter: u8,
+    mosaic_size_latch: u8,
     dot_event_idx: u8,
     odd_frame: bool,
     pending_sprite_pixel_overflow: bool,
@@ -66,6 +68,8 @@ impl State {
         Self {
             scanline: 0,
             scanline_master_cycles: 0,
+            v_mosaic_counter: 0,
+            mosaic_size_latch: 0,
             dot_event_idx: 0,
             odd_frame: false,
             pending_sprite_pixel_overflow: false,
@@ -79,6 +83,23 @@ impl State {
 
     fn frame_screen_width(&self) -> u32 {
         if self.h_hi_res_frame { HIRES_SCREEN_WIDTH as u32 } else { NORMAL_SCREEN_WIDTH as u32 }
+    }
+
+    fn update_v_mosaic(&mut self, mosaic_size: u8) {
+        if self.scanline == 1 || self.v_mosaic_counter == 0 {
+            self.v_mosaic_counter = mosaic_size;
+            self.mosaic_size_latch = mosaic_size;
+        } else {
+            self.v_mosaic_counter -= 1;
+        }
+    }
+
+    fn v_mosaic_filter(&self, scanline: u16, hi_res_mode: HiResMode) -> u16 {
+        let mut offset: u16 = (self.mosaic_size_latch - self.v_mosaic_counter).into();
+        if hi_res_mode == HiResMode::True && self.v_hi_res_frame {
+            offset *= 2;
+        }
+        scanline - offset
     }
 }
 
@@ -429,6 +450,8 @@ impl Ppu {
                     self.registers.sprite_pixel_overflow = false;
                 }
             }
+
+            self.state.update_v_mosaic(self.registers.mosaic_size);
 
             self.sprites_finish_line();
 
@@ -1263,6 +1286,8 @@ impl Ppu {
             return (scanline, pixel);
         }
 
+        let mosaic_line = self.state.v_mosaic_filter(scanline, hi_res_mode);
+
         // Mosaic size of N fills each (N+1)x(N+1) square with the pixel in the top-left corner
         // Mosaic sizes are doubled in true hi-res mode
         let mosaic_size: u16 = (mosaic_size + 1).into();
@@ -1270,12 +1295,8 @@ impl Ppu {
             HiResMode::True => 2 * mosaic_size,
             _ => mosaic_size,
         };
-        let mosaic_height = match hi_res_mode {
-            HiResMode::True if self.registers.interlaced => 2 * mosaic_size,
-            _ => mosaic_size,
-        };
 
-        (scanline / mosaic_height * mosaic_height, pixel / mosaic_width * mosaic_width)
+        (mosaic_line, pixel / mosaic_width * mosaic_width)
     }
 
     fn enter_hi_res_mode(&mut self) {
