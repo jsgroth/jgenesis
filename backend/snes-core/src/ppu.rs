@@ -623,8 +623,13 @@ impl Ppu {
     ) {
         let mode = self.registers.bg_mode;
 
+        if mode == BgMode::Seven {
+            self.render_mode_7_to_buffer(scanline, from_pixel);
+            return;
+        }
+
         let bg1_enabled = self.registers.main_bg_enabled[0] || self.registers.sub_bg_enabled[0];
-        let bg2_enabled = mode.bg2_enabled()
+        let bg2_enabled = mode.bg2_enabled(false)
             && (self.registers.main_bg_enabled[1] || self.registers.sub_bg_enabled[1]);
         let bg3_enabled = mode.bg3_enabled()
             && (self.registers.main_bg_enabled[2] || self.registers.sub_bg_enabled[2]);
@@ -637,10 +642,7 @@ impl Ppu {
         }
 
         if bg1_enabled {
-            match mode {
-                BgMode::Seven => self.render_mode_7_to_buffer(scanline, from_pixel),
-                _ => self.render_bg_to_buffer(0, scanline, hi_res_mode, from_pixel),
-            }
+            self.render_bg_to_buffer(0, scanline, hi_res_mode, from_pixel);
         }
 
         if bg2_enabled {
@@ -1146,29 +1148,12 @@ impl Ppu {
                 let bg1_pixel = self.buffers.bg_pixels[0][screen_x as usize];
                 if !bg1_pixel.is_transparent() {
                     priority_resolver.add_bg1(bg1_pixel, is_mode_0_or_1);
-
-                    if mode == BgMode::Seven && self.registers.extbg_enabled {
-                        // When EXTBG is enabled in Mode 7, BG1 pixels are duplicated into BG2
-                        // but use the highest color bit as priority
-                        let bg2_pixel_color = bg1_pixel.color & 0x7F;
-                        if bg2_pixel_color != 0 {
-                            let bg2_priority = bg1_pixel.color >> 7;
-                            priority_resolver.add_bg2(
-                                Pixel {
-                                    priority: bg2_priority,
-                                    color: bg2_pixel_color,
-                                    palette: bg1_pixel.palette,
-                                },
-                                is_mode_0_or_1,
-                            );
-                        }
-                    }
                 }
             }
         }
 
         // BG2 layer (enabled in all modes except 6 and 7)
-        if mode.bg2_enabled() && bg_enabled[1] {
+        if mode.bg2_enabled(self.registers.extbg_enabled) && bg_enabled[1] {
             for (x, priority_resolver) in screen_pixels.iter_mut().enumerate() {
                 let screen_x = apply_screen_shift(x, screen_x_shift, screen_x_offset);
 
@@ -1179,9 +1164,29 @@ impl Ppu {
                     }
                 }
 
-                let bg2_pixel = self.buffers.bg_pixels[1][screen_x as usize];
-                if !bg2_pixel.is_transparent() {
-                    priority_resolver.add_bg2(bg2_pixel, is_mode_0_or_1);
+                match mode {
+                    BgMode::Seven => {
+                        // When EXTBG is enabled in Mode 7, BG1 pixels are duplicated into BG2 but
+                        // use the highest color bit as priority
+                        let bg1_pixel = self.buffers.bg_pixels[0][screen_x as usize];
+                        let bg2_pixel_color = bg1_pixel.color & 0x7F;
+                        if bg2_pixel_color == 0 {
+                            // Transparent
+                            continue;
+                        }
+
+                        let bg2_priority = bg1_pixel.color >> 7;
+                        priority_resolver.add_bg2(
+                            Pixel { priority: bg2_priority, color: bg2_pixel_color, palette: 0 },
+                            false,
+                        );
+                    }
+                    _ => {
+                        let bg2_pixel = self.buffers.bg_pixels[1][screen_x as usize];
+                        if !bg2_pixel.is_transparent() {
+                            priority_resolver.add_bg2(bg2_pixel, is_mode_0_or_1);
+                        }
+                    }
                 }
             }
         }

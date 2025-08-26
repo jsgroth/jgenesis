@@ -101,9 +101,10 @@ impl BgMode {
         }
     }
 
-    pub fn bg2_enabled(self) -> bool {
+    pub fn bg2_enabled(self, extbg_enabled: bool) -> bool {
         // BG2 is enabled in all modes except 6 and 7
-        !matches!(self, Self::Six | Self::Seven)
+        // Can still display in Mode 7 if EXTBG is enabled (uses same pixel data as BG1)
+        !matches!((self, extbg_enabled), (BgMode::Six, _) | (BgMode::Seven, false))
     }
 
     pub fn bg2_bpp(self) -> BitsPerPixel {
