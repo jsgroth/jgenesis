@@ -56,7 +56,8 @@ impl MemoryControl {
         ];
         self.prefetch_enabled = value.bit(14);
 
-        self.raw_value = value;
+        // Highest bit is not writable; DK King of Swing depends on this
+        self.raw_value = value & 0x7FFF;
 
         log::debug!("WAITCNT write: {value:04X}");
         log::debug!("  SRAM wait states: {}", self.sram_wait);
