@@ -1102,6 +1102,12 @@ impl Bus {
         let mut accessed_rom = AccessedRom(false);
 
         loop {
+            if self.dma.any_ppu_triggers_enabled() {
+                self.sync_ppu();
+            }
+            if self.dma.any_audio_triggers_enabled() {
+                self.sync_timers();
+            }
             self.dma.sync(self.state.cycles);
 
             let Some(transfer) = self.dma.next_transfer(&mut self.interrupts, self.state.cycles)
@@ -1189,9 +1195,6 @@ impl Bus {
                     );
                 }
             }
-
-            self.sync_ppu();
-            self.sync_timers();
         }
     }
 

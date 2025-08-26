@@ -301,6 +301,8 @@ pub struct DmaState {
     cycles: u64,
     any_active: bool,
     any_start_latency: bool,
+    any_ppu_triggers_enabled: bool,
+    any_audio_triggers_enabled: bool,
 }
 
 impl DmaState {
@@ -310,6 +312,8 @@ impl DmaState {
             cycles: 0,
             any_active: false,
             any_start_latency: false,
+            any_ppu_triggers_enabled: false,
+            any_audio_triggers_enabled: false,
         }
     }
 
@@ -327,6 +331,14 @@ impl DmaState {
         }
 
         self.any_start_latency = self.channels.iter().any(|channel| channel.start_latency != 0);
+    }
+
+    pub fn any_ppu_triggers_enabled(&self) -> bool {
+        self.any_ppu_triggers_enabled
+    }
+
+    pub fn any_audio_triggers_enabled(&self) -> bool {
+        self.any_audio_triggers_enabled
     }
 
     pub fn next_transfer(
@@ -386,12 +398,32 @@ impl DmaState {
 
             let channel_idx = channel.idx;
 
-            self.any_active = self.channels.iter().any(|channel| channel.dma_active);
+            self.update_any_active_enabled();
 
             return Some(DmaTransfer { channel: channel_idx, source, destination, unit });
         }
 
         None
+    }
+
+    fn update_any_active_enabled(&mut self) {
+        self.any_active = self.channels.iter().any(|channel| channel.dma_active);
+        self.any_start_latency = self.channels.iter().any(|channel| channel.start_latency != 0);
+
+        self.any_ppu_triggers_enabled = self.channels.iter().any(|channel| {
+            channel.dma_enabled
+                && !channel.dma_active
+                && matches!(
+                    (channel.idx, channel.start_timing),
+                    (_, StartTiming::HBlank | StartTiming::VBlank) | (3, StartTiming::Special)
+                )
+        });
+
+        self.any_audio_triggers_enabled = self.channels[1..=2].iter().any(|channel| {
+            channel.dma_enabled
+                && !channel.dma_active
+                && channel.start_timing == StartTiming::Special
+        });
     }
 
     pub fn update_read_latch_halfword(&mut self, idx: u8, value: u16) {
@@ -447,11 +479,10 @@ impl DmaState {
             if channel.dma_enabled && !channel.dma_active && predicate(channel) {
                 channel.dma_active = true;
                 channel.start_latency = INITIAL_START_LATENCY;
-
-                self.any_active = true;
-                self.any_start_latency = true;
             }
         }
+
+        self.update_any_active_enabled();
     }
 
     pub fn read_register(&self, address: u32) -> Option<u16> {
@@ -498,8 +529,7 @@ impl DmaState {
             }
         }
 
-        self.any_active = self.channels.iter().any(|channel| channel.dma_active);
-        self.any_start_latency = self.channels.iter().any(|channel| channel.start_latency != 0);
+        self.update_any_active_enabled();
     }
 
     // TODO I'm not sure any of this is correct
