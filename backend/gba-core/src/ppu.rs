@@ -81,14 +81,8 @@ struct BgAffineLatch {
 }
 
 impl BgAffineLatch {
-    // Called once per frame during VBlank
-    fn latch_reference_points(&mut self, registers: &Registers) {
-        self.x = registers.bg_affine_parameters.map(|params| params.reference_x);
-        self.y = registers.bg_affine_parameters.map(|params| params.reference_y);
-    }
-
     // Called once per line during active display
-    fn increment_reference_latches(&mut self, registers: &Registers, bg_enabled_latency: [u8; 4]) {
+    fn update_reference_points(&mut self, registers: &Registers, bg_enabled_latency: [u8; 4]) {
         for (i, (x, y)) in iter::zip(&mut self.x, &mut self.y).enumerate() {
             // Only increment latched X/Y if they haven't been written within the last scanline
             // e.g. Iridion 3D (game over screen), Star Wars Episode II (text scroll)
@@ -496,10 +490,6 @@ impl Ppu {
             }
 
             if ppu.state.scanline < SCREEN_HEIGHT {
-                ppu.state
-                    .bg_affine_latch
-                    .increment_reference_latches(&ppu.registers, ppu.state.bg_enabled_latency);
-
                 dma.notify_hblank_start();
             }
         }
@@ -517,9 +507,9 @@ impl Ppu {
                 LINES_PER_FRAME => {
                     ppu.state.scanline = 0;
 
-                    ppu.state.bg_affine_latch.latch_reference_points(&ppu.registers);
-                    ppu.state.bg_affine_latch.x_written = [false; 2];
-                    ppu.state.bg_affine_latch.y_written = [false; 2];
+                    // Force reference point re-latch
+                    ppu.state.bg_affine_latch.x_written = [true; 2];
+                    ppu.state.bg_affine_latch.y_written = [true; 2];
                 }
                 SCREEN_HEIGHT => {
                     if ppu.registers.vblank_irq_enabled {
@@ -538,6 +528,12 @@ impl Ppu {
                     ppu.state.video_capture_latch = dma.video_capture_active();
                 }
                 _ => {}
+            }
+
+            if ppu.state.scanline < SCREEN_HEIGHT {
+                ppu.state
+                    .bg_affine_latch
+                    .update_reference_points(&ppu.registers, ppu.state.bg_enabled_latency);
             }
 
             if ppu.state.video_capture_latch && (2..162).contains(&ppu.state.scanline) {
