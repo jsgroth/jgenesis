@@ -21,9 +21,6 @@ const MAIN_RAM_LEN: usize = 128 * 1024;
 // H=32.5
 const AUTO_JOYPAD_START_MCLK: u64 = 130;
 
-// Scanline MCLK at which to generate V IRQ
-const V_IRQ_H_MCLK: u64 = 10;
-
 type MainRam = [u8; MAIN_RAM_LEN];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
@@ -299,16 +296,23 @@ impl DmaIncrementMode {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default, Encode, Decode)]
+struct IrqRegisters {
+    mode: IrqMode,
+    line: bool,
+    pending: bool,
+    htime: u16,
+    vtime: u16,
+    last_ppu_htime: u16,
+}
+
 // Registers/ports that are on the 5A22 chip but are not part of the 65816
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct CpuInternalRegisters {
     nmi_enabled: bool,
     nmi_pending: bool,
-    irq_mode: IrqMode,
-    irq_pending: bool,
+    irq: IrqRegisters,
     auto_joypad_read_enabled: bool,
-    irq_htime: u16,
-    irq_vtime: u16,
     multiply_operand_l: u8,
     multiply_operand_r: u8,
     multiply_product: u16,
@@ -345,11 +349,8 @@ impl CpuInternalRegisters {
         Self {
             nmi_enabled: false,
             nmi_pending: false,
-            irq_mode: IrqMode::default(),
-            irq_pending: false,
+            irq: IrqRegisters::default(),
             auto_joypad_read_enabled: false,
-            irq_htime: 0,
-            irq_vtime: 0,
             multiply_operand_l: 0xFF,
             multiply_operand_r: 0xFF,
             multiply_product: 0,
@@ -410,8 +411,8 @@ impl CpuInternalRegisters {
                 // TIMEUP: H/V IRQ flag
 
                 // Reading this register clears the IRQ flag
-                let irq_pending = self.irq_pending;
-                self.irq_pending = false;
+                let irq_pending = self.irq.pending;
+                self.irq.pending = false;
 
                 // Bits 6-0 are open bus
                 (u8::from(irq_pending) << 7) | (cpu_open_bus & 0x7F)
@@ -488,7 +489,7 @@ impl CpuInternalRegisters {
             0x4200 => {
                 // NMITIMEN: Interrupt enable and joypad request
                 self.auto_joypad_read_enabled = value.bit(0);
-                self.irq_mode = IrqMode::from_byte(value);
+                self.irq.mode = IrqMode::from_byte(value);
                 let nmi_enabled = value.bit(7);
                 if !self.nmi_enabled && nmi_enabled && self.vblank_nmi_flag {
                     // Enabling NMIs while the VBlank NMI flag is set immediately triggers an NMI
@@ -497,12 +498,12 @@ impl CpuInternalRegisters {
                 self.nmi_enabled = nmi_enabled;
 
                 // Disabling IRQs acknowledges any pending IRQ
-                if self.irq_mode == IrqMode::Off {
-                    self.irq_pending = false;
+                if self.irq.mode == IrqMode::Off {
+                    self.irq.pending = false;
                 }
 
                 log::trace!("  Auto joypad read enabled: {}", self.auto_joypad_read_enabled);
-                log::trace!("  IRQ mode: {:?}", self.irq_mode);
+                log::trace!("  IRQ mode: {:?}", self.irq.mode);
                 log::trace!("  NMI enabled: {nmi_enabled}");
             }
             0x4201 => {
@@ -564,27 +565,27 @@ impl CpuInternalRegisters {
             }
             0x4207 => {
                 // HTIMEL: H-count timer setting, low byte
-                self.irq_htime.set_lsb(value);
+                self.irq.htime.set_lsb(value);
 
-                log::trace!("  HTIME: {:04X}", self.irq_htime);
+                log::trace!("  HTIME: {:04X}", self.irq.htime);
             }
             0x4208 => {
                 // HTIMEH: H-count timer setting, high byte (really just highest bit)
-                self.irq_htime.set_msb(value & 0x01);
+                self.irq.htime.set_msb(value & 0x01);
 
-                log::trace!("  HTIME: {:04X}", self.irq_htime);
+                log::trace!("  HTIME: {:04X}", self.irq.htime);
             }
             0x4209 => {
                 // VTIMEL: V-count timer setting, low byte
-                self.irq_vtime.set_lsb(value);
+                self.irq.vtime.set_lsb(value);
 
-                log::trace!("  VTIME: {:04X}", self.irq_vtime);
+                log::trace!("  VTIME: {:04X}", self.irq.vtime);
             }
             0x420A => {
                 // VTIMEH: V-count timer setting, high byte (really just highest bit)
-                self.irq_vtime.set_msb(value & 0x01);
+                self.irq.vtime.set_msb(value & 0x01);
 
-                log::trace!("  VTIME: {:04X}", self.irq_vtime);
+                log::trace!("  VTIME: {:04X}", self.irq.vtime);
             }
             0x420B => {
                 // MDMAEN: Select general purpose DMA channels + start transfer (if non-zero)
@@ -800,13 +801,7 @@ impl CpuInternalRegisters {
         self.programmable_joypad_port
     }
 
-    pub fn tick(
-        &mut self,
-        master_cycles_elapsed: u64,
-        ppu: &Ppu,
-        prev_scanline_mclk: u64,
-        inputs: &SnesInputs,
-    ) {
+    pub fn tick(&mut self, master_cycles_elapsed: u64, ppu: &Ppu, inputs: &SnesInputs) {
         // Progress auto joypad read if it's running
         self.input_state.tick(master_cycles_elapsed, *inputs);
 
@@ -814,7 +809,7 @@ impl CpuInternalRegisters {
         self.update_hv_blank_flags(ppu);
 
         // Check H/V IRQs
-        self.check_irq(master_cycles_elapsed, prev_scanline_mclk, ppu);
+        self.update_irq_line(ppu);
 
         // Check if auto joypad read should start
         if self.auto_joypad_read_enabled
@@ -843,47 +838,65 @@ impl CpuInternalRegisters {
         self.hblank_flag = ppu.hblank_flag();
     }
 
-    fn check_irq(&mut self, master_cycles_elapsed: u64, prev_scanline_mclk: u64, ppu: &Ppu) {
-        match self.irq_mode {
-            IrqMode::Off => {}
-            IrqMode::H => {
-                // Generate H IRQ at H=HTIME+3.5, every line (mclks: 4*HTIME + 14)
-                if check_htime_passed(
-                    prev_scanline_mclk,
-                    ppu.scanline_master_cycles(),
-                    self.irq_htime,
-                ) {
-                    self.irq_pending = true;
-                }
-            }
-            IrqMode::V => {
-                // Generate V IRQ at V=VTIME and H=2.5 (10 mclks into scanline)
-                if ppu.scanline() == self.irq_vtime
-                    && check_v_irq(ppu.scanline_master_cycles(), master_cycles_elapsed)
-                {
-                    self.irq_pending = true;
-                }
-            }
-            IrqMode::HV => {
-                // Generate HV IRQ at V=VTIME and H=HTIME+3.5 (mclks: 4*HTIME + 14)
-                // Unless HTIME=0, then generate at V=VTIME and H=2.5 (same as V IRQ)
-                if ppu.scanline() == self.irq_vtime {
-                    let htime_passed = if self.irq_htime == 0 {
-                        check_v_irq(ppu.scanline_master_cycles(), master_cycles_elapsed)
-                    } else {
-                        check_htime_passed(
-                            prev_scanline_mclk,
-                            ppu.scanline_master_cycles(),
-                            self.irq_htime,
-                        )
-                    };
+    fn update_irq_line(&mut self, ppu: &Ppu) {
+        let ppu_htime = ppu.htime_for_irq();
+        debug_assert!(ppu_htime != self.irq.last_ppu_htime);
 
-                    if htime_passed {
-                        self.irq_pending = true;
-                    }
-                }
+        let check_h = || {
+            if ppu_htime < self.irq.last_ppu_htime {
+                // Just crossed a scanline boundary
+                self.irq.htime <= ppu_htime
+                    || (self.irq.last_ppu_htime + 1..ppu.previous_line_max_htime())
+                        .contains(&self.irq.htime)
+            } else {
+                (self.irq.last_ppu_htime + 1..=ppu_htime).contains(&self.irq.htime)
             }
-        }
+        };
+
+        let check_v = || ppu.vtime_for_irq() == self.irq.vtime;
+
+        let check_hv = || {
+            if ppu_htime >= self.irq.last_ppu_htime {
+                // Did not cross scanline boundary
+                let h = (self.irq.last_ppu_htime + 1..=ppu_htime).contains(&self.irq.htime);
+                return h && check_v();
+            }
+
+            // Crossed scanline boundary
+            if self.irq.htime <= ppu_htime {
+                // Passed HTIME in start of current line
+                check_v()
+            } else if (self.irq.last_ppu_htime + 1..ppu.previous_line_max_htime())
+                .contains(&self.irq.htime)
+            {
+                // Passed HTIME in end of previous line
+                let ppu_vtime = ppu.vtime_for_irq();
+                let prev_vtime =
+                    if ppu_vtime == 0 { ppu.scanlines_per_frame() - 1 } else { ppu_vtime - 1 };
+                prev_vtime == self.irq.vtime
+            } else {
+                // Did not pass HTIME
+                false
+            }
+        };
+
+        let new_irq_line = match self.irq.mode {
+            IrqMode::Off => false,
+            IrqMode::H => check_h(),
+            IrqMode::V => check_v(),
+            IrqMode::HV => check_hv(),
+        };
+
+        self.irq.last_ppu_htime = ppu_htime;
+
+        // Raise IRQ for CPU any time IRQ line goes from 0 to 1
+        // Some games depend on a V IRQ triggering when they change VTIME to the current line
+        // e.g. F-1 Grand Prix, F-1 Grand Prix Part III, S.O.S.: Sink or Swim
+        self.irq.pending |= !self.irq.line && new_irq_line;
+        self.irq.line = new_irq_line;
+
+        // TODO TIMEUP reads should not clear IRQ pending in the 4 mclks following it getting set
+        // this is difficult to implement with how timing is currently handled
     }
 
     pub fn nmi_pending(&self) -> bool {
@@ -895,7 +908,7 @@ impl CpuInternalRegisters {
     }
 
     pub fn irq_pending(&self) -> bool {
-        self.irq_pending
+        self.irq.pending
     }
 
     pub fn reset(&mut self) {
@@ -923,15 +936,177 @@ impl CpuInternalRegisters {
     }
 }
 
-fn check_v_irq(scanline_mclk: u64, master_cycles_elapsed: u64) -> bool {
-    scanline_mclk >= V_IRQ_H_MCLK
-        && scanline_mclk.saturating_sub(master_cycles_elapsed) < V_IRQ_H_MCLK
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::SnesEmulatorConfig;
 
-fn check_htime_passed(prev_scanline_mclk: u64, scanline_mclk: u64, htime: u16) -> bool {
-    // H IRQs and HV IRQs should trigger at H=HTIME+3.5, or mclks=4*(HTIME+3.5)
-    // Allow the +3.5 to go past the end of the scanline, but also take care not to miss low HTIMEs
-    let htime_mclk: u64 = (4 * htime + 14).into();
-    scanline_mclk >= htime_mclk
-        && (prev_scanline_mclk < htime_mclk || scanline_mclk < prev_scanline_mclk)
+    const NMITIMEN: u32 = 0x4200;
+    const HTIME_L: u32 = 0x4207;
+    const HTIME_H: u32 = 0x4208;
+    const VTIME_L: u32 = 0x4209;
+    const VTIME_H: u32 = 0x420A;
+    const TIMEUP: u32 = 0x4211;
+
+    fn new_ppu() -> Ppu {
+        Ppu::new(TimingMode::Ntsc, SnesEmulatorConfig::default())
+    }
+
+    fn tick(cycles: u64, registers: &mut CpuInternalRegisters, ppu: &mut Ppu) {
+        let _ = ppu.tick(cycles);
+        registers.tick(cycles, ppu, &SnesInputs::default());
+    }
+
+    #[test]
+    fn irq_v() {
+        let mut registers = CpuInternalRegisters::new();
+
+        // V IRQs
+        registers.write_register(NMITIMEN, 0x20);
+
+        // VTIME=101
+        registers.write_register(VTIME_L, 101);
+        registers.write_register(VTIME_H, 0);
+
+        let mut ppu = new_ppu();
+        ppu.set_scanline(100);
+        ppu.set_scanline_master_cycles(338 * 4 + 10);
+
+        // V=100 H=338
+        registers.tick(4, &ppu, &SnesInputs::default());
+        assert!(!registers.irq_pending());
+
+        // V=100 H=339
+        tick(4, &mut registers, &mut ppu);
+        assert!(!registers.irq_pending());
+
+        // V=100 H=340
+        tick(4, &mut registers, &mut ppu);
+        assert!(!registers.irq_pending());
+
+        // V=101 H=0
+        tick(4, &mut registers, &mut ppu);
+        assert!(registers.irq_pending());
+
+        // V=101 H=1
+        tick(4, &mut registers, &mut ppu);
+        assert!(registers.irq_pending());
+
+        // Read TIMEUP (acknowledge IRQ)
+        registers.read_register(TIMEUP, 0);
+        assert!(!registers.irq_pending());
+
+        // V=101 H=2
+        tick(4, &mut registers, &mut ppu);
+        assert!(!registers.irq_pending());
+
+        // V=101 H=3
+        tick(4, &mut registers, &mut ppu);
+        assert!(!registers.irq_pending());
+
+        // Change VTIME to a different line
+        registers.write_register(VTIME_L, 42);
+
+        // V=101 H=4
+        tick(4, &mut registers, &mut ppu);
+        assert!(!registers.irq_pending());
+
+        // V=101 H=5
+        tick(4, &mut registers, &mut ppu);
+        assert!(!registers.irq_pending());
+
+        // Change VTIME back to current line (should trigger V IRQ)
+        registers.write_register(VTIME_L, 101);
+
+        // V=101 H=6
+        tick(4, &mut registers, &mut ppu);
+        assert!(registers.irq_pending());
+    }
+
+    #[test]
+    fn irq_hv() {
+        let mut registers = CpuInternalRegisters::new();
+
+        // HV IRQs
+        registers.write_register(NMITIMEN, 0x30);
+
+        // VTIME=101
+        registers.write_register(VTIME_L, 101);
+        registers.write_register(VTIME_H, 0);
+
+        // HTIME=50
+        registers.write_register(HTIME_L, 50);
+        registers.write_register(HTIME_H, 0);
+
+        let mut ppu = new_ppu();
+        ppu.set_scanline(100);
+        ppu.set_scanline_master_cycles(338 * 4 + 10);
+
+        // V=100 H=338
+        registers.tick(4, &ppu, &SnesInputs::default());
+        assert!(!registers.irq_pending());
+
+        // V=100 H=339
+        tick(4, &mut registers, &mut ppu);
+        assert!(!registers.irq_pending());
+
+        // V=100 H=340
+        tick(4, &mut registers, &mut ppu);
+        assert!(!registers.irq_pending());
+
+        // V=101 H=0 (should not trigger IRQ)
+        tick(4, &mut registers, &mut ppu);
+        assert!(!registers.irq_pending());
+
+        // V=101 H=1-49
+        for _ in 0..49 {
+            tick(4, &mut registers, &mut ppu);
+            assert!(!registers.irq_pending());
+        }
+
+        // V=101 H=50 (should trigger IRQ)
+        tick(4, &mut registers, &mut ppu);
+        assert!(registers.irq_pending());
+
+        // V=101 H=51
+        tick(4, &mut registers, &mut ppu);
+        assert!(registers.irq_pending());
+
+        // Read TIMEUP (acknowledge IRQ)
+        registers.read_register(TIMEUP, 0);
+        assert!(!registers.irq_pending());
+
+        // V=101 H=52 (should not trigger IRQ)
+        tick(4, &mut registers, &mut ppu);
+        assert!(!registers.irq_pending());
+    }
+
+    #[test]
+    fn irq_hv_end_of_line() {
+        let mut registers = CpuInternalRegisters::new();
+
+        // HV IRQs
+        registers.write_register(NMITIMEN, 0x30);
+
+        // VTIME=100
+        registers.write_register(VTIME_L, 100);
+        registers.write_register(VTIME_H, 0);
+
+        // HTIME=339
+        let htime = 339_u16.to_le_bytes();
+        registers.write_register(HTIME_L, htime[0]);
+        registers.write_register(HTIME_H, htime[1]);
+
+        let mut ppu = new_ppu();
+        ppu.set_scanline(100);
+        ppu.set_scanline_master_cycles(338 * 4 + 10);
+
+        // V=100 H=338
+        registers.tick(4, &ppu, &SnesInputs::default());
+        assert!(!registers.irq_pending());
+
+        // Advance past end of line (V=101 H=4)
+        tick(7 * 4, &mut registers, &mut ppu);
+        assert!(registers.irq_pending());
+    }
 }

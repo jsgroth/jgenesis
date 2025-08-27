@@ -49,6 +49,8 @@ type Cgram = [u16; CGRAM_LEN_WORDS];
 struct State {
     scanline: u16,
     scanline_master_cycles: u64,
+    current_line_length: ScanlineLength,
+    prev_line_length: ScanlineLength,
     v_mosaic_counter: u8,
     mosaic_size_latch: u8,
     dot_event_idx: u8,
@@ -68,6 +70,8 @@ impl State {
         Self {
             scanline: 0,
             scanline_master_cycles: 0,
+            current_line_length: ScanlineLength::Normal,
+            prev_line_length: ScanlineLength::Normal,
             v_mosaic_counter: 0,
             mosaic_size_latch: 0,
             dot_event_idx: 0,
@@ -370,6 +374,23 @@ pub struct Ppu {
     deinterlace: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+enum ScanlineLength {
+    Normal,
+    Short,
+    Long,
+}
+
+impl ScanlineLength {
+    fn scanline_mclks(self) -> u64 {
+        match self {
+            Self::Normal => MCLKS_PER_NORMAL_SCANLINE,
+            Self::Short => MCLKS_PER_SHORT_SCANLINE,
+            Self::Long => MCLKS_PER_LONG_SCANLINE,
+        }
+    }
+}
+
 // In actual hardware, PPU starts rendering pixels at H=22 / mclk=88
 // Some games depend on this 88-cycle delay to finish HDMA before rendering starts, e.g. Final Fantasy 6
 //
@@ -414,7 +435,7 @@ impl Ppu {
 
         let v_display_size = self.registers.v_display_size.to_lines();
 
-        let mclks_per_scanline = self.mclks_per_current_scanline();
+        let mclks_per_scanline = self.state.current_line_length.scanline_mclks();
 
         let mut tick_effect = PpuTickEffect::None;
         if new_scanline_mclks >= mclks_per_scanline {
@@ -450,6 +471,9 @@ impl Ppu {
                     self.registers.sprite_pixel_overflow = false;
                 }
             }
+
+            self.state.prev_line_length = self.state.current_line_length;
+            self.state.current_line_length = self.scanline_length(self.state.scanline);
 
             self.state.update_v_mosaic(self.registers.mosaic_size);
 
@@ -1380,35 +1404,26 @@ impl Ppu {
         }
     }
 
-    fn scanlines_per_frame(&self) -> u16 {
+    pub fn scanlines_per_frame(&self) -> u16 {
         match self.timing_mode {
             TimingMode::Ntsc => 262,
             TimingMode::Pal => 312,
         }
     }
 
-    fn mclks_per_current_scanline(&self) -> u64 {
-        if self.is_short_scanline() {
-            MCLKS_PER_SHORT_SCANLINE
-        } else if self.is_long_scanline() {
-            MCLKS_PER_LONG_SCANLINE
-        } else {
-            MCLKS_PER_NORMAL_SCANLINE
+    fn scanline_length(&self, scanline: u16) -> ScanlineLength {
+        // In NTSC progressive mode, line 240 is short every other frame (1360 mclks)
+        // In PAL interlaced mode, line 311 is long every other frame (1368 mclks)
+        // All other lines are 1364 mclks
+        if !self.state.odd_frame {
+            return ScanlineLength::Normal;
         }
-    }
 
-    fn is_short_scanline(&self) -> bool {
-        self.state.scanline == 240
-            && self.timing_mode == TimingMode::Ntsc
-            && !self.registers.interlaced
-            && self.state.odd_frame
-    }
-
-    fn is_long_scanline(&self) -> bool {
-        self.state.scanline == 311
-            && self.timing_mode == TimingMode::Pal
-            && self.registers.interlaced
-            && self.state.odd_frame
+        match (scanline, self.timing_mode, self.registers.interlaced) {
+            (240, TimingMode::Ntsc, false) => ScanlineLength::Short,
+            (311, TimingMode::Pal, true) => ScanlineLength::Long,
+            _ => ScanlineLength::Normal,
+        }
     }
 
     fn in_active_display(&self, scanline: u16) -> bool {
@@ -1427,12 +1442,62 @@ impl Ppu {
         self.state.scanline
     }
 
+    #[cfg(test)]
+    pub fn set_scanline(&mut self, scanline: u16) {
+        assert!(
+            scanline < self.scanlines_per_frame(),
+            "{scanline} must be less than {}",
+            self.scanlines_per_frame()
+        );
+        self.state.scanline = scanline;
+    }
+
     pub fn is_first_vblank_scanline(&self) -> bool {
         self.state.scanline == self.registers.v_display_size.to_lines() + 1
     }
 
     pub fn scanline_master_cycles(&self) -> u64 {
         self.state.scanline_master_cycles
+    }
+
+    #[cfg(test)]
+    pub fn set_scanline_master_cycles(&mut self, scanline_master_cycles: u64) {
+        assert!(
+            scanline_master_cycles < self.state.current_line_length.scanline_mclks(),
+            "{scanline_master_cycles} must be less than {}",
+            self.state.current_line_length.scanline_mclks()
+        );
+        self.state.scanline_master_cycles = scanline_master_cycles;
+    }
+
+    // There is a 10 mclk / 2.5 dot delay on raising IRQ in response to VTIME/HTIME matches
+    const IRQ_OFFSET_MCLKS: u64 = 10;
+
+    pub fn vtime_for_irq(&self) -> u16 {
+        if self.state.scanline_master_cycles >= Self::IRQ_OFFSET_MCLKS {
+            self.state.scanline
+        } else if self.state.scanline == 0 {
+            self.scanlines_per_frame() - 1
+        } else {
+            self.state.scanline - 1
+        }
+    }
+
+    pub fn htime_for_irq(&self) -> u16 {
+        let scanline_mclks = if self.state.scanline_master_cycles >= Self::IRQ_OFFSET_MCLKS {
+            self.state.scanline_master_cycles - Self::IRQ_OFFSET_MCLKS
+        } else {
+            self.state.prev_line_length.scanline_mclks()
+                - (Self::IRQ_OFFSET_MCLKS - self.state.scanline_master_cycles)
+        };
+
+        // CPU HTIME counter does not account for some dots being shorter/longer; assumes all dots
+        // are 4 mclks
+        (scanline_mclks / 4) as u16
+    }
+
+    pub fn previous_line_max_htime(&self) -> u16 {
+        (self.state.prev_line_length.scanline_mclks() / 4) as u16
     }
 
     pub fn frame_buffer(&self) -> &[Color] {

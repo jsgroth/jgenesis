@@ -41,6 +41,19 @@ pub struct SnesEmulatorConfig {
 
 impl EmulatorConfigTrait for SnesEmulatorConfig {}
 
+impl Default for SnesEmulatorConfig {
+    fn default() -> Self {
+        Self {
+            forced_timing_mode: None,
+            aspect_ratio: SnesAspectRatio::default(),
+            deinterlace: true,
+            audio_interpolation: AudioInterpolationMode::default(),
+            audio_60hz_hack: false,
+            gsu_overclock_factor: NonZeroU64::new(1).unwrap(),
+        }
+    }
+}
+
 pub type CoprocessorRomFn = dyn Fn() -> Result<Vec<u8>, (io::Error, String)>;
 
 #[derive(Default, FakeEncode, FakeDecode)]
@@ -339,10 +352,11 @@ impl EmulatorTrait for SnesEmulator {
             tick_effect = TickEffect::FrameRendered;
         }
 
-        self.cpu_registers.tick(master_cycles_elapsed, &self.ppu, prev_scanline_mclk, inputs);
+        self.cpu_registers.tick(master_cycles_elapsed, &self.ppu, inputs);
 
         // CPU reads are applied before advancing other components but CPU writes are applied after.
         // This fixes freezing in Rendering Ranger R2
+        // TODO this is slightly inaccurate - reads should happen 4 mclks before writes, not a full CPU cycle
         if let Some((address, value)) = pending_write {
             new_bus!(self).apply_write(address, value);
         }
