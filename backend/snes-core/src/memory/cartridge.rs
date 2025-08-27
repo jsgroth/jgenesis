@@ -120,7 +120,7 @@ impl DspLoromPortAddresses {
     }
 
     fn is_dsp_port(&self, bank: u32, offset: u32) -> bool {
-        self.banks.contains(&(bank & 0x7F)) && offset & self.offset_mask == self.offset_mask
+        self.banks.contains(&(bank & 0x7F)) && offset & 0x8000 == self.offset_mask
     }
 }
 
