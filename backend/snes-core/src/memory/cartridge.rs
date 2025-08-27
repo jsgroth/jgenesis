@@ -19,7 +19,7 @@ use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::mem;
 use std::num::NonZeroU64;
-use std::ops::Deref;
+use std::ops::{Deref, Range};
 
 const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 
@@ -88,6 +88,42 @@ impl Display for DspVariant {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct DspLoromPortAddresses {
+    banks: Range<u32>,
+    offset_mask: u32,
+}
+
+impl DspLoromPortAddresses {
+    // PCB SHVC-1B0N-01
+    // DSP-1 or DSP-4 with no SRAM and at most 1MB of ROM
+    const DSP_1_4: Self = Self { banks: 0x30..0x40, offset_mask: 0x8000 };
+
+    // PCB SHVC-2B3B-01
+    // DSP-1 with 8KB SRAM and up to 2MB of ROM
+    const DSP_1_LARGE: Self = Self { banks: 0x60..0x70, offset_mask: 0x0000 };
+
+    // PCB SHVC-1B5B-01 (DSP-2 w/ 32KB SRAM) or SHVC-1B3B-01 (DSP-3 w/ 8KB SRAM)
+    const DSP_2_3: Self = Self { banks: 0x20..0x40, offset_mask: 0x8000 };
+
+    fn from_metadata(rom_len: usize, sram_len: usize) -> Self {
+        if rom_len > 1024 * 1024 {
+            // More than 1MB of ROM; assume DSP-1 large variant
+            Self::DSP_1_LARGE
+        } else if sram_len != 0 {
+            // At most 1MB of ROM but has SRAM; assume DSP-2 or DSP-3
+            Self::DSP_2_3
+        } else {
+            // At most 1MB of ROM and no SRAM; assume DSP-1 normal variant or DSP-4
+            Self::DSP_1_4
+        }
+    }
+
+    fn is_dsp_port(&self, bank: u32, offset: u32) -> bool {
+        self.banks.contains(&(bank & 0x7F)) && offset & self.offset_mask == self.offset_mask
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum St01xVariant {
     St010,
@@ -145,6 +181,7 @@ pub enum Cartridge {
         rom: Rom,
         sram: Box<[u8]>,
         upd77c25: Upd77c25,
+        port_addresses: DspLoromPortAddresses,
     },
     DspHiRom {
         #[partial_clone(default)]
@@ -306,7 +343,17 @@ impl Cartridge {
             let upd77c25 = Upd77c25::new(&dsp_rom, Upd77c25Variant::Dsp, &sram, timing_mode);
 
             return match cartridge_type {
-                CartridgeType::LoRom => Ok(Self::DspLoRom { rom: Rom(rom), sram, upd77c25 }),
+                CartridgeType::LoRom => {
+                    let port_addresses = DspLoromPortAddresses::from_metadata(rom.len(), sram_len);
+
+                    log::debug!(
+                        "DSP-n port banks: {:02X?}, offset mask: {:04X}",
+                        port_addresses.banks,
+                        port_addresses.offset_mask
+                    );
+
+                    Ok(Self::DspLoRom { rom: Rom(rom), sram, upd77c25, port_addresses })
+                }
                 CartridgeType::HiRom => Ok(Self::DspHiRom { rom: Rom(rom), sram, upd77c25 }),
                 _ => unreachable!("nested match expressions"),
             };
@@ -332,13 +379,17 @@ impl Cartridge {
             Self::LoRom { rom, sram } => {
                 (lorom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram)
             }
-            Self::DspLoRom { rom, sram, upd77c25 } => match (bank, offset) {
-                (0x30..=0x3F | 0xB0..=0xBF, 0x8000..=0xBFFF) => return Some(upd77c25.read_data()),
-                (0x30..=0x3F | 0xB0..=0xBF, 0xC000..=0xFFFF) => {
-                    return Some(upd77c25.read_status());
+            Self::DspLoRom { rom, sram, upd77c25, port_addresses } => {
+                if port_addresses.is_dsp_port(bank, offset) {
+                    return Some(if offset & 0x4000 == 0 {
+                        upd77c25.read_data()
+                    } else {
+                        upd77c25.read_status()
+                    });
                 }
-                _ => (lorom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram),
-            },
+
+                (lorom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram)
+            }
             Self::HiRom { rom, sram } => {
                 (hirom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram)
             }
@@ -406,18 +457,21 @@ impl Cartridge {
                     sram[sram_addr as usize] = value;
                 }
             }
-            Self::DspLoRom { rom, sram, upd77c25 } => match (bank, offset) {
-                (0x30..=0x3F | 0xB0..=0xBF, 0x8000..=0xBFFF) => {
-                    upd77c25.write_data(value);
-                }
-                _ => {
-                    if let CartridgeAddress::Sram(sram_addr) =
-                        lorom_map_address(address, rom.len() as u32, sram.len() as u32)
-                    {
-                        sram[sram_addr as usize] = value;
+            Self::DspLoRom { rom, sram, upd77c25, port_addresses } => {
+                if port_addresses.is_dsp_port(bank, offset) {
+                    if offset & 0x4000 == 0 {
+                        upd77c25.write_data(value);
                     }
+                    // Status port is not writable
+                    return;
                 }
-            },
+
+                if let CartridgeAddress::Sram(sram_addr) =
+                    lorom_map_address(address, rom.len() as u32, sram.len() as u32)
+                {
+                    sram[sram_addr as usize] = value;
+                }
+            }
             Self::HiRom { rom, sram, .. } => {
                 if let CartridgeAddress::Sram(sram_addr) =
                     hirom_map_address(address, rom.len() as u32, sram.len() as u32)
