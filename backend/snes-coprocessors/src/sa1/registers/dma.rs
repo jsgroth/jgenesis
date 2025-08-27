@@ -24,7 +24,7 @@ impl Sa1Registers {
         let base_iram_addr = (self.dma_destination_address & self.ccdma_dest_addr_mask())
             + u32::from(buffer_idx) * tile_size;
         let iram_addr = base_iram_addr + tile_size - u32::from(dma_bytes_remaining);
-        let next_byte = iram[iram_addr as usize];
+        let next_byte = iram[(iram_addr & 0x7FF) as usize];
 
         if dma_bytes_remaining == 1 {
             self.progress_ccdma_type_1(buffer_idx, next_tile_number, iram, bwram);
@@ -113,11 +113,12 @@ impl Sa1Registers {
             let shift = 7 - pixel_idx;
 
             for plane in (0..color_depth.bitplanes()).step_by(2) {
-                let iram_addr = base_iram_addr + 8 * plane;
+                let iram_addr = ((base_iram_addr + 8 * plane) & 0x7FF) as usize;
+                let next_iram_addr = (iram_addr + 1) & 0x7FF;
 
-                iram[iram_addr as usize] = (iram[iram_addr as usize] & !(1 << shift))
-                    | (u8::from(pixel.bit(plane as u8)) << shift);
-                iram[(iram_addr + 1) as usize] = (iram[(iram_addr + 1) as usize] & !(1 << shift))
+                iram[iram_addr] =
+                    (iram[iram_addr] & !(1 << shift)) | (u8::from(pixel.bit(plane as u8)) << shift);
+                iram[next_iram_addr] = (iram[next_iram_addr] & !(1 << shift))
                     | (u8::from(pixel.bit((plane + 1) as u8)) << shift);
             }
         }
@@ -221,23 +222,24 @@ fn character_conversion_1_copy_tile(
         let dest_line_addr = dest_addr + 2 * line;
 
         for pixel in 0..8 {
-            let pixel_addr = source_line_addr + pixel / pixels_per_byte;
+            let pixel_addr =
+                ((source_line_addr + pixel / pixels_per_byte) as usize) & (bwram.len() - 1);
             let pixel_shift = match color_depth {
-                CharacterConversionColorBits::Two => 2 * (3 - (pixel % 4)),
-                CharacterConversionColorBits::Four => 4 * (1 - (pixel % 2)),
+                CharacterConversionColorBits::Two => 2 * (pixel % 4),
+                CharacterConversionColorBits::Four => 4 * (pixel % 2),
                 CharacterConversionColorBits::Eight => 0,
             };
 
-            let bm_pixel = (bwram[pixel_addr as usize] >> pixel_shift) & pixel_mask;
+            let bm_pixel = (bwram[pixel_addr] >> pixel_shift) & pixel_mask;
             let bm_shift = 7 - pixel;
 
             for plane in (0..bitplanes).step_by(2) {
-                let iram_addr = dest_line_addr + 8 * plane;
+                let iram_addr = ((dest_line_addr + 8 * plane) & 0x7FF) as usize;
+                let next_iram_addr = (iram_addr + 1) & 0x7FF;
 
-                iram[iram_addr as usize] = (iram[iram_addr as usize] & !(1 << bm_shift))
+                iram[iram_addr] = (iram[iram_addr] & !(1 << bm_shift))
                     | (u8::from(bm_pixel.bit(plane as u8)) << bm_shift);
-                iram[(iram_addr + 1) as usize] = (iram[(iram_addr + 1) as usize]
-                    & !(1 << bm_shift))
+                iram[next_iram_addr] = (iram[next_iram_addr] & !(1 << bm_shift))
                     | (u8::from(bm_pixel.bit((plane + 1) as u8)) << bm_shift);
             }
         }

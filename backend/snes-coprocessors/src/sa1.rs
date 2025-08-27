@@ -53,7 +53,12 @@ pub struct Sa1 {
 impl Sa1 {
     #[allow(clippy::missing_panics_doc)]
     #[must_use]
-    pub fn new(rom: Box<[u8]>, sram: Box<[u8]>, timing_mode: TimingMode) -> Self {
+    pub fn new(rom: Box<[u8]>, mut sram: Box<[u8]>, timing_mode: TimingMode) -> Self {
+        if sram.is_empty() {
+            log::info!("SA-1 cartridge with no BW-RAM makes no sense; allocating 64KB of BW-RAM");
+            sram = vec![0; 64 * 1024].into_boxed_slice();
+        }
+
         Self {
             rom: Rom(rom),
             iram: vec![0; IRAM_LEN].into_boxed_slice().try_into().unwrap(),

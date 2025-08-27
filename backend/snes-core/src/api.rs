@@ -88,6 +88,8 @@ pub enum SnesError<RErr, AErr, SErr> {
 
 #[derive(Debug, Error)]
 pub enum SnesLoadError {
+    #[error("ROM is only {size} bytes; all SNES ROM chips should be at least 32768 bytes")]
+    RomTooSmall { size: usize },
     #[error("Cannot load DSP-1 cartridge because DSP-1 ROM is not configured")]
     MissingDsp1Rom,
     #[error("Cannot load DSP-2 cartridge because DSP-2 ROM is not configured")]

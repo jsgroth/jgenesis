@@ -269,7 +269,9 @@ impl App {
             SnesLoadError::MissingSt010Rom => CoprocessorRom::St010,
             SnesLoadError::MissingSt011Rom => CoprocessorRom::St011,
             SnesLoadError::MissingSt018Rom => CoprocessorRom::St018,
-            SnesLoadError::CoprocessorRomLoad { .. } | SnesLoadError::St018RomLoad(..) => {
+            SnesLoadError::RomTooSmall { .. }
+            | SnesLoadError::CoprocessorRomLoad { .. }
+            | SnesLoadError::St018RomLoad(..) => {
                 return HandledError::No;
             }
         };

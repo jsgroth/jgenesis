@@ -221,6 +221,10 @@ impl Cartridge {
             rom = rom[0x200..].to_vec();
         }
 
+        if rom.len() < 32 * 1024 {
+            return Err(SnesLoadError::RomTooSmall { size: rom.len() });
+        }
+
         let cartridge_type = guess_cartridge_type(&rom).unwrap_or_else(|| {
             log::error!("Unable to confidently determine ROM type; defaulting to LoROM");
             CartridgeType::LoRom
@@ -839,6 +843,17 @@ fn guess_cartridge_type(rom: &[u8]) -> Option<CartridgeType> {
 }
 
 fn check_for_lorom_coprocessor(rom: &[u8]) -> Option<CartridgeType> {
+    const FORCE_COPROCESSOR_CHECKSUMS: &[(u32, CartridgeType)] = &[
+        (0x239D2862, CartridgeType::Sa1), // SA1 Demonstration Program (Unknown) (Tech Demo)
+    ];
+
+    let checksum = CRC.checksum(rom);
+    for &(other_checksum, cartridge_type) in FORCE_COPROCESSOR_CHECKSUMS {
+        if checksum == other_checksum {
+            return Some(cartridge_type);
+        }
+    }
+
     let lorom_map_byte = rom[LOROM_HEADER_ADDR + HEADER_MAP_OFFSET];
 
     // Check for CX4
