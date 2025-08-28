@@ -1,5 +1,5 @@
 use bincode::{Decode, Encode};
-use jgenesis_common::frontend::{DisplayArea, FrameSize, MappableInputs};
+use jgenesis_common::frontend::{DisplayArea, FrameSize, InputModal, MappableInputs};
 use jgenesis_common::input::Player;
 use snes_config::{SnesButton, SnesJoypadState, SuperScopeButton};
 
@@ -131,5 +131,22 @@ impl MappableInputs<SnesButton> for SnesInputs {
         if let SnesInputDevice::SuperScope(super_scope_state) = &mut self.p2 {
             super_scope_state.position = None;
         }
+    }
+
+    fn modal_for_input(
+        &self,
+        button: SnesButton,
+        _player: Player,
+        pressed: bool,
+    ) -> Option<InputModal> {
+        if button != SnesButton::SuperScopeTurboToggle || !pressed {
+            return None;
+        }
+
+        let SnesInputDevice::SuperScope(super_scope_state) = self.p2 else { return None };
+
+        let text =
+            format!("Super Scope Turbo: {}", if super_scope_state.turbo { "On" } else { "Off" });
+        Some(InputModal { id: Some("super_scope_turbo".into()), text })
     }
 }
