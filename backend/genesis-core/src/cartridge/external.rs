@@ -9,11 +9,16 @@ use jgenesis_common::num::GetBit;
 use std::ops::Range;
 
 // Games that expect to have 8KB of SRAM mapped to $200001-$203FFF but don't specify that in the header
-const FORCE_SRAM_CHECKSUMS: &[u32] = &[
-    0x8135702C, // NHL 96 (UE)
-    0xF509145F, // Might and Magic: Gates to Another World (UE)
-    0x6EF7104A, // Might and Magic III: Isles of Terra (U) (Proto)
+const FORCE_8KB_SRAM_CHECKSUMS: &[u32] = &[
+    0x8135702C, // NHL 96 (USA, Europe)
+    0xF509145F, // Might and Magic: Gates to Another World (USA, Europe)
+    0x6EF7104A, // Might and Magic III: Isles of Terra (USA) (Proto)
     0x2491DF2F, // NBA Action '94 (USA) (Beta) (1994-01-04)
+];
+
+// Same as above but with 32KB of SRAM at $200001-$20FFFF
+const FORCE_32KB_SRAM_CHECKSUM: &[u32] = &[
+    0xA4F2F011, // Al Michaels Announces HardBall III (USA, Europe)
 ];
 
 const SONIC_AND_KNUCKLES_SERIAL: &[u8] = b"GM MK-1563 ";
@@ -43,10 +48,15 @@ impl Ram {
         checksum: u32,
         initial_ram: &mut Option<Vec<u8>>,
     ) -> Option<Self> {
-        if FORCE_SRAM_CHECKSUMS.contains(&checksum) {
-            // Several games have 8KB of SRAM but don't declare it in the header
+        // Several games have SRAM but don't declare it in the header
+        if FORCE_8KB_SRAM_CHECKSUMS.contains(&checksum) {
             log::info!("Forcibly mapping 8KB of SRAM to $200001-$203FFF");
-            return Some(Self::forced_8kb_sram(initial_ram));
+            return Some(Self::forced_sram(8 * 1024, initial_ram));
+        }
+
+        if FORCE_32KB_SRAM_CHECKSUM.contains(&checksum) {
+            log::info!("Forcibly mapping 32KB of SRAM to $200001-$20FFFF");
+            return Some(Self::forced_sram(32 * 1024, initial_ram));
         }
 
         // Sonic & Knuckles doesn't have SRAM itself, but the locked on game might (e.g. Sonic 3)
@@ -178,22 +188,25 @@ impl Ram {
         }
     }
 
-    fn forced_8kb_sram(initial_ram: &mut Option<Vec<u8>>) -> Self {
-        const SRAM_LEN: usize = 8 * 1024;
+    fn forced_sram(sram_len: usize, initial_ram: &mut Option<Vec<u8>>) -> Self {
+        assert_ne!(sram_len, 0);
 
         let ram = match initial_ram.take() {
-            Some(ram) if ram.len() == SRAM_LEN => ram,
-            _ => vec![0; SRAM_LEN],
+            Some(ram) if ram.len() == sram_len => ram,
+            _ => vec![0; sram_len],
         };
+
+        let start_address = 0x200001;
+        let end_address = 0x200001 | ((sram_len - 1) << 1);
 
         Self {
             ram,
-            address_mask: (SRAM_LEN - 1) as u32,
+            address_mask: (sram_len - 1) as u32,
             ram_type: RamType::EightBitOddAddress,
             persistent: true,
             dirty: false,
-            start_address: 0x200001,
-            end_address: 0x203FFF,
+            start_address,
+            end_address: end_address as u32,
         }
     }
 }
