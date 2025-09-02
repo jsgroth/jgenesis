@@ -528,8 +528,9 @@ impl Bus {
             0x400020A => {}             // High halfword of word writes to IME
             0x400020C..=0x40002FF => {} // Invalid addresses
             0x4000300 => {
-                self.memory.write_postflg(value as u8);
-                self.interrupts.halt_cpu();
+                let [lsb, msb] = value.to_le_bytes();
+                self.memory.write_postflg(lsb);
+                self.write_haltcnt(msb);
             }
             0x4000302 => {} // High halfword of word writes to POSTFLG/HALTCNT
             _ => log::debug!("Unhandled I/O register halfword write {address:08X} {value:04X}"),
@@ -616,10 +617,20 @@ impl Bus {
             }
             0x4000208 => self.interrupts.write_ime(value.into(), self.state.cycles),
             0x4000300 => self.memory.write_postflg(value),
-            0x4000301 => self.interrupts.halt_cpu(),
+            0x4000301 => self.write_haltcnt(value),
             0x4000410 => {} // Unknown; BIOS writes 0xFF to this register
             _ => log::debug!("Unhandled I/O register byte write {address:08X} {value:02X}"),
         }
+    }
+
+    fn write_haltcnt(&mut self, value: u8) {
+        if self.state.cpu_pc >= 0x00004000 {
+            // HALTCNT is only writable when executing from BIOS ROM
+            log::debug!("Attempted to write to HALTCNT while PC is {:08X}", self.state.cpu_pc);
+            return;
+        }
+
+        self.interrupts.halt_cpu(value);
     }
 
     // $04000000-$04FFFFFF: Memory-mapped I/O registers

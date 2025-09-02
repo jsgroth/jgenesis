@@ -190,7 +190,8 @@ impl Memory {
 
     // $4000300: POSTFLG (Post boot flag)
     pub fn write_postflg(&mut self, value: u8) {
-        self.post_boot = value.bit(0);
+        // POSTFLG can only change from 0 to 1
+        self.post_boot |= value.bit(0);
         log::trace!("POSTFLG write {value:02X}");
     }
 

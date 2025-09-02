@@ -55,6 +55,14 @@ pub struct GbaEmulatorConfig {
     pub audio: GbaAudioConfig,
 }
 
+#[derive(Debug, Clone, Default, Encode, Decode)]
+struct StoppedState {
+    stopped_last_tick: bool,
+    render_counter: u64,
+    audio_output_counter: u64,
+    output_frequency: u64,
+}
+
 #[derive(Debug, Error)]
 pub enum GbaLoadError {
     #[error("Invalid BIOS ROM; expected length of {expected} bytes, was {actual} bytes")]
@@ -79,6 +87,7 @@ pub struct GameBoyAdvanceEmulator {
     config: GbaEmulatorConfig,
     last_apu_sync_cycles: u64,
     frame_count: u64,
+    stop_state: StoppedState,
 }
 
 impl GameBoyAdvanceEmulator {
@@ -129,7 +138,14 @@ impl GameBoyAdvanceEmulator {
             );
         }
 
-        Ok(Self { cpu, bus, config, last_apu_sync_cycles: 0, frame_count: 0 })
+        Ok(Self {
+            cpu,
+            bus,
+            config,
+            last_apu_sync_cycles: 0,
+            frame_count: 0,
+            stop_state: StoppedState::default(),
+        })
     }
 
     fn drain_apu<A: AudioOutput>(&mut self, audio_output: &mut A) -> Result<(), A::Err> {
@@ -139,6 +155,42 @@ impl GameBoyAdvanceEmulator {
         self.last_apu_sync_cycles = self.bus.state.cycles;
 
         Ok(())
+    }
+
+    fn tick_stopped<R: Renderer, A: AudioOutput, S: SaveWriter>(
+        &mut self,
+        renderer: &mut R,
+        audio_output: &mut A,
+    ) -> TickResult<GbaError<R::Err, A::Err, S::Err>> {
+        // Arbitrarily advance by the equivalent of 2048 clock cycles
+        const INCREMENT: u64 = 2048;
+
+        const CYCLES_PER_FRAME: u64 = (ppu::LINES_PER_FRAME * ppu::DOTS_PER_LINE) as u64;
+
+        if !self.stop_state.stopped_last_tick {
+            self.stop_state.stopped_last_tick = true;
+            self.stop_state.render_counter = 0;
+            self.stop_state.audio_output_counter = 0;
+        }
+
+        // Output constant 0s for audio
+        self.stop_state.audio_output_counter += INCREMENT * self.stop_state.output_frequency;
+        while self.stop_state.audio_output_counter >= crate::GBA_CLOCK_SPEED {
+            self.stop_state.audio_output_counter -= crate::GBA_CLOCK_SPEED;
+            audio_output.push_sample(0.0, 0.0).map_err(GbaError::Audio)?;
+        }
+
+        let mut tick_effect = TickEffect::None;
+
+        // Repeatedly render the current frame (solid white if forced blanking was enabled for a full frame)
+        self.stop_state.render_counter += INCREMENT;
+        while self.stop_state.render_counter >= CYCLES_PER_FRAME {
+            self.stop_state.render_counter -= CYCLES_PER_FRAME;
+            self.force_render(renderer).map_err(GbaError::Render)?;
+            tick_effect = TickEffect::FrameRendered;
+        }
+
+        Ok(tick_effect)
     }
 }
 
@@ -170,14 +222,31 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
+        if self.bus.interrupts.stopped() {
+            // All hardware is stopped
+            // Stop can only be broken by a keypad interrupt or a Game Pak interrupt
+            self.bus.inputs.update_inputs(*inputs, self.bus.state.cycles, &mut self.bus.interrupts);
+            self.bus.cartridge.update_rtc_time(self.bus.state.cycles, &mut self.bus.interrupts);
+
+            // TODO should implement a better way to check this
+            if self.bus.interrupts.read_ie() & self.bus.interrupts.read_if() == 0 {
+                return self.tick_stopped::<_, _, S>(renderer, audio_output);
+            }
+
+            // Stop has ended
+            self.stop_state.stopped_last_tick = false;
+        }
+
         self.bus.inputs.update_inputs(*inputs, self.bus.state.cycles, &mut self.bus.interrupts);
         self.bus.cartridge.set_solar_brightness(inputs.solar.brightness);
 
+        // TODO halt should let the CPU execute for 1 more cycle before halting
         self.bus.interrupts.sync(self.bus.state.cycles);
         if !self.bus.interrupts.cpu_halted() {
             self.cpu.execute_instruction(&mut self.bus);
         } else {
             self.bus.internal_cycles(1);
+            // TODO there should be a 1-cycle delay on unhalting?
         }
 
         self.bus.sync_timers();
@@ -269,5 +338,6 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
     #[inline]
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
         self.bus.apu.update_output_frequency(output_frequency);
+        self.stop_state.output_frequency = output_frequency;
     }
 }

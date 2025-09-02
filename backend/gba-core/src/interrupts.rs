@@ -65,6 +65,7 @@ pub struct InterruptRegisters {
     flags: InterruptFlags,
     pending_writes: Vec<(u64, PendingWrite)>,
     halted: bool,
+    stopped: bool,
 }
 
 impl InterruptRegisters {
@@ -75,6 +76,7 @@ impl InterruptRegisters {
             flags: InterruptFlags(0),
             pending_writes: Vec::with_capacity(5),
             halted: false,
+            stopped: false,
         }
     }
 
@@ -115,6 +117,7 @@ impl InterruptRegisters {
     pub fn sync(&mut self, cycles: u64) {
         self.apply_pending_writes(cycles);
         self.halted &= self.enabled.0 & self.flags.0 == 0;
+        self.stopped &= self.halted;
     }
 
     // $4000200: IE (Interrupts enabled)
@@ -196,13 +199,19 @@ impl InterruptRegisters {
         self.ime && self.enabled.0 & self.flags.0 != 0
     }
 
-    pub fn halt_cpu(&mut self) {
+    pub fn halt_cpu(&mut self, value: u8) {
         self.halted = true;
+        self.stopped = value.bit(7);
 
-        log::debug!("HALTCNT write: CPU halted");
+        log::debug!("HALTCNT write ({value:02X}): CPU halted");
+        log::debug!("  Hardware stopped: {}", self.stopped);
     }
 
     pub fn cpu_halted(&self) -> bool {
         self.halted
+    }
+
+    pub fn stopped(&self) -> bool {
+        self.stopped
     }
 }
