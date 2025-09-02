@@ -5,8 +5,14 @@
 //! Cache replacement is performed when a cached read misses. The cache is write-through, so writes
 //! will only update cache if there is a cache hit.
 //!
-//! WWF Raw (32X) depends on CPU cache emulation because it writes to cartridge ROM addresses and
-//! expects to be able to read back the written values from CPU cache.
+//! Games that are known to depend on CPU cache emulation (specifically data cache):
+//! * WWF Raw (32X) writes to cartridge ROM addresses and expects to be able to read back the written
+//!   values from CPU cache. Without cache, it won't correctly populate 32X palette RAM which causes
+//!   missing graphics in menus.
+//! * Pitfall: The Mayan Adventure (32X) writes to addresses around $00090000 (out-of-bounds in boot
+//!   ROM area) and expects to be able to read back the written values from CPU cache. Without cache,
+//!   objects/"sprites" that are partially offscreen will not display at all until they are entirely
+//!   onscreen.
 
 use crate::bus::BusInterface;
 use bincode::{Decode, Encode};
