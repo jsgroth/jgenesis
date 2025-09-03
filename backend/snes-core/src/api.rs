@@ -2,6 +2,7 @@
 
 use crate::apu::{Apu, ApuTickEffect};
 use crate::audio::AudioResampler;
+use crate::bus;
 use crate::bus::Bus;
 use crate::input::SnesInputs;
 use crate::memory::dma::{DmaStatus, DmaUnit};
@@ -282,7 +283,11 @@ impl EmulatorTrait for SnesEmulator {
         } else {
             let mut bus = new_bus!(self);
 
-            match self.dma_unit.tick(&mut bus, self.total_master_cycles) {
+            match self.dma_unit.tick(
+                &mut bus,
+                self.total_master_cycles,
+                bus::next_cpu_cycle_mclk(&self.main_cpu),
+            ) {
                 DmaStatus::None => {
                     // DMA not in progress, tick CPU
                     self.main_cpu.tick(&mut bus);

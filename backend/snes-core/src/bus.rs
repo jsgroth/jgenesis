@@ -4,6 +4,7 @@ use crate::api::LatchedInterrupts;
 use crate::apu::Apu;
 use crate::memory::{CpuInternalRegisters, Memory, Memory2Speed};
 use crate::ppu::Ppu;
+use wdc65816_emu::core::Wdc65816;
 use wdc65816_emu::traits::BusInterface;
 
 // Accesses to address bus B (PPU/APU/WRAM ports) and internal CPU registers are "fast" (no waitstates)
@@ -215,16 +216,8 @@ impl BusInterface for Bus<'_> {
 
         let bank = (address >> 16) as u8;
         let offset = address as u16;
-        self.access_master_cycles = match (bank, offset) {
-            (0x00..=0x3F | 0x80..=0xBF, 0x2000..=0x3FFF | 0x4200..=0x5FFF) => FAST_MASTER_CYCLES,
-            (0x00..=0x3F | 0x80..=0xBF, 0x0000..=0x1FFF | 0x6000..=0x7FFF)
-            | (0x00..=0x3F, 0x8000..=0xFFFF)
-            | (0x40..=0x7F, _) => SLOW_MASTER_CYCLES,
-            (0x00..=0x3F | 0x80..=0xBF, 0x4000..=0x41FF) => XSLOW_MASTER_CYCLES,
-            (0x80..=0xBF, 0x8000..=0xFFFF) | (0xC0..=0xFF, _) => {
-                self.cpu_registers.memory_2_speed().master_cycles()
-            }
-        };
+        self.access_master_cycles =
+            address_master_cycles(self.cpu_registers.memory_2_speed(), bank, offset);
     }
 
     #[inline]
@@ -258,5 +251,75 @@ impl BusInterface for Bus<'_> {
     #[inline]
     fn reset(&self) -> bool {
         false
+    }
+}
+
+#[inline]
+fn address_master_cycles(memory_2_speed: Memory2Speed, bank: u8, offset: u16) -> u64 {
+    match (bank, offset) {
+        (0x00..=0x3F | 0x80..=0xBF, 0x2000..=0x3FFF | 0x4200..=0x5FFF) => FAST_MASTER_CYCLES,
+        (0x00..=0x3F | 0x80..=0xBF, 0x0000..=0x1FFF | 0x6000..=0x7FFF)
+        | (0x00..=0x3F, 0x8000..=0xFFFF)
+        | (0x40..=0x7F, _) => SLOW_MASTER_CYCLES,
+        (0x00..=0x3F | 0x80..=0xBF, 0x4000..=0x41FF) => XSLOW_MASTER_CYCLES,
+        (0x80..=0xBF, 0x8000..=0xFFFF) | (0xC0..=0xFF, _) => memory_2_speed.master_cycles(),
+    }
+}
+
+pub fn next_cpu_cycle_mclk(cpu: &Wdc65816) -> impl Fn(&Bus<'_>) -> u64 + Copy {
+    struct CapturingBus<'a, 'b>(&'a Bus<'b>, u64);
+
+    impl BusInterface for CapturingBus<'_, '_> {
+        #[inline]
+        fn read(&mut self, address: u32) -> u8 {
+            let bank = (address >> 16) as u8;
+            let offset = address as u16;
+            self.1 = address_master_cycles(self.0.cpu_registers.memory_2_speed(), bank, offset);
+
+            0
+        }
+
+        #[inline]
+        fn write(&mut self, address: u32, _value: u8) {
+            let bank = (address >> 16) as u8;
+            let offset = address as u16;
+            self.1 = address_master_cycles(self.0.cpu_registers.memory_2_speed(), bank, offset);
+        }
+
+        #[inline]
+        fn idle(&mut self) {}
+
+        #[inline]
+        fn nmi(&self) -> bool {
+            self.0.nmi()
+        }
+
+        #[inline]
+        fn acknowledge_nmi(&mut self) {}
+
+        #[inline]
+        fn irq(&self) -> bool {
+            self.0.irq()
+        }
+
+        #[inline]
+        fn halt(&self) -> bool {
+            self.0.halt()
+        }
+
+        #[inline]
+        fn reset(&self) -> bool {
+            self.0.reset()
+        }
+    }
+
+    // Determine the number of mclk cycles for the next CPU cycle by cloning all CPU state and
+    // letting the clone execute 1 cycle against a fake bus implementation that just records which
+    // address was accessed (if any).
+    |bus| {
+        let mut cpu = cpu.clone();
+        let mut bus = CapturingBus(bus, FAST_MASTER_CYCLES);
+        cpu.tick(&mut bus);
+        bus.1
     }
 }
