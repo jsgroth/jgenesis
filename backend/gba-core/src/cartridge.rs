@@ -30,7 +30,7 @@ const GAME_CODE_ADDRESS: usize = 0x00000AC;
 
 const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 
-#[derive(Debug, FakeEncode, FakeDecode)]
+#[derive(Debug, Clone, FakeEncode, FakeDecode)]
 struct Rom(Box<[u8]>);
 
 impl Default for Rom {
@@ -185,7 +185,7 @@ fn pad_if_classic_nes_rom(rom: &mut Vec<u8>) {
     }
 }
 
-#[derive(Debug, PartialClone, Encode, Decode)]
+#[derive(Debug, Clone, PartialClone, Encode, Decode)]
 pub struct Cartridge {
     #[partial_clone(default)]
     rom: Rom,

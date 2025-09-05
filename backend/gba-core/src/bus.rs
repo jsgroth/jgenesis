@@ -51,7 +51,7 @@ impl BusState {
     }
 }
 
-#[derive(Debug, PartialClone, Encode, Decode)]
+#[derive(Debug, Clone, PartialClone, Encode, Decode)]
 pub struct Bus {
     pub ppu: Ppu,
     pub apu: Apu,

@@ -81,7 +81,7 @@ pub enum GbaError<RErr, AErr, SErr> {
 
 #[derive(Debug, PartialClone, Encode, Decode)]
 pub struct GameBoyAdvanceEmulator {
-    cpu: Arm7Tdmi,
+    cpu: Arm7Tdmi<Bus>,
     #[partial_clone(partial)]
     bus: Bus,
     config: GbaEmulatorConfig,

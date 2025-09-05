@@ -134,99 +134,14 @@ impl Registers {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum St018LoadError {
-    #[error("Expected ROM size of {expected} bytes, was {actual} bytes")]
-    IncorrectRomSize { expected: usize, actual: usize },
-}
-
 #[derive(Debug, Clone, Encode, Decode)]
-pub struct St018 {
-    cpu: Arm7Tdmi,
+struct ArmBus {
     program_rom: Box<ProgramRom>,
     data_rom: Box<DataRom>,
     ram: Box<Ram>,
     registers: Registers,
-    snes_cycles: u64,
-    arm_cycles: u64,
-    arm_open_bus: u32,
-}
-
-impl St018 {
-    /// # Errors
-    ///
-    /// Returns an error if the ST018 program/data ROM is invalid.
-    #[allow(clippy::missing_panics_doc)]
-    pub fn new(st018_rom: &[u8]) -> Result<Self, St018LoadError> {
-        let (program_rom, data_rom) = convert_st018_rom(st018_rom)?;
-
-        Ok(Self {
-            cpu: Arm7Tdmi::new(),
-            program_rom,
-            data_rom,
-            ram: vec![0; RAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
-            registers: Registers::new(),
-            snes_cycles: 0,
-            arm_cycles: 0,
-            arm_open_bus: 0,
-        })
-    }
-
-    pub fn tick(&mut self, snes_master_cycles: u64) {
-        // ST018 has its own 21 MHz oscillator, but it runs at almost the exact same frequency as
-        // the SNES master oscillator, so just assume they're the same speed
-        self.snes_cycles += snes_master_cycles;
-
-        let mut bus = ArmBus {
-            program_rom: &self.program_rom,
-            data_rom: &self.data_rom,
-            ram: &mut self.ram,
-            registers: &mut self.registers,
-            cycles: self.arm_cycles,
-            open_bus: self.arm_open_bus,
-        };
-
-        if bus.registers.arm_reset {
-            bus.registers.arm_reset = false;
-            self.cpu.reset(&mut bus);
-        }
-
-        while bus.cycles < self.snes_cycles {
-            self.cpu.execute_instruction(&mut bus);
-        }
-
-        self.arm_cycles = bus.cycles;
-        self.arm_open_bus = bus.open_bus;
-    }
-
-    pub fn snes_read(&mut self, address: u32) -> Option<u8> {
-        self.registers.snes_read(address)
-    }
-
-    pub fn snes_write(&mut self, address: u32, value: u8) {
-        self.registers.snes_write(address, value);
-    }
-}
-
-fn convert_st018_rom(rom: &[u8]) -> Result<(Box<ProgramRom>, Box<DataRom>), St018LoadError> {
-    if rom.len() < TOTAL_ROM_LEN {
-        return Err(St018LoadError::IncorrectRomSize {
-            expected: TOTAL_ROM_LEN,
-            actual: rom.len(),
-        });
-    }
-
-    let program_rom: Vec<_> = rom[..4 * PROGRAM_ROM_LEN_WORDS]
-        .chunks_exact(4)
-        .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-        .collect();
-    let program_rom: Box<ProgramRom> = program_rom.into_boxed_slice().try_into().unwrap();
-
-    let data_rom =
-        rom[4 * PROGRAM_ROM_LEN_WORDS..4 * PROGRAM_ROM_LEN_WORDS + DATA_ROM_LEN].to_vec();
-    let data_rom: Box<DataRom> = data_rom.into_boxed_slice().try_into().unwrap();
-
-    Ok((program_rom, data_rom))
+    cycles: u64,
+    open_bus: u32,
 }
 
 // All reads from $60000000-$7FFFFFFF return this value according to:
@@ -234,16 +149,7 @@ fn convert_st018_rom(rom: &[u8]) -> Result<(Box<ProgramRom>, Box<DataRom>), St01
 // Not sure if the game depends on the value read, but it does occasionally read from these addresses
 const ADDRESS_60_READS: u32 = 0x40404001;
 
-struct ArmBus<'a> {
-    program_rom: &'a ProgramRom,
-    data_rom: &'a DataRom,
-    ram: &'a mut Ram,
-    registers: &'a mut Registers,
-    cycles: u64,
-    open_bus: u32,
-}
-
-impl BusInterface for ArmBus<'_> {
+impl BusInterface for ArmBus {
     #[inline]
     fn read_byte(&mut self, address: u32, _cycle: MemoryCycle) -> u8 {
         self.cycles += 1;
@@ -375,4 +281,82 @@ impl BusInterface for ArmBus<'_> {
     fn internal_cycles(&mut self, cycles: u32) {
         self.cycles += u64::from(cycles);
     }
+}
+
+#[derive(Debug, Error)]
+pub enum St018LoadError {
+    #[error("Expected ROM size of {expected} bytes, was {actual} bytes")]
+    IncorrectRomSize { expected: usize, actual: usize },
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct St018 {
+    cpu: Arm7Tdmi<ArmBus>,
+    bus: ArmBus,
+    snes_cycles: u64,
+}
+
+impl St018 {
+    /// # Errors
+    ///
+    /// Returns an error if the ST018 program/data ROM is invalid.
+    #[allow(clippy::missing_panics_doc)]
+    pub fn new(st018_rom: &[u8]) -> Result<Self, St018LoadError> {
+        let (program_rom, data_rom) = convert_st018_rom(st018_rom)?;
+
+        let bus = ArmBus {
+            program_rom,
+            data_rom,
+            ram: vec![0; RAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
+            registers: Registers::new(),
+            cycles: 0,
+            open_bus: 0,
+        };
+
+        Ok(Self { cpu: Arm7Tdmi::new(), bus, snes_cycles: 0 })
+    }
+
+    pub fn tick(&mut self, snes_master_cycles: u64) {
+        // ST018 has its own 21 MHz oscillator, but it runs at almost the exact same frequency as
+        // the SNES master oscillator, so just assume they're the same speed
+        self.snes_cycles += snes_master_cycles;
+
+        if self.bus.registers.arm_reset {
+            self.bus.registers.arm_reset = false;
+            self.cpu.reset(&mut self.bus);
+        }
+
+        while self.bus.cycles < self.snes_cycles {
+            self.cpu.execute_instruction(&mut self.bus);
+        }
+    }
+
+    pub fn snes_read(&mut self, address: u32) -> Option<u8> {
+        self.bus.registers.snes_read(address)
+    }
+
+    pub fn snes_write(&mut self, address: u32, value: u8) {
+        self.bus.registers.snes_write(address, value);
+    }
+}
+
+fn convert_st018_rom(rom: &[u8]) -> Result<(Box<ProgramRom>, Box<DataRom>), St018LoadError> {
+    if rom.len() < TOTAL_ROM_LEN {
+        return Err(St018LoadError::IncorrectRomSize {
+            expected: TOTAL_ROM_LEN,
+            actual: rom.len(),
+        });
+    }
+
+    let program_rom: Vec<_> = rom[..4 * PROGRAM_ROM_LEN_WORDS]
+        .chunks_exact(4)
+        .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+        .collect();
+    let program_rom: Box<ProgramRom> = program_rom.into_boxed_slice().try_into().unwrap();
+
+    let data_rom =
+        rom[4 * PROGRAM_ROM_LEN_WORDS..4 * PROGRAM_ROM_LEN_WORDS + DATA_ROM_LEN].to_vec();
+    let data_rom: Box<DataRom> = data_rom.into_boxed_slice().try_into().unwrap();
+
+    Ok((program_rom, data_rom))
 }

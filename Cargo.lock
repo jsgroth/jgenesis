@@ -276,6 +276,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "jgenesis-common",
+ "jgenesis-proc-macros",
  "log",
 ]
 

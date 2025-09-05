@@ -2,6 +2,7 @@ pub mod bus;
 mod instructions;
 
 use crate::bus::{BusInterface, MemoryCycle};
+use crate::instructions::{ArmOpTable, ThumbOpTable};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 
@@ -177,15 +178,17 @@ impl Exception {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
-pub struct Arm7Tdmi {
+pub struct Arm7Tdmi<Bus: BusInterface> {
     registers: Registers,
     prefetch: [u32; 2],
     fetch_cycle: MemoryCycle,
     prev_r15: u32,
     irq_disabled_latch: bool,
+    arm_op_table: ArmOpTable<Bus>,
+    thumb_op_table: ThumbOpTable<Bus>,
 }
 
-impl Default for Arm7Tdmi {
+impl<Bus: BusInterface> Default for Arm7Tdmi<Bus> {
     fn default() -> Self {
         Self::new()
     }
@@ -200,7 +203,7 @@ pub struct Arm7TdmiResetArgs {
     pub mode: CpuMode,
 }
 
-impl Arm7Tdmi {
+impl<Bus: BusInterface> Arm7Tdmi<Bus> {
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -209,14 +212,16 @@ impl Arm7Tdmi {
             fetch_cycle: MemoryCycle::N,
             prev_r15: 0,
             irq_disabled_latch: false,
+            arm_op_table: ArmOpTable::default(),
+            thumb_op_table: ThumbOpTable::default(),
         }
     }
 
-    pub fn reset(&mut self, bus: &mut impl BusInterface) {
+    pub fn reset(&mut self, bus: &mut Bus) {
         self.handle_exception(Exception::Reset, bus);
     }
 
-    pub fn manual_reset(&mut self, args: Arm7TdmiResetArgs, bus: &mut impl BusInterface) {
+    pub fn manual_reset(&mut self, args: Arm7TdmiResetArgs, bus: &mut Bus) {
         self.registers = Registers::default();
         self.registers.r[..13].fill(0);
         self.registers.r[14] = args.pc;
@@ -242,7 +247,7 @@ impl Arm7Tdmi {
     }
 
     #[inline]
-    pub fn execute_instruction(&mut self, bus: &mut impl BusInterface) {
+    pub fn execute_instruction(&mut self, bus: &mut Bus) {
         let irq = !self.irq_disabled_latch && bus.irq();
         let opcode = self.prefetch[0];
         self.fetch_opcode(bus);
