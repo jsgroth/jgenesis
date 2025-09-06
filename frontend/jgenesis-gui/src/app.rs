@@ -521,16 +521,12 @@ impl App {
             ui.add_space(10.0);
 
             ui.menu_button("Open Using", |ui| {
-                for console in [
-                    Console::MasterSystem,
-                    Console::GameGear,
-                    Console::Genesis,
-                    Console::SegaCd,
-                    Console::Sega32X,
-                    Console::Nes,
-                    Console::Snes,
-                    Console::GameBoy,
-                ] {
+                for console in Console::ALL {
+                    if console == Console::GameBoyColor {
+                        // Game Boy backend doesn't support GB vs. GBC boot option via API parameters,
+                        // only via config
+                        continue;
+                    }
                     self.render_open_using_button(console, ui);
                 }
             });
