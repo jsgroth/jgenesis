@@ -18,7 +18,7 @@ pub const NES: &[&str] = &["nes"];
 pub const SNES: &[&str] = &["sfc", "smc"];
 pub const GAME_BOY: &[&str] = &["gb"];
 pub const GAME_BOY_COLOR: &[&str] = &["gbc"];
-pub const GAME_BOY_ADVANCE: &[&str] = &["gba"];
+pub const GAME_BOY_ADVANCE: &[&str] = &["gba", "bin"];
 
 pub const SUPPORTED_ARCHIVES: &[&str] = &["zip", "7z"];
 
