@@ -146,7 +146,9 @@ pub struct PpuRegisters {
     oam_addr: u8,
     ppu_data_buffer: u8,
     ppu_status_read: bool,
-    ppu_open_bus_value: u8,
+    ppu_open_bus: u8,
+    ppu_open_bus_decay_cycles: [u64; 8],
+    total_cycles: u64,
     oam_open_bus_value: Option<u8>,
     last_accessed_register: Option<PpuTrackedRegister>,
     write_toggle: PpuWriteToggle,
@@ -165,7 +167,9 @@ impl PpuRegisters {
             oam_addr: 0,
             ppu_data_buffer: 0,
             ppu_status_read: false,
-            ppu_open_bus_value: 0,
+            ppu_open_bus: 0,
+            ppu_open_bus_decay_cycles: [0; 8],
+            total_cycles: 0,
             oam_open_bus_value: None,
             last_accessed_register: None,
             write_toggle: PpuWriteToggle::First,
@@ -268,7 +272,7 @@ impl PpuRegisters {
     }
 
     pub fn get_ppu_open_bus_value(&self) -> u8 {
-        self.ppu_open_bus_value
+        self.ppu_open_bus
     }
 
     pub fn set_oam_addr(&mut self, oam_addr: u8) {
@@ -835,6 +839,7 @@ impl Bus {
 
         self.ppu_registers.reset_writable_delay =
             self.ppu_registers.reset_writable_delay.saturating_sub(1);
+        self.ppu_registers.total_cycles += 1;
     }
 
     // Poll NMI/IRQ interrupt lines; this should be called once per CPU cycle, between the first
@@ -942,45 +947,83 @@ impl CpuBus<'_> {
         self.read_ppu_register(register)
     }
 
+    fn read_open_bus(&mut self) -> u8 {
+        if self.0.ppu_registers.ppu_open_bus == 0 {
+            return 0;
+        }
+
+        for i in 0..8 {
+            if self.0.ppu_registers.ppu_open_bus.bit(i)
+                && self.0.ppu_registers.ppu_open_bus_decay_cycles[i as usize]
+                    <= self.0.ppu_registers.total_cycles
+            {
+                self.0.ppu_registers.ppu_open_bus &= !(1 << i);
+            }
+        }
+
+        self.0.ppu_registers.ppu_open_bus
+    }
+
+    fn set_ppu_open_bus(&mut self, value: u8, mask: u8) {
+        let masked = value & mask;
+        self.0.ppu_registers.ppu_open_bus = (self.0.ppu_registers.ppu_open_bus & !mask) | masked;
+        for i in 0..8 {
+            if masked.bit(i) {
+                // Decay to 0 after slightly more than half a second
+                // Exact time varies in actual hardware but seems to always be less than a second
+                self.0.ppu_registers.ppu_open_bus_decay_cycles[i as usize] =
+                    self.0.ppu_registers.total_cycles + 1000000;
+            }
+        }
+    }
+
     pub fn read_ppu_register(&mut self, register: PpuRegister) -> u8 {
         match register {
             PpuRegister::PPUCTRL
             | PpuRegister::PPUMASK
             | PpuRegister::OAMADDR
             | PpuRegister::PPUSCROLL
-            | PpuRegister::PPUADDR => self.0.ppu_registers.ppu_open_bus_value,
+            | PpuRegister::PPUADDR => self.read_open_bus(),
             PpuRegister::PPUSTATUS => {
                 self.0.ppu_registers.ppu_status_read = true;
 
                 // PPUSTATUS reads only affect bits 7-5 of open bus, bits 4-0 remain intact
                 // and are returned as part of the read
                 let ppu_status_high_bits = self.0.ppu_registers.ppu_status & 0xE0;
-                let open_bus_lower_bits = self.0.ppu_registers.ppu_open_bus_value & 0x1F;
-                self.0.ppu_registers.ppu_open_bus_value =
-                    ppu_status_high_bits | open_bus_lower_bits;
+                let open_bus_lower_bits = self.read_open_bus() & 0x1F;
+                self.set_ppu_open_bus(ppu_status_high_bits, 0xE0);
 
-                self.0.ppu_registers.ppu_open_bus_value
+                ppu_status_high_bits | open_bus_lower_bits
             }
             PpuRegister::OAMDATA => {
-                let value = self
+                let mut value = self
                     .0
                     .ppu_registers
                     .oam_open_bus_value
                     .unwrap_or(self.0.ppu_oam[self.0.ppu_registers.oam_addr as usize]);
-                self.0.ppu_registers.ppu_open_bus_value = value;
+                if self.0.ppu_registers.oam_addr & 3 == 2 {
+                    // Bits 2-4 of the third byte always read 0
+                    value &= !0x1C;
+                }
+
+                self.set_ppu_open_bus(value, 0xFF);
                 value
             }
             PpuRegister::PPUDATA => {
                 let address = self.0.ppu_bus_address;
                 let (data, buffer_read_address) = if address < 0x3F00 {
-                    (self.0.ppu_registers.ppu_data_buffer, address)
+                    let data = self.0.ppu_registers.ppu_data_buffer;
+                    self.set_ppu_open_bus(data, 0xFF);
+                    (data, address)
                 } else {
                     let palette_address = address & PALETTE_RAM_MASK;
-                    let palette_byte = self.0.ppu_palette_ram[palette_address as usize];
+                    let palette_byte = self.0.ppu_palette_ram[palette_address as usize] & 0x3F;
+                    let open_bus_bits = self.read_open_bus() & 0xC0;
+                    self.set_ppu_open_bus(palette_byte, 0x3F);
 
                     // When PPUDATA is used to read palette RAM, buffer reads mirror the nametable
                     // data located at $2F00-$2FFF
-                    (palette_byte, address - 0x1000)
+                    (palette_byte | open_bus_bits, address - 0x1000)
                 };
 
                 self.0.mapper.about_to_access_ppu_data();
@@ -990,8 +1033,6 @@ impl CpuBus<'_> {
                 // Reset the bus address in case the buffer read address was different from the
                 // actual address
                 self.0.ppu_bus_address = address;
-
-                self.0.ppu_registers.ppu_open_bus_value = data;
 
                 self.0.ppu_registers.last_accessed_register = Some(PpuTrackedRegister::PPUDATA);
 
@@ -1005,6 +1046,9 @@ impl CpuBus<'_> {
             panic!("invalid PPU register address: {relative_addr}");
         };
 
+        // Writes to any memory-mapped PPU register put the value on open bus
+        self.set_ppu_open_bus(value, 0xFF);
+
         if self.0.ppu_registers.reset_writable_delay != 0
             && matches!(
                 register,
@@ -1016,9 +1060,6 @@ impl CpuBus<'_> {
         {
             return;
         }
-
-        // Writes to any memory-mapped PPU register put the value on open bus
-        self.0.ppu_registers.ppu_open_bus_value = value;
 
         match register {
             PpuRegister::PPUCTRL => {
@@ -1156,7 +1197,7 @@ impl PpuBus<'_> {
         self.0.ppu_registers.ppu_mask = 0x00;
         self.0.ppu_registers.write_toggle = PpuWriteToggle::First;
         self.0.ppu_registers.ppu_data_buffer = 0x00;
-        self.0.ppu_registers.ppu_open_bus_value = 0x00;
+        self.0.ppu_registers.ppu_open_bus = 0x00;
         self.0.ppu_registers.reset_writable_delay = PpuRegisters::RESET_WRITABLE_DELAY;
         self.0.mapper.reset();
     }
