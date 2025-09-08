@@ -117,22 +117,26 @@ impl FrameCounter {
         }
     }
 
+    fn five_step_reset_clock(&self) -> bool {
+        self.mode == FrameCounterMode::FiveStep
+            && self.reset_state == FrameCounterResetState::PendingReset
+            && self.cpu_ticks.bit(0)
+    }
+
     pub fn generate_quarter_frame_clock(&self) -> bool {
         (self.cpu_ticks == self.steps[0]
             || self.cpu_ticks == self.steps[1]
             || self.cpu_ticks == self.steps[2]
             || (self.cpu_ticks == self.steps[3] && self.mode == FrameCounterMode::FourStep)
             || self.cpu_ticks == self.steps[4])
-            || (self.reset_state == FrameCounterResetState::JustReset
-                && self.mode == FrameCounterMode::FiveStep)
+            || self.five_step_reset_clock()
     }
 
     pub fn generate_half_frame_clock(&self) -> bool {
         (self.cpu_ticks == self.steps[1]
             || (self.cpu_ticks == self.steps[3] && self.mode == FrameCounterMode::FourStep)
             || self.cpu_ticks == self.steps[4])
-            || (self.reset_state == FrameCounterResetState::JustReset
-                && self.mode == FrameCounterMode::FiveStep)
+            || self.five_step_reset_clock()
     }
 
     fn should_set_interrupt_flag(&self) -> bool {
