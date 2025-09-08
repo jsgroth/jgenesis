@@ -150,9 +150,13 @@ pub struct PpuRegisters {
     oam_open_bus_value: Option<u8>,
     last_accessed_register: Option<PpuTrackedRegister>,
     write_toggle: PpuWriteToggle,
+    reset_writable_delay: u32,
 }
 
 impl PpuRegisters {
+    // TODO this should be slightly higher for PAL, about 33132
+    const RESET_WRITABLE_DELAY: u32 = 29658;
+
     pub fn new() -> Self {
         Self {
             ppu_ctrl: 0,
@@ -165,6 +169,7 @@ impl PpuRegisters {
             oam_open_bus_value: None,
             last_accessed_register: None,
             write_toggle: PpuWriteToggle::First,
+            reset_writable_delay: Self::RESET_WRITABLE_DELAY,
         }
     }
 
@@ -827,6 +832,9 @@ impl Bus {
         if let Some(zapper_state) = &mut self.io_registers.zapper_state {
             zapper_state.tick_cpu();
         }
+
+        self.ppu_registers.reset_writable_delay =
+            self.ppu_registers.reset_writable_delay.saturating_sub(1);
     }
 
     // Poll NMI/IRQ interrupt lines; this should be called once per CPU cycle, between the first
@@ -997,6 +1005,18 @@ impl CpuBus<'_> {
             panic!("invalid PPU register address: {relative_addr}");
         };
 
+        if self.0.ppu_registers.reset_writable_delay != 0
+            && matches!(
+                register,
+                PpuRegister::PPUCTRL
+                    | PpuRegister::PPUMASK
+                    | PpuRegister::PPUSCROLL
+                    | PpuRegister::PPUADDR
+            )
+        {
+            return;
+        }
+
         // Writes to any memory-mapped PPU register put the value on open bus
         self.0.ppu_registers.ppu_open_bus_value = value;
 
@@ -1137,6 +1157,7 @@ impl PpuBus<'_> {
         self.0.ppu_registers.write_toggle = PpuWriteToggle::First;
         self.0.ppu_registers.ppu_data_buffer = 0x00;
         self.0.ppu_registers.ppu_open_bus_value = 0x00;
+        self.0.ppu_registers.reset_writable_delay = PpuRegisters::RESET_WRITABLE_DELAY;
         self.0.mapper.reset();
     }
 }
