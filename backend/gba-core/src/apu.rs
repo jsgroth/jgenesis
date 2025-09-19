@@ -125,7 +125,7 @@ impl DirectSoundChannel {
             name,
             fifo: DirectSoundFifo::new(),
             current_sample: 0,
-            volume_shift: 1,
+            volume_shift: 0,
             l_enabled: false,
             r_enabled: false,
             timer: DirectSoundTimer::default(),
@@ -148,11 +148,11 @@ impl DirectSoundChannel {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum PwmClockShift {
-    Nine = 0, // 32768 Hz, 9-bit samples
     #[default]
+    Nine = 0, // 32768 Hz, 9-bit samples
     Eight = 1, // 65536 Hz, 8-bit samples
     Seven = 2, // 131072 Hz, 7-bit samples
-    Six = 3,  // 262144 Hz, 6-bit samples
+    Six = 3,   // 262144 Hz, 6-bit samples
 }
 
 impl PwmClockShift {
@@ -327,8 +327,8 @@ impl Apu {
             pcm_a: DirectSoundChannel::new("A".into()),
             pcm_b: DirectSoundChannel::new("B".into()),
             psg: Psg::new(),
-            psg_volume: 0,
-            psg_volume_shift: 2,
+            psg_volume: 2,
+            psg_volume_shift: 0,
             pwm: PwmControl::new(),
             resampler: AudioResampler::new(
                 config,
@@ -425,9 +425,15 @@ impl Apu {
         psg_l >>= self.psg_volume_shift;
         psg_r >>= self.psg_volume_shift;
 
-        // Final PCM + PSG + bias result is clamped to unsigned 10-bit
-        let sample_l = (psg_l + pcm_l + self.pwm.sound_bias).clamp(0x000, 0x3FF) as u16;
-        let sample_r = (psg_r + pcm_r + self.pwm.sound_bias).clamp(0x000, 0x3FF) as u16;
+        // PCM + PSG sum is clamped to signed 10-bit (verified on hardware)
+        // Then added with sound bias and clamped to unsigned 10-bit
+        let final_mix = |pcm: i16, psg: i16| {
+            let signed_sum = (pcm + psg).clamp(-0x200, 0x1FF);
+            (signed_sum + self.pwm.sound_bias).clamp(0x000, 0x3FF) as u16
+        };
+
+        let sample_l = final_mix(pcm_l, psg_l);
+        let sample_r = final_mix(pcm_r, psg_r);
         (sample_l, sample_r)
     }
 
