@@ -30,7 +30,7 @@ impl<Emulator: PartialClone> Rewinder<Emulator> {
 
         self.frame_count += 1;
 
-        if self.frame_count % FRAME_DIVIDER == 0 {
+        if self.frame_count.is_multiple_of(FRAME_DIVIDER) {
             self.previous_states.push_back(emulator.partial_clone());
 
             while self.previous_states.len() > self.buffer_len {

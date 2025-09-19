@@ -342,7 +342,7 @@ impl EmulatorTrait for SnesEmulator {
             // second because of the checksum calculation
             if self.memory.has_battery_backed_sram()
                 && let Some(sram) = self.memory.sram()
-                && self.frame_count % 30 == 0
+                && self.frame_count.is_multiple_of(30)
             {
                 let checksum = CRC.checksum(sram);
                 if checksum != self.last_sram_checksum {

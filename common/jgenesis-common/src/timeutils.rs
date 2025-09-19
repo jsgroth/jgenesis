@@ -58,7 +58,7 @@ pub fn days_in_month(month: u8, year: u8) -> u8 {
         2 => {
             // This is not strictly accurate (it doesn't account for not divisible by 100 or divisible
             // by 400) but it matches what the RTC chips do
-            if year % 4 == 0 { 29 } else { 28 }
+            if year.is_multiple_of(4) { 29 } else { 28 }
         }
         _ => {
             log::error!("Invalid month: {month}, defaulting to 31 days in month");

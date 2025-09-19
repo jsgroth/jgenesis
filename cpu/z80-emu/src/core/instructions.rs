@@ -74,7 +74,7 @@ fn zero_flag(value: u8) -> bool {
 }
 
 fn parity_flag(value: u8) -> bool {
-    value.count_ones() % 2 == 0
+    value.count_ones().is_multiple_of(2)
 }
 
 #[derive(Debug, Clone, Copy)]

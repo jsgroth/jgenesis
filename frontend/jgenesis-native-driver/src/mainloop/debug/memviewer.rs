@@ -71,7 +71,7 @@ pub fn render(ctx: &Context, memory: &mut dyn DebugMemoryView, state: &mut Memor
     let mut open = state.open;
 
     Window::new(&state.window_title).open(&mut open).default_width(600.0).show(ctx, |ui| {
-        let table_rows = memory_len / 16 + usize::from(memory_len % 16 != 0);
+        let table_rows = memory_len / 16 + usize::from(!memory_len.is_multiple_of(16));
         let address_len = format!("{:X}", memory_len - 1).len();
 
         SidePanel::new(Side::Right, format!("{}_right", state.window_title))

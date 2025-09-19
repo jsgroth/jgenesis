@@ -439,7 +439,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
     // Read a word from the bus; returns an address error if address is odd
     fn read_bus_word(&mut self, address: u32) -> ExecuteResult<u16> {
-        if address % 2 != 0 {
+        if address & 1 != 0 {
             return Err(Exception::AddressError(address, BusOpType::Read));
         }
 
@@ -448,7 +448,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
     // Write a word to the bus; returns an address error if address is odd
     fn write_bus_word(&mut self, address: u32, value: u16) -> ExecuteResult<()> {
-        if address % 2 != 0 {
+        if address & 1 != 0 {
             return Err(Exception::AddressError(address, BusOpType::Write));
         }
 
@@ -459,7 +459,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
     // Read a long word from the bus; returns an address error if address is odd
     fn read_bus_long_word(&mut self, address: u32) -> ExecuteResult<u32> {
-        if address % 2 != 0 {
+        if address & 1 != 0 {
             return Err(Exception::AddressError(address, BusOpType::Read));
         }
 
@@ -468,7 +468,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
     // Write a long word to the bus; returns an address error if address is odd
     fn write_bus_long_word(&mut self, address: u32, value: u32) -> ExecuteResult<()> {
-        if address % 2 != 0 {
+        if address & 1 != 0 {
             return Err(Exception::AddressError(address, BusOpType::Write));
         }
 
@@ -888,7 +888,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     fn jump_to_address(&mut self, address: u32) -> ExecuteResult<()> {
         self.registers.pc = address.wrapping_sub(2);
 
-        if address % 2 != 0 {
+        if address & 1 != 0 {
             return Err(Exception::AddressError(address, BusOpType::Jump));
         }
 

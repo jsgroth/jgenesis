@@ -1676,7 +1676,7 @@ impl<Window> Renderer for WgpuRenderer<Window> {
         pixel_aspect_ratio: Option<PixelAspectRatio>,
     ) -> Result<(), Self::Err> {
         self.frame_count += 1;
-        if self.frame_count % self.speed_multiplier != 0 {
+        if !self.frame_count.is_multiple_of(self.speed_multiplier) {
             return Ok(());
         }
 

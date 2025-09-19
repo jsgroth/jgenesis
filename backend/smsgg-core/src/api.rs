@@ -356,7 +356,7 @@ impl EmulatorTrait for SmsGgEmulator {
                 self.reset_frames_remaining = self.reset_frames_remaining.saturating_sub(1);
 
                 self.frame_count += 1;
-                if self.frame_count % 60 == 0
+                if self.frame_count.is_multiple_of(60)
                     && self.memory.cartridge_has_battery()
                     && self.memory.cartridge_ram_dirty()
                 {

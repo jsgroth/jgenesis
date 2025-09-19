@@ -1527,7 +1527,7 @@ impl Ppu {
         !self.registers.forced_blanking
             && self.state.scanline < SCREEN_HEIGHT
             && (RENDER_START_DOT..HBLANK_START_DOT).contains(&self.state.dot)
-            && self.state.dot % 4 == 0
+            && self.state.dot.is_multiple_of(4)
     }
 
     pub fn vram_in_use(&self, address: u32) -> bool {
@@ -1572,7 +1572,7 @@ impl Ppu {
             }
 
             let offset = (self.state.dot - start_dot) % 32;
-            if offset % 4 != 0 {
+            if !offset.is_multiple_of(4) {
                 return false;
             }
 
@@ -1618,7 +1618,7 @@ impl Ppu {
             return false;
         }
 
-        if self.state.dot % 2 != 0 {
+        if !self.state.dot.is_multiple_of(2) {
             // Sprite hardware only accesses VRAM/OAM on even cycles
             return false;
         }

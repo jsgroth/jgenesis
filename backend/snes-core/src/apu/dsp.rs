@@ -499,8 +499,7 @@ impl Voice {
 
         if rate != 0
             && (global_counter + tables::ENVELOPE_OFFSET[rate as usize])
-                % tables::ENVELOPE_RATE[rate as usize]
-                == 0
+                .is_multiple_of(tables::ENVELOPE_RATE[rate as usize])
         {
             let new_value = current_value + step;
             self.envelope_level = new_value.clamp(0, 0x7FF) as u16;
@@ -564,7 +563,8 @@ impl NoiseGenerator {
         // Noise generator uses the same rate/offset tables as the envelopes
         let rate = noise_frequency as usize;
         if rate != 0
-            && (global_counter + tables::ENVELOPE_OFFSET[rate]) % tables::ENVELOPE_RATE[rate] == 0
+            && (global_counter + tables::ENVELOPE_OFFSET[rate])
+                .is_multiple_of(tables::ENVELOPE_RATE[rate])
         {
             let new_bit = self.output.bit(0) ^ self.output.bit(1);
             self.output = ((self.output >> 1) & 0x3FFF) | (i16::from(new_bit) << 14);

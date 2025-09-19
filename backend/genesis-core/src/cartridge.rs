@@ -592,7 +592,7 @@ fn deinterleave_rom(rom: Vec<u8>) -> Vec<u8> {
     // Some older ROM images, usually with the .smd file extension, are interleaved.
     // This format consists of 16KB blocks where each block contains 8KB of even bytes followed by
     // 8KB of odd bytes.
-    if rom.len() % (16 * 1024) != 0 {
+    if !rom.len().is_multiple_of(16 * 1024) {
         // Interleaved ROM sizes should always be a multiple of 16KB
         return rom;
     }

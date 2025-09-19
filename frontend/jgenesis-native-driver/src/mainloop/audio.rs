@@ -224,7 +224,7 @@ impl AudioOutput for SdlAudioOutput {
     #[inline]
     fn push_sample(&mut self, mut sample_l: f64, mut sample_r: f64) -> Result<(), Self::Err> {
         self.sample_count += 1;
-        if self.sample_count % self.speed_multiplier != 0 {
+        if !self.sample_count.is_multiple_of(self.speed_multiplier) {
             return Ok(());
         }
 

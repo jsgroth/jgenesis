@@ -284,7 +284,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
 
             if let Some(rtc) = self.bus.cartridge.rtc() {
                 // Limit how frequently RTC state is persisted to disk (roughly once per 10 seconds)
-                if self.frame_count % 600 == 0 {
+                if self.frame_count.is_multiple_of(600) {
                     save_writer.persist_serialized("rtc", rtc).map_err(GbaError::SaveWrite)?;
                 }
             }
