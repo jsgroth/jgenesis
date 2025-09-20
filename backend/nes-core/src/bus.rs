@@ -306,8 +306,9 @@ impl PpuRegisters {
 
 #[allow(clippy::upper_case_acronyms)]
 #[allow(non_camel_case_types)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum IoRegister {
+    #[default]
     SQ1_VOL,
     SQ1_SWEEP,
     SQ1_LO,
@@ -330,13 +331,6 @@ pub enum IoRegister {
     SND_CHN,
     JOY1,
     JOY2,
-}
-
-// Needed for ArrayVec
-impl Default for IoRegister {
-    fn default() -> Self {
-        Self::SQ1_VOL
-    }
 }
 
 impl IoRegister {

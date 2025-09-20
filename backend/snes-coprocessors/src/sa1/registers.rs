@@ -143,20 +143,24 @@ impl CharacterConversionColorBits {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum DmaState {
+    #[default]
     Idle,
     NormalCopying,
     NormalWaitCycle,
-    CharacterConversion2 { buffer_idx: u8, rows_copied: u8 },
-    CharacterConversion1Initial { cycles_remaining: u8 },
-    CharacterConversion1Active { buffer_idx: u8, dma_bytes_remaining: u8, next_tile_number: u16 },
-}
-
-impl Default for DmaState {
-    fn default() -> Self {
-        Self::Idle
-    }
+    CharacterConversion2 {
+        buffer_idx: u8,
+        rows_copied: u8,
+    },
+    CharacterConversion1Initial {
+        cycles_remaining: u8,
+    },
+    CharacterConversion1Active {
+        buffer_idx: u8,
+        dma_bytes_remaining: u8,
+        next_tile_number: u16,
+    },
 }
 
 impl DmaState {

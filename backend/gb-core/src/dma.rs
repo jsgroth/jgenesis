@@ -6,18 +6,15 @@ use jgenesis_common::num::{GetBit, U16Ext};
 
 const OAM_DMA_M_CYCLES: u8 = 160;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum VramDmaState {
+    #[default]
     Idle,
     GpDmaActive,
-    HDmaActive { hblank_bytes_remaining: u8 },
+    HDmaActive {
+        hblank_bytes_remaining: u8,
+    },
     HDmaPending,
-}
-
-impl Default for VramDmaState {
-    fn default() -> Self {
-        Self::Idle
-    }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]

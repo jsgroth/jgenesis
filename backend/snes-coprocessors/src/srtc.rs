@@ -6,31 +6,25 @@ use bincode::{Decode, Encode};
 use jgenesis_common::timeutils;
 use time::Weekday;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum ReadState {
+    #[default]
     Ack,
-    Digit { idx: u8 },
+    Digit {
+        idx: u8,
+    },
     End,
 }
 
-impl Default for ReadState {
-    fn default() -> Self {
-        Self::Ack
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum WriteState {
+    #[default]
     Start,
     Command,
-    Digit { idx: u8 },
+    Digit {
+        idx: u8,
+    },
     End,
-}
-
-impl Default for WriteState {
-    fn default() -> Self {
-        Self::Start
-    }
 }
 
 trait WeekdayExt {

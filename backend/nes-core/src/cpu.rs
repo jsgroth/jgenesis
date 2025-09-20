@@ -12,17 +12,12 @@ struct OamDmaState {
     last_read_value: u8,
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Default, Encode, Decode)]
 enum State {
+    #[default]
     CpuExecuting,
     OamDmaDelay(OamDmaState),
     OamDma(OamDmaState),
-}
-
-impl Default for State {
-    fn default() -> Self {
-        Self::CpuExecuting
-    }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]

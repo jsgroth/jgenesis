@@ -49,8 +49,9 @@ enum Status {
     TrayMoving = 0x0E,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum ReportType {
+    #[default]
     AbsoluteTime,
     RelativeTime,
     CurrentTrack,
@@ -92,20 +93,15 @@ impl ReportType {
     }
 }
 
-impl Default for ReportType {
-    fn default() -> Self {
-        Self::AbsoluteTime
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum ReaderStatus {
     Playing,
     Paused,
 }
 
-#[derive(Debug, Clone, Copy, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
 enum State {
+    #[default]
     MotorStopped,
     NoDisc,
     PreparingToPlay {
@@ -161,12 +157,6 @@ impl State {
                 current_time
             }
         }
-    }
-}
-
-impl Default for State {
-    fn default() -> Self {
-        Self::MotorStopped
     }
 }
 

@@ -13,11 +13,12 @@ pub enum WgpuBackend {
     OpenGl,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumDisplay, EnumAll)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumAll)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum VSyncMode {
     Enabled,
+    #[default]
     Disabled,
     Fast,
 }
@@ -29,12 +30,6 @@ impl VSyncMode {
             Self::Disabled => wgpu::PresentMode::Immediate,
             Self::Fast => wgpu::PresentMode::Mailbox,
         }
-    }
-}
-
-impl Default for VSyncMode {
-    fn default() -> Self {
-        Self::Disabled
     }
 }
 
