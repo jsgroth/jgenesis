@@ -989,6 +989,10 @@ impl Vdp {
         let fifo_entry = self.control_port.new_fifo_entry(value, self.registers.vram_size);
         self.control_port.increment_data_port_address(&self.registers);
 
+        if fifo_entry.mode == DataPortMode::Read {
+            println!("odd {fifo_entry:?}");
+        }
+
         if self.fifo.is_full() {
             self.pending_fifo_writes.push_back(fifo_entry);
         } else {

@@ -36,6 +36,20 @@ pub struct GbaAudioConfig {
     pub pcm_b_enabled: bool,
 }
 
+impl Default for GbaAudioConfig {
+    fn default() -> Self {
+        Self {
+            audio_interpolation: GbaAudioInterpolation::default(),
+            pulse_1_enabled: true,
+            pulse_2_enabled: true,
+            wavetable_enabled: true,
+            noise_enabled: true,
+            pcm_a_enabled: true,
+            pcm_b_enabled: true,
+        }
+    }
+}
+
 impl GbaAudioConfig {
     pub(crate) fn psg_channels_enabled(self) -> [bool; 4] {
         [self.pulse_1_enabled, self.pulse_2_enabled, self.wavetable_enabled, self.noise_enabled]
@@ -46,7 +60,7 @@ impl GbaAudioConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
+#[derive(Debug, Clone, Copy, Default, Encode, Decode, ConfigDisplay)]
 pub struct GbaEmulatorConfig {
     pub skip_bios_animation: bool,
     pub aspect_ratio: GbaAspectRatio,

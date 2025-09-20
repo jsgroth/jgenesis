@@ -13,28 +13,30 @@ const EWRAM_LEN: usize = 256 * 1024;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct MemoryControl {
-    pub sram_wait: u64,
-    pub cartridge_n_wait: [u64; 3],
-    pub cartridge_s_wait: [u64; 3],
+    pub sram_cycles: u64,
+    // There are only 3 waitstate areas, but making arrays len 4 avoids a bounds check on access
+    pub cartridge_n_cycles: [u64; 4],
+    pub cartridge_s_cycles: [u64; 4],
     pub prefetch_enabled: bool,
     pub raw_value: u16,
 }
 
 impl MemoryControl {
-    const SRAM_WAIT: [u64; 4] = [4, 3, 2, 8];
-    const CARTRIDGE_N_WAIT: [u64; 4] = [4, 3, 2, 8];
-    const CARTRIDGE_0_S_WAIT: [u64; 2] = [2, 1];
-    const CARTRIDGE_1_S_WAIT: [u64; 2] = [4, 1];
-    const CARTRIDGE_2_S_WAIT: [u64; 2] = [8, 1];
+    const SRAM_CYCLES: [u64; 4] = [5, 4, 3, 9];
+    const CARTRIDGE_N_CYCLES: [u64; 4] = [5, 4, 3, 9];
+    const CARTRIDGE_0_S_CYCLES: [u64; 2] = [3, 2];
+    const CARTRIDGE_1_S_CYCLES: [u64; 2] = [5, 2];
+    const CARTRIDGE_2_S_CYCLES: [u64; 2] = [9, 2];
 
     pub fn new() -> Self {
         Self {
-            sram_wait: Self::SRAM_WAIT[0],
-            cartridge_n_wait: array::from_fn(|_| Self::CARTRIDGE_N_WAIT[0]),
-            cartridge_s_wait: [
-                Self::CARTRIDGE_0_S_WAIT[0],
-                Self::CARTRIDGE_1_S_WAIT[0],
-                Self::CARTRIDGE_2_S_WAIT[0],
+            sram_cycles: Self::SRAM_CYCLES[0],
+            cartridge_n_cycles: array::from_fn(|_| Self::CARTRIDGE_N_CYCLES[0]),
+            cartridge_s_cycles: [
+                Self::CARTRIDGE_0_S_CYCLES[0],
+                Self::CARTRIDGE_1_S_CYCLES[0],
+                Self::CARTRIDGE_2_S_CYCLES[0],
+                0,
             ],
             prefetch_enabled: false,
             raw_value: 0x0000,
@@ -46,36 +48,35 @@ impl MemoryControl {
     }
 
     pub fn write(&mut self, value: u16) {
-        self.sram_wait = Self::SRAM_WAIT[(value & 3) as usize];
-        self.cartridge_n_wait =
-            array::from_fn(|i| Self::CARTRIDGE_N_WAIT[((value >> (2 + 3 * i)) & 3) as usize]);
-        self.cartridge_s_wait = [
-            Self::CARTRIDGE_0_S_WAIT[usize::from(value.bit(4))],
-            Self::CARTRIDGE_1_S_WAIT[usize::from(value.bit(7))],
-            Self::CARTRIDGE_2_S_WAIT[usize::from(value.bit(10))],
-        ];
+        self.sram_cycles = Self::SRAM_CYCLES[(value & 3) as usize];
+        self.cartridge_n_cycles[0] = Self::CARTRIDGE_N_CYCLES[((value >> 2) & 3) as usize];
+        self.cartridge_n_cycles[1] = Self::CARTRIDGE_N_CYCLES[((value >> 5) & 3) as usize];
+        self.cartridge_n_cycles[2] = Self::CARTRIDGE_N_CYCLES[((value >> 8) & 3) as usize];
+        self.cartridge_s_cycles[0] = Self::CARTRIDGE_0_S_CYCLES[usize::from(value.bit(4))];
+        self.cartridge_s_cycles[1] = Self::CARTRIDGE_1_S_CYCLES[usize::from(value.bit(7))];
+        self.cartridge_s_cycles[2] = Self::CARTRIDGE_2_S_CYCLES[usize::from(value.bit(10))];
         self.prefetch_enabled = value.bit(14);
 
         // Highest bit is not writable; DK King of Swing depends on this
         self.raw_value = value & 0x7FFF;
 
         log::debug!("WAITCNT write: {value:04X}");
-        log::debug!("  SRAM wait states: {}", self.sram_wait);
-        log::debug!("  Cartridge 0 N wait states: {}", self.cartridge_n_wait[0]);
-        log::debug!("  Cartridge 0 S wait states: {}", self.cartridge_s_wait[0]);
-        log::debug!("  Cartridge 1 N wait states: {}", self.cartridge_n_wait[1]);
-        log::debug!("  Cartridge 1 S wait states: {}", self.cartridge_s_wait[1]);
-        log::debug!("  Cartridge 2 N wait states: {}", self.cartridge_n_wait[2]);
-        log::debug!("  Cartridge 2 S wait states: {}", self.cartridge_s_wait[2]);
+        log::debug!("  SRAM cycles: {}", self.sram_cycles);
+        log::debug!("  Cartridge 0 N cycles: {}", self.cartridge_n_cycles[0]);
+        log::debug!("  Cartridge 0 S cycles: {}", self.cartridge_s_cycles[0]);
+        log::debug!("  Cartridge 1 N cycles: {}", self.cartridge_n_cycles[1]);
+        log::debug!("  Cartridge 1 S cycles: {}", self.cartridge_s_cycles[1]);
+        log::debug!("  Cartridge 2 N cycles: {}", self.cartridge_n_cycles[2]);
+        log::debug!("  Cartridge 2 S cycles: {}", self.cartridge_s_cycles[2]);
         log::debug!("  Cartridge ROM prefetch enabled: {}", self.prefetch_enabled);
     }
 
-    pub fn rom_n_wait_states(&self, address: u32) -> u64 {
-        self.cartridge_n_wait[wait_states_area(address)]
+    pub fn rom_n_cycles(&self, address: u32) -> u64 {
+        self.cartridge_n_cycles[wait_states_area(address)]
     }
 
-    pub fn rom_s_wait_states(&self, address: u32) -> u64 {
-        self.cartridge_s_wait[wait_states_area(address)]
+    pub fn rom_s_cycles(&self, address: u32) -> u64 {
+        self.cartridge_s_cycles[wait_states_area(address)]
     }
 }
 
@@ -83,7 +84,7 @@ fn wait_states_area(address: u32) -> usize {
     // Area 0: $08000000-$09FFFFFF
     // Area 1: $0A000000-$0BFFFFFF
     // Area 2: $0C000000-$0DFFFFFF
-    assert!((0x08000000..0x0E000000).contains(&address), "{address:08X}");
+    debug_assert!((0x08000000..0x0E000000).contains(&address), "{address:08X}");
     ((address >> 25) & 3) as usize
 }
 

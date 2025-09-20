@@ -10,7 +10,7 @@
 //! assumed to take 1 clock cycle which is probably not realistic.
 
 use arm7tdmi_emu::Arm7Tdmi;
-use arm7tdmi_emu::bus::{BusInterface, MemoryCycle};
+use arm7tdmi_emu::bus::{BusInterface, MemoryCycle, OpSize};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use thiserror::Error;
@@ -144,129 +144,132 @@ struct ArmBus {
     open_bus: u32,
 }
 
+macro_rules! invalid_size {
+    ($size:expr) => {
+        panic!("Invalid size, must be 0-2: {}", $size)
+    };
+}
+
 // All reads from $60000000-$7FFFFFFF return this value according to:
 //   https://forums.bannister.org/ubbthreads.php?ubb=showflat&Number=77760&page=all
 // Not sure if the game depends on the value read, but it does occasionally read from these addresses
 const ADDRESS_60_READS: u32 = 0x40404001;
 
-impl BusInterface for ArmBus {
-    #[inline]
-    fn read_byte(&mut self, address: u32, _cycle: MemoryCycle) -> u8 {
-        self.cycles += 1;
-
-        let byte = match address {
-            0x00000000..=0x1FFFFFFF => {
-                // Program ROM
-                let rom_addr = ((address >> 2) as usize) & (PROGRAM_ROM_LEN_WORDS - 1);
-                self.program_rom[rom_addr].to_le_bytes()[(address & 3) as usize]
-            }
-            0x40000000..=0x5FFFFFFF => self
-                .registers
-                .arm_read(address)
-                .unwrap_or_else(|| self.open_bus.to_le_bytes()[(address & 3) as usize]),
-            0x60000000..=0x7FFFFFFF => ADDRESS_60_READS.to_le_bytes()[(address & 3) as usize],
-            0xA0000000..=0xBFFFFFFF => {
-                // Data ROM
-                let rom_addr = (address as usize) & (DATA_ROM_LEN - 1);
-                self.data_rom[rom_addr]
-            }
-            0xE0000000..=0xFFFFFFFF => {
-                // RAM
-                let ram_addr = ((address >> 2) as usize) & (RAM_LEN_WORDS - 1);
-                self.ram[ram_addr].to_le_bytes()[(address & 3) as usize]
-            }
-            _ => self.open_bus.to_le_bytes()[(address & 3) as usize],
-        };
-
-        // TODO this is probably not right for 8-bit open bus
-        self.open_bus = u32::from_le_bytes([byte; 4]);
-
-        byte
-    }
-
-    #[inline]
-    fn read_halfword(&mut self, address: u32, _cycle: MemoryCycle) -> u16 {
-        self.cycles += 1;
-
-        log::error!("ST018 CPU is ARMv3; does not support halfword memory access ({address:08X})");
-
-        0
-    }
-
-    #[inline]
-    fn read_word(&mut self, address: u32, _cycle: MemoryCycle) -> u32 {
-        self.cycles += 1;
-
-        let word = match address {
-            0x00000000..=0x1FFFFFFF => {
-                // Program ROM
-                let rom_addr = ((address >> 2) as usize) & (PROGRAM_ROM_LEN_WORDS - 1);
-                self.program_rom[rom_addr]
-            }
-            0x40000000..=0x5FFFFFFF => {
-                self.registers.arm_read(address).map_or(self.open_bus, u32::from)
-            }
-            0x60000000..=0x7FFFFFFF => ADDRESS_60_READS,
-            0xA0000000..=0xBFFFFFFF => {
-                // Data ROM; only has 8-bit data bus
-                // TODO this is probably not accurate; this code path is not exercised
-                let rom_addr = (address as usize) & (DATA_ROM_LEN - 1);
-                let byte = self.data_rom[rom_addr];
-                u32::from_le_bytes([byte; 4])
-            }
-            0xE0000000..=0xFFFFFFFF => {
-                // RAM
-                let ram_addr = ((address >> 2) as usize) & (RAM_LEN_WORDS - 1);
-                self.ram[ram_addr]
-            }
-            _ => self.open_bus,
-        };
-
-        self.open_bus = word;
-
-        word
-    }
-
-    #[inline]
-    fn write_byte(&mut self, address: u32, value: u8, _cycle: MemoryCycle) {
-        self.cycles += 1;
-
-        // TODO this is probably not right for 8-bit open bus
-        self.open_bus = u32::from_le_bytes([value; 4]);
-
-        match address {
-            0x40000000..=0x5FFFFFFF => self.registers.arm_write(address, value),
-            0xE0000000..=0xFFFFFFFF => {
-                // RAM
-                let ram_addr = ((address >> 2) as usize) & (RAM_LEN_WORDS - 1);
-                let mut word_bytes = self.ram[ram_addr].to_le_bytes();
-                word_bytes[(address & 3) as usize] = value;
-                self.ram[ram_addr] = u32::from_le_bytes(word_bytes);
-            }
-            _ => {}
+impl ArmBus {
+    fn read_open_bus<const SIZE: u8>(&self, address: u32) -> u32 {
+        match SIZE {
+            OpSize::BYTE => self.open_bus.to_le_bytes()[(address & 3) as usize].into(),
+            OpSize::WORD => self.open_bus,
+            _ => invalid_size!(SIZE),
         }
     }
 
-    #[inline]
-    fn write_halfword(&mut self, address: u32, value: u16, _cycle: MemoryCycle) {
-        self.cycles += 1;
-
-        log::error!(
-            "ST018 CPU is ARMv3; does not support halfword memory access ({address:08X} {value:04X})"
-        );
+    fn update_open_bus<const SIZE: u8>(&mut self, value: u32) {
+        // TODO this is probably not right for 8-bit open bus
+        match SIZE {
+            OpSize::BYTE => {
+                self.open_bus = u32::from_ne_bytes([value as u8; 4]);
+            }
+            OpSize::WORD => {
+                self.open_bus = value;
+            }
+            _ => invalid_size!(SIZE),
+        }
     }
+}
 
+impl BusInterface for ArmBus {
     #[inline]
-    fn write_word(&mut self, address: u32, value: u32, _cycle: MemoryCycle) {
+    fn read<const SIZE: u8>(&mut self, address: u32, _cycle: MemoryCycle) -> u32 {
         self.cycles += 1;
-        self.open_bus = value;
 
-        match address {
-            0x40000000..=0x5FFFFFFF => self.registers.arm_write(address, value as u8),
+        if SIZE == OpSize::HALFWORD {
+            log::error!("ST018 has an ARMv3 CPU; does not support halfword reads");
+            return 0;
+        }
+
+        let value = match address {
+            0x00000000..=0x1FFFFFFF => {
+                // Program ROM
+                let rom_addr = ((address >> 2) as usize) & (PROGRAM_ROM_LEN_WORDS - 1);
+                let word = self.program_rom[rom_addr];
+                match SIZE {
+                    OpSize::BYTE => word.to_le_bytes()[(address & 3) as usize].into(),
+                    OpSize::WORD => word,
+                    _ => invalid_size!(SIZE),
+                }
+            }
+            0x40000000..=0x5FFFFFFF => {
+                // I/O registers
+                let Some(byte) = self.registers.arm_read(address) else {
+                    return self.read_open_bus::<SIZE>(address);
+                };
+                byte.into()
+            }
+            0x60000000..=0x7FFFFFFF => match SIZE {
+                OpSize::BYTE => ADDRESS_60_READS.to_le_bytes()[(address & 3) as usize].into(),
+                OpSize::WORD => ADDRESS_60_READS,
+                _ => invalid_size!(SIZE),
+            },
+            0xA0000000..=0xBFFFFFFF => {
+                // Data ROM; only has an 8-bit data bus
+                // TODO 32-bit reads are probably not accurate; this code path is not exercised
+                let rom_addr = (address as usize) & (DATA_ROM_LEN - 1);
+                let byte = self.data_rom[rom_addr];
+                match SIZE {
+                    OpSize::BYTE => byte.into(),
+                    OpSize::WORD => u32::from_ne_bytes([byte; 4]),
+                    _ => invalid_size!(SIZE),
+                }
+            }
             0xE0000000..=0xFFFFFFFF => {
                 // RAM
                 let ram_addr = ((address >> 2) as usize) & (RAM_LEN_WORDS - 1);
-                self.ram[ram_addr] = value;
+                let word = self.ram[ram_addr];
+                match SIZE {
+                    OpSize::BYTE => word.to_le_bytes()[(address & 3) as usize].into(),
+                    OpSize::WORD => word,
+                    _ => invalid_size!(SIZE),
+                }
+            }
+            _ => return self.read_open_bus::<SIZE>(address),
+        };
+
+        self.update_open_bus::<SIZE>(value);
+
+        value
+    }
+
+    #[inline]
+    fn write<const SIZE: u8>(&mut self, address: u32, value: u32, _cycle: MemoryCycle) {
+        self.cycles += 1;
+
+        if SIZE == OpSize::HALFWORD {
+            log::error!("ST018 has an ARMv3 CPU; does not support halfword writes");
+            return;
+        }
+
+        self.update_open_bus::<SIZE>(value);
+
+        match address {
+            0x40000000..=0x5FFFFFFF => {
+                // I/O registers
+                self.registers.arm_write(address, value as u8);
+            }
+            0xE0000000..=0xFFFFFFFF => {
+                // RAM
+                let ram_addr = ((address >> 2) as usize) & (RAM_LEN_WORDS - 1);
+                match SIZE {
+                    OpSize::BYTE => {
+                        let mut bytes = self.ram[ram_addr].to_le_bytes();
+                        bytes[(address & 3) as usize] = value as u8;
+                        self.ram[ram_addr] = u32::from_le_bytes(bytes);
+                    }
+                    OpSize::WORD => {
+                        self.ram[ram_addr] = value;
+                    }
+                    _ => invalid_size!(SIZE),
+                }
             }
             _ => {}
         }

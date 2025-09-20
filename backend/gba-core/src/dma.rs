@@ -282,17 +282,12 @@ impl DmaChannel {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum TransferSource {
-    Memory { address: u32 },
-    Value(u32),
-}
-
-#[derive(Debug, Clone, Copy)]
 pub struct DmaTransfer {
     pub channel: u8,
-    pub source: TransferSource,
+    pub source: Option<u32>,
     pub destination: u32,
     pub unit: TransferUnit,
+    pub read_latch: u32,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -361,15 +356,13 @@ impl DmaState {
             let increment = unit.address_increment();
 
             let source_address = channel.latched_source_address & channel.source_addr_mask;
-            let source = if source_address >= 0x2000000 {
-                channel.latched_source_address =
-                    channel.source_increment.apply(source_address, increment);
-                TransferSource::Memory { address: source_address }
-            } else {
+            let source_valid = source_address >= 0x2000000;
+            if source_valid {
                 // When DMA reads an invalid address, source address does not increment and the
                 // channel returns the last value that it read from a valid address
-                TransferSource::Value(channel.last_read)
-            };
+                channel.latched_source_address =
+                    channel.source_increment.apply(source_address, increment);
+            }
 
             let destination = channel.latched_destination_address & channel.dest_addr_mask;
             if !audio_dma && destination >= 0x2000000 {
@@ -397,10 +390,17 @@ impl DmaState {
             }
 
             let channel_idx = channel.idx;
+            let read_latch = channel.last_read;
 
             self.update_any_active_enabled();
 
-            return Some(DmaTransfer { channel: channel_idx, source, destination, unit });
+            return Some(DmaTransfer {
+                channel: channel_idx,
+                source: source_valid.then_some(source_address),
+                destination,
+                unit,
+                read_latch,
+            });
         }
 
         None

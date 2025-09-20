@@ -154,6 +154,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         direction: Direction,
     ) -> ExecuteResult<u32> {
         let extension = self.fetch_operand()?;
+        log::trace!("Extension {extension:04X}");
         if let AddressingMode::AddressIndirectPredecrement(register) = addressing_mode {
             return self.movem_predecrement(size, register, extension);
         }
@@ -264,6 +265,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
 
         let mut count = 0;
         for register in iter {
+            log::trace!("  Copy {register:?}");
             match size {
                 OpSize::Word => {
                     address = address.wrapping_sub(2);

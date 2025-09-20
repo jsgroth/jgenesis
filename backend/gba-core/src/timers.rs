@@ -270,4 +270,34 @@ impl Timers {
 
         self.update_next_overflow_cycles();
     }
+
+    pub fn write_register_byte(
+        &mut self,
+        address: u32,
+        value: u8,
+        cycles: u64,
+        apu: &mut Apu,
+        dma: &mut DmaState,
+        interrupts: &mut InterruptRegisters,
+    ) {
+        log::trace!("Timer byte write {address:08X} {value:02X} at cycles {cycles}");
+
+        self.step_to_internal(cycles, apu, dma, interrupts);
+
+        let timer_idx = (address >> 2) & 3;
+
+        if !address.bit(1) {
+            let mut reload_bytes = self.timers[timer_idx as usize].reload.to_le_bytes();
+            reload_bytes[(address & 1) as usize] = value;
+            self.timers[timer_idx as usize].pending_reload_write =
+                Some(u16::from_le_bytes(reload_bytes));
+        } else {
+            let mut control_bytes = self.timers[timer_idx as usize].read_control().to_le_bytes();
+            control_bytes[(address & 1) as usize] = value;
+            self.timers[timer_idx as usize].pending_control_write =
+                Some(u16::from_le_bytes(control_bytes));
+        }
+
+        self.update_next_overflow_cycles();
+    }
 }

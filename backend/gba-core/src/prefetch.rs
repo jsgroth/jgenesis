@@ -77,7 +77,7 @@ impl Bus {
         self.prefetch.write_idx = 0;
         self.prefetch.len = 0;
         self.prefetch.active = true;
-        self.prefetch.fetch_cycles_remaining = 1 + self.memory.control().rom_n_wait_states(address);
+        self.prefetch.fetch_cycles_remaining = self.memory.control().rom_n_cycles(address);
     }
 
     fn finish_in_progress_fetch(&mut self) {
