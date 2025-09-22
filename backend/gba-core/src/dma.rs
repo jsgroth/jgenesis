@@ -104,7 +104,7 @@ struct DmaChannel {
     latched_destination_address: u32,
     latched_length: u16,
     dma_active: bool,
-    start_latency: u64,
+    start_cycles: u64,
 }
 
 impl DmaChannel {
@@ -155,7 +155,7 @@ impl DmaChannel {
             latched_destination_address: 0,
             latched_length: 0,
             dma_active: false,
-            start_latency: 0,
+            start_cycles: u64::MAX,
         }
     }
 
@@ -221,7 +221,7 @@ impl DmaChannel {
     // $40000C6: DMA1CNT_H
     // $40000D2: DMA2CNT_H
     // $40000DE: DMA3CNT_H
-    fn write_control(&mut self, value: u16) {
+    fn write_control(&mut self, value: u16, cycles: u64) {
         self.destination_increment = AddressIncrement::from_bits(value >> 5);
         self.source_increment = AddressIncrement::from_bits(value >> 7);
         self.repeat = value.bit(9);
@@ -242,7 +242,7 @@ impl DmaChannel {
 
             if self.start_timing == StartTiming::Immediate {
                 self.dma_active = true;
-                self.start_latency = INITIAL_START_LATENCY;
+                self.start_cycles = cycles + INITIAL_START_LATENCY;
             }
         }
 
@@ -279,6 +279,19 @@ impl DmaChannel {
             _ => self.length,
         }
     }
+
+    fn activate_if_matches(
+        &mut self,
+        any_active: &mut bool,
+        cycles: u64,
+        predicate: impl Fn(&Self) -> bool,
+    ) {
+        if self.dma_enabled && !self.dma_active && predicate(self) {
+            self.dma_active = true;
+            self.start_cycles = cycles + INITIAL_START_LATENCY;
+            *any_active = true;
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -293,47 +306,17 @@ pub struct DmaTransfer {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct DmaState {
     channels: [DmaChannel; 4],
-    cycles: u64,
     any_active: bool,
     any_start_latency: bool,
-    any_ppu_triggers_enabled: bool,
-    any_audio_triggers_enabled: bool,
 }
 
 impl DmaState {
     pub fn new() -> Self {
         Self {
             channels: array::from_fn(|ch| DmaChannel::new(ch as u8)),
-            cycles: 0,
             any_active: false,
             any_start_latency: false,
-            any_ppu_triggers_enabled: false,
-            any_audio_triggers_enabled: false,
         }
-    }
-
-    pub fn sync(&mut self, cycles: u64) {
-        if !self.any_start_latency {
-            self.cycles = cycles;
-            return;
-        }
-
-        let elapsed = cycles.saturating_sub(self.cycles);
-        self.cycles = cycles;
-
-        for channel in &mut self.channels {
-            channel.start_latency = channel.start_latency.saturating_sub(elapsed);
-        }
-
-        self.any_start_latency = self.channels.iter().any(|channel| channel.start_latency != 0);
-    }
-
-    pub fn any_ppu_triggers_enabled(&self) -> bool {
-        self.any_ppu_triggers_enabled
-    }
-
-    pub fn any_audio_triggers_enabled(&self) -> bool {
-        self.any_audio_triggers_enabled
     }
 
     pub fn next_transfer(
@@ -346,7 +329,7 @@ impl DmaState {
         }
 
         for (i, channel) in self.channels.iter_mut().enumerate() {
-            if !channel.dma_active || channel.start_latency != 0 {
+            if !channel.dma_active || channel.start_cycles > cycles {
                 continue;
             }
 
@@ -371,6 +354,9 @@ impl DmaState {
                     channel.destination_increment.apply(destination, increment);
             }
 
+            let channel_idx = channel.idx;
+            let read_latch = channel.last_read;
+
             channel.latched_length = channel.latched_length.wrapping_sub(1) & channel.length_mask;
             if channel.latched_length == 0 {
                 // Ignore repeat bit for immediate start timing
@@ -387,12 +373,9 @@ impl DmaState {
                 if channel.irq_enabled {
                     interrupts.set_flag(InterruptType::DMA[i], cycles);
                 }
+
+                self.update_any_active();
             }
-
-            let channel_idx = channel.idx;
-            let read_latch = channel.last_read;
-
-            self.update_any_active_enabled();
 
             return Some(DmaTransfer {
                 channel: channel_idx,
@@ -406,24 +389,8 @@ impl DmaState {
         None
     }
 
-    fn update_any_active_enabled(&mut self) {
+    fn update_any_active(&mut self) {
         self.any_active = self.channels.iter().any(|channel| channel.dma_active);
-        self.any_start_latency = self.channels.iter().any(|channel| channel.start_latency != 0);
-
-        self.any_ppu_triggers_enabled = self.channels.iter().any(|channel| {
-            channel.dma_enabled
-                && !channel.dma_active
-                && matches!(
-                    (channel.idx, channel.start_timing),
-                    (_, StartTiming::HBlank | StartTiming::VBlank) | (3, StartTiming::Special)
-                )
-        });
-
-        self.any_audio_triggers_enabled = self.channels[1..=2].iter().any(|channel| {
-            channel.dma_enabled
-                && !channel.dma_active
-                && channel.start_timing == StartTiming::Special
-        });
     }
 
     pub fn update_read_latch_halfword(&mut self, idx: u8, value: u16) {
@@ -437,17 +404,37 @@ impl DmaState {
         self.channels[idx as usize].last_read = value;
     }
 
-    pub fn notify_vblank_start(&mut self) {
-        self.activate_matching_channels(|channel| channel.start_timing == StartTiming::VBlank);
+    pub fn notify_vblank_start(&mut self, cycles: u64) {
+        for channel in &mut self.channels {
+            channel.activate_if_matches(&mut self.any_active, cycles, |channel| {
+                channel.start_timing == StartTiming::VBlank
+            });
+        }
     }
 
-    pub fn notify_hblank_start(&mut self) {
-        self.activate_matching_channels(|channel| channel.start_timing == StartTiming::HBlank);
+    pub fn notify_hblank_start(&mut self, cycles: u64) {
+        for channel in &mut self.channels {
+            channel.activate_if_matches(&mut self.any_active, cycles, |channel| {
+                channel.start_timing == StartTiming::HBlank
+            });
+        }
     }
 
-    pub fn notify_video_capture(&mut self) {
-        self.activate_matching_channels(|channel| {
-            channel.idx == 3 && channel.start_timing == StartTiming::Special
+    pub fn notify_apu_fifo_a(&mut self, cycles: u64) {
+        self.channels[1].activate_if_matches(&mut self.any_active, cycles, |channel| {
+            channel.start_timing == StartTiming::Special
+        });
+    }
+
+    pub fn notify_apu_fifo_b(&mut self, cycles: u64) {
+        self.channels[2].activate_if_matches(&mut self.any_active, cycles, |channel| {
+            channel.start_timing == StartTiming::Special
+        });
+    }
+
+    pub fn notify_video_capture(&mut self, cycles: u64) {
+        self.channels[3].activate_if_matches(&mut self.any_active, cycles, |channel| {
+            channel.start_timing == StartTiming::Special
         });
     }
 
@@ -456,33 +443,11 @@ impl DmaState {
             self.channels[3].dma_enabled = false;
             self.channels[3].dma_active = false;
         }
+        self.update_any_active();
     }
 
     pub fn video_capture_active(&self) -> bool {
         self.channels[3].dma_enabled && self.channels[3].start_timing == StartTiming::Special
-    }
-
-    pub fn notify_apu_fifo_a(&mut self) {
-        self.activate_matching_channels(|channel| {
-            channel.idx == 1 && channel.start_timing == StartTiming::Special
-        });
-    }
-
-    pub fn notify_apu_fifo_b(&mut self) {
-        self.activate_matching_channels(|channel| {
-            channel.idx == 2 && channel.start_timing == StartTiming::Special
-        });
-    }
-
-    fn activate_matching_channels(&mut self, predicate: impl Fn(&mut DmaChannel) -> bool) {
-        for channel in &mut self.channels {
-            if channel.dma_enabled && !channel.dma_active && predicate(channel) {
-                channel.dma_active = true;
-                channel.start_latency = INITIAL_START_LATENCY;
-            }
-        }
-
-        self.update_any_active_enabled();
     }
 
     pub fn read_register(&self, address: u32) -> Option<u16> {
@@ -504,7 +469,13 @@ impl DmaState {
         Some(value)
     }
 
-    pub fn write_register(&mut self, address: u32, value: u16, cartridge: &mut Cartridge) {
+    pub fn write_register(
+        &mut self,
+        address: u32,
+        value: u16,
+        cycles: u64,
+        cartridge: &mut Cartridge,
+    ) {
         debug_assert!((0x40000B0..0x40000E0).contains(&address));
 
         let dma_base_address = address - 0x40000B0;
@@ -519,9 +490,9 @@ impl DmaState {
             0x8 => self.channels[channel].write_length(value),
             0xA => {
                 if channel == 3 {
-                    self.write_channel_3_control(value, cartridge);
+                    self.write_channel_3_control(value, cycles, cartridge);
                 } else {
-                    self.channels[channel].write_control(value);
+                    self.channels[channel].write_control(value, cycles);
                 }
             }
             _ => {
@@ -529,11 +500,17 @@ impl DmaState {
             }
         }
 
-        self.update_any_active_enabled();
+        self.update_any_active();
     }
 
     // TODO I'm not sure any of this is correct
-    pub fn write_register_byte(&mut self, address: u32, value: u8, cartridge: &mut Cartridge) {
+    pub fn write_register_byte(
+        &mut self,
+        address: u32,
+        value: u8,
+        cycles: u64,
+        cartridge: &mut Cartridge,
+    ) {
         fn set_byte(mut halfword: u16, i: u32, byte: u8) -> u16 {
             if i & 1 == 0 {
                 halfword.set_lsb(byte);
@@ -579,9 +556,9 @@ impl DmaState {
             0xA => {
                 let control = set_byte(self.channels[channel].read_control(), address, value);
                 if channel == 3 {
-                    self.write_channel_3_control(control, cartridge);
+                    self.write_channel_3_control(control, cycles, cartridge);
                 } else {
-                    self.channels[channel].write_control(control);
+                    self.channels[channel].write_control(control, cycles);
                 }
             }
             _ => {
@@ -590,9 +567,9 @@ impl DmaState {
         }
     }
 
-    fn write_channel_3_control(&mut self, value: u16, cartridge: &mut Cartridge) {
+    fn write_channel_3_control(&mut self, value: u16, cycles: u64, cartridge: &mut Cartridge) {
         let prev_enabled = self.channels[3].dma_enabled;
-        self.channels[3].write_control(value);
+        self.channels[3].write_control(value, cycles);
 
         if !prev_enabled
             && self.channels[3].dma_enabled

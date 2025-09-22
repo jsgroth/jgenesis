@@ -3,6 +3,7 @@
 use crate::apu::Apu;
 use crate::dma::DmaState;
 use crate::interrupts::{InterruptRegisters, InterruptType};
+use crate::scheduler::{Scheduler, SchedulerEvent};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use std::{array, cmp};
@@ -184,12 +185,13 @@ impl Timers {
         apu: &mut Apu,
         dma: &mut DmaState,
         interrupts: &mut InterruptRegisters,
+        scheduler: &mut Scheduler,
     ) {
         if cycles < self.next_overflow_cycles {
             return;
         }
 
-        self.step_to_internal(cycles, apu, dma, interrupts);
+        self.step_to_internal(cycles, apu, dma, interrupts, scheduler);
     }
 
     fn step_to_internal(
@@ -198,6 +200,7 @@ impl Timers {
         apu: &mut Apu,
         dma: &mut DmaState,
         interrupts: &mut InterruptRegisters,
+        scheduler: &mut Scheduler,
     ) {
         while self.cycles < cycles {
             let tick_cycles = cmp::min(self.next_overflow_cycles, cycles);
@@ -212,17 +215,22 @@ impl Timers {
             }
 
             self.cycles = tick_cycles;
-            self.update_next_overflow_cycles();
+            self.update_next_overflow_cycles(scheduler);
         }
     }
 
-    fn update_next_overflow_cycles(&mut self) {
-        self.next_overflow_cycles = self
-            .timers
-            .iter()
-            .filter_map(|timer| timer.next_event_cycles(self.cycles))
-            .min()
-            .unwrap_or(u64::MAX);
+    fn update_next_overflow_cycles(&mut self, scheduler: &mut Scheduler) {
+        match self.timers.iter().filter_map(|timer| timer.next_event_cycles(self.cycles)).min() {
+            Some(next_overflow_cycles) => {
+                self.next_overflow_cycles = next_overflow_cycles;
+                scheduler
+                    .insert_or_update(SchedulerEvent::TimerOverflow, self.next_overflow_cycles);
+            }
+            None => {
+                self.next_overflow_cycles = u64::MAX;
+                scheduler.remove(SchedulerEvent::TimerOverflow);
+            }
+        }
     }
 
     pub fn read_register(
@@ -232,11 +240,12 @@ impl Timers {
         apu: &mut Apu,
         dma: &mut DmaState,
         interrupts: &mut InterruptRegisters,
+        scheduler: &mut Scheduler,
     ) -> u16 {
         let timer_idx = (address >> 2) & 3;
 
         if !address.bit(1) {
-            self.step_to_internal(cycles, apu, dma, interrupts);
+            self.step_to_internal(cycles, apu, dma, interrupts, scheduler);
             log::trace!(
                 "Timer read {address:08X} at cycles {cycles}, counter {:04X}",
                 self.timers[timer_idx as usize].counter
@@ -247,6 +256,7 @@ impl Timers {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn write_register(
         &mut self,
         address: u32,
@@ -255,10 +265,11 @@ impl Timers {
         apu: &mut Apu,
         dma: &mut DmaState,
         interrupts: &mut InterruptRegisters,
+        scheduler: &mut Scheduler,
     ) {
         log::trace!("Timer write {address:08X} {value:04X} at cycles {cycles}");
 
-        self.step_to_internal(cycles, apu, dma, interrupts);
+        self.step_to_internal(cycles, apu, dma, interrupts, scheduler);
 
         let timer_idx = (address >> 2) & 3;
 
@@ -268,9 +279,10 @@ impl Timers {
             self.timers[timer_idx as usize].pending_control_write = Some(value);
         }
 
-        self.update_next_overflow_cycles();
+        self.update_next_overflow_cycles(scheduler);
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn write_register_byte(
         &mut self,
         address: u32,
@@ -279,10 +291,11 @@ impl Timers {
         apu: &mut Apu,
         dma: &mut DmaState,
         interrupts: &mut InterruptRegisters,
+        scheduler: &mut Scheduler,
     ) {
         log::trace!("Timer byte write {address:08X} {value:02X} at cycles {cycles}");
 
-        self.step_to_internal(cycles, apu, dma, interrupts);
+        self.step_to_internal(cycles, apu, dma, interrupts, scheduler);
 
         let timer_idx = (address >> 2) & 3;
 
@@ -298,6 +311,6 @@ impl Timers {
                 Some(u16::from_le_bytes(control_bytes));
         }
 
-        self.update_next_overflow_cycles();
+        self.update_next_overflow_cycles(scheduler);
     }
 }

@@ -9,6 +9,7 @@ use crate::ppu::registers::{
     AffineOverflowBehavior, BgMode, BitsPerPixel, BlendMode, ObjVramMapDimensions, Registers,
     Window, WindowEnabled,
 };
+use crate::scheduler::{Scheduler, SchedulerEvent};
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::{BoxedByteArray, BoxedWordArray};
 use jgenesis_common::frontend::{Color, FrameSize};
@@ -35,7 +36,10 @@ pub const DOTS_PER_LINE: u32 = 1232;
 
 // VBlank flag is not set on the last line of the frame because of sprite processing for line 0
 const VBLANK_LINES: Range<u32> = 160..227;
+const VBLANK_IRQ_DOT: u32 = 1;
+const V_COUNTER_IRQ_DOT: u32 = 2;
 const HBLANK_START_DOT: u32 = 1006;
+const HBLANK_IRQ_DOT: u32 = 1008;
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct GbaFrameBuffer(Box<[u16]>);
@@ -454,12 +458,7 @@ impl Ppu {
         }
     }
 
-    pub fn step_to(
-        &mut self,
-        cycles: u64,
-        interrupts: &mut InterruptRegisters,
-        dma: &mut DmaState,
-    ) {
+    pub fn step_to(&mut self, cycles: u64, dma: &mut DmaState, scheduler: &mut Scheduler) {
         if cycles <= self.cycles {
             return;
         }
@@ -470,36 +469,25 @@ impl Ppu {
             return;
         }
 
-        self.tick(cycles, interrupts, dma);
+        self.tick(cycles, dma);
+        scheduler.insert_or_update(SchedulerEvent::PpuEvent, self.next_event_cycles);
     }
 
-    fn tick(&mut self, cycles: u64, interrupts: &mut InterruptRegisters, dma: &mut DmaState) {
-        fn render_line(ppu: &mut Ppu, _: &mut InterruptRegisters, _: &mut DmaState, _: u64) {
+    fn tick(&mut self, cycles: u64, dma: &mut DmaState) {
+        type EventFn = fn(&mut Ppu, &mut DmaState, u64);
+
+        fn render_line(ppu: &mut Ppu, _: &mut DmaState, _: u64) {
             ppu.render_current_line();
             ppu.render_next_sprite_line();
         }
 
-        fn hblank_start(
-            ppu: &mut Ppu,
-            interrupts: &mut InterruptRegisters,
-            dma: &mut DmaState,
-            cycles: u64,
-        ) {
-            if ppu.registers.hblank_irq_enabled {
-                interrupts.set_flag(InterruptType::HBlank, cycles);
-            }
-
+        fn hblank_start(ppu: &mut Ppu, dma: &mut DmaState, cycles: u64) {
             if ppu.state.scanline < SCREEN_HEIGHT {
-                dma.notify_hblank_start();
+                dma.notify_hblank_start(cycles);
             }
         }
 
-        fn end_of_line(
-            ppu: &mut Ppu,
-            interrupts: &mut InterruptRegisters,
-            dma: &mut DmaState,
-            cycles: u64,
-        ) {
+        fn end_of_line(ppu: &mut Ppu, dma: &mut DmaState, cycles: u64) {
             ppu.state.dot = 0;
 
             ppu.state.scanline += 1;
@@ -512,11 +500,7 @@ impl Ppu {
                     ppu.state.bg_affine_latch.y_written = [true; 2];
                 }
                 SCREEN_HEIGHT => {
-                    if ppu.registers.vblank_irq_enabled {
-                        interrupts.set_flag(InterruptType::VBlank, cycles);
-                    }
-
-                    dma.notify_vblank_start();
+                    dma.notify_vblank_start(cycles);
 
                     ppu.state.frame_complete = true;
                     ppu.ready_frame_buffer.copy_from(&ppu.frame_buffer);
@@ -537,16 +521,11 @@ impl Ppu {
             }
 
             if ppu.state.video_capture_latch && (2..162).contains(&ppu.state.scanline) {
-                dma.notify_video_capture();
+                // Video capture DMA triggers at dot 3 (then begins at dot 5 due to 2-cycle DMA latency)
+                dma.notify_video_capture(cycles + 3);
             }
 
             ppu.state.update_mosaic_v_state(&ppu.registers);
-
-            if ppu.registers.v_counter_irq_enabled
-                && (ppu.state.scanline as u8) == ppu.registers.v_counter_match
-            {
-                interrupts.set_flag(InterruptType::VCounter, cycles);
-            }
 
             for latency in &mut ppu.state.bg_enabled_latency {
                 *latency = latency.saturating_sub(1);
@@ -560,14 +539,12 @@ impl Ppu {
             }
         }
 
-        type EventFn = fn(&mut Ppu, &mut InterruptRegisters, &mut DmaState, u64);
-
         // Arbitrary dot around the middle of the line
         const RENDER_DOT: u32 = 526;
 
         const LINE_EVENTS: &[(u32, EventFn)] = &[
             (RENDER_DOT, render_line),
-            (HBLANK_START_DOT, hblank_start),
+            (HBLANK_START_DOT + 1, hblank_start),
             (DOTS_PER_LINE, end_of_line),
         ];
 
@@ -588,8 +565,10 @@ impl Ppu {
             self.cycles += u64::from(change);
 
             if self.state.dot == LINE_EVENTS[event_idx].0 {
-                (LINE_EVENTS[event_idx].1)(self, interrupts, dma, self.cycles);
-                if event_idx == LINE_EVENTS.len() - 1 {
+                (LINE_EVENTS[event_idx].1)(self, dma, self.cycles);
+
+                event_idx += 1;
+                if event_idx == LINE_EVENTS.len() {
                     event_idx = 0;
                 }
             }
@@ -1649,9 +1628,9 @@ impl Ppu {
         address: u32,
         cycles: u64,
         dma: &mut DmaState,
-        interrupts: &mut InterruptRegisters,
+        scheduler: &mut Scheduler,
     ) -> Option<u16> {
-        self.step_to(cycles, interrupts, dma);
+        self.step_to(cycles, dma, scheduler);
 
         log::trace!("PPU register read {address:08X}");
 
@@ -1659,7 +1638,7 @@ impl Ppu {
             0x4000000 => self.registers.read_dispcnt(),
             0x4000002 => self.registers.read_green_swap(),
             0x4000004 => self.read_dispstat(),
-            0x4000006 => self.v_counter().into(),
+            0x4000006 => self.state.scanline as u16,
             0x4000008..=0x400000E => {
                 let bg = (address & 7) >> 1;
                 self.registers.read_bgcnt(bg as usize)
@@ -1681,7 +1660,7 @@ impl Ppu {
     fn read_dispstat(&self) -> u16 {
         let in_vblank = self.in_vblank();
         let in_hblank = self.in_hblank();
-        let v_counter_match = self.v_counter() == self.registers.v_counter_match;
+        let v_counter_match = self.v_counter_for_dispstat() == self.registers.v_counter_match;
 
         u16::from(in_vblank)
             | (u16::from(in_hblank) << 1)
@@ -1693,10 +1672,20 @@ impl Ppu {
     }
 
     // $4000004: DISPSTAT (Display status)
-    fn write_dispstat(&mut self, value: u16, cycles: u64, interrupts: &mut InterruptRegisters) {
+    fn write_dispstat(
+        &mut self,
+        value: u16,
+        cycles: u64,
+        interrupts: &mut InterruptRegisters,
+        scheduler: &mut Scheduler,
+    ) {
+        let prev_vblank_enabled = self.registers.vblank_irq_enabled;
+        let prev_hblank_enabled = self.registers.hblank_irq_enabled;
         let prev_v_count_enabled = self.registers.v_counter_irq_enabled;
-        let v_counter = self.v_counter();
-        let prev_v_count_match = self.registers.v_counter_match == v_counter;
+        let prev_v_counter_match = self.registers.v_counter_match;
+
+        let v_counter = self.v_counter_for_dispstat();
+        let prev_v_match = self.registers.v_counter_match == v_counter;
 
         self.registers.write_dispstat(value);
 
@@ -1705,10 +1694,24 @@ impl Ppu {
         // TODO is it right that this only happens if VCOUNT enabled status doesn't change?
         if prev_v_count_enabled
             && self.registers.v_counter_irq_enabled
-            && !prev_v_count_match
+            && !prev_v_match
             && self.registers.v_counter_match == v_counter
         {
             interrupts.set_flag(InterruptType::VCounter, cycles + 1);
+        }
+
+        if prev_vblank_enabled != self.registers.vblank_irq_enabled {
+            self.schedule_vblank_irq(scheduler);
+        }
+
+        if prev_hblank_enabled != self.registers.hblank_irq_enabled {
+            self.schedule_hblank_irq(scheduler);
+        }
+
+        if prev_v_count_enabled != self.registers.v_counter_irq_enabled
+            || prev_v_counter_match != self.registers.v_counter_match
+        {
+            self.schedule_v_counter_irq(scheduler);
         }
     }
 
@@ -1717,17 +1720,17 @@ impl Ppu {
     }
 
     fn in_hblank(&self) -> bool {
-        (HBLANK_START_DOT..DOTS_PER_LINE - 1).contains(&self.state.dot)
+        (HBLANK_START_DOT + 1..DOTS_PER_LINE).contains(&self.state.dot)
     }
 
-    fn v_counter(&self) -> u8 {
-        let mut line = self.state.scanline;
-        if self.state.dot == DOTS_PER_LINE - 1 {
-            line += 1;
-            if line == LINES_PER_FRAME {
-                line = 0;
-            }
-        }
+    fn v_counter_for_dispstat(&self) -> u8 {
+        // V counter match bit in DISPSTAT changes at dot 1
+        let line = if self.state.dot == 0 {
+            if self.state.scanline == 0 { LINES_PER_FRAME - 1 } else { self.state.scanline - 1 }
+        } else {
+            self.state.scanline
+        };
+
         line as u8
     }
 
@@ -1739,6 +1742,7 @@ impl Ppu {
         cycles: u64,
         dma: &mut DmaState,
         interrupts: &mut InterruptRegisters,
+        scheduler: &mut Scheduler,
     ) {
         log::debug!(
             "PPU register write {address:08X} {value:04X} (line {} dot {})",
@@ -1746,12 +1750,12 @@ impl Ppu {
             self.state.dot
         );
 
-        self.step_to(cycles, interrupts, dma);
+        self.step_to(cycles, dma, scheduler);
 
         match address {
             0x4000000 => self.registers.write_dispcnt(value, &mut self.state),
             0x4000002 => self.registers.write_green_swap(value),
-            0x4000004 => self.write_dispstat(value, cycles, interrupts),
+            0x4000004 => self.write_dispstat(value, cycles, interrupts, scheduler),
             0x4000006 => {} // High halfword of word-size writes to DISPSTAT
             0x4000008..=0x400000E => {
                 // BGxCNT
@@ -1797,6 +1801,7 @@ impl Ppu {
         cycles: u64,
         dma: &mut DmaState,
         interrupts: &mut InterruptRegisters,
+        scheduler: &mut Scheduler,
     ) {
         trait U16Ext {
             fn set_byte(&mut self, i: bool, value: u8);
@@ -1812,7 +1817,7 @@ impl Ppu {
             }
         }
 
-        self.step_to(cycles, interrupts, dma);
+        self.step_to(cycles, dma, scheduler);
 
         // TODO BGxHOFS, BGxVOFS, MOSAIC, blend registers
         match address {
@@ -1821,12 +1826,12 @@ impl Ppu {
             | 0x4000048..=0x400004B
             | 0x4000050..=0x4000053 => {
                 // R/W registers: DISPCNT, green swap, DISPSTAT, BGxCNT, WININ, WINOUT, BLDCNT, BLDALPHA
-                let Some(mut halfword) = self.read_register(address & !1, cycles, dma, interrupts)
+                let Some(mut halfword) = self.read_register(address & !1, cycles, dma, scheduler)
                 else {
                     return;
                 };
                 halfword.set_byte(address.bit(0), value);
-                self.write_register(address & !1, halfword, cycles, dma, interrupts);
+                self.write_register(address & !1, halfword, cycles, dma, interrupts, scheduler);
             }
             0x4000010..=0x400001F => {
                 // BGxHOFS / BGxVOFS
@@ -1866,6 +1871,85 @@ impl Ppu {
                 log::debug!("Unexpected PPU byte register write {address:08X} {value:02X}");
             }
         }
+    }
+
+    fn schedule_vblank_irq(&self, scheduler: &mut Scheduler) {
+        if !self.registers.vblank_irq_enabled {
+            scheduler.remove(SchedulerEvent::VBlankIrq);
+            return;
+        }
+
+        let irq_cycles = self.cycles + self.cycles_until_dot(SCREEN_HEIGHT, VBLANK_IRQ_DOT);
+        scheduler.insert_or_update(SchedulerEvent::VBlankIrq, irq_cycles);
+    }
+
+    pub fn schedule_next_vblank_irq(&self, scheduler: &mut Scheduler, last_irq_cycles: u64) {
+        debug_assert!(self.registers.vblank_irq_enabled);
+
+        let next_irq_cycles = last_irq_cycles + u64::from(DOTS_PER_LINE * LINES_PER_FRAME);
+        scheduler.insert_or_update(SchedulerEvent::VBlankIrq, next_irq_cycles);
+    }
+
+    fn schedule_hblank_irq(&self, scheduler: &mut Scheduler) {
+        if !self.registers.hblank_irq_enabled {
+            scheduler.remove(SchedulerEvent::HBlankIrq);
+            return;
+        }
+
+        let cycles_until_irq = if self.state.dot >= HBLANK_IRQ_DOT {
+            DOTS_PER_LINE + HBLANK_IRQ_DOT - self.state.dot
+        } else {
+            HBLANK_IRQ_DOT - self.state.dot
+        };
+        scheduler
+            .insert_or_update(SchedulerEvent::HBlankIrq, self.cycles + u64::from(cycles_until_irq));
+    }
+
+    pub fn schedule_next_hblank_irq(&self, scheduler: &mut Scheduler, last_irq_cycles: u64) {
+        debug_assert!(self.registers.hblank_irq_enabled);
+
+        let next_irq_cycles = last_irq_cycles + u64::from(DOTS_PER_LINE);
+        scheduler.insert_or_update(SchedulerEvent::HBlankIrq, next_irq_cycles);
+    }
+
+    fn schedule_v_counter_irq(&self, scheduler: &mut Scheduler) {
+        if !self.registers.v_counter_irq_enabled
+            || self.registers.v_counter_match >= LINES_PER_FRAME as u8
+        {
+            scheduler.remove(SchedulerEvent::VCounterIrq);
+            return;
+        }
+
+        let irq_cycles = self.cycles
+            + self.cycles_until_dot(self.registers.v_counter_match.into(), V_COUNTER_IRQ_DOT);
+        scheduler.insert_or_update(SchedulerEvent::VCounterIrq, irq_cycles);
+    }
+
+    pub fn schedule_next_v_counter_irq(&self, scheduler: &mut Scheduler, last_irq_cycles: u64) {
+        debug_assert!(self.registers.v_counter_irq_enabled);
+
+        let next_irq_cycles = last_irq_cycles + u64::from(DOTS_PER_LINE * LINES_PER_FRAME);
+        scheduler.insert_or_update(SchedulerEvent::VCounterIrq, next_irq_cycles);
+    }
+
+    fn cycles_until_dot(&self, line: u32, dot: u32) -> u64 {
+        let cycles = if self.state.dot < dot {
+            let full_lines = if self.state.scanline > line {
+                LINES_PER_FRAME + line - self.state.scanline
+            } else {
+                line - self.state.scanline
+            };
+            dot - self.state.dot + full_lines * DOTS_PER_LINE
+        } else {
+            let full_lines = if self.state.scanline >= line {
+                LINES_PER_FRAME - 1 + line - self.state.scanline
+            } else {
+                line - self.state.scanline - 1
+            };
+            DOTS_PER_LINE + dot - self.state.dot + full_lines * DOTS_PER_LINE
+        };
+
+        cycles.into()
     }
 }
 
@@ -1907,4 +1991,34 @@ fn gba_color_to_rgb8(gba_color: u16) -> Color {
     let b = (gba_color >> 10) & 0x1F;
 
     Color::rgb(RGB_5_TO_8[r as usize], RGB_5_TO_8[g as usize], RGB_5_TO_8[b as usize])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cycles_until_dot() {
+        let mut ppu = Ppu::new();
+
+        ppu.state.scanline = 7;
+        ppu.state.dot = 1;
+        assert_eq!(ppu.cycles_until_dot(7, 1), u64::from(DOTS_PER_LINE * LINES_PER_FRAME));
+
+        ppu.state.scanline = 5;
+        ppu.state.dot = 0;
+        assert_eq!(ppu.cycles_until_dot(7, 1), u64::from(2 * DOTS_PER_LINE + 1));
+        ppu.state.dot = 1;
+        assert_eq!(ppu.cycles_until_dot(7, 1), u64::from(2 * DOTS_PER_LINE));
+        ppu.state.dot = 2;
+        assert_eq!(ppu.cycles_until_dot(7, 1), u64::from(2 * DOTS_PER_LINE - 1));
+
+        ppu.state.scanline = 10;
+        ppu.state.dot = 0;
+        assert_eq!(ppu.cycles_until_dot(7, 1), u64::from(225 * DOTS_PER_LINE + 1));
+        ppu.state.dot = 1;
+        assert_eq!(ppu.cycles_until_dot(7, 1), u64::from(225 * DOTS_PER_LINE));
+        ppu.state.dot = 2;
+        assert_eq!(ppu.cycles_until_dot(7, 1), u64::from(225 * DOTS_PER_LINE - 1));
+    }
 }

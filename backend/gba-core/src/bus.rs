@@ -5,10 +5,11 @@ use crate::apu::Apu;
 use crate::cartridge::Cartridge;
 use crate::dma::{DmaState, TransferUnit};
 use crate::input::InputState;
-use crate::interrupts::InterruptRegisters;
+use crate::interrupts::{InterruptRegisters, InterruptType};
 use crate::memory::Memory;
 use crate::ppu::Ppu;
 use crate::prefetch::GamePakPrefetcher;
+use crate::scheduler::{Scheduler, SchedulerEvent};
 use crate::sio::SerialPort;
 use crate::timers::Timers;
 use arm7tdmi_emu::bus::{BusInterface, MemoryCycle, OpSize};
@@ -76,6 +77,7 @@ pub struct Bus {
     pub sio: SerialPort,
     pub inputs: InputState,
     pub state: BusState,
+    pub scheduler: Scheduler,
 }
 
 impl Bus {
@@ -88,6 +90,7 @@ impl Bus {
         if CTX != AccessCtx::DMA {
             self.try_progress_dma();
             self.end_rom_burst_if_not_accessed(address);
+            self.interrupts.cpu_bus_cycle(self.state.cycles);
         }
 
         match address {
@@ -114,6 +117,7 @@ impl Bus {
         if CTX != AccessCtx::DMA {
             self.try_progress_dma();
             self.end_rom_burst_if_not_accessed(address);
+            self.interrupts.cpu_bus_cycle(self.state.cycles);
         }
 
         match address {
@@ -290,7 +294,7 @@ impl Bus {
                     address,
                     self.state.cycles,
                     &mut self.dma,
-                    &mut self.interrupts,
+                    &mut self.scheduler,
                 )
             }
             0x4000060..=0x40000AF => {
@@ -310,6 +314,7 @@ impl Bus {
                     &mut self.apu,
                     &mut self.dma,
                     &mut self.interrupts,
+                    &mut self.scheduler,
                 ))
             }
             0x4000120..=0x400012F | 0x4000134..=0x400015F => {
@@ -318,11 +323,11 @@ impl Bus {
             }
             0x4000130 => Some(self.inputs.read_keyinput()),
             0x4000132 => Some(self.inputs.read_keycnt()),
-            0x4000200 => Some(self.interrupts.read_ie()),
-            0x4000202 => Some(self.interrupts.read_if()),
+            0x4000200 => Some(self.interrupts.read_ie(self.state.cycles)),
+            0x4000202 => Some(self.interrupts.read_if(self.state.cycles)),
             0x4000204 => Some(self.memory.read_waitcnt()),
             0x4000206 => Some(0), // High halfword of word-size WAITCNT reads
-            0x4000208 => Some(self.interrupts.read_ime()),
+            0x4000208 => Some(self.interrupts.read_ime(self.state.cycles)),
             0x400020A => Some(0), // High halfword of word-size IME reads
             0x4000300 => Some(self.memory.read_postflg().into()),
             0x4000302 => Some(0), // High halfword of word-size POSTFLG reads
@@ -388,6 +393,7 @@ impl Bus {
                         self.state.cycles,
                         &mut self.dma,
                         &mut self.interrupts,
+                        &mut self.scheduler,
                     ),
                     OpSize::HALFWORD => self.ppu.write_register(
                         address & !1,
@@ -395,6 +401,7 @@ impl Bus {
                         self.state.cycles,
                         &mut self.dma,
                         &mut self.interrupts,
+                        &mut self.scheduler,
                     ),
                     _ => invalid_size!(SIZE),
                 }
@@ -410,13 +417,22 @@ impl Bus {
             }
             0x40000B0..=0x40000DF => {
                 // DMA registers
-                self.dma.sync(self.state.cycles);
                 match SIZE {
                     OpSize::BYTE => {
-                        self.dma.write_register_byte(address, value as u8, &mut self.cartridge);
+                        self.dma.write_register_byte(
+                            address,
+                            value as u8,
+                            self.state.cycles,
+                            &mut self.cartridge,
+                        );
                     }
                     OpSize::HALFWORD => {
-                        self.dma.write_register(address & !1, value, &mut self.cartridge);
+                        self.dma.write_register(
+                            address & !1,
+                            value,
+                            self.state.cycles,
+                            &mut self.cartridge,
+                        );
                     }
                     _ => invalid_size!(SIZE),
                 }
@@ -431,6 +447,7 @@ impl Bus {
                         &mut self.apu,
                         &mut self.dma,
                         &mut self.interrupts,
+                        &mut self.scheduler,
                     ),
                     OpSize::HALFWORD => self.timers.write_register(
                         address,
@@ -439,6 +456,7 @@ impl Bus {
                         &mut self.apu,
                         &mut self.dma,
                         &mut self.interrupts,
+                        &mut self.scheduler,
                     ),
                     _ => invalid_size!(SIZE),
                 }
@@ -501,7 +519,7 @@ impl Bus {
             return;
         }
 
-        self.interrupts.halt_cpu(value);
+        self.interrupts.write_haltcnt(value);
     }
 
     fn block_until_palette_ram_free(&mut self) {
@@ -815,13 +833,7 @@ impl Bus {
         let mut accessed_rom = AccessedRom(false);
 
         loop {
-            if self.dma.any_ppu_triggers_enabled() {
-                self.sync_ppu();
-            }
-            if self.dma.any_audio_triggers_enabled() {
-                self.sync_timers();
-            }
-            self.dma.sync(self.state.cycles);
+            self.process_scheduler_events();
 
             let Some(transfer) = self.dma.next_transfer(&mut self.interrupts, self.state.cycles)
             else {
@@ -904,11 +916,47 @@ impl Bus {
     }
 
     pub fn sync_ppu(&mut self) {
-        self.ppu.step_to(self.state.cycles, &mut self.interrupts, &mut self.dma);
+        self.ppu.step_to(self.state.cycles, &mut self.dma, &mut self.scheduler);
     }
 
     pub fn sync_timers(&mut self) {
-        self.timers.step_to(self.state.cycles, &mut self.apu, &mut self.dma, &mut self.interrupts);
+        self.timers.step_to(
+            self.state.cycles,
+            &mut self.apu,
+            &mut self.dma,
+            &mut self.interrupts,
+            &mut self.scheduler,
+        );
+    }
+
+    pub fn process_scheduler_events(&mut self) {
+        if !self.scheduler.is_event_ready(self.state.cycles) {
+            return;
+        }
+
+        while let Some((event, cycles)) = self.scheduler.pop(self.state.cycles) {
+            match event {
+                SchedulerEvent::VBlankIrq => {
+                    self.interrupts.set_flag(InterruptType::VBlank, cycles);
+                    self.ppu.schedule_next_vblank_irq(&mut self.scheduler, cycles);
+                }
+                SchedulerEvent::HBlankIrq => {
+                    self.interrupts.set_flag(InterruptType::HBlank, cycles);
+                    self.ppu.schedule_next_hblank_irq(&mut self.scheduler, cycles);
+                }
+                SchedulerEvent::VCounterIrq => {
+                    self.interrupts.set_flag(InterruptType::VCounter, cycles);
+                    self.ppu.schedule_next_v_counter_irq(&mut self.scheduler, cycles);
+                }
+                SchedulerEvent::PpuEvent => {
+                    self.sync_ppu();
+                }
+                SchedulerEvent::TimerOverflow => {
+                    self.sync_timers();
+                }
+                SchedulerEvent::Dummy => {}
+            }
+        }
     }
 
     fn maybe_end_rom_burst_on_access(&mut self, cycle: MemoryCycle) {
@@ -947,7 +995,7 @@ impl BusInterface for Bus {
 
     #[inline]
     fn irq(&self) -> bool {
-        self.interrupts.pending()
+        self.interrupts.irq()
     }
 
     #[inline]
@@ -956,6 +1004,7 @@ impl BusInterface for Bus {
         let new_cycles = self.state.cycles + u64::from(cycles);
         while self.state.cycles < new_cycles {
             self.try_progress_dma();
+            self.interrupts.cpu_bus_cycle(self.state.cycles);
 
             if self.state.cycles < new_cycles {
                 self.increment_cycles_with_prefetch(1);
@@ -1000,6 +1049,7 @@ mod tests {
             sio: SerialPort::new(),
             inputs: InputState::new(),
             state: BusState::new(),
+            scheduler: Scheduler::new(),
         };
 
         for address in 0x04000000..=0x0400FFFF {

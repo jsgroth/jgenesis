@@ -8,6 +8,7 @@ mod interrupts;
 mod memory;
 mod ppu;
 mod prefetch;
+mod scheduler;
 mod sio;
 mod timers;
 

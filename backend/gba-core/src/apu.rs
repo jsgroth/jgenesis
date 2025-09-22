@@ -448,7 +448,7 @@ impl Apu {
 
         if self.pcm_a.timer == timer {
             if self.pcm_a.dma_request() {
-                dma.notify_apu_fifo_a();
+                dma.notify_apu_fifo_a(cycles);
             }
 
             self.pcm_a.pop_fifo();
@@ -458,7 +458,7 @@ impl Apu {
 
         if self.pcm_b.timer == timer {
             if self.pcm_b.dma_request() {
-                dma.notify_apu_fifo_b();
+                dma.notify_apu_fifo_b(cycles);
             }
 
             self.pcm_b.pop_fifo();

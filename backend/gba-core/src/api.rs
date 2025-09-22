@@ -12,6 +12,7 @@ use crate::memory::Memory;
 use crate::ppu;
 use crate::ppu::Ppu;
 use crate::prefetch::GamePakPrefetcher;
+use crate::scheduler::{Scheduler, SchedulerEvent};
 use crate::sio::SerialPort;
 use crate::timers::Timers;
 use arm7tdmi_emu::bus::BusInterface;
@@ -134,11 +135,13 @@ impl GameBoyAdvanceEmulator {
             sio: SerialPort::new(),
             inputs: InputState::new(),
             state: BusState::new(),
+            scheduler: Scheduler::new(),
         };
 
         if !config.skip_bios_animation {
             cpu.reset(&mut bus);
         } else {
+            // Based on values that the GBA BIOS sets
             cpu.manual_reset(
                 Arm7TdmiResetArgs {
                     pc: 0x8000000,
@@ -151,6 +154,9 @@ impl GameBoyAdvanceEmulator {
                 &mut bus,
             );
         }
+
+        // Schedule initial PPU event to guarantee that PPU starts running even if never accessed
+        bus.scheduler.insert_or_update(SchedulerEvent::PpuEvent, ppu::DOTS_PER_LINE.into());
 
         Ok(Self {
             cpu,
@@ -242,8 +248,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
             self.bus.inputs.update_inputs(*inputs, self.bus.state.cycles, &mut self.bus.interrupts);
             self.bus.cartridge.update_rtc_time(self.bus.state.cycles, &mut self.bus.interrupts);
 
-            // TODO should implement a better way to check this
-            if self.bus.interrupts.read_ie() & self.bus.interrupts.read_if() == 0 {
+            if self.bus.interrupts.stopped() {
                 return self.tick_stopped::<_, _, S>(renderer, audio_output);
             }
 
@@ -255,15 +260,17 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
         self.bus.cartridge.set_solar_brightness(inputs.solar.brightness);
 
         // TODO halt should let the CPU execute for 1 more cycle before halting
-        self.bus.interrupts.sync(self.bus.state.cycles);
+        // This is difficult/impossible to implement without being able to suspend CPU execution
+        // mid-instruction
         if !self.bus.interrupts.cpu_halted() {
             self.cpu.execute_instruction(&mut self.bus);
         } else {
             self.bus.internal_cycles(1);
-            // TODO there should be a 1-cycle delay on unhalting?
+            if !self.bus.interrupts.cpu_halted() {
+                // 1-cycle delay when CPU unhalts
+                self.bus.internal_cycles(1);
+            }
         }
-
-        self.bus.sync_timers();
 
         // Forcibly sync the APU roughly once per line
         if self.bus.state.cycles - self.last_apu_sync_cycles >= u64::from(ppu::DOTS_PER_LINE) {
@@ -272,7 +279,6 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
 
         self.bus.sio.check_for_interrupt(self.bus.state.cycles, &mut self.bus.interrupts);
 
-        self.bus.sync_ppu();
         if self.bus.ppu.frame_complete() {
             self.bus.ppu.clear_frame_complete();
 
