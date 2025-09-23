@@ -11,7 +11,6 @@
 //! * Codemasters unlicensed board (iNES mapper 71, very similar to UxROM)
 //! * Jaleco JF-11 / JF-14 (iNES mapper 140, very similar to GxROM)
 
-use crate::bus;
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring, PpuMapResult};
 use crate::bus::cartridge::{HasBasicPpuMapping, MapperImpl};
 use bincode::{Decode, Encode};
@@ -42,10 +41,10 @@ impl Nrom {
 }
 
 impl MapperImpl<Nrom> {
-    pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
+    pub(crate) fn read_cpu_address(&self, address: u16, cpu_open_bus: u8) -> u8 {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
-            0x4020..=0x7FFF => bus::cpu_open_bus(address),
+            0x4020..=0x7FFF => cpu_open_bus,
             0x8000..=0xFFFF => self.cartridge.get_prg_rom((address & 0x7FFF).into()),
         }
     }
@@ -102,10 +101,10 @@ impl Uxrom {
 }
 
 impl MapperImpl<Uxrom> {
-    pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
+    pub(crate) fn read_cpu_address(&self, address: u16, cpu_open_bus: u8) -> u8 {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
-            0x4020..=0x5FFF => bus::cpu_open_bus(address),
+            0x4020..=0x5FFF => cpu_open_bus,
             0x6000..=0x7FFF => self.cartridge.get_prg_ram((address & 0x1FFF).into()),
             0x8000..=0xBFFF => {
                 let prg_rom_addr =
@@ -182,15 +181,15 @@ impl Cnrom {
 }
 
 impl MapperImpl<Cnrom> {
-    pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
+    pub(crate) fn read_cpu_address(&self, address: u16, cpu_open_bus: u8) -> u8 {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
-            0x4020..=0x5FFF => bus::cpu_open_bus(address),
+            0x4020..=0x5FFF => cpu_open_bus,
             0x6000..=0x7FFF => {
                 if !self.cartridge.prg_ram.is_empty() {
                     self.cartridge.get_prg_ram((address & 0x1FFF).into())
                 } else {
-                    bus::cpu_open_bus(address)
+                    cpu_open_bus
                 }
             }
             0x8000..=0xFFFF => self.cartridge.get_prg_rom((address & 0x7FFF).into()),
@@ -250,9 +249,9 @@ impl Axrom {
 }
 
 impl MapperImpl<Axrom> {
-    pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
+    pub(crate) fn read_cpu_address(&self, address: u16, cpu_open_bus: u8) -> u8 {
         if address < 0x8000 {
-            return bus::cpu_open_bus(address);
+            return cpu_open_bus;
         }
 
         let prg_rom_addr = BankSizeKb::ThirtyTwo.to_absolute_address(self.data.prg_bank, address);
@@ -308,10 +307,10 @@ impl Gxrom {
 }
 
 impl MapperImpl<Gxrom> {
-    pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
+    pub(crate) fn read_cpu_address(&self, address: u16, cpu_open_bus: u8) -> u8 {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: {address:04X}"),
-            0x4020..=0x7FFF => bus::cpu_open_bus(address),
+            0x4020..=0x7FFF => cpu_open_bus,
             0x8000..=0xFFFF => {
                 let prg_rom_addr =
                     BankSizeKb::ThirtyTwo.to_absolute_address(self.data.prg_bank, address);
@@ -386,15 +385,15 @@ impl Bnrom {
 }
 
 impl MapperImpl<Bnrom> {
-    pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
+    pub(crate) fn read_cpu_address(&self, address: u16, cpu_open_bus: u8) -> u8 {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: {address:04X}"),
-            0x4020..=0x5FFF => bus::cpu_open_bus(address),
+            0x4020..=0x5FFF => cpu_open_bus,
             0x6000..=0x7FFF => {
                 if !self.cartridge.prg_ram.is_empty() {
                     self.cartridge.get_prg_ram((address & 0x1FFF).into())
                 } else {
-                    bus::cpu_open_bus(address)
+                    cpu_open_bus
                 }
             }
             0x8000..=0xFFFF => {

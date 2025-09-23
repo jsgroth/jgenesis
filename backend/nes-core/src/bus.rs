@@ -523,9 +523,6 @@ pub struct IoRegisters {
 }
 
 impl IoRegisters {
-    // All I/O registers are at $40xx, and JOY1/JOY2 leave the highest 3 bits unused
-    const IO_OPEN_BUS_BITS: u8 = 0x40;
-
     fn new(overscan: Overscan) -> Self {
         Self {
             data: [0; 0x18],
@@ -541,16 +538,16 @@ impl IoRegisters {
         }
     }
 
-    fn read_address(&mut self, address: u16) -> u8 {
+    fn read_address(&mut self, address: u16, cpu_open_bus: u8) -> Option<u8> {
         let relative_addr = address - CPU_IO_REGISTERS_START;
-        let Some(register) = IoRegister::from_relative_address(relative_addr) else {
-            return cpu_open_bus(address);
-        };
-
-        self.read_register(register)
+        IoRegister::from_relative_address(relative_addr)
+            .map(|register| self.read_register(register, cpu_open_bus))
     }
 
-    fn read_register(&mut self, register: IoRegister) -> u8 {
+    fn read_register(&mut self, register: IoRegister, cpu_open_bus: u8) -> u8 {
+        // Highest 3 bits of JOY1/JOY2 reads are open bus (normally 0x40 but not necessarily)
+        let joy_open_bus = cpu_open_bus & 0xE0;
+
         match register {
             IoRegister::SND_CHN => {
                 self.snd_chn_read = true;
@@ -560,20 +557,23 @@ impl IoRegisters {
                 Some(latched_state) => {
                     let next_bit = latched_state.next_bit();
                     *latched_state = latched_state.shift();
-                    next_bit | Self::IO_OPEN_BUS_BITS
+                    next_bit | joy_open_bus
                 }
-                None => u8::from(self.p1_joypad_state.a) | Self::IO_OPEN_BUS_BITS,
+                None => u8::from(self.p1_joypad_state.a) | joy_open_bus,
             },
             IoRegister::JOY2 => match (&mut self.latched_p2_joypad_state, &self.zapper_state) {
-                (_, Some(zapper_state)) => zapper_state.read() | Self::IO_OPEN_BUS_BITS,
+                (_, Some(zapper_state)) => zapper_state.read() | joy_open_bus,
                 (Some(latched_state), None) => {
                     let next_bit = latched_state.next_bit();
                     *latched_state = latched_state.shift();
-                    next_bit | Self::IO_OPEN_BUS_BITS
+                    next_bit | joy_open_bus
                 }
-                (None, None) => u8::from(self.p2_joypad_state.a) | Self::IO_OPEN_BUS_BITS,
+                (None, None) => u8::from(self.p2_joypad_state.a) | joy_open_bus,
             },
-            _ => Self::IO_OPEN_BUS_BITS,
+            _ => {
+                // Other I/O registers are write-only
+                cpu_open_bus
+            }
         }
     }
 
@@ -732,6 +732,7 @@ pub struct Bus {
     #[partial_clone(partial)]
     mapper: Mapper,
     cpu_internal_ram: Box<[u8; 2048]>,
+    cpu_open_bus: u8,
     ppu_registers: PpuRegisters,
     io_registers: IoRegisters,
     ppu_vram: Box<[u8; 2048]>,
@@ -756,6 +757,7 @@ impl Bus {
             cpu_internal_ram: Box::new(array::from_fn(
                 |_| if rand::random() { 0x00 } else { 0xFF },
             )),
+            cpu_open_bus: 0,
             ppu_registers: PpuRegisters::new(),
             io_registers: IoRegisters::new(overscan),
             ppu_vram: Box::new(array::from_fn(|_| 0)),
@@ -867,7 +869,7 @@ pub struct CpuBus<'a>(&'a mut Bus);
 impl BusInterface for CpuBus<'_> {
     #[inline]
     fn read(&mut self, address: u16) -> u8 {
-        match address {
+        let value = match address {
             address @ CPU_RAM_START..=CPU_RAM_END => {
                 let ram_address = address & CPU_RAM_MASK;
                 self.0.cpu_internal_ram[ram_address as usize]
@@ -877,14 +879,23 @@ impl BusInterface for CpuBus<'_> {
                     (address - CPU_PPU_REGISTERS_START) & CPU_PPU_REGISTERS_MASK;
                 self.read_ppu_register_address(ppu_register_relative_addr as usize)
             }
-            address @ CPU_IO_REGISTERS_START..=CPU_IO_REGISTERS_END => {
-                self.0.io_registers.read_address(address)
-            }
-            _address @ CPU_IO_TEST_MODE_START..=CPU_IO_TEST_MODE_END => cpu_open_bus(address),
+            address @ CPU_IO_REGISTERS_START..=CPU_IO_REGISTERS_END => self
+                .0
+                .io_registers
+                .read_address(address, self.0.cpu_open_bus)
+                .unwrap_or(self.0.cpu_open_bus),
+            _address @ CPU_IO_TEST_MODE_START..=CPU_IO_TEST_MODE_END => self.0.cpu_open_bus,
             address @ CPU_CARTRIDGE_START..=CPU_CARTRIDGE_END => {
-                self.0.mapper.read_cpu_address(address)
+                self.0.mapper.read_cpu_address(address, self.0.cpu_open_bus)
             }
+        };
+
+        // $4015 reads (SND_CHN) do not update open bus (verified by AccuracyCoin open bus tests)
+        if address != 0x4015 {
+            self.0.cpu_open_bus = value;
         }
+
+        value
     }
 
     #[inline]
@@ -913,6 +924,8 @@ impl BusInterface for CpuBus<'_> {
 
 impl CpuBus<'_> {
     fn apply_write(&mut self, address: u16, value: u8) {
+        self.0.cpu_open_bus = value;
+
         match address {
             address @ CPU_RAM_START..=CPU_RAM_END => {
                 let ram_address = address & CPU_RAM_MASK;
@@ -941,7 +954,7 @@ impl CpuBus<'_> {
         self.read_ppu_register(register)
     }
 
-    fn read_open_bus(&mut self) -> u8 {
+    fn read_ppu_open_bus(&mut self) -> u8 {
         if self.0.ppu_registers.ppu_open_bus == 0 {
             return 0;
         }
@@ -977,14 +990,14 @@ impl CpuBus<'_> {
             | PpuRegister::PPUMASK
             | PpuRegister::OAMADDR
             | PpuRegister::PPUSCROLL
-            | PpuRegister::PPUADDR => self.read_open_bus(),
+            | PpuRegister::PPUADDR => self.read_ppu_open_bus(),
             PpuRegister::PPUSTATUS => {
                 self.0.ppu_registers.ppu_status_read = true;
 
                 // PPUSTATUS reads only affect bits 7-5 of open bus, bits 4-0 remain intact
                 // and are returned as part of the read
                 let ppu_status_high_bits = self.0.ppu_registers.ppu_status & 0xE0;
-                let open_bus_lower_bits = self.read_open_bus() & 0x1F;
+                let open_bus_lower_bits = self.read_ppu_open_bus() & 0x1F;
                 self.set_ppu_open_bus(ppu_status_high_bits, 0xE0);
 
                 ppu_status_high_bits | open_bus_lower_bits
@@ -1012,7 +1025,7 @@ impl CpuBus<'_> {
                 } else {
                     let palette_address = address & PALETTE_RAM_MASK;
                     let palette_byte = self.0.ppu_palette_ram[palette_address as usize] & 0x3F;
-                    let open_bus_bits = self.read_open_bus() & 0xC0;
+                    let open_bus_bits = self.read_ppu_open_bus() & 0xC0;
                     self.set_ppu_open_bus(palette_byte, 0x3F);
 
                     // When PPUDATA is used to read palette RAM, buffer reads mirror the nametable
@@ -1195,10 +1208,6 @@ impl PpuBus<'_> {
         self.0.ppu_registers.reset_writable_delay = PpuRegisters::RESET_WRITABLE_DELAY;
         self.0.mapper.reset();
     }
-}
-
-pub(crate) fn cpu_open_bus(address: u16) -> u8 {
-    (address >> 8) as u8
 }
 
 #[cfg(test)]

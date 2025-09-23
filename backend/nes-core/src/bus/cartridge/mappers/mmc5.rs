@@ -1,10 +1,10 @@
 //! Code for the MMC5 board (iNES mapper 5).
 
+use crate::apu;
 use crate::apu::FrameCounter;
 use crate::apu::pulse::{PulseChannel, SweepStatus};
 use crate::bus::cartridge::mappers::{BankSizeKb, CpuMapResult};
 use crate::bus::cartridge::{Cartridge, MapperImpl};
-use crate::{apu, bus};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::GetBit;
@@ -561,6 +561,7 @@ pub(crate) struct Mmc5 {
     ram_writes_enabled_1: bool,
     ram_writes_enabled_2: bool,
     rendering_enabled: bool,
+    ppu_open_bus: u8,
 }
 
 impl Mmc5 {
@@ -585,6 +586,7 @@ impl Mmc5 {
             ram_writes_enabled_1: false,
             ram_writes_enabled_2: false,
             rendering_enabled: false,
+            ppu_open_bus: 0,
         }
     }
 }
@@ -602,7 +604,7 @@ impl MapperImpl<Mmc5> {
         self.data.chr_mapper.next_access_from_ppu_data = true;
     }
 
-    fn read_internal_register(&mut self, address: u16) -> u8 {
+    fn read_internal_register(&mut self, address: u16, cpu_open_bus: u8) -> u8 {
         match address {
             0x5010 => self.data.pcm_channel.read_control(),
             0x5015 => {
@@ -619,7 +621,7 @@ impl MapperImpl<Mmc5> {
             }
             0x5205 => (self.data.multiplier.output() & 0x00FF) as u8,
             0x5206 => (self.data.multiplier.output() >> 8) as u8,
-            _ => bus::cpu_open_bus(address),
+            _ => cpu_open_bus,
         }
     }
 
@@ -770,21 +772,21 @@ impl MapperImpl<Mmc5> {
         }
     }
 
-    pub(crate) fn read_cpu_address(&mut self, address: u16) -> u8 {
+    pub(crate) fn read_cpu_address(&mut self, address: u16, cpu_open_bus: u8) -> u8 {
         if address == 0xFFFA || address == 0xFFFB {
             self.data.scanline_counter.nmi_vector_fetched();
         }
 
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: {address:04X}"),
-            0x4020..=0x4FFF => bus::cpu_open_bus(address),
-            0x5000..=0x5BFF => self.read_internal_register(address),
+            0x4020..=0x4FFF => cpu_open_bus,
+            0x5000..=0x5BFF => self.read_internal_register(address, cpu_open_bus),
             0x5C00..=0x5FFF => match self.data.extended_ram_mode {
                 ExtendedRamMode::ReadWrite | ExtendedRamMode::ReadOnly => {
                     self.data.extended_ram[(address - 0x5C00) as usize]
                 }
                 ExtendedRamMode::Nametable | ExtendedRamMode::NametableExtendedAttributes => {
-                    bus::cpu_open_bus(address)
+                    cpu_open_bus
                 }
             },
             0x6000..=0xFFFF => {
@@ -796,7 +798,8 @@ impl MapperImpl<Mmc5> {
                         address,
                         self.cartridge.prg_ram.len() as u32,
                     )
-                    .read(&self.cartridge);
+                    .read(&self.cartridge)
+                    .unwrap_or(cpu_open_bus);
 
                 self.data.pcm_channel.process_cpu_read(address, value);
 
@@ -835,7 +838,7 @@ impl MapperImpl<Mmc5> {
     pub(crate) fn read_ppu_address(&mut self, address: u16, vram: &[u8; 2048]) -> u8 {
         self.data.scanline_counter.pre_fetch();
 
-        match address {
+        let value = match address {
             0x0000..=0x1FFF => {
                 let tile_type = self.data.scanline_counter.current_tile_type();
                 let pattern_table_byte = if self.data.rendering_enabled
@@ -924,7 +927,7 @@ impl MapperImpl<Mmc5> {
                             self.data.extended_ram[(relative_addr & 0x03FF) as usize]
                         }
                         ExtendedRamMode::ReadWrite | ExtendedRamMode::ReadOnly => {
-                            bus::cpu_open_bus(address)
+                            self.data.ppu_open_bus
                         }
                     },
                     NametableMapping::FillMode => {
@@ -939,10 +942,15 @@ impl MapperImpl<Mmc5> {
                 }
             }
             0x3F00..=0xFFFF => panic!("invalid PPU map address: {address:04X}"),
-        }
+        };
+
+        self.data.ppu_open_bus = value;
+        value
     }
 
     pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
+        self.data.ppu_open_bus = value;
+
         match address {
             0x0000..=0x1FFF => {}
             0x2000..=0x3EFF => {

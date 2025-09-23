@@ -14,8 +14,6 @@ pub(crate) mod unrom512;
 use crate::bus::cartridge::Cartridge;
 use bincode::{Decode, Encode};
 
-use crate::bus;
-
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub(crate) enum ChrType {
@@ -59,15 +57,15 @@ impl NametableMirroring {
 pub(crate) enum CpuMapResult {
     PrgROM(u32),
     PrgRAM(u32),
-    None { original_address: u16 },
+    None,
 }
 
 impl CpuMapResult {
-    fn read(self, cartridge: &Cartridge) -> u8 {
+    fn read(self, cartridge: &Cartridge) -> Option<u8> {
         match self {
-            Self::PrgROM(address) => cartridge.get_prg_rom(address),
-            Self::PrgRAM(address) => cartridge.get_prg_ram(address),
-            Self::None { original_address } => bus::cpu_open_bus(original_address),
+            Self::PrgROM(address) => Some(cartridge.get_prg_rom(address)),
+            Self::PrgRAM(address) => Some(cartridge.get_prg_ram(address)),
+            Self::None => None,
         }
     }
 

@@ -220,8 +220,8 @@ impl Mapper {
     }
 
     /// Read a value from the given address in the CPU address space.
-    pub(crate) fn read_cpu_address(&mut self, address: u16) -> u8 {
-        match_each_variant!(self, mapper => mapper.read_cpu_address(address))
+    pub(crate) fn read_cpu_address(&mut self, address: u16, cpu_open_bus: u8) -> u8 {
+        match_each_variant!(self, mapper => mapper.read_cpu_address(address, cpu_open_bus))
     }
 
     /// Write a value to the given address in the CPU address space.

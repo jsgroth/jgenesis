@@ -1,6 +1,5 @@
 //! Code for the unlicensed board used in Action 52 and Cheetahmen II (iNES mapper 228).
 
-use crate::bus;
 use crate::bus::cartridge::mappers::{BankSizeKb, NametableMirroring, PpuMapResult};
 use crate::bus::cartridge::{HasBasicPpuMapping, MapperImpl};
 use bincode::{Decode, Encode};
@@ -55,11 +54,9 @@ impl MapperImpl<Action52> {
         self.data = Action52::new_with_mask(self.data.prg_bank_mask);
     }
 
-    pub fn read_cpu_address(&self, address: u16) -> u8 {
-        let open_bus = bus::cpu_open_bus(address);
-
+    pub fn read_cpu_address(&self, address: u16, cpu_open_bus: u8) -> u8 {
         let prg_bank = match address {
-            0x0000..=0x7FFF => return open_bus,
+            0x0000..=0x7FFF => return cpu_open_bus,
             0x8000..=0xBFFF => match self.data.prg_mode {
                 PrgMode::Zero => self.data.prg_bank & !1,
                 PrgMode::One => self.data.prg_bank,
@@ -72,7 +69,7 @@ impl MapperImpl<Action52> {
 
         let full_prg_bank = (prg_bank & self.data.prg_bank_mask) | (self.data.selected_chip << 5);
         let rom_addr = BankSizeKb::Sixteen.to_absolute_address(full_prg_bank, address);
-        self.cartridge.prg_rom.get(rom_addr as usize).copied().unwrap_or(open_bus)
+        self.cartridge.prg_rom.get(rom_addr as usize).copied().unwrap_or(cpu_open_bus)
     }
 
     pub fn write_cpu_address(&mut self, address: u16, value: u8) {

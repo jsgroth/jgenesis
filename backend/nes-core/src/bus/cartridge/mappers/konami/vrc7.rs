@@ -3,7 +3,6 @@
 //! This board has a full-blown FM synthesizer chip as expansion audio, containing a stripped-down
 //! Yamaha OPLL core. The mapper excluding audio is a bit less complicated than MMC3.
 
-use crate::bus;
 use crate::bus::cartridge::mappers::konami::irq::VrcIrqCounter;
 use crate::bus::cartridge::mappers::{
     BankSizeKb, ChrType, NametableMirroring, PpuMapResult, konami,
@@ -66,15 +65,15 @@ impl Vrc7 {
 }
 
 impl MapperImpl<Vrc7> {
-    pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
+    pub(crate) fn read_cpu_address(&self, address: u16, cpu_open_bus: u8) -> u8 {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: {address:04X}"),
-            0x4020..=0x5FFF => bus::cpu_open_bus(address),
+            0x4020..=0x5FFF => cpu_open_bus,
             0x6000..=0x7FFF => {
                 if self.data.ram_enabled {
                     self.cartridge.get_prg_ram((address & 0x1FFF).into())
                 } else {
-                    bus::cpu_open_bus(address)
+                    cpu_open_bus
                 }
             }
             0x8000..=0x9FFF => {

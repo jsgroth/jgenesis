@@ -241,7 +241,7 @@ impl MapperImpl<Sunsoft> {
     fn map_cpu_address(&self, address: u16) -> CpuMapResult {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: {address:04X}"),
-            0x4020..=0x5FFF => CpuMapResult::None { original_address: address },
+            0x4020..=0x5FFF => CpuMapResult::None,
             0x6000..=0x7FFF => match self.data.prg_bank_0_type {
                 PrgType::ROM => {
                     let prg_rom_addr =
@@ -254,7 +254,7 @@ impl MapperImpl<Sunsoft> {
                             BankSizeKb::Eight.to_absolute_address(self.data.prg_banks[0], address);
                         CpuMapResult::PrgRAM(prg_ram_addr)
                     } else {
-                        CpuMapResult::None { original_address: address }
+                        CpuMapResult::None
                     }
                 }
             },
@@ -276,8 +276,8 @@ impl MapperImpl<Sunsoft> {
         }
     }
 
-    pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
-        self.map_cpu_address(address).read(&self.cartridge)
+    pub(crate) fn read_cpu_address(&self, address: u16, cpu_open_bus: u8) -> u8 {
+        self.map_cpu_address(address).read(&self.cartridge).unwrap_or(cpu_open_bus)
     }
 
     pub(crate) fn write_cpu_address(&mut self, address: u16, value: u8) {

@@ -2,7 +2,6 @@
 
 mod eeprom;
 
-use crate::bus;
 use crate::bus::cartridge::mappers::bandai::eeprom::{X24C01Chip, X24C02Chip};
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring, PpuMapResult};
 use crate::bus::cartridge::{HasBasicPpuMapping, MapperImpl};
@@ -141,29 +140,29 @@ impl BandaiFcg {
     }
 }
 
-fn eeprom_read(address: u16, data: bool) -> u8 {
-    (bus::cpu_open_bus(address) & 0xEF) | (u8::from(data) << 4)
+fn eeprom_read(data: bool, cpu_open_bus: u8) -> u8 {
+    (cpu_open_bus & 0xEF) | (u8::from(data) << 4)
 }
 
 impl MapperImpl<BandaiFcg> {
-    pub(crate) fn read_cpu_address(&mut self, address: u16) -> u8 {
+    pub(crate) fn read_cpu_address(&mut self, address: u16, cpu_open_bus: u8) -> u8 {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: {address:04X}"),
-            0x4020..=0x5FFF => bus::cpu_open_bus(address),
+            0x4020..=0x5FFF => cpu_open_bus,
             0x6000..=0x7FFF => match self.data.variant {
-                Variant::Fcg | Variant::Lz93D50(MemoryVariant::None) => bus::cpu_open_bus(address),
+                Variant::Fcg | Variant::Lz93D50(MemoryVariant::None) => cpu_open_bus,
                 Variant::Lz93D50(MemoryVariant::RAM) => {
                     if self.data.ram_enabled {
                         self.cartridge.get_prg_ram((address & 0x1FFF).into())
                     } else {
-                        bus::cpu_open_bus(address)
+                        cpu_open_bus
                     }
                 }
                 Variant::Lz93D50(MemoryVariant::X24C01 | MemoryVariant::X24C02)
                 | Variant::Unknown => match &self.data.eeprom {
-                    Some(Eeprom::X24C01(chip)) => eeprom_read(address, chip.handle_read()),
-                    Some(Eeprom::X24C02(chip)) => eeprom_read(address, chip.handle_read()),
-                    None => bus::cpu_open_bus(address),
+                    Some(Eeprom::X24C01(chip)) => eeprom_read(chip.handle_read(), cpu_open_bus),
+                    Some(Eeprom::X24C02(chip)) => eeprom_read(chip.handle_read(), cpu_open_bus),
+                    None => cpu_open_bus,
                 },
             },
             0x8000..=0xBFFF => {

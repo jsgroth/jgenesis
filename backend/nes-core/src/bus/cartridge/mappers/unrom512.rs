@@ -8,7 +8,6 @@
 //!
 //! <https://www.nesdev.org/wiki/UNROM_512>
 
-use crate::bus;
 use crate::bus::cartridge::mappers::{BankSizeKb, NametableMirroring};
 use crate::bus::cartridge::{INesHeader, MapperImpl};
 use bincode::{Decode, Encode};
@@ -156,7 +155,7 @@ impl MapperImpl<Unrom512> {
         dirty
     }
 
-    pub fn read_cpu_address(&mut self, address: u16) -> u8 {
+    pub fn read_cpu_address(&mut self, address: u16, cpu_open_bus: u8) -> u8 {
         match address {
             0x8000..=0xBFFF => {
                 // Mappable 16KB PRG ROM bank
@@ -170,7 +169,7 @@ impl MapperImpl<Unrom512> {
                 self.cartridge.get_prg_rom(rom_addr)
             }
             0x0000..=0x401F => panic!("Invalid CPU map address: {address:04X}"),
-            0x4020..=0x7FFF => bus::cpu_open_bus(address),
+            0x4020..=0x7FFF => cpu_open_bus,
         }
     }
 

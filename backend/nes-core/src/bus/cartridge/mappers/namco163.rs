@@ -1,6 +1,5 @@
 //! Code for the Namco 129 and Namco 163 boards (iNES mapper 19).
 
-use crate::bus;
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, PpuMapResult};
 use crate::bus::cartridge::{HasBasicPpuMapping, MapperImpl};
 use bincode::{Decode, Encode};
@@ -270,10 +269,10 @@ impl Namco163 {
 }
 
 impl MapperImpl<Namco163> {
-    pub(crate) fn read_cpu_address(&mut self, address: u16) -> u8 {
+    pub(crate) fn read_cpu_address(&mut self, address: u16, cpu_open_bus: u8) -> u8 {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: {address:04X}"),
-            0x4020..=0x47FF => bus::cpu_open_bus(address),
+            0x4020..=0x47FF => cpu_open_bus,
             0x4800..=0x4FFF => {
                 let byte = self.data.internal_ram[self.data.internal_ram_addr as usize];
                 if self.data.internal_ram_auto_increment {
@@ -287,7 +286,7 @@ impl MapperImpl<Namco163> {
                 if !self.cartridge.prg_ram.is_empty() {
                     self.cartridge.get_prg_ram((address & 0x1FFF).into())
                 } else {
-                    bus::cpu_open_bus(address)
+                    cpu_open_bus
                 }
             }
             0x8000..=0xDFFF => {

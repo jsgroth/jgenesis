@@ -1,6 +1,5 @@
 //! Code for Konami's VRC2 and VRC4 boards (iNES mappers 21 + 22 + 23 + 25).
 
-use crate::bus;
 use crate::bus::cartridge::mappers::konami::irq::VrcIrqCounter;
 use crate::bus::cartridge::mappers::{
     BankSizeKb, ChrType, NametableMirroring, PpuMapResult, konami,
@@ -168,20 +167,17 @@ impl Vrc4 {
 }
 
 impl MapperImpl<Vrc4> {
-    pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
+    pub(crate) fn read_cpu_address(&self, address: u16, cpu_open_bus: u8) -> u8 {
         match (self.data.variant.to_type(), address) {
             (_, 0x0000..=0x401F) => panic!("invalid CPU map address: {address:04X}"),
-            (_, 0x4020..=0x5FFF) => bus::cpu_open_bus(address),
+            (_, 0x4020..=0x5FFF) => cpu_open_bus,
             (Type::Vrc2, 0x6000..=0x7FFF) => {
                 if !self.cartridge.prg_ram.is_empty() {
                     self.cartridge.get_prg_ram((address & 0x1FFF).into())
+                } else if address < 0x7000 {
+                    (cpu_open_bus & 0xFE) | self.data.vrc2_ram_bit
                 } else {
-                    let open_bus = bus::cpu_open_bus(address);
-                    if address < 0x7000 {
-                        (open_bus & 0xFE) | self.data.vrc2_ram_bit
-                    } else {
-                        open_bus
-                    }
+                    cpu_open_bus
                 }
             }
             (Type::Vrc4, 0x6000..=0x7FFF) => {
@@ -191,10 +187,10 @@ impl MapperImpl<Vrc4> {
                         (2048, 0x6000..=0x6FFF) => {
                             self.cartridge.get_prg_ram((address & 0x07FF).into())
                         }
-                        _ => bus::cpu_open_bus(address),
+                        _ => cpu_open_bus,
                     }
                 } else {
-                    bus::cpu_open_bus(address)
+                    cpu_open_bus
                 }
             }
             (_, 0x8000..=0xFFFF) => match (self.data.prg_mode, address) {

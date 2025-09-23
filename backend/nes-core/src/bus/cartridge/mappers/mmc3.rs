@@ -6,7 +6,6 @@
 //! * NAMCOT-3446 (iNES mapper 76)
 //! * NAMCOT-3453 (iNES mapper 154)
 
-use crate::bus;
 use crate::bus::cartridge::MapperImpl;
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring, PpuMapResult};
 use bincode::{Decode, Encode};
@@ -257,15 +256,15 @@ impl Mmc3 {
 }
 
 impl MapperImpl<Mmc3> {
-    pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
+    pub(crate) fn read_cpu_address(&self, address: u16, cpu_open_bus: u8) -> u8 {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
-            0x4020..=0x5FFF => bus::cpu_open_bus(address),
+            0x4020..=0x5FFF => cpu_open_bus,
             0x6000..=0x7FFF => {
                 if self.data.ram_mode.reads_enabled(address) && !self.cartridge.prg_ram.is_empty() {
                     self.cartridge.get_prg_ram(u32::from(address & 0x1FFF))
                 } else {
-                    bus::cpu_open_bus(address)
+                    cpu_open_bus
                 }
             }
             0x8000..=0xFFFF => {
