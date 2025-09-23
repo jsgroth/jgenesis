@@ -551,7 +551,8 @@ impl IoRegisters {
         match register {
             IoRegister::SND_CHN => {
                 self.snd_chn_read = true;
-                self.data[register.to_relative_address()]
+                // Bit 5 of SND_CHN reads is open bus
+                self.data[register.to_relative_address()] | (cpu_open_bus & (1 << 5))
             }
             IoRegister::JOY1 => match &mut self.latched_p1_joypad_state {
                 Some(latched_state) => {

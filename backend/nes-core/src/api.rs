@@ -133,7 +133,7 @@ impl NesEmulator {
     }
 
     fn ntsc_tick(&mut self) {
-        cpu::tick(&mut self.cpu_state, &mut self.bus.cpu(), self.apu_state.is_active_cycle());
+        cpu::tick(&mut self.cpu_state, &mut self.bus.cpu(), &mut self.apu_state);
         apu::tick(&mut self.apu_state, &mut self.bus.cpu(), &self.config);
         ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), &self.config);
         self.bus.tick_cpu();
@@ -152,7 +152,7 @@ impl NesEmulator {
 
     fn pal_tick(&mut self) {
         // Both CPU and PPU tick on the first master clock cycle
-        cpu::tick(&mut self.cpu_state, &mut self.bus.cpu(), self.apu_state.is_active_cycle());
+        cpu::tick(&mut self.cpu_state, &mut self.bus.cpu(), &mut self.apu_state);
         apu::tick(&mut self.apu_state, &mut self.bus.cpu(), &self.config);
         ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), &self.config);
         self.bus.tick_cpu();
@@ -164,11 +164,7 @@ impl NesEmulator {
 
         for i in 1..PAL_MASTER_CLOCK_TICKS {
             if i % PAL_CPU_DIVIDER == 0 {
-                cpu::tick(
-                    &mut self.cpu_state,
-                    &mut self.bus.cpu(),
-                    self.apu_state.is_active_cycle(),
-                );
+                cpu::tick(&mut self.cpu_state, &mut self.bus.cpu(), &mut self.apu_state);
                 apu::tick(&mut self.apu_state, &mut self.bus.cpu(), &self.config);
                 self.bus.tick_cpu();
                 self.bus.tick();
@@ -336,7 +332,7 @@ impl EmulatorTrait for NesEmulator {
 
     fn soft_reset(&mut self) {
         cpu::reset(&mut self.cpu_state, &mut self.bus.cpu());
-        apu::reset(&mut self.apu_state, &mut self.bus.cpu());
+        apu::reset(&mut self.apu_state);
         ppu::reset(&mut self.ppu_state, &mut self.bus.ppu());
 
         for _ in 0..10 {

@@ -8,11 +8,15 @@
 
 use crate::bus::CpuBus;
 use bincode::{Decode, Encode};
+use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::GetBit;
 use mos6502_emu::bus::BusInterface;
 
-const DMC_PERIOD_LOOKUP_TABLE: [u16; 16] =
+// From https://www.nesdev.org/wiki/APU_DMC
+const NTSC_PERIOD_LOOKUP_TABLE: [u16; 16] =
     [428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54];
+const PAL_PERIOD_LOOKUP_TABLE: [u16; 16] =
+    [398, 354, 316, 298, 276, 236, 210, 198, 176, 148, 132, 118, 98, 78, 66, 50];
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct DmcOutputUnit {
@@ -75,14 +79,22 @@ pub struct DeltaModulationChannel {
     loop_flag: bool,
     irq_enabled: bool,
     interrupt_flag: bool,
+    dma_initial_load: bool,
+    dma_start_latency: u8,
+    period_lookup_table: [u16; 16],
 }
 
 impl DeltaModulationChannel {
-    pub fn new() -> Self {
+    pub fn new(timing_mode: TimingMode) -> Self {
+        let period_lookup_table = match timing_mode {
+            TimingMode::Ntsc => NTSC_PERIOD_LOOKUP_TABLE,
+            TimingMode::Pal => PAL_PERIOD_LOOKUP_TABLE,
+        };
+
         Self {
             enabled: false,
-            timer_counter: DMC_PERIOD_LOOKUP_TABLE[0] - 1,
-            timer_period: DMC_PERIOD_LOOKUP_TABLE[0],
+            timer_counter: period_lookup_table[0] - 1,
+            timer_period: period_lookup_table[0],
             sample_buffer: None,
             output_unit: DmcOutputUnit::new(),
             sample_address: 0xC000,
@@ -92,13 +104,16 @@ impl DeltaModulationChannel {
             loop_flag: false,
             irq_enabled: false,
             interrupt_flag: false,
+            dma_initial_load: false,
+            dma_start_latency: 0,
+            period_lookup_table,
         }
     }
 
     pub fn process_dmc_freq_update(&mut self, dmc_freq_value: u8) {
         self.irq_enabled = dmc_freq_value.bit(7);
         self.loop_flag = dmc_freq_value.bit(6);
-        self.timer_period = DMC_PERIOD_LOOKUP_TABLE[(dmc_freq_value & 0x0F) as usize];
+        self.timer_period = self.period_lookup_table[(dmc_freq_value & 0x0F) as usize];
 
         if !self.irq_enabled {
             self.interrupt_flag = false;
@@ -117,13 +132,17 @@ impl DeltaModulationChannel {
         self.sample_length = (u16::from(dmc_len_value) << 4) + 1;
     }
 
-    pub fn process_snd_chn_update(&mut self, snd_chn_value: u8, bus: &mut CpuBus<'_>) {
+    pub fn process_snd_chn_update(&mut self, snd_chn_value: u8, frame_counter_ticks: u16) {
+        log::trace!("SND_CHN write: {snd_chn_value:02X} (enabled = {})", snd_chn_value.bit(4));
+
         self.interrupt_flag = false;
 
         self.enabled = snd_chn_value.bit(4);
         if self.enabled && self.sample_bytes_remaining == 0 {
             self.restart();
-            self.fill_sample_buffer(bus);
+            self.dma_initial_load = true;
+            // Load DMAs begin in 3 cycles (if SND_CHN written on put) or 4 cycles (if written on get)
+            self.dma_start_latency = 2 + (frame_counter_ticks & 1) as u8;
         } else if !self.enabled {
             self.sample_bytes_remaining = 0;
             self.sample_buffer = None;
@@ -135,10 +154,23 @@ impl DeltaModulationChannel {
         self.sample_bytes_remaining = self.sample_length;
     }
 
-    fn fill_sample_buffer(&mut self, bus: &mut CpuBus<'_>) {
-        if self.sample_buffer.is_some() || self.sample_bytes_remaining == 0 {
-            return;
-        }
+    pub fn needs_dma(&self) -> bool {
+        self.enabled
+            && self.sample_bytes_remaining != 0
+            && self.sample_buffer.is_none()
+            && self.dma_start_latency == 0
+    }
+
+    pub fn dma_initial_load(&self) -> bool {
+        self.dma_initial_load
+    }
+
+    pub fn dma_read(&mut self, bus: &mut CpuBus<'_>) {
+        log::trace!(
+            "DMA read from address {:04X}, remaining {}",
+            self.current_sample_address,
+            self.sample_bytes_remaining
+        );
 
         self.sample_buffer = Some(bus.read(self.current_sample_address));
         self.current_sample_address = 0xC000 | self.current_sample_address.wrapping_add(1);
@@ -153,18 +185,30 @@ impl DeltaModulationChannel {
         }
     }
 
-    pub fn tick_cpu(&mut self, bus: &mut CpuBus<'_>) {
+    pub fn tick_cpu(&mut self) {
         if self.timer_counter == 0 {
-            self.clock(bus);
+            self.clock();
             self.timer_counter = self.timer_period - 1;
         } else {
             self.timer_counter -= 1;
         }
+
+        self.dma_start_latency = self.dma_start_latency.saturating_sub(1);
     }
 
-    fn clock(&mut self, bus: &mut CpuBus<'_>) {
+    fn clock(&mut self) {
+        let sample_buffer_was_full = self.sample_buffer.is_some();
         self.output_unit.clock(&mut self.sample_buffer);
-        self.fill_sample_buffer(bus);
+
+        if self.enabled
+            && sample_buffer_was_full
+            && self.sample_buffer.is_none()
+            && self.sample_bytes_remaining != 0
+        {
+            self.dma_initial_load = false;
+            // Reload DMAs begin in 2 cycles (if emptied on get) or 3 cycles (if emptied on put)
+            self.dma_start_latency = 2;
+        }
     }
 
     pub fn sample(&self) -> u8 {

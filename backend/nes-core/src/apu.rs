@@ -27,6 +27,7 @@ use crate::bus::{CpuBus, IoRegister, IrqSource};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::GetBit;
+use std::array;
 use std::ops::Range;
 use std::sync::LazyLock;
 
@@ -40,7 +41,6 @@ enum FrameCounterMode {
 enum FrameCounterResetState {
     Joy2Updated,
     PendingReset,
-    JustReset,
     None,
 }
 
@@ -68,10 +68,10 @@ impl FrameCounter {
 
         let four_step_reset = steps[3] + 2;
         let five_step_reset = steps[4] + 2;
-        let interrupt_range = (steps[3] - 1)..(steps[3] + 2);
+        let interrupt_range = steps[3]..(steps[3] + 2);
 
         Self {
-            steps,
+            steps: steps.map(|step| step + 1),
             four_step_reset,
             five_step_reset,
             interrupt_range,
@@ -91,36 +91,32 @@ impl FrameCounter {
     }
 
     pub fn tick(&mut self) {
-        if self.reset_state == FrameCounterResetState::JustReset {
-            self.reset_state = FrameCounterResetState::None;
+        match self.reset_state {
+            FrameCounterResetState::Joy2Updated => {
+                if !self.cpu_ticks.bit(0) {
+                    self.reset_state = FrameCounterResetState::PendingReset;
+                }
+            }
+            FrameCounterResetState::PendingReset => {
+                self.cpu_ticks = 0;
+                self.reset_state = FrameCounterResetState::None;
+                return;
+            }
+            FrameCounterResetState::None => {}
         }
 
         if (self.cpu_ticks == self.four_step_reset && self.mode == FrameCounterMode::FourStep)
             || self.cpu_ticks == self.five_step_reset
         {
-            self.cpu_ticks = 1;
-        } else {
-            self.cpu_ticks += 1;
+            self.cpu_ticks = 0;
         }
 
-        if !self.cpu_ticks.bit(0) {
-            match self.reset_state {
-                FrameCounterResetState::Joy2Updated => {
-                    self.reset_state = FrameCounterResetState::PendingReset;
-                }
-                FrameCounterResetState::PendingReset => {
-                    self.cpu_ticks = 0;
-                    self.reset_state = FrameCounterResetState::JustReset;
-                }
-                _ => {}
-            }
-        }
+        self.cpu_ticks += 1;
     }
 
     fn five_step_reset_clock(&self) -> bool {
         self.mode == FrameCounterMode::FiveStep
             && self.reset_state == FrameCounterResetState::PendingReset
-            && self.cpu_ticks.bit(0)
     }
 
     pub fn generate_quarter_frame_clock(&self) -> bool {
@@ -140,9 +136,7 @@ impl FrameCounter {
     }
 
     fn should_set_interrupt_flag(&self) -> bool {
-        !self.interrupt_inhibit_flag
-            && self.mode == FrameCounterMode::FourStep
-            && self.interrupt_range.contains(&self.cpu_ticks)
+        self.mode == FrameCounterMode::FourStep && self.interrupt_range.contains(&self.cpu_ticks)
     }
 }
 
@@ -155,6 +149,7 @@ pub struct ApuState {
     dmc: DeltaModulationChannel,
     frame_counter: FrameCounter,
     frame_counter_interrupt_flag: bool,
+    frame_counter_interrupt_clear_pending: bool,
 }
 
 impl ApuState {
@@ -164,9 +159,10 @@ impl ApuState {
             pulse_channel_2: PulseChannel::new_channel_2(SweepStatus::Enabled),
             triangle_channel: TriangleChannel::new(),
             noise_channel: NoiseChannel::new(),
-            dmc: DeltaModulationChannel::new(),
+            dmc: DeltaModulationChannel::new(timing_mode),
             frame_counter: FrameCounter::new(timing_mode),
             frame_counter_interrupt_flag: false,
+            frame_counter_interrupt_clear_pending: false,
         }
     }
 
@@ -174,7 +170,19 @@ impl ApuState {
         self.frame_counter.cpu_ticks.bit(0)
     }
 
-    fn process_register_update(&mut self, register: IoRegister, value: u8, bus: &mut CpuBus<'_>) {
+    pub fn needs_dmc_dma(&self) -> bool {
+        self.dmc.needs_dma()
+    }
+
+    pub fn dmc_dma_initial_load(&self) -> bool {
+        self.dmc.dma_initial_load()
+    }
+
+    pub fn dmc_dma_read(&mut self, bus: &mut CpuBus<'_>) {
+        self.dmc.dma_read(bus);
+    }
+
+    fn process_register_update(&mut self, register: IoRegister, value: u8) {
         match register {
             IoRegister::SQ1_VOL => {
                 self.pulse_channel_1.process_vol_update(value);
@@ -235,7 +243,7 @@ impl ApuState {
                 self.pulse_channel_2.process_snd_chn_update(value);
                 self.triangle_channel.process_snd_chn_update(value);
                 self.noise_channel.process_snd_chn_update(value);
-                self.dmc.process_snd_chn_update(value, bus);
+                self.dmc.process_snd_chn_update(value, self.frame_counter.cpu_ticks);
             }
             IoRegister::JOY2 => {
                 self.frame_counter.process_joy2_update(value);
@@ -249,7 +257,7 @@ impl ApuState {
         self.pulse_channel_2.tick_cpu();
         self.triangle_channel.tick_cpu(config.silence_ultrasonic_triangle_output);
         self.noise_channel.tick_cpu();
-        self.dmc.tick_cpu(bus);
+        self.dmc.tick_cpu();
         self.frame_counter.tick();
 
         if self.frame_counter.generate_quarter_frame_clock() {
@@ -272,8 +280,10 @@ impl ApuState {
             self.frame_counter_interrupt_flag = false;
         }
 
-        bus.interrupt_lines()
-            .set_irq_low_pull(IrqSource::ApuFrameCounter, self.frame_counter_interrupt_flag);
+        bus.interrupt_lines().set_irq_low_pull(
+            IrqSource::ApuFrameCounter,
+            self.frame_counter_interrupt_flag && !self.frame_counter.interrupt_inhibit_flag,
+        );
 
         bus.interrupt_lines().set_irq_low_pull(IrqSource::ApuDmc, self.dmc.interrupt_flag());
     }
@@ -308,22 +318,19 @@ impl ApuState {
 }
 
 pub fn mix_pulse_samples(pulse1_sample: u8, pulse2_sample: u8) -> f64 {
-    static PULSE_AUDIO_LOOKUP_TABLE: LazyLock<[[f64; 16]; 16]> = LazyLock::new(|| {
-        let mut lookup_table = [[0.0; 16]; 16];
-
-        for (pulse1_sample, row) in lookup_table.iter_mut().enumerate() {
-            for (pulse2_sample, value) in row.iter_mut().enumerate() {
-                if pulse1_sample > 0 || pulse2_sample > 0 {
-                    // Formula from https://www.nesdev.org/wiki/APU_Mixer
-                    *value = 95.88 / (8128.0 / (pulse1_sample + pulse2_sample) as f64 + 100.0);
-                }
+    static PULSE_AUDIO_LOOKUP_TABLE: LazyLock<[f64; 31]> = LazyLock::new(|| {
+        array::from_fn(|pulse_sum| {
+            if pulse_sum == 0 {
+                return 0.0;
             }
-        }
 
-        lookup_table
+            // Formula from https://www.nesdev.org/wiki/APU_Mixer
+            let pulse_sum = pulse_sum as f64;
+            95.88 / (8128.0 / pulse_sum + 100.0)
+        })
     });
 
-    PULSE_AUDIO_LOOKUP_TABLE[pulse1_sample as usize][pulse2_sample as usize]
+    PULSE_AUDIO_LOOKUP_TABLE[(pulse1_sample + pulse2_sample) as usize]
 }
 
 fn mix_tnd_samples(triangle_sample: u8, noise_sample: u8, dmc_sample: u8) -> f64 {
@@ -363,11 +370,21 @@ pub fn tick(state: &mut ApuState, bus: &mut CpuBus<'_>, config: &NesEmulatorConf
     log::trace!("APU: DMC state: {:?}", state.dmc);
 
     if bus.get_io_registers_mut().get_and_clear_snd_chn_read() {
-        state.frame_counter_interrupt_flag = false;
+        state.frame_counter_interrupt_clear_pending = true;
+    }
+
+    // Frame interrupt flag clears only take effect on odd cycles
+    if state.frame_counter_interrupt_clear_pending && state.frame_counter.cpu_ticks.bit(0) {
+        state.frame_counter_interrupt_clear_pending = false;
+
+        // Interrupt flag clear is suppressed if it happens on the same cycle that the flag is set
+        if state.frame_counter.cpu_ticks != state.frame_counter.interrupt_range.end - 1 {
+            state.frame_counter_interrupt_flag = false;
+        }
     }
 
     if let Some((dirty_register, value)) = bus.get_io_registers_mut().take_dirty_register() {
-        state.process_register_update(dirty_register, value, bus);
+        state.process_register_update(dirty_register, value);
     }
 
     state.tick_cpu(bus, config);
@@ -380,9 +397,9 @@ pub fn tick(state: &mut ApuState, bus: &mut CpuBus<'_>, config: &NesEmulatorConf
 ///
 /// This does not completely re-initialize all state, but it does silence the APU, reset the frame
 /// counter, and reset some triangle wave generator and DMC state.
-pub fn reset(state: &mut ApuState, bus: &mut CpuBus<'_>) {
+pub fn reset(state: &mut ApuState) {
     // Silence the APU by simulating a SND_CHN=$00 write
-    state.process_register_update(IoRegister::SND_CHN, 0x00, bus);
+    state.process_register_update(IoRegister::SND_CHN, 0x00);
 
     state.frame_counter.reset_state = FrameCounterResetState::Joy2Updated;
     state.frame_counter_interrupt_flag = false;
