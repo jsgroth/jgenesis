@@ -95,6 +95,7 @@ struct State {
     scanline: u16,
     scanline_mclk: u64,
     scanlines_in_current_frame: u16,
+    h_interrupt_this_line: bool,
     h_interrupt_counter: u16,
     display_frame_buffer: SelectedFrameBuffer,
     auto_fill_mclk_remaining: u64,
@@ -109,6 +110,7 @@ impl State {
             scanline: 0,
             scanline_mclk: 0,
             scanlines_in_current_frame: u16::MAX,
+            h_interrupt_this_line: true,
             h_interrupt_counter: 0,
             display_frame_buffer: SelectedFrameBuffer::default(),
             auto_fill_mclk_remaining: 0,
@@ -212,9 +214,7 @@ impl Vdp {
         let prev_scanline_mclk = self.state.scanline_mclk;
         self.state.scanline_mclk += mclk_cycles;
 
-        if self.state.scanline < self.latched.v_resolution.active_scanlines_per_frame()
-            || self.registers.h_interrupt_in_vblank
-        {
+        if self.state.h_interrupt_this_line || self.registers.h_interrupt_in_vblank {
             if prev_scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE
                 && self.state.scanline_mclk >= ACTIVE_MCLK_CYCLES_PER_SCANLINE
             {
@@ -243,9 +243,15 @@ impl Vdp {
                 // Grab scanlines in frame at start of VBlank to avoid a dependency on which order
                 // the VDPs execute in, since interlacing state is latched at the start of line 0
                 self.state.scanlines_in_current_frame = genesis_vdp.scanlines_in_current_frame();
+
+                // No HINTs during VBlank (unless the HEN bit is set)
+                self.state.h_interrupt_this_line = false;
             } else if self.state.scanline >= self.state.scanlines_in_current_frame {
                 self.state.scanline = 0;
                 registers.notify_vblank_end();
+            } else if self.state.scanline == self.state.scanlines_in_current_frame - 1 {
+                // First HINT before rendering line 0
+                self.state.h_interrupt_this_line = true;
             }
 
             if self.state.scanline < active_lines_per_frame {

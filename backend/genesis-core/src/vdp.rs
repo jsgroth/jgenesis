@@ -990,7 +990,7 @@ impl Vdp {
         self.control_port.increment_data_port_address(&self.registers);
 
         if fifo_entry.mode == DataPortMode::Read {
-            println!("odd {fifo_entry:?}");
+            log::debug!("Data port write with read target {fifo_entry:?}");
         }
 
         if self.fifo.is_full() {
