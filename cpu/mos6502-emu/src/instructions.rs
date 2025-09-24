@@ -1743,11 +1743,16 @@ fn interrupt_pull_pc_msb<B: BusInterface>(cpu: &mut Mos6502, bus: &mut B) {
     cpu.registers.pc |= u16::from(pc_msb) << 8;
 }
 
-// BRK (force interrupt)
-fn brk<B: BusInterface>(cpu: &mut Mos6502, bus: &mut B) {
+// Hardware interrupt servicing routine + BRK (force interrupt)
+fn interrupt_service_routine<const BRK: bool>(cpu: &mut Mos6502, bus: &mut impl BusInterface) {
     match cpu.state.cycle {
         0 => {
-            fetch_operand(cpu, bus);
+            if BRK {
+                fetch_operand(cpu, bus);
+            } else {
+                // Spurious operand read
+                bus.read(cpu.registers.pc);
+            }
         }
         1 => {
             push_pc_msb(cpu, bus);
@@ -1756,42 +1761,19 @@ fn brk<B: BusInterface>(cpu: &mut Mos6502, bus: &mut B) {
             push_pc_lsb(cpu, bus);
         }
         3 => {
-            interrupt_push_status(cpu, bus, StatusReadContext::Brk);
+            let ctx = if BRK {
+                StatusReadContext::Brk
+            } else {
+                StatusReadContext::HardwareInterruptHandler
+            };
+            interrupt_push_status(cpu, bus, ctx);
         }
         4 => {
             interrupt_pull_pc_lsb(cpu, bus);
         }
         5 => {
-            final_cycle(cpu, bus);
-
-            interrupt_pull_pc_msb(cpu, bus);
-        }
-        _ => invalid_cycle!(cpu),
-    }
-}
-
-// Hardware interrupt servicing routine
-fn interrupt_service_routine<B: BusInterface>(cpu: &mut Mos6502, bus: &mut B) {
-    match cpu.state.cycle {
-        0 => {
-            // Spurious operand read
-            bus.read(cpu.registers.pc);
-        }
-        1 => {
-            push_pc_msb(cpu, bus);
-        }
-        2 => {
-            push_pc_lsb(cpu, bus);
-        }
-        3 => {
-            interrupt_push_status(cpu, bus, StatusReadContext::HardwareInterruptHandler);
-        }
-        4 => {
-            interrupt_pull_pc_lsb(cpu, bus);
-        }
-        5 => {
-            final_cycle(cpu, bus);
-
+            // Interrupt service routine does not poll interrupt lines at end of "instruction"
+            cpu.state.instruction_complete = true;
             cpu.state.executing_interrupt = false;
             interrupt_pull_pc_msb(cpu, bus);
         }
@@ -2018,13 +2000,13 @@ impl_multi_byte_noop!(nop_absolute_x, absolute_x);
 
 pub fn execute_cycle<B: BusInterface>(cpu: &mut Mos6502, bus: &mut B) {
     if cpu.state.executing_interrupt {
-        interrupt_service_routine(cpu, bus);
+        interrupt_service_routine::<false>(cpu, bus);
         cpu.state.cycle += 1;
         return;
     }
 
     match cpu.state.opcode {
-        0x00 => brk(cpu, bus),
+        0x00 => interrupt_service_routine::<true>(cpu, bus), // BRK
         0x01 => ora_indirect_x(cpu, bus),
         0x03 => slo_indirect_x(cpu, bus),
         0x04 | 0x44 | 0x64 => nop_zero_page(cpu, bus),
