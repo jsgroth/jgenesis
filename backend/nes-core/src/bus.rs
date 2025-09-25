@@ -153,13 +153,10 @@ pub struct PpuRegisters {
     oam_open_bus_value: Option<u8>,
     last_accessed_register: Option<PpuTrackedRegister>,
     write_toggle: PpuWriteToggle,
-    reset_writable_delay: u32,
+    reset_flag: bool,
 }
 
 impl PpuRegisters {
-    // TODO this should be slightly higher for PAL, about 33132
-    const RESET_WRITABLE_DELAY: u32 = 29658;
-
     pub fn new() -> Self {
         Self {
             ppu_ctrl: 0,
@@ -174,7 +171,7 @@ impl PpuRegisters {
             oam_open_bus_value: None,
             last_accessed_register: None,
             write_toggle: PpuWriteToggle::First,
-            reset_writable_delay: Self::RESET_WRITABLE_DELAY,
+            reset_flag: true,
         }
     }
 
@@ -266,6 +263,10 @@ impl PpuRegisters {
         } else {
             self.ppu_status &= !(1 << 5);
         }
+    }
+
+    pub fn clear_reset_flag(&mut self) {
+        self.reset_flag = false;
     }
 
     pub fn take_last_accessed_register(&mut self) -> Option<PpuTrackedRegister> {
@@ -863,8 +864,6 @@ impl Bus {
         self.mapper.tick_cpu();
         self.io_registers.tick_cpu(apu_state.is_active_cycle());
 
-        self.ppu_registers.reset_writable_delay =
-            self.ppu_registers.reset_writable_delay.saturating_sub(1);
         self.ppu_registers.total_cycles += 1;
     }
 
@@ -1147,7 +1146,7 @@ impl CpuBus<'_> {
         // Writes to any memory-mapped PPU register put the value on open bus
         self.set_ppu_open_bus(value, 0xFF);
 
-        if self.0.ppu_registers.reset_writable_delay != 0
+        if self.0.ppu_registers.reset_flag
             && matches!(
                 register,
                 PpuRegister::PPUCTRL
@@ -1156,6 +1155,7 @@ impl CpuBus<'_> {
                     | PpuRegister::PPUADDR
             )
         {
+            // These registers are not writable until the first pre-render scanline after reset
             return;
         }
 
@@ -1296,7 +1296,7 @@ impl PpuBus<'_> {
         self.0.ppu_registers.write_toggle = PpuWriteToggle::First;
         self.0.ppu_registers.ppu_data_buffer = 0x00;
         self.0.ppu_registers.ppu_open_bus = 0x00;
-        self.0.ppu_registers.reset_writable_delay = PpuRegisters::RESET_WRITABLE_DELAY;
+        self.0.ppu_registers.reset_flag = true;
         self.0.mapper.reset();
     }
 }

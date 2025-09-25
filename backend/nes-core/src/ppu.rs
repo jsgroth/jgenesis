@@ -397,6 +397,7 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>, config: &NesEmulatorConf
         ppu_registers.set_vblank_flag(false);
         ppu_registers.set_sprite_0_hit(false);
         ppu_registers.set_sprite_overflow(false);
+        ppu_registers.clear_reset_flag();
     } else if state.scanline == FIRST_VBLANK_SCANLINE && state.dot == VBLANK_FLAG_SET_DOT {
         bus.get_ppu_registers_mut().set_vblank_flag(true);
     }
@@ -461,7 +462,7 @@ fn get_color_mask(registers: &PpuRegisters) -> u8 {
 /// Reset the PPU, as if the console's reset button was pressed.
 ///
 /// This resets all PPU state except for the internal v register, and also clears most of the
-/// memory-mapped PPU regsiters.
+/// memory-mapped PPU registers.
 pub fn reset(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     let vram_address = state.registers.vram_address;
     *state = PpuState::new(state.timing_mode, state.ntsc_crop_vertical_overscan);
