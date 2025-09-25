@@ -136,7 +136,7 @@ impl NesEmulator {
         cpu::tick(&mut self.cpu_state, &mut self.bus.cpu(), &mut self.apu_state);
         apu::tick(&mut self.apu_state, &mut self.bus.cpu(), &self.config);
         ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), &self.config);
-        self.bus.tick_cpu();
+        self.bus.tick_cpu(&self.apu_state);
         self.bus.tick();
 
         self.bus.poll_interrupt_lines();
@@ -155,7 +155,7 @@ impl NesEmulator {
         cpu::tick(&mut self.cpu_state, &mut self.bus.cpu(), &mut self.apu_state);
         apu::tick(&mut self.apu_state, &mut self.bus.cpu(), &self.config);
         ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), &self.config);
-        self.bus.tick_cpu();
+        self.bus.tick_cpu(&self.apu_state);
         self.bus.tick();
 
         self.bus.poll_interrupt_lines();
@@ -166,7 +166,7 @@ impl NesEmulator {
             if i % PAL_CPU_DIVIDER == 0 {
                 cpu::tick(&mut self.cpu_state, &mut self.bus.cpu(), &mut self.apu_state);
                 apu::tick(&mut self.apu_state, &mut self.bus.cpu(), &self.config);
-                self.bus.tick_cpu();
+                self.bus.tick_cpu(&self.apu_state);
                 self.bus.tick();
 
                 self.bus.poll_interrupt_lines();

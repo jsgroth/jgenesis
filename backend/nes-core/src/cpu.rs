@@ -205,7 +205,7 @@ fn progress_dma(
         DmaCycle::Get => {
             if state.dmc_dma == DmcDmaState::ReadReady {
                 // DMC DMA read cycle; takes priority over OAM DMA read if both are ready
-                apu.dmc_dma_read(bus);
+                apu.dmc_dma_read(bus, halted_cpu_address);
                 state.dmc_dma = DmcDmaState::Idle;
 
                 state.oam_dma = state.oam_dma.progress_noop();
@@ -218,7 +218,7 @@ fn progress_dma(
             if let OamDmaState::ReadReady { address_low } = state.oam_dma {
                 // OAM DMA read cycle
                 let address = u16::from_le_bytes([address_low, bus.read_oamdma_for_transfer()]);
-                let byte = bus.read(address);
+                let byte = bus.oam_dma_read(address, halted_cpu_address);
                 state.oam_dma = OamDmaState::WriteReady { address_low, byte };
 
                 state.dmc_dma = state.dmc_dma.progress_noop(true, dma_cycle, still_needs_dmc_dma);
@@ -259,10 +259,7 @@ fn progress_dma(
     state.oam_dma = state.oam_dma.progress_noop();
     state.dmc_dma = state.dmc_dma.progress_noop(true, dma_cycle, still_needs_dmc_dma);
 
-    // Joypad dummy read behavior varies by console and CPU revision - this roughly matches NES with 2A03
-    if halted_cpu_address != 0x4016 && halted_cpu_address != 0x4017 {
-        bus.read(halted_cpu_address);
-    }
+    bus.read(halted_cpu_address);
 
     log::trace!(
         "  DMA no-op cycle; OAM DMA state is now {:?}, DMC DMA state is now {:?}",

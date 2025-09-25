@@ -10,7 +10,6 @@ use crate::bus::CpuBus;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::GetBit;
-use mos6502_emu::bus::BusInterface;
 
 // From https://www.nesdev.org/wiki/APU_DMC
 const NTSC_PERIOD_LOOKUP_TABLE: [u16; 16] =
@@ -165,15 +164,18 @@ impl DeltaModulationChannel {
         self.dma_initial_load
     }
 
-    pub fn dma_read(&mut self, bus: &mut CpuBus<'_>) {
+    pub fn dma_read(&mut self, bus: &mut CpuBus<'_>, halted_cpu_address: u16) {
         log::trace!(
             "DMA read from address {:04X}, remaining {}",
             self.current_sample_address,
             self.sample_bytes_remaining
         );
 
-        self.sample_buffer = Some(bus.read(self.current_sample_address));
-        self.current_sample_address = 0xC000 | self.current_sample_address.wrapping_add(1);
+        self.sample_buffer =
+            Some(bus.dmc_dma_read(self.current_sample_address, halted_cpu_address));
+
+        // Sample address overflows to $8000 rather than $C000
+        self.current_sample_address = 0x8000 | self.current_sample_address.wrapping_add(1);
         self.sample_bytes_remaining -= 1;
 
         if self.sample_bytes_remaining == 0 {

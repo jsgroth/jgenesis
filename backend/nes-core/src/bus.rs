@@ -36,6 +36,7 @@
 pub mod cartridge;
 
 use crate::api::NesEmulatorConfig;
+use crate::apu::ApuState;
 use crate::bus::cartridge::Mapper;
 use crate::graphics::TimingModeGraphicsExt;
 use crate::input::{LatchedJoypadState, NesInputDevice, NesJoypadStateExt, ZapperState};
@@ -515,8 +516,15 @@ pub struct IoRegisters {
     snd_chn_read: bool,
     p1_joypad_state: NesJoypadState,
     p2_joypad_state: NesJoypadState,
-    latched_p1_joypad_state: Option<LatchedJoypadState>,
-    latched_p2_joypad_state: Option<LatchedJoypadState>,
+    latched_joy1_bit: u8,
+    latched_joy2_bit: u8,
+    latched_p1_joypad_state: LatchedJoypadState,
+    latched_p2_joypad_state: LatchedJoypadState,
+    joypad_strobe: bool,
+    joy1_read_last_cycle: bool,
+    joy1_read_this_cycle: bool,
+    joy2_read_last_cycle: bool,
+    joy2_read_this_cycle: bool,
     zapper_state: Option<ZapperBusState>,
     // Needed for zapper positioning
     overscan: Overscan,
@@ -531,8 +539,15 @@ impl IoRegisters {
             snd_chn_read: false,
             p1_joypad_state: NesJoypadState::default(),
             p2_joypad_state: NesJoypadState::default(),
-            latched_p1_joypad_state: None,
-            latched_p2_joypad_state: None,
+            latched_joy1_bit: 1,
+            latched_joy2_bit: 1,
+            latched_p1_joypad_state: LatchedJoypadState::default(),
+            latched_p2_joypad_state: LatchedJoypadState::default(),
+            joy1_read_last_cycle: false,
+            joy1_read_this_cycle: false,
+            joy2_read_last_cycle: false,
+            joy2_read_this_cycle: false,
+            joypad_strobe: false,
             zapper_state: None,
             overscan,
         }
@@ -554,23 +569,29 @@ impl IoRegisters {
                 // Bit 5 of SND_CHN reads is open bus
                 self.data[register.to_relative_address()] | (cpu_open_bus & (1 << 5))
             }
-            IoRegister::JOY1 => match &mut self.latched_p1_joypad_state {
-                Some(latched_state) => {
-                    let next_bit = latched_state.next_bit();
-                    *latched_state = latched_state.shift();
-                    next_bit | joy_open_bus
+            IoRegister::JOY1 => {
+                self.joy1_read_this_cycle = true;
+
+                if !self.joy1_read_last_cycle {
+                    self.latched_joy1_bit = self.latched_p1_joypad_state.next_bit();
+                    self.latched_p1_joypad_state = self.latched_p1_joypad_state.shift();
                 }
-                None => u8::from(self.p1_joypad_state.a) | joy_open_bus,
-            },
-            IoRegister::JOY2 => match (&mut self.latched_p2_joypad_state, &self.zapper_state) {
-                (_, Some(zapper_state)) => zapper_state.read() | joy_open_bus,
-                (Some(latched_state), None) => {
-                    let next_bit = latched_state.next_bit();
-                    *latched_state = latched_state.shift();
-                    next_bit | joy_open_bus
+                self.latched_joy1_bit | joy_open_bus
+            }
+            IoRegister::JOY2 => {
+                self.joy2_read_this_cycle = true;
+
+                match &self.zapper_state {
+                    Some(zapper_state) => zapper_state.read() | joy_open_bus,
+                    None => {
+                        if !self.joy2_read_last_cycle {
+                            self.latched_joy2_bit = self.latched_p2_joypad_state.next_bit();
+                            self.latched_p2_joypad_state = self.latched_p2_joypad_state.shift();
+                        }
+                        self.latched_joy2_bit | joy_open_bus
+                    }
                 }
-                (None, None) => u8::from(self.p2_joypad_state.a) | joy_open_bus,
-            },
+            }
             _ => {
                 // Other I/O registers are write-only
                 cpu_open_bus
@@ -597,13 +618,7 @@ impl IoRegisters {
 
         match register {
             IoRegister::JOY1 => {
-                if value.bit(0) {
-                    self.latched_p1_joypad_state = None;
-                    self.latched_p2_joypad_state = None;
-                } else if self.latched_p1_joypad_state.is_none() {
-                    self.latched_p1_joypad_state = Some(self.p1_joypad_state.latch());
-                    self.latched_p2_joypad_state = Some(self.p2_joypad_state.latch());
-                }
+                self.joypad_strobe = value.bit(0);
             }
             IoRegister::OAMDMA => {
                 self.dma_dirty = true;
@@ -626,6 +641,23 @@ impl IoRegisters {
         let snd_chn_read = self.snd_chn_read;
         self.snd_chn_read = false;
         snd_chn_read
+    }
+
+    fn tick_cpu(&mut self, apu_odd_cycle: bool) {
+        self.joy1_read_last_cycle = self.joy1_read_this_cycle;
+        self.joy1_read_this_cycle = false;
+
+        self.joy2_read_last_cycle = self.joy2_read_this_cycle;
+        self.joy2_read_this_cycle = false;
+
+        if self.joypad_strobe && apu_odd_cycle {
+            self.latched_p1_joypad_state = self.p1_joypad_state.latch();
+            self.latched_p2_joypad_state = self.p2_joypad_state.latch();
+        }
+
+        if let Some(zapper_state) = &mut self.zapper_state {
+            zapper_state.tick_cpu();
+        }
     }
 }
 
@@ -823,16 +855,13 @@ impl Bus {
         self.mapper.tick(self.ppu_bus_address);
     }
 
-    pub fn tick_cpu(&mut self) {
+    pub fn tick_cpu(&mut self, apu_state: &ApuState) {
         if let Some(write) = self.pending_write.take() {
             self.cpu().apply_write(write.address, write.value);
         }
 
         self.mapper.tick_cpu();
-
-        if let Some(zapper_state) = &mut self.io_registers.zapper_state {
-            zapper_state.tick_cpu();
-        }
+        self.io_registers.tick_cpu(apu_state.is_active_cycle());
 
         self.ppu_registers.reset_writable_delay =
             self.ppu_registers.reset_writable_delay.saturating_sub(1);
@@ -924,6 +953,67 @@ impl BusInterface for CpuBus<'_> {
 }
 
 impl CpuBus<'_> {
+    fn dma_read<const DMC: bool>(&mut self, address: u16, halted_cpu_address: u16) -> u8 {
+        // 2A03 register activation uses bits 0-4 from the 2A03 address bus and bits 5-15 from the
+        // 6502 address bus.
+        //
+        // For normal CPU reads, the 2A03 and 6502 addresses are obviously always the same.
+        //
+        // For DMA reads, they can be different: the 2A03 address bus is set to the DMA read address,
+        // while the 6502 address bus remains at the address that the CPU was reading from when DMA
+        // halted it.
+        //
+        // This causes bus conflicts if one of the APU registers ($4015-$4017) activates while DMA
+        // is trying to read from a different address.
+        let register_activation_addr = (address & 0x1F) | (halted_cpu_address & !0x1F);
+        if address == register_activation_addr {
+            // Bits 5-15 of the DMA address match the 6502 address
+            // Return early to prevent possible double reads of addresses with read side effects
+            return self.read(address);
+        }
+
+        if (0x4015..=0x4017).contains(&register_activation_addr) {
+            // Bus conflict!
+            if DMC {
+                // For DMC DMA $4015 conflicts, open bus is set to the 8-bit sample, and the frame
+                // counter IRQ flag is cleared (so the $4015 read does happen).
+                //
+                // For DMC DMA $4016/$4017 conflicts, open bus is set to the highest 3 bits of the
+                // sample and the lowest 5 bits from JOY1/JOY2.
+                //
+                // In both cases, give the DMC the actual 8-bit sample to prevent possible audio
+                // corruption, even though this is probably not accurate to hardware.
+                let sample_byte = self.read(address);
+                self.read(register_activation_addr);
+                sample_byte
+            } else if register_activation_addr == 0x4015 {
+                // For OAM DMA $4015 conflicts, the DMA address is read (which can change open bus),
+                // but DMA gets the value from the $4015 read
+                self.read(address);
+                self.read(register_activation_addr)
+            } else {
+                // For OAM DMA $4016/$4017 conflicts, the controller port gets read, but the value
+                // is only used if the DMA address is open bus
+                self.read(register_activation_addr);
+                self.read(address)
+            }
+        } else if (0x4015..=0x4017).contains(&address) {
+            // No bus conflict, but DMA tried to read from an APU register that is not activated
+            self.0.cpu_open_bus
+        } else {
+            // No bus conflict and read goes through
+            self.read(address)
+        }
+    }
+
+    pub fn oam_dma_read(&mut self, address: u16, halted_cpu_address: u16) -> u8 {
+        self.dma_read::<false>(address, halted_cpu_address)
+    }
+
+    pub fn dmc_dma_read(&mut self, address: u16, halted_cpu_address: u16) -> u8 {
+        self.dma_read::<true>(address, halted_cpu_address)
+    }
+
     fn apply_write(&mut self, address: u16, value: u8) {
         self.0.cpu_open_bus = value;
 

@@ -131,6 +131,12 @@ impl MappableInputs<NesButton> for NesInputs {
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 pub(crate) struct LatchedJoypadState(u8);
 
+impl Default for LatchedJoypadState {
+    fn default() -> Self {
+        Self(0xFF)
+    }
+}
+
 impl LatchedJoypadState {
     pub fn next_bit(self) -> u8 {
         self.0 & 0x01
