@@ -308,7 +308,7 @@ pub struct PpuState {
     scanline: u16,
     dot: u16,
     odd_frame: bool,
-    pending_sprite_0_hit: bool,
+    sprite_0_hit_delay: u8,
 }
 
 impl PpuState {
@@ -331,7 +331,7 @@ impl PpuState {
             scanline: timing_mode.pre_render_scanline(),
             dot: 0,
             odd_frame: false,
-            pending_sprite_0_hit: false,
+            sprite_0_hit_delay: 0,
         }
     }
 
@@ -478,10 +478,12 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>, remove_sprite_li
 
     log::trace!("Rendering at scanline {scanline} dot {dot}");
 
-    if state.pending_sprite_0_hit {
-        // If sprite 0 hit triggered on the last cycle, set the flag in PPUSTATUS
-        state.pending_sprite_0_hit = false;
-        bus.get_ppu_registers_mut().set_sprite_0_hit(true);
+    if state.sprite_0_hit_delay != 0 {
+        // If sprite 0 hit triggered 2 cycles ago, set the flag in PPUSTATUS
+        state.sprite_0_hit_delay -= 1;
+        if state.sprite_0_hit_delay == 0 {
+            bus.get_ppu_registers_mut().set_sprite_0_hit(true);
+        }
     }
 
     match (timing_mode, scanline) {
@@ -811,9 +813,11 @@ fn render_pixel(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     if sprite.is_sprite_0 && bg_color_id != 0 && sprite.color_id != 0 && pixel < 255 {
         // Set sprite 0 hit when a non-transparent sprite pixel overlaps a non-transparent BG pixel
         // at x < 255.
-        // Set the actual flag in PPUSTATUS on a 1-PPU-cycle delay to avoid some CPU/PPU alignment
+        // Set the actual flag in PPUSTATUS on a 2-PPU-cycle delay to avoid some CPU/PPU alignment
         // issues.
-        state.pending_sprite_0_hit = true;
+        if state.sprite_0_hit_delay == 0 {
+            state.sprite_0_hit_delay = 2;
+        }
     }
 
     let sprite_bg_priority = sprite.attributes.bit(5);
