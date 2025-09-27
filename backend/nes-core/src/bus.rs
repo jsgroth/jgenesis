@@ -510,22 +510,55 @@ fn should_trigger_zapper_sensor(pixel: u8) -> bool {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
+struct JoypadRegisterState {
+    joypad_state: NesJoypadState,
+    latched_bit: u8,
+    latched_joypad_state: LatchedJoypadState,
+    read_last_cycle: bool,
+    read_this_cycle: bool,
+}
+
+impl JoypadRegisterState {
+    fn new() -> Self {
+        Self {
+            joypad_state: NesJoypadState::default(),
+            latched_bit: 1,
+            latched_joypad_state: LatchedJoypadState::default(),
+            read_last_cycle: false,
+            read_this_cycle: false,
+        }
+    }
+
+    fn handle_read(&mut self) -> u8 {
+        self.read_this_cycle = true;
+
+        if !self.read_last_cycle {
+            self.latched_bit = self.latched_joypad_state.next_bit();
+            self.latched_joypad_state = self.latched_joypad_state.shift();
+        }
+
+        self.latched_bit
+    }
+
+    fn tick_cpu(&mut self) {
+        self.read_last_cycle = self.read_this_cycle;
+        self.read_this_cycle = false;
+    }
+
+    fn strobe(&mut self) {
+        self.latched_joypad_state = self.joypad_state.latch();
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct IoRegisters {
     data: [u8; 0x18],
     dma_dirty: bool,
     dirty_register: Option<IoRegister>,
     snd_chn_read: bool,
-    p1_joypad_state: NesJoypadState,
-    p2_joypad_state: NesJoypadState,
-    latched_joy1_bit: u8,
-    latched_joy2_bit: u8,
-    latched_p1_joypad_state: LatchedJoypadState,
-    latched_p2_joypad_state: LatchedJoypadState,
+    p1: JoypadRegisterState,
+    p2: JoypadRegisterState,
     joypad_strobe: bool,
-    joy1_read_last_cycle: bool,
-    joy1_read_this_cycle: bool,
-    joy2_read_last_cycle: bool,
-    joy2_read_this_cycle: bool,
     zapper_state: Option<ZapperBusState>,
     // Needed for zapper positioning
     overscan: Overscan,
@@ -538,16 +571,8 @@ impl IoRegisters {
             dma_dirty: false,
             dirty_register: None,
             snd_chn_read: false,
-            p1_joypad_state: NesJoypadState::default(),
-            p2_joypad_state: NesJoypadState::default(),
-            latched_joy1_bit: 1,
-            latched_joy2_bit: 1,
-            latched_p1_joypad_state: LatchedJoypadState::default(),
-            latched_p2_joypad_state: LatchedJoypadState::default(),
-            joy1_read_last_cycle: false,
-            joy1_read_this_cycle: false,
-            joy2_read_last_cycle: false,
-            joy2_read_this_cycle: false,
+            p1: JoypadRegisterState::new(),
+            p2: JoypadRegisterState::new(),
             joypad_strobe: false,
             zapper_state: None,
             overscan,
@@ -570,29 +595,11 @@ impl IoRegisters {
                 // Bit 5 of SND_CHN reads is open bus
                 self.data[register.to_relative_address()] | (cpu_open_bus & (1 << 5))
             }
-            IoRegister::JOY1 => {
-                self.joy1_read_this_cycle = true;
-
-                if !self.joy1_read_last_cycle {
-                    self.latched_joy1_bit = self.latched_p1_joypad_state.next_bit();
-                    self.latched_p1_joypad_state = self.latched_p1_joypad_state.shift();
-                }
-                self.latched_joy1_bit | joy_open_bus
-            }
-            IoRegister::JOY2 => {
-                self.joy2_read_this_cycle = true;
-
-                match &self.zapper_state {
-                    Some(zapper_state) => zapper_state.read() | joy_open_bus,
-                    None => {
-                        if !self.joy2_read_last_cycle {
-                            self.latched_joy2_bit = self.latched_p2_joypad_state.next_bit();
-                            self.latched_p2_joypad_state = self.latched_p2_joypad_state.shift();
-                        }
-                        self.latched_joy2_bit | joy_open_bus
-                    }
-                }
-            }
+            IoRegister::JOY1 => self.p1.handle_read() | joy_open_bus,
+            IoRegister::JOY2 => match &self.zapper_state {
+                Some(zapper_state) => zapper_state.read() | joy_open_bus,
+                None => self.p2.handle_read() | joy_open_bus,
+            },
             _ => {
                 // Other I/O registers are write-only
                 cpu_open_bus
@@ -645,15 +652,12 @@ impl IoRegisters {
     }
 
     fn tick_cpu(&mut self, apu_odd_cycle: bool) {
-        self.joy1_read_last_cycle = self.joy1_read_this_cycle;
-        self.joy1_read_this_cycle = false;
-
-        self.joy2_read_last_cycle = self.joy2_read_this_cycle;
-        self.joy2_read_this_cycle = false;
+        self.p1.tick_cpu();
+        self.p2.tick_cpu();
 
         if self.joypad_strobe && apu_odd_cycle {
-            self.latched_p1_joypad_state = self.p1_joypad_state.latch();
-            self.latched_p2_joypad_state = self.p2_joypad_state.latch();
+            self.p1.strobe();
+            self.p2.strobe();
         }
 
         if let Some(zapper_state) = &mut self.zapper_state {
@@ -816,7 +820,7 @@ impl Bus {
         p1_joypad_state: NesJoypadState,
         allow_opposing_inputs: bool,
     ) {
-        self.io_registers.p1_joypad_state = if allow_opposing_inputs {
+        self.io_registers.p1.joypad_state = if allow_opposing_inputs {
             p1_joypad_state
         } else {
             p1_joypad_state.sanitize_opposing_directions()
@@ -830,7 +834,7 @@ impl Bus {
     ) {
         match p2_inputs {
             NesInputDevice::Controller(joypad_state) => {
-                self.io_registers.p2_joypad_state = if allow_opposing_inputs {
+                self.io_registers.p2.joypad_state = if allow_opposing_inputs {
                     joypad_state
                 } else {
                     joypad_state.sanitize_opposing_directions()
@@ -846,7 +850,7 @@ impl Bus {
                         self.io_registers.zapper_state = Some(ZapperBusState::new(zapper_state));
                     }
                 }
-                self.io_registers.p2_joypad_state = NesJoypadState::default();
+                self.io_registers.p2.joypad_state = NesJoypadState::default();
             }
         }
     }
