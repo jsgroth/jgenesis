@@ -309,6 +309,7 @@ pub struct PpuState {
     dot: u16,
     odd_frame: bool,
     sprite_0_hit_delay: u8,
+    first_frame: bool,
 }
 
 impl PpuState {
@@ -332,6 +333,7 @@ impl PpuState {
             dot: 0,
             odd_frame: false,
             sprite_0_hit_delay: 0,
+            first_frame: true,
         }
     }
 
@@ -397,7 +399,10 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>, config: &NesEmulatorConf
         ppu_registers.set_vblank_flag(false);
         ppu_registers.set_sprite_0_hit(false);
         ppu_registers.set_sprite_overflow(false);
-        ppu_registers.clear_reset_flag();
+        if !state.first_frame {
+            ppu_registers.clear_reset_flag();
+        }
+        state.first_frame = false;
     } else if state.scanline == FIRST_VBLANK_SCANLINE && state.dot == VBLANK_FLAG_SET_DOT {
         bus.get_ppu_registers_mut().set_vblank_flag(true);
     }
