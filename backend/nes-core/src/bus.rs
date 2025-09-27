@@ -952,7 +952,12 @@ impl BusInterface for CpuBus<'_> {
 }
 
 impl CpuBus<'_> {
-    fn dma_read<const DMC: bool>(&mut self, address: u16, halted_cpu_address: u16) -> u8 {
+    fn dma_read<const DMC: bool>(
+        &mut self,
+        address: u16,
+        halted_cpu_address: u16,
+        config: &NesEmulatorConfig,
+    ) -> u8 {
         // 2A03 register activation uses bits 0-4 from the 2A03 address bus and bits 5-15 from the
         // 6502 address bus.
         //
@@ -983,7 +988,9 @@ impl CpuBus<'_> {
                 // In both cases, give the DMC the actual 8-bit sample to prevent possible audio
                 // corruption, even though this is probably not accurate to hardware.
                 let sample_byte = self.read(address);
-                self.read(register_activation_addr);
+                if config.dma_dummy_joy_reads || register_activation_addr == 0x4015 {
+                    self.read(register_activation_addr);
+                }
                 sample_byte
             } else if register_activation_addr == 0x4015 {
                 // For OAM DMA $4015 conflicts, the DMA address is read (which can change open bus),
@@ -993,7 +1000,9 @@ impl CpuBus<'_> {
             } else {
                 // For OAM DMA $4016/$4017 conflicts, the controller port gets read, but the value
                 // is only used if the DMA address is open bus
-                self.read(register_activation_addr);
+                if config.dma_dummy_joy_reads {
+                    self.read(register_activation_addr);
+                }
                 self.read(address)
             }
         } else if (0x4015..=0x4017).contains(&address) {
@@ -1005,12 +1014,22 @@ impl CpuBus<'_> {
         }
     }
 
-    pub fn oam_dma_read(&mut self, address: u16, halted_cpu_address: u16) -> u8 {
-        self.dma_read::<false>(address, halted_cpu_address)
+    pub fn oam_dma_read(
+        &mut self,
+        address: u16,
+        halted_cpu_address: u16,
+        config: &NesEmulatorConfig,
+    ) -> u8 {
+        self.dma_read::<false>(address, halted_cpu_address, config)
     }
 
-    pub fn dmc_dma_read(&mut self, address: u16, halted_cpu_address: u16) -> u8 {
-        self.dma_read::<true>(address, halted_cpu_address)
+    pub fn dmc_dma_read(
+        &mut self,
+        address: u16,
+        halted_cpu_address: u16,
+        config: &NesEmulatorConfig,
+    ) -> u8 {
+        self.dma_read::<true>(address, halted_cpu_address, config)
     }
 
     fn apply_write(&mut self, address: u16, value: u8) {

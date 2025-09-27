@@ -499,6 +499,7 @@ impl AppConfigExt for AppConfig {
                 audio_resampler: self.nes.audio_resampler,
                 audio_refresh_rate_adjustment: self.nes.audio_60hz_hack,
                 allow_opposing_joypad_inputs: self.nes.allow_opposing_joypad_inputs,
+                dma_dummy_joy_reads: self.nes.dma_dummy_joy_reads,
             },
         })
     }

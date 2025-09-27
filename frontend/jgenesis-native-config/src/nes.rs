@@ -23,6 +23,8 @@ pub struct NesAppConfig {
     pub audio_60hz_hack: bool,
     #[serde(default)]
     pub allow_opposing_joypad_inputs: bool,
+    #[serde(default = "true_fn")]
+    pub dma_dummy_joy_reads: bool,
     #[serde(default)]
     pub palette: NesPalette,
 }

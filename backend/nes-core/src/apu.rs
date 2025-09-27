@@ -178,8 +178,13 @@ impl ApuState {
         self.dmc.dma_initial_load()
     }
 
-    pub fn dmc_dma_read(&mut self, bus: &mut CpuBus<'_>, halted_cpu_address: u16) {
-        self.dmc.dma_read(bus, halted_cpu_address);
+    pub fn dmc_dma_read(
+        &mut self,
+        bus: &mut CpuBus<'_>,
+        halted_cpu_address: u16,
+        config: &NesEmulatorConfig,
+    ) {
+        self.dmc.dma_read(bus, halted_cpu_address, config);
     }
 
     fn process_register_update(&mut self, register: IoRegister, value: u8) {

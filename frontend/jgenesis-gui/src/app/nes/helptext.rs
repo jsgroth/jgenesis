@@ -16,6 +16,14 @@ pub const OPPOSING_DIRECTIONAL_INPUTS: HelpText = HelpText {
     ],
 };
 
+pub const DMA_DUMMY_JOY_READ: HelpText = HelpText {
+    heading: "DMA Dummy Joypad Reads",
+    text: &[
+        "Whether to allow DMC DMA to trigger dummy controller port reads.",
+        "This behavior is more accurate to the most common hardware revisions, but it can cause input glitches in a handful of games that use the DMC and don't account for these dummy reads.",
+    ],
+};
+
 pub const ASPECT_RATIO: HelpText = HelpText {
     heading: "Aspect Ratio",
     text: &[

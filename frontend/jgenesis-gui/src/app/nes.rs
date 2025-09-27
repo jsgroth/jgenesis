@@ -117,6 +117,16 @@ impl App {
                 self.state.help_text.insert(WINDOW, helptext::OPPOSING_DIRECTIONAL_INPUTS);
             }
 
+            let rect = ui
+                .checkbox(
+                    &mut self.config.nes.dma_dummy_joy_reads,
+                    "Allow DMA to trigger dummy joypad reads",
+                )
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::DMA_DUMMY_JOY_READ);
+            }
+
             self.render_help_text(ui, WINDOW);
         });
         if !open {

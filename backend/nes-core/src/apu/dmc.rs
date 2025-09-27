@@ -6,6 +6,7 @@
 //! This channel can optionally generate IRQs when the current sample has been completely read
 //! from memory.
 
+use crate::api::NesEmulatorConfig;
 use crate::bus::CpuBus;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
@@ -164,7 +165,12 @@ impl DeltaModulationChannel {
         self.dma_initial_load
     }
 
-    pub fn dma_read(&mut self, bus: &mut CpuBus<'_>, halted_cpu_address: u16) {
+    pub fn dma_read(
+        &mut self,
+        bus: &mut CpuBus<'_>,
+        halted_cpu_address: u16,
+        config: &NesEmulatorConfig,
+    ) {
         log::trace!(
             "DMA read from address {:04X}, remaining {}",
             self.current_sample_address,
@@ -172,7 +178,7 @@ impl DeltaModulationChannel {
         );
 
         self.sample_buffer =
-            Some(bus.dmc_dma_read(self.current_sample_address, halted_cpu_address));
+            Some(bus.dmc_dma_read(self.current_sample_address, halted_cpu_address, config));
 
         // Sample address overflows to $8000 rather than $C000
         self.current_sample_address = 0x8000 | self.current_sample_address.wrapping_add(1);

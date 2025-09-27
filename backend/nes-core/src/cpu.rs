@@ -1,10 +1,13 @@
 //! CPU emulation code.
 
+use crate::api::NesEmulatorConfig;
 use crate::apu::ApuState;
 use crate::bus::{CpuBus, PpuRegister};
 use bincode::{Decode, Encode};
 use mos6502_emu::Mos6502;
 use mos6502_emu::bus::BusInterface;
+
+const JOYPAD_REGISTERS: [u16; 2] = [0x4016, 0x4017];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum OamDmaState {
@@ -84,7 +87,12 @@ impl CpuState {
 }
 
 /// Run the CPU for 1 CPU cycle.
-pub fn tick(state: &mut CpuState, bus: &mut CpuBus<'_>, apu: &mut ApuState) {
+pub fn tick(
+    state: &mut CpuState,
+    bus: &mut CpuBus<'_>,
+    apu: &mut ApuState,
+    config: &NesEmulatorConfig,
+) {
     if state.cpu.frozen() {
         return;
     }
@@ -111,11 +119,11 @@ pub fn tick(state: &mut CpuState, bus: &mut CpuBus<'_>, apu: &mut ApuState) {
 
     let dma_cycle = if apu.is_active_cycle() { DmaCycle::Put } else { DmaCycle::Get };
     let Some(halted_cpu_address) = state.halted_cpu_address else {
-        try_halt_cpu(state, dma_cycle, needs_dmc_dma, bus);
+        try_halt_cpu(state, dma_cycle, needs_dmc_dma, bus, config);
         return;
     };
 
-    progress_dma(state, apu, halted_cpu_address, dma_cycle, bus);
+    progress_dma(state, apu, halted_cpu_address, dma_cycle, bus, config);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,13 +137,20 @@ fn try_halt_cpu(
     dma_cycle: DmaCycle,
     still_needs_dmc_dma: bool,
     bus: &mut CpuBus<'_>,
+    config: &NesEmulatorConfig,
 ) {
-    struct CapturingBus<'a, 'b>(&'a mut CpuBus<'b>, CpuCycle);
+    struct CapturingBus<'a, 'b, 'c>(&'a mut CpuBus<'b>, CpuCycle, &'c NesEmulatorConfig);
 
-    impl BusInterface for CapturingBus<'_, '_> {
+    impl BusInterface for CapturingBus<'_, '_, '_> {
         fn read(&mut self, address: u16) -> u8 {
             self.1 = CpuCycle::Read { address };
-            self.0.read(address)
+
+            if self.2.dma_dummy_joy_reads || !JOYPAD_REGISTERS.contains(&address) {
+                self.0.read(address)
+            } else {
+                // Return whatever, CPU state won't be used anyway because it will be halted
+                0
+            }
         }
 
         fn write(&mut self, address: u16, value: u8) {
@@ -158,7 +173,7 @@ fn try_halt_cpu(
     }
 
     let mut cpu_clone = state.cpu.clone();
-    let mut bus = CapturingBus(bus, CpuCycle::Write);
+    let mut bus = CapturingBus(bus, CpuCycle::Write, config);
     cpu_clone.tick(&mut bus);
 
     let cpu_halted;
@@ -192,6 +207,7 @@ fn progress_dma(
     halted_cpu_address: u16,
     dma_cycle: DmaCycle,
     bus: &mut CpuBus<'_>,
+    config: &NesEmulatorConfig,
 ) {
     log::trace!(
         "Progressing DMA, current OAM DMA state {:?}, current DMC DMA state {:?}",
@@ -205,7 +221,7 @@ fn progress_dma(
         DmaCycle::Get => {
             if state.dmc_dma == DmcDmaState::ReadReady {
                 // DMC DMA read cycle; takes priority over OAM DMA read if both are ready
-                apu.dmc_dma_read(bus, halted_cpu_address);
+                apu.dmc_dma_read(bus, halted_cpu_address, config);
                 state.dmc_dma = DmcDmaState::Idle;
 
                 state.oam_dma = state.oam_dma.progress_noop();
@@ -218,7 +234,7 @@ fn progress_dma(
             if let OamDmaState::ReadReady { address_low } = state.oam_dma {
                 // OAM DMA read cycle
                 let address = u16::from_le_bytes([address_low, bus.read_oamdma_for_transfer()]);
-                let byte = bus.oam_dma_read(address, halted_cpu_address);
+                let byte = bus.oam_dma_read(address, halted_cpu_address, config);
                 state.oam_dma = OamDmaState::WriteReady { address_low, byte };
 
                 state.dmc_dma = state.dmc_dma.progress_noop(true, dma_cycle, still_needs_dmc_dma);
@@ -259,7 +275,9 @@ fn progress_dma(
     state.oam_dma = state.oam_dma.progress_noop();
     state.dmc_dma = state.dmc_dma.progress_noop(true, dma_cycle, still_needs_dmc_dma);
 
-    bus.read(halted_cpu_address);
+    if config.dma_dummy_joy_reads || !JOYPAD_REGISTERS.contains(&halted_cpu_address) {
+        bus.read(halted_cpu_address);
+    }
 
     log::trace!(
         "  DMA no-op cycle; OAM DMA state is now {:?}, DMC DMA state is now {:?}",

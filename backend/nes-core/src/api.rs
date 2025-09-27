@@ -55,6 +55,9 @@ pub struct NesEmulatorConfig {
     /// Some games exhibit severe glitches when opposing joypad directions are pressed
     /// simultaneously, e.g. Zelda 2 and Battletoads
     pub allow_opposing_joypad_inputs: bool,
+    /// Whether DMA is allowed to trigger dummy reads to the controller port registers.
+    /// Dummy reads are more accurate to hardware but cause input glitches in some games.
+    pub dma_dummy_joy_reads: bool,
 }
 
 impl EmulatorConfigTrait for NesEmulatorConfig {}
@@ -133,7 +136,7 @@ impl NesEmulator {
     }
 
     fn ntsc_tick(&mut self) {
-        cpu::tick(&mut self.cpu_state, &mut self.bus.cpu(), &mut self.apu_state);
+        cpu::tick(&mut self.cpu_state, &mut self.bus.cpu(), &mut self.apu_state, &self.config);
         apu::tick(&mut self.apu_state, &mut self.bus.cpu(), &self.config);
         ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), &self.config);
         self.bus.tick_cpu(&self.apu_state);
@@ -152,7 +155,7 @@ impl NesEmulator {
 
     fn pal_tick(&mut self) {
         // Both CPU and PPU tick on the first master clock cycle
-        cpu::tick(&mut self.cpu_state, &mut self.bus.cpu(), &mut self.apu_state);
+        cpu::tick(&mut self.cpu_state, &mut self.bus.cpu(), &mut self.apu_state, &self.config);
         apu::tick(&mut self.apu_state, &mut self.bus.cpu(), &self.config);
         ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), &self.config);
         self.bus.tick_cpu(&self.apu_state);
@@ -164,7 +167,12 @@ impl NesEmulator {
 
         for i in 1..PAL_MASTER_CLOCK_TICKS {
             if i % PAL_CPU_DIVIDER == 0 {
-                cpu::tick(&mut self.cpu_state, &mut self.bus.cpu(), &mut self.apu_state);
+                cpu::tick(
+                    &mut self.cpu_state,
+                    &mut self.bus.cpu(),
+                    &mut self.apu_state,
+                    &self.config,
+                );
                 apu::tick(&mut self.apu_state, &mut self.bus.cpu(), &self.config);
                 self.bus.tick_cpu(&self.apu_state);
                 self.bus.tick();
