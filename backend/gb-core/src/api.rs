@@ -293,10 +293,6 @@ impl EmulatorTrait for GameBoyEmulator {
             .expect("Hard reset should never fail to load cartridge");
     }
 
-    fn save_state_version() -> &'static str {
-        "0.10.1-1"
-    }
-
     fn target_fps(&self) -> f64 {
         if self.config.audio_60hz_hack {
             60.0
