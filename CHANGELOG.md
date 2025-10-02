@@ -1,24 +1,52 @@
 # 0.11.0
 
+## Game Boy Advance
+* Game Boy Advance emulation is now supported; requires a Game Boy Advance BIOS ROM
+* Video options for color correction and LCD ghosting emulation (frame blending), both enabled by default
+* Audio enhancement option to apply windowed sinc interpolation to the Direct Sound channels rather than accurately emulating actual hardware's resampling behavior
+  * This massively reduces audio aliasing and noise in most cases, but it can also make audio sound muffled when games use very low sample rates (as most GBA games do)
+* CPU/prefetch/DMA/etc. timing is not perfect but should be moderately accurate
+* All types of cartridge save memory supported, with an option to force a specific type if auto-detection gets it wrong
+* The cartridge RTC chip and solar sensor are emulated for the handful of games that use them (e.g. _Boktai_), other cartridge peripherals are not currently emulated
+
 ## New Features
 * (**Genesis**) Added an option to ignore configured aspect ratio and display square pixels when the VDP is in H40/H320px mode (#442)
 * (**Genesis**) Added support for games with 24C64 EEPROM chips; _College Slam_ and _Frank Thomas Big Hurt Baseball_ are now playable (#459)
+* (**Sega CD**) Added support for per-region BIOS configuration, where the emulator will automatically select the appropriate BIOS based on game region
+* (**32X**) Added two new color display options (#492)
+  * New option to darken Genesis colors relative to 32X colors, enabled by default; on actual hardware the brightest 32X colors are noticeably brighter than the brightest Genesis colors
+  * New option to apply a yellow or purple tint to 32X colors, roughly as observed on actual hardware
+* (**32X**) Added options to hide all pixels of a given priority (#494)
+* (**Genesis** / **Sega CD** / **32X**) Added some additional memory/register views to the Memory Viewer window
 * (**NES**) Added palette customization options (#424)
   * Can now load a custom palette from a file; both 64-color and full 512-color palette files supported
   * GUI now has a builtin NTSC palette generator with a graphic displaying the current palette
+* (**NES**) Added an option for whether to emulate DMC DMA dummy controller port reads
+  * Disabling this is less accurate but fixes input glitches in a few games (e.g. the Japanese version of _Gimmick!_)
 * (**SNES**) Added support for the ST018 coprocessor, used by _Hayazashi Nidan Morita Shougi 2_
   * This is emulated using an ARM7TDMI implementation (ARMv4T) rather than an ARM6 (ARMv3), but this should not make any functional difference
 * (**GB**) Added a frame blending option that simulates LCD ghosting, enabled by default; enabling this fixes graphical effects in a few games and demos (#469)
+* (**GB**) When color correction is enabled, you can now manually adjust the LCD gamma value used for gamma correction
 * (**GB**) Added support for booting from a boot ROM (#404)
 * (**GB**) Added an option to run original Game Boy software in Game Boy Color mode (#150)
   * This feature requires a GBC boot ROM in order to initialize the compatibility palettes, and it is off by default because it (accurately) causes major bugs in a few games
 * (**GB**) Added (proper) support for the MBC30 mapper, used by the Japanese version of _Pocket Monsters Crystal Version_ (#478)
+* (**GB**) Added support for unlicensed/homebrew games with an SRAM size byte of \$01 (2 KB) (#485)
 * (**Game Gear**) Added support for booting from a BIOS / boot ROM (#404)
 
-## Fixes
+## Improvements
+* Upgraded [SDL](https://www.libsdl.org/) from SDL2 to SDL3; for the most part this should hopefully have no noticeable impact except for audio playback maybe working a little better than before
+  * As part of this, I removed the borderless vs. exclusive fullscreen setting because this seemed much less straightforward to change in SDL3; fullscreen will now always use whatever the platform and graphics driver default to (probably always borderless on modern platforms)
+* The auto-prescale video setting can now use separate scale factors for width and height, which produces a less aliased image when games use display modes with sub-1 pixel aspect ratio (e.g. Genesis NTSC H40/H320px mode, SNES high-res modes)
+  * Auto-prescale is also now enabled by default (the previous default was a fixed 3x upscale factor)
+* On Windows, the GUI executable no longer opens a terminal alongside the application (#555)
+* (**SNES**) When using the Super Scope, the emulator now displays the new Super Scope Turbo state whenever you toggle Turbo on/off
+
+## General Fixes
 * Fixed a number of cases that would cause the emulator to crash, none triggered by official releases (as far as I know) but some triggered by homebrew/demos/test ROMs
   * (**Genesis**) Loading a ROM file smaller than 1 KB or so (#434)
   * (**Genesis**) Z80 tries to access its own memory through the 32KB 68K memory bank by mapping it to \$A00000-\$A07FFF or \$A08000-\$A0FFFF
+  * (**Genesis**) VRAM-to-VRAM copy DMA with source address higher than \$1FFFF
   * (**Genesis** / **Sega CD**) 68000 triggers a privilege violation exception
   * (**Genesis** / **Sega CD**) 68000 triggers an address error while handling an exception
   * (**32X**) One of the SH-2s executes a SLEEP instruction (#431)
@@ -26,20 +54,66 @@
   * (**32X**) One of the SH-2s tries to access certain invalid memory addresses (highest 3 bits set to 100 or 101)
   * (**32X**) 68000 performs a 16-bit read from certain invalid memory addresses
   * (**SMS** / **Game Gear** / **Genesis**) Z80 handles an IRQ while in interrupt mode 2
+  * (**SNES**) Loading a ROM file smaller than 32 KB (#538)
+  * (**SNES**) Loading an SA-1 cartridge where the cartridge header claims it does not have any BW-RAM (anything that does this now gets 64 KB of BW-RAM)
+  * (**SNES**) SA-1 Character Conversion DMA Type 1 with an I-RAM destination address higher than \$7FF
   * (**GB**) CPU executes a STOP instruction with no CGB speed switch armed (#465)
-* (**Genesis**) Fixed a missing 24C01 EEPROM mapping for _Honoo no Toukyuuji: Dodge Danpei_; this fixes the game failing to boot (#460)
-* (**Genesis**) Fixed the VDP rendering too many pixels of the previous color when a game makes a mid-scanline backdrop color change while display is disabled; this improves accuracy of the glitchy lines in _Gouketsuji Ichizoku_ / _Power Instinct_ (#462)
-* (**Genesis**) The emulator now defaults to PAL timings for a few demos that depend on them (#433 / #435)
-* (**Genesis**) Fixed the 6-button controller timeout period being a little too short (#445)
+
+## Genesis / Sega CD / 32X Fixes
+* Fixed the VDP rendering too many pixels of the previous color when a game makes a mid-scanline backdrop color change while display is disabled; this improves accuracy of the glitchy lines in _Gouketsuji Ichizoku_ / _Power Instinct_ (#462)
+* Fixed the 6-button controller timeout period being a little too short (#445)
+* Fixed two games failing to boot due to the emulator not giving them the correct type of cartridge save memory
+  * _Honoo no Toukyuuji: Dodge Danpei_ has a 24C01 EEPROM chip (#460)
+  * _Al Michaels Announces HardBall III_ has 32 KB of SRAM (#546)
+* (**Sega CD** / **32X**) Adjusted inter-CPU/VDP timings to account for some VDP timing changes made in v0.10.0; this fixes the Sega CD version of _Mickey Mania_ having glitchy graphics on the right side of the screen in the 3D chase stages (#491)
+  * This was a regression that affected v0.10.0 and v0.10.1
 * (**32X**) Improved accuracy of VDP auto fill timing; this fixes occasional major graphical glitches in _Shadow Squadron_ / _Stellar Assault_ during the intro and takeoff sequences (#225 / #439)
-* (**32X**) Fixed some inaccuracies around VDP register latching; this fixes some early demos not working properly (#430)
-* (**SNES**) The 65816 stack pointer is now initialized to \$01FF instead of \$0100; this fixes some homebrew games failing to boot due to stack corruption (#468)
-* (**GB**) Slightly adjusted timing of when the STAT LY=LYC bit reads 1; this fixes a glitchy line in _Elevator Action_ (#472)
-* (**GB**) The serial port transfer data register (SB / \$FF01) is now read/write; this fixes _Card Game_ not allowing you to start the game (#471)
-* (**GB**) Fixed sample output behavior of pulse and wavetable channels when the DAC is enabled but the channel is inactive
-* (**GB**) Added approximate emulation of DAC fading when a channel's DAC is turned on or off; combined with the above change, this fixes buzzing noises in _Cannon Fodder_, _3D Pocket Pool_, and others (#475)
-* (**GBC**) Fixed VRAM DMA incorrectly terminating prematurely when the destination address increments from \$9FFF to \$A000; this fixes freezing in _F1 Championship Season 2000_ (#464)
-* (**GBC**) HDMA5 writes with bit 7 set are now allowed to change the length of in-progress HDMAs; this fixes corrupted graphics in _NASCAR 2000_ (#467)
+* (**32X**) Fixed some inaccuracies around VDP register latching; this fixes some early 32X demos not working properly (#430)
+* (**32X**) Slightly improved SH-2 timing accuracy, particularly around 32-bit SDRAM writes being way too slow (#493)
+* (**32X**) Fixed 32X HINT counter behavior not matching Genesis HINT behavior, which caused SH-2 horizontal interrupts to be off by a line (#559)
+* Several timing fixes that fix graphical bugs in the Chaekopon demo by Limp Ninja (#435)
+  * Adjusted low-level sprite processing timings so that sprite attribute fetching is performed slightly earlier in the line
+  * Fixed a pretty egregious DMA timing bug where DMA would take way too long to start copying if initiated during active display with display enabled
+* Fixed a number of inaccuracies identified by the testpico test ROM (#482)
+  * Fixed implementation of how Genesis VINT and HINT are delayed by 1 instruction when re-enabled; the previous implementation did the wrong thing when two consecutive MOVE instructions enabled then disabled VDP interrupts
+  * Fixed the Genesis VDP's F flag starting to read 1 (VINT pending) slightly later than it's supposed to
+  * (**32X**) Fixed behaviors related to enabling/disabling/clearing SH-2 VINT during VBlank
+  * (**32X**) Fixed some register bits being incorrectly writable / not writable
+  * (**32X**) Updates to initial state at power-on to more closely match actual hardware
+* The emulator now defaults to PAL timings for a few demos that depend on them (#433 / #435)
+
+## NES Fixes
+* Very slightly adjusted sprite 0 hit timing; this fixes glitchy lines on the title screen of _Indiana Jones and the Last Crusade_ (#314)
+* DMC DMA timing is now emulated; this fixes screen jitter in _Ultimate Air Combat_ (#268)
+* Several fixes for inaccuracies identified by the AccuracyCoin test ROM (#551)
+  * Fixed an APU timing issue that sometimes caused an incorrectly skipped frame counter clock when software wrote 0x80 to \$4017 with two consecutive `sta $4017` instructions
+  * More accurate APU frame counter timing
+  * More accurate OAM DMA timing
+  * DMA dummy reads are now emulated (with a new option to disable dummy controller port reads because they cause input glitches in some games)
+  * CPU open bus is now properly emulated (it was previously faked by always returning the address high byte)
+  * More accurate PPU open bus emulation
+  * Most PPU registers are no longer writable immediately after power-on/reset
+  * Fixed the 6502 incorrectly polling the interrupt lines during the final cycle of BRK instructions and IRQ handling
+  * More accurate controller port behaviors around strobing and consecutive-cycle reads
+
+## SNES Fixes
+* Fixed BG2 incorrectly not rendering in Mode 7 if BG1 is disabled and BG2+EXTBG are enabled; this fixes missing background graphics in _F-1 Grand Prix_ (#529)
+* Fixed V IRQs incorrectly not triggering when a game either 1. changes VTIME to the current line while V IRQs are enabled, or 2. enables V IRQs while VTIME is set to the current line; this fixes graphical corruption in _F-1 Grand Prix_, _F-1 Grand Prix Part III_, _S.O.S.: Sink or Swim_, and _RoboCop vs. The Terminator_ (#529 / #530 / #543)
+* Fixed multiple bugs in the BG vertical mosaic implementation, which was previously quite wrong; this fixes graphical bugs in _Beavis and Butt-Head_ and _Jurassic Park Part 2: The Chaos Continues_ (#532 / #540)
+* Improved DMA timing accuracy; this fixes graphical glitches in _Circuit USA_ (#531)
+* Fixed incorrect DSP-1 port address mapping for DSP-1 cartridges with more than 1 MB of ROM; this fixes _Super Bases Loaded 2_ failing to boot (#534)
+* The 65816 stack pointer is now initialized to \$01FF instead of \$0100; this fixes some homebrew games failing to boot due to stack corruption (#468)
+* Fixed SA-1 Character Conversion DMA Type 1 in 2bpp or 4bpp mode incorrectly treating the input packed pixel data as big-endian within a byte when it is actually little-endian; this fixes graphical glitches in the SA-1 tech demo cartridge (#537)
+
+## Game Boy [Color] Fixes
+* Fixed the GBC color correction implementation nonsensically performing calculations in sRGB color space rather than linear color space; this makes a particularly huge difference for the GBA LCD option
+* Slightly adjusted timing of when the STAT LY=LYC bit reads 1; this fixes a glitchy line in _Elevator Action_ (#472)
+* The serial port transfer data register (SB / \$FF01) is now read/write; this fixes _Card Game_ not allowing you to start the game (#471)
+* Fixed sample output behavior of pulse and wavetable channels when the DAC is enabled but the channel is inactive
+* Added approximate emulation of DAC fading when a channel's DAC is turned on or off; combined with the above change, this fixes buzzing noises in _Cannon Fodder_, _3D Pocket Pool_, and others (#475)
+* Fixed VRAM DMA incorrectly terminating prematurely when the destination address increments from \$9FFF to \$A000; this fixes freezing in _F1 Championship Season 2000_ (#464)
+* HDMA5 writes with bit 7 set are now allowed to change the length of in-progress HDMAs; this fixes corrupted graphics in _NASCAR 2000_ (#467)
+* HDMA is now able to halt the CPU mid-instruction; this fixes occasional glitchy frames in _Toy Story Racer_
 
 # 0.10.1
 
