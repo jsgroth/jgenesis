@@ -17,11 +17,17 @@ use std::collections::VecDeque;
 use std::ops::{Deref, DerefMut, Range};
 
 const MCLK_CYCLES_PER_SCANLINE: u64 = genesis_core::vdp::MCLK_CYCLES_PER_SCANLINE;
-const ACTIVE_MCLK_CYCLES_PER_SCANLINE: u64 = genesis_core::vdp::ACTIVE_MCLK_CYCLES_PER_SCANLINE;
+
+// 13 pixels after Genesis H40 HBlank start
+const HBLANK_START_MCLK_CYCLES: u64 = 343 * 8;
+const HBLANK_END_MCLK_CYCLES: u64 = HBLANK_START_MCLK_CYCLES - 320 * 8;
+
+// Very slightly after actual hardware starts rendering the line
+const RENDER_LINE_MCLK_CYCLES: u64 = 26 * 8;
 
 // DRAM refresh takes ~40 SH-2 cycles
 const DRAM_REFRESH_MCLK_CYCLES: Range<u64> =
-    ACTIVE_MCLK_CYCLES_PER_SCANLINE..ACTIVE_MCLK_CYCLES_PER_SCANLINE + 40 * 7 / 3;
+    HBLANK_START_MCLK_CYCLES..HBLANK_START_MCLK_CYCLES + 40 * 7 / 3;
 
 const FRAME_BUFFER_LEN_WORDS: usize = 128 * 1024 / 2;
 const CRAM_LEN_WORDS: usize = 512 / 2;
@@ -101,6 +107,7 @@ struct State {
     auto_fill_mclk_remaining: u64,
     fb_write_timing_fifo: VecDeque<u64>,
     last_fb_write_cycles: u64,
+    cycles_till_next_render: u64,
 }
 
 impl State {
@@ -116,6 +123,7 @@ impl State {
             auto_fill_mclk_remaining: 0,
             fb_write_timing_fifo: VecDeque::with_capacity(4),
             last_fb_write_cycles: 0,
+            cycles_till_next_render: u64::MAX,
         }
     }
 }
@@ -215,8 +223,8 @@ impl Vdp {
         self.state.scanline_mclk += mclk_cycles;
 
         if self.state.h_interrupt_this_line || self.registers.h_interrupt_in_vblank {
-            if prev_scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE
-                && self.state.scanline_mclk >= ACTIVE_MCLK_CYCLES_PER_SCANLINE
+            if prev_scanline_mclk < HBLANK_START_MCLK_CYCLES
+                && self.state.scanline_mclk >= HBLANK_START_MCLK_CYCLES
             {
                 self.handle_hblank_start(registers);
             }
@@ -224,11 +232,11 @@ impl Vdp {
             self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
         }
 
+        let active_lines_per_frame = self.latched.v_resolution.active_scanlines_per_frame();
         if self.state.scanline_mclk >= MCLK_CYCLES_PER_SCANLINE {
             self.state.scanline_mclk -= MCLK_CYCLES_PER_SCANLINE;
             self.state.scanline += 1;
 
-            let active_lines_per_frame = self.latched.v_resolution.active_scanlines_per_frame();
             if self.state.scanline == active_lines_per_frame {
                 // Beginning of VBlank; frame buffer switches take effect
                 if self.state.display_frame_buffer != self.registers.display_frame_buffer {
@@ -254,9 +262,21 @@ impl Vdp {
                 self.state.h_interrupt_this_line = true;
             }
 
+            if self.state.scanline < active_lines_per_frame
+                && self.state.scanline_mclk >= RENDER_LINE_MCLK_CYCLES
+            {
+                self.render_line();
+                self.state.cycles_till_next_render =
+                    MCLK_CYCLES_PER_SCANLINE + RENDER_LINE_MCLK_CYCLES - self.state.scanline_mclk;
+            }
+        } else if prev_scanline_mclk < RENDER_LINE_MCLK_CYCLES
+            && self.state.scanline_mclk >= RENDER_LINE_MCLK_CYCLES
+        {
             if self.state.scanline < active_lines_per_frame {
                 self.render_line();
             }
+            self.state.cycles_till_next_render =
+                MCLK_CYCLES_PER_SCANLINE + RENDER_LINE_MCLK_CYCLES - self.state.scanline_mclk;
         }
     }
 
@@ -281,19 +301,16 @@ impl Vdp {
     }
 
     pub fn mclk_cycles_until_next_event(&self, h_interrupt_enabled: bool) -> u64 {
-        // Sync at every end of line
-        let cycles_till_line_end = MCLK_CYCLES_PER_SCANLINE - self.state.scanline_mclk;
-        let mut cycles_till_next = cycles_till_line_end;
+        // Sync at every line render
+        let mut cycles_till_next = self.state.cycles_till_next_render;
 
         // Sync at HINT if HINT will trigger on this line
         if h_interrupt_enabled
             && self.state.h_interrupt_counter == 0
-            && self.state.scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE
+            && self.state.scanline_mclk < HBLANK_START_MCLK_CYCLES
         {
-            cycles_till_next = cmp::min(
-                cycles_till_next,
-                ACTIVE_MCLK_CYCLES_PER_SCANLINE - self.state.scanline_mclk,
-            );
+            cycles_till_next =
+                cmp::min(cycles_till_next, HBLANK_START_MCLK_CYCLES - self.state.scanline_mclk);
         }
 
         // Sync at auto fill end if an auto fill is in progress
@@ -660,7 +677,7 @@ impl Vdp {
     }
 
     fn in_hblank(&self) -> bool {
-        self.state.scanline_mclk >= ACTIVE_MCLK_CYCLES_PER_SCANLINE
+        !(HBLANK_END_MCLK_CYCLES..HBLANK_START_MCLK_CYCLES).contains(&self.state.scanline_mclk)
     }
 
     pub fn scanline(&self) -> u16 {
