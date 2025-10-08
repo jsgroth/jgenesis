@@ -171,7 +171,7 @@ impl PpuRegisters {
             oam_open_bus_value: None,
             last_accessed_register: None,
             write_toggle: PpuWriteToggle::First,
-            reset_flag: true,
+            reset_flag: false,
         }
     }
 
