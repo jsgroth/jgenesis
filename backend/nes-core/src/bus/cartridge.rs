@@ -654,7 +654,8 @@ pub(crate) fn from_ines_file(
     let chr_rom_end_address = prg_rom_end_address + header.chr_rom_size as usize;
 
     let mut prg_rom = Vec::from(&file_bytes[prg_rom_start_address..prg_rom_end_address]);
-    let chr_rom = Vec::from(&file_bytes[prg_rom_end_address..chr_rom_end_address]);
+    let mut chr_rom = Vec::from(&file_bytes[prg_rom_end_address..chr_rom_end_address]);
+    jgenesis_common::rom::mirror_to_next_power_of_two(&mut chr_rom);
 
     // UNROM 512 stores save data in flashable PRG ROM instead of PRG RAM; replace PRG ROM with
     // save contents if save is present and size matches
@@ -693,8 +694,8 @@ pub(crate) fn from_ines_file(
     };
 
     let chr_size = match header.chr_type {
-        ChrType::ROM => header.chr_rom_size,
-        ChrType::RAM => header.chr_ram_size,
+        ChrType::ROM => cartridge.chr_rom.len() as u32,
+        ChrType::RAM => header.prg_ram_size,
     };
 
     let mapper = match header.mapper_number {
