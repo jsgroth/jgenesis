@@ -176,7 +176,7 @@ impl SnesEmulator {
 
         let initial_sram = save_writer.load_bytes("sav").ok();
         let sram_checksum = initial_sram.as_ref().map_or(0, |sram| CRC.checksum(sram));
-        let mut memory = Memory::create(
+        let memory = Memory::create(
             rom,
             initial_sram,
             &coprocessor_roms,

@@ -215,7 +215,7 @@ impl Cartridge {
         forced_timing_mode: Option<TimingMode>,
         gsu_overclock_factor: NonZeroU64,
         save_writer: &mut S,
-    ) -> SnesLoadResult<Self> {
+    ) -> SnesLoadResult<(Self, TimingMode)> {
         // Older SNES ROM images have an extra 512-byte header; check for that and strip it off
         if rom.len() & 0x7FFF == 0x0200 {
             rom = rom[0x200..].to_vec();
@@ -252,7 +252,8 @@ impl Cartridge {
 
         // Determine NTSC/PAL
         let region_byte = rom[rom_header_addr + 0x19];
-        let timing_mode = forced_timing_mode.unwrap_or_else(|| region_to_timing_mode(region_byte));
+        let timing_mode =
+            forced_timing_mode.unwrap_or_else(|| region_to_timing_mode(region_byte, &rom));
 
         // $FFD8 contains SRAM size as a kilobytes power of 2
         let sram_header_byte = rom[rom_header_addr | 0x0018];
@@ -298,7 +299,7 @@ impl Cartridge {
                 .map_err(|(source, path)| SnesLoadError::CoprocessorRomLoad { source, path })?;
             let upd77c25 = Upd77c25::new(&st01x_rom, st01x_variant.into(), &sram, timing_mode);
 
-            return Ok(Self::St01x { rom: Rom(rom), upd77c25 });
+            return Ok((Self::St01x { rom: Rom(rom), upd77c25 }, timing_mode));
         }
 
         let is_st018 = chipset_byte == 0xF5 && rom[rom_header_addr - 1] == 0x02;
@@ -311,7 +312,7 @@ impl Cartridge {
                 .map_err(|(source, path)| SnesLoadError::CoprocessorRomLoad { source, path })?;
             let st018 = St018::new(&st018_rom).map_err(SnesLoadError::St018RomLoad)?;
 
-            return Ok(Self::St018 { rom: Rom(rom), sram, st018 });
+            return Ok((Self::St018 { rom: Rom(rom), sram, st018 }, timing_mode));
         }
 
         let rom_checksum = CRC.checksum(&rom);
@@ -356,14 +357,19 @@ impl Cartridge {
                         port_addresses.offset_mask
                     );
 
-                    Ok(Self::DspLoRom { rom: Rom(rom), sram, upd77c25, port_addresses })
+                    Ok((
+                        Self::DspLoRom { rom: Rom(rom), sram, upd77c25, port_addresses },
+                        timing_mode,
+                    ))
                 }
-                CartridgeType::HiRom => Ok(Self::DspHiRom { rom: Rom(rom), sram, upd77c25 }),
+                CartridgeType::HiRom => {
+                    Ok((Self::DspHiRom { rom: Rom(rom), sram, upd77c25 }, timing_mode))
+                }
                 _ => unreachable!("nested match expressions"),
             };
         }
 
-        Ok(match cartridge_type {
+        let cartridge = match cartridge_type {
             CartridgeType::LoRom => Self::LoRom { rom: Rom(rom), sram },
             CartridgeType::HiRom => Self::HiRom { rom: Rom(rom), sram },
             CartridgeType::ExHiRom => new_exhirom_cartridge(rom, sram, save_writer),
@@ -373,7 +379,9 @@ impl Cartridge {
             CartridgeType::Sdd1 => Self::Sdd1(Sdd1::new(rom, sram)),
             CartridgeType::Spc7110 => Self::Spc7110(Spc7110::new(rom, sram, save_writer)),
             CartridgeType::SuperFx => Self::SuperFx(SuperFx::new(rom, sram, gsu_overclock_factor)),
-        })
+        };
+
+        Ok((cartridge, timing_mode))
     }
 
     pub fn read(&mut self, address: u32) -> Option<u8> {
@@ -750,17 +758,24 @@ fn new_exhirom_cartridge<S: SaveWriter>(
     Cartridge::ExHiRom { rom: Rom(rom), sram: initial_sram, srtc }
 }
 
-pub fn region_to_timing_mode(region_byte: u8) -> TimingMode {
+fn region_to_timing_mode(region_byte: u8, rom: &[u8]) -> TimingMode {
     match region_byte {
         // Japan / USA / South Korea / Canada / Brazil
         0x00 | 0x01 | 0x0D | 0x0F | 0x10 => TimingMode::Ntsc,
         // various European and Asian countries (other than Japan/Korea) + Australia
         0x02..=0x0C | 0x11 => TimingMode::Pal,
         _ => {
-            log::warn!(
-                "Unrecognized region byte in ROM header, defaulting to NTSC: {region_byte:02X}"
-            );
-            TimingMode::Ntsc
+            let checksum = CRC.checksum(rom);
+            match checksum {
+                // Tintin in Tibet (Europe) (En,Es,Sv)
+                0x39E5E4A3 => TimingMode::Pal,
+                _ => {
+                    log::warn!(
+                        "Unrecognized region byte in ROM header, defaulting to NTSC: {region_byte:02X}"
+                    );
+                    TimingMode::Ntsc
+                }
+            }
         }
     }
 }

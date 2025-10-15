@@ -43,6 +43,7 @@ pub struct Memory {
     main_ram: Box<MainRam>,
     wram_port_address: u32,
     cpu_open_bus: u8,
+    cartridge_timing_mode: TimingMode,
 }
 
 impl Memory {
@@ -54,7 +55,7 @@ impl Memory {
         gsu_overclock_factor: NonZeroU64,
         save_writer: &mut S,
     ) -> SnesLoadResult<Self> {
-        let cartridge = Cartridge::create(
+        let (cartridge, cartridge_timing_mode) = Cartridge::create(
             rom,
             initial_sram,
             coprocessor_roms,
@@ -72,6 +73,7 @@ impl Memory {
             main_ram: main_ram.into_boxed_slice().try_into().unwrap(),
             wram_port_address: 0,
             cpu_open_bus: 0,
+            cartridge_timing_mode,
         })
     }
 
@@ -111,10 +113,8 @@ impl Memory {
             .collect()
     }
 
-    pub fn cartridge_timing_mode(&mut self) -> TimingMode {
-        // Region byte is always at $00FFD9
-        let region_byte = self.read_cartridge(0xFFD9).unwrap_or(0);
-        cartridge::region_to_timing_mode(region_byte)
+    pub fn cartridge_timing_mode(&self) -> TimingMode {
+        self.cartridge_timing_mode
     }
 
     pub fn read_wram(&self, address: u32) -> u8 {
