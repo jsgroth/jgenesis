@@ -293,6 +293,8 @@ impl EmulatorTrait for SnesEmulator {
                     self.main_cpu.tick(&mut bus);
                     self.latched_interrupts = None;
 
+                    bus.cpu_registers.tick_cpu_cycle();
+
                     (bus.access_master_cycles, bus.pending_write)
                 }
                 DmaStatus::InProgress { master_cycles_elapsed } => {

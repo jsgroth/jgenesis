@@ -314,11 +314,14 @@ pub struct CpuInternalRegisters {
     irq: IrqRegisters,
     auto_joypad_read_enabled: bool,
     multiply_operand_l: u8,
+    multiply_operand_l_latch: u8,
     multiply_operand_r: u8,
     multiply_product: u16,
+    multiply_cycles_remaining: u8,
     division_dividend: u16,
     division_divisor: u8,
     division_quotient: u16,
+    divide_cycles_remaining: u8,
     memory_2_speed: Memory2Speed,
     active_gpdma_channels: [bool; 8],
     active_hdma_channels: [bool; 8],
@@ -352,11 +355,14 @@ impl CpuInternalRegisters {
             irq: IrqRegisters::default(),
             auto_joypad_read_enabled: false,
             multiply_operand_l: 0xFF,
+            multiply_operand_l_latch: 0xFF,
             multiply_operand_r: 0xFF,
             multiply_product: 0,
+            multiply_cycles_remaining: 0,
             division_dividend: 0xFFFF,
             division_divisor: 0xFF,
             division_quotient: 0,
+            divide_cycles_remaining: 0,
             memory_2_speed: Memory2Speed::default(),
             active_gpdma_channels: [false; 8],
             active_hdma_channels: [false; 8],
@@ -520,13 +526,17 @@ impl CpuInternalRegisters {
             }
             0x4203 => {
                 // WRMPYB: Multiplication 8-bit operand B + start multiplication
-                self.multiply_operand_r = value;
+                if self.multiply_cycles_remaining == 0 && self.divide_cycles_remaining == 0 {
+                    self.multiply_operand_l_latch = self.multiply_operand_l;
+                    self.multiply_operand_r = value;
 
-                // TODO delay setting the result? takes 8 CPU cycles on real hardware
-                self.multiply_product = u16::from(self.multiply_operand_l) * u16::from(value);
-
-                // Multiplication always writes operand B to the division quotient register
-                self.division_quotient = value.into();
+                    // Multiplication takes 8 cycles, uses Booth's algorithm
+                    // Division quotient register should hold operand B when multiplication finishes
+                    self.multiply_cycles_remaining = 8;
+                    self.multiply_product = 0;
+                    self.division_quotient =
+                        u16::from_le_bytes([self.multiply_operand_l, self.multiply_operand_r]);
+                }
 
                 log::trace!("  Unsigned multiply operand B: {value:02X}");
                 log::trace!("  Unsigned multiply product: {:04X}", self.multiply_product);
@@ -545,23 +555,18 @@ impl CpuInternalRegisters {
             }
             0x4206 => {
                 // WRDIVB: Division 8-bit divisor + start division
-                self.division_divisor = value;
+                if self.multiply_cycles_remaining == 0 && self.divide_cycles_remaining == 0 {
+                    self.division_divisor = value;
 
-                // TODO delay setting the result? takes 16 CPU cycles on real hardware
-                if value != 0 {
-                    self.division_quotient = self.division_dividend / u16::from(value);
-
-                    // Division writes remainder to the multiply product register
-                    self.multiply_product = self.division_dividend % u16::from(value);
-                } else {
-                    // Divide by 0 always sets quotient to $FFFF and remainder to dividend
-                    self.division_quotient = 0xFFFF;
+                    // Division takes 16 cycles, does long division bit-by-bit
+                    // Current remainder is stored in multiplication product register, which holds
+                    // the final remainder when division finishes
+                    self.divide_cycles_remaining = 16;
                     self.multiply_product = self.division_dividend;
+                    self.division_quotient = 0;
                 }
 
                 log::trace!("  Unsigned divide divisor: {value:02X}");
-                log::trace!("  Unsigned divide quotient: {:04X}", self.division_quotient);
-                log::trace!("  Unsigned divide remainder: {:04X}", self.multiply_product);
             }
             0x4207 => {
                 // HTIMEL: H-count timer setting, low byte
@@ -819,6 +824,47 @@ impl CpuInternalRegisters {
         {
             self.input_state.start_auto_joypad_read();
         }
+    }
+
+    pub fn tick_cpu_cycle(&mut self) {
+        if self.multiply_cycles_remaining == 0 && self.divide_cycles_remaining == 0 {
+            return;
+        }
+
+        if self.multiply_cycles_remaining != 0 {
+            self.tick_multiplication();
+            return;
+        }
+
+        self.tick_division();
+    }
+
+    fn tick_multiplication(&mut self) {
+        let bit = 8 - self.multiply_cycles_remaining;
+        assert!(bit < 8);
+
+        if self.multiply_operand_l_latch.bit(bit) {
+            self.multiply_product += u16::from(self.multiply_operand_r) << bit;
+        }
+
+        self.division_quotient >>= 1;
+
+        self.multiply_cycles_remaining -= 1;
+    }
+
+    fn tick_division(&mut self) {
+        let bit = self.divide_cycles_remaining - 1;
+        assert!(bit < 16);
+
+        self.division_quotient <<= 1;
+
+        let divisor: u16 = self.division_divisor.into();
+        if (self.multiply_product >> bit) >= divisor {
+            self.division_quotient |= 1;
+            self.multiply_product -= divisor << bit;
+        }
+
+        self.divide_cycles_remaining -= 1;
     }
 
     fn update_hv_blank_flags(&mut self, ppu: &Ppu) {
