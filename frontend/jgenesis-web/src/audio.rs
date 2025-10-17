@@ -153,6 +153,9 @@ pub async fn initialize_audio_worklet(
     audio_ctx: &AudioContext,
     audio_queue: &AudioQueue,
 ) -> Result<AudioWorkletNode, JsValue> {
+    // Polyfill for TextDecoder and TextEncoder; needs to run before loading audio processor module
+    run_polyfill();
+
     // Append a random query parameter because Firefox caches this file way too aggressively and
     // Ctrl+Shift+R doesn't force a reload because it's not loaded on page load. The file itself is
     // less than 1KB and is only loaded at most once per page load, so not a big deal to not cache it.
@@ -173,4 +176,9 @@ pub async fn initialize_audio_worklet(
     worklet_node.connect_with_audio_node(&audio_ctx.destination())?;
 
     Ok(worklet_node)
+}
+
+#[wasm_bindgen(module = "/js/polyfill.js")]
+extern "C" {
+    fn run_polyfill();
 }
