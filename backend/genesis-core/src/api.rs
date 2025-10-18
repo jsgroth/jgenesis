@@ -278,6 +278,7 @@ impl EmulatorTrait for GenesisEmulator {
         S::Err: Debug + Display + Send + Sync + 'static,
     {
         let mut bus = new_main_bus!(self, m68k_reset: false);
+        let m68k_pc = self.m68k.pc();
         let m68k_wait = bus.cycles.m68k_wait_cpu_cycles != 0;
         let m68k_cycles = if m68k_wait {
             bus.cycles.take_m68k_wait_cpu_cycles()
@@ -285,8 +286,12 @@ impl EmulatorTrait for GenesisEmulator {
             self.m68k.execute_instruction(&mut bus)
         };
 
-        let elapsed_mclk_cycles =
-            bus.cycles.record_68k_instruction(m68k_cycles, m68k_wait, bus.vdp.should_halt_cpu());
+        let elapsed_mclk_cycles = bus.cycles.record_68k_instruction(
+            m68k_pc,
+            m68k_cycles,
+            m68k_wait,
+            bus.vdp.should_halt_cpu(),
+        );
 
         while bus.cycles.should_tick_z80() {
             if !bus.cycles.z80_halt {

@@ -13,7 +13,7 @@ use cdrom::reader::{CdRom, CdRomFileFormat};
 use genesis_config::{GenesisButton, GenesisRegion, PcmInterpolation};
 use genesis_core::input::InputState;
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
-use genesis_core::timing::CycleCounters;
+use genesis_core::timing::GenesisCycleCounters;
 use genesis_core::vdp::{DarkenColors, Vdp, VdpTickEffect};
 use genesis_core::ym2612::Ym2612;
 use genesis_core::{GenesisEmulatorConfig, GenesisInputs};
@@ -39,12 +39,7 @@ pub const SEGA_CD_MASTER_CLOCK_RATE: u64 = 50_000_000;
 
 const BIOS_LEN: usize = memory::BIOS_LEN;
 
-// Stall the main CPU for 2 out of every 172 mclk cycles instead of 2 out of 128 because this fixes
-// some tests in mcd-verificator.
-// I have no evidence that the main CPU actually does run faster with Sega CD compared to standalone
-// Genesis, but it's at least plausible that the memory refresh behavior is different when executing
-// out of BIOS ROM compared to Genesis cartridge ROM or WRAM
-type SegaCdCycleCounters = CycleCounters<172>;
+type SegaCdCycleCounters = GenesisCycleCounters;
 
 #[derive(Debug, Error)]
 pub enum SegaCdLoadError {
@@ -277,6 +272,8 @@ impl SegaCdEmulator {
         let mut bus = SubBus::new(&mut self.memory, &mut self.graphics_coprocessor, &mut self.pcm);
 
         while sub_cpu_cycles >= self.sub_cpu_wait_cycles {
+            bus.flush_buffered_writes();
+
             let wait_cycles = self.sub_cpu_wait_cycles;
             self.sub_cpu_wait_cycles = self.sub_cpu.execute_instruction(&mut bus).into();
             sub_cpu_cycles -= wait_cycles;
@@ -355,6 +352,7 @@ impl EmulatorTrait for SegaCdEmulator {
         let mut main_bus = new_main_bus!(self, m68k_reset: false);
 
         // Main 68000
+        let m68k_pc = self.main_cpu.pc();
         let m68k_wait = main_bus.cycles.m68k_wait_cpu_cycles != 0;
         let main_cpu_cycles = if m68k_wait {
             main_bus.cycles.take_m68k_wait_cpu_cycles()
@@ -362,6 +360,7 @@ impl EmulatorTrait for SegaCdEmulator {
             self.main_cpu.execute_instruction(&mut main_bus)
         };
         let genesis_mclk_elapsed = main_bus.cycles.record_68k_instruction(
+            m68k_pc,
             main_cpu_cycles,
             m68k_wait,
             main_bus.vdp.should_halt_cpu(),

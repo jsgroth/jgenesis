@@ -135,6 +135,12 @@ fn guess_cd_model(bios: &[u8]) -> CdModel {
     if &bios[0x18A..0x18C] == b"1." { CdModel::One } else { CdModel::Two }
 }
 
+#[derive(Debug, Clone, Copy, Encode, Decode)]
+enum BufferedWrite {
+    Byte(u8),
+    Word(u16),
+}
+
 #[derive(Debug, Encode, Decode, PartialClone)]
 pub struct SegaCd {
     #[partial_clone(default)]
@@ -154,6 +160,7 @@ pub struct SegaCd {
     disc_region: GenesisRegion,
     forced_region: Option<GenesisRegion>,
     timer_divider: u64,
+    buffered_sub_register_writes: Vec<(u32, BufferedWrite)>,
 }
 
 impl SegaCd {
@@ -198,6 +205,7 @@ impl SegaCd {
             disc_region,
             forced_region: config.genesis.forced_region,
             timer_divider: TIMER_DIVIDER,
+            buffered_sub_register_writes: Vec::with_capacity(5),
         })
     }
 
@@ -836,6 +844,26 @@ impl<'a> SubBus<'a> {
         Self { memory, graphics_coprocessor, pcm }
     }
 
+    pub fn flush_buffered_writes(&mut self) {
+        if self.sega_cd().buffered_sub_register_writes.is_empty() {
+            return;
+        }
+
+        let mut writes = mem::take(&mut self.sega_cd_mut().buffered_sub_register_writes);
+        for (address, value) in writes.drain(..) {
+            match value {
+                BufferedWrite::Byte(byte) => {
+                    self.write_register_byte(address, byte);
+                }
+                BufferedWrite::Word(word) => {
+                    self.write_register_word(address, word);
+                }
+            }
+        }
+
+        self.sega_cd_mut().buffered_sub_register_writes = writes;
+    }
+
     fn sega_cd(&self) -> &SegaCd {
         self.memory.medium()
     }
@@ -1413,7 +1441,15 @@ impl BusInterface for SubBus<'_> {
             }
             0x0F8000..=0x0FFFFF => {
                 // Sub CPU registers; canonically located at $FF8000-$FF81FF, but mirrored throughout the range
-                self.write_register_byte(address, value);
+                if address & SUB_REGISTER_ADDRESS_MASK == 0x003 {
+                    // Hack: Buffer writes to the word RAM control register until the next sub CPU instruction
+                    // Fixes possible crashing in Silpheed due to a race condition in its word RAM handoff code
+                    self.sega_cd_mut()
+                        .buffered_sub_register_writes
+                        .push((address, BufferedWrite::Byte(value)));
+                } else {
+                    self.write_register_byte(address, value);
+                }
             }
             _ => unreachable!("value & 0x0FFFFF is always <= 0x0FFFFF"),
         }
@@ -1451,7 +1487,15 @@ impl BusInterface for SubBus<'_> {
             }
             0x0F8000..=0x0FFFFF => {
                 // Sub CPU registers; canonically located at $FF8000-$FF81FF, but mirrored throughout the range
-                self.write_register_word(address, value);
+                if address & SUB_REGISTER_ADDRESS_MASK == 0x002 {
+                    // Hack: Buffer writes to the word RAM control register until the next sub CPU instruction
+                    // Fixes possible crashing in Silpheed due to a race condition in its word RAM handoff code
+                    self.sega_cd_mut()
+                        .buffered_sub_register_writes
+                        .push((address, BufferedWrite::Word(value)));
+                } else {
+                    self.write_register_word(address, value);
+                }
             }
             _ => unreachable!("value & 0x0FFFFF is always <= 0x0FFFFF"),
         }

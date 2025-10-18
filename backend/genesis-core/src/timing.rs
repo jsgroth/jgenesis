@@ -77,14 +77,31 @@ impl<const REFRESH_INTERVAL: u32> CycleCounters<REFRESH_INTERVAL> {
     #[must_use]
     pub fn record_68k_instruction(
         &mut self,
+        m68k_pc: u32,
         m68k_cycles: u32,
         m68k_wait: bool,
         vdp_owns_bus: bool,
     ) -> u64 {
+        const REGION_WAIT_CYCLES: [u32; 8] = [
+            2, // $000000-$1FFFFF
+            2, // $200000-$3FFFFF
+            2, // $400000-$5FFFFF
+            2, // $600000-$7FFFFF
+            0, // $800000-$9FFFFF
+            0, // $A00000-$BFFFFF
+            0, // $C00000-$DFFFFF
+            3, // $E00000-$FFFFFF
+        ];
+
         // Track memory refresh delay, which stalls the 68000 for roughly 2 out of every 130 CPU cycles
-        // (at least on the standalone Genesis)
+        // when executing from ROM (at least on the standalone Genesis)
         // Clue and Super Airwolf depend on this or they will have graphical glitches, Clue in the
         // main menu and Super Airwolf in the intro
+        //
+        // TODO this implementation is only approximate, e.g. ROM and RAM refreshes are not aligned
+        // and it's possible for the CPU to trigger both independently. A more accurate implementation
+        // requires more accurate 68000 timing, in particular tracking the exact cycles on which
+        // memory accesses occur
         if vdp_owns_bus {
             // Not sure this is accurate, but it's required for stable images in Direct Color DMA demos
             self.m68k_refresh_counter = 0;
@@ -92,7 +109,8 @@ impl<const REFRESH_INTERVAL: u32> CycleCounters<REFRESH_INTERVAL> {
             self.m68k_refresh_counter += m68k_cycles;
             if self.m68k_refresh_counter >= REFRESH_INTERVAL {
                 if !m68k_wait {
-                    self.m68k_wait_cpu_cycles += 2;
+                    let wait_cycles = REGION_WAIT_CYCLES[((m68k_pc >> 21) & 7) as usize];
+                    self.m68k_wait_cpu_cycles += wait_cycles;
                 }
                 self.m68k_refresh_counter %= REFRESH_INTERVAL;
             }
