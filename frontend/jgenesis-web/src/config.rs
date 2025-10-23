@@ -151,8 +151,11 @@ impl GenesisWebConfig {
             genesis_lpf_cutoff: genesis_config::MODEL_1_VA2_LPF_CUTOFF,
             ym2612_2nd_lpf_enabled: false,
             ym2612_2nd_lpf_cutoff: genesis_config::MODEL_2_2ND_LPF_CUTOFF,
+            ym2612_channels_enabled: [true; 6],
             ym2612_enabled: true,
             psg_enabled: true,
+            ym2612_volume_adjustment_db: 0.0,
+            psg_volume_adjustment_db: 0.0,
         }
     }
 }
@@ -199,6 +202,8 @@ impl WebConfig {
             apply_genesis_lpf_to_cd_da: false,
             pcm_enabled: true,
             cd_audio_enabled: true,
+            pcm_volume_adjustment_db: 0.0,
+            cd_volume_adjustment_db: 0.0,
         }
     }
 }
