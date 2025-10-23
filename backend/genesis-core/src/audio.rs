@@ -150,12 +150,37 @@ pub fn psg_frequency(timing_mode: TimingMode) -> f64 {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
+struct VolumeMultipliers {
+    ym2612: f64,
+    psg: f64,
+}
+
+impl VolumeMultipliers {
+    fn from_config(config: &GenesisEmulatorConfig) -> Self {
+        Self {
+            ym2612: volume_multiplier(config.ym2612_enabled, config.ym2612_volume_adjustment_db),
+            psg: PSG_COEFFICIENT
+                * volume_multiplier(config.psg_enabled, config.psg_volume_adjustment_db),
+        }
+    }
+}
+
+#[must_use]
+pub fn volume_multiplier(enabled: bool, adjustment_db: f64) -> f64 {
+    if !enabled {
+        return 0.0;
+    }
+
+    // Decibels to linear
+    10.0_f64.powf(adjustment_db / 20.0)
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct GenesisAudioResampler {
     filter: GenesisAudioFilter,
     ym2612_resampler: QualitySincResampler<2>,
     psg_resampler: PerformanceSincResampler<1>,
-    ym2612_enabled: bool,
-    psg_enabled: bool,
+    volumes: VolumeMultipliers,
 }
 
 impl GenesisAudioResampler {
@@ -165,8 +190,7 @@ impl GenesisAudioResampler {
             filter: GenesisAudioFilter::new(timing_mode, LowPassSettings::from_config(&config)),
             ym2612_resampler: QualitySincResampler::new(ym2612_frequency(timing_mode), 48000.0),
             psg_resampler: PerformanceSincResampler::new(psg_frequency(timing_mode), 48000.0),
-            ym2612_enabled: config.ym2612_enabled,
-            psg_enabled: config.psg_enabled,
+            volumes: VolumeMultipliers::from_config(&config),
         }
     }
 
@@ -194,17 +218,19 @@ impl GenesisAudioResampler {
         );
 
         for _ in 0..sample_count {
-            let [ym2612_l, ym2612_r] = check_enabled(
-                self.ym2612_resampler.output_buffer_pop_front().unwrap(),
-                self.ym2612_enabled,
-            );
-            let [psg] = check_enabled(
-                self.psg_resampler.output_buffer_pop_front().unwrap(),
-                self.psg_enabled,
-            );
+            let [ym2612_l, ym2612_r] = self
+                .ym2612_resampler
+                .output_buffer_pop_front()
+                .unwrap()
+                .map(|sample| sample * self.volumes.ym2612);
+            let [psg] = self
+                .psg_resampler
+                .output_buffer_pop_front()
+                .unwrap()
+                .map(|sample| sample * self.volumes.psg);
 
-            let sample_l = (ym2612_l + PSG_COEFFICIENT * psg).clamp(-1.0, 1.0);
-            let sample_r = (ym2612_r + PSG_COEFFICIENT * psg).clamp(-1.0, 1.0);
+            let sample_l = (ym2612_l + psg).clamp(-1.0, 1.0);
+            let sample_r = (ym2612_r + psg).clamp(-1.0, 1.0);
 
             audio_output.push_sample(sample_l, sample_r)?;
         }
@@ -213,8 +239,7 @@ impl GenesisAudioResampler {
     }
 
     pub fn reload_config(&mut self, timing_mode: TimingMode, config: GenesisEmulatorConfig) {
-        self.ym2612_enabled = config.ym2612_enabled;
-        self.psg_enabled = config.psg_enabled;
+        self.volumes = VolumeMultipliers::from_config(&config);
 
         self.filter.reload_config(timing_mode, &config);
     }
@@ -223,8 +248,4 @@ impl GenesisAudioResampler {
         self.ym2612_resampler.update_output_frequency(output_frequency as f64);
         self.psg_resampler.update_output_frequency(output_frequency as f64);
     }
-}
-
-fn check_enabled<T: Default>(sample: T, enabled: bool) -> T {
-    if enabled { sample } else { T::default() }
 }

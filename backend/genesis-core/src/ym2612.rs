@@ -414,9 +414,20 @@ enum RegisterGroup {
     Two,
 }
 
+trait GenesisConfigExt {
+    fn channels_muted(&self) -> [bool; 6];
+}
+
+impl GenesisConfigExt for GenesisEmulatorConfig {
+    fn channels_muted(&self) -> [bool; 6] {
+        self.ym2612_channels_enabled.map(|enabled| !enabled)
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Ym2612 {
     channels: [FmChannel; 6],
+    channels_muted: [bool; 6],
     dac_channel_enabled: bool,
     dac_channel_sample: u8,
     lfo: LowFrequencyOscillator,
@@ -437,12 +448,14 @@ pub struct Ym2612 {
 impl Ym2612 {
     #[must_use]
     pub fn new(
+        channels_muted: [bool; 6],
         quantize_output: bool,
         emulate_ladder_effect: bool,
         busy_behavior: Opn2BusyBehavior,
     ) -> Self {
         Self {
             channels: array::from_fn(|_| FmChannel::default()),
+            channels_muted,
             dac_channel_enabled: false,
             dac_channel_sample: 0,
             lfo: LowFrequencyOscillator::new(),
@@ -464,6 +477,7 @@ impl Ym2612 {
     #[must_use]
     pub fn new_from_config(config: &GenesisEmulatorConfig) -> Self {
         Self::new(
+            config.channels_muted(),
             config.quantize_ym2612_output,
             config.emulate_ym2612_ladder_effect,
             config.opn2_busy_behavior,
@@ -471,7 +485,12 @@ impl Ym2612 {
     }
 
     pub fn reset(&mut self) {
-        *self = Self::new(self.quantize_output, self.emulate_ladder_effect, self.busy_behavior);
+        *self = Self::new(
+            self.channels_muted,
+            self.quantize_output,
+            self.emulate_ladder_effect,
+            self.busy_behavior,
+        );
     }
 
     // Set the address register and set group to 1 (system registers + channels 1-3)
@@ -681,6 +700,10 @@ impl Ym2612 {
         let mut sum_l = 0;
         let mut sum_r = 0;
         for (i, channel) in self.channels.iter().enumerate() {
+            if self.channels_muted[i] {
+                continue;
+            }
+
             let sample = if i == 5 && self.dac_channel_enabled {
                 // Channel 6 is in DAC mode; play PCM sample instead of FM output
                 // Convert unsigned 8-bit sample to a signed 14-bit sample
@@ -926,6 +949,7 @@ impl Ym2612 {
     }
 
     pub fn reload_config(&mut self, config: GenesisEmulatorConfig) {
+        self.channels_muted = config.channels_muted();
         self.quantize_output = config.quantize_ym2612_output;
         self.emulate_ladder_effect = config.emulate_ym2612_ladder_effect;
         self.busy_behavior = config.opn2_busy_behavior;
@@ -938,7 +962,7 @@ mod tests {
 
     #[test]
     fn ladder_effect() {
-        let ym2612 = Ym2612::new(false, true, Opn2BusyBehavior::default());
+        let ym2612 = Ym2612::new([true; 6], false, true, Opn2BusyBehavior::default());
 
         // Zero; output +4
         assert_eq!(4 << 5, ym2612.apply_panning(0, false));
@@ -955,7 +979,7 @@ mod tests {
 
     #[test]
     fn busy_flag_ym2612() {
-        let mut ym2612 = Ym2612::new(false, true, Opn2BusyBehavior::Ym2612);
+        let mut ym2612 = Ym2612::new([true; 6], false, true, Opn2BusyBehavior::Ym2612);
 
         let check_4001_4003 = |ym2612: &mut Ym2612, value: u8| {
             for address in 0x4001..=0x4003 {

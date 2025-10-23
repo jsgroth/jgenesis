@@ -396,8 +396,11 @@ impl AppConfigExt for AppConfig {
                 genesis_lpf_cutoff: self.genesis.genesis_lpf_cutoff,
                 ym2612_2nd_lpf_enabled: self.genesis.ym2612_2nd_lpf_enabled,
                 ym2612_2nd_lpf_cutoff: self.genesis.ym2612_2nd_lpf_cutoff,
+                ym2612_channels_enabled: self.genesis.ym2612_channels_enabled,
                 ym2612_enabled: self.genesis.ym2612_enabled,
                 psg_enabled: self.genesis.psg_enabled,
+                ym2612_volume_adjustment_db: self.genesis.ym2612_volume_adjustment_db,
+                psg_volume_adjustment_db: self.genesis.psg_volume_adjustment_db,
             },
         })
     }
@@ -425,6 +428,8 @@ impl AppConfigExt for AppConfig {
                 apply_genesis_lpf_to_cd_da: self.sega_cd.apply_genesis_lpf_to_cd_da,
                 pcm_enabled: self.sega_cd.pcm_enabled,
                 cd_audio_enabled: self.sega_cd.cd_audio_enabled,
+                pcm_volume_adjustment_db: self.sega_cd.pcm_volume_adjustment_db,
+                cd_volume_adjustment_db: self.sega_cd.cd_volume_adjustment_db,
             },
         })
     }
@@ -452,6 +457,7 @@ impl AppConfigExt for AppConfig {
                 },
                 apply_genesis_lpf_to_pwm: self.sega_32x.apply_genesis_lpf_to_pwm,
                 pwm_enabled: self.sega_32x.pwm_enabled,
+                pwm_volume_adjustment_db: self.sega_32x.pwm_volume_adjustment_db,
             },
         })
     }

@@ -82,6 +82,8 @@ pub struct SegaCdEmulatorConfig {
     pub apply_genesis_lpf_to_cd_da: bool,
     pub pcm_enabled: bool,
     pub cd_audio_enabled: bool,
+    pub pcm_volume_adjustment_db: f64,
+    pub cd_volume_adjustment_db: f64,
 }
 
 impl EmulatorConfigTrait for SegaCdEmulatorConfig {

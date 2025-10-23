@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::num::{NonZeroU16, NonZeroU64};
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GenesisAppConfig {
     #[serde(default)]
     pub forced_timing_mode: Option<TimingMode>,
@@ -55,14 +55,24 @@ pub struct GenesisAppConfig {
     pub ym2612_2nd_lpf_enabled: bool,
     #[serde(default = "default_ym2612_2nd_lpf_cutoff")]
     pub ym2612_2nd_lpf_cutoff: u32,
+    #[serde(default = "true_array_fn")]
+    pub ym2612_channels_enabled: [bool; 6],
     #[serde(default = "true_fn")]
     pub ym2612_enabled: bool,
     #[serde(default = "true_fn")]
     pub psg_enabled: bool,
+    #[serde(default)]
+    pub ym2612_volume_adjustment_db: f64,
+    #[serde(default)]
+    pub psg_volume_adjustment_db: f64,
 }
 
 const fn true_fn() -> bool {
     true
+}
+
+const fn true_array_fn<const N: usize>() -> [bool; N] {
+    [true; N]
 }
 
 const fn default_68k_divider() -> u64 {
@@ -83,7 +93,7 @@ impl Default for GenesisAppConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SegaCdAppConfig {
     pub bios_path: Option<PathBuf>,
     pub eu_bios_path: Option<PathBuf>,
@@ -112,6 +122,10 @@ pub struct SegaCdAppConfig {
     pub pcm_enabled: bool,
     #[serde(default = "true_fn")]
     pub cd_audio_enabled: bool,
+    #[serde(default)]
+    pub pcm_volume_adjustment_db: f64,
+    #[serde(default)]
+    pub cd_volume_adjustment_db: f64,
 }
 
 fn default_drive_speed() -> NonZeroU16 {
@@ -132,7 +146,7 @@ impl Default for SegaCdAppConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Sega32XAppConfig {
     #[serde(default)]
     pub video_out: S32XVideoOut,
@@ -156,6 +170,8 @@ pub struct Sega32XAppConfig {
     pub void_direct_priority: bool,
     #[serde(default = "true_fn")]
     pub pwm_enabled: bool,
+    #[serde(default)]
+    pub pwm_volume_adjustment_db: f64,
 }
 
 fn default_void_palette_index() -> u8 {

@@ -7,11 +7,12 @@ use crate::app::{App, Console, OpenWindow, widgets};
 use crate::emuthread::EmuThreadStatus;
 use crate::widgets::OverclockSlider;
 use egui::style::ScrollStyle;
-use egui::{Context, Slider, Ui, Window};
+use egui::{Color32, Context, Slider, Ui, Window};
 use genesis_config::{GenesisAspectRatio, GenesisRegion, Opn2BusyBehavior};
 use genesis_config::{PcmInterpolation, S32XColorTint};
 use genesis_config::{S32XVideoOut, S32XVoidColorType};
 use jgenesis_common::frontend::TimingMode;
+use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::genesis::Sega32XAppConfig;
 use rfd::FileDialog;
 use std::num::{NonZeroU16, NonZeroU64};
@@ -33,6 +34,48 @@ impl S32XPriorityState {
             void_direct_b: config.void_direct[2].to_string(),
         }
     }
+}
+
+pub struct GenesisVolumeState {
+    pub ym2612_text: String,
+    pub ym2612_invalid: bool,
+    pub psg_text: String,
+    pub psg_invalid: bool,
+    pub pcm_text: String,
+    pub pcm_invalid: bool,
+    pub cd_text: String,
+    pub cd_invalid: bool,
+    pub pwm_text: String,
+    pub pwm_invalid: bool,
+}
+
+impl GenesisVolumeState {
+    pub fn from_config(config: &AppConfig) -> Self {
+        Self {
+            ym2612_text: fmt_volume(config.genesis.ym2612_volume_adjustment_db),
+            ym2612_invalid: false,
+            psg_text: fmt_volume(config.genesis.psg_volume_adjustment_db),
+            psg_invalid: false,
+            pcm_text: fmt_volume(config.sega_cd.pcm_volume_adjustment_db),
+            pcm_invalid: false,
+            cd_text: fmt_volume(config.sega_cd.cd_volume_adjustment_db),
+            cd_invalid: false,
+            pwm_text: fmt_volume(config.sega_32x.pwm_volume_adjustment_db),
+            pwm_invalid: false,
+        }
+    }
+
+    fn any_invalid(&self) -> bool {
+        self.ym2612_invalid
+            || self.psg_invalid
+            || self.pcm_invalid
+            || self.cd_invalid
+            || self.pwm_invalid
+    }
+}
+
+fn fmt_volume(volume_adjustment: f64) -> String {
+    format!("{volume_adjustment:.1}")
 }
 
 impl App {
@@ -577,13 +620,19 @@ impl App {
                 });
 
                 ui.add_space(5.0);
-                self.render_opn2_busy_flag_setting(ui);
-
-                ui.add_space(5.0);
                 self.render_scd_pcm_interpolation_setting(ui);
 
                 ui.add_space(5.0);
+                self.render_volume_adjustments(ui);
+
+                ui.add_space(5.0);
                 self.render_enabled_sound_sources(ui);
+
+                ui.add_space(5.0);
+                self.render_ym2612_channels_enabled(ui);
+
+                ui.add_space(5.0);
+                self.render_opn2_busy_flag_setting(ui);
             });
 
             self.render_help_text(ui, WINDOW);
@@ -655,13 +704,13 @@ impl App {
         ui.horizontal(|ui| {
             ui.label("Presets:");
 
-            if ui.button("Model 1 VA0-VA2").clicked() {
+            if ui.button("Model 1 VA2").clicked() {
                 self.config.genesis.genesis_lpf_enabled = true;
                 self.config.genesis.genesis_lpf_cutoff = genesis_config::MODEL_1_VA2_LPF_CUTOFF;
                 self.config.genesis.ym2612_2nd_lpf_enabled = false;
             }
 
-            if ui.button("Model 1 VA3-VA6").clicked() {
+            if ui.button("Model 1 VA3").clicked() {
                 self.config.genesis.genesis_lpf_enabled = true;
                 self.config.genesis.genesis_lpf_cutoff = genesis_config::MODEL_1_VA3_LPF_CUTOFF;
                 self.config.genesis.ym2612_2nd_lpf_enabled = false;
@@ -672,6 +721,11 @@ impl App {
                 self.config.genesis.genesis_lpf_cutoff = genesis_config::MODEL_2_1ST_LPF_CUTOFF;
                 self.config.genesis.ym2612_2nd_lpf_enabled = true;
                 self.config.genesis.ym2612_2nd_lpf_cutoff = genesis_config::MODEL_2_2ND_LPF_CUTOFF;
+            }
+
+            if ui.button("None").clicked() {
+                self.config.genesis.genesis_lpf_enabled = false;
+                self.config.genesis.ym2612_2nd_lpf_enabled = false;
             }
         });
 
@@ -783,6 +837,39 @@ impl App {
         }
     }
 
+    fn render_ym2612_channels_enabled(&mut self, ui: &mut Ui) {
+        let rect = ui
+            .group(|ui| {
+                ui.label("Enabled YM2612 channels");
+
+                ui.horizontal(|ui| {
+                    for i in 0..6 {
+                        ui.checkbox(
+                            &mut self.config.genesis.ym2612_channels_enabled[i],
+                            (i + 1).to_string(),
+                        );
+                    }
+                });
+
+                ui.horizontal(|ui| {
+                    if ui.button("Enable all").clicked() {
+                        self.config.genesis.ym2612_channels_enabled.fill(true);
+                    }
+
+                    if ui.button("Disable all").clicked() {
+                        self.config.genesis.ym2612_channels_enabled.fill(false);
+                    }
+                });
+            })
+            .response
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state
+                .help_text
+                .insert(OpenWindow::GenesisAudio, helptext::ENABLED_YM2612_CHANNELS);
+        }
+    }
+
     fn render_enabled_sound_sources(&mut self, ui: &mut Ui) {
         let rect = ui
             .group(|ui| {
@@ -806,6 +893,70 @@ impl App {
             .interact_rect;
         if ui.rect_contains_pointer(rect) {
             self.state.help_text.insert(OpenWindow::GenesisAudio, helptext::SOUND_SOURCES);
+        }
+    }
+
+    fn render_volume_adjustments(&mut self, ui: &mut Ui) {
+        let rect = ui
+            .group(|ui| {
+                ui.label("Volume adjustments (dB) (+/-)");
+
+                ui.add_space(2.0);
+
+                render_volume_adjustment(
+                    "YM2612 FM synth chip",
+                    &mut self.state.genesis_volume.ym2612_text,
+                    &mut self.state.genesis_volume.ym2612_invalid,
+                    &mut self.config.genesis.ym2612_volume_adjustment_db,
+                    ui,
+                );
+                render_volume_adjustment(
+                    "SN76489 PSG chip",
+                    &mut self.state.genesis_volume.psg_text,
+                    &mut self.state.genesis_volume.psg_invalid,
+                    &mut self.config.genesis.psg_volume_adjustment_db,
+                    ui,
+                );
+                render_volume_adjustment(
+                    "(Sega CD) RF5C164 PCM chip",
+                    &mut self.state.genesis_volume.pcm_text,
+                    &mut self.state.genesis_volume.pcm_invalid,
+                    &mut self.config.sega_cd.pcm_volume_adjustment_db,
+                    ui,
+                );
+                render_volume_adjustment(
+                    "(Sega CD) CD-DA playback",
+                    &mut self.state.genesis_volume.cd_text,
+                    &mut self.state.genesis_volume.cd_invalid,
+                    &mut self.config.sega_cd.cd_volume_adjustment_db,
+                    ui,
+                );
+                render_volume_adjustment(
+                    "(32X) PWM chip",
+                    &mut self.state.genesis_volume.pwm_text,
+                    &mut self.state.genesis_volume.pwm_invalid,
+                    &mut self.config.sega_32x.pwm_volume_adjustment_db,
+                    ui,
+                );
+
+                if ui.button("Clear all").clicked() {
+                    self.config.genesis.ym2612_volume_adjustment_db = 0.0;
+                    self.config.genesis.psg_volume_adjustment_db = 0.0;
+                    self.config.sega_cd.pcm_volume_adjustment_db = 0.0;
+                    self.config.sega_cd.cd_volume_adjustment_db = 0.0;
+                    self.config.sega_32x.pwm_volume_adjustment_db = 0.0;
+
+                    self.state.genesis_volume = GenesisVolumeState::from_config(&self.config);
+                }
+
+                if self.state.genesis_volume.any_invalid() {
+                    ui.colored_label(Color32::RED, "Values must be numbers");
+                }
+            })
+            .response
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(OpenWindow::GenesisAudio, helptext::VOLUME_ADJUSTMENTS);
         }
     }
 
@@ -838,6 +989,24 @@ impl App {
             pick_scd_bios_path,
         )
     }
+}
+
+fn render_volume_adjustment(
+    label: &str,
+    text: &mut String,
+    invalid: &mut bool,
+    value: &mut f64,
+    ui: &mut Ui,
+) {
+    ui.horizontal(|ui| {
+        ui.add(
+            NumericTextEdit::new(text, value, invalid)
+                .desired_width(40.0)
+                .with_validation(f64::is_finite),
+        );
+
+        ui.label(label);
+    });
 }
 
 fn pick_scd_bios_path() -> Option<PathBuf> {

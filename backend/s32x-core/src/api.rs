@@ -48,6 +48,7 @@ pub struct Sega32XEmulatorConfig {
     pub void_color: S32XVoidColor,
     pub apply_genesis_lpf_to_pwm: bool,
     pub pwm_enabled: bool,
+    pub pwm_volume_adjustment_db: f64,
 }
 
 impl Sega32XEmulatorConfig {

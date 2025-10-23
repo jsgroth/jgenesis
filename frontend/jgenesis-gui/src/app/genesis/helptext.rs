@@ -233,7 +233,20 @@ pub const SCD_PCM_INTERPOLATION: HelpText = HelpText {
     ],
 };
 
+pub const ENABLED_YM2612_CHANNELS: HelpText = HelpText {
+    heading: "Enabled YM2612 Channels",
+    text: &["Enable or disable individual YM2612 audio channels."],
+};
+
 pub const SOUND_SOURCES: HelpText = HelpText {
     heading: "Sound Sources",
     text: &["Enable or disable specific sound sources in final audio mixing."],
+};
+
+pub const VOLUME_ADJUSTMENTS: HelpText = HelpText {
+    heading: "Volume Adjustments",
+    text: &[
+        "Adjust the volume of individual sound sources.",
+        "Values can be positive or negative. Positive values increase volume and negative values decrease volume.",
+    ],
 };

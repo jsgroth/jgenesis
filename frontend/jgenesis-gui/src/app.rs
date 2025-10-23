@@ -9,7 +9,7 @@ mod smsgg;
 mod snes;
 mod widgets;
 
-use crate::app::genesis::S32XPriorityState;
+use crate::app::genesis::{GenesisVolumeState, S32XPriorityState};
 use crate::app::input::{GenericButton, InputMappingSet};
 use crate::app::nes::{NesPaletteState, OverscanState};
 use crate::app::romlist::{RomListThreadHandle, RomMetadata};
@@ -153,6 +153,7 @@ struct AppState {
     audio_gain_invalid: bool,
     display_scanlines_warning: bool,
     nes_palette: NesPaletteState,
+    genesis_volume: GenesisVolumeState,
     s32x_priority: S32XPriorityState,
     overscan: OverscanState,
     waiting_for_input: Option<(GenericButton, InputMappingSet)>,
@@ -188,6 +189,7 @@ impl AppState {
             audio_gain_text: format!("{:.1}", config.common.audio_gain_db),
             audio_gain_invalid: false,
             nes_palette: NesPaletteState::create(ctx, &config.nes.palette),
+            genesis_volume: GenesisVolumeState::from_config(config),
             s32x_priority: S32XPriorityState::from_config(&config.sega_32x),
             overscan: config.nes.overscan().into(),
             display_scanlines_warning: should_display_scanlines_warning(config),

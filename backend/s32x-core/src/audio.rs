@@ -5,7 +5,7 @@ use bincode::{Decode, Encode};
 use dsp::design::FilterType;
 use dsp::iir::FirstOrderIirFilter;
 use dsp::sinc::{PerformanceSincResampler, QualitySincResampler};
-use genesis_core::audio::{GenesisAudioFilter, LowPassSettings};
+use genesis_core::audio::{GenesisAudioFilter, LowPassSettings, volume_multiplier};
 use jgenesis_common::audio::CubicResampler;
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
 use std::collections::VecDeque;
@@ -143,14 +143,37 @@ impl PwmResampler {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
+struct VolumeMultipliers {
+    ym2612: f64,
+    psg: f64,
+    pwm: f64,
+}
+
+impl VolumeMultipliers {
+    fn from_config(config: &Sega32XEmulatorConfig) -> Self {
+        Self {
+            ym2612: volume_multiplier(
+                config.genesis.ym2612_enabled,
+                config.genesis.ym2612_volume_adjustment_db,
+            ),
+            psg: PSG_COEFFICIENT
+                * volume_multiplier(
+                    config.genesis.psg_enabled,
+                    config.genesis.psg_volume_adjustment_db,
+                ),
+            pwm: PWM_COEFFICIENT
+                * volume_multiplier(config.pwm_enabled, config.pwm_volume_adjustment_db),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct Sega32XResampler {
     gen_filter: GenesisAudioFilter,
     ym2612_resampler: QualitySincResampler<2>,
     psg_resampler: PerformanceSincResampler<1>,
     pwm_resampler: PwmResampler,
-    ym2612_enabled: bool,
-    psg_enabled: bool,
-    pwm_enabled: bool,
+    volumes: VolumeMultipliers,
 }
 
 impl Sega32XResampler {
@@ -169,9 +192,7 @@ impl Sega32XResampler {
                 48000.0,
             ),
             pwm_resampler: PwmResampler::new(&config, 48000),
-            ym2612_enabled: config.genesis.ym2612_enabled,
-            psg_enabled: config.genesis.psg_enabled,
-            pwm_enabled: config.pwm_enabled,
+            volumes: VolumeMultipliers::from_config(&config),
         }
     }
 
@@ -199,23 +220,23 @@ impl Sega32XResampler {
         .min()
         .unwrap();
         for _ in 0..samples_ready {
-            let [ym2612_l, ym2612_r] = check_enabled(
-                self.ym2612_resampler.output_buffer_pop_front().unwrap(),
-                self.ym2612_enabled,
-            );
-            let [psg] = check_enabled(
-                self.psg_resampler.output_buffer_pop_front().unwrap(),
-                self.psg_enabled,
-            );
-            let (pwm_l, pwm_r) = check_enabled(
-                self.pwm_resampler.output_buffer_pop_front().unwrap(),
-                self.pwm_enabled,
-            );
+            let [ym2612_l, ym2612_r] = self
+                .ym2612_resampler
+                .output_buffer_pop_front()
+                .unwrap()
+                .map(|sample| sample * self.volumes.ym2612);
+            let [psg] = self
+                .psg_resampler
+                .output_buffer_pop_front()
+                .unwrap()
+                .map(|sample| sample * self.volumes.psg);
 
-            let sample_l =
-                (ym2612_l + PSG_COEFFICIENT * psg + PWM_COEFFICIENT * pwm_l).clamp(-1.0, 1.0);
-            let sample_r =
-                (ym2612_r + PSG_COEFFICIENT * psg + PWM_COEFFICIENT * pwm_r).clamp(-1.0, 1.0);
+            let (mut pwm_l, mut pwm_r) = self.pwm_resampler.output_buffer_pop_front().unwrap();
+            pwm_l *= self.volumes.pwm;
+            pwm_r *= self.volumes.pwm;
+
+            let sample_l = (ym2612_l + psg + pwm_l).clamp(-1.0, 1.0);
+            let sample_r = (ym2612_r + psg + pwm_r).clamp(-1.0, 1.0);
 
             audio_output.push_sample(sample_l, sample_r)?;
         }
@@ -224,9 +245,7 @@ impl Sega32XResampler {
     }
 
     pub fn reload_config(&mut self, timing_mode: TimingMode, config: Sega32XEmulatorConfig) {
-        self.ym2612_enabled = config.genesis.ym2612_enabled;
-        self.psg_enabled = config.genesis.psg_enabled;
-        self.pwm_enabled = config.pwm_enabled;
+        self.volumes = VolumeMultipliers::from_config(&config);
 
         self.gen_filter.reload_config(timing_mode, &config.genesis);
         self.pwm_resampler.reload_config(&config);
@@ -237,8 +256,4 @@ impl Sega32XResampler {
         self.psg_resampler.update_output_frequency(output_frequency as f64);
         self.pwm_resampler.update_output_frequency(output_frequency);
     }
-}
-
-fn check_enabled<T: Default>(sample: T, enabled: bool) -> T {
-    if enabled { sample } else { T::default() }
 }

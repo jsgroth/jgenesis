@@ -7,7 +7,7 @@ use bincode::{Decode, Encode};
 use dsp::design::FilterType;
 use dsp::iir::{FirstOrderIirFilter, IirFilter, SecondOrderIirFilter};
 use dsp::sinc::{PerformanceSincResampler, QualitySincResampler};
-use genesis_core::audio::{GenesisAudioFilter, LowPassSettings};
+use genesis_core::audio::{GenesisAudioFilter, LowPassSettings, volume_multiplier};
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
 use std::cmp;
 
@@ -102,6 +102,34 @@ impl SegaCdAudioFilter {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
+struct VolumeMultipliers {
+    ym2612: f64,
+    psg: f64,
+    pcm: f64,
+    cd: f64,
+}
+
+impl VolumeMultipliers {
+    fn from_config(config: &SegaCdEmulatorConfig) -> Self {
+        Self {
+            ym2612: volume_multiplier(
+                config.genesis.ym2612_enabled,
+                config.genesis.ym2612_volume_adjustment_db,
+            ),
+            psg: PSG_COEFFICIENT
+                * volume_multiplier(
+                    config.genesis.psg_enabled,
+                    config.genesis.psg_volume_adjustment_db,
+                ),
+            pcm: PCM_COEFFICIENT
+                * volume_multiplier(config.pcm_enabled, config.pcm_volume_adjustment_db),
+            cd: CD_COEFFICIENT
+                * volume_multiplier(config.cd_audio_enabled, config.cd_volume_adjustment_db),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct AudioResampler {
     gen_filter: GenesisAudioFilter,
     scd_filter: SegaCdAudioFilter,
@@ -109,10 +137,7 @@ pub struct AudioResampler {
     psg_resampler: PerformanceSincResampler<1>,
     pcm_resampler: QualitySincResampler<2>,
     cd_resampler: QualitySincResampler<2>,
-    ym2612_enabled: bool,
-    psg_enabled: bool,
-    pcm_enabled: bool,
-    cd_enabled: bool,
+    volumes: VolumeMultipliers,
 }
 
 impl AudioResampler {
@@ -135,10 +160,7 @@ impl AudioResampler {
             psg_resampler,
             pcm_resampler,
             cd_resampler,
-            ym2612_enabled: config.genesis.ym2612_enabled,
-            psg_enabled: config.genesis.psg_enabled,
-            pcm_enabled: config.pcm_enabled,
-            cd_enabled: config.cd_audio_enabled,
+            volumes: VolumeMultipliers::from_config(&config),
         }
     }
 
@@ -174,33 +196,29 @@ impl AudioResampler {
             self.cd_resampler.output_buffer_len(),
         );
         for _ in 0..sample_count {
-            let [ym2612_l, ym2612_r] = check_enabled(
-                self.ym2612_resampler.output_buffer_pop_front().unwrap(),
-                self.ym2612_enabled,
-            );
-            let [psg] = check_enabled(
-                self.psg_resampler.output_buffer_pop_front().unwrap(),
-                self.psg_enabled,
-            );
-            let [pcm_l, pcm_r] = check_enabled(
-                self.pcm_resampler.output_buffer_pop_front().unwrap(),
-                self.pcm_enabled,
-            );
-            let [cd_l, cd_r] = check_enabled(
-                self.cd_resampler.output_buffer_pop_front().unwrap(),
-                self.cd_enabled,
-            );
+            let [ym2612_l, ym2612_r] = self
+                .ym2612_resampler
+                .output_buffer_pop_front()
+                .unwrap()
+                .map(|sample| sample * self.volumes.ym2612);
+            let [psg] = self
+                .psg_resampler
+                .output_buffer_pop_front()
+                .unwrap()
+                .map(|sample| sample * self.volumes.psg);
+            let [pcm_l, pcm_r] = self
+                .pcm_resampler
+                .output_buffer_pop_front()
+                .unwrap()
+                .map(|sample| sample * self.volumes.pcm);
+            let [cd_l, cd_r] = self
+                .cd_resampler
+                .output_buffer_pop_front()
+                .unwrap()
+                .map(|sample| sample * self.volumes.cd);
 
-            let sample_l = (ym2612_l
-                + PSG_COEFFICIENT * psg
-                + PCM_COEFFICIENT * pcm_l
-                + CD_COEFFICIENT * cd_l)
-                .clamp(-1.0, 1.0);
-            let sample_r = (ym2612_r
-                + PSG_COEFFICIENT * psg
-                + PCM_COEFFICIENT * pcm_r
-                + CD_COEFFICIENT * cd_r)
-                .clamp(-1.0, 1.0);
+            let sample_l = (ym2612_l + psg + pcm_l + cd_l).clamp(-1.0, 1.0);
+            let sample_r = (ym2612_r + psg + pcm_r + cd_r).clamp(-1.0, 1.0);
 
             audio_output.push_sample(sample_l, sample_r)?;
         }
@@ -209,10 +227,7 @@ impl AudioResampler {
     }
 
     pub fn reload_config(&mut self, timing_mode: TimingMode, config: SegaCdEmulatorConfig) {
-        self.ym2612_enabled = config.genesis.ym2612_enabled;
-        self.psg_enabled = config.genesis.psg_enabled;
-        self.pcm_enabled = config.pcm_enabled;
-        self.cd_enabled = config.cd_audio_enabled;
+        self.volumes = VolumeMultipliers::from_config(&config);
 
         self.gen_filter.reload_config(timing_mode, &config.genesis);
         self.scd_filter.reload_config(&config);
@@ -226,8 +241,4 @@ impl AudioResampler {
         self.pcm_resampler.update_output_frequency(output_frequency);
         self.cd_resampler.update_output_frequency(output_frequency);
     }
-}
-
-fn check_enabled<T: Default>(sample: T, enabled: bool) -> T {
-    if enabled { sample } else { T::default() }
 }
