@@ -125,6 +125,8 @@ enum OpenWindow {
     GbaInput,
     GbaPeripherals,
     Hotkeys,
+    SmsGgOverclock,
+    GenesisOverclock,
     About,
 }
 
@@ -462,6 +464,7 @@ impl App {
                     self.render_video_menu(ui);
                     self.render_audio_menu(ui);
                     self.render_input_menu(ui);
+                    self.render_overclock_menu(ui);
                     self.render_help_menu(ui);
                 });
             });
@@ -684,34 +687,18 @@ impl App {
 
     fn render_settings_menu(&mut self, ui: &mut Ui) {
         ui.menu_button("Settings", |ui| {
-            if ui.button("SMS / Game Gear").clicked() {
-                self.state.open_windows.insert(OpenWindow::SmsGgGeneral);
-                ui.close_menu();
-            }
-
-            if ui.button("Genesis / Sega CD / 32X").clicked() {
-                self.state.open_windows.insert(OpenWindow::GenesisGeneral);
-                ui.close_menu();
-            }
-
-            if ui.button("NES").clicked() {
-                self.state.open_windows.insert(OpenWindow::NesGeneral);
-                ui.close_menu();
-            }
-
-            if ui.button("SNES").clicked() {
-                self.state.open_windows.insert(OpenWindow::SnesGeneral);
-                ui.close_menu();
-            }
-
-            if ui.button("Game Boy").clicked() {
-                self.state.open_windows.insert(OpenWindow::GameBoyGeneral);
-                ui.close_menu();
-            }
-
-            if ui.button("Game Boy Advance").clicked() {
-                self.state.open_windows.insert(OpenWindow::GbaGeneral);
-                ui.close_menu();
+            for (label, window) in [
+                ("SMS / Game Gear", OpenWindow::SmsGgGeneral),
+                ("Genesis / Sega CD / 32X", OpenWindow::GenesisGeneral),
+                ("NES", OpenWindow::NesGeneral),
+                ("SNES", OpenWindow::SnesGeneral),
+                ("Game Boy", OpenWindow::GameBoyGeneral),
+                ("Game Boy Advance", OpenWindow::GbaGeneral),
+            ] {
+                if ui.button(label).clicked() {
+                    self.state.open_windows.insert(window);
+                    ui.close_menu();
+                }
             }
 
             ui.separator();
@@ -742,34 +729,18 @@ impl App {
 
             ui.separator();
 
-            if ui.button("SMS / Game Gear").clicked() {
-                self.state.open_windows.insert(OpenWindow::SmsGgVideo);
-                ui.close_menu();
-            }
-
-            if ui.button("Genesis / Sega CD / 32X").clicked() {
-                self.state.open_windows.insert(OpenWindow::GenesisVideo);
-                ui.close_menu();
-            }
-
-            if ui.button("NES").clicked() {
-                self.state.open_windows.insert(OpenWindow::NesVideo);
-                ui.close_menu();
-            }
-
-            if ui.button("SNES").clicked() {
-                self.state.open_windows.insert(OpenWindow::SnesVideo);
-                ui.close_menu();
-            }
-
-            if ui.button("Game Boy").clicked() {
-                self.state.open_windows.insert(OpenWindow::GameBoyVideo);
-                ui.close_menu();
-            }
-
-            if ui.button("Game Boy Advance").clicked() {
-                self.state.open_windows.insert(OpenWindow::GbaVideo);
-                ui.close_menu();
+            for (label, window) in [
+                ("SMS / Game Gear", OpenWindow::SmsGgVideo),
+                ("Genesis / Sega CD / 32X", OpenWindow::GenesisVideo),
+                ("NES", OpenWindow::NesVideo),
+                ("SNES", OpenWindow::SnesVideo),
+                ("Game Boy", OpenWindow::GameBoyVideo),
+                ("Game Boy Advance", OpenWindow::GbaVideo),
+            ] {
+                if ui.button(label).clicked() {
+                    self.state.open_windows.insert(window);
+                    ui.close_menu();
+                }
             }
         });
     }
@@ -783,34 +754,18 @@ impl App {
 
             ui.separator();
 
-            if ui.button("SMS / Game Gear").clicked() {
-                self.state.open_windows.insert(OpenWindow::SmsGgAudio);
-                ui.close_menu();
-            }
-
-            if ui.button("Genesis / Sega CD / 32X").clicked() {
-                self.state.open_windows.insert(OpenWindow::GenesisAudio);
-                ui.close_menu();
-            }
-
-            if ui.button("NES").clicked() {
-                self.state.open_windows.insert(OpenWindow::NesAudio);
-                ui.close_menu();
-            }
-
-            if ui.button("SNES").clicked() {
-                self.state.open_windows.insert(OpenWindow::SnesAudio);
-                ui.close_menu();
-            }
-
-            if ui.button("Game Boy").clicked() {
-                self.state.open_windows.insert(OpenWindow::GameBoyAudio);
-                ui.close_menu();
-            }
-
-            if ui.button("Game Boy Advance").clicked() {
-                self.state.open_windows.insert(OpenWindow::GbaAudio);
-                ui.close_menu();
+            for (label, window) in [
+                ("SMS / Game Gear", OpenWindow::SmsGgAudio),
+                ("Genesis / Sega CD / 32X", OpenWindow::GenesisAudio),
+                ("NES", OpenWindow::NesAudio),
+                ("SNES", OpenWindow::SnesAudio),
+                ("Game Boy", OpenWindow::GameBoyAudio),
+                ("Game Boy Advance", OpenWindow::GbaAudio),
+            ] {
+                if ui.button(label).clicked() {
+                    self.state.open_windows.insert(window);
+                    ui.close_menu();
+                }
             }
         });
     }
@@ -880,6 +835,20 @@ impl App {
             if ui.button("Hotkeys").clicked() {
                 self.state.open_windows.insert(OpenWindow::Hotkeys);
                 ui.close_menu();
+            }
+        });
+    }
+
+    fn render_overclock_menu(&mut self, ui: &mut Ui) {
+        ui.menu_button("Overclocking", |ui| {
+            for (label, window) in [
+                ("SMS / Game Gear", OpenWindow::SmsGgOverclock),
+                ("Genesis / Sega CD / 32X", OpenWindow::GenesisOverclock),
+            ] {
+                if ui.button(label).clicked() {
+                    self.state.open_windows.insert(window);
+                    ui.close_menu();
+                }
             }
         });
     }
@@ -1063,6 +1032,8 @@ impl App {
                 OpenWindow::GbaInput => self.render_gba_input_settings(ctx),
                 OpenWindow::GbaPeripherals => self.render_gba_peripheral_settings(ctx),
                 OpenWindow::Hotkeys => self.render_hotkey_settings(ctx),
+                OpenWindow::SmsGgOverclock => self.render_smsgg_overclock_settings(ctx),
+                OpenWindow::GenesisOverclock => self.render_genesis_overclock_settings(ctx),
                 OpenWindow::About => self.render_about(ctx),
             }
         }

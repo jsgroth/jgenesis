@@ -6,7 +6,9 @@ use std::fmt::{Display, Formatter};
 
 pub const NATIVE_M68K_DIVIDER: u64 = 7;
 
-pub const DEFAULT_SUB_CPU_DIVIDER: u64 = 4;
+pub const NATIVE_SUB_CPU_DIVIDER: u64 = 4;
+
+pub const NATIVE_SH2_MULTIPLIER: u64 = 3;
 
 pub const MODEL_1_VA2_LPF_CUTOFF: u32 = 3390;
 pub const MODEL_1_VA3_LPF_CUTOFF: u32 = 2840;

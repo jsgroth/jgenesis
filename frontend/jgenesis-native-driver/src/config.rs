@@ -441,6 +441,7 @@ impl AppConfigExt for AppConfig {
             genesis: genesis_config,
             emulator_config: Sega32XEmulatorConfig {
                 genesis: genesis_emu_config,
+                sh2_clock_multiplier: self.sega_32x.sh2_clock_multiplier,
                 video_out: self.sega_32x.video_out,
                 darken_genesis_colors: self.sega_32x.darken_genesis_colors,
                 color_tint: self.sega_32x.color_tint,

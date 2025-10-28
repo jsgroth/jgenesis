@@ -133,7 +133,7 @@ fn default_drive_speed() -> NonZeroU16 {
 }
 
 fn default_sub_divider() -> NonZeroU64 {
-    NonZeroU64::new(genesis_config::DEFAULT_SUB_CPU_DIVIDER).unwrap()
+    NonZeroU64::new(genesis_config::NATIVE_SUB_CPU_DIVIDER).unwrap()
 }
 
 const fn default_pcm_lpf_cutoff() -> u32 {
@@ -148,6 +148,8 @@ impl Default for SegaCdAppConfig {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Sega32XAppConfig {
+    #[serde(default = "default_sh2_multiplier")]
+    pub sh2_clock_multiplier: NonZeroU64,
     #[serde(default)]
     pub video_out: S32XVideoOut,
     #[serde(default = "true_fn")]
@@ -172,6 +174,10 @@ pub struct Sega32XAppConfig {
     pub pwm_enabled: bool,
     #[serde(default)]
     pub pwm_volume_adjustment_db: f64,
+}
+
+fn default_sh2_multiplier() -> NonZeroU64 {
+    NonZeroU64::new(genesis_config::NATIVE_SH2_MULTIPLIER).unwrap()
 }
 
 fn default_void_palette_index() -> u8 {

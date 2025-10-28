@@ -48,12 +48,19 @@ impl Widget for SavePathSelect<'_> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClockModifier {
+    Divider,
+    Multiplier,
+}
+
 pub struct OverclockSlider<'a, Num> {
     pub label: &'a str,
     pub current_value: &'a mut Num,
     pub range: RangeInclusive<Num>,
     pub master_clock: f64,
     pub default_divider: f64,
+    pub modifier: ClockModifier,
 }
 
 impl<Num: emath::Numeric> Widget for OverclockSlider<'_, Num> {
@@ -64,8 +71,19 @@ impl<Num: emath::Numeric> Widget for OverclockSlider<'_, Num> {
             ui.add(Slider::new(self.current_value, self.range));
 
             let current_divider = self.current_value.to_f64();
-            let effective_speed_ratio = 100.0 * self.default_divider / current_divider;
-            let effective_speed_mhz = self.master_clock / current_divider / 1_000_000.0;
+
+            let (effective_speed_ratio, effective_speed_mhz) = match self.modifier {
+                ClockModifier::Divider => {
+                    let effective_speed_ratio = 100.0 * self.default_divider / current_divider;
+                    let effective_speed_mhz = self.master_clock / current_divider / 1_000_000.0;
+                    (effective_speed_ratio, effective_speed_mhz)
+                }
+                ClockModifier::Multiplier => {
+                    let effective_speed_ratio = 100.0 * current_divider / self.default_divider;
+                    let effective_speed_mhz = self.master_clock * current_divider / 1_000_000.0;
+                    (effective_speed_ratio, effective_speed_mhz)
+                }
+            };
 
             ui.label(format!(
                 "Effective speed: {effective_speed_mhz:.2} MHz ({}%)",

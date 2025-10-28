@@ -31,7 +31,7 @@ use std::path::Path;
 use thiserror::Error;
 use z80_emu::Z80;
 
-pub const DEFAULT_SUB_CPU_DIVIDER: u64 = genesis_config::DEFAULT_SUB_CPU_DIVIDER;
+pub const DEFAULT_SUB_CPU_DIVIDER: u64 = genesis_config::NATIVE_SUB_CPU_DIVIDER;
 
 const NTSC_GENESIS_MASTER_CLOCK_RATE: u64 = 53_693_175;
 const PAL_GENESIS_MASTER_CLOCK_RATE: u64 = 53_203_424;

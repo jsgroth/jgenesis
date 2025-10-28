@@ -3,7 +3,7 @@ mod helptext;
 use crate::app::widgets::{BiosErrorStrings, OptionalPathSelector, RenderErrorEffect};
 use crate::app::{App, OpenWindow, widgets};
 use crate::emuthread::EmuThreadStatus;
-use crate::widgets::OverclockSlider;
+use crate::widgets::{ClockModifier, OverclockSlider};
 use egui::{Context, Window};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::extensions::Console;
@@ -83,19 +83,6 @@ impl App {
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::REGION);
-            }
-
-            let rect = ui
-                .add(OverclockSlider {
-                    label: "Z80 clock divider",
-                    current_value: &mut self.config.smsgg.z80_divider,
-                    range: NonZeroU32::new(1).unwrap()..=NonZeroU32::new(15).unwrap(),
-                    master_clock: smsgg_core::audio::NTSC_MCLK_FREQUENCY,
-                    default_divider: smsgg_core::NATIVE_Z80_DIVIDER.into(),
-                })
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::Z80_OVERCLOCK);
             }
 
             ui.add_space(5.0);
@@ -312,6 +299,31 @@ impl App {
 
             self.render_help_text(ui, WINDOW);
         });
+        if !open {
+            self.state.open_windows.remove(&WINDOW);
+        }
+    }
+
+    pub(super) fn render_smsgg_overclock_settings(&mut self, ctx: &Context) {
+        const WINDOW: OpenWindow = OpenWindow::SmsGgOverclock;
+
+        let mut open = true;
+        Window::new("SMS/GG Overclocking Settings").open(&mut open).resizable(false).show(
+            ctx,
+            |ui| {
+                ui.add(OverclockSlider {
+                    label: "Z80 clock divider",
+                    current_value: &mut self.config.smsgg.z80_divider,
+                    range: NonZeroU32::new(1).unwrap()..=NonZeroU32::new(15).unwrap(),
+                    master_clock: smsgg_core::audio::NTSC_MCLK_FREQUENCY,
+                    default_divider: smsgg_core::NATIVE_Z80_DIVIDER.into(),
+                    modifier: ClockModifier::Divider,
+                });
+
+                self.state.help_text.insert(WINDOW, helptext::Z80_OVERCLOCK);
+                self.render_help_text(ui, WINDOW);
+            },
+        );
         if !open {
             self.state.open_windows.remove(&WINDOW);
         }

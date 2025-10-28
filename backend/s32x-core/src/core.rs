@@ -18,9 +18,10 @@ use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::PartialClone;
 use sh2_emu::Sh2;
 use std::cmp;
+use std::num::NonZeroU64;
 
 const M68K_DIVIDER: u64 = timing::NATIVE_M68K_DIVIDER;
-const SH2_MULTIPLIER: u64 = 3;
+const SH2_MULTIPLIER: u64 = crate::SH2_CLOCK_MULTIPLIER;
 
 // Prefer to execute SH-2 instructions in longer chunks when possible for better performance
 pub const SH2_EXECUTION_SLICE_LEN: u64 = 50;
@@ -52,6 +53,7 @@ pub struct Sega32X {
     global_cycles: u64,
     master_cycles: u64,
     slave_cycles: u64,
+    sh2_clock_multiplier: Option<NonZeroU64>,
     #[partial_clone(partial)]
     pub s32x_bus: Sega32XBus,
     pub m68k_vectors: Box<M68kVectors>,
@@ -76,6 +78,7 @@ impl Sega32X {
             global_cycles: 0,
             master_cycles: 0,
             slave_cycles: 0,
+            sh2_clock_multiplier: none_if_default_multiplier(config.sh2_clock_multiplier),
             s32x_bus: Sega32XBus {
                 cartridge,
                 vdp: Vdp::new(timing_mode, config),
@@ -105,10 +108,24 @@ impl Sega32X {
             let mclk_cycles = cmp::min(mclk_till_next_vdp_event, total_mclk_cycles);
             total_mclk_cycles -= mclk_cycles;
 
-            // SH-2 clock speed is exactly 3x the 68000 clock speed
             self.mclk_counter += mclk_cycles;
-            let elapsed_sh2_cycles = self.mclk_counter / M68K_DIVIDER * SH2_MULTIPLIER;
-            self.mclk_counter -= elapsed_sh2_cycles * M68K_DIVIDER / SH2_MULTIPLIER;
+            let (elapsed_sh2_cycles, elapsed_pwm_cycles) = match self.sh2_clock_multiplier {
+                Some(multiplier) => {
+                    let multiplier = multiplier.get();
+                    let elapsed_sh2_cycles = self.mclk_counter / M68K_DIVIDER * multiplier;
+                    let elapsed_pwm_cycles = elapsed_sh2_cycles / multiplier * SH2_MULTIPLIER;
+                    self.mclk_counter -= elapsed_sh2_cycles * M68K_DIVIDER / multiplier;
+
+                    (elapsed_sh2_cycles, elapsed_pwm_cycles)
+                }
+                None => {
+                    let elapsed_sh2_cycles = self.mclk_counter / M68K_DIVIDER * SH2_MULTIPLIER;
+                    self.mclk_counter -= elapsed_sh2_cycles * M68K_DIVIDER / SH2_MULTIPLIER;
+
+                    (elapsed_sh2_cycles, elapsed_sh2_cycles)
+                }
+            };
+
             self.global_cycles += elapsed_sh2_cycles;
 
             let mut slave_bus = Sh2Bus {
@@ -148,14 +165,14 @@ impl Sega32X {
                 cycle_limit: 0,
                 other_sh2: None,
             };
-            self.sh2_master.tick_peripherals(elapsed_sh2_cycles, &mut peripherals_bus);
+            self.sh2_master.tick_peripherals(elapsed_pwm_cycles, &mut peripherals_bus);
 
             peripherals_bus.which = WhichCpu::Slave;
-            self.sh2_slave.tick_peripherals(elapsed_sh2_cycles, &mut peripherals_bus);
+            self.sh2_slave.tick_peripherals(elapsed_pwm_cycles, &mut peripherals_bus);
 
             self.s32x_bus.vdp.tick(mclk_cycles, &mut self.s32x_bus.registers, genesis_vdp);
 
-            self.s32x_bus.pwm.tick(elapsed_sh2_cycles, &mut self.s32x_bus.registers, pwm_resampler);
+            self.s32x_bus.pwm.tick(elapsed_pwm_cycles, &mut self.s32x_bus.registers, pwm_resampler);
         }
     }
 
@@ -164,6 +181,7 @@ impl Sega32X {
     }
 
     pub fn reload_config(&mut self, config: &Sega32XEmulatorConfig) {
+        self.sh2_clock_multiplier = none_if_default_multiplier(config.sh2_clock_multiplier);
         self.s32x_bus.vdp.reload_config(config);
     }
 
@@ -189,5 +207,12 @@ impl Sega32X {
 
     pub fn debug_slave_sh2_cache(&mut self) -> impl DebugMemoryView {
         self.sh2_slave.debug_cache_view()
+    }
+}
+
+fn none_if_default_multiplier(multiplier: NonZeroU64) -> Option<NonZeroU64> {
+    match multiplier.get() {
+        SH2_MULTIPLIER => None,
+        _ => Some(multiplier),
     }
 }

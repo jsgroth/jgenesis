@@ -58,6 +58,15 @@ pub const SCD_SUB_CPU_DIVIDER: HelpText = HelpText {
     ],
 };
 
+pub const SH2_CLOCK_MULTIPLIER: HelpText = HelpText {
+    heading: "32X SH-2 Clock Multiplier",
+    text: &[
+        "Optionally overclock the 32X SH-2s by increasing their master clock multiplier.",
+        "This may reduce slowdown in some games, but it may also cause major glitches.",
+        "Overclocking the SH-2s is extremely CPU-intensive and may cause the emulator to not run at full speed.",
+    ],
+};
+
 pub const SCD_DRIVE_SPEED: HelpText = HelpText {
     heading: "Sega CD Disc Drive Speed",
     text: &[

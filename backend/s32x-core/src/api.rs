@@ -23,6 +23,7 @@ use m68000_emu::M68000;
 use smsgg_config::Sn76489Version;
 use smsgg_core::psg::{Sn76489, Sn76489TickEffect};
 use std::fmt::{Debug, Display};
+use std::num::NonZeroU64;
 use thiserror::Error;
 use z80_emu::Z80;
 
@@ -40,6 +41,7 @@ pub enum Sega32XError<RErr, AErr, SErr> {
 pub struct Sega32XEmulatorConfig {
     #[cfg_display(skip)]
     pub genesis: GenesisEmulatorConfig,
+    pub sh2_clock_multiplier: NonZeroU64,
     pub video_out: S32XVideoOut,
     pub darken_genesis_colors: bool,
     pub color_tint: S32XColorTint,
@@ -59,7 +61,11 @@ impl Sega32XEmulatorConfig {
 
 impl EmulatorConfigTrait for Sega32XEmulatorConfig {
     fn with_overclocking_disabled(&self) -> Self {
-        Self { genesis: self.genesis.with_overclocking_disabled(), ..*self }
+        Self {
+            genesis: self.genesis.with_overclocking_disabled(),
+            sh2_clock_multiplier: NonZeroU64::new(crate::SH2_CLOCK_MULTIPLIER).unwrap(),
+            ..*self
+        }
     }
 }
 

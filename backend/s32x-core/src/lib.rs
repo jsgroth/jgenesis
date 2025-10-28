@@ -7,6 +7,8 @@ mod pwm;
 mod registers;
 mod vdp;
 
+pub const SH2_CLOCK_MULTIPLIER: u64 = genesis_config::NATIVE_SH2_MULTIPLIER;
+
 // The security program is located at $36C-$76B in the master SH-2 boot ROM. The 32X will refuse to
 // boot any cartridge where $400-$7FF in cartridge ROM isn't an exact match for this security program.
 //

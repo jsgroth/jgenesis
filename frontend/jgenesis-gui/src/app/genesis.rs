@@ -5,7 +5,7 @@ use crate::app::widgets::{
 };
 use crate::app::{App, Console, OpenWindow, widgets};
 use crate::emuthread::EmuThreadStatus;
-use crate::widgets::OverclockSlider;
+use crate::widgets::{ClockModifier, OverclockSlider};
 use egui::style::ScrollStyle;
 use egui::{Color32, Context, Slider, Ui, Window};
 use genesis_config::{GenesisAspectRatio, GenesisRegion, Opn2BusyBehavior};
@@ -196,7 +196,6 @@ impl App {
                 self.state.help_text.insert(WINDOW, helptext::SCD_RAM_CARTRIDGE);
             }
 
-            ui.add_space(5.0);
             let rect = ui
                 .checkbox(
                     &mut self.config.sega_cd.load_disc_into_ram,
@@ -205,73 +204,6 @@ impl App {
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::SCD_CDROM_IN_RAM);
-            }
-
-            ui.add_space(5.0);
-            ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    let rect = ui
-                        .add(OverclockSlider {
-                            label: "Genesis 68000 clock divider",
-                            current_value: &mut self.config.genesis.m68k_clock_divider,
-                            range: 1..=7,
-                            master_clock: genesis_core::audio::NTSC_GENESIS_MCLK_FREQUENCY,
-                            default_divider: genesis_core::timing::NATIVE_M68K_DIVIDER as f64,
-                        })
-                        .interact_rect;
-                    if ui.rect_contains_pointer(rect) {
-                        self.state.help_text.insert(WINDOW, helptext::M68K_CLOCK_DIVIDER);
-                    }
-                });
-
-                ui.vertical(|ui| {
-                    let rect = ui
-                        .add(OverclockSlider {
-                            label: "Sega CD sub 68000 clock divider",
-                            current_value: &mut self.config.sega_cd.sub_cpu_divider,
-                            range: NonZeroU64::new(1).unwrap()..=NonZeroU64::new(4).unwrap(),
-                            master_clock: segacd_core::api::SEGA_CD_MASTER_CLOCK_RATE as f64,
-                            default_divider: segacd_core::api::DEFAULT_SUB_CPU_DIVIDER as f64,
-                        })
-                        .interact_rect;
-                    if ui.rect_contains_pointer(rect) {
-                        self.state.help_text.insert(WINDOW, helptext::SCD_SUB_CPU_DIVIDER);
-                    }
-                });
-            });
-
-            ui.add_space(5.0);
-            let rect = ui
-                .group(|ui| {
-                    ui.label("Sega CD disc drive speed (low compatibility)");
-
-                    ui.horizontal(|ui| {
-                        ui.radio_value(
-                            &mut self.config.sega_cd.disc_drive_speed,
-                            NonZeroU16::new(1).unwrap(),
-                            "1x (Native)",
-                        );
-                        ui.radio_value(
-                            &mut self.config.sega_cd.disc_drive_speed,
-                            NonZeroU16::new(2).unwrap(),
-                            "2x",
-                        );
-                        ui.radio_value(
-                            &mut self.config.sega_cd.disc_drive_speed,
-                            NonZeroU16::new(3).unwrap(),
-                            "3x",
-                        );
-                        ui.radio_value(
-                            &mut self.config.sega_cd.disc_drive_speed,
-                            NonZeroU16::new(4).unwrap(),
-                            "4x",
-                        );
-                    });
-                })
-                .response
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::SCD_DRIVE_SPEED);
             }
 
             self.render_help_text(ui, WINDOW);
@@ -637,6 +569,99 @@ impl App {
 
             self.render_help_text(ui, WINDOW);
         });
+        if !open {
+            self.state.open_windows.remove(&WINDOW);
+        }
+    }
+
+    pub(super) fn render_genesis_overclock_settings(&mut self, ctx: &Context) {
+        const WINDOW: OpenWindow = OpenWindow::GenesisOverclock;
+
+        let mut open = true;
+        Window::new("Genesis Overclocking Settings").open(&mut open).resizable(false).show(
+            ctx,
+            |ui| {
+                let rect = ui
+                    .add(OverclockSlider {
+                        label: "Genesis 68000 clock divider",
+                        current_value: &mut self.config.genesis.m68k_clock_divider,
+                        range: 1..=7,
+                        master_clock: genesis_core::audio::NTSC_GENESIS_MCLK_FREQUENCY,
+                        default_divider: genesis_core::timing::NATIVE_M68K_DIVIDER as f64,
+                        modifier: ClockModifier::Divider,
+                    })
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::M68K_CLOCK_DIVIDER);
+                }
+
+                ui.add_space(5.0);
+                let rect = ui
+                    .add(OverclockSlider {
+                        label: "Sega CD sub 68000 clock divider",
+                        current_value: &mut self.config.sega_cd.sub_cpu_divider,
+                        range: NonZeroU64::new(1).unwrap()..=NonZeroU64::new(4).unwrap(),
+                        master_clock: segacd_core::api::SEGA_CD_MASTER_CLOCK_RATE as f64,
+                        default_divider: segacd_core::api::DEFAULT_SUB_CPU_DIVIDER as f64,
+                        modifier: ClockModifier::Divider,
+                    })
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::SCD_SUB_CPU_DIVIDER);
+                }
+
+                ui.add_space(5.0);
+                let rect = ui
+                    .add(OverclockSlider {
+                        label: "32X SH-2 clock multiplier",
+                        current_value: &mut self.config.sega_32x.sh2_clock_multiplier,
+                        range: NonZeroU64::new(3).unwrap()..=NonZeroU64::new(10).unwrap(),
+                        master_clock: genesis_core::audio::NTSC_GENESIS_MCLK_FREQUENCY / 7.0,
+                        default_divider: genesis_config::NATIVE_SH2_MULTIPLIER as f64,
+                        modifier: ClockModifier::Multiplier,
+                    })
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::SH2_CLOCK_MULTIPLIER);
+                }
+
+                ui.add_space(5.0);
+                let rect = ui
+                    .group(|ui| {
+                        ui.label("Sega CD disc drive speed (low compatibility)");
+
+                        ui.horizontal(|ui| {
+                            ui.radio_value(
+                                &mut self.config.sega_cd.disc_drive_speed,
+                                NonZeroU16::new(1).unwrap(),
+                                "1x (Native)",
+                            );
+                            ui.radio_value(
+                                &mut self.config.sega_cd.disc_drive_speed,
+                                NonZeroU16::new(2).unwrap(),
+                                "2x",
+                            );
+                            ui.radio_value(
+                                &mut self.config.sega_cd.disc_drive_speed,
+                                NonZeroU16::new(3).unwrap(),
+                                "3x",
+                            );
+                            ui.radio_value(
+                                &mut self.config.sega_cd.disc_drive_speed,
+                                NonZeroU16::new(4).unwrap(),
+                                "4x",
+                            );
+                        });
+                    })
+                    .response
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::SCD_DRIVE_SPEED);
+                }
+
+                self.render_help_text(ui, WINDOW);
+            },
+        );
         if !open {
             self.state.open_windows.remove(&WINDOW);
         }
