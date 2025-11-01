@@ -3,7 +3,7 @@
 ## Game Boy Advance
 * Game Boy Advance emulation is now supported; requires a Game Boy Advance BIOS ROM
 * Video options for color correction and LCD ghosting emulation (frame blending), both enabled by default
-* Audio enhancement option to apply windowed sinc interpolation to the Direct Sound channels rather than accurately emulating actual hardware's resampling behavior
+* Audio enhancement option to apply enhanced interpolation to the Direct Sound channels rather than accurately emulating actual hardware's resampling behavior
   * This massively reduces audio aliasing and noise in most cases, but it can also make audio sound muffled when games use very low sample rates (as most GBA games do)
 * CPU/prefetch/DMA/etc. timing is not perfect but should be moderately accurate
 * All types of cartridge save memory supported, with an option to force a specific type if auto-detection gets it wrong
@@ -12,17 +12,18 @@
 ## New Features
 * (**Genesis**) Added an option to ignore configured aspect ratio and display square pixels when the VDP is in H40/H320px mode (#442)
 * (**Genesis**) Added support for games with 24C64 EEPROM chips; _College Slam_ and _Frank Thomas Big Hurt Baseball_ are now playable (#459)
+* (**Genesis**) New audio option to enable/disable individual YM2612 audio channels
+* (**Genesis**) New audio option to adjust volume of individual sound sources
+* (**Genesis**) Added some additional memory/register views to the Memory Viewer window
 * (**Sega CD**) Added support for per-region BIOS configuration, where the emulator will automatically select the appropriate BIOS based on game region
 * (**32X**) Added two new color display options (#492)
   * New option to darken Genesis colors relative to 32X colors, enabled by default; on actual hardware the brightest 32X colors are noticeably brighter than the brightest Genesis colors
   * New option to apply a yellow or purple tint to 32X colors, roughly as observed on actual hardware
+* (**32X**) Added an option to overclock the SH-2s; this is extremely CPU-intensive but can reduce slowdown in some games
 * (**32X**) Added options to hide all pixels of a given priority (#494)
-* (**Genesis** / **Sega CD** / **32X**) Added some additional memory/register views to the Memory Viewer window
 * (**NES**) Added palette customization options (#424)
   * Can now load a custom palette from a file; both 64-color and full 512-color palette files supported
   * GUI now has a builtin NTSC palette generator with a graphic displaying the current palette
-* (**NES**) Added an option for whether to emulate DMC DMA dummy controller port reads
-  * Disabling this is less accurate but fixes input glitches in a few games (e.g. the Japanese version of _Gimmick!_)
 * (**SNES**) Added support for the ST018 coprocessor, used by _Hayazashi Nidan Morita Shougi 2_
   * This is emulated using an ARM7TDMI implementation (ARMv4T) rather than an ARM6 (ARMv3), but this should not make any functional difference
 * (**GB**) Added a frame blending option that simulates LCD ghosting, enabled by default; enabling this fixes graphical effects in a few games and demos (#469)
@@ -47,8 +48,8 @@
   * (**Genesis**) Loading a ROM file smaller than 1 KB or so (#434)
   * (**Genesis**) Z80 tries to access its own memory through the 32KB 68K memory bank by mapping it to \$A00000-\$A07FFF or \$A08000-\$A0FFFF
   * (**Genesis**) VRAM-to-VRAM copy DMA with source address higher than \$1FFFF
-  * (**Genesis** / **Sega CD**) 68000 triggers a privilege violation exception
-  * (**Genesis** / **Sega CD**) 68000 triggers an address error while handling an exception
+  * (**Genesis**) 68000 triggers a privilege violation exception
+  * (**Genesis**) 68000 triggers an address error while handling an exception
   * (**32X**) One of the SH-2s executes a SLEEP instruction (#431)
   * (**32X**) One of the SH-2s executes an illegal opcode
   * (**32X**) One of the SH-2s tries to access certain invalid memory addresses (highest 3 bits set to 100 or 101)
@@ -65,12 +66,17 @@
 * Fixed two games failing to boot due to the emulator not giving them the correct type of cartridge save memory
   * _Honoo no Toukyuuji: Dodge Danpei_ has a 24C01 EEPROM chip (#460)
   * _Al Michaels Announces HardBall III_ has 32 KB of SRAM (#546)
+* Slightly adjusted memory refresh delay timing when the main CPU is executing out of RAM; this fixes incorrectly visible CRAM dots in _Snatcher_
+* (**Sega CD**) Fixed implementation of VDP DMA reads from word RAM being delayed; this fixes glitchy background graphics in _Snatcher_ (again)
+  * This was a regression that affected v0.10.0 and v0.10.1; it was broken by VDP DMA changes in v0.10.0
 * (**Sega CD** / **32X**) Adjusted inter-CPU/VDP timings to account for some VDP timing changes made in v0.10.0; this fixes the Sega CD version of _Mickey Mania_ having glitchy graphics on the right side of the screen in the 3D chase stages (#491)
-  * This was a regression that affected v0.10.0 and v0.10.1
+  * This was also a regression that affected v0.10.0 and v0.10.1
 * (**32X**) Improved accuracy of VDP auto fill timing; this fixes occasional major graphical glitches in _Shadow Squadron_ / _Stellar Assault_ during the intro and takeoff sequences (#225 / #439)
 * (**32X**) Fixed some inaccuracies around VDP register latching; this fixes some early 32X demos not working properly (#430)
+* (**32X**) Fixed some PWM resampling bugs that sometimes caused erroneous pops in PWM audio output
 * (**32X**) Slightly improved SH-2 timing accuracy, particularly around 32-bit SDRAM writes being way too slow (#493)
 * (**32X**) Fixed 32X HINT counter behavior not matching Genesis HINT behavior, which caused SH-2 horizontal interrupts to be off by a line (#559)
+* (**32X**) Fixed 32X VDP per-line events (HBlank, line render) triggering slightly too early in the line
 * Several timing fixes that fix graphical bugs in the Chaekopon demo by Limp Ninja (#435)
   * Adjusted low-level sprite processing timings so that sprite attribute fetching is performed slightly earlier in the line
   * Fixed a pretty egregious DMA timing bug where DMA would take way too long to start copying if initiated during active display with display enabled
@@ -80,11 +86,11 @@
   * (**32X**) Fixed behaviors related to enabling/disabling/clearing SH-2 VINT during VBlank
   * (**32X**) Fixed some register bits being incorrectly writable / not writable
   * (**32X**) Updates to initial state at power-on to more closely match actual hardware
-* The emulator now defaults to PAL timings for a few demos that depend on them (#433 / #435)
 
 ## NES Fixes
 * Very slightly adjusted sprite 0 hit timing; this fixes glitchy lines on the title screen of _Indiana Jones and the Last Crusade_ (#314)
 * DMC DMA timing is now emulated; this fixes screen jitter in _Ultimate Air Combat_ (#268)
+* Fixed non-power-of-two CHR ROM sizes not working correctly (#573)
 * Several fixes for inaccuracies identified by the AccuracyCoin test ROM (#551)
   * Fixed an APU timing issue that sometimes caused an incorrectly skipped frame counter clock when software wrote 0x80 to \$4017 with two consecutive `sta $4017` instructions
   * More accurate APU frame counter timing
@@ -92,7 +98,7 @@
   * DMA dummy reads are now emulated (with a new option to disable dummy controller port reads because they cause input glitches in some games)
   * CPU open bus is now properly emulated (it was previously faked by always returning the address high byte)
   * More accurate PPU open bus emulation
-  * Most PPU registers are no longer writable immediately after power-on/reset
+  * Most PPU registers are no longer writable immediately after reset
   * Fixed the 6502 incorrectly polling the interrupt lines during the final cycle of BRK instructions and IRQ handling
   * More accurate controller port behaviors around strobing and consecutive-cycle reads
 
@@ -102,8 +108,10 @@
 * Fixed multiple bugs in the BG vertical mosaic implementation, which was previously quite wrong; this fixes graphical bugs in _Beavis and Butt-Head_ and _Jurassic Park Part 2: The Chaos Continues_ (#532 / #540)
 * Improved DMA timing accuracy; this fixes graphical glitches in _Circuit USA_ (#531)
 * Fixed incorrect DSP-1 port address mapping for DSP-1 cartridges with more than 1 MB of ROM; this fixes _Super Bases Loaded 2_ failing to boot (#534)
+* Fixed some revisions of _Tintin in Tibet_ incorrectly defaulting to NTSC timings instead of PAL (#539)
 * The 65816 stack pointer is now initialized to \$01FF instead of \$0100; this fixes some homebrew games failing to boot due to stack corruption (#468)
 * Fixed SA-1 Character Conversion DMA Type 1 in 2bpp or 4bpp mode incorrectly treating the input packed pixel data as big-endian within a byte when it is actually little-endian; this fixes graphical glitches in the SA-1 tech demo cartridge (#537)
+* Implemented multiplication/division timing; this fixes some old homebrew that accidentally depends on reading intermediate division results (#576)
 
 ## Game Boy [Color] Fixes
 * Fixed the GBC color correction implementation nonsensically performing calculations in sRGB color space rather than linear color space; this makes a particularly huge difference for the GBA LCD option
