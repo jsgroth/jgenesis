@@ -20,6 +20,8 @@ pub struct GameBoyAdvanceAppConfig {
     pub forced_save_memory_type: Option<GbaSaveMemory>,
     #[serde(default)]
     pub audio_interpolation: GbaAudioInterpolation,
+    #[serde(default)]
+    pub psg_low_pass: bool,
     #[serde(default = "true_fn")]
     pub pulse_1_enabled: bool,
     #[serde(default = "true_fn")]

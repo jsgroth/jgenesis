@@ -593,6 +593,7 @@ impl AppConfigExt for AppConfig {
                 forced_save_memory_type: self.game_boy_advance.forced_save_memory_type,
                 audio: GbaAudioConfig {
                     audio_interpolation: self.game_boy_advance.audio_interpolation,
+                    psg_low_pass: self.game_boy_advance.psg_low_pass,
                     pulse_1_enabled: self.game_boy_advance.pulse_1_enabled,
                     pulse_2_enabled: self.game_boy_advance.pulse_2_enabled,
                     wavetable_enabled: self.game_boy_advance.wavetable_enabled,

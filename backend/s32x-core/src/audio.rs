@@ -99,7 +99,7 @@ impl PwmAudioFilter {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct PwmResampler {
     filter: PwmAudioFilter,
-    resampler: CubicResampler,
+    resampler: CubicResampler<2>,
     output: VecDeque<(f64, f64)>,
 }
 
@@ -107,14 +107,14 @@ impl PwmResampler {
     pub fn new(config: &Sega32XEmulatorConfig, output_frequency: u64) -> Self {
         Self {
             filter: PwmAudioFilter::new(config, output_frequency),
-            resampler: CubicResampler::new(22000.0),
+            resampler: CubicResampler::new(22000.0, output_frequency),
             output: VecDeque::with_capacity(48000 / 30),
         }
     }
 
     pub fn collect_sample(&mut self, sample_l: f64, sample_r: f64) {
-        self.resampler.collect_sample(sample_l, sample_r);
-        while let Some((output_l, output_r)) = self.resampler.output_buffer_pop_front() {
+        self.resampler.collect_sample([sample_l, sample_r]);
+        while let Some([output_l, output_r]) = self.resampler.output_buffer_pop_front() {
             let (output_l, output_r) = self.filter.filter((output_l, output_r));
             self.output.push_back((output_l, output_r));
         }

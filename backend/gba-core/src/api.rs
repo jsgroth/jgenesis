@@ -29,6 +29,7 @@ use thiserror::Error;
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct GbaAudioConfig {
     pub audio_interpolation: GbaAudioInterpolation,
+    pub psg_low_pass: bool,
     pub pulse_1_enabled: bool,
     pub pulse_2_enabled: bool,
     pub wavetable_enabled: bool,
@@ -41,6 +42,7 @@ impl Default for GbaAudioConfig {
     fn default() -> Self {
         Self {
             audio_interpolation: GbaAudioInterpolation::default(),
+            psg_low_pass: false,
             pulse_1_enabled: true,
             pulse_2_enabled: true,
             wavetable_enabled: true,

@@ -175,26 +175,46 @@ impl App {
 
         let mut open = true;
         Window::new("GBA Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            let rect = ui
-                .group(|ui| {
-                    ui.label("Audio interpolation");
+            ui.group(|ui| {
+                let rect = ui
+                    .scope(|ui| {
+                        ui.label("Audio interpolation");
 
-                    ui.radio_value(
-                        &mut self.config.game_boy_advance.audio_interpolation,
-                        GbaAudioInterpolation::NearestNeighbor,
-                        "Nearest neighbor (Native)",
-                    );
-                    ui.radio_value(
-                        &mut self.config.game_boy_advance.audio_interpolation,
-                        GbaAudioInterpolation::WindowedSinc,
-                        "Windowed sinc (Anti-aliased)",
-                    );
-                })
-                .response
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::AUDIO_INTERPOLATION);
-            }
+                        for (value, label) in [
+                            (GbaAudioInterpolation::NearestNeighbor, "Nearest neighbor (Native)"),
+                            (GbaAudioInterpolation::CubicHermite, "Cubic Hermite"),
+                            (GbaAudioInterpolation::WindowedSinc, "Windowed sinc"),
+                        ] {
+                            ui.radio_value(
+                                &mut self.config.game_boy_advance.audio_interpolation,
+                                value,
+                                label,
+                            );
+                        }
+                    })
+                    .response
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::AUDIO_INTERPOLATION);
+                }
+
+                let rect = ui
+                    .add_enabled_ui(
+                        self.config.game_boy_advance.audio_interpolation
+                            != GbaAudioInterpolation::NearestNeighbor,
+                        |ui| {
+                            ui.checkbox(
+                                &mut self.config.game_boy_advance.psg_low_pass,
+                                "Apply low-pass filter to PSG",
+                            );
+                        },
+                    )
+                    .response
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::PSG_LPF);
+                }
+            });
 
             let rect = ui
                 .group(|ui| {

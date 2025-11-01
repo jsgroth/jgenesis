@@ -46,7 +46,16 @@ pub const AUDIO_INTERPOLATION: HelpText = HelpText {
     heading: "Audio Interpolation",
     text: &[
         "Optionally perform much higher quality audio interpolation than actual hardware does.",
-        "Sinc interpolation significantly reduces audio aliasing and noise, but it can also make audio sound more muffled.",
+        "Sinc interpolation reduces audio aliasing and noise more than cubic interpolation does, but it also usually sounds more muffled.",
+    ],
+};
+
+pub const PSG_LPF: HelpText = HelpText {
+    heading: "PSG Low-Pass Filter",
+    text: &[
+        "Optionally apply a low-pass filter to PSG audio output when using enhanced interpolation.",
+        "In games that use both the PCM and PSG channels, this makes the PSG channels stand out less.",
+        "The LPF cutoff frequency is set dynamically based on the PCM sample rate.",
     ],
 };
 

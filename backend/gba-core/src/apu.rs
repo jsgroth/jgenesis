@@ -214,9 +214,14 @@ impl AudioResampler {
             GbaAudioInterpolation::NearestNeighbor => {
                 Self::Basic(Box::new(BasicResampler::new(clock_shift, output_frequency)))
             }
-            GbaAudioInterpolation::WindowedSinc => Self::Interpolating(Box::new(
-                InterpolatingResampler::new(output_frequency, pcm_frequencies),
-            )),
+            GbaAudioInterpolation::CubicHermite | GbaAudioInterpolation::WindowedSinc => {
+                Self::Interpolating(Box::new(InterpolatingResampler::new(
+                    config.audio_interpolation,
+                    config.psg_low_pass,
+                    output_frequency,
+                    pcm_frequencies,
+                )))
+            }
         }
     }
 
@@ -363,7 +368,7 @@ impl Apu {
                     self.resampler.push_mixed_sample([sample_l, sample_r]);
                 }
             }
-            GbaAudioInterpolation::WindowedSinc => {
+            GbaAudioInterpolation::CubicHermite | GbaAudioInterpolation::WindowedSinc => {
                 for _ in 0..pwm_samples_elapsed * psg_ticks {
                     self.psg.tick_1mhz(self.enabled);
                     self.resampler.push_psg(self.psg.sample(self.config.psg_channels_enabled()));
@@ -750,6 +755,8 @@ impl Apu {
                     self.timer_frequencies[self.pcm_b.timer as usize],
                 ],
             );
+        } else if let AudioResampler::Interpolating(resampler) = &mut self.resampler {
+            resampler.update_psg_low_pass(config.psg_low_pass);
         }
     }
 

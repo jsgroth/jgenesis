@@ -193,5 +193,6 @@ impl GbaSaveMemory {
 pub enum GbaAudioInterpolation {
     #[default]
     NearestNeighbor,
+    CubicHermite,
     WindowedSinc,
 }
