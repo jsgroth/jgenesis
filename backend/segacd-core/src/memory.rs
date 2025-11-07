@@ -149,7 +149,6 @@ pub struct SegaCd {
     disc_drive: CdController,
     prg_ram: BoxedByteArray<PRG_RAM_LEN>,
     word_ram: WordRam,
-    last_dma_word_ram_read: u16,
     backup_ram: Box<[u8; BACKUP_RAM_LEN]>,
     enable_ram_cartridge: bool,
     ram_cartridge: BoxedByteArray<RAM_CARTRIDGE_LEN>,
@@ -194,7 +193,6 @@ impl SegaCd {
             disc_drive: CdController::new(disc, cd_model, config),
             prg_ram: BoxedByteArray::new(),
             word_ram: WordRam::new(),
-            last_dma_word_ram_read: 0,
             backup_ram,
             enable_ram_cartridge: config.enable_ram_cartridge,
             ram_cartridge: ram_cartridge.into(),
@@ -751,16 +749,14 @@ impl PhysicalMedium for SegaCd {
         }
     }
 
-    fn read_word_for_dma(&mut self, address: u32) -> u16 {
+    fn read_word_for_dma(&mut self, address: u32, open_bus: &mut u16) -> u16 {
         // VDP DMA reads from word RAM are delayed by a cycle
-        // TODO what exactly should the first read of a word RAM DMA return?
         match address & 0xFFFFFF {
-            0x200000..=0x3FFFFF => {
-                let word = self.last_dma_word_ram_read;
-                self.last_dma_word_ram_read = self.read_word(address);
-                word
+            0x200000..=0x3FFFFF => mem::replace(open_bus, self.read_word(address)),
+            _ => {
+                *open_bus = self.read_word(address);
+                *open_bus
             }
-            _ => self.read_word(address),
         }
     }
 

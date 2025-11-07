@@ -21,9 +21,9 @@ pub trait PhysicalMedium {
 
     fn read_word(&mut self, address: u32) -> u16;
 
-    // This exists as a separate method because of a Sega CD "feature" where DMA reads from word RAM
-    // are delayed by a cycle, effectively meaning this should read (address - 2) instead of address
-    fn read_word_for_dma(&mut self, address: u32) -> u16;
+    // Needed for DMA reads from SVP cartridge and Sega CD word RAM, where all DMA reads are "delayed"
+    // by a cycle
+    fn read_word_for_dma(&mut self, address: u32, open_bus: &mut u16) -> u16;
 
     fn write_byte(&mut self, address: u32, value: u8);
 
@@ -79,6 +79,7 @@ pub struct Memory<Medium> {
     audio_ram: Box<[u8; AUDIO_RAM_LEN]>,
     z80_bank_register: Z80BankRegister,
     signals: Signals,
+    pub open_bus: u16,
 }
 
 impl<Medium: PhysicalMedium> Memory<Medium> {
@@ -91,15 +92,21 @@ impl<Medium: PhysicalMedium> Memory<Medium> {
             audio_ram: vec![0; AUDIO_RAM_LEN].into_boxed_slice().try_into().unwrap(),
             z80_bank_register: Z80BankRegister::default(),
             signals: Signals::default(),
+            open_bus: 0,
         }
     }
 
     #[must_use]
     pub(crate) fn read_word_for_dma(&mut self, address: u32) -> u16 {
         match address {
-            0x000000..=0x3FFFFF => self.physical_medium.read_word_for_dma(address),
-            0xE00000..=0xFFFFFF => self.main_ram[((address & 0xFFFF) >> 1) as usize],
-            _ => 0xFF,
+            0x000000..=0x3FFFFF => {
+                self.physical_medium.read_word_for_dma(address, &mut self.open_bus)
+            }
+            0xE00000..=0xFFFFFF => {
+                self.open_bus = self.main_ram[((address & 0xFFFF) >> 1) as usize];
+                self.open_bus
+            }
+            _ => self.open_bus,
         }
     }
 
@@ -206,8 +213,6 @@ pub struct MainBus<'a, Medium, const REFRESH_INTERVAL: u32> {
     pub pending_writes: MainBusWrites,
     pub cycles: &'a mut CycleCounters<REFRESH_INTERVAL>,
     pub m68k_opcode: u16,
-    // Last word-size read; used to pseudo-emulate open bus behavior
-    pub last_word_read: u16,
 }
 
 impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u32>
@@ -233,12 +238,11 @@ impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u32>
             psg,
             ym2612,
             input,
-            cycles,
-            m68k_opcode,
             timing_mode,
             signals,
             pending_writes,
-            last_word_read: 0,
+            cycles,
+            m68k_opcode,
         }
     }
 
@@ -282,7 +286,7 @@ impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u32>
         // Highest 6 bits of VDP status register are open bus; VDPFIFOTesting DMA busy flag tests
         // depend on this
         self.vdp.read_status(self.m68k_opcode, self.cycles.m68k_divider.get())
-            | (self.last_word_read & 0xFC00)
+            | (self.memory.open_bus & 0xFC00)
     }
 
     fn read_vdp_hv_counter(&self) -> u16 {
@@ -451,7 +455,7 @@ impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u32>
 
         // Unused bits should read open bus; Danny Sullivan's Indy Heat (Proto) depends on this or
         // it will fail to boot
-        busack_word | (self.last_word_read & !0x0101)
+        busack_word | (self.memory.open_bus & !0x0101)
     }
 }
 
@@ -465,7 +469,7 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterfa
     fn read_byte(&mut self, address: u32) -> u8 {
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus byte read, address={address:06X}");
-        match address {
+        let byte = match address {
             0x000000..=0x9FFFFF | 0xA12000..=0xA153FF => {
                 self.memory.physical_medium.read_byte(address)
             }
@@ -478,7 +482,7 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterfa
                     <Self as z80_emu::BusInterface>::read_memory(self, (address & 0x7FFF) as u16)
                 } else {
                     // MSB of open bus
-                    self.last_word_read.msb()
+                    self.memory.open_bus.msb()
                 }
             }
             0xA10000..=0xA1001F => self.read_io_register(address),
@@ -489,7 +493,11 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterfa
                 if !address.bit(0) { word.msb() } else { word.lsb() }
             }
             _ => 0xFF,
-        }
+        };
+
+        // TODO is this right? probably depends on memory region
+        self.memory.open_bus.set_msb(byte);
+        byte
     }
 
     #[inline]
@@ -497,7 +505,7 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterfa
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus word read, address={address:06X}");
 
-        self.last_word_read = match address {
+        self.memory.open_bus = match address {
             0x000000..=0x9FFFFF | 0xA12000..=0xA153FF => {
                 self.memory.physical_medium.read_word(address)
             }
@@ -511,7 +519,7 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterfa
                     u16::from_le_bytes([byte, byte])
                 } else {
                     // MSB is open bus MSB, LSB is 0
-                    self.last_word_read & 0xFF00
+                    self.memory.open_bus & 0xFF00
                 }
             }
             0xA10000..=0xA1001F => self.read_io_register(address).into(),
@@ -523,7 +531,7 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterfa
             _ => 0xFFFF,
         };
 
-        self.last_word_read
+        self.memory.open_bus
     }
 
     #[inline]

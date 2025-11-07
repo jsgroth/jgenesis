@@ -277,7 +277,7 @@ pub trait EmulatorTrait: Encode + Decode<()> + PartialClone {
 
     #[must_use]
     fn save_state_version() -> &'static str {
-        "0.11.0-0"
+        "0.11.0-1"
     }
 
     fn target_fps(&self) -> f64;

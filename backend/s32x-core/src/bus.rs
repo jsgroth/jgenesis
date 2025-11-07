@@ -250,7 +250,7 @@ impl PhysicalMedium for Sega32X {
         }
     }
 
-    fn read_word_for_dma(&mut self, address: u32) -> u16 {
+    fn read_word_for_dma(&mut self, address: u32, open_bus: &mut u16) -> u16 {
         if !self.s32x_bus.registers.dma.rom_to_vram_dma {
             // TODO should these reads be blocked?
             log::debug!("Cartridge read for DMA with RV=0 {address:06X}");
@@ -258,10 +258,11 @@ impl PhysicalMedium for Sega32X {
 
         if !(0x000000..=0x3FFFFF).contains(&address) {
             log::warn!("VDP DMA read from an invalid address {address:06X}");
-            return 0xFFFF;
+            return *open_bus;
         }
 
-        self.s32x_bus.cartridge.read_word(address)
+        *open_bus = self.s32x_bus.cartridge.read_word(address);
+        *open_bus
     }
 
     fn write_byte(&mut self, address: u32, value: u8) {

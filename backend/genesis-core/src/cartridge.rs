@@ -675,12 +675,15 @@ impl PhysicalMedium for Cartridge {
     }
 
     #[inline]
-    fn read_word_for_dma(&mut self, address: u32) -> u16 {
+    fn read_word_for_dma(&mut self, address: u32, open_bus: &mut u16) -> u16 {
         // SVP cartridge memory has the same delay issue as Sega CD word RAM; Virtua Racing sets
         // DMA source address 2 higher than the "correct" address
         match &mut self.mapper {
-            Mapper::Svp(svp) => svp.m68k_read(address.wrapping_sub(2), &self.rom.0),
-            _ => self.read_word(address),
+            Mapper::Svp(svp) => mem::replace(open_bus, svp.m68k_read(address, &self.rom.0)),
+            _ => {
+                *open_bus = self.read_word(address);
+                *open_bus
+            }
         }
     }
 
