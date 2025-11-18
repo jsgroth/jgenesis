@@ -769,10 +769,7 @@ where
     fn next_save_state_slot(&mut self) {
         self.hotkey_state.save_state_slot =
             (self.hotkey_state.save_state_slot + 1) % SAVE_STATE_SLOTS;
-        self.renderer.add_modal(
-            format!("Selected save state slot {}", self.hotkey_state.save_state_slot),
-            MODAL_DURATION,
-        );
+        self.render_selected_slot_modal();
     }
 
     fn prev_save_state_slot(&mut self) {
@@ -781,7 +778,12 @@ where
         } else {
             self.hotkey_state.save_state_slot - 1
         };
-        self.renderer.add_modal(
+        self.render_selected_slot_modal();
+    }
+
+    fn render_selected_slot_modal(&mut self) {
+        self.renderer.add_or_update_modal(
+            Some("selected_state_slot".into()),
             format!("Selected save state slot {}", self.hotkey_state.save_state_slot),
             MODAL_DURATION,
         );
@@ -802,7 +804,11 @@ where
         } else {
             "Overclocking settings disabled"
         };
-        self.renderer.add_modal(modal_text.into(), MODAL_DURATION);
+        self.renderer.add_or_update_modal(
+            Some("overclocking_settings".into()),
+            modal_text.into(),
+            MODAL_DURATION,
+        );
     }
 
     fn update_emulator_config(&mut self, config: &Emulator::Config) {

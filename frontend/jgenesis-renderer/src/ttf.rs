@@ -32,6 +32,7 @@ impl Vertex {
 pub struct Modal {
     id: Option<Cow<'static, str>>,
     text: String,
+    insertion_nanos: u128,
     expiry_nanos: u128,
 }
 
@@ -114,19 +115,24 @@ impl ModalRenderer {
         text: String,
         duration: Duration,
     ) {
-        let expiry_nanos = timeutils::current_time_nanos() + duration.as_nanos();
+        let current_time_nanos = timeutils::current_time_nanos();
+        let expiry_nanos = current_time_nanos + duration.as_nanos();
 
         if let Some(id) = &id {
             for modal in &mut self.modals {
                 if modal.id.as_ref().is_some_and(|other_id| other_id == id) {
                     modal.text = text;
+                    modal.insertion_nanos = current_time_nanos;
                     modal.expiry_nanos = expiry_nanos;
+
+                    self.modals.sort_by_key(|modal| modal.insertion_nanos);
+
                     return;
                 }
             }
         }
 
-        self.modals.push(Modal { id, text, expiry_nanos });
+        self.modals.push(Modal { id, text, insertion_nanos: current_time_nanos, expiry_nanos });
     }
 
     pub fn prepare_modals(
