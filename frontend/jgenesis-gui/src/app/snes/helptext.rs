@@ -19,7 +19,7 @@ pub const SUPER_FX_OVERCLOCK: HelpText = HelpText {
 pub const COPROCESSOR_ROM_PATHS: HelpText = HelpText {
     heading: "Coprocessor ROM Paths",
     text: &[
-        "The coprocessors DSP-1, DSP-2, DSP-3, DSP-4, ST010, and ST011 are all low-level emulated, which means that the emulator requires the corresponding coprocessor ROM image in order to run games that used that coprocessor.",
+        "The DSP-n and ST01x coprocessors are all low-level emulated, which means that the emulator requires the corresponding coprocessor ROM image in order to run games that used that coprocessor.",
         "The emulator will display an error if it tries to load a game using one of these coprocessors and the coprocessor ROM is not configured.",
     ],
 };

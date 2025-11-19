@@ -100,7 +100,7 @@ impl App {
                     ui.label("Coprocessor ROM Paths");
                     Grid::new("coprocessor_path_grid").show(ui, |ui| {
                         for coprocessor_type in CoprocessorRom::ALL {
-                            let label = format!("{} ROM path", coprocessor_type.name());
+                            let label = format!("  {}", coprocessor_type.name());
                             let path = coprocessor_type.path_field(&mut self.config.snes);
                             render_coprocessor_path_select(&label, path, ui);
                         }
