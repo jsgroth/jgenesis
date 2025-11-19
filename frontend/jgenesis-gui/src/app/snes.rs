@@ -97,6 +97,23 @@ impl App {
 
             let rect = ui
                 .group(|ui| {
+                    ui.label("Coprocessor ROM Paths");
+                    Grid::new("coprocessor_path_grid").show(ui, |ui| {
+                        for coprocessor_type in CoprocessorRom::ALL {
+                            let label = format!("{} ROM path", coprocessor_type.name());
+                            let path = coprocessor_type.path_field(&mut self.config.snes);
+                            render_coprocessor_path_select(&label, path, ui);
+                        }
+                    });
+                })
+                .response
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::COPROCESSOR_ROM_PATHS);
+            }
+
+            let rect = ui
+                .group(|ui| {
                     ui.label("Super FX GSU overclock factor");
 
                     ui.horizontal(|ui| {
@@ -126,23 +143,6 @@ impl App {
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::SUPER_FX_OVERCLOCK);
-            }
-
-            let rect = ui
-                .group(|ui| {
-                    ui.label("Coprocessor ROM Paths");
-                    Grid::new("coprocessor_path_grid").show(ui, |ui| {
-                        for coprocessor_type in CoprocessorRom::ALL {
-                            let label = format!("{} ROM path", coprocessor_type.name());
-                            let path = coprocessor_type.path_field(&mut self.config.snes);
-                            render_coprocessor_path_select(&label, path, ui);
-                        }
-                    });
-                })
-                .response
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::COPROCESSOR_ROM_PATHS);
             }
 
             self.render_help_text(ui, WINDOW);

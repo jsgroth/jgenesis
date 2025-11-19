@@ -40,7 +40,11 @@ pub struct SnesEmulatorConfig {
     pub gsu_overclock_factor: NonZeroU64,
 }
 
-impl EmulatorConfigTrait for SnesEmulatorConfig {}
+impl EmulatorConfigTrait for SnesEmulatorConfig {
+    fn with_overclocking_disabled(&self) -> Self {
+        Self { gsu_overclock_factor: NonZeroU64::new(1).unwrap(), ..*self }
+    }
+}
 
 impl Default for SnesEmulatorConfig {
     fn default() -> Self {
