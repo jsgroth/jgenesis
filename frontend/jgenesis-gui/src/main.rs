@@ -1,5 +1,3 @@
-#![windows_subsystem = "windows"]
-
 use clap::Parser;
 use eframe::NativeOptions;
 use egui::{Vec2, ViewportBuilder};
