@@ -3,7 +3,7 @@
 //! Has 2 DMA channels that can transfer data between memory regions in parallel to CPU execution
 
 use crate::Sh2;
-use crate::bus::BusInterface;
+use crate::bus::{AccessContext, BusInterface};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use std::array;
@@ -346,12 +346,17 @@ impl Sh2 {
         match self.dmac.channels[channel].control.transfer_size {
             DmaTransferUnit::Byte => {
                 let source_addr = self.dmac.channels[channel].source_address;
-                let byte = bus.read_byte(source_addr & EXTERNAL_ADDRESS_MASK);
+                let byte = bus
+                    .read_byte(source_addr & EXTERNAL_ADDRESS_MASK, AccessContext::Dma { channel });
 
                 apply_dma_source_address_mode(&mut self.dmac.channels[channel], 1);
 
                 let dest_addr = self.dmac.channels[channel].destination_address;
-                bus.write_byte(dest_addr & EXTERNAL_ADDRESS_MASK, byte);
+                bus.write_byte(
+                    dest_addr & EXTERNAL_ADDRESS_MASK,
+                    byte,
+                    AccessContext::Dma { channel },
+                );
 
                 apply_dma_destination_address_mode(&mut self.dmac.channels[channel], 1);
 
@@ -360,12 +365,17 @@ impl Sh2 {
             }
             DmaTransferUnit::Word => {
                 let source_addr = self.dmac.channels[channel].source_address;
-                let word = bus.read_word(source_addr & EXTERNAL_ADDRESS_MASK);
+                let word = bus
+                    .read_word(source_addr & EXTERNAL_ADDRESS_MASK, AccessContext::Dma { channel });
 
                 apply_dma_source_address_mode(&mut self.dmac.channels[channel], 2);
 
                 let dest_addr = self.dmac.channels[channel].destination_address;
-                bus.write_word(dest_addr & EXTERNAL_ADDRESS_MASK, word);
+                bus.write_word(
+                    dest_addr & EXTERNAL_ADDRESS_MASK,
+                    word,
+                    AccessContext::Dma { channel },
+                );
 
                 apply_dma_destination_address_mode(&mut self.dmac.channels[channel], 2);
 
@@ -374,12 +384,19 @@ impl Sh2 {
             }
             DmaTransferUnit::Longword => {
                 let source_addr = self.dmac.channels[channel].source_address;
-                let longword = bus.read_longword(source_addr & EXTERNAL_ADDRESS_MASK);
+                let longword = bus.read_longword(
+                    source_addr & EXTERNAL_ADDRESS_MASK,
+                    AccessContext::Dma { channel },
+                );
 
                 apply_dma_source_address_mode(&mut self.dmac.channels[channel], 4);
 
                 let dest_addr = self.dmac.channels[channel].destination_address;
-                bus.write_longword(dest_addr & EXTERNAL_ADDRESS_MASK, longword);
+                bus.write_longword(
+                    dest_addr & EXTERNAL_ADDRESS_MASK,
+                    longword,
+                    AccessContext::Dma { channel },
+                );
 
                 apply_dma_destination_address_mode(&mut self.dmac.channels[channel], 4);
 
@@ -390,14 +407,21 @@ impl Sh2 {
                 // TODO timing will be wrong when DMAing from 32X SDRAM
                 for _ in 0..4 {
                     let source_addr = self.dmac.channels[channel].source_address;
-                    let longword = bus.read_longword(source_addr & EXTERNAL_ADDRESS_MASK);
+                    let longword = bus.read_longword(
+                        source_addr & EXTERNAL_ADDRESS_MASK,
+                        AccessContext::Dma { channel },
+                    );
 
                     // Source address mode is ignored for 16-byte transfers
                     self.dmac.channels[channel].source_address =
                         self.dmac.channels[channel].source_address.wrapping_add(4);
 
                     let dest_addr = self.dmac.channels[channel].destination_address;
-                    bus.write_longword(dest_addr & EXTERNAL_ADDRESS_MASK, longword);
+                    bus.write_longword(
+                        dest_addr & EXTERNAL_ADDRESS_MASK,
+                        longword,
+                        AccessContext::Dma { channel },
+                    );
 
                     apply_dma_destination_address_mode(&mut self.dmac.channels[channel], 4);
 

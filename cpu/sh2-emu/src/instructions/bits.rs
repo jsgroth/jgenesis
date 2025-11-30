@@ -199,7 +199,7 @@ pub fn tas<B: BusInterface + ?Sized>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     let address = cpu.registers.gpr[n];
 
     // TAS never performs cached reads; read from the bus directly
-    let value = bus.read_byte(address & crate::EXTERNAL_ADDRESS_MASK);
+    let value = bus.read_byte(address & crate::EXTERNAL_ADDRESS_MASK, cpu.data_ctx);
     cpu.write_byte(address, value | 0x80, bus);
 
     cpu.registers.sr.t = value == 0;

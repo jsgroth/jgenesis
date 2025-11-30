@@ -14,7 +14,7 @@
 //!   objects/"sprites" that are partially offscreen will not display at all until they are entirely
 //!   onscreen.
 
-use crate::bus::BusInterface;
+use crate::bus::{AccessContext, BusInterface};
 use bincode::{Decode, Encode};
 use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
 use jgenesis_common::num::{GetBit, U16Ext};
@@ -172,7 +172,12 @@ impl CpuCache {
     }
 
     #[must_use]
-    pub fn replace<B: BusInterface + ?Sized>(&mut self, address: u32, bus: &mut B) -> u32 {
+    pub fn replace<B: BusInterface + ?Sized>(
+        &mut self,
+        address: u32,
+        bus: &mut B,
+        ctx: AccessContext,
+    ) -> u32 {
         let entry_idx = cache_entry_index(address);
 
         let lru_bits = self.lru_bits[entry_idx];
@@ -195,7 +200,7 @@ impl CpuCache {
         self.ways[way_idx].valid_bits |= 1 << entry_idx;
         self.update_lru_bits(way_idx, entry_idx);
 
-        let longwords = bus.read_cache_line(address & 0x1FFFFFF0);
+        let longwords = bus.read_cache_line(address & 0x1FFFFFF0, ctx);
         let mut ram_addr = cache_ram_addr(way_idx, entry_idx) >> 1;
         for longword in longwords {
             self.ram[ram_addr] = (longword >> 16) as u16;

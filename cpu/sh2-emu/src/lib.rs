@@ -15,7 +15,7 @@ mod registers;
 mod sci;
 mod wdt;
 
-use crate::bus::BusInterface;
+use crate::bus::{AccessContext, BusInterface};
 use crate::cache::CpuCache;
 use crate::divu::DivisionUnit;
 use crate::dma::DmaController;
@@ -52,6 +52,7 @@ pub struct Sh2 {
     divu: DivisionUnit,
     serial: SerialInterface,
     reset_pending: bool,
+    data_ctx: AccessContext,
     name: String,
     trace_log_enabled: bool,
 }
@@ -75,6 +76,7 @@ impl Sh2 {
             divu: DivisionUnit::new(),
             serial: SerialInterface::new(name.clone()),
             reset_pending: true,
+            data_ctx: AccessContext::Data { pc: 0, opcode: 0 },
             name,
             trace_log_enabled,
         }
@@ -101,11 +103,12 @@ impl Sh2 {
 
             // First 8 bytes of the address space contain the reset vector and the initial SP
             // TODO use different vectors for manual reset vs. power-on reset? 32X doesn't depend on this
-            self.registers.pc = bus.read_longword(RESET_PC_VECTOR);
+            self.registers.pc = bus.read_longword(RESET_PC_VECTOR, AccessContext::InterruptVector);
             self.registers.next_pc = self.registers.pc.wrapping_add(2);
             self.registers.next_op_in_delay_slot = false;
 
-            self.registers.gpr[SP] = bus.read_longword(RESET_SP_VECTOR);
+            self.registers.gpr[SP] =
+                bus.read_longword(RESET_SP_VECTOR, AccessContext::InterruptVector);
 
             self.registers.sr.interrupt_mask = RESET_INTERRUPT_MASK;
             self.registers.vbr = RESET_VBR;
@@ -177,6 +180,8 @@ impl Sh2 {
         self.registers.next_pc = self.registers.pc.wrapping_add(2);
         self.registers.next_op_in_delay_slot = false;
 
+        self.data_ctx = AccessContext::Data { pc, opcode };
+
         if log::log_enabled!(log::Level::Trace) && self.trace_log_enabled {
             log::trace!(
                 "[{}] Executing opcode {opcode:04X} at PC {pc:08X}: {}",
@@ -209,13 +214,17 @@ impl Sh2 {
     fn read_byte<B: BusInterface + ?Sized>(&mut self, address: u32, bus: &mut B) -> u8 {
         match address >> 29 {
             0 => self.cached_read_byte(address, bus),
-            1 => bus.read_byte(address & EXTERNAL_ADDRESS_MASK),
+            1 => bus.read_byte(address & EXTERNAL_ADDRESS_MASK, self.data_ctx),
             2 => {
                 self.cache.associative_purge(address);
                 0
             }
             3..=5 => {
-                log::error!("Unexpected SH-2 address, byte read: {address:08X}");
+                log::warn!(
+                    "SH-2 {:?} invalid byte read: {address:08X}, ctx: {}",
+                    self.name,
+                    self.data_ctx
+                );
                 0
             }
             6 => self.cache.read_data_array_u8(address),
@@ -230,10 +239,10 @@ impl Sh2 {
         }
 
         if self.cache.should_replace_data() {
-            let longword = self.cache.replace(address, bus);
+            let longword = self.cache.replace(address, bus, self.data_ctx);
             longword.to_be_bytes()[(address & 3) as usize]
         } else {
-            bus.read_byte(address & EXTERNAL_ADDRESS_MASK)
+            bus.read_byte(address & EXTERNAL_ADDRESS_MASK, self.data_ctx)
         }
     }
 
@@ -254,13 +263,17 @@ impl Sh2 {
     ) -> u16 {
         match address >> 29 {
             0 => self.cached_read_word::<_, INSTRUCTION>(address, bus),
-            1 => bus.read_word(address & EXTERNAL_ADDRESS_MASK),
+            1 => {
+                let ctx = if INSTRUCTION { AccessContext::Fetch } else { self.data_ctx };
+                bus.read_word(address & EXTERNAL_ADDRESS_MASK, ctx)
+            }
             2 => {
                 self.cache.associative_purge(address);
                 0
             }
             3..=5 => {
-                log::error!("Unexpected SH-2 address, word read: {address:08X}");
+                let ctx = if INSTRUCTION { AccessContext::Fetch } else { self.data_ctx };
+                log::warn!("SH-2 {:?} invalid word read: {address:08X}, ctx: {ctx}", self.name,);
                 0
             }
             6 => self.cache.read_data_array_u16(address),
@@ -282,17 +295,19 @@ impl Sh2 {
         if (INSTRUCTION && self.cache.should_replace_instruction())
             || (!INSTRUCTION && self.cache.should_replace_data())
         {
-            let longword = self.cache.replace(address, bus);
+            let ctx = if INSTRUCTION { AccessContext::Fetch } else { self.data_ctx };
+            let longword = self.cache.replace(address, bus, ctx);
             (longword >> (16 * (((address >> 1) & 1) ^ 1))) as u16
         } else {
-            bus.read_word(address & EXTERNAL_ADDRESS_MASK)
+            let ctx = if INSTRUCTION { AccessContext::Fetch } else { self.data_ctx };
+            bus.read_word(address & EXTERNAL_ADDRESS_MASK, ctx)
         }
     }
 
     fn read_longword<B: BusInterface + ?Sized>(&mut self, address: u32, bus: &mut B) -> u32 {
         match address >> 29 {
             0 => self.cached_read_longword(address, bus),
-            1 => bus.read_longword(address & EXTERNAL_ADDRESS_MASK),
+            1 => bus.read_longword(address & EXTERNAL_ADDRESS_MASK, self.data_ctx),
             2 => {
                 // FIFA Soccer 96 reads from associative purge addresses and doesn't use the values read
                 // Seems like it expects reads to purge cache lines in addition to writes?
@@ -301,7 +316,11 @@ impl Sh2 {
             }
             3 => self.cache.read_address_array(address),
             4 | 5 => {
-                log::error!("Unexpected SH-2 address, longword read: {address:08X}");
+                log::warn!(
+                    "SH-2 {:?} invalid longword read: {address:08X}, ctx: {}",
+                    self.name,
+                    self.data_ctx
+                );
                 0
             }
             6 => self.cache.read_data_array_u32(address),
@@ -316,22 +335,26 @@ impl Sh2 {
         }
 
         if self.cache.should_replace_data() {
-            self.cache.replace(address, bus)
+            self.cache.replace(address, bus, self.data_ctx)
         } else {
-            bus.read_longword(address & EXTERNAL_ADDRESS_MASK)
+            bus.read_longword(address & EXTERNAL_ADDRESS_MASK, self.data_ctx)
         }
     }
 
     fn write_byte<B: BusInterface + ?Sized>(&mut self, address: u32, value: u8, bus: &mut B) {
         match address >> 29 {
             0 => {
-                bus.write_byte(address & EXTERNAL_ADDRESS_MASK, value);
+                bus.write_byte(address & EXTERNAL_ADDRESS_MASK, value, self.data_ctx);
                 self.cache.write_through_u8(address, value);
             }
-            1 => bus.write_byte(address & EXTERNAL_ADDRESS_MASK, value),
+            1 => bus.write_byte(address & EXTERNAL_ADDRESS_MASK, value, self.data_ctx),
             2 => self.cache.associative_purge(address),
             3..=5 => {
-                log::error!("Unexpected SH-2 address, byte write: {address:08X} {value:02X}");
+                log::warn!(
+                    "SH-2 {:?} invalid byte write: {address:08X} {value:02X}, ctx: {}",
+                    self.name,
+                    self.data_ctx
+                );
             }
             6 => self.cache.write_data_array_u8(address, value),
             7 => self.write_internal_register_byte(address, value),
@@ -342,13 +365,17 @@ impl Sh2 {
     fn write_word<B: BusInterface + ?Sized>(&mut self, address: u32, value: u16, bus: &mut B) {
         match address >> 29 {
             0 => {
-                bus.write_word(address & EXTERNAL_ADDRESS_MASK, value);
+                bus.write_word(address & EXTERNAL_ADDRESS_MASK, value, self.data_ctx);
                 self.cache.write_through_u16(address, value);
             }
-            1 => bus.write_word(address & EXTERNAL_ADDRESS_MASK, value),
+            1 => bus.write_word(address & EXTERNAL_ADDRESS_MASK, value, self.data_ctx),
             2 => self.cache.associative_purge(address),
             3..=5 => {
-                log::error!("Unexpected SH-2 address, word write: {address:08X} {value:04X}");
+                log::warn!(
+                    "SH-2 {:?} invalid word write: {address:08X} {value:04X}, ctx: {}",
+                    self.name,
+                    self.data_ctx
+                );
             }
             6 => self.cache.write_data_array_u16(address, value),
             7 => self.write_internal_register_word(address, value),
@@ -360,14 +387,18 @@ impl Sh2 {
     fn write_longword<B: BusInterface + ?Sized>(&mut self, address: u32, value: u32, bus: &mut B) {
         match address >> 29 {
             0 => {
-                bus.write_longword(address & EXTERNAL_ADDRESS_MASK, value);
+                bus.write_longword(address & EXTERNAL_ADDRESS_MASK, value, self.data_ctx);
                 self.cache.write_through_u32(address, value);
             }
-            1 => bus.write_longword(address & EXTERNAL_ADDRESS_MASK, value),
+            1 => bus.write_longword(address & EXTERNAL_ADDRESS_MASK, value, self.data_ctx),
             2 => self.cache.associative_purge(address),
             3 => self.cache.write_address_array(address, value),
             4 | 5 => {
-                log::error!("Unexpected SH-2 address, longword write: {address:08X} {value:08X}");
+                log::warn!(
+                    "SH-2 {:?} invalid longword write: {address:08X} {value:08X}, ctx: {}",
+                    self.name,
+                    self.data_ctx
+                );
             }
             6 => self.cache.write_data_array_u32(address, value),
             7 => self.write_internal_register_longword(address, value),
