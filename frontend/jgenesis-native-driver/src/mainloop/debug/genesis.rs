@@ -76,10 +76,44 @@ impl MemoryArea {
         }
     }
 
+    fn default_file_name(self) -> &'static str {
+        match self {
+            Self::Genesis(area) => match area {
+                GenesisMemoryArea::CartridgeRom => "rom.bin",
+                GenesisMemoryArea::WorkingRam => "wram.bin",
+                GenesisMemoryArea::AudioRam => "audioram.bin",
+                GenesisMemoryArea::Vram => "vram.bin",
+                GenesisMemoryArea::Cram => "cram.bin",
+                GenesisMemoryArea::Vsram => "vsram.bin",
+            },
+            Self::SegaCd(area) => match area {
+                SegaCdMemoryArea::BiosRom => "bios.bin",
+                SegaCdMemoryArea::PrgRam => "prgram.bin",
+                SegaCdMemoryArea::WordRam => "wordram.bin",
+                SegaCdMemoryArea::PcmRam => "pcmram.bin",
+                SegaCdMemoryArea::CdcRam => "cdcram.bin",
+            },
+            Self::Sega32X(area) => match area {
+                S32XMemoryArea::Sdram => "sdram.bin",
+                S32XMemoryArea::MasterSh2Cache => "mcache.bin",
+                S32XMemoryArea::SlaveSh2Cache => "scache.bin",
+                S32XMemoryArea::FrameBuffer0 => "fb0.bin",
+                S32XMemoryArea::FrameBuffer1 => "fb1.bin",
+                S32XMemoryArea::PaletteRam => "paletteram.bin",
+            },
+        }
+    }
+
     fn new_states() -> HashMap<Self, MemoryViewerState> {
         Self::ALL
             .iter()
-            .map(|&area| (area, MemoryViewerState::new(area.name(), Endian::Big)))
+            .map(|&area| {
+                (
+                    area,
+                    MemoryViewerState::new(area.name(), Endian::Big)
+                        .with_default_file_name(area.default_file_name().into()),
+                )
+            })
             .collect()
     }
 }

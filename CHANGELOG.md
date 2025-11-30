@@ -40,7 +40,6 @@
   * As part of this, I removed the borderless vs. exclusive fullscreen setting because this seemed much less straightforward to change in SDL3; fullscreen will now always use whatever the platform and graphics driver default to (probably always borderless on modern platforms)
 * The auto-prescale video setting can now use separate scale factors for width and height, which produces a less aliased image when games use display modes with sub-1 pixel aspect ratio (e.g. Genesis NTSC H40/H320px mode, SNES high-res modes)
   * Auto-prescale is also now enabled by default (the previous default was a fixed 3x upscale factor)
-* On Windows, the GUI executable no longer opens a terminal alongside the application (#555)
 * (**SNES**) When using the Super Scope, the emulator now displays the new Super Scope Turbo state whenever you toggle Turbo on/off
 
 ## General Fixes

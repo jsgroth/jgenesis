@@ -3,8 +3,11 @@ use egui::scroll_area::ScrollBarVisibility;
 use egui::{Align, CentralPanel, Color32, Context, FontId, RichText, SidePanel, TextEdit, Window};
 use egui_extras::{Column, TableBuilder};
 use jgenesis_common::debug::{DebugMemoryView, Endian};
-use std::fmt::Write;
-use std::{array, cmp};
+use rfd::FileDialog;
+use std::fs::File;
+use std::io::BufWriter;
+use std::path::Path;
+use std::{array, cmp, io};
 
 const MONOSPACE: FontId = FontId::monospace(12.0);
 
@@ -36,6 +39,7 @@ impl MemoryViewerColumns {
 #[derive(Debug, Clone)]
 pub struct MemoryViewerState {
     pub window_title: String,
+    pub default_file_name: Option<String>,
     pub endian: Endian,
     pub columns: MemoryViewerColumns,
     pub open: bool,
@@ -50,6 +54,7 @@ impl MemoryViewerState {
     pub fn new(name: &str, endian: Endian) -> Self {
         Self {
             window_title: format!("{name} Viewer"),
+            default_file_name: None,
             endian,
             columns: MemoryViewerColumns::Word,
             open: false,
@@ -59,6 +64,11 @@ impl MemoryViewerState {
             value_text: String::new(),
             set_invalid: false,
         }
+    }
+
+    pub fn with_default_file_name(mut self, name: String) -> Self {
+        self.default_file_name = Some(name);
+        self
     }
 }
 
@@ -152,6 +162,12 @@ pub fn render(ctx: &Context, memory: &mut dyn DebugMemoryView, state: &mut Memor
                 ui.heading("Endianness");
                 ui.radio_value(&mut state.endian, Endian::Big, "Big-endian");
                 ui.radio_value(&mut state.endian, Endian::Little, "Little-endian");
+
+                ui.add_space(20.0);
+
+                if ui.button("Export to file...").clicked() {
+                    export_to_file(memory, state);
+                }
             });
 
         CentralPanel::default().show_inside(ui, |ui| {
@@ -240,6 +256,8 @@ pub fn render(ctx: &Context, memory: &mut dyn DebugMemoryView, state: &mut Memor
 }
 
 fn fmt_address(address: usize, len: usize) -> String {
+    use std::fmt::Write;
+
     let mut s = String::with_capacity(len);
     let _ = write!(s, "{address:X}");
     while s.len() < len {
@@ -311,4 +329,32 @@ fn try_set_longword(memory: &mut dyn DebugMemoryView, state: &mut MemoryViewerSt
 
     state.goto_address = Some(address);
     state.set_invalid = false;
+}
+
+fn export_to_file(memory: &mut dyn DebugMemoryView, state: &MemoryViewerState) {
+    let file_name = state.default_file_name.clone().unwrap_or("memory.bin".into());
+
+    let Some(path) =
+        FileDialog::new().set_file_name(file_name).add_filter("bin", &["bin"]).save_file()
+    else {
+        return;
+    };
+
+    if let Err(err) = try_export_to_file(&path, memory) {
+        log::error!("Error saving to path '{}': {err}", path.display());
+    }
+}
+
+fn try_export_to_file(path: &Path, memory: &mut dyn DebugMemoryView) -> io::Result<()> {
+    use std::io::Write;
+
+    let file = File::create(path)?;
+    let mut writer = BufWriter::new(file);
+
+    let len = memory.len();
+    for address in 0..len {
+        writer.write_all(&[memory.read(address)])?;
+    }
+
+    Ok(())
 }

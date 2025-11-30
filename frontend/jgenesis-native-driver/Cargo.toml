@@ -43,6 +43,7 @@ egui_extras = { workspace = true }
 egui-wgpu = { workspace = true }
 log = { workspace = true }
 pollster = { workspace = true }
+rfd = { workspace = true }
 rustc-hash = { workspace = true }
 sdl3 = { workspace = true }
 sevenz-rust = { workspace = true }
