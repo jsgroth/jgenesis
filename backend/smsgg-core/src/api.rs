@@ -416,9 +416,15 @@ impl EmulatorTrait for SmsGgEmulator {
         self.psg = Sn76489::new(self.psg.version());
         self.input = InputState::new(self.input.region());
 
+        self.ym2413 =
+            self.config.fm_sound_unit_enabled.then(|| ym_opll::new_ym2413(YM2413_CLOCK_INTERVAL));
+
+        self.frame_buffer = FrameBuffer::new();
+
         self.vdp_mclk_counter = 0;
         self.psg_mclk_counter = 0;
         self.frame_count = 0;
+        self.reset_frames_remaining = 0;
     }
 
     fn target_fps(&self) -> f64 {

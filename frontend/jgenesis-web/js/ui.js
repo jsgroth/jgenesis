@@ -18,25 +18,89 @@ export function focusCanvas() {
     document.querySelector("canvas").focus();
 }
 
-export function showSmsGgConfig() {
-    document.getElementById("smsgg-config").hidden = false;
+const configIds = ["smsgg-config", "genesis-config", "snes-config", "gba-config"];
 
-    document.getElementById("genesis-config").hidden = true;
-    document.getElementById("snes-config").hidden = true;
+/**
+ * @param id {string}
+ */
+function hideAllConfigsExcept(id) {
+    for (const configId of configIds) {
+        document.getElementById(configId).hidden = configId !== id;
+    }
+
+    document.getElementById("supported-files-info").hidden = true;
+    document.getElementById("input-config").hidden = false;
 }
 
-export function showGenesisConfig() {
-    document.getElementById("genesis-config").hidden = false;
+/**
+ * @param inputNames {string[]}
+ * @param inputKeys {string[]}
+ */
+function renderInputs(inputNames, inputKeys) {
+    const listNode = document.createElement("ul");
 
-    document.getElementById("smsgg-config").hidden = true;
-    document.getElementById("snes-config").hidden = true;
+    for (const [i, name] of inputNames.entries()) {
+        const key = inputKeys[i];
+
+        const span = document.createElement("span");
+        span.innerText = `${name}: `;
+
+        const button = document.createElement("input");
+        button.classList.add("input-configure");
+        button.setAttribute("name", "input-configure");
+        button.setAttribute("type", "button");
+        button.setAttribute("value", key);
+        button.setAttribute("data-name", name);
+
+        if (window.inputClickListener) {
+            button.addEventListener("click", window.inputClickListener);
+        }
+
+        const listItem = document.createElement("li");
+        listItem.appendChild(span);
+        listItem.appendChild(button);
+        listNode.appendChild(listItem);
+    }
+
+    const controls = document.getElementById("controls");
+    controls.innerHTML = "";
+    controls.appendChild(listNode);
 }
 
-export function showSnesConfig() {
-    document.getElementById("snes-config").hidden = false;
+/**
+ * @param inputNames {string[]}
+ * @param inputKeys {string[]}
+ */
+export function showSmsGgConfig(inputNames, inputKeys) {
+    hideAllConfigsExcept("smsgg-config");
+    renderInputs(inputNames, inputKeys);
+}
 
-    document.getElementById("smsgg-config").hidden = true;
-    document.getElementById("genesis-config").hidden = true;
+/**
+ * @param inputNames {string[]}
+ * @param inputKeys {string[]}
+ */
+export function showGenesisConfig(inputNames, inputKeys) {
+    hideAllConfigsExcept("genesis-config");
+    renderInputs(inputNames, inputKeys);
+}
+
+/**
+ * @param inputNames {string[]}
+ * @param inputKeys {string[]}
+ */
+export function showSnesConfig(inputNames, inputKeys) {
+    hideAllConfigsExcept("snes-config");
+    renderInputs(inputNames, inputKeys);
+}
+
+/**
+ * @param inputNames {string[]}
+ * @param inputKeys {string[]}
+ */
+export function showGbaConfig(inputNames, inputKeys) {
+    hideAllConfigsExcept("gba-config");
+    renderInputs(inputNames, inputKeys);
 }
 
 /**
@@ -72,6 +136,30 @@ export function setSaveUiEnabled(saveUiEnabled) {
             saveButtons[i].setAttribute("disabled", "");
         }
     }
+}
+
+export function beforeInputConfigure() {
+    for (const element of document.getElementsByClassName("input-configure")) {
+        element.disabled = true;
+    }
+
+    document.getElementById("jgenesis-wasm").classList.add("darken");
+}
+
+/**
+ * @param name {string}
+ * @param key {string}
+ */
+export function afterInputConfigure(name, key) {
+    for (const element of document.getElementsByClassName("input-configure")) {
+        element.disabled = false;
+
+        if (element.getAttribute("data-name") === name) {
+            element.setAttribute("value", key);
+        }
+    }
+
+    document.getElementById("jgenesis-wasm").classList.remove("darken");
 }
 
 /**

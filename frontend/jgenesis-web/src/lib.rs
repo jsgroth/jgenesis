@@ -3,12 +3,13 @@
 mod audio;
 mod config;
 mod js;
+mod save;
 
 use crate::audio::AudioQueue;
-use crate::config::{EmulatorChannel, EmulatorCommand, WebConfig, WebConfigRef};
-use base64::Engine;
-use base64::engine::general_purpose;
+use crate::config::{EmulatorChannel, EmulatorCommand, InputConfig, WebConfig, WebConfigRef};
 use bincode::{Decode, Encode};
+use gba_config::GbaInputs;
+use gba_core::api::GameBoyAdvanceEmulator;
 use genesis_core::{GenesisEmulator, GenesisInputs};
 use jgenesis_common::audio::DynamicResamplingRate;
 use jgenesis_common::frontend::{
@@ -16,7 +17,9 @@ use jgenesis_common::frontend::{
     TickEffect,
 };
 use jgenesis_renderer::renderer::{WgpuRenderer, WindowSize};
+use js_sys::Uint8Array;
 use rfd::AsyncFileDialog;
+use s32x_core::api::Sega32XEmulator;
 use segacd_core::api::SegaCdEmulator;
 use smsgg_config::SmsGgInputs;
 use smsgg_core::{SmsGgEmulator, SmsGgHardware};
@@ -24,11 +27,13 @@ use snes_core::api::{CoprocessorRoms, SnesEmulator};
 use snes_core::input::SnesInputs;
 use std::collections::HashMap;
 use std::error::Error;
-use std::fmt::{Debug, Display};
+use std::fmt::{Debug, Display, Formatter};
+use std::mem;
 use std::path::Path;
 use std::rc::Rc;
 use std::time::Duration;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::JsFuture;
 use web_sys::{AudioContext, AudioContextOptions, Performance};
 use web_time::Instant;
 use winit::event::{ElementState, Event, KeyEvent, WindowEvent};
@@ -75,47 +80,6 @@ impl AudioOutput for WebAudioOutput {
 // 1MB should be big enough for any save file
 const SERIALIZATION_BUFFER_LEN: usize = 1024 * 1024;
 
-struct LocalStorageSaveWriter {
-    file_name: Rc<str>,
-    extension_to_file_name: HashMap<String, Rc<str>>,
-    serialization_buffer: Box<[u8]>,
-}
-
-impl LocalStorageSaveWriter {
-    fn new() -> Self {
-        let serialization_buffer = vec![0; SERIALIZATION_BUFFER_LEN].into_boxed_slice();
-        Self {
-            file_name: String::new().into(),
-            extension_to_file_name: HashMap::new(),
-            serialization_buffer,
-        }
-    }
-
-    fn update_file_name(&mut self, file_name: String) {
-        self.file_name = file_name.into();
-        self.extension_to_file_name.clear();
-    }
-
-    fn get_file_name(&mut self, extension: &str) -> Rc<str> {
-        if extension == "sav" {
-            return Rc::clone(&self.file_name);
-        }
-
-        match self.extension_to_file_name.get(extension) {
-            Some(file_name) => Rc::clone(file_name),
-            None => {
-                let mut file_name = self.file_name.to_string();
-                file_name.push('.');
-                file_name.push_str(extension);
-
-                let file_name: Rc<str> = file_name.into();
-                self.extension_to_file_name.insert(extension.into(), Rc::clone(&file_name));
-                file_name
-            }
-        }
-    }
-}
-
 macro_rules! bincode_config {
     () => {
         bincode::config::standard()
@@ -125,50 +89,84 @@ macro_rules! bincode_config {
     };
 }
 
-impl SaveWriter for LocalStorageSaveWriter {
+struct IndexedDbSaveWriter {
+    file_name: Rc<str>,
+    extension_to_bytes: HashMap<String, Vec<u8>>,
+    serialization_buffer: Box<[u8]>,
+}
+
+impl IndexedDbSaveWriter {
+    fn new() -> Self {
+        let serialization_buffer = vec![0; SERIALIZATION_BUFFER_LEN].into_boxed_slice();
+        Self {
+            file_name: String::new().into(),
+            extension_to_bytes: HashMap::new(),
+            serialization_buffer,
+        }
+    }
+
+    fn update_file_name(
+        &mut self,
+        file_name: String,
+        extension_to_bytes: HashMap<String, Vec<u8>>,
+    ) {
+        self.file_name = file_name.into();
+        self.extension_to_bytes = extension_to_bytes;
+    }
+}
+
+impl SaveWriter for IndexedDbSaveWriter {
     type Err = String;
 
     fn load_bytes(&mut self, extension: &str) -> Result<Vec<u8>, Self::Err> {
-        let file_name = self.get_file_name(extension);
-        let bytes = read_save_file(&file_name)?;
-
-        Ok(bytes)
+        match self.extension_to_bytes.get(extension) {
+            Some(bytes) => Ok(bytes.clone()),
+            None => Err(format!("No save file found for extension {extension}")),
+        }
     }
 
     fn persist_bytes(&mut self, extension: &str, bytes: &[u8]) -> Result<(), Self::Err> {
-        let file_name = self.get_file_name(extension);
-        let bytes_b64 = general_purpose::STANDARD.encode(bytes);
-        js::localStorageSet(&file_name, &bytes_b64);
+        self.extension_to_bytes.insert(extension.into(), bytes.to_vec());
+
+        let file_name = Rc::clone(&self.file_name);
+        let extension = extension.to_string();
+        let bytes = bytes.to_vec();
+        wasm_bindgen_futures::spawn_local(async move {
+            save::write(&file_name, &extension, &bytes).await;
+        });
 
         Ok(())
     }
 
     fn load_serialized<D: Decode<()>>(&mut self, extension: &str) -> Result<D, Self::Err> {
-        let file_name = self.get_file_name(extension);
-        let bytes = read_save_file(&file_name)?;
-        let (value, _) = bincode::decode_from_slice(&bytes, bincode_config!())
-            .map_err(|err| format!("Error serializing value into {file_name}: {err}"))?;
-
-        Ok(value)
+        match self.extension_to_bytes.get(extension) {
+            Some(bytes) => {
+                let (value, _) =
+                    bincode::decode_from_slice(bytes, bincode_config!()).map_err(|err| {
+                        format!("Error deserializing value for {}: {err}", self.file_name)
+                    })?;
+                Ok(value)
+            }
+            None => Err(format!("No save file found for extension {extension}")),
+        }
     }
 
     fn persist_serialized<E: Encode>(&mut self, extension: &str, data: E) -> Result<(), Self::Err> {
         let bytes_len =
             bincode::encode_into_slice(data, &mut self.serialization_buffer, bincode_config!())
                 .map_err(|err| format!("Error serializing value: {err}"))?;
-        let bytes_b64 = general_purpose::STANDARD.encode(&self.serialization_buffer[..bytes_len]);
 
-        let file_name = self.get_file_name(extension);
-        js::localStorageSet(&file_name, &bytes_b64);
+        let bytes = self.serialization_buffer[..bytes_len].to_vec();
+        self.extension_to_bytes.insert(extension.into(), bytes.clone());
+
+        let file_name = Rc::clone(&self.file_name);
+        let extension = extension.to_string();
+        wasm_bindgen_futures::spawn_local(async move {
+            save::write(&file_name, &extension, &bytes).await;
+        });
 
         Ok(())
     }
-}
-
-fn read_save_file(file_name: &str) -> Result<Vec<u8>, String> {
-    js::localStorageGet(file_name)
-        .and_then(|b64_bytes| general_purpose::STANDARD.decode(b64_bytes).ok())
-        .ok_or_else(|| format!("No save file found for file name {file_name}"))
 }
 
 /// # Panics
@@ -247,7 +245,9 @@ enum Emulator {
     SmsGg(SmsGgEmulator, SmsGgInputs),
     Genesis(GenesisEmulator, GenesisInputs),
     SegaCd(SegaCdEmulator, GenesisInputs),
+    Sega32X(Sega32XEmulator, GenesisInputs),
     Snes(SnesEmulator, SnesInputs),
+    Gba(GameBoyAdvanceEmulator, GbaInputs),
 }
 
 impl Emulator {
@@ -287,7 +287,21 @@ impl Emulator {
                     != TickEffect::FrameRendered
                 {}
             }
+            Self::Sega32X(emulator, inputs) => {
+                while emulator
+                    .tick(renderer, audio_output, inputs, save_writer)
+                    .expect("Emulator error")
+                    != TickEffect::FrameRendered
+                {}
+            }
             Self::Snes(emulator, inputs) => {
+                while emulator
+                    .tick(renderer, audio_output, inputs, save_writer)
+                    .expect("Emulator error")
+                    != TickEffect::FrameRendered
+                {}
+            }
+            Self::Gba(emulator, inputs) => {
                 while emulator
                     .tick(renderer, audio_output, inputs, save_writer)
                     .expect("Emulator error")
@@ -297,7 +311,7 @@ impl Emulator {
         }
     }
 
-    fn reset(&mut self, save_writer: &mut LocalStorageSaveWriter) {
+    fn reset(&mut self, save_writer: &mut IndexedDbSaveWriter) {
         match self {
             Self::None(..) => {}
             Self::SmsGg(emulator, ..) => {
@@ -309,7 +323,13 @@ impl Emulator {
             Self::SegaCd(emulator, ..) => {
                 emulator.hard_reset(save_writer);
             }
+            Self::Sega32X(emulator, ..) => {
+                emulator.hard_reset(save_writer);
+            }
             Self::Snes(emulator, ..) => {
+                emulator.hard_reset(save_writer);
+            }
+            Self::Gba(emulator, ..) => {
                 emulator.hard_reset(save_writer);
             }
         }
@@ -321,21 +341,35 @@ impl Emulator {
             Self::SmsGg(emulator, ..) => emulator.target_fps(),
             Self::Genesis(emulator, ..) => emulator.target_fps(),
             Self::SegaCd(emulator, ..) => emulator.target_fps(),
+            Self::Sega32X(emulator, ..) => emulator.target_fps(),
             Self::Snes(emulator, ..) => emulator.target_fps(),
+            Self::Gba(emulator, ..) => emulator.target_fps(),
         }
     }
 
-    fn handle_window_event(&mut self, event: &WindowEvent) {
+    fn handle_window_event(&mut self, input_config: &InputConfig, event: &WindowEvent) {
+        let WindowEvent::KeyboardInput {
+            event: KeyEvent { physical_key: PhysicalKey::Code(keycode), state, .. },
+            ..
+        } = event
+        else {
+            return;
+        };
+        let pressed = *state == ElementState::Pressed;
+
         match self {
             Self::None(..) => {}
             Self::SmsGg(_, inputs) => {
-                handle_smsgg_input(inputs, event);
+                input_config.smsgg.handle_input(*keycode, pressed, inputs);
             }
-            Self::Genesis(_, inputs) | Self::SegaCd(_, inputs) => {
-                handle_genesis_input(inputs, event);
+            Self::Genesis(_, inputs) | Self::SegaCd(_, inputs) | Self::Sega32X(_, inputs) => {
+                input_config.genesis.handle_input(*keycode, pressed, inputs);
             }
             Self::Snes(_, inputs) => {
-                handle_snes_input(inputs, event);
+                input_config.snes.handle_input(*keycode, pressed, inputs);
+            }
+            Self::Gba(_, inputs) => {
+                input_config.gba.handle_input(*keycode, pressed, inputs);
             }
         }
     }
@@ -352,8 +386,14 @@ impl Emulator {
             Self::SegaCd(emulator, ..) => {
                 emulator.reload_config(&config.to_sega_cd_config());
             }
+            Self::Sega32X(emulator, ..) => {
+                emulator.reload_config(&config.to_32x_config());
+            }
             Self::Snes(emulator, ..) => {
                 emulator.reload_config(&config.snes.to_emulator_config());
+            }
+            Self::Gba(emulator, ..) => {
+                emulator.reload_config(&config.gba.to_emulator_config());
             }
         }
     }
@@ -361,9 +401,10 @@ impl Emulator {
     fn rom_title(&mut self, current_file_name: &str) -> String {
         match self {
             Self::None(..) => "(No ROM loaded)".into(),
-            Self::SmsGg(..) => current_file_name.into(),
+            Self::SmsGg(..) | Self::Gba(..) => current_file_name.into(),
             Self::Genesis(emulator, ..) => emulator.cartridge_title(),
             Self::SegaCd(emulator, ..) => emulator.disc_title().into(),
+            Self::Sega32X(emulator, ..) => emulator.cartridge_title(),
             Self::Snes(emulator, ..) => emulator.cartridge_title(),
         }
     }
@@ -374,7 +415,9 @@ impl Emulator {
             Self::SmsGg(emulator, ..) => emulator.has_sram(),
             Self::Genesis(emulator, ..) => emulator.has_sram(),
             Self::SegaCd(..) => true,
+            Self::Sega32X(emulator, ..) => emulator.has_sram(),
             Self::Snes(emulator, ..) => emulator.has_sram(),
+            Self::Gba(emulator, ..) => emulator.has_save_memory(),
         }
     }
 
@@ -384,91 +427,24 @@ impl Emulator {
             Self::SmsGg(emulator, ..) => emulator.update_audio_output_frequency(output_frequency),
             Self::Genesis(emulator, ..) => emulator.update_audio_output_frequency(output_frequency),
             Self::SegaCd(emulator, ..) => emulator.update_audio_output_frequency(output_frequency),
+            Self::Sega32X(emulator, ..) => emulator.update_audio_output_frequency(output_frequency),
             Self::Snes(emulator, ..) => emulator.update_audio_output_frequency(output_frequency),
+            Self::Gba(emulator, ..) => emulator.update_audio_output_frequency(output_frequency),
         }
-    }
-}
-
-fn handle_smsgg_input(inputs: &mut SmsGgInputs, event: &WindowEvent) {
-    let WindowEvent::KeyboardInput {
-        event: KeyEvent { physical_key: PhysicalKey::Code(keycode), state, .. },
-        ..
-    } = event
-    else {
-        return;
-    };
-    let pressed = *state == ElementState::Pressed;
-
-    match keycode {
-        KeyCode::ArrowUp => inputs.p1.up = pressed,
-        KeyCode::ArrowLeft => inputs.p1.left = pressed,
-        KeyCode::ArrowRight => inputs.p1.right = pressed,
-        KeyCode::ArrowDown => inputs.p1.down = pressed,
-        KeyCode::KeyA => inputs.p1.button2 = pressed,
-        KeyCode::KeyS => inputs.p1.button1 = pressed,
-        KeyCode::Enter => inputs.pause = pressed,
-        _ => {}
-    }
-}
-
-fn handle_genesis_input(inputs: &mut GenesisInputs, event: &WindowEvent) {
-    let WindowEvent::KeyboardInput {
-        event: KeyEvent { physical_key: PhysicalKey::Code(keycode), state, .. },
-        ..
-    } = event
-    else {
-        return;
-    };
-    let pressed = *state == ElementState::Pressed;
-
-    match keycode {
-        KeyCode::ArrowUp => inputs.p1.up = pressed,
-        KeyCode::ArrowLeft => inputs.p1.left = pressed,
-        KeyCode::ArrowRight => inputs.p1.right = pressed,
-        KeyCode::ArrowDown => inputs.p1.down = pressed,
-        KeyCode::KeyA => inputs.p1.a = pressed,
-        KeyCode::KeyS => inputs.p1.b = pressed,
-        KeyCode::KeyD => inputs.p1.c = pressed,
-        KeyCode::KeyQ => inputs.p1.x = pressed,
-        KeyCode::KeyW => inputs.p1.y = pressed,
-        KeyCode::KeyE => inputs.p1.z = pressed,
-        KeyCode::Enter => inputs.p1.start = pressed,
-        KeyCode::ShiftRight => inputs.p1.mode = pressed,
-        _ => {}
-    }
-}
-
-fn handle_snes_input(inputs: &mut SnesInputs, event: &WindowEvent) {
-    let WindowEvent::KeyboardInput {
-        event: KeyEvent { physical_key: PhysicalKey::Code(keycode), state, .. },
-        ..
-    } = event
-    else {
-        return;
-    };
-    let pressed = *state == ElementState::Pressed;
-
-    match keycode {
-        KeyCode::ArrowUp => inputs.p1.up = pressed,
-        KeyCode::ArrowLeft => inputs.p1.left = pressed,
-        KeyCode::ArrowRight => inputs.p1.right = pressed,
-        KeyCode::ArrowDown => inputs.p1.down = pressed,
-        KeyCode::KeyS => inputs.p1.a = pressed,
-        KeyCode::KeyX => inputs.p1.b = pressed,
-        KeyCode::KeyA => inputs.p1.x = pressed,
-        KeyCode::KeyZ => inputs.p1.y = pressed,
-        KeyCode::KeyD => inputs.p1.l = pressed,
-        KeyCode::KeyC => inputs.p1.r = pressed,
-        KeyCode::Enter => inputs.p1.start = pressed,
-        KeyCode::ShiftRight => inputs.p1.select = pressed,
-        _ => {}
     }
 }
 
 #[derive(Debug, Clone)]
 enum JgenesisUserEvent {
-    FileOpen { rom: Vec<u8>, bios: Option<Vec<u8>>, rom_file_name: String },
-    UploadSaveFile { contents_base64: String },
+    FileOpen {
+        rom: Vec<u8>,
+        bios_rom: Option<Vec<u8>>,
+        rom_file_name: String,
+        save_files: HashMap<String, Vec<u8>>,
+    },
+    UploadSaveFile {
+        contents: Vec<u8>,
+    },
 }
 
 const CANVAS_WIDTH: u32 = 878;
@@ -496,7 +472,7 @@ pub async fn run_emulator(config_ref: WebConfigRef, emulator_channel: EmulatorCh
         })
         .expect("Unable to append canvas to document");
 
-    let renderer_config = config_ref.borrow().common.to_renderer_config();
+    let renderer_config = config_ref.borrow().to_renderer_config(false);
     let mut renderer = WgpuRenderer::new(window, CANVAS_SIZE, renderer_config)
         .await
         .expect("Unable to create wgpu renderer");
@@ -517,7 +493,7 @@ pub async fn run_emulator(config_ref: WebConfigRef, emulator_channel: EmulatorCh
             .await
             .expect("Unable to initialize audio worklet");
 
-    let save_writer = LocalStorageSaveWriter::new();
+    let save_writer = IndexedDbSaveWriter::new();
 
     js::showUi();
 
@@ -530,7 +506,7 @@ pub async fn run_emulator(config_ref: WebConfigRef, emulator_channel: EmulatorCh
 struct AppState {
     renderer: WgpuRenderer<Window>,
     audio_output: WebAudioOutput,
-    save_writer: LocalStorageSaveWriter,
+    save_writer: IndexedDbSaveWriter,
     config_ref: WebConfigRef,
     current_config: WebConfig,
     emulator_channel: EmulatorChannel,
@@ -539,13 +515,14 @@ struct AppState {
     queued_frame: QueuedFrame,
     performance: Performance,
     next_frame_time_ms: f64,
+    waiting_for_input: Option<String>,
 }
 
 impl AppState {
     fn new(
         renderer: WgpuRenderer<Window>,
         audio_output: WebAudioOutput,
-        save_writer: LocalStorageSaveWriter,
+        save_writer: IndexedDbSaveWriter,
         config_ref: WebConfigRef,
         emulator_channel: EmulatorChannel,
     ) -> Self {
@@ -571,30 +548,45 @@ impl AppState {
             queued_frame,
             performance,
             next_frame_time_ms,
+            waiting_for_input: None,
         }
     }
 }
 
 impl AppState {
-    fn handle_file_open(&mut self, rom: Vec<u8>, bios: Option<Vec<u8>>, rom_file_name: String) {
+    fn handle_file_open(
+        &mut self,
+        rom: Vec<u8>,
+        bios_rom: Option<Vec<u8>>,
+        save_files: HashMap<String, Vec<u8>>,
+        rom_file_name: String,
+    ) {
         self.audio_output.suspend();
         self.dynamic_resampling_rate =
             DynamicResamplingRate::new(audio::SAMPLE_RATE, audio::BUFFER_LEN_SAMPLES / 2);
 
         let prev_file_name = Rc::clone(&self.save_writer.file_name);
-        self.save_writer.update_file_name(rom_file_name.clone());
-        self.emulator =
-            match open_emulator(rom, bios, &rom_file_name, &self.config_ref, &mut self.save_writer)
-            {
-                Ok(emulator) => emulator,
-                Err(err) => {
-                    js::alert(&format!("Error opening ROM file: {err}"));
-                    self.save_writer.update_file_name(prev_file_name.to_string());
-                    return;
-                }
-            };
+        let prev_save_files = mem::take(&mut self.save_writer.extension_to_bytes);
+        self.save_writer.update_file_name(rom_file_name.clone(), save_files);
+        self.emulator = match open_emulator(
+            rom,
+            bios_rom,
+            &rom_file_name,
+            &self.config_ref,
+            &mut self.save_writer,
+        ) {
+            Ok(emulator) => emulator,
+            Err(err) => {
+                js::alert(&format!("Error opening ROM file: {err}"));
+                self.save_writer.update_file_name(prev_file_name.to_string(), prev_save_files);
+                return;
+            }
+        };
 
         self.emulator_channel.set_current_file_name(rom_file_name.clone());
+
+        let running_gba = matches!(self.emulator, Emulator::Gba(..));
+        self.renderer.reload_config(self.config_ref.borrow().to_renderer_config(running_gba));
 
         js::setRomTitle(&self.emulator.rom_title(&rom_file_name));
         js::setSaveUiEnabled(self.emulator.has_persistent_save());
@@ -602,16 +594,20 @@ impl AppState {
         js::focusCanvas();
     }
 
-    fn handle_upload_save_file(&mut self, contents_base64: &str) {
+    fn handle_upload_save_file(&mut self, contents: Vec<u8>) {
         if matches!(self.emulator, Emulator::None(..)) {
             return;
         }
 
         self.audio_output.suspend();
 
+        self.save_writer.extension_to_bytes.insert("sav".into(), contents.clone());
+
         // Immediately persist save file because it won't get written again until the game writes to SRAM
         let file_name = self.emulator_channel.current_file_name();
-        js::localStorageSet(&file_name, contents_base64);
+        wasm_bindgen_futures::spawn_local(async move {
+            save::write(&file_name, "sav", &contents).await;
+        });
 
         self.emulator.reset(&mut self.save_writer);
 
@@ -623,6 +619,13 @@ impl AppState {
         event_loop_proxy: &EventLoopProxy<JgenesisUserEvent>,
         elwt: &ActiveEventLoop,
     ) {
+        if self.waiting_for_input.is_some() {
+            elwt.set_control_flow(ControlFlow::WaitUntil(
+                Instant::now() + Duration::from_millis(1),
+            ));
+            return;
+        }
+
         if !self.queued_frame.queued {
             // No frame queued; run emulator until it renders the next frame
             self.emulator.render_frame(
@@ -654,6 +657,10 @@ impl AppState {
             .expect("Frame render error");
         self.queued_frame.queued = false;
 
+        // GBA may not detect persistent memory until the emulator has been running for a bit, so
+        // call this after every frame
+        js::setSaveUiEnabled(self.emulator.has_persistent_save());
+
         self.dynamic_resampling_rate.adjust(self.audio_output.audio_queue.len().unwrap());
         self.emulator.update_audio_output_frequency(
             self.dynamic_resampling_rate.current_output_frequency().into(),
@@ -661,7 +668,10 @@ impl AppState {
 
         let config = self.config_ref.borrow().clone();
         if config != self.current_config {
-            self.renderer.reload_config(config.common.to_renderer_config());
+            config.save_to_local_storage();
+
+            let running_gba = matches!(self.emulator, Emulator::Gba(..));
+            self.renderer.reload_config(config.to_renderer_config(running_gba));
             self.emulator.reload_config(&config);
             self.current_config = config;
         }
@@ -675,8 +685,11 @@ impl AppState {
                 EmulatorCommand::OpenFile => {
                     wasm_bindgen_futures::spawn_local(open_file(event_loop_proxy.clone()));
                 }
-                EmulatorCommand::OpenSegaCd => {
-                    wasm_bindgen_futures::spawn_local(open_sega_cd(event_loop_proxy.clone()));
+                EmulatorCommand::OpenSegaCdBios => {
+                    wasm_bindgen_futures::spawn_local(open_bios(SCD_BIOS_KEY, &["bin"]));
+                }
+                EmulatorCommand::OpenGbaBios => {
+                    wasm_bindgen_futures::spawn_local(open_bios(GBA_BIOS_KEY, &["bin"]));
                 }
                 EmulatorCommand::UploadSaveFile => {
                     wasm_bindgen_futures::spawn_local(upload_save_file(event_loop_proxy.clone()));
@@ -688,12 +701,48 @@ impl AppState {
 
                     js::focusCanvas();
                 }
+                EmulatorCommand::ConfigureInput { name } => {
+                    self.waiting_for_input = Some(name);
+
+                    js::beforeInputConfigure();
+                    js::focusCanvas();
+                }
             }
         }
     }
 
     fn handle_window_event(&mut self, window_event: WindowEvent, elwt: &ActiveEventLoop) {
-        self.emulator.handle_window_event(&window_event);
+        match &self.waiting_for_input {
+            Some(button) => {
+                if let WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            physical_key: PhysicalKey::Code(keycode),
+                            state: ElementState::Pressed,
+                            ..
+                        },
+                    ..
+                } = &window_event
+                {
+                    let input_config = &mut self.config_ref.borrow_mut().inputs;
+                    match &self.emulator {
+                        Emulator::None(..) => {}
+                        Emulator::SmsGg(..) => input_config.smsgg.update_field(button, *keycode),
+                        Emulator::Genesis(..) | Emulator::SegaCd(..) | Emulator::Sega32X(..) => {
+                            input_config.genesis.update_field(button, *keycode);
+                        }
+                        Emulator::Snes(..) => input_config.snes.update_field(button, *keycode),
+                        Emulator::Gba(..) => input_config.gba.update_field(button, *keycode),
+                    }
+
+                    js::afterInputConfigure(button, &format!("{keycode:?}"));
+                    self.waiting_for_input = None;
+                }
+            }
+            None => {
+                self.emulator.handle_window_event(&self.config_ref.borrow().inputs, &window_event);
+            }
+        }
 
         match window_event {
             WindowEvent::CloseRequested => {
@@ -740,11 +789,11 @@ fn run_event_loop(event_loop: EventLoop<JgenesisUserEvent>, mut state: AppState)
     event_loop
         .run(move |event, elwt| match event {
             Event::UserEvent(user_event) => match user_event {
-                JgenesisUserEvent::FileOpen { rom, bios, rom_file_name } => {
-                    state.handle_file_open(rom, bios, rom_file_name);
+                JgenesisUserEvent::FileOpen { rom, bios_rom, rom_file_name, save_files } => {
+                    state.handle_file_open(rom, bios_rom, save_files, rom_file_name);
                 }
-                JgenesisUserEvent::UploadSaveFile { contents_base64 } => {
-                    state.handle_upload_save_file(&contents_base64);
+                JgenesisUserEvent::UploadSaveFile { contents } => {
+                    state.handle_upload_save_file(contents);
                 }
             },
             Event::AboutToWait => {
@@ -762,51 +811,61 @@ fn run_event_loop(event_loop: EventLoop<JgenesisUserEvent>, mut state: AppState)
 
 async fn open_file(event_loop_proxy: EventLoopProxy<JgenesisUserEvent>) {
     let file = AsyncFileDialog::new()
-        .add_filter("Supported Files", &["sms", "gg", "gen", "md", "bin", "smd", "sfc", "smc"])
+        .add_filter(
+            "Supported Files",
+            &["sms", "gg", "gen", "md", "bin", "smd", "chd", "32x", "sfc", "smc", "gba"],
+        )
+        .add_filter("All Types", &["*"])
+        .pick_file()
+        .await;
+    let Some(file) = file else { return };
+
+    let file_name = file.file_name();
+    let extension =
+        Path::new(&file_name).extension().map(|ext| ext.to_string_lossy().to_ascii_lowercase());
+
+    let bios_rom = match extension.as_deref() {
+        Some("chd") => {
+            let Some(bios_rom) = read_bios_from_idb(SCD_BIOS_KEY).await else {
+                js::alert("Sega CD emulation requires a Sega CD BIOS ROM to be configured");
+                return;
+            };
+            Some(bios_rom)
+        }
+        Some("gba") => {
+            let Some(bios_rom) = read_bios_from_idb(GBA_BIOS_KEY).await else {
+                js::alert("GBA emulation requires a GBA BIOS ROM to be configured");
+                return;
+            };
+            Some(bios_rom)
+        }
+        _ => None,
+    };
+
+    let contents = file.read().await;
+
+    let save_files = save::load_all(&file_name).await;
+
+    event_loop_proxy
+        .send_event(JgenesisUserEvent::FileOpen {
+            rom: contents,
+            bios_rom,
+            rom_file_name: file_name,
+            save_files,
+        })
+        .expect("Unable to send file opened event");
+}
+
+async fn open_bios(key: &str, supported_extensions: &[&str]) {
+    let file = AsyncFileDialog::new()
+        .add_filter("Supported Files", supported_extensions)
         .add_filter("All Types", &["*"])
         .pick_file()
         .await;
     let Some(file) = file else { return };
 
     let contents = file.read().await;
-    let file_name = file.file_name();
-
-    event_loop_proxy
-        .send_event(JgenesisUserEvent::FileOpen {
-            rom: contents,
-            bios: None,
-            rom_file_name: file_name,
-        })
-        .expect("Unable to send file opened event");
-}
-
-async fn open_sega_cd(event_loop_proxy: EventLoopProxy<JgenesisUserEvent>) {
-    let bios_file = AsyncFileDialog::new()
-        .set_title("Sega CD BIOS")
-        .add_filter("bin", &["bin"])
-        .pick_file()
-        .await;
-
-    let Some(bios_file) = bios_file else { return };
-    let bios_contents = bios_file.read().await;
-
-    let chd_file = AsyncFileDialog::new()
-        .set_title("CD-ROM image (only CHD supported)")
-        .add_filter("chd", &["chd"])
-        .pick_file()
-        .await;
-
-    let Some(chd_file) = chd_file else { return };
-    let chd_contents = chd_file.read().await;
-    let chd_file_name = chd_file.file_name();
-
-    event_loop_proxy
-        .send_event(JgenesisUserEvent::FileOpen {
-            rom: chd_contents,
-            bios: Some(bios_contents),
-            rom_file_name: chd_file_name,
-        })
-        .expect("Unable to send Sega CD BIOS/CHD opened event");
+    write_bios_to_idb(key, &contents).await;
 }
 
 async fn upload_save_file(event_loop_proxy: EventLoopProxy<JgenesisUserEvent>) {
@@ -814,29 +873,77 @@ async fn upload_save_file(event_loop_proxy: EventLoopProxy<JgenesisUserEvent>) {
     let Some(file) = file else { return };
 
     let contents = file.read().await;
-    let contents_base64 = general_purpose::STANDARD.encode(contents);
 
     event_loop_proxy
-        .send_event(JgenesisUserEvent::UploadSaveFile { contents_base64 })
+        .send_event(JgenesisUserEvent::UploadSaveFile { contents })
         .expect("Unable to send upload save file event");
+}
+
+enum OpenEmulatorError {
+    NoSegaCdBios,
+    NoGbaBios,
+    Other(Box<dyn Error>),
+}
+
+impl Display for OpenEmulatorError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoSegaCdBios => {
+                write!(f, "No Sega CD BIOS is configured; required for Sega CD emulation")
+            }
+            Self::NoGbaBios => write!(f, "No GBA BIOS is configured; required for GBA emulation"),
+            Self::Other(err) => write!(f, "{err}"),
+        }
+    }
+}
+
+const SCD_BIOS_KEY: &str = "segacd-bios-rom";
+const GBA_BIOS_KEY: &str = "gba-bios-rom";
+
+async fn read_bios_from_idb(key: &str) -> Option<Vec<u8>> {
+    try_read_bios_from_idb(key).await.unwrap_or_else(|err| {
+        log::error!(
+            "Error reading BIOS ROM from IndexedDB: {}",
+            err.as_string().unwrap_or_default()
+        );
+        None
+    })
+}
+
+async fn try_read_bios_from_idb(key: &str) -> Result<Option<Vec<u8>>, JsValue> {
+    let object = JsFuture::from(js::loadBios(key)).await?;
+    if object.is_null() {
+        return Ok(None);
+    }
+
+    let array = object.dyn_into::<Uint8Array>()?;
+    Ok(Some(array.to_vec()))
+}
+
+async fn write_bios_to_idb(key: &str, bytes: &[u8]) {
+    let array = Uint8Array::new_from_slice(bytes);
+    if let Err(err) = JsFuture::from(js::writeBios(key, array)).await {
+        log::error!("Error saving BIOS ROM to IndexedDB: {}", err.as_string().unwrap_or_default());
+    }
 }
 
 #[allow(clippy::map_unwrap_or)]
 fn open_emulator(
     rom: Vec<u8>,
-    bios: Option<Vec<u8>>,
+    bios_rom: Option<Vec<u8>>,
     rom_file_name: &str,
     config_ref: &WebConfigRef,
-    save_writer: &mut LocalStorageSaveWriter,
-) -> Result<Emulator, Box<dyn Error>> {
-    let file_ext = Path::new(rom_file_name).extension().map(|ext| ext.to_string_lossy().to_string()).unwrap_or_else(|| {
+    save_writer: &mut IndexedDbSaveWriter,
+) -> Result<Emulator, OpenEmulatorError> {
+    let file_ext = Path::new(rom_file_name).extension().map(|ext| ext.to_string_lossy().to_ascii_lowercase()).unwrap_or_else(|| {
         log::warn!("Unable to determine file extension of uploaded file; defaulting to Genesis emulator");
         "md".into()
     });
 
     match file_ext.as_str() {
         file_ext @ ("sms" | "gg") => {
-            js::showSmsGgConfig();
+            let inputs = config_ref.borrow().inputs.smsgg_inputs();
+            js::showSmsGgConfig(inputs.0, inputs.1);
 
             let hardware = match file_ext {
                 "sms" => SmsGgHardware::MasterSystem,
@@ -853,7 +960,8 @@ fn open_emulator(
             Ok(Emulator::SmsGg(emulator, SmsGgInputs::default()))
         }
         "gen" | "md" | "bin" | "smd" => {
-            js::showGenesisConfig();
+            let inputs = config_ref.borrow().inputs.genesis_inputs();
+            js::showGenesisConfig(inputs.0, inputs.1);
 
             let emulator = GenesisEmulator::create(
                 rom,
@@ -863,18 +971,31 @@ fn open_emulator(
             Ok(Emulator::Genesis(emulator, GenesisInputs::default()))
         }
         "chd" => {
-            let Some(bios) = bios else { return Err("No SEGA CD BIOS supplied".into()) };
+            let Some(bios) = bios_rom else {
+                return Err(OpenEmulatorError::NoSegaCdBios);
+            };
 
             let emulator = SegaCdEmulator::create_in_memory(
                 bios,
                 rom,
                 config_ref.borrow().to_sega_cd_config(),
                 save_writer,
-            )?;
+            )
+            .map_err(|err| OpenEmulatorError::Other(err.into()))?;
 
-            js::showGenesisConfig();
+            let inputs = config_ref.borrow().inputs.genesis_inputs();
+            js::showGenesisConfig(inputs.0, inputs.1);
 
             Ok(Emulator::SegaCd(emulator, GenesisInputs::default()))
+        }
+        "32x" => {
+            let emulator =
+                Sega32XEmulator::create(rom, config_ref.borrow().to_32x_config(), save_writer);
+
+            let inputs = config_ref.borrow().inputs.genesis_inputs();
+            js::showGenesisConfig(inputs.0, inputs.1);
+
+            Ok(Emulator::Sega32X(emulator, GenesisInputs::default()))
         }
         "sfc" | "smc" => {
             let emulator = SnesEmulator::create(
@@ -882,13 +1003,35 @@ fn open_emulator(
                 config_ref.borrow().snes.to_emulator_config(),
                 CoprocessorRoms::none(),
                 save_writer,
-            )?;
+            )
+            .map_err(|err| OpenEmulatorError::Other(err.into()))?;
 
-            js::showSnesConfig();
+            let inputs = config_ref.borrow().inputs.snes_inputs();
+            js::showSnesConfig(inputs.0, inputs.1);
 
             Ok(Emulator::Snes(emulator, SnesInputs::default()))
         }
-        _ => Err(format!("Unsupported file extension: {file_ext}").into()),
+        "gba" => {
+            let Some(bios) = bios_rom else {
+                return Err(OpenEmulatorError::NoGbaBios);
+            };
+
+            let emulator = GameBoyAdvanceEmulator::create(
+                rom,
+                bios,
+                config_ref.borrow().gba.to_emulator_config(),
+                save_writer,
+            )
+            .map_err(|err| OpenEmulatorError::Other(err.into()))?;
+
+            let inputs = config_ref.borrow().inputs.gba_inputs();
+            js::showGbaConfig(inputs.0, inputs.1);
+
+            Ok(Emulator::Gba(emulator, GbaInputs::default()))
+        }
+        _ => {
+            Err(OpenEmulatorError::Other(format!("Unsupported file extension: {file_ext}").into()))
+        }
     }
 }
 
@@ -896,10 +1039,4 @@ fn open_emulator(
 #[wasm_bindgen]
 pub fn build_commit_hash() -> Option<String> {
     option_env!("JGENESIS_COMMIT").map(String::from)
-}
-
-#[must_use]
-#[wasm_bindgen]
-pub fn base64_decode(s: &str) -> Option<Vec<u8>> {
-    general_purpose::STANDARD.decode(s).ok()
 }

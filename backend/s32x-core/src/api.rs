@@ -158,6 +158,12 @@ impl Sega32XEmulator {
 
     #[inline]
     #[must_use]
+    pub fn has_sram(&self) -> bool {
+        self.memory.medium().cartridge().is_ram_persistent()
+    }
+
+    #[inline]
+    #[must_use]
     pub fn timing_mode(&self) -> TimingMode {
         self.timing_mode
     }

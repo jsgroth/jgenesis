@@ -9,22 +9,24 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+gba-core = { path = "../../backend/gba-core" }
 genesis-core = { path = "../../backend/genesis-core" }
+s32x-core = { path = "../../backend/s32x-core" }
 segacd-core = { path = "../../backend/segacd-core" }
 smsgg-core = { path = "../../backend/smsgg-core" }
 snes-core = { path = "../../backend/snes-core" }
 
-genesis-config = { path = "../../config/genesis-config" }
-smsgg-config = { path = "../../config/smsgg-config" }
-snes-config = { path = "../../config/snes-config" }
+gba-config = { path = "../../config/gba-config", features = ["serde"] }
+genesis-config = { path = "../../config/genesis-config", features = ["serde"] }
+smsgg-config = { path = "../../config/smsgg-config", features = ["serde"] }
+snes-config = { path = "../../config/snes-config", features = ["serde"] }
 
-jgenesis-common = { path = "../../common/jgenesis-common" }
+jgenesis-common = { path = "../../common/jgenesis-common", features = ["serde"] }
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
-jgenesis-renderer = { path = "../jgenesis-renderer" }
+jgenesis-renderer = { path = "../jgenesis-renderer", features = ["serde"] }
 
 anyhow = { workspace = true }
 bincode = { workspace = true }
-base64 = { workspace = true }
 console_error_panic_hook = { workspace = true }
 console_log = { workspace = true }
 getrandom = { workspace = true, features = ["wasm_js"] }
@@ -32,11 +34,13 @@ js-sys = { workspace = true }
 log = { workspace = true, features = ["release_max_level_info"] }
 rand = { workspace = true }
 rfd = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
 web-time = { workspace = true }
 wgpu = { workspace = true, features = ["webgl"] }
-winit = { workspace = true }
+winit = { workspace = true, features = ["serde"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.web-sys]
 version = "0.3"
@@ -56,3 +60,5 @@ features = [
 
 [lints]
 workspace = true
+[dependencies]
+serde = { version = "1.0.219", features = ["derive"] }

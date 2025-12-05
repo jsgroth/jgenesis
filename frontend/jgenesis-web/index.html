@@ -72,12 +72,16 @@
             #footer {
                 text-align: center;
             }
+
+            .darken {
+                opacity: 0.5;
+            }
         </style>
     </head>
     <body>
         <div id="loading-text">Loading...</div>
         <div id="header-text" class="hidden hide-fullscreen">
-            Sega Genesis / SNES / Master System / Game Gear emulator
+            jgenesis web
         </div>
         <div id="jgenesis" class="hidden">
             <div id="jgenesis-wasm-and-controls">
@@ -90,7 +94,8 @@
                     <input type="button" id="upload-save-file" class="save-button" value="Upload save file and reset" disabled>
                 </div>
                 <div class="jgenesis-controls hide-fullscreen">
-                    <input type="button" id="open-sega-cd" value="Open Sega CD image (CHD)">
+                    <input type="button" id="sega-cd-bios" value="Configure Sega CD BIOS">
+                    <input type="button" id="gba-bios" value="Configure GBA BIOS">
                 </div>
             </div>
             <div id="jgenesis-config" class="hide-fullscreen">
@@ -193,21 +198,15 @@
                         <input type="checkbox" id="sms-remove-sprite-limit">
                         <label for="sms-remove-sprite-limit">Remove sprite-per-scanline limit</label>
                     </div>
-
-                    <p>Controls</p>
-                    <ul>
-                        <li>Up/Left/Right/Down: Arrow keys</li>
-                        <li>Button 1: S key</li>
-                        <li>Button 2: A key</li>
-                        <li>Start/Pause: Return key</li>
-                        <li>F8: Toggle fullscreen</li>
-                    </ul>
                 </div>
                 <div id="genesis-config" hidden>
                     <fieldset>
                         <legend>Aspect ratio</legend>
 
-                        <input type="radio" id="gen-aspect-ntsc" name="gen-aspect-ratio" value="Ntsc" checked>
+                        <input type="radio" id="gen-aspect-auto" name="gen-aspect-ratio" value="Auto">
+                        <label for="gen-aspect-auto">Auto</label>
+
+                        <input type="radio" id="gen-aspect-ntsc" name="gen-aspect-ratio" value="Ntsc">
                         <label for="gen-aspect-ntsc">NTSC</label>
 
                         <input type="radio" id="gen-aspect-pal" name="gen-aspect-ratio" value="Pal">
@@ -260,20 +259,6 @@
                         <input type="checkbox" id="genesis-render-horizontal-border">
                         <label for="genesis-render-horizontal-border">Render horizontal border</label>
                     </div>
-
-                    <p>Controls</p>
-                    <ul>
-                        <li>Up/Left/Right/Down: Arrow keys</li>
-                        <li>A: A key</li>
-                        <li>B: S key</li>
-                        <li>C: D key</li>
-                        <li>X: Q key</li>
-                        <li>Y: W key</li>
-                        <li>Z: E key</li>
-                        <li>Start: Return key</li>
-                        <li>Mode: Right Shift key</li>
-                        <li>F8: Toggle fullscreen</li>
-                    </ul>
                 </div>
                 <div id="snes-config" hidden>
                     <fieldset>
@@ -298,20 +283,67 @@
                         <input type="radio" id="snes-audio-hermite" name="snes-audio-interpolation" value="Hermite">
                         <label for="snes-audio-hermite">Cubic Hermite</label>
                     </fieldset>
+                </div>
+                <div id="gba-config" hidden>
+                    <fieldset>
+                        <legend>Color correction</legend>
 
-                    <p>Controls</p>
+                        <input type="radio" id="gba-color-correct-none" name="gba-color-correct" value="None">
+                        <label for="gba-color-correct-none">None</label>
+
+                        <input type="radio" id="gba-color-correct-gbalcd" name="gba-color-correct" value="GbaLcd">
+                        <label for="gba-color-correct-gbalcd">Game Boy Advance LCD</label>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>Audio interpolation</legend>
+
+                        <input type="radio" id="gba-audio-interpolation-nearest" name="gba-audio-interpolation" value="NearestNeighbor">
+                        <label for="gba-audio-interpolation-nearest">Nearest neighbor</label>
+
+                        <input type="radio" id="gba-audio-interpolation-cubic" name="gba-audio-interpolation" value="CubicHermite">
+                        <label for="gba-audio-interpolation-cubic">Cubic Hermite</label>
+
+                        <input type="radio" id="gba-audio-interpolation-sinc" name="gba-audio-interpolation" value="WindowedSinc">
+                        <label for="gba-audio-interpolation-sinc">Windowed sinc</label>
+                    </fieldset>
+
+                    <div>
+                        <input type="checkbox" id="gba-skip-bios-animation">
+                        <label for="gba-skip-bios-animation">Skip BIOS intro animation</label>
+                    </div>
+
+                    <div>
+                        <input type="checkbox" id="gba-frame-blending">
+                        <label for="gba-frame-blending">Interframe blending</label>
+                    </div>
+
+                    <div>
+                        <input type="checkbox" id="gba-psg-low-pass">
+                        <label for="gba-psg-low-pass">Apply low-pass filter to PSG (enhanced interpolation only)</label>
+                    </div>
+                </div>
+                <div style="margin-top:10px;">
+                    <input type="button" id="restore-defaults" value="Restore default config">
+                </div>
+                <div id="supported-files-info" style="margin-top:10px;">
+                    <p>Supported platforms in this interface:</p>
                     <ul>
-                        <li>Up/Left/Right/Down: Arrow keys</li>
-                        <li>A: S key</li>
-                        <li>B: X key</li>
-                        <li>X: A key</li>
-                        <li>Y: Z key</li>
-                        <li>L: D key</li>
-                        <li>R: C key</li>
-                        <li>Start: Return key</li>
-                        <li>Select: Right Shift key</li>
-                        <li>F8: Toggle fullscreen</li>
+                        <li>Sega Genesis (.md / .gen / .bin / .smd)</li>
+                        <li>Sega CD (.chd)</li>
+                        <li>Sega 32X (.32x)</li>
+                        <li>Sega Master System (.sms)</li>
+                        <li>Game Gear (.gg)</li>
+                        <li>SNES (.sfc / .smc)</li>
+                        <li>Game Boy Advance (.gba)</li>
                     </ul>
+                    <p>Sega CD and GBA require a BIOS ROM to be configured</p>
+                    <p>32X is extremely CPU-intensive and may not run at full speed</p>
+                </div>
+                <div id="input-config" hidden>
+                    <p>Controls:</p>
+                    <div id="controls"></div>
+                    <div>Press F8 to toggle fullscreen</div>
                 </div>
             </div>
         </div>
@@ -323,7 +355,6 @@
             import init, {
                 EmulatorChannel,
                 WebConfigRef,
-                base64_decode,
                 build_commit_hash,
                 run_emulator,
             } from "./pkg/jgenesis_web.js";
@@ -333,37 +364,124 @@
             let config = new WebConfigRef();
             let channel = new EmulatorChannel();
 
+            function setChecked(elem, value) {
+                elem.checked = value;
+            }
+
+            function initConfigUi() {
+                // Common UI
+                document.querySelectorAll("input[name='image-filter']").forEach((elem) => {
+                    setChecked(elem, elem.getAttribute("value") === config.filter_mode());
+                });
+
+                document.querySelectorAll("input[name='blend-shader']").forEach((elem) => {
+                    setChecked(elem, elem.getAttribute("value") === config.preprocess_shader());
+                });
+
+                document.querySelectorAll("input[name='prescale-factor']").forEach((elem) => {
+                    setChecked(elem, parseInt(elem.getAttribute("value")) === config.prescale_factor());
+                });
+
+                // SMS/GG UI
+                document.querySelectorAll("input[name='sms-timing-mode']").forEach((elem) => {
+                    setChecked(elem, elem.getAttribute("value") === config.sms_timing_mode());
+                });
+
+                document.querySelectorAll("input[name='sms-aspect-ratio']").forEach((elem) => {
+                    setChecked(elem, elem.getAttribute("value") === config.sms_aspect_ratio());
+                });
+
+                document.querySelectorAll("input[name='gg-aspect-ratio']").forEach((elem) => {
+                    setChecked(elem, elem.getAttribute("value") === config.gg_aspect_ratio());
+                });
+
+                setChecked(document.getElementById("sms-crop-vertical-border"), config.sms_crop_vertical_border());
+                setChecked(document.getElementById("sms-crop-left-border"), config.sms_crop_left_border());
+                setChecked(document.getElementById("sms-fm-enabled"), config.sms_fm_enabled());
+                setChecked(document.getElementById("sms-remove-sprite-limit"), config.sms_remove_sprite_limit());
+
+                // Genesis UI
+                document.querySelectorAll("input[name='gen-aspect-ratio']").forEach((elem) => {
+                    setChecked(elem, elem.getAttribute("value") === config.genesis_aspect_ratio());
+                });
+
+                document.querySelectorAll("input[name='gen-m68k-divider']").forEach((elem) => {
+                    setChecked(elem, parseInt(elem.getAttribute("value")) === config.genesis_m68k_divider());
+                });
+
+                setChecked(document.getElementById("genesis-non-linear-color-scale"), config.genesis_non_linear_color_scale());
+                setChecked(document.getElementById("genesis-remove-sprite-limits"), config.genesis_remove_sprite_limits());
+                setChecked(document.getElementById("genesis-emulate-low-pass"), config.genesis_emulate_low_pass());
+                setChecked(document.getElementById("genesis-render-vertical-border"), config.genesis_render_vertical_border());
+                setChecked(document.getElementById("genesis-render-horizontal-border"), config.genesis_render_horizontal_border());
+
+                // SNES UI
+                document.querySelectorAll("input[name='snes-aspect-ratio']").forEach((elem) => {
+                    setChecked(elem, elem.getAttribute("value") === config.snes_aspect_ratio());
+                });
+
+                document.querySelectorAll("input[name='snes-audio-interpolation']").forEach((elem) => {
+                    setChecked(elem, elem.getAttribute("value") === config.snes_audio_interpolation());
+                });
+
+                // GBA UI
+                document.querySelectorAll("input[name='gba-color-correct']").forEach((elem) => {
+                    setChecked(elem, elem.getAttribute("value") === config.gba_color_correction());
+                });
+
+                document.querySelectorAll("input[name='gba-audio-interpolation']").forEach((elem) => {
+                    setChecked(elem, elem.getAttribute("value") === config.gba_audio_interpolation());
+                });
+
+                setChecked(document.getElementById("gba-skip-bios-animation"), config.gba_skip_bios_animation());
+                setChecked(document.getElementById("gba-frame-blending"), config.gba_frame_blending());
+                setChecked(document.getElementById("gba-psg-low-pass"), config.gba_psg_low_pass());
+            }
+
+            initConfigUi();
+
             function downloadSaveFile() {
-                let currentFileName = channel.current_file_name();
-                let saveBytesB64 = localStorage.getItem(currentFileName);
-                if (!saveBytesB64) {
-                    alert(`No save file found for '${currentFileName}'`);
-                    return;
-                }
+                const currentFileName = channel.current_file_name();
 
-                let saveBytes = base64_decode(saveBytesB64);
-                if (!saveBytes) {
-                    alert(`Save file for '${currentFileName}' is invalid`);
-                    return;
-                }
+                const openReq = indexedDB.open("saves");
+                openReq.onsuccess = (event) => {
+                    const db = event.target.result;
+                    const tx = db.transaction(["files"]);
+                    const objectStore = tx.objectStore("files");
 
-                let saveFileName = currentFileName.replace(/\.[a-zA-Z]*$/, ".sav");
+                    const getReq = objectStore.get(currentFileName);
+                    getReq.onsuccess = (event) => {
+                        const value = event.target.result;
+                        if (!value || !value["data"] || !value["data"]["sav"]) {
+                            alert(`No save file found for ${currentFileName}`);
+                            return;
+                        }
 
-                let a = document.createElement("a");
-                a.href = window.URL.createObjectURL(new Blob([saveBytes], {type: "application/octet-stream"}));
-                a.download = saveFileName;
+                        const saveBytes = value["data"]["sav"];
 
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
+                        const saveFileName = currentFileName.replace(/\.[a-zA-Z]*$/, ".sav");
+
+                        const a = document.createElement("a");
+                        a.href = window.URL.createObjectURL(new Blob([saveBytes], {type: "application/octet-stream"}));
+                        a.download = saveFileName;
+
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                    };
+                };
             }
 
             document.getElementById("open-file").addEventListener("click", () => {
                 channel.request_open_file();
             });
 
-            document.getElementById("open-sega-cd").addEventListener("click", () => {
-                channel.request_open_sega_cd();
+            document.getElementById("sega-cd-bios").addEventListener("click", () => {
+                channel.request_open_sega_cd_bios();
+            });
+
+            document.getElementById("gba-bios").addEventListener("click", () => {
+                channel.request_open_gba_bios();
             });
 
             document.getElementById("reset-emulator").addEventListener("click", () => {
@@ -470,6 +588,40 @@
                 element.addEventListener("click", (event) => {
                     config.set_snes_audio_interpolation(event.target.value);
                 });
+            });
+
+            document.querySelectorAll("input[name='gba-color-correct']").forEach((element) => {
+                element.addEventListener("click", (event) => {
+                    config.set_gba_color_correction(event.target.value);
+                });
+            });
+
+            document.querySelectorAll("input[name='gba-audio-interpolation']").forEach((element) => {
+                element.addEventListener("click", (event) => {
+                    config.set_gba_audio_interpolation(event.target.value);
+                });
+            });
+
+            document.getElementById("gba-skip-bios-animation").addEventListener("click", (event) => {
+                config.set_gba_skip_bios_animation(event.target.checked);
+            });
+
+            document.getElementById("gba-frame-blending").addEventListener("click", (event) => {
+                config.set_gba_frame_blending(event.target.checked);
+            });
+
+            document.getElementById("gba-psg-low-pass").addEventListener("click", (event) => {
+                config.set_gba_psg_low_pass(event.target.checked);
+            });
+
+            window.inputClickListener = (event) => {
+                let inputName = event.target.getAttribute("data-name");
+                channel.request_configure_input(inputName);
+            };
+
+            document.getElementById("restore-defaults").addEventListener("click", () => {
+                config.restore_defaults();
+                initConfigUi();
             });
 
             (() => {

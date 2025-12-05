@@ -170,6 +170,11 @@ impl GameBoyAdvanceEmulator {
         })
     }
 
+    #[must_use]
+    pub fn has_save_memory(&self) -> bool {
+        self.bus.cartridge.rw_memory().is_some()
+    }
+
     fn drain_apu<A: AudioOutput>(&mut self, audio_output: &mut A) -> Result<(), A::Err> {
         self.bus.apu.step_to(self.bus.state.cycles);
         self.bus.apu.drain_audio_output(audio_output)?;
