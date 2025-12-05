@@ -34,7 +34,7 @@ js-sys = { workspace = true }
 log = { workspace = true, features = ["release_max_level_info"] }
 rand = { workspace = true }
 rfd = { workspace = true }
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
@@ -60,5 +60,3 @@ features = [
 
 [lints]
 workspace = true
-[dependencies]
-serde = { version = "1.0.219", features = ["derive"] }
