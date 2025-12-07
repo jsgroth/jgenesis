@@ -167,6 +167,9 @@ struct AppState {
     title_match_lowercase: Rc<str>,
     rendered_first_frame: bool,
     close_on_emulator_exit: bool,
+    log_write_start: String,
+    log_write_end: String,
+    log_write_invalid: bool,
 }
 
 impl AppState {
@@ -204,6 +207,9 @@ impl AppState {
             recent_open_list,
             rendered_first_frame: false,
             close_on_emulator_exit: false,
+            log_write_start: String::new(),
+            log_write_end: String::new(),
+            log_write_invalid: false,
         }
     }
 }

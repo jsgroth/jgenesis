@@ -43,6 +43,7 @@ pub struct Sega32XBus {
     pub registers: SystemRegisters,
     pub sdram: BoxedWordArray<SDRAM_LEN_WORDS>,
     pub serial: SerialInterface,
+    pub log_write_ranges: Vec<(u32, u32)>,
 }
 
 #[derive(Debug, PartialClone, Encode, Decode)]
@@ -86,6 +87,7 @@ impl Sega32X {
                 registers: SystemRegisters::new(),
                 sdram: BoxedWordArray::new(),
                 serial: SerialInterface::default(),
+                log_write_ranges: config.log_write_address_ranges.clone(),
             },
             m68k_vectors: Box::new(bootrom::new_m68k_vectors()),
             region,
@@ -183,6 +185,7 @@ impl Sega32X {
     pub fn reload_config(&mut self, config: &Sega32XEmulatorConfig) {
         self.sh2_clock_multiplier = none_if_default_multiplier(config.sh2_clock_multiplier);
         self.s32x_bus.vdp.reload_config(config);
+        self.s32x_bus.log_write_ranges.clone_from(&config.log_write_address_ranges);
     }
 
     pub fn reset(&mut self) {

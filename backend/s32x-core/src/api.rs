@@ -37,7 +37,7 @@ pub enum Sega32XError<RErr, AErr, SErr> {
     SaveWrite(SErr),
 }
 
-#[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
+#[derive(Debug, Clone, Encode, Decode, ConfigDisplay)]
 pub struct Sega32XEmulatorConfig {
     #[cfg_display(skip)]
     pub genesis: GenesisEmulatorConfig,
@@ -51,6 +51,8 @@ pub struct Sega32XEmulatorConfig {
     pub apply_genesis_lpf_to_pwm: bool,
     pub pwm_enabled: bool,
     pub pwm_volume_adjustment_db: f64,
+    #[cfg_display(debug_fmt)]
+    pub log_write_address_ranges: Vec<(u32, u32)>,
 }
 
 impl Sega32XEmulatorConfig {
@@ -64,6 +66,7 @@ impl EmulatorConfigTrait for Sega32XEmulatorConfig {
         Self {
             genesis: self.genesis.with_overclocking_disabled(),
             sh2_clock_multiplier: NonZeroU64::new(crate::SH2_CLOCK_MULTIPLIER).unwrap(),
+            log_write_address_ranges: self.log_write_address_ranges.clone(),
             ..*self
         }
     }
@@ -130,6 +133,7 @@ impl Sega32XEmulator {
         let input =
             InputState::new(config.genesis.p1_controller_type, config.genesis.p2_controller_type);
 
+        let m68k_divider = config.genesis.clamped_m68k_divider();
         let mut emulator = Self {
             m68k,
             z80,
@@ -138,9 +142,9 @@ impl Sega32XEmulator {
             psg,
             memory,
             input,
-            audio_resampler: Sega32XResampler::new(timing_mode, config),
+            audio_resampler: Sega32XResampler::new(timing_mode, config.clone()),
             main_bus_writes: MainBusWrites::new(),
-            cycles: GenesisCycleCounters::new(config.genesis.clamped_m68k_divider()),
+            cycles: GenesisCycleCounters::new(m68k_divider),
             region,
             timing_mode,
             config,
@@ -290,10 +294,10 @@ impl EmulatorTrait for Sega32XEmulator {
         self.ym2612.reload_config(config.genesis);
         self.input.reload_config(config.genesis);
         self.memory.medium_mut().reload_config(config);
-        self.audio_resampler.reload_config(self.timing_mode, *config);
+        self.audio_resampler.reload_config(self.timing_mode, config.clone());
         self.cycles.update_m68k_divider(config.genesis.clamped_m68k_divider());
 
-        self.config = *config;
+        self.config = config.clone();
     }
 
     fn take_rom_from(&mut self, other: &mut Self) {
@@ -313,7 +317,7 @@ impl EmulatorTrait for Sega32XEmulator {
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
         let rom = self.memory.medium_mut().cartridge_mut().take_rom();
 
-        *self = Self::create(rom, self.config, save_writer);
+        *self = Self::create(rom, self.config.clone(), save_writer);
     }
 
     fn target_fps(&self) -> f64 {

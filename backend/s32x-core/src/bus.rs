@@ -1191,6 +1191,16 @@ impl BusInterface for Sh2Bus<'_, '_> {
             |bus, address, value, ctx| bus.write_byte_06(address, value, ctx),
         ];
 
+        if !self.s32x_bus.log_write_ranges.is_empty()
+            && self
+                .s32x_bus
+                .log_write_ranges
+                .iter()
+                .any(|&(start, end)| (start..=end).contains(&address))
+        {
+            log::warn!("Byte write to configured log range: {address:08X} {value:02X}, ctx: {ctx}");
+        }
+
         FNS[((address >> 25) & 3) as usize](self, address, value, ctx);
     }
 
@@ -1203,6 +1213,16 @@ impl BusInterface for Sh2Bus<'_, '_> {
             |bus, address, value, ctx| bus.write_word_06(address, value, ctx),
         ];
 
+        if !self.s32x_bus.log_write_ranges.is_empty()
+            && self
+                .s32x_bus
+                .log_write_ranges
+                .iter()
+                .any(|&(start, end)| (start..=end).contains(&address))
+        {
+            log::warn!("Word write to configured log range: {address:08X} {value:04X}, ctx: {ctx}");
+        }
+
         FNS[((address >> 25) & 3) as usize](self, address, value, ctx);
     }
 
@@ -1214,6 +1234,18 @@ impl BusInterface for Sh2Bus<'_, '_> {
             |bus, address, value, ctx| bus.write_longword_04(address, value, ctx),
             |bus, address, value, ctx| bus.write_longword_06(address, value, ctx),
         ];
+
+        if !self.s32x_bus.log_write_ranges.is_empty()
+            && self
+                .s32x_bus
+                .log_write_ranges
+                .iter()
+                .any(|&(start, end)| (start..=end).contains(&address))
+        {
+            log::warn!(
+                "Longword write to configured log range: {address:08X} {value:08X}, ctx: {ctx}"
+            );
+        }
 
         FNS[((address >> 25) & 3) as usize](self, address, value, ctx);
     }
