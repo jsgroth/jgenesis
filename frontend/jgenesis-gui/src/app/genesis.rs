@@ -7,7 +7,7 @@ use crate::app::{App, Console, OpenWindow, widgets};
 use crate::emuthread::EmuThreadStatus;
 use crate::widgets::{ClockModifier, OverclockSlider};
 use egui::style::ScrollStyle;
-use egui::{Color32, Context, Slider, Ui, Window};
+use egui::{Color32, Context, FontId, RichText, Slider, TextEdit, Ui, Window};
 use genesis_config::{GenesisAspectRatio, GenesisRegion, Opn2BusyBehavior};
 use genesis_config::{PcmInterpolation, S32XColorTint};
 use genesis_config::{S32XVideoOut, S32XVoidColorType};
@@ -205,6 +205,71 @@ impl App {
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::SCD_CDROM_IN_RAM);
             }
+
+            ui.add_space(5.0);
+
+            ui.group(|ui| {
+                ui.label("32X write debug logging");
+
+                for (i, (start, end)) in
+                    self.config.sega_32x.log_write_address_ranges.clone().into_iter().enumerate()
+                {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(format!("${start:08X} - ${end:08X}"))
+                                .font(FontId::monospace(12.0)),
+                        );
+                        if ui.button("Remove").clicked()
+                            && i < self.config.sega_32x.log_write_address_ranges.len()
+                        {
+                            self.config.sega_32x.log_write_address_ranges.remove(i);
+                        }
+                    });
+                }
+
+                if self.state.log_write_invalid {
+                    ui.colored_label(Color32::RED, "Invalid range");
+                }
+
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("$").font(FontId::monospace(12.0)));
+                    ui.add(
+                        TextEdit::singleline(&mut self.state.log_write_start)
+                            .desired_width(70.0)
+                            .font(FontId::monospace(12.0)),
+                    );
+                    ui.label(" - ");
+                    ui.label(RichText::new("$").font(FontId::monospace(12.0)));
+                    ui.add(
+                        TextEdit::singleline(&mut self.state.log_write_end)
+                            .desired_width(70.0)
+                            .font(FontId::monospace(12.0)),
+                    );
+
+                    if ui.button("Add").clicked() {
+                        let Ok(start) = u32::from_str_radix(&self.state.log_write_start, 16) else {
+                            self.state.log_write_invalid = true;
+                            return;
+                        };
+
+                        let Ok(end) = u32::from_str_radix(&self.state.log_write_end, 16) else {
+                            self.state.log_write_invalid = true;
+                            return;
+                        };
+
+                        if end < start {
+                            self.state.log_write_invalid = true;
+                            return;
+                        }
+
+                        self.state.log_write_invalid = false;
+                        self.state.log_write_start.clear();
+                        self.state.log_write_end.clear();
+
+                        self.config.sega_32x.log_write_address_ranges.push((start, end));
+                    }
+                });
+            });
 
             self.render_help_text(ui, WINDOW);
         });

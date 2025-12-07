@@ -174,6 +174,8 @@ pub struct Sega32XAppConfig {
     pub pwm_enabled: bool,
     #[serde(default)]
     pub pwm_volume_adjustment_db: f64,
+    #[serde(default)]
+    pub log_write_address_ranges: Vec<(u32, u32)>,
 }
 
 fn default_sh2_multiplier() -> NonZeroU64 {

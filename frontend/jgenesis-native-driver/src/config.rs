@@ -459,6 +459,7 @@ impl AppConfigExt for AppConfig {
                 apply_genesis_lpf_to_pwm: self.sega_32x.apply_genesis_lpf_to_pwm,
                 pwm_enabled: self.sega_32x.pwm_enabled,
                 pwm_volume_adjustment_db: self.sega_32x.pwm_volume_adjustment_db,
+                log_write_address_ranges: self.sega_32x.log_write_address_ranges.clone(),
             },
         })
     }
