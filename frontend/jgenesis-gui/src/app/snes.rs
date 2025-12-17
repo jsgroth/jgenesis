@@ -112,39 +112,6 @@ impl App {
                 self.state.help_text.insert(WINDOW, helptext::COPROCESSOR_ROM_PATHS);
             }
 
-            let rect = ui
-                .group(|ui| {
-                    ui.label("Super FX GSU overclock factor");
-
-                    ui.horizontal(|ui| {
-                        ui.radio_value(
-                            &mut self.config.snes.gsu_overclock_factor,
-                            NonZeroU64::new(1).unwrap(),
-                            "None",
-                        );
-                        ui.radio_value(
-                            &mut self.config.snes.gsu_overclock_factor,
-                            NonZeroU64::new(2).unwrap(),
-                            "2x",
-                        );
-                        ui.radio_value(
-                            &mut self.config.snes.gsu_overclock_factor,
-                            NonZeroU64::new(3).unwrap(),
-                            "3x",
-                        );
-                        ui.radio_value(
-                            &mut self.config.snes.gsu_overclock_factor,
-                            NonZeroU64::new(4).unwrap(),
-                            "4x",
-                        );
-                    });
-                })
-                .response
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::SUPER_FX_OVERCLOCK);
-            }
-
             self.render_help_text(ui, WINDOW);
         });
         if !open {
@@ -249,6 +216,52 @@ impl App {
 
             self.render_help_text(ui, WINDOW);
         });
+        if !open {
+            self.state.open_windows.remove(&WINDOW);
+        }
+    }
+
+    pub(super) fn render_snes_overclock_settings(&mut self, ctx: &Context) {
+        const WINDOW: OpenWindow = OpenWindow::SnesOverclock;
+
+        let mut open = true;
+
+        Window::new("SNES Overclocking Settings").open(&mut open).resizable(false).show(
+            ctx,
+            |ui| {
+                self.state.help_text.insert(WINDOW, helptext::SUPER_FX_OVERCLOCK);
+
+                ui.group(|ui| {
+                    ui.label("Super FX GSU overclock factor");
+
+                    ui.horizontal(|ui| {
+                        ui.radio_value(
+                            &mut self.config.snes.gsu_overclock_factor,
+                            NonZeroU64::new(1).unwrap(),
+                            "None",
+                        );
+                        ui.radio_value(
+                            &mut self.config.snes.gsu_overclock_factor,
+                            NonZeroU64::new(2).unwrap(),
+                            "2x",
+                        );
+                        ui.radio_value(
+                            &mut self.config.snes.gsu_overclock_factor,
+                            NonZeroU64::new(3).unwrap(),
+                            "3x",
+                        );
+                        ui.radio_value(
+                            &mut self.config.snes.gsu_overclock_factor,
+                            NonZeroU64::new(4).unwrap(),
+                            "4x",
+                        );
+                    });
+                });
+
+                self.render_help_text(ui, WINDOW);
+            },
+        );
+
         if !open {
             self.state.open_windows.remove(&WINDOW);
         }

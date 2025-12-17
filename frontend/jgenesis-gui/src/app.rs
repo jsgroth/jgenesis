@@ -127,6 +127,7 @@ enum OpenWindow {
     Hotkeys,
     SmsGgOverclock,
     GenesisOverclock,
+    SnesOverclock,
     About,
 }
 
@@ -844,6 +845,7 @@ impl App {
             for (label, window) in [
                 ("SMS / Game Gear", OpenWindow::SmsGgOverclock),
                 ("Genesis / Sega CD / 32X", OpenWindow::GenesisOverclock),
+                ("SNES", OpenWindow::SnesOverclock),
             ] {
                 if ui.button(label).clicked() {
                     self.state.open_windows.insert(window);
@@ -1034,6 +1036,7 @@ impl App {
                 OpenWindow::Hotkeys => self.render_hotkey_settings(ctx),
                 OpenWindow::SmsGgOverclock => self.render_smsgg_overclock_settings(ctx),
                 OpenWindow::GenesisOverclock => self.render_genesis_overclock_settings(ctx),
+                OpenWindow::SnesOverclock => self.render_snes_overclock_settings(ctx),
                 OpenWindow::About => self.render_about(ctx),
             }
         }
