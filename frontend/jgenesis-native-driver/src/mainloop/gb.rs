@@ -24,6 +24,7 @@ impl NativeGameBoyEmulator {
         self.input_mapper.update_mappings(
             config.common.axis_deadzone,
             &config.inputs.to_mapping_vec(),
+            &config.inputs.to_turbo_mapping_vec(),
             &config.common.hotkey_config.to_mapping_vec(),
         );
 
@@ -83,6 +84,7 @@ pub fn create_gb(config: Box<GameBoyConfig>) -> NativeEmulatorResult<NativeGameB
             save_state_path,
             config.inputs.to_mapping_vec(),
         )
+        .with_turbo_mappings(config.inputs.to_turbo_mapping_vec())
         .with_debug_render_fn(debug::gb::render_fn),
     )
 }

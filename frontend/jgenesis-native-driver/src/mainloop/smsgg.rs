@@ -62,7 +62,7 @@ impl NativeSmsGgEmulator {
 
         self.update_emulator_config(&config.emulator_config);
 
-        self.input_mapper.update_mappings_with_turbo(
+        self.input_mapper.update_mappings(
             config.common.axis_deadzone,
             &config.inputs.to_mapping_vec(),
             &config.inputs.to_turbo_mapping_vec(),

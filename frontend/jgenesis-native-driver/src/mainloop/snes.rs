@@ -41,6 +41,7 @@ impl NativeSnesEmulator {
         self.input_mapper.update_mappings(
             config.common.axis_deadzone,
             &config.inputs.to_mapping_vec(),
+            &config.inputs.to_turbo_mapping_vec(),
             &config.common.hotkey_config.to_mapping_vec(),
         );
         self.inputs.p2 = config.inputs.p2_type.to_input_device();
@@ -95,6 +96,7 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
             save_state_path,
             config.inputs.to_mapping_vec(),
         )
+        .with_turbo_mappings(config.inputs.to_turbo_mapping_vec())
         .with_initial_inputs(initial_inputs)
         .with_debug_render_fn(debug::snes::render_fn),
     )

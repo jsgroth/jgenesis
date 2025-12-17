@@ -27,6 +27,7 @@ impl NativeGbaEmulator {
         self.input_mapper.update_mappings(
             config.common.axis_deadzone,
             &config.inputs.to_mapping_vec(),
+            &config.inputs.to_turbo_mapping_vec(),
             &config.common.hotkey_config.to_mapping_vec(),
         );
 
@@ -96,6 +97,7 @@ pub fn create_gba(config: Box<GameBoyAdvanceConfig>) -> NativeEmulatorResult<Nat
             save_state_path,
             config.inputs.to_mapping_vec(),
         )
+        .with_turbo_mappings(config.inputs.to_turbo_mapping_vec())
         .with_initial_inputs(initial_inputs)
         .with_debug_render_fn(debug::gba::render_fn),
     )

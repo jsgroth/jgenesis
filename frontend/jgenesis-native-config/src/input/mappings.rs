@@ -411,6 +411,12 @@ pub struct NesInputMapping {
     pub p2: NesControllerMapping,
     #[serde(default)]
     #[cfg_display(indent_nested)]
+    pub p1_turbo: NesControllerMapping,
+    #[serde(default)]
+    #[cfg_display(indent_nested)]
+    pub p2_turbo: NesControllerMapping,
+    #[serde(default)]
+    #[cfg_display(indent_nested)]
     pub zapper: NesZapperMapping,
 }
 
@@ -446,12 +452,16 @@ pub struct NesInputConfig {
 
 impl NesInputConfig {
     impl_to_mapping_vec!(NesButton);
+
+    impl_to_turbo_mapping_vec!(NesButton);
 }
 
 fn default_nes_mapping_1() -> NesInputMapping {
     NesInputMapping {
         p1: NesControllerMapping::keyboard_arrows(),
         p2: NesControllerMapping::default(),
+        p1_turbo: NesControllerMapping::default(),
+        p2_turbo: NesControllerMapping::default(),
         zapper: NesZapperMapping::mouse(),
     }
 }
@@ -548,6 +558,12 @@ pub struct SnesInputMapping {
     pub p2: SnesControllerMapping,
     #[serde(default)]
     #[cfg_display(indent_nested)]
+    pub p1_turbo: SnesControllerMapping,
+    #[serde(default)]
+    #[cfg_display(indent_nested)]
+    pub p2_turbo: SnesControllerMapping,
+    #[serde(default)]
+    #[cfg_display(indent_nested)]
     pub super_scope: SnesSuperScopeMapping,
 }
 
@@ -583,12 +599,16 @@ pub struct SnesInputConfig {
 
 impl SnesInputConfig {
     impl_to_mapping_vec!(SnesButton);
+
+    impl_to_turbo_mapping_vec!(SnesButton);
 }
 
 fn default_snes_mapping_1() -> SnesInputMapping {
     SnesInputMapping {
         p1: SnesControllerMapping::keyboard_arrows(),
         p2: SnesControllerMapping::default(),
+        p1_turbo: SnesControllerMapping::default(),
+        p2_turbo: SnesControllerMapping::default(),
         super_scope: SnesSuperScopeMapping::mouse(),
     }
 }
@@ -652,6 +672,12 @@ pub struct GameBoyInputConfig {
     #[serde(default)]
     #[cfg_display(indent_nested)]
     pub mapping_2: GameBoyInputMapping,
+    #[serde(default)]
+    #[cfg_display(indent_nested)]
+    pub mapping_1_turbo: GameBoyInputMapping,
+    #[serde(default)]
+    #[cfg_display(indent_nested)]
+    pub mapping_2_turbo: GameBoyInputMapping,
 }
 
 impl GameBoyInputConfig {
@@ -664,6 +690,16 @@ impl GameBoyInputConfig {
 
         out
     }
+
+    #[must_use]
+    pub fn to_turbo_mapping_vec(&self) -> ButtonMappingVec<'_, GameBoyButton> {
+        let mut out = Vec::new();
+
+        self.mapping_1_turbo.to_mapping_vec(Player::One, &mut out);
+        self.mapping_2_turbo.to_mapping_vec(Player::One, &mut out);
+
+        out
+    }
 }
 
 fn default_gb_mapping_1() -> GameBoyInputMapping {
@@ -672,7 +708,12 @@ fn default_gb_mapping_1() -> GameBoyInputMapping {
 
 impl Default for GameBoyInputConfig {
     fn default() -> Self {
-        Self { mapping_1: default_gb_mapping_1(), mapping_2: GameBoyInputMapping::default() }
+        Self {
+            mapping_1: default_gb_mapping_1(),
+            mapping_2: GameBoyInputMapping::default(),
+            mapping_1_turbo: GameBoyInputMapping::default(),
+            mapping_2_turbo: GameBoyInputMapping::default(),
+        }
     }
 }
 
@@ -755,6 +796,12 @@ pub struct GbaInputConfig {
     #[serde(default)]
     #[cfg_display(indent_nested)]
     pub mapping_2: GbaInputMapping,
+    #[serde(default)]
+    #[cfg_display(indent_nested)]
+    pub mapping_1_turbo: GbaInputMapping,
+    #[serde(default)]
+    #[cfg_display(indent_nested)]
+    pub mapping_2_turbo: GbaInputMapping,
 }
 
 impl GbaInputConfig {
@@ -764,6 +811,16 @@ impl GbaInputConfig {
 
         self.mapping_1.to_mapping_vec(&mut out);
         self.mapping_2.to_mapping_vec(&mut out);
+
+        out
+    }
+
+    #[must_use]
+    pub fn to_turbo_mapping_vec(&self) -> ButtonMappingVec<'_, GbaButton> {
+        let mut out = Vec::new();
+
+        self.mapping_1_turbo.to_mapping_vec(&mut out);
+        self.mapping_2_turbo.to_mapping_vec(&mut out);
 
         out
     }
@@ -778,7 +835,12 @@ fn default_gba_mapping_1() -> GbaInputMapping {
 
 impl Default for GbaInputConfig {
     fn default() -> Self {
-        Self { mapping_1: default_gba_mapping_1(), mapping_2: GbaInputMapping::default() }
+        Self {
+            mapping_1: default_gba_mapping_1(),
+            mapping_2: GbaInputMapping::default(),
+            mapping_1_turbo: GbaInputMapping::default(),
+            mapping_2_turbo: GbaInputMapping::default(),
+        }
     }
 }
 

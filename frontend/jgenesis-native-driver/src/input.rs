@@ -192,7 +192,7 @@ where
         }
     }
 
-    fn update_mappings_with_turbo(
+    fn update_mappings(
         &mut self,
         button_mappings: &[((Button, Player), &Vec<GenericInput>)],
         turbo_mappings: &[((Button, Player), &Vec<GenericInput>)],
@@ -250,14 +250,6 @@ where
                     .push(generic_button);
             }
         }
-    }
-
-    fn update_mappings(
-        &mut self,
-        button_mappings: &[((Button, Player), &Vec<GenericInput>)],
-        hotkey_mappings: &[(Hotkey, &Vec<GenericInput>)],
-    ) {
-        self.update_mappings_with_turbo(button_mappings, &[], hotkey_mappings);
     }
 
     fn handle_input(&mut self, raw_input: GenericInput, pressed: bool) {
@@ -432,7 +424,7 @@ where
         let joysticks = Joysticks::new(joystick_subsystem);
 
         let mut state = InputMapperState::new();
-        state.update_mappings_with_turbo(button_mappings, turbo_mappings, hotkey_mappings);
+        state.update_mappings(button_mappings, turbo_mappings, hotkey_mappings);
 
         Self { joysticks, axis_deadzone, state }
     }
@@ -441,21 +433,11 @@ where
         &mut self,
         axis_deadzone: i16,
         button_mappings: &[((Button, Player), &Vec<GenericInput>)],
-        hotkey_mappings: &[(Hotkey, &Vec<GenericInput>)],
-    ) {
-        self.axis_deadzone = axis_deadzone;
-        self.state.update_mappings(button_mappings, hotkey_mappings);
-    }
-
-    pub fn update_mappings_with_turbo(
-        &mut self,
-        axis_deadzone: i16,
-        button_mappings: &[((Button, Player), &Vec<GenericInput>)],
         turbo_mappings: &[((Button, Player), &Vec<GenericInput>)],
         hotkey_mappings: &[(Hotkey, &Vec<GenericInput>)],
     ) {
         self.axis_deadzone = axis_deadzone;
-        self.state.update_mappings_with_turbo(button_mappings, turbo_mappings, hotkey_mappings);
+        self.state.update_mappings(button_mappings, turbo_mappings, hotkey_mappings);
     }
 
     pub fn handle_event(
@@ -693,6 +675,7 @@ mod tests {
                 ((SmsGgButton::Button1, Player::Two), &vec![GenericInput::Keyboard(Keycode::G)]),
                 ((SmsGgButton::Button2, Player::One), &vec![GenericInput::Keyboard(Keycode::Up)]),
             ],
+            &[],
             &[(Hotkey::FastForward, &vec![GenericInput::Keyboard(Keycode::H)])],
         );
 
@@ -730,6 +713,7 @@ mod tests {
         let mut input_state = InputMapperState::new();
         input_state.update_mappings(
             &[((SmsGgButton::Button1, Player::One), &vec![GenericInput::Keyboard(Keycode::F)])],
+            &[],
             &[(Hotkey::SaveState, &vec![GenericInput::Keyboard(Keycode::F)])],
         );
 
@@ -761,6 +745,7 @@ mod tests {
                 ((SmsGgButton::Button1, Player::One), &vec![GenericInput::Keyboard(Keycode::F)]),
                 ((SmsGgButton::Button1, Player::One), &vec![GenericInput::Keyboard(Keycode::G)]),
             ],
+            &[],
             &[],
         );
 
@@ -794,6 +779,7 @@ mod tests {
                 ((SmsGgButton::Pause, Player::One), &vec![GenericInput::Keyboard(Keycode::F)]),
             ],
             &[],
+            &[],
         );
 
         let mut state = new_smsgg_state();
@@ -826,6 +812,7 @@ mod tests {
                     GenericInput::Keyboard(Keycode::H),
                 ],
             )],
+            &[],
             &[],
         );
 
@@ -867,6 +854,7 @@ mod tests {
     fn combination_length_priority_basic() {
         let mut input_state = InputMapperState::new();
         input_state.update_mappings(
+            &[],
             &[],
             &[
                 (
@@ -912,6 +900,7 @@ mod tests {
     fn combination_length_priority_weird() {
         let mut input_state = InputMapperState::new();
         input_state.update_mappings(
+            &[],
             &[],
             &[
                 (
@@ -970,6 +959,7 @@ mod tests {
                 ),
             ],
             &[],
+            &[],
         );
 
         let mut state = new_smsgg_state();
@@ -1012,6 +1002,7 @@ mod tests {
                     &vec![GenericInput::Keyboard(Keycode::LShift)],
                 ),
             ],
+            &[],
             &[],
         );
 
@@ -1056,7 +1047,7 @@ mod tests {
     #[test]
     fn turbo() {
         let mut input_state = InputMapperState::new();
-        input_state.update_mappings_with_turbo(
+        input_state.update_mappings(
             &[],
             &[((SmsGgButton::Button1, Player::One), &vec![GenericInput::Keyboard(Keycode::D)])],
             &[],

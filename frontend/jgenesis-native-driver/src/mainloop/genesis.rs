@@ -26,7 +26,7 @@ impl NativeGenesisEmulator {
 
         self.update_emulator_config(&config.emulator_config);
 
-        self.input_mapper.update_mappings_with_turbo(
+        self.input_mapper.update_mappings(
             config.common.axis_deadzone,
             &config.inputs.to_mapping_vec(),
             &config.inputs.to_turbo_mapping_vec(),
@@ -53,6 +53,7 @@ impl NativeSegaCdEmulator {
         self.input_mapper.update_mappings(
             config.genesis.common.axis_deadzone,
             &config.genesis.inputs.to_mapping_vec(),
+            &config.genesis.inputs.to_turbo_mapping_vec(),
             &config.genesis.common.hotkey_config.to_mapping_vec(),
         );
 
@@ -122,6 +123,7 @@ impl Native32XEmulator {
         self.input_mapper.update_mappings(
             config.genesis.common.axis_deadzone,
             &config.genesis.inputs.to_mapping_vec(),
+            &config.genesis.inputs.to_turbo_mapping_vec(),
             &config.genesis.common.hotkey_config.to_mapping_vec(),
         );
 

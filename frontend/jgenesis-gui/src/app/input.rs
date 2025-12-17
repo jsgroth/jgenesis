@@ -64,17 +64,21 @@ impl InputMappingSet {
         }
     }
 
-    fn gb(self, config: &mut InputAppConfig) -> &mut GameBoyInputMapping {
-        match self {
-            Self::One => &mut config.game_boy.mapping_1,
-            Self::Two => &mut config.game_boy.mapping_2,
+    fn gb(self, config: &mut InputAppConfig, turbo: bool) -> &mut GameBoyInputMapping {
+        match (self, turbo) {
+            (Self::One, false) => &mut config.game_boy.mapping_1,
+            (Self::One, true) => &mut config.game_boy.mapping_1_turbo,
+            (Self::Two, false) => &mut config.game_boy.mapping_2,
+            (Self::Two, true) => &mut config.game_boy.mapping_2_turbo,
         }
     }
 
-    fn gba(self, config: &mut InputAppConfig) -> &mut GbaInputMapping {
-        match self {
-            Self::One => &mut config.game_boy_advance.mapping_1,
-            Self::Two => &mut config.game_boy_advance.mapping_2,
+    fn gba(self, config: &mut InputAppConfig, turbo: bool) -> &mut GbaInputMapping {
+        match (self, turbo) {
+            (Self::One, false) => &mut config.game_boy_advance.mapping_1,
+            (Self::One, true) => &mut config.game_boy_advance.mapping_1_turbo,
+            (Self::Two, false) => &mut config.game_boy_advance.mapping_2,
+            (Self::Two, true) => &mut config.game_boy_advance.mapping_2_turbo,
         }
     }
 
@@ -122,10 +126,10 @@ impl GenericButton {
             Self::Genesis(button, player) => {
                 access_genesis_value(mapping, button, player, false, config)
             }
-            Self::Nes(button, player) => access_nes_value(mapping, button, player, config),
-            Self::Snes(button, player) => access_snes_value(mapping, button, player, config),
-            Self::GameBoy(button) => access_gb_value(mapping, button, config),
-            Self::Gba(button) => access_gba_value(mapping, button, config),
+            Self::Nes(button, player) => access_nes_value(mapping, button, player, false, config),
+            Self::Snes(button, player) => access_snes_value(mapping, button, player, false, config),
+            Self::GameBoy(button) => access_gb_value(mapping, button, false, config),
+            Self::Gba(button) => access_gba_value(mapping, button, false, config),
             Self::Hotkey(hotkey) => access_hotkey(mapping, hotkey, config),
         }
     }
@@ -148,6 +152,24 @@ impl GenericButton {
                 | GenesisButton::Z),
                 player,
             ) => Some(access_genesis_value(mapping, button, player, true, config)),
+            Self::Nes(button @ (NesButton::A | NesButton::B), player) => {
+                Some(access_nes_value(mapping, button, player, true, config))
+            }
+            Self::Snes(
+                button @ (SnesButton::A
+                | SnesButton::B
+                | SnesButton::X
+                | SnesButton::Y
+                | SnesButton::L
+                | SnesButton::R),
+                player,
+            ) => Some(access_snes_value(mapping, button, player, true, config)),
+            Self::GameBoy(button @ (GameBoyButton::A | GameBoyButton::B)) => {
+                Some(access_gb_value(mapping, button, true, config))
+            }
+            Self::Gba(button @ (GbaButton::A | GbaButton::B | GbaButton::L | GbaButton::R)) => {
+                Some(access_gba_value(mapping, button, true, config))
+            }
             _ => None,
         }
     }
@@ -371,6 +393,7 @@ fn access_nes_value(
     mapping: InputMappingSet,
     button: NesButton,
     player: Player,
+    turbo: bool,
     config: &mut InputAppConfig,
 ) -> &mut Option<Vec<GenericInput>> {
     let mapping_config = mapping.nes(config);
@@ -381,9 +404,11 @@ fn access_nes_value(
         _ => {}
     }
 
-    let player_config = match player {
-        Player::One => &mut mapping_config.p1,
-        Player::Two => &mut mapping_config.p2,
+    let player_config = match (player, turbo) {
+        (Player::One, false) => &mut mapping_config.p1,
+        (Player::One, true) => &mut mapping_config.p1_turbo,
+        (Player::Two, false) => &mut mapping_config.p2,
+        (Player::Two, true) => &mut mapping_config.p2_turbo,
     };
 
     match button {
@@ -405,6 +430,7 @@ fn access_snes_value(
     mapping: InputMappingSet,
     button: SnesButton,
     player: Player,
+    turbo: bool,
     config: &mut InputAppConfig,
 ) -> &mut Option<Vec<GenericInput>> {
     let mapping_config = mapping.snes(config);
@@ -417,9 +443,11 @@ fn access_snes_value(
         _ => {}
     }
 
-    let player_config = match player {
-        Player::One => &mut mapping_config.p1,
-        Player::Two => &mut mapping_config.p2,
+    let player_config = match (player, turbo) {
+        (Player::One, false) => &mut mapping_config.p1,
+        (Player::One, true) => &mut mapping_config.p1_turbo,
+        (Player::Two, false) => &mut mapping_config.p2,
+        (Player::Two, true) => &mut mapping_config.p2_turbo,
     };
 
     match button {
@@ -445,9 +473,10 @@ fn access_snes_value(
 fn access_gb_value(
     mapping: InputMappingSet,
     button: GameBoyButton,
+    turbo: bool,
     config: &mut InputAppConfig,
 ) -> &mut Option<Vec<GenericInput>> {
-    let mapping_config = mapping.gb(config);
+    let mapping_config = mapping.gb(config, turbo);
 
     match button {
         GameBoyButton::Up => &mut mapping_config.up,
@@ -464,9 +493,10 @@ fn access_gb_value(
 fn access_gba_value(
     mapping: InputMappingSet,
     button: GbaButton,
+    turbo: bool,
     config: &mut InputAppConfig,
 ) -> &mut Option<Vec<GenericInput>> {
-    let mapping_config = mapping.gba(config);
+    let mapping_config = mapping.gba(config, turbo);
 
     match button {
         GbaButton::Up => &mut mapping_config.joypad.up,
@@ -772,20 +802,24 @@ impl App {
                     |ui| {
                         if ui.selectable_label(false, "Keyboard - Arrow movement").clicked() {
                             mapping_config.p1 = NesControllerMapping::keyboard_arrows();
+                            mapping_config.p1_turbo = NesControllerMapping::default();
                         }
 
                         if ui.selectable_label(false, "Keyboard - WASD movement").clicked() {
                             mapping_config.p1 = NesControllerMapping::keyboard_wasd();
+                            mapping_config.p1_turbo = NesControllerMapping::default();
                         }
                     },
                 );
 
                 if ui.button("Clear All P1").clicked() {
                     mapping_config.p1 = NesControllerMapping::default();
+                    mapping_config.p1_turbo = NesControllerMapping::default();
                 }
 
                 if ui.button("Clear All P2").clicked() {
                     mapping_config.p2 = NesControllerMapping::default();
+                    mapping_config.p2_turbo = NesControllerMapping::default();
                 }
             });
         });
@@ -903,20 +937,24 @@ impl App {
                     |ui| {
                         if ui.selectable_label(false, "Keyboard - Arrow movement").clicked() {
                             mapping_config.p1 = SnesControllerMapping::keyboard_arrows();
+                            mapping_config.p1_turbo = SnesControllerMapping::default();
                         }
 
                         if ui.selectable_label(false, "Keyboard - WASD movement").clicked() {
                             mapping_config.p1 = SnesControllerMapping::keyboard_wasd();
+                            mapping_config.p1_turbo = SnesControllerMapping::default();
                         }
                     },
                 );
 
                 if ui.button("Clear All P1").clicked() {
                     mapping_config.p1 = SnesControllerMapping::default();
+                    mapping_config.p1_turbo = SnesControllerMapping::default();
                 }
 
                 if ui.button("Clear All P2").clicked() {
                     mapping_config.p2 = SnesControllerMapping::default();
+                    mapping_config.p2_turbo = SnesControllerMapping::default();
                 }
             });
         });
@@ -999,23 +1037,29 @@ impl App {
 
             ui.add_space(15.0);
 
-            let mapping_config = mapping.gb(&mut self.config.input);
             ui.horizontal(|ui| {
                 ComboBox::new("gb_presets", "").selected_text("Apply preset...").show_ui(
                     ui,
                     |ui| {
                         if ui.selectable_label(false, "Keyboard - Arrow movement").clicked() {
-                            *mapping_config = GameBoyInputMapping::keyboard_arrows();
+                            *mapping.gb(&mut self.config.input, false) =
+                                GameBoyInputMapping::keyboard_arrows();
+                            *mapping.gb(&mut self.config.input, true) =
+                                GameBoyInputMapping::default();
                         }
 
                         if ui.selectable_label(false, "Keyboard - WASD movement").clicked() {
-                            *mapping_config = GameBoyInputMapping::keyboard_wasd();
+                            *mapping.gb(&mut self.config.input, false) =
+                                GameBoyInputMapping::keyboard_wasd();
+                            *mapping.gb(&mut self.config.input, true) =
+                                GameBoyInputMapping::default();
                         }
                     },
                 );
 
                 if ui.button("Clear All").clicked() {
-                    *mapping_config = GameBoyInputMapping::default();
+                    *mapping.gb(&mut self.config.input, false) = GameBoyInputMapping::default();
+                    *mapping.gb(&mut self.config.input, true) = GameBoyInputMapping::default();
                 }
             });
         });
@@ -1043,23 +1087,29 @@ impl App {
 
             ui.add_space(15.0);
 
-            let mapping_config = mapping.gba(&mut self.config.input);
             ui.horizontal(|ui| {
                 ComboBox::new("gba_presets", "").selected_text("Apply preset...").show_ui(
                     ui,
                     |ui| {
                         if ui.selectable_label(false, "Keyboard - Arrow movement").clicked() {
-                            mapping_config.joypad = GbaJoypadMapping::keyboard_arrows();
+                            mapping.gba(&mut self.config.input, false).joypad =
+                                GbaJoypadMapping::keyboard_arrows();
+                            mapping.gba(&mut self.config.input, true).joypad =
+                                GbaJoypadMapping::default();
                         }
 
                         if ui.selectable_label(false, "Keyboard - WASD movement").clicked() {
-                            mapping_config.joypad = GbaJoypadMapping::keyboard_wasd();
+                            mapping.gba(&mut self.config.input, false).joypad =
+                                GbaJoypadMapping::keyboard_wasd();
+                            mapping.gba(&mut self.config.input, true).joypad =
+                                GbaJoypadMapping::default();
                         }
                     },
                 );
 
                 if ui.button("Clear All").clicked() {
-                    mapping_config.joypad = GbaJoypadMapping::default();
+                    mapping.gba(&mut self.config.input, false).joypad = GbaJoypadMapping::default();
+                    mapping.gba(&mut self.config.input, true).joypad = GbaJoypadMapping::default();
                 }
             });
         });
@@ -1091,7 +1141,7 @@ impl App {
 
             ui.add_space(15.0);
 
-            let mapping_config = mapping.gba(&mut self.config.input);
+            let mapping_config = mapping.gba(&mut self.config.input, false);
             if ui.button("Clear All").clicked() {
                 mapping_config.solar = GbaSolarMapping::default();
             }
