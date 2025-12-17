@@ -1,9 +1,8 @@
 use crate::config::GameBoyConfig;
 use crate::config::RomReadResult;
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
-use crate::mainloop::{debug, file_name_no_ext, save};
+use crate::mainloop::{NativeEmulatorArgs, debug, file_name_no_ext, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
-use gb_config::GameBoyInputs;
 use gb_core::api::{BootRoms, GameBoyEmulator};
 use jgenesis_native_config::common::WindowSize;
 use std::fs;
@@ -73,17 +72,18 @@ pub fn create_gb(config: Box<GameBoyConfig>) -> NativeEmulatorResult<NativeGameB
     let default_window_size = WindowSize::new_gb(config.common.initial_window_size);
 
     NativeGameBoyEmulator::new(
-        emulator,
-        emulator_config,
-        config.common,
-        extension,
-        default_window_size,
-        &window_title,
-        save_writer,
-        save_state_path,
-        &config.inputs.to_mapping_vec(),
-        GameBoyInputs::default(),
-        debug::gb::render_fn,
+        NativeEmulatorArgs::new(
+            emulator,
+            emulator_config,
+            config.common,
+            extension,
+            default_window_size,
+            &window_title,
+            save_writer,
+            save_state_path,
+            config.inputs.to_mapping_vec(),
+        )
+        .with_debug_render_fn(debug::gb::render_fn),
     )
 }
 

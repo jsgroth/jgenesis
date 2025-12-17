@@ -2,11 +2,10 @@ use crate::config::SmsGgConfig;
 use std::fs;
 
 use crate::mainloop::save::FsSaveWriter;
-use crate::mainloop::{debug, file_name_no_ext, save};
+use crate::mainloop::{NativeEmulatorArgs, debug, file_name_no_ext, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
 
 use jgenesis_native_config::common::WindowSize;
-use smsgg_config::SmsGgInputs;
 use smsgg_core::{SmsGgEmulator, SmsGgHardware};
 use std::path::{Path, PathBuf};
 
@@ -63,9 +62,10 @@ impl NativeSmsGgEmulator {
 
         self.update_emulator_config(&config.emulator_config);
 
-        self.input_mapper.update_mappings(
+        self.input_mapper.update_mappings_with_turbo(
             config.common.axis_deadzone,
             &config.inputs.to_mapping_vec(),
+            &config.inputs.to_turbo_mapping_vec(),
             &config.common.hotkey_config.to_mapping_vec(),
         );
 
@@ -164,17 +164,19 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
     };
 
     NativeSmsGgEmulator::new(
-        emulator,
-        emulator_config,
-        config.common,
-        extension,
-        default_window_size,
-        &window_title,
-        save_writer,
-        save_state_path,
-        &config.inputs.to_mapping_vec(),
-        SmsGgInputs::default(),
-        debug::smsgg::render_fn,
+        NativeEmulatorArgs::new(
+            emulator,
+            emulator_config,
+            config.common,
+            extension,
+            default_window_size,
+            &window_title,
+            save_writer,
+            save_state_path,
+            config.inputs.to_mapping_vec(),
+        )
+        .with_turbo_mappings(config.inputs.to_turbo_mapping_vec())
+        .with_debug_render_fn(debug::smsgg::render_fn),
     )
 }
 

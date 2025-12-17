@@ -1,5 +1,5 @@
 use crate::app::widgets::NumericTextEdit;
-use crate::app::{App, OpenWindow};
+use crate::app::{App, OpenWindow, WaitingForInput};
 use crate::emuthread::EmuThreadCommand;
 use egui::{Button, Color32, ComboBox, Context, Grid, ScrollArea, Slider, Ui, Window};
 use gb_config::GameBoyButton;
@@ -116,13 +116,39 @@ impl GenericButton {
         config: &mut InputAppConfig,
     ) -> &mut Option<Vec<GenericInput>> {
         match self {
-            Self::SmsGg(button, player) => access_smsgg_value(mapping, button, player, config),
-            Self::Genesis(button, player) => access_genesis_value(mapping, button, player, config),
+            Self::SmsGg(button, player) => {
+                access_smsgg_value(mapping, button, player, false, config)
+            }
+            Self::Genesis(button, player) => {
+                access_genesis_value(mapping, button, player, false, config)
+            }
             Self::Nes(button, player) => access_nes_value(mapping, button, player, config),
             Self::Snes(button, player) => access_snes_value(mapping, button, player, config),
             Self::GameBoy(button) => access_gb_value(mapping, button, config),
             Self::Gba(button) => access_gba_value(mapping, button, config),
             Self::Hotkey(hotkey) => access_hotkey(mapping, hotkey, config),
+        }
+    }
+
+    pub fn access_value_turbo(
+        self,
+        mapping: InputMappingSet,
+        config: &mut InputAppConfig,
+    ) -> Option<&mut Option<Vec<GenericInput>>> {
+        match self {
+            Self::SmsGg(button @ (SmsGgButton::Button1 | SmsGgButton::Button2), player) => {
+                Some(access_smsgg_value(mapping, button, player, true, config))
+            }
+            Self::Genesis(
+                button @ (GenesisButton::A
+                | GenesisButton::B
+                | GenesisButton::C
+                | GenesisButton::X
+                | GenesisButton::Y
+                | GenesisButton::Z),
+                player,
+            ) => Some(access_genesis_value(mapping, button, player, true, config)),
+            _ => None,
         }
     }
 }
@@ -282,6 +308,7 @@ fn access_smsgg_value(
     mapping: InputMappingSet,
     button: SmsGgButton,
     player: Player,
+    turbo: bool,
     config: &mut InputAppConfig,
 ) -> &mut Option<Vec<GenericInput>> {
     let mapping_config = mapping.smsgg(config);
@@ -290,9 +317,11 @@ fn access_smsgg_value(
         return &mut mapping_config.pause;
     }
 
-    let player_config = match player {
-        Player::One => &mut mapping_config.p1,
-        Player::Two => &mut mapping_config.p2,
+    let player_config = match (player, turbo) {
+        (Player::One, false) => &mut mapping_config.p1,
+        (Player::One, true) => &mut mapping_config.p1_turbo,
+        (Player::Two, false) => &mut mapping_config.p2,
+        (Player::Two, true) => &mut mapping_config.p2_turbo,
     };
 
     match button {
@@ -310,13 +339,16 @@ fn access_genesis_value(
     mapping: InputMappingSet,
     button: GenesisButton,
     player: Player,
+    turbo: bool,
     config: &mut InputAppConfig,
 ) -> &mut Option<Vec<GenericInput>> {
     let mapping_config = mapping.genesis(config);
 
-    let player_config = match player {
-        Player::One => &mut mapping_config.p1,
-        Player::Two => &mut mapping_config.p2,
+    let player_config = match (player, turbo) {
+        (Player::One, false) => &mut mapping_config.p1,
+        (Player::One, true) => &mut mapping_config.p1_turbo,
+        (Player::Two, false) => &mut mapping_config.p2,
+        (Player::Two, true) => &mut mapping_config.p2_turbo,
     };
 
     match button {
@@ -571,11 +603,13 @@ impl App {
                     |ui| {
                         if ui.selectable_label(false, "Keyboard - Arrow movement").clicked() {
                             mapping_config.p1 = SmsGgControllerMapping::keyboard_arrows();
+                            mapping_config.p1_turbo = SmsGgControllerMapping::default();
                             mapping_config.pause = SmsGgControllerMapping::keyboard_pause();
                         }
 
                         if ui.selectable_label(false, "Keyboard - WASD movement").clicked() {
                             mapping_config.p1 = SmsGgControllerMapping::keyboard_wasd();
+                            mapping_config.p1_turbo = SmsGgControllerMapping::default();
                             mapping_config.pause = SmsGgControllerMapping::keyboard_pause();
                         }
                     },
@@ -583,10 +617,12 @@ impl App {
 
                 if ui.button("Clear All P1").clicked() {
                     mapping_config.p1 = SmsGgControllerMapping::default();
+                    mapping_config.p1_turbo = SmsGgControllerMapping::default();
                 }
 
                 if ui.button("Clear All P2").clicked() {
                     mapping_config.p2 = SmsGgControllerMapping::default();
+                    mapping_config.p2_turbo = SmsGgControllerMapping::default();
                 }
             });
         });
@@ -635,20 +671,24 @@ impl App {
                     |ui| {
                         if ui.selectable_label(false, "Keyboard - Arrow movement").clicked() {
                             mapping_config.p1 = GenesisControllerMapping::keyboard_arrows();
+                            mapping_config.p1_turbo = GenesisControllerMapping::default();
                         }
 
                         if ui.selectable_label(false, "Keyboard - WASD movement").clicked() {
                             mapping_config.p1 = GenesisControllerMapping::keyboard_wasd();
+                            mapping_config.p1_turbo = GenesisControllerMapping::default();
                         }
                     },
                 );
 
                 if ui.button("Clear All P1").clicked() {
                     mapping_config.p1 = GenesisControllerMapping::default();
+                    mapping_config.p1_turbo = GenesisControllerMapping::default();
                 }
 
                 if ui.button("Clear All P2").clicked() {
                     mapping_config.p2 = GenesisControllerMapping::default();
+                    mapping_config.p2_turbo = GenesisControllerMapping::default();
                 }
             });
 
@@ -1225,11 +1265,34 @@ impl App {
                     self.emu_thread.send(EmuThreadCommand::CollectInput {
                         axis_deadzone: self.config.input.axis_deadzone,
                     });
-                    self.state.waiting_for_input = Some((*button, mapping));
+                    self.state.waiting_for_input =
+                        Some(WaitingForInput { button: *button, mapping, turbo: false });
                 }
 
                 if ui.button("Clear").clicked() {
                     *button.access_value(mapping, &mut self.config.input) = None;
+                }
+
+                if let Some(turbo_value) =
+                    button.access_value_turbo(mapping, &mut self.config.input)
+                {
+                    ui.label("Turbo");
+
+                    let turbo_value_str = format_input_str(turbo_value.as_ref());
+                    if ui.button(turbo_value_str).clicked() {
+                        self.emu_thread.send(EmuThreadCommand::CollectInput {
+                            axis_deadzone: self.config.input.axis_deadzone,
+                        });
+                        self.state.waiting_for_input =
+                            Some(WaitingForInput { button: *button, mapping, turbo: true });
+                    }
+
+                    if ui.button("Clear").clicked()
+                        && let Some(turbo_value) =
+                            button.access_value_turbo(mapping, &mut self.config.input)
+                    {
+                        *turbo_value = None;
+                    }
                 }
 
                 ui.end_row();

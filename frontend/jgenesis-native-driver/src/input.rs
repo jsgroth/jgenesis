@@ -62,6 +62,7 @@ type MappingArrayVec = ArrayVec<CanonicalInput, MAX_MAPPING_LEN>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GenericButton<Button> {
     Button(Button, Player),
+    TurboButton(Button, Player),
     Hotkey(Hotkey),
 }
 
@@ -169,6 +170,7 @@ struct InputMapperState<Button> {
     inputs_to_buttons: FxHashMap<CanonicalInput, Vec<GenericButton<Button>>>,
     active_inputs: FxHashSet<GenericInput>,
     active_canonical_inputs: FxHashSet<CanonicalInput>,
+    active_turbo_buttons: FxHashMap<(Button, Player), bool>,
     active_hotkeys: FxHashSet<Hotkey>,
     changed_button_buffers: [Vec<GenericButton<Button>>; MAX_MAPPING_LEN + 1],
 }
@@ -184,38 +186,48 @@ where
             inputs_to_buttons: FxHashMap::default(),
             active_inputs: FxHashSet::default(),
             active_canonical_inputs: FxHashSet::default(),
+            active_turbo_buttons: FxHashMap::default(),
             active_hotkeys: FxHashSet::default(),
             changed_button_buffers: array::from_fn(|_| Vec::with_capacity(10)),
         }
     }
 
-    fn update_mappings(
+    fn update_mappings_with_turbo(
         &mut self,
         button_mappings: &[((Button, Player), &Vec<GenericInput>)],
+        turbo_mappings: &[((Button, Player), &Vec<GenericInput>)],
         hotkey_mappings: &[(Hotkey, &Vec<GenericInput>)],
     ) {
         self.mappings.clear();
         self.inputs_to_buttons.clear();
         self.active_inputs.clear();
+        self.active_canonical_inputs.clear();
+        self.active_turbo_buttons.clear();
         self.active_hotkeys.clear();
 
-        for &((button, player), mapping) in button_mappings {
-            if mapping.len() > MAX_MAPPING_LEN {
-                log::error!("Ignoring mapping, too many inputs: {mapping:?}");
-                continue;
-            }
+        for (mappings, turbo) in [(button_mappings, false), (turbo_mappings, true)] {
+            for &((button, player), mapping) in mappings {
+                if mapping.len() > MAX_MAPPING_LEN {
+                    log::error!("Ignoring mapping, too many inputs: {mapping:?}");
+                    continue;
+                }
 
-            let generic_button = GenericButton::Button(button, player);
-            self.mappings
-                .entry(generic_button)
-                .or_default()
-                .push(mapping.iter().copied().map(CanonicalInput::canonicalize).collect());
-
-            for &mapping_input in mapping {
-                self.inputs_to_buttons
-                    .entry(CanonicalInput::canonicalize(mapping_input))
+                let generic_button = if turbo {
+                    GenericButton::TurboButton(button, player)
+                } else {
+                    GenericButton::Button(button, player)
+                };
+                self.mappings
+                    .entry(generic_button)
                     .or_default()
-                    .push(generic_button);
+                    .push(mapping.iter().copied().map(CanonicalInput::canonicalize).collect());
+
+                for &mapping_input in mapping {
+                    self.inputs_to_buttons
+                        .entry(CanonicalInput::canonicalize(mapping_input))
+                        .or_default()
+                        .push(generic_button);
+                }
             }
         }
 
@@ -238,6 +250,14 @@ where
                     .push(generic_button);
             }
         }
+    }
+
+    fn update_mappings(
+        &mut self,
+        button_mappings: &[((Button, Player), &Vec<GenericInput>)],
+        hotkey_mappings: &[(Hotkey, &Vec<GenericInput>)],
+    ) {
+        self.update_mappings_with_turbo(button_mappings, &[], hotkey_mappings);
     }
 
     fn handle_input(&mut self, raw_input: GenericInput, pressed: bool) {
@@ -330,6 +350,18 @@ where
                             pressed,
                         });
                     }
+                    GenericButton::TurboButton(button, player) => {
+                        if pressed {
+                            self.active_turbo_buttons.insert((button, player), true);
+                        } else {
+                            self.active_turbo_buttons.remove(&(button, player));
+                            self.input_events.borrow_mut().push(InputEvent::Button {
+                                button,
+                                player,
+                                pressed: false,
+                            });
+                        }
+                    }
                     GenericButton::Hotkey(hotkey) => {
                         if pressed && self.active_hotkeys.insert(hotkey) {
                             self.input_events
@@ -358,6 +390,18 @@ where
         }
     }
 
+    fn toggle_turbo_states(&mut self) {
+        for (&(button, player), pressed) in &mut self.active_turbo_buttons {
+            self.input_events.borrow_mut().push(InputEvent::Button {
+                button,
+                player,
+                pressed: *pressed,
+            });
+
+            *pressed = !*pressed;
+        }
+    }
+
     fn unset_all_gamepad_inputs(&mut self) {
         // Allocation to avoid borrow checker issues is fine, this won't be called frequently
         let gamepad_inputs: Vec<_> = self.inputs_to_buttons.keys().copied().collect();
@@ -382,12 +426,13 @@ where
         joystick_subsystem: JoystickSubsystem,
         axis_deadzone: i16,
         button_mappings: &[((Button, Player), &Vec<GenericInput>)],
+        turbo_mappings: &[((Button, Player), &Vec<GenericInput>)],
         hotkey_mappings: &[(Hotkey, &Vec<GenericInput>)],
     ) -> Self {
         let joysticks = Joysticks::new(joystick_subsystem);
 
         let mut state = InputMapperState::new();
-        state.update_mappings(button_mappings, hotkey_mappings);
+        state.update_mappings_with_turbo(button_mappings, turbo_mappings, hotkey_mappings);
 
         Self { joysticks, axis_deadzone, state }
     }
@@ -400,6 +445,17 @@ where
     ) {
         self.axis_deadzone = axis_deadzone;
         self.state.update_mappings(button_mappings, hotkey_mappings);
+    }
+
+    pub fn update_mappings_with_turbo(
+        &mut self,
+        axis_deadzone: i16,
+        button_mappings: &[((Button, Player), &Vec<GenericInput>)],
+        turbo_mappings: &[((Button, Player), &Vec<GenericInput>)],
+        hotkey_mappings: &[(Hotkey, &Vec<GenericInput>)],
+    ) {
+        self.axis_deadzone = axis_deadzone;
+        self.state.update_mappings_with_turbo(button_mappings, turbo_mappings, hotkey_mappings);
     }
 
     pub fn handle_event(
@@ -533,6 +589,10 @@ where
                 pressed,
             );
         }
+    }
+
+    pub fn frame_complete(&mut self) {
+        self.state.toggle_turbo_states();
     }
 
     #[must_use]
@@ -991,5 +1051,46 @@ mod tests {
             expected, state.inputs,
             "Releasing RShift while LShift is not held should change mapping"
         );
+    }
+
+    #[test]
+    fn turbo() {
+        let mut input_state = InputMapperState::new();
+        input_state.update_mappings_with_turbo(
+            &[],
+            &[((SmsGgButton::Button1, Player::One), &vec![GenericInput::Keyboard(Keycode::D)])],
+            &[],
+        );
+
+        let mut state = new_smsgg_state();
+
+        let mut expected = SmsGgInputs::default();
+        assert_eq!(expected, state.inputs);
+
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::D), false);
+        assert_eq!(expected, state.inputs);
+        input_state.toggle_turbo_states();
+        assert_eq!(expected, state.inputs);
+
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::D), true);
+        assert_eq!(expected, state.inputs);
+
+        for _ in 0..51 {
+            input_state.toggle_turbo_states();
+            take_events(&mut state.inputs, &mut state.hotkeys, &mut input_state);
+            expected.p1.button1 = !expected.p1.button1;
+            assert_eq!(expected, state.inputs);
+        }
+
+        assert_eq!(state.inputs.p1.button1, true);
+        state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::D), false);
+        expected.p1.button1 = false;
+        assert_eq!(expected, state.inputs);
+
+        for _ in 0..51 {
+            input_state.toggle_turbo_states();
+            take_events(&mut state.inputs, &mut state.hotkeys, &mut input_state);
+            assert_eq!(expected, state.inputs);
+        }
     }
 }

@@ -137,6 +137,12 @@ struct HelpText {
     text: &'static [&'static str],
 }
 
+struct WaitingForInput {
+    button: GenericButton,
+    mapping: InputMappingSet,
+    turbo: bool,
+}
+
 struct AppState {
     current_file_path: PathBuf,
     open_windows: HashSet<OpenWindow>,
@@ -159,7 +165,7 @@ struct AppState {
     genesis_volume: GenesisVolumeState,
     s32x_priority: S32XPriorityState,
     overscan: OverscanState,
-    waiting_for_input: Option<(GenericButton, InputMappingSet)>,
+    waiting_for_input: Option<WaitingForInput>,
     rom_list: Arc<Mutex<Vec<RomMetadata>>>,
     filtered_rom_list: Rc<[RomMetadata]>,
     rom_list_refresh_needed: bool,
@@ -1116,7 +1122,7 @@ impl App {
     }
 
     fn check_waiting_for_input(&mut self, ctx: &Context) {
-        if let Some((button, mapping)) = self.state.waiting_for_input {
+        if let Some(WaitingForInput { button, mapping, turbo }) = self.state.waiting_for_input {
             if let Ok(input) = self.emu_thread.poll_input_receiver() {
                 self.state.waiting_for_input = None;
 
@@ -1124,7 +1130,15 @@ impl App {
                 if let Some(input) = input
                     && !input.is_empty()
                 {
-                    *button.access_value(mapping, &mut self.config.input) = Some(input);
+                    if turbo {
+                        if let Some(value) =
+                            button.access_value_turbo(mapping, &mut self.config.input)
+                        {
+                            *value = Some(input);
+                        }
+                    } else {
+                        *button.access_value(mapping, &mut self.config.input) = Some(input);
+                    }
                 }
             } else if self.emu_thread.status().is_running() {
                 Window::new("Input Configuration").resizable(false).show(ctx, |ui| {

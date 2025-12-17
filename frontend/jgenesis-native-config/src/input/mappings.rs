@@ -116,6 +116,22 @@ macro_rules! impl_to_mapping_vec {
     };
 }
 
+macro_rules! impl_to_turbo_mapping_vec {
+    ($button:ty) => {
+        #[must_use]
+        pub fn to_turbo_mapping_vec(&self) -> ButtonMappingVec<'_, $button> {
+            let mut out = Vec::new();
+
+            for mapping in [&self.mapping_1, &self.mapping_2] {
+                mapping.p1_turbo.to_mapping_vec(Player::One, &mut out);
+                mapping.p2_turbo.to_mapping_vec(Player::Two, &mut out);
+            }
+
+            out
+        }
+    };
+}
+
 define_controller_mapping!(SmsGgControllerMapping, SmsGgButton, [
     up: Up,
     left: Left,
@@ -162,6 +178,10 @@ pub struct SmsGgInputMapping {
     pub p1: SmsGgControllerMapping,
     #[serde(default)]
     pub p2: SmsGgControllerMapping,
+    #[serde(default)]
+    pub p1_turbo: SmsGgControllerMapping,
+    #[serde(default)]
+    pub p2_turbo: SmsGgControllerMapping,
     #[cfg_display(debug_fmt)]
     pub pause: Option<Vec<GenericInput>>,
 }
@@ -189,12 +209,16 @@ pub struct SmsGgInputConfig {
 
 impl SmsGgInputConfig {
     impl_to_mapping_vec!(SmsGgButton);
+
+    impl_to_turbo_mapping_vec!(SmsGgButton);
 }
 
 fn default_smsgg_mapping_1() -> SmsGgInputMapping {
     SmsGgInputMapping {
         p1: SmsGgControllerMapping::keyboard_arrows(),
         p2: SmsGgControllerMapping::default(),
+        p1_turbo: SmsGgControllerMapping::default(),
+        p2_turbo: SmsGgControllerMapping::default(),
         pause: key_input!(Return),
     }
 }
@@ -266,6 +290,12 @@ pub struct GenesisInputMapping {
     #[serde(default)]
     #[cfg_display(indent_nested)]
     pub p2: GenesisControllerMapping,
+    #[serde(default)]
+    #[cfg_display(indent_nested)]
+    pub p1_turbo: GenesisControllerMapping,
+    #[serde(default)]
+    #[cfg_display(indent_nested)]
+    pub p2_turbo: GenesisControllerMapping,
 }
 
 impl GenesisInputMapping {
@@ -291,12 +321,16 @@ pub struct GenesisInputConfig {
 
 impl GenesisInputConfig {
     impl_to_mapping_vec!(GenesisButton);
+
+    impl_to_turbo_mapping_vec!(GenesisButton);
 }
 
 fn default_genesis_mapping_1() -> GenesisInputMapping {
     GenesisInputMapping {
         p1: GenesisControllerMapping::keyboard_arrows(),
         p2: GenesisControllerMapping::default(),
+        p1_turbo: GenesisControllerMapping::default(),
+        p2_turbo: GenesisControllerMapping::default(),
     }
 }
 

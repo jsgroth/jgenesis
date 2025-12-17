@@ -374,23 +374,94 @@ pub enum NativeEmulatorError {
 
 pub type NativeEmulatorResult<T> = Result<T, NativeEmulatorError>;
 
-impl<Emulator> NativeEmulator<Emulator>
+pub(crate) struct NativeEmulatorArgs<'ttl, 'input, 'turbo, Emulator: EmulatorTrait> {
+    pub emulator: Emulator,
+    pub emulator_config: Emulator::Config,
+    pub common_config: CommonConfig,
+    pub rom_extension: String,
+    pub default_window_size: WindowSize,
+    pub window_title: &'ttl str,
+    pub save_writer: FsSaveWriter,
+    pub save_state_path: PathBuf,
+    pub button_mappings: ButtonMappingVec<'input, Emulator::Button>,
+    pub turbo_mappings: ButtonMappingVec<'turbo, Emulator::Button>,
+    pub initial_inputs: Emulator::Inputs,
+    pub debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
+}
+
+impl<'ttl, 'input, 'turbo, Emulator> NativeEmulatorArgs<'ttl, 'input, 'turbo, Emulator>
 where
     Emulator: EmulatorTrait,
 {
     #[allow(clippy::too_many_arguments)]
-    fn new(
-        mut emulator: Emulator,
+    pub fn new(
+        emulator: Emulator,
         emulator_config: Emulator::Config,
         common_config: CommonConfig,
         rom_extension: String,
         default_window_size: WindowSize,
-        window_title: &str,
+        window_title: &'ttl str,
         save_writer: FsSaveWriter,
         save_state_path: PathBuf,
-        button_mappings: &ButtonMappingVec<'_, Emulator::Button>,
-        initial_inputs: Emulator::Inputs,
+        button_mappings: ButtonMappingVec<'input, Emulator::Button>,
+    ) -> Self {
+        NativeEmulatorArgs {
+            emulator,
+            emulator_config,
+            common_config,
+            rom_extension,
+            default_window_size,
+            window_title,
+            save_writer,
+            save_state_path,
+            button_mappings,
+            turbo_mappings: vec![],
+            initial_inputs: Emulator::Inputs::default(),
+            debug_render_fn: || Box::new(|_| {}),
+        }
+    }
+
+    pub fn with_turbo_mappings(
+        mut self,
+        turbo_mappings: ButtonMappingVec<'turbo, Emulator::Button>,
+    ) -> Self {
+        self.turbo_mappings = turbo_mappings;
+        self
+    }
+
+    pub fn with_initial_inputs(mut self, inputs: Emulator::Inputs) -> Self {
+        self.initial_inputs = inputs;
+        self
+    }
+
+    pub fn with_debug_render_fn(
+        mut self,
         debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
+    ) -> Self {
+        self.debug_render_fn = debug_render_fn;
+        self
+    }
+}
+
+impl<Emulator> NativeEmulator<Emulator>
+where
+    Emulator: EmulatorTrait,
+{
+    fn new(
+        NativeEmulatorArgs {
+            mut emulator,
+            emulator_config,
+            common_config,
+            rom_extension,
+            default_window_size,
+            window_title,
+            save_writer,
+            save_state_path,
+            button_mappings,
+            turbo_mappings,
+            initial_inputs,
+            debug_render_fn,
+        }: NativeEmulatorArgs<'_, '_, '_, Emulator>,
     ) -> NativeEmulatorResult<Self> {
         let (sdl, video, audio, joystick, event_pump) = init_sdl3(&common_config)?;
 
@@ -421,7 +492,8 @@ where
         let input_mapper = InputMapper::new(
             joystick,
             common_config.axis_deadzone,
-            button_mappings,
+            &button_mappings,
+            &turbo_mappings,
             &common_config.hotkey_config.to_mapping_vec(),
         );
 
@@ -486,6 +558,8 @@ where
 
             self.audio_output.adjust_dynamic_resampling_ratio();
             self.emulator.update_audio_output_frequency(self.audio_output.output_frequency());
+
+            self.input_mapper.frame_complete();
 
             self.renderer.set_target_fps(self.emulator.target_fps());
         }

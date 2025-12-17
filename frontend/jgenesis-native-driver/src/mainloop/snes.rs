@@ -1,7 +1,7 @@
 use crate::config::SnesConfig;
 
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
-use crate::mainloop::{debug, save};
+use crate::mainloop::{NativeEmulatorArgs, debug, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorResult, extensions};
 
 use crate::config::RomReadResult;
@@ -84,16 +84,18 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
         WindowSize::new_snes(config.common.initial_window_size, emulator_config.aspect_ratio);
 
     NativeSnesEmulator::new(
-        emulator,
-        emulator_config,
-        config.common,
-        extension,
-        default_window_size,
-        &window_title,
-        save_writer,
-        save_state_path,
-        &config.inputs.to_mapping_vec(),
-        initial_inputs,
-        debug::snes::render_fn,
+        NativeEmulatorArgs::new(
+            emulator,
+            emulator_config,
+            config.common,
+            extension,
+            default_window_size,
+            &window_title,
+            save_writer,
+            save_state_path,
+            config.inputs.to_mapping_vec(),
+        )
+        .with_initial_inputs(initial_inputs)
+        .with_debug_render_fn(debug::snes::render_fn),
     )
 }

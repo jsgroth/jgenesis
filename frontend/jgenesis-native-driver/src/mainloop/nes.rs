@@ -1,7 +1,7 @@
 use crate::config::NesConfig;
 
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
-use crate::mainloop::{debug, file_name_no_ext, save};
+use crate::mainloop::{NativeEmulatorArgs, debug, file_name_no_ext, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorResult, extensions};
 
 use nes_core::api::NesEmulator;
@@ -87,16 +87,18 @@ pub fn create_nes(config: Box<NesConfig>) -> NativeEmulatorResult<NativeNesEmula
     );
 
     NativeNesEmulator::new(
-        emulator,
-        emulator_config,
-        config.common,
-        extension,
-        default_window_size,
-        &window_title,
-        save_writer,
-        save_state_path,
-        &config.inputs.to_mapping_vec(),
-        initial_inputs,
-        debug::nes::render_fn,
+        NativeEmulatorArgs::new(
+            emulator,
+            emulator_config,
+            config.common,
+            extension,
+            default_window_size,
+            &window_title,
+            save_writer,
+            save_state_path,
+            config.inputs.to_mapping_vec(),
+        )
+        .with_initial_inputs(initial_inputs)
+        .with_debug_render_fn(debug::nes::render_fn),
     )
 }

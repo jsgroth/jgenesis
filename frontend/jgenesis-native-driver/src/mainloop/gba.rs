@@ -1,6 +1,6 @@
 use crate::config::{GameBoyAdvanceConfig, RomReadResult};
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
-use crate::mainloop::{debug, file_name_no_ext, save};
+use crate::mainloop::{NativeEmulatorArgs, debug, file_name_no_ext, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
 use gba_config::{GbaInputs, SolarSensorState};
 use gba_core::api::GameBoyAdvanceEmulator;
@@ -85,16 +85,18 @@ pub fn create_gba(config: Box<GameBoyAdvanceConfig>) -> NativeEmulatorResult<Nat
     let initial_inputs = GbaInputs { solar: new_solar_state(&config), ..GbaInputs::default() };
 
     NativeGbaEmulator::new(
-        emulator,
-        emulator_config,
-        config.common,
-        extension,
-        default_window_size,
-        &window_title,
-        save_writer,
-        save_state_path,
-        &config.inputs.to_mapping_vec(),
-        initial_inputs,
-        debug::gba::render_fn,
+        NativeEmulatorArgs::new(
+            emulator,
+            emulator_config,
+            config.common,
+            extension,
+            default_window_size,
+            &window_title,
+            save_writer,
+            save_state_path,
+            config.inputs.to_mapping_vec(),
+        )
+        .with_initial_inputs(initial_inputs)
+        .with_debug_render_fn(debug::gba::render_fn),
     )
 }
