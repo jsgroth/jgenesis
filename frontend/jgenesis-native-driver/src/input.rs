@@ -347,12 +347,12 @@ where
                             self.active_turbo_buttons.insert((button, player), true);
                         } else {
                             self.active_turbo_buttons.remove(&(button, player));
-                            self.input_events.borrow_mut().push(InputEvent::Button {
-                                button,
-                                player,
-                                pressed: false,
-                            });
                         }
+                        self.input_events.borrow_mut().push(InputEvent::Button {
+                            button,
+                            player,
+                            pressed,
+                        });
                     }
                     GenericButton::Hotkey(hotkey) => {
                         if pressed && self.active_hotkeys.insert(hotkey) {
