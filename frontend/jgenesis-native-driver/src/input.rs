@@ -1064,9 +1064,17 @@ mod tests {
         assert_eq!(expected, state.inputs);
 
         state.handle_input(&mut input_state, GenericInput::Keyboard(Keycode::D), true);
+        expected.p1.button1 = true;
         assert_eq!(expected, state.inputs);
 
-        for _ in 0..51 {
+        // First toggle won't change state
+        // This is intentional - the pressed state should immediately change to true once the turbo
+        // mapping is pressed, then it should remain true until the second "frame complete" event
+        input_state.toggle_turbo_states();
+        take_events(&mut state.inputs, &mut state.hotkeys, &mut input_state);
+        assert_eq!(expected, state.inputs);
+
+        for _ in 0..50 {
             input_state.toggle_turbo_states();
             take_events(&mut state.inputs, &mut state.hotkeys, &mut input_state);
             expected.p1.button1 = !expected.p1.button1;
