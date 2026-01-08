@@ -34,6 +34,7 @@
 * (**GB**) Added (proper) support for the MBC30 mapper, used by the Japanese version of _Pocket Monsters Crystal Version_ (#478)
 * (**GB**) Added support for unlicensed/homebrew games with an SRAM size byte of \$01 (2 KB) (#485)
 * (**Game Gear**) Added support for booting from a BIOS / boot ROM (#404)
+* Added turbo button support for face and shoulder buttons on all emulated systems
 
 ## Improvements
 * Upgraded [SDL](https://www.libsdl.org/) from SDL2 to SDL3; for the most part this should hopefully have no noticeable impact except for audio playback maybe working a little better than before
