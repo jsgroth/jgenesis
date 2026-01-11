@@ -12,8 +12,8 @@ use bincode::error::EncodeError;
 use bincode::{Decode, Encode};
 use crc::Crc;
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, PartialClone, Renderer, SaveWriter,
-    TickEffect, TimingMode,
+    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, PartialClone, RenderFrameOptions,
+    Renderer, SaveWriter, TickEffect, TimingMode,
 };
 use jgenesis_proc_macros::{ConfigDisplay, FakeDecode, FakeEncode};
 use snes_config::{AudioInterpolationMode, SnesAspectRatio, SnesButton};
@@ -341,7 +341,11 @@ impl EmulatorTrait for SnesEmulator {
             let aspect_ratio = self.aspect_ratio.to_pixel_aspect_ratio(frame_size);
 
             renderer
-                .render_frame(self.ppu.frame_buffer(), self.ppu.frame_size(), aspect_ratio)
+                .render_frame(
+                    self.ppu.frame_buffer(),
+                    self.ppu.frame_size(),
+                    RenderFrameOptions::pixel_aspect_ratio(aspect_ratio),
+                )
                 .map_err(SnesError::Render)?;
 
             // Only persist SRAM if it's changed since the last write, and only check ~twice per
@@ -390,7 +394,11 @@ impl EmulatorTrait for SnesEmulator {
     {
         let frame_size = self.ppu.frame_size();
         let aspect_ratio = self.aspect_ratio.to_pixel_aspect_ratio(frame_size);
-        renderer.render_frame(self.ppu.frame_buffer(), frame_size, aspect_ratio)
+        renderer.render_frame(
+            self.ppu.frame_buffer(),
+            frame_size,
+            RenderFrameOptions::pixel_aspect_ratio(aspect_ratio),
+        )
     }
 
     fn reload_config(&mut self, config: &Self::Config) {

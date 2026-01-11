@@ -1,6 +1,6 @@
 use bincode::{Decode, Encode};
 use jgenesis_common::define_controller_inputs;
-use jgenesis_common::frontend::{FrameSize, PixelAspectRatio, TimingMode};
+use jgenesis_common::frontend::{FiniteF64, FrameSize, TimingMode};
 use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 use std::fmt::{Display, Formatter};
 
@@ -60,7 +60,7 @@ impl GenesisAspectRatio {
         frame_size: FrameSize,
         force_square_in_h40: bool,
         adjust_for_2x_resolution: bool,
-    ) -> Option<PixelAspectRatio> {
+    ) -> Option<FiniteF64> {
         if self == Self::Auto {
             let auto_aspect = match timing_mode {
                 TimingMode::Ntsc => Self::Ntsc,
@@ -104,7 +104,7 @@ impl GenesisAspectRatio {
             pixel_aspect_ratio = pixel_aspect_ratio.map(|par| par * 2.0);
         }
 
-        pixel_aspect_ratio.map(|par| PixelAspectRatio::try_from(par).unwrap())
+        pixel_aspect_ratio.map(|par| FiniteF64::try_from(par).unwrap())
     }
 }
 

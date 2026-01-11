@@ -9,8 +9,8 @@ use crate::ppu::PpuState;
 use crate::{apu, audio, cpu, graphics, ppu};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FrameSize, Renderer, SaveWriter,
-    TickEffect, TickResult, TimingMode,
+    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FrameSize, RenderFrameOptions,
+    Renderer, SaveWriter, TickEffect, TickResult, TimingMode,
 };
 use jgenesis_proc_macros::{ConfigDisplay, PartialClone};
 use std::fmt::{Debug, Display};
@@ -216,12 +216,20 @@ impl NesEmulator {
 
         if frame_size.width == 0 || frame_size.height == 0 {
             log::error!("Overscan values are too large, entire frame was cropped: {overscan}");
-            return renderer.render_frame(&[Color::BLACK], FrameSize { width: 1, height: 1 }, None);
+            return renderer.render_frame(
+                &[Color::BLACK],
+                FrameSize { width: 1, height: 1 },
+                RenderFrameOptions::default(),
+            );
         }
 
         let pixel_aspect_ratio = self.config.aspect_ratio.to_pixel_aspect_ratio();
 
-        renderer.render_frame(&self.rgba_frame_buffer, frame_size, pixel_aspect_ratio)
+        renderer.render_frame(
+            &self.rgba_frame_buffer,
+            frame_size,
+            RenderFrameOptions::pixel_aspect_ratio(pixel_aspect_ratio),
+        )
     }
 
     fn push_audio_sample(&mut self) {

@@ -1,6 +1,6 @@
 use bincode::{Decode, Encode};
 use jgenesis_common::define_controller_inputs;
-use jgenesis_common::frontend::{FrameSize, PixelAspectRatio};
+use jgenesis_common::frontend::{FiniteF64, FrameSize};
 use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 
 #[derive(
@@ -31,7 +31,7 @@ impl SnesAspectRatio {
     #[inline]
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
-    pub fn to_pixel_aspect_ratio(self, frame_size: FrameSize) -> Option<PixelAspectRatio> {
+    pub fn to_pixel_aspect_ratio(self, frame_size: FrameSize) -> Option<FiniteF64> {
         let mut pixel_aspect_ratio = self.to_pixel_aspect_ratio_f64()?;
 
         if frame_size.width == 512 && frame_size.height < 240 {
@@ -44,7 +44,7 @@ impl SnesAspectRatio {
             pixel_aspect_ratio *= 2.0;
         }
 
-        Some(PixelAspectRatio::try_from(pixel_aspect_ratio).unwrap())
+        Some(FiniteF64::try_from(pixel_aspect_ratio).unwrap())
     }
 }
 

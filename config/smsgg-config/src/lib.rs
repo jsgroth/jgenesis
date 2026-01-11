@@ -1,6 +1,6 @@
 use bincode::{Decode, Encode};
 use jgenesis_common::define_controller_inputs;
-use jgenesis_common::frontend::PixelAspectRatio;
+use jgenesis_common::frontend::FiniteF64;
 use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 
 pub const NATIVE_Z80_DIVIDER: u32 = 15;
@@ -63,7 +63,7 @@ impl SmsAspectRatio {
         match self {
             Self::Ntsc => Some(SMS_NTSC_ASPECT_RATIO),
             Self::Pal => Some(SMS_PAL_ASPECT_RATIO),
-            Self::SquarePixels => Some(PixelAspectRatio::SQUARE.into()),
+            Self::SquarePixels => Some(1.0),
             Self::Stretched => None,
         }
     }
@@ -71,8 +71,8 @@ impl SmsAspectRatio {
     #[inline]
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
-    pub fn to_pixel_aspect_ratio(self) -> Option<PixelAspectRatio> {
-        self.to_pixel_aspect_ratio_f64().map(|par| PixelAspectRatio::try_from(par).unwrap())
+    pub fn to_pixel_aspect_ratio(self) -> Option<FiniteF64> {
+        self.to_pixel_aspect_ratio_f64().map(|par| FiniteF64::try_from(par).unwrap())
     }
 }
 
@@ -94,7 +94,7 @@ impl GgAspectRatio {
     pub fn to_pixel_aspect_ratio_f64(self) -> Option<f64> {
         match self {
             Self::GgLcd => Some(GAME_GEAR_LCD_ASPECT_RATIO),
-            Self::SquarePixels => Some(PixelAspectRatio::SQUARE.into()),
+            Self::SquarePixels => Some(1.0),
             Self::Stretched => None,
         }
     }
@@ -102,8 +102,8 @@ impl GgAspectRatio {
     #[inline]
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
-    pub fn to_pixel_aspect_ratio(self) -> Option<PixelAspectRatio> {
-        self.to_pixel_aspect_ratio_f64().map(|par| PixelAspectRatio::try_from(par).unwrap())
+    pub fn to_pixel_aspect_ratio(self) -> Option<FiniteF64> {
+        self.to_pixel_aspect_ratio_f64().map(|par| FiniteF64::try_from(par).unwrap())
     }
 }
 

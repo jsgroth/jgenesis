@@ -1,6 +1,6 @@
 use bincode::{Decode, Encode};
 use jgenesis_common::define_controller_inputs;
-use jgenesis_common::frontend::{InputModal, MappableInputs, PixelAspectRatio};
+use jgenesis_common::frontend::{FiniteF64, InputModal, MappableInputs};
 use jgenesis_common::input::Player;
 use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 
@@ -138,9 +138,9 @@ pub enum GbaAspectRatio {
 
 impl GbaAspectRatio {
     #[must_use]
-    pub fn to_pixel_aspect_ratio(self) -> Option<PixelAspectRatio> {
+    pub fn to_pixel_aspect_ratio(self) -> Option<FiniteF64> {
         match self {
-            Self::SquarePixels => Some(PixelAspectRatio::SQUARE),
+            Self::SquarePixels => Some(FiniteF64::ONE),
             Self::Stretched => None,
         }
     }

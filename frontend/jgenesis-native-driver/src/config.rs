@@ -7,6 +7,7 @@ use gba_config::GbaColorCorrection;
 use gba_core::api::{GbaAudioConfig, GbaEmulatorConfig};
 use genesis_config::{S32XVoidColor, S32XVoidColorType};
 use genesis_core::GenesisEmulatorConfig;
+use jgenesis_common::frontend::{ColorCorrection, FiniteF32};
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::common::{ConfigSavePath, HideMouseCursor, SavePath, WindowSize};
 use jgenesis_native_config::input::mappings::{
@@ -14,9 +15,7 @@ use jgenesis_native_config::input::mappings::{
     SnesInputConfig,
 };
 use jgenesis_proc_macros::ConfigDisplay;
-use jgenesis_renderer::config::{
-    ColorCorrection, PerEmulatorRenderConfig, PrescaleMode, RendererConfig,
-};
+use jgenesis_renderer::config::{PrescaleMode, RendererConfig};
 use nes_core::api::NesEmulatorConfig;
 use s32x_core::api::Sega32XEmulatorConfig;
 use segacd_core::api::SegaCdEmulatorConfig;
@@ -279,11 +278,7 @@ pub struct GameBoyAdvanceConfig {
 
 pub trait AppConfigExt {
     #[must_use]
-    fn common_config(
-        &self,
-        path: PathBuf,
-        per_emulator_render_config: PerEmulatorRenderConfig,
-    ) -> CommonConfig;
+    fn common_config(&self, path: PathBuf) -> CommonConfig;
 
     #[must_use]
     fn genesis_config(&self, path: PathBuf) -> Box<GenesisConfig>;
@@ -311,11 +306,7 @@ pub trait AppConfigExt {
 }
 
 impl AppConfigExt for AppConfig {
-    fn common_config(
-        &self,
-        path: PathBuf,
-        per_emulator_render_config: PerEmulatorRenderConfig,
-    ) -> CommonConfig {
+    fn common_config(&self, path: PathBuf) -> CommonConfig {
         fn save_path(path: ConfigSavePath, custom_path: &Path) -> SavePath {
             match path {
                 ConfigSavePath::RomFolder => SavePath::RomFolder,
@@ -351,7 +342,6 @@ impl AppConfigExt for AppConfig {
                 filter_mode: self.common.filter_mode,
                 preprocess_shader: self.common.preprocess_shader,
                 use_webgl2_limits: false,
-                per_emulator_config: per_emulator_render_config,
             },
             fast_forward_multiplier: self.common.fast_forward_multiplier,
             rewind_buffer_length_seconds: self.common.rewind_buffer_length_seconds,
@@ -366,7 +356,7 @@ impl AppConfigExt for AppConfig {
 
     fn genesis_config(&self, path: PathBuf) -> Box<GenesisConfig> {
         Box::new(GenesisConfig {
-            common: self.common_config(path, PerEmulatorRenderConfig::default()),
+            common: self.common_config(path),
             inputs: self.input.genesis.clone(),
             emulator_config: GenesisEmulatorConfig {
                 p1_controller_type: self.input.genesis.p1_type,
@@ -465,7 +455,7 @@ impl AppConfigExt for AppConfig {
 
     fn smsgg_config(&self, path: PathBuf, hardware: Option<SmsGgHardware>) -> Box<SmsGgConfig> {
         Box::new(SmsGgConfig {
-            common: self.common_config(path, PerEmulatorRenderConfig::default()),
+            common: self.common_config(path),
             inputs: self.input.smsgg.clone(),
             hardware,
             emulator_config: SmsGgEmulatorConfig {
@@ -492,7 +482,7 @@ impl AppConfigExt for AppConfig {
 
     fn nes_config(&self, path: PathBuf) -> Box<NesConfig> {
         Box::new(NesConfig {
-            common: self.common_config(path, PerEmulatorRenderConfig::default()),
+            common: self.common_config(path),
             inputs: self.input.nes.clone(),
             emulator_config: NesEmulatorConfig {
                 forced_timing_mode: self.nes.forced_timing_mode,
@@ -513,7 +503,7 @@ impl AppConfigExt for AppConfig {
 
     fn snes_config(&self, path: PathBuf) -> Box<SnesConfig> {
         Box::new(SnesConfig {
-            common: self.common_config(path, PerEmulatorRenderConfig::default()),
+            common: self.common_config(path),
             inputs: self.input.snes.clone(),
             emulator_config: SnesEmulatorConfig {
                 forced_timing_mode: self.snes.forced_timing_mode,
@@ -536,22 +526,16 @@ impl AppConfigExt for AppConfig {
     fn gb_config(&self, path: PathBuf) -> Box<GameBoyConfig> {
         let color_correction = match self.game_boy.gbc_color_correction {
             GbcColorCorrection::None => ColorCorrection::None,
-            GbcColorCorrection::GbcLcd => {
-                ColorCorrection::GbcLcd { screen_gamma: self.game_boy.gbc_correction_gamma as f32 }
-            }
-            GbcColorCorrection::GbaLcd => {
-                ColorCorrection::GbaLcd { screen_gamma: self.game_boy.gba_correction_gamma as f32 }
-            }
+            GbcColorCorrection::GbcLcd => ColorCorrection::GbcLcd {
+                screen_gamma: convert_color_correct_gamma(self.game_boy.gbc_correction_gamma),
+            },
+            GbcColorCorrection::GbaLcd => ColorCorrection::GbaLcd {
+                screen_gamma: convert_color_correct_gamma(self.game_boy.gba_correction_gamma),
+            },
         };
 
         Box::new(GameBoyConfig {
-            common: self.common_config(
-                path,
-                PerEmulatorRenderConfig {
-                    frame_blending: self.game_boy.frame_blending,
-                    color_correction,
-                },
-            ),
+            common: self.common_config(path),
             inputs: self.input.game_boy.clone(),
             emulator_config: GameBoyEmulatorConfig {
                 force_dmg_mode: self.game_boy.force_dmg_mode,
@@ -560,6 +544,8 @@ impl AppConfigExt for AppConfig {
                 aspect_ratio: self.game_boy.aspect_ratio,
                 gb_palette: self.game_boy.gb_palette,
                 gb_custom_palette: self.game_boy.gb_custom_palette,
+                gbc_color_correction: color_correction,
+                frame_blending: self.game_boy.frame_blending,
                 audio_resampler: self.game_boy.audio_resampler,
                 audio_60hz_hack: self.game_boy.audio_60hz_hack,
             },
@@ -574,22 +560,20 @@ impl AppConfigExt for AppConfig {
         let color_correction = match self.game_boy_advance.color_correction {
             GbaColorCorrection::None => ColorCorrection::None,
             GbaColorCorrection::GbaLcd => ColorCorrection::GbaLcd {
-                screen_gamma: self.game_boy_advance.color_correction_gamma as f32,
+                screen_gamma: convert_color_correct_gamma(
+                    self.game_boy_advance.color_correction_gamma,
+                ),
             },
         };
 
         Box::new(GameBoyAdvanceConfig {
-            common: self.common_config(
-                path,
-                PerEmulatorRenderConfig {
-                    frame_blending: self.game_boy_advance.frame_blending,
-                    color_correction,
-                },
-            ),
+            common: self.common_config(path),
             inputs: self.input.game_boy_advance.clone(),
             emulator_config: GbaEmulatorConfig {
                 skip_bios_animation: self.game_boy_advance.skip_bios_animation,
                 aspect_ratio: self.game_boy_advance.aspect_ratio,
+                color_correction,
+                frame_blending: self.game_boy_advance.frame_blending,
                 forced_save_memory_type: self.game_boy_advance.forced_save_memory_type,
                 audio: GbaAudioConfig {
                     audio_interpolation: self.game_boy_advance.audio_interpolation,
@@ -608,4 +592,12 @@ impl AppConfigExt for AppConfig {
             solar_max_brightness: self.game_boy_advance.solar_max_brightness,
         })
     }
+}
+
+fn convert_color_correct_gamma(gamma: f64) -> FiniteF32 {
+    FiniteF32::try_from(gamma as f32).unwrap_or(fallback_color_correct_gamma())
+}
+
+fn fallback_color_correct_gamma() -> FiniteF32 {
+    FiniteF32::try_from(2.2).unwrap()
 }

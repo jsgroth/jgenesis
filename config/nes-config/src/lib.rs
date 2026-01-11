@@ -6,7 +6,7 @@ mod serialization;
 use crate::palettes::PaletteGenerationArgs;
 use bincode::{Decode, Encode};
 use jgenesis_common::define_controller_inputs;
-use jgenesis_common::frontend::PixelAspectRatio;
+use jgenesis_common::frontend::FiniteF64;
 use jgenesis_proc_macros::{EnumAll, EnumDisplay};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -35,7 +35,7 @@ impl NesAspectRatio {
         match self {
             Self::Ntsc => Some(8.0 / 7.0),
             Self::Pal => Some(11.0 / 8.0),
-            Self::SquarePixels => Some(PixelAspectRatio::SQUARE.into()),
+            Self::SquarePixels => Some(1.0),
             Self::Stretched => None,
         }
     }
@@ -43,8 +43,8 @@ impl NesAspectRatio {
     #[inline]
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
-    pub fn to_pixel_aspect_ratio(self) -> Option<PixelAspectRatio> {
-        self.to_pixel_aspect_ratio_f64().map(|par| PixelAspectRatio::try_from(par).unwrap())
+    pub fn to_pixel_aspect_ratio(self) -> Option<FiniteF64> {
+        self.to_pixel_aspect_ratio_f64().map(|par| FiniteF64::try_from(par).unwrap())
     }
 }
 

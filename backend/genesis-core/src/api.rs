@@ -16,8 +16,8 @@ use genesis_config::{
     Opn2BusyBehavior,
 };
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorConfigTrait, EmulatorTrait, PartialClone, Renderer, SaveWriter,
-    TickEffect, TimingMode,
+    AudioOutput, EmulatorConfigTrait, EmulatorTrait, PartialClone, RenderFrameOptions, Renderer,
+    SaveWriter, TickEffect, TimingMode,
 };
 use jgenesis_proc_macros::ConfigDisplay;
 use m68000_emu::M68000;
@@ -244,7 +244,11 @@ pub fn render_frame<R: Renderer>(
         config.adjust_aspect_ratio_in_2x_resolution,
     );
 
-    renderer.render_frame(vdp.frame_buffer(), frame_size, pixel_aspect_ratio)
+    renderer.render_frame(
+        vdp.frame_buffer(),
+        frame_size,
+        RenderFrameOptions::pixel_aspect_ratio(pixel_aspect_ratio),
+    )
 }
 
 impl EmulatorTrait for GenesisEmulator {

@@ -17,8 +17,8 @@ use crate::{HardwareMode, audio, ppu};
 use bincode::{Decode, Encode};
 use gb_config::{GameBoyButton, GameBoyInputs, GbAspectRatio, GbAudioResampler, GbPalette};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, Renderer, SaveWriter, TickEffect,
-    TickResult,
+    AudioOutput, Color, ColorCorrection, EmulatorConfigTrait, EmulatorTrait, RenderFrameOptions,
+    Renderer, SaveWriter, TickEffect, TickResult,
 };
 use jgenesis_proc_macros::{ConfigDisplay, PartialClone};
 use std::fmt::{Debug, Display};
@@ -53,11 +53,26 @@ pub struct GameBoyEmulatorConfig {
     pub gb_palette: GbPalette,
     #[cfg_display(debug_fmt)]
     pub gb_custom_palette: [(u8, u8, u8); 4],
+    pub gbc_color_correction: ColorCorrection,
+    pub frame_blending: bool,
     pub audio_resampler: GbAudioResampler,
     pub audio_60hz_hack: bool,
 }
 
 impl EmulatorConfigTrait for GameBoyEmulatorConfig {}
+
+impl GameBoyEmulatorConfig {
+    fn render_options(&self, hardware_mode: HardwareMode) -> RenderFrameOptions {
+        RenderFrameOptions {
+            pixel_aspect_ratio: self.aspect_ratio.to_pixel_aspect_ratio(),
+            color_correction: match hardware_mode {
+                HardwareMode::Dmg => ColorCorrection::None,
+                HardwareMode::Cgb => self.gbc_color_correction,
+            },
+            frame_blending: self.frame_blending,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BackgroundTileMap {
@@ -231,7 +246,7 @@ impl EmulatorTrait for GameBoyEmulator {
                 .render_frame(
                     self.rgba_buffer.as_ref(),
                     ppu::FRAME_SIZE,
-                    self.config.aspect_ratio.to_pixel_aspect_ratio(),
+                    self.config.render_options(self.hardware_mode),
                 )
                 .map_err(GameBoyError::Rendering)?;
 
@@ -263,7 +278,7 @@ impl EmulatorTrait for GameBoyEmulator {
         renderer.render_frame(
             self.rgba_buffer.as_ref(),
             ppu::FRAME_SIZE,
-            self.config.aspect_ratio.to_pixel_aspect_ratio(),
+            self.config.render_options(self.hardware_mode),
         )
     }
 

@@ -1,11 +1,12 @@
+mod finitefloat;
+
 use bincode::{Decode, Encode};
+pub use finitefloat::{FiniteF32, FiniteF64};
 use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 use std::borrow::Cow;
 use std::error::Error;
-use std::fmt::{Debug, Display};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
-use std::num::NonZeroU32;
-use std::ops::Mul;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable, Encode, Decode)]
@@ -55,44 +56,44 @@ pub struct DisplayArea {
     pub y: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Encode, Decode)]
-pub struct PixelAspectRatio(f64);
-
-impl PixelAspectRatio {
-    pub const SQUARE: Self = Self(1.0);
-
-    #[must_use]
-    #[inline]
-    pub fn from_width_and_height(width: NonZeroU32, height: NonZeroU32) -> Self {
-        Self(f64::from(width.get()) / f64::from(height.get()))
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Encode, Decode)]
+pub enum ColorCorrection {
+    #[default]
+    None,
+    GbcLcd {
+        screen_gamma: FiniteF32,
+    },
+    GbaLcd {
+        screen_gamma: FiniteF32,
+    },
 }
 
-impl From<PixelAspectRatio> for f64 {
-    #[inline]
-    fn from(value: PixelAspectRatio) -> Self {
-        value.0
-    }
-}
-
-impl TryFrom<f64> for PixelAspectRatio {
-    type Error = String;
-
-    #[inline]
-    fn try_from(value: f64) -> Result<Self, Self::Error> {
-        if value.is_finite() {
-            Ok(Self(value))
-        } else {
-            Err(format!("invalid pixel aspect ratio: {value}"))
+impl Display for ColorCorrection {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::None => write!(f, "None"),
+            &Self::GbcLcd { screen_gamma } => {
+                write!(f, "Game Boy Color LCD (gamma {:.1})", f32::from(screen_gamma))
+            }
+            &Self::GbaLcd { screen_gamma } => {
+                write!(f, "Game Boy Advance LCD (gamma {:.1})", f32::from(screen_gamma))
+            }
         }
     }
 }
 
-impl Mul for PixelAspectRatio {
-    type Output = Self;
+/// Rendering options that are not required to be explicitly specified, unlike frame size
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct RenderFrameOptions {
+    pub pixel_aspect_ratio: Option<FiniteF64>,
+    pub color_correction: ColorCorrection,
+    pub frame_blending: bool,
+}
 
-    fn mul(self, rhs: Self) -> Self::Output {
-        Self(self.0 * rhs.0)
+impl RenderFrameOptions {
+    #[must_use]
+    pub fn pixel_aspect_ratio(pixel_aspect_ratio: Option<FiniteF64>) -> Self {
+        Self { pixel_aspect_ratio, ..Self::default() }
     }
 }
 
@@ -116,7 +117,7 @@ pub trait Renderer {
         &mut self,
         frame_buffer: &[Color],
         frame_size: FrameSize,
-        pixel_aspect_ratio: Option<PixelAspectRatio>,
+        options: RenderFrameOptions,
     ) -> Result<(), Self::Err>;
 }
 

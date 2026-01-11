@@ -9,8 +9,8 @@ use crate::vdp::{Vdp, VdpBuffer, VdpTickEffect, ViewportSize};
 use crate::{VdpVersion, vdp};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FrameSize, PartialClone,
-    PixelAspectRatio, Renderer, SaveWriter, TickEffect, TimingMode,
+    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FiniteF64, FrameSize, PartialClone,
+    RenderFrameOptions, Renderer, SaveWriter, TickEffect, TimingMode,
 };
 use jgenesis_proc_macros::{ConfigDisplay, FakeDecode, FakeEncode};
 use smsgg_config::{
@@ -105,7 +105,7 @@ pub struct SmsGgEmulator {
     z80: Z80,
     vdp: Vdp,
     vdp_version: VdpVersion,
-    pixel_aspect_ratio: Option<PixelAspectRatio>,
+    pixel_aspect_ratio: Option<FiniteF64>,
     psg: Sn76489,
     ym2413: Option<Ym2413>,
     input: InputState,
@@ -219,7 +219,11 @@ impl SmsGgEmulator {
         };
 
         let frame_size = FrameSize { width: frame_width, height: frame_height };
-        renderer.render_frame(&self.frame_buffer, frame_size, self.pixel_aspect_ratio)
+        renderer.render_frame(
+            &self.frame_buffer,
+            frame_size,
+            RenderFrameOptions::pixel_aspect_ratio(self.pixel_aspect_ratio),
+        )
     }
 
     pub fn copy_cram(&self, out: &mut [Color]) {
@@ -269,7 +273,7 @@ fn determine_psg_version(hardware: SmsGgHardware, config: &SmsGgEmulatorConfig) 
 fn determine_aspect_ratio(
     hardware: SmsGgHardware,
     config: &SmsGgEmulatorConfig,
-) -> Option<PixelAspectRatio> {
+) -> Option<FiniteF64> {
     match hardware {
         SmsGgHardware::MasterSystem => config.sms_aspect_ratio.to_pixel_aspect_ratio(),
         SmsGgHardware::GameGear => config.gg_aspect_ratio.to_pixel_aspect_ratio(),

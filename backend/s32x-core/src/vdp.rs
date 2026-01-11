@@ -9,7 +9,9 @@ use crate::vdp::registers::{FrameBufferMode, Registers, SelectedFrameBuffer};
 use bincode::{Decode, Encode};
 use genesis_config::{S32XColorTint, S32XVideoOut, S32XVoidColor};
 use genesis_core::vdp::BorderSize;
-use jgenesis_common::frontend::{Color, FrameSize, PixelAspectRatio, Renderer, TimingMode};
+use jgenesis_common::frontend::{
+    Color, FiniteF64, FrameSize, RenderFrameOptions, Renderer, TimingMode,
+};
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::cmp;
@@ -847,23 +849,27 @@ impl Vdp {
     pub fn render_frame<R: Renderer>(
         &self,
         genesis_vdp: &GenesisVdp,
-        mut aspect_ratio: Option<PixelAspectRatio>,
+        mut aspect_ratio: Option<FiniteF64>,
         renderer: &mut R,
     ) -> Result<(), R::Err> {
         if self.state.next_render_buffer == WhichFrameBuffer::Genesis {
             return renderer.render_frame(
                 genesis_vdp.frame_buffer(),
                 genesis_vdp.frame_size(),
-                aspect_ratio,
+                RenderFrameOptions::pixel_aspect_ratio(aspect_ratio),
             );
         }
 
         let mut frame_size = genesis_vdp.frame_size();
         frame_size.width = determine_h32_buffer_width(frame_size, genesis_vdp.border_size());
 
-        aspect_ratio = aspect_ratio.map(|par| par * PixelAspectRatio::try_from(0.2).unwrap());
+        aspect_ratio = aspect_ratio.map(|par| par * FiniteF64::try_from(0.2).unwrap());
 
-        renderer.render_frame(self.h32_frame_buffer.as_ref(), frame_size, aspect_ratio)
+        renderer.render_frame(
+            self.h32_frame_buffer.as_ref(),
+            frame_size,
+            RenderFrameOptions::pixel_aspect_ratio(aspect_ratio),
+        )
     }
 
     pub fn reload_config(&mut self, config: &Sega32XEmulatorConfig) {

@@ -6,11 +6,11 @@ use genesis_config::{
     PcmInterpolation, S32XColorTint, S32XVideoOut, S32XVoidColor,
 };
 use genesis_core::GenesisEmulatorConfig;
-use jgenesis_common::frontend::{MappableInputs, TimingMode};
+use jgenesis_common::frontend::{ColorCorrection, FiniteF32, MappableInputs, TimingMode};
 use jgenesis_common::input::Player;
 use jgenesis_renderer::config::{
-    ColorCorrection, FilterMode, PerEmulatorRenderConfig, PreprocessShader, PrescaleFactor,
-    PrescaleMode, RendererConfig, Scanlines, VSyncMode, WgpuBackend,
+    FilterMode, PreprocessShader, PrescaleFactor, PrescaleMode, RendererConfig, Scanlines,
+    VSyncMode, WgpuBackend,
 };
 use s32x_core::api::Sega32XEmulatorConfig;
 use segacd_core::api::SegaCdEmulatorConfig;
@@ -46,10 +46,7 @@ impl Default for CommonWebConfig {
 }
 
 impl CommonWebConfig {
-    pub fn to_renderer_config(
-        &self,
-        per_emulator_config: PerEmulatorRenderConfig,
-    ) -> RendererConfig {
+    pub fn to_renderer_config(&self) -> RendererConfig {
         RendererConfig {
             wgpu_backend: WgpuBackend::OpenGl,
             vsync_mode: VSyncMode::Enabled,
@@ -61,7 +58,6 @@ impl CommonWebConfig {
             filter_mode: self.filter_mode,
             preprocess_shader: self.preprocess_shader,
             use_webgl2_limits: true,
-            per_emulator_config,
         }
     }
 }
@@ -217,22 +213,19 @@ impl GbaWebConfig {
         GbaEmulatorConfig {
             skip_bios_animation: self.skip_bios_intro_animation,
             aspect_ratio: GbaAspectRatio::SquarePixels,
+            color_correction: match self.color_correction {
+                GbaColorCorrection::None => ColorCorrection::None,
+                GbaColorCorrection::GbaLcd => {
+                    ColorCorrection::GbaLcd { screen_gamma: FiniteF32::try_from(3.2).unwrap() }
+                }
+            },
+            frame_blending: self.frame_blending,
             forced_save_memory_type: None,
             audio: GbaAudioConfig {
                 audio_interpolation: self.audio_interpolation,
                 psg_low_pass: self.psg_low_pass,
                 ..GbaAudioConfig::default()
             },
-        }
-    }
-
-    pub fn renderer_config(&self) -> PerEmulatorRenderConfig {
-        PerEmulatorRenderConfig {
-            color_correction: match self.color_correction {
-                GbaColorCorrection::None => ColorCorrection::None,
-                GbaColorCorrection::GbaLcd => ColorCorrection::GbaLcd { screen_gamma: 3.2 },
-            },
-            frame_blending: self.frame_blending,
         }
     }
 }
@@ -463,14 +456,8 @@ impl WebConfig {
         }
     }
 
-    pub fn to_renderer_config(&self, running_gba: bool) -> RendererConfig {
-        let per_emulator_render_config = if running_gba {
-            self.gba.renderer_config()
-        } else {
-            PerEmulatorRenderConfig::default()
-        };
-
-        self.common.to_renderer_config(per_emulator_render_config)
+    pub fn to_renderer_config(&self) -> RendererConfig {
+        self.common.to_renderer_config()
     }
 }
 

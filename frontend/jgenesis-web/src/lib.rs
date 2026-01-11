@@ -13,7 +13,7 @@ use gba_core::api::GameBoyAdvanceEmulator;
 use genesis_core::{GenesisEmulator, GenesisInputs};
 use jgenesis_common::audio::DynamicResamplingRate;
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorTrait, FrameSize, PixelAspectRatio, Renderer, SaveWriter,
+    AudioOutput, Color, EmulatorTrait, FrameSize, RenderFrameOptions, Renderer, SaveWriter,
     TickEffect,
 };
 use jgenesis_renderer::renderer::{WgpuRenderer, WindowSize};
@@ -197,14 +197,14 @@ impl RandomNoiseGenerator {
     }
 
     fn render<R: Renderer>(&self, renderer: &mut R) -> Result<(), R::Err> {
-        renderer.render_frame(&self.buffer, STATIC_FRAME_SIZE, None)
+        renderer.render_frame(&self.buffer, STATIC_FRAME_SIZE, RenderFrameOptions::default())
     }
 }
 
 struct QueuedFrame {
     buffer: Vec<Color>,
     size: FrameSize,
-    pixel_aspect_ratio: Option<PixelAspectRatio>,
+    options: RenderFrameOptions,
     queued: bool,
 }
 
@@ -213,7 +213,7 @@ impl QueuedFrame {
         Self {
             buffer: Vec::with_capacity(320 * 224),
             size: FrameSize { width: 320, height: 224 },
-            pixel_aspect_ratio: None,
+            options: RenderFrameOptions::default(),
             queued: false,
         }
     }
@@ -226,13 +226,13 @@ impl Renderer for QueuedFrame {
         &mut self,
         frame_buffer: &[Color],
         frame_size: FrameSize,
-        pixel_aspect_ratio: Option<PixelAspectRatio>,
+        options: RenderFrameOptions,
     ) -> Result<(), Self::Err> {
         self.buffer.clear();
         self.buffer.extend(&frame_buffer[..(frame_size.width * frame_size.height) as usize]);
 
         self.size = frame_size;
-        self.pixel_aspect_ratio = pixel_aspect_ratio;
+        self.options = options;
         self.queued = true;
 
         Ok(())
@@ -472,14 +472,18 @@ pub async fn run_emulator(config_ref: WebConfigRef, emulator_channel: EmulatorCh
         })
         .expect("Unable to append canvas to document");
 
-    let renderer_config = config_ref.borrow().to_renderer_config(false);
+    let renderer_config = config_ref.borrow().to_renderer_config();
     let mut renderer = WgpuRenderer::new(window, CANVAS_SIZE, renderer_config)
         .await
         .expect("Unable to create wgpu renderer");
 
     // Render a blank gray frame
     renderer
-        .render_frame(&[Color::rgb(128, 128, 128)], FrameSize { width: 1, height: 1 }, None)
+        .render_frame(
+            &[Color::rgb(128, 128, 128)],
+            FrameSize { width: 1, height: 1 },
+            RenderFrameOptions::default(),
+        )
         .expect("Unable to render blank frame");
 
     let audio_ctx_options = AudioContextOptions::new();
@@ -585,8 +589,7 @@ impl AppState {
 
         self.emulator_channel.set_current_file_name(rom_file_name.clone());
 
-        let running_gba = matches!(self.emulator, Emulator::Gba(..));
-        self.renderer.reload_config(self.config_ref.borrow().to_renderer_config(running_gba));
+        self.renderer.reload_config(self.config_ref.borrow().to_renderer_config());
 
         js::setRomTitle(&self.emulator.rom_title(&rom_file_name));
         js::setSaveUiEnabled(self.emulator.has_persistent_save());
@@ -652,7 +655,7 @@ impl AppState {
             .render_frame(
                 &self.queued_frame.buffer,
                 self.queued_frame.size,
-                self.queued_frame.pixel_aspect_ratio,
+                self.queued_frame.options,
             )
             .expect("Frame render error");
         self.queued_frame.queued = false;
@@ -670,8 +673,7 @@ impl AppState {
         if config != self.current_config {
             config.save_to_local_storage();
 
-            let running_gba = matches!(self.emulator, Emulator::Gba(..));
-            self.renderer.reload_config(config.to_renderer_config(running_gba));
+            self.renderer.reload_config(config.to_renderer_config());
             self.emulator.reload_config(&config);
             self.current_config = config;
         }

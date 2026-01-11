@@ -20,7 +20,8 @@ use arm7tdmi_emu::{Arm7Tdmi, Arm7TdmiResetArgs, CpuMode};
 use bincode::{Decode, Encode};
 use gba_config::{GbaAspectRatio, GbaAudioInterpolation, GbaButton, GbaInputs, GbaSaveMemory};
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorConfigTrait, EmulatorTrait, Renderer, SaveWriter, TickEffect, TickResult,
+    AudioOutput, ColorCorrection, EmulatorConfigTrait, EmulatorTrait, RenderFrameOptions, Renderer,
+    SaveWriter, TickEffect, TickResult,
 };
 use jgenesis_proc_macros::{ConfigDisplay, PartialClone};
 use std::fmt::{Debug, Display};
@@ -67,9 +68,21 @@ impl GbaAudioConfig {
 pub struct GbaEmulatorConfig {
     pub skip_bios_animation: bool,
     pub aspect_ratio: GbaAspectRatio,
+    pub color_correction: ColorCorrection,
+    pub frame_blending: bool,
     pub forced_save_memory_type: Option<GbaSaveMemory>,
     #[cfg_display(indent_nested)]
     pub audio: GbaAudioConfig,
+}
+
+impl GbaEmulatorConfig {
+    fn render_options(&self) -> RenderFrameOptions {
+        RenderFrameOptions {
+            pixel_aspect_ratio: self.aspect_ratio.to_pixel_aspect_ratio(),
+            color_correction: self.color_correction,
+            frame_blending: self.frame_blending,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Encode, Decode)]
@@ -295,7 +308,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
                 .render_frame(
                     self.bus.ppu.frame_buffer(),
                     ppu::FRAME_SIZE,
-                    self.config.aspect_ratio.to_pixel_aspect_ratio(),
+                    self.config.render_options(),
                 )
                 .map_err(GbaError::Render)?;
 
@@ -329,7 +342,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
         renderer.render_frame(
             self.bus.ppu.frame_buffer(),
             ppu::FRAME_SIZE,
-            self.config.aspect_ratio.to_pixel_aspect_ratio(),
+            self.config.render_options(),
         )
     }
 

@@ -1,8 +1,8 @@
-use crate::config::{
-    ColorCorrection, PreprocessShader, PrescaleMode, RendererConfig, Scanlines, WgpuBackend,
-};
+use crate::config::{PreprocessShader, PrescaleMode, RendererConfig, Scanlines, WgpuBackend};
 use cfg_if::cfg_if;
-use jgenesis_common::frontend::{Color, DisplayArea, FrameSize, PixelAspectRatio, Renderer};
+use jgenesis_common::frontend::{
+    Color, ColorCorrection, DisplayArea, FiniteF64, FrameSize, RenderFrameOptions, Renderer,
+};
 use jgenesis_common::timeutils;
 use raw_window_handle::{HandleError, HasDisplayHandle, HasWindowHandle};
 #[cfg(feature = "ttf")]
@@ -137,7 +137,7 @@ impl ColorCorrectionShader {
         let input_view = input.create_view(&wgpu::TextureViewDescriptor::default());
         let gamma_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: "color_correction_gamma_buffer".into(),
-            contents: bytemuck::cast_slice(&padded_f32(screen_gamma)),
+            contents: bytemuck::cast_slice(&padded_f32(screen_gamma.into())),
             usage: wgpu::BufferUsages::UNIFORM,
         });
 
@@ -552,7 +552,7 @@ impl PrescaleShader {
         renderer_config: RendererConfig,
         frame_size: FrameSize,
         display_area: DisplayArea,
-        pixel_aspect_ratio: Option<PixelAspectRatio>,
+        pixel_aspect_ratio: Option<FiniteF64>,
         input: &wgpu::Texture,
         texture_format: wgpu::TextureFormat,
         device: &wgpu::Device,
@@ -761,7 +761,7 @@ impl RenderingPipeline {
         shaders: &Shaders,
         window_size: WindowSize,
         frame_size: FrameSize,
-        pixel_aspect_ratio: Option<PixelAspectRatio>,
+        options: RenderFrameOptions,
         texture_format: wgpu::TextureFormat,
         surface_config: &wgpu::SurfaceConfiguration,
         renderer_config: RendererConfig,
@@ -794,7 +794,7 @@ impl RenderingPipeline {
             window_size.width,
             window_size.height,
             frame_size,
-            pixel_aspect_ratio,
+            options.pixel_aspect_ratio,
             renderer_config.force_integer_height_scaling,
         );
 
@@ -810,7 +810,7 @@ impl RenderingPipeline {
             ..wgpu::SamplerDescriptor::default()
         });
 
-        let vertices = match pixel_aspect_ratio {
+        let vertices = match options.pixel_aspect_ratio {
             Some(_) => compute_vertices(window_size.width, window_size.height, display_area),
             None => VERTICES.into(),
         };
@@ -828,7 +828,7 @@ impl RenderingPipeline {
         let mut shader_pipeline: Vec<Box<dyn PipelineShader>> = Vec::new();
 
         if let Some(color_correction_shader) = ColorCorrectionShader::new(
-            renderer_config.per_emulator_config.color_correction,
+            options.color_correction,
             &current_output_texture(&shader_pipeline, &input_texture),
             device,
             shaders,
@@ -837,7 +837,7 @@ impl RenderingPipeline {
             shader_pipeline.push(Box::new(color_correction_shader));
         }
 
-        if renderer_config.per_emulator_config.frame_blending {
+        if options.frame_blending {
             log::debug!("Adding frame blending shader");
             shader_pipeline.push(Box::new(FrameBlendShader::create(
                 current_output_texture(&shader_pipeline, &input_texture),
@@ -860,7 +860,7 @@ impl RenderingPipeline {
             renderer_config,
             frame_size,
             display_area,
-            pixel_aspect_ratio,
+            options.pixel_aspect_ratio,
             &current_output_texture(&shader_pipeline, &input_texture),
             texture_format,
             device,
@@ -1041,7 +1041,7 @@ impl RenderingPipeline {
 fn determine_prescale_factors(
     mode: PrescaleMode,
     frame_size: FrameSize,
-    pixel_aspect_ratio: Option<PixelAspectRatio>,
+    pixel_aspect_ratio: Option<FiniteF64>,
     display_area: DisplayArea,
     input_size: wgpu::Extent3d,
     limits: &wgpu::Limits,
@@ -1127,7 +1127,7 @@ fn determine_display_area(
     window_width: u32,
     window_height: u32,
     frame_size: FrameSize,
-    pixel_aspect_ratio: Option<PixelAspectRatio>,
+    pixel_aspect_ratio: Option<FiniteF64>,
     force_integer_height_scaling: bool,
 ) -> DisplayArea {
     let Some(pixel_aspect_ratio) = pixel_aspect_ratio else {
@@ -1257,16 +1257,12 @@ impl Shaders {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct PipelineKey {
     frame_size: FrameSize,
-    pixel_aspect_ratio_bits: u64,
+    options: RenderFrameOptions,
 }
 
 impl PipelineKey {
-    fn new(frame_size: FrameSize, pixel_aspect_ratio: Option<PixelAspectRatio>) -> Self {
-        Self {
-            frame_size,
-            pixel_aspect_ratio_bits: pixel_aspect_ratio
-                .map_or(f64::NAN.to_bits(), |par| f64::from(par).to_bits()),
-        }
+    fn new(frame_size: FrameSize, options: RenderFrameOptions) -> Self {
+        Self { frame_size, options }
     }
 }
 
@@ -1288,13 +1284,11 @@ impl RenderingPipelines {
     fn get_or_insert(
         &mut self,
         frame_size: FrameSize,
-        pixel_aspect_ratio: Option<PixelAspectRatio>,
+        options: RenderFrameOptions,
         create_fn: impl FnOnce() -> RenderingPipeline,
     ) -> &mut RenderingPipeline {
-        let pipeline = self
-            .pipelines
-            .entry(PipelineKey::new(frame_size, pixel_aspect_ratio))
-            .or_insert_with(create_fn);
+        let pipeline =
+            self.pipelines.entry(PipelineKey::new(frame_size, options)).or_insert_with(create_fn);
 
         self.last_display_info = Some((frame_size, pipeline.display_area));
 
@@ -1623,7 +1617,7 @@ impl<Window> Renderer for WgpuRenderer<Window> {
         &mut self,
         frame_buffer: &[Color],
         frame_size: FrameSize,
-        pixel_aspect_ratio: Option<PixelAspectRatio>,
+        options: RenderFrameOptions,
     ) -> Result<(), Self::Err> {
         if frame_size.width * frame_size.height > frame_buffer.len() as u32 {
             return Err(RendererError::FrameBufferTooSmall {
@@ -1638,8 +1632,8 @@ impl<Window> Renderer for WgpuRenderer<Window> {
             return Ok(());
         }
 
-        let pipeline = self.pipelines.get_or_insert(frame_size, pixel_aspect_ratio, || {
-            log::info!("Creating render pipeline for frame size {frame_size:?} and pixel aspect ratio {pixel_aspect_ratio:?}");
+        let pipeline = self.pipelines.get_or_insert(frame_size, options, || {
+            log::info!("Creating render pipeline for frame size {frame_size:?} and pixel aspect ratio {:?}", options.pixel_aspect_ratio);
 
             RenderingPipeline::create(
                 &self.device,
@@ -1647,7 +1641,7 @@ impl<Window> Renderer for WgpuRenderer<Window> {
                 &self.shaders,
                 self.window_size,
                 frame_size,
-                pixel_aspect_ratio,
+                options,
                 self.texture_format,
                 &self.surface_config,
                 self.renderer_config,
@@ -1738,7 +1732,7 @@ mod tests {
         let (width, height) = determine_prescale_factors(
             PrescaleMode::Auto,
             FrameSize { width: 320, height: 480 },
-            Some(PixelAspectRatio::try_from(2.0).unwrap()),
+            Some(FiniteF64::try_from(2.0).unwrap()),
             DisplayArea { width: 320 * 4, height: 240 * 4, x: 0, y: 0 },
             wgpu::Extent3d { width: 320, height: 480, depth_or_array_layers: 1 },
             &wgpu::Limits::default(),
@@ -1753,7 +1747,7 @@ mod tests {
         let (width, height) = determine_prescale_factors(
             PrescaleMode::Auto,
             FrameSize { width: 512, height: 240 },
-            Some(PixelAspectRatio::try_from(0.5).unwrap()),
+            Some(FiniteF64::try_from(0.5).unwrap()),
             DisplayArea { width: 256 * 4, height: 240 * 4, x: 0, y: 0 },
             wgpu::Extent3d { width: 512, height: 240, depth_or_array_layers: 1 },
             &wgpu::Limits::default(),
@@ -1798,7 +1792,7 @@ mod tests {
         let (width, height) = determine_prescale_factors(
             PrescaleMode::Auto,
             FrameSize { width: 320, height: 240 },
-            Some(PixelAspectRatio::try_from(0.9).unwrap()),
+            Some(FiniteF64::try_from(0.9).unwrap()),
             DisplayArea { width: 320 * 2 * 9 / 10, height: 240 * 2, x: 0, y: 0 },
             wgpu::Extent3d { width: 320, height: 240, depth_or_array_layers: 1 },
             &wgpu::Limits::default(),
