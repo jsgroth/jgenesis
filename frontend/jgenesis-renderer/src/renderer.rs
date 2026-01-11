@@ -1177,6 +1177,10 @@ fn scale_vertex_position(
 
 #[derive(Debug, Error)]
 pub enum RendererError {
+    #[error(
+        "Frame buffer of len {buffer_len} is too small for specified frame size of {frame_width}x{frame_height}"
+    )]
+    FrameBufferTooSmall { frame_width: u32, frame_height: u32, buffer_len: usize },
     #[error("Error creating surface from window: {0}")]
     WindowHandleError(#[from] HandleError),
     #[error("Error creating wgpu surface: {0}")]
@@ -1621,6 +1625,14 @@ impl<Window> Renderer for WgpuRenderer<Window> {
         frame_size: FrameSize,
         pixel_aspect_ratio: Option<PixelAspectRatio>,
     ) -> Result<(), Self::Err> {
+        if frame_size.width * frame_size.height > frame_buffer.len() as u32 {
+            return Err(RendererError::FrameBufferTooSmall {
+                frame_width: frame_size.width,
+                frame_height: frame_size.height,
+                buffer_len: frame_buffer.len(),
+            });
+        }
+
         self.frame_count += 1;
         if !self.frame_count.is_multiple_of(self.speed_multiplier) {
             return Ok(());
