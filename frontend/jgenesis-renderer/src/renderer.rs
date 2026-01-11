@@ -53,6 +53,29 @@ trait PipelineShader {
     fn reset_interframe_state(&mut self) {}
 }
 
+fn basic_render_pass<'encoder, 'label>(
+    encoder: &'encoder mut wgpu::CommandEncoder,
+    output: &wgpu::Texture,
+    label: impl Into<wgpu::Label<'label>>,
+) -> wgpu::RenderPass<'encoder> {
+    let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
+
+    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: label.into(),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: &output_view,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+    })
+}
+
 struct ColorCorrectionShader {
     output: Arc<wgpu::Texture>,
     bind_group: wgpu::BindGroup,
@@ -181,21 +204,8 @@ impl ColorCorrectionShader {
 
 impl PipelineShader for ColorCorrectionShader {
     fn draw(&mut self, encoder: &mut wgpu::CommandEncoder) {
-        let output_view = self.output.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: "color_correction_render_pass".into(),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &output_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
+        let mut render_pass =
+            basic_render_pass(encoder, &self.output, "color_correction_render_pass");
 
         render_pass.set_bind_group(0, &self.bind_group, &[]);
         render_pass.set_pipeline(&self.pipeline);
@@ -342,23 +352,8 @@ impl FrameBlendShader {
 
 impl PipelineShader for FrameBlendShader {
     fn draw(&mut self, encoder: &mut wgpu::CommandEncoder) {
-        let output_view = self.output.create_view(&wgpu::TextureViewDescriptor::default());
-
         if !self.skip_next_frame {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: "blend_render_pass".into(),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &output_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
+            let mut render_pass = basic_render_pass(encoder, &self.output, "blend_render_pass");
 
             render_pass.set_bind_group(0, &self.bind_group, &[]);
             render_pass.set_pipeline(&self.pipeline);
@@ -465,11 +460,9 @@ impl BlurShader {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &texture_width_buffer,
-                        offset: 0,
-                        size: None,
-                    }),
+                    resource: wgpu::BindingResource::Buffer(
+                        texture_width_buffer.as_entire_buffer_binding(),
+                    ),
                 },
             ],
         });
@@ -532,22 +525,7 @@ impl BlurShader {
 
 impl PipelineShader for BlurShader {
     fn draw(&mut self, encoder: &mut wgpu::CommandEncoder) {
-        let output_view = self.output.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: "preprocess_render_pass".into(),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &output_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
+        let mut render_pass = basic_render_pass(encoder, &self.output, "preprocess_render_pass");
 
         for (i, bind_group) in self.bind_groups.iter().enumerate() {
             render_pass.set_bind_group(i as u32, bind_group, &[]);
@@ -641,11 +619,9 @@ impl PrescaleShader {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &prescale_factor_buffer,
-                        offset: 0,
-                        size: None,
-                    }),
+                    resource: wgpu::BindingResource::Buffer(
+                        prescale_factor_buffer.as_entire_buffer_binding(),
+                    ),
                 },
             ],
         });
@@ -721,22 +697,7 @@ impl PrescaleShader {
 
 impl PipelineShader for PrescaleShader {
     fn draw(&mut self, encoder: &mut wgpu::CommandEncoder) {
-        let texture_view = self.output.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let mut prescale_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: "prescale_pass".into(),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &texture_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
+        let mut prescale_pass = basic_render_pass(encoder, &self.output, "prescale_render_pass");
 
         prescale_pass.set_bind_group(0, &self.bind_group, &[]);
         prescale_pass.set_pipeline(&self.pipeline);
@@ -1018,8 +979,6 @@ impl RenderingPipeline {
         frame_time_tracker: &mut FrameTimeTracker,
     ) -> Result<RenderResult, RendererError> {
         let output = surface.get_current_texture()?;
-        let output_texture_view =
-            output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -1053,20 +1012,7 @@ impl RenderingPipeline {
         )?;
 
         {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: "render_pass".into(),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &output_texture_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
+            let mut render_pass = basic_render_pass(&mut encoder, &output.texture, "render_pass");
 
             render_pass.set_bind_group(0, &self.render_bind_group, &[]);
             render_pass.set_pipeline(&self.render_pipeline);
