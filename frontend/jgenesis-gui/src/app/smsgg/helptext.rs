@@ -81,6 +81,13 @@ pub const SMS_CROP_LEFT_BORDER: HelpText = HelpText {
     ],
 };
 
+pub const GG_FRAME_BLENDING: HelpText = HelpText {
+    heading: "Game Gear Frame Blending",
+    text: &[
+        "If enabled, blend each frame with the previous frame to emulate the effect of LCD ghosting.",
+    ],
+};
+
 pub const GG_USE_SMS_RESOLUTION: HelpText = HelpText {
     heading: "Game Gear Expanded Resolution",
     text: &[

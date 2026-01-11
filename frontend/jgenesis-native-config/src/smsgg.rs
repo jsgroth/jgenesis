@@ -24,6 +24,8 @@ pub struct SmsGgAppConfig {
     #[serde(default)]
     pub sms_crop_left_border: bool,
     #[serde(default)]
+    pub gg_frame_blending: bool,
+    #[serde(default)]
     pub gg_use_sms_resolution: bool,
     #[serde(default = "true_fn")]
     pub fm_sound_unit_enabled: bool,

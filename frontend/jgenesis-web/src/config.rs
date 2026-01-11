@@ -99,6 +99,7 @@ impl SmsGgWebConfig {
             remove_sprite_limit: self.remove_sprite_limit,
             sms_crop_left_border: self.sms_crop_left_border,
             sms_crop_vertical_border: self.sms_crop_vertical_border,
+            gg_frame_blending: false,
             gg_use_sms_resolution: false,
             fm_sound_unit_enabled: self.fm_unit_enabled,
             z80_divider: NonZeroU32::new(smsgg_core::NATIVE_Z80_DIVIDER).unwrap(),

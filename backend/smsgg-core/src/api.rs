@@ -9,7 +9,7 @@ use crate::vdp::{Vdp, VdpBuffer, VdpTickEffect, ViewportSize};
 use crate::{VdpVersion, vdp};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FiniteF64, FrameSize, PartialClone,
+    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FrameSize, PartialClone,
     RenderFrameOptions, Renderer, SaveWriter, TickEffect, TimingMode,
 };
 use jgenesis_proc_macros::{ConfigDisplay, FakeDecode, FakeEncode};
@@ -81,6 +81,7 @@ pub struct SmsGgEmulatorConfig {
     pub forced_region: Option<SmsGgRegion>,
     pub sms_crop_vertical_border: bool,
     pub sms_crop_left_border: bool,
+    pub gg_frame_blending: bool,
     pub gg_use_sms_resolution: bool,
     pub fm_sound_unit_enabled: bool,
     pub z80_divider: NonZeroU32,
@@ -96,6 +97,22 @@ impl SmsGgEmulatorConfig {
     pub(crate) fn region(self, memory: &Memory) -> SmsGgRegion {
         self.forced_region.unwrap_or_else(|| memory.guess_cartridge_region())
     }
+
+    pub(crate) fn render_options(&self, is_sms: bool) -> RenderFrameOptions {
+        if is_sms { self.sms_render_options() } else { self.gg_render_options() }
+    }
+
+    pub(crate) fn sms_render_options(&self) -> RenderFrameOptions {
+        RenderFrameOptions::pixel_aspect_ratio(self.sms_aspect_ratio.to_pixel_aspect_ratio())
+    }
+
+    pub(crate) fn gg_render_options(&self) -> RenderFrameOptions {
+        RenderFrameOptions {
+            pixel_aspect_ratio: self.gg_aspect_ratio.to_pixel_aspect_ratio(),
+            frame_blending: self.gg_frame_blending,
+            ..RenderFrameOptions::default()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Encode, Decode, PartialClone)]
@@ -105,7 +122,6 @@ pub struct SmsGgEmulator {
     z80: Z80,
     vdp: Vdp,
     vdp_version: VdpVersion,
-    pixel_aspect_ratio: Option<FiniteF64>,
     psg: Sn76489,
     ym2413: Option<Ym2413>,
     input: InputState,
@@ -154,15 +170,12 @@ impl SmsGgEmulator {
         let ym2413 =
             config.fm_sound_unit_enabled.then(|| ym_opll::new_ym2413(YM2413_CLOCK_INTERVAL));
 
-        let pixel_aspect_ratio = determine_aspect_ratio(hardware, &config);
-
         let timing_mode = vdp.timing_mode();
         Self {
             memory,
             z80,
             vdp,
             vdp_version,
-            pixel_aspect_ratio,
             psg,
             ym2413,
             input,
@@ -222,7 +235,7 @@ impl SmsGgEmulator {
         renderer.render_frame(
             &self.frame_buffer,
             frame_size,
-            RenderFrameOptions::pixel_aspect_ratio(self.pixel_aspect_ratio),
+            self.config.render_options(self.vdp_version.is_master_system()),
         )
     }
 
@@ -268,16 +281,6 @@ fn determine_psg_version(hardware: SmsGgHardware, config: &SmsGgEmulatorConfig) 
         SmsGgHardware::MasterSystem => Sn76489Version::MasterSystem2,
         SmsGgHardware::GameGear => Sn76489Version::Standard,
     })
-}
-
-fn determine_aspect_ratio(
-    hardware: SmsGgHardware,
-    config: &SmsGgEmulatorConfig,
-) -> Option<FiniteF64> {
-    match hardware {
-        SmsGgHardware::MasterSystem => config.sms_aspect_ratio.to_pixel_aspect_ratio(),
-        SmsGgHardware::GameGear => config.gg_aspect_ratio.to_pixel_aspect_ratio(),
-    }
 }
 
 impl EmulatorTrait for SmsGgEmulator {
@@ -391,7 +394,6 @@ impl EmulatorTrait for SmsGgEmulator {
 
         self.psg.set_version(determine_psg_version(hardware, config));
 
-        self.pixel_aspect_ratio = determine_aspect_ratio(hardware, config);
         self.input.set_region(config.region(&self.memory));
         self.audio_resampler.update_timing_mode(self.vdp.timing_mode());
     }

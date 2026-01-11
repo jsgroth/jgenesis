@@ -235,6 +235,16 @@ impl App {
 
             let rect = ui
                 .checkbox(
+                    &mut self.config.smsgg.gg_frame_blending,
+                    "(Game Gear) Frame blending enabled",
+                )
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::GG_FRAME_BLENDING);
+            }
+
+            let rect = ui
+                .checkbox(
                     &mut self.config.smsgg.gg_use_sms_resolution,
                     "(Game Gear) Render in SMS resolution",
                 )

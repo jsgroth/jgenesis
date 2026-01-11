@@ -468,6 +468,7 @@ impl AppConfigExt for AppConfig {
                 forced_region: self.smsgg.forced_region,
                 sms_crop_vertical_border: self.smsgg.sms_crop_vertical_border,
                 sms_crop_left_border: self.smsgg.sms_crop_left_border,
+                gg_frame_blending: self.smsgg.gg_frame_blending,
                 gg_use_sms_resolution: self.smsgg.gg_use_sms_resolution,
                 fm_sound_unit_enabled: self.smsgg.fm_sound_unit_enabled,
                 z80_divider: self.smsgg.z80_divider,
