@@ -435,6 +435,16 @@ impl App {
             self.state.help_text.insert(window, helptext::S32X_VIDEO_OUT);
         }
 
+        let rect = ui
+            .checkbox(
+                &mut self.config.sega_32x.emulate_pixel_switch_delay,
+                "(32X) Emulate pixel switch delay",
+            )
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(window, helptext::S32X_PIXEL_SWITCH_DELAY);
+        }
+
         let response = ui.collapsing("32X priority masking", |ui| {
             ui.checkbox(&mut self.config.sega_32x.show_high_priority, "Show high-priority pixels");
             ui.checkbox(&mut self.config.sega_32x.show_low_priority, "Show low-priority pixels");

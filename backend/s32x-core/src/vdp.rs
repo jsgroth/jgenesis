@@ -40,7 +40,7 @@ const V28_FRAME_HEIGHT: u32 = 224;
 const V30_FRAME_HEIGHT: u32 = 240;
 
 // The H32 frame buffer should be large enough to store frames as H1280px resolution (4 * 320)
-const H32_FRAME_BUFFER_LEN: usize = genesis_core::vdp::FRAME_BUFFER_LEN * 4;
+const EXPANDED_FRAME_BUFFER_LEN: usize = genesis_core::vdp::FRAME_BUFFER_LEN * 4;
 
 // Offset between the left edge of the Genesis H32 frame and the 32X frame, in H1280px pixels
 //
@@ -52,23 +52,28 @@ const H32_H_OFFSET: u32 = 13;
 type GenesisVdp = genesis_core::vdp::Vdp;
 
 #[derive(Debug, Clone, FakeEncode, FakeDecode)]
-struct H32FrameBuffer(Box<[Color; H32_FRAME_BUFFER_LEN]>);
+struct ExpandedFrameBuffer(Box<[Color; EXPANDED_FRAME_BUFFER_LEN]>);
 
-impl Default for H32FrameBuffer {
+impl Default for ExpandedFrameBuffer {
     fn default() -> Self {
-        Self(vec![Color::default(); H32_FRAME_BUFFER_LEN].into_boxed_slice().try_into().unwrap())
+        Self(
+            vec![Color::default(); EXPANDED_FRAME_BUFFER_LEN]
+                .into_boxed_slice()
+                .try_into()
+                .unwrap(),
+        )
     }
 }
 
-impl Deref for H32FrameBuffer {
-    type Target = [Color; H32_FRAME_BUFFER_LEN];
+impl Deref for ExpandedFrameBuffer {
+    type Target = [Color; EXPANDED_FRAME_BUFFER_LEN];
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl DerefMut for H32FrameBuffer {
+impl DerefMut for ExpandedFrameBuffer {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -94,7 +99,8 @@ fn new_rendered_frame() -> Box<RenderedFrame> {
 enum WhichFrameBuffer {
     #[default]
     Genesis,
-    H32,
+    ExpandedH32,
+    ExpandedH40,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -137,6 +143,7 @@ struct VdpConfig {
     show_high_priority: bool,
     show_low_priority: bool,
     void_color: S32XVoidColor,
+    emulate_pixel_switch_delay: bool,
 }
 
 impl VdpConfig {
@@ -147,6 +154,7 @@ impl VdpConfig {
             show_high_priority: config.show_high_priority,
             show_low_priority: config.show_low_priority,
             void_color: config.void_color,
+            emulate_pixel_switch_delay: config.emulate_pixel_switch_delay,
         }
     }
 }
@@ -158,7 +166,7 @@ pub struct Vdp {
     rendered_frame: Box<RenderedFrame>,
     // 1280x224 or 1280x240 (not including borders)
     // Needed for when a game enables H32 mode on the Genesis side (NFL Quarterback Club does this)
-    h32_frame_buffer: H32FrameBuffer,
+    expanded_frame_buffer: ExpandedFrameBuffer,
     cram: Box<Cram>,
     registers: Registers,
     // Per documentation, the VDP latches registers for rendering once per line beginning shortly
@@ -202,7 +210,7 @@ impl Vdp {
             frame_buffer_0: new_frame_buffer(),
             frame_buffer_1: new_frame_buffer(),
             rendered_frame: new_rendered_frame(),
-            h32_frame_buffer: H32FrameBuffer::default(),
+            expanded_frame_buffer: ExpandedFrameBuffer::default(),
             cram: vec![0; CRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             registers: Registers::default(),
             latched: Registers::default(),
@@ -706,43 +714,57 @@ impl Vdp {
         let genesis_frame_size = genesis_vdp.frame_size();
         let border_size = genesis_vdp.border_size();
 
-        if genesis_frame_size.width - border_size.left - border_size.right == 256 {
+        let h32 = genesis_frame_size.width - border_size.left - border_size.right == 256;
+        if h32 {
             // If the Genesis VDP is in H32 mode, render the frame in 1280x224 so that it's possible
             // to composite the 320x224 32X frame with the 256x224 Genesis frame without needing to
             // blend or filter any pixels.
             // NFL Quarterback Club depends on this - it uses H32 mode in menus
-            self.composite_frame_h32(genesis_frame_size, border_size, genesis_vdp);
+            self.composite_frame_expanded::<true>(genesis_frame_size, border_size, genesis_vdp);
+            return;
+        }
+
+        if self.config.emulate_pixel_switch_delay {
+            // In H40 mode, but need to render at sub-pixel resolution to emulate pixel switch delay
+            self.composite_frame_expanded::<false>(genesis_frame_size, border_size, genesis_vdp);
             return;
         }
 
         // Otherwise, composite in H40 into the Genesis VDP frame buffer
-        self.composite_frame_inner::<false>(genesis_frame_size, border_size, genesis_vdp);
+        self.composite_frame_inner::<false, false>(genesis_frame_size, border_size, genesis_vdp);
     }
 
-    fn composite_frame_h32(
+    fn composite_frame_expanded<const H32: bool>(
         &mut self,
         genesis_frame_size: FrameSize,
         border_size: BorderSize,
         genesis_vdp: &mut GenesisVdp,
     ) {
-        debug_assert!(genesis_frame_size.width == 256 + border_size.left + border_size.right);
+        let genesis_frame_width =
+            genesis_frame_size.width.wrapping_sub(border_size.left).wrapping_sub(border_size.right);
+        if H32 {
+            debug_assert_eq!(genesis_frame_width, 256);
+        } else {
+            debug_assert_eq!(genesis_frame_width, 320);
+        }
 
-        self.state.next_render_buffer = WhichFrameBuffer::H32;
+        self.state.next_render_buffer =
+            if H32 { WhichFrameBuffer::ExpandedH32 } else { WhichFrameBuffer::ExpandedH40 };
 
         if self.config.video_out != S32XVideoOut::S32XOnly {
-            self.copy_genesis_frame_buffer_to_h32(
+            self.copy_genesis_frame_buffer_to_expanded::<H32>(
                 genesis_frame_size,
                 border_size,
                 genesis_vdp.frame_buffer_mut(),
             );
         } else {
-            self.h32_frame_buffer.fill(Color::rgba(0, 0, 0, 0));
+            self.expanded_frame_buffer.fill(Color::rgba(0, 0, 0, 0));
         }
 
-        self.composite_frame_inner::<true>(genesis_frame_size, border_size, genesis_vdp);
+        self.composite_frame_inner::<H32, true>(genesis_frame_size, border_size, genesis_vdp);
     }
 
-    fn composite_frame_inner<const H32: bool>(
+    fn composite_frame_inner<const H32: bool, const EXPAND_H: bool>(
         &mut self,
         frame_size: FrameSize,
         border_size: BorderSize,
@@ -752,22 +774,40 @@ impl Vdp {
             s32x_only || s32x_pixel.bit(15) || gen_color.a == 0
         }
 
+        assert!(
+            !H32 || EXPAND_H,
+            "Does not make sense to not expand if Genesis VDP is in H32 mode"
+        );
+        assert!(
+            !self.config.emulate_pixel_switch_delay || EXPAND_H,
+            "Does not make sense to not expand if emulating pixel switch delay"
+        );
+
         let interlaced_frame: u32 = genesis_vdp.is_interlaced_frame().into();
         let interlaced_odd: u32 = genesis_vdp.is_interlaced_odd().into();
 
-        let frame_buffer =
-            if H32 { self.h32_frame_buffer.as_mut() } else { genesis_vdp.frame_buffer_mut() };
+        let frame_buffer = if EXPAND_H {
+            self.expanded_frame_buffer.as_mut()
+        } else {
+            genesis_vdp.frame_buffer_mut()
+        };
 
         let active_lines_per_frame: u32 =
             self.latched.v_resolution.active_scanlines_per_frame().into();
         let s32x_only = self.config.video_out == S32XVideoOut::S32XOnly;
 
-        let frame_width = if H32 {
-            determine_h32_buffer_width(frame_size, border_size)
+        let frame_width = if EXPAND_H {
+            determine_expanded_buffer_width::<H32>(frame_size, border_size)
         } else {
             frame_size.width
         };
-        let left_offset = if H32 { 5 * border_size.left + H32_H_OFFSET } else { border_size.left };
+        let left_offset = match (EXPAND_H, H32) {
+            (false, _) => border_size.left,
+            (true, false) => genesis_expanded_pixel_width::<false>() * border_size.left,
+            (true, true) => {
+                genesis_expanded_pixel_width::<true>() * border_size.left + H32_H_OFFSET
+            }
+        };
 
         let top_offset = border_size.top << interlaced_frame;
 
@@ -777,18 +817,41 @@ impl Vdp {
             let effective_line = (line << interlaced_frame) + interlaced_odd;
             let fb_row_addr = ((effective_line + top_offset) * frame_width + left_offset) as usize;
 
-            for pixel in 0..FRAME_WIDTH {
-                let s32x_pixel = self.rendered_frame[line as usize][pixel as usize];
+            if EXPAND_H && self.config.emulate_pixel_switch_delay {
+                let mut last_pixel_was_32x = false;
 
-                if H32 {
+                for pixel in 0..FRAME_WIDTH {
+                    let s32x_pixel = self.rendered_frame[line as usize][pixel as usize];
                     let fb_addr = fb_row_addr + 4 * pixel as usize;
+
+                    for i in 0..4 {
+                        // Quarter-pixel delay when switching from 32X output to Genesis output
+                        let s32x_has_priority =
+                            should_use_32x_pixel(s32x_only, s32x_pixel, frame_buffer[fb_addr + i]);
+                        if last_pixel_was_32x || s32x_has_priority {
+                            frame_buffer[fb_addr + i] = u16_to_rgb(s32x_pixel, color_tables);
+                        }
+                        last_pixel_was_32x = s32x_has_priority;
+                    }
+                }
+            } else if EXPAND_H {
+                // Horizontal resolution expansion w/o pixel switch delay emulation
+                for pixel in 0..FRAME_WIDTH {
+                    let s32x_pixel = self.rendered_frame[line as usize][pixel as usize];
+                    let fb_addr = fb_row_addr + 4 * pixel as usize;
+
                     for i in 0..4 {
                         if should_use_32x_pixel(s32x_only, s32x_pixel, frame_buffer[fb_addr + i]) {
                             frame_buffer[fb_addr + i] = u16_to_rgb(s32x_pixel, color_tables);
                         }
                     }
-                } else {
+                }
+            } else {
+                // No horizontal resolution expansion
+                for pixel in 0..FRAME_WIDTH {
+                    let s32x_pixel = self.rendered_frame[line as usize][pixel as usize];
                     let fb_addr = fb_row_addr + pixel as usize;
+
                     if should_use_32x_pixel(s32x_only, s32x_pixel, frame_buffer[fb_addr]) {
                         frame_buffer[fb_addr] = u16_to_rgb(s32x_pixel, color_tables);
                     }
@@ -819,28 +882,30 @@ impl Vdp {
         }
     }
 
-    fn copy_genesis_frame_buffer_to_h32(
+    fn copy_genesis_frame_buffer_to_expanded<const H32: bool>(
         &mut self,
         frame_size: FrameSize,
         border_size: BorderSize,
         frame_buffer: &mut [Color; genesis_core::vdp::FRAME_BUFFER_LEN],
     ) {
-        let h32_frame_width = determine_h32_buffer_width(frame_size, border_size);
+        let expanded_frame_width = determine_expanded_buffer_width::<H32>(frame_size, border_size);
+        let gen_pixel_width = genesis_expanded_pixel_width::<H32>();
 
         // Expand the frame buffer from 256x224 to 1280x224 (plus borders)
         for line in 0..frame_size.height {
-            let h32_fb_line_addr = line * h32_frame_width;
+            let h32_fb_line_addr = line * expanded_frame_width;
             for pixel in 0..frame_size.width {
                 let genesis_fb_addr = (line * frame_size.width + pixel) as usize;
-                let h32_fb_addr = (h32_fb_line_addr + 5 * pixel) as usize;
-                self.h32_frame_buffer[h32_fb_addr..h32_fb_addr + 5]
+                let h32_fb_addr = (h32_fb_line_addr + gen_pixel_width * pixel) as usize;
+                self.expanded_frame_buffer[h32_fb_addr..h32_fb_addr + gen_pixel_width as usize]
                     .fill(frame_buffer[genesis_fb_addr]);
             }
 
-            if 5 * frame_size.width != h32_frame_width {
+            if gen_pixel_width * frame_size.width != expanded_frame_width {
                 // Clear right border pixels so 32X pixels will always display over them
-                self.h32_frame_buffer[(h32_fb_line_addr + 5 * frame_size.width) as usize
-                    ..(h32_fb_line_addr + h32_frame_width) as usize]
+                self.expanded_frame_buffer[(h32_fb_line_addr + gen_pixel_width * frame_size.width)
+                    as usize
+                    ..(h32_fb_line_addr + expanded_frame_width) as usize]
                     .fill(Color::rgba(0, 0, 0, 0));
             }
         }
@@ -849,7 +914,7 @@ impl Vdp {
     pub fn render_frame<R: Renderer>(
         &self,
         genesis_vdp: &GenesisVdp,
-        mut aspect_ratio: Option<FiniteF64>,
+        aspect_ratio: Option<FiniteF64>,
         renderer: &mut R,
     ) -> Result<(), R::Err> {
         if self.state.next_render_buffer == WhichFrameBuffer::Genesis {
@@ -860,13 +925,31 @@ impl Vdp {
             );
         }
 
-        let mut frame_size = genesis_vdp.frame_size();
-        frame_size.width = determine_h32_buffer_width(frame_size, genesis_vdp.border_size());
+        let h32 = self.state.next_render_buffer == WhichFrameBuffer::ExpandedH32;
+        if h32 {
+            self.render_expanded_frame::<true, _>(genesis_vdp, aspect_ratio, renderer)
+        } else {
+            self.render_expanded_frame::<false, _>(genesis_vdp, aspect_ratio, renderer)
+        }
+    }
 
-        aspect_ratio = aspect_ratio.map(|par| par * FiniteF64::try_from(0.2).unwrap());
+    fn render_expanded_frame<const H32: bool, R: Renderer>(
+        &self,
+        genesis_vdp: &GenesisVdp,
+        mut aspect_ratio: Option<FiniteF64>,
+        renderer: &mut R,
+    ) -> Result<(), R::Err> {
+        let mut frame_size = genesis_vdp.frame_size();
+
+        frame_size.width =
+            determine_expanded_buffer_width::<H32>(frame_size, genesis_vdp.border_size());
+
+        let gen_pixel_width = genesis_expanded_pixel_width::<H32>();
+        aspect_ratio = aspect_ratio
+            .map(|par| par * FiniteF64::try_from(1.0 / f64::from(gen_pixel_width)).unwrap());
 
         renderer.render_frame(
-            self.h32_frame_buffer.as_ref(),
+            self.expanded_frame_buffer.as_ref(),
             frame_size,
             RenderFrameOptions::pixel_aspect_ratio(aspect_ratio),
         )
@@ -935,10 +1018,19 @@ fn u16_to_rgb(s32x_pixel: u16, color_tables: ColorTables) -> Color {
     )
 }
 
-fn determine_h32_buffer_width(frame_size: FrameSize, border_size: BorderSize) -> u32 {
-    if border_size.right < H32_H_OFFSET.div_ceil(5) {
-        5 * frame_size.width + H32_H_OFFSET
+const fn genesis_expanded_pixel_width<const H32: bool>() -> u32 {
+    if H32 { 5 } else { 4 }
+}
+
+fn determine_expanded_buffer_width<const H32: bool>(
+    frame_size: FrameSize,
+    border_size: BorderSize,
+) -> u32 {
+    let gen_pixel_width = genesis_expanded_pixel_width::<H32>();
+
+    if H32 && border_size.right < H32_H_OFFSET.div_ceil(gen_pixel_width) {
+        gen_pixel_width * frame_size.width + H32_H_OFFSET
     } else {
-        5 * frame_size.width
+        gen_pixel_width * frame_size.width
     }
 }

@@ -48,6 +48,7 @@ pub struct Sega32XEmulatorConfig {
     pub show_high_priority: bool,
     pub show_low_priority: bool,
     pub void_color: S32XVoidColor,
+    pub emulate_pixel_switch_delay: bool,
     pub apply_genesis_lpf_to_pwm: bool,
     pub pwm_enabled: bool,
     pub pwm_volume_adjustment_db: f64,

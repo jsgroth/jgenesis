@@ -164,6 +164,8 @@ pub struct Sega32XAppConfig {
     pub show_low_priority: bool,
     #[serde(default)]
     pub void_color_type: S32XVoidColorType,
+    #[serde(default)]
+    pub emulate_pixel_switch_delay: bool,
     #[serde(default = "default_void_palette_index")]
     pub void_palette_index: u8,
     #[serde(default = "default_void_direct")]
