@@ -21,6 +21,7 @@
   * New option to apply a yellow or purple tint to 32X colors, roughly as observed on actual hardware
 * (**32X**) Added an option to overclock the SH-2s; this is extremely CPU-intensive but can reduce slowdown in some games
 * (**32X**) Added options to hide all pixels of a given priority (#494)
+* (**32X**) Added an option to emulate the "pixel switch delay" observed on actual hardware when switching from a 32X-rendered pixel to a Genesis-rendered pixel (#584) 
 * (**NES**) Added palette customization options (#424)
   * Can now load a custom palette from a file; both 64-color and full 512-color palette files supported
   * GUI now has a builtin NTSC palette generator with a graphic displaying the current palette
@@ -33,8 +34,10 @@
   * This feature requires a GBC boot ROM in order to initialize the compatibility palettes, and it is off by default because it (accurately) causes major bugs in a few games
 * (**GB**) Added (proper) support for the MBC30 mapper, used by the Japanese version of _Pocket Monsters Crystal Version_ (#478)
 * (**GB**) Added support for unlicensed/homebrew games with an SRAM size byte of \$01 (2 KB) (#485)
+* (**Game Gear**) Added a frame blending option that simulates LCD ghosting, currently disabled by default
 * (**Game Gear**) Added support for booting from a BIOS / boot ROM (#404)
-* Added turbo button support for face and shoulder buttons on all emulated systems
+* Added turbo button support for face and shoulder buttons on all emulated systems (#554)
+* Added options to automatically pause the emulator when in the background (#585)
 
 ## Improvements
 * Upgraded [SDL](https://www.libsdl.org/) from SDL2 to SDL3; for the most part this should hopefully have no noticeable impact except for audio playback maybe working a little better than before
@@ -59,6 +62,7 @@
   * (**SNES**) Loading an SA-1 cartridge where the cartridge header claims it does not have any BW-RAM (anything that does this now gets 64 KB of BW-RAM)
   * (**SNES**) SA-1 Character Conversion DMA Type 1 with an I-RAM destination address higher than \$7FF
   * (**GB**) CPU executes a STOP instruction with no CGB speed switch armed (#465)
+* Fixed changes to the save path and save state path options not applying immediately if changed while an emulator is running
 
 ## Genesis / Sega CD / 32X Fixes
 * Fixed the VDP rendering too many pixels of the previous color when a game makes a mid-scanline backdrop color change while display is disabled; this improves accuracy of the glitchy lines in _Gouketsuji Ichizoku_ / _Power Instinct_ (#462)
