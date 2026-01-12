@@ -158,6 +158,31 @@ impl<Emulator: EmulatorTrait> HotkeyState<Emulator> {
 
         Ok(())
     }
+
+    fn is_debugger_window_id(&self, window_id: u32) -> bool {
+        self.debugger_window.as_ref().is_some_and(|debugger| window_id == debugger.window_id())
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct WindowState {
+    gui_focused: bool,
+    emulator_focused: bool,
+    debugger_focused: bool,
+}
+
+impl WindowState {
+    fn new() -> Self {
+        Self {
+            gui_focused: false,
+            emulator_focused: true, // Assume emulator window has focus at launch
+            debugger_focused: false,
+        }
+    }
+
+    fn any_focused(self) -> bool {
+        self.gui_focused || self.emulator_focused || self.debugger_focused
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -183,6 +208,7 @@ pub struct NativeEmulator<Emulator: EmulatorTrait> {
     event_buffer: Rc<RefCell<Vec<Event>>>,
     video: VideoSubsystem,
     hotkey_state: HotkeyState<Emulator>,
+    window_state: WindowState,
     fps_tracker: FpsTracker,
     rom_path: PathBuf,
     rom_extension: String,
@@ -190,6 +216,8 @@ pub struct NativeEmulator<Emulator: EmulatorTrait> {
 
 impl<Emulator: EmulatorTrait> NativeEmulator<Emulator> {
     fn reload_common_config(&mut self, config: &CommonConfig) -> Result<(), AudioError> {
+        self.common_config = config.clone();
+
         self.renderer.reload_config(config.renderer_config);
 
         self.audio_output.reload_config(config)?;
@@ -514,6 +542,7 @@ where
             event_buffer: Rc::new(RefCell::new(Vec::with_capacity(100))),
             video,
             hotkey_state,
+            window_state: WindowState::new(),
             fps_tracker: FpsTracker::new(),
             rom_path: common_config.rom_file_path,
             rom_extension,
@@ -537,8 +566,20 @@ where
     /// samples, or writing save files.
     pub fn render_frame(&mut self) -> NativeEmulatorResult<Option<NativeTickEffect>> {
         let rewinding = self.hotkey_state.rewinder.is_rewinding();
-        let should_run_emulator =
-            !rewinding && (!self.hotkey_state.paused || self.hotkey_state.should_step_frame);
+
+        let should_run_emulator = {
+            let paused = self.hotkey_state.paused;
+            let should_step_frame = self.hotkey_state.should_step_frame;
+
+            let emulator_window_focused = self.window_state.emulator_focused;
+            let any_window_focused = self.window_state.any_focused();
+            let should_pause_in_background = self
+                .common_config
+                .pause_emulator
+                .should_pause(emulator_window_focused, any_window_focused);
+
+            !rewinding && (!paused || should_step_frame) && !should_pause_in_background
+        };
 
         if should_run_emulator {
             while self
@@ -595,24 +636,37 @@ where
                     return Ok(Some(NativeTickEffect::PowerOff));
                 }
                 Event::Window { win_event, window_id, .. } => {
-                    if win_event == WindowEvent::CloseRequested {
-                        if window_id == self.renderer.window_id() {
-                            self.hotkey_state.debugger_window = None;
-                            return Ok(Some(NativeTickEffect::PowerOff));
-                        }
+                    match win_event {
+                        WindowEvent::CloseRequested => {
+                            if window_id == self.renderer.window_id() {
+                                self.hotkey_state.debugger_window = None;
+                                return Ok(Some(NativeTickEffect::PowerOff));
+                            }
 
-                        if self
-                            .hotkey_state
-                            .debugger_window
-                            .as_ref()
-                            .is_some_and(|debugger| window_id == debugger.window_id())
-                        {
-                            self.hotkey_state.debugger_window = None;
+                            if self.hotkey_state.is_debugger_window_id(window_id) {
+                                self.hotkey_state.debugger_window = None;
+                                self.window_state.debugger_focused = false;
+                            }
                         }
+                        WindowEvent::FocusGained => {
+                            if window_id == self.renderer.window_id() {
+                                self.window_state.emulator_focused = true;
+                            } else if self.hotkey_state.is_debugger_window_id(window_id) {
+                                self.window_state.debugger_focused = true;
+                            }
+                        }
+                        WindowEvent::FocusLost => {
+                            if window_id == self.renderer.window_id() {
+                                self.window_state.emulator_focused = false;
+                            } else if self.hotkey_state.is_debugger_window_id(window_id) {
+                                self.window_state.debugger_focused = false;
+                            }
+                        }
+                        _ => {}
                     }
 
                     if window_id == self.renderer.window_id() {
-                        handle_window_event(win_event, &mut self.renderer);
+                        handle_emu_window_event(win_event, &mut self.renderer);
                     }
                 }
                 _ => {}
@@ -762,6 +816,14 @@ where
 
     pub fn save_state_metadata(&self) -> &SaveStateMetadata {
         &self.hotkey_state.save_state_metadata
+    }
+
+    pub fn update_gui_focused(&mut self, gui_focused: bool) {
+        if gui_focused != self.window_state.gui_focused {
+            log::debug!("GUI window focus changed to: {gui_focused}");
+        }
+
+        self.window_state.gui_focused = gui_focused;
     }
 
     fn handle_hotkey_event(
@@ -948,7 +1010,7 @@ fn sdl_window_size(window: &Window) -> renderer::WindowSize {
     renderer::WindowSize { width, height }
 }
 
-fn handle_window_event(win_event: WindowEvent, renderer: &mut WgpuRenderer<Window>) {
+fn handle_emu_window_event(win_event: WindowEvent, renderer: &mut WgpuRenderer<Window>) {
     match win_event {
         WindowEvent::Resized(..) | WindowEvent::PixelSizeChanged(..) | WindowEvent::Maximized => {
             let window_size = sdl_window_size(renderer.window());

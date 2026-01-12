@@ -191,6 +191,29 @@ impl Display for SavePath {
     Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumAll,
 )]
 #[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum PauseEmulator {
+    #[default]
+    Never,
+    EmulatorLosesFocus,
+    ApplicationLosesFocus,
+}
+
+impl PauseEmulator {
+    #[inline]
+    #[must_use]
+    pub fn should_pause(self, emulator_focused: bool, any_focused: bool) -> bool {
+        match self {
+            Self::Never => false,
+            Self::EmulatorLosesFocus => !emulator_focused,
+            Self::ApplicationLosesFocus => !any_focused,
+        }
+    }
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumAll,
+)]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum HideMouseCursor {
     #[default]
     Fullscreen,
@@ -272,6 +295,8 @@ pub struct CommonAppConfig {
     pub fast_forward_multiplier: u64,
     #[serde(default = "default_rewind_buffer_length")]
     pub rewind_buffer_length_seconds: u64,
+    #[serde(default)]
+    pub pause_emulator: PauseEmulator,
     #[serde(default)]
     pub hide_mouse_cursor: HideMouseCursor,
 }

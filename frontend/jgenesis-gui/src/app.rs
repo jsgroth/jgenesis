@@ -26,7 +26,7 @@ use egui::{
 };
 use egui_extras::{Column, TableBuilder};
 use emath::Pos2;
-use jgenesis_native_config::common::HideMouseCursor;
+use jgenesis_native_config::common::{HideMouseCursor, PauseEmulator};
 use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen};
 use jgenesis_native_driver::extensions::Console;
 use jgenesis_native_driver::{NativeEmulatorError, extensions};
@@ -398,6 +398,23 @@ impl App {
     fn render_interface_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("UI Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.group(|ui| {
+                ui.label("Pause emulator automatically");
+
+                for (option, label) in [
+                    (PauseEmulator::Never, "Never"),
+                    (PauseEmulator::EmulatorLosesFocus, "When emulator window is in background"),
+                    (
+                        PauseEmulator::ApplicationLosesFocus,
+                        "When entire application is in background",
+                    ),
+                ] {
+                    ui.radio_value(&mut self.config.common.pause_emulator, option, label);
+                }
+            });
+
+            ui.add_space(5.0);
+
             ui.group(|ui| {
                 ui.label("Hide mouse cursor over emulator window");
 
@@ -1234,6 +1251,9 @@ impl eframe::App for App {
 
             self.state.close_on_emulator_exit = true;
         }
+
+        let gui_focused = ctx.input(|input| input.raw.focused);
+        self.emu_thread.update_gui_focused(gui_focused);
 
         let prev_config = self.config.clone();
 

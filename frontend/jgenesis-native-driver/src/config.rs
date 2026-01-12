@@ -9,7 +9,9 @@ use genesis_config::{S32XVoidColor, S32XVoidColorType};
 use genesis_core::GenesisEmulatorConfig;
 use jgenesis_common::frontend::{ColorCorrection, FiniteF32};
 use jgenesis_native_config::AppConfig;
-use jgenesis_native_config::common::{ConfigSavePath, HideMouseCursor, SavePath, WindowSize};
+use jgenesis_native_config::common::{
+    ConfigSavePath, HideMouseCursor, PauseEmulator, SavePath, WindowSize,
+};
 use jgenesis_native_config::input::mappings::{
     GameBoyInputConfig, GenesisInputConfig, HotkeyConfig, NesInputConfig, SmsGgInputConfig,
     SnesInputConfig,
@@ -63,6 +65,7 @@ pub struct CommonConfig {
     pub axis_deadzone: i16,
     #[cfg_display(indent_nested)]
     pub hotkey_config: HotkeyConfig,
+    pub pause_emulator: PauseEmulator,
     pub hide_mouse_cursor: HideMouseCursor,
 }
 
@@ -350,6 +353,7 @@ impl AppConfigExt for AppConfig {
             initial_window_size: self.common.initial_window_size,
             axis_deadzone: self.input.axis_deadzone,
             hotkey_config: self.input.hotkeys.clone(),
+            pause_emulator: self.common.pause_emulator,
             hide_mouse_cursor: self.common.hide_mouse_cursor,
         }
     }

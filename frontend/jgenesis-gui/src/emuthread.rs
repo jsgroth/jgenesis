@@ -117,6 +117,7 @@ pub struct EmuThreadHandle {
     command_sender: Sender<EmuThreadCommand>,
     input_receiver: Receiver<Option<Vec<GenericInput>>>,
     save_state_metadata: Arc<Mutex<SaveStateMetadata>>,
+    gui_focused: Arc<AtomicBool>,
     emulator_error: Arc<Mutex<Option<NativeEmulatorError>>>,
     exit_signal: Arc<AtomicBool>,
 }
@@ -136,6 +137,10 @@ impl EmuThreadHandle {
 
     pub fn save_state_metadata(&self) -> SaveStateMetadata {
         self.save_state_metadata.lock().unwrap().clone()
+    }
+
+    pub fn update_gui_focused(&self, gui_focused: bool) {
+        self.gui_focused.store(gui_focused, Ordering::Relaxed);
     }
 
     pub fn emulator_error(&self) -> Arc<Mutex<Option<NativeEmulatorError>>> {
@@ -171,12 +176,14 @@ pub fn spawn(egui_ctx: egui::Context) -> EmuThreadHandle {
     let (command_sender, command_receiver) = mpsc::channel();
     let (input_sender, input_receiver) = mpsc::channel();
     let save_state_metadata = Arc::new(Mutex::new(SaveStateMetadata::default()));
+    let gui_focused = Arc::new(AtomicBool::new(false));
     let emulator_error = Arc::new(Mutex::new(None));
     let exit_signal = Arc::new(AtomicBool::new(false));
 
     {
         let status = Arc::clone(&status);
         let save_state_metadata = Arc::clone(&save_state_metadata);
+        let gui_focused = Arc::clone(&gui_focused);
         let emulator_error = Arc::clone(&emulator_error);
         let exit_signal = Arc::clone(&exit_signal);
         thread::spawn(move || {
@@ -186,6 +193,7 @@ pub fn spawn(egui_ctx: egui::Context) -> EmuThreadHandle {
                 input_sender,
                 status,
                 save_state_metadata,
+                gui_focused,
                 emulator_error,
                 exit_signal,
             });
@@ -197,6 +205,7 @@ pub fn spawn(egui_ctx: egui::Context) -> EmuThreadHandle {
         command_sender,
         input_receiver,
         save_state_metadata,
+        gui_focused,
         emulator_error,
         exit_signal,
     }
@@ -208,6 +217,7 @@ struct EmuThreadContext {
     input_sender: Sender<Option<Vec<GenericInput>>>,
     status: Arc<AtomicU8>,
     save_state_metadata: Arc<Mutex<SaveStateMetadata>>,
+    gui_focused: Arc<AtomicBool>,
     emulator_error: Arc<Mutex<Option<NativeEmulatorError>>>,
     exit_signal: Arc<AtomicBool>,
 }
@@ -455,6 +465,10 @@ impl GenericEmulator {
         match_each_variant!(self, emulator => emulator.save_state_metadata().clone())
     }
 
+    fn update_gui_focused(&mut self, gui_focused: bool) {
+        match_each_variant!(self, emulator => emulator.update_gui_focused(gui_focused));
+    }
+
     fn focus(&mut self) {
         match_each_variant!(self, emulator => emulator.focus());
     }
@@ -476,6 +490,7 @@ fn run_emulator(mut emulator: GenericEmulator, ctx: &EmuThreadContext) -> RunEmu
         match emulator.render_frame() {
             Ok(None) => {
                 *ctx.save_state_metadata.lock().unwrap() = emulator.save_state_metadata();
+                emulator.update_gui_focused(ctx.gui_focused.load(Ordering::Relaxed));
 
                 while let Ok(command) = ctx.command_receiver.try_recv() {
                     match command {
