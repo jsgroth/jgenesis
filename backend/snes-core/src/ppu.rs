@@ -496,13 +496,12 @@ impl Ppu {
             }
         }
 
-        if self.registers.mid_line_update.is_some()
+        if let Some(mid_line_update) = self.registers.mid_line_update
             && (1..=v_display_size).contains(&self.state.scanline)
             && (RENDER_LINE_MCLK..END_RENDER_LINE_MCLK).contains(&new_scanline_mclks)
         {
             // Between H=22 and H=276 and INIDISP or one of the scroll registers was just modified;
             // partially render current line
-            let mid_line_update = self.registers.mid_line_update.unwrap();
 
             // Scroll register writes don't seem to apply immediately - see the "Good Luck"
             // animation in Air Strike Patrol
