@@ -163,14 +163,6 @@ pub const S32X_VIDEO_OUT: HelpText = HelpText {
     ],
 };
 
-pub const S32X_PIXEL_SWITCH_DELAY: HelpText = HelpText {
-    heading: "32X Pixel Switch Delay",
-    text: &[
-        "Emulate 32X pixel switch delay when switching from 32X video to Genesis video, roughly as observed on actual hardware.",
-        "Note that this setting improves video accuracy but may introduce aliasing due to significantly increasing the internal horizontal resolution.",
-    ],
-};
-
 pub const S32X_PRIORITY_MASKING: HelpText = HelpText {
     heading: "32X Priority Masking",
     text: &[

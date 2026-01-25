@@ -21,7 +21,6 @@
   * New option to apply a yellow or purple tint to 32X colors, roughly as observed on actual hardware
 * (**32X**) Added an option to overclock the SH-2s; this is extremely CPU-intensive but can reduce slowdown in some games
 * (**32X**) Added options to hide all pixels of a given priority (#494)
-* (**32X**) Added an option to emulate the "pixel switch delay" observed on actual hardware when switching from a 32X-rendered pixel to a Genesis-rendered pixel (#584) 
 * (**NES**) Added palette customization options (#424)
   * Can now load a custom palette from a file; both 64-color and full 512-color palette files supported
   * GUI now has a builtin NTSC palette generator with a graphic displaying the current palette
