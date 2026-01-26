@@ -78,7 +78,7 @@ impl InputState {
     }
 
     fn check_for_interrupt(&mut self, cycles: u64, interrupts: &mut InterruptRegisters) {
-        if !self.irq_enabled {
+        if !self.irq_enabled && !interrupts.stopped() {
             self.prev_irq_line = false;
             return;
         }
@@ -89,6 +89,14 @@ impl InputState {
             IrqLogic::Or => pressed & self.irq_mask != 0,
             IrqLogic::And => pressed & self.irq_mask == self.irq_mask,
         };
+
+        if interrupts.stopped() {
+            // Keypad IRQ state doesn't update during stop, but the IRQ logic can end stop
+            if irq_line {
+                interrupts.set_flag(InterruptType::Keypad, cycles);
+            }
+            return;
+        }
 
         if !self.prev_irq_line && irq_line {
             interrupts.set_flag(InterruptType::Keypad, cycles);

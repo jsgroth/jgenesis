@@ -20,8 +20,8 @@ use arm7tdmi_emu::{Arm7Tdmi, Arm7TdmiResetArgs, CpuMode};
 use bincode::{Decode, Encode};
 use gba_config::{GbaAspectRatio, GbaAudioInterpolation, GbaButton, GbaInputs, GbaSaveMemory};
 use jgenesis_common::frontend::{
-    AudioOutput, ColorCorrection, EmulatorConfigTrait, EmulatorTrait, RenderFrameOptions, Renderer,
-    SaveWriter, TickEffect, TickResult,
+    AudioOutput, Color, ColorCorrection, EmulatorConfigTrait, EmulatorTrait, RenderFrameOptions,
+    Renderer, SaveWriter, TickEffect, TickResult,
 };
 use jgenesis_proc_macros::{ConfigDisplay, PartialClone};
 use std::fmt::{Debug, Display};
@@ -91,6 +91,7 @@ struct StoppedState {
     render_counter: u64,
     audio_output_counter: u64,
     output_frequency: u64,
+    cycles_remaining: Option<u64>,
 }
 
 #[derive(Debug, Error)]
@@ -207,10 +208,14 @@ impl GameBoyAdvanceEmulator {
 
         const CYCLES_PER_FRAME: u64 = (ppu::LINES_PER_FRAME * ppu::DOTS_PER_LINE) as u64;
 
+        // Actual hardware turns off the screen in stop mode; emulate this by displaying solid white
+        const BLANK_FRAME: &[Color] = &[Color::rgb(255, 255, 255); ppu::FRAME_BUFFER_LEN];
+
         if !self.stop_state.stopped_last_tick {
             self.stop_state.stopped_last_tick = true;
             self.stop_state.render_counter = 0;
             self.stop_state.audio_output_counter = 0;
+            self.stop_state.cycles_remaining = None;
         }
 
         // Output constant 0s for audio
@@ -222,12 +227,29 @@ impl GameBoyAdvanceEmulator {
 
         let mut tick_effect = TickEffect::None;
 
-        // Repeatedly render the current frame (solid white if forced blanking was enabled for a full frame)
+        // Repeatedly render a blank frame
         self.stop_state.render_counter += INCREMENT;
         while self.stop_state.render_counter >= CYCLES_PER_FRAME {
             self.stop_state.render_counter -= CYCLES_PER_FRAME;
-            self.force_render(renderer).map_err(GbaError::Render)?;
+            renderer
+                .render_frame(BLANK_FRAME, ppu::FRAME_SIZE, self.config.render_options())
+                .map_err(GbaError::Render)?;
             tick_effect = TickEffect::FrameRendered;
+        }
+
+        if let Some(cycles_remaining) = &mut self.stop_state.cycles_remaining {
+            *cycles_remaining = cycles_remaining.saturating_sub(INCREMENT);
+            if *cycles_remaining == 0 {
+                // Stop has ended
+                self.stop_state.stopped_last_tick = false;
+                self.bus.interrupts.clear_stop();
+            }
+        }
+
+        if self.stop_state.cycles_remaining.is_none() && self.bus.interrupts.stop_is_ending() {
+            // End stop after roughly 1/8 of a second
+            // Not sure this is accurate, but stop definitely does not end instantly on actual hardware
+            self.stop_state.cycles_remaining = Some(crate::GBA_CLOCK_SPEED / 8);
         }
 
         Ok(tick_effect)
@@ -268,12 +290,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
             self.bus.inputs.update_inputs(*inputs, self.bus.state.cycles, &mut self.bus.interrupts);
             self.bus.cartridge.update_rtc_time(self.bus.state.cycles, &mut self.bus.interrupts);
 
-            if self.bus.interrupts.stopped() {
-                return self.tick_stopped::<_, _, S>(renderer, audio_output);
-            }
-
-            // Stop has ended
-            self.stop_state.stopped_last_tick = false;
+            return self.tick_stopped::<_, _, S>(renderer, audio_output);
         }
 
         self.bus.inputs.update_inputs(*inputs, self.bus.state.cycles, &mut self.bus.interrupts);

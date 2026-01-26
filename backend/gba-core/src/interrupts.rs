@@ -92,6 +92,7 @@ pub struct InterruptRegisters {
     irq_pending: bool,
     halted: bool,
     stopped: bool,
+    stop_ending: bool,
     pending_writes: Vec<(PendingWrite, u64)>,
 }
 
@@ -103,6 +104,7 @@ impl InterruptRegisters {
             irq_pending: false,
             halted: false,
             stopped: false,
+            stop_ending: false,
             pending_writes: Vec::with_capacity(10),
         }
     }
@@ -156,6 +158,12 @@ impl InterruptRegisters {
     }
 
     pub fn set_flag(&mut self, interrupt: InterruptType, cycles: u64) {
+        if self.stopped {
+            // IRQs during stop don't seem to set the flag in IF, but they can end stop
+            self.stop_ending |= self.irq.enabled & interrupt.bit_mask() != 0;
+            return;
+        }
+
         // Setting interrupt flag has no affect if the flag is cleared via IF write on the same cycle
         let interrupt_bit = interrupt.bit_mask();
         if self.pending_writes.iter().any(|&(write, write_cycles)| {
@@ -186,18 +194,17 @@ impl InterruptRegisters {
     }
 
     pub fn stopped(&self) -> bool {
-        if !self.stopped {
-            return false;
-        }
+        self.stopped
+    }
 
-        if !self.pending_writes.iter().any(|&(write, _)| matches!(write, PendingWrite::SetFlag(_)))
-        {
-            return true;
-        }
+    pub fn stop_is_ending(&self) -> bool {
+        self.stop_ending
+    }
 
-        let mut clone = self.clone();
-        clone.apply_pending_writes(u64::MAX);
-        clone.irq.enabled & clone.irq.flags == 0
+    pub fn clear_stop(&mut self) {
+        self.stopped = false;
+        self.halted = false;
+        self.stop_ending = false;
     }
 
     fn push_pending_write(&mut self, write: PendingWrite, cycles: u64) {
