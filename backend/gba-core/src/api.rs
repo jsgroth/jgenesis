@@ -237,19 +237,22 @@ impl GameBoyAdvanceEmulator {
             tick_effect = TickEffect::FrameRendered;
         }
 
-        if let Some(cycles_remaining) = &mut self.stop_state.cycles_remaining {
-            *cycles_remaining = cycles_remaining.saturating_sub(INCREMENT);
-            if *cycles_remaining == 0 {
-                // Stop has ended
-                self.stop_state.stopped_last_tick = false;
-                self.bus.interrupts.clear_stop();
+        match &mut self.stop_state.cycles_remaining {
+            Some(cycles_remaining) => {
+                *cycles_remaining = cycles_remaining.saturating_sub(INCREMENT);
+                if *cycles_remaining == 0 {
+                    // Stop has ended
+                    self.stop_state.stopped_last_tick = false;
+                    self.bus.interrupts.clear_stop();
+                }
             }
-        }
-
-        if self.stop_state.cycles_remaining.is_none() && self.bus.interrupts.stop_is_ending() {
-            // End stop after roughly 1/8 of a second
-            // Not sure this is accurate, but stop definitely does not end instantly on actual hardware
-            self.stop_state.cycles_remaining = Some(crate::GBA_CLOCK_SPEED / 8);
+            None => {
+                if self.bus.interrupts.stop_is_ending() {
+                    // End stop after roughly 1/8 of a second
+                    // Not sure this is accurate, but stop definitely does not end instantly on actual hardware
+                    self.stop_state.cycles_remaining = Some(crate::GBA_CLOCK_SPEED / 8);
+                }
+            }
         }
 
         Ok(tick_effect)
