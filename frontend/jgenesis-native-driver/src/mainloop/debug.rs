@@ -11,11 +11,12 @@ use sdl3::event::{Event, WindowEvent};
 use egui::epaint::ImageDelta;
 use egui::{
     Button, Color32, ColorImage, ImageData, Response, ScrollArea, TextureFilter, TextureOptions,
-    TextureWrapMode, Ui, Widget, WidgetText,
+    TextureWrapMode, ThemePreference, Ui, Widget, WidgetText,
 };
 use egui_extras::{Column, TableBuilder};
 use egui_wgpu::ScreenDescriptor;
 use jgenesis_common::frontend::Color;
+use jgenesis_native_config::EguiTheme;
 use sdl3::VideoSubsystem;
 use sdl3::video::{Window, WindowBuildError};
 use std::iter;
@@ -68,6 +69,7 @@ impl<Emulator> DebuggerWindow<Emulator> {
     pub fn new(
         video: &VideoSubsystem,
         scale_factor: Option<f32>,
+        egui_theme: EguiTheme,
         render_fn: Box<DebugRenderFn<Emulator>>,
     ) -> Result<Self, DebuggerError> {
         let scale_factor =
@@ -136,6 +138,8 @@ impl<Emulator> DebuggerWindow<Emulator> {
         log::info!("Window scale factor {window_scale}");
 
         let platform = egui_sdl3_platform::Platform::new(&window, window_scale);
+        platform.context().set_theme(egui_theme_preference(egui_theme));
+
         let start_time = SystemTime::now();
 
         let egui_renderer = egui_wgpu::Renderer::new(&device, surface_format, None, 1, false);
@@ -238,6 +242,10 @@ impl<Emulator> DebuggerWindow<Emulator> {
         Ok(())
     }
 
+    pub fn update_egui_theme(&mut self, egui_theme: EguiTheme) {
+        self.platform.context().set_theme(egui_theme_preference(egui_theme));
+    }
+
     pub fn handle_sdl_event(&mut self, event: &Event) {
         match event {
             Event::Window {
@@ -264,6 +272,14 @@ impl<Emulator> DebuggerWindow<Emulator> {
 fn screen_width(ctx: &egui::Context) -> f32 {
     let window_margin = ctx.style().spacing.window_margin;
     ctx.available_rect().width() - f32::from(window_margin.left) - f32::from(window_margin.right)
+}
+
+fn egui_theme_preference(egui_theme: EguiTheme) -> ThemePreference {
+    match egui_theme {
+        EguiTheme::SystemDefault => ThemePreference::System,
+        EguiTheme::Dark => ThemePreference::Dark,
+        EguiTheme::Light => ThemePreference::Light,
+    }
 }
 
 fn create_texture(

@@ -1300,7 +1300,6 @@ fn should_reload_config(prev_config: &AppConfig, new_config: &AppConfig) -> bool
         list_filters: ListFilters::default(),
         rom_search_dirs: vec![],
         recent_open_list: vec![],
-        egui_theme: EguiTheme::default(),
         gui_window_width: jgenesis_native_config::DEFAULT_GUI_WIDTH,
         gui_window_height: jgenesis_native_config::DEFAULT_GUI_HEIGHT,
         ..prev_config.clone()
@@ -1310,7 +1309,6 @@ fn should_reload_config(prev_config: &AppConfig, new_config: &AppConfig) -> bool
         list_filters: ListFilters::default(),
         rom_search_dirs: vec![],
         recent_open_list: vec![],
-        egui_theme: EguiTheme::default(),
         gui_window_width: jgenesis_native_config::DEFAULT_GUI_WIDTH,
         gui_window_height: jgenesis_native_config::DEFAULT_GUI_HEIGHT,
         ..new_config.clone()

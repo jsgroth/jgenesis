@@ -112,6 +112,7 @@ struct HotkeyState<Emulator> {
     overclocking_enabled: bool,
     debugger_window: Option<DebuggerWindow<Emulator>>,
     window_scale_factor: Option<f32>,
+    egui_theme: EguiTheme,
     debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
 }
 
@@ -142,6 +143,7 @@ impl<Emulator: EmulatorTrait> HotkeyState<Emulator> {
             overclocking_enabled: true,
             debugger_window: None,
             window_scale_factor: common_config.window_scale_factor,
+            egui_theme: common_config.egui_theme,
             debug_render_fn,
         })
     }
@@ -241,6 +243,11 @@ impl<Emulator: EmulatorTrait> NativeEmulator<Emulator> {
         let fullscreen = self.renderer.is_fullscreen();
         self.sdl.mouse().show_cursor(!config.hide_mouse_cursor.should_hide(fullscreen));
 
+        self.hotkey_state.egui_theme = config.egui_theme;
+        if let Some(debugger) = &mut self.hotkey_state.debugger_window {
+            debugger.update_egui_theme(config.egui_theme);
+        }
+
         Ok(())
     }
 
@@ -276,10 +283,11 @@ enum HotkeyEffect {
 fn open_debugger_window<Emulator>(
     video: &VideoSubsystem,
     scale_factor: Option<f32>,
+    egui_theme: EguiTheme,
     debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
 ) -> Option<DebuggerWindow<Emulator>> {
     let render_fn = debug_render_fn();
-    match DebuggerWindow::new(video, scale_factor, render_fn) {
+    match DebuggerWindow::new(video, scale_factor, egui_theme, render_fn) {
         Ok(debugger_window) => Some(debugger_window),
         Err(err) => {
             log::error!("Error opening debugger window: {err}");
@@ -743,6 +751,7 @@ where
             self.hotkey_state.debugger_window = open_debugger_window(
                 &self.video,
                 self.hotkey_state.window_scale_factor,
+                self.hotkey_state.egui_theme,
                 self.hotkey_state.debug_render_fn,
             );
         }
@@ -1031,3 +1040,4 @@ macro_rules! bincode_config {
 
 use bincode_config;
 use genesis_config::GenesisRegion;
+use jgenesis_native_config::EguiTheme;

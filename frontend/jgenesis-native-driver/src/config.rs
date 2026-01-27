@@ -8,7 +8,6 @@ use gba_core::api::{GbaAudioConfig, GbaEmulatorConfig};
 use genesis_config::{S32XVoidColor, S32XVoidColorType};
 use genesis_core::GenesisEmulatorConfig;
 use jgenesis_common::frontend::{ColorCorrection, FiniteF32};
-use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::common::{
     ConfigSavePath, HideMouseCursor, PauseEmulator, SavePath, WindowSize,
 };
@@ -16,6 +15,7 @@ use jgenesis_native_config::input::mappings::{
     GameBoyInputConfig, GenesisInputConfig, HotkeyConfig, NesInputConfig, SmsGgInputConfig,
     SnesInputConfig,
 };
+use jgenesis_native_config::{AppConfig, EguiTheme};
 use jgenesis_proc_macros::ConfigDisplay;
 use jgenesis_renderer::config::{PrescaleMode, RendererConfig};
 use nes_core::api::NesEmulatorConfig;
@@ -67,6 +67,7 @@ pub struct CommonConfig {
     pub hotkey_config: HotkeyConfig,
     pub pause_emulator: PauseEmulator,
     pub hide_mouse_cursor: HideMouseCursor,
+    pub egui_theme: EguiTheme,
 }
 
 impl CommonConfig {
@@ -355,6 +356,7 @@ impl AppConfigExt for AppConfig {
             hotkey_config: self.input.hotkeys.clone(),
             pause_emulator: self.common.pause_emulator,
             hide_mouse_cursor: self.common.hide_mouse_cursor,
+            egui_theme: self.egui_theme,
         }
     }
 

@@ -19,6 +19,7 @@ use crate::nes::NesAppConfig;
 use crate::smsgg::SmsGgAppConfig;
 use crate::snes::SnesAppConfig;
 use cfg_if::cfg_if;
+use jgenesis_proc_macros::EnumDisplay;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -66,7 +67,7 @@ pub struct RecentOpen {
     pub path: PathBuf,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay)]
 pub enum EguiTheme {
     #[default]
     SystemDefault,
