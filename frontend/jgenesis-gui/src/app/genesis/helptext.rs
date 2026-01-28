@@ -242,6 +242,14 @@ pub const SCD_PCM_INTERPOLATION: HelpText = HelpText {
     ],
 };
 
+pub const S32X_PWM_RESAMPLING: HelpText = HelpText {
+    heading: "32X PWM Resampling",
+    text: &[
+        "Choose the algorithm used to resample 32X PWM chip audio output.",
+        "Windowed sinc interpolation is higher-quality but more performance-intensive, and it may sound more muffled at low sample rates.",
+    ],
+};
+
 pub const ENABLED_YM2612_CHANNELS: HelpText = HelpText {
     heading: "Enabled YM2612 Channels",
     text: &["Enable or disable individual YM2612 audio channels."],

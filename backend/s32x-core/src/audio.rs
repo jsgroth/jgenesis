@@ -5,6 +5,7 @@ use bincode::{Decode, Encode};
 use dsp::design::FilterType;
 use dsp::iir::FirstOrderIirFilter;
 use dsp::sinc::{PerformanceSincResampler, QualitySincResampler};
+use genesis_config::S32XPwmResampling;
 use genesis_core::audio::{GenesisAudioFilter, LowPassSettings, volume_multiplier};
 use jgenesis_common::audio::CubicResampler;
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
@@ -15,52 +16,28 @@ const PSG_COEFFICIENT: f64 = genesis_core::audio::PSG_COEFFICIENT;
 // -2 dB (10^(-2 / 20))
 const PWM_COEFFICIENT: f64 = 0.7943282347242815;
 
-fn new_pwm_48khz_low_pass(cutoff: f64) -> FirstOrderIirFilter {
-    dsp::design::butterworth(cutoff, 48000.0, FilterType::LowPass)
-}
-
-fn new_pwm_44khz_low_pass(cutoff: f64) -> FirstOrderIirFilter {
-    dsp::design::butterworth(cutoff, 44100.0, FilterType::LowPass)
-}
-
-// This silliness is necessary to handle dynamic resampling ratio; the frontend doesn't indicate
-// whether the output frequency is the original frequency or dynamic-adjusted
-fn round_output_frequency(output_frequency: u64) -> u64 {
-    let diff_48khz = (output_frequency as i64 - 48000).abs();
-    let diff_44khz = (output_frequency as i64 - 44100).abs();
-
-    if diff_48khz <= diff_44khz { 48000 } else { 44100 }
-}
-
-fn new_pwm_low_pass(output_frequency: u64, cutoff: f64) -> FirstOrderIirFilter {
-    match output_frequency {
-        48000 => new_pwm_48khz_low_pass(cutoff),
-        44100 => new_pwm_44khz_low_pass(cutoff),
-        _ => panic!(
-            "new_pwm_low_pass(freq) should only be called with 48000 or 44100, was {output_frequency}"
-        ),
-    }
-}
-
 #[derive(Debug, Clone, Encode, Decode)]
 struct PwmAudioFilter {
     gen_low_pass_setting: LowPassSettings,
     apply_gen_lpf_to_pwm: bool,
-    rounded_output_frequency: u64,
+    pwm_frequency: f64,
     pwm_lpf_l: FirstOrderIirFilter,
     pwm_lpf_r: FirstOrderIirFilter,
 }
 
+fn new_pwm_low_pass(pwm_frequency: f64, cutoff_frequency: f64) -> FirstOrderIirFilter {
+    dsp::design::butterworth(cutoff_frequency, pwm_frequency, FilterType::LowPass)
+}
+
 impl PwmAudioFilter {
-    fn new(config: &Sega32XEmulatorConfig, output_frequency: u64) -> Self {
-        let rounded_output_frequency = round_output_frequency(output_frequency);
+    fn new(config: &Sega32XEmulatorConfig, pwm_frequency: f64) -> Self {
         let genesis_lpf_cutoff: f64 = config.genesis.genesis_lpf_cutoff.into();
         Self {
             gen_low_pass_setting: LowPassSettings::from_config(&config.genesis),
             apply_gen_lpf_to_pwm: config.apply_genesis_lpf_to_pwm,
-            rounded_output_frequency,
-            pwm_lpf_l: new_pwm_low_pass(rounded_output_frequency, genesis_lpf_cutoff),
-            pwm_lpf_r: new_pwm_low_pass(rounded_output_frequency, genesis_lpf_cutoff),
+            pwm_frequency,
+            pwm_lpf_l: new_pwm_low_pass(pwm_frequency, genesis_lpf_cutoff),
+            pwm_lpf_r: new_pwm_low_pass(pwm_frequency, genesis_lpf_cutoff),
         }
     }
 
@@ -72,6 +49,20 @@ impl PwmAudioFilter {
         (self.pwm_lpf_l.filter(sample_l), self.pwm_lpf_r.filter(sample_r))
     }
 
+    fn update_pwm_frequency(&mut self, pwm_frequency: f64) {
+        // Exact float comparison is fine here because PWM frequency is deterministically derived
+        // from the PWM cycle register value
+        #[allow(clippy::float_cmp)]
+        if pwm_frequency == self.pwm_frequency {
+            return;
+        }
+        self.pwm_frequency = pwm_frequency;
+
+        let genesis_lpf_cutoff: f64 = self.gen_low_pass_setting.genesis_cutoff.into();
+        self.pwm_lpf_l = new_pwm_low_pass(self.pwm_frequency, genesis_lpf_cutoff);
+        self.pwm_lpf_r = new_pwm_low_pass(self.pwm_frequency, genesis_lpf_cutoff);
+    }
+
     fn reload_config(&mut self, config: &Sega32XEmulatorConfig) {
         if self.gen_low_pass_setting == LowPassSettings::from_config(&config.genesis)
             && self.apply_gen_lpf_to_pwm == config.apply_genesis_lpf_to_pwm
@@ -79,43 +70,96 @@ impl PwmAudioFilter {
             return;
         }
 
-        *self = Self::new(config, self.rounded_output_frequency);
+        *self = Self::new(config, self.pwm_frequency);
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+enum PwmResamplerImpl {
+    CubicHermite(CubicResampler<2>),
+    WindowedSinc(QualitySincResampler<2>),
+}
+
+impl PwmResamplerImpl {
+    fn new(resampling: S32XPwmResampling, pwm_frequency: f64, output_frequency: u64) -> Self {
+        match resampling {
+            S32XPwmResampling::CubicHermite => {
+                Self::CubicHermite(CubicResampler::new(pwm_frequency, output_frequency))
+            }
+            S32XPwmResampling::WindowedSinc => Self::WindowedSinc(QualitySincResampler::new(
+                pwm_frequency,
+                output_frequency as f64,
+            )),
+        }
+    }
+
+    fn resampling(&self) -> S32XPwmResampling {
+        match self {
+            Self::CubicHermite(_) => S32XPwmResampling::CubicHermite,
+            Self::WindowedSinc(_) => S32XPwmResampling::WindowedSinc,
+        }
+    }
+
+    fn collect_sample(&mut self, sample: [f64; 2]) {
+        match self {
+            Self::CubicHermite(resampler) => resampler.collect_sample(sample),
+            Self::WindowedSinc(resampler) => resampler.collect(sample),
+        }
+    }
+
+    fn output_buffer_pop_front(&mut self) -> Option<[f64; 2]> {
+        match self {
+            Self::CubicHermite(resampler) => resampler.output_buffer_pop_front(),
+            Self::WindowedSinc(resampler) => resampler.output_buffer_pop_front(),
+        }
+    }
+
+    fn update_source_frequency(&mut self, source_frequency: f64) {
+        match self {
+            Self::CubicHermite(resampler) => resampler.update_source_frequency(source_frequency),
+            Self::WindowedSinc(resampler) => resampler.update_source_frequency(source_frequency),
+        }
     }
 
     fn update_output_frequency(&mut self, output_frequency: u64) {
-        let rounded_output_frequency = round_output_frequency(output_frequency);
-        if self.rounded_output_frequency == rounded_output_frequency {
-            return;
+        match self {
+            Self::CubicHermite(resampler) => resampler.update_output_frequency(output_frequency),
+            Self::WindowedSinc(resampler) => {
+                resampler.update_output_frequency(output_frequency as f64);
+            }
         }
-
-        self.rounded_output_frequency = rounded_output_frequency;
-
-        let genesis_lpf_cutoff: f64 = self.gen_low_pass_setting.genesis_cutoff.into();
-        self.pwm_lpf_l = new_pwm_low_pass(output_frequency, genesis_lpf_cutoff);
-        self.pwm_lpf_r = new_pwm_low_pass(output_frequency, genesis_lpf_cutoff);
     }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct PwmResampler {
     filter: PwmAudioFilter,
-    resampler: CubicResampler<2>,
+    resampler: PwmResamplerImpl,
     output: VecDeque<(f64, f64)>,
+    output_frequency: u64,
 }
 
 impl PwmResampler {
     pub fn new(config: &Sega32XEmulatorConfig, output_frequency: u64) -> Self {
+        const INITIAL_PWM_FREQUENCY: f64 = 22000.0;
+
         Self {
-            filter: PwmAudioFilter::new(config, output_frequency),
-            resampler: CubicResampler::new(22000.0, output_frequency),
+            filter: PwmAudioFilter::new(config, INITIAL_PWM_FREQUENCY),
+            resampler: PwmResamplerImpl::new(
+                config.pwm_resampling,
+                INITIAL_PWM_FREQUENCY,
+                output_frequency,
+            ),
             output: VecDeque::with_capacity(48000 / 30),
+            output_frequency,
         }
     }
 
     pub fn collect_sample(&mut self, sample_l: f64, sample_r: f64) {
+        let (sample_l, sample_r) = self.filter.filter((sample_l, sample_r));
+
         self.resampler.collect_sample([sample_l, sample_r]);
         while let Some([output_l, output_r]) = self.resampler.output_buffer_pop_front() {
-            let (output_l, output_r) = self.filter.filter((output_l, output_r));
             self.output.push_back((output_l, output_r));
         }
     }
@@ -129,16 +173,25 @@ impl PwmResampler {
     }
 
     pub fn update_source_frequency(&mut self, source_frequency: f64) {
+        self.filter.update_pwm_frequency(source_frequency);
         self.resampler.update_source_frequency(source_frequency);
     }
 
     fn reload_config(&mut self, config: &Sega32XEmulatorConfig) {
         self.filter.reload_config(config);
+
+        if config.pwm_resampling != self.resampler.resampling() {
+            self.resampler = PwmResamplerImpl::new(
+                config.pwm_resampling,
+                self.filter.pwm_frequency,
+                self.output_frequency,
+            );
+        }
     }
 
     pub fn update_output_frequency(&mut self, output_frequency: u64) {
-        self.filter.update_output_frequency(output_frequency);
         self.resampler.update_output_frequency(output_frequency);
+        self.output_frequency = output_frequency;
     }
 }
 

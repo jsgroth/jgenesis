@@ -3,7 +3,7 @@ use gba_config::{GbaAspectRatio, GbaAudioInterpolation, GbaButton, GbaColorCorre
 use gba_core::api::{GbaAudioConfig, GbaEmulatorConfig};
 use genesis_config::{
     GenesisAspectRatio, GenesisButton, GenesisControllerType, GenesisInputs, Opn2BusyBehavior,
-    PcmInterpolation, S32XColorTint, S32XVideoOut, S32XVoidColor,
+    PcmInterpolation, S32XColorTint, S32XPwmResampling, S32XVideoOut, S32XVoidColor,
 };
 use genesis_core::GenesisEmulatorConfig;
 use jgenesis_common::frontend::{ColorCorrection, FiniteF32, MappableInputs, TimingMode};
@@ -453,6 +453,7 @@ impl WebConfig {
             void_color: S32XVoidColor::default(),
             emulate_pixel_switch_delay: false,
             apply_genesis_lpf_to_pwm: true,
+            pwm_resampling: S32XPwmResampling::CubicHermite,
             pwm_enabled: true,
             pwm_volume_adjustment_db: 0.0,
         }

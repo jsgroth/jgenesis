@@ -8,7 +8,7 @@ use crate::emuthread::EmuThreadStatus;
 use crate::widgets::{ClockModifier, OverclockSlider};
 use egui::style::ScrollStyle;
 use egui::{Color32, Context, Slider, Ui, Window};
-use genesis_config::{GenesisAspectRatio, GenesisRegion, Opn2BusyBehavior};
+use genesis_config::{GenesisAspectRatio, GenesisRegion, Opn2BusyBehavior, S32XPwmResampling};
 use genesis_config::{PcmInterpolation, S32XColorTint};
 use genesis_config::{S32XVideoOut, S32XVoidColorType};
 use jgenesis_common::frontend::TimingMode;
@@ -555,6 +555,9 @@ impl App {
                 self.render_scd_pcm_interpolation_setting(ui);
 
                 ui.add_space(5.0);
+                self.render_32x_pwm_setting(ui);
+
+                ui.add_space(5.0);
                 self.render_volume_adjustments(ui);
 
                 ui.add_space(5.0);
@@ -859,6 +862,27 @@ impl App {
             .interact_rect;
         if ui.rect_contains_pointer(rect) {
             self.state.help_text.insert(OpenWindow::GenesisAudio, helptext::SCD_PCM_INTERPOLATION);
+        }
+    }
+
+    fn render_32x_pwm_setting(&mut self, ui: &mut Ui) {
+        let rect = ui
+            .group(|ui| {
+                ui.label("32X PWM chip resampling");
+
+                ui.horizontal(|ui| {
+                    for (value, label) in [
+                        (S32XPwmResampling::CubicHermite, "Cubic Hermite"),
+                        (S32XPwmResampling::WindowedSinc, "Windowed sinc"),
+                    ] {
+                        ui.radio_value(&mut self.config.sega_32x.pwm_resampling, value, label);
+                    }
+                });
+            })
+            .response
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(OpenWindow::GenesisAudio, helptext::S32X_PWM_RESAMPLING);
         }
     }
 

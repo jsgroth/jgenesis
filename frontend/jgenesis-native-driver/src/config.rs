@@ -454,6 +454,7 @@ impl AppConfigExt for AppConfig {
                 },
                 emulate_pixel_switch_delay: self.sega_32x.emulate_pixel_switch_delay,
                 apply_genesis_lpf_to_pwm: self.sega_32x.apply_genesis_lpf_to_pwm,
+                pwm_resampling: self.sega_32x.pwm_resampling,
                 pwm_enabled: self.sega_32x.pwm_enabled,
                 pwm_volume_adjustment_db: self.sega_32x.pwm_volume_adjustment_db,
             },
