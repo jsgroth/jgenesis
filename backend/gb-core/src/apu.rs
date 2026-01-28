@@ -203,10 +203,12 @@ impl Apu {
 
         self.pulse_1.tick_m_cycle();
         self.pulse_2.tick_m_cycle();
-        self.wavetable.tick_m_cycle();
         self.noise.tick_m_cycle();
 
-        self.generate_sample();
+        for _ in 0..2 {
+            self.wavetable.tick_2mhz();
+            self.generate_sample();
+        }
     }
 
     fn generate_sample(&mut self) {

@@ -204,7 +204,7 @@ impl PulseChannel {
 
         // More obscure behavior: After power-on, pulse channels output a constant 0 until after
         // the first phase increment
-        let tick = self.timer.tick_m_cycle();
+        let tick = self.timer.tick();
         self.suppress_output &= tick != TimerTickEffect::Clocked;
     }
 

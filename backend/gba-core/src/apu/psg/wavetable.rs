@@ -40,12 +40,12 @@ impl WavetableChannel {
         }
     }
 
-    pub fn tick_1mhz(&mut self) {
+    pub fn tick_2mhz(&mut self) {
         if !self.active {
             return;
         }
 
-        if self.timer.tick_m_cycle() == TimerTickEffect::Clocked {
+        if self.timer.tick() == TimerTickEffect::Clocked {
             if self.wave_ram_size == WaveRamSizeBanks::Two && self.timer.phase == 0 {
                 self.selected_bank = !self.selected_bank;
             }

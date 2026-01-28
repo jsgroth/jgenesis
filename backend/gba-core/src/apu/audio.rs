@@ -99,8 +99,8 @@ impl EnhancedResampler {
     }
 }
 
-// PSG source frequency is actually 2 MHz (2^21), but this implementation only runs it at 1 MHz
-const PSG_SOURCE_FREQUENCY: f64 = 1_048_576.0;
+// 2097152 Hz
+const PSG_SOURCE_FREQUENCY: f64 = (1 << 21) as f64;
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct PsgLowPassFilter {
@@ -179,7 +179,10 @@ impl InterpolatingResampler {
             }),
             pcm_samples: array::from_fn(|_| 0),
             psg_lpf: PsgLowPassFilter::new(psg_low_pass, pcm_frequencies),
-            psg_resampler: PerformanceSincResampler::new((1 << 20).into(), output_frequency as f64),
+            psg_resampler: PerformanceSincResampler::new(
+                PSG_SOURCE_FREQUENCY,
+                output_frequency as f64,
+            ),
             output_frequency: output_frequency as f64,
         }
     }

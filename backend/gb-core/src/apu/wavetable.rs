@@ -126,12 +126,12 @@ impl WavetableChannel {
         log::trace!("  Triggered: {}", value.bit(7));
     }
 
-    pub fn tick_m_cycle(&mut self) {
+    pub fn tick_2mhz(&mut self) {
         if !self.channel_enabled {
             return;
         }
 
-        if self.timer.tick_m_cycle() == TimerTickEffect::Clocked {
+        if self.timer.tick() == TimerTickEffect::Clocked {
             self.sample_buffer = self.ram[(self.timer.phase >> 1) as usize];
         }
     }

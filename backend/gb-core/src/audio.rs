@@ -10,7 +10,7 @@ use jgenesis_common::audio::fir_resampler::{FirKernel, LpfCoefficients, StereoFi
 use jgenesis_common::frontend::AudioOutput;
 use jgenesis_proc_macros::MatchEachVariantMacro;
 
-pub const GB_APU_FREQUENCY: f64 = 1_048_576.0;
+pub const GB_APU_FREQUENCY: f64 = (1 << 21) as f64;
 
 fn new_dc_offset_filter() -> FirstOrderIirFilter {
     dsp::design::butterworth(5.0, GB_APU_FREQUENCY, FilterType::HighPass)

@@ -17,6 +17,7 @@ const FRAME_SEQUENCER_DIVIDER: u64 = (1 << 20) / 512;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Psg {
+    odd_tick: bool,
     pulse_1: PulseChannel,
     pulse_2: PulseChannel,
     wavetable: WavetableChannel,
@@ -29,6 +30,7 @@ pub struct Psg {
 impl Psg {
     pub fn new() -> Self {
         Self {
+            odd_tick: false,
             pulse_1: PulseChannel::new(),
             pulse_2: PulseChannel::new(),
             wavetable: WavetableChannel::new(),
@@ -39,13 +41,17 @@ impl Psg {
         }
     }
 
-    pub fn tick_1mhz(&mut self, apu_enabled: bool) {
-        self.tick_frame_sequencer(apu_enabled);
+    pub fn tick_2mhz(&mut self, apu_enabled: bool) {
+        self.odd_tick = !self.odd_tick;
+        if !self.odd_tick {
+            self.tick_frame_sequencer(apu_enabled);
 
-        self.pulse_1.tick_m_cycle();
-        self.pulse_2.tick_m_cycle();
-        self.wavetable.tick_1mhz();
-        self.noise.tick_m_cycle();
+            self.pulse_1.tick_m_cycle();
+            self.pulse_2.tick_m_cycle();
+            self.noise.tick_m_cycle();
+        }
+
+        self.wavetable.tick_2mhz();
     }
 
     fn tick_frame_sequencer(&mut self, apu_enabled: bool) {

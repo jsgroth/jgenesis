@@ -180,22 +180,20 @@ pub enum TimerTickEffect {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-pub struct PhaseTimer<const MAX_PHASE: u8, const SPEED_MULTIPLIER: u16> {
+pub struct PhaseTimer<const MAX_PHASE: u8> {
     pub phase: u8,
     frequency: u16,
     pub counter: u16,
     period: u16,
 }
 
-impl<const MAX_PHASE: u8, const SPEED_MULTIPLIER: u16> Default
-    for PhaseTimer<MAX_PHASE, SPEED_MULTIPLIER>
-{
+impl<const MAX_PHASE: u8> Default for PhaseTimer<MAX_PHASE> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<const MAX_PHASE: u8, const SPEED_MULTIPLIER: u16> PhaseTimer<MAX_PHASE, SPEED_MULTIPLIER> {
+impl<const MAX_PHASE: u8> PhaseTimer<MAX_PHASE> {
     /// # Panics
     ///
     /// If `(MAX_PHASE + 1)` is not a power of 2
@@ -234,21 +232,17 @@ impl<const MAX_PHASE: u8, const SPEED_MULTIPLIER: u16> PhaseTimer<MAX_PHASE, SPE
         self.counter = self.period;
     }
 
-    pub fn tick_m_cycle(&mut self) -> TimerTickEffect {
-        let mut tick_effect = TimerTickEffect::None;
-
-        for _ in 0..SPEED_MULTIPLIER {
-            self.counter -= 1;
-            if self.counter == 0 {
-                self.counter = self.period;
-                self.phase = (self.phase + 1) & MAX_PHASE;
-                tick_effect = TimerTickEffect::Clocked;
-            }
+    pub fn tick(&mut self) -> TimerTickEffect {
+        self.counter -= 1;
+        if self.counter == 0 {
+            self.counter = self.period;
+            self.phase = (self.phase + 1) & MAX_PHASE;
+            return TimerTickEffect::Clocked;
         }
 
-        tick_effect
+        TimerTickEffect::None
     }
 }
 
-pub type PulseTimer = PhaseTimer<7, 1>;
-pub type WavetableTimer = PhaseTimer<31, 2>;
+pub type PulseTimer = PhaseTimer<7>;
+pub type WavetableTimer = PhaseTimer<31>;

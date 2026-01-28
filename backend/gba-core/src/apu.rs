@@ -355,13 +355,13 @@ impl Apu {
 
         let clock_shift = self.pwm.clock_shift.gba_clock_downshift();
         let pwm_samples_elapsed = (cycles >> clock_shift) - (self.cycles >> clock_shift);
-        let psg_ticks = 1 << (20 - (24 - clock_shift));
+        let psg_ticks = 1 << (21 - (24 - clock_shift));
 
         match self.config.audio_interpolation {
             GbaAudioInterpolation::NearestNeighbor => {
                 for _ in 0..pwm_samples_elapsed {
                     for _ in 0..psg_ticks {
-                        self.psg.tick_1mhz(self.enabled);
+                        self.psg.tick_2mhz(self.enabled);
                     }
 
                     let (sample_l, sample_r) = self.generate_mixed_pwm_sample();
@@ -370,7 +370,7 @@ impl Apu {
             }
             GbaAudioInterpolation::CubicHermite | GbaAudioInterpolation::WindowedSinc => {
                 for _ in 0..pwm_samples_elapsed * psg_ticks {
-                    self.psg.tick_1mhz(self.enabled);
+                    self.psg.tick_2mhz(self.enabled);
                     self.resampler.push_psg(self.psg.sample(self.config.psg_channels_enabled()));
                 }
             }

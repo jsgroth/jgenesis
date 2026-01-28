@@ -1,3 +1,10 @@
+# /// script
+# dependencies = [
+#   "matplotlib",
+#   "scipy",
+# ]
+# ///
+
 """
 Generate an FIR low-pass filter designed for an oversampled signal using the windowing method with a Kaiser window, and
 plot the frequency response.

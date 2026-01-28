@@ -314,7 +314,7 @@ impl EmulatorTrait for GameBoyEmulator {
         } else {
             // Approximately 59.73 Hz
             let dots_per_frame = f64::from(ppu::DOTS_PER_LINE) * f64::from(ppu::LINES_PER_FRAME);
-            4.0 * audio::GB_APU_FREQUENCY / dots_per_frame
+            2.0 * audio::GB_APU_FREQUENCY / dots_per_frame
         }
     }
 

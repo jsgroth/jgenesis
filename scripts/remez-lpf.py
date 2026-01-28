@@ -1,3 +1,10 @@
+# /// script
+# dependencies = [
+#   "matplotlib",
+#   "scipy",
+# ]
+# ///
+
 """
 Generate a FIR low-pass filter using the Remez exchange algorithm, and plot the frequency response.
 """
@@ -22,7 +29,7 @@ def main():
         weight=[weight_pb, weight_sb],
         fs=args.fs,
     )
-    print(list(coefficients))
+    print([float(coeff) for coeff in coefficients])
 
     w, h = freqz(coefficients, worN=1 << 20)
 
