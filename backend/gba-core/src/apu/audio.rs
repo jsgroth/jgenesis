@@ -207,14 +207,6 @@ impl InterpolatingResampler {
         }
     }
 
-    pub fn reset_pcm_a(&mut self) {
-        self.pcm_samples[0] = 0;
-    }
-
-    pub fn reset_pcm_b(&mut self) {
-        self.pcm_samples[1] = 0;
-    }
-
     pub fn push_psg(&mut self, sample: (i16, i16)) {
         let sample =
             self.psg_lpf.filter([f64::from(sample.0) / 512.0, f64::from(sample.1) / 512.0]);

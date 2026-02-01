@@ -138,7 +138,6 @@ impl DirectSoundChannel {
 
     fn reset_fifo(&mut self) {
         self.fifo.reset();
-        self.current_sample = 0;
     }
 
     fn dma_request(&self) -> bool {
@@ -259,18 +258,6 @@ impl AudioResampler {
     fn push_pcm_b(&mut self, sample: i8) {
         if let Self::Interpolating(resampler) = self {
             resampler.push_pcm_b(sample);
-        }
-    }
-
-    fn reset_pcm_a(&mut self) {
-        if let Self::Interpolating(resampler) = self {
-            resampler.reset_pcm_a();
-        }
-    }
-
-    fn reset_pcm_b(&mut self) {
-        if let Self::Interpolating(resampler) = self {
-            resampler.reset_pcm_b();
         }
     }
 
@@ -638,7 +625,6 @@ impl Apu {
 
         if value.bit(3) {
             self.pcm_a.reset_fifo();
-            self.resampler.reset_pcm_a();
         }
 
         self.pcm_b.r_enabled = value.bit(4);
@@ -647,7 +633,6 @@ impl Apu {
 
         if value.bit(7) {
             self.pcm_b.reset_fifo();
-            self.resampler.reset_pcm_b();
         }
 
         self.resampler.update_pcm_a_frequency(self.timer_frequencies[self.pcm_a.timer as usize]);
@@ -681,8 +666,8 @@ impl Apu {
             self.psg.disable();
             self.pcm_a.reset_fifo();
             self.pcm_b.reset_fifo();
-            self.resampler.reset_pcm_a();
-            self.resampler.reset_pcm_b();
+            self.pcm_a.current_sample = 0;
+            self.pcm_b.current_sample = 0;
         }
 
         log::trace!("SOUNDCNT_X write: {value:02X}");
