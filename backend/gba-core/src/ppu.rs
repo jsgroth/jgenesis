@@ -1026,12 +1026,18 @@ impl Ppu {
                     obj_mosaic_latch = obj_pixel;
                 } else {
                     obj_mosaic_h_counter += 1;
-                }
 
-                // Update the mosaic latch if the latched pixel or the current pixel is not mosaic-enabled
-                // e.g. sprite-hmosaic test ROM
-                if !obj_mosaic_latch.mosaic || !obj_pixel.mosaic {
-                    obj_mosaic_latch = obj_pixel;
+                    // Update the mosaic latch if any of the following is true:
+                    // - The latched pixel is not mosaic-enabled
+                    // - The current pixel is not mosaic-enabled
+                    // - The current pixel has priority over the latched pixel
+                    // e.g. sprite-hmosaic test ROM
+                    if !obj_mosaic_latch.mosaic
+                        || !obj_pixel.mosaic
+                        || obj_pixel.priority < obj_mosaic_latch.priority
+                    {
+                        obj_mosaic_latch = obj_pixel;
+                    }
                 }
 
                 if window_layers_enabled.obj && !obj_mosaic_latch.color.transparent() {
