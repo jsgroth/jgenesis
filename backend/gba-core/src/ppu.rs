@@ -1582,8 +1582,8 @@ impl Ppu {
             }
             BgMode::Two => check_affine_bg(2 + usize::from(offset < 2)),
             _ => {
-                // Bitmap modes supposedly never block access to VRAM?
-                false
+                // Bitmap modes fetch from VRAM every 4th cycle
+                offset == 3 && self.state.dot >= FETCH_START_DOT
             }
         }
     }
