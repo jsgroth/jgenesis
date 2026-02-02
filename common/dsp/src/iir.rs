@@ -32,6 +32,19 @@ impl<const N: usize> IirFilter<N> {
         }
     }
 
+    /// Returns a filter that simply returns input samples as-is
+    #[must_use]
+    pub fn identity_filter() -> Self {
+        Self {
+            b0: 1.0,
+            b: array::from_fn(|_| 0.0),
+            a: array::from_fn(|_| 0.0),
+            prev_samples: array::from_fn(|_| 0.0),
+            prev_outputs: array::from_fn(|_| 0.0),
+            tiny_offset: 0.0,
+        }
+    }
+
     #[must_use]
     pub fn filter(&mut self, sample: f64) -> f64 {
         // Hack to avoid the filter getting stuck at a subnormal value

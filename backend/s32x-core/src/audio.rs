@@ -26,6 +26,12 @@ struct PwmAudioFilter {
 }
 
 fn new_pwm_low_pass(pwm_frequency: f64, cutoff_frequency: f64) -> FirstOrderIirFilter {
+    let pwm_nyquist = 0.5 * pwm_frequency;
+    if cutoff_frequency >= pwm_nyquist {
+        // A real low-pass filter will produce garbage; return a fake filter
+        return FirstOrderIirFilter::identity_filter();
+    }
+
     dsp::design::butterworth(cutoff_frequency, pwm_frequency, FilterType::LowPass)
 }
 

@@ -3,7 +3,7 @@
 use crate::apu::PwmClockShift;
 use bincode::{Decode, Encode};
 use dsp::design::FilterType;
-use dsp::iir::SecondOrderIirFilter;
+use dsp::iir::{FirstOrderIirFilter, SecondOrderIirFilter};
 use dsp::sinc::{PerformanceSincResampler, QualitySincResampler};
 use gba_config::GbaAudioInterpolation;
 use jgenesis_common::audio::CubicResampler;
@@ -104,40 +104,63 @@ impl EnhancedResampler {
 const PSG_SOURCE_FREQUENCY: f64 = (1 << 21) as f64;
 
 #[derive(Debug, Clone, Encode, Decode)]
-struct PsgLowPassFilter {
+struct PsgFilter {
     max_pcm_frequency: Option<f64>,
     source_frequency: u64,
     psg_low_pass: bool,
-    filters: Option<(SecondOrderIirFilter, SecondOrderIirFilter)>,
+    low_pass: Option<[SecondOrderIirFilter; 2]>,
+    high_pass: [FirstOrderIirFilter; 2],
 }
 
-impl PsgLowPassFilter {
+impl PsgFilter {
     fn new(psg_low_pass: bool, pcm_frequencies: [Option<f64>; 2], source_frequency: u64) -> Self {
+        let high_pass = array::from_fn(|_| Self::new_high_pass());
+
         if !psg_low_pass {
-            return Self { max_pcm_frequency: None, source_frequency, psg_low_pass, filters: None };
+            return Self {
+                max_pcm_frequency: None,
+                source_frequency,
+                psg_low_pass,
+                low_pass: None,
+                high_pass,
+            };
         }
 
         let max_pcm_frequency = f64_option_max(pcm_frequencies);
-        let filters = max_pcm_frequency.map(|max_pcm_frequency| {
+        let filters = max_pcm_frequency.and_then(|max_pcm_frequency| {
             let lpf_cutoff = max_pcm_frequency * 0.5;
-            (
-                Self::new_filter(lpf_cutoff, source_frequency as f64),
-                Self::new_filter(lpf_cutoff, source_frequency as f64),
-            )
+
+            let source_frequency = source_frequency as f64;
+            let source_nyquist = source_frequency * 0.5;
+
+            // Cutoff must be less than source signal's Nyquist frequency or resulting filter will
+            // produce garbage (e.g. Golden Sun: The Lost Age)
+            (lpf_cutoff < source_nyquist)
+                .then(|| array::from_fn(|_| Self::new_low_pass(lpf_cutoff, source_frequency)))
         });
 
-        Self { max_pcm_frequency, source_frequency, psg_low_pass, filters }
+        Self { max_pcm_frequency, source_frequency, psg_low_pass, low_pass: filters, high_pass }
     }
 
-    fn new_filter(cutoff_frequency: f64, source_frequency: f64) -> SecondOrderIirFilter {
+    fn new_low_pass(cutoff_frequency: f64, source_frequency: f64) -> SecondOrderIirFilter {
         dsp::design::butterworth(cutoff_frequency, source_frequency, FilterType::LowPass)
     }
 
-    fn filter(&mut self, sample: [f64; 2]) -> [f64; 2] {
-        self.filters
+    fn new_high_pass() -> FirstOrderIirFilter {
+        dsp::design::butterworth(5.0, PSG_SOURCE_FREQUENCY, FilterType::HighPass)
+    }
+
+    // Designed for output sample rate (e.g. 48000 Hz)
+    fn filter_low_pass(&mut self, sample: [f64; 2]) -> [f64; 2] {
+        self.low_pass
             .as_mut()
-            .map(|(filter_l, filter_r)| [filter_l.filter(sample[0]), filter_r.filter(sample[1])])
+            .map(|filter| array::from_fn(|i| filter[i].filter(sample[i])))
             .unwrap_or(sample)
+    }
+
+    // Designed for PSG source frequency (2 MHz)
+    fn filter_high_pass(&mut self, sample: [f64; 2]) -> [f64; 2] {
+        array::from_fn(|i| self.high_pass[i].filter(sample[i]))
     }
 
     fn reload(
@@ -169,7 +192,7 @@ pub struct InterpolatingResampler {
     pcm_frequencies: [Option<f64>; 2],
     pcm_resamplers: [Option<EnhancedResampler>; 2],
     pcm_samples: [i8; 2],
-    psg_lpf: PsgLowPassFilter,
+    psg_filter: PsgFilter,
     psg_resampler: PerformanceSincResampler<2>,
     psg_output: VecDeque<[f64; 2]>,
     output_frequency: f64,
@@ -192,7 +215,7 @@ impl InterpolatingResampler {
                 })
             }),
             pcm_samples: array::from_fn(|_| 0),
-            psg_lpf: PsgLowPassFilter::new(psg_low_pass, pcm_frequencies, output_frequency),
+            psg_filter: PsgFilter::new(psg_low_pass, pcm_frequencies, output_frequency),
             psg_resampler: PerformanceSincResampler::new(
                 PSG_SOURCE_FREQUENCY,
                 output_frequency as f64,
@@ -203,7 +226,7 @@ impl InterpolatingResampler {
     }
 
     pub fn update_psg_low_pass(&mut self, psg_low_pass: bool) {
-        self.psg_lpf.reload(psg_low_pass, self.pcm_frequencies, self.output_frequency as u64);
+        self.psg_filter.reload(psg_low_pass, self.pcm_frequencies, self.output_frequency as u64);
         self.psg_low_pass = psg_low_pass;
     }
 
@@ -224,10 +247,13 @@ impl InterpolatingResampler {
     }
 
     pub fn push_psg(&mut self, sample: (i16, i16)) {
-        self.psg_resampler.collect([f64::from(sample.0) / 512.0, f64::from(sample.1) / 512.0]);
+        let sample = [f64::from(sample.0) / 512.0, f64::from(sample.1) / 512.0];
+        let sample = self.psg_filter.filter_high_pass(sample);
+
+        self.psg_resampler.collect(sample);
 
         while let Some(sample) = self.psg_resampler.output_buffer_pop_front() {
-            let sample = self.psg_lpf.filter(sample);
+            let sample = self.psg_filter.filter_low_pass(sample);
             self.psg_output.push_back(sample);
         }
     }
@@ -265,14 +291,18 @@ impl InterpolatingResampler {
             }
         }
 
-        self.psg_lpf.reload(self.psg_low_pass, self.pcm_frequencies, self.output_frequency as u64);
+        self.psg_filter.reload(
+            self.psg_low_pass,
+            self.pcm_frequencies,
+            self.output_frequency as u64,
+        );
     }
 
     pub fn update_output_frequency(&mut self, output_frequency: u64) {
         self.output_frequency = output_frequency as f64;
 
         self.psg_resampler.update_output_frequency(self.output_frequency);
-        self.psg_lpf.reload(self.psg_low_pass, self.pcm_frequencies, output_frequency);
+        self.psg_filter.reload(self.psg_low_pass, self.pcm_frequencies, output_frequency);
 
         for resampler in self.pcm_resamplers.iter_mut().flatten() {
             resampler.update_output_frequency(output_frequency);
