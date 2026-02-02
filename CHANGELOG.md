@@ -43,7 +43,10 @@
   * As part of this, I removed the borderless vs. exclusive fullscreen setting because this seemed much less straightforward to change in SDL3; fullscreen will now always use whatever the platform and graphics driver default to (probably always borderless on modern platforms)
 * The auto-prescale video setting can now use separate scale factors for width and height, which produces a less aliased image when games use display modes with sub-1 pixel aspect ratio (e.g. Genesis NTSC H40/H320px mode, SNES high-res modes)
   * Auto-prescale is also now enabled by default (the previous default was a fixed 3x upscale factor)
+* (**32X**) Improved quality of PWM chip audio resampling
+  * There is also a new audio option to switch to the old resampling algorithm, which is lower quality but usually sounds a little sharper (given that most 32X games use PWM sample rates of 22 KHz or less)
 * (**SNES**) When using the Super Scope, the emulator now displays the new Super Scope Turbo state whenever you toggle Turbo on/off
+* (**GB**) Audio is now sampled internally at 2 MHz rather than 1 MHz, which should reduce audio aliasing from the wavetable channel
 
 ## General Fixes
 * Fixed a number of cases that would cause the emulator to crash, none triggered by official releases (as far as I know) but some triggered by homebrew/demos/test ROMs
@@ -62,6 +65,7 @@
   * (**SNES**) SA-1 Character Conversion DMA Type 1 with an I-RAM destination address higher than \$7FF
   * (**GB**) CPU executes a STOP instruction with no CGB speed switch armed (#465)
 * Fixed changes to the save path and save state path options not applying immediately if changed while an emulator is running
+* Fixed the UI theme option not applying to the Memory Viewer window
 
 ## Genesis / Sega CD / 32X Fixes
 * Fixed the VDP rendering too many pixels of the previous color when a game makes a mid-scanline backdrop color change while display is disabled; this improves accuracy of the glitchy lines in _Gouketsuji Ichizoku_ / _Power Instinct_ (#462)
