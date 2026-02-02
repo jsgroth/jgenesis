@@ -11,6 +11,14 @@ pub enum FilterType {
 
 #[must_use]
 pub fn butterworth<const N: usize>(fc: f64, fs: f64, filter: FilterType) -> IirFilter<N> {
+    let wc = fc / (fs / 2.0);
+    if !(0.0..=1.0).contains(&wc) {
+        log::error!(
+            "Attempted to design order {N} {filter:?} Butterworth filter with invalid frequencies, replacing with identity filter: fc={fc}, fs={fs}"
+        );
+        return IirFilter::identity();
+    }
+
     let (b, a) = butterworth_coefficients::<N>(fc, fs, filter);
     IirFilter::new(&b, &a)
 }

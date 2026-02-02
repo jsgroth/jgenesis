@@ -34,7 +34,7 @@ impl<const N: usize> IirFilter<N> {
 
     /// Returns a filter that simply returns input samples as-is
     #[must_use]
-    pub fn identity_filter() -> Self {
+    pub fn identity() -> Self {
         Self {
             b0: 1.0,
             b: array::from_fn(|_| 0.0),
