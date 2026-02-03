@@ -223,6 +223,18 @@ pub trait MappableInputs<Button> {
     }
 }
 
+pub trait InputPoller<Inputs> {
+    fn poll(&mut self) -> &Inputs;
+}
+
+pub struct ConstantInputPoller<'a, T>(pub &'a T);
+
+impl<T> InputPoller<T> for ConstantInputPoller<'_, T> {
+    fn poll(&mut self) -> &T {
+        self.0
+    }
+}
+
 pub trait EmulatorConfigTrait: Clone {
     #[must_use]
     fn with_overclocking_disabled(&self) -> Self {
@@ -244,11 +256,11 @@ pub trait EmulatorTrait: Encode + Decode<()> + PartialClone {
     /// This method should propagate any errors encountered while rendering frames, pushing audio
     /// samples, or persisting save files.
     #[allow(clippy::type_complexity)]
-    fn tick<R, A, S>(
+    fn tick<R, A, I, S>(
         &mut self,
         renderer: &mut R,
         audio_output: &mut A,
-        inputs: &Self::Inputs,
+        input_poller: &mut I,
         save_writer: &mut S,
     ) -> TickResult<Self::Err<R::Err, A::Err, S::Err>>
     where
@@ -256,6 +268,7 @@ pub trait EmulatorTrait: Encode + Decode<()> + PartialClone {
         R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
         A::Err: Debug + Display + Send + Sync + 'static,
+        I: InputPoller<Self::Inputs>,
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static;
 

@@ -12,8 +12,8 @@ use bincode::error::EncodeError;
 use bincode::{Decode, Encode};
 use crc::Crc;
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, PartialClone, RenderFrameOptions,
-    Renderer, SaveWriter, TickEffect, TimingMode,
+    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, InputPoller, PartialClone,
+    RenderFrameOptions, Renderer, SaveWriter, TickEffect, TimingMode,
 };
 use jgenesis_proc_macros::{ConfigDisplay, FakeDecode, FakeEncode};
 use snes_config::{AudioInterpolationMode, SnesAspectRatio, SnesButton};
@@ -264,11 +264,11 @@ impl EmulatorTrait for SnesEmulator {
         SErr: Debug + Display + Send + Sync + 'static,
     > = SnesError<RErr, AErr, SErr>;
 
-    fn tick<R, A, S>(
+    fn tick<R, A, I, S>(
         &mut self,
         renderer: &mut R,
         audio_output: &mut A,
-        inputs: &Self::Inputs,
+        input_poller: &mut I,
         save_writer: &mut S,
     ) -> Result<TickEffect, Self::Err<R::Err, A::Err, S::Err>>
     where
@@ -276,6 +276,7 @@ impl EmulatorTrait for SnesEmulator {
         R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
         A::Err: Debug + Display + Send + Sync + 'static,
+        I: InputPoller<Self::Inputs>,
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
@@ -369,6 +370,7 @@ impl EmulatorTrait for SnesEmulator {
             tick_effect = TickEffect::FrameRendered;
         }
 
+        let inputs = input_poller.poll();
         self.cpu_registers.tick(master_cycles_elapsed, &self.ppu, inputs);
 
         // CPU reads are applied before advancing other components but CPU writes are applied after.
