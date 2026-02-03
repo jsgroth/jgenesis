@@ -154,17 +154,14 @@ impl ModalRenderer {
                 .push(Buffer::new(&mut self.font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT)));
         }
 
+        let font_attrs = Attrs::new().family(Family::Monospace);
+
         let mut vertices = Vec::with_capacity(self.modals.len());
         let mut text_areas = Vec::with_capacity(self.modals.len());
         let mut line_top = BORDER_OFFSET;
         for (modal, buffer) in self.modals.iter().zip(self.buffers.iter_mut()) {
             buffer.set_size(&mut self.font_system, Some(width as f32), Some(height as f32));
-            buffer.set_text(
-                &mut self.font_system,
-                &modal.text,
-                Attrs::new().family(Family::Monospace),
-                Shaping::Basic,
-            );
+            buffer.set_text(&mut self.font_system, &modal.text, &font_attrs, Shaping::Basic);
             buffer.shape_until_scroll(&mut self.font_system, false);
 
             text_areas.push(TextArea {
