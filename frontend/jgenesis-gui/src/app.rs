@@ -22,7 +22,7 @@ use eframe::Frame;
 use egui::panel::TopBottomSide;
 use egui::{
     Align, Button, CentralPanel, Color32, Context, Grid, Key, KeyboardShortcut, Layout, Modifiers,
-    TextEdit, ThemePreference, TopBottomPanel, Ui, Vec2, ViewportCommand, Widget, Window, menu,
+    TextEdit, ThemePreference, TopBottomPanel, Ui, UiKind, Vec2, ViewportCommand, Widget, Window,
 };
 use egui_extras::{Column, TableBuilder};
 use emath::Pos2;
@@ -480,7 +480,7 @@ impl App {
 
     fn render_menu(&mut self, ctx: &Context) {
         TopBottomPanel::new(TopBottomSide::Top, "top_bottom_panel").show(ctx, |ui| {
-            menu::bar(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
                 ui.add_enabled_ui(!self.state.error_window_open, |ui| {
                     self.render_file_menu(ctx, ui);
                     self.render_emulation_menu(ui);
@@ -525,7 +525,7 @@ impl App {
                         );
                         if ui.button(label).clicked() {
                             self.launch_emulator(recent_open.full_path, Some(recent_open.console));
-                            ui.close_menu();
+                            ui.close_kind(UiKind::Menu);
                         }
 
                         ui.add_space(5.0);
@@ -536,7 +536,7 @@ impl App {
                     if ui.button("Clear List").clicked() {
                         self.config.recent_open_list.clear();
                         self.state.recent_open_list.clear();
-                        ui.close_menu();
+                        ui.close_kind(UiKind::Menu);
                     }
                 });
 
@@ -544,7 +544,7 @@ impl App {
                     .shortcut_text(ctx.format_shortcut(&open_most_recent_shortcut));
                 if ui.add(open_most_recent_button).clicked() {
                     self.open_most_recent_file();
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
             });
 
@@ -579,7 +579,7 @@ impl App {
                                 console,
                                 config: Box::new(self.config.clone()),
                             });
-                            ui.close_menu();
+                            ui.close_kind(UiKind::Menu);
                         }
                     });
                 }
@@ -591,7 +591,7 @@ impl App {
                 Button::new("Open").shortcut_text(ctx.format_shortcut(&open_shortcut));
             if open_button.ui(ui).clicked() {
                 self.open_file(None);
-                ui.close_menu();
+                ui.close_kind(UiKind::Menu);
             }
 
             let quit_button =
@@ -605,7 +605,7 @@ impl App {
     fn render_open_using_button(&mut self, console: Console, ui: &mut Ui) {
         if ui.button(console.display_str()).clicked() {
             self.open_file(Some(console));
-            ui.close_menu();
+            ui.close_kind(UiKind::Menu);
         }
     }
 
@@ -625,7 +625,7 @@ impl App {
                                 let label = format!("Slot {slot} - {formatted_time}");
                                 if ui.button(label).clicked() {
                                     self.emu_thread.send(EmuThreadCommand::LoadState { slot });
-                                    ui.close_menu();
+                                    ui.close_kind(UiKind::Menu);
                                 }
                             }
                             None => {
@@ -652,7 +652,7 @@ impl App {
 
                         if ui.button(label).clicked() {
                             self.emu_thread.send(EmuThreadCommand::SaveState { slot });
-                            ui.close_menu();
+                            ui.close_kind(UiKind::Menu);
                         }
                     }
                 });
@@ -661,7 +661,7 @@ impl App {
 
                 if ui.button("Open Memory Viewer").clicked() {
                     self.emu_thread.send(EmuThreadCommand::OpenMemoryViewer);
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
 
                 ui.add_space(15.0);
@@ -673,18 +673,18 @@ impl App {
                 ui.add_enabled_ui(show_soft_reset, |ui| {
                     if ui.button("Soft Reset").clicked() {
                         self.emu_thread.send(EmuThreadCommand::SoftReset);
-                        ui.close_menu();
+                        ui.close_kind(UiKind::Menu);
                     }
                 });
 
                 if ui.button("Hard Reset").clicked() {
                     self.emu_thread.send(EmuThreadCommand::HardReset);
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("Power Off").clicked() {
                     self.emu_thread.send(EmuThreadCommand::StopEmulator);
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
 
                 ui.add_space(15.0);
@@ -694,7 +694,7 @@ impl App {
                     |ui| {
                         if ui.button("Remove Disc").clicked() {
                             self.emu_thread.send(EmuThreadCommand::SegaCdRemoveDisc);
-                            ui.close_menu();
+                            ui.close_kind(UiKind::Menu);
                         }
 
                         if ui.button("Change Disc").clicked() {
@@ -704,7 +704,7 @@ impl App {
                                 self.emu_thread.send(EmuThreadCommand::SegaCdChangeDisc(path));
                             }
 
-                            ui.close_menu();
+                            ui.close_kind(UiKind::Menu);
                         }
                     },
                 );
@@ -724,7 +724,7 @@ impl App {
             ] {
                 if ui.button(label).clicked() {
                     self.state.open_windows.insert(window);
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
             }
 
@@ -732,17 +732,17 @@ impl App {
 
             if ui.button("Synchronization").clicked() {
                 self.state.open_windows.insert(OpenWindow::Synchronization);
-                ui.close_menu();
+                ui.close_kind(UiKind::Menu);
             }
 
             if ui.button("Paths").clicked() {
                 self.state.open_windows.insert(OpenWindow::Paths);
-                ui.close_menu();
+                ui.close_kind(UiKind::Menu);
             }
 
             if ui.button("Interface").clicked() {
                 self.state.open_windows.insert(OpenWindow::Interface);
-                ui.close_menu();
+                ui.close_kind(UiKind::Menu);
             }
         });
     }
@@ -751,7 +751,7 @@ impl App {
         ui.menu_button("Video", |ui| {
             if ui.button("General").clicked() {
                 self.state.open_windows.insert(OpenWindow::CommonVideo);
-                ui.close_menu();
+                ui.close_kind(UiKind::Menu);
             }
 
             ui.separator();
@@ -766,7 +766,7 @@ impl App {
             ] {
                 if ui.button(label).clicked() {
                     self.state.open_windows.insert(window);
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
             }
         });
@@ -776,7 +776,7 @@ impl App {
         ui.menu_button("Audio", |ui| {
             if ui.button("General").clicked() {
                 self.state.open_windows.insert(OpenWindow::CommonAudio);
-                ui.close_menu();
+                ui.close_kind(UiKind::Menu);
             }
 
             ui.separator();
@@ -791,7 +791,7 @@ impl App {
             ] {
                 if ui.button(label).clicked() {
                     self.state.open_windows.insert(window);
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
             }
         });
@@ -801,59 +801,59 @@ impl App {
         ui.menu_button("Input", |ui| {
             if ui.button("General").clicked() {
                 self.state.open_windows.insert(OpenWindow::GeneralInput);
-                ui.close_menu();
+                ui.close_kind(UiKind::Menu);
             }
 
             ui.separator();
 
             if ui.button("SMS / Game Gear").clicked() {
                 self.state.open_windows.insert(OpenWindow::SmsGgInput);
-                ui.close_menu();
+                ui.close_kind(UiKind::Menu);
             }
 
             if ui.button("Genesis / Sega CD / 32X").clicked() {
                 self.state.open_windows.insert(OpenWindow::GenesisInput);
-                ui.close_menu();
+                ui.close_kind(UiKind::Menu);
             }
 
             ui.menu_button("NES", |ui| {
                 if ui.button("Gamepads").clicked() {
                     self.state.open_windows.insert(OpenWindow::NesInput);
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("Peripherals").clicked() {
                     self.state.open_windows.insert(OpenWindow::NesPeripherals);
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
             });
 
             ui.menu_button("SNES", |ui| {
                 if ui.button("Gamepads").clicked() {
                     self.state.open_windows.insert(OpenWindow::SnesInput);
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("Peripherals").clicked() {
                     self.state.open_windows.insert(OpenWindow::SnesPeripherals);
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
             });
 
             if ui.button("Game Boy").clicked() {
                 self.state.open_windows.insert(OpenWindow::GameBoyInput);
-                ui.close_menu();
+                ui.close_kind(UiKind::Menu);
             }
 
             ui.menu_button("Game Boy Advance", |ui| {
                 if ui.button("Gamepad").clicked() {
                     self.state.open_windows.insert(OpenWindow::GbaInput);
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("Peripherals").clicked() {
                     self.state.open_windows.insert(OpenWindow::GbaPeripherals);
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
             });
 
@@ -861,7 +861,7 @@ impl App {
 
             if ui.button("Hotkeys").clicked() {
                 self.state.open_windows.insert(OpenWindow::Hotkeys);
-                ui.close_menu();
+                ui.close_kind(UiKind::Menu);
             }
         });
     }
@@ -875,7 +875,7 @@ impl App {
             ] {
                 if ui.button(label).clicked() {
                     self.state.open_windows.insert(window);
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
             }
         });
@@ -885,7 +885,7 @@ impl App {
         ui.menu_button("Help", |ui| {
             if ui.button("About").clicked() {
                 self.state.open_windows.insert(OpenWindow::About);
-                ui.close_menu();
+                ui.close_kind(UiKind::Menu);
             }
         });
     }

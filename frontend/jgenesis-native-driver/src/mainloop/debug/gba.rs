@@ -2,7 +2,7 @@ use crate::mainloop::debug;
 use crate::mainloop::debug::memviewer::MemoryViewerState;
 use crate::mainloop::debug::{DebugRenderContext, DebugRenderFn, memviewer};
 use egui::panel::TopBottomSide;
-use egui::{TopBottomPanel, Vec2, Window, menu};
+use egui::{TopBottomPanel, UiKind, Vec2, Window};
 use gba_core::api::GameBoyAdvanceEmulator;
 use gba_core::api::debug::GbaMemoryArea;
 use jgenesis_common::debug::Endian;
@@ -55,14 +55,14 @@ pub fn render_fn() -> Box<DebugRenderFn<GameBoyAdvanceEmulator>> {
 
 fn render(ctx: DebugRenderContext<'_, GameBoyAdvanceEmulator>, state: &mut State) {
     TopBottomPanel::new(TopBottomSide::Top, "gba_debug_top").show(ctx.egui_ctx, |ui| {
-        menu::bar(ui, |ui| {
+        egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("Memory Viewers", |ui| {
                 for area in GbaMemoryArea::ALL {
                     if ui.button(area.name()).clicked()
                         && let Some(memviewer_state) = state.memory_viewer_states.get_mut(&area)
                     {
                         memviewer_state.open = true;
-                        ui.close_menu();
+                        ui.close_kind(UiKind::Menu);
                     }
                 }
             });
@@ -70,12 +70,12 @@ fn render(ctx: DebugRenderContext<'_, GameBoyAdvanceEmulator>, state: &mut State
             ui.menu_button("Video Memory", |ui| {
                 if ui.button("BG Palettes").clicked() {
                     state.bg_palette.open = true;
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("Sprite Palettes").clicked() {
                     state.obj_palette.open = true;
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
             });
         });

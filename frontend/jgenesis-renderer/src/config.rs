@@ -11,6 +11,7 @@ pub fn dx12_backend_options() -> wgpu::Dx12BackendOptions {
         shader_compiler: wgpu::Dx12Compiler::DynamicDxc {
             dxc_path: DXCOMPILER_PATH.into(),
             dxil_path: DXIL_PATH.into(),
+            max_shader_model: wgpu::DxcShaderModel::V6_7,
         },
     }
 }
@@ -54,14 +55,15 @@ fn supports_dx12() -> bool {
             backends: wgpu::Backends::DX12,
             flags: wgpu::InstanceFlags::default(),
             backend_options: wgpu::BackendOptions {
-                gl: wgpu::GlBackendOptions::default(),
                 dx12: dx12_backend_options(),
+                gl: wgpu::GlBackendOptions::default(),
+                noop: wgpu::NoopBackendOptions::default(),
             },
         });
 
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()));
-        adapter.is_some()
+        adapter.is_ok()
     });
 
     *SUPPORTS_DX12

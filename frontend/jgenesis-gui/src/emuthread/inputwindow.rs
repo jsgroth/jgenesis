@@ -1,4 +1,3 @@
-use anyhow::anyhow;
 use egui_wgpu::ScreenDescriptor;
 use sdl3::event::{Event, WindowEvent};
 use sdl3::video::Window;
@@ -29,11 +28,10 @@ impl InputWindow {
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             compatible_surface: Some(&surface),
             ..wgpu::RequestAdapterOptions::default()
-        }))
-        .ok_or_else(|| anyhow!("Failed to create wgpu adapter"))?;
+        }))?;
 
         let (device, queue) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None))?;
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))?;
 
         let (width, height) = window.size();
         let surface_format = surface.get_capabilities(&adapter).formats[0];
