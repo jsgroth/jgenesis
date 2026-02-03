@@ -20,8 +20,8 @@ use arm7tdmi_emu::{Arm7Tdmi, Arm7TdmiResetArgs, CpuMode};
 use bincode::{Decode, Encode};
 use gba_config::{GbaAspectRatio, GbaAudioInterpolation, GbaButton, GbaInputs, GbaSaveMemory};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, ColorCorrection, EmulatorConfigTrait, EmulatorTrait, RenderFrameOptions,
-    Renderer, SaveWriter, TickEffect, TickResult,
+    AudioOutput, Color, ColorCorrection, EmulatorConfigTrait, EmulatorTrait, InputPoller,
+    RenderFrameOptions, Renderer, SaveWriter, TickEffect, TickResult,
 };
 use jgenesis_proc_macros::{ConfigDisplay, PartialClone};
 use std::fmt::{Debug, Display};
@@ -272,11 +272,11 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
     > = GbaError<RErr, AErr, SErr>;
 
     #[inline]
-    fn tick<R, A, S>(
+    fn tick<R, A, I, S>(
         &mut self,
         renderer: &mut R,
         audio_output: &mut A,
-        inputs: &Self::Inputs,
+        input_poller: &mut I,
         save_writer: &mut S,
     ) -> TickResult<Self::Err<R::Err, A::Err, S::Err>>
     where
@@ -284,19 +284,22 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
         R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
         A::Err: Debug + Display + Send + Sync + 'static,
+        I: InputPoller<Self::Inputs>,
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
+        let inputs = *input_poller.poll();
+
         if self.bus.interrupts.stopped() {
             // All hardware is stopped
             // Stop can only be broken by a keypad interrupt or a Game Pak interrupt
-            self.bus.inputs.update_inputs(*inputs, self.bus.state.cycles, &mut self.bus.interrupts);
+            self.bus.inputs.update_inputs(inputs, self.bus.state.cycles, &mut self.bus.interrupts);
             self.bus.cartridge.update_rtc_time(self.bus.state.cycles, &mut self.bus.interrupts);
 
             return self.tick_stopped::<_, _, S>(renderer, audio_output);
         }
 
-        self.bus.inputs.update_inputs(*inputs, self.bus.state.cycles, &mut self.bus.interrupts);
+        self.bus.inputs.update_inputs(inputs, self.bus.state.cycles, &mut self.bus.interrupts);
         self.bus.cartridge.set_solar_brightness(inputs.solar.brightness);
 
         // TODO halt should let the CPU execute for 1 more cycle before halting
