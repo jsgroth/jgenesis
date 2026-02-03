@@ -115,10 +115,11 @@ struct PsgFilter {
 impl PsgFilter {
     fn new(psg_low_pass: bool, pcm_frequencies: [Option<f64>; 2], source_frequency: u64) -> Self {
         let high_pass = array::from_fn(|_| Self::new_high_pass());
+        let max_pcm_frequency = f64_option_max(pcm_frequencies);
 
         if !psg_low_pass {
             return Self {
-                max_pcm_frequency: None,
+                max_pcm_frequency,
                 source_frequency,
                 psg_low_pass,
                 low_pass: None,
@@ -126,8 +127,7 @@ impl PsgFilter {
             };
         }
 
-        let max_pcm_frequency = f64_option_max(pcm_frequencies);
-        let filters = max_pcm_frequency.and_then(|max_pcm_frequency| {
+        let low_pass = max_pcm_frequency.and_then(|max_pcm_frequency| {
             let lpf_cutoff = max_pcm_frequency * 0.5;
 
             let source_frequency = source_frequency as f64;
@@ -139,7 +139,7 @@ impl PsgFilter {
                 .then(|| array::from_fn(|_| Self::new_low_pass(lpf_cutoff, source_frequency)))
         });
 
-        Self { max_pcm_frequency, source_frequency, psg_low_pass, low_pass: filters, high_pass }
+        Self { max_pcm_frequency, source_frequency, psg_low_pass, low_pass, high_pass }
     }
 
     fn new_low_pass(cutoff_frequency: f64, source_frequency: f64) -> SecondOrderIirFilter {
