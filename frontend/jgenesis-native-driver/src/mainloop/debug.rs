@@ -23,21 +23,19 @@ use std::iter;
 use std::sync::Arc;
 use std::time::SystemTime;
 use thiserror::Error;
-use wgpu::SurfaceTargetUnsafe;
-use wgpu::rwh::HandleError;
 
 #[derive(Debug, Error)]
 pub enum DebuggerError {
     #[error("Failed to create surface from window handle: {0}")]
-    WindowHandleError(#[from] HandleError),
+    WindowHandleError(#[from] wgpu::rwh::HandleError),
     #[error("Failed to create SDL3 window: {0}")]
     SdlWindowCreateFailed(#[from] WindowBuildError),
+    #[error("Failed to obtain wgpu adapter: {0}")]
+    RequestAdapterFailed(#[from] wgpu::RequestAdapterError),
     #[error("Failed to create wgpu surface: {0}")]
     CreateSurfaceFailed(#[from] wgpu::CreateSurfaceError),
     #[error("Failed to obtain wgpu surface output texture: {0}")]
     SurfaceCurrentTexture(#[from] wgpu::SurfaceError),
-    #[error("Failed to obtain wgpu adapter")]
-    RequestAdapterFailed,
     #[error("Failed to obtain wgpu device: {0}")]
     RequestDeviceFailed(#[from] wgpu::RequestDeviceError),
 }
@@ -94,32 +92,33 @@ impl<Emulator> DebuggerWindow<Emulator> {
                     shader_compiler: wgpu::Dx12Compiler::DynamicDxc {
                         dxc_path: "dxcompiler.dll".into(),
                         dxil_path: "dxil.dll".into(),
+                        max_shader_model: wgpu::DxcShaderModel::V6_7,
                     },
                 },
                 gl: wgpu::GlBackendOptions::default(),
+                noop: wgpu::NoopBackendOptions::default(),
             },
         });
 
         // SAFETY: The surface must not outlive the window
-        let surface =
-            unsafe { instance.create_surface_unsafe(SurfaceTargetUnsafe::from_window(&window)?) }?;
+        let surface = unsafe {
+            instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_window(&window)?)
+        }?;
 
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             force_fallback_adapter: false,
             compatible_surface: Some(&surface),
-        }))
-        .ok_or(DebuggerError::RequestAdapterFailed)?;
+        }))?;
 
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
                 label: "debugger_device".into(),
                 required_features: wgpu::Features::default(),
                 required_limits: wgpu::Limits::default(),
                 memory_hints: wgpu::MemoryHints::default(),
-            },
-            None,
-        ))?;
+                trace: wgpu::Trace::Off,
+            }))?;
 
         let surface_format = surface.get_capabilities(&adapter).formats[0];
         let surface_config = wgpu::SurfaceConfiguration {

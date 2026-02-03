@@ -1189,7 +1189,7 @@ pub enum RendererError {
     #[error("Error getting handle to wgpu output surface: {0}")]
     WgpuSurface(#[from] wgpu::SurfaceError),
     #[error("Failed to obtain wgpu adapter")]
-    NoWgpuAdapter,
+    WgpuRequestAdapter(#[from] wgpu::RequestAdapterError),
     #[error(
         "wgpu adapter does not support present mode {desired:?}; supported modes are {available:?}"
     )]
@@ -1383,9 +1383,11 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
                     shader_compiler: wgpu::Dx12Compiler::DynamicDxc {
                         dxc_path: "dxcompiler.dll".into(),
                         dxil_path: "dxil.dll".into(),
+                        max_shader_model: wgpu::DxcShaderModel::V6_7,
                     },
                 },
                 gl: wgpu::GlBackendOptions::default(),
+                noop: wgpu::NoopBackendOptions::default(),
             },
         });
 
@@ -1400,25 +1402,22 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
             })
-            .await
-            .ok_or(RendererError::NoWgpuAdapter)?;
+            .await?;
 
         log::info!("Obtained wgpu adapter with backend {:?}", adapter.get_info().backend);
 
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: "device".into(),
-                    required_features: wgpu::Features::empty(),
-                    required_limits: if config.use_webgl2_limits {
-                        wgpu::Limits::downlevel_webgl2_defaults()
-                    } else {
-                        wgpu::Limits::default()
-                    },
-                    memory_hints: wgpu::MemoryHints::default(),
+            .request_device(&wgpu::DeviceDescriptor {
+                label: "device".into(),
+                required_features: wgpu::Features::empty(),
+                required_limits: if config.use_webgl2_limits {
+                    wgpu::Limits::downlevel_webgl2_defaults()
+                } else {
+                    wgpu::Limits::default()
                 },
-                None,
-            )
+                memory_hints: wgpu::MemoryHints::default(),
+                trace: wgpu::Trace::Off,
+            })
             .await?;
 
         let surface_capabilities = surface.get_capabilities(&adapter);

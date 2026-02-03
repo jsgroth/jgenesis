@@ -3,7 +3,7 @@ use crate::mainloop::debug::memviewer::MemoryViewerState;
 use crate::mainloop::debug::{DebugRenderContext, DebugRenderFn, memviewer};
 use egui::panel::TopBottomSide;
 use egui::scroll_area::ScrollBarVisibility;
-use egui::{TopBottomPanel, Vec2, Window, menu};
+use egui::{TopBottomPanel, UiKind, Vec2, Window};
 use egui_extras::{Column, TableBuilder};
 use genesis_core::GenesisEmulator;
 use genesis_core::api::debug::{
@@ -334,7 +334,7 @@ fn render<Emulator: GenesisBase>(ctx: DebugRenderContext<'_, Emulator>, state: &
     let mut emulator = ctx.emulator.as_enum();
 
     TopBottomPanel::new(TopBottomSide::Top, "gen_debug_top").show(ctx.egui_ctx, |ui| {
-        menu::bar(ui, |ui| {
+        egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("Memory Viewers", |ui| {
                 for &memory_area in MemoryArea::ALL {
                     if !emulator.has_memory(memory_area) {
@@ -345,7 +345,7 @@ fn render<Emulator: GenesisBase>(ctx: DebugRenderContext<'_, Emulator>, state: &
                         if let Some(memviewer_state) = state.memory_viewers.get_mut(&memory_area) {
                             memviewer_state.open = true;
                         }
-                        ui.close_menu();
+                        ui.close_kind(UiKind::Menu);
                     }
                 }
             });
@@ -353,23 +353,23 @@ fn render<Emulator: GenesisBase>(ctx: DebugRenderContext<'_, Emulator>, state: &
             ui.menu_button("Register Viewers", |ui| {
                 if ui.button("VDP").clicked() {
                     state.vdp_registers_open = true;
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
 
                 if matches!(emulator, GenesisBasedEmulator::Sega32X(_)) {
                     if ui.button("32X System Registers").clicked() {
                         state.s32x_system_registers_open = true;
-                        ui.close_menu();
+                        ui.close_kind(UiKind::Menu);
                     }
 
                     if ui.button("32X VDP").clicked() {
                         state.s32x_vdp_registers_open = true;
-                        ui.close_menu();
+                        ui.close_kind(UiKind::Menu);
                     }
 
                     if ui.button("32X PWM").clicked() {
                         state.s32x_pwm_registers_open = true;
-                        ui.close_menu();
+                        ui.close_kind(UiKind::Menu);
                     }
                 }
             });
@@ -377,29 +377,29 @@ fn render<Emulator: GenesisBase>(ctx: DebugRenderContext<'_, Emulator>, state: &
             ui.menu_button("Video Memory", |ui| {
                 if ui.button("CRAM").clicked() {
                     state.cram.open = true;
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("VRAM").clicked() {
                     state.vram.open = true;
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("Sprite Attributes").clicked() {
                     state.sprite_attributes.open = true;
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("H Scroll Table").clicked() {
                     state.h_scroll.open = true;
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
 
                 if matches!(emulator, GenesisBasedEmulator::Sega32X(_))
                     && ui.button("32X Palette RAM").clicked()
                 {
                     state.s32x_palette.open = true;
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
             });
         });
