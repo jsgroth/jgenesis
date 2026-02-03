@@ -13,8 +13,8 @@ use gba_core::api::GameBoyAdvanceEmulator;
 use genesis_core::{GenesisEmulator, GenesisInputs};
 use jgenesis_common::audio::DynamicResamplingRate;
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorTrait, FrameSize, RenderFrameOptions, Renderer, SaveWriter,
-    TickEffect,
+    AudioOutput, Color, ConstantInputPoller, EmulatorTrait, FrameSize, RenderFrameOptions,
+    Renderer, SaveWriter, TickEffect,
 };
 use jgenesis_renderer::renderer::{WgpuRenderer, WindowSize};
 use js_sys::Uint8Array;
@@ -268,42 +268,42 @@ impl Emulator {
             }
             Self::SmsGg(emulator, inputs) => {
                 while emulator
-                    .tick(renderer, audio_output, inputs, save_writer)
+                    .tick(renderer, audio_output, &mut ConstantInputPoller(inputs), save_writer)
                     .expect("Emulator error")
                     != TickEffect::FrameRendered
                 {}
             }
             Self::Genesis(emulator, inputs) => {
                 while emulator
-                    .tick(renderer, audio_output, inputs, save_writer)
+                    .tick(renderer, audio_output, &mut ConstantInputPoller(inputs), save_writer)
                     .expect("Emulator error")
                     != TickEffect::FrameRendered
                 {}
             }
             Self::SegaCd(emulator, inputs) => {
                 while emulator
-                    .tick(renderer, audio_output, inputs, save_writer)
+                    .tick(renderer, audio_output, &mut ConstantInputPoller(inputs), save_writer)
                     .expect("Emulator error")
                     != TickEffect::FrameRendered
                 {}
             }
             Self::Sega32X(emulator, inputs) => {
                 while emulator
-                    .tick(renderer, audio_output, inputs, save_writer)
+                    .tick(renderer, audio_output, &mut ConstantInputPoller(inputs), save_writer)
                     .expect("Emulator error")
                     != TickEffect::FrameRendered
                 {}
             }
             Self::Snes(emulator, inputs) => {
                 while emulator
-                    .tick(renderer, audio_output, inputs, save_writer)
+                    .tick(renderer, audio_output, &mut ConstantInputPoller(inputs), save_writer)
                     .expect("Emulator error")
                     != TickEffect::FrameRendered
                 {}
             }
             Self::Gba(emulator, inputs) => {
                 while emulator
-                    .tick(renderer, audio_output, inputs, save_writer)
+                    .tick(renderer, audio_output, &mut ConstantInputPoller(inputs), save_writer)
                     .expect("Emulator error")
                     != TickEffect::FrameRendered
                 {}

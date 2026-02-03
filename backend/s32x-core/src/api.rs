@@ -17,8 +17,8 @@ use genesis_core::vdp::{DarkenColors, Vdp, VdpTickEffect};
 use genesis_core::ym2612::Ym2612;
 use genesis_core::{GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorConfigTrait, EmulatorTrait, Renderer, SaveWriter, TickEffect, TickResult,
-    TimingMode,
+    AudioOutput, EmulatorConfigTrait, EmulatorTrait, InputPoller, Renderer, SaveWriter, TickEffect,
+    TickResult, TimingMode,
 };
 use jgenesis_proc_macros::{ConfigDisplay, PartialClone};
 use m68000_emu::M68000;
@@ -193,11 +193,11 @@ impl EmulatorTrait for Sega32XEmulator {
         SErr: Debug + Display + Send + Sync + 'static,
     > = Sega32XError<RErr, AErr, SErr>;
 
-    fn tick<R, A, S>(
+    fn tick<R, A, I, S>(
         &mut self,
         renderer: &mut R,
         audio_output: &mut A,
-        inputs: &Self::Inputs,
+        input_poller: &mut I,
         save_writer: &mut S,
     ) -> TickResult<Self::Err<R::Err, A::Err, S::Err>>
     where
@@ -205,10 +205,11 @@ impl EmulatorTrait for Sega32XEmulator {
         R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
         A::Err: Debug + Display + Send + Sync + 'static,
+        I: InputPoller<Self::Inputs>,
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
-        self.input.set_inputs(*inputs);
+        self.input.set_inputs(*input_poller.poll());
 
         let mut bus = new_main_bus!(self, m68k_reset: false);
         let m68k_wait = bus.cycles.m68k_wait_cpu_cycles != 0;

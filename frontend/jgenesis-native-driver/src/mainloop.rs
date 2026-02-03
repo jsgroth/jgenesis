@@ -34,7 +34,9 @@ pub use audio::AudioError;
 use bincode::error::{DecodeError, EncodeError};
 use gb_core::api::GameBoyLoadError;
 use gba_core::api::GbaLoadError;
-use jgenesis_common::frontend::{EmulatorConfigTrait, EmulatorTrait, MappableInputs, TickEffect};
+use jgenesis_common::frontend::{
+    ConstantInputPoller, EmulatorConfigTrait, EmulatorTrait, MappableInputs, TickEffect,
+};
 use jgenesis_native_config::common::{HideMouseCursor, WindowSize};
 use jgenesis_native_config::input::mappings::ButtonMappingVec;
 use jgenesis_native_config::input::{CompactHotkey, Hotkey};
@@ -596,7 +598,7 @@ where
                 .tick(
                     &mut self.renderer,
                     &mut self.audio_output,
-                    &self.inputs,
+                    &mut ConstantInputPoller(&self.inputs),
                     &mut self.save_writer,
                 )
                 .map_err(|err| NativeEmulatorError::Emulator(err.into()))?

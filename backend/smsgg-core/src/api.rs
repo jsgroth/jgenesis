@@ -9,7 +9,7 @@ use crate::vdp::{Vdp, VdpBuffer, VdpTickEffect, ViewportSize};
 use crate::{VdpVersion, vdp};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FrameSize, PartialClone,
+    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FrameSize, InputPoller, PartialClone,
     RenderFrameOptions, Renderer, SaveWriter, TickEffect, TimingMode,
 };
 use jgenesis_proc_macros::{ConfigDisplay, FakeDecode, FakeEncode};
@@ -302,16 +302,17 @@ impl EmulatorTrait for SmsGgEmulator {
     /// This method will propagate any errors encountered while rendering frames, pushing audio
     /// samples, or persisting cartridge SRAM.
     #[inline]
-    fn tick<R, A, S>(
+    fn tick<R, A, I, S>(
         &mut self,
         renderer: &mut R,
         audio_output: &mut A,
-        inputs: &Self::Inputs,
+        input_poller: &mut I,
         save_writer: &mut S,
     ) -> SmsGgResult<R::Err, A::Err, S::Err>
     where
         R: Renderer,
         A: AudioOutput,
+        I: InputPoller<Self::Inputs>,
         S: SaveWriter,
     {
         let z80_t_cycles = self.z80.execute_instruction(&mut Bus::new(
@@ -358,7 +359,7 @@ impl EmulatorTrait for SmsGgEmulator {
                 self.render_frame(renderer).map_err(SmsGgError::Render)?;
                 frame_rendered = true;
 
-                self.input.set_inputs(*inputs);
+                self.input.set_inputs(*input_poller.poll());
                 self.input.set_reset(self.reset_frames_remaining != 0);
                 self.reset_frames_remaining = self.reset_frames_remaining.saturating_sub(1);
 

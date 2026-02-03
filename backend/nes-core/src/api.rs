@@ -9,8 +9,8 @@ use crate::ppu::PpuState;
 use crate::{apu, audio, cpu, graphics, ppu};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FrameSize, RenderFrameOptions,
-    Renderer, SaveWriter, TickEffect, TickResult, TimingMode,
+    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FrameSize, InputPoller,
+    RenderFrameOptions, Renderer, SaveWriter, TickEffect, TickResult, TimingMode,
 };
 use jgenesis_proc_macros::{ConfigDisplay, PartialClone};
 use std::fmt::{Debug, Display};
@@ -279,11 +279,11 @@ impl EmulatorTrait for NesEmulator {
     ///
     /// This method will propagate any errors encountered while rendering a frame, pushing
     /// audio samples, or persisting SRAM.
-    fn tick<R, A, S>(
+    fn tick<R, A, I, S>(
         &mut self,
         renderer: &mut R,
         audio_output: &mut A,
-        inputs: &Self::Inputs,
+        input_poller: &mut I,
         save_writer: &mut S,
     ) -> TickResult<Self::Err<R::Err, A::Err, S::Err>>
     where
@@ -291,11 +291,13 @@ impl EmulatorTrait for NesEmulator {
         R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
         A::Err: Debug + Display + Send + Sync + 'static,
+        I: InputPoller<Self::Inputs>,
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
         let prev_in_vblank = self.ppu_state.in_vblank();
 
+        let inputs = input_poller.poll();
         self.bus.update_p1_joypad_state(inputs.p1, self.config.allow_opposing_joypad_inputs);
         self.bus.update_p2_joypad_state(inputs.p2, self.config.allow_opposing_joypad_inputs);
 

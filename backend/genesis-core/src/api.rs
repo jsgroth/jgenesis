@@ -16,8 +16,8 @@ use genesis_config::{
     GenesisRegion, Opn2BusyBehavior,
 };
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorConfigTrait, EmulatorTrait, PartialClone, RenderFrameOptions, Renderer,
-    SaveWriter, TickEffect, TimingMode,
+    AudioOutput, EmulatorConfigTrait, EmulatorTrait, InputPoller, PartialClone, RenderFrameOptions,
+    Renderer, SaveWriter, TickEffect, TimingMode,
 };
 use jgenesis_proc_macros::ConfigDisplay;
 use m68000_emu::M68000;
@@ -279,11 +279,11 @@ impl EmulatorTrait for GenesisEmulator {
     /// This method will propagate any errors encountered while rendering frames or pushing audio
     /// samples.
     #[inline]
-    fn tick<R, A, S>(
+    fn tick<R, A, I, S>(
         &mut self,
         renderer: &mut R,
         audio_output: &mut A,
-        inputs: &Self::Inputs,
+        input_poller: &mut I,
         save_writer: &mut S,
     ) -> GenesisResult<R::Err, A::Err, S::Err>
     where
@@ -291,9 +291,12 @@ impl EmulatorTrait for GenesisEmulator {
         R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
         A::Err: Debug + Display + Send + Sync + 'static,
+        I: InputPoller<Self::Inputs>,
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
+        self.input.set_inputs(*input_poller.poll());
+
         let mut bus = new_main_bus!(self, m68k_reset: false);
         let m68k_pc = self.m68k.pc();
         let m68k_wait = bus.cycles.m68k_wait_cpu_cycles != 0;
@@ -344,8 +347,6 @@ impl EmulatorTrait for GenesisEmulator {
         let mut tick_effect = TickEffect::None;
         if self.vdp.tick(elapsed_mclk_cycles, &mut self.memory) == VdpTickEffect::FrameComplete {
             self.render_frame(renderer).map_err(GenesisError::Render)?;
-
-            self.input.set_inputs(*inputs);
 
             if self.memory.is_external_ram_persistent()
                 && self.memory.get_and_clear_external_ram_dirty()
