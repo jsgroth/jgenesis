@@ -2,7 +2,7 @@ use crate::config::SmsGgConfig;
 use std::fs;
 
 use crate::mainloop::save::FsSaveWriter;
-use crate::mainloop::{NativeEmulatorArgs, debug, file_name_no_ext, save};
+use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, debug, file_name_no_ext, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
 
 use jgenesis_native_config::common::WindowSize;
@@ -136,14 +136,6 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
         rom_title = "(BIOS)".into();
     }
 
-    let mut save_writer = FsSaveWriter::new(save_path);
-
-    let window_title = match hardware {
-        SmsGgHardware::MasterSystem => format!("sms - {rom_title}"),
-        SmsGgHardware::GameGear => format!("gg - {rom_title}"),
-        SmsGgHardware::Sg1000 => format!("sg1000 - {rom_title}"),
-    };
-
     let bios_rom = if hardware.boot_from_bios(&config) {
         let Some(bios_path) = hardware.bios_path(&config) else {
             return Err(hardware.no_bios_error());
@@ -157,28 +149,36 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
     };
 
     let emulator_config = config.emulator_config;
-    let emulator =
-        SmsGgEmulator::create(rom, bios_rom, hardware, emulator_config, &mut save_writer);
+    let initial_window_size = config.common.initial_window_size;
 
-    let default_window_size = match hardware {
-        SmsGgHardware::MasterSystem | SmsGgHardware::Sg1000 => {
-            WindowSize::new_sms(config.common.initial_window_size, emulator_config.sms_aspect_ratio)
-        }
-        SmsGgHardware::GameGear => WindowSize::new_game_gear(
-            config.common.initial_window_size,
-            emulator_config.gg_aspect_ratio,
-        ),
+    let create_emulator_fn = move |save_writer: &mut FsSaveWriter| {
+        let emulator = SmsGgEmulator::create(rom, bios_rom, hardware, emulator_config, save_writer);
+
+        let window_title = match hardware {
+            SmsGgHardware::MasterSystem => format!("sms - {rom_title}"),
+            SmsGgHardware::GameGear => format!("gg - {rom_title}"),
+            SmsGgHardware::Sg1000 => format!("sg1000 - {rom_title}"),
+        };
+
+        let default_window_size = match hardware {
+            SmsGgHardware::MasterSystem | SmsGgHardware::Sg1000 => {
+                WindowSize::new_sms(initial_window_size, emulator_config.sms_aspect_ratio)
+            }
+            SmsGgHardware::GameGear => {
+                WindowSize::new_game_gear(initial_window_size, emulator_config.gg_aspect_ratio)
+            }
+        };
+
+        Ok(CreatedEmulator { emulator, window_title, default_window_size })
     };
 
     NativeSmsGgEmulator::new(
         NativeEmulatorArgs::new(
-            emulator,
+            Box::new(create_emulator_fn),
             emulator_config,
             config.common,
             extension,
-            default_window_size,
-            &window_title,
-            save_writer,
+            save_path,
             save_state_path,
             config.inputs.to_mapping_vec(),
         )
