@@ -8,7 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  JGENESIS_VERSION: 0.11.0
+  JGENESIS_VERSION: 0.11.1
 
 jobs:
   build:

@@ -465,7 +465,7 @@ impl App {
             ui.label(format!("Version: {}", env!("CARGO_PKG_VERSION")));
 
             ui.add_space(15.0);
-            ui.label("Copyright © 2023-2025 James Groth");
+            ui.label("Copyright © 2023-2026 James Groth");
 
             ui.add_space(10.0);
             ui.horizontal(|ui| {
