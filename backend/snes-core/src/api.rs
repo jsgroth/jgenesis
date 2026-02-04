@@ -345,6 +345,7 @@ impl EmulatorTrait for SnesEmulator {
                 .render_frame(
                     self.ppu.frame_buffer(),
                     self.ppu.frame_size(),
+                    self.target_fps(),
                     RenderFrameOptions::pixel_aspect_ratio(aspect_ratio),
                 )
                 .map_err(SnesError::Render)?;
@@ -399,6 +400,7 @@ impl EmulatorTrait for SnesEmulator {
         renderer.render_frame(
             self.ppu.frame_buffer(),
             frame_size,
+            self.target_fps(),
             RenderFrameOptions::pixel_aspect_ratio(aspect_ratio),
         )
     }
