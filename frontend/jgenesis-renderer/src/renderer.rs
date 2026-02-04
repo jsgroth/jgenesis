@@ -1633,7 +1633,10 @@ impl<Window> Renderer for WgpuRenderer<Window> {
         }
 
         let pipeline = self.pipelines.get_or_insert(frame_size, options, || {
-            log::info!("Creating render pipeline for frame size {frame_size:?} and pixel aspect ratio {:?}", options.pixel_aspect_ratio);
+            log::info!(
+                "Creating render pipeline for frame size {frame_size:?} and pixel aspect ratio {}",
+                pixel_aspect_ratio_display(options.pixel_aspect_ratio)
+            );
 
             RenderingPipeline::create(
                 &self.device,
@@ -1680,6 +1683,10 @@ impl<Window> Renderer for WgpuRenderer<Window> {
 
         Ok(())
     }
+}
+
+fn pixel_aspect_ratio_display(par: Option<FiniteF64>) -> Cow<'static, str> {
+    par.map_or("None".into(), |par| par.to_string().into())
 }
 
 #[cfg(test)]
