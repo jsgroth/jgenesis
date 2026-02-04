@@ -1,7 +1,7 @@
 use crate::config::RomReadResult;
 use crate::config::{GenesisConfig, Sega32XConfig, SegaCdConfig};
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
-use crate::mainloop::{NativeEmulatorArgs, NativeEmulatorError, debug, save};
+use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, NativeEmulatorError, debug, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorResult, extensions};
 use cdrom::reader::CdRom;
 use genesis_config::GenesisRegion;
@@ -149,34 +149,36 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
         &extension,
     )?;
 
-    let mut save_writer = FsSaveWriter::new(save_path);
-
     let emulator_config = config.emulator_config;
-    let emulator = GenesisEmulator::create(rom, emulator_config, &mut save_writer);
+    let initial_window_size = config.common.initial_window_size;
 
-    let mut cartridge_title = emulator.cartridge_title();
-    // Remove non-printable characters
-    cartridge_title.retain(|c| {
-        c.is_ascii_alphanumeric() || c.is_ascii_whitespace() || c.is_ascii_punctuation()
-    });
-    let window_title = format!("genesis - {cartridge_title}");
+    let create_emulator_fn = move |save_writer: &mut FsSaveWriter| {
+        let emulator = GenesisEmulator::create(rom, emulator_config, save_writer);
 
-    let default_window_size = WindowSize::new_genesis(
-        config.common.initial_window_size,
-        emulator_config.aspect_ratio,
-        emulator.timing_mode(),
-        emulator_config.to_gen_par_params(),
-    );
+        let mut cartridge_title = emulator.cartridge_title();
+        // Remove non-printable characters
+        cartridge_title.retain(|c| {
+            c.is_ascii_alphanumeric() || c.is_ascii_whitespace() || c.is_ascii_punctuation()
+        });
+        let window_title = format!("genesis - {cartridge_title}");
+
+        let default_window_size = WindowSize::new_genesis(
+            initial_window_size,
+            emulator_config.aspect_ratio,
+            emulator.timing_mode(),
+            emulator_config.to_gen_par_params(),
+        );
+
+        Ok(CreatedEmulator { emulator, window_title, default_window_size })
+    };
 
     NativeGenesisEmulator::new(
         NativeEmulatorArgs::new(
-            emulator,
+            Box::new(create_emulator_fn),
             emulator_config,
             config.common,
             extension,
-            default_window_size,
-            &window_title,
-            save_writer,
+            save_path,
             save_state_path,
             config.inputs.to_mapping_vec(),
         )
@@ -240,41 +242,45 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
         save_state_path = determined_paths.save_state_path;
     }
 
-    let mut save_writer = FsSaveWriter::new(save_path);
-
     let bios = fs::read(&bios_file_path).map_err(|source| NativeEmulatorError::SegaCdBiosRead {
         path: bios_file_path.clone(),
         source,
     })?;
 
     let emulator_config = config.emulator_config;
-    let emulator = SegaCdEmulator::create(
-        bios,
-        rom_path,
-        rom_format,
-        config.run_without_disc,
-        emulator_config,
-        &mut save_writer,
-    )?;
+    let initial_window_size = config.genesis.common.initial_window_size;
+    let run_without_disc = config.run_without_disc;
+    let rom_path = rom_path.to_owned();
 
-    let window_title = format!("sega cd - {}", emulator.disc_title());
+    let create_emulator_fn = move |save_writer: &mut FsSaveWriter| {
+        let emulator = SegaCdEmulator::create(
+            bios,
+            rom_path,
+            rom_format,
+            run_without_disc,
+            emulator_config,
+            save_writer,
+        )?;
 
-    let default_window_size = WindowSize::new_genesis(
-        config.genesis.common.initial_window_size,
-        emulator_config.genesis.aspect_ratio,
-        emulator.timing_mode(),
-        emulator_config.genesis.to_gen_par_params(),
-    );
+        let window_title = format!("sega cd - {}", emulator.disc_title());
+
+        let default_window_size = WindowSize::new_genesis(
+            initial_window_size,
+            emulator_config.genesis.aspect_ratio,
+            emulator.timing_mode(),
+            emulator_config.genesis.to_gen_par_params(),
+        );
+
+        Ok(CreatedEmulator { emulator, window_title, default_window_size })
+    };
 
     NativeSegaCdEmulator::new(
         NativeEmulatorArgs::new(
-            emulator,
+            Box::new(create_emulator_fn),
             emulator_config,
             config.genesis.common,
             SCD_SAVE_EXTENSION.into(),
-            default_window_size,
-            &window_title,
-            save_writer,
+            save_path,
             save_state_path,
             config.genesis.inputs.to_mapping_vec(),
         )
@@ -333,30 +339,32 @@ pub fn create_32x(config: Box<Sega32XConfig>) -> NativeEmulatorResult<Native32XE
         &extension,
     )?;
 
-    let mut save_writer = FsSaveWriter::new(save_path);
-
     let emulator_config = config.emulator_config;
-    let emulator = Sega32XEmulator::create(rom, emulator_config, &mut save_writer);
+    let initial_window_size = config.genesis.common.initial_window_size;
 
-    let cartridge_title = emulator.cartridge_title();
-    let window_title = format!("32x - {cartridge_title}");
+    let create_emulator_fn = move |save_writer: &mut FsSaveWriter| {
+        let emulator = Sega32XEmulator::create(rom, emulator_config, save_writer);
 
-    let default_window_size = WindowSize::new_32x(
-        config.genesis.common.initial_window_size,
-        emulator_config.genesis.aspect_ratio,
-        emulator.timing_mode(),
-        emulator_config.genesis.to_gen_par_params(),
-    );
+        let cartridge_title = emulator.cartridge_title();
+        let window_title = format!("32x - {cartridge_title}");
+
+        let default_window_size = WindowSize::new_32x(
+            initial_window_size,
+            emulator_config.genesis.aspect_ratio,
+            emulator.timing_mode(),
+            emulator_config.genesis.to_gen_par_params(),
+        );
+
+        Ok(CreatedEmulator { emulator, window_title, default_window_size })
+    };
 
     Native32XEmulator::new(
         NativeEmulatorArgs::new(
-            emulator,
+            Box::new(create_emulator_fn),
             emulator_config,
             config.genesis.common,
             extension,
-            default_window_size,
-            &window_title,
-            save_writer,
+            save_path,
             save_state_path,
             config.genesis.inputs.to_mapping_vec(),
         )

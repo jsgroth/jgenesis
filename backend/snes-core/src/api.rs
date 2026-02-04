@@ -59,7 +59,8 @@ impl Default for SnesEmulatorConfig {
     }
 }
 
-pub type CoprocessorRomFn = dyn Fn() -> Result<Vec<u8>, (io::Error, String)>;
+pub type CoprocessorRomFn =
+    dyn Fn() -> Result<Vec<u8>, (io::Error, String)> + Send + Sync + 'static;
 
 #[derive(Default, FakeEncode, FakeDecode)]
 pub struct CoprocessorRoms {

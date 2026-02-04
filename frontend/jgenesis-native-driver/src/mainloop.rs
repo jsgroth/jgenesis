@@ -413,14 +413,23 @@ pub enum NativeEmulatorError {
 
 pub type NativeEmulatorResult<T> = Result<T, NativeEmulatorError>;
 
-pub(crate) struct NativeEmulatorArgs<'ttl, 'input, 'turbo, Emulator: EmulatorTrait> {
+pub(crate) struct CreatedEmulator<Emulator: EmulatorTrait> {
     pub emulator: Emulator,
+    pub window_title: String,
+    pub default_window_size: WindowSize,
+}
+
+pub(crate) type CreateEmulatorFn<Emulator> = dyn FnOnce(&mut FsSaveWriter) -> Result<CreatedEmulator<Emulator>, NativeEmulatorError>
+    + Send
+    + Sync
+    + 'static;
+
+pub(crate) struct NativeEmulatorArgs<'input, 'turbo, Emulator: EmulatorTrait> {
+    pub create_emulator_fn: Box<CreateEmulatorFn<Emulator>>,
     pub emulator_config: Emulator::Config,
     pub common_config: CommonConfig,
     pub rom_extension: String,
-    pub default_window_size: WindowSize,
-    pub window_title: &'ttl str,
-    pub save_writer: FsSaveWriter,
+    pub save_path: PathBuf,
     pub save_state_path: PathBuf,
     pub button_mappings: ButtonMappingVec<'input, Emulator::Button>,
     pub turbo_mappings: ButtonMappingVec<'turbo, Emulator::Button>,
@@ -428,30 +437,26 @@ pub(crate) struct NativeEmulatorArgs<'ttl, 'input, 'turbo, Emulator: EmulatorTra
     pub debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
 }
 
-impl<'ttl, 'input, 'turbo, Emulator> NativeEmulatorArgs<'ttl, 'input, 'turbo, Emulator>
+impl<'input, 'turbo, Emulator> NativeEmulatorArgs<'input, 'turbo, Emulator>
 where
     Emulator: EmulatorTrait,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        emulator: Emulator,
+        create_emulator_fn: Box<CreateEmulatorFn<Emulator>>,
         emulator_config: Emulator::Config,
         common_config: CommonConfig,
         rom_extension: String,
-        default_window_size: WindowSize,
-        window_title: &'ttl str,
-        save_writer: FsSaveWriter,
+        save_path: PathBuf,
         save_state_path: PathBuf,
         button_mappings: ButtonMappingVec<'input, Emulator::Button>,
     ) -> Self {
         NativeEmulatorArgs {
-            emulator,
+            create_emulator_fn,
             emulator_config,
             common_config,
             rom_extension,
-            default_window_size,
-            window_title,
-            save_writer,
+            save_path,
             save_state_path,
             button_mappings,
             turbo_mappings: vec![],
@@ -488,29 +493,21 @@ where
 {
     fn new(
         NativeEmulatorArgs {
-            mut emulator,
+            create_emulator_fn,
             emulator_config,
             common_config,
             rom_extension,
-            default_window_size,
-            window_title,
-            save_writer,
+            save_path,
             save_state_path,
             button_mappings,
             turbo_mappings,
             initial_inputs,
             debug_render_fn,
-        }: NativeEmulatorArgs<'_, '_, '_, Emulator>,
+        }: NativeEmulatorArgs<'_, '_, Emulator>,
     ) -> NativeEmulatorResult<Self> {
         let (sdl, video, audio, joystick, event_pump) = init_sdl3(&common_config)?;
 
-        let mut initial_window_size = common_config.window_size.unwrap_or(default_window_size);
-        if let Some(scale_factor) = common_config.window_scale_factor {
-            initial_window_size = initial_window_size.scale(scale_factor);
-        }
-
         let audio_output = SdlAudioOutput::create_and_init(audio, &common_config)?;
-        emulator.update_audio_output_frequency(audio_output.output_frequency());
 
         let input_mapper = InputMapper::new(
             joystick,
@@ -522,9 +519,19 @@ where
 
         let hotkey_state = HotkeyState::new(&common_config, save_state_path, debug_render_fn)?;
 
+        let mut save_writer = FsSaveWriter::new(save_path);
+
+        let CreatedEmulator { emulator, default_window_size, window_title } =
+            create_emulator_fn(&mut save_writer)?;
+
+        let mut initial_window_size = common_config.window_size.unwrap_or(default_window_size);
+        if let Some(scale_factor) = common_config.window_scale_factor {
+            initial_window_size = initial_window_size.scale(scale_factor);
+        }
+
         let window = create_window(
             &video,
-            window_title,
+            &window_title,
             initial_window_size.width,
             initial_window_size.height,
             common_config.launch_in_fullscreen,

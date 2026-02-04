@@ -1,7 +1,7 @@
 use crate::config::SnesConfig;
 
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
-use crate::mainloop::{NativeEmulatorArgs, debug, save};
+use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, debug, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorResult, extensions};
 
 use crate::config::RomReadResult;
@@ -68,31 +68,33 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
         &extension,
     )?;
 
-    let mut save_writer = FsSaveWriter::new(save_path);
-
     let emulator_config = config.emulator_config;
+    let initial_window_size = config.common.initial_window_size;
     let coprocessor_roms = config.to_coprocessor_roms();
-    let mut emulator =
-        SnesEmulator::create(rom, emulator_config, coprocessor_roms, &mut save_writer)?;
 
-    let cartridge_title = emulator.cartridge_title();
-    let window_title = format!("snes - {cartridge_title}");
+    let create_emulator_fn = move |save_writer: &mut FsSaveWriter| {
+        let mut emulator =
+            SnesEmulator::create(rom, emulator_config, coprocessor_roms, save_writer)?;
+
+        let cartridge_title = emulator.cartridge_title();
+        let window_title = format!("snes - {cartridge_title}");
+
+        let default_window_size =
+            WindowSize::new_snes(initial_window_size, emulator_config.aspect_ratio);
+
+        Ok(CreatedEmulator { emulator, window_title, default_window_size })
+    };
 
     let initial_inputs =
         SnesInputs { p1: SnesJoypadState::default(), p2: config.inputs.p2_type.to_input_device() };
 
-    let default_window_size =
-        WindowSize::new_snes(config.common.initial_window_size, emulator_config.aspect_ratio);
-
     NativeSnesEmulator::new(
         NativeEmulatorArgs::new(
-            emulator,
+            Box::new(create_emulator_fn),
             emulator_config,
             config.common,
             extension,
-            default_window_size,
-            &window_title,
-            save_writer,
+            save_path,
             save_state_path,
             config.inputs.to_mapping_vec(),
         )
