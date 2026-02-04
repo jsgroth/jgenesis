@@ -219,6 +219,7 @@ impl NesEmulator {
             return renderer.render_frame(
                 &[Color::BLACK],
                 FrameSize { width: 1, height: 1 },
+                self.target_fps(),
                 RenderFrameOptions::default(),
             );
         }
@@ -228,6 +229,7 @@ impl NesEmulator {
         renderer.render_frame(
             &self.rgba_frame_buffer,
             frame_size,
+            self.target_fps(),
             RenderFrameOptions::pixel_aspect_ratio(pixel_aspect_ratio),
         )
     }
