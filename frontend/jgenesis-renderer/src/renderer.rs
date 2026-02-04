@@ -5,7 +5,6 @@ use jgenesis_common::frontend::{
 };
 use jgenesis_common::timeutils;
 use raw_window_handle::{HandleError, HasDisplayHandle, HasWindowHandle};
-#[cfg(feature = "ttf")]
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::error::Error;
