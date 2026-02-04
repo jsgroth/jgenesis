@@ -235,6 +235,7 @@ impl SmsGgEmulator {
         renderer.render_frame(
             &self.frame_buffer,
             frame_size,
+            self.target_fps(),
             self.config.render_options(self.vdp_version.is_master_system()),
         )
     }

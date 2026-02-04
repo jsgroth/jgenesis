@@ -252,10 +252,12 @@ pub fn render_frame<R: Renderer>(
         frame_size,
         config.to_gen_par_params(),
     );
+    let target_fps = target_framerate(vdp, timing_mode);
 
     renderer.render_frame(
         vdp.frame_buffer(),
         frame_size,
+        target_fps,
         RenderFrameOptions::pixel_aspect_ratio(pixel_aspect_ratio),
     )
 }

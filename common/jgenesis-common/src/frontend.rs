@@ -106,6 +106,8 @@ pub trait Renderer {
     /// (`frame_width` * `frame_height`). Colors past the first (`frame_width` * `frame_height`)
     /// will be ignored.
     ///
+    /// `target_fps` must be a finite positive value.
+    ///
     /// If pixel aspect ratio is None, the frame will be stretched to fill the window. If it is
     /// Some, the frame will be rendered in the largest possible area that maintains the specified
     /// pixel aspect ratio.
@@ -117,6 +119,7 @@ pub trait Renderer {
         &mut self,
         frame_buffer: &[Color],
         frame_size: FrameSize,
+        target_fps: f64,
         options: RenderFrameOptions,
     ) -> Result<(), Self::Err>;
 }

@@ -1980,6 +1980,12 @@ impl Vdp {
     pub fn scanline_mclk(&self) -> u64 {
         self.state.scanline_mclk_cycles
     }
+
+    #[inline]
+    #[must_use]
+    pub fn timing_mode(&self) -> TimingMode {
+        self.timing_mode
+    }
 }
 
 fn convert_128kb_vram_address(address: u32) -> u32 {

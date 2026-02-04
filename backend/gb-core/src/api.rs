@@ -247,6 +247,7 @@ impl EmulatorTrait for GameBoyEmulator {
                 .render_frame(
                     self.rgba_buffer.as_ref(),
                     ppu::FRAME_SIZE,
+                    self.target_fps(),
                     self.config.render_options(self.hardware_mode),
                 )
                 .map_err(GameBoyError::Rendering)?;
@@ -279,6 +280,7 @@ impl EmulatorTrait for GameBoyEmulator {
         renderer.render_frame(
             self.rgba_buffer.as_ref(),
             ppu::FRAME_SIZE,
+            self.target_fps(),
             self.config.render_options(self.hardware_mode),
         )
     }

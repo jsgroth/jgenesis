@@ -918,9 +918,11 @@ impl Vdp {
         renderer: &mut R,
     ) -> Result<(), R::Err> {
         if self.state.next_render_buffer == WhichFrameBuffer::Genesis {
+            let target_fps = genesis_core::target_framerate(genesis_vdp, genesis_vdp.timing_mode());
             return renderer.render_frame(
                 genesis_vdp.frame_buffer(),
                 genesis_vdp.frame_size(),
+                target_fps,
                 RenderFrameOptions::pixel_aspect_ratio(aspect_ratio),
             );
         }
@@ -948,9 +950,11 @@ impl Vdp {
         aspect_ratio = aspect_ratio
             .map(|par| par * FiniteF64::try_from(1.0 / f64::from(gen_pixel_width)).unwrap());
 
+        let target_fps = genesis_core::target_framerate(genesis_vdp, genesis_vdp.timing_mode());
         renderer.render_frame(
             self.expanded_frame_buffer.as_ref(),
             frame_size,
+            target_fps,
             RenderFrameOptions::pixel_aspect_ratio(aspect_ratio),
         )
     }
