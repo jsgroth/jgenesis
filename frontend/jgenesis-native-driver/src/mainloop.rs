@@ -509,22 +509,6 @@ where
             initial_window_size = initial_window_size.scale(scale_factor);
         }
 
-        let window = create_window(
-            &video,
-            window_title,
-            initial_window_size.width,
-            initial_window_size.height,
-            common_config.launch_in_fullscreen,
-        )?;
-
-        let window_size = sdl_window_size(&window);
-        let mut renderer = pollster::block_on(WgpuRenderer::new(
-            window,
-            window_size,
-            common_config.renderer_config,
-        ))?;
-        renderer.set_target_fps(emulator.target_fps());
-
         let audio_output = SdlAudioOutput::create_and_init(audio, &common_config)?;
         emulator.update_audio_output_frequency(audio_output.output_frequency());
 
@@ -537,6 +521,21 @@ where
         );
 
         let hotkey_state = HotkeyState::new(&common_config, save_state_path, debug_render_fn)?;
+
+        let window = create_window(
+            &video,
+            window_title,
+            initial_window_size.width,
+            initial_window_size.height,
+            common_config.launch_in_fullscreen,
+        )?;
+
+        let window_size = sdl_window_size(&window);
+        let renderer = pollster::block_on(WgpuRenderer::new(
+            window,
+            window_size,
+            common_config.renderer_config,
+        ))?;
 
         let mut emulator = Self {
             emulator,
@@ -612,8 +611,6 @@ where
             self.emulator.update_audio_output_frequency(self.audio_output.output_frequency());
 
             self.input_mapper.frame_complete();
-
-            self.renderer.set_target_fps(self.emulator.target_fps());
         }
 
         self.hotkey_state.should_step_frame = false;
