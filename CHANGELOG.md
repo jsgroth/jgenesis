@@ -1,3 +1,8 @@
+# 0.11.1
+
+## Fixes
+* (**GBA**) Fixed an audio filtering bug in the audio interpolation feature that caused loud buzzing noises in some games (e.g. _Fire Emblem_) when enhanced interpolation was enabled but the PSG low-pass filter was not enabled
+
 # 0.11.0
 
 ## Game Boy Advance

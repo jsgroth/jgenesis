@@ -117,27 +117,21 @@ impl PsgFilter {
         let high_pass = array::from_fn(|_| Self::new_high_pass());
         let max_pcm_frequency = f64_option_max(pcm_frequencies);
 
-        if !psg_low_pass {
-            return Self {
-                max_pcm_frequency,
-                source_frequency,
-                psg_low_pass,
-                low_pass: None,
-                high_pass,
-            };
-        }
+        let low_pass = if psg_low_pass {
+            max_pcm_frequency.and_then(|max_pcm_frequency| {
+                let lpf_cutoff = max_pcm_frequency * 0.5;
 
-        let low_pass = max_pcm_frequency.and_then(|max_pcm_frequency| {
-            let lpf_cutoff = max_pcm_frequency * 0.5;
+                let source_frequency = source_frequency as f64;
+                let source_nyquist = source_frequency * 0.5;
 
-            let source_frequency = source_frequency as f64;
-            let source_nyquist = source_frequency * 0.5;
-
-            // Cutoff must be less than source signal's Nyquist frequency or resulting filter will
-            // produce garbage (e.g. Golden Sun: The Lost Age)
-            (lpf_cutoff < source_nyquist)
-                .then(|| array::from_fn(|_| Self::new_low_pass(lpf_cutoff, source_frequency)))
-        });
+                // Cutoff must be less than source signal's Nyquist frequency or resulting filter will
+                // produce garbage (e.g. Golden Sun: The Lost Age)
+                (lpf_cutoff < source_nyquist)
+                    .then(|| array::from_fn(|_| Self::new_low_pass(lpf_cutoff, source_frequency)))
+            })
+        } else {
+            None
+        };
 
         Self { max_pcm_frequency, source_frequency, psg_low_pass, low_pass, high_pass }
     }
