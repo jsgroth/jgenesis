@@ -27,6 +27,10 @@ use jgenesis_proc_macros::{ConfigDisplay, PartialClone};
 use std::fmt::{Debug, Display};
 use thiserror::Error;
 
+// Roughly 59.73 fps
+const TARGET_FPS: f64 =
+    (crate::GBA_CLOCK_SPEED as f64) / (ppu::LINES_PER_FRAME as f64) / (ppu::DOTS_PER_LINE as f64);
+
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct GbaAudioConfig {
     pub audio_interpolation: GbaAudioInterpolation,
@@ -232,7 +236,12 @@ impl GameBoyAdvanceEmulator {
         while self.stop_state.render_counter >= CYCLES_PER_FRAME {
             self.stop_state.render_counter -= CYCLES_PER_FRAME;
             renderer
-                .render_frame(BLANK_FRAME, ppu::FRAME_SIZE, self.config.render_options())
+                .render_frame(
+                    BLANK_FRAME,
+                    ppu::FRAME_SIZE,
+                    TARGET_FPS,
+                    self.config.render_options(),
+                )
                 .map_err(GbaError::Render)?;
             tick_effect = TickEffect::FrameRendered;
         }
@@ -331,6 +340,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
                 .render_frame(
                     self.bus.ppu.frame_buffer(),
                     ppu::FRAME_SIZE,
+                    TARGET_FPS,
                     self.config.render_options(),
                 )
                 .map_err(GbaError::Render)?;
@@ -365,6 +375,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
         renderer.render_frame(
             self.bus.ppu.frame_buffer(),
             ppu::FRAME_SIZE,
+            TARGET_FPS,
             self.config.render_options(),
         )
     }
@@ -392,10 +403,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
 
     #[inline]
     fn target_fps(&self) -> f64 {
-        // Roughly 59.73 fps
-        (crate::GBA_CLOCK_SPEED as f64)
-            / f64::from(ppu::LINES_PER_FRAME)
-            / f64::from(ppu::DOTS_PER_LINE)
+        TARGET_FPS
     }
 
     #[inline]
