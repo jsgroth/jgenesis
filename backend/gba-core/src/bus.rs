@@ -1038,7 +1038,7 @@ mod tests {
     #[test]
     fn no_io_addresses_panic() {
         let mut bus = Bus {
-            ppu: Ppu::new(),
+            ppu: Ppu::new(false),
             apu: Apu::new(GbaAudioConfig::default()),
             memory: Memory::new(vec![0; 16 * 1024], GbaEmulatorConfig::default()).unwrap(),
             cartridge: Cartridge::new(vec![0; 4 * 1024 * 1024], None, None, None),

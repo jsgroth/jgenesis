@@ -2011,7 +2011,7 @@ mod tests {
 
     #[test]
     fn cycles_until_dot() {
-        let mut ppu = Ppu::new();
+        let mut ppu = Ppu::new(false);
 
         ppu.state.scanline = 7;
         ppu.state.dot = 1;
