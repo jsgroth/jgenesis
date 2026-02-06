@@ -1082,17 +1082,15 @@ impl Ppu {
 
             let mut blend_color = first_pixel.color;
 
+            // Semi-transparency takes priority over normal blending effect if the condition is true
             if first_pixel.semi_transparent
-                || (window_layers_enabled.blend
-                    && first_pixel.layer.is_1st_target_enabled(&self.registers))
+                && second_pixel.layer.is_2nd_target_enabled(&self.registers)
             {
-                let blend_mode = if first_pixel.semi_transparent {
-                    BlendMode::AlphaBlending
-                } else {
-                    self.registers.blend_mode
-                };
-
-                match blend_mode {
+                blend_color = alpha_blend(first_pixel.color, second_pixel.color, eva, evb);
+            } else if window_layers_enabled.blend
+                && first_pixel.layer.is_1st_target_enabled(&self.registers)
+            {
+                match self.registers.blend_mode {
                     BlendMode::AlphaBlending => {
                         if second_pixel.layer.is_2nd_target_enabled(&self.registers) {
                             blend_color =
