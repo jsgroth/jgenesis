@@ -133,10 +133,18 @@ struct State {
 }
 
 impl State {
-    fn new() -> Self {
+    fn new(skip_bios_animation: bool) -> Self {
+        let (scanline, dot) = if skip_bios_animation {
+            // These are probably not accurate, but currently match where the BIOS hands over control
+            // in this emulator
+            (126, 827)
+        } else {
+            (0, 0)
+        };
+
         Self {
-            scanline: 0,
-            dot: 0,
+            scanline,
+            dot,
             frame_complete: false,
             bg_affine_latch: BgAffineLatch::default(),
             mosaic: MosaicState::default(),
@@ -442,7 +450,7 @@ pub struct Ppu {
 }
 
 impl Ppu {
-    pub fn new() -> Self {
+    pub fn new(skip_bios_animation: bool) -> Self {
         Self {
             frame_buffer: GbaFrameBuffer::new(),
             ready_frame_buffer: RgbaFrameBuffer::new(),
@@ -451,7 +459,7 @@ impl Ppu {
             oam: BoxedWordArray::new(),
             oam_parsed: Box::new(array::from_fn(|_| OamEntry::default())),
             registers: Registers::new(),
-            state: State::new(),
+            state: State::new(skip_bios_animation),
             buffers: Box::new(Buffers::new()),
             cycles: 0,
             next_event_cycles: 0,

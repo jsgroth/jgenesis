@@ -140,7 +140,7 @@ impl GameBoyAdvanceEmulator {
 
         let mut cpu = Arm7Tdmi::new();
         let mut bus = Bus {
-            ppu: Ppu::new(),
+            ppu: Ppu::new(config.skip_bios_animation),
             apu: Apu::new(config.audio),
             memory,
             cartridge,
