@@ -324,7 +324,7 @@ impl Registers {
             vblank_irq_enabled: false,
             hblank_irq_enabled: false,
             v_counter_irq_enabled: false,
-            v_counter_match: 255,
+            v_counter_match: 0,
             bg_control: [BgControl::default(); 4],
             bg_h_scroll: [0; 4],
             bg_v_scroll: [0; 4],
