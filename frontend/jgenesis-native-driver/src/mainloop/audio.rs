@@ -66,11 +66,6 @@ impl AudioCallback<f32> for AudioQueueCallback {
     }
 }
 
-struct SdlAudioDevice {
-    stream: AudioStreamWithCallback<AudioQueueCallback>,
-    state: Arc<Mutex<AudioCallbackState>>,
-}
-
 pub struct SdlAudioOutput {
     muted: bool,
     audio_subsystem: AudioSubsystem,
@@ -93,13 +88,21 @@ impl SdlAudioOutput {
         audio_subsystem: AudioSubsystem,
         config: &CommonConfig,
     ) -> AudioResult<Self> {
-        let SdlAudioDevice { stream, state } = open_audio_stream(&audio_subsystem, config)?;
+        let callback_state = Arc::new(Mutex::new(AudioCallbackState {
+            queue: VecDeque::with_capacity(2 * config.audio_buffer_size as usize),
+            hardware_queue_size: config.audio_hardware_queue_size,
+            unpark_threshold: audio_sync_threshold(config),
+            error: None,
+        }));
+
+        let audio_stream =
+            open_audio_stream(&audio_subsystem, config, Arc::clone(&callback_state))?;
 
         Ok(Self {
             muted: config.mute_audio,
             audio_subsystem,
-            audio_stream: stream,
-            callback_state: state,
+            audio_stream,
+            callback_state,
             audio_buffer: Vec::with_capacity(INTERNAL_AUDIO_BUFFER_LEN),
             audio_sync: config.audio_sync,
             audio_sync_threshold: audio_sync_threshold(config),
@@ -130,18 +133,13 @@ impl SdlAudioOutput {
 
         if freq_changed {
             // Recreate audio stream on sample rate changes
-            self.output_frequency = config.audio_output_frequency;
 
-            log::info!("Recreating SDL audio queue with freq {}", config.audio_output_frequency,);
+            log::info!("Recreating SDL audio queue with freq {}", config.audio_output_frequency);
+
             self.audio_stream.pause().map_err(AudioError::PauseStream)?;
 
-            let SdlAudioDevice { stream, state } =
-                open_audio_stream(&self.audio_subsystem, config)?;
-            self.audio_stream = stream;
-            self.callback_state = state;
-
-            self.dynamic_resampling_rate
-                .update_config(self.output_frequency as u32, self.audio_buffer_size);
+            self.audio_stream =
+                open_audio_stream(&self.audio_subsystem, config, Arc::clone(&self.callback_state))?;
         }
 
         {
@@ -149,17 +147,15 @@ impl SdlAudioOutput {
             state.hardware_queue_size = config.audio_hardware_queue_size;
             state.unpark_threshold = self.audio_sync_threshold;
 
-            // Truncate audio queue on config reloads if it is way oversized
-            if state.queue.len() >= (4 * config.audio_buffer_size) as usize {
+            // Truncate audio queue on config reloads if it is way oversized OR if sample rate changed
+            if freq_changed || state.queue.len() >= (4 * config.audio_buffer_size) as usize {
                 state.queue.clear();
             }
         }
 
-        if buffer_size_changed {
-            self.dynamic_resampling_rate.update_config(
-                self.dynamic_resampling_rate.current_output_frequency(),
-                self.audio_buffer_size,
-            );
+        if freq_changed || buffer_size_changed {
+            self.dynamic_resampling_rate
+                .update_config(self.output_frequency as u32, self.audio_buffer_size);
         }
 
         Ok(())
@@ -188,16 +184,13 @@ impl SdlAudioOutput {
     }
 }
 
-fn open_audio_stream(audio: &AudioSubsystem, config: &CommonConfig) -> AudioResult<SdlAudioDevice> {
-    let callback_state = Arc::new(Mutex::new(AudioCallbackState {
-        queue: VecDeque::with_capacity(2 * config.audio_buffer_size as usize),
-        hardware_queue_size: config.audio_hardware_queue_size,
-        unpark_threshold: audio_sync_threshold(config),
-        error: None,
-    }));
-
+fn open_audio_stream(
+    audio: &AudioSubsystem,
+    config: &CommonConfig,
+    callback_state: Arc<Mutex<AudioCallbackState>>,
+) -> AudioResult<AudioStreamWithCallback<AudioQueueCallback>> {
     let audio_callback =
-        AudioQueueCallback { state: Arc::clone(&callback_state), main_thread: thread::current() };
+        AudioQueueCallback { state: callback_state, main_thread: thread::current() };
 
     let stream = audio
         .open_playback_stream(
@@ -211,7 +204,7 @@ fn open_audio_stream(audio: &AudioSubsystem, config: &CommonConfig) -> AudioResu
         .map_err(AudioError::OpenStream)?;
     stream.resume().map_err(AudioError::OpenStream)?;
 
-    Ok(SdlAudioDevice { stream, state: callback_state })
+    Ok(stream)
 }
 
 fn decibels_to_multiplier(decibels: f64) -> f64 {
