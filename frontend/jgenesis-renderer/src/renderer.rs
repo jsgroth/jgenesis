@@ -1606,7 +1606,7 @@ impl<Window> Renderer for WgpuRenderer<Window> {
         target_fps: f64,
         options: RenderFrameOptions,
     ) -> Result<(), Self::Err> {
-        if frame_size.width * frame_size.height > frame_buffer.len() as u32 {
+        if frame_size.len() > frame_buffer.len() as u32 {
             return Err(RendererError::FrameBufferTooSmall {
                 frame_width: frame_size.width,
                 frame_height: frame_size.height,
