@@ -48,6 +48,13 @@ pub struct FrameSize {
     pub height: u32,
 }
 
+impl FrameSize {
+    #[must_use]
+    pub fn len(self) -> u32 {
+        self.width * self.height
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct DisplayArea {
     pub width: u32,
@@ -245,9 +252,9 @@ pub trait EmulatorConfigTrait: Clone {
     }
 }
 
-pub trait EmulatorTrait: Encode + Decode<()> + PartialClone {
+pub trait EmulatorTrait: Encode + Decode<()> + PartialClone + 'static {
     type Button: Debug + Copy + Eq + Hash;
-    type Inputs: Default + MappableInputs<Self::Button>;
+    type Inputs: Clone + Eq + Default + MappableInputs<Self::Button> + Send + Sync + 'static;
     type Config: EmulatorConfigTrait;
 
     type Err<RErr: Debug + Display + Send + Sync + 'static, AErr: Debug + Display + Send + Sync + 'static, SErr: Debug + Display + Send + Sync + 'static>: Error + Send + Sync + 'static;
