@@ -1077,7 +1077,7 @@ where
     }
 
     loop {
-        match emulator.render_frame()? {
+        match emulator.run()? {
             Some(NativeTickEffect::PowerOff | NativeTickEffect::Exit) => return Ok(()),
             None => {}
         }
