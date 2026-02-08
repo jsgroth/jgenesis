@@ -161,7 +161,7 @@ impl GameBoyEmulator {
             cgb_registers: CgbRegisters::new(),
             cartridge,
             timer: GbTimer::new(),
-            dma_unit: DmaUnit::new(),
+            dma_unit: DmaUnit::new(hardware_mode),
             input_state: InputState::new(),
             rgba_buffer: RgbaFrameBuffer::default(),
             config,

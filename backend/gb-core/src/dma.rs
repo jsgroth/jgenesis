@@ -1,3 +1,4 @@
+use crate::HardwareMode;
 use crate::cartridge::Cartridge;
 use crate::memory::Memory;
 use crate::ppu::{Ppu, PpuMode};
@@ -31,9 +32,12 @@ pub struct DmaUnit {
 }
 
 impl DmaUnit {
-    pub fn new() -> Self {
+    pub fn new(hardware_mode: HardwareMode) -> Self {
         Self {
-            oam_dma_source_address: 0xFF00,
+            oam_dma_source_address: match hardware_mode {
+                HardwareMode::Dmg => 0xFF00,
+                HardwareMode::Cgb => 0x0000,
+            },
             oam_dma_m_cycles_remaining: 0,
             oam_dma_pending: false,
             oam_dma_running: false,
