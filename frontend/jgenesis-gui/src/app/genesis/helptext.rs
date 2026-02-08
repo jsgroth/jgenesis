@@ -85,6 +85,11 @@ pub const ASPECT_RATIO: HelpText = HelpText {
     ],
 };
 
+pub const ANAMORPHIC_WIDESCREEN: HelpText = HelpText {
+    heading: "Anamorphic Widescreen",
+    text: &["Horizontally stretch the image to widescreen (16:9 screen aspect ratio)."],
+};
+
 pub const FORCE_SQUARE_PIXELS_H40: HelpText = HelpText {
     heading: "Force Square Pixels in H320px",
     text: &[

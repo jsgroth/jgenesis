@@ -12,8 +12,8 @@ use crate::ym2612::Ym2612;
 use crate::{audio, timing, vdp};
 use bincode::{Decode, Encode};
 use genesis_config::{
-    GenesisAspectRatio, GenesisButton, GenesisControllerType, GenesisInputs, GenesisRegion,
-    Opn2BusyBehavior,
+    GenParParams, GenesisAspectRatio, GenesisButton, GenesisControllerType, GenesisInputs,
+    GenesisRegion, Opn2BusyBehavior,
 };
 use jgenesis_common::frontend::{
     AudioOutput, EmulatorConfigTrait, EmulatorTrait, PartialClone, RenderFrameOptions, Renderer,
@@ -50,6 +50,7 @@ pub struct GenesisEmulatorConfig {
     pub aspect_ratio: GenesisAspectRatio,
     pub force_square_pixels_in_h40: bool,
     pub adjust_aspect_ratio_in_2x_resolution: bool,
+    pub anamorphic_widescreen: bool,
     pub remove_sprite_limits: bool,
     pub m68k_clock_divider: u64,
     pub non_linear_color_scale: bool,
@@ -105,6 +106,15 @@ impl GenesisEmulatorConfig {
             );
         }
         NonZeroU64::new(clamped_divider).unwrap()
+    }
+
+    #[must_use]
+    pub fn to_gen_par_params(&self) -> GenParParams {
+        GenParParams {
+            force_square_in_h40: self.force_square_pixels_in_h40,
+            adjust_for_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
+            anamorphic_widescreen: self.anamorphic_widescreen,
+        }
     }
 }
 
@@ -240,8 +250,7 @@ pub fn render_frame<R: Renderer>(
     let pixel_aspect_ratio = config.aspect_ratio.to_pixel_aspect_ratio(
         timing_mode,
         frame_size,
-        config.force_square_pixels_in_h40,
-        config.adjust_aspect_ratio_in_2x_resolution,
+        config.to_gen_par_params(),
     );
 
     renderer.render_frame(

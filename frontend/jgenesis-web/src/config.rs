@@ -142,6 +142,7 @@ impl GenesisWebConfig {
             aspect_ratio: self.aspect_ratio,
             force_square_pixels_in_h40: false,
             adjust_aspect_ratio_in_2x_resolution: true,
+            anamorphic_widescreen: false,
             remove_sprite_limits: self.remove_sprite_limits,
             m68k_clock_divider: self.m68k_divider,
             non_linear_color_scale: self.non_linear_color_scale,

@@ -17,6 +17,13 @@ pub const MODEL_2_2ND_LPF_CUTOFF: u32 = 6725;
 
 pub const DEFAULT_PCM_LPF_CUTOFF: u32 = 7973;
 
+#[derive(Debug, Clone, Copy)]
+pub struct GenParParams {
+    pub force_square_in_h40: bool,
+    pub adjust_for_2x_resolution: bool,
+    pub anamorphic_widescreen: bool,
+}
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr, EnumAll,
 )]
@@ -58,21 +65,18 @@ impl GenesisAspectRatio {
         self,
         timing_mode: TimingMode,
         frame_size: FrameSize,
-        force_square_in_h40: bool,
-        adjust_for_2x_resolution: bool,
+        params: GenParParams,
     ) -> Option<FiniteF64> {
         if self == Self::Auto {
             let auto_aspect = match timing_mode {
                 TimingMode::Ntsc => Self::Ntsc,
                 TimingMode::Pal => Self::Pal,
             };
-            return auto_aspect.to_pixel_aspect_ratio(
-                timing_mode,
-                frame_size,
-                force_square_in_h40,
-                adjust_for_2x_resolution,
-            );
+            return auto_aspect.to_pixel_aspect_ratio(timing_mode, frame_size, params);
         }
+
+        let GenParParams { force_square_in_h40, adjust_for_2x_resolution, anamorphic_widescreen } =
+            params;
 
         let mut pixel_aspect_ratio = match (self, frame_size.width) {
             (Self::SquarePixels, _) => Some(1.0),
@@ -102,6 +106,10 @@ impl GenesisAspectRatio {
 
         if adjust_for_2x_resolution && frame_size.height >= 448 {
             pixel_aspect_ratio = pixel_aspect_ratio.map(|par| par * 2.0);
+        }
+
+        if anamorphic_widescreen {
+            pixel_aspect_ratio = pixel_aspect_ratio.map(|par| par * 4.0 / 3.0);
         }
 
         pixel_aspect_ratio.map(|par| FiniteF64::try_from(par).unwrap())

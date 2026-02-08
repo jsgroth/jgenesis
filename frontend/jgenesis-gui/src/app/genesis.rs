@@ -341,6 +341,23 @@ impl App {
                         self.config.genesis.aspect_ratio != GenesisAspectRatio::Stretched,
                         |ui| {
                             ui.checkbox(
+                                &mut self.config.genesis.anamorphic_widescreen,
+                                "Anamorphic widescreen",
+                            );
+                        },
+                    )
+                    .response
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(window, helptext::ANAMORPHIC_WIDESCREEN);
+                    displayed_other_help_text = true;
+                }
+
+                let rect = ui
+                    .add_enabled_ui(
+                        self.config.genesis.aspect_ratio != GenesisAspectRatio::Stretched,
+                        |ui| {
+                            ui.checkbox(
                                 &mut self.config.genesis.force_square_pixels_in_h40,
                                 "Force square pixels in H320px mode",
                             );

@@ -20,6 +20,8 @@ pub struct GenesisAppConfig {
     #[serde(default = "true_fn")]
     pub adjust_aspect_ratio_in_2x_resolution: bool,
     #[serde(default)]
+    pub anamorphic_widescreen: bool,
+    #[serde(default)]
     pub remove_sprite_limits: bool,
     #[serde(default = "default_68k_divider")]
     pub m68k_clock_divider: u64,

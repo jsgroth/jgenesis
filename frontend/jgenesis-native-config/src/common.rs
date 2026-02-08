@@ -1,4 +1,4 @@
-use genesis_config::GenesisAspectRatio;
+use genesis_config::{GenParParams, GenesisAspectRatio};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::{EnumAll, EnumDisplay};
 use jgenesis_renderer::config::{
@@ -74,11 +74,11 @@ impl WindowSize {
     pub fn new_genesis(
         size: NonZeroU8,
         aspect_ratio: GenesisAspectRatio,
-        force_square_pixels_in_h40: bool,
         timing_mode: TimingMode,
+        params: GenParParams,
     ) -> Self {
         Self::new(
-            Self::genesis_width(aspect_ratio, force_square_pixels_in_h40, timing_mode),
+            Self::genesis_width(aspect_ratio, timing_mode, params),
             Self::GENESIS_HEIGHT,
             size,
         )
@@ -86,30 +86,38 @@ impl WindowSize {
 
     fn genesis_width(
         aspect_ratio: GenesisAspectRatio,
-        force_square_pixels_in_h40: bool,
         timing_mode: TimingMode,
+        params: GenParParams,
     ) -> f64 {
-        if force_square_pixels_in_h40 {
-            return Self::GENESIS_WIDTH_H40;
+        let mut h40_width = if params.force_square_in_h40 {
+            Self::GENESIS_WIDTH_H40
+        } else {
+            let h40_par =
+                aspect_ratio.to_h40_pixel_aspect_ratio(timing_mode).unwrap_or_else(|| {
+                    GenesisAspectRatio::default()
+                        .to_h40_pixel_aspect_ratio(timing_mode)
+                        .unwrap_or(1.0)
+                });
+            Self::GENESIS_WIDTH_H40 * h40_par
+        };
+
+        if params.anamorphic_widescreen {
+            h40_width *= 4.0 / 3.0;
         }
 
-        let h40_par = aspect_ratio.to_h40_pixel_aspect_ratio(timing_mode).unwrap_or_else(|| {
-            GenesisAspectRatio::default().to_h40_pixel_aspect_ratio(timing_mode).unwrap_or(1.0)
-        });
-        Self::GENESIS_WIDTH_H40 * h40_par
+        h40_width
     }
 
     #[must_use]
     pub fn new_32x(
         size: NonZeroU8,
         aspect_ratio: GenesisAspectRatio,
-        force_square_pixels_in_h40: bool,
         timing_mode: TimingMode,
+        params: GenParParams,
     ) -> Self {
         // Make 32X window a little wider than Genesis by default so that the frame won't shrink if a
         // game switches to H32 mode while the renderer has forced integer height scaling enabled
-        let genesis_width =
-            Self::genesis_width(aspect_ratio, force_square_pixels_in_h40, timing_mode);
+        let genesis_width = Self::genesis_width(aspect_ratio, timing_mode, params);
         let width = genesis_width * 323.25 / 320.0;
 
         Self::new(width, Self::GENESIS_HEIGHT, size)
