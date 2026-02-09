@@ -4,22 +4,25 @@
 //! completed rendering
 
 use jgenesis_common::frontend::{Color, FrameSize, RenderFrameOptions, Renderer};
-use std::error::Error;
-use std::mem;
+use std::slice;
 use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, SyncSender};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender};
+use std::time::Duration;
 use thiserror::Error;
 
-pub struct FrameMessage {
-    pub frame_buffer: Vec<Color>,
-    pub frame_size: FrameSize,
-    pub target_fps: f64,
-    pub options: RenderFrameOptions,
+struct FrameMessage {
+    frame_buffer: *const Color,
+    frame_buffer_len: usize,
+    frame_size: FrameSize,
+    target_fps: f64,
+    options: RenderFrameOptions,
 }
 
-pub struct DoneMessage {
-    pub result: Result<Vec<Color>, (Vec<Color>, Box<dyn Error + Send + Sync + 'static>)>,
-}
+// SAFETY: This pointer-containing struct is only sent across threads in one place in this module,
+// and the struct is private so it cannot be used outside of this module
+unsafe impl Send for FrameMessage {}
+
+pub type DoneMessage = Result<(), ()>;
 
 #[derive(Debug, Error)]
 pub enum ThreadedRendererError {
@@ -27,25 +30,30 @@ pub enum ThreadedRendererError {
     InvalidFrameBufferLen { len: usize, width: u32, height: u32 },
     #[error("Lost connection to main thread")]
     LostConnection,
-    #[error("Error from underlying renderer: {0}")]
-    Render(#[source] Box<dyn Error + Send + Sync + 'static>),
+    #[error("Error from underlying renderer")]
+    Render,
 }
 
 pub struct ThreadedRenderer {
-    frame_buffer: Vec<Color>,
     frame_sender: SyncSender<FrameMessage>,
     done_receiver: Receiver<DoneMessage>,
 }
 
+pub struct ThreadedRendererHandle {
+    frame_receiver: Receiver<FrameMessage>,
+    done_sender: SyncSender<DoneMessage>,
+}
+
 impl ThreadedRenderer {
-    pub fn new() -> (Self, Receiver<FrameMessage>, SyncSender<DoneMessage>) {
+    pub fn new() -> (Self, ThreadedRendererHandle) {
         let (frame_sender, frame_receiver) = mpsc::sync_channel(1);
         let (done_sender, done_receiver) = mpsc::sync_channel(1);
 
-        let renderer =
-            Self { frame_buffer: Vec::with_capacity(1300 * 240), frame_sender, done_receiver };
+        let renderer = Self { frame_sender, done_receiver };
 
-        (renderer, frame_receiver, done_sender)
+        let handle = ThreadedRendererHandle { frame_receiver, done_sender };
+
+        (renderer, handle)
     }
 }
 
@@ -68,31 +76,66 @@ impl Renderer for ThreadedRenderer {
             });
         }
 
-        self.frame_buffer.clear();
-        self.frame_buffer.extend_from_slice(&frame_buffer[..frame_len]);
-
+        // SAFETY: This sends a frame buffer raw pointer to the main thread. This function must not
+        // return before the main thread has signaled that it is no longer using the frame buffer
         let frame_message = FrameMessage {
-            frame_buffer: mem::take(&mut self.frame_buffer),
+            frame_buffer: frame_buffer.as_ptr(),
+            frame_buffer_len: frame_buffer.len(),
             frame_size,
             target_fps,
             options,
         };
-        if let Err(_) = self.frame_sender.send(frame_message) {
+        if self.frame_sender.send(frame_message).is_err() {
             return Err(ThreadedRendererError::LostConnection);
         }
 
         match self.done_receiver.recv() {
-            Ok(message) => match message.result {
-                Ok(frame_buffer) => {
-                    self.frame_buffer = frame_buffer;
+            Ok(Ok(())) => {}
+            Ok(Err(())) => return Err(ThreadedRendererError::Render),
+            Err(_) => return Err(ThreadedRendererError::LostConnection),
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum RecvFrameError<RErr> {
+    #[error("recv error: {0}")]
+    Recv(#[from] RecvTimeoutError),
+    #[error("lost connection to other thread")]
+    LostConnection,
+    #[error("renderer error: {0}")]
+    Render(RErr),
+}
+
+impl ThreadedRendererHandle {
+    pub fn try_recv_frame<R: Renderer>(
+        &self,
+        renderer: &mut R,
+        timeout: Duration,
+    ) -> Result<(), RecvFrameError<R::Err>> {
+        let frame_message = self.frame_receiver.recv_timeout(timeout)?;
+
+        // SAFETY: The slice is reconstructed from raw parts sent by the runner thread. The main
+        // thread must not use the slice after it sends the done signal to the runner thread
+        unsafe {
+            let frame_buffer =
+                slice::from_raw_parts(frame_message.frame_buffer, frame_message.frame_buffer_len);
+
+            match renderer.render_frame(
+                frame_buffer,
+                frame_message.frame_size,
+                frame_message.target_fps,
+                frame_message.options,
+            ) {
+                Ok(()) => {
+                    self.done_sender.send(Ok(())).map_err(|_| RecvFrameError::LostConnection)?;
                 }
-                Err((frame_buffer, err)) => {
-                    self.frame_buffer = frame_buffer;
-                    return Err(ThreadedRendererError::Render(err));
+                Err(err) => {
+                    let _ = self.done_sender.send(Err(()));
+                    return Err(RecvFrameError::Render(err));
                 }
-            },
-            Err(_) => {
-                return Err(ThreadedRendererError::LostConnection);
             }
         }
 

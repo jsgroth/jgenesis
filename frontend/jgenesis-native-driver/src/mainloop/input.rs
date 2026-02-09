@@ -2,8 +2,15 @@ use jgenesis_common::frontend::InputPoller;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ThreadedInputPoller<Inputs> {
+    cached: Inputs,
+    locked: Arc<Mutex<Inputs>>,
+    updated: Arc<AtomicBool>,
+}
+
+#[derive(Debug)]
+pub struct ThreadedInputPollerHandle<Inputs> {
     cached: Inputs,
     locked: Arc<Mutex<Inputs>>,
     updated: Arc<AtomicBool>,
@@ -18,14 +25,16 @@ impl<Inputs: Clone + Eq> ThreadedInputPoller<Inputs> {
         }
     }
 
-    pub fn check_for_updates(&mut self) {
-        if self.updated.compare_exchange(true, false, Ordering::AcqRel, Ordering::Relaxed)
-            == Ok(true)
-        {
-            self.cached = self.locked.lock().unwrap().clone();
+    pub fn handle(&self) -> ThreadedInputPollerHandle<Inputs> {
+        ThreadedInputPollerHandle {
+            cached: self.cached.clone(),
+            locked: Arc::clone(&self.locked),
+            updated: Arc::clone(&self.updated),
         }
     }
+}
 
+impl<Inputs: Clone + Eq> ThreadedInputPollerHandle<Inputs> {
     pub fn update_inputs(&mut self, inputs: &Inputs) {
         if inputs == &self.cached {
             return;
@@ -39,7 +48,13 @@ impl<Inputs: Clone + Eq> ThreadedInputPoller<Inputs> {
 
 impl<Inputs: Clone + Eq> InputPoller<Inputs> for ThreadedInputPoller<Inputs> {
     fn poll(&mut self) -> &Inputs {
-        // TODO check for updates here? don't want to do an Acquire load on every call
+        if self.updated.load(Ordering::Relaxed)
+            && self.updated.compare_exchange(true, false, Ordering::AcqRel, Ordering::Relaxed)
+                == Ok(true)
+        {
+            self.cached = self.locked.lock().unwrap().clone();
+        }
+
         &self.cached
     }
 }
