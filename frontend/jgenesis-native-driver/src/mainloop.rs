@@ -28,21 +28,24 @@ use crate::archive::ArchiveError;
 use crate::config::CommonConfig;
 use crate::fpstracker::FpsTracker;
 use crate::input::{InputEvent, InputMapper, Joysticks};
-use crate::mainloop::audio::SdlAudioOutput;
+use crate::mainloop::audio::{SdlAudioOutput, SdlAudioOutputHandle};
 use crate::mainloop::debug::{DebugRenderFn, DebuggerWindow};
-use crate::mainloop::rewind::Rewinder;
-use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
-use crate::mainloop::state::SaveStatePaths;
+use crate::mainloop::render::RecvFrameError;
+use crate::mainloop::runner::{
+    ChangeDiscFn, RemoveDiscFn, RunnerCommand, RunnerCommandResponse, RunnerSpawnArgs, RunnerThread,
+};
+use crate::mainloop::save::FsSaveWriter;
 pub use audio::AudioError;
 use bincode::error::{DecodeError, EncodeError};
 use gb_core::api::GameBoyLoadError;
 use gba_core::api::GbaLoadError;
-use jgenesis_common::frontend::{
-    ConstantInputPoller, EmulatorConfigTrait, EmulatorTrait, MappableInputs, TickEffect,
-};
+use genesis_config::GenesisRegion;
+use jgenesis_common::frontend::{EmulatorConfigTrait, EmulatorTrait, MappableInputs};
+use jgenesis_native_config::EguiTheme;
 use jgenesis_native_config::common::{HideMouseCursor, WindowSize};
 use jgenesis_native_config::input::mappings::ButtonMappingVec;
 use jgenesis_native_config::input::{CompactHotkey, Hotkey};
+use jgenesis_renderer::config::RendererConfig;
 use jgenesis_renderer::renderer;
 use jgenesis_renderer::renderer::{RendererError, WgpuRenderer};
 use nes_core::api::NesInitializationError;
@@ -56,10 +59,11 @@ use std::cell::RefCell;
 use std::error::Error;
 use std::ffi::NulError;
 use std::fmt::Debug;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::mpsc::RecvTimeoutError;
 use std::time::Duration;
-use std::{io, thread};
 use thiserror::Error;
 
 const MODAL_DURATION: Duration = Duration::from_secs(3);
@@ -106,14 +110,10 @@ impl RendererExt for WgpuRenderer<Window> {
 
 struct HotkeyState<Emulator> {
     hide_mouse_cursor: HideMouseCursor,
-    base_save_state_path: PathBuf,
-    save_state_paths: SaveStatePaths,
     save_state_slot: usize,
-    save_state_metadata: SaveStateMetadata,
     paused: bool,
-    should_step_frame: bool,
     fast_forward_multiplier: u64,
-    rewinder: Rewinder<Emulator>,
+    rewinding: bool,
     overclocking_enabled: bool,
     debugger_window: Option<DebuggerWindow<Emulator>>,
     window_scale_factor: Option<f32>,
@@ -124,46 +124,20 @@ struct HotkeyState<Emulator> {
 impl<Emulator: EmulatorTrait> HotkeyState<Emulator> {
     fn new(
         common_config: &CommonConfig,
-        save_state_path: PathBuf,
         debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
-    ) -> NativeEmulatorResult<Self> {
-        let save_state_paths = state::init_paths(&save_state_path)?;
-        let save_state_metadata =
-            SaveStateMetadata::load(&save_state_paths, Emulator::save_state_version());
-
-        log::debug!("Save state paths: {save_state_paths:?}");
-
-        Ok(Self {
+    ) -> Self {
+        Self {
             hide_mouse_cursor: common_config.hide_mouse_cursor,
-            base_save_state_path: save_state_path,
-            save_state_paths,
             save_state_slot: 0,
-            save_state_metadata,
             paused: false,
-            should_step_frame: false,
             fast_forward_multiplier: common_config.fast_forward_multiplier,
-            rewinder: Rewinder::new(Duration::from_secs(
-                common_config.rewind_buffer_length_seconds,
-            )),
+            rewinding: false,
             overclocking_enabled: true,
             debugger_window: None,
             window_scale_factor: common_config.window_scale_factor,
             egui_theme: common_config.egui_theme,
             debug_render_fn,
-        })
-    }
-
-    fn update_save_state_path(&mut self, save_state_path: PathBuf) -> NativeEmulatorResult<()> {
-        if save_state_path == self.base_save_state_path {
-            return Ok(());
         }
-
-        self.save_state_paths = state::init_paths(&save_state_path)?;
-        self.save_state_metadata =
-            SaveStateMetadata::load(&self.save_state_paths, Emulator::save_state_version());
-        self.base_save_state_path = save_state_path;
-
-        Ok(())
     }
 
     fn is_debugger_window_id(&self, window_id: u32) -> bool {
@@ -199,18 +173,16 @@ pub enum NativeTickEffect {
 }
 
 pub struct NativeEmulator<Emulator: EmulatorTrait> {
-    emulator: Emulator,
+    runner: RunnerThread<Emulator>,
     // Config sent from the frontend
     raw_config: Emulator::Config,
     // Config with overclocking maybe forcibly disabled due to hotkey state
     config: Emulator::Config,
     common_config: CommonConfig,
     renderer: WgpuRenderer<Window>,
-    audio_output: SdlAudioOutput,
+    audio_output_handle: SdlAudioOutputHandle,
     input_mapper: InputMapper<Emulator::Button>,
     inputs: Emulator::Inputs,
-    save_writer: FsSaveWriter,
-    sdl: Sdl,
     event_pump: EventPump,
     event_buffer: Rc<RefCell<Vec<Event>>>,
     video: VideoSubsystem,
@@ -218,7 +190,8 @@ pub struct NativeEmulator<Emulator: EmulatorTrait> {
     window_state: WindowState,
     fps_tracker: FpsTracker,
     rom_path: PathBuf,
-    rom_extension: String,
+    // Put SDL handle last so that it is dropped last when the emulator is dropped
+    sdl: Sdl,
 }
 
 impl<Emulator: EmulatorTrait> NativeEmulator<Emulator> {
@@ -227,23 +200,13 @@ impl<Emulator: EmulatorTrait> NativeEmulator<Emulator> {
 
         self.renderer.reload_config(config.renderer_config);
 
-        self.audio_output.reload_config(config)?;
-        self.emulator.update_audio_output_frequency(self.audio_output.output_frequency());
+        self.audio_output_handle.reload_config(config)?;
 
         self.hotkey_state.hide_mouse_cursor = config.hide_mouse_cursor;
 
         self.hotkey_state.fast_forward_multiplier = config.fast_forward_multiplier;
         // Reset speed multiplier in case the fast forward hotkey changed
         self.renderer.set_speed_multiplier(1);
-        self.audio_output.set_speed_multiplier(1);
-
-        if let Err(err) = self.update_save_paths(config) {
-            log::error!("Error updating save paths: {err}");
-        }
-
-        self.hotkey_state
-            .rewinder
-            .set_buffer_duration(Duration::from_secs(config.rewind_buffer_length_seconds));
 
         let fullscreen = self.renderer.is_fullscreen();
         self.sdl.mouse().show_cursor(!config.hide_mouse_cursor.should_hide(fullscreen));
@@ -252,20 +215,6 @@ impl<Emulator: EmulatorTrait> NativeEmulator<Emulator> {
         if let Some(debugger) = &mut self.hotkey_state.debugger_window {
             debugger.update_egui_theme(config.egui_theme);
         }
-
-        Ok(())
-    }
-
-    fn update_save_paths(&mut self, config: &CommonConfig) -> NativeEmulatorResult<()> {
-        let DeterminedPaths { save_path, save_state_path } = save::determine_save_paths(
-            &config.save_path,
-            &config.state_path,
-            &self.rom_path,
-            &self.rom_extension,
-        )?;
-
-        self.save_writer.update_path(save_path);
-        self.hotkey_state.update_save_state_path(save_state_path)?;
 
         Ok(())
     }
@@ -410,6 +359,10 @@ pub enum NativeEmulatorError {
     LoadStatePrefixMismatch,
     #[error("Save state version mismatch; expected '{expected}', got '{actual}'")]
     LoadStateVersionMismatch { expected: String, actual: String },
+    #[error("Lost connection to runner thread")]
+    LostRunnerConnection,
+    #[error("Error changing/removing disc: {0}")]
+    ChangeDisc(#[source] Box<dyn Error + Send + Sync + 'static>),
     #[error("Error in emulation core: {0}")]
     Emulator(#[source] Box<dyn Error + Send + Sync + 'static>),
 }
@@ -429,6 +382,8 @@ pub(crate) type CreateEmulatorFn<Emulator> = dyn FnOnce(&mut FsSaveWriter) -> Re
 
 pub(crate) struct NativeEmulatorArgs<'input, 'turbo, Emulator: EmulatorTrait> {
     pub create_emulator_fn: Box<CreateEmulatorFn<Emulator>>,
+    pub change_disc_fn: ChangeDiscFn<Emulator>,
+    pub remove_disc_fn: RemoveDiscFn<Emulator>,
     pub emulator_config: Emulator::Config,
     pub common_config: CommonConfig,
     pub rom_extension: String,
@@ -456,6 +411,8 @@ where
     ) -> Self {
         NativeEmulatorArgs {
             create_emulator_fn,
+            change_disc_fn: |_emulator, _path| Ok(String::new()),
+            remove_disc_fn: |_emulator| {},
             emulator_config,
             common_config,
             rom_extension,
@@ -488,6 +445,16 @@ where
         self.debug_render_fn = debug_render_fn;
         self
     }
+
+    pub fn with_disc_change_fns(
+        mut self,
+        change_disc_fn: ChangeDiscFn<Emulator>,
+        remove_disc_fn: RemoveDiscFn<Emulator>,
+    ) -> Self {
+        self.change_disc_fn = change_disc_fn;
+        self.remove_disc_fn = remove_disc_fn;
+        self
+    }
 }
 
 impl<Emulator> NativeEmulator<Emulator>
@@ -497,6 +464,8 @@ where
     fn new(
         NativeEmulatorArgs {
             create_emulator_fn,
+            change_disc_fn,
+            remove_disc_fn,
             emulator_config,
             common_config,
             rom_extension,
@@ -510,7 +479,8 @@ where
     ) -> NativeEmulatorResult<Self> {
         let (sdl, video, audio, joystick, event_pump) = init_sdl3(&common_config)?;
 
-        let audio_output = SdlAudioOutput::create_and_init(audio, &common_config)?;
+        let (audio_output, mut audio_output_handle) =
+            SdlAudioOutput::create_and_init(audio, &common_config)?;
 
         let input_mapper = InputMapper::new(
             joystick,
@@ -520,21 +490,33 @@ where
             &common_config.hotkey_config.to_mapping_vec(),
         );
 
-        let hotkey_state = HotkeyState::new(&common_config, save_state_path, debug_render_fn)?;
+        let hotkey_state = HotkeyState::new(&common_config, debug_render_fn);
 
-        let mut save_writer = FsSaveWriter::new(save_path);
+        let save_writer = FsSaveWriter::new(save_path);
 
-        let CreatedEmulator { emulator, default_window_size, window_title } =
-            create_emulator_fn(&mut save_writer)?;
+        let runner = RunnerThread::spawn(RunnerSpawnArgs {
+            create_emulator_fn,
+            change_disc_fn,
+            remove_disc_fn,
+            common_config: common_config.clone(),
+            emulator_config: emulator_config.clone(),
+            rom_extension: rom_extension.clone(),
+            save_state_path,
+            initial_inputs: initial_inputs.clone(),
+            audio_output_handle: &mut audio_output_handle,
+            audio_output,
+            save_writer,
+        })?;
 
-        let mut initial_window_size = common_config.window_size.unwrap_or(default_window_size);
+        let mut initial_window_size =
+            common_config.window_size.unwrap_or(runner.default_window_size());
         if let Some(scale_factor) = common_config.window_scale_factor {
             initial_window_size = initial_window_size.scale(scale_factor);
         }
 
         let window = create_window(
             &video,
-            &window_title,
+            runner.initial_window_title(),
             initial_window_size.width,
             initial_window_size.height,
             common_config.launch_in_fullscreen,
@@ -548,15 +530,14 @@ where
         ))?;
 
         let mut emulator = Self {
-            emulator,
+            runner,
             raw_config: emulator_config.clone(),
             config: emulator_config,
             common_config: common_config.clone(),
             renderer,
-            audio_output,
+            audio_output_handle,
             input_mapper,
             inputs: initial_inputs,
-            save_writer,
             sdl,
             event_pump,
             event_buffer: Rc::new(RefCell::new(Vec::with_capacity(100))),
@@ -565,7 +546,6 @@ where
             window_state: WindowState::new(),
             fps_tracker: FpsTracker::new(),
             rom_path: common_config.rom_file_path,
-            rom_extension,
         };
 
         if common_config.load_recent_state_at_launch {
@@ -584,52 +564,15 @@ where
     ///
     /// This method will propagate any errors encountered when rendering frames, pushing audio
     /// samples, or writing save files.
-    pub fn render_frame(&mut self) -> NativeEmulatorResult<Option<NativeTickEffect>> {
-        let rewinding = self.hotkey_state.rewinder.is_rewinding();
+    pub fn run(&mut self) -> NativeEmulatorResult<Option<NativeTickEffect>> {
+        self.runner.try_recv_error()?;
 
-        let should_run_emulator = {
-            let paused = self.hotkey_state.paused;
-            let should_step_frame = self.hotkey_state.should_step_frame;
-
-            let emulator_window_focused = self.window_state.emulator_focused;
-            let any_window_focused = self.window_state.any_focused();
-            let should_pause_in_background = self
+        let paused = self.hotkey_state.paused
+            || self
                 .common_config
                 .pause_emulator
-                .should_pause(emulator_window_focused, any_window_focused);
-
-            !rewinding && (!paused || should_step_frame) && !should_pause_in_background
-        };
-
-        if should_run_emulator {
-            while self
-                .emulator
-                .tick(
-                    &mut self.renderer,
-                    &mut self.audio_output,
-                    &mut ConstantInputPoller(&self.inputs),
-                    &mut self.save_writer,
-                )
-                .map_err(|err| NativeEmulatorError::Emulator(err.into()))?
-                != TickEffect::FrameRendered
-            {}
-
-            self.fps_tracker.record_frame();
-            self.hotkey_state.rewinder.record_frame(&self.emulator);
-
-            self.audio_output.adjust_dynamic_resampling_ratio();
-            self.emulator.update_audio_output_frequency(self.audio_output.output_frequency());
-
-            self.input_mapper.frame_complete();
-        }
-
-        self.hotkey_state.should_step_frame = false;
-
-        if let Some(debugger_window) = &mut self.hotkey_state.debugger_window
-            && let Err(err) = debugger_window.update(&mut self.emulator)
-        {
-            log::error!("Debugger window error: {err}");
-        }
+                .should_pause(self.window_state.emulator_focused, self.window_state.any_focused());
+        self.runner.set_paused(paused);
 
         // Gymnastics to avoid borrow checker errors that would otherwise occur due to
         // calling `&mut self` methods while mutably borrowing the event pump
@@ -650,41 +593,11 @@ where
 
             match event {
                 Event::Quit { .. } => {
-                    self.hotkey_state.debugger_window = None;
                     return Ok(Some(NativeTickEffect::PowerOff));
                 }
                 Event::Window { win_event, window_id, .. } => {
-                    match win_event {
-                        WindowEvent::CloseRequested => {
-                            if window_id == self.renderer.window_id() {
-                                self.hotkey_state.debugger_window = None;
-                                return Ok(Some(NativeTickEffect::PowerOff));
-                            }
-
-                            if self.hotkey_state.is_debugger_window_id(window_id) {
-                                self.hotkey_state.debugger_window = None;
-                                self.window_state.debugger_focused = false;
-                            }
-                        }
-                        WindowEvent::FocusGained => {
-                            if window_id == self.renderer.window_id() {
-                                self.window_state.emulator_focused = true;
-                            } else if self.hotkey_state.is_debugger_window_id(window_id) {
-                                self.window_state.debugger_focused = true;
-                            }
-                        }
-                        WindowEvent::FocusLost => {
-                            if window_id == self.renderer.window_id() {
-                                self.window_state.emulator_focused = false;
-                            } else if self.hotkey_state.is_debugger_window_id(window_id) {
-                                self.window_state.debugger_focused = false;
-                            }
-                        }
-                        _ => {}
-                    }
-
-                    if window_id == self.renderer.window_id() {
-                        handle_emu_window_event(win_event, &mut self.renderer);
+                    if let Some(effect) = self.handle_window_event(win_event, window_id) {
+                        return Ok(Some(effect));
                     }
                 }
                 _ => {}
@@ -695,21 +608,80 @@ where
             return Ok(Some(effect));
         }
 
-        if rewinding {
+        self.runner.update_inputs(&self.inputs);
+
+        if self.hotkey_state.rewinding {
             self.renderer.reset_interframe_state();
-            self.hotkey_state.rewinder.tick(
-                &mut self.emulator,
-                &mut self.renderer,
-                &self.config,
-            )?;
         }
 
-        if !should_run_emulator {
-            // Don't spin loop when the emulator is paused or rewinding
-            thread::sleep(Duration::from_millis(1));
+        while let Some(response) = self.runner.try_recv_command_response() {
+            self.handle_runner_cmd_response(response);
+        }
+
+        match self.runner.try_recv_frame(&mut self.renderer, Duration::from_millis(1)) {
+            Ok(()) => {
+                self.fps_tracker.record_frame();
+            }
+            Err(RecvFrameError::Render(err)) => return Err(NativeEmulatorError::Render(err)),
+            Err(
+                RecvFrameError::Recv(RecvTimeoutError::Disconnected)
+                | RecvFrameError::LostConnection,
+            ) => {
+                return Err(NativeEmulatorError::LostRunnerConnection);
+            }
+            Err(RecvFrameError::Recv(RecvTimeoutError::Timeout)) => {}
+        }
+
+        if let Some(debugger_window) = &mut self.hotkey_state.debugger_window
+            && todo!("debugger_update(emulator)")
+        {
+            log::error!("Debugger window error");
         }
 
         Ok(None)
+    }
+
+    fn handle_window_event(
+        &mut self,
+        win_event: WindowEvent,
+        window_id: u32,
+    ) -> Option<NativeTickEffect> {
+        match win_event {
+            WindowEvent::CloseRequested => {
+                if window_id == self.renderer.window_id() {
+                    return Some(NativeTickEffect::PowerOff);
+                }
+
+                if self.hotkey_state.is_debugger_window_id(window_id) {
+                    self.window_state.debugger_focused = false;
+                }
+            }
+            WindowEvent::FocusGained => {
+                if window_id == self.renderer.window_id() {
+                    self.window_state.emulator_focused = true;
+                } else if self.hotkey_state.is_debugger_window_id(window_id) {
+                    self.window_state.debugger_focused = true;
+                }
+            }
+            WindowEvent::FocusLost => {
+                if window_id == self.renderer.window_id() {
+                    self.window_state.emulator_focused = false;
+                } else if self.hotkey_state.is_debugger_window_id(window_id) {
+                    self.window_state.debugger_focused = false;
+                }
+            }
+            WindowEvent::Resized(..)
+            | WindowEvent::PixelSizeChanged(..)
+            | WindowEvent::Maximized
+                if window_id == self.renderer.window_id() =>
+            {
+                let window_size = sdl_window_size(self.renderer.window());
+                self.renderer.handle_resize(window_size);
+            }
+            _ => {}
+        }
+
+        None
     }
 
     fn process_input_events(&mut self) -> NativeEmulatorResult<Option<NativeTickEffect>> {
@@ -748,12 +720,58 @@ where
         Ok(None)
     }
 
-    pub fn soft_reset(&mut self) {
-        self.emulator.soft_reset();
+    fn handle_runner_cmd_response(&mut self, response: RunnerCommandResponse) {
+        match response {
+            RunnerCommandResponse::SaveStateSucceeded { slot } => {
+                self.renderer.add_modal(format!("Saved state to slot {slot}"), MODAL_DURATION);
+                self.hotkey_state.save_state_slot = slot;
+            }
+            RunnerCommandResponse::LoadStateSucceeded { slot } => {
+                // Force renderer to clear any interframe state
+                self.renderer.reload();
+
+                self.renderer.add_modal(format!("Loaded state from slot {slot}"), MODAL_DURATION);
+                self.hotkey_state.save_state_slot = slot;
+            }
+            RunnerCommandResponse::SaveStateFailed { slot, err } => {
+                self.renderer
+                    .add_modal(format!("Failed to save state to slot {slot}"), MODAL_DURATION);
+                log::error!("Failed to save state to slot {slot}: {err}");
+            }
+            RunnerCommandResponse::LoadStateFailed { slot, err } => {
+                self.renderer
+                    .add_modal(format!("Failed to load state from slot {slot}"), MODAL_DURATION);
+                log::error!("Failed to load state from slot {slot}: {err}");
+            }
+            RunnerCommandResponse::ChangeDiscSucceeded { mut window_title } => {
+                window_title.retain(|c| (c as u8) != 0);
+
+                // SAFETY: This is not reassigning the window
+                unsafe {
+                    self.renderer
+                        .window_mut()
+                        .set_title(&window_title)
+                        .expect("Window title does not have any null characters");
+                }
+            }
+            RunnerCommandResponse::ChangeDiscFailed(err) => {
+                log::error!("Failed to change disc: {err}");
+            }
+        }
     }
 
-    pub fn hard_reset(&mut self) {
-        self.emulator.hard_reset(&mut self.save_writer);
+    /// # Errors
+    ///
+    /// This method will return an error if unable to send the command to the emulator runner thread.
+    pub fn soft_reset(&mut self) -> NativeEmulatorResult<()> {
+        self.runner.send_command(RunnerCommand::SoftReset)
+    }
+
+    /// # Errors
+    ///
+    /// This method will return an error if unable to send the command to the emulator runner thread.
+    pub fn hard_reset(&mut self) -> NativeEmulatorResult<()> {
+        self.runner.send_command(RunnerCommand::HardReset)
     }
 
     pub fn open_memory_viewer(&mut self) {
@@ -772,20 +790,7 @@ where
     ///
     /// Returns an error if the state cannot be saved (e.g. due to I/O error).
     pub fn save_state(&mut self, slot: usize) -> NativeEmulatorResult<()> {
-        if let Err(err) = state::save(
-            &self.emulator,
-            &self.hotkey_state.save_state_paths,
-            slot,
-            &mut self.hotkey_state.save_state_metadata,
-        ) {
-            self.renderer.add_modal(format!("Failed to save state to slot {slot}"), MODAL_DURATION);
-            return Err(err);
-        }
-
-        self.renderer.add_modal(format!("Saved state to slot {slot}"), MODAL_DURATION);
-        self.hotkey_state.save_state_slot = slot;
-
-        Ok(())
+        self.runner.send_command(RunnerCommand::SaveState { slot })
     }
 
     /// # Errors
@@ -793,31 +798,20 @@ where
     /// Return an error if the state cannot be loaded (e.g. due to I/O error or because the save
     /// state does not exist).
     pub fn load_state(&mut self, slot: usize) -> NativeEmulatorResult<()> {
-        if let Err(err) =
-            state::load(&mut self.emulator, &self.config, &self.hotkey_state.save_state_paths, slot)
-        {
-            self.renderer
-                .add_modal(format!("Failed to load state from slot {slot}"), MODAL_DURATION);
-            return Err(err);
-        }
-
-        // Force renderer to clear any interframe state
-        self.renderer.reload();
-
-        self.renderer.add_modal(format!("Loaded state from slot {slot}"), MODAL_DURATION);
-        self.hotkey_state.save_state_slot = slot;
-
-        Ok(())
+        self.runner.send_command(RunnerCommand::LoadState { slot })
     }
 
     /// Try to load the most recent save state.
     ///
     /// If there are no save states or the most recent save state is invalid, this method will log
     /// an error and not modify any emulator state.
+    #[allow(clippy::missing_panics_doc)]
     pub fn try_load_most_recent_state(&mut self) {
         let max_time = self
-            .hotkey_state
-            .save_state_metadata
+            .runner
+            .save_state_metadata()
+            .lock()
+            .unwrap()
             .times_nanos
             .into_iter()
             .enumerate()
@@ -834,8 +828,9 @@ where
         }
     }
 
-    pub fn save_state_metadata(&self) -> &SaveStateMetadata {
-        &self.hotkey_state.save_state_metadata
+    #[allow(clippy::missing_panics_doc)]
+    pub fn save_state_metadata(&self) -> SaveStateMetadata {
+        self.runner.save_state_metadata().lock().unwrap().clone()
     }
 
     pub fn update_gui_focused(&mut self, gui_focused: bool) {
@@ -860,10 +855,11 @@ where
         match hotkey {
             Hotkey::FastForward => {
                 self.renderer.set_speed_multiplier(1);
-                self.audio_output.set_speed_multiplier(1);
+                self.runner.send_command(RunnerCommand::FastForward(false))?;
             }
             Hotkey::Rewind => {
-                self.hotkey_state.rewinder.stop_rewinding();
+                self.runner.send_command(RunnerCommand::Rewind(false))?;
+                self.hotkey_state.rewinding = false;
             }
             _ => {}
         }
@@ -884,19 +880,22 @@ where
             CompactHotkey::SaveStateSlot(slot) => self.save_state(slot)?,
             CompactHotkey::LoadState => self.hotkey_load_state(None),
             CompactHotkey::LoadStateSlot(slot) => self.hotkey_load_state(Some(slot)),
-            CompactHotkey::SoftReset => self.emulator.soft_reset(),
-            CompactHotkey::HardReset => self.emulator.hard_reset(&mut self.save_writer),
+            CompactHotkey::SoftReset => self.soft_reset()?,
+            CompactHotkey::HardReset => self.hard_reset()?,
             CompactHotkey::NextSaveStateSlot => self.next_save_state_slot(),
             CompactHotkey::PrevSaveStateSlot => self.prev_save_state_slot(),
             CompactHotkey::Pause => {
                 self.hotkey_state.paused = !self.hotkey_state.paused;
             }
             CompactHotkey::StepFrame => {
-                self.hotkey_state.should_step_frame = true;
+                self.runner.send_command(RunnerCommand::StepFrame)?;
             }
-            CompactHotkey::FastForward => self.enable_fast_forward(),
-            CompactHotkey::Rewind => self.hotkey_state.rewinder.start_rewinding(),
-            CompactHotkey::ToggleOverclocking => self.toggle_overclocking(),
+            CompactHotkey::FastForward => self.enable_fast_forward()?,
+            CompactHotkey::Rewind => {
+                self.runner.send_command(RunnerCommand::Rewind(true))?;
+                self.hotkey_state.rewinding = true;
+            }
+            CompactHotkey::ToggleOverclocking => self.toggle_overclocking()?,
             CompactHotkey::OpenDebugger => self.open_memory_viewer(),
         }
 
@@ -915,10 +914,7 @@ where
         let slot = slot.unwrap_or(self.hotkey_state.save_state_slot);
 
         if let Err(err) = self.load_state(slot) {
-            log::error!(
-                "Error loading save state from slot {slot} in '{}': {err}",
-                self.hotkey_state.save_state_paths[slot].display()
-            );
+            log::error!("Error loading save state from slot {slot}: {err}",);
         }
     }
 
@@ -945,15 +941,14 @@ where
         );
     }
 
-    fn enable_fast_forward(&mut self) {
-        let multiplier = self.hotkey_state.fast_forward_multiplier;
-        self.renderer.set_speed_multiplier(multiplier);
-        self.audio_output.set_speed_multiplier(multiplier);
+    fn enable_fast_forward(&mut self) -> NativeEmulatorResult<()> {
+        self.renderer.set_speed_multiplier(self.hotkey_state.fast_forward_multiplier);
+        self.runner.send_command(RunnerCommand::FastForward(true))
     }
 
-    fn toggle_overclocking(&mut self) {
+    fn toggle_overclocking(&mut self) -> NativeEmulatorResult<()> {
         self.hotkey_state.overclocking_enabled = !self.hotkey_state.overclocking_enabled;
-        self.update_emulator_config(&self.raw_config.clone());
+        self.update_and_reload_config(&self.raw_config.clone())?;
 
         let modal_text = if self.hotkey_state.overclocking_enabled {
             "Overclocking settings enabled"
@@ -965,17 +960,31 @@ where
             modal_text.into(),
             MODAL_DURATION,
         );
+
+        Ok(())
     }
 
-    fn update_emulator_config(&mut self, config: &Emulator::Config) {
-        self.raw_config = config.clone();
+    fn update_and_reload_config(
+        &mut self,
+        emulator_config: &Emulator::Config,
+    ) -> NativeEmulatorResult<()> {
+        self.raw_config = emulator_config.clone();
         self.config = if self.hotkey_state.overclocking_enabled {
             self.raw_config.clone()
         } else {
             self.raw_config.with_overclocking_disabled()
         };
 
-        self.emulator.reload_config(&self.config);
+        self.runner.send_command(RunnerCommand::ReloadConfig(Box::new((
+            self.common_config.clone(),
+            self.config.clone(),
+        ))))
+    }
+}
+
+impl<Emulator: EmulatorTrait> Drop for NativeEmulator<Emulator> {
+    fn drop(&mut self) {
+        let _ = self.runner.send_command(RunnerCommand::Terminate);
     }
 }
 
@@ -1030,16 +1039,6 @@ fn sdl_window_size(window: &Window) -> renderer::WindowSize {
     renderer::WindowSize { width, height }
 }
 
-fn handle_emu_window_event(win_event: WindowEvent, renderer: &mut WgpuRenderer<Window>) {
-    match win_event {
-        WindowEvent::Resized(..) | WindowEvent::PixelSizeChanged(..) | WindowEvent::Maximized => {
-            let window_size = sdl_window_size(renderer.window());
-            renderer.handle_resize(window_size);
-        }
-        _ => {}
-    }
-}
-
 macro_rules! bincode_config {
     () => {
         bincode::config::standard()
@@ -1050,6 +1049,3 @@ macro_rules! bincode_config {
 }
 
 use bincode_config;
-use genesis_config::GenesisRegion;
-use jgenesis_native_config::EguiTheme;
-use jgenesis_renderer::config::RendererConfig;

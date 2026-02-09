@@ -1,15 +1,16 @@
 use crate::config::RomReadResult;
 use crate::config::{GenesisConfig, Sega32XConfig, SegaCdConfig};
+use crate::mainloop::runner::RunnerCommand;
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, NativeEmulatorError, debug, save};
-use crate::{AudioError, NativeEmulator, NativeEmulatorResult, extensions};
+use crate::{NativeEmulator, NativeEmulatorResult, extensions};
 use cdrom::reader::CdRom;
 use genesis_config::GenesisRegion;
 use genesis_core::GenesisEmulator;
 use jgenesis_native_config::common::WindowSize;
 use s32x_core::api::Sega32XEmulator;
 use segacd_core::CdRomFileFormat;
-use segacd_core::api::{SegaCdEmulator, SegaCdLoadResult};
+use segacd_core::api::SegaCdEmulator;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -19,12 +20,15 @@ impl NativeGenesisEmulator {
     /// # Errors
     ///
     /// This method will return an error if it is unable to reload audio config.
-    pub fn reload_genesis_config(&mut self, config: Box<GenesisConfig>) -> Result<(), AudioError> {
+    pub fn reload_genesis_config(
+        &mut self,
+        config: Box<GenesisConfig>,
+    ) -> NativeEmulatorResult<()> {
         log::info!("Reloading config: {config}");
 
         self.reload_common_config(&config.common)?;
 
-        self.update_emulator_config(&config.emulator_config);
+        self.update_and_reload_config(&config.emulator_config)?;
 
         self.input_mapper.update_mappings(
             config.common.axis_deadzone,
@@ -43,12 +47,12 @@ impl NativeSegaCdEmulator {
     /// # Errors
     ///
     /// This method will return an error if it is unable to reload audio config.
-    pub fn reload_sega_cd_config(&mut self, config: Box<SegaCdConfig>) -> Result<(), AudioError> {
+    pub fn reload_sega_cd_config(&mut self, config: Box<SegaCdConfig>) -> NativeEmulatorResult<()> {
         log::info!("Reloading config: {config}");
 
         self.reload_common_config(&config.genesis.common)?;
 
-        self.update_emulator_config(&config.emulator_config);
+        self.update_and_reload_config(&config.emulator_config)?;
 
         self.input_mapper.update_mappings(
             config.genesis.common.axis_deadzone,
@@ -60,9 +64,12 @@ impl NativeSegaCdEmulator {
         Ok(())
     }
 
+    /// # Errors
+    ///
+    /// This method will return an error if unable to send the command to the emulator runner thread.
     #[allow(clippy::missing_panics_doc)]
-    pub fn remove_disc(&mut self) {
-        self.emulator.remove_disc();
+    pub fn remove_disc(&mut self) -> NativeEmulatorResult<()> {
+        self.runner.send_command(RunnerCommand::RemoveDisc)?;
 
         // SAFETY: This is not reassigning the window
         unsafe {
@@ -71,39 +78,18 @@ impl NativeSegaCdEmulator {
                 .set_title("sega cd - (no disc)")
                 .expect("Given string literal will never contain a null character");
         }
+
+        Ok(())
     }
 
     /// # Errors
     ///
-    /// This method will return an error if the disc drive is unable to load the disc.
+    /// This method will return an error if unable to send the command to the emulator runner thread.
     #[allow(clippy::missing_panics_doc)]
-    pub fn change_disc<P: AsRef<Path>>(&mut self, rom_path: P) -> SegaCdLoadResult<()> {
-        let rom_format = CdRomFileFormat::from_file_path(rom_path.as_ref()).unwrap_or_else(|| {
-            log::warn!(
-                "Unrecognized CD-ROM file format, treating as CUE: {}",
-                rom_path.as_ref().display()
-            );
-            CdRomFileFormat::CueBin
-        });
-
+    pub fn change_disc<P: AsRef<Path>>(&mut self, rom_path: P) -> NativeEmulatorResult<()> {
         self.rom_path = rom_path.as_ref().to_path_buf();
-        self.emulator.change_disc(rom_path, rom_format)?;
 
-        let title = format!("sega cd - {}", self.emulator.disc_title());
-
-        // SAFETY: This is not reassigning the window
-        unsafe {
-            self.renderer
-                .window_mut()
-                .set_title(&title)
-                .expect("Disc title should have non-printable characters already removed");
-        }
-
-        if let Err(err) = self.update_save_paths(&self.common_config.clone()) {
-            log::error!("Error updating save paths on disc change: {err}");
-        }
-
-        Ok(())
+        self.runner.send_command(RunnerCommand::ChangeDisc(self.rom_path.clone()))
     }
 }
 
@@ -113,12 +99,12 @@ impl Native32XEmulator {
     /// # Errors
     ///
     /// Propagates any errors encountered while reloading audio config.
-    pub fn reload_32x_config(&mut self, config: Box<Sega32XConfig>) -> Result<(), AudioError> {
+    pub fn reload_32x_config(&mut self, config: Box<Sega32XConfig>) -> NativeEmulatorResult<()> {
         log::info!("Reloading config: {config}");
 
         self.reload_common_config(&config.genesis.common)?;
 
-        self.update_emulator_config(&config.emulator_config);
+        self.update_and_reload_config(&config.emulator_config)?;
 
         self.input_mapper.update_mappings(
             config.genesis.common.axis_deadzone,
@@ -274,6 +260,20 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
         Ok(CreatedEmulator { emulator, window_title, default_window_size })
     };
 
+    let change_disc_fn = |emulator: &mut SegaCdEmulator, path: PathBuf| {
+        let rom_format = CdRomFileFormat::from_file_path(&path).unwrap_or_else(|| {
+            log::warn!("Unrecognized CD-ROM file format, treating as CUE: {}", path.display());
+            CdRomFileFormat::CueBin
+        });
+
+        emulator.change_disc(path, rom_format)?;
+
+        let title = format!("sega cd - {}", emulator.disc_title());
+        Ok(title)
+    };
+
+    let remove_disc_fn = SegaCdEmulator::remove_disc;
+
     NativeSegaCdEmulator::new(
         NativeEmulatorArgs::new(
             Box::new(create_emulator_fn),
@@ -285,7 +285,8 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
             config.genesis.inputs.to_mapping_vec(),
         )
         .with_turbo_mappings(config.genesis.inputs.to_turbo_mapping_vec())
-        .with_debug_render_fn(debug::genesis::render_fn),
+        .with_debug_render_fn(debug::genesis::render_fn)
+        .with_disc_change_fns(change_disc_fn, remove_disc_fn),
     )
 }
 

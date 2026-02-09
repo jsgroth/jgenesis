@@ -3,7 +3,7 @@ use std::fs;
 
 use crate::mainloop::save::FsSaveWriter;
 use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, debug, file_name_no_ext, save};
-use crate::{AudioError, NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
+use crate::{NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
 
 use jgenesis_native_config::common::WindowSize;
 use smsgg_core::{SmsGgEmulator, SmsGgHardware};
@@ -55,12 +55,12 @@ impl NativeSmsGgEmulator {
     /// # Errors
     ///
     /// This method will return an error if it is unable to reload audio config.
-    pub fn reload_smsgg_config(&mut self, config: Box<SmsGgConfig>) -> Result<(), AudioError> {
+    pub fn reload_smsgg_config(&mut self, config: Box<SmsGgConfig>) -> NativeEmulatorResult<()> {
         log::info!("Reloading config: {config}");
 
         self.reload_common_config(&config.common)?;
 
-        self.update_emulator_config(&config.emulator_config);
+        self.update_and_reload_config(&config.emulator_config)?;
 
         self.input_mapper.update_mappings(
             config.common.axis_deadzone,

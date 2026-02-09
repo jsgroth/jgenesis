@@ -8,16 +8,14 @@ use jgenesis_native_driver::config::AppConfigExt;
 use jgenesis_native_driver::extensions::Console;
 use jgenesis_native_driver::input::Joysticks;
 use jgenesis_native_driver::{
-    AudioError, Native32XEmulator, NativeEmulatorError, NativeEmulatorResult,
-    NativeGameBoyEmulator, NativeGbaEmulator, NativeGenesisEmulator, NativeNesEmulator,
-    NativeSegaCdEmulator, NativeSmsGgEmulator, NativeSnesEmulator, NativeTickEffect,
-    SaveStateMetadata,
+    Native32XEmulator, NativeEmulatorError, NativeEmulatorResult, NativeGameBoyEmulator,
+    NativeGbaEmulator, NativeGenesisEmulator, NativeNesEmulator, NativeSegaCdEmulator,
+    NativeSmsGgEmulator, NativeSnesEmulator, NativeTickEffect, SaveStateMetadata,
 };
 use jgenesis_proc_macros::MatchEachVariantMacro;
 use sdl3::EventPump;
 use sdl3::event::Event;
 use sdl3::joystick::{HatState, Joystick};
-use segacd_core::api::SegaCdLoadResult;
 use smsgg_core::SmsGgHardware;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -406,7 +404,7 @@ impl GenericEmulator {
         Ok(Some(emulator))
     }
 
-    fn reload_config(&mut self, config: Box<AppConfig>, path: PathBuf) -> Result<(), AudioError> {
+    fn reload_config(&mut self, config: Box<AppConfig>, path: PathBuf) -> NativeEmulatorResult<()> {
         match self {
             Self::SmsGg(emulator) => emulator.reload_smsgg_config(config.smsgg_config(path, None)),
             Self::Genesis(emulator) => emulator.reload_genesis_config(config.genesis_config(path)),
@@ -419,13 +417,15 @@ impl GenericEmulator {
         }
     }
 
-    fn remove_disc(&mut self) {
+    fn remove_disc(&mut self) -> NativeEmulatorResult<()> {
         if let Self::SegaCd(emulator) = self {
-            emulator.remove_disc();
+            emulator.remove_disc()?;
         }
+
+        Ok(())
     }
 
-    fn change_disc(&mut self, path: PathBuf) -> SegaCdLoadResult<()> {
+    fn change_disc(&mut self, path: PathBuf) -> NativeEmulatorResult<()> {
         if let Self::SegaCd(emulator) = self {
             emulator.change_disc(path)?;
         }
@@ -434,15 +434,15 @@ impl GenericEmulator {
     }
 
     fn render_frame(&mut self) -> NativeEmulatorResult<Option<NativeTickEffect>> {
-        match_each_variant!(self, emulator => emulator.render_frame())
+        match_each_variant!(self, emulator => emulator.run())
     }
 
-    fn soft_reset(&mut self) {
-        match_each_variant!(self, emulator => emulator.soft_reset());
+    fn soft_reset(&mut self) -> NativeEmulatorResult<()> {
+        match_each_variant!(self, emulator => emulator.soft_reset())
     }
 
-    fn hard_reset(&mut self) {
-        match_each_variant!(self, emulator => emulator.hard_reset());
+    fn hard_reset(&mut self) -> NativeEmulatorResult<()> {
+        match_each_variant!(self, emulator => emulator.hard_reset())
     }
 
     fn open_memory_viewer(&mut self) {
@@ -462,7 +462,7 @@ impl GenericEmulator {
     }
 
     fn save_state_metadata(&self) -> SaveStateMetadata {
-        match_each_variant!(self, emulator => emulator.save_state_metadata().clone())
+        match_each_variant!(self, emulator => emulator.save_state_metadata())
     }
 
     fn update_gui_focused(&mut self, gui_focused: bool) {
@@ -493,52 +493,13 @@ fn run_emulator(mut emulator: GenericEmulator, ctx: &EmuThreadContext) -> RunEmu
                 emulator.update_gui_focused(ctx.gui_focused.load(Ordering::Relaxed));
 
                 while let Ok(command) = ctx.command_receiver.try_recv() {
-                    match command {
-                        EmuThreadCommand::ReloadConfig(config, path) => {
-                            if let Err(err) = emulator.reload_config(config, path) {
-                                *ctx.emulator_error.lock().unwrap() = Some(err.into());
-                                return RunEmuResult::None;
-                            }
-                        }
-                        EmuThreadCommand::StopEmulator => {
-                            log::info!("Stopping emulator");
+                    match handle_command(&mut emulator, ctx, command) {
+                        Ok(None) => {}
+                        Ok(Some(result)) => return result,
+                        Err(err) => {
+                            *ctx.emulator_error.lock().unwrap() = Some(err);
                             return RunEmuResult::None;
                         }
-                        EmuThreadCommand::Terminate => {
-                            log::info!("Terminating emulation thread");
-                            return RunEmuResult::Terminate;
-                        }
-                        EmuThreadCommand::CollectInput { axis_deadzone } => {
-                            log::debug!("Received collect input command");
-
-                            emulator.focus();
-                            let (event_pump, joysticks) = emulator.event_pump_and_joysticks_mut();
-                            let input = collect_input(event_pump, joysticks, axis_deadzone, None);
-
-                            let is_none = input.is_none();
-
-                            log::debug!("Sending collect input result {input:?}");
-                            ctx.input_sender.send(input).unwrap();
-                            ctx.egui_ctx.request_repaint();
-
-                            if is_none {
-                                // Window was closed
-                                return RunEmuResult::None;
-                            }
-                        }
-                        EmuThreadCommand::SoftReset => emulator.soft_reset(),
-                        EmuThreadCommand::HardReset => emulator.hard_reset(),
-                        EmuThreadCommand::OpenMemoryViewer => emulator.open_memory_viewer(),
-                        EmuThreadCommand::SaveState { slot } => emulator.save_state(slot),
-                        EmuThreadCommand::LoadState { slot } => emulator.load_state(slot),
-                        EmuThreadCommand::SegaCdRemoveDisc => emulator.remove_disc(),
-                        EmuThreadCommand::SegaCdChangeDisc(path) => {
-                            if let Err(err) = emulator.change_disc(path) {
-                                *ctx.emulator_error.lock().unwrap() = Some(err.into());
-                                return RunEmuResult::None;
-                            }
-                        }
-                        EmuThreadCommand::Run { .. } | EmuThreadCommand::RunBios { .. } => {}
                     }
                 }
             }
@@ -556,6 +517,54 @@ fn run_emulator(mut emulator: GenericEmulator, ctx: &EmuThreadContext) -> RunEmu
             }
         }
     }
+}
+
+fn handle_command(
+    emulator: &mut GenericEmulator,
+    ctx: &EmuThreadContext,
+    command: EmuThreadCommand,
+) -> NativeEmulatorResult<Option<RunEmuResult>> {
+    match command {
+        EmuThreadCommand::ReloadConfig(config, path) => {
+            emulator.reload_config(config, path)?;
+        }
+        EmuThreadCommand::StopEmulator => {
+            log::info!("Stopping emulator");
+            return Ok(Some(RunEmuResult::None));
+        }
+        EmuThreadCommand::Terminate => {
+            log::info!("Terminating emulation thread");
+            return Ok(Some(RunEmuResult::Terminate));
+        }
+        EmuThreadCommand::CollectInput { axis_deadzone } => {
+            log::debug!("Received collect input command");
+
+            emulator.focus();
+            let (event_pump, joysticks) = emulator.event_pump_and_joysticks_mut();
+            let input = collect_input(event_pump, joysticks, axis_deadzone, None);
+
+            let is_none = input.is_none();
+
+            log::debug!("Sending collect input result {input:?}");
+            ctx.input_sender.send(input).unwrap();
+            ctx.egui_ctx.request_repaint();
+
+            if is_none {
+                // Window was closed
+                return Ok(Some(RunEmuResult::None));
+            }
+        }
+        EmuThreadCommand::SoftReset => emulator.soft_reset()?,
+        EmuThreadCommand::HardReset => emulator.hard_reset()?,
+        EmuThreadCommand::OpenMemoryViewer => emulator.open_memory_viewer(),
+        EmuThreadCommand::SaveState { slot } => emulator.save_state(slot),
+        EmuThreadCommand::LoadState { slot } => emulator.load_state(slot),
+        EmuThreadCommand::SegaCdRemoveDisc => emulator.remove_disc()?,
+        EmuThreadCommand::SegaCdChangeDisc(path) => emulator.change_disc(path)?,
+        EmuThreadCommand::Run { .. } | EmuThreadCommand::RunBios { .. } => {}
+    }
+
+    Ok(None)
 }
 
 fn collect_input_not_running(

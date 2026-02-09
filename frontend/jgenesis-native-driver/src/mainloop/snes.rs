@@ -2,7 +2,7 @@ use crate::config::SnesConfig;
 
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, debug, save};
-use crate::{AudioError, NativeEmulator, NativeEmulatorResult, extensions};
+use crate::{NativeEmulator, NativeEmulatorResult, extensions};
 
 use crate::config::RomReadResult;
 use jgenesis_native_config::common::WindowSize;
@@ -31,12 +31,12 @@ impl NativeSnesEmulator {
     /// # Errors
     ///
     /// This method will return an error if it is unable to reload audio config.
-    pub fn reload_snes_config(&mut self, config: Box<SnesConfig>) -> Result<(), AudioError> {
+    pub fn reload_snes_config(&mut self, config: Box<SnesConfig>) -> NativeEmulatorResult<()> {
         log::info!("Reloading config: {config}");
 
         self.reload_common_config(&config.common)?;
 
-        self.update_emulator_config(&config.emulator_config);
+        self.update_and_reload_config(&config.emulator_config)?;
 
         self.input_mapper.update_mappings(
             config.common.axis_deadzone,

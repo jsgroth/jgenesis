@@ -2,7 +2,7 @@ use crate::config::GameBoyConfig;
 use crate::config::RomReadResult;
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, debug, file_name_no_ext, save};
-use crate::{AudioError, NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
+use crate::{NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
 use gb_core::api::{BootRoms, GameBoyEmulator};
 use jgenesis_native_config::common::WindowSize;
 use std::fs;
@@ -14,12 +14,12 @@ impl NativeGameBoyEmulator {
     /// # Errors
     ///
     /// This method will return an error if it is unable to reload audio config.
-    pub fn reload_gb_config(&mut self, config: Box<GameBoyConfig>) -> Result<(), AudioError> {
+    pub fn reload_gb_config(&mut self, config: Box<GameBoyConfig>) -> NativeEmulatorResult<()> {
         log::info!("Reloading config: {config}");
 
         self.reload_common_config(&config.common)?;
 
-        self.update_emulator_config(&config.emulator_config);
+        self.update_and_reload_config(&config.emulator_config)?;
 
         self.input_mapper.update_mappings(
             config.common.axis_deadzone,

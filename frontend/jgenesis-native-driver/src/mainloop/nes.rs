@@ -2,7 +2,7 @@ use crate::config::NesConfig;
 
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, debug, file_name_no_ext, save};
-use crate::{AudioError, NativeEmulator, NativeEmulatorResult, extensions};
+use crate::{NativeEmulator, NativeEmulatorResult, extensions};
 
 use nes_core::api::NesEmulator;
 use nes_core::input::{NesInputDevice, NesInputs, ZapperState};
@@ -32,12 +32,12 @@ impl NativeNesEmulator {
     /// # Errors
     ///
     /// This method will return an error if it is unable to reload audio config.
-    pub fn reload_nes_config(&mut self, config: Box<NesConfig>) -> Result<(), AudioError> {
+    pub fn reload_nes_config(&mut self, config: Box<NesConfig>) -> NativeEmulatorResult<()> {
         log::info!("Reloading config: {config}");
 
         self.reload_common_config(&config.common)?;
 
-        self.update_emulator_config(&config.emulator_config);
+        self.update_and_reload_config(&config.emulator_config)?;
 
         self.input_mapper.update_mappings(
             config.common.axis_deadzone,
