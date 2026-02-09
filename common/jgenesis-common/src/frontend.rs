@@ -237,15 +237,7 @@ pub trait InputPoller<Inputs> {
     fn poll(&mut self) -> &Inputs;
 }
 
-pub struct ConstantInputPoller<'a, T>(pub &'a T);
-
-impl<T> InputPoller<T> for ConstantInputPoller<'_, T> {
-    fn poll(&mut self) -> &T {
-        self.0
-    }
-}
-
-pub trait EmulatorConfigTrait: Clone {
+pub trait EmulatorConfigTrait: Clone + Send + Sync + 'static {
     #[must_use]
     fn with_overclocking_disabled(&self) -> Self {
         self.clone()

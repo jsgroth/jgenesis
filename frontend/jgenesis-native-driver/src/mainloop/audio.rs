@@ -35,9 +35,20 @@ struct AudioCallbackState {
     error: Option<sdl3::Error>,
 }
 
+impl AudioCallbackState {
+    fn new(config: &CommonConfig) -> Self {
+        Self {
+            queue: VecDeque::with_capacity(2 * config.audio_buffer_size as usize),
+            hardware_queue_size: config.audio_hardware_queue_size,
+            unpark_threshold: audio_sync_threshold(config),
+            error: None,
+        }
+    }
+}
+
 struct AudioQueueCallback {
     state: Arc<Mutex<AudioCallbackState>>,
-    main_thread: Thread,
+    emulator_thread: Thread,
 }
 
 impl AudioCallback<f32> for AudioQueueCallback {
@@ -55,22 +66,28 @@ impl AudioCallback<f32> for AudioQueueCallback {
             if let Err(err) = stream.put_data_f32(&[sample_l, sample_r]) {
                 log::error!("Error pushing audio samples: {err}");
                 state.error = Some(err);
-                self.main_thread.unpark();
+                self.emulator_thread.unpark();
                 break;
             }
         }
 
         if state.queue.len() <= state.unpark_threshold as usize {
-            self.main_thread.unpark();
+            self.emulator_thread.unpark();
         }
     }
 }
 
-pub struct SdlAudioOutput {
-    muted: bool,
+pub struct SdlAudioOutputHandle {
     audio_subsystem: AudioSubsystem,
     audio_stream: AudioStreamWithCallback<AudioQueueCallback>,
     callback_state: Arc<Mutex<AudioCallbackState>>,
+    output_frequency: u64,
+    emulator_thread: Thread,
+}
+
+pub struct SdlAudioOutput {
+    callback_state: Arc<Mutex<AudioCallbackState>>,
+    muted: bool,
     audio_buffer: Vec<(f32, f32)>,
     audio_sync: bool,
     audio_sync_threshold: u32,
@@ -83,26 +100,77 @@ pub struct SdlAudioOutput {
     speed_multiplier: u64,
 }
 
+impl SdlAudioOutputHandle {
+    pub fn reload_config(&mut self, config: &CommonConfig) -> AudioResult<()> {
+        let freq_changed = self.output_frequency != config.audio_output_frequency;
+
+        self.output_frequency = config.audio_output_frequency;
+
+        if freq_changed {
+            // Recreate audio stream on sample rate changes
+
+            log::info!("Recreating SDL audio queue with freq {}", config.audio_output_frequency);
+
+            self.audio_stream.pause().map_err(AudioError::PauseStream)?;
+
+            self.audio_stream = open_audio_stream(
+                &self.audio_subsystem,
+                config,
+                Arc::clone(&self.callback_state),
+                self.emulator_thread.clone(),
+            )?;
+        }
+
+        {
+            let mut state = self.callback_state.lock().unwrap();
+            state.hardware_queue_size = config.audio_hardware_queue_size;
+            state.unpark_threshold = audio_sync_threshold(config);
+
+            // Truncate audio queue on config reloads if it is way oversized OR if sample rate changed
+            if freq_changed || state.queue.len() >= (4 * config.audio_buffer_size) as usize {
+                state.queue.clear();
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn set_emulator_thread(
+        &mut self,
+        config: &CommonConfig,
+        thread: Thread,
+    ) -> AudioResult<()> {
+        self.emulator_thread = thread.clone();
+
+        self.audio_stream.pause().map_err(AudioError::PauseStream)?;
+        self.audio_stream = open_audio_stream(
+            &self.audio_subsystem,
+            config,
+            Arc::clone(&self.callback_state),
+            thread,
+        )?;
+
+        Ok(())
+    }
+}
+
 impl SdlAudioOutput {
     pub fn create_and_init(
         audio_subsystem: AudioSubsystem,
         config: &CommonConfig,
-    ) -> AudioResult<Self> {
-        let callback_state = Arc::new(Mutex::new(AudioCallbackState {
-            queue: VecDeque::with_capacity(2 * config.audio_buffer_size as usize),
-            hardware_queue_size: config.audio_hardware_queue_size,
-            unpark_threshold: audio_sync_threshold(config),
-            error: None,
-        }));
+    ) -> AudioResult<(Self, SdlAudioOutputHandle)> {
+        let callback_state = Arc::new(Mutex::new(AudioCallbackState::new(config)));
 
-        let audio_stream =
-            open_audio_stream(&audio_subsystem, config, Arc::clone(&callback_state))?;
+        let audio_stream = open_audio_stream(
+            &audio_subsystem,
+            config,
+            Arc::clone(&callback_state),
+            thread::current(),
+        )?;
 
-        Ok(Self {
+        let audio_output = Self {
             muted: config.mute_audio,
-            audio_subsystem,
-            audio_stream,
-            callback_state,
+            callback_state: Arc::clone(&callback_state),
             audio_buffer: Vec::with_capacity(INTERNAL_AUDIO_BUFFER_LEN),
             audio_sync: config.audio_sync,
             audio_sync_threshold: audio_sync_threshold(config),
@@ -116,7 +184,17 @@ impl SdlAudioOutput {
             audio_gain_multiplier: decibels_to_multiplier(config.audio_gain_db),
             sample_count: 0,
             speed_multiplier: 1,
-        })
+        };
+
+        let handle = SdlAudioOutputHandle {
+            audio_subsystem,
+            audio_stream,
+            callback_state,
+            output_frequency: config.audio_output_frequency,
+            emulator_thread: thread::current(),
+        };
+
+        Ok((audio_output, handle))
     }
 
     pub fn reload_config(&mut self, config: &CommonConfig) -> AudioResult<()> {
@@ -130,28 +208,6 @@ impl SdlAudioOutput {
         self.audio_buffer_size = config.audio_buffer_size;
         self.audio_gain_multiplier = decibels_to_multiplier(config.audio_gain_db);
         self.audio_sync_threshold = audio_sync_threshold(config);
-
-        if freq_changed {
-            // Recreate audio stream on sample rate changes
-
-            log::info!("Recreating SDL audio queue with freq {}", config.audio_output_frequency);
-
-            self.audio_stream.pause().map_err(AudioError::PauseStream)?;
-
-            self.audio_stream =
-                open_audio_stream(&self.audio_subsystem, config, Arc::clone(&self.callback_state))?;
-        }
-
-        {
-            let mut state = self.callback_state.lock().unwrap();
-            state.hardware_queue_size = config.audio_hardware_queue_size;
-            state.unpark_threshold = self.audio_sync_threshold;
-
-            // Truncate audio queue on config reloads if it is way oversized OR if sample rate changed
-            if freq_changed || state.queue.len() >= (4 * config.audio_buffer_size) as usize {
-                state.queue.clear();
-            }
-        }
 
         if freq_changed || buffer_size_changed {
             self.dynamic_resampling_rate
@@ -174,7 +230,6 @@ impl SdlAudioOutput {
         self.dynamic_resampling_rate.adjust(audio_queue_len as u32);
     }
 
-    #[must_use]
     pub fn output_frequency(&self) -> u64 {
         if self.dynamic_resampling_ratio_enabled {
             self.dynamic_resampling_rate.current_output_frequency().into()
@@ -188,9 +243,9 @@ fn open_audio_stream(
     audio: &AudioSubsystem,
     config: &CommonConfig,
     callback_state: Arc<Mutex<AudioCallbackState>>,
+    emulator_thread: Thread,
 ) -> AudioResult<AudioStreamWithCallback<AudioQueueCallback>> {
-    let audio_callback =
-        AudioQueueCallback { state: callback_state, main_thread: thread::current() };
+    let audio_callback = AudioQueueCallback { state: callback_state, emulator_thread };
 
     let stream = audio
         .open_playback_stream(

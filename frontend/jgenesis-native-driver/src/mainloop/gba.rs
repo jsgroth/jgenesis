@@ -17,12 +17,12 @@ impl NativeGbaEmulator {
     pub fn reload_gba_config(
         &mut self,
         config: Box<GameBoyAdvanceConfig>,
-    ) -> Result<(), AudioError> {
+    ) -> NativeEmulatorResult<()> {
         log::info!("Reloading config: {config}");
 
         self.reload_common_config(&config.common)?;
 
-        self.update_emulator_config(&config.emulator_config);
+        self.update_and_reload_config(&config.emulator_config)?;
 
         self.input_mapper.update_mappings(
             config.common.axis_deadzone,
