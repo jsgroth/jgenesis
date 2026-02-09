@@ -66,11 +66,16 @@ impl AudioCallback<f32> for AudioQueueCallback {
     }
 }
 
-pub struct SdlAudioOutput {
-    muted: bool,
+pub struct SdlAudioOutputHandle {
     audio_subsystem: AudioSubsystem,
     audio_stream: AudioStreamWithCallback<AudioQueueCallback>,
     callback_state: Arc<Mutex<AudioCallbackState>>,
+    output_frequency: u64,
+}
+
+pub struct SdlAudioOutput {
+    callback_state: Arc<Mutex<AudioCallbackState>>,
+    muted: bool,
     audio_buffer: Vec<(f32, f32)>,
     audio_sync: bool,
     audio_sync_threshold: u32,
@@ -83,53 +88,11 @@ pub struct SdlAudioOutput {
     speed_multiplier: u64,
 }
 
-impl SdlAudioOutput {
-    pub fn create_and_init(
-        audio_subsystem: AudioSubsystem,
-        config: &CommonConfig,
-    ) -> AudioResult<Self> {
-        let callback_state = Arc::new(Mutex::new(AudioCallbackState {
-            queue: VecDeque::with_capacity(2 * config.audio_buffer_size as usize),
-            hardware_queue_size: config.audio_hardware_queue_size,
-            unpark_threshold: audio_sync_threshold(config),
-            error: None,
-        }));
-
-        let audio_stream =
-            open_audio_stream(&audio_subsystem, config, Arc::clone(&callback_state))?;
-
-        Ok(Self {
-            muted: config.mute_audio,
-            audio_subsystem,
-            audio_stream,
-            callback_state,
-            audio_buffer: Vec::with_capacity(INTERNAL_AUDIO_BUFFER_LEN),
-            audio_sync: config.audio_sync,
-            audio_sync_threshold: audio_sync_threshold(config),
-            dynamic_resampling_ratio_enabled: config.audio_dynamic_resampling_ratio,
-            dynamic_resampling_rate: DynamicResamplingRate::new(
-                config.audio_output_frequency as u32,
-                config.audio_buffer_size,
-            ),
-            output_frequency: config.audio_output_frequency,
-            audio_buffer_size: config.audio_buffer_size,
-            audio_gain_multiplier: decibels_to_multiplier(config.audio_gain_db),
-            sample_count: 0,
-            speed_multiplier: 1,
-        })
-    }
-
+impl SdlAudioOutputHandle {
     pub fn reload_config(&mut self, config: &CommonConfig) -> AudioResult<()> {
         let freq_changed = self.output_frequency != config.audio_output_frequency;
-        let buffer_size_changed = self.audio_buffer_size != config.audio_buffer_size;
 
-        self.muted = config.mute_audio;
-        self.audio_sync = config.audio_sync;
-        self.dynamic_resampling_ratio_enabled = config.audio_dynamic_resampling_ratio;
         self.output_frequency = config.audio_output_frequency;
-        self.audio_buffer_size = config.audio_buffer_size;
-        self.audio_gain_multiplier = decibels_to_multiplier(config.audio_gain_db);
-        self.audio_sync_threshold = audio_sync_threshold(config);
 
         if freq_changed {
             // Recreate audio stream on sample rate changes
@@ -145,13 +108,72 @@ impl SdlAudioOutput {
         {
             let mut state = self.callback_state.lock().unwrap();
             state.hardware_queue_size = config.audio_hardware_queue_size;
-            state.unpark_threshold = self.audio_sync_threshold;
+            state.unpark_threshold = audio_sync_threshold(config);
 
             // Truncate audio queue on config reloads if it is way oversized OR if sample rate changed
             if freq_changed || state.queue.len() >= (4 * config.audio_buffer_size) as usize {
                 state.queue.clear();
             }
         }
+
+        Ok(())
+    }
+}
+
+impl SdlAudioOutput {
+    pub fn create_and_init(
+        audio_subsystem: AudioSubsystem,
+        config: &CommonConfig,
+    ) -> AudioResult<(Self, SdlAudioOutputHandle)> {
+        let callback_state = Arc::new(Mutex::new(AudioCallbackState {
+            queue: VecDeque::with_capacity(2 * config.audio_buffer_size as usize),
+            hardware_queue_size: config.audio_hardware_queue_size,
+            unpark_threshold: audio_sync_threshold(config),
+            error: None,
+        }));
+
+        let audio_stream =
+            open_audio_stream(&audio_subsystem, config, Arc::clone(&callback_state))?;
+
+        let audio_output = Self {
+            muted: config.mute_audio,
+            callback_state: Arc::clone(&callback_state),
+            audio_buffer: Vec::with_capacity(INTERNAL_AUDIO_BUFFER_LEN),
+            audio_sync: config.audio_sync,
+            audio_sync_threshold: audio_sync_threshold(config),
+            dynamic_resampling_ratio_enabled: config.audio_dynamic_resampling_ratio,
+            dynamic_resampling_rate: DynamicResamplingRate::new(
+                config.audio_output_frequency as u32,
+                config.audio_buffer_size,
+            ),
+            output_frequency: config.audio_output_frequency,
+            audio_buffer_size: config.audio_buffer_size,
+            audio_gain_multiplier: decibels_to_multiplier(config.audio_gain_db),
+            sample_count: 0,
+            speed_multiplier: 1,
+        };
+
+        let handle = SdlAudioOutputHandle {
+            audio_subsystem,
+            audio_stream,
+            callback_state,
+            output_frequency: config.audio_output_frequency,
+        };
+
+        Ok((audio_output, handle))
+    }
+
+    pub fn reload_config(&mut self, config: &CommonConfig) -> AudioResult<()> {
+        let freq_changed = self.output_frequency != config.audio_output_frequency;
+        let buffer_size_changed = self.audio_buffer_size != config.audio_buffer_size;
+
+        self.muted = config.mute_audio;
+        self.audio_sync = config.audio_sync;
+        self.dynamic_resampling_ratio_enabled = config.audio_dynamic_resampling_ratio;
+        self.output_frequency = config.audio_output_frequency;
+        self.audio_buffer_size = config.audio_buffer_size;
+        self.audio_gain_multiplier = decibels_to_multiplier(config.audio_gain_db);
+        self.audio_sync_threshold = audio_sync_threshold(config);
 
         if freq_changed || buffer_size_changed {
             self.dynamic_resampling_rate
@@ -174,7 +196,6 @@ impl SdlAudioOutput {
         self.dynamic_resampling_rate.adjust(audio_queue_len as u32);
     }
 
-    #[must_use]
     pub fn output_frequency(&self) -> u64 {
         if self.dynamic_resampling_ratio_enabled {
             self.dynamic_resampling_rate.current_output_frequency().into()

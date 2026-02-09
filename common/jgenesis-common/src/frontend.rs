@@ -245,7 +245,7 @@ impl<T> InputPoller<T> for ConstantInputPoller<'_, T> {
     }
 }
 
-pub trait EmulatorConfigTrait: Clone {
+pub trait EmulatorConfigTrait: Clone + Send + Sync + 'static {
     #[must_use]
     fn with_overclocking_disabled(&self) -> Self {
         self.clone()

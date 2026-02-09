@@ -1,77 +1,65 @@
 use crate::NativeEmulatorResult;
+use crate::config::CommonConfig;
+use crate::mainloop::audio::SdlAudioOutput;
 use crate::mainloop::input::ThreadedInputPoller;
-use crate::mainloop::render::{DoneMessage, FrameMessage, ThreadedRenderer};
+use crate::mainloop::render::{RecvFrameError, ThreadedRenderer, ThreadedRendererHandle};
 use crate::mainloop::save::FsSaveWriter;
 use crate::mainloop::{CreateEmulatorFn, CreatedEmulator};
-use jgenesis_common::frontend::EmulatorTrait;
+use jgenesis_common::frontend::{AudioOutput, EmulatorTrait, Renderer, SaveWriter, TickEffect};
 use jgenesis_native_config::common::WindowSize;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, SendError, Sender, SyncSender};
+use std::error::Error;
+use std::sync::atomic::AtomicBool;
+use std::sync::mpsc::{Receiver, SendError, Sender, TryRecvError};
 use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::Duration;
 
-#[derive(Debug, Clone, Copy)]
-pub enum RunnerCommand {}
-
-#[derive(Debug, Clone, Copy)]
-pub enum RunState {
-    RunNormally = 0,
-    Pause = 1,
-    FastForward = 2,
-    Rewind = 3,
-}
-
-impl RunState {
-    fn from_ordinal(ordinal: u8) -> Option<Self> {
-        match ordinal {
-            0 => Some(Self::RunNormally),
-            1 => Some(Self::Pause),
-            2 => Some(Self::FastForward),
-            3 => Some(Self::Rewind),
-            _ => None,
-        }
-    }
+#[derive(Debug, Clone)]
+pub enum RunnerCommand<Config> {
+    Terminate,
+    Pause(bool),
+    StepFrame,
+    FastForward(bool),
+    Rewind(bool),
+    SaveState { slot: usize },
+    LoadState { slot: usize },
+    ReloadConfig(Box<(CommonConfig, Config)>),
 }
 
 struct RunnerThreadState<Emulator: EmulatorTrait> {
     emulator: Emulator,
     renderer: ThreadedRenderer,
+    audio_output: SdlAudioOutput,
     input_poller: ThreadedInputPoller<Emulator::Inputs>,
     save_writer: FsSaveWriter,
-    run_state: Arc<AtomicU8>,
-    step_frame: Arc<AtomicBool>,
-    command_receiver: Receiver<RunnerCommand>,
+    command_receiver: Receiver<RunnerCommand<Emulator::Config>>,
+    error_sender: Sender<Box<dyn Error + Send + Sync + 'static>>,
 }
 
 pub struct RunnerThread<Emulator: EmulatorTrait> {
     window_title: String,
     default_window_size: WindowSize,
-    run_state: Arc<AtomicU8>,
-    step_frame: Arc<AtomicBool>,
-    command_sender: Sender<RunnerCommand>,
-    frame_receiver: Receiver<FrameMessage>,
-    render_done_sender: SyncSender<DoneMessage>,
+    command_sender: Sender<RunnerCommand<Emulator::Config>>,
+    renderer_handle: ThreadedRendererHandle,
     input_poller: ThreadedInputPoller<Emulator::Inputs>,
+    error_receiver: Receiver<Box<dyn Error + Send + Sync + 'static>>,
 }
 
 impl<Emulator: EmulatorTrait> RunnerThread<Emulator> {
     pub fn spawn(
         create_emulator_fn: Box<CreateEmulatorFn<Emulator>>,
         initial_inputs: Emulator::Inputs,
+        audio_output: SdlAudioOutput,
         mut save_writer: FsSaveWriter,
     ) -> NativeEmulatorResult<Self> {
-        let run_state = Arc::new(AtomicU8::new(RunState::RunNormally as u8));
-        let step_frame = Arc::new(AtomicBool::new(false));
-
         let (init_sender, init_receiver) = mpsc::sync_channel(0);
         let (command_sender, command_receiver) = mpsc::channel();
-        let (renderer, frame_receiver, render_done_sender) = ThreadedRenderer::new();
+        let (error_sender, error_receiver) = mpsc::channel();
+
+        let (renderer, renderer_handle) = ThreadedRenderer::new();
         let input_poller = ThreadedInputPoller::new(initial_inputs);
 
         {
-            let run_state = Arc::clone(&run_state);
-            let step_frame = Arc::clone(&step_frame);
             let input_poller = input_poller.clone();
 
             thread::spawn(move || match create_emulator_fn(&mut save_writer) {
@@ -81,11 +69,11 @@ impl<Emulator: EmulatorTrait> RunnerThread<Emulator> {
                     run_thread(RunnerThreadState {
                         emulator,
                         renderer,
+                        audio_output,
                         input_poller,
                         save_writer,
-                        run_state,
-                        step_frame,
                         command_receiver,
+                        error_sender,
                     });
                 }
                 Err(err) => {
@@ -99,29 +87,30 @@ impl<Emulator: EmulatorTrait> RunnerThread<Emulator> {
         Ok(Self {
             window_title,
             default_window_size,
-            run_state,
-            step_frame,
             command_sender,
-            frame_receiver,
-            render_done_sender,
+            renderer_handle,
             input_poller,
+            error_receiver,
         })
     }
 
-    pub fn set_run_state(&self, run_state: RunState) {
-        self.run_state.store(run_state as u8, Ordering::Relaxed);
+    pub fn send_command(
+        &self,
+        command: RunnerCommand<Emulator::Config>,
+    ) -> Result<(), SendError<RunnerCommand<Emulator::Config>>> {
+        self.command_sender.send(command)
     }
 
-    pub fn set_step_frame(&self) {
-        self.step_frame.store(true, Ordering::Relaxed);
+    pub fn recv_frame<R: Renderer>(
+        &self,
+        renderer: &mut R,
+        timeout: Duration,
+    ) -> Result<(), RecvFrameError<R::Err>> {
+        self.renderer_handle.try_recv_frame(renderer, timeout)
     }
 
-    pub fn recv_frame(&self, timeout: Duration) -> Result<FrameMessage, RecvTimeoutError> {
-        self.frame_receiver.recv_timeout(timeout)
-    }
-
-    pub fn send_render_done(&self, message: DoneMessage) -> Result<(), SendError<DoneMessage>> {
-        self.render_done_sender.send(message)
+    pub fn try_recv_error(&self) -> Result<Box<dyn Error + Send + Sync + 'static>, TryRecvError> {
+        self.error_receiver.try_recv()
     }
 
     pub fn update_inputs(&mut self, inputs: &Emulator::Inputs) {
@@ -138,5 +127,33 @@ impl<Emulator: EmulatorTrait> RunnerThread<Emulator> {
 }
 
 fn run_thread<Emulator: EmulatorTrait>(mut state: RunnerThreadState<Emulator>) {
-    loop {}
+    loop {
+        if let Err(err) = run_till_next_frame(&mut state) {
+            state.error_sender.send(err.into()).unwrap();
+            return;
+        }
+
+        state.input_poller.check_for_updates();
+    }
+}
+
+fn run_till_next_frame<Emulator: EmulatorTrait>(
+    state: &mut RunnerThreadState<Emulator>,
+) -> Result<
+    (),
+    Emulator::Err<
+        <ThreadedRenderer as Renderer>::Err,
+        <SdlAudioOutput as AudioOutput>::Err,
+        <FsSaveWriter as SaveWriter>::Err,
+    >,
+> {
+    while state.emulator.tick(
+        &mut state.renderer,
+        &mut state.audio_output,
+        &mut state.input_poller,
+        &mut state.save_writer,
+    )? != TickEffect::FrameRendered
+    {}
+
+    Ok(())
 }

@@ -28,7 +28,7 @@ use crate::archive::ArchiveError;
 use crate::config::CommonConfig;
 use crate::fpstracker::FpsTracker;
 use crate::input::{InputEvent, InputMapper, Joysticks};
-use crate::mainloop::audio::SdlAudioOutput;
+use crate::mainloop::audio::{SdlAudioOutput, SdlAudioOutputHandle};
 use crate::mainloop::debug::{DebugRenderFn, DebuggerWindow};
 use crate::mainloop::rewind::Rewinder;
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
@@ -206,6 +206,7 @@ pub struct NativeEmulator<Emulator: EmulatorTrait> {
     config: Emulator::Config,
     common_config: CommonConfig,
     renderer: WgpuRenderer<Window>,
+    audio_output_handle: SdlAudioOutputHandle,
     audio_output: SdlAudioOutput,
     input_mapper: InputMapper<Emulator::Button>,
     inputs: Emulator::Inputs,
@@ -227,6 +228,7 @@ impl<Emulator: EmulatorTrait> NativeEmulator<Emulator> {
 
         self.renderer.reload_config(config.renderer_config);
 
+        self.audio_output_handle.reload_config(config)?;
         self.audio_output.reload_config(config)?;
         self.emulator.update_audio_output_frequency(self.audio_output.output_frequency());
 
@@ -509,7 +511,8 @@ where
     ) -> NativeEmulatorResult<Self> {
         let (sdl, video, audio, joystick, event_pump) = init_sdl3(&common_config)?;
 
-        let audio_output = SdlAudioOutput::create_and_init(audio, &common_config)?;
+        let (audio_output, audio_output_handle) =
+            SdlAudioOutput::create_and_init(audio, &common_config)?;
 
         let input_mapper = InputMapper::new(
             joystick,
@@ -552,6 +555,7 @@ where
             config: emulator_config,
             common_config: common_config.clone(),
             renderer,
+            audio_output_handle,
             audio_output,
             input_mapper,
             inputs: initial_inputs,
