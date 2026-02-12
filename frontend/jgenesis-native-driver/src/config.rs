@@ -334,6 +334,7 @@ impl AppConfigExt for AppConfig {
             window_scale_factor: self.common.window_scale_factor,
             renderer_config: RendererConfig {
                 wgpu_backend: self.common.wgpu_backend,
+                wgpu_power_preference: self.common.wgpu_power_preference,
                 vsync_mode: self.common.vsync_mode,
                 frame_time_sync: self.common.frame_time_sync,
                 prescale_mode: if self.common.auto_prescale {

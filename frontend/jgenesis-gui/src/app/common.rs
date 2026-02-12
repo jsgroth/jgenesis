@@ -4,7 +4,9 @@ use crate::app::widgets::NumericTextEdit;
 use crate::app::{App, OpenWindow, widgets};
 use eframe::epaint::Color32;
 use egui::{Context, Slider, Ui, Window};
-use jgenesis_renderer::config::{FilterMode, PreprocessShader, Scanlines, VSyncMode, WgpuBackend};
+use jgenesis_renderer::config::{
+    FilterMode, PreprocessShader, Scanlines, VSyncMode, WgpuBackend, WgpuPowerPreference,
+};
 use std::num::{NonZeroU8, NonZeroU32};
 
 impl App {
@@ -17,6 +19,7 @@ impl App {
                 self.render_fullscreen_settings(ui, WINDOW);
                 self.render_window_size_setting(ui, WINDOW);
                 self.render_wgpu_backend_setting(ui, WINDOW);
+                self.render_wgpu_power_preference_setting(ui, WINDOW);
                 self.render_filter_mode_setting(ui, WINDOW);
                 self.render_preprocess_shader_setting(ui, WINDOW);
                 self.render_scanlines_setting(ui, WINDOW);
@@ -88,26 +91,14 @@ impl App {
                 ui.add_enabled_ui(!self.emu_thread.status().is_running(), |ui| {
                     ui.label("wgpu backend");
                     ui.horizontal(|ui| {
-                        ui.radio_value(
-                            &mut self.config.common.wgpu_backend,
-                            WgpuBackend::Auto,
-                            "Auto",
-                        );
-                        ui.radio_value(
-                            &mut self.config.common.wgpu_backend,
-                            WgpuBackend::Vulkan,
-                            "Vulkan",
-                        );
-                        ui.radio_value(
-                            &mut self.config.common.wgpu_backend,
-                            WgpuBackend::DirectX12,
-                            "DirectX 12",
-                        );
-                        ui.radio_value(
-                            &mut self.config.common.wgpu_backend,
-                            WgpuBackend::OpenGl,
-                            "OpenGL",
-                        );
+                        for (value, label) in [
+                            (WgpuBackend::Auto, "Auto"),
+                            (WgpuBackend::Vulkan, "Vulkan"),
+                            (WgpuBackend::DirectX12, "DirectX 12"),
+                            (WgpuBackend::OpenGl, "OpenGL"),
+                        ] {
+                            ui.radio_value(&mut self.config.common.wgpu_backend, value, label);
+                        }
                     });
                 });
             })
@@ -121,6 +112,33 @@ impl App {
         let is_opengl = self.config.common.wgpu_backend == WgpuBackend::OpenGl;
         if is_opengl {
             self.config.common.vsync_mode = VSyncMode::Enabled;
+        }
+    }
+
+    fn render_wgpu_power_preference_setting(&mut self, ui: &mut Ui, window: OpenWindow) {
+        let rect = ui
+            .group(|ui| {
+                ui.add_enabled_ui(!self.emu_thread.status().is_running(), |ui| {
+                    ui.label("wgpu power preference");
+                    ui.horizontal(|ui| {
+                        for (value, label) in [
+                            (WgpuPowerPreference::HighPerformance, "High performance"),
+                            (WgpuPowerPreference::LowPower, "Low power"),
+                            (WgpuPowerPreference::None, "No preference"),
+                        ] {
+                            ui.radio_value(
+                                &mut self.config.common.wgpu_power_preference,
+                                value,
+                                label,
+                            );
+                        }
+                    });
+                });
+            })
+            .response
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(window, helptext::WGPU_POWER_PREFERENCE);
         }
     }
 

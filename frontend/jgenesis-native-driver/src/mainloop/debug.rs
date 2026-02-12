@@ -17,6 +17,7 @@ use egui_extras::{Column, TableBuilder};
 use egui_wgpu::ScreenDescriptor;
 use jgenesis_common::frontend::Color;
 use jgenesis_native_config::EguiTheme;
+use jgenesis_renderer::config::RendererConfig;
 use sdl3::VideoSubsystem;
 use sdl3::video::{Window, WindowBuildError};
 use std::iter;
@@ -70,6 +71,7 @@ impl<Emulator> DebuggerWindow<Emulator> {
         video: &VideoSubsystem,
         scale_factor: Option<f32>,
         egui_theme: EguiTheme,
+        render_config: &RendererConfig,
         render_fn: Box<DebugRenderFn<Emulator>>,
     ) -> Result<Self, DebuggerError> {
         let scale_factor =
@@ -87,7 +89,7 @@ impl<Emulator> DebuggerWindow<Emulator> {
         video.text_input().start(&window);
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
+            backends: render_config.wgpu_backend.to_wgpu(),
             flags: wgpu::InstanceFlags::default(),
             backend_options: wgpu::BackendOptions {
                 dx12: wgpu::Dx12BackendOptions {
@@ -105,7 +107,7 @@ impl<Emulator> DebuggerWindow<Emulator> {
             unsafe { instance.create_surface_unsafe(SurfaceTargetUnsafe::from_window(&window)?) }?;
 
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
+            power_preference: render_config.wgpu_power_preference.to_wgpu(),
             force_fallback_adapter: false,
             compatible_surface: Some(&surface),
         }))

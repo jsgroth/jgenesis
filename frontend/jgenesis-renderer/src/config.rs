@@ -13,6 +13,39 @@ pub enum WgpuBackend {
     OpenGl,
 }
 
+impl WgpuBackend {
+    #[must_use]
+    pub fn to_wgpu(self) -> wgpu::Backends {
+        match self {
+            WgpuBackend::Auto => wgpu::Backends::PRIMARY,
+            WgpuBackend::Vulkan => wgpu::Backends::VULKAN,
+            WgpuBackend::DirectX12 => wgpu::Backends::DX12,
+            WgpuBackend::OpenGl => wgpu::Backends::GL,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumAll)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum WgpuPowerPreference {
+    #[default]
+    HighPerformance,
+    LowPower,
+    None,
+}
+
+impl WgpuPowerPreference {
+    #[must_use]
+    pub fn to_wgpu(self) -> wgpu::PowerPreference {
+        match self {
+            Self::HighPerformance => wgpu::PowerPreference::HighPerformance,
+            Self::LowPower => wgpu::PowerPreference::LowPower,
+            Self::None => wgpu::PowerPreference::None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumAll)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
@@ -140,6 +173,7 @@ pub enum PreprocessShader {
 #[derive(Debug, Clone, Copy, ConfigDisplay)]
 pub struct RendererConfig {
     pub wgpu_backend: WgpuBackend,
+    pub wgpu_power_preference: WgpuPowerPreference,
     pub vsync_mode: VSyncMode,
     pub frame_time_sync: bool,
     pub prescale_mode: PrescaleMode,

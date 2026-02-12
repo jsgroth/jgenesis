@@ -21,6 +21,14 @@ pub const WGPU_BACKEND: HelpText = HelpText {
     ],
 };
 
+pub const WGPU_POWER_PREFERENCE: HelpText = HelpText {
+    heading: "wgpu Power Preference",
+    text: &[
+        "Configure the power preference used for choosing a graphics device, if multiple devices are available.",
+        "High performance generally picks a dedicated GPU. Low power generally picks an integrated GPU. No preference lets the OS decide.",
+    ],
+};
+
 pub const VSYNC_MODE: HelpText = HelpText {
     heading: "VSync Mode",
     text: &[

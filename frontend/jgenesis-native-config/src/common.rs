@@ -3,6 +3,7 @@ use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::{EnumAll, EnumDisplay};
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, Scanlines, VSyncMode, WgpuBackend,
+    WgpuPowerPreference,
 };
 use nes_config::NesAspectRatio;
 use serde::{Deserialize, Serialize};
@@ -281,6 +282,8 @@ pub struct CommonAppConfig {
     pub initial_window_size: NonZeroU8,
     #[serde(default)]
     pub wgpu_backend: WgpuBackend,
+    #[serde(default)]
+    pub wgpu_power_preference: WgpuPowerPreference,
     #[serde(default)]
     pub vsync_mode: VSyncMode,
     #[serde(default = "true_fn")]

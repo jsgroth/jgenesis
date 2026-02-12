@@ -10,7 +10,7 @@ use jgenesis_common::frontend::{ColorCorrection, FiniteF32, MappableInputs, Timi
 use jgenesis_common::input::Player;
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, PrescaleMode, RendererConfig, Scanlines,
-    VSyncMode, WgpuBackend,
+    VSyncMode, WgpuBackend, WgpuPowerPreference,
 };
 use s32x_core::api::Sega32XEmulatorConfig;
 use segacd_core::api::SegaCdEmulatorConfig;
@@ -49,6 +49,7 @@ impl CommonWebConfig {
     pub fn to_renderer_config(&self) -> RendererConfig {
         RendererConfig {
             wgpu_backend: WgpuBackend::OpenGl,
+            wgpu_power_preference: WgpuPowerPreference::HighPerformance,
             vsync_mode: VSyncMode::Enabled,
             // Frame time sync does not work on web because it blocks until the next frame time
             frame_time_sync: false,

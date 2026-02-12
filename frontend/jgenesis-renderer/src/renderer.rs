@@ -1,4 +1,4 @@
-use crate::config::{PreprocessShader, PrescaleMode, RendererConfig, Scanlines, WgpuBackend};
+use crate::config::{PreprocessShader, PrescaleMode, RendererConfig, Scanlines};
 use cfg_if::cfg_if;
 use jgenesis_common::frontend::{
     Color, ColorCorrection, DisplayArea, FiniteF64, FrameSize, RenderFrameOptions, Renderer,
@@ -1368,12 +1368,7 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
         window_size: WindowSize,
         config: RendererConfig,
     ) -> Result<Self, RendererError> {
-        let backends = match config.wgpu_backend {
-            WgpuBackend::Auto => wgpu::Backends::PRIMARY,
-            WgpuBackend::Vulkan => wgpu::Backends::VULKAN,
-            WgpuBackend::DirectX12 => wgpu::Backends::DX12,
-            WgpuBackend::OpenGl => wgpu::Backends::GL,
-        };
+        let backends = config.wgpu_backend.to_wgpu();
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends,
@@ -1396,14 +1391,19 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
+                power_preference: config.wgpu_power_preference.to_wgpu(),
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
             })
             .await
             .ok_or(RendererError::NoWgpuAdapter)?;
 
-        log::info!("Obtained wgpu adapter with backend {:?}", adapter.get_info().backend);
+        let adapter_info = adapter.get_info();
+        log::info!(
+            "Obtained wgpu adapter with backend {:?}: {}",
+            adapter_info.backend,
+            adapter_info.name
+        );
 
         let (device, queue) = adapter
             .request_device(
@@ -1570,6 +1570,10 @@ impl<Window> WgpuRenderer<Window> {
             "Set frame time interval to {}ns for target framerate {fps} FPS",
             self.frame_time_tracker.frame_interval_nanos
         );
+    }
+
+    pub fn config(&self) -> &RendererConfig {
+        &self.renderer_config
     }
 
     /// Obtain the last rendered frame size and the current display area within the window.

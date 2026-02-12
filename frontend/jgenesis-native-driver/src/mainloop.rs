@@ -284,10 +284,11 @@ fn open_debugger_window<Emulator>(
     video: &VideoSubsystem,
     scale_factor: Option<f32>,
     egui_theme: EguiTheme,
+    render_config: &RendererConfig,
     debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
 ) -> Option<DebuggerWindow<Emulator>> {
     let render_fn = debug_render_fn();
-    match DebuggerWindow::new(video, scale_factor, egui_theme, render_fn) {
+    match DebuggerWindow::new(video, scale_factor, egui_theme, render_config, render_fn) {
         Ok(debugger_window) => Some(debugger_window),
         Err(err) => {
             log::error!("Error opening debugger window: {err}");
@@ -752,6 +753,7 @@ where
                 &self.video,
                 self.hotkey_state.window_scale_factor,
                 self.hotkey_state.egui_theme,
+                self.renderer.config(),
                 self.hotkey_state.debug_render_fn,
             );
         }
@@ -1041,3 +1043,4 @@ macro_rules! bincode_config {
 use bincode_config;
 use genesis_config::GenesisRegion;
 use jgenesis_native_config::EguiTheme;
+use jgenesis_renderer::config::RendererConfig;
