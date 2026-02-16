@@ -2,6 +2,19 @@ use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, EnumFromStr};
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU32;
 
+pub const DXIL_PATH: &str = "dxil.dll";
+pub const DXCOMPILER_PATH: &str = "dxcompiler.dll";
+
+#[must_use]
+pub fn dx12_backend_options() -> wgpu::Dx12BackendOptions {
+    wgpu::Dx12BackendOptions {
+        shader_compiler: wgpu::Dx12Compiler::DynamicDxc {
+            dxc_path: DXCOMPILER_PATH.into(),
+            dxil_path: DXIL_PATH.into(),
+        },
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumAll)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
@@ -16,6 +29,13 @@ pub enum WgpuBackend {
 impl WgpuBackend {
     #[must_use]
     pub fn to_wgpu(self) -> wgpu::Backends {
+        #[cfg(target_os = "windows")]
+        if self == WgpuBackend::Auto && supports_dx12() {
+            // Prefer DX12 on Windows if supported (necessary because wgpu prefers Vulkan over DX12)
+            // AMD GPUs seem to sometimes have color space bugs on Windows w/ Vulkan
+            return wgpu::Backends::DX12;
+        }
+
         match self {
             WgpuBackend::Auto => wgpu::Backends::PRIMARY,
             WgpuBackend::Vulkan => wgpu::Backends::VULKAN,
@@ -23,6 +43,28 @@ impl WgpuBackend {
             WgpuBackend::OpenGl => wgpu::Backends::GL,
         }
     }
+}
+
+#[cfg(target_os = "windows")]
+fn supports_dx12() -> bool {
+    use std::sync::LazyLock;
+
+    static SUPPORTS_DX12: LazyLock<bool> = LazyLock::new(|| {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::DX12,
+            flags: wgpu::InstanceFlags::default(),
+            backend_options: wgpu::BackendOptions {
+                gl: wgpu::GlBackendOptions::default(),
+                dx12: dx12_backend_options(),
+            },
+        });
+
+        let adapter =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()));
+        adapter.is_some()
+    });
+
+    *SUPPORTS_DX12
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumAll)]

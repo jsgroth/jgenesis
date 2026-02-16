@@ -1,4 +1,7 @@
+use crate::config;
 use crate::config::{PreprocessShader, PrescaleMode, RendererConfig, Scanlines};
+#[cfg(feature = "ttf")]
+use crate::ttf;
 use cfg_if::cfg_if;
 use jgenesis_common::frontend::{
     Color, ColorCorrection, DisplayArea, FiniteF64, FrameSize, RenderFrameOptions, Renderer,
@@ -13,9 +16,6 @@ use std::sync::Arc;
 use std::{cmp, iter};
 use thiserror::Error;
 use wgpu::util::DeviceExt;
-
-#[cfg(feature = "ttf")]
-use crate::ttf;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -1374,12 +1374,7 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             backends,
             flags: wgpu::InstanceFlags::default(),
             backend_options: wgpu::BackendOptions {
-                dx12: wgpu::Dx12BackendOptions {
-                    shader_compiler: wgpu::Dx12Compiler::DynamicDxc {
-                        dxc_path: "dxcompiler.dll".into(),
-                        dxil_path: "dxil.dll".into(),
-                    },
-                },
+                dx12: config::dx12_backend_options(),
                 gl: wgpu::GlBackendOptions::default(),
             },
         });

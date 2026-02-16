@@ -2460,6 +2460,7 @@ dependencies = [
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",
+ "pollster",
  "raw-window-handle",
  "serde",
  "thiserror 2.0.14",

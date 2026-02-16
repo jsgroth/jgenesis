@@ -92,12 +92,7 @@ impl<Emulator> DebuggerWindow<Emulator> {
             backends: render_config.wgpu_backend.to_wgpu(),
             flags: wgpu::InstanceFlags::default(),
             backend_options: wgpu::BackendOptions {
-                dx12: wgpu::Dx12BackendOptions {
-                    shader_compiler: wgpu::Dx12Compiler::DynamicDxc {
-                        dxc_path: "dxcompiler.dll".into(),
-                        dxil_path: "dxil.dll".into(),
-                    },
-                },
+                dx12: jgenesis_renderer::config::dx12_backend_options(),
                 gl: wgpu::GlBackendOptions::default(),
             },
         });
