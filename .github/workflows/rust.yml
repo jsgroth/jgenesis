@@ -148,9 +148,9 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      SDL_VERSION: 3.2.26
-      DXC_RELEASE_TAG: v1.8.2407
-      DXC_ZIP_FILE: dxc_2024_07_31.zip
+      SDL_VERSION: 3.4.0
+      DXC_RELEASE_TAG: v1.8.2505.1
+      DXC_ZIP_FILE: dxc_2025_07_14.zip
 
     steps:
       - uses: actions/checkout@v4
