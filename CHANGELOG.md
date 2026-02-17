@@ -1,3 +1,22 @@
+# 0.11.2
+
+## New Features
+* (**Genesis**) Added an anamorphic widescreen aspect ratio option that stretches the screen horizontally to a 16:9 screen aspect ratio (#605)
+* Added a new general video setting to change the wgpu power preference setting, which controls what graphics device the emulator uses if multiple are available (e.g. both a dedicated and integrated GPU) (#606)
+  * (Previously this was hardcoded to always prefer a dedicated GPU if available)
+
+## Improvements
+* On Windows, the wgpu backend Auto setting now prefers DirectX 12 over Vulkan if both are available (#606)
+  * This is to work around what seems like a bug in either wgpu or AMD's graphics drivers that can potentially cause incorrect colors when using the Vulkan backend on Windows with an AMD GPU
+
+## Fixes
+* (**GB**) Fixed initial value of the DMA register in CGB mode; this fixes graphical glitches in  _Doc Cosmos: The Saga Begins_ (#601)
+* (**GBA**) Fixed brightness increase/decrease effects incorrectly never applying to semi-transparent sprites; this fixes graphical glitches in _Final Fantasy VI Advance_ and _Mario vs. Donkey Kong_ (and probably other games) (#596 / #597)
+* (**GBA**) Fixed save memory type auto-detection incorrectly giving _Iridion II_ SRAM, which caused the game to freeze during boss fights (#608)
+* (**GBA**) Adjusted initial PPU state when the "skip BIOS intro animation" option is enabled; this fixes the homebrew game _Anguna_ failing to boot with that option enabled (#595)
+* (**GBA**) Fixed initial value of the VCOUNT match value in the DISPSTAT register; this fixes the homebrew demo CuteCube failing to boot (#598)
+* Fixed the Memory Viewer rendering code not respecting the wgpu backend setting
+
 # 0.11.1
 
 ## Fixes
