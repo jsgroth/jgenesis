@@ -47,6 +47,12 @@ impl Deref for Rom {
     }
 }
 
+const AUTO_SAVE_TYPE_OVERRIDES: &[(u32, GbaSaveMemory)] = &[
+    (0xDD8A7104, GbaSaveMemory::None), // Iridion II (USA)
+    (0x57930C6A, GbaSaveMemory::None), // Iridion II (Europe)
+    (0xDFC88D3E, GbaSaveMemory::None), // Top Gun - Combat Zones (USA)
+];
+
 #[derive(Debug, Clone, Encode, Decode)]
 enum RwMemory {
     Unknown,
@@ -117,12 +123,14 @@ impl RwMemory {
         }
 
         let rom_checksum = CRC.checksum(rom);
-        if rom_checksum == 0xDFC88D3E {
-            // Top Gun - Combat Zones (USA)
-            // Acts like it has save memory but hangs at the main menu if it can successfully write
-            // to anything
-            log::info!("Disabling save memory due to CRC32 match: {rom_checksum:08X}");
-            return Self::None;
+        for &(checksum, forced_type) in AUTO_SAVE_TYPE_OVERRIDES {
+            if checksum == rom_checksum {
+                log::info!(
+                    "Forcing save memory type to {} due to checksum match: {checksum:08X}",
+                    forced_type.name()
+                );
+                return Self::from_forced_type(initial_save, forced_type);
+            }
         }
 
         for i in 0..rom.len() {
