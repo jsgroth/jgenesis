@@ -52,6 +52,12 @@ const AUDIO_OPTIONS_HEADING: &str = "Audio Options";
 const HOTKEY_OPTIONS_HEADING: &str = "Hotkey Options";
 
 #[derive(Debug, Parser)]
+struct VersionArgs {
+    #[arg(short = 'v', long, action = clap::ArgAction::SetTrue)]
+    version: bool,
+}
+
+#[derive(Debug, Parser)]
 struct Args {
     /// Hardware; defaults based on file extension if not set
     #[arg(long)]
@@ -96,6 +102,10 @@ struct Args {
     /// Custom save state path (if state_path=Custom)
     #[arg(long)]
     custom_state_path: Option<PathBuf>,
+
+    /// Print version string and immediately exit
+    #[arg(short = 'v', long, default_value_t = false, action = clap::ArgAction::SetTrue)]
+    version: bool,
 
     /// MasterSystem model
     #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
@@ -905,6 +915,11 @@ fn main() -> anyhow::Result<()> {
         Env::default().default_filter_or("info,wgpu_core=warn,wgpu_hal=warn"),
     )
     .init();
+
+    if VersionArgs::try_parse().is_ok_and(|args| args.version) {
+        println!("{}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
 
     let args = Args::parse().fix_appimage_relative_paths();
 

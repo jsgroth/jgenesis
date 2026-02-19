@@ -22,6 +22,10 @@ struct Args {
     /// This arg has no effect if -f/--file-path is not set
     #[arg(long, value_name = "SLOT")]
     load_save_state: Option<usize>,
+
+    /// Print version string and immediately exit
+    #[arg(short = 'v', long, default_value_t = false, action = clap::ArgAction::SetTrue)]
+    version: bool,
 }
 
 impl Args {
@@ -116,6 +120,11 @@ fn main() -> eframe::Result<()> {
     .init();
 
     let args = Args::parse().fix_appimage_relative_paths();
+
+    if args.version {
+        println!("{}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
 
     #[cfg(all(unix, not(target_os = "macos")))]
     steam_deck_dpi_hack();
