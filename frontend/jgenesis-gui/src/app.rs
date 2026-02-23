@@ -666,8 +666,11 @@ impl App {
 
                 ui.add_space(15.0);
 
-                let running_gb = self.emu_thread.status() == EmuThreadStatus::RunningGameBoy;
-                ui.add_enabled_ui(!running_gb, |ui| {
+                let show_soft_reset = !matches!(
+                    self.emu_thread.status(),
+                    EmuThreadStatus::RunningGameBoy | EmuThreadStatus::RunningGba
+                );
+                ui.add_enabled_ui(show_soft_reset, |ui| {
                     if ui.button("Soft Reset").clicked() {
                         self.emu_thread.send(EmuThreadCommand::SoftReset);
                         ui.close_menu();
