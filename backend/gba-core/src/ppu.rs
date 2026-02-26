@@ -434,6 +434,42 @@ impl OamEntry {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct MergePixel {
+    color: Pixel,
+    layer: Layer,
+    priority: u8,
+    semi_transparent: bool,
+}
+
+impl MergePixel {
+    fn bg(bg: usize, color: Pixel, priority: u8) -> Self {
+        Self { color, layer: Layer::BG[bg], priority, semi_transparent: false }
+    }
+
+    fn obj(pixel: ObjPixel) -> Self {
+        Self {
+            color: pixel.color,
+            layer: Layer::Obj,
+            priority: pixel.priority,
+            semi_transparent: pixel.semi_transparent,
+        }
+    }
+
+    fn backdrop(color: Pixel) -> Self {
+        Self { color, layer: Layer::Backdrop, priority: u8::MAX, semi_transparent: false }
+    }
+
+    fn none() -> Self {
+        Self {
+            color: Pixel::TRANSPARENT,
+            layer: Layer::None,
+            priority: u8::MAX,
+            semi_transparent: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Ppu {
     frame_buffer: GbaFrameBuffer,
@@ -950,14 +986,6 @@ impl Ppu {
     }
 
     fn merge_layers(&mut self) {
-        #[derive(Debug, Clone, Copy)]
-        struct MergePixel {
-            color: Pixel,
-            layer: Layer,
-            priority: u8,
-            semi_transparent: bool,
-        }
-
         let backdrop_color = Pixel::new_transparent(self.palette_ram[0]);
 
         // Alpha blending coefficients
@@ -1009,19 +1037,8 @@ impl Ppu {
                 WindowEnabled::ALL
             };
 
-            let mut first_pixel = MergePixel {
-                color: backdrop_color,
-                layer: Layer::Backdrop,
-                priority: u8::MAX,
-                semi_transparent: false,
-            };
-
-            let mut second_pixel = MergePixel {
-                color: Pixel::TRANSPARENT,
-                layer: Layer::None,
-                priority: u8::MAX,
-                semi_transparent: false,
-            };
+            let mut first_pixel = MergePixel::backdrop(backdrop_color);
+            let mut second_pixel = MergePixel::none();
 
             // When priority value is equal, layer priority is OBJ > BG0 > BG1 > BG2 > BG3
             // Process layers in that order
@@ -1035,10 +1052,8 @@ impl Ppu {
                 } else {
                     obj_mosaic_h_counter += 1;
 
-                    // Update the mosaic latch if any of the following is true:
-                    // - The latched pixel is not mosaic-enabled
-                    // - The current pixel is not mosaic-enabled
-                    // - The current pixel has priority over the latched pixel
+                    // Update the mosaic latch if either the current or latched pixel is not
+                    // mosaic-enabled, or if the current pixel has priority over latched pixel
                     // e.g. sprite-hmosaic test ROM
                     if !obj_mosaic_latch.mosaic
                         || !obj_pixel.mosaic
@@ -1050,12 +1065,7 @@ impl Ppu {
 
                 if window_layers_enabled.obj && !obj_mosaic_latch.color.transparent() {
                     second_pixel = first_pixel;
-                    first_pixel = MergePixel {
-                        color: obj_mosaic_latch.color,
-                        layer: Layer::Obj,
-                        priority: obj_pixel.priority,
-                        semi_transparent: obj_pixel.semi_transparent,
-                    };
+                    first_pixel = MergePixel::obj(obj_mosaic_latch);
                 }
             }
 
@@ -1072,19 +1082,9 @@ impl Ppu {
                 let priority = self.registers.bg_control[bg].priority;
                 if priority < first_pixel.priority {
                     second_pixel = first_pixel;
-                    first_pixel = MergePixel {
-                        color: bg_pixel,
-                        layer: Layer::BG[bg],
-                        priority,
-                        semi_transparent: false,
-                    };
+                    first_pixel = MergePixel::bg(bg, bg_pixel, priority);
                 } else if priority < second_pixel.priority {
-                    second_pixel = MergePixel {
-                        color: bg_pixel,
-                        layer: Layer::BG[bg],
-                        priority,
-                        semi_transparent: false,
-                    };
+                    second_pixel = MergePixel::bg(bg, bg_pixel, priority);
                 }
             }
 
