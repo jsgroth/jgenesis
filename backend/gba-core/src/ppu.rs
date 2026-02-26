@@ -1001,9 +1001,10 @@ impl Ppu {
                 && self.state.bg_enabled_latency[bg] == 0
         });
 
+        let obj_window_enabled = self.registers.obj_window_enabled;
         let any_window_enabled = self.registers.window_enabled[0]
             || self.registers.window_enabled[1]
-            || self.registers.obj_window_enabled;
+            || obj_window_enabled;
 
         let mut window_x_active: [bool; 2] =
             array::from_fn(|i| self.registers.window_x1[i] > self.registers.window_x2[i]);
@@ -1027,7 +1028,7 @@ impl Ppu {
                     Window::Inside0
                 } else if window_y_active[1] && window_x_active[1] {
                     Window::Inside1
-                } else if self.buffers.obj_window[pixel as usize] {
+                } else if obj_window_enabled && self.buffers.obj_window[pixel as usize] {
                     Window::InsideObj
                 } else {
                     Window::Outside
