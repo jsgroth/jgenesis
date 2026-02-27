@@ -327,16 +327,24 @@ impl GenesisBase for Sega32XEmulator {
 
 pub(crate) fn render_fn<Emulator: GenesisBase>() -> Box<DebugRenderFn<Emulator>> {
     let mut state = State::new();
-    Box::new(move |ctx| render(ctx, &mut state))
+    Box::new(move |ctx, emulator| render(ctx, emulator, &mut state))
 }
 
-fn render<Emulator: GenesisBase>(ctx: DebugRenderContext<'_, Emulator>, state: &mut State) {
-    let mut emulator = ctx.emulator.as_enum();
+fn render<Emulator: GenesisBase>(
+    ctx: DebugRenderContext<'_>,
+    emulator: &mut Emulator,
+    state: &mut State,
+) {
+    let mut emulator = emulator.as_enum();
 
     TopBottomPanel::new(TopBottomSide::Top, "gen_debug_top").show(ctx.egui_ctx, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("Memory Viewers", |ui| {
                 for &memory_area in MemoryArea::ALL {
+                    if memory_area == MemoryArea::Genesis(GenesisMemoryArea::CartridgeRom) {
+                        continue;
+                    }
+
                     if !emulator.has_memory(memory_area) {
                         continue;
                     }
