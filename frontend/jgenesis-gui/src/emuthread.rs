@@ -433,7 +433,7 @@ impl GenericEmulator {
         Ok(())
     }
 
-    fn render_frame(&mut self) -> NativeEmulatorResult<Option<NativeTickEffect>> {
+    fn run(&mut self) -> NativeEmulatorResult<Option<NativeTickEffect>> {
         match_each_variant!(self, emulator => emulator.run())
     }
 
@@ -445,8 +445,8 @@ impl GenericEmulator {
         match_each_variant!(self, emulator => emulator.hard_reset())
     }
 
-    fn open_memory_viewer(&mut self) {
-        match_each_variant!(self, emulator => emulator.open_memory_viewer());
+    fn open_memory_viewer(&mut self) -> NativeEmulatorResult<()> {
+        match_each_variant!(self, emulator => emulator.open_memory_viewer())
     }
 
     fn save_state(&mut self, slot: usize) {
@@ -487,7 +487,7 @@ enum RunEmuResult {
 #[must_use]
 fn run_emulator(mut emulator: GenericEmulator, ctx: &EmuThreadContext) -> RunEmuResult {
     loop {
-        match emulator.render_frame() {
+        match emulator.run() {
             Ok(None) => {
                 *ctx.save_state_metadata.lock().unwrap() = emulator.save_state_metadata();
                 emulator.update_gui_focused(ctx.gui_focused.load(Ordering::Relaxed));
@@ -556,7 +556,7 @@ fn handle_command(
         }
         EmuThreadCommand::SoftReset => emulator.soft_reset()?,
         EmuThreadCommand::HardReset => emulator.hard_reset()?,
-        EmuThreadCommand::OpenMemoryViewer => emulator.open_memory_viewer(),
+        EmuThreadCommand::OpenMemoryViewer => emulator.open_memory_viewer()?,
         EmuThreadCommand::SaveState { slot } => emulator.save_state(slot),
         EmuThreadCommand::LoadState { slot } => emulator.load_state(slot),
         EmuThreadCommand::SegaCdRemoveDisc => emulator.remove_disc()?,

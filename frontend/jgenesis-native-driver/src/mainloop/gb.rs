@@ -88,7 +88,7 @@ pub fn create_gb(config: Box<GameBoyConfig>) -> NativeEmulatorResult<NativeGameB
             config.inputs.to_mapping_vec(),
         )
         .with_turbo_mappings(config.inputs.to_turbo_mapping_vec())
-        .with_debug_render_fn(debug::gb::render_fn),
+        .with_debug_fn(|| debug::partial_clone_debug_fn(debug::gb::render_fn())),
     )
 }
 

@@ -169,7 +169,7 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
             config.inputs.to_mapping_vec(),
         )
         .with_turbo_mappings(config.inputs.to_turbo_mapping_vec())
-        .with_debug_render_fn(debug::genesis::render_fn),
+        .with_debug_fn(|| debug::partial_clone_debug_fn(debug::genesis::render_fn())),
     )
 }
 
@@ -285,7 +285,7 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
             config.genesis.inputs.to_mapping_vec(),
         )
         .with_turbo_mappings(config.genesis.inputs.to_turbo_mapping_vec())
-        .with_debug_render_fn(debug::genesis::render_fn)
+        .with_debug_fn(|| debug::partial_clone_debug_fn(debug::genesis::render_fn()))
         .with_disc_change_fns(change_disc_fn, remove_disc_fn),
     )
 }
@@ -370,6 +370,6 @@ pub fn create_32x(config: Box<Sega32XConfig>) -> NativeEmulatorResult<Native32XE
             config.genesis.inputs.to_mapping_vec(),
         )
         .with_turbo_mappings(config.genesis.inputs.to_turbo_mapping_vec())
-        .with_debug_render_fn(debug::genesis::render_fn),
+        .with_debug_fn(|| debug::partial_clone_debug_fn(debug::genesis::render_fn())),
     )
 }
