@@ -3,6 +3,7 @@ pub mod gba;
 pub mod genesis;
 mod memviewer;
 pub mod nes;
+mod process;
 pub mod smsgg;
 pub mod snes;
 
@@ -25,6 +26,11 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use thiserror::Error;
 
+pub use process::{
+    DebugFn, DebugRenderFn, DebuggerMainProcess, DebuggerRunnerProcess, null_debug_fn,
+    partial_clone_debug_fn,
+};
+
 #[derive(Debug, Error)]
 pub enum DebuggerError {
     #[error("Failed to create surface from window handle: {0}")]
@@ -41,17 +47,14 @@ pub enum DebuggerError {
     RequestDeviceFailed(#[from] wgpu::RequestDeviceError),
 }
 
-pub struct DebugRenderContext<'a, Emulator> {
+pub struct DebugRenderContext<'a> {
     egui_ctx: &'a egui::Context,
-    emulator: &'a mut Emulator,
     device: &'a wgpu::Device,
     queue: &'a wgpu::Queue,
     renderer: &'a mut egui_wgpu::Renderer,
 }
 
-pub type DebugRenderFn<Emulator> = dyn FnMut(DebugRenderContext<'_, Emulator>);
-
-pub struct DebuggerWindow<Emulator> {
+pub struct DebuggerWindow {
     surface: wgpu::Surface<'static>,
     surface_config: wgpu::SurfaceConfiguration,
     device: wgpu::Device,
@@ -59,18 +62,18 @@ pub struct DebuggerWindow<Emulator> {
     platform: egui_sdl3_platform::Platform,
     egui_renderer: egui_wgpu::Renderer,
     start_time: SystemTime,
-    render_fn: Box<DebugRenderFn<Emulator>>,
+    debugger_process: Box<dyn DebuggerMainProcess>,
     // SAFETY: The window must be dropped after the surface
     window: Window,
 }
 
-impl<Emulator> DebuggerWindow<Emulator> {
+impl DebuggerWindow {
     pub fn new(
         video: &VideoSubsystem,
         scale_factor: Option<f32>,
         egui_theme: EguiTheme,
         render_config: &RendererConfig,
-        render_fn: Box<DebugRenderFn<Emulator>>,
+        debugger_process: Box<dyn DebuggerMainProcess>,
     ) -> Result<Self, DebuggerError> {
         let scale_factor =
             scale_factor.or_else(|| crate::try_get_primary_display_scale(video)).unwrap_or(1.0);
@@ -147,24 +150,25 @@ impl<Emulator> DebuggerWindow<Emulator> {
             platform,
             egui_renderer,
             start_time,
-            render_fn,
+            debugger_process,
             window,
         })
     }
 
-    pub fn update(&mut self, emulator: &mut Emulator) -> Result<(), DebuggerError> {
+    pub fn update(&mut self) -> Result<(), DebuggerError> {
         let egui_input = self.platform.take_raw_input(
             SystemTime::now().duration_since(self.start_time).unwrap_or_default().as_secs_f64(),
         );
 
         let full_output = self.platform.context().run(egui_input, |ctx| {
-            (self.render_fn)(DebugRenderContext {
+            if let Err(err) = self.debugger_process.run(DebugRenderContext {
                 egui_ctx: ctx,
-                emulator,
                 device: &self.device,
                 queue: &self.queue,
                 renderer: &mut self.egui_renderer,
-            });
+            }) {
+                log::error!("Error updating debugger window: {err}");
+            }
         });
 
         let output = match self.surface.get_current_texture() {
@@ -325,11 +329,11 @@ impl<T: Copy + PartialEq> Widget for SelectableButton<'_, T> {
     }
 }
 
-fn write_textures<Emulator>(
+fn write_textures(
     wgpu_texture: &wgpu::Texture,
     egui_texture: egui::TextureId,
     data: &[u8],
-    ctx: &mut DebugRenderContext<'_, Emulator>,
+    ctx: &mut DebugRenderContext<'_>,
 ) {
     ctx.queue.write_texture(
         wgpu::TexelCopyTextureInfo {
@@ -410,7 +414,7 @@ fn render_registers_window(
     ctx: &egui::Context,
     window_title: &str,
     open: &mut bool,
-    render_registers: impl FnOnce(&mut egui::Ui),
+    render_registers: impl FnOnce(&mut Ui),
 ) {
     egui::Window::new(window_title).open(open).show(ctx, |ui| {
         ScrollArea::vertical().show(ui, |ui| {
@@ -432,7 +436,7 @@ fn brighten_faint_bg_color(ui: &mut Ui) {
     );
 }
 
-fn render_registers_table(ui: &mut egui::Ui, register: &str, values: &[(&str, &str)]) {
+fn render_registers_table(ui: &mut Ui, register: &str, values: &[(&str, &str)]) {
     TableBuilder::new(ui)
         .id_salt(register)
         .column(Column::exact(200.0))
@@ -459,7 +463,7 @@ fn render_registers_table(ui: &mut egui::Ui, register: &str, values: &[(&str, &s
         });
 }
 
-fn dump_registers_callback(ui: &mut egui::Ui) -> impl FnMut(&str, &[(&str, &str)]) {
+fn dump_registers_callback(ui: &mut Ui) -> impl FnMut(&str, &[(&str, &str)]) {
     let mut first = true;
 
     move |register, values| {

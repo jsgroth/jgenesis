@@ -104,6 +104,6 @@ pub fn create_nes(config: Box<NesConfig>) -> NativeEmulatorResult<NativeNesEmula
         )
         .with_turbo_mappings(config.inputs.to_turbo_mapping_vec())
         .with_initial_inputs(initial_inputs)
-        .with_debug_render_fn(debug::nes::render_fn),
+        .with_debug_fn(|| debug::partial_clone_debug_fn(debug::nes::render_fn())),
     )
 }
