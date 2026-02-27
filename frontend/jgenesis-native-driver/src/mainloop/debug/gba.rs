@@ -50,14 +50,18 @@ impl State {
 
 pub fn render_fn() -> Box<DebugRenderFn<GameBoyAdvanceEmulator>> {
     let mut state = State::new();
-    Box::new(move |ctx| render(ctx, &mut state))
+    Box::new(move |ctx, emulator| render(ctx, emulator, &mut state))
 }
 
-fn render(ctx: DebugRenderContext<'_, GameBoyAdvanceEmulator>, state: &mut State) {
+fn render(ctx: DebugRenderContext<'_>, emulator: &mut GameBoyAdvanceEmulator, state: &mut State) {
     TopBottomPanel::new(TopBottomSide::Top, "gba_debug_top").show(ctx.egui_ctx, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("Memory Viewers", |ui| {
                 for area in GbaMemoryArea::ALL {
+                    if area == GbaMemoryArea::CartridgeRom {
+                        continue;
+                    }
+
                     if ui.button(area.name()).clicked()
                         && let Some(memviewer_state) = state.memory_viewer_states.get_mut(&area)
                     {
@@ -84,11 +88,11 @@ fn render(ctx: DebugRenderContext<'_, GameBoyAdvanceEmulator>, state: &mut State
     for area in GbaMemoryArea::ALL {
         let Some(state) = state.memory_viewer_states.get_mut(&area) else { continue };
 
-        let mut memory = ctx.emulator.debug().memory_view(area);
+        let mut memory = emulator.debug().memory_view(area);
         memviewer::render(ctx.egui_ctx, memory.as_mut(), state);
     }
 
-    ctx.emulator.debug().copy_palette_ram(state.palette_buffer.as_mut_slice());
+    emulator.debug().copy_palette_ram(state.palette_buffer.as_mut_slice());
 
     render_palette_window(
         ctx.egui_ctx,

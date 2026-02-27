@@ -29,7 +29,7 @@ use crate::config::CommonConfig;
 use crate::fpstracker::FpsTracker;
 use crate::input::{InputEvent, InputMapper, Joysticks};
 use crate::mainloop::audio::{SdlAudioOutput, SdlAudioOutputHandle};
-use crate::mainloop::debug::{DebugRenderFn, DebuggerWindow};
+use crate::mainloop::debug::{DebugFn, DebuggerWindow};
 use crate::mainloop::render::RecvFrameError;
 use crate::mainloop::runner::{
     ChangeDiscFn, RemoveDiscFn, RunnerCommand, RunnerCommandResponse, RunnerSpawnArgs, RunnerThread,
@@ -45,7 +45,6 @@ use jgenesis_native_config::EguiTheme;
 use jgenesis_native_config::common::{HideMouseCursor, WindowSize};
 use jgenesis_native_config::input::mappings::ButtonMappingVec;
 use jgenesis_native_config::input::{CompactHotkey, Hotkey};
-use jgenesis_renderer::config::RendererConfig;
 use jgenesis_renderer::renderer;
 use jgenesis_renderer::renderer::{RendererError, WgpuRenderer};
 use nes_core::api::NesInitializationError;
@@ -115,17 +114,14 @@ struct HotkeyState<Emulator> {
     fast_forward_multiplier: u64,
     rewinding: bool,
     overclocking_enabled: bool,
-    debugger_window: Option<DebuggerWindow<Emulator>>,
+    debugger_window: Option<DebuggerWindow>,
     window_scale_factor: Option<f32>,
     egui_theme: EguiTheme,
-    debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
+    debug_fn: DebugFn<Emulator>,
 }
 
 impl<Emulator: EmulatorTrait> HotkeyState<Emulator> {
-    fn new(
-        common_config: &CommonConfig,
-        debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
-    ) -> Self {
+    fn new(common_config: &CommonConfig, debug_fn: DebugFn<Emulator>) -> Self {
         Self {
             hide_mouse_cursor: common_config.hide_mouse_cursor,
             save_state_slot: 0,
@@ -136,7 +132,7 @@ impl<Emulator: EmulatorTrait> HotkeyState<Emulator> {
             debugger_window: None,
             window_scale_factor: common_config.window_scale_factor,
             egui_theme: common_config.egui_theme,
-            debug_render_fn,
+            debug_fn,
         }
     }
 
@@ -232,23 +228,6 @@ impl<Emulator: EmulatorTrait> NativeEmulator<Emulator> {
 enum HotkeyEffect {
     PowerOff,
     Exit,
-}
-
-fn open_debugger_window<Emulator>(
-    video: &VideoSubsystem,
-    scale_factor: Option<f32>,
-    egui_theme: EguiTheme,
-    render_config: &RendererConfig,
-    debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
-) -> Option<DebuggerWindow<Emulator>> {
-    let render_fn = debug_render_fn();
-    match DebuggerWindow::new(video, scale_factor, egui_theme, render_config, render_fn) {
-        Ok(debugger_window) => Some(debugger_window),
-        Err(err) => {
-            log::error!("Error opening debugger window: {err}");
-            None
-        }
-    }
 }
 
 #[derive(Debug, Error)]
@@ -392,7 +371,7 @@ pub(crate) struct NativeEmulatorArgs<'input, 'turbo, Emulator: EmulatorTrait> {
     pub button_mappings: ButtonMappingVec<'input, Emulator::Button>,
     pub turbo_mappings: ButtonMappingVec<'turbo, Emulator::Button>,
     pub initial_inputs: Emulator::Inputs,
-    pub debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
+    pub debug_fn: DebugFn<Emulator>,
 }
 
 impl<'input, 'turbo, Emulator> NativeEmulatorArgs<'input, 'turbo, Emulator>
@@ -421,7 +400,7 @@ where
             button_mappings,
             turbo_mappings: vec![],
             initial_inputs: Emulator::Inputs::default(),
-            debug_render_fn: || Box::new(|_| {}),
+            debug_fn: debug::null_debug_fn,
         }
     }
 
@@ -438,11 +417,8 @@ where
         self
     }
 
-    pub fn with_debug_render_fn(
-        mut self,
-        debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
-    ) -> Self {
-        self.debug_render_fn = debug_render_fn;
+    pub fn with_debug_fn(mut self, debug_fn: DebugFn<Emulator>) -> Self {
+        self.debug_fn = debug_fn;
         self
     }
 
@@ -474,7 +450,7 @@ where
             button_mappings,
             turbo_mappings,
             initial_inputs,
-            debug_render_fn,
+            debug_fn,
         }: NativeEmulatorArgs<'_, '_, Emulator>,
     ) -> NativeEmulatorResult<Self> {
         let (sdl, video, audio, joystick, event_pump) = init_sdl3(&common_config)?;
@@ -490,7 +466,7 @@ where
             &common_config.hotkey_config.to_mapping_vec(),
         );
 
-        let hotkey_state = HotkeyState::new(&common_config, debug_render_fn);
+        let hotkey_state = HotkeyState::new(&common_config, debug_fn);
 
         let save_writer = FsSaveWriter::new(save_path);
 
@@ -558,7 +534,7 @@ where
         Ok(emulator)
     }
 
-    /// Run the emulator until a frame is rendered.
+    /// Run the emulator for some amount of time.
     ///
     /// # Errors
     ///
@@ -596,7 +572,7 @@ where
                     return Ok(Some(NativeTickEffect::PowerOff));
                 }
                 Event::Window { win_event, window_id, .. } => {
-                    if let Some(effect) = self.handle_window_event(win_event, window_id) {
+                    if let Some(effect) = self.handle_window_event(win_event, window_id)? {
                         return Ok(Some(effect));
                     }
                 }
@@ -618,7 +594,7 @@ where
             self.handle_runner_cmd_response(response);
         }
 
-        match self.runner.try_recv_frame(&mut self.renderer, Duration::from_millis(1)) {
+        match self.runner.try_recv_frame(&mut self.renderer, Duration::from_millis(5)) {
             Ok(()) => {
                 self.fps_tracker.record_frame();
             }
@@ -633,9 +609,9 @@ where
         }
 
         if let Some(debugger_window) = &mut self.hotkey_state.debugger_window
-            && todo!("debugger_update(emulator)")
+            && let Err(err) = debugger_window.update()
         {
-            log::error!("Debugger window error");
+            log::error!("Error updating debugger window: {err}");
         }
 
         Ok(None)
@@ -645,15 +621,17 @@ where
         &mut self,
         win_event: WindowEvent,
         window_id: u32,
-    ) -> Option<NativeTickEffect> {
+    ) -> NativeEmulatorResult<Option<NativeTickEffect>> {
         match win_event {
             WindowEvent::CloseRequested => {
                 if window_id == self.renderer.window_id() {
-                    return Some(NativeTickEffect::PowerOff);
+                    return Ok(Some(NativeTickEffect::PowerOff));
                 }
 
                 if self.hotkey_state.is_debugger_window_id(window_id) {
                     self.window_state.debugger_focused = false;
+                    self.hotkey_state.debugger_window = None;
+                    self.runner.send_command(RunnerCommand::StopDebugger)?;
                 }
             }
             WindowEvent::FocusGained => {
@@ -681,7 +659,7 @@ where
             _ => {}
         }
 
-        None
+        Ok(None)
     }
 
     fn process_input_events(&mut self) -> NativeEmulatorResult<Option<NativeTickEffect>> {
@@ -704,11 +682,9 @@ where
                     let effect = self.handle_hotkey_event(hotkey, pressed)?;
                     match effect {
                         Some(HotkeyEffect::PowerOff) => {
-                            self.hotkey_state.debugger_window = None;
                             return Ok(Some(NativeTickEffect::PowerOff));
                         }
                         Some(HotkeyEffect::Exit) => {
-                            self.hotkey_state.debugger_window = None;
                             return Ok(Some(NativeTickEffect::Exit));
                         }
                         None => {}
@@ -774,16 +750,32 @@ where
         self.runner.send_command(RunnerCommand::HardReset)
     }
 
-    pub fn open_memory_viewer(&mut self) {
-        if self.hotkey_state.debugger_window.is_none() {
-            self.hotkey_state.debugger_window = open_debugger_window(
-                &self.video,
-                self.hotkey_state.window_scale_factor,
-                self.hotkey_state.egui_theme,
-                self.renderer.config(),
-                self.hotkey_state.debug_render_fn,
-            );
+    /// # Errors
+    ///
+    /// This method will return an error if unable to send the command to the emulator runner thread.
+    pub fn open_memory_viewer(&mut self) -> NativeEmulatorResult<()> {
+        if self.hotkey_state.debugger_window.is_some() {
+            return Ok(());
         }
+
+        let (runner_process, main_process) = (self.hotkey_state.debug_fn)();
+
+        let debugger_window = match DebuggerWindow::new(
+            &self.video,
+            self.hotkey_state.window_scale_factor,
+            self.hotkey_state.egui_theme,
+            self.renderer.config(),
+            main_process,
+        ) {
+            Ok(window) => window,
+            Err(err) => {
+                log::error!("Error creating debugger window: {err}");
+                return Ok(());
+            }
+        };
+
+        self.hotkey_state.debugger_window = Some(debugger_window);
+        self.runner.send_command(RunnerCommand::StartDebugger(runner_process))
     }
 
     /// # Errors
@@ -896,7 +888,7 @@ where
                 self.hotkey_state.rewinding = true;
             }
             CompactHotkey::ToggleOverclocking => self.toggle_overclocking()?,
-            CompactHotkey::OpenDebugger => self.open_memory_viewer(),
+            CompactHotkey::OpenDebugger => self.open_memory_viewer()?,
         }
 
         Ok(None)
