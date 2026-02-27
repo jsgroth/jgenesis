@@ -7,6 +7,7 @@ pub mod smsgg;
 pub mod snes;
 
 use sdl3::event::{Event, WindowEvent};
+use std::error::Error;
 
 use egui::epaint::ImageDelta;
 use egui::{
@@ -15,15 +16,129 @@ use egui::{
 };
 use egui_extras::{Column, TableBuilder};
 use egui_wgpu::ScreenDescriptor;
-use jgenesis_common::frontend::Color;
+use jgenesis_common::frontend::{Color, PartialClone};
 use jgenesis_native_config::EguiTheme;
 use jgenesis_renderer::config::RendererConfig;
 use sdl3::VideoSubsystem;
 use sdl3::video::{Window, WindowBuildError};
 use std::iter;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use thiserror::Error;
+
+pub trait DebuggerRunnerProcess<Emulator>: Send + Sync + 'static {
+    fn run(
+        &mut self,
+        emulator: &mut Emulator,
+    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>>;
+}
+
+pub trait DebuggerMainProcess {
+    fn run(
+        &mut self,
+        ctx: DebugRenderContext<'_>,
+    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>>;
+}
+
+pub type DebugFn<Emulator> =
+    fn() -> (Box<dyn DebuggerRunnerProcess<Emulator>>, Box<dyn DebuggerMainProcess>);
+
+pub struct NullDebugger;
+
+impl<Emulator> DebuggerRunnerProcess<Emulator> for NullDebugger {
+    fn run(
+        &mut self,
+        _emulator: &mut Emulator,
+    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+        Ok(())
+    }
+}
+
+impl DebuggerMainProcess for NullDebugger {
+    fn run(
+        &mut self,
+        _ctx: DebugRenderContext<'_>,
+    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+        Ok(())
+    }
+}
+
+pub fn null_debug_fn<Emulator>()
+-> (Box<dyn DebuggerRunnerProcess<Emulator>>, Box<dyn DebuggerMainProcess>) {
+    (Box::new(NullDebugger), Box::new(NullDebugger))
+}
+
+pub struct PartialCloneRunnerProcess<Emulator> {
+    latest: Arc<Mutex<Option<Emulator>>>,
+    updated: Arc<AtomicBool>,
+}
+
+impl<Emulator: PartialClone + Send + Sync + 'static> DebuggerRunnerProcess<Emulator>
+    for PartialCloneRunnerProcess<Emulator>
+{
+    fn run(
+        &mut self,
+        emulator: &mut Emulator,
+    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+        *self.latest.lock().unwrap() = Some(emulator.partial_clone());
+        self.updated.store(true, Ordering::Release);
+
+        Ok(())
+    }
+}
+
+pub type DebugRenderFn<Emulator> = dyn FnMut(DebugRenderContext<'_>, &mut Emulator);
+
+pub struct PartialCloneMainProcess<Emulator> {
+    latest: Arc<Mutex<Option<Emulator>>>,
+    cached: Option<Emulator>,
+    updated: Arc<AtomicBool>,
+    render_fn: Box<DebugRenderFn<Emulator>>,
+}
+
+impl<Emulator: Send + Sync + 'static> DebuggerMainProcess for PartialCloneMainProcess<Emulator> {
+    fn run(
+        &mut self,
+        ctx: DebugRenderContext<'_>,
+    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+        if self.updated.compare_exchange(true, false, Ordering::AcqRel, Ordering::Relaxed)
+            == Ok(true)
+        {
+            let emulator = self.latest.lock().unwrap().take();
+            if let Some(emulator) = emulator {
+                self.cached = Some(emulator);
+            }
+        }
+
+        if let Some(emulator) = &mut self.cached {
+            (self.render_fn)(ctx, emulator);
+        }
+
+        Ok(())
+    }
+}
+
+pub fn partial_clone_debug_fn<Emulator>(
+    render_fn: Box<DebugRenderFn<Emulator>>,
+) -> (Box<dyn DebuggerRunnerProcess<Emulator>>, Box<dyn DebuggerMainProcess>)
+where
+    Emulator: PartialClone + Send + Sync + 'static,
+{
+    let runner_process = PartialCloneRunnerProcess {
+        latest: Arc::new(Mutex::new(None)),
+        updated: Arc::new(AtomicBool::new(false)),
+    };
+
+    let main_process = PartialCloneMainProcess {
+        latest: Arc::clone(&runner_process.latest),
+        cached: None,
+        updated: Arc::clone(&runner_process.updated),
+        render_fn,
+    };
+
+    (Box::new(runner_process), Box::new(main_process))
+}
 
 #[derive(Debug, Error)]
 pub enum DebuggerError {
@@ -41,17 +156,14 @@ pub enum DebuggerError {
     RequestDeviceFailed(#[from] wgpu::RequestDeviceError),
 }
 
-pub struct DebugRenderContext<'a, Emulator> {
+pub struct DebugRenderContext<'a> {
     egui_ctx: &'a egui::Context,
-    emulator: &'a mut Emulator,
     device: &'a wgpu::Device,
     queue: &'a wgpu::Queue,
     renderer: &'a mut egui_wgpu::Renderer,
 }
 
-pub type DebugRenderFn<Emulator> = dyn FnMut(DebugRenderContext<'_, Emulator>);
-
-pub struct DebuggerWindow<Emulator> {
+pub struct DebuggerWindow {
     surface: wgpu::Surface<'static>,
     surface_config: wgpu::SurfaceConfiguration,
     device: wgpu::Device,
@@ -59,18 +171,18 @@ pub struct DebuggerWindow<Emulator> {
     platform: egui_sdl3_platform::Platform,
     egui_renderer: egui_wgpu::Renderer,
     start_time: SystemTime,
-    render_fn: Box<DebugRenderFn<Emulator>>,
+    debugger_process: Box<dyn DebuggerMainProcess>,
     // SAFETY: The window must be dropped after the surface
     window: Window,
 }
 
-impl<Emulator> DebuggerWindow<Emulator> {
+impl DebuggerWindow {
     pub fn new(
         video: &VideoSubsystem,
         scale_factor: Option<f32>,
         egui_theme: EguiTheme,
         render_config: &RendererConfig,
-        render_fn: Box<DebugRenderFn<Emulator>>,
+        debugger_process: Box<dyn DebuggerMainProcess>,
     ) -> Result<Self, DebuggerError> {
         let scale_factor =
             scale_factor.or_else(|| crate::try_get_primary_display_scale(video)).unwrap_or(1.0);
@@ -147,24 +259,25 @@ impl<Emulator> DebuggerWindow<Emulator> {
             platform,
             egui_renderer,
             start_time,
-            render_fn,
+            debugger_process,
             window,
         })
     }
 
-    pub fn update(&mut self, emulator: &mut Emulator) -> Result<(), DebuggerError> {
+    pub fn update(&mut self) -> Result<(), DebuggerError> {
         let egui_input = self.platform.take_raw_input(
             SystemTime::now().duration_since(self.start_time).unwrap_or_default().as_secs_f64(),
         );
 
         let full_output = self.platform.context().run(egui_input, |ctx| {
-            (self.render_fn)(DebugRenderContext {
+            if let Err(err) = self.debugger_process.run(DebugRenderContext {
                 egui_ctx: ctx,
-                emulator,
                 device: &self.device,
                 queue: &self.queue,
                 renderer: &mut self.egui_renderer,
-            });
+            }) {
+                log::error!("Error updating debugger window: {err}");
+            }
         });
 
         let output = match self.surface.get_current_texture() {
@@ -325,11 +438,11 @@ impl<T: Copy + PartialEq> Widget for SelectableButton<'_, T> {
     }
 }
 
-fn write_textures<Emulator>(
+fn write_textures(
     wgpu_texture: &wgpu::Texture,
     egui_texture: egui::TextureId,
     data: &[u8],
-    ctx: &mut DebugRenderContext<'_, Emulator>,
+    ctx: &mut DebugRenderContext<'_>,
 ) {
     ctx.queue.write_texture(
         wgpu::TexelCopyTextureInfo {
@@ -410,7 +523,7 @@ fn render_registers_window(
     ctx: &egui::Context,
     window_title: &str,
     open: &mut bool,
-    render_registers: impl FnOnce(&mut egui::Ui),
+    render_registers: impl FnOnce(&mut Ui),
 ) {
     egui::Window::new(window_title).open(open).show(ctx, |ui| {
         ScrollArea::vertical().show(ui, |ui| {
@@ -432,7 +545,7 @@ fn brighten_faint_bg_color(ui: &mut Ui) {
     );
 }
 
-fn render_registers_table(ui: &mut egui::Ui, register: &str, values: &[(&str, &str)]) {
+fn render_registers_table(ui: &mut Ui, register: &str, values: &[(&str, &str)]) {
     TableBuilder::new(ui)
         .id_salt(register)
         .column(Column::exact(200.0))
@@ -459,7 +572,7 @@ fn render_registers_table(ui: &mut egui::Ui, register: &str, values: &[(&str, &s
         });
 }
 
-fn dump_registers_callback(ui: &mut egui::Ui) -> impl FnMut(&str, &[(&str, &str)]) {
+fn dump_registers_callback(ui: &mut Ui) -> impl FnMut(&str, &[(&str, &str)]) {
     let mut first = true;
 
     move |register, values| {

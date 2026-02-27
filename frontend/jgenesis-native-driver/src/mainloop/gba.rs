@@ -101,6 +101,6 @@ pub fn create_gba(config: Box<GameBoyAdvanceConfig>) -> NativeEmulatorResult<Nat
         )
         .with_turbo_mappings(config.inputs.to_turbo_mapping_vec())
         .with_initial_inputs(initial_inputs)
-        .with_debug_render_fn(debug::gba::render_fn),
+        .with_debug_fn(|| debug::partial_clone_debug_fn(debug::gba::render_fn())),
     )
 }

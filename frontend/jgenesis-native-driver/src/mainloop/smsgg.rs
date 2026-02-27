@@ -176,7 +176,7 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
             config.inputs.to_mapping_vec(),
         )
         .with_turbo_mappings(config.inputs.to_turbo_mapping_vec())
-        .with_debug_render_fn(debug::smsgg::render_fn),
+        .with_debug_fn(|| debug::partial_clone_debug_fn(debug::smsgg::render_fn())),
     )
 }
 

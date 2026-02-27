@@ -100,6 +100,6 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
         )
         .with_turbo_mappings(config.inputs.to_turbo_mapping_vec())
         .with_initial_inputs(initial_inputs)
-        .with_debug_render_fn(debug::snes::render_fn),
+        .with_debug_fn(|| debug::partial_clone_debug_fn(debug::snes::render_fn())),
     )
 }

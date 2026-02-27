@@ -43,13 +43,13 @@ impl State {
 
 pub fn render_fn() -> Box<DebugRenderFn<GameBoyEmulator>> {
     let mut state = State::new();
-    Box::new(move |ctx| render(ctx, &mut state))
+    Box::new(move |ctx, emulator| render(ctx, emulator, &mut state))
 }
 
-fn render(mut ctx: DebugRenderContext<'_, GameBoyEmulator>, state: &mut State) {
-    update_background_texture(&mut ctx, state);
-    update_sprite_texture(&mut ctx, state);
-    update_palettes_texture(&mut ctx, state);
+fn render(mut ctx: DebugRenderContext<'_>, emulator: &mut GameBoyEmulator, state: &mut State) {
+    update_background_texture(&mut ctx, emulator, state);
+    update_sprite_texture(&mut ctx, emulator, state);
+    update_palettes_texture(&mut ctx, emulator, state);
 
     let screen_width = debug::screen_width(ctx.egui_ctx);
 
@@ -92,7 +92,7 @@ fn render(mut ctx: DebugRenderContext<'_, GameBoyEmulator>, state: &mut State) {
                 });
             }
             Tab::Sprites => {
-                if ctx.emulator.is_using_double_height_sprites() {
+                if emulator.is_using_double_height_sprites() {
                     ScrollArea::vertical().show(ui, |ui| {
                         ui.vertical_centered(|ui| {
                             let egui_texture =
@@ -140,9 +140,13 @@ fn render(mut ctx: DebugRenderContext<'_, GameBoyEmulator>, state: &mut State) {
     });
 }
 
-fn update_background_texture(ctx: &mut DebugRenderContext<'_, GameBoyEmulator>, state: &mut State) {
+fn update_background_texture(
+    ctx: &mut DebugRenderContext<'_>,
+    emulator: &mut GameBoyEmulator,
+    state: &mut State,
+) {
     if state.tab == Tab::Background {
-        ctx.emulator.copy_background(state.background_tile_map, &mut state.background_buffer);
+        emulator.copy_background(state.background_tile_map, &mut state.background_buffer);
     }
 
     if state.background_texture.is_none() {
@@ -162,9 +166,13 @@ fn update_background_texture(ctx: &mut DebugRenderContext<'_, GameBoyEmulator>, 
     );
 }
 
-fn update_sprite_texture(ctx: &mut DebugRenderContext<'_, GameBoyEmulator>, state: &mut State) {
+fn update_sprite_texture(
+    ctx: &mut DebugRenderContext<'_>,
+    emulator: &mut GameBoyEmulator,
+    state: &mut State,
+) {
     if state.tab == Tab::Sprites {
-        ctx.emulator.copy_sprites(&mut state.sprites_buffer);
+        emulator.copy_sprites(&mut state.sprites_buffer);
     }
 
     if state.sprites_texture.is_none() {
@@ -184,7 +192,7 @@ fn update_sprite_texture(ctx: &mut DebugRenderContext<'_, GameBoyEmulator>, stat
         state.sprites_double_height_texture = Some((wgpu_texture, egui_texture));
     }
 
-    if ctx.emulator.is_using_double_height_sprites() {
+    if emulator.is_using_double_height_sprites() {
         let (wgpu_texture, egui_texture) = state.sprites_double_height_texture.as_ref().unwrap();
         let egui_texture = *egui_texture;
 
@@ -207,11 +215,15 @@ fn update_sprite_texture(ctx: &mut DebugRenderContext<'_, GameBoyEmulator>, stat
     }
 }
 
-fn update_palettes_texture(ctx: &mut DebugRenderContext<'_, GameBoyEmulator>, state: &mut State) {
+fn update_palettes_texture(
+    ctx: &mut DebugRenderContext<'_>,
+    emulator: &mut GameBoyEmulator,
+    state: &mut State,
+) {
     let mut palettes_buffer = [Color::default(); 64];
 
     if state.tab == Tab::Palettes {
-        ctx.emulator.copy_palettes(&mut palettes_buffer);
+        emulator.copy_palettes(&mut palettes_buffer);
     }
 
     if state.bg_palettes_texture.is_none() {
@@ -228,7 +240,7 @@ fn update_palettes_texture(ctx: &mut DebugRenderContext<'_, GameBoyEmulator>, st
 
     let mut bg_palettes_buffer = [Color::TRANSPARENT; 32];
     let mut obj_palettes_buffer = [Color::TRANSPARENT; 32];
-    if ctx.emulator.is_cgb_mode() {
+    if emulator.is_cgb_mode() {
         bg_palettes_buffer.copy_from_slice(&palettes_buffer[..32]);
         obj_palettes_buffer.copy_from_slice(&palettes_buffer[32..]);
     } else {

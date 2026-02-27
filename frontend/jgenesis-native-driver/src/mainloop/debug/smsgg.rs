@@ -26,12 +26,12 @@ impl State {
 
 pub fn render_fn() -> Box<DebugRenderFn<SmsGgEmulator>> {
     let mut state = State::new();
-    Box::new(move |ctx| render(ctx, &mut state))
+    Box::new(move |ctx, emulator| render(ctx, emulator, &mut state))
 }
 
-fn render(mut ctx: DebugRenderContext<'_, SmsGgEmulator>, state: &mut State) {
-    update_cram_texture(&mut ctx, state);
-    update_vram_texture(&mut ctx, state);
+fn render(mut ctx: DebugRenderContext<'_>, emulator: &mut SmsGgEmulator, state: &mut State) {
+    update_cram_texture(&mut ctx, emulator, state);
+    update_vram_texture(&mut ctx, emulator, state);
 
     let screen_width = debug::screen_width(ctx.egui_ctx);
 
@@ -71,7 +71,7 @@ fn render(mut ctx: DebugRenderContext<'_, SmsGgEmulator>, state: &mut State) {
         |ui| {
             ScrollArea::vertical().show(ui, |ui| {
                 Grid::new("smsgg_vdp_registers").num_columns(2).show(ui, |ui| {
-                    ctx.emulator.dump_vdp_registers(|register, fields| {
+                    emulator.dump_vdp_registers(|register, fields| {
                         ui.heading(format!("Register #{register}"));
                         ui.end_row();
 
@@ -87,8 +87,12 @@ fn render(mut ctx: DebugRenderContext<'_, SmsGgEmulator>, state: &mut State) {
     );
 }
 
-fn update_cram_texture(ctx: &mut DebugRenderContext<'_, SmsGgEmulator>, state: &mut State) {
-    ctx.emulator.copy_cram(state.cram_buffer.as_mut());
+fn update_cram_texture(
+    ctx: &mut DebugRenderContext<'_>,
+    emulator: &mut SmsGgEmulator,
+    state: &mut State,
+) {
+    emulator.copy_cram(state.cram_buffer.as_mut());
 
     if state.cram_texture.is_none() {
         let (wgpu_texture, egui_texture) =
@@ -106,8 +110,12 @@ fn update_cram_texture(ctx: &mut DebugRenderContext<'_, SmsGgEmulator>, state: &
     );
 }
 
-fn update_vram_texture(ctx: &mut DebugRenderContext<'_, SmsGgEmulator>, state: &mut State) {
-    ctx.emulator.copy_vram(state.vram_buffer.as_mut(), state.vram_palette, 32);
+fn update_vram_texture(
+    ctx: &mut DebugRenderContext<'_>,
+    emulator: &mut SmsGgEmulator,
+    state: &mut State,
+) {
+    emulator.copy_vram(state.vram_buffer.as_mut(), state.vram_palette, 32);
 
     if state.vram_texture.is_none() {
         let (wgpu_texture, egui_texture) =

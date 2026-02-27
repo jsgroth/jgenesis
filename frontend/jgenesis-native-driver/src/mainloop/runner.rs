@@ -1,5 +1,6 @@
 use crate::config::CommonConfig;
 use crate::mainloop::audio::{SdlAudioOutput, SdlAudioOutputHandle};
+use crate::mainloop::debug::DebuggerRunnerProcess;
 use crate::mainloop::input::{ThreadedInputPoller, ThreadedInputPollerHandle};
 use crate::mainloop::render::{RecvFrameError, ThreadedRenderer, ThreadedRendererHandle};
 use crate::mainloop::rewind::Rewinder;
@@ -24,8 +25,7 @@ pub type ChangeDiscFn<Emulator> =
 
 pub type RemoveDiscFn<Emulator> = fn(&mut Emulator);
 
-#[derive(Debug, Clone)]
-pub enum RunnerCommand<Config> {
+pub enum RunnerCommand<Emulator: EmulatorTrait> {
     Terminate,
     SoftReset,
     HardReset,
@@ -36,7 +36,9 @@ pub enum RunnerCommand<Config> {
     Rewind(bool),
     SaveState { slot: usize },
     LoadState { slot: usize },
-    ReloadConfig(Box<(CommonConfig, Config)>),
+    ReloadConfig(Box<(CommonConfig, Emulator::Config)>),
+    StartDebugger(Box<dyn DebuggerRunnerProcess<Emulator>>),
+    StopDebugger,
 }
 
 #[derive(Debug)]
@@ -57,7 +59,7 @@ struct RunnerThreadState<Emulator: EmulatorTrait> {
     save_writer: FsSaveWriter,
     common_config: CommonConfig,
     emulator_config: Emulator::Config,
-    command_receiver: Receiver<RunnerCommand<Emulator::Config>>,
+    command_receiver: Receiver<RunnerCommand<Emulator>>,
     response_sender: Sender<RunnerCommandResponse>,
     error_sender: Sender<Box<dyn Error + Send + Sync + 'static>>,
     rom_path: PathBuf,
@@ -70,6 +72,7 @@ struct RunnerThreadState<Emulator: EmulatorTrait> {
     rewinder: Rewinder<Emulator>,
     change_disc_fn: ChangeDiscFn<Emulator>,
     remove_disc_fn: RemoveDiscFn<Emulator>,
+    debugger_process: Option<Box<dyn DebuggerRunnerProcess<Emulator>>>,
 }
 
 impl<Emulator: EmulatorTrait> RunnerThreadState<Emulator> {
@@ -137,7 +140,7 @@ pub struct RunnerThread<Emulator: EmulatorTrait> {
     default_window_size: WindowSize,
     renderer_handle: ThreadedRendererHandle,
     input_poller_handle: ThreadedInputPollerHandle<Emulator::Inputs>,
-    command_sender: Sender<RunnerCommand<Emulator::Config>>,
+    command_sender: Sender<RunnerCommand<Emulator>>,
     response_receiver: Receiver<RunnerCommandResponse>,
     error_receiver: Receiver<Box<dyn Error + Send + Sync + 'static>>,
     save_state_metadata: Arc<Mutex<SaveStateMetadata>>,
@@ -213,6 +216,7 @@ impl<Emulator: EmulatorTrait> RunnerThread<Emulator> {
                         rewinder,
                         change_disc_fn,
                         remove_disc_fn,
+                        debugger_process: None,
                     });
 
                     log::info!("Runner thread has terminated");
@@ -268,10 +272,7 @@ impl<Emulator: EmulatorTrait> RunnerThread<Emulator> {
         self.input_poller_handle.update_inputs(inputs);
     }
 
-    pub fn send_command(
-        &self,
-        command: RunnerCommand<Emulator::Config>,
-    ) -> NativeEmulatorResult<()> {
+    pub fn send_command(&self, command: RunnerCommand<Emulator>) -> NativeEmulatorResult<()> {
         self.command_sender.send(command).map_err(|_| NativeEmulatorError::LostRunnerConnection)
     }
 
@@ -334,6 +335,13 @@ fn run_thread<Emulator: EmulatorTrait>(mut state: RunnerThreadState<Emulator>) {
             return;
         }
 
+        if let Some(debugger_process) = &mut state.debugger_process
+            && (should_run_emulator || rewinding)
+            && let Err(err) = debugger_process.run(&mut state.emulator)
+        {
+            log::error!("Error updating debugger in runner thread: {err}");
+        }
+
         if !should_run_emulator {
             // Don't spin loop when the emulator is paused or rewinding
             thread::sleep(Duration::from_millis(1));
@@ -357,7 +365,7 @@ enum CommandError {
 
 fn handle_command<Emulator: EmulatorTrait>(
     state: &mut RunnerThreadState<Emulator>,
-    command: RunnerCommand<Emulator::Config>,
+    command: RunnerCommand<Emulator>,
 ) -> Result<CommandEffect, CommandError> {
     match command {
         RunnerCommand::Terminate => {
@@ -398,6 +406,12 @@ fn handle_command<Emulator: EmulatorTrait>(
         }
         RunnerCommand::ReloadConfig(configs) => {
             state.reload_configs(configs.0, configs.1).map_err(CommandError::ReloadConfig)?;
+        }
+        RunnerCommand::StartDebugger(debugger_process) => {
+            state.debugger_process = Some(debugger_process);
+        }
+        RunnerCommand::StopDebugger => {
+            state.debugger_process = None;
         }
     }
 

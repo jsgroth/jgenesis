@@ -48,6 +48,7 @@ pub struct MemoryViewerState {
     pub set_address_text: String,
     pub value_text: String,
     pub set_invalid: bool,
+    pub editable: bool,
 }
 
 impl MemoryViewerState {
@@ -63,6 +64,7 @@ impl MemoryViewerState {
             set_address_text: String::new(),
             value_text: String::new(),
             set_invalid: false,
+            editable: false,
         }
     }
 
@@ -106,44 +108,46 @@ pub fn render(ctx: &Context, memory: &mut dyn DebugMemoryView, state: &mut Memor
                     }
                 });
 
-                ui.add_space(20.0);
+                if state.editable {
+                    ui.add_space(20.0);
 
-                ui.heading("Edit memory");
+                    ui.heading("Edit memory");
 
-                ui.horizontal(|ui| {
-                    ui.label("Address");
+                    ui.horizontal(|ui| {
+                        ui.label("Address");
 
-                    ui.add(
-                        TextEdit::singleline(&mut state.set_address_text)
-                            .desired_width(70.0)
-                            .font(MONOSPACE),
-                    );
-                });
+                        ui.add(
+                            TextEdit::singleline(&mut state.set_address_text)
+                                .desired_width(70.0)
+                                .font(MONOSPACE),
+                        );
+                    });
 
-                ui.horizontal(|ui| {
-                    ui.label("Value");
+                    ui.horizontal(|ui| {
+                        ui.label("Value");
 
-                    ui.add(
-                        TextEdit::singleline(&mut state.value_text)
-                            .desired_width(70.0)
-                            .font(MONOSPACE),
-                    );
-                });
+                        ui.add(
+                            TextEdit::singleline(&mut state.value_text)
+                                .desired_width(70.0)
+                                .font(MONOSPACE),
+                        );
+                    });
 
-                if ui.button("Set byte (8-bit)").clicked() {
-                    try_set_byte(memory, state);
-                }
+                    if ui.button("Set byte (8-bit)").clicked() {
+                        try_set_byte(memory, state);
+                    }
 
-                if ui.button("Set word (16-bit)").clicked() {
-                    try_set_word(memory, state);
-                }
+                    if ui.button("Set word (16-bit)").clicked() {
+                        try_set_word(memory, state);
+                    }
 
-                if ui.button("Set longword (32-bit)").clicked() {
-                    try_set_longword(memory, state);
-                }
+                    if ui.button("Set longword (32-bit)").clicked() {
+                        try_set_longword(memory, state);
+                    }
 
-                if state.set_invalid {
-                    ui.colored_label(Color32::RED, "Invalid address or value");
+                    if state.set_invalid {
+                        ui.colored_label(Color32::RED, "Invalid address or value");
+                    }
                 }
 
                 ui.add_space(20.0);
