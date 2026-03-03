@@ -820,6 +820,7 @@ dependencies = [
  "num-traits",
  "ruzstd",
  "text_io",
+ "zstd-safe",
 ]
 
 [[package]]

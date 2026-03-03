@@ -9,7 +9,7 @@ edition = "2024"
 jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
 
 bincode = { workspace = true, features = ["derive"] }
-chd = { workspace = true, features = ["unstable_lending_iterators"] }
+chd = { workspace = true, features = ["fast_zstd", "unstable_lending_iterators"] }
 crc = { workspace = true }
 log = { workspace = true }
 regex = { workspace = true }
