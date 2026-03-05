@@ -11,29 +11,14 @@ use crate::reader::cuebin::CdBinFiles;
 use crate::reader::seekvec::SeekableVec;
 use crate::{CdRomError, CdRomResult};
 use bincode::{Decode, Encode};
-use crc::Crc;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::ffi::OsStr;
 use std::fs;
 use std::fs::File;
 use std::io::BufReader;
-use std::ops::Range;
 use std::path::Path;
 
 const SECTOR_HEADER_LEN: u64 = 16;
-
-const CD_ROM_CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_CD_ROM_EDC);
-
-const MODE_1_DIGEST_RANGE: Range<usize> = 0..2064;
-const MODE_1_CHECKSUM_LOCATION: Range<usize> = 2064..2068;
-
-const MODE_2_SUBMODE_LOCATION: usize = 18;
-
-const MODE_2_FORM_1_DIGEST_RANGE: Range<usize> = 16..2072;
-const MODE_2_FORM_1_CHECKSUM_LOCATION: Range<usize> = 2072..2076;
-
-const MODE_2_FORM_2_DIGEST_RANGE: Range<usize> = 16..2348;
-const MODE_2_FORM_2_CHECKSUM_LOCATION: Range<usize> = 2348..2352;
 
 type CdBinFsFiles = CdBinFiles<File>;
 type CdBinMemoryFiles = CdBinFiles<SeekableVec>;
@@ -59,21 +44,22 @@ impl CdRomReader {
     fn read_sector(
         &mut self,
         track_number: u8,
+        relative_time: CdTime,
         relative_sector_number: u32,
         out: &mut [u8],
     ) -> CdRomResult<()> {
         match self {
             Self::CueBin(bin_files) => {
-                bin_files.read_sector(track_number, relative_sector_number, out)
+                bin_files.read_sector(track_number, relative_time, relative_sector_number, out)
             }
             Self::CueBinMemory(bin_files) => {
-                bin_files.read_sector(track_number, relative_sector_number, out)
+                bin_files.read_sector(track_number, relative_time, relative_sector_number, out)
             }
             Self::ChdFs(chd_file) => {
-                chd_file.read_sector(track_number, relative_sector_number, out)
+                chd_file.read_sector(track_number, relative_time, relative_sector_number, out)
             }
             Self::ChdMemory(chd_file) => {
-                chd_file.read_sector(track_number, relative_sector_number, out)
+                chd_file.read_sector(track_number, relative_time, relative_sector_number, out)
             }
         }
     }
@@ -100,21 +86,6 @@ impl CdRomFileFormat {
             Some("chd") => Some(Self::Chd),
             _ => None,
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Mode2Form {
-    // 2048-byte sector with ECC bytes
-    One,
-    // 2324-byte sector with no ECC bytes, only EDC
-    Two,
-}
-
-impl Mode2Form {
-    fn parse(sector_buffer: &[u8]) -> Self {
-        // Submode bit 5 specifies Form 1 vs. Form 2
-        if sector_buffer[MODE_2_SUBMODE_LOCATION] & (1 << 5) != 0 { Self::Two } else { Self::One }
     }
 }
 
@@ -243,88 +214,46 @@ impl CdRom {
         }
 
         let relative_sector_number = (relative_time - track.pregap_len).to_sector_number();
-        self.reader.read_sector(track_number, relative_sector_number, out)?;
-
-        validate_edc(track.mode, track_number, relative_sector_number, out)?;
-
-        // TODO check P/Q ECC?
+        self.reader.read_sector(track_number, relative_time, relative_sector_number, out)?;
 
         Ok(())
     }
 }
 
-fn validate_edc(
-    mode: TrackMode,
-    track_number: u8,
-    relative_sector_number: u32,
-    sector: &[u8],
-) -> CdRomResult<()> {
-    let (digest_range, edc_location) = match mode {
-        TrackMode::Mode1 => (MODE_1_DIGEST_RANGE, MODE_1_CHECKSUM_LOCATION),
-        TrackMode::Mode2 => match Mode2Form::parse(sector) {
-            Mode2Form::One => (MODE_2_FORM_1_DIGEST_RANGE, MODE_2_FORM_1_CHECKSUM_LOCATION),
-            Mode2Form::Two => {
-                // In Form 2, an EDC of 0 indicates no EDC
-                if sector[MODE_2_FORM_2_CHECKSUM_LOCATION] == [0, 0, 0, 0] {
-                    return Ok(());
-                }
-
-                (MODE_2_FORM_2_DIGEST_RANGE, MODE_2_FORM_2_CHECKSUM_LOCATION)
-            }
-        },
-        TrackMode::Audio => return Ok(()),
-    };
-
-    let checksum = CD_ROM_CRC.checksum(&sector[digest_range]);
-
-    let edc_bytes: [u8; 4] = sector[edc_location].try_into().unwrap();
-    let edc = u32::from_le_bytes(edc_bytes);
-
-    if checksum != edc {
-        return Err(CdRomError::DiscReadInvalidChecksum {
-            track_number,
-            sector_number: relative_sector_number,
-            expected: edc,
-            actual: checksum,
-        });
-    }
-
-    Ok(())
-}
-
 impl TrackMode {
     fn header_byte(self) -> u8 {
         match self {
-            Self::Mode1 => 0x01,
+            Self::Mode1 | Self::Mode1DataOnly => 0x01,
             Self::Mode2 => 0x02,
             Self::Audio => 0x00,
         }
     }
 }
 
-fn write_fake_data_pregap(mode: TrackMode, time: CdTime, out: &mut [u8]) {
-    // Make up a header; 12 sync bytes, then minutes, then seconds, then frames, then mode (always 1)
-    let bcd_minutes = time_component_to_bcd(time.minutes);
-    let bcd_seconds = time_component_to_bcd(time.seconds);
-    let bcd_frames = time_component_to_bcd(time.frames);
-    out[..SECTOR_HEADER_LEN as usize].copy_from_slice(&[
+fn synthesize_data_header(mode: TrackMode, time: CdTime) -> [u8; 16] {
+    // Make up a header; 12 sync bytes, then MSF time, then mode byte
+    [
         0x00,
-        0x11,
-        0x11,
-        0x11,
-        0x11,
-        0x11,
-        0x11,
-        0x11,
-        0x11,
-        0x11,
-        0x11,
+        0xFF,
+        0xFF,
+        0xFF,
+        0xFF,
+        0xFF,
+        0xFF,
+        0xFF,
+        0xFF,
+        0xFF,
+        0xFF,
         0x00,
-        bcd_minutes,
-        bcd_seconds,
-        bcd_frames,
+        time_component_to_bcd(time.minutes),
+        time_component_to_bcd(time.seconds),
+        time_component_to_bcd(time.frames),
         mode.header_byte(),
-    ]);
+    ]
+}
+
+fn write_fake_data_pregap(mode: TrackMode, time: CdTime, out: &mut [u8]) {
+    out[..SECTOR_HEADER_LEN as usize].copy_from_slice(&synthesize_data_header(mode, time));
     out[SECTOR_HEADER_LEN as usize..crate::BYTES_PER_SECTOR as usize].fill(0);
 }
 

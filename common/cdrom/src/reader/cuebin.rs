@@ -5,6 +5,7 @@ mod tests;
 
 use crate::cdtime::CdTime;
 use crate::cue::{CueSheet, Track, TrackMode, TrackType};
+use crate::reader::{SECTOR_HEADER_LEN, synthesize_data_header};
 use crate::{CdRomError, CdRomResult, cue};
 use bincode::{Decode, Encode};
 use regex::Regex;
@@ -17,7 +18,8 @@ use std::{fs, io, mem};
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct TrackMetadata {
     pub file_name: String,
-    pub time_in_file: CdTime,
+    pub mode: TrackMode,
+    pub address_in_file: u64,
 }
 
 #[derive(Debug)]
@@ -78,6 +80,7 @@ impl<F: Read + Seek> CdBinFiles<F> {
     pub fn read_sector(
         &mut self,
         track_number: u8,
+        relative_time: CdTime,
         relative_sector_number: u32,
         out: &mut [u8],
     ) -> CdRomResult<()> {
@@ -87,18 +90,35 @@ impl<F: Read + Seek> CdBinFiles<F> {
             .get_mut(&metadata.file_name)
             .expect("Track file was not opened on load; this is a bug");
 
-        let sector_number = metadata.time_in_file.to_sector_number() + relative_sector_number;
-        let sector_addr = u64::from(sector_number) * crate::BYTES_PER_SECTOR;
+        let sector_addr = metadata.address_in_file
+            + u64::from(relative_sector_number) * metadata.mode.bytes_per_sector();
 
         // Only seek if the file descriptor is not already at the desired position
         if *position != sector_addr {
             track_file.seek(SeekFrom::Start(sector_addr)).map_err(CdRomError::DiscReadIo)?;
         }
 
-        track_file
-            .read_exact(&mut out[..crate::BYTES_PER_SECTOR as usize])
-            .map_err(CdRomError::DiscReadIo)?;
-        *position = sector_addr + crate::BYTES_PER_SECTOR;
+        match metadata.mode {
+            TrackMode::Mode1DataOnly => {
+                // 2048-byte sectors
+                out[..SECTOR_HEADER_LEN as usize]
+                    .copy_from_slice(&synthesize_data_header(metadata.mode, relative_time));
+                track_file
+                    .read_exact(
+                        &mut out[SECTOR_HEADER_LEN as usize..(SECTOR_HEADER_LEN + 2048) as usize],
+                    )
+                    .map_err(CdRomError::DiscReadIo)?;
+                out[(SECTOR_HEADER_LEN + 2048) as usize..crate::BYTES_PER_SECTOR as usize].fill(0);
+
+                *position = sector_addr + 2048;
+            }
+            TrackMode::Mode1 | TrackMode::Mode2 | TrackMode::Audio => {
+                track_file
+                    .read_exact(&mut out[..crate::BYTES_PER_SECTOR as usize])
+                    .map_err(CdRomError::DiscReadIo)?;
+                *position = sector_addr + crate::BYTES_PER_SECTOR;
+            }
+        }
 
         Ok(())
     }
@@ -344,8 +364,8 @@ fn to_cue_sheet(
             path: bin_path.display().to_string(),
             source,
         })?;
-        let file_len_bytes = file_metadata.len();
-        let file_len_sectors = (file_len_bytes / crate::BYTES_PER_SECTOR) as u32;
+
+        let mut address_in_file = 0;
 
         for i in 0..parsed_tracks.len() {
             let track = &parsed_tracks[i];
@@ -362,9 +382,20 @@ fn to_cue_sheet(
                 .pause_start
                 .map_or(CdTime::ZERO, |pause_start| track.track_start - pause_start);
 
+            let start_time_in_file = track.pause_start.unwrap_or(track.track_start);
+            let is_first_track_in_file = i == 0;
+            if is_first_track_in_file {
+                address_in_file = u64::from(start_time_in_file.to_sector_number())
+                    * track.mode.bytes_per_sector();
+            }
+
             let is_last_track_in_file = i == parsed_tracks.len() - 1;
             let data_end_time = if is_last_track_in_file {
-                CdTime::from_sector_number(file_len_sectors)
+                let file_len_bytes = file_metadata.len();
+                let track_len_bytes = file_len_bytes - address_in_file;
+                let track_len_sectors = track_len_bytes / track.mode.bytes_per_sector();
+
+                start_time_in_file + CdTime::from_sector_number(track_len_sectors as u32)
             } else {
                 let next_track = &parsed_tracks[i + 1];
                 next_track.pause_start.unwrap_or(next_track.track_start)
@@ -386,10 +417,14 @@ fn to_cue_sheet(
             });
             track_metadata.push(TrackMetadata {
                 file_name: file_name.clone(),
-                time_in_file: track.pause_start.unwrap_or(track.track_start),
+                mode: track.mode,
+                address_in_file,
             });
 
             absolute_start_time += padded_track_len;
+
+            let track_len_sectors = (data_end_time - start_time_in_file).to_sector_number();
+            address_in_file += u64::from(track_len_sectors) * track.mode.bytes_per_sector();
         }
     }
 

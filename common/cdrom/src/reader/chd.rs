@@ -2,11 +2,31 @@
 
 use crate::cdtime::CdTime;
 use crate::cue::{CueSheet, Track, TrackMode, TrackType};
+use crate::reader::{SECTOR_HEADER_LEN, synthesize_data_header};
 use crate::{CdRomError, CdRomResult, cue};
 use chd::Chd;
 use chd::iter::LendingIterator;
 use std::fmt::{Debug, Formatter};
 use std::io::{Read, Seek};
+use std::str::FromStr;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PregapType {
+    Mode1,
+    Audio,
+}
+
+impl FromStr for PregapType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "MODE1" => Ok(Self::Mode1),
+            "VAUDIO" => Ok(Self::Audio),
+            _ => Err(format!("unrecognized PGTYPE: {s}")),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 struct CdMetadata {
@@ -14,6 +34,7 @@ struct CdMetadata {
     mode: TrackMode,
     frames: u32,
     pregap_frames: u32,
+    pregap_type: Option<PregapType>,
 }
 
 impl CdMetadata {
@@ -26,6 +47,7 @@ impl CdMetadata {
         let mut track_mode: Option<TrackMode> = None;
         let mut frames: Option<u32> = None;
         let mut pregap_frames: u32 = 0;
+        let mut pregap_type: Option<PregapType> = None;
         for token in text.split(' ') {
             let Some((key, value)) = token.split_once(':') else { continue };
 
@@ -33,12 +55,14 @@ impl CdMetadata {
                 "TRACK" => track_number = Some(value.parse().ok()?),
                 "TYPE" => match value {
                     "MODE1/2352" | "MODE1_RAW" => track_mode = Some(TrackMode::Mode1),
+                    "MODE1/2048" | "MODE1" => track_mode = Some(TrackMode::Mode1DataOnly),
                     "MODE2/2352" | "MODE2_RAW" => track_mode = Some(TrackMode::Mode2),
                     "AUDIO" => track_mode = Some(TrackMode::Audio),
                     _ => return None,
                 },
                 "FRAMES" => frames = Some(value.parse().ok()?),
                 "PREGAP" => pregap_frames = value.parse().ok()?,
+                "PGTYPE" => pregap_type = Some(value.parse().ok()?),
                 _ => {}
             }
         }
@@ -48,6 +72,7 @@ impl CdMetadata {
             mode: track_mode?,
             frames: frames?,
             pregap_frames,
+            pregap_type,
         })
     }
 }
@@ -110,8 +135,14 @@ impl<F: Read + Seek> ChdFile<F> {
                 end_time: current_start_time + padded_track_len,
                 pregap_len,
                 pause_len: match track_type {
-                    TrackType::Data => CdTime::ZERO,
-                    TrackType::Audio => pregap_len,
+                    TrackType::Audio
+                        if cd_metadata
+                            .pregap_type
+                            .is_none_or(|pgtype| pgtype == PregapType::Audio) =>
+                    {
+                        pregap_len
+                    }
+                    _ => CdTime::ZERO,
                 },
                 postgap_len,
             });
@@ -154,6 +185,7 @@ impl<F: Read + Seek> ChdFile<F> {
     pub fn read_sector(
         &mut self,
         track_number: u8,
+        relative_time: CdTime,
         relative_sector_number: u32,
         out: &mut [u8],
     ) -> CdRomResult<()> {
@@ -166,7 +198,7 @@ impl<F: Read + Seek> ChdFile<F> {
 
         let hunk_number = sector_number / hunk_size_sectors;
         let hunk_offset_sectors = sector_number % hunk_size_sectors;
-        let hunk_offset_bytes = hunk_offset_sectors * unit_bytes;
+        let hunk_offset_bytes = (hunk_offset_sectors * unit_bytes) as usize;
 
         // Only load hunk if necessary
         if hunk_number != self.current_hunk_number {
@@ -178,12 +210,30 @@ impl<F: Read + Seek> ChdFile<F> {
             self.current_hunk_number = hunk_number;
         }
 
-        out[..crate::BYTES_PER_SECTOR as usize].copy_from_slice(
-            &self.decompressed_buffer[hunk_offset_bytes as usize
-                ..(hunk_offset_bytes + crate::BYTES_PER_SECTOR as u32) as usize],
-        );
+        let track = self.cue.track(track_number);
+        let track_mode = track.mode;
+        let track_type = track.track_type;
 
-        if self.cue.track(track_number).track_type == TrackType::Audio {
+        match track_mode {
+            TrackMode::Mode1DataOnly => {
+                // 2048-byte sectors
+                out[..SECTOR_HEADER_LEN as usize]
+                    .copy_from_slice(&synthesize_data_header(track_mode, relative_time));
+                out[SECTOR_HEADER_LEN as usize..(SECTOR_HEADER_LEN + 2048) as usize]
+                    .copy_from_slice(
+                        &self.decompressed_buffer[hunk_offset_bytes..hunk_offset_bytes + 2048],
+                    );
+                out[(SECTOR_HEADER_LEN + 2048) as usize..crate::BYTES_PER_SECTOR as usize].fill(0);
+            }
+            TrackMode::Mode1 | TrackMode::Mode2 | TrackMode::Audio => {
+                out[..crate::BYTES_PER_SECTOR as usize].copy_from_slice(
+                    &self.decompressed_buffer
+                        [hunk_offset_bytes..hunk_offset_bytes + crate::BYTES_PER_SECTOR as usize],
+                );
+            }
+        }
+
+        if track_type == TrackType::Audio {
             // CHD audio tracks decompress into big-endian audio samples for some reason. Swap all
             // the bytes to make them little-endian to match the CD-DA format
             for chunk in out[..crate::BYTES_PER_SECTOR as usize].chunks_exact_mut(2) {

@@ -24,6 +24,7 @@ impl TrackType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum TrackMode {
     Mode1,
+    Mode1DataOnly,
     Mode2,
     Audio,
 }
@@ -32,8 +33,16 @@ impl TrackMode {
     #[must_use]
     pub fn to_type(self) -> TrackType {
         match self {
-            Self::Mode1 | Self::Mode2 => TrackType::Data,
+            Self::Mode1 | Self::Mode1DataOnly | Self::Mode2 => TrackType::Data,
             Self::Audio => TrackType::Audio,
+        }
+    }
+
+    #[must_use]
+    pub fn bytes_per_sector(self) -> u64 {
+        match self {
+            Self::Mode1DataOnly => 2048,
+            Self::Mode1 | Self::Mode2 | Self::Audio => 2352,
         }
     }
 }
@@ -44,6 +53,7 @@ impl FromStr for TrackMode {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "MODE1/2352" => Ok(Self::Mode1),
+            "MODE1/2048" => Ok(Self::Mode1DataOnly),
             "MODE2/2352" => Ok(Self::Mode2),
             "AUDIO" => Ok(Self::Audio),
             _ => Err(format!("unsupported CD track type: {s}")),
