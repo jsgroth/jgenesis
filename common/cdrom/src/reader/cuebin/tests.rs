@@ -19,6 +19,7 @@ fn single_file_standard_space() {
         files,
         vec![ParsedFile {
             file_name: "Standard Space.bin".into(),
+            file_type: FileType::Binary,
             tracks: vec![
                 ParsedTrack {
                     number: 1,
@@ -65,6 +66,7 @@ fn single_file_more_space() {
         files,
         vec![ParsedFile {
             file_name: "More Space.bin".into(),
+            file_type: FileType::Binary,
             tracks: vec![
                 ParsedTrack {
                     number: 1,
@@ -115,6 +117,7 @@ fn multi_file() {
         files[0],
         ParsedFile {
             file_name: "Multi File (Track 01).bin".into(),
+            file_type: FileType::Binary,
             tracks: vec![ParsedTrack {
                 number: 1,
                 mode: TrackMode::Mode1,
@@ -132,6 +135,7 @@ fn multi_file() {
             files[i],
             ParsedFile {
                 file_name,
+                file_type: FileType::Binary,
                 tracks: vec![ParsedTrack {
                     number: track_num as u8,
                     mode: TrackMode::Audio,

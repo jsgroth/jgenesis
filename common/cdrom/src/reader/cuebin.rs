@@ -10,8 +10,10 @@ use crate::{CdRomError, CdRomResult, cue};
 use bincode::{Decode, Encode};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
+use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::LazyLock;
 use std::{fs, io, mem};
 
@@ -134,10 +136,29 @@ struct ParsedTrack {
     track_start: CdTime,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FileType {
+    Binary,
+    Wave,
+}
+
+impl FromStr for FileType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "BINARY" => Ok(Self::Binary),
+            "WAVE" => Ok(Self::Wave),
+            _ => Err(format!("unrecognized FILE type: {s}")),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 struct ParsedFile {
     file_name: String,
+    file_type: FileType,
     tracks: Vec<ParsedTrack>,
 }
 
@@ -145,7 +166,7 @@ struct ParsedFile {
 struct CueParser {
     files: Vec<ParsedFile>,
     tracks: Vec<ParsedTrack>,
-    current_file: Option<String>,
+    current_file: Option<(String, FileType)>,
     current_track: Option<(u8, TrackMode)>,
     last_track_number: Option<u8>,
     pregap_len: Option<CdTime>,
@@ -194,12 +215,20 @@ impl CueParser {
     fn parse_file_line(&mut self, line: &str) -> CdRomResult<()> {
         self.push_file()?;
 
-        static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"FILE "(.*)" BINARY"#).unwrap());
+        static RE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r#"FILE "(.*)" ([^ ]*)"#).unwrap());
 
         let captures =
             RE.captures(line).ok_or_else(|| CdRomError::CueInvalidFileLine(line.into()))?;
         let file_name = captures.get(1).unwrap();
-        self.current_file = Some(file_name.as_str().into());
+        let file_type = captures
+            .get(2)
+            .unwrap()
+            .as_str()
+            .parse::<FileType>()
+            .map_err(|_| CdRomError::CueInvalidFileLine(line.into()))?;
+
+        self.current_file = Some((file_name.as_str().into(), file_type));
 
         Ok(())
     }
@@ -280,16 +309,13 @@ impl CueParser {
     fn push_file(&mut self) -> CdRomResult<()> {
         self.push_track()?;
 
-        let Some(current_file) = self.current_file.take() else { return Ok(()) };
+        let Some((file_name, file_type)) = self.current_file.take() else { return Ok(()) };
 
         if self.tracks.is_empty() {
-            return Err(CdRomError::CueParse(format!(
-                "No tracks listed for file '{current_file}'"
-            )));
+            return Err(CdRomError::CueParse(format!("No tracks listed for file '{file_name}'")));
         }
 
-        self.files
-            .push(ParsedFile { file_name: current_file, tracks: mem::take(&mut self.tracks) });
+        self.files.push(ParsedFile { file_name, file_type, tracks: mem::take(&mut self.tracks) });
 
         Ok(())
     }
@@ -345,6 +371,8 @@ fn parse_cue<P: AsRef<Path>>(cue_path: P) -> CdRomResult<(CueSheet, Vec<TrackMet
     to_cue_sheet(parsed_files, cue_path)
 }
 
+const WAVE_HEADER_LEN: u64 = 44;
+
 fn to_cue_sheet(
     parsed_files: Vec<ParsedFile>,
     cue_path: &Path,
@@ -357,7 +385,7 @@ fn to_cue_sheet(
     let mut tracks = Vec::new();
     let mut track_metadata = Vec::new();
 
-    for ParsedFile { file_name, tracks: parsed_tracks } in parsed_files {
+    for ParsedFile { file_name, file_type, tracks: parsed_tracks } in parsed_files {
         let bin_path = cue_parent_dir.join(&file_name);
 
         let file_metadata = fs::metadata(&bin_path).map_err(|source| CdRomError::FsMetadata {
@@ -365,7 +393,14 @@ fn to_cue_sheet(
             source,
         })?;
 
-        let mut address_in_file = 0;
+        if file_type == FileType::Wave {
+            validate_wav_header(&bin_path, &file_metadata)?;
+        }
+
+        let mut address_in_file = match file_type {
+            FileType::Binary => 0,
+            FileType::Wave => WAVE_HEADER_LEN,
+        };
 
         for i in 0..parsed_tracks.len() {
             let track = &parsed_tracks[i];
@@ -385,7 +420,7 @@ fn to_cue_sheet(
             let start_time_in_file = track.pause_start.unwrap_or(track.track_start);
             let is_first_track_in_file = i == 0;
             if is_first_track_in_file {
-                address_in_file = u64::from(start_time_in_file.to_sector_number())
+                address_in_file += u64::from(start_time_in_file.to_sector_number())
                     * track.mode.bytes_per_sector();
             }
 
@@ -438,4 +473,40 @@ fn to_cue_sheet(
     );
 
     Ok((CueSheet::new(tracks), track_metadata))
+}
+
+fn validate_wav_header(bin_path: &Path, metadata: &fs::Metadata) -> CdRomResult<()> {
+    if metadata.len() < WAVE_HEADER_LEN {
+        return Err(CdRomError::WaveUnsupported);
+    }
+
+    let mut header = [0; WAVE_HEADER_LEN as usize];
+    let mut file = File::open(bin_path).map_err(CdRomError::DiscReadIo)?;
+    file.read_exact(&mut header).map_err(CdRomError::DiscReadIo)?;
+
+    // Format - must be 1 (PCM integer)
+    let format = u16::from_le_bytes(header[20..22].try_into().unwrap());
+    if format != 1 {
+        return Err(CdRomError::WaveUnsupported);
+    }
+
+    // Channels - must be 2 (stereo)
+    let channels = u16::from_le_bytes(header[22..24].try_into().unwrap());
+    if channels != 2 {
+        return Err(CdRomError::WaveUnsupported);
+    }
+
+    // Sample rate - must be 44100 Hz
+    let sample_rate = u32::from_le_bytes(header[24..28].try_into().unwrap());
+    if sample_rate != 44100 {
+        return Err(CdRomError::WaveUnsupported);
+    }
+
+    // Bits per sample - must be 16
+    let bits_per_sample = u16::from_le_bytes(header[34..36].try_into().unwrap());
+    if bits_per_sample != 16 {
+        return Err(CdRomError::WaveUnsupported);
+    }
+
+    Ok(())
 }
