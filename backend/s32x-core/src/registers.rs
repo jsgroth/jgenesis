@@ -332,16 +332,6 @@ impl SystemRegisters {
         }
     }
 
-    pub fn sh2_write_byte(&mut self, address: u32, value: u8, which: WhichCpu, vdp: &mut Vdp) {
-        let mut word = self.sh2_read(address & !1, which, vdp);
-        if !address.bit(0) {
-            word.set_msb(value);
-        } else {
-            word.set_lsb(value);
-        }
-        self.sh2_write(address & !1, word, which, vdp);
-    }
-
     pub fn sh2_write(&mut self, address: u32, value: u16, which: WhichCpu, vdp: &mut Vdp) {
         match address {
             0x4000 => self.write_interrupt_mask(value, which, vdp),

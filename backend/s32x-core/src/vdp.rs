@@ -600,16 +600,6 @@ impl Vdp {
         self.cram[((address & 0x1FF) >> 1) as usize]
     }
 
-    pub fn write_cram_byte(&mut self, address: u32, value: u8) {
-        let mut word = self.read_cram(address & !1);
-        if !address.bit(0) {
-            word.set_msb(value);
-        } else {
-            word.set_lsb(value);
-        }
-        self.write_cram(address, word);
-    }
-
     pub fn write_cram(&mut self, address: u32, value: u16) {
         // TODO block access to CRAM while in use?
         self.cram[((address & 0x1FF) >> 1) as usize] = value;

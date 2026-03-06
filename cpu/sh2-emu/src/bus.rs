@@ -34,6 +34,42 @@ impl Display for AccessContext {
     }
 }
 
+pub struct OpSize;
+
+impl OpSize {
+    pub const BYTE: u8 = 0;
+    pub const WORD: u8 = 1;
+    pub const LONGWORD: u8 = 2;
+
+    /// # Panics
+    ///
+    /// Panics if `SIZE` is not a valid `OpSize` value
+    #[must_use]
+    #[inline(always)]
+    pub fn display<const SIZE: u8>() -> &'static str {
+        match SIZE {
+            Self::BYTE => "byte",
+            Self::WORD => "word",
+            Self::LONGWORD => "longword",
+            _ => panic!("invalid size {SIZE}"),
+        }
+    }
+
+    /// # Panics
+    ///
+    /// Panics if `SIZE` is not a valid `OpSize` value
+    #[must_use]
+    #[inline(always)]
+    pub fn mask<const SIZE: u8>() -> u32 {
+        match SIZE {
+            Self::BYTE => 0xFF,
+            Self::WORD => 0xFFFF,
+            Self::LONGWORD => 0xFFFFFFFF,
+            _ => panic!("invalid size {SIZE}"),
+        }
+    }
+}
+
 pub trait BusInterface {
     fn read_byte(&mut self, address: u32, ctx: AccessContext) -> u8;
 
