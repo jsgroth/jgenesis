@@ -26,7 +26,7 @@ pub struct Mbc1 {
 impl Mbc1 {
     pub fn new(rom_len: u32, ram_len: u32) -> Self {
         Self {
-            rom_bank: 0,
+            rom_bank: 1,
             rom_addr_mask: rom_len - 1,
             ram_bank: 0,
             ram_addr_mask: ram_len.saturating_sub(1),
@@ -51,8 +51,7 @@ impl Mbc1 {
             }
         } else {
             // $4000-$7FFF is mapped to the currently selected ROM bank
-            let rom_bank = if self.rom_bank & 0x1F == 0 { 1 } else { self.rom_bank };
-            ((u32::from(rom_bank) << 14) | u32::from(address & 0x3FFF)) & self.rom_addr_mask
+            ((u32::from(self.rom_bank) << 14) | u32::from(address & 0x3FFF)) & self.rom_addr_mask
         }
     }
 
@@ -65,7 +64,11 @@ impl Mbc1 {
                 log::trace!("  RAM enabled: {}", self.ram_enabled);
             }
             0x2000..=0x3FFF => {
-                self.rom_bank = (self.rom_bank & 0xE0) | (value & 0x1F);
+                let mut rom_bank_low = value & 0x1F;
+                if rom_bank_low == 0 {
+                    rom_bank_low = 1;
+                }
+                self.rom_bank = (self.rom_bank & !0x1F) | rom_bank_low;
                 log::trace!("  ROM bank: {:02X}", self.rom_bank);
             }
             0x4000..=0x5FFF => {
@@ -139,7 +142,7 @@ impl Mbc2 {
         }
 
         // MBC2 RAM is nibble-sized
-        self.ram[(address & 0x1FF) as usize] & 0x0F
+        self.ram[(address & 0x1FF) as usize] | 0xF0
     }
 
     pub fn write_ram(&mut self, address: u16, value: u8) {
@@ -164,7 +167,7 @@ impl Mbc2 {
         // Address bit 8 determines whether this sets RAM enabled (clear) or ROM bank (set)
         if !address.bit(8) {
             // Set RAM enabled
-            self.ram_enabled = value == 0x0A;
+            self.ram_enabled = value & 0x0F == 0x0A;
         } else {
             // Set ROM bank
             self.rom_bank = value & 0x0F;
