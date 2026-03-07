@@ -8,6 +8,8 @@ use genesis_core::memory::PhysicalMedium;
 use jgenesis_common::num::{GetBit, U16Ext};
 use sh2_emu::Sh2;
 use sh2_emu::bus::{AccessContext, BusInterface, OpSize};
+use std::marker::PhantomData;
+use std::ops::{Deref, DerefMut};
 use std::{array, cmp};
 
 const SDRAM_MASK: u32 = 0x3FFFF;
@@ -412,18 +414,38 @@ impl WhichCpu {
     }
 }
 
-pub struct OtherCpu<'other> {
-    pub cpu: &'other mut Sh2,
-    pub cycle_counter: &'other mut u64,
+pub struct OtherCpu {
+    cpu: *mut Sh2,
+    cycle_counter: *mut u64,
 }
 
 // SH-2 memory map
-pub struct Sh2Bus<'bus, 'other> {
-    pub s32x_bus: &'bus mut Sega32XBus,
+pub struct Sh2Bus {
+    s32x_bus: *mut Sega32XBus,
+    other_sh2: Option<OtherCpu>,
     pub which: WhichCpu,
     pub cycle_counter: u64,
     pub cycle_limit: u64,
-    pub other_sh2: Option<OtherCpu<'other>>,
+}
+
+pub struct Sh2BusGuard<'bus, 'other> {
+    bus: Sh2Bus,
+    _bus_marker: PhantomData<&'bus ()>,
+    _other_marker: PhantomData<&'other ()>,
+}
+
+impl Deref for Sh2BusGuard<'_, '_> {
+    type Target = Sh2Bus;
+
+    fn deref(&self) -> &Self::Target {
+        &self.bus
+    }
+}
+
+impl DerefMut for Sh2BusGuard<'_, '_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.bus
+    }
 }
 
 // All values are minus one because every access takes at least 1 cycle
@@ -550,7 +572,47 @@ fn sh2_vdp_cycles<const SIZE: u8>() -> u64 {
     }
 }
 
-impl Sh2Bus<'_, '_> {
+impl Sh2Bus {
+    pub fn create<'bus, 'other>(
+        s32x_bus: &'bus mut Sega32XBus,
+        which: WhichCpu,
+        cycle_counter: u64,
+        cycle_limit: u64,
+        other_sh2: Option<(&'other mut Sh2, &'other mut u64)>,
+    ) -> Sh2BusGuard<'bus, 'other> {
+        // SAFETY: Sh2Bus contains raw pointers that are created from mutable references here. The
+        // returned bus is only accessible through a guard so that the caller cannot reborrow or
+        // move the underlying values until after dropping the guard.
+        Sh2BusGuard {
+            bus: Sh2Bus {
+                s32x_bus,
+                other_sh2: other_sh2.map(|(other_cpu, other_cycles)| OtherCpu {
+                    cpu: other_cpu,
+                    cycle_counter: other_cycles,
+                }),
+                which,
+                cycle_counter,
+                cycle_limit,
+            },
+            _bus_marker: PhantomData,
+            _other_marker: PhantomData,
+        }
+    }
+
+    fn s32x_bus(&mut self) -> &mut Sega32XBus {
+        // SAFETY: Mutable reference created from a raw pointer that was originally created from a
+        // mutable reference.
+        // This method mutably borrows the Sh2Bus so only one mutable reference can be created this
+        // way at a time. Other code should not create mutable references directly, and must not
+        // touch the pointer while a mutable reference is alive.
+        unsafe { &mut *self.s32x_bus }
+    }
+
+    fn s32x_bus_shared(&self) -> &Sega32XBus {
+        // SAFETY: Same as above but returns a shared reference from a shared Sh2Bus borrow
+        unsafe { &*self.s32x_bus }
+    }
+
     // Brutal Unleashed: Above the Claw requires fairly close synchronization to prevent
     // the game from freezing due to the master SH-2 missing a communication port write from
     // the slave SH-2. After the slave SH-2 sees a specific value from the master SH-2, it
@@ -562,21 +624,27 @@ impl Sh2Bus<'_, '_> {
             return;
         }
 
-        let Some(OtherCpu { cpu, cycle_counter }) = &mut self.other_sh2 else { return };
+        // SAFETY: All raw pointers used here were created from mutable references and are
+        // guaranteed non-null.
+        // The original Sh2Bus instance is not used while the other CPU is executing against the
+        // bus copy.
+        unsafe {
+            let Some(OtherCpu { cpu, cycle_counter }) = self.other_sh2 else { return };
 
-        let limit = cmp::min(self.cycle_limit, self.cycle_counter);
-        let mut bus = Sh2Bus {
-            s32x_bus: &mut *self.s32x_bus,
-            which: self.which.other(),
-            cycle_counter: **cycle_counter,
-            cycle_limit: limit,
-            other_sh2: None,
-        };
+            let limit = cmp::min(self.cycle_limit, self.cycle_counter);
+            let mut bus = Sh2Bus {
+                s32x_bus: self.s32x_bus,
+                which: self.which.other(),
+                cycle_counter: *cycle_counter,
+                cycle_limit: limit,
+                other_sh2: None,
+            };
 
-        while bus.cycle_counter < limit {
-            cpu.execute(crate::core::SH2_EXECUTION_SLICE_LEN, &mut bus);
+            while bus.cycle_counter < limit {
+                (*cpu).execute(crate::core::SH2_EXECUTION_SLICE_LEN, &mut bus);
+            }
+            *cycle_counter = bus.cycle_counter;
         }
-        **cycle_counter = bus.cycle_counter;
     }
 
     // $00000000-$01FFFFFF: Boot ROM, 32X registers, 32X CRAM
@@ -594,8 +662,10 @@ impl Sh2Bus<'_, '_> {
 
                 self.sync_if_comm_port_accessed(address);
 
+                let which = self.which;
                 sh2_read_register::<SIZE>(address, |address| {
-                    self.s32x_bus.registers.sh2_read(address, self.which, &self.s32x_bus.vdp)
+                    let bus = self.s32x_bus();
+                    bus.registers.sh2_read(address, which, &bus.vdp)
                 })
             }
             0x4030..=0x403F => {
@@ -607,16 +677,16 @@ impl Sh2Bus<'_, '_> {
                 );
 
                 sh2_read_register::<SIZE>(address, |address| {
-                    self.s32x_bus.pwm.read_register(address)
+                    self.s32x_bus().pwm.read_register(address)
                 })
             }
             0x4100..=0x41FF => {
                 // 32X VDP registers
                 self.cycle_counter += sh2_vdp_cycles::<SIZE>();
 
-                if self.s32x_bus.registers.vdp_access == Access::Sh2 {
+                if self.s32x_bus().registers.vdp_access == Access::Sh2 {
                     sh2_read_register::<SIZE>(address, |address| {
-                        self.s32x_bus.vdp.read_register(address)
+                        self.s32x_bus().vdp.read_register(address)
                     })
                 } else {
                     log::warn!(
@@ -631,9 +701,9 @@ impl Sh2Bus<'_, '_> {
                 // 32X CRAM
                 self.cycle_counter += sh2_vdp_cycles::<SIZE>();
 
-                if self.s32x_bus.registers.vdp_access == Access::Sh2 {
+                if self.s32x_bus().registers.vdp_access == Access::Sh2 {
                     sh2_read_register::<SIZE>(address, |address| {
-                        self.s32x_bus.vdp.read_cram(address)
+                        self.s32x_bus().vdp.read_cram(address)
                     })
                 } else {
                     log::warn!("CRAM {} read with FM=0: {address:08X}", OpSize::display::<SIZE>());
@@ -672,12 +742,12 @@ impl Sh2Bus<'_, '_> {
         if address & 0x400000 == 0 {
             // Cartridge
             match SIZE {
-                OpSize::BYTE => self.s32x_bus.cartridge.read_byte(address & 0x3FFFFF).into(),
-                OpSize::WORD => self.s32x_bus.cartridge.read_word(address & 0x3FFFFF).into(),
+                OpSize::BYTE => self.s32x_bus().cartridge.read_byte(address & 0x3FFFFF).into(),
+                OpSize::WORD => self.s32x_bus().cartridge.read_word(address & 0x3FFFFF).into(),
                 OpSize::LONGWORD => {
                     let rom_addr = address & 0x3FFFFF & !3;
-                    let high: u32 = self.s32x_bus.cartridge.read_word(rom_addr).into();
-                    let low: u32 = self.s32x_bus.cartridge.read_word(rom_addr | 2).into();
+                    let high: u32 = self.s32x_bus().cartridge.read_word(rom_addr).into();
+                    let low: u32 = self.s32x_bus().cartridge.read_word(rom_addr | 2).into();
                     low | (high << 16)
                 }
                 _ => invalid_size!(SIZE),
@@ -704,9 +774,9 @@ impl Sh2Bus<'_, '_> {
             1 + SH2_FRAME_BUFFER_READ_CYCLES
         };
 
-        if self.s32x_bus.registers.vdp_access == Access::Sh2 {
+        if self.s32x_bus().registers.vdp_access == Access::Sh2 {
             sh2_read_register::<SIZE>(address, |address| {
-                self.s32x_bus.vdp.read_frame_buffer(address)
+                self.s32x_bus().vdp.read_frame_buffer(address)
             })
         } else {
             log::warn!(
@@ -734,7 +804,7 @@ impl Sh2Bus<'_, '_> {
         // SDRAM access times are not doubled for longword reads
         self.cycle_counter += 1 + SH2_SDRAM_READ_CYCLES;
 
-        sh2_read_memory_u16::<SIZE, _>(&self.s32x_bus.sdram, address)
+        sh2_read_memory_u16::<SIZE, _>(&self.s32x_bus().sdram, address)
     }
 
     // $00000000-$01FFFFFF: Boot ROM, 32X registers, 32X CRAM
@@ -752,13 +822,14 @@ impl Sh2Bus<'_, '_> {
 
                 self.sync_if_comm_port_accessed(address);
 
+                let which = self.which;
                 sh2_write_register::<SIZE>(
-                    self.s32x_bus,
+                    self.s32x_bus(),
                     address,
                     value,
-                    |bus, address| bus.registers.sh2_read(address, self.which, &bus.vdp),
+                    |bus, address| bus.registers.sh2_read(address, which, &bus.vdp),
                     |bus, address, word| {
-                        bus.registers.sh2_write(address, word, self.which, &mut bus.vdp);
+                        bus.registers.sh2_write(address, word, which, &mut bus.vdp);
                     },
                 );
             }
@@ -771,7 +842,7 @@ impl Sh2Bus<'_, '_> {
                 );
 
                 sh2_write_register::<SIZE>(
-                    self.s32x_bus,
+                    self.s32x_bus(),
                     address,
                     value,
                     |bus, address| bus.pwm.read_register(address),
@@ -782,9 +853,9 @@ impl Sh2Bus<'_, '_> {
                 // 32X VDP registers
                 self.cycle_counter += sh2_vdp_cycles::<SIZE>();
 
-                if self.s32x_bus.registers.vdp_access == Access::Sh2 {
+                if self.s32x_bus().registers.vdp_access == Access::Sh2 {
                     sh2_write_register::<SIZE>(
-                        self.s32x_bus,
+                        self.s32x_bus(),
                         address,
                         value,
                         |bus, address| bus.vdp.read_register(address),
@@ -801,9 +872,9 @@ impl Sh2Bus<'_, '_> {
                 // 32X CRAM
                 self.cycle_counter += sh2_vdp_cycles::<SIZE>();
 
-                if self.s32x_bus.registers.vdp_access == Access::Sh2 {
+                if self.s32x_bus().registers.vdp_access == Access::Sh2 {
                     sh2_write_register::<SIZE>(
-                        self.s32x_bus,
+                        self.s32x_bus(),
                         address,
                         value,
                         |bus, address| bus.vdp.read_cram(address),
@@ -837,15 +908,15 @@ impl Sh2Bus<'_, '_> {
         if address & 0x400000 == 0 {
             match SIZE {
                 OpSize::BYTE => {
-                    self.s32x_bus.cartridge.write_byte(address & 0x3FFFFF, value as u8);
+                    self.s32x_bus().cartridge.write_byte(address & 0x3FFFFF, value as u8);
                 }
                 OpSize::WORD => {
-                    self.s32x_bus.cartridge.write_word(address & 0x3FFFFF, value as u16);
+                    self.s32x_bus().cartridge.write_word(address & 0x3FFFFF, value as u16);
                 }
                 OpSize::LONGWORD => {
                     let rom_addr = address & 0x3FFFFF & !3;
-                    self.s32x_bus.cartridge.write_word(rom_addr, (value >> 16) as u16);
-                    self.s32x_bus.cartridge.write_word(rom_addr | 2, value as u16);
+                    self.s32x_bus().cartridge.write_word(rom_addr, (value >> 16) as u16);
+                    self.s32x_bus().cartridge.write_word(rom_addr | 2, value as u16);
                 }
                 _ => invalid_size!(SIZE),
             }
@@ -861,7 +932,7 @@ impl Sh2Bus<'_, '_> {
 
     // $04000000-$05FFFFFF: Frame buffer
     fn write_04<const SIZE: u8>(&mut self, address: u32, value: u32, ctx: AccessContext) {
-        if self.s32x_bus.registers.vdp_access != Access::Sh2 {
+        if self.s32x_bus().registers.vdp_access != Access::Sh2 {
             log::warn!(
                 "SH-2 {:?} frame buffer {} write with FM=0: {address:08X} {value:08X}, ctx: {ctx}",
                 self.which,
@@ -870,20 +941,22 @@ impl Sh2Bus<'_, '_> {
             return;
         }
 
-        self.cycle_counter += self.s32x_bus.vdp.frame_buffer_write_latency(self.cycle_counter);
+        let cycle_counter = self.cycle_counter;
+        self.cycle_counter += self.s32x_bus().vdp.frame_buffer_write_latency(cycle_counter);
         if SIZE == OpSize::LONGWORD {
-            self.cycle_counter += self.s32x_bus.vdp.frame_buffer_write_latency(self.cycle_counter);
+            let cycle_counter = self.cycle_counter;
+            self.cycle_counter += self.s32x_bus().vdp.frame_buffer_write_latency(cycle_counter);
         }
 
         if SIZE == OpSize::BYTE {
             // Treat normal mapping and overwrite image identically because 0 bytes are never
             // written in either case
-            self.s32x_bus.vdp.write_frame_buffer_byte(address, value as u8);
+            self.s32x_bus().vdp.write_frame_buffer_byte(address, value as u8);
             return;
         }
 
         sh2_write_register::<SIZE>(
-            self.s32x_bus,
+            self.s32x_bus(),
             address,
             value,
             |_, _| panic!("read_word should never be called for frame buffer writes"),
@@ -913,14 +986,14 @@ impl Sh2Bus<'_, '_> {
         // No latency difference between 16-bit SDRAM writes and 32-bit SDRAM writes
         self.cycle_counter += 1 + SH2_SDRAM_WRITE_CYCLES;
 
-        sh2_write_memory_u16::<SIZE, _>(&mut self.s32x_bus.sdram, address, value);
+        sh2_write_memory_u16::<SIZE, _>(&mut self.s32x_bus().sdram, address, value);
     }
 }
 
-impl BusInterface for Sh2Bus<'_, '_> {
+impl BusInterface for Sh2Bus {
     #[inline]
     fn read_byte(&mut self, address: u32, ctx: AccessContext) -> u8 {
-        const FNS: [fn(&mut Sh2Bus<'_, '_>, u32, AccessContext) -> u8; 4] = [
+        const FNS: [fn(&mut Sh2Bus, u32, AccessContext) -> u8; 4] = [
             |bus, address, ctx| bus.read_00::<{ OpSize::BYTE }>(address, ctx) as u8,
             |bus, address, ctx| bus.read_02::<{ OpSize::BYTE }>(address, ctx) as u8,
             |bus, address, ctx| bus.read_04::<{ OpSize::BYTE }>(address, ctx) as u8,
@@ -932,7 +1005,7 @@ impl BusInterface for Sh2Bus<'_, '_> {
 
     #[inline]
     fn read_word(&mut self, address: u32, ctx: AccessContext) -> u16 {
-        const FNS: [fn(&mut Sh2Bus<'_, '_>, u32, AccessContext) -> u16; 4] = [
+        const FNS: [fn(&mut Sh2Bus, u32, AccessContext) -> u16; 4] = [
             |bus, address, ctx| bus.read_00::<{ OpSize::WORD }>(address, ctx) as u16,
             |bus, address, ctx| bus.read_02::<{ OpSize::WORD }>(address, ctx) as u16,
             |bus, address, ctx| bus.read_04::<{ OpSize::WORD }>(address, ctx) as u16,
@@ -944,7 +1017,7 @@ impl BusInterface for Sh2Bus<'_, '_> {
 
     #[inline]
     fn read_longword(&mut self, address: u32, ctx: AccessContext) -> u32 {
-        const FNS: [fn(&mut Sh2Bus<'_, '_>, u32, AccessContext) -> u32; 4] = [
+        const FNS: [fn(&mut Sh2Bus, u32, AccessContext) -> u32; 4] = [
             |bus, address, ctx| bus.read_00::<{ OpSize::LONGWORD }>(address, ctx),
             |bus, address, ctx| bus.read_02::<{ OpSize::LONGWORD }>(address, ctx),
             |bus, address, ctx| bus.read_04::<{ OpSize::LONGWORD }>(address, ctx),
@@ -962,8 +1035,8 @@ impl BusInterface for Sh2Bus<'_, '_> {
 
             let base_addr = ((address & SDRAM_MASK & !0xF) >> 1) as usize;
             return array::from_fn(|i| {
-                let high_word = self.s32x_bus.sdram[base_addr | (i << 1)];
-                let low_word = self.s32x_bus.sdram[(base_addr | (i << 1)) + 1];
+                let high_word = self.s32x_bus().sdram[base_addr | (i << 1)];
+                let low_word = self.s32x_bus().sdram[(base_addr | (i << 1)) + 1];
                 (u32::from(high_word) << 16) | u32::from(low_word)
             });
         }
@@ -973,7 +1046,7 @@ impl BusInterface for Sh2Bus<'_, '_> {
 
     #[inline]
     fn write_byte(&mut self, address: u32, value: u8, ctx: AccessContext) {
-        const FNS: [fn(&mut Sh2Bus<'_, '_>, u32, u8, AccessContext); 4] = [
+        const FNS: [fn(&mut Sh2Bus, u32, u8, AccessContext); 4] = [
             |bus, address, value, ctx| bus.write_00::<{ OpSize::BYTE }>(address, value.into(), ctx),
             |bus, address, value, ctx| bus.write_02::<{ OpSize::BYTE }>(address, value.into(), ctx),
             |bus, address, value, ctx| bus.write_04::<{ OpSize::BYTE }>(address, value.into(), ctx),
@@ -985,7 +1058,7 @@ impl BusInterface for Sh2Bus<'_, '_> {
 
     #[inline]
     fn write_word(&mut self, address: u32, value: u16, ctx: AccessContext) {
-        const FNS: [fn(&mut Sh2Bus<'_, '_>, u32, u16, AccessContext); 4] = [
+        const FNS: [fn(&mut Sh2Bus, u32, u16, AccessContext); 4] = [
             |bus, address, value, ctx| bus.write_00::<{ OpSize::WORD }>(address, value.into(), ctx),
             |bus, address, value, ctx| bus.write_02::<{ OpSize::WORD }>(address, value.into(), ctx),
             |bus, address, value, ctx| bus.write_04::<{ OpSize::WORD }>(address, value.into(), ctx),
@@ -997,7 +1070,7 @@ impl BusInterface for Sh2Bus<'_, '_> {
 
     #[inline]
     fn write_longword(&mut self, address: u32, value: u32, ctx: AccessContext) {
-        const FNS: [fn(&mut Sh2Bus<'_, '_>, u32, u32, AccessContext); 4] = [
+        const FNS: [fn(&mut Sh2Bus, u32, u32, AccessContext); 4] = [
             |bus, address, value, ctx| bus.write_00::<{ OpSize::LONGWORD }>(address, value, ctx),
             |bus, address, value, ctx| bus.write_02::<{ OpSize::LONGWORD }>(address, value, ctx),
             |bus, address, value, ctx| bus.write_04::<{ OpSize::LONGWORD }>(address, value, ctx),
@@ -1009,45 +1082,49 @@ impl BusInterface for Sh2Bus<'_, '_> {
 
     #[inline]
     fn reset(&self) -> bool {
-        self.s32x_bus.registers.reset_sh2
+        self.s32x_bus_shared().registers.reset_sh2
     }
 
     #[inline]
     fn interrupt_level(&self) -> u8 {
         match self.which {
-            WhichCpu::Master => self.s32x_bus.registers.master_interrupts.current_interrupt_level,
-            WhichCpu::Slave => self.s32x_bus.registers.slave_interrupts.current_interrupt_level,
+            WhichCpu::Master => {
+                self.s32x_bus_shared().registers.master_interrupts.current_interrupt_level
+            }
+            WhichCpu::Slave => {
+                self.s32x_bus_shared().registers.slave_interrupts.current_interrupt_level
+            }
         }
     }
 
     #[inline]
     fn dma_request_0(&self) -> bool {
-        !self.s32x_bus.registers.dma.fifo.sh2_is_empty()
+        !self.s32x_bus_shared().registers.dma.fifo.sh2_is_empty()
     }
 
     #[inline]
     fn dma_request_1(&self) -> bool {
-        self.s32x_bus.pwm.dma_request_1()
+        self.s32x_bus_shared().pwm.dma_request_1()
     }
 
     #[inline]
     fn acknowledge_dreq_1(&mut self) {
-        self.s32x_bus.pwm.acknowledge_dreq_1();
+        self.s32x_bus().pwm.acknowledge_dreq_1();
     }
 
     #[inline]
     fn serial_rx(&mut self) -> Option<u8> {
         match self.which {
-            WhichCpu::Master => self.s32x_bus.serial.slave_to_master.take(),
-            WhichCpu::Slave => self.s32x_bus.serial.master_to_slave.take(),
+            WhichCpu::Master => self.s32x_bus().serial.slave_to_master.take(),
+            WhichCpu::Slave => self.s32x_bus().serial.master_to_slave.take(),
         }
     }
 
     #[inline]
     fn serial_tx(&mut self, value: u8) {
         match self.which {
-            WhichCpu::Master => self.s32x_bus.serial.master_to_slave = Some(value),
-            WhichCpu::Slave => self.s32x_bus.serial.slave_to_master = Some(value),
+            WhichCpu::Master => self.s32x_bus().serial.master_to_slave = Some(value),
+            WhichCpu::Slave => self.s32x_bus().serial.slave_to_master = Some(value),
         }
     }
 
