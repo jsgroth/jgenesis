@@ -47,8 +47,8 @@ pub struct Sega32XBus {
 
 #[derive(Debug, PartialClone, Encode, Decode)]
 pub struct Sega32X {
-    sh2_master: Sh2,
-    sh2_slave: Sh2,
+    sh2_master: Sh2<Sh2Bus>,
+    sh2_slave: Sh2<Sh2Bus>,
     mclk_counter: u64,
     global_cycles: u64,
     master_cycles: u64,

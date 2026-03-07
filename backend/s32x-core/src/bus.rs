@@ -415,7 +415,7 @@ impl WhichCpu {
 }
 
 pub struct OtherCpu {
-    cpu: *mut Sh2,
+    cpu: *mut Sh2<Sh2Bus>,
     cycle_counter: *mut u64,
 }
 
@@ -578,7 +578,7 @@ impl Sh2Bus {
         which: WhichCpu,
         cycle_counter: u64,
         cycle_limit: u64,
-        other_sh2: Option<(&'other mut Sh2, &'other mut u64)>,
+        other_sh2: Option<(&'other mut Sh2<Self>, &'other mut u64)>,
     ) -> Sh2BusGuard<'bus, 'other> {
         // SAFETY: Sh2Bus contains raw pointers that are created from mutable references here. The
         // returned bus is only accessible through a guard so that the caller cannot reborrow or
@@ -992,39 +992,35 @@ impl Sh2Bus {
 
 impl BusInterface for Sh2Bus {
     #[inline]
-    fn read_byte(&mut self, address: u32, ctx: AccessContext) -> u8 {
-        const FNS: [fn(&mut Sh2Bus, u32, AccessContext) -> u8; 4] = [
-            |bus, address, ctx| bus.read_00::<{ OpSize::BYTE }>(address, ctx) as u8,
-            |bus, address, ctx| bus.read_02::<{ OpSize::BYTE }>(address, ctx) as u8,
-            |bus, address, ctx| bus.read_04::<{ OpSize::BYTE }>(address, ctx) as u8,
-            |bus, address, ctx| bus.read_06::<{ OpSize::BYTE }>(address, ctx) as u8,
+    fn read<const SIZE: u8>(&mut self, address: u32, ctx: AccessContext) -> u32 {
+        const BYTE_FNS: [fn(&mut Sh2Bus, u32, AccessContext) -> u32; 4] = [
+            |bus, address, ctx| bus.read_00::<{ OpSize::BYTE }>(address, ctx),
+            |bus, address, ctx| bus.read_02::<{ OpSize::BYTE }>(address, ctx),
+            |bus, address, ctx| bus.read_04::<{ OpSize::BYTE }>(address, ctx),
+            |bus, address, ctx| bus.read_06::<{ OpSize::BYTE }>(address, ctx),
         ];
 
-        FNS[((address >> 25) & 3) as usize](self, address, ctx)
-    }
-
-    #[inline]
-    fn read_word(&mut self, address: u32, ctx: AccessContext) -> u16 {
-        const FNS: [fn(&mut Sh2Bus, u32, AccessContext) -> u16; 4] = [
-            |bus, address, ctx| bus.read_00::<{ OpSize::WORD }>(address, ctx) as u16,
-            |bus, address, ctx| bus.read_02::<{ OpSize::WORD }>(address, ctx) as u16,
-            |bus, address, ctx| bus.read_04::<{ OpSize::WORD }>(address, ctx) as u16,
-            |bus, address, ctx| bus.read_06::<{ OpSize::WORD }>(address, ctx) as u16,
+        const WORD_FNS: [fn(&mut Sh2Bus, u32, AccessContext) -> u32; 4] = [
+            |bus, address, ctx| bus.read_00::<{ OpSize::WORD }>(address, ctx),
+            |bus, address, ctx| bus.read_02::<{ OpSize::WORD }>(address, ctx),
+            |bus, address, ctx| bus.read_04::<{ OpSize::WORD }>(address, ctx),
+            |bus, address, ctx| bus.read_06::<{ OpSize::WORD }>(address, ctx),
         ];
 
-        FNS[((address >> 25) & 3) as usize](self, address, ctx)
-    }
-
-    #[inline]
-    fn read_longword(&mut self, address: u32, ctx: AccessContext) -> u32 {
-        const FNS: [fn(&mut Sh2Bus, u32, AccessContext) -> u32; 4] = [
+        const LONGWORD_FNS: [fn(&mut Sh2Bus, u32, AccessContext) -> u32; 4] = [
             |bus, address, ctx| bus.read_00::<{ OpSize::LONGWORD }>(address, ctx),
             |bus, address, ctx| bus.read_02::<{ OpSize::LONGWORD }>(address, ctx),
             |bus, address, ctx| bus.read_04::<{ OpSize::LONGWORD }>(address, ctx),
             |bus, address, ctx| bus.read_06::<{ OpSize::LONGWORD }>(address, ctx),
         ];
 
-        FNS[((address >> 25) & 3) as usize](self, address, ctx)
+        let idx = ((address >> 25) & 3) as usize;
+        match SIZE {
+            OpSize::BYTE => BYTE_FNS[idx](self, address, ctx),
+            OpSize::WORD => WORD_FNS[idx](self, address, ctx),
+            OpSize::LONGWORD => LONGWORD_FNS[idx](self, address, ctx),
+            _ => invalid_size!(SIZE),
+        }
     }
 
     #[inline]
@@ -1045,39 +1041,35 @@ impl BusInterface for Sh2Bus {
     }
 
     #[inline]
-    fn write_byte(&mut self, address: u32, value: u8, ctx: AccessContext) {
-        const FNS: [fn(&mut Sh2Bus, u32, u8, AccessContext); 4] = [
-            |bus, address, value, ctx| bus.write_00::<{ OpSize::BYTE }>(address, value.into(), ctx),
-            |bus, address, value, ctx| bus.write_02::<{ OpSize::BYTE }>(address, value.into(), ctx),
-            |bus, address, value, ctx| bus.write_04::<{ OpSize::BYTE }>(address, value.into(), ctx),
-            |bus, address, value, ctx| bus.write_06::<{ OpSize::BYTE }>(address, value.into(), ctx),
+    fn write<const SIZE: u8>(&mut self, address: u32, value: u32, ctx: AccessContext) {
+        const BYTE_FNS: [fn(&mut Sh2Bus, u32, u32, AccessContext); 4] = [
+            |bus, address, value, ctx| bus.write_00::<{ OpSize::BYTE }>(address, value, ctx),
+            |bus, address, value, ctx| bus.write_02::<{ OpSize::BYTE }>(address, value, ctx),
+            |bus, address, value, ctx| bus.write_04::<{ OpSize::BYTE }>(address, value, ctx),
+            |bus, address, value, ctx| bus.write_06::<{ OpSize::BYTE }>(address, value, ctx),
         ];
 
-        FNS[((address >> 25) & 3) as usize](self, address, value, ctx);
-    }
-
-    #[inline]
-    fn write_word(&mut self, address: u32, value: u16, ctx: AccessContext) {
-        const FNS: [fn(&mut Sh2Bus, u32, u16, AccessContext); 4] = [
-            |bus, address, value, ctx| bus.write_00::<{ OpSize::WORD }>(address, value.into(), ctx),
-            |bus, address, value, ctx| bus.write_02::<{ OpSize::WORD }>(address, value.into(), ctx),
-            |bus, address, value, ctx| bus.write_04::<{ OpSize::WORD }>(address, value.into(), ctx),
-            |bus, address, value, ctx| bus.write_06::<{ OpSize::WORD }>(address, value.into(), ctx),
+        const WORD_FNS: [fn(&mut Sh2Bus, u32, u32, AccessContext); 4] = [
+            |bus, address, value, ctx| bus.write_00::<{ OpSize::WORD }>(address, value, ctx),
+            |bus, address, value, ctx| bus.write_02::<{ OpSize::WORD }>(address, value, ctx),
+            |bus, address, value, ctx| bus.write_04::<{ OpSize::WORD }>(address, value, ctx),
+            |bus, address, value, ctx| bus.write_06::<{ OpSize::WORD }>(address, value, ctx),
         ];
 
-        FNS[((address >> 25) & 3) as usize](self, address, value, ctx);
-    }
-
-    #[inline]
-    fn write_longword(&mut self, address: u32, value: u32, ctx: AccessContext) {
-        const FNS: [fn(&mut Sh2Bus, u32, u32, AccessContext); 4] = [
+        const LONGWORD_FNS: [fn(&mut Sh2Bus, u32, u32, AccessContext); 4] = [
             |bus, address, value, ctx| bus.write_00::<{ OpSize::LONGWORD }>(address, value, ctx),
             |bus, address, value, ctx| bus.write_02::<{ OpSize::LONGWORD }>(address, value, ctx),
             |bus, address, value, ctx| bus.write_04::<{ OpSize::LONGWORD }>(address, value, ctx),
             |bus, address, value, ctx| bus.write_06::<{ OpSize::LONGWORD }>(address, value, ctx),
         ];
 
-        FNS[((address >> 25) & 3) as usize](self, address, value, ctx);
+        let idx = ((address >> 25) & 3) as usize;
+        match SIZE {
+            OpSize::BYTE => BYTE_FNS[idx](self, address, value, ctx),
+            OpSize::WORD => WORD_FNS[idx](self, address, value, ctx),
+            OpSize::LONGWORD => LONGWORD_FNS[idx](self, address, value, ctx),
+            _ => invalid_size!(SIZE),
+        }
     }
 
     #[inline]

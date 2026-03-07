@@ -71,19 +71,35 @@ impl OpSize {
 }
 
 pub trait BusInterface {
-    fn read_byte(&mut self, address: u32, ctx: AccessContext) -> u8;
+    fn read<const SIZE: u8>(&mut self, address: u32, ctx: AccessContext) -> u32;
 
-    fn read_word(&mut self, address: u32, ctx: AccessContext) -> u16;
+    fn read_byte(&mut self, address: u32, ctx: AccessContext) -> u8 {
+        self.read::<{ OpSize::BYTE }>(address, ctx) as u8
+    }
 
-    fn read_longword(&mut self, address: u32, ctx: AccessContext) -> u32;
+    fn read_word(&mut self, address: u32, ctx: AccessContext) -> u16 {
+        self.read::<{ OpSize::WORD }>(address, ctx) as u16
+    }
+
+    fn read_longword(&mut self, address: u32, ctx: AccessContext) -> u32 {
+        self.read::<{ OpSize::LONGWORD }>(address, ctx)
+    }
 
     fn read_cache_line(&mut self, address: u32, ctx: AccessContext) -> [u32; 4];
 
-    fn write_byte(&mut self, address: u32, value: u8, ctx: AccessContext);
+    fn write<const SIZE: u8>(&mut self, address: u32, value: u32, ctx: AccessContext);
 
-    fn write_word(&mut self, address: u32, value: u16, ctx: AccessContext);
+    fn write_byte(&mut self, address: u32, value: u8, ctx: AccessContext) {
+        self.write::<{ OpSize::BYTE }>(address, value.into(), ctx);
+    }
 
-    fn write_longword(&mut self, address: u32, value: u32, ctx: AccessContext);
+    fn write_word(&mut self, address: u32, value: u16, ctx: AccessContext) {
+        self.write::<{ OpSize::WORD }>(address, value.into(), ctx);
+    }
+
+    fn write_longword(&mut self, address: u32, value: u32, ctx: AccessContext) {
+        self.write::<{ OpSize::LONGWORD }>(address, value, ctx);
+    }
 
     /// The CPU will halt while this is `true` and then reset when it changes from `true` to `false`
     fn reset(&self) -> bool;
