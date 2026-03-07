@@ -4,7 +4,7 @@ use crate::api::Sega32XEmulatorConfig;
 use crate::audio::PwmResampler;
 use crate::bootrom;
 use crate::bootrom::M68kVectors;
-use crate::bus::{OtherCpu, Sh2Bus, WhichCpu};
+use crate::bus::{Sh2Bus, WhichCpu};
 use crate::pwm::PwmChip;
 use crate::registers::SystemRegisters;
 use crate::vdp::Vdp;
@@ -128,47 +128,36 @@ impl Sega32X {
 
             self.global_cycles += elapsed_sh2_cycles;
 
-            let mut slave_bus = Sh2Bus {
-                s32x_bus: &mut self.s32x_bus,
-                which: WhichCpu::Slave,
-                cycle_counter: self.slave_cycles,
-                cycle_limit: self.global_cycles,
-                other_sh2: Some(OtherCpu {
-                    cpu: &mut self.sh2_master,
-                    cycle_counter: &mut self.master_cycles,
-                }),
-            };
+            let mut slave_bus = Sh2Bus::create(
+                &mut self.s32x_bus,
+                WhichCpu::Slave,
+                self.slave_cycles,
+                self.global_cycles,
+                Some((&mut self.sh2_master, &mut self.master_cycles)),
+            );
             while slave_bus.cycle_counter < self.global_cycles {
-                self.sh2_slave.execute(SH2_EXECUTION_SLICE_LEN, &mut slave_bus);
+                self.sh2_slave.execute(SH2_EXECUTION_SLICE_LEN, &mut *slave_bus);
             }
             self.slave_cycles = slave_bus.cycle_counter;
 
-            let mut master_bus = Sh2Bus {
-                s32x_bus: &mut self.s32x_bus,
-                which: WhichCpu::Master,
-                cycle_counter: self.master_cycles,
-                cycle_limit: self.global_cycles,
-                other_sh2: Some(OtherCpu {
-                    cpu: &mut self.sh2_slave,
-                    cycle_counter: &mut self.slave_cycles,
-                }),
-            };
+            let mut master_bus = Sh2Bus::create(
+                &mut self.s32x_bus,
+                WhichCpu::Master,
+                self.master_cycles,
+                self.global_cycles,
+                Some((&mut self.sh2_slave, &mut self.slave_cycles)),
+            );
             while master_bus.cycle_counter < self.global_cycles {
-                self.sh2_master.execute(SH2_EXECUTION_SLICE_LEN, &mut master_bus);
+                self.sh2_master.execute(SH2_EXECUTION_SLICE_LEN, &mut *master_bus);
             }
             self.master_cycles = master_bus.cycle_counter;
 
-            let mut peripherals_bus = Sh2Bus {
-                s32x_bus: &mut self.s32x_bus,
-                which: WhichCpu::Master,
-                cycle_counter: 0,
-                cycle_limit: 0,
-                other_sh2: None,
-            };
-            self.sh2_master.tick_peripherals(elapsed_pwm_cycles, &mut peripherals_bus);
+            let mut peripherals_bus =
+                Sh2Bus::create(&mut self.s32x_bus, WhichCpu::Master, 0, 0, None);
+            self.sh2_master.tick_peripherals(elapsed_pwm_cycles, &mut *peripherals_bus);
 
             peripherals_bus.which = WhichCpu::Slave;
-            self.sh2_slave.tick_peripherals(elapsed_pwm_cycles, &mut peripherals_bus);
+            self.sh2_slave.tick_peripherals(elapsed_pwm_cycles, &mut *peripherals_bus);
 
             self.s32x_bus.vdp.tick(mclk_cycles, &mut self.s32x_bus.registers, genesis_vdp);
 
