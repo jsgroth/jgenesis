@@ -323,9 +323,9 @@ impl DmaController {
     }
 }
 
-impl Sh2 {
+impl<Bus: BusInterface> Sh2<Bus> {
     // TODO better timing? DMA memory accesses should only impact CPU speed if the CPU accesses memory simultaneously
-    pub(super) fn try_tick_dma<B: BusInterface>(&mut self, bus: &mut B) -> bool {
+    pub(super) fn try_tick_dma(&mut self, bus: &mut Bus) -> bool {
         let Some(channel) = self.dmac.channel_ready(bus) else { return false };
 
         log::debug!(

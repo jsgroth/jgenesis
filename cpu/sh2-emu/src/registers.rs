@@ -1,5 +1,6 @@
 //! SH-2 internal I/O registers (accessed using A29-31 = 111)
 
+use crate::bus::BusInterface;
 use crate::dma::DmaController;
 use crate::sci::SerialInterface;
 use crate::wdt::WatchdogTimer;
@@ -378,7 +379,7 @@ impl Sh7604Registers {
     }
 }
 
-impl Sh2 {
+impl<Bus: BusInterface> Sh2<Bus> {
     #[allow(clippy::match_same_arms)]
     pub(super) fn read_internal_register_byte(&self, address: u32) -> u8 {
         log::trace!("[{}] Internal register byte read: {address:08X}", self.name);
