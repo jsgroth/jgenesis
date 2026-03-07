@@ -20,12 +20,17 @@ use crate::cache::CpuCache;
 use crate::divu::DivisionUnit;
 use crate::dma::DmaController;
 use crate::frt::FreeRunTimer;
+use crate::instructions::OpcodeTable;
 use crate::registers::{Sh2Registers, Sh7604Registers};
 use crate::sci::SerialInterface;
 use crate::wdt::WatchdogTimer;
-use bincode::{Decode, Encode};
+use bincode::de::{BorrowDecoder, Decoder};
+use bincode::enc::Encoder;
+use bincode::error::{DecodeError, EncodeError};
+use bincode::{BorrowDecode, Decode, Encode};
 use jgenesis_common::debug::DebugMemoryView;
 use std::env;
+use std::fmt::{Debug, Formatter};
 
 const RESET_PC_VECTOR: u32 = 0x00000000;
 const RESET_SP_VECTOR: u32 = 0x00000004;
@@ -41,8 +46,7 @@ const SP: usize = 15;
 // Only A0-28 are visible externally; A29-31 are handled internally
 const EXTERNAL_ADDRESS_MASK: u32 = 0x1FFFFFFF;
 
-#[derive(Debug, Clone, Encode, Decode)]
-pub struct Sh2 {
+pub struct Sh2<Bus: BusInterface> {
     registers: Sh2Registers,
     cache: CpuCache,
     sh7604: Sh7604Registers,
@@ -55,16 +59,122 @@ pub struct Sh2 {
     data_ctx: AccessContext,
     name: String,
     trace_log_enabled: bool,
+    opcode_table: OpcodeTable<Bus>,
 }
 
-impl Sh2 {
+#[allow(clippy::missing_fields_in_debug)] // Opcode table not useful to log
+impl<Bus: BusInterface> Debug for Sh2<Bus> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Sh2")
+            .field("registers", &self.registers)
+            .field("cache", &self.cache)
+            .field("sh7604", &self.sh7604)
+            .field("dmac", &self.dmac)
+            .field("free_run_timer", &self.free_run_timer)
+            .field("watchdog_timer", &self.watchdog_timer)
+            .field("divu", &self.divu)
+            .field("serial", &self.serial)
+            .field("reset_pending", &self.reset_pending)
+            .field("data_ctx", &self.data_ctx)
+            .field("name", &self.name)
+            .field("trace_log_enabled", &self.trace_log_enabled)
+            .finish()
+    }
+}
+
+impl<Bus: BusInterface> Clone for Sh2<Bus> {
+    fn clone(&self) -> Self {
+        Self {
+            registers: self.registers.clone(),
+            cache: self.cache.clone(),
+            sh7604: self.sh7604.clone(),
+            dmac: self.dmac.clone(),
+            free_run_timer: self.free_run_timer.clone(),
+            watchdog_timer: self.watchdog_timer.clone(),
+            divu: self.divu.clone(),
+            serial: self.serial.clone(),
+            reset_pending: self.reset_pending,
+            data_ctx: self.data_ctx,
+            name: self.name.clone(),
+            trace_log_enabled: self.trace_log_enabled,
+            opcode_table: self.opcode_table.clone(),
+        }
+    }
+}
+
+impl<Bus: BusInterface> Encode for Sh2<Bus> {
+    fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
+        self.registers.encode(encoder)?;
+        self.cache.encode(encoder)?;
+        self.sh7604.encode(encoder)?;
+        self.dmac.encode(encoder)?;
+        self.free_run_timer.encode(encoder)?;
+        self.watchdog_timer.encode(encoder)?;
+        self.divu.encode(encoder)?;
+        self.serial.encode(encoder)?;
+        self.reset_pending.encode(encoder)?;
+        self.data_ctx.encode(encoder)?;
+        self.name.encode(encoder)?;
+
+        Ok(())
+    }
+}
+
+impl<Bus: BusInterface, Ctx> Decode<Ctx> for Sh2<Bus> {
+    fn decode<D: Decoder<Context = Ctx>>(decoder: &mut D) -> Result<Self, DecodeError> {
+        let registers = Decode::decode(decoder)?;
+        let cache = Decode::decode(decoder)?;
+        let sh7604 = Decode::decode(decoder)?;
+        let dmac = Decode::decode(decoder)?;
+        let free_run_timer = Decode::decode(decoder)?;
+        let watchdog_timer = Decode::decode(decoder)?;
+        let divu = Decode::decode(decoder)?;
+        let serial = Decode::decode(decoder)?;
+        let reset_pending = Decode::decode(decoder)?;
+        let data_ctx = Decode::decode(decoder)?;
+        let name = String::decode(decoder)?;
+
+        let trace_log_enabled = trace_log_enabled(&name);
+        let opcode_table = OpcodeTable::new();
+
+        Ok(Self {
+            registers,
+            cache,
+            sh7604,
+            dmac,
+            free_run_timer,
+            watchdog_timer,
+            divu,
+            serial,
+            reset_pending,
+            data_ctx,
+            name,
+            trace_log_enabled,
+            opcode_table,
+        })
+    }
+}
+
+impl<'de, Bus: BusInterface, Ctx> BorrowDecode<'de, Ctx> for Sh2<Bus> {
+    fn borrow_decode<D: BorrowDecoder<'de, Context = Ctx>>(
+        decoder: &mut D,
+    ) -> Result<Self, DecodeError> {
+        Self::decode(decoder)
+    }
+}
+
+fn trace_log_enabled(name: &str) -> bool {
+    match env::var("SH2_LOG") {
+        Ok(log_name) => name == log_name,
+        Err(_) => true,
+    }
+}
+
+impl<Bus: BusInterface> Sh2<Bus> {
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
     pub fn new(name: String) -> Self {
-        let trace_log_enabled = match env::var("SH2_LOG") {
-            Ok(log_name) => name == log_name,
-            Err(_) => true,
-        };
+        let trace_log_enabled = trace_log_enabled(&name);
 
         Self {
             registers: Sh2Registers::default(),
@@ -79,6 +189,7 @@ impl Sh2 {
             data_ctx: AccessContext::Data { pc: 0, opcode: 0 },
             name,
             trace_log_enabled,
+            opcode_table: OpcodeTable::new(),
         }
     }
 
@@ -86,7 +197,7 @@ impl Sh2 {
     ///
     /// Will not execute any instructions if a reset is performed or an interrupt is handled.
     #[inline]
-    pub fn execute<B: BusInterface>(&mut self, mut ticks: u64, bus: &mut B) {
+    pub fn execute(&mut self, mut ticks: u64, bus: &mut Bus) {
         if ticks == 0 {
             return;
         }
@@ -173,7 +284,7 @@ impl Sh2 {
     }
 
     #[inline(always)]
-    fn execute_single_instruction<B: BusInterface>(&mut self, bus: &mut B) {
+    fn execute_single_instruction(&mut self, bus: &mut Bus) {
         let pc = self.registers.pc;
         let opcode = self.read_opcode(pc, bus);
         self.registers.pc = self.registers.next_pc;
@@ -198,20 +309,20 @@ impl Sh2 {
             log::trace!("  SR={:?}", self.registers.sr);
         }
 
-        instructions::decode(opcode)(self, opcode, bus);
+        self.opcode_table.decode(opcode)(self, opcode, bus);
         bus.increment_cycle_counter(1);
     }
 
     /// Advance internal peripherals by `system_cycles`, specifically the watchdog timer (WDT) and
     /// the serial interface (SCI). Also updates internal interrupt state.
     #[inline]
-    pub fn tick_peripherals<B: BusInterface>(&mut self, system_cycles: u64, bus: &mut B) {
+    pub fn tick_peripherals(&mut self, system_cycles: u64, bus: &mut Bus) {
         self.watchdog_timer.tick(system_cycles);
         self.serial.process(system_cycles, bus);
         self.update_internal_interrupt_level();
     }
 
-    fn read_byte<B: BusInterface + ?Sized>(&mut self, address: u32, bus: &mut B) -> u8 {
+    fn read_byte(&mut self, address: u32, bus: &mut Bus) -> u8 {
         match address >> 29 {
             0 => self.cached_read_byte(address, bus),
             1 => bus.read_byte(address & EXTERNAL_ADDRESS_MASK, self.data_ctx),
@@ -233,7 +344,7 @@ impl Sh2 {
         }
     }
 
-    fn cached_read_byte<B: BusInterface + ?Sized>(&mut self, address: u32, bus: &mut B) -> u8 {
+    fn cached_read_byte(&mut self, address: u32, bus: &mut Bus) -> u8 {
         if let Some(value) = self.cache.read_u8(address) {
             return value;
         }
@@ -246,23 +357,19 @@ impl Sh2 {
         }
     }
 
-    fn read_word<B: BusInterface + ?Sized>(&mut self, address: u32, bus: &mut B) -> u16 {
-        self.read_word_generic::<_, false>(address, bus)
+    fn read_word(&mut self, address: u32, bus: &mut Bus) -> u16 {
+        self.read_word_generic::<false>(address, bus)
     }
 
     #[inline(always)]
-    fn read_opcode<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u16 {
-        self.read_word_generic::<_, true>(address, bus)
+    fn read_opcode(&mut self, address: u32, bus: &mut Bus) -> u16 {
+        self.read_word_generic::<true>(address, bus)
     }
 
     #[inline(always)]
-    fn read_word_generic<B: BusInterface + ?Sized, const INSTRUCTION: bool>(
-        &mut self,
-        address: u32,
-        bus: &mut B,
-    ) -> u16 {
+    fn read_word_generic<const INSTRUCTION: bool>(&mut self, address: u32, bus: &mut Bus) -> u16 {
         match address >> 29 {
-            0 => self.cached_read_word::<_, INSTRUCTION>(address, bus),
+            0 => self.cached_read_word::<INSTRUCTION>(address, bus),
             1 => {
                 let ctx = if INSTRUCTION { AccessContext::Fetch } else { self.data_ctx };
                 bus.read_word(address & EXTERNAL_ADDRESS_MASK, ctx)
@@ -283,11 +390,7 @@ impl Sh2 {
     }
 
     #[inline(always)]
-    fn cached_read_word<B: BusInterface + ?Sized, const INSTRUCTION: bool>(
-        &mut self,
-        address: u32,
-        bus: &mut B,
-    ) -> u16 {
+    fn cached_read_word<const INSTRUCTION: bool>(&mut self, address: u32, bus: &mut Bus) -> u16 {
         if let Some(value) = self.cache.read_u16(address) {
             return value;
         }
@@ -304,7 +407,7 @@ impl Sh2 {
         }
     }
 
-    fn read_longword<B: BusInterface + ?Sized>(&mut self, address: u32, bus: &mut B) -> u32 {
+    fn read_longword(&mut self, address: u32, bus: &mut Bus) -> u32 {
         match address >> 29 {
             0 => self.cached_read_longword(address, bus),
             1 => bus.read_longword(address & EXTERNAL_ADDRESS_MASK, self.data_ctx),
@@ -329,7 +432,7 @@ impl Sh2 {
         }
     }
 
-    fn cached_read_longword<B: BusInterface + ?Sized>(&mut self, address: u32, bus: &mut B) -> u32 {
+    fn cached_read_longword(&mut self, address: u32, bus: &mut Bus) -> u32 {
         if let Some(value) = self.cache.read_u32(address) {
             return value;
         }
@@ -341,7 +444,7 @@ impl Sh2 {
         }
     }
 
-    fn write_byte<B: BusInterface + ?Sized>(&mut self, address: u32, value: u8, bus: &mut B) {
+    fn write_byte(&mut self, address: u32, value: u8, bus: &mut Bus) {
         match address >> 29 {
             0 => {
                 bus.write_byte(address & EXTERNAL_ADDRESS_MASK, value, self.data_ctx);
@@ -362,7 +465,7 @@ impl Sh2 {
         }
     }
 
-    fn write_word<B: BusInterface + ?Sized>(&mut self, address: u32, value: u16, bus: &mut B) {
+    fn write_word(&mut self, address: u32, value: u16, bus: &mut Bus) {
         match address >> 29 {
             0 => {
                 bus.write_word(address & EXTERNAL_ADDRESS_MASK, value, self.data_ctx);
@@ -384,7 +487,7 @@ impl Sh2 {
     }
 
     #[allow(clippy::match_same_arms)]
-    fn write_longword<B: BusInterface + ?Sized>(&mut self, address: u32, value: u32, bus: &mut B) {
+    fn write_longword(&mut self, address: u32, value: u32, bus: &mut Bus) {
         match address >> 29 {
             0 => {
                 bus.write_longword(address & EXTERNAL_ADDRESS_MASK, value, self.data_ctx);
@@ -406,12 +509,7 @@ impl Sh2 {
         }
     }
 
-    fn handle_exception<B: BusInterface + ?Sized>(
-        &mut self,
-        interrupt_level: Option<u8>,
-        vector_number: u32,
-        bus: &mut B,
-    ) {
+    fn handle_exception(&mut self, interrupt_level: Option<u8>, vector_number: u32, bus: &mut Bus) {
         let mut sp = self.registers.gpr[SP].wrapping_sub(4);
         self.write_longword(sp, self.registers.sr.into(), bus);
 

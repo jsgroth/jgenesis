@@ -172,7 +172,7 @@ impl CpuCache {
     }
 
     #[must_use]
-    pub fn replace<B: BusInterface + ?Sized>(
+    pub fn replace<B: BusInterface>(
         &mut self,
         address: u32,
         bus: &mut B,
