@@ -21,7 +21,7 @@ macro_rules! impl_compare {
     };
 }
 
-impl<Bus: BusInterface> Sh2<Bus> {
+impl Sh2 {
     // ADD Rm, Rn
     // Addition
     pub(crate) fn add_rm_rn(&mut self, opcode: u16) {
@@ -266,7 +266,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MAC.W @Rm+, @Rn+
     // Multiply and accumulate with word operands
-    pub(crate) fn mac_w(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mac_w(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rm(opcode);
         let n = rn(opcode);
 
@@ -292,7 +292,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MAC.L @Rm+, @Rn+
     // Multiply and accumulate with longword operands
-    pub(crate) fn mac_l(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mac_l(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rm(opcode);
         let n = rn(opcode);
 
@@ -363,68 +363,14 @@ impl<Bus: BusInterface> Sh2<Bus> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bus::AccessContext;
 
     fn mn_opcode(rm: u16, rn: u16) -> u16 {
         (rm << 4) | (rn << 8)
     }
 
-    struct FakeBus;
-
-    #[allow(unused_variables)]
-    impl BusInterface for FakeBus {
-        fn read<const SIZE: u8>(&mut self, address: u32, ctx: AccessContext) -> u32 {
-            todo!()
-        }
-
-        fn read_cache_line(&mut self, address: u32, ctx: AccessContext) -> [u32; 4] {
-            todo!()
-        }
-
-        fn write<const SIZE: u8>(&mut self, address: u32, value: u32, ctx: AccessContext) {
-            todo!()
-        }
-
-        fn reset(&self) -> bool {
-            todo!()
-        }
-
-        fn interrupt_level(&self) -> u8 {
-            todo!()
-        }
-
-        fn dma_request_0(&self) -> bool {
-            todo!()
-        }
-
-        fn dma_request_1(&self) -> bool {
-            todo!()
-        }
-
-        fn acknowledge_dreq_1(&mut self) {
-            todo!()
-        }
-
-        fn serial_rx(&mut self) -> Option<u8> {
-            todo!()
-        }
-
-        fn serial_tx(&mut self, value: u8) {
-            todo!()
-        }
-
-        fn increment_cycle_counter(&mut self, cycles: u64) {
-            todo!()
-        }
-
-        fn should_stop_execution(&self) -> bool {
-            todo!()
-        }
-    }
-
     #[test]
     fn unsigned_division() {
-        let mut cpu = Sh2::<FakeBus>::new(String::new());
+        let mut cpu = Sh2::new(String::new());
 
         cpu.registers.gpr[0] = 100000;
         cpu.registers.gpr[1] = 300 << 16;
@@ -443,7 +389,7 @@ mod tests {
 
     #[test]
     fn signed_division() {
-        let mut cpu = Sh2::<FakeBus>::new(String::new());
+        let mut cpu = Sh2::new(String::new());
 
         for _ in 0..100 {
             let dividend: i16 = rand::random();
