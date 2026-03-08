@@ -8,6 +8,7 @@ use genesis_core::memory::PhysicalMedium;
 use jgenesis_common::num::{GetBit, U16Ext};
 use sh2_emu::Sh2;
 use sh2_emu::bus::{AccessContext, BusInterface, OpSize};
+use sh2_emu::debug::DummySh2Debugger;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::{array, cmp};
@@ -993,6 +994,11 @@ impl Sh2Bus {
 }
 
 impl BusInterface for Sh2Bus {
+    type DebugView<'a>
+        = DummySh2Debugger
+    where
+        Self: 'a;
+
     #[inline]
     fn read<const SIZE: u8>(&mut self, address: u32, ctx: AccessContext) -> u32 {
         const BYTE_FNS: [fn(&mut Sh2Bus, u32, AccessContext) -> u32; 4] = [
@@ -1026,20 +1032,17 @@ impl BusInterface for Sh2Bus {
     }
 
     #[inline]
-    fn read_cache_line(&mut self, address: u32, ctx: AccessContext) -> [u32; 4] {
+    fn read_cache_line(&mut self, address: u32, ctx: AccessContext) -> [u16; 8] {
         if (0x06000000..0x06040000).contains(&address) {
             // The SH-2s can read a full 16-byte cache line in 12 cycles
             self.cycle_counter += SH2_SDRAM_READ_CYCLES + 1;
 
             let base_addr = ((address & SDRAM_MASK & !0xF) >> 1) as usize;
-            return array::from_fn(|i| {
-                let high_word = self.s32x_bus().sdram[base_addr | (i << 1)];
-                let low_word = self.s32x_bus().sdram[(base_addr | (i << 1)) + 1];
-                (u32::from(high_word) << 16) | u32::from(low_word)
-            });
+            let sdram = &self.s32x_bus().sdram;
+            return array::from_fn(|i| sdram[base_addr + i]);
         }
 
-        array::from_fn(|i| self.read_longword(address | ((i as u32) << 2), ctx))
+        array::from_fn(|i| self.read_word(address | ((i as u32) << 1), ctx))
     }
 
     #[inline]

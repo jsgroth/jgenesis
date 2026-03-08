@@ -72,6 +72,11 @@ impl OpSize {
 }
 
 pub trait BusInterface {
+    /// Debug view type; if not implemented, set to [`crate::debug::DummySh2Debugger`]
+    type DebugView<'a>: Sh2Debugger
+    where
+        Self: 'a;
+
     fn read<const SIZE: u8>(&mut self, address: u32, ctx: AccessContext) -> u32;
 
     fn read_byte(&mut self, address: u32, ctx: AccessContext) -> u8 {
@@ -86,7 +91,7 @@ pub trait BusInterface {
         self.read::<{ OpSize::LONGWORD }>(address, ctx)
     }
 
-    fn read_cache_line(&mut self, address: u32, ctx: AccessContext) -> [u32; 4];
+    fn read_cache_line(&mut self, address: u32, ctx: AccessContext) -> [u16; 8];
 
     fn write<const SIZE: u8>(&mut self, address: u32, value: u32, ctx: AccessContext);
 
@@ -125,6 +130,10 @@ pub trait BusInterface {
     fn increment_cycle_counter(&mut self, cycles: u64);
 
     fn should_stop_execution(&self) -> bool;
+
+    fn debug_view(&mut self) -> Option<Self::DebugView<'_>> {
+        None
+    }
 }
 
 pub trait Sh2LookupTable<Bus: BusInterface> {
@@ -145,4 +154,5 @@ macro_rules! impl_sh2_lookup_table {
     };
 }
 
+use crate::debug::Sh2Debugger;
 pub use impl_sh2_lookup_table;
