@@ -4,7 +4,7 @@ use crate::Sh2;
 use crate::bus::BusInterface;
 use crate::instructions::{extend_i8, extend_i16, rm, rn};
 
-impl<Bus: BusInterface> Sh2<Bus> {
+impl Sh2 {
     // MOV Rm, Rn
     // Load from a register
     pub(crate) fn mov_rm_rn(&mut self, opcode: u16) {
@@ -22,7 +22,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.B @Rm, Rn
     // Loads a byte from memory using indirect register addressing
-    pub(crate) fn mov_b_indirect_rn(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_b_indirect_rn(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rm(opcode);
         let n = rn(opcode);
 
@@ -32,7 +32,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.W @Rm, Rn
     // Loads a word from memory using indirect register addressing
-    pub(crate) fn mov_w_indirect_rn(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_w_indirect_rn(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rm(opcode);
         let n = rn(opcode);
 
@@ -42,7 +42,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.L @Rm, Rn
     // Loads a longword from memory using indirect register addressing
-    pub(crate) fn mov_l_indirect_rn(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_l_indirect_rn(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rm(opcode);
         let n = rn(opcode);
 
@@ -51,7 +51,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.B Rm, @Rn
     // Stores a byte into memory using indirect register addressing
-    pub(crate) fn mov_b_rm_indirect(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_b_rm_indirect(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rm(opcode);
         let n = rn(opcode);
 
@@ -61,7 +61,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.W Rm, @Rn
     // Stores a word into memory using indirect register addressing
-    pub(crate) fn mov_w_rm_indirect(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_w_rm_indirect(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rm(opcode);
         let n = rn(opcode);
 
@@ -71,7 +71,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.L Rm, @Rn
     // Stores a longword into memory using indirect register addressing
-    pub(crate) fn mov_l_rm_indirect(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_l_rm_indirect(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rm(opcode);
         let n = rn(opcode);
 
@@ -81,7 +81,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.B @Rm+, Rn
     // Loads a byte into a register using post-increment indirect register addressing
-    pub(crate) fn mov_b_postinc_rn(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_b_postinc_rn(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rm(opcode);
         let n = rn(opcode);
 
@@ -93,7 +93,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.W @Rm+, Rn
     // Loads a word into a register using post-increment indirect register addressing
-    pub(crate) fn mov_w_postinc_rn(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_w_postinc_rn(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rm(opcode);
         let n = rn(opcode);
 
@@ -105,7 +105,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.L @Rm+, Rn
     // Loads a longword into a register using post-increment indirect register addressing
-    pub(crate) fn mov_l_postinc_rn(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_l_postinc_rn(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rm(opcode);
         let n = rn(opcode);
 
@@ -117,7 +117,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.B Rm, @-Rn
     // Stores a byte into memory using pre-decrement indirect register addressing
-    pub(crate) fn mov_b_rm_predec(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_b_rm_predec(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rm(opcode);
         let n = rn(opcode);
 
@@ -131,7 +131,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.W Rm, @-Rn
     // Stores a word into memory using pre-decrement indirect register addressing
-    pub(crate) fn mov_w_rm_predec(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_w_rm_predec(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rm(opcode);
         let n = rn(opcode);
 
@@ -145,7 +145,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.L Rm, @-Rn
     // Stores a longword into memory using pre-decrement indirect register addressing
-    pub(crate) fn mov_l_rm_predec(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_l_rm_predec(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rm(opcode);
         let n = rn(opcode);
 
@@ -159,7 +159,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.W @(disp,PC), Rn
     // Loads a word (sign extended) into a register using PC relative with displacement addressing
-    pub(crate) fn mov_w_immediate_rn(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_w_immediate_rn(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let disp = (opcode & 0xFF) << 1;
         let address = self.registers.next_pc.wrapping_add(disp.into());
         let value = self.read_word(address, bus);
@@ -170,7 +170,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.L @(disp,PC), Rn
     // Loads a longword into a register using PC relative with displacement addressing
-    pub(crate) fn mov_l_immediate_rn(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_l_immediate_rn(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let disp = (opcode & 0xFF) << 2;
         let address = (self.registers.next_pc & !3).wrapping_add(disp.into());
         let value = self.read_longword(address, bus);
@@ -181,7 +181,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.B R0, @(disp,Rn)
     // Stores a byte into memory using indirect register with displacement addressing
-    pub(crate) fn mov_b_r0_rn_displacement(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_b_r0_rn_displacement(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let disp = opcode & 0xF;
         let n = rm(opcode);
         let address = self.registers.gpr[n].wrapping_add(disp.into());
@@ -190,7 +190,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.W R0, @(disp,Rn)
     // Stores a word into memory using indirect register with displacement addressing
-    pub(crate) fn mov_w_r0_rn_displacement(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_w_r0_rn_displacement(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let disp = (opcode & 0xF) << 1;
         let n = rm(opcode);
         let address = self.registers.gpr[n].wrapping_add(disp.into());
@@ -199,7 +199,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.B @(disp,Rm), R0
     // Load a byte from memory using indirect register with displacement addressing
-    pub(crate) fn mov_b_rm_displacement_r0(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_b_rm_displacement_r0(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let disp = opcode & 0xF;
         let m = rm(opcode);
 
@@ -210,7 +210,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.W @(disp,Rm), R0
     // Load a word from memory using indirect register with displacement addressing
-    pub(crate) fn mov_w_rm_displacement_r0(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_w_rm_displacement_r0(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let disp = (opcode & 0xF) << 1;
         let m = rm(opcode);
 
@@ -221,7 +221,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.L Rm, @(disp,Rn)
     // Stores a longword into memory using indirect register with displacement addressing
-    pub(crate) fn mov_l_rm_rn_displacement(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_l_rm_rn_displacement(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rm(opcode);
         let n = rn(opcode);
 
@@ -232,7 +232,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.L @(disp,Rm), Rn
     // Loads a longword from memory using indirect register with displacement addressing
-    pub(crate) fn mov_l_rm_displacement_rn(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_l_rm_displacement_rn(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rm(opcode);
         let n = rn(opcode);
 
@@ -243,7 +243,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.B Rm, @(R0,Rn)
     // Stores a byte into memory using indirect indexed register addressing
-    pub(crate) fn mov_b_rm_indirect_indexed(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_b_rm_indirect_indexed(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rm(opcode);
         let n = rn(opcode);
 
@@ -253,7 +253,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.W Rm, @(R0,Rn)
     // Stores a word into memory using indirect indexed register addressing
-    pub(crate) fn mov_w_rm_indirect_indexed(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_w_rm_indirect_indexed(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rm(opcode);
         let n = rn(opcode);
 
@@ -263,7 +263,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.L Rm, @(R0,Rn)
     // Stores a longword into memory using indirect indexed register addressing
-    pub(crate) fn mov_l_rm_indirect_indexed(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_l_rm_indirect_indexed(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rm(opcode);
         let n = rn(opcode);
 
@@ -273,7 +273,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.B @(R0,Rm), Rn
     // Loads a byte from memory using indirect indexed register addressing
-    pub(crate) fn mov_b_indirect_indexed_rn(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_b_indirect_indexed_rn(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rm(opcode);
         let n = rn(opcode);
 
@@ -284,7 +284,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.W @(R0,Rm), Rn
     // Loads a word from memory using indirect indexed register addressing
-    pub(crate) fn mov_w_indirect_indexed_rn(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_w_indirect_indexed_rn(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rm(opcode);
         let n = rn(opcode);
 
@@ -295,7 +295,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.L @(R0,Rm), Rn
     // Loads a longword from memory using indirect indexed register addressing
-    pub(crate) fn mov_l_indirect_indexed_rn(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_l_indirect_indexed_rn(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rm(opcode);
         let n = rn(opcode);
 
@@ -305,7 +305,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.B @(disp,GBR), R0
     // Loads a byte into R0 using indirect GBR with displacement addressing
-    pub(crate) fn mov_b_disp_gbr_r0(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_b_disp_gbr_r0(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let disp = opcode & 0xFF;
         let address = self.registers.gbr.wrapping_add(disp.into());
         let value = self.read_byte(address, bus);
@@ -314,7 +314,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.W @(disp,GBR), R0
     // Loads a word into R0 using indirect GBR with displacement addressing
-    pub(crate) fn mov_w_disp_gbr_r0(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_w_disp_gbr_r0(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let disp = (opcode & 0xFF) << 1;
         let address = self.registers.gbr.wrapping_add(disp.into());
         let value = self.read_word(address, bus);
@@ -323,7 +323,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.L @(disp,GBR), R0
     // Loads a longword into R0 using indirect GBR with displacement addressing
-    pub(crate) fn mov_l_disp_gbr_r0(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_l_disp_gbr_r0(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let disp = (opcode & 0xFF) << 2;
         let address = self.registers.gbr.wrapping_add(disp.into());
         self.registers.gpr[0] = self.read_longword(address, bus);
@@ -331,7 +331,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.B R0, @(disp,GBR)
     // Stores a byte into memory using indirect GBR with displacement addressing
-    pub(crate) fn mov_b_r0_disp_gbr(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_b_r0_disp_gbr(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let disp = opcode & 0xFF;
         let address = self.registers.gbr.wrapping_add(disp.into());
         self.write_byte(address, self.registers.gpr[0] as u8, bus);
@@ -339,7 +339,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.W R0, @(disp,GBR)
     // Stores a word into memory using indirect GBR with displacement addressing
-    pub(crate) fn mov_w_r0_disp_gbr(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_w_r0_disp_gbr(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let disp = (opcode & 0xFF) << 1;
         let address = self.registers.gbr.wrapping_add(disp.into());
         self.write_word(address, self.registers.gpr[0] as u16, bus);
@@ -347,7 +347,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // MOV.L R0, @(disp,GBR)
     // Stores a longword into memory using indirect GBR with displacement addressing
-    pub(crate) fn mov_l_r0_disp_gbr(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn mov_l_r0_disp_gbr(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let disp = (opcode & 0xFF) << 2;
         let address = self.registers.gbr.wrapping_add(disp.into());
         self.write_longword(address, self.registers.gpr[0], bus);
@@ -390,7 +390,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // LDC.L @Rm+, SR
     // Load SR from memory using post-increment register indirect addressing
-    pub(crate) fn ldc_postinc_sr(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn ldc_postinc_sr(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rn(opcode);
         let address = self.registers.gpr[m];
         self.registers.gpr[m] = address.wrapping_add(4);
@@ -402,7 +402,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // LDC.L @Rm+, GBR
     // Load GBR from memory using post-increment register indirect addressing
-    pub(crate) fn ldc_postinc_gbr(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn ldc_postinc_gbr(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rn(opcode);
         let address = self.registers.gpr[m];
         self.registers.gpr[m] = address.wrapping_add(4);
@@ -414,7 +414,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // LDC.L @Rm+, VBR
     // Load VBR from memory using post-increment register indirect addressing
-    pub(crate) fn ldc_postinc_vbr(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn ldc_postinc_vbr(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let m = rn(opcode);
         let address = self.registers.gpr[m];
         self.registers.gpr[m] = address.wrapping_add(4);
@@ -447,7 +447,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // LDS.L @Rm+, MACH
     // Loads MACH from memory using post-increment indirect register addressing
-    pub(crate) fn lds_postinc_mach(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn lds_postinc_mach(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let n = rn(opcode);
         let address = self.registers.gpr[n];
         self.registers.gpr[n] = address.wrapping_add(4);
@@ -457,7 +457,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // LDS.L @Rm+, MACL
     // Loads MACL from memory using post-increment indirect register addressing
-    pub(crate) fn lds_postinc_macl(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn lds_postinc_macl(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let n = rn(opcode);
         let address = self.registers.gpr[n];
         self.registers.gpr[n] = address.wrapping_add(4);
@@ -467,7 +467,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // LDS.L @Rm+, PR
     // Loads PR from memory using post-increment indirect register addressing
-    pub(crate) fn lds_postinc_pr(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn lds_postinc_pr(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let n = rn(opcode);
         let address = self.registers.gpr[n];
         self.registers.gpr[n] = address.wrapping_add(4);
@@ -498,7 +498,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // STC.L SR, @-Rn
     // Store SR in memory using pre-decrement register addressing
-    pub(crate) fn stc_sr_rn_predec(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn stc_sr_rn_predec(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let n = rn(opcode);
         let address = self.registers.gpr[n].wrapping_sub(4);
         self.registers.gpr[n] = address;
@@ -510,7 +510,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // STC.L GBR, @-Rn
     // Store GBR in memory using pre-decrement register addressing
-    pub(crate) fn stc_gbr_rn_predec(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn stc_gbr_rn_predec(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let n = rn(opcode);
         let address = self.registers.gpr[n].wrapping_sub(4);
         self.registers.gpr[n] = address;
@@ -522,7 +522,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // STC.L VBR, @-Rn
     // Store VBR in memory using pre-decrement register addressing
-    pub(crate) fn stc_vbr_rn_predec(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn stc_vbr_rn_predec(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let n = rn(opcode);
         let address = self.registers.gpr[n].wrapping_sub(4);
         self.registers.gpr[n] = address;
@@ -555,7 +555,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // STS.L MACH, @-Rn
     // Store MACH in memory using pre-decrement register addressing
-    pub(crate) fn sts_mach_rn_predec(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn sts_mach_rn_predec(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let n = rn(opcode);
         let address = self.registers.gpr[n].wrapping_sub(4);
         self.registers.gpr[n] = address;
@@ -565,7 +565,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // STS.L MACL, @-Rn
     // Store MACL in memory using pre-decrement register addressing
-    pub(crate) fn sts_macl_rn_predec(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn sts_macl_rn_predec(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let n = rn(opcode);
         let address = self.registers.gpr[n].wrapping_sub(4);
         self.registers.gpr[n] = address;
@@ -575,7 +575,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // STS.L PR, @-Rn
     // Store PR in memory using pre-decrement indirect register addressing
-    pub(crate) fn sts_pr_rn_predec(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn sts_pr_rn_predec(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         let n = rn(opcode);
         let address = self.registers.gpr[n].wrapping_sub(4);
         self.registers.gpr[n] = address;

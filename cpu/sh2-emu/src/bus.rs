@@ -4,6 +4,7 @@
 //! because the highest 3 bits are only used internally
 
 use crate::disassemble;
+use crate::instructions::OpcodeTable;
 use bincode::{Decode, Encode};
 use std::fmt::{Display, Formatter};
 
@@ -125,3 +126,23 @@ pub trait BusInterface {
 
     fn should_stop_execution(&self) -> bool;
 }
+
+pub trait Sh2LookupTable<Bus: BusInterface> {
+    fn table<'a>() -> &'a OpcodeTable<Bus>;
+}
+
+#[macro_export]
+macro_rules! impl_sh2_lookup_table {
+    ($bus:ident) => {
+        impl $crate::bus::Sh2LookupTable<$bus> for $crate::Sh2 {
+            fn table<'a>() -> &'a $crate::OpcodeTable<$bus> {
+                static TABLE: ::std::sync::LazyLock<$crate::OpcodeTable<$bus>> =
+                    ::std::sync::LazyLock::new(|| $crate::OpcodeTable::new());
+
+                &*TABLE
+            }
+        }
+    };
+}
+
+pub use impl_sh2_lookup_table;

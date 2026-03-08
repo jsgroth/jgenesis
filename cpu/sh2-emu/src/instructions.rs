@@ -9,7 +9,7 @@ use crate::Sh2;
 use crate::bus::BusInterface;
 use std::array;
 
-pub type OpcodeFn<Bus> = fn(&mut Sh2<Bus>, u16, &mut Bus);
+pub type OpcodeFn<Bus> = fn(&mut Sh2, u16, &mut Bus);
 
 pub struct OpcodeTable<Bus: BusInterface>(Box<[OpcodeFn<Bus>; 4096]>);
 
@@ -29,11 +29,12 @@ impl<Bus: BusInterface> Default for OpcodeTable<Bus> {
 }
 
 impl<Bus: BusInterface> OpcodeTable<Bus> {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn decode(&self, opcode: u16) -> OpcodeFn<Bus> {
+    pub(crate) fn decode(&self, opcode: u16) -> OpcodeFn<Bus> {
         self.0[((opcode & 0xFF) | ((opcode & 0xF000) >> 4)) as usize]
     }
 }
@@ -56,9 +57,9 @@ macro_rules! cpu_op {
     }
 }
 
-fn nop<Bus: BusInterface>(_cpu: &mut Sh2<Bus>, _opcode: u16, _bus: &mut Bus) {}
+fn nop<Bus: BusInterface>(_cpu: &mut Sh2, _opcode: u16, _bus: &mut Bus) {}
 
-fn sleep<Bus: BusInterface>(cpu: &mut Sh2<Bus>, _opcode: u16, _bus: &mut Bus) {
+fn sleep<Bus: BusInterface>(cpu: &mut Sh2, _opcode: u16, _bus: &mut Bus) {
     // In actual hardware, SLEEP causes the CPU to enter a low-power state.
     // Since nothing uses SLEEP except for a handful of demos, use a simpler implementation that
     // is inefficient but doesn't require checking whether the CPU is sleeping after every instruction
@@ -66,7 +67,7 @@ fn sleep<Bus: BusInterface>(cpu: &mut Sh2<Bus>, _opcode: u16, _bus: &mut Bus) {
     cpu.registers.pc = cpu.registers.pc.wrapping_sub(2);
 }
 
-fn illegal_opcode<Bus: BusInterface>(cpu: &mut Sh2<Bus>, opcode: u16, bus: &mut Bus) {
+fn illegal_opcode<Bus: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut Bus) {
     const ILLEGAL_OPCODE_VECTOR_NUMBER: u32 = 4;
 
     // Roll back PC to point to the illegal opcode
