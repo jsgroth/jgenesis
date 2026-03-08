@@ -6,6 +6,7 @@
 
 pub mod bus;
 mod cache;
+pub mod debug;
 mod disassemble;
 mod divu;
 mod dma;
@@ -17,6 +18,7 @@ mod wdt;
 
 use crate::bus::{AccessContext, BusInterface, Sh2LookupTable};
 use crate::cache::CpuCache;
+use crate::debug::BusDebugExt;
 use crate::divu::DivisionUnit;
 use crate::dma::DmaController;
 use crate::frt::FreeRunTimer;
@@ -42,6 +44,7 @@ const SP: usize = 15;
 
 // Only A0-28 are visible externally; A29-31 are handled internally
 const EXTERNAL_ADDRESS_MASK: u32 = 0x1FFFFFFF;
+const CACHE_LINE_MASK: u32 = EXTERNAL_ADDRESS_MASK & !0xF;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Sh2 {
@@ -188,6 +191,9 @@ impl Sh2 {
     {
         let pc = self.registers.pc;
         let opcode = self.read_opcode(pc, bus);
+
+        bus.check_execute(pc, opcode, self);
+
         self.registers.pc = self.registers.next_pc;
         self.registers.next_pc = self.registers.pc.wrapping_add(2);
         self.registers.next_op_in_delay_slot = false;
@@ -225,9 +231,11 @@ impl Sh2 {
     }
 
     fn read_byte<Bus: BusInterface>(&mut self, address: u32, bus: &mut Bus) -> u8 {
+        bus.check_read_byte(address, self);
+
         match address >> 29 {
             0 => self.cached_read_byte(address, bus),
-            1 => bus.read_byte(address & EXTERNAL_ADDRESS_MASK, self.data_ctx),
+            1 => bus.apply_read_byte(address & EXTERNAL_ADDRESS_MASK, self.data_ctx, self),
             2 => {
                 self.cache.associative_purge(address);
                 0
@@ -252,10 +260,12 @@ impl Sh2 {
         }
 
         if self.cache.should_replace_data() {
-            let longword = self.cache.replace(address, bus, self.data_ctx);
+            let cache_line =
+                bus.apply_read_cache_line(address & CACHE_LINE_MASK, self.data_ctx, self);
+            let longword = self.cache.replace(address, cache_line);
             longword.to_be_bytes()[(address & 3) as usize]
         } else {
-            bus.read_byte(address & EXTERNAL_ADDRESS_MASK, self.data_ctx)
+            bus.apply_read_byte(address & EXTERNAL_ADDRESS_MASK, self.data_ctx, self)
         }
     }
 
@@ -274,11 +284,13 @@ impl Sh2 {
         address: u32,
         bus: &mut Bus,
     ) -> u16 {
+        bus.check_read_word(address, self);
+
         match address >> 29 {
             0 => self.cached_read_word::<INSTRUCTION, _>(address, bus),
             1 => {
                 let ctx = if INSTRUCTION { AccessContext::Fetch } else { self.data_ctx };
-                bus.read_word(address & EXTERNAL_ADDRESS_MASK, ctx)
+                bus.apply_read_word(address & EXTERNAL_ADDRESS_MASK, ctx, self)
             }
             2 => {
                 self.cache.associative_purge(address);
@@ -309,18 +321,21 @@ impl Sh2 {
             || (!INSTRUCTION && self.cache.should_replace_data())
         {
             let ctx = if INSTRUCTION { AccessContext::Fetch } else { self.data_ctx };
-            let longword = self.cache.replace(address, bus, ctx);
+            let cache_line = bus.apply_read_cache_line(address & CACHE_LINE_MASK, ctx, self);
+            let longword = self.cache.replace(address, cache_line);
             (longword >> (16 * (((address >> 1) & 1) ^ 1))) as u16
         } else {
             let ctx = if INSTRUCTION { AccessContext::Fetch } else { self.data_ctx };
-            bus.read_word(address & EXTERNAL_ADDRESS_MASK, ctx)
+            bus.apply_read_word(address & EXTERNAL_ADDRESS_MASK, ctx, self)
         }
     }
 
     fn read_longword<Bus: BusInterface>(&mut self, address: u32, bus: &mut Bus) -> u32 {
+        bus.check_read_longword(address, self);
+
         match address >> 29 {
             0 => self.cached_read_longword(address, bus),
-            1 => bus.read_longword(address & EXTERNAL_ADDRESS_MASK, self.data_ctx),
+            1 => bus.apply_read_longword(address & EXTERNAL_ADDRESS_MASK, self.data_ctx, self),
             2 => {
                 // FIFA Soccer 96 reads from associative purge addresses and doesn't use the values read
                 // Seems like it expects reads to purge cache lines in addition to writes?
@@ -348,19 +363,23 @@ impl Sh2 {
         }
 
         if self.cache.should_replace_data() {
-            self.cache.replace(address, bus, self.data_ctx)
+            let cache_line =
+                bus.apply_read_cache_line(address & CACHE_LINE_MASK, self.data_ctx, self);
+            self.cache.replace(address, cache_line)
         } else {
-            bus.read_longword(address & EXTERNAL_ADDRESS_MASK, self.data_ctx)
+            bus.apply_read_longword(address & EXTERNAL_ADDRESS_MASK, self.data_ctx, self)
         }
     }
 
     fn write_byte<Bus: BusInterface>(&mut self, address: u32, value: u8, bus: &mut Bus) {
+        bus.check_write_byte(address, value, self);
+
         match address >> 29 {
             0 => {
-                bus.write_byte(address & EXTERNAL_ADDRESS_MASK, value, self.data_ctx);
+                bus.apply_write_byte(address & EXTERNAL_ADDRESS_MASK, value, self.data_ctx, self);
                 self.cache.write_through_u8(address, value);
             }
-            1 => bus.write_byte(address & EXTERNAL_ADDRESS_MASK, value, self.data_ctx),
+            1 => bus.apply_write_byte(address & EXTERNAL_ADDRESS_MASK, value, self.data_ctx, self),
             2 => self.cache.associative_purge(address),
             3..=5 => {
                 log::warn!(
@@ -376,12 +395,14 @@ impl Sh2 {
     }
 
     fn write_word<Bus: BusInterface>(&mut self, address: u32, value: u16, bus: &mut Bus) {
+        bus.check_write_word(address, value, self);
+
         match address >> 29 {
             0 => {
-                bus.write_word(address & EXTERNAL_ADDRESS_MASK, value, self.data_ctx);
+                bus.apply_write_word(address & EXTERNAL_ADDRESS_MASK, value, self.data_ctx, self);
                 self.cache.write_through_u16(address, value);
             }
-            1 => bus.write_word(address & EXTERNAL_ADDRESS_MASK, value, self.data_ctx),
+            1 => bus.apply_write_word(address & EXTERNAL_ADDRESS_MASK, value, self.data_ctx, self),
             2 => self.cache.associative_purge(address),
             3..=5 => {
                 log::warn!(
@@ -398,12 +419,24 @@ impl Sh2 {
 
     #[allow(clippy::match_same_arms)]
     fn write_longword<Bus: BusInterface>(&mut self, address: u32, value: u32, bus: &mut Bus) {
+        bus.check_write_longword(address, value, self);
+
         match address >> 29 {
             0 => {
-                bus.write_longword(address & EXTERNAL_ADDRESS_MASK, value, self.data_ctx);
+                bus.apply_write_longword(
+                    address & EXTERNAL_ADDRESS_MASK,
+                    value,
+                    self.data_ctx,
+                    self,
+                );
                 self.cache.write_through_u32(address, value);
             }
-            1 => bus.write_longword(address & EXTERNAL_ADDRESS_MASK, value, self.data_ctx),
+            1 => bus.apply_write_longword(
+                address & EXTERNAL_ADDRESS_MASK,
+                value,
+                self.data_ctx,
+                self,
+            ),
             2 => self.cache.associative_purge(address),
             3 => self.cache.write_address_array(address, value),
             4 | 5 => {
