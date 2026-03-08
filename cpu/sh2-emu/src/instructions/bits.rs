@@ -5,7 +5,7 @@ use crate::bus::BusInterface;
 use crate::instructions::{rm, rn};
 use jgenesis_common::num::GetBit;
 
-impl<Bus: BusInterface> Sh2<Bus> {
+impl Sh2 {
     // AND Rm, Rn
     // Logical and
     pub(crate) fn and_rm_rn(&mut self, opcode: u16) {
@@ -23,7 +23,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // AND.B #imm @(R0,GBR)
     // Logical and, in memory
-    pub(crate) fn and_imm_gbr_indexed(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn and_imm_gbr_indexed(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         bus.increment_cycle_counter(2);
 
         let imm = opcode as u8;
@@ -49,7 +49,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // OR.B #imm @(R0,GBR)
     // Logical or, in memory
-    pub(crate) fn or_imm_gbr_indexed(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn or_imm_gbr_indexed(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         bus.increment_cycle_counter(2);
 
         let imm = opcode as u8;
@@ -75,7 +75,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // XOR.B #imm @(R0,GBR)
     // Exclusive or, in memory
-    pub(crate) fn xor_imm_gbr_indexed(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn xor_imm_gbr_indexed(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         bus.increment_cycle_counter(2);
 
         let imm = opcode as u8;
@@ -183,7 +183,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // TST.B #imm, @(R0,GBR)
     // Sets the T bit if (#imm & MEM[GBR+R0]) is 0
-    pub(crate) fn tst_imm_gbr_indexed(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn tst_imm_gbr_indexed(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         bus.increment_cycle_counter(2);
 
         let imm = opcode as u8;
@@ -194,7 +194,7 @@ impl<Bus: BusInterface> Sh2<Bus> {
 
     // TAS.B @Rn
     // Tests the value at the specified address and sets bit 7
-    pub(crate) fn tas(&mut self, opcode: u16, bus: &mut Bus) {
+    pub(crate) fn tas(&mut self, opcode: u16, bus: &mut impl BusInterface) {
         bus.increment_cycle_counter(3);
 
         let n = rn(opcode);

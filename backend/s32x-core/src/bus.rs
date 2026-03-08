@@ -415,7 +415,7 @@ impl WhichCpu {
 }
 
 pub struct OtherCpu {
-    cpu: *mut Sh2<Sh2Bus>,
+    cpu: *mut Sh2,
     cycle_counter: *mut u64,
 }
 
@@ -427,6 +427,8 @@ pub struct Sh2Bus {
     pub cycle_counter: u64,
     pub cycle_limit: u64,
 }
+
+sh2_emu::bus::impl_sh2_lookup_table!(Sh2Bus);
 
 pub struct Sh2BusGuard<'bus, 'other> {
     bus: Sh2Bus,
@@ -578,7 +580,7 @@ impl Sh2Bus {
         which: WhichCpu,
         cycle_counter: u64,
         cycle_limit: u64,
-        other_sh2: Option<(&'other mut Sh2<Self>, &'other mut u64)>,
+        other_sh2: Option<(&'other mut Sh2, &'other mut u64)>,
     ) -> Sh2BusGuard<'bus, 'other> {
         // SAFETY: Sh2Bus contains raw pointers that are created from mutable references here. The
         // returned bus is only accessible through a guard so that the caller cannot reborrow or
