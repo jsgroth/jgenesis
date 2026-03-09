@@ -417,7 +417,7 @@ fn handle_command<Emulator: EmulatorTrait>(
     Ok(CommandEffect::None)
 }
 
-type RunTillNextErr<Emulator> = <Emulator as EmulatorTrait>::Err<
+pub(crate) type RunTillNextErr<Emulator> = <Emulator as EmulatorTrait>::Err<
     <ThreadedRenderer as Renderer>::Err,
     <SdlAudioOutput as AudioOutput>::Err,
     <FsSaveWriter as SaveWriter>::Err,
@@ -426,15 +426,26 @@ type RunTillNextErr<Emulator> = <Emulator as EmulatorTrait>::Err<
 fn run_till_next_frame<Emulator: EmulatorTrait>(
     state: &mut RunnerThreadState<Emulator>,
 ) -> Result<(), RunTillNextErr<Emulator>> {
-    while state.emulator.tick(
-        &mut state.renderer,
-        &mut state.audio_output,
-        &mut state.input_poller,
-        &mut state.save_writer,
-    )? != TickEffect::FrameRendered
-    {}
+    match &mut state.debugger_process {
+        Some(debugger_process) => debugger_process.run_emulator_till_next_frame(
+            &mut state.emulator,
+            &mut state.renderer,
+            &mut state.audio_output,
+            &mut state.input_poller,
+            &mut state.save_writer,
+        ),
+        None => {
+            while state.emulator.tick(
+                &mut state.renderer,
+                &mut state.audio_output,
+                &mut state.input_poller,
+                &mut state.save_writer,
+            )? != TickEffect::FrameRendered
+            {}
 
-    Ok(())
+            Ok(())
+        }
+    }
 }
 
 fn save_state<Emulator: EmulatorTrait>(

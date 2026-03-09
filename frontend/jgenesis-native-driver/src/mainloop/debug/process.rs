@@ -1,14 +1,34 @@
+use crate::mainloop::audio::SdlAudioOutput;
 use crate::mainloop::debug::DebugRenderContext;
-use jgenesis_common::frontend::PartialClone;
+use crate::mainloop::input::ThreadedInputPoller;
+use crate::mainloop::render::ThreadedRenderer;
+use crate::mainloop::runner::RunTillNextErr;
+use crate::mainloop::save::FsSaveWriter;
+use jgenesis_common::frontend::{EmulatorTrait, TickEffect};
 use std::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-pub trait DebuggerRunnerProcess<Emulator>: Send + Sync + 'static {
+pub trait DebuggerRunnerProcess<Emulator: EmulatorTrait>: Send + Sync + 'static {
     fn run(
         &mut self,
         emulator: &mut Emulator,
     ) -> Result<(), Box<dyn Error + Send + Sync + 'static>>;
+
+    fn run_emulator_till_next_frame(
+        &mut self,
+        emulator: &mut Emulator,
+        renderer: &mut ThreadedRenderer,
+        audio_output: &mut SdlAudioOutput,
+        input_poller: &mut ThreadedInputPoller<Emulator::Inputs>,
+        save_writer: &mut FsSaveWriter,
+    ) -> Result<(), RunTillNextErr<Emulator>> {
+        while emulator.tick(renderer, audio_output, input_poller, save_writer)?
+            != TickEffect::FrameRendered
+        {}
+
+        Ok(())
+    }
 }
 
 pub trait DebuggerMainProcess {
@@ -23,7 +43,7 @@ pub type DebugFn<Emulator> =
 
 pub struct NullDebugger;
 
-impl<Emulator> DebuggerRunnerProcess<Emulator> for NullDebugger {
+impl<Emulator: EmulatorTrait> DebuggerRunnerProcess<Emulator> for NullDebugger {
     fn run(
         &mut self,
         _emulator: &mut Emulator,
@@ -41,7 +61,7 @@ impl DebuggerMainProcess for NullDebugger {
     }
 }
 
-pub fn null_debug_fn<Emulator>()
+pub fn null_debug_fn<Emulator: EmulatorTrait>()
 -> (Box<dyn DebuggerRunnerProcess<Emulator>>, Box<dyn DebuggerMainProcess>) {
     (Box::new(NullDebugger), Box::new(NullDebugger))
 }
@@ -51,7 +71,7 @@ pub struct PartialCloneRunnerProcess<Emulator> {
     updated: Arc<AtomicBool>,
 }
 
-impl<Emulator: PartialClone + Send + Sync + 'static> DebuggerRunnerProcess<Emulator>
+impl<Emulator: EmulatorTrait + Send + Sync + 'static> DebuggerRunnerProcess<Emulator>
     for PartialCloneRunnerProcess<Emulator>
 {
     fn run(
@@ -100,7 +120,7 @@ pub fn partial_clone_debug_fn<Emulator>(
     render_fn: Box<DebugRenderFn<Emulator>>,
 ) -> (Box<dyn DebuggerRunnerProcess<Emulator>>, Box<dyn DebuggerMainProcess>)
 where
-    Emulator: PartialClone + Send + Sync + 'static,
+    Emulator: EmulatorTrait + Send + Sync + 'static,
 {
     let runner_process = PartialCloneRunnerProcess {
         latest: Arc::new(Mutex::new(None)),
