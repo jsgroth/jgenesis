@@ -119,7 +119,17 @@ impl DebuggerWindow {
                 trace: wgpu::Trace::Off,
             }))?;
 
-        let surface_format = surface.get_capabilities(&adapter).formats[0];
+        let surface_capabilities = surface.get_capabilities(&adapter);
+
+        // egui prefers non-sRGB-aware surface formats
+        let surface_format = surface_capabilities
+            .formats
+            .iter()
+            .copied()
+            .find(|&format| !format.is_srgb())
+            .unwrap_or(surface_capabilities.formats[0]);
+        log::info!("Rendering debugger window with surface format {surface_format:?}");
+
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_DST,
             format: surface_format,
