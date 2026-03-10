@@ -8,7 +8,6 @@ use crate::vdp::Vdp;
 use crate::ym2612::Ym2612;
 use bincode::{Decode, Encode};
 use genesis_config::GenesisRegion;
-use jgenesis_common::debug::{DebugBytesView, DebugMemoryView, DebugWordsView, Endian};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::PartialClone;
@@ -30,6 +29,10 @@ pub trait PhysicalMedium {
     fn write_word(&mut self, address: u32, value: u16);
 
     fn region(&self) -> GenesisRegion;
+
+    fn clone_cartridge_rom(&self) -> Option<Box<[u16]>> {
+        None
+    }
 }
 
 const MAIN_RAM_LEN_WORDS: usize = 64 * 1024 / 2;
@@ -71,7 +74,7 @@ impl Signals {
     }
 }
 
-#[derive(Debug, Encode, Decode, PartialClone)]
+#[derive(Debug, Clone, Encode, Decode, PartialClone)]
 pub struct Memory<Medium> {
     #[partial_clone(partial)]
     physical_medium: Medium,
@@ -133,14 +136,16 @@ impl<Medium: PhysicalMedium> Memory<Medium> {
         self.signals = Signals::default();
     }
 
-    #[must_use]
-    pub fn debug_working_ram_view(&mut self) -> impl DebugMemoryView {
-        DebugWordsView(self.main_ram.as_mut_slice(), Endian::Big)
+    pub fn clone_cartridge_rom(&self) -> Option<Box<[u16]>> {
+        self.physical_medium.clone_cartridge_rom()
     }
 
-    #[must_use]
-    pub fn debug_audio_ram_view(&mut self) -> impl DebugMemoryView {
-        DebugBytesView(self.audio_ram.as_mut_slice())
+    pub fn clone_working_ram(&self) -> Box<[u16]> {
+        self.main_ram.clone()
+    }
+
+    pub fn clone_audio_ram(&self) -> Box<[u8]> {
+        self.audio_ram.clone()
     }
 }
 
