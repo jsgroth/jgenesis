@@ -95,9 +95,100 @@ impl GenesisDebugState {
     }
 }
 
+pub trait PhysicalMediumDebugView {
+    fn debug_cartridge_rom(&mut self) -> Option<&mut [u16]> {
+        None
+    }
+}
+
+pub struct GenesisMemoryDebugView<'a, MediumView> {
+    pub(crate) medium_view: MediumView,
+    pub(crate) working_ram: &'a mut [u16],
+    pub(crate) audio_ram: &'a mut [u8],
+}
+
+impl<MediumView: PhysicalMediumDebugView> GenesisMemoryDebugView<'_, MediumView> {
+    pub fn medium_view(&mut self) -> &mut MediumView {
+        &mut self.medium_view
+    }
+}
+
+pub struct BaseGenesisDebugView<'a, MediumView> {
+    memory: GenesisMemoryDebugView<'a, MediumView>,
+    vdp: &'a mut Vdp,
+}
+
+impl<'a, MediumView: PhysicalMediumDebugView> BaseGenesisDebugView<'a, MediumView> {
+    pub fn new(memory: GenesisMemoryDebugView<'a, MediumView>, vdp: &'a mut Vdp) -> Self {
+        Self { memory, vdp }
+    }
+
+    pub fn memory(&mut self) -> &mut GenesisMemoryDebugView<'a, MediumView> {
+        &mut self.memory
+    }
+
+    pub fn medium_view(&mut self) -> &mut MediumView {
+        &mut self.memory.medium_view
+    }
+
+    pub fn apply_memory_edit(&mut self, memory_area: GenesisMemoryArea, address: usize, value: u8) {
+        match memory_area {
+            GenesisMemoryArea::CartridgeRom => {
+                if let Some(rom) = self.memory.medium_view.debug_cartridge_rom() {
+                    DebugWordsView(rom, Endian::Big).write(address, value);
+                }
+            }
+            GenesisMemoryArea::WorkingRam => {
+                DebugWordsView(self.memory.working_ram, Endian::Big).write(address, value);
+            }
+            GenesisMemoryArea::AudioRam => {
+                DebugBytesView(self.memory.audio_ram).write(address, value);
+            }
+            GenesisMemoryArea::Vram => self.vdp.debug_vram_view().write(address, value),
+            GenesisMemoryArea::Cram => self.vdp.debug_cram_view().write(address, value),
+            GenesisMemoryArea::Vsram => self.vdp.debug_vsram_view().write(address, value),
+        }
+    }
+
+    pub fn to_debug_state(&mut self) -> GenesisDebugState {
+        GenesisDebugState {
+            cartridge_rom: self
+                .memory
+                .medium_view
+                .debug_cartridge_rom()
+                .map(|rom| rom.to_vec().into_boxed_slice()),
+            working_ram: self.memory.working_ram.to_vec().into_boxed_slice(),
+            audio_ram: self.memory.audio_ram.to_vec().into_boxed_slice(),
+            vdp: self.vdp.clone(),
+        }
+    }
+}
+
+pub struct CartridgeDebugView<'a> {
+    pub(crate) rom: &'a mut [u16],
+}
+
+impl PhysicalMediumDebugView for CartridgeDebugView<'_> {
+    fn debug_cartridge_rom(&mut self) -> Option<&mut [u16]> {
+        Some(self.rom)
+    }
+}
+
+pub type GenesisEmulatorDebugView<'a> = BaseGenesisDebugView<'a, CartridgeDebugView<'a>>;
+
 impl GenesisEmulator {
     #[must_use]
     pub fn to_debug_state(&self) -> GenesisDebugState {
         GenesisDebugState::new(&self.memory, self.vdp.clone())
+    }
+
+    #[must_use]
+    pub fn as_debug_view(&mut self) -> GenesisEmulatorDebugView<'_> {
+        GenesisEmulatorDebugView {
+            memory: self
+                .memory
+                .as_debug_view(|cartridge| CartridgeDebugView { rom: cartridge.debug_rom_view() }),
+            vdp: &mut self.vdp,
+        }
     }
 }

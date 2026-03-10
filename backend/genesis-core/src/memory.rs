@@ -1,6 +1,7 @@
 //! Genesis memory map and 68000 + Z80 bus interfaces
 
 use crate::GenesisRegionExt;
+use crate::api::debug::{GenesisMemoryDebugView, PhysicalMediumDebugView};
 use crate::cartridge::Cartridge;
 use crate::input::InputState;
 use crate::timing::CycleCounters;
@@ -146,6 +147,21 @@ impl<Medium: PhysicalMedium> Memory<Medium> {
 
     pub fn clone_audio_ram(&self) -> Box<[u8]> {
         self.audio_ram.clone()
+    }
+
+    pub fn as_debug_view<'a, MediumView>(
+        &'a mut self,
+        view_fn: impl FnOnce(&'a mut Medium) -> MediumView,
+    ) -> GenesisMemoryDebugView<'a, MediumView>
+    where
+        Medium: 'a,
+        MediumView: PhysicalMediumDebugView,
+    {
+        GenesisMemoryDebugView {
+            medium_view: view_fn(&mut self.physical_medium),
+            working_ram: self.main_ram.as_mut_slice(),
+            audio_ram: self.audio_ram.as_mut_slice(),
+        }
     }
 }
 

@@ -111,6 +111,36 @@ impl DebugMemoryView for DebugLongwordsView<'_> {
     }
 }
 
+pub struct DebugViewWithWriteHook<'a> {
+    wrapped: Box<dyn DebugMemoryView + 'a>,
+    write_hook: Box<dyn FnMut(usize, u8) + 'a>,
+}
+
+impl<'a> DebugViewWithWriteHook<'a> {
+    #[must_use]
+    pub fn new(
+        wrapped: Box<dyn DebugMemoryView + 'a>,
+        write_hook: Box<dyn FnMut(usize, u8) + 'a>,
+    ) -> Self {
+        Self { wrapped, write_hook }
+    }
+}
+
+impl DebugMemoryView for DebugViewWithWriteHook<'_> {
+    fn len(&self) -> usize {
+        self.wrapped.len()
+    }
+
+    fn read(&self, address: usize) -> u8 {
+        self.wrapped.read(address)
+    }
+
+    fn write(&mut self, address: usize, value: u8) {
+        self.wrapped.write(address, value);
+        (self.write_hook)(address, value);
+    }
+}
+
 pub struct EmptyDebugView;
 
 impl DebugMemoryView for EmptyDebugView {

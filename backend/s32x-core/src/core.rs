@@ -1,6 +1,7 @@
 //! 32X core code
 
 use crate::api::Sega32XEmulatorConfig;
+use crate::api::debug::Sega32XMediumView;
 use crate::audio::PwmResampler;
 use crate::bootrom;
 use crate::bootrom::M68kVectors;
@@ -195,6 +196,18 @@ impl Sega32X {
 
     pub fn clone_sh2_slave(&self) -> Sh2 {
         self.sh2_slave.clone()
+    }
+
+    pub fn as_debug_view(&mut self) -> Sega32XMediumView<'_> {
+        Sega32XMediumView {
+            cartridge_rom: self.s32x_bus.cartridge.debug_rom_view(),
+            sdram: self.s32x_bus.sdram.as_mut_slice(),
+            sh2_master: &mut self.sh2_master,
+            sh2_slave: &mut self.sh2_slave,
+            system_registers: &mut self.s32x_bus.registers,
+            s32x_vdp: &mut self.s32x_bus.vdp,
+            pwm: &mut self.s32x_bus.pwm,
+        }
     }
 }
 
