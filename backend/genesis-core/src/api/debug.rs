@@ -1,6 +1,9 @@
 use crate::GenesisEmulator;
-use crate::vdp::ColorModifier;
-use jgenesis_common::debug::DebugMemoryView;
+use crate::memory::{Memory, PhysicalMedium};
+use crate::vdp::{ColorModifier, Vdp};
+use jgenesis_common::debug::{
+    DebugBytesView, DebugMemoryView, DebugWordsView, EmptyDebugView, Endian,
+};
 use jgenesis_common::frontend::Color;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -34,50 +37,67 @@ pub enum GenesisMemoryArea {
     Vsram,
 }
 
-pub struct GenesisDebugView<'emu>(&'emu mut GenesisEmulator);
-
-impl GenesisEmulator {
-    #[must_use]
-    pub fn debug(&mut self) -> GenesisDebugView<'_> {
-        GenesisDebugView(self)
-    }
+pub struct GenesisDebugState {
+    cartridge_rom: Option<Box<[u16]>>,
+    working_ram: Box<[u16]>,
+    audio_ram: Box<[u8]>,
+    vdp: Vdp,
 }
 
-impl<'emu> GenesisDebugView<'emu> {
+impl GenesisDebugState {
+    pub fn new<Medium: PhysicalMedium>(memory: &Memory<Medium>, vdp: Vdp) -> Self {
+        Self {
+            cartridge_rom: memory.clone_cartridge_rom(),
+            working_ram: memory.clone_working_ram(),
+            audio_ram: memory.clone_audio_ram(),
+            vdp,
+        }
+    }
+
     pub fn copy_cram(&self, out: &mut [Color], modifier: ColorModifier) {
-        self.0.vdp.copy_cram(out, modifier);
+        self.vdp.copy_cram(out, modifier);
     }
 
     pub fn copy_vram(&self, out: &mut [Color], palette: u8, row_len: usize) {
-        self.0.vdp.copy_vram(out, palette, row_len);
+        self.vdp.copy_vram(out, palette, row_len);
     }
 
     pub fn dump_vdp_registers(&self, callback: impl FnMut(&str, &[(&str, &str)])) {
-        self.0.vdp.dump_registers(callback);
+        self.vdp.dump_registers(callback);
     }
 
     pub fn copy_h_scroll(&self, out: &mut [(u16, u16)]) {
-        self.0.vdp.copy_h_scroll(out);
+        self.vdp.copy_h_scroll(out);
     }
 
     pub fn copy_sprite_attributes(
         &self,
         out: &mut [SpriteAttributeEntry],
     ) -> CopySpriteAttributesResult {
-        self.0.vdp.copy_sprite_attributes(out)
+        self.vdp.copy_sprite_attributes(out)
     }
 
     #[must_use]
-    pub fn memory_view(self, memory_area: GenesisMemoryArea) -> Box<dyn DebugMemoryView + 'emu> {
+    pub fn memory_view(&mut self, memory_area: GenesisMemoryArea) -> Box<dyn DebugMemoryView + '_> {
         match memory_area {
-            GenesisMemoryArea::CartridgeRom => {
-                Box::new(self.0.memory.medium_mut().debug_rom_view())
+            GenesisMemoryArea::CartridgeRom => match self.cartridge_rom.as_mut() {
+                Some(cartridge_rom) => Box::new(DebugWordsView(cartridge_rom, Endian::Big)),
+                None => Box::new(EmptyDebugView),
+            },
+            GenesisMemoryArea::WorkingRam => {
+                Box::new(DebugWordsView(&mut self.working_ram, Endian::Big))
             }
-            GenesisMemoryArea::WorkingRam => Box::new(self.0.memory.debug_working_ram_view()),
-            GenesisMemoryArea::AudioRam => Box::new(self.0.memory.debug_audio_ram_view()),
-            GenesisMemoryArea::Vram => Box::new(self.0.vdp.debug_vram_view()),
-            GenesisMemoryArea::Cram => Box::new(self.0.vdp.debug_cram_view()),
-            GenesisMemoryArea::Vsram => Box::new(self.0.vdp.debug_vsram_view()),
+            GenesisMemoryArea::AudioRam => Box::new(DebugBytesView(&mut self.audio_ram)),
+            GenesisMemoryArea::Vram => Box::new(self.vdp.debug_vram_view()),
+            GenesisMemoryArea::Cram => Box::new(self.vdp.debug_cram_view()),
+            GenesisMemoryArea::Vsram => Box::new(self.vdp.debug_vsram_view()),
         }
+    }
+}
+
+impl GenesisEmulator {
+    #[must_use]
+    pub fn to_debug_state(&self) -> GenesisDebugState {
+        GenesisDebugState::new(&self.memory, self.vdp.clone())
     }
 }

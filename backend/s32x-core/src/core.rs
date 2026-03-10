@@ -13,7 +13,6 @@ use genesis_config::GenesisRegion;
 use genesis_core::cartridge::Cartridge;
 use genesis_core::timing;
 use jgenesis_common::boxedarray::BoxedWordArray;
-use jgenesis_common::debug::DebugMemoryView;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::PartialClone;
 use sh2_emu::Sh2;
@@ -34,7 +33,7 @@ pub struct SerialInterface {
     pub slave_to_master: Option<u8>,
 }
 
-#[derive(Debug, PartialClone, Encode, Decode)]
+#[derive(Debug, Clone, PartialClone, Encode, Decode)]
 pub struct Sega32XBus {
     #[partial_clone(partial)]
     pub cartridge: Cartridge,
@@ -45,7 +44,7 @@ pub struct Sega32XBus {
     pub serial: SerialInterface,
 }
 
-#[derive(Debug, PartialClone, Encode, Decode)]
+#[derive(Debug, Clone, PartialClone, Encode, Decode)]
 pub struct Sega32X {
     sh2_master: Sh2,
     sh2_slave: Sh2,
@@ -190,12 +189,12 @@ impl Sega32X {
         &mut self.s32x_bus.cartridge
     }
 
-    pub fn debug_master_sh2_cache(&mut self) -> impl DebugMemoryView {
-        self.sh2_master.debug_cache_view()
+    pub fn clone_sh2_master(&self) -> Sh2 {
+        self.sh2_master.clone()
     }
 
-    pub fn debug_slave_sh2_cache(&mut self) -> impl DebugMemoryView {
-        self.sh2_slave.debug_cache_view()
+    pub fn clone_sh2_slave(&self) -> Sh2 {
+        self.sh2_slave.clone()
     }
 }
 

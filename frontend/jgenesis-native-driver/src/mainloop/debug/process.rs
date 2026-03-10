@@ -5,9 +5,8 @@ use crate::mainloop::render::ThreadedRenderer;
 use crate::mainloop::runner::RunTillNextErr;
 use crate::mainloop::save::FsSaveWriter;
 use jgenesis_common::frontend::{EmulatorTrait, TickEffect};
+use jgenesis_common::sync::{SharedVarReceiver, SharedVarSender};
 use std::error::Error;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 
 pub trait DebuggerRunnerProcess<Emulator: EmulatorTrait>: Send + Sync + 'static {
     fn run(
@@ -67,8 +66,7 @@ pub fn null_debug_fn<Emulator: EmulatorTrait>()
 }
 
 pub struct PartialCloneRunnerProcess<Emulator> {
-    latest: Arc<Mutex<Option<Emulator>>>,
-    updated: Arc<AtomicBool>,
+    emulator_sender: SharedVarSender<Emulator>,
 }
 
 impl<Emulator: EmulatorTrait + Send + Sync + 'static> DebuggerRunnerProcess<Emulator>
@@ -78,8 +76,7 @@ impl<Emulator: EmulatorTrait + Send + Sync + 'static> DebuggerRunnerProcess<Emul
         &mut self,
         emulator: &mut Emulator,
     ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-        *self.latest.lock().unwrap() = Some(emulator.partial_clone());
-        self.updated.store(true, Ordering::Release);
+        self.emulator_sender.update(emulator.partial_clone());
 
         Ok(())
     }
@@ -88,9 +85,7 @@ impl<Emulator: EmulatorTrait + Send + Sync + 'static> DebuggerRunnerProcess<Emul
 pub type DebugRenderFn<Emulator> = dyn FnMut(DebugRenderContext<'_>, &mut Emulator);
 
 pub struct PartialCloneMainProcess<Emulator> {
-    latest: Arc<Mutex<Option<Emulator>>>,
-    cached: Option<Emulator>,
-    updated: Arc<AtomicBool>,
+    emulator_receiver: SharedVarReceiver<Emulator>,
     render_fn: Box<DebugRenderFn<Emulator>>,
 }
 
@@ -99,16 +94,7 @@ impl<Emulator: Send + Sync + 'static> DebuggerMainProcess for PartialCloneMainPr
         &mut self,
         ctx: DebugRenderContext<'_>,
     ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-        if self.updated.compare_exchange(true, false, Ordering::AcqRel, Ordering::Relaxed)
-            == Ok(true)
-        {
-            let emulator = self.latest.lock().unwrap().take();
-            if let Some(emulator) = emulator {
-                self.cached = Some(emulator);
-            }
-        }
-
-        if let Some(emulator) = &mut self.cached {
+        if let Some(emulator) = self.emulator_receiver.get() {
             (self.render_fn)(ctx, emulator);
         }
 
@@ -122,17 +108,10 @@ pub fn partial_clone_debug_fn<Emulator>(
 where
     Emulator: EmulatorTrait + Send + Sync + 'static,
 {
-    let runner_process = PartialCloneRunnerProcess {
-        latest: Arc::new(Mutex::new(None)),
-        updated: Arc::new(AtomicBool::new(false)),
-    };
+    let (emulator_sender, emulator_receiver) = jgenesis_common::sync::new_shared_var();
 
-    let main_process = PartialCloneMainProcess {
-        latest: Arc::clone(&runner_process.latest),
-        cached: None,
-        updated: Arc::clone(&runner_process.updated),
-        render_fn,
-    };
+    let runner_process = PartialCloneRunnerProcess { emulator_sender };
+    let main_process = PartialCloneMainProcess { emulator_receiver, render_fn };
 
     (Box::new(runner_process), Box::new(main_process))
 }

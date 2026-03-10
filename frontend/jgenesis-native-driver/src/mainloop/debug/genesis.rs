@@ -1,23 +1,26 @@
 use crate::mainloop::debug;
 use crate::mainloop::debug::memviewer::MemoryViewerState;
-use crate::mainloop::debug::{DebugRenderContext, DebugRenderFn, memviewer};
+use crate::mainloop::debug::{
+    DebugRenderContext, DebuggerMainProcess, DebuggerRunnerProcess, memviewer,
+};
 use egui::panel::TopBottomSide;
 use egui::scroll_area::ScrollBarVisibility;
 use egui::{TopBottomPanel, UiKind, Vec2, Window};
 use egui_extras::{Column, TableBuilder};
 use genesis_core::GenesisEmulator;
 use genesis_core::api::debug::{
-    CopySpriteAttributesResult, GenesisMemoryArea, SpriteAttributeEntry,
+    CopySpriteAttributesResult, GenesisDebugState, GenesisMemoryArea, SpriteAttributeEntry,
 };
 use genesis_core::vdp::ColorModifier;
 use jgenesis_common::debug::{DebugMemoryView, Endian};
-use jgenesis_common::frontend::Color;
-use jgenesis_proc_macros::MatchEachVariantMacro;
+use jgenesis_common::frontend::{Color, EmulatorTrait};
+use jgenesis_common::sync::{SharedVarReceiver, SharedVarSender};
 use s32x_core::api::Sega32XEmulator;
-use s32x_core::api::debug::S32XMemoryArea;
+use s32x_core::api::debug::{S32XMemoryArea, Sega32XDebugState};
 use segacd_core::api::SegaCdEmulator;
-use segacd_core::api::debug::SegaCdMemoryArea;
+use segacd_core::api::debug::{SegaCdDebugState, SegaCdMemoryArea};
 use std::collections::HashMap;
+use std::error::Error;
 use std::hash::Hash;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -230,35 +233,44 @@ impl State {
     }
 }
 
-#[derive(MatchEachVariantMacro)]
-pub(crate) enum GenesisBasedEmulator<'a> {
-    Genesis(&'a mut GenesisEmulator),
-    SegaCd(&'a mut SegaCdEmulator),
-    Sega32X(&'a mut Sega32XEmulator),
+pub(crate) enum GenesisBasedDebugState {
+    Genesis(Box<GenesisDebugState>),
+    SegaCd(Box<SegaCdDebugState>),
+    Sega32X(Box<Sega32XDebugState>),
 }
 
-impl GenesisBasedEmulator<'_> {
+macro_rules! match_each_state_variant {
+    ($self:expr, state => state.$method:ident($($param:tt)*)) => {
+        match $self {
+            Self::Genesis(state) => state.$method($($param)*),
+            Self::SegaCd(state) => state.genesis().$method($($param)*),
+            Self::Sega32X(state) => state.genesis().$method($($param)*),
+        }
+    }
+}
+
+impl GenesisBasedDebugState {
     fn copy_cram(&mut self, out: &mut [Color], modifier: ColorModifier) {
-        match_each_variant!(self, emulator => emulator.debug().copy_cram(out, modifier));
+        match_each_state_variant!(self, state => state.copy_cram(out, modifier));
     }
 
     fn copy_vram(&mut self, out: &mut [Color], palette: u8, row_len: usize) {
-        match_each_variant!(self, emulator => emulator.debug().copy_vram(out, palette, row_len));
+        match_each_state_variant!(self, state => state.copy_vram(out, palette, row_len));
     }
 
     fn dump_vdp_registers(&mut self, callback: impl FnMut(&str, &[(&str, &str)])) {
-        match_each_variant!(self, emulator => emulator.debug().dump_vdp_registers(callback));
+        match_each_state_variant!(self, state => state.dump_vdp_registers(callback));
     }
 
     fn copy_h_scroll(&mut self, out: &mut [(u16, u16)]) {
-        match_each_variant!(self, emulator => emulator.debug().copy_h_scroll(out));
+        match_each_state_variant!(self, state => state.copy_h_scroll(out));
     }
 
     fn copy_sprite_attributes(
         &mut self,
         out: &mut [SpriteAttributeEntry],
     ) -> CopySpriteAttributesResult {
-        match_each_variant!(self, emulator => emulator.debug().copy_sprite_attributes(out))
+        match_each_state_variant!(self, state => state.copy_sprite_attributes(out))
     }
 
     fn has_memory(&self, memory_area: MemoryArea) -> bool {
@@ -281,21 +293,15 @@ impl GenesisBasedEmulator<'_> {
         memory_area: MemoryArea,
     ) -> Option<Box<dyn DebugMemoryView + '_>> {
         match (self, memory_area) {
-            (Self::Genesis(emulator), MemoryArea::Genesis(area)) => {
-                Some(emulator.debug().memory_view(area))
+            (Self::Genesis(state), MemoryArea::Genesis(area)) => Some(state.memory_view(area)),
+            (Self::SegaCd(state), MemoryArea::Genesis(area)) => {
+                Some(state.genesis().memory_view(area))
             }
-            (Self::SegaCd(emulator), MemoryArea::Genesis(area)) => {
-                Some(emulator.debug().genesis_memory_view(area))
+            (Self::SegaCd(state), MemoryArea::SegaCd(area)) => Some(state.scd_memory_view(area)),
+            (Self::Sega32X(state), MemoryArea::Genesis(area)) => {
+                Some(state.genesis().memory_view(area))
             }
-            (Self::SegaCd(emulator), MemoryArea::SegaCd(area)) => {
-                Some(emulator.debug().scd_memory_view(area))
-            }
-            (Self::Sega32X(emulator), MemoryArea::Genesis(area)) => {
-                Some(emulator.debug().genesis_memory_view(area))
-            }
-            (Self::Sega32X(emulator), MemoryArea::Sega32X(area)) => {
-                Some(emulator.debug().s32x_memory_view(area))
-            }
+            (Self::Sega32X(state), MemoryArea::Sega32X(area)) => Some(state.s32x_memory_view(area)),
             (Self::Genesis(_), MemoryArea::SegaCd(_) | MemoryArea::Sega32X(_))
             | (Self::SegaCd(_), MemoryArea::Sega32X(_))
             | (Self::Sega32X(_), MemoryArea::SegaCd(_)) => None,
@@ -303,49 +309,45 @@ impl GenesisBasedEmulator<'_> {
     }
 }
 
-pub(crate) trait GenesisBase {
-    fn as_enum(&mut self) -> GenesisBasedEmulator<'_>;
+pub(crate) trait GenesisBasedEmulator {
+    fn to_debug_state(&self) -> GenesisBasedDebugState;
 }
 
-impl GenesisBase for GenesisEmulator {
-    fn as_enum(&mut self) -> GenesisBasedEmulator<'_> {
-        GenesisBasedEmulator::Genesis(self)
+impl GenesisBasedEmulator for GenesisEmulator {
+    fn to_debug_state(&self) -> GenesisBasedDebugState {
+        GenesisBasedDebugState::Genesis(Box::new(GenesisEmulator::to_debug_state(self)))
     }
 }
 
-impl GenesisBase for SegaCdEmulator {
-    fn as_enum(&mut self) -> GenesisBasedEmulator<'_> {
-        GenesisBasedEmulator::SegaCd(self)
+impl GenesisBasedEmulator for SegaCdEmulator {
+    fn to_debug_state(&self) -> GenesisBasedDebugState {
+        GenesisBasedDebugState::SegaCd(Box::new(SegaCdEmulator::to_debug_state(self)))
     }
 }
 
-impl GenesisBase for Sega32XEmulator {
-    fn as_enum(&mut self) -> GenesisBasedEmulator<'_> {
-        GenesisBasedEmulator::Sega32X(self)
+impl GenesisBasedEmulator for Sega32XEmulator {
+    fn to_debug_state(&self) -> GenesisBasedDebugState {
+        GenesisBasedDebugState::Sega32X(Box::new(Sega32XEmulator::to_debug_state(self)))
     }
 }
 
-pub(crate) fn render_fn<Emulator: GenesisBase>() -> Box<DebugRenderFn<Emulator>> {
+pub type GenesisDebugRenderFn = dyn FnMut(DebugRenderContext<'_>, &mut GenesisBasedDebugState);
+
+pub(crate) fn render_fn() -> Box<GenesisDebugRenderFn> {
     let mut state = State::new();
-    Box::new(move |ctx, emulator| render(ctx, emulator, &mut state))
+    Box::new(move |ctx, emu_state| render(ctx, emu_state, &mut state))
 }
 
-fn render<Emulator: GenesisBase>(
+fn render(
     ctx: DebugRenderContext<'_>,
-    emulator: &mut Emulator,
+    mut debug_state: &mut GenesisBasedDebugState,
     state: &mut State,
 ) {
-    let mut emulator = emulator.as_enum();
-
     TopBottomPanel::new(TopBottomSide::Top, "gen_debug_top").show(ctx.egui_ctx, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("Memory Viewers", |ui| {
                 for &memory_area in MemoryArea::ALL {
-                    if memory_area == MemoryArea::Genesis(GenesisMemoryArea::CartridgeRom) {
-                        continue;
-                    }
-
-                    if !emulator.has_memory(memory_area) {
+                    if !debug_state.has_memory(memory_area) {
                         continue;
                     }
 
@@ -364,7 +366,7 @@ fn render<Emulator: GenesisBase>(
                     ui.close_kind(UiKind::Menu);
                 }
 
-                if matches!(emulator, GenesisBasedEmulator::Sega32X(_)) {
+                if matches!(debug_state, GenesisBasedDebugState::Sega32X(_)) {
                     if ui.button("32X System Registers").clicked() {
                         state.s32x_system_registers_open = true;
                         ui.close_kind(UiKind::Menu);
@@ -403,7 +405,7 @@ fn render<Emulator: GenesisBase>(
                     ui.close_kind(UiKind::Menu);
                 }
 
-                if matches!(emulator, GenesisBasedEmulator::Sega32X(_))
+                if matches!(debug_state, GenesisBasedDebugState::Sega32X(_))
                     && ui.button("32X Palette RAM").clicked()
                 {
                     state.s32x_palette.open = true;
@@ -413,36 +415,44 @@ fn render<Emulator: GenesisBase>(
         });
     });
 
-    render_memory_viewer_windows(ctx.egui_ctx, &mut emulator, &mut state.memory_viewers);
+    render_memory_viewer_windows(ctx.egui_ctx, debug_state, &mut state.memory_viewers);
 
-    render_vdp_registers_window(ctx.egui_ctx, &mut emulator, &mut state.vdp_registers_open);
+    render_vdp_registers_window(ctx.egui_ctx, debug_state, &mut state.vdp_registers_open);
 
     let screen_width = debug::screen_width(ctx.egui_ctx);
 
-    render_cram_window(ctx.egui_ctx, screen_width, &mut emulator, &mut state.cram);
-    render_vram_window(ctx.egui_ctx, screen_width, &mut emulator, &mut state.vram);
-    render_h_scroll_window(ctx.egui_ctx, &mut emulator, &mut state.h_scroll);
-    render_sprite_attributes_window(ctx.egui_ctx, &mut emulator, &mut state.sprite_attributes);
+    render_cram_window(ctx.egui_ctx, screen_width, debug_state, &mut state.cram);
+    render_vram_window(ctx.egui_ctx, screen_width, debug_state, &mut state.vram);
+    render_h_scroll_window(ctx.egui_ctx, debug_state, &mut state.h_scroll);
+    render_sprite_attributes_window(ctx.egui_ctx, debug_state, &mut state.sprite_attributes);
 
-    if let GenesisBasedEmulator::Sega32X(emulator) = &mut emulator {
-        render_32x_palette_window(ctx.egui_ctx, emulator, &mut state.s32x_palette);
+    if let GenesisBasedDebugState::Sega32X(debug_state) = &mut debug_state {
+        render_32x_palette_window(ctx.egui_ctx, debug_state, &mut state.s32x_palette);
         render_32x_system_registers_window(
             ctx.egui_ctx,
-            emulator,
+            debug_state,
             &mut state.s32x_system_registers_open,
         );
-        render_32x_vdp_registers_window(ctx.egui_ctx, emulator, &mut state.s32x_vdp_registers_open);
-        render_32x_pwm_registers_window(ctx.egui_ctx, emulator, &mut state.s32x_pwm_registers_open);
+        render_32x_vdp_registers_window(
+            ctx.egui_ctx,
+            debug_state,
+            &mut state.s32x_vdp_registers_open,
+        );
+        render_32x_pwm_registers_window(
+            ctx.egui_ctx,
+            debug_state,
+            &mut state.s32x_pwm_registers_open,
+        );
     }
 }
 
 fn render_memory_viewer_windows(
     egui_ctx: &egui::Context,
-    emulator: &mut GenesisBasedEmulator<'_>,
+    emu_state: &mut GenesisBasedDebugState,
     memory_viewer_states: &mut HashMap<MemoryArea, MemoryViewerState>,
 ) {
     for (&memory_area, state) in memory_viewer_states.iter_mut() {
-        if let Some(mut memory) = emulator.debug_memory_view(memory_area) {
+        if let Some(mut memory) = emu_state.debug_memory_view(memory_area) {
             memviewer::render(egui_ctx, memory.as_mut(), state);
         }
     }
@@ -451,7 +461,7 @@ fn render_memory_viewer_windows(
 fn render_cram_window(
     ctx: &egui::Context,
     screen_width: f32,
-    emulator: &mut GenesisBasedEmulator<'_>,
+    emu_state: &mut GenesisBasedDebugState,
     state: &mut CramWindowState,
 ) {
     Window::new("CRAM").default_width(screen_width * 0.95).open(&mut state.open).show(ctx, |ui| {
@@ -461,7 +471,7 @@ fn render_cram_window(
             ui.radio_value(&mut state.modifier, ColorModifier::Highlight, "Highlighted");
         });
 
-        emulator.copy_cram(state.buffer.as_mut_slice(), state.modifier);
+        emu_state.copy_cram(state.buffer.as_mut_slice(), state.modifier);
 
         let mut height = ui.available_width() * 0.25;
         if height > ui.available_height() {
@@ -478,7 +488,7 @@ fn render_cram_window(
 fn render_vram_window(
     ctx: &egui::Context,
     screen_width: f32,
-    emulator: &mut GenesisBasedEmulator<'_>,
+    emu_state: &mut GenesisBasedDebugState,
     state: &mut VramWindowState,
 ) {
     Window::new("VRAM").default_width(screen_width * 0.95).open(&mut state.open).show(ctx, |ui| {
@@ -490,7 +500,7 @@ fn render_vram_window(
             }
         });
 
-        emulator.copy_vram(state.buffer.as_mut_slice(), state.palette, 64);
+        emu_state.copy_vram(state.buffer.as_mut_slice(), state.palette, 64);
 
         let mut height = ui.available_width() * 0.45;
         if height > ui.available_height() {
@@ -510,11 +520,11 @@ fn render_vram_window(
 
 fn render_h_scroll_window(
     ctx: &egui::Context,
-    emulator: &mut GenesisBasedEmulator<'_>,
+    emu_state: &mut GenesisBasedDebugState,
     state: &mut HScrollWindowState,
 ) {
     Window::new("H Scroll Table").default_width(200.0).open(&mut state.open).show(ctx, |ui| {
-        emulator.copy_h_scroll(state.buffer.as_mut_slice());
+        emu_state.copy_h_scroll(state.buffer.as_mut_slice());
 
         debug::brighten_faint_bg_color(ui);
 
@@ -558,14 +568,14 @@ fn render_h_scroll_window(
 
 fn render_sprite_attributes_window(
     ctx: &egui::Context,
-    emulator: &mut GenesisBasedEmulator<'_>,
+    emu_state: &mut GenesisBasedDebugState,
     state: &mut SpriteAttributesWindowState,
 ) {
     Window::new("Sprite Attribute Table").open(&mut state.open).default_width(500.0).show(
         ctx,
         |ui| {
             let CopySpriteAttributesResult { sprite_table_len, top_left_x, top_left_y } =
-                emulator.copy_sprite_attributes(state.buffer.as_mut_slice());
+                emu_state.copy_sprite_attributes(state.buffer.as_mut_slice());
 
             ui.checkbox(&mut state.adjust_coordinates, "Shift coordinates to top-left of screen");
 
@@ -631,13 +641,13 @@ fn render_sprite_attributes_window(
 
 fn render_32x_palette_window(
     ctx: &egui::Context,
-    emulator: &mut Sega32XEmulator,
+    emu_state: &mut Sega32XDebugState,
     state: &mut S32XPaletteRamState,
 ) {
     Window::new("32X Palette RAM").open(&mut state.open).default_size([500.0, 550.0]).show(
         ctx,
         |ui| {
-            emulator.debug().copy_palette(state.buffer.as_mut_slice());
+            emu_state.copy_palette(state.buffer.as_mut_slice());
 
             let mut size = ui.available_width();
             if ui.available_height() < size {
@@ -657,40 +667,83 @@ fn render_32x_palette_window(
 
 fn render_vdp_registers_window(
     ctx: &egui::Context,
-    emulator: &mut GenesisBasedEmulator<'_>,
+    emu_state: &mut GenesisBasedDebugState,
     open: &mut bool,
 ) {
     debug::render_registers_window(ctx, "VDP Registers", open, |ui| {
-        emulator.dump_vdp_registers(debug::dump_registers_callback(ui));
+        emu_state.dump_vdp_registers(debug::dump_registers_callback(ui));
     });
 }
 
 fn render_32x_system_registers_window(
     ctx: &egui::Context,
-    emulator: &mut Sega32XEmulator,
+    emu_state: &mut Sega32XDebugState,
     open: &mut bool,
 ) {
     debug::render_registers_window(ctx, "32X System Registers", open, |ui| {
-        emulator.debug().dump_32x_system_registers(debug::dump_registers_callback(ui));
+        emu_state.dump_32x_system_registers(debug::dump_registers_callback(ui));
     });
 }
 
 fn render_32x_vdp_registers_window(
     ctx: &egui::Context,
-    emulator: &mut Sega32XEmulator,
+    emu_state: &mut Sega32XDebugState,
     open: &mut bool,
 ) {
     debug::render_registers_window(ctx, "32X VDP Registers", open, |ui| {
-        emulator.debug().dump_32x_vdp_registers(debug::dump_registers_callback(ui));
+        emu_state.dump_32x_vdp_registers(debug::dump_registers_callback(ui));
     });
 }
 
 fn render_32x_pwm_registers_window(
     ctx: &egui::Context,
-    emulator: &mut Sega32XEmulator,
+    emu_state: &mut Sega32XDebugState,
     open: &mut bool,
 ) {
     debug::render_registers_window(ctx, "32X PWM Registers", open, |ui| {
-        emulator.debug().dump_pwm_registers(debug::dump_registers_callback(ui));
+        emu_state.dump_pwm_registers(debug::dump_registers_callback(ui));
     });
+}
+
+struct GenesisDebugRunnerProcess {
+    state_sender: SharedVarSender<GenesisBasedDebugState>,
+}
+
+impl<Emulator: EmulatorTrait + GenesisBasedEmulator> DebuggerRunnerProcess<Emulator>
+    for GenesisDebugRunnerProcess
+{
+    fn run(
+        &mut self,
+        emulator: &mut Emulator,
+    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+        self.state_sender.update(emulator.to_debug_state());
+        Ok(())
+    }
+}
+
+struct GenesisDebugMainProcess {
+    state_receiver: SharedVarReceiver<GenesisBasedDebugState>,
+    render_fn: Box<GenesisDebugRenderFn>,
+}
+
+impl DebuggerMainProcess for GenesisDebugMainProcess {
+    fn run(
+        &mut self,
+        ctx: DebugRenderContext<'_>,
+    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+        let Some(state) = self.state_receiver.get() else { return Ok(()) };
+        (self.render_fn)(ctx, state);
+
+        Ok(())
+    }
+}
+
+pub fn debug_fn<Emulator: EmulatorTrait + GenesisBasedEmulator>()
+-> (Box<dyn DebuggerRunnerProcess<Emulator>>, Box<dyn DebuggerMainProcess>) {
+    let (state_sender, state_receiver) = jgenesis_common::sync::new_shared_var();
+
+    let runner_process = GenesisDebugRunnerProcess { state_sender };
+    let main_process = GenesisDebugMainProcess { state_receiver, render_fn: render_fn() };
+
+    (Box::new(runner_process), Box::new(main_process))
 }

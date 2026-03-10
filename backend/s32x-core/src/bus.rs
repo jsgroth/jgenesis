@@ -398,6 +398,10 @@ impl PhysicalMedium for Sega32X {
     fn region(&self) -> GenesisRegion {
         self.region
     }
+
+    fn clone_cartridge_rom(&self) -> Option<Box<[u16]>> {
+        self.s32x_bus.cartridge.clone_cartridge_rom()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
