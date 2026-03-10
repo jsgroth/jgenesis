@@ -1,8 +1,11 @@
 use crate::api::Sega32XEmulator;
+use crate::core::Sega32X;
 use crate::pwm::PwmChip;
 use crate::registers::SystemRegisters;
 use crate::vdp::Vdp;
-use genesis_core::api::debug::GenesisDebugState;
+use genesis_core::api::debug::{
+    BaseGenesisDebugView, GenesisDebugState, GenesisMemoryArea, PhysicalMediumDebugView,
+};
 use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
 use jgenesis_common::frontend::Color;
 use sh2_emu::Sh2;
@@ -67,6 +70,85 @@ impl Sega32XDebugState {
     }
 }
 
+pub struct Sega32XMediumView<'a> {
+    pub(crate) cartridge_rom: &'a mut [u16],
+    pub(crate) sdram: &'a mut [u16],
+    pub(crate) sh2_master: &'a mut Sh2,
+    pub(crate) sh2_slave: &'a mut Sh2,
+    pub(crate) system_registers: &'a mut SystemRegisters,
+    pub(crate) s32x_vdp: &'a mut Vdp,
+    pub(crate) pwm: &'a mut PwmChip,
+}
+
+impl PhysicalMediumDebugView for Sega32XMediumView<'_> {
+    fn debug_cartridge_rom(&mut self) -> Option<&mut [u16]> {
+        Some(self.cartridge_rom)
+    }
+}
+
+pub struct Sega32XEmulatorDebugView<'a> {
+    genesis: BaseGenesisDebugView<'a, Sega32XMediumView<'a>>,
+}
+
+impl Sega32XEmulatorDebugView<'_> {
+    pub fn apply_genesis_memory_edit(
+        &mut self,
+        memory_area: GenesisMemoryArea,
+        address: usize,
+        value: u8,
+    ) {
+        self.genesis.apply_memory_edit(memory_area, address, value);
+    }
+
+    pub fn apply_32x_memory_edit(
+        &mut self,
+        memory_area: S32XMemoryArea,
+        address: usize,
+        value: u8,
+    ) {
+        match memory_area {
+            S32XMemoryArea::Sdram => {
+                DebugWordsView(self.genesis.medium_view().sdram, Endian::Big).write(address, value);
+            }
+            S32XMemoryArea::MasterSh2Cache => {
+                self.genesis.medium_view().sh2_master.debug_cache_view().write(address, value);
+            }
+            S32XMemoryArea::SlaveSh2Cache => {
+                self.genesis.medium_view().sh2_slave.debug_cache_view().write(address, value);
+            }
+            S32XMemoryArea::FrameBuffer0 => {
+                self.genesis
+                    .medium_view()
+                    .s32x_vdp
+                    .debug_frame_buffer_view(0)
+                    .write(address, value);
+            }
+            S32XMemoryArea::FrameBuffer1 => {
+                self.genesis
+                    .medium_view()
+                    .s32x_vdp
+                    .debug_frame_buffer_view(1)
+                    .write(address, value);
+            }
+            S32XMemoryArea::PaletteRam => {
+                self.genesis.medium_view().s32x_vdp.debug_palette_ram_view().write(address, value);
+            }
+        }
+    }
+
+    pub fn to_debug_state(&mut self) -> Sega32XDebugState {
+        Sega32XDebugState {
+            genesis: self.genesis.to_debug_state(),
+            sdram: self.genesis.medium_view().sdram.to_vec().into_boxed_slice(),
+            sh2_master: self.genesis.medium_view().sh2_master.clone(),
+            sh2_slave: self.genesis.medium_view().sh2_slave.clone(),
+            system_registers: self.genesis.medium_view().system_registers.clone(),
+            s32x_vdp: self.genesis.medium_view().s32x_vdp.clone(),
+            pwm: self.genesis.medium_view().pwm.clone(),
+        }
+    }
+}
+
 impl Sega32XEmulator {
     #[must_use]
     pub fn to_debug_state(&self) -> Sega32XDebugState {
@@ -80,6 +162,16 @@ impl Sega32XEmulator {
             system_registers: sega_32x.s32x_bus.registers.clone(),
             s32x_vdp: sega_32x.s32x_bus.vdp.clone(),
             pwm: sega_32x.s32x_bus.pwm.clone(),
+        }
+    }
+
+    #[must_use]
+    pub fn as_debug_view(&mut self) -> Sega32XEmulatorDebugView<'_> {
+        Sega32XEmulatorDebugView {
+            genesis: BaseGenesisDebugView::new(
+                self.memory.as_debug_view(Sega32X::as_debug_view),
+                &mut self.vdp,
+            ),
         }
     }
 }
