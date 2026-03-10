@@ -4,6 +4,7 @@ mod backupram;
 mod font;
 pub(crate) mod wordram;
 
+use crate::api::debug::SegaCdMediumView;
 use crate::api::{SegaCdEmulatorConfig, SegaCdLoadResult};
 use crate::cddrive::cdc::{DeviceDestination, Rchip};
 use crate::cddrive::cdd::{CdDrive, CdModel};
@@ -619,6 +620,15 @@ impl SegaCd {
 
     pub fn clone_cdc(&self) -> Rchip {
         self.cdc().clone()
+    }
+
+    pub fn as_debug_view(&mut self) -> SegaCdMediumView<'_> {
+        SegaCdMediumView {
+            bios_rom: self.bios.0.as_mut_slice(),
+            prg_ram: self.prg_ram.as_mut_slice(),
+            word_ram: &mut self.word_ram,
+            cdc: self.disc_drive.cdc_mut(),
+        }
     }
 }
 
