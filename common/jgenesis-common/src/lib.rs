@@ -7,6 +7,7 @@ pub mod input;
 pub mod macros;
 pub mod num;
 pub mod rom;
+pub mod sync;
 pub mod timeutils;
 
 pub use appimage::{fix_appimage_relative_path, is_appimage_build};

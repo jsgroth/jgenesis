@@ -1,10 +1,9 @@
 use crate::api::SegaCdEmulator;
-use genesis_core::api::debug::{
-    CopySpriteAttributesResult, GenesisMemoryArea, SpriteAttributeEntry,
-};
-use genesis_core::vdp::ColorModifier;
-use jgenesis_common::debug::{DebugMemoryView, EmptyDebugView};
-use jgenesis_common::frontend::Color;
+use crate::cddrive::cdc::Rchip;
+use crate::memory::wordram::WordRam;
+use crate::rf5c164::Rf5c164;
+use genesis_core::api::debug::GenesisDebugState;
+use jgenesis_common::debug::{DebugBytesView, DebugMemoryView};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SegaCdMemoryArea {
@@ -15,62 +14,47 @@ pub enum SegaCdMemoryArea {
     CdcRam,
 }
 
-pub struct SegaCdDebugView<'emu>(&'emu mut SegaCdEmulator);
+pub struct SegaCdDebugState {
+    genesis: GenesisDebugState,
+    bios_rom: Box<[u8]>,
+    prg_ram: Box<[u8]>,
+    word_ram: WordRam,
+    pcm: Rf5c164,
+    cdc: Rchip,
+}
 
-impl SegaCdEmulator {
+impl SegaCdDebugState {
+    pub fn genesis(&mut self) -> &mut GenesisDebugState {
+        &mut self.genesis
+    }
+
     #[must_use]
-    pub fn debug(&mut self) -> SegaCdDebugView<'_> {
-        SegaCdDebugView(self)
+    pub fn scd_memory_view(
+        &mut self,
+        memory_area: SegaCdMemoryArea,
+    ) -> Box<dyn DebugMemoryView + '_> {
+        match memory_area {
+            SegaCdMemoryArea::BiosRom => Box::new(DebugBytesView(&mut self.bios_rom)),
+            SegaCdMemoryArea::PrgRam => Box::new(DebugBytesView(&mut self.prg_ram)),
+            SegaCdMemoryArea::WordRam => Box::new(self.word_ram.debug_view()),
+            SegaCdMemoryArea::PcmRam => Box::new(self.pcm.debug_ram_view()),
+            SegaCdMemoryArea::CdcRam => Box::new(self.cdc.debug_ram_view()),
+        }
     }
 }
 
-impl<'emu> SegaCdDebugView<'emu> {
-    pub fn copy_cram(&self, out: &mut [Color], modifier: ColorModifier) {
-        self.0.vdp.copy_cram(out, modifier);
-    }
-
-    pub fn copy_vram(&self, out: &mut [Color], palette: u8, row_len: usize) {
-        self.0.vdp.copy_vram(out, palette, row_len);
-    }
-
-    pub fn dump_vdp_registers(&self, callback: impl FnMut(&str, &[(&str, &str)])) {
-        self.0.vdp.dump_registers(callback);
-    }
-
-    pub fn copy_h_scroll(&self, out: &mut [(u16, u16)]) {
-        self.0.vdp.copy_h_scroll(out);
-    }
-
-    pub fn copy_sprite_attributes(
-        &self,
-        out: &mut [SpriteAttributeEntry],
-    ) -> CopySpriteAttributesResult {
-        self.0.vdp.copy_sprite_attributes(out)
-    }
-
+impl SegaCdEmulator {
     #[must_use]
-    pub fn genesis_memory_view(
-        self,
-        memory_area: GenesisMemoryArea,
-    ) -> Box<dyn DebugMemoryView + 'emu> {
-        match memory_area {
-            GenesisMemoryArea::CartridgeRom => Box::new(EmptyDebugView),
-            GenesisMemoryArea::WorkingRam => Box::new(self.0.memory.debug_working_ram_view()),
-            GenesisMemoryArea::AudioRam => Box::new(self.0.memory.debug_audio_ram_view()),
-            GenesisMemoryArea::Vram => Box::new(self.0.vdp.debug_vram_view()),
-            GenesisMemoryArea::Cram => Box::new(self.0.vdp.debug_cram_view()),
-            GenesisMemoryArea::Vsram => Box::new(self.0.vdp.debug_vsram_view()),
-        }
-    }
+    pub fn to_debug_state(&self) -> SegaCdDebugState {
+        let sega_cd = self.memory.medium();
 
-    #[must_use]
-    pub fn scd_memory_view(self, memory_area: SegaCdMemoryArea) -> Box<dyn DebugMemoryView + 'emu> {
-        match memory_area {
-            SegaCdMemoryArea::BiosRom => Box::new(self.0.memory.medium_mut().debug_bios_rom_view()),
-            SegaCdMemoryArea::PrgRam => Box::new(self.0.memory.medium_mut().debug_prg_ram_view()),
-            SegaCdMemoryArea::WordRam => Box::new(self.0.memory.medium_mut().debug_word_ram_view()),
-            SegaCdMemoryArea::PcmRam => Box::new(self.0.pcm.debug_ram_view()),
-            SegaCdMemoryArea::CdcRam => Box::new(self.0.memory.medium_mut().debug_cdc_ram_view()),
+        SegaCdDebugState {
+            genesis: GenesisDebugState::new(&self.memory, self.vdp.clone()),
+            bios_rom: sega_cd.bios().to_vec().into_boxed_slice(),
+            prg_ram: sega_cd.clone_prg_ram(),
+            word_ram: sega_cd.word_ram().clone(),
+            pcm: self.pcm.clone(),
+            cdc: sega_cd.clone_cdc(),
         }
     }
 }

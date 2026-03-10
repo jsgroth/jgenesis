@@ -721,4 +721,8 @@ impl PhysicalMedium for Cartridge {
     fn region(&self) -> GenesisRegion {
         self.region
     }
+
+    fn clone_cartridge_rom(&self) -> Option<Box<[u16]>> {
+        Some(self.rom.0.clone())
+    }
 }

@@ -18,7 +18,6 @@ use genesis_config::GenesisRegion;
 use genesis_core::GenesisRegionExt;
 use genesis_core::memory::{Memory, PhysicalMedium};
 use jgenesis_common::boxedarray::BoxedByteArray;
-use jgenesis_common::debug::{DebugBytesView, DebugMemoryView};
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use m68000_emu::BusInterface;
@@ -614,20 +613,12 @@ impl SegaCd {
         self.cdd_mut().change_disc(rom_path, format, load_disc_into_ram)
     }
 
-    pub fn debug_bios_rom_view(&mut self) -> impl DebugMemoryView {
-        DebugBytesView(self.bios.0.as_mut_slice())
+    pub fn clone_prg_ram(&self) -> Box<[u8]> {
+        self.prg_ram.to_vec().into_boxed_slice()
     }
 
-    pub fn debug_prg_ram_view(&mut self) -> impl DebugMemoryView {
-        DebugBytesView(self.prg_ram.as_mut_slice())
-    }
-
-    pub fn debug_word_ram_view(&mut self) -> impl DebugMemoryView {
-        self.word_ram.debug_view()
-    }
-
-    pub fn debug_cdc_ram_view(&mut self) -> impl DebugMemoryView {
-        self.cdc_mut().debug_ram_view()
+    pub fn clone_cdc(&self) -> Rchip {
+        self.cdc().clone()
     }
 }
 
