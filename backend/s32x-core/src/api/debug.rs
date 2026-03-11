@@ -3,6 +3,7 @@ use crate::core::Sega32X;
 use crate::pwm::PwmChip;
 use crate::registers::SystemRegisters;
 use crate::vdp::Vdp;
+use crate::vdp::debug::VdpDebugState;
 use genesis_core::api::debug::{
     BaseGenesisDebugView, GenesisDebugState, GenesisMemoryArea, PhysicalMediumDebugView,
 };
@@ -35,7 +36,7 @@ pub struct Sega32XDebugState {
     sh2_master: Sh2,
     sh2_slave: Sh2,
     system_registers: SystemRegisters,
-    s32x_vdp: Vdp,
+    s32x_vdp: VdpDebugState,
     pwm: PwmChip,
 }
 
@@ -152,7 +153,7 @@ impl Sega32XEmulatorDebugView<'_> {
             sh2_master: self.genesis.medium_view().sh2_master.clone(),
             sh2_slave: self.genesis.medium_view().sh2_slave.clone(),
             system_registers: self.genesis.medium_view().system_registers.clone(),
-            s32x_vdp: self.genesis.medium_view().s32x_vdp.clone(),
+            s32x_vdp: self.genesis.medium_view().s32x_vdp.to_debug_state(),
             pwm: self.genesis.medium_view().pwm.clone(),
         }
     }
@@ -169,7 +170,7 @@ impl Sega32XEmulator {
             sh2_master: sega_32x.clone_sh2_master(),
             sh2_slave: sega_32x.clone_sh2_slave(),
             system_registers: sega_32x.s32x_bus.registers.clone(),
-            s32x_vdp: sega_32x.s32x_bus.vdp.clone(),
+            s32x_vdp: sega_32x.s32x_bus.vdp.to_debug_state(),
             pwm: sega_32x.s32x_bus.pwm.clone(),
         }
     }
