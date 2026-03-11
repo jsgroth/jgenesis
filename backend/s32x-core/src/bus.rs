@@ -1,5 +1,7 @@
 //! 32X memory mapping for the 68000 and SH-2s
 
+pub(crate) mod debug;
+
 use crate::bootrom;
 use crate::core::{Sega32X, Sega32XBus};
 use crate::registers::Access;
@@ -11,6 +13,7 @@ use sh2_emu::bus::{AccessContext, BusInterface, OpSize};
 use sh2_emu::debug::DummySh2Debugger;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
+use std::ptr::NonNull;
 use std::{array, cmp};
 
 const SDRAM_MASK: u32 = 0x3FFFF;
@@ -420,20 +423,20 @@ impl WhichCpu {
 }
 
 pub struct OtherCpu {
-    cpu: *mut Sh2,
-    cycle_counter: *mut u64,
+    cpu: NonNull<Sh2>,
+    cycle_counter: NonNull<u64>,
 }
 
 // SH-2 memory map
 pub struct Sh2Bus {
-    s32x_bus: *mut Sega32XBus,
+    s32x_bus: NonNull<Sega32XBus>,
     other_sh2: Option<OtherCpu>,
     pub which: WhichCpu,
     pub cycle_counter: u64,
     pub cycle_limit: u64,
 }
 
-sh2_emu::bus::impl_sh2_lookup_table!(Sh2Bus);
+sh2_emu::impl_sh2_lookup_table!(Sh2Bus);
 
 pub struct Sh2BusGuard<'bus, 'other> {
     bus: Sh2Bus,
@@ -592,10 +595,10 @@ impl Sh2Bus {
         // move the underlying values until after dropping the guard.
         Sh2BusGuard {
             bus: Sh2Bus {
-                s32x_bus,
+                s32x_bus: s32x_bus.into(),
                 other_sh2: other_sh2.map(|(other_cpu, other_cycles)| OtherCpu {
-                    cpu: other_cpu,
-                    cycle_counter: other_cycles,
+                    cpu: other_cpu.into(),
+                    cycle_counter: other_cycles.into(),
                 }),
                 which,
                 cycle_counter,
@@ -612,12 +615,12 @@ impl Sh2Bus {
         // This method mutably borrows the Sh2Bus so only one mutable reference can be created this
         // way at a time. Other code should not create mutable references directly, and must not
         // touch the pointer while a mutable reference is alive.
-        unsafe { &mut *self.s32x_bus }
+        unsafe { self.s32x_bus.as_mut() }
     }
 
     fn s32x_bus_shared(&self) -> &Sega32XBus {
         // SAFETY: Same as above but returns a shared reference from a shared Sh2Bus borrow
-        unsafe { &*self.s32x_bus }
+        unsafe { self.s32x_bus.as_ref() }
     }
 
     // Brutal Unleashed: Above the Claw requires fairly close synchronization to prevent
@@ -625,33 +628,44 @@ impl Sh2Bus {
     // the slave SH-2. After the slave SH-2 sees a specific value from the master SH-2, it
     // writes to the communication port twice in quick succession, and the master SH-2 must
     // read the first value before it's overwritten
-    fn sync_if_comm_port_accessed(&mut self, address: u32) {
+    fn sync_if_comm_port_accessed_generic(
+        &mut self,
+        address: u32,
+        mut execute_cpu: impl FnMut(&mut Sh2, Sh2Bus) -> u64,
+    ) {
         // $00004020-$0000402F are the communication ports
         if !(0x4020..0x4030).contains(&address) {
             return;
         }
+
+        let Some(OtherCpu { mut cpu, cycle_counter }) = self.other_sh2 else { return };
 
         // SAFETY: All raw pointers used here were created from mutable references and are
         // guaranteed non-null.
         // The original Sh2Bus instance is not used while the other CPU is executing against the
         // bus copy.
         unsafe {
-            let Some(OtherCpu { cpu, cycle_counter }) = self.other_sh2 else { return };
-
             let limit = cmp::min(self.cycle_limit, self.cycle_counter);
-            let mut bus = Sh2Bus {
+            let bus = Sh2Bus {
                 s32x_bus: self.s32x_bus,
                 which: self.which.other(),
-                cycle_counter: *cycle_counter,
+                cycle_counter: cycle_counter.read(),
                 cycle_limit: limit,
                 other_sh2: None,
             };
 
-            while bus.cycle_counter < limit {
-                (*cpu).execute(crate::core::SH2_EXECUTION_SLICE_LEN, &mut bus);
-            }
-            *cycle_counter = bus.cycle_counter;
+            let new_cycle_counter = execute_cpu(cpu.as_mut(), bus);
+            cycle_counter.write(new_cycle_counter);
         }
+    }
+
+    fn sync_if_comm_port_accessed(&mut self, address: u32) {
+        self.sync_if_comm_port_accessed_generic(address, |cpu, mut bus| {
+            while bus.cycle_counter < bus.cycle_limit {
+                cpu.execute(crate::core::SH2_EXECUTION_SLICE_LEN, &mut bus);
+            }
+            bus.cycle_counter
+        });
     }
 
     // $00000000-$01FFFFFF: Boot ROM, 32X registers, 32X CRAM

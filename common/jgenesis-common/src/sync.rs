@@ -11,6 +11,7 @@ pub struct SharedVarReceiver<T> {
     state: Arc<SharedVarState<T>>,
 }
 
+#[derive(Clone)]
 pub struct SharedVarSender<T> {
     state: Arc<SharedVarState<T>>,
 }
