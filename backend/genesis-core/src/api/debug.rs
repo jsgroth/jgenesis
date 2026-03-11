@@ -110,9 +110,9 @@ pub trait PhysicalMediumDebugView {
 }
 
 pub struct GenesisMemoryDebugView<'a, MediumView> {
-    pub(crate) medium_view: MediumView,
-    pub(crate) working_ram: &'a mut [u16],
-    pub(crate) audio_ram: &'a mut [u8],
+    pub medium_view: MediumView,
+    pub working_ram: &'a mut [u16],
+    pub audio_ram: &'a mut [u8],
 }
 
 impl<MediumView: PhysicalMediumDebugView> GenesisMemoryDebugView<'_, MediumView> {

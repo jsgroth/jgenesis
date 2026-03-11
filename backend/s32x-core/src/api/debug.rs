@@ -1,15 +1,20 @@
-use crate::api::Sega32XEmulator;
+use crate::GenesisVdp;
+use crate::api::{Sega32XEmulator, Sega32XError};
 use crate::core::Sega32X;
 use crate::pwm::PwmChip;
 use crate::registers::SystemRegisters;
 use crate::vdp::Vdp;
 use crate::vdp::debug::VdpDebugState;
+use genesis_config::GenesisInputs;
 use genesis_core::api::debug::{
     BaseGenesisDebugView, GenesisDebugState, GenesisMemoryArea, PhysicalMediumDebugView,
 };
 use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
-use jgenesis_common::frontend::Color;
+use jgenesis_common::frontend::{
+    AudioOutput, Color, InputPoller, Renderer, SaveWriter, TickResult,
+};
 use sh2_emu::Sh2;
+use std::fmt::{Debug, Display};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 
@@ -97,7 +102,7 @@ impl PhysicalMediumDebugView for Sega32XMediumView<'_> {
 }
 
 pub struct Sega32XEmulatorDebugView<'a> {
-    genesis: BaseGenesisDebugView<'a, Sega32XMediumView<'a>>,
+    pub(crate) genesis: BaseGenesisDebugView<'a, Sega32XMediumView<'a>>,
 }
 
 impl Sega32XEmulatorDebugView<'_> {
@@ -184,6 +189,32 @@ impl Sega32XEmulator {
             ),
         }
     }
+
+    pub fn debug_tick<R, A, I, S>(
+        &mut self,
+        renderer: &mut R,
+        audio_output: &mut A,
+        input_poller: &mut I,
+        save_writer: &mut S,
+        debugger: &mut Sega32XDebugger,
+    ) -> TickResult<Sega32XError<R::Err, A::Err, S::Err>>
+    where
+        R: Renderer,
+        R::Err: Debug + Display + Send + Sync + 'static,
+        A: AudioOutput,
+        A::Err: Debug + Display + Send + Sync + 'static,
+        I: InputPoller<GenesisInputs>,
+        S: SaveWriter,
+        S::Err: Debug + Display + Send + Sync + 'static,
+    {
+        self.tick_inner::<true, _, _, _, _>(
+            renderer,
+            audio_output,
+            input_poller,
+            save_writer,
+            Some(debugger),
+        )
+    }
 }
 
 pub struct Sega32XDebugger {
@@ -201,14 +232,9 @@ impl Sega32XDebugger {
     pub fn process_commands(&mut self, debug_view: &mut Sega32XEmulatorDebugView<'_>) {
         loop {
             match self.command_receiver.try_recv() {
-                Ok(command) => match command {
-                    Sega32XDebugCommand::EditGenesisMemory(memory_area, address, value) => {
-                        debug_view.apply_genesis_memory_edit(memory_area, address, value);
-                    }
-                    Sega32XDebugCommand::Edit32XMemory(memory_area, address, value) => {
-                        debug_view.apply_32x_memory_edit(memory_area, address, value);
-                    }
-                },
+                Ok(command) => {
+                    self.process_command(command, debug_view);
+                }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
                     // TODO clear breakpoint/break status; debugger window closed
@@ -217,4 +243,55 @@ impl Sega32XDebugger {
             }
         }
     }
+
+    fn process_command(
+        &mut self,
+        command: Sega32XDebugCommand,
+        debug_view: &mut Sega32XEmulatorDebugView<'_>,
+    ) {
+        match command {
+            Sega32XDebugCommand::EditGenesisMemory(memory_area, address, value) => {
+                debug_view.apply_genesis_memory_edit(memory_area, address, value);
+            }
+            Sega32XDebugCommand::Edit32XMemory(memory_area, address, value) => {
+                debug_view.apply_32x_memory_edit(memory_area, address, value);
+            }
+        }
+    }
+
+    pub(crate) fn with_genesis_ram<'a>(
+        &'a mut self,
+        working_ram: &'a mut [u16],
+        audio_ram: &'a mut [u8],
+    ) -> Sega32XDebuggerGenesisRam<'a> {
+        Sega32XDebuggerGenesisRam { debugger: self, working_ram, audio_ram }
+    }
+}
+
+pub(crate) struct Sega32XDebuggerGenesisRam<'a> {
+    pub debugger: &'a mut Sega32XDebugger,
+    pub working_ram: &'a mut [u16],
+    pub audio_ram: &'a mut [u8],
+}
+
+impl Sega32XDebuggerGenesisRam<'_> {
+    /// # Safety
+    ///
+    /// The caller must not touch the values referenced by `self` or `vdp` until after the returned
+    /// [`Sega32XDebuggerGenesisRamRaw`] has been dropped.
+    pub unsafe fn to_raw(&mut self, vdp: &mut GenesisVdp) -> Sega32XDebuggerGenesisRamRaw {
+        Sega32XDebuggerGenesisRamRaw {
+            debugger: self.debugger,
+            working_ram: self.working_ram,
+            audio_ram: self.audio_ram,
+            vdp,
+        }
+    }
+}
+
+pub(crate) struct Sega32XDebuggerGenesisRamRaw {
+    pub debugger: *mut Sega32XDebugger,
+    pub working_ram: *mut [u16],
+    pub audio_ram: *mut [u8],
+    pub vdp: *mut GenesisVdp,
 }
