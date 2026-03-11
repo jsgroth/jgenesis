@@ -5,6 +5,8 @@ use jgenesis_common::debug::{
     DebugBytesView, DebugMemoryView, DebugWordsView, EmptyDebugView, Endian,
 };
 use jgenesis_common::frontend::Color;
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SpriteAttributeEntry {
@@ -37,6 +39,12 @@ pub enum GenesisMemoryArea {
     Vsram,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum GenesisDebugCommand {
+    EditMemory(GenesisMemoryArea, usize, u8),
+}
+
+#[derive(Debug, Clone)]
 pub struct GenesisDebugState {
     cartridge_rom: Option<Box<[u16]>>,
     working_ram: Box<[u16]>,
@@ -189,6 +197,36 @@ impl GenesisEmulator {
                 .memory
                 .as_debug_view(|cartridge| CartridgeDebugView { rom: cartridge.debug_rom_view() }),
             vdp: &mut self.vdp,
+        }
+    }
+}
+
+pub struct GenesisDebugger {
+    command_receiver: Receiver<GenesisDebugCommand>,
+}
+
+impl GenesisDebugger {
+    #[must_use]
+    pub fn new() -> (Self, Sender<GenesisDebugCommand>) {
+        let (command_sender, command_receiver) = mpsc::channel();
+
+        (Self { command_receiver }, command_sender)
+    }
+
+    pub fn process_commands(&mut self, debug_view: &mut GenesisEmulatorDebugView<'_>) {
+        loop {
+            match self.command_receiver.try_recv() {
+                Ok(command) => match command {
+                    GenesisDebugCommand::EditMemory(memory_area, address, value) => {
+                        debug_view.apply_memory_edit(memory_area, address, value);
+                    }
+                },
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    // TODO debugger window was closed; clear breakpoints and break status
+                    break;
+                }
+            }
         }
     }
 }

@@ -72,6 +72,11 @@ impl MemoryViewerState {
         self.default_file_name = Some(name);
         self
     }
+
+    pub fn with_editable(mut self) -> Self {
+        self.editable = true;
+        self
+    }
 }
 
 pub fn render(ctx: &Context, memory: &mut dyn DebugMemoryView, state: &mut MemoryViewerState) {
