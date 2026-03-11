@@ -2,7 +2,7 @@
 
 mod colors;
 mod cramdots;
-mod debug;
+pub mod debug;
 mod fifo;
 mod registers;
 mod render;

@@ -3,6 +3,7 @@
 pub(crate) mod debug;
 mod registers;
 
+use crate::GenesisVdp;
 use crate::api::Sega32XEmulatorConfig;
 use crate::registers::SystemRegisters;
 use crate::vdp::registers::{FrameBufferMode, Registers, SelectedFrameBuffer};
@@ -48,8 +49,6 @@ const EXPANDED_FRAME_BUFFER_LEN: usize = genesis_core::vdp::FRAME_BUFFER_LEN * 4
 // to the 32X VDP always assuming H40 mode, the Genesis and 32X frames are slightly offset when the
 // Genesis VDP is in H32 mode.
 const H32_H_OFFSET: u32 = 13;
-
-type GenesisVdp = genesis_core::vdp::Vdp;
 
 #[derive(Debug, Clone, FakeEncode, FakeDecode)]
 struct ExpandedFrameBuffer(Box<[Color; EXPANDED_FRAME_BUFFER_LEN]>);

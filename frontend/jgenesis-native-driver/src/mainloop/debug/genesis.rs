@@ -1,12 +1,18 @@
+use crate::mainloop::audio::SdlAudioOutput;
 use crate::mainloop::debug;
 use crate::mainloop::debug::memviewer::MemoryViewerState;
 use crate::mainloop::debug::{
     DebugRenderContext, DebuggerMainProcess, DebuggerRunnerProcess, memviewer,
 };
+use crate::mainloop::input::ThreadedInputPoller;
+use crate::mainloop::render::ThreadedRenderer;
+use crate::mainloop::runner::RunTillNextErr;
+use crate::mainloop::save::FsSaveWriter;
 use egui::panel::TopBottomSide;
 use egui::scroll_area::ScrollBarVisibility;
 use egui::{TopBottomPanel, UiKind, Vec2, Window};
 use egui_extras::{Column, TableBuilder};
+use genesis_config::GenesisInputs;
 use genesis_core::GenesisEmulator;
 use genesis_core::api::debug::{
     CopySpriteAttributesResult, GenesisDebugCommand, GenesisDebugState, GenesisDebugger,
@@ -14,7 +20,7 @@ use genesis_core::api::debug::{
 };
 use genesis_core::vdp::ColorModifier;
 use jgenesis_common::debug::{DebugMemoryView, DebugViewWithWriteHook, Endian};
-use jgenesis_common::frontend::Color;
+use jgenesis_common::frontend::{Color, TickEffect};
 use jgenesis_common::sync::{SharedVarReceiver, SharedVarSender};
 use s32x_core::api::Sega32XEmulator;
 use s32x_core::api::debug::{
@@ -835,6 +841,26 @@ impl DebuggerRunnerProcess<Sega32XEmulator> for Sega32XDebugRunnerProcess {
 
         Ok(())
     }
+
+    fn run_emulator_till_next_frame(
+        &mut self,
+        emulator: &mut Sega32XEmulator,
+        renderer: &mut ThreadedRenderer,
+        audio_output: &mut SdlAudioOutput,
+        input_poller: &mut ThreadedInputPoller<GenesisInputs>,
+        save_writer: &mut FsSaveWriter,
+    ) -> Result<(), RunTillNextErr<Sega32XEmulator>> {
+        while emulator.debug_tick(
+            renderer,
+            audio_output,
+            input_poller,
+            save_writer,
+            &mut self.debugger,
+        )? != TickEffect::FrameRendered
+        {}
+
+        Ok(())
+    }
 }
 
 struct Sega32XDebugMainProcess {
@@ -857,7 +883,7 @@ impl DebuggerMainProcess for Sega32XDebugMainProcess {
 pub fn sega_32x_debug_fn()
 -> (Box<dyn DebuggerRunnerProcess<Sega32XEmulator>>, Box<dyn DebuggerMainProcess>) {
     let (state_sender, state_receiver) = jgenesis_common::sync::new_shared_var();
-    let (debugger, command_sender) = Sega32XDebugger::new();
+    let (debugger, command_sender) = Sega32XDebugger::new(state_sender.clone());
 
     let memory_edit_hook = Box::new(move |memory_area, address, value| match memory_area {
         MemoryArea::Genesis(memory_area) => {

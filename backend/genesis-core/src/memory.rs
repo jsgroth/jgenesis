@@ -133,6 +133,12 @@ impl<Medium: PhysicalMedium> Memory<Medium> {
     }
 
     #[inline]
+    #[must_use]
+    pub fn medium_mut_with_ram(&mut self) -> (&mut Medium, &mut [u16], &mut [u8]) {
+        (&mut self.physical_medium, self.main_ram.as_mut_slice(), self.audio_ram.as_mut_slice())
+    }
+
+    #[inline]
     pub fn reset_z80_signals(&mut self) {
         self.signals = Signals::default();
     }

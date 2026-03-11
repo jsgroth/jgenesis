@@ -122,7 +122,7 @@ impl SegaCdEmulator {
         let sega_cd = self.memory.medium();
 
         SegaCdDebugState {
-            genesis: GenesisDebugState::new(&self.memory, self.vdp.clone()),
+            genesis: GenesisDebugState::new(&self.memory, &self.vdp),
             bios_rom: sega_cd.bios().to_vec().into_boxed_slice(),
             prg_ram: sega_cd.clone_prg_ram(),
             word_ram: sega_cd.word_ram().clone(),

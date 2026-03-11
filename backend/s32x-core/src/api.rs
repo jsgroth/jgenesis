@@ -4,6 +4,7 @@
 
 pub mod debug;
 
+use crate::api::debug::Sega32XDebugger;
 use crate::audio::Sega32XResampler;
 use crate::core::Sega32X;
 use bincode::{Decode, Encode};
@@ -155,6 +156,105 @@ impl Sega32XEmulator {
         emulator
     }
 
+    #[inline]
+    fn tick_inner<const DEBUG: bool, R, A, I, S>(
+        &mut self,
+        renderer: &mut R,
+        audio_output: &mut A,
+        input_poller: &mut I,
+        save_writer: &mut S,
+        debugger: Option<&mut Sega32XDebugger>,
+    ) -> TickResult<Sega32XError<R::Err, A::Err, S::Err>>
+    where
+        R: Renderer,
+        R::Err: Debug + Display + Send + Sync + 'static,
+        A: AudioOutput,
+        A::Err: Debug + Display + Send + Sync + 'static,
+        I: InputPoller<GenesisInputs>,
+        S: SaveWriter,
+        S::Err: Debug + Display + Send + Sync + 'static,
+    {
+        self.input.set_inputs(*input_poller.poll());
+
+        let mut bus = new_main_bus!(self, m68k_reset: false);
+        let m68k_wait = bus.cycles.m68k_wait_cpu_cycles != 0;
+        let m68k_cycles = if m68k_wait {
+            bus.cycles.take_m68k_wait_cpu_cycles()
+        } else {
+            self.m68k.execute_instruction(&mut bus)
+        };
+
+        let mclk_cycles = u64::from(m68k_cycles) * bus.cycles.m68k_divider.get();
+        bus.cycles.increment_mclk_counters(mclk_cycles, bus.vdp.should_halt_cpu());
+
+        while bus.cycles.should_tick_z80() {
+            if !bus.cycles.z80_halt {
+                self.z80.tick(&mut bus);
+            }
+            bus.cycles.decrement_z80();
+        }
+
+        self.main_bus_writes = bus.take_writes();
+
+        let pwm_resampler = self.audio_resampler.pwm_resampler_mut();
+        if DEBUG && let Some(debugger) = debugger {
+            let (sega_32x, working_ram, audio_ram) = self.memory.medium_mut_with_ram();
+            sega_32x.tick_debug(
+                mclk_cycles,
+                pwm_resampler,
+                &mut self.vdp,
+                debugger.with_genesis_ram(working_ram, audio_ram),
+            );
+        } else {
+            self.memory.medium_mut().tick(mclk_cycles, pwm_resampler, &mut self.vdp);
+        }
+
+        self.input.tick(m68k_cycles);
+
+        if self.cycles.has_ym2612_ticks() {
+            let ym2612_ticks = self.cycles.take_ym2612_ticks();
+            self.ym2612
+                .tick(ym2612_ticks, |(l, r)| self.audio_resampler.collect_ym2612_sample(l, r));
+        }
+
+        while self.cycles.should_tick_psg() {
+            if self.psg.tick() == Sn76489TickEffect::Clocked {
+                // PSG output is mono in Genesis; stereo output is only for Game Gear
+                let (psg_sample, _) = self.psg.sample();
+                self.audio_resampler.collect_psg_sample(psg_sample);
+            }
+            self.cycles.decrement_psg();
+        }
+
+        self.audio_resampler.output_samples(audio_output).map_err(Sega32XError::Audio)?;
+
+        let mut tick_effect = TickEffect::None;
+        if self.vdp.tick(mclk_cycles, &mut self.memory) == VdpTickEffect::FrameComplete {
+            self.memory.medium_mut().vdp().composite_frame(&mut self.vdp);
+            self.render_frame(renderer).map_err(Sega32XError::Render)?;
+
+            let cartridge = self.memory.medium_mut().cartridge_mut();
+            if cartridge.get_and_clear_ram_dirty() {
+                save_writer
+                    .persist_bytes("sav", cartridge.external_ram())
+                    .map_err(Sega32XError::SaveWrite)?;
+            }
+
+            tick_effect = TickEffect::FrameRendered;
+        }
+
+        debug_assert_eq!(self.vdp.scanline(), self.memory.medium_mut().vdp().scanline());
+        debug_assert_eq!(self.vdp.scanline_mclk(), self.memory.medium_mut().vdp().scanline_mclk());
+
+        if !m68k_wait {
+            self.vdp.update_interrupt_latches();
+        }
+
+        self.main_bus_writes = new_main_bus!(self, m68k_reset: false).apply_writes();
+
+        Ok(tick_effect)
+    }
+
     #[must_use]
     pub fn cartridge_title(&self) -> String {
         self.memory.medium().cartridge().program_title().into()
@@ -209,77 +309,13 @@ impl EmulatorTrait for Sega32XEmulator {
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
-        self.input.set_inputs(*input_poller.poll());
-
-        let mut bus = new_main_bus!(self, m68k_reset: false);
-        let m68k_wait = bus.cycles.m68k_wait_cpu_cycles != 0;
-        let m68k_cycles = if m68k_wait {
-            bus.cycles.take_m68k_wait_cpu_cycles()
-        } else {
-            self.m68k.execute_instruction(&mut bus)
-        };
-
-        let mclk_cycles = u64::from(m68k_cycles) * bus.cycles.m68k_divider.get();
-        bus.cycles.increment_mclk_counters(mclk_cycles, bus.vdp.should_halt_cpu());
-
-        while bus.cycles.should_tick_z80() {
-            if !bus.cycles.z80_halt {
-                self.z80.tick(&mut bus);
-            }
-            bus.cycles.decrement_z80();
-        }
-
-        self.main_bus_writes = bus.take_writes();
-
-        self.memory.medium_mut().tick(
-            mclk_cycles,
-            self.audio_resampler.pwm_resampler_mut(),
-            &self.vdp,
-        );
-        self.input.tick(m68k_cycles);
-
-        if self.cycles.has_ym2612_ticks() {
-            let ym2612_ticks = self.cycles.take_ym2612_ticks();
-            self.ym2612
-                .tick(ym2612_ticks, |(l, r)| self.audio_resampler.collect_ym2612_sample(l, r));
-        }
-
-        while self.cycles.should_tick_psg() {
-            if self.psg.tick() == Sn76489TickEffect::Clocked {
-                // PSG output is mono in Genesis; stereo output is only for Game Gear
-                let (psg_sample, _) = self.psg.sample();
-                self.audio_resampler.collect_psg_sample(psg_sample);
-            }
-            self.cycles.decrement_psg();
-        }
-
-        self.audio_resampler.output_samples(audio_output).map_err(Sega32XError::Audio)?;
-
-        let mut tick_effect = TickEffect::None;
-        if self.vdp.tick(mclk_cycles, &mut self.memory) == VdpTickEffect::FrameComplete {
-            self.memory.medium_mut().vdp().composite_frame(&mut self.vdp);
-            self.render_frame(renderer).map_err(Sega32XError::Render)?;
-
-            let cartridge = self.memory.medium_mut().cartridge_mut();
-            if cartridge.get_and_clear_ram_dirty() {
-                save_writer
-                    .persist_bytes("sav", cartridge.external_ram())
-                    .map_err(Sega32XError::SaveWrite)?;
-            }
-
-            tick_effect = TickEffect::FrameRendered;
-        }
-
-        debug_assert_eq!(self.vdp.scanline(), self.memory.medium_mut().vdp().scanline());
-        debug_assert_eq!(self.vdp.scanline_mclk(), self.memory.medium_mut().vdp().scanline_mclk());
-
-        if !m68k_wait {
-            self.vdp.update_interrupt_latches();
-        }
-
-        self.main_bus_writes = new_main_bus!(self, m68k_reset: false).apply_writes();
-
-        Ok(tick_effect)
+        self.tick_inner::<false, _, _, _, _>(
+            renderer,
+            audio_output,
+            input_poller,
+            save_writer,
+            None,
+        )
     }
 
     fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>
