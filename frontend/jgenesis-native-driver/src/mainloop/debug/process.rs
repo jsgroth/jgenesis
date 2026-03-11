@@ -8,7 +8,7 @@ use jgenesis_common::frontend::{EmulatorTrait, TickEffect};
 use jgenesis_common::sync::{SharedVarReceiver, SharedVarSender};
 use std::error::Error;
 
-pub trait DebuggerRunnerProcess<Emulator: EmulatorTrait>: Send + Sync + 'static {
+pub trait DebuggerRunnerProcess<Emulator: EmulatorTrait>: Send + 'static {
     fn run(
         &mut self,
         emulator: &mut Emulator,

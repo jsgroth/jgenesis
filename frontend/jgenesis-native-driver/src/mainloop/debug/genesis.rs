@@ -9,16 +9,21 @@ use egui::{TopBottomPanel, UiKind, Vec2, Window};
 use egui_extras::{Column, TableBuilder};
 use genesis_core::GenesisEmulator;
 use genesis_core::api::debug::{
-    CopySpriteAttributesResult, GenesisDebugState, GenesisMemoryArea, SpriteAttributeEntry,
+    CopySpriteAttributesResult, GenesisDebugCommand, GenesisDebugState, GenesisDebugger,
+    GenesisMemoryArea, SpriteAttributeEntry,
 };
 use genesis_core::vdp::ColorModifier;
-use jgenesis_common::debug::{DebugMemoryView, Endian};
-use jgenesis_common::frontend::{Color, EmulatorTrait};
+use jgenesis_common::debug::{DebugMemoryView, DebugViewWithWriteHook, Endian};
+use jgenesis_common::frontend::Color;
 use jgenesis_common::sync::{SharedVarReceiver, SharedVarSender};
 use s32x_core::api::Sega32XEmulator;
-use s32x_core::api::debug::{S32XMemoryArea, Sega32XDebugState};
+use s32x_core::api::debug::{
+    S32XMemoryArea, Sega32XDebugCommand, Sega32XDebugState, Sega32XDebugger,
+};
 use segacd_core::api::SegaCdEmulator;
-use segacd_core::api::debug::{SegaCdDebugState, SegaCdMemoryArea};
+use segacd_core::api::debug::{
+    SegaCdDebugCommand, SegaCdDebugState, SegaCdDebugger, SegaCdMemoryArea,
+};
 use std::collections::HashMap;
 use std::error::Error;
 use std::hash::Hash;
@@ -114,7 +119,8 @@ impl MemoryArea {
                 (
                     area,
                     MemoryViewerState::new(area.name(), Endian::Big)
-                        .with_default_file_name(area.default_file_name().into()),
+                        .with_default_file_name(area.default_file_name().into())
+                        .with_editable(),
                 )
             })
             .collect()
@@ -205,6 +211,7 @@ impl S32XPaletteRamState {
 
 struct State {
     memory_viewers: HashMap<MemoryArea, MemoryViewerState>,
+    memory_edit_hook: Box<dyn FnMut(MemoryArea, usize, u8)>,
     cram: CramWindowState,
     vram: VramWindowState,
     h_scroll: HScrollWindowState,
@@ -217,9 +224,10 @@ struct State {
 }
 
 impl State {
-    fn new() -> Self {
+    fn new(memory_edit_hook: Box<dyn FnMut(MemoryArea, usize, u8)>) -> Self {
         Self {
             memory_viewers: MemoryArea::new_states(),
+            memory_edit_hook,
             cram: CramWindowState::new(),
             vram: VramWindowState::new(),
             h_scroll: HScrollWindowState::new(),
@@ -233,10 +241,10 @@ impl State {
     }
 }
 
-pub(crate) enum GenesisBasedDebugState {
-    Genesis(Box<GenesisDebugState>),
-    SegaCd(Box<SegaCdDebugState>),
-    Sega32X(Box<Sega32XDebugState>),
+pub(crate) enum GenesisBasedDebugState<'a> {
+    Genesis(&'a mut GenesisDebugState),
+    SegaCd(&'a mut SegaCdDebugState),
+    Sega32X(&'a mut Sega32XDebugState),
 }
 
 macro_rules! match_each_state_variant {
@@ -249,7 +257,7 @@ macro_rules! match_each_state_variant {
     }
 }
 
-impl GenesisBasedDebugState {
+impl GenesisBasedDebugState<'_> {
     fn copy_cram(&mut self, out: &mut [Color], modifier: ColorModifier) {
         match_each_state_variant!(self, state => state.copy_cram(out, modifier));
     }
@@ -309,38 +317,18 @@ impl GenesisBasedDebugState {
     }
 }
 
-pub(crate) trait GenesisBasedEmulator {
-    fn to_debug_state(&self) -> GenesisBasedDebugState;
-}
+pub type GenesisDebugRenderFn = dyn FnMut(DebugRenderContext<'_>, &mut GenesisBasedDebugState<'_>);
 
-impl GenesisBasedEmulator for GenesisEmulator {
-    fn to_debug_state(&self) -> GenesisBasedDebugState {
-        GenesisBasedDebugState::Genesis(Box::new(GenesisEmulator::to_debug_state(self)))
-    }
-}
-
-impl GenesisBasedEmulator for SegaCdEmulator {
-    fn to_debug_state(&self) -> GenesisBasedDebugState {
-        GenesisBasedDebugState::SegaCd(Box::new(SegaCdEmulator::to_debug_state(self)))
-    }
-}
-
-impl GenesisBasedEmulator for Sega32XEmulator {
-    fn to_debug_state(&self) -> GenesisBasedDebugState {
-        GenesisBasedDebugState::Sega32X(Box::new(Sega32XEmulator::to_debug_state(self)))
-    }
-}
-
-pub type GenesisDebugRenderFn = dyn FnMut(DebugRenderContext<'_>, &mut GenesisBasedDebugState);
-
-pub(crate) fn render_fn() -> Box<GenesisDebugRenderFn> {
-    let mut state = State::new();
+pub(crate) fn render_fn(
+    memory_edit_hook: Box<dyn FnMut(MemoryArea, usize, u8)>,
+) -> Box<GenesisDebugRenderFn> {
+    let mut state = State::new(memory_edit_hook);
     Box::new(move |ctx, emu_state| render(ctx, emu_state, &mut state))
 }
 
 fn render(
     ctx: DebugRenderContext<'_>,
-    mut debug_state: &mut GenesisBasedDebugState,
+    mut debug_state: &mut GenesisBasedDebugState<'_>,
     state: &mut State,
 ) {
     TopBottomPanel::new(TopBottomSide::Top, "gen_debug_top").show(ctx.egui_ctx, |ui| {
@@ -415,7 +403,12 @@ fn render(
         });
     });
 
-    render_memory_viewer_windows(ctx.egui_ctx, debug_state, &mut state.memory_viewers);
+    render_memory_viewer_windows(
+        ctx.egui_ctx,
+        debug_state,
+        &mut state.memory_viewers,
+        &mut state.memory_edit_hook,
+    );
 
     render_vdp_registers_window(ctx.egui_ctx, debug_state, &mut state.vdp_registers_open);
 
@@ -448,12 +441,17 @@ fn render(
 
 fn render_memory_viewer_windows(
     egui_ctx: &egui::Context,
-    emu_state: &mut GenesisBasedDebugState,
+    emu_state: &mut GenesisBasedDebugState<'_>,
     memory_viewer_states: &mut HashMap<MemoryArea, MemoryViewerState>,
+    memory_edit_hook: &mut dyn FnMut(MemoryArea, usize, u8),
 ) {
     for (&memory_area, state) in memory_viewer_states.iter_mut() {
-        if let Some(mut memory) = emu_state.debug_memory_view(memory_area) {
-            memviewer::render(egui_ctx, memory.as_mut(), state);
+        if let Some(memory) = emu_state.debug_memory_view(memory_area) {
+            let mut memory = DebugViewWithWriteHook::new(
+                memory,
+                Box::new(|address, value| memory_edit_hook(memory_area, address, value)),
+            );
+            memviewer::render(egui_ctx, &mut memory, state);
         }
     }
 }
@@ -461,7 +459,7 @@ fn render_memory_viewer_windows(
 fn render_cram_window(
     ctx: &egui::Context,
     screen_width: f32,
-    emu_state: &mut GenesisBasedDebugState,
+    emu_state: &mut GenesisBasedDebugState<'_>,
     state: &mut CramWindowState,
 ) {
     Window::new("CRAM").default_width(screen_width * 0.95).open(&mut state.open).show(ctx, |ui| {
@@ -488,7 +486,7 @@ fn render_cram_window(
 fn render_vram_window(
     ctx: &egui::Context,
     screen_width: f32,
-    emu_state: &mut GenesisBasedDebugState,
+    emu_state: &mut GenesisBasedDebugState<'_>,
     state: &mut VramWindowState,
 ) {
     Window::new("VRAM").default_width(screen_width * 0.95).open(&mut state.open).show(ctx, |ui| {
@@ -520,7 +518,7 @@ fn render_vram_window(
 
 fn render_h_scroll_window(
     ctx: &egui::Context,
-    emu_state: &mut GenesisBasedDebugState,
+    emu_state: &mut GenesisBasedDebugState<'_>,
     state: &mut HScrollWindowState,
 ) {
     Window::new("H Scroll Table").default_width(200.0).open(&mut state.open).show(ctx, |ui| {
@@ -568,7 +566,7 @@ fn render_h_scroll_window(
 
 fn render_sprite_attributes_window(
     ctx: &egui::Context,
-    emu_state: &mut GenesisBasedDebugState,
+    emu_state: &mut GenesisBasedDebugState<'_>,
     state: &mut SpriteAttributesWindowState,
 ) {
     Window::new("Sprite Attribute Table").open(&mut state.open).default_width(500.0).show(
@@ -667,7 +665,7 @@ fn render_32x_palette_window(
 
 fn render_vdp_registers_window(
     ctx: &egui::Context,
-    emu_state: &mut GenesisBasedDebugState,
+    emu_state: &mut GenesisBasedDebugState<'_>,
     open: &mut bool,
 ) {
     debug::render_registers_window(ctx, "VDP Registers", open, |ui| {
@@ -706,23 +704,24 @@ fn render_32x_pwm_registers_window(
 }
 
 struct GenesisDebugRunnerProcess {
-    state_sender: SharedVarSender<GenesisBasedDebugState>,
+    state_sender: SharedVarSender<GenesisDebugState>,
+    debugger: GenesisDebugger,
 }
 
-impl<Emulator: EmulatorTrait + GenesisBasedEmulator> DebuggerRunnerProcess<Emulator>
-    for GenesisDebugRunnerProcess
-{
+impl DebuggerRunnerProcess<GenesisEmulator> for GenesisDebugRunnerProcess {
     fn run(
         &mut self,
-        emulator: &mut Emulator,
+        emulator: &mut GenesisEmulator,
     ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+        self.debugger.process_commands(&mut emulator.as_debug_view());
         self.state_sender.update(emulator.to_debug_state());
+
         Ok(())
     }
 }
 
 struct GenesisDebugMainProcess {
-    state_receiver: SharedVarReceiver<GenesisBasedDebugState>,
+    state_receiver: SharedVarReceiver<GenesisDebugState>,
     render_fn: Box<GenesisDebugRenderFn>,
 }
 
@@ -732,18 +731,155 @@ impl DebuggerMainProcess for GenesisDebugMainProcess {
         ctx: DebugRenderContext<'_>,
     ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
         let Some(state) = self.state_receiver.get() else { return Ok(()) };
-        (self.render_fn)(ctx, state);
+        (self.render_fn)(ctx, &mut GenesisBasedDebugState::Genesis(state));
 
         Ok(())
     }
 }
 
-pub fn debug_fn<Emulator: EmulatorTrait + GenesisBasedEmulator>()
--> (Box<dyn DebuggerRunnerProcess<Emulator>>, Box<dyn DebuggerMainProcess>) {
+pub fn genesis_debug_fn()
+-> (Box<dyn DebuggerRunnerProcess<GenesisEmulator>>, Box<dyn DebuggerMainProcess>) {
     let (state_sender, state_receiver) = jgenesis_common::sync::new_shared_var();
+    let (debugger, command_sender) = GenesisDebugger::new();
 
-    let runner_process = GenesisDebugRunnerProcess { state_sender };
-    let main_process = GenesisDebugMainProcess { state_receiver, render_fn: render_fn() };
+    let memory_edit_hook = Box::new(move |memory_area, address, value| {
+        if let MemoryArea::Genesis(memory_area) = memory_area {
+            let _ =
+                command_sender.send(GenesisDebugCommand::EditMemory(memory_area, address, value));
+        }
+    });
+
+    let runner_process = GenesisDebugRunnerProcess { state_sender, debugger };
+    let main_process =
+        GenesisDebugMainProcess { state_receiver, render_fn: render_fn(memory_edit_hook) };
+
+    (Box::new(runner_process), Box::new(main_process))
+}
+
+struct SegaCdDebugRunnerProcess {
+    state_sender: SharedVarSender<SegaCdDebugState>,
+    debugger: SegaCdDebugger,
+}
+
+impl DebuggerRunnerProcess<SegaCdEmulator> for SegaCdDebugRunnerProcess {
+    fn run(
+        &mut self,
+        emulator: &mut SegaCdEmulator,
+    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+        self.debugger.process_commands(&mut emulator.as_debug_view());
+        self.state_sender.update(emulator.to_debug_state());
+
+        Ok(())
+    }
+}
+
+struct SegaCdDebugMainProcess {
+    state_receiver: SharedVarReceiver<SegaCdDebugState>,
+    render_fn: Box<GenesisDebugRenderFn>,
+}
+
+impl DebuggerMainProcess for SegaCdDebugMainProcess {
+    fn run(
+        &mut self,
+        ctx: DebugRenderContext<'_>,
+    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+        let Some(state) = self.state_receiver.get() else { return Ok(()) };
+        (self.render_fn)(ctx, &mut GenesisBasedDebugState::SegaCd(state));
+
+        Ok(())
+    }
+}
+
+pub fn sega_cd_debug_fn()
+-> (Box<dyn DebuggerRunnerProcess<SegaCdEmulator>>, Box<dyn DebuggerMainProcess>) {
+    let (state_sender, state_receiver) = jgenesis_common::sync::new_shared_var();
+    let (debugger, command_sender) = SegaCdDebugger::new();
+
+    let memory_edit_hook = Box::new(move |memory_area, address, value| match memory_area {
+        MemoryArea::Genesis(memory_area) => {
+            let _ = command_sender.send(SegaCdDebugCommand::EditGenesisMemory(
+                memory_area,
+                address,
+                value,
+            ));
+        }
+        MemoryArea::SegaCd(memory_area) => {
+            let _ = command_sender.send(SegaCdDebugCommand::EditSegaCdMemory(
+                memory_area,
+                address,
+                value,
+            ));
+        }
+        MemoryArea::Sega32X(_) => {}
+    });
+
+    let runner_process = SegaCdDebugRunnerProcess { state_sender, debugger };
+    let main_process =
+        SegaCdDebugMainProcess { state_receiver, render_fn: render_fn(memory_edit_hook) };
+
+    (Box::new(runner_process), Box::new(main_process))
+}
+
+struct Sega32XDebugRunnerProcess {
+    state_sender: SharedVarSender<Sega32XDebugState>,
+    debugger: Sega32XDebugger,
+}
+
+impl DebuggerRunnerProcess<Sega32XEmulator> for Sega32XDebugRunnerProcess {
+    fn run(
+        &mut self,
+        emulator: &mut Sega32XEmulator,
+    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+        self.debugger.process_commands(&mut emulator.as_debug_view());
+        self.state_sender.update(emulator.to_debug_state());
+
+        Ok(())
+    }
+}
+
+struct Sega32XDebugMainProcess {
+    state_receiver: SharedVarReceiver<Sega32XDebugState>,
+    render_fn: Box<GenesisDebugRenderFn>,
+}
+
+impl DebuggerMainProcess for Sega32XDebugMainProcess {
+    fn run(
+        &mut self,
+        ctx: DebugRenderContext<'_>,
+    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+        let Some(state) = self.state_receiver.get() else { return Ok(()) };
+        (self.render_fn)(ctx, &mut GenesisBasedDebugState::Sega32X(state));
+
+        Ok(())
+    }
+}
+
+pub fn sega_32x_debug_fn()
+-> (Box<dyn DebuggerRunnerProcess<Sega32XEmulator>>, Box<dyn DebuggerMainProcess>) {
+    let (state_sender, state_receiver) = jgenesis_common::sync::new_shared_var();
+    let (debugger, command_sender) = Sega32XDebugger::new();
+
+    let memory_edit_hook = Box::new(move |memory_area, address, value| match memory_area {
+        MemoryArea::Genesis(memory_area) => {
+            let _ = command_sender.send(Sega32XDebugCommand::EditGenesisMemory(
+                memory_area,
+                address,
+                value,
+            ));
+        }
+        MemoryArea::Sega32X(memory_area) => {
+            let _ = command_sender.send(Sega32XDebugCommand::Edit32XMemory(
+                memory_area,
+                address,
+                value,
+            ));
+        }
+        MemoryArea::SegaCd(_) => {}
+    });
+
+    let runner_process = Sega32XDebugRunnerProcess { state_sender, debugger };
+    let main_process =
+        Sega32XDebugMainProcess { state_receiver, render_fn: render_fn(memory_edit_hook) };
 
     (Box::new(runner_process), Box::new(main_process))
 }

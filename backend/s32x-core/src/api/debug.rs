@@ -9,6 +9,8 @@ use genesis_core::api::debug::{
 use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
 use jgenesis_common::frontend::Color;
 use sh2_emu::Sh2;
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum S32XMemoryArea {
@@ -20,6 +22,13 @@ pub enum S32XMemoryArea {
     PaletteRam,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum Sega32XDebugCommand {
+    EditGenesisMemory(GenesisMemoryArea, usize, u8),
+    Edit32XMemory(S32XMemoryArea, usize, u8),
+}
+
+#[derive(Debug, Clone)]
 pub struct Sega32XDebugState {
     genesis: GenesisDebugState,
     sdram: Box<[u16]>,
@@ -172,6 +181,39 @@ impl Sega32XEmulator {
                 self.memory.as_debug_view(Sega32X::as_debug_view),
                 &mut self.vdp,
             ),
+        }
+    }
+}
+
+pub struct Sega32XDebugger {
+    command_receiver: Receiver<Sega32XDebugCommand>,
+}
+
+impl Sega32XDebugger {
+    #[must_use]
+    pub fn new() -> (Self, Sender<Sega32XDebugCommand>) {
+        let (command_sender, command_receiver) = mpsc::channel();
+
+        (Self { command_receiver }, command_sender)
+    }
+
+    pub fn process_commands(&mut self, debug_view: &mut Sega32XEmulatorDebugView<'_>) {
+        loop {
+            match self.command_receiver.try_recv() {
+                Ok(command) => match command {
+                    Sega32XDebugCommand::EditGenesisMemory(memory_area, address, value) => {
+                        debug_view.apply_genesis_memory_edit(memory_area, address, value);
+                    }
+                    Sega32XDebugCommand::Edit32XMemory(memory_area, address, value) => {
+                        debug_view.apply_32x_memory_edit(memory_area, address, value);
+                    }
+                },
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    // TODO clear breakpoint/break status; debugger window closed
+                    break;
+                }
+            }
         }
     }
 }
