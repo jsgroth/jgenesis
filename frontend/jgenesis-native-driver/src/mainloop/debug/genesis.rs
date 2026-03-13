@@ -883,7 +883,7 @@ impl DebuggerMainProcess for Sega32XDebugMainProcess {
 pub fn sega_32x_debug_fn()
 -> (Box<dyn DebuggerRunnerProcess<Sega32XEmulator>>, Box<dyn DebuggerMainProcess>) {
     let (state_sender, state_receiver) = jgenesis_common::sync::new_shared_var();
-    let (debugger, command_sender) = Sega32XDebugger::new();
+    let (debugger, command_sender) = Sega32XDebugger::new(state_sender.clone());
 
     let memory_edit_hook = Box::new(move |memory_area, address, value| match memory_area {
         MemoryArea::Genesis(memory_area) => {

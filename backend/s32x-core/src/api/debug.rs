@@ -13,6 +13,7 @@ use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
 use jgenesis_common::frontend::{
     AudioOutput, Color, InputPoller, Renderer, SaveWriter, TickResult,
 };
+use jgenesis_common::sync::SharedVarSender;
 use sh2_emu::Sh2;
 use std::fmt::{Debug, Display};
 use std::ptr::NonNull;
@@ -220,14 +221,17 @@ impl Sega32XEmulator {
 
 pub struct Sega32XDebugger {
     command_receiver: Receiver<Sega32XDebugCommand>,
+    state_sender: SharedVarSender<Sega32XDebugState>,
 }
 
 impl Sega32XDebugger {
     #[must_use]
-    pub fn new() -> (Self, Sender<Sega32XDebugCommand>) {
+    pub fn new(
+        state_sender: SharedVarSender<Sega32XDebugState>,
+    ) -> (Self, Sender<Sega32XDebugCommand>) {
         let (command_sender, command_receiver) = mpsc::channel();
 
-        (Self { command_receiver }, command_sender)
+        (Self { command_receiver, state_sender }, command_sender)
     }
 
     pub fn process_commands(&mut self, debug_view: &mut Sega32XEmulatorDebugView<'_>) {
@@ -290,6 +294,7 @@ impl Sega32XDebuggerGenesisRam<'_> {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct Sega32XDebuggerGenesisRamRaw {
     pub debugger: NonNull<Sega32XDebugger>,
     pub working_ram: NonNull<[u16]>,

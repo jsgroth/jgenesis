@@ -628,21 +628,25 @@ impl Sh2Bus {
     // the slave SH-2. After the slave SH-2 sees a specific value from the master SH-2, it
     // writes to the communication port twice in quick succession, and the master SH-2 must
     // read the first value before it's overwritten
-    fn sync_if_comm_port_accessed(&mut self, address: u32) {
+    fn sync_if_comm_port_accessed_generic(
+        &mut self,
+        address: u32,
+        mut execute_cpu: impl FnMut(&mut Sh2, Sh2Bus) -> u64,
+    ) {
         // $00004020-$0000402F are the communication ports
         if !(0x4020..0x4030).contains(&address) {
             return;
         }
+
+        let Some(OtherCpu { mut cpu, cycle_counter }) = self.other_sh2 else { return };
 
         // SAFETY: All raw pointers used here were created from mutable references and are
         // guaranteed non-null.
         // The original Sh2Bus instance is not used while the other CPU is executing against the
         // bus copy.
         unsafe {
-            let Some(OtherCpu { mut cpu, cycle_counter }) = self.other_sh2 else { return };
-
             let limit = cmp::min(self.cycle_limit, self.cycle_counter);
-            let mut bus = Sh2Bus {
+            let bus = Sh2Bus {
                 s32x_bus: self.s32x_bus,
                 which: self.which.other(),
                 cycle_counter: cycle_counter.read(),
@@ -650,11 +654,18 @@ impl Sh2Bus {
                 other_sh2: None,
             };
 
-            while bus.cycle_counter < limit {
-                cpu.as_mut().execute(crate::core::SH2_EXECUTION_SLICE_LEN, &mut bus);
-            }
-            cycle_counter.write(bus.cycle_counter);
+            let new_cycle_counter = execute_cpu(cpu.as_mut(), bus);
+            cycle_counter.write(new_cycle_counter);
         }
+    }
+
+    fn sync_if_comm_port_accessed(&mut self, address: u32) {
+        self.sync_if_comm_port_accessed_generic(address, |cpu, mut bus| {
+            while bus.cycle_counter < bus.cycle_limit {
+                cpu.execute(crate::core::SH2_EXECUTION_SLICE_LEN, &mut bus);
+            }
+            bus.cycle_counter
+        });
     }
 
     // $00000000-$01FFFFFF: Boot ROM, 32X registers, 32X CRAM

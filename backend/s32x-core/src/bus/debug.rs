@@ -1,16 +1,22 @@
 use crate::GenesisVdp;
-use crate::api::debug::{Sega32XDebuggerGenesisRam, Sega32XDebuggerGenesisRamRaw};
+use crate::api::debug::{
+    S32XMemoryArea, Sega32XDebugger, Sega32XDebuggerGenesisRam, Sega32XDebuggerGenesisRamRaw,
+    Sega32XEmulatorDebugView, Sega32XMediumView,
+};
 use crate::bus::{OtherCpu, Sh2Bus, WhichCpu};
 use crate::core::Sega32XBus;
+use genesis_core::api::debug::{BaseGenesisDebugView, GenesisMemoryDebugView};
 use sh2_emu::Sh2;
 use sh2_emu::bus::{AccessContext, BusInterface};
 use sh2_emu::debug::Sh2Debugger;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
+use std::ptr::NonNull;
 
 pub(crate) struct DebugSh2Bus {
     pub(crate) bus: Sh2Bus,
     pub(crate) debugger: Sega32XDebuggerGenesisRamRaw,
+    pub(crate) other_sh2: Option<NonNull<Sh2>>,
 }
 
 impl DebugSh2Bus {
@@ -37,6 +43,7 @@ impl DebugSh2Bus {
                         cycle_limit,
                     },
                     debugger: debugger.to_raw(genesis_vdp),
+                    other_sh2: None,
                 },
                 _bus_marker: PhantomData,
                 _other_marker: PhantomData,
@@ -53,6 +60,26 @@ impl DebugSh2Bus {
 }
 
 sh2_emu::impl_sh2_lookup_table!(DebugSh2Bus);
+
+impl DebugSh2Bus {
+    fn sync_if_comm_port_accessed(&mut self, address: u32, accessing_cpu: &mut Sh2) {
+        self.bus.sync_if_comm_port_accessed_generic(address, |cpu, bus| {
+            assert!(bus.other_sh2.is_none());
+
+            let cycle_limit = bus.cycle_limit;
+            let mut debug_bus = Self {
+                bus,
+                debugger: self.debugger.clone(),
+                other_sh2: Some(accessing_cpu.into()),
+            };
+
+            while debug_bus.cycle_counter() < cycle_limit {
+                cpu.execute(crate::core::SH2_EXECUTION_SLICE_LEN, &mut debug_bus);
+            }
+            debug_bus.cycle_counter()
+        });
+    }
+}
 
 pub(crate) struct DebugSh2BusGuard<'bus, 'other, 'debug, 'genram, 'genvdp> {
     bus: DebugSh2Bus,
@@ -79,6 +106,59 @@ impl DerefMut for DebugSh2BusGuard<'_, '_, '_, '_, '_> {
 
 pub(crate) struct Sh2BusDebugView<'a>(&'a mut DebugSh2Bus);
 
+impl<'a> Sh2BusDebugView<'a> {
+    fn as_32x_debug_view_and_debugger<'view, 'slf, 'cpu>(
+        &'slf mut self,
+        cpu: &'cpu mut Sh2,
+    ) -> (Sega32XEmulatorDebugView<'view>, &'slf Sega32XDebugger)
+    where
+        'cpu: 'view,
+        'slf: 'view,
+        'a: 'view,
+    {
+        unsafe {
+            let mut other_sh2 = match self.0.bus.other_sh2 {
+                Some(OtherCpu { cpu, .. }) => cpu,
+                None => self
+                    .0
+                    .other_sh2
+                    .expect("other_sh2 is None on both inner bus and debug bus; this is a bug"),
+            };
+            let other_sh2 = other_sh2.as_mut();
+
+            let (sh2_master, sh2_slave) = match self.0.bus.which {
+                WhichCpu::Master => (cpu, other_sh2),
+                WhichCpu::Slave => (other_sh2, cpu),
+            };
+
+            let s32x_bus = self.0.bus.s32x_bus.as_mut();
+
+            let debug_view = Sega32XEmulatorDebugView {
+                genesis: BaseGenesisDebugView::new(
+                    GenesisMemoryDebugView {
+                        medium_view: Sega32XMediumView {
+                            cartridge_rom: s32x_bus.cartridge.debug_rom_view(),
+                            sdram: s32x_bus.sdram.as_mut_slice(),
+                            sh2_master,
+                            sh2_slave,
+                            system_registers: &mut s32x_bus.registers,
+                            s32x_vdp: &mut s32x_bus.vdp,
+                            pwm: &mut s32x_bus.pwm,
+                        },
+                        working_ram: self.0.debugger.working_ram.as_mut(),
+                        audio_ram: self.0.debugger.audio_ram.as_mut(),
+                    },
+                    self.0.debugger.vdp.as_mut(),
+                ),
+            };
+
+            let debugger = self.0.debugger.debugger.as_mut();
+
+            (debug_view, debugger)
+        }
+    }
+}
+
 impl Sh2Debugger for Sh2BusDebugView<'_> {
     fn check_read<const SIZE: u8>(&mut self, address: u32, cpu: &mut Sh2) {}
 
@@ -88,6 +168,8 @@ impl Sh2Debugger for Sh2BusDebugView<'_> {
         ctx: AccessContext,
         cpu: &mut Sh2,
     ) -> u32 {
+        self.0.sync_if_comm_port_accessed(address, cpu);
+
         self.0.read::<SIZE>(address, ctx)
     }
 
@@ -100,6 +182,8 @@ impl Sh2Debugger for Sh2BusDebugView<'_> {
         ctx: AccessContext,
         cpu: &mut Sh2,
     ) {
+        self.0.sync_if_comm_port_accessed(address, cpu);
+
         self.0.write::<SIZE>(address, value, ctx);
     }
 
@@ -109,6 +193,8 @@ impl Sh2Debugger for Sh2BusDebugView<'_> {
         ctx: AccessContext,
         cpu: &mut Sh2,
     ) -> [u16; 8] {
+        self.0.sync_if_comm_port_accessed(address, cpu);
+
         self.0.read_cache_line(address, ctx)
     }
 
