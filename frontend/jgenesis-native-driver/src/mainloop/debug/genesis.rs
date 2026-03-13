@@ -1,5 +1,8 @@
+mod sh2debug;
+
 use crate::mainloop::audio::SdlAudioOutput;
 use crate::mainloop::debug;
+use crate::mainloop::debug::genesis::sh2debug::DisassemblyWindowState;
 use crate::mainloop::debug::memviewer::MemoryViewerState;
 use crate::mainloop::debug::{
     DebugRenderContext, DebuggerMainProcess, DebuggerRunnerProcess, memviewer,
@@ -22,6 +25,7 @@ use genesis_core::vdp::ColorModifier;
 use jgenesis_common::debug::{DebugMemoryView, DebugViewWithWriteHook, Endian};
 use jgenesis_common::frontend::{Color, TickEffect};
 use jgenesis_common::sync::{SharedVarReceiver, SharedVarSender};
+use s32x_core::WhichCpu;
 use s32x_core::api::Sega32XEmulator;
 use s32x_core::api::debug::{
     S32XMemoryArea, Sega32XDebugCommand, Sega32XDebugState, Sega32XDebugger,
@@ -33,6 +37,7 @@ use segacd_core::api::debug::{
 use std::collections::HashMap;
 use std::error::Error;
 use std::hash::Hash;
+use std::sync::mpsc::Sender;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum MemoryArea {
@@ -223,6 +228,8 @@ struct State {
     h_scroll: HScrollWindowState,
     sprite_attributes: SpriteAttributesWindowState,
     s32x_palette: S32XPaletteRamState,
+    sh2_master: DisassemblyWindowState,
+    sh2_slave: DisassemblyWindowState,
     vdp_registers_open: bool,
     s32x_system_registers_open: bool,
     s32x_vdp_registers_open: bool,
@@ -239,6 +246,8 @@ impl State {
             h_scroll: HScrollWindowState::new(),
             sprite_attributes: SpriteAttributesWindowState::new(),
             s32x_palette: S32XPaletteRamState::new(),
+            sh2_master: DisassemblyWindowState::new(WhichCpu::Master),
+            sh2_slave: DisassemblyWindowState::new(WhichCpu::Slave),
             vdp_registers_open: false,
             s32x_system_registers_open: false,
             s32x_vdp_registers_open: false,
@@ -250,7 +259,7 @@ impl State {
 pub(crate) enum GenesisBasedDebugState<'a> {
     Genesis(&'a mut GenesisDebugState),
     SegaCd(&'a mut SegaCdDebugState),
-    Sega32X(&'a mut Sega32XDebugState),
+    Sega32X(&'a mut Sega32XDebugState, &'a Sender<Sega32XDebugCommand>),
 }
 
 macro_rules! match_each_state_variant {
@@ -258,7 +267,7 @@ macro_rules! match_each_state_variant {
         match $self {
             Self::Genesis(state) => state.$method($($param)*),
             Self::SegaCd(state) => state.genesis().$method($($param)*),
-            Self::Sega32X(state) => state.genesis().$method($($param)*),
+            Self::Sega32X(state, ..) => state.genesis().$method($($param)*),
         }
     }
 }
@@ -296,7 +305,7 @@ impl GenesisBasedDebugState<'_> {
                 }
                 MemoryArea::Genesis(_) | MemoryArea::SegaCd(_) => true,
             },
-            Self::Sega32X(_) => {
+            Self::Sega32X(..) => {
                 matches!(memory_area, MemoryArea::Genesis(_) | MemoryArea::Sega32X(_))
             }
         }
@@ -312,13 +321,15 @@ impl GenesisBasedDebugState<'_> {
                 Some(state.genesis().memory_view(area))
             }
             (Self::SegaCd(state), MemoryArea::SegaCd(area)) => Some(state.scd_memory_view(area)),
-            (Self::Sega32X(state), MemoryArea::Genesis(area)) => {
+            (Self::Sega32X(state, ..), MemoryArea::Genesis(area)) => {
                 Some(state.genesis().memory_view(area))
             }
-            (Self::Sega32X(state), MemoryArea::Sega32X(area)) => Some(state.s32x_memory_view(area)),
+            (Self::Sega32X(state, ..), MemoryArea::Sega32X(area)) => {
+                Some(state.s32x_memory_view(area))
+            }
             (Self::Genesis(_), MemoryArea::SegaCd(_) | MemoryArea::Sega32X(_))
             | (Self::SegaCd(_), MemoryArea::Sega32X(_))
-            | (Self::Sega32X(_), MemoryArea::SegaCd(_)) => None,
+            | (Self::Sega32X(..), MemoryArea::SegaCd(_)) => None,
         }
     }
 }
@@ -360,7 +371,7 @@ fn render(
                     ui.close_kind(UiKind::Menu);
                 }
 
-                if matches!(debug_state, GenesisBasedDebugState::Sega32X(_)) {
+                if matches!(debug_state, GenesisBasedDebugState::Sega32X(..)) {
                     if ui.button("32X System Registers").clicked() {
                         state.s32x_system_registers_open = true;
                         ui.close_kind(UiKind::Menu);
@@ -399,13 +410,27 @@ fn render(
                     ui.close_kind(UiKind::Menu);
                 }
 
-                if matches!(debug_state, GenesisBasedDebugState::Sega32X(_))
+                if matches!(debug_state, GenesisBasedDebugState::Sega32X(..))
                     && ui.button("32X Palette RAM").clicked()
                 {
                     state.s32x_palette.open = true;
                     ui.close_kind(UiKind::Menu);
                 }
             });
+
+            if matches!(debug_state, GenesisBasedDebugState::Sega32X(..)) {
+                ui.menu_button("CPU Debuggers", |ui| {
+                    if ui.button("SH-2 Master").clicked() {
+                        state.sh2_master.open = true;
+                        ui.close_kind(UiKind::Menu);
+                    }
+
+                    if ui.button("SH-2 Slave").clicked() {
+                        state.sh2_slave.open = true;
+                        ui.close_kind(UiKind::Menu);
+                    }
+                });
+            }
         });
     });
 
@@ -425,7 +450,7 @@ fn render(
     render_h_scroll_window(ctx.egui_ctx, debug_state, &mut state.h_scroll);
     render_sprite_attributes_window(ctx.egui_ctx, debug_state, &mut state.sprite_attributes);
 
-    if let GenesisBasedDebugState::Sega32X(debug_state) = &mut debug_state {
+    if let GenesisBasedDebugState::Sega32X(debug_state, command_sender) = &mut debug_state {
         render_32x_palette_window(ctx.egui_ctx, debug_state, &mut state.s32x_palette);
         render_32x_system_registers_window(
             ctx.egui_ctx,
@@ -442,6 +467,9 @@ fn render(
             debug_state,
             &mut state.s32x_pwm_registers_open,
         );
+
+        sh2debug::render_disassembly_window(ctx.egui_ctx, debug_state, &mut state.sh2_master);
+        sh2debug::render_disassembly_window(ctx.egui_ctx, debug_state, &mut state.sh2_slave);
     }
 }
 
@@ -864,6 +892,7 @@ impl DebuggerRunnerProcess<Sega32XEmulator> for Sega32XDebugRunnerProcess {
 }
 
 struct Sega32XDebugMainProcess {
+    command_sender: Sender<Sega32XDebugCommand>,
     state_receiver: SharedVarReceiver<Sega32XDebugState>,
     render_fn: Box<GenesisDebugRenderFn>,
 }
@@ -874,7 +903,7 @@ impl DebuggerMainProcess for Sega32XDebugMainProcess {
         ctx: DebugRenderContext<'_>,
     ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
         let Some(state) = self.state_receiver.get() else { return Ok(()) };
-        (self.render_fn)(ctx, &mut GenesisBasedDebugState::Sega32X(state));
+        (self.render_fn)(ctx, &mut GenesisBasedDebugState::Sega32X(state, &self.command_sender));
 
         Ok(())
     }
@@ -885,27 +914,34 @@ pub fn sega_32x_debug_fn()
     let (state_sender, state_receiver) = jgenesis_common::sync::new_shared_var();
     let (debugger, command_sender) = Sega32XDebugger::new(state_sender.clone());
 
-    let memory_edit_hook = Box::new(move |memory_area, address, value| match memory_area {
-        MemoryArea::Genesis(memory_area) => {
-            let _ = command_sender.send(Sega32XDebugCommand::EditGenesisMemory(
-                memory_area,
-                address,
-                value,
-            ));
-        }
-        MemoryArea::Sega32X(memory_area) => {
-            let _ = command_sender.send(Sega32XDebugCommand::Edit32XMemory(
-                memory_area,
-                address,
-                value,
-            ));
-        }
-        MemoryArea::SegaCd(_) => {}
-    });
+    let memory_edit_hook = {
+        let command_sender = command_sender.clone();
+
+        Box::new(move |memory_area, address, value| match memory_area {
+            MemoryArea::Genesis(memory_area) => {
+                let _ = command_sender.send(Sega32XDebugCommand::EditGenesisMemory(
+                    memory_area,
+                    address,
+                    value,
+                ));
+            }
+            MemoryArea::Sega32X(memory_area) => {
+                let _ = command_sender.send(Sega32XDebugCommand::Edit32XMemory(
+                    memory_area,
+                    address,
+                    value,
+                ));
+            }
+            MemoryArea::SegaCd(_) => {}
+        })
+    };
 
     let runner_process = Sega32XDebugRunnerProcess { state_sender, debugger };
-    let main_process =
-        Sega32XDebugMainProcess { state_receiver, render_fn: render_fn(memory_edit_hook) };
+    let main_process = Sega32XDebugMainProcess {
+        command_sender,
+        state_receiver,
+        render_fn: render_fn(memory_edit_hook),
+    };
 
     (Box::new(runner_process), Box::new(main_process))
 }

@@ -2408,6 +2408,7 @@ dependencies = [
  "sdl3",
  "segacd-core",
  "sevenz-rust",
+ "sh2-emu",
  "smsgg-config",
  "smsgg-core",
  "snes-config",

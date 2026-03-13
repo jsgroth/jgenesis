@@ -1,10 +1,10 @@
-use crate::GenesisVdp;
 use crate::api::{Sega32XEmulator, Sega32XError};
 use crate::core::Sega32X;
 use crate::pwm::PwmChip;
 use crate::registers::SystemRegisters;
 use crate::vdp::Vdp;
 use crate::vdp::debug::VdpDebugState;
+use crate::{GenesisVdp, WhichCpu};
 use genesis_config::GenesisInputs;
 use genesis_core::api::debug::{
     BaseGenesisDebugView, GenesisDebugState, GenesisMemoryArea, PhysicalMediumDebugView,
@@ -38,10 +38,10 @@ pub enum Sega32XDebugCommand {
 
 #[derive(Debug, Clone)]
 pub struct Sega32XDebugState {
-    genesis: GenesisDebugState,
-    sdram: Box<[u16]>,
-    sh2_master: Sh2,
-    sh2_slave: Sh2,
+    pub genesis: GenesisDebugState,
+    pub sdram: Box<[u16]>,
+    pub sh2_master: Sh2,
+    pub sh2_slave: Sh2,
     system_registers: SystemRegisters,
     s32x_vdp: VdpDebugState,
     pwm: PwmChip,
@@ -50,6 +50,13 @@ pub struct Sega32XDebugState {
 impl Sega32XDebugState {
     pub fn genesis(&mut self) -> &mut GenesisDebugState {
         &mut self.genesis
+    }
+
+    pub fn sh2(&mut self, which: WhichCpu) -> &mut Sh2 {
+        match which {
+            WhichCpu::Master => &mut self.sh2_master,
+            WhichCpu::Slave => &mut self.sh2_slave,
+        }
     }
 
     pub fn copy_palette(&mut self, out: &mut [Color]) {

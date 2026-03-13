@@ -290,12 +290,12 @@ fn decode_xnnn(opcode: u16) -> String {
             format!("MOV.B #{}, R{}", parse_signed_immediate(opcode), parse_register_high(opcode))
         }
         0b1001_0000_0000_0000 => format!(
-            "MOV.W ({},PC), R{}",
+            "MOV.W @({},PC), R{}",
             parse_8bit_displacement(opcode),
             parse_register_high(opcode)
         ),
         0b1101_0000_0000_0000 => format!(
-            "MOV.L ({},PC), R{}",
+            "MOV.L @({},PC), R{}",
             parse_8bit_displacement(opcode),
             parse_register_high(opcode)
         ),
@@ -316,7 +316,7 @@ fn decode_xnnn(opcode: u16) -> String {
         }
         0b1010_0000_0000_0000 => format!("BRA {}", parse_12bit_displacement(opcode)),
         0b1011_0000_0000_0000 => format!("BSR {}", parse_12bit_displacement(opcode)),
-        _ => format!("Illegal (?) SH-2 opcode {opcode:04X}"),
+        _ => "illegal".into(),
     }
 }
 
