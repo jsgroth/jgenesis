@@ -171,7 +171,7 @@ impl Sega32XEmulator {
         let sega_32x = self.memory.medium();
 
         Sega32XDebugState {
-            genesis: GenesisDebugState::new(&self.memory, self.vdp.clone()),
+            genesis: GenesisDebugState::new(&self.memory, &self.vdp),
             sdram: sega_32x.s32x_bus.sdram.to_vec().into_boxed_slice(),
             sh2_master: sega_32x.clone_sh2_master(),
             sh2_slave: sega_32x.clone_sh2_slave(),

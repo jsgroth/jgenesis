@@ -1,5 +1,6 @@
 use crate::GenesisEmulator;
 use crate::memory::{Memory, PhysicalMedium};
+use crate::vdp::debug::VdpDebugState;
 use crate::vdp::{ColorModifier, Vdp};
 use jgenesis_common::debug::{
     DebugBytesView, DebugMemoryView, DebugWordsView, EmptyDebugView, Endian,
@@ -49,16 +50,16 @@ pub struct GenesisDebugState {
     cartridge_rom: Option<Box<[u16]>>,
     working_ram: Box<[u16]>,
     audio_ram: Box<[u8]>,
-    vdp: Vdp,
+    vdp: VdpDebugState,
 }
 
 impl GenesisDebugState {
-    pub fn new<Medium: PhysicalMedium>(memory: &Memory<Medium>, vdp: Vdp) -> Self {
+    pub fn new<Medium: PhysicalMedium>(memory: &Memory<Medium>, vdp: &Vdp) -> Self {
         Self {
             cartridge_rom: memory.clone_cartridge_rom(),
             working_ram: memory.clone_working_ram(),
             audio_ram: memory.clone_audio_ram(),
-            vdp,
+            vdp: vdp.to_debug_state(),
         }
     }
 
@@ -167,7 +168,7 @@ impl<'a, MediumView: PhysicalMediumDebugView> BaseGenesisDebugView<'a, MediumVie
                 .map(|rom| rom.to_vec().into_boxed_slice()),
             working_ram: self.memory.working_ram.to_vec().into_boxed_slice(),
             audio_ram: self.memory.audio_ram.to_vec().into_boxed_slice(),
-            vdp: self.vdp.clone(),
+            vdp: self.vdp.to_debug_state(),
         }
     }
 }
@@ -187,7 +188,7 @@ pub type GenesisEmulatorDebugView<'a> = BaseGenesisDebugView<'a, CartridgeDebugV
 impl GenesisEmulator {
     #[must_use]
     pub fn to_debug_state(&self) -> GenesisDebugState {
-        GenesisDebugState::new(&self.memory, self.vdp.clone())
+        GenesisDebugState::new(&self.memory, &self.vdp)
     }
 
     #[must_use]

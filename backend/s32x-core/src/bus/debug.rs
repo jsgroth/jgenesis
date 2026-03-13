@@ -13,6 +13,45 @@ pub(crate) struct DebugSh2Bus {
     pub(crate) debugger: Sega32XDebuggerGenesisRamRaw,
 }
 
+impl DebugSh2Bus {
+    pub(crate) fn create<'bus, 'other, 'debug, 'genram, 'genvdp>(
+        s32x_bus: &'bus mut Sega32XBus,
+        which: WhichCpu,
+        cycle_counter: u64,
+        cycle_limit: u64,
+        other_sh2: Option<(&'other mut Sh2, &'other mut u64)>,
+        genesis_vdp: &'genvdp mut GenesisVdp,
+        debugger: &'debug mut Sega32XDebuggerGenesisRam<'genram>,
+    ) -> DebugSh2BusGuard<'bus, 'other, 'debug, 'genram, 'genvdp> {
+        unsafe {
+            DebugSh2BusGuard {
+                bus: Self {
+                    bus: Sh2Bus {
+                        s32x_bus: s32x_bus.into(),
+                        other_sh2: other_sh2.map(|(cpu, cycle_counter)| OtherCpu {
+                            cpu: cpu.into(),
+                            cycle_counter: cycle_counter.into(),
+                        }),
+                        which,
+                        cycle_counter,
+                        cycle_limit,
+                    },
+                    debugger: debugger.to_raw(genesis_vdp),
+                },
+                _bus_marker: PhantomData,
+                _other_marker: PhantomData,
+                _debug_marker: PhantomData,
+                _genram_marker: PhantomData,
+                _genvdp_marker: PhantomData,
+            }
+        }
+    }
+
+    pub fn cycle_counter(&self) -> u64 {
+        self.bus.cycle_counter
+    }
+}
+
 sh2_emu::impl_sh2_lookup_table!(DebugSh2Bus);
 
 pub(crate) struct DebugSh2BusGuard<'bus, 'other, 'debug, 'genram, 'genvdp> {
@@ -35,41 +74,6 @@ impl Deref for DebugSh2BusGuard<'_, '_, '_, '_, '_> {
 impl DerefMut for DebugSh2BusGuard<'_, '_, '_, '_, '_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.bus
-    }
-}
-
-impl Sh2Bus {
-    pub(crate) fn create_debug<'bus, 'other, 'debug, 'genram, 'genvdp>(
-        s32x_bus: &'bus mut Sega32XBus,
-        which: WhichCpu,
-        cycle_counter: u64,
-        cycle_limit: u64,
-        other_sh2: Option<(&'other mut Sh2, &'other mut u64)>,
-        genesis_vdp: &'genvdp mut GenesisVdp,
-        debugger: &'debug mut Sega32XDebuggerGenesisRam<'genram>,
-    ) -> DebugSh2BusGuard<'bus, 'other, 'debug, 'genram, 'genvdp> {
-        unsafe {
-            DebugSh2BusGuard {
-                bus: DebugSh2Bus {
-                    bus: Self {
-                        s32x_bus: s32x_bus.into(),
-                        other_sh2: other_sh2.map(|(cpu, cycle_counter)| OtherCpu {
-                            cpu: cpu.into(),
-                            cycle_counter: cycle_counter.into(),
-                        }),
-                        which,
-                        cycle_counter,
-                        cycle_limit,
-                    },
-                    debugger: debugger.to_raw(genesis_vdp),
-                },
-                _bus_marker: PhantomData,
-                _other_marker: PhantomData,
-                _debug_marker: PhantomData,
-                _genram_marker: PhantomData,
-                _genvdp_marker: PhantomData,
-            }
-        }
     }
 }
 
