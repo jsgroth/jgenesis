@@ -1,21 +1,19 @@
 //! 32X memory mapping for the 68000 and SH-2s
 
-use crate::api::debug::{
-    S32XMemoryArea, Sega32XDebuggerGenesisRam, Sega32XDebuggerGenesisRamRaw,
-    Sega32XEmulatorDebugView, Sega32XMediumView,
-};
+pub(crate) mod debug;
+
+use crate::bootrom;
 use crate::core::{Sega32X, Sega32XBus};
 use crate::registers::Access;
-use crate::{GenesisVdp, bootrom};
 use genesis_config::GenesisRegion;
-use genesis_core::api::debug::{BaseGenesisDebugView, GenesisMemoryDebugView};
 use genesis_core::memory::PhysicalMedium;
 use jgenesis_common::num::{GetBit, U16Ext};
 use sh2_emu::Sh2;
 use sh2_emu::bus::{AccessContext, BusInterface, OpSize};
-use sh2_emu::debug::{DummySh2Debugger, Sh2Debugger};
+use sh2_emu::debug::DummySh2Debugger;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
+use std::ptr::NonNull;
 use std::{array, cmp};
 
 const SDRAM_MASK: u32 = 0x3FFFF;
@@ -425,13 +423,13 @@ impl WhichCpu {
 }
 
 pub struct OtherCpu {
-    cpu: *mut Sh2,
-    cycle_counter: *mut u64,
+    cpu: NonNull<Sh2>,
+    cycle_counter: NonNull<u64>,
 }
 
 // SH-2 memory map
 pub struct Sh2Bus {
-    s32x_bus: *mut Sega32XBus,
+    s32x_bus: NonNull<Sega32XBus>,
     other_sh2: Option<OtherCpu>,
     pub which: WhichCpu,
     pub cycle_counter: u64,
@@ -455,36 +453,6 @@ impl Deref for Sh2BusGuard<'_, '_> {
 }
 
 impl DerefMut for Sh2BusGuard<'_, '_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.bus
-    }
-}
-
-pub(crate) struct DebugSh2Bus {
-    pub bus: Sh2Bus,
-    pub debugger: Sega32XDebuggerGenesisRamRaw,
-}
-
-sh2_emu::impl_sh2_lookup_table!(DebugSh2Bus);
-
-pub(crate) struct DebugSh2BusGuard<'bus, 'other, 'debug, 'genram, 'genvdp> {
-    bus: DebugSh2Bus,
-    _bus_marker: PhantomData<&'bus ()>,
-    _other_marker: PhantomData<&'other ()>,
-    _debug_marker: PhantomData<&'debug ()>,
-    _genram_marker: PhantomData<&'genram ()>,
-    _genvdp_marker: PhantomData<&'genvdp ()>,
-}
-
-impl Deref for DebugSh2BusGuard<'_, '_, '_, '_, '_> {
-    type Target = DebugSh2Bus;
-
-    fn deref(&self) -> &Self::Target {
-        &self.bus
-    }
-}
-
-impl DerefMut for DebugSh2BusGuard<'_, '_, '_, '_, '_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.bus
     }
@@ -627,10 +595,10 @@ impl Sh2Bus {
         // move the underlying values until after dropping the guard.
         Sh2BusGuard {
             bus: Sh2Bus {
-                s32x_bus,
+                s32x_bus: s32x_bus.into(),
                 other_sh2: other_sh2.map(|(other_cpu, other_cycles)| OtherCpu {
-                    cpu: other_cpu,
-                    cycle_counter: other_cycles,
+                    cpu: other_cpu.into(),
+                    cycle_counter: other_cycles.into(),
                 }),
                 which,
                 cycle_counter,
@@ -641,47 +609,18 @@ impl Sh2Bus {
         }
     }
 
-    pub(crate) fn create_debug<'bus, 'other, 'debug, 'genram, 'genvdp>(
-        s32x_bus: &'bus mut Sega32XBus,
-        which: WhichCpu,
-        cycle_counter: u64,
-        cycle_limit: u64,
-        other_sh2: Option<(&'other mut Sh2, &'other mut u64)>,
-        genesis_vdp: &'genvdp mut GenesisVdp,
-        debugger: &'debug mut Sega32XDebuggerGenesisRam<'genram>,
-    ) -> DebugSh2BusGuard<'bus, 'other, 'debug, 'genram, 'genvdp> {
-        DebugSh2BusGuard {
-            bus: DebugSh2Bus {
-                bus: Sh2Bus {
-                    s32x_bus,
-                    other_sh2: other_sh2
-                        .map(|(cpu, cycle_counter)| OtherCpu { cpu, cycle_counter }),
-                    which,
-                    cycle_counter,
-                    cycle_limit,
-                },
-                debugger: unsafe { debugger.to_raw(genesis_vdp) },
-            },
-            _bus_marker: PhantomData,
-            _other_marker: PhantomData,
-            _debug_marker: PhantomData,
-            _genram_marker: PhantomData,
-            _genvdp_marker: PhantomData,
-        }
-    }
-
     fn s32x_bus(&mut self) -> &mut Sega32XBus {
         // SAFETY: Mutable reference created from a raw pointer that was originally created from a
         // mutable reference.
         // This method mutably borrows the Sh2Bus so only one mutable reference can be created this
         // way at a time. Other code should not create mutable references directly, and must not
         // touch the pointer while a mutable reference is alive.
-        unsafe { &mut *self.s32x_bus }
+        unsafe { self.s32x_bus.as_mut() }
     }
 
     fn s32x_bus_shared(&self) -> &Sega32XBus {
         // SAFETY: Same as above but returns a shared reference from a shared Sh2Bus borrow
-        unsafe { &*self.s32x_bus }
+        unsafe { self.s32x_bus.as_ref() }
     }
 
     // Brutal Unleashed: Above the Claw requires fairly close synchronization to prevent
@@ -700,21 +639,21 @@ impl Sh2Bus {
         // The original Sh2Bus instance is not used while the other CPU is executing against the
         // bus copy.
         unsafe {
-            let Some(OtherCpu { cpu, cycle_counter }) = self.other_sh2 else { return };
+            let Some(OtherCpu { mut cpu, cycle_counter }) = self.other_sh2 else { return };
 
             let limit = cmp::min(self.cycle_limit, self.cycle_counter);
             let mut bus = Sh2Bus {
                 s32x_bus: self.s32x_bus,
                 which: self.which.other(),
-                cycle_counter: *cycle_counter,
+                cycle_counter: cycle_counter.read(),
                 cycle_limit: limit,
                 other_sh2: None,
             };
 
             while bus.cycle_counter < limit {
-                (*cpu).execute(crate::core::SH2_EXECUTION_SLICE_LEN, &mut bus);
+                cpu.as_mut().execute(crate::core::SH2_EXECUTION_SLICE_LEN, &mut bus);
             }
-            *cycle_counter = bus.cycle_counter;
+            cycle_counter.write(bus.cycle_counter);
         }
     }
 
@@ -1201,100 +1140,6 @@ impl BusInterface for Sh2Bus {
     #[inline]
     fn should_stop_execution(&self) -> bool {
         self.cycle_counter >= self.cycle_limit
-    }
-}
-
-pub(crate) struct Sh2BusDebugView<'a>(&'a mut DebugSh2Bus);
-
-impl Sh2Debugger for Sh2BusDebugView<'_> {
-    fn check_read<const SIZE: u8>(&mut self, address: u32, cpu: &mut Sh2) {}
-
-    fn apply_read<const SIZE: u8>(
-        &mut self,
-        address: u32,
-        ctx: AccessContext,
-        cpu: &mut Sh2,
-    ) -> u32 {
-        self.0.read::<SIZE>(address, ctx)
-    }
-
-    fn check_write<const SIZE: u8>(&mut self, address: u32, value: u32, cpu: &mut Sh2) {}
-
-    fn apply_write<const SIZE: u8>(
-        &mut self,
-        address: u32,
-        value: u32,
-        ctx: AccessContext,
-        cpu: &mut Sh2,
-    ) {
-        self.0.write::<SIZE>(address, value, ctx);
-    }
-
-    fn apply_read_cache_line(
-        &mut self,
-        address: u32,
-        ctx: AccessContext,
-        cpu: &mut Sh2,
-    ) -> [u16; 8] {
-        self.0.read_cache_line(address, ctx)
-    }
-
-    fn check_execute(&mut self, pc: u32, opcode: u16, cpu: &mut Sh2) {}
-}
-
-impl BusInterface for DebugSh2Bus {
-    type DebugView<'a> = Sh2BusDebugView<'a>;
-
-    fn read<const SIZE: u8>(&mut self, address: u32, ctx: AccessContext) -> u32 {
-        self.bus.read::<SIZE>(address, ctx)
-    }
-
-    fn read_cache_line(&mut self, address: u32, ctx: AccessContext) -> [u16; 8] {
-        self.bus.read_cache_line(address, ctx)
-    }
-
-    fn write<const SIZE: u8>(&mut self, address: u32, value: u32, ctx: AccessContext) {
-        self.bus.write::<SIZE>(address, value, ctx);
-    }
-
-    fn reset(&self) -> bool {
-        self.bus.reset()
-    }
-
-    fn interrupt_level(&self) -> u8 {
-        self.bus.interrupt_level()
-    }
-
-    fn dma_request_0(&self) -> bool {
-        self.bus.dma_request_0()
-    }
-
-    fn dma_request_1(&self) -> bool {
-        self.bus.dma_request_1()
-    }
-
-    fn acknowledge_dreq_1(&mut self) {
-        self.bus.acknowledge_dreq_1();
-    }
-
-    fn serial_rx(&mut self) -> Option<u8> {
-        self.bus.serial_rx()
-    }
-
-    fn serial_tx(&mut self, value: u8) {
-        self.bus.serial_tx(value);
-    }
-
-    fn increment_cycle_counter(&mut self, cycles: u64) {
-        self.bus.increment_cycle_counter(cycles);
-    }
-
-    fn should_stop_execution(&self) -> bool {
-        self.bus.should_stop_execution()
-    }
-
-    fn debug_view(&mut self) -> Option<Self::DebugView<'_>> {
-        Some(Sh2BusDebugView(self))
     }
 }
 

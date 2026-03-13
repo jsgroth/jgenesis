@@ -15,6 +15,7 @@ use jgenesis_common::frontend::{
 };
 use sh2_emu::Sh2;
 use std::fmt::{Debug, Display};
+use std::ptr::NonNull;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 
@@ -281,17 +282,17 @@ impl Sega32XDebuggerGenesisRam<'_> {
     /// [`Sega32XDebuggerGenesisRamRaw`] has been dropped.
     pub unsafe fn to_raw(&mut self, vdp: &mut GenesisVdp) -> Sega32XDebuggerGenesisRamRaw {
         Sega32XDebuggerGenesisRamRaw {
-            debugger: self.debugger,
-            working_ram: self.working_ram,
-            audio_ram: self.audio_ram,
-            vdp,
+            debugger: self.debugger.into(),
+            working_ram: self.working_ram.into(),
+            audio_ram: self.audio_ram.into(),
+            vdp: vdp.into(),
         }
     }
 }
 
 pub(crate) struct Sega32XDebuggerGenesisRamRaw {
-    pub debugger: *mut Sega32XDebugger,
-    pub working_ram: *mut [u16],
-    pub audio_ram: *mut [u8],
-    pub vdp: *mut GenesisVdp,
+    pub debugger: NonNull<Sega32XDebugger>,
+    pub working_ram: NonNull<[u16]>,
+    pub audio_ram: NonNull<[u8]>,
+    pub vdp: NonNull<GenesisVdp>,
 }
