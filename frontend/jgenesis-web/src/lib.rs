@@ -265,53 +265,27 @@ impl Emulator {
         A::Err: Debug + Display + Send + Sync + 'static,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
+        macro_rules! run_emulator {
+            ($emulator:expr, $inputs:expr) => {
+                while $emulator
+                    .tick(renderer, audio_output, &mut ConstantInputPoller($inputs), save_writer)
+                    .expect("Emulator error")
+                    != TickEffect::FrameRendered
+                {}
+            };
+        }
+
         match self {
             Self::None(noise_generator) => {
                 noise_generator.randomize();
                 noise_generator.render(renderer).expect("Failed to render random noise");
             }
-            Self::SmsGg(emulator, inputs) => {
-                while emulator
-                    .tick(renderer, audio_output, &mut ConstantInputPoller(inputs), save_writer)
-                    .expect("Emulator error")
-                    != TickEffect::FrameRendered
-                {}
-            }
-            Self::Genesis(emulator, inputs) => {
-                while emulator
-                    .tick(renderer, audio_output, &mut ConstantInputPoller(inputs), save_writer)
-                    .expect("Emulator error")
-                    != TickEffect::FrameRendered
-                {}
-            }
-            Self::SegaCd(emulator, inputs) => {
-                while emulator
-                    .tick(renderer, audio_output, &mut ConstantInputPoller(inputs), save_writer)
-                    .expect("Emulator error")
-                    != TickEffect::FrameRendered
-                {}
-            }
-            Self::Sega32X(emulator, inputs) => {
-                while emulator
-                    .tick(renderer, audio_output, &mut ConstantInputPoller(inputs), save_writer)
-                    .expect("Emulator error")
-                    != TickEffect::FrameRendered
-                {}
-            }
-            Self::Snes(emulator, inputs) => {
-                while emulator
-                    .tick(renderer, audio_output, &mut ConstantInputPoller(inputs), save_writer)
-                    .expect("Emulator error")
-                    != TickEffect::FrameRendered
-                {}
-            }
-            Self::Gba(emulator, inputs) => {
-                while emulator
-                    .tick(renderer, audio_output, &mut ConstantInputPoller(inputs), save_writer)
-                    .expect("Emulator error")
-                    != TickEffect::FrameRendered
-                {}
-            }
+            Self::SmsGg(emulator, inputs) => run_emulator!(emulator, inputs),
+            Self::Genesis(emulator, inputs) => run_emulator!(emulator, inputs),
+            Self::SegaCd(emulator, inputs) => run_emulator!(emulator, inputs),
+            Self::Sega32X(emulator, inputs) => run_emulator!(emulator, inputs),
+            Self::Snes(emulator, inputs) => run_emulator!(emulator, inputs),
+            Self::Gba(emulator, inputs) => run_emulator!(emulator, inputs),
         }
     }
 
