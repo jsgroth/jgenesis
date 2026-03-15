@@ -15,6 +15,7 @@ use jgenesis_common::frontend::{
     AudioOutput, Color, InputPoller, Renderer, SaveWriter, TickResult,
 };
 use jgenesis_common::sync::SharedVarSender;
+use jgenesis_proc_macros::EnumAll;
 use sh2_emu::Sh2;
 use sh2_emu::bus::OpSize;
 use std::array;
@@ -24,7 +25,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, SendError, Sender, TryRecvError};
 use std::sync::{Arc, mpsc};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAll)]
 pub enum S32XMemoryArea {
     Sdram,
     MasterSh2Cache,

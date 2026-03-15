@@ -292,3 +292,168 @@ impl BusInterface for DebugSh2Bus {
         Some(Sh2BusDebugView(self))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::Sega32XEmulatorConfig;
+    use crate::api::debug::{S32XMemoryArea, Sega32XDebugCommand, Sh2Breakpoint};
+    use crate::core::SerialInterface;
+    use crate::pwm::PwmChip;
+    use crate::registers::SystemRegisters;
+    use crate::vdp::Vdp;
+    use genesis_core::api::debug::GenesisMemoryArea;
+    use genesis_core::cartridge::Cartridge;
+    use genesis_core::vdp::DarkenColors;
+    use jgenesis_common::boxedarray::BoxedWordArray;
+    use jgenesis_common::frontend::TimingMode;
+
+    const COMM_PORT_0: u32 = 0x20004020;
+
+    // Meant to be run through miri:
+    //   $ cargo +nightly miri test -p s32x_core memory_model
+    //
+    // This test is not exhaustive but should hit most of the major code paths that use unsafe blocks.
+    #[test]
+    fn check_for_memory_model_violations() {
+        let emu_config = Sega32XEmulatorConfig::default();
+
+        let (state_sender, _state_receiver) = jgenesis_common::sync::new_shared_var();
+        let (mut debugger, debugger_handle) = Sega32XDebugger::new(state_sender);
+
+        let mut s32x_bus = Sega32XBus {
+            cartridge: Cartridge::from_rom(vec![0xFF; 1024], None, None),
+            vdp: Vdp::new(TimingMode::Ntsc, &emu_config),
+            pwm: PwmChip::new(TimingMode::Ntsc),
+            registers: SystemRegisters::new(),
+            sdram: BoxedWordArray::new(),
+            serial: SerialInterface::default(),
+        };
+
+        let mut sh2_master = Sh2::new("Master".into());
+        let mut sh2_slave = Sh2::new("Slave".into());
+        let mut sh2_slave_cycles = 0;
+
+        let mut bus = Sh2Bus::create(
+            &mut s32x_bus,
+            WhichCpu::Master,
+            0,
+            1024,
+            Some((&mut sh2_slave, &mut sh2_slave_cycles)),
+        );
+
+        for _ in 0..10 {
+            sh2_master.execute(50, &mut *bus);
+        }
+
+        bus.read_word(COMM_PORT_0, AccessContext::Fetch);
+
+        bus.cycle_counter = 0;
+        bus.other_sh2 = None;
+
+        for _ in 0..10 {
+            sh2_master.execute(50, &mut *bus);
+        }
+
+        bus.read_word(COMM_PORT_0, AccessContext::Fetch);
+
+        sh2_slave_cycles = 0;
+
+        let mut genesis_vdp =
+            GenesisVdp::new(TimingMode::Ntsc, emu_config.genesis.to_vdp_config(DarkenColors::Yes));
+        let mut working_ram = vec![0; 64 * 1024];
+        let mut audio_ram = vec![0; 8 * 1024];
+
+        let mut debugger_with_genram =
+            debugger.with_genesis_ram(working_ram.as_mut_slice(), audio_ram.as_mut_slice());
+        let mut debug_bus = DebugSh2Bus::create(
+            &mut s32x_bus,
+            WhichCpu::Master,
+            0,
+            1024,
+            Some((&mut sh2_slave, &mut sh2_slave_cycles)),
+            &mut genesis_vdp,
+            &mut debugger_with_genram,
+        );
+
+        for _ in 0..10 {
+            sh2_master.execute(50, &mut *debug_bus);
+        }
+
+        debug_bus.debug_view().unwrap().apply_read::<{ OpSize::WORD }>(
+            COMM_PORT_0,
+            AccessContext::Fetch,
+            &mut sh2_master,
+        );
+
+        {
+            let mut debug_view = debug_bus.debug_view().unwrap();
+            let (mut s32x_debug_view, debugger) =
+                debug_view.as_32x_debug_view_and_debugger(&mut sh2_master);
+
+            debugger_handle
+                .send_command(Sega32XDebugCommand::Edit32XMemory(
+                    S32XMemoryArea::PaletteRam,
+                    0,
+                    0xFF,
+                ))
+                .unwrap();
+            debugger.process_commands(&mut s32x_debug_view);
+        }
+
+        // Run SH-2 again after debugger interaction
+        debug_bus.bus.bus.cycle_counter = 0;
+        unsafe {
+            debug_bus.bus.bus.other_sh2.as_mut().unwrap().cycle_counter.write(0);
+        }
+
+        for _ in 0..10 {
+            sh2_master.execute(50, &mut *debug_bus);
+        }
+
+        debug_bus.debug_view().unwrap().apply_read::<{ OpSize::WORD }>(
+            COMM_PORT_0,
+            AccessContext::Fetch,
+            &mut sh2_master,
+        );
+
+        debugger_handle
+            .send_command(Sega32XDebugCommand::UpdateBreakpoints(
+                WhichCpu::Master,
+                vec![Sh2Breakpoint {
+                    start_address: COMM_PORT_0,
+                    end_address: COMM_PORT_0,
+                    read: true,
+                    write: true,
+                    execute: true,
+                }],
+            ))
+            .unwrap();
+
+        {
+            let mut debug_view = debug_bus.debug_view().unwrap();
+            let (mut s32x_debug_view, debugger) =
+                debug_view.as_32x_debug_view_and_debugger(&mut sh2_master);
+            debugger.process_commands(&mut s32x_debug_view);
+        }
+
+        for memory_area in GenesisMemoryArea::ALL {
+            debugger_handle
+                .send_command(Sega32XDebugCommand::EditGenesisMemory(memory_area, 0, 0))
+                .unwrap();
+        }
+
+        for memory_area in S32XMemoryArea::ALL {
+            debugger_handle
+                .send_command(Sega32XDebugCommand::Edit32XMemory(memory_area, 0, 0))
+                .unwrap();
+        }
+
+        debugger_handle.send_command(Sega32XDebugCommand::BreakResume).unwrap();
+
+        debug_bus
+            .debug_view()
+            .unwrap()
+            .check_read::<{ OpSize::WORD }>(COMM_PORT_0, &mut sh2_master);
+    }
+}
