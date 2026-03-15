@@ -285,7 +285,9 @@ impl Sh2 {
         address: u32,
         bus: &mut Bus,
     ) -> u16 {
-        bus.check_read_word(address, self);
+        if !INSTRUCTION {
+            bus.check_read_word(address, self);
+        }
 
         match address >> 29 {
             0 => self.cached_read_word::<INSTRUCTION, _>(address, bus),
