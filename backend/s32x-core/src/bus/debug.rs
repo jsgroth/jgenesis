@@ -1,13 +1,13 @@
 use crate::GenesisVdp;
 use crate::api::debug::{
-    S32XMemoryArea, Sega32XDebugger, Sega32XDebuggerGenesisRam, Sega32XDebuggerGenesisRamRaw,
-    Sega32XEmulatorDebugView, Sega32XMediumView,
+    Sega32XDebugger, Sega32XDebuggerGenesisRam, Sega32XDebuggerGenesisRamRaw,
+    Sega32XEmulatorDebugView, Sega32XMediumView, Sh2Breakpoints,
 };
 use crate::bus::{OtherCpu, Sh2Bus, WhichCpu};
 use crate::core::Sega32XBus;
 use genesis_core::api::debug::{BaseGenesisDebugView, GenesisMemoryDebugView};
 use sh2_emu::Sh2;
-use sh2_emu::bus::{AccessContext, BusInterface};
+use sh2_emu::bus::{AccessContext, BusInterface, OpSize};
 use sh2_emu::debug::Sh2Debugger;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
@@ -42,7 +42,7 @@ impl DebugSh2Bus {
                         cycle_counter,
                         cycle_limit,
                     },
-                    debugger: debugger.to_raw(genesis_vdp),
+                    debugger: debugger.as_raw(genesis_vdp),
                     other_sh2: None,
                 },
                 _bus_marker: PhantomData,
@@ -110,7 +110,7 @@ impl<'a> Sh2BusDebugView<'a> {
     fn as_32x_debug_view_and_debugger<'view, 'slf, 'cpu>(
         &'slf mut self,
         cpu: &'cpu mut Sh2,
-    ) -> (Sega32XEmulatorDebugView<'view>, &'slf Sega32XDebugger)
+    ) -> (Sega32XEmulatorDebugView<'view>, &'slf mut Sega32XDebugger)
     where
         'cpu: 'view,
         'slf: 'view,
@@ -157,10 +157,33 @@ impl<'a> Sh2BusDebugView<'a> {
             (debug_view, debugger)
         }
     }
+
+    fn breakpoints(&self) -> &Sh2Breakpoints {
+        unsafe { self.0.debugger.debugger.as_ref().breakpoints(self.0.bus.which) }
+    }
+
+    fn check_break_step(&mut self, which: WhichCpu) -> bool {
+        unsafe { self.0.debugger.debugger.as_mut().should_break_on_step(which) }
+    }
+
+    fn handle_breakpoint(&mut self, execute: bool, cpu: &mut Sh2) {
+        let which = self.0.bus.which;
+        let (mut debug_view, debugger) = self.as_32x_debug_view_and_debugger(cpu);
+        debugger.handle_breakpoint(which, execute, &mut debug_view);
+    }
 }
 
 impl Sh2Debugger for Sh2BusDebugView<'_> {
-    fn check_read<const SIZE: u8>(&mut self, address: u32, cpu: &mut Sh2) {}
+    fn check_read<const SIZE: u8>(&mut self, address: u32, cpu: &mut Sh2) {
+        if self.breakpoints().should_break_read::<SIZE>(address) {
+            log::info!(
+                "[{:?}] {address:08X} {} read triggered breakpoint",
+                self.0.bus.which,
+                OpSize::display::<SIZE>()
+            );
+            self.handle_breakpoint(false, cpu);
+        }
+    }
 
     fn apply_read<const SIZE: u8>(
         &mut self,
@@ -173,7 +196,16 @@ impl Sh2Debugger for Sh2BusDebugView<'_> {
         self.0.read::<SIZE>(address, ctx)
     }
 
-    fn check_write<const SIZE: u8>(&mut self, address: u32, value: u32, cpu: &mut Sh2) {}
+    fn check_write<const SIZE: u8>(&mut self, address: u32, value: u32, cpu: &mut Sh2) {
+        if self.breakpoints().should_break_write::<SIZE>(address) {
+            log::info!(
+                "[{:?}] {address:08X} {} write {value:08X} triggered breakpoint",
+                self.0.bus.which,
+                OpSize::display::<SIZE>()
+            );
+            self.handle_breakpoint(false, cpu);
+        }
+    }
 
     fn apply_write<const SIZE: u8>(
         &mut self,
@@ -198,7 +230,18 @@ impl Sh2Debugger for Sh2BusDebugView<'_> {
         self.0.read_cache_line(address, ctx)
     }
 
-    fn check_execute(&mut self, pc: u32, opcode: u16, cpu: &mut Sh2) {}
+    fn check_execute(&mut self, pc: u32, _opcode: u16, cpu: &mut Sh2) {
+        let break_step = self.check_break_step(self.0.bus.which);
+        let break_execute = self.breakpoints().should_break_execute(pc);
+
+        if break_execute {
+            log::info!("[{:?}] PC={pc:08X} triggered execute breakpoint", self.0.bus.which);
+        }
+
+        if break_step || break_execute {
+            self.handle_breakpoint(true, cpu);
+        }
+    }
 }
 
 impl BusInterface for DebugSh2Bus {

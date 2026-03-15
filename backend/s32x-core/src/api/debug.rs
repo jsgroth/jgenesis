@@ -1,10 +1,11 @@
-use crate::GenesisVdp;
 use crate::api::{Sega32XEmulator, Sega32XError};
 use crate::core::Sega32X;
 use crate::pwm::PwmChip;
 use crate::registers::SystemRegisters;
 use crate::vdp::Vdp;
 use crate::vdp::debug::VdpDebugState;
+use crate::{GenesisVdp, WhichCpu};
+use bincode::{Decode, Encode};
 use genesis_config::GenesisInputs;
 use genesis_core::api::debug::{
     BaseGenesisDebugView, GenesisDebugState, GenesisMemoryArea, PhysicalMediumDebugView,
@@ -15,10 +16,12 @@ use jgenesis_common::frontend::{
 };
 use jgenesis_common::sync::SharedVarSender;
 use sh2_emu::Sh2;
+use sh2_emu::bus::OpSize;
 use std::fmt::{Debug, Display};
 use std::ptr::NonNull;
-use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender, TryRecvError};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, SendError, Sender, TryRecvError};
+use std::sync::{Arc, mpsc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum S32XMemoryArea {
@@ -30,18 +33,116 @@ pub enum S32XMemoryArea {
     PaletteRam,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Sh2Breakpoint {
+    pub start_address: u32,
+    pub end_address: u32,
+    pub read: bool,
+    pub write: bool,
+    pub execute: bool,
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub(crate) struct Sh2Breakpoints {
+    read_byte: Vec<(u32, u32)>,
+    read_word: Vec<(u32, u32)>,
+    read_longword: Vec<(u32, u32)>,
+    write_byte: Vec<(u32, u32)>,
+    write_word: Vec<(u32, u32)>,
+    write_longword: Vec<(u32, u32)>,
+    execute: Vec<(u32, u32)>,
+}
+
+impl Sh2Breakpoints {
+    #[must_use]
+    pub fn new(breakpoints: &[Sh2Breakpoint]) -> Self {
+        let mut read_byte = Vec::new();
+        let mut read_word = Vec::new();
+        let mut read_longword = Vec::new();
+        let mut write_byte = Vec::new();
+        let mut write_word = Vec::new();
+        let mut write_longword = Vec::new();
+        let mut execute = Vec::new();
+
+        for &breakpoint in breakpoints {
+            if breakpoint.read {
+                read_byte.push((breakpoint.start_address, breakpoint.end_address));
+                read_word.push((breakpoint.start_address & !1, breakpoint.end_address & !1));
+                read_longword.push((breakpoint.start_address & !3, breakpoint.end_address & !3));
+            }
+
+            if breakpoint.write {
+                write_byte.push((breakpoint.start_address, breakpoint.end_address));
+                write_word.push((breakpoint.start_address & !1, breakpoint.end_address & !1));
+                write_longword.push((breakpoint.start_address & !3, breakpoint.end_address & !4));
+            }
+
+            if breakpoint.execute {
+                execute.push((breakpoint.start_address & !1, breakpoint.end_address & !1));
+            }
+        }
+
+        Self {
+            read_byte,
+            read_word,
+            read_longword,
+            write_byte,
+            write_word,
+            write_longword,
+            execute,
+        }
+    }
+
+    #[must_use]
+    pub fn none() -> Self {
+        Self::new(&[])
+    }
+
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
+    pub fn should_break_read<const SIZE: u8>(&self, address: u32) -> bool {
+        let addresses = match SIZE {
+            OpSize::BYTE => &self.read_byte,
+            OpSize::WORD => &self.read_word,
+            OpSize::LONGWORD => &self.read_longword,
+            _ => panic!("invalid size {SIZE}"),
+        };
+        addresses.iter().any(|&(start, end)| (start..=end).contains(&address))
+    }
+
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
+    pub fn should_break_write<const SIZE: u8>(&self, address: u32) -> bool {
+        let addresses = match SIZE {
+            OpSize::BYTE => &self.write_byte,
+            OpSize::WORD => &self.write_word,
+            OpSize::LONGWORD => &self.write_longword,
+            _ => panic!("invalid size {SIZE}"),
+        };
+        addresses.iter().any(|&(start, end)| (start..=end).contains(&address))
+    }
+
+    pub fn should_break_execute(&self, address: u32) -> bool {
+        self.execute.iter().any(|&(start, end)| (start..=end).contains(&address))
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum Sega32XDebugCommand {
     EditGenesisMemory(GenesisMemoryArea, usize, u8),
     Edit32XMemory(S32XMemoryArea, usize, u8),
+    UpdateBreakpoints(WhichCpu, Vec<Sh2Breakpoint>),
+    BreakResume,
+    BreakPause(WhichCpu),
+    BreakStep(WhichCpu),
 }
 
 #[derive(Debug, Clone)]
 pub struct Sega32XDebugState {
-    genesis: GenesisDebugState,
-    sdram: Box<[u16]>,
-    sh2_master: Sh2,
-    sh2_slave: Sh2,
+    pub genesis: GenesisDebugState,
+    pub sdram: Box<[u16]>,
+    pub sh2_master: Sh2,
+    pub sh2_slave: Sh2,
     system_registers: SystemRegisters,
     s32x_vdp: VdpDebugState,
     pwm: PwmChip,
@@ -50,6 +151,13 @@ pub struct Sega32XDebugState {
 impl Sega32XDebugState {
     pub fn genesis(&mut self) -> &mut GenesisDebugState {
         &mut self.genesis
+    }
+
+    pub fn sh2(&mut self, which: WhichCpu) -> &mut Sh2 {
+        match which {
+            WhichCpu::Master => &mut self.sh2_master,
+            WhichCpu::Slave => &mut self.sh2_slave,
+        }
     }
 
     pub fn copy_palette(&mut self, out: &mut [Color]) {
@@ -192,6 +300,9 @@ impl Sega32XEmulator {
         }
     }
 
+    /// # Errors
+    ///
+    /// Propagates any errors returned by the emulator
     pub fn debug_tick<R, A, I, S>(
         &mut self,
         renderer: &mut R,
@@ -219,19 +330,79 @@ impl Sega32XEmulator {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct Sh2BreakStatus<T> {
+    pub master: T,
+    pub slave: T,
+}
+
+impl<T: Copy> Sh2BreakStatus<T> {
+    pub fn get(&self, which: WhichCpu) -> T {
+        match which {
+            WhichCpu::Master => self.master,
+            WhichCpu::Slave => self.slave,
+        }
+    }
+}
+
 pub struct Sega32XDebugger {
     command_receiver: Receiver<Sega32XDebugCommand>,
     state_sender: SharedVarSender<Sega32XDebugState>,
+    master_breakpoints: Sh2Breakpoints,
+    slave_breakpoints: Sh2Breakpoints,
+    break_status: Arc<Sh2BreakStatus<AtomicBool>>,
+    break_step: Option<(WhichCpu, u32)>,
+}
+
+pub struct Sega32XDebuggerHandle {
+    pub command_sender: Sender<Sega32XDebugCommand>,
+    pub break_status: Arc<Sh2BreakStatus<AtomicBool>>,
+}
+
+impl Sega32XDebuggerHandle {
+    /// # Errors
+    ///
+    /// Propagates any errors returned by the MPSC [`Sender`]
+    pub fn send_command(
+        &self,
+        command: Sega32XDebugCommand,
+    ) -> Result<(), SendError<Sega32XDebugCommand>> {
+        self.command_sender.send(command)
+    }
+
+    #[must_use]
+    pub fn take_break_status(&self) -> Sh2BreakStatus<bool> {
+        let [master_break, slave_break] = [&self.break_status.master, &self.break_status.slave]
+            .map(|break_status| {
+                break_status.compare_exchange(true, false, Ordering::AcqRel, Ordering::Relaxed)
+                    == Ok(true)
+            });
+
+        Sh2BreakStatus { master: master_break, slave: slave_break }
+    }
 }
 
 impl Sega32XDebugger {
     #[must_use]
-    pub fn new(
-        state_sender: SharedVarSender<Sega32XDebugState>,
-    ) -> (Self, Sender<Sega32XDebugCommand>) {
+    pub fn new(state_sender: SharedVarSender<Sega32XDebugState>) -> (Self, Sega32XDebuggerHandle) {
         let (command_sender, command_receiver) = mpsc::channel();
+        let break_status = Arc::new(Sh2BreakStatus {
+            master: AtomicBool::new(false),
+            slave: AtomicBool::new(false),
+        });
 
-        (Self { command_receiver, state_sender }, command_sender)
+        let debugger = Self {
+            command_receiver,
+            state_sender,
+            master_breakpoints: Sh2Breakpoints::none(),
+            slave_breakpoints: Sh2Breakpoints::none(),
+            break_status: Arc::clone(&break_status),
+            break_step: None,
+        };
+
+        let handle = Sega32XDebuggerHandle { command_sender, break_status };
+
+        (debugger, handle)
     }
 
     pub fn process_commands(&mut self, debug_view: &mut Sega32XEmulatorDebugView<'_>) {
@@ -261,6 +432,25 @@ impl Sega32XDebugger {
             Sega32XDebugCommand::Edit32XMemory(memory_area, address, value) => {
                 debug_view.apply_32x_memory_edit(memory_area, address, value);
             }
+            Sega32XDebugCommand::UpdateBreakpoints(which, breakpoints) => {
+                let breakpoints = Sh2Breakpoints::new(&breakpoints);
+                match which {
+                    WhichCpu::Master => self.master_breakpoints = breakpoints,
+                    WhichCpu::Slave => self.slave_breakpoints = breakpoints,
+                }
+            }
+            Sega32XDebugCommand::BreakPause(which) => {
+                log::info!("Received pause command for {which:?}");
+                self.handle_breakpoint(which, false, debug_view);
+            }
+            Sega32XDebugCommand::BreakResume | Sega32XDebugCommand::BreakStep(_) => {}
+        }
+    }
+
+    pub(crate) fn breakpoints(&self, which: WhichCpu) -> &Sh2Breakpoints {
+        match which {
+            WhichCpu::Master => &self.master_breakpoints,
+            WhichCpu::Slave => &self.slave_breakpoints,
         }
     }
 
@@ -270,6 +460,59 @@ impl Sega32XDebugger {
         audio_ram: &'a mut [u8],
     ) -> Sega32XDebuggerGenesisRam<'a> {
         Sega32XDebuggerGenesisRam { debugger: self, working_ram, audio_ram }
+    }
+
+    fn set_break_status(&self, which: WhichCpu) {
+        let break_status = match which {
+            WhichCpu::Master => &self.break_status.master,
+            WhichCpu::Slave => &self.break_status.slave,
+        };
+        break_status.store(true, Ordering::Release);
+    }
+
+    pub(crate) fn handle_breakpoint(
+        &mut self,
+        which: WhichCpu,
+        execute: bool,
+        debug_view: &mut Sega32XEmulatorDebugView<'_>,
+    ) {
+        self.state_sender.update(debug_view.to_debug_state());
+        self.set_break_status(which);
+
+        self.break_step = None;
+
+        loop {
+            match self.command_receiver.recv() {
+                Ok(Sega32XDebugCommand::BreakResume) => break,
+                Ok(Sega32XDebugCommand::BreakStep(step_which)) => {
+                    self.break_step = Some((step_which, 1 + u32::from(!execute)));
+                    break;
+                }
+                Ok(command) => self.process_command(command, debug_view),
+                Err(_) => {
+                    // Debugger window was closed
+                    self.master_breakpoints = Sh2Breakpoints::none();
+                    self.slave_breakpoints = Sh2Breakpoints::none();
+                    break;
+                }
+            }
+        }
+    }
+
+    pub(crate) fn should_break_on_step(&mut self, which: WhichCpu) -> bool {
+        let Some((step_which, remaining)) = &mut self.break_step else { return false };
+
+        if which != *step_which {
+            return false;
+        }
+
+        *remaining -= 1;
+        if *remaining == 0 {
+            self.break_step = None;
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -284,7 +527,7 @@ impl Sega32XDebuggerGenesisRam<'_> {
     ///
     /// The caller must not touch the values referenced by `self` or `vdp` until after the returned
     /// [`Sega32XDebuggerGenesisRamRaw`] has been dropped.
-    pub unsafe fn to_raw(&mut self, vdp: &mut GenesisVdp) -> Sega32XDebuggerGenesisRamRaw {
+    pub unsafe fn as_raw(&mut self, vdp: &mut GenesisVdp) -> Sega32XDebuggerGenesisRamRaw {
         Sega32XDebuggerGenesisRamRaw {
             debugger: self.debugger.into(),
             working_ram: self.working_ram.into(),
