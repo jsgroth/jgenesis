@@ -497,6 +497,11 @@ impl Sh2 {
         self.registers.pc
     }
 
+    pub fn set_pc(&mut self, pc: u32) {
+        self.registers.pc = pc;
+        self.registers.next_pc = pc.wrapping_add(2);
+    }
+
     #[inline]
     #[must_use]
     pub fn registers(&self) -> &Sh2Registers {
