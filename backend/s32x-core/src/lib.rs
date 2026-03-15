@@ -7,6 +7,8 @@ mod pwm;
 mod registers;
 mod vdp;
 
+pub use bus::WhichCpu;
+
 type GenesisVdp = genesis_core::vdp::Vdp;
 
 pub const SH2_CLOCK_MULTIPLIER: u64 = genesis_config::NATIVE_SH2_MULTIPLIER;

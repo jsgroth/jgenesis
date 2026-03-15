@@ -26,6 +26,7 @@ use crate::registers::{Sh2Registers, Sh7604Registers};
 use crate::sci::SerialInterface;
 use crate::wdt::WatchdogTimer;
 use bincode::{Decode, Encode};
+pub use disassemble::disassemble;
 pub use instructions::OpcodeTable;
 use jgenesis_common::debug::DebugMemoryView;
 use std::env;
@@ -488,6 +489,29 @@ impl Sh2 {
         self.sh7604.update_interrupt_level(&self.dmac, &self.watchdog_timer, &self.serial);
     }
 
+    #[inline]
+    #[must_use]
+    pub fn pc(&self) -> u32 {
+        self.registers.pc
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn registers(&self) -> &Sh2Registers {
+        &self.registers
+    }
+
+    #[must_use]
+    pub fn peek_cache(&self, address: u32) -> Option<u16> {
+        self.cache.peek(address)
+    }
+
+    #[must_use]
+    pub fn peek_data_array(&self, address: u32) -> u16 {
+        self.cache.peek_data_array(address)
+    }
+
+    #[must_use]
     pub fn debug_cache_view(&mut self) -> impl DebugMemoryView {
         self.cache.debug_view()
     }

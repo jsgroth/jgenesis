@@ -414,6 +414,8 @@ pub enum WhichCpu {
 }
 
 impl WhichCpu {
+    #[inline]
+    #[must_use]
     pub fn other(self) -> Self {
         match self {
             Self::Master => Self::Slave,
