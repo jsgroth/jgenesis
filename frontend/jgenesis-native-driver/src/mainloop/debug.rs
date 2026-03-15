@@ -180,6 +180,7 @@ impl DebuggerWindow {
                 log::error!("Error updating debugger window: {err}");
             }
         });
+        self.platform.handle_egui_output(&full_output.platform_output);
 
         let output = match self.surface.get_current_texture() {
             Ok(output) => output,

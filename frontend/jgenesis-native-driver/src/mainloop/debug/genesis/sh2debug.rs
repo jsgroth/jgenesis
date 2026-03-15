@@ -1,5 +1,5 @@
 use egui::panel::{Side, TopBottomSide};
-use egui::{Align, FontFamily, Grid, RichText, TextEdit, Window};
+use egui::{Align, FontFamily, Grid, LayerId, Order, RichText, TextEdit, Window};
 use egui_extras::{Column, TableBuilder};
 use genesis_core::api::debug::GenesisMemoryArea;
 use s32x_core::WhichCpu;
@@ -146,7 +146,7 @@ pub fn render_disassembly_window(
     if break_status.get(window_state.which) {
         window_state.try_jump_to_address(sh2.pc());
         window_state.disassembly_open = true;
-        // TODO focus window?
+        ctx.move_to_top(LayerId::new(Order::Middle, window_title.into()));
     }
 
     let mut open = window_state.disassembly_open;
@@ -344,16 +344,9 @@ pub fn render_breakpoints_window(
         ui.heading("Add Breakpoint");
         ui.horizontal(|ui| {
             ui.label("$");
-            if ui
-                .add(
-                    TextEdit::singleline(&mut window_state.breakpoint_start_addr)
-                        .desired_width(80.0),
-                )
-                .lost_focus()
-                && window_state.breakpoint_end_addr.is_empty()
-            {
-                window_state.breakpoint_end_addr.clone_from(&window_state.breakpoint_start_addr);
-            }
+            ui.add(
+                TextEdit::singleline(&mut window_state.breakpoint_start_addr).desired_width(80.0),
+            );
             ui.label("-");
             ui.label("$");
             ui.add(TextEdit::singleline(&mut window_state.breakpoint_end_addr).desired_width(80.0));
@@ -365,19 +358,32 @@ pub fn render_breakpoints_window(
 
         if ui.button("Add").clicked()
             && let Ok(start_address) = u32::from_str_radix(&window_state.breakpoint_start_addr, 16)
-            && let Ok(end_address) = u32::from_str_radix(&window_state.breakpoint_end_addr, 16)
-            && end_address >= start_address
         {
-            window_state.breakpoints.push(Sh2Breakpoint {
-                start_address,
-                end_address,
-                read: window_state.breakpoint_read,
-                write: window_state.breakpoint_write,
-                execute: window_state.breakpoint_exec,
-            });
+            if window_state.breakpoint_end_addr.is_empty() {
+                window_state.breakpoints.push(Sh2Breakpoint {
+                    start_address,
+                    end_address: start_address,
+                    read: window_state.breakpoint_read,
+                    write: window_state.breakpoint_write,
+                    execute: window_state.breakpoint_exec,
+                });
 
-            window_state.breakpoint_start_addr.clear();
-            window_state.breakpoint_end_addr.clear();
+                window_state.breakpoint_start_addr.clear();
+            } else if let Ok(end_address) =
+                u32::from_str_radix(&window_state.breakpoint_end_addr, 16)
+                && end_address >= start_address
+            {
+                window_state.breakpoints.push(Sh2Breakpoint {
+                    start_address,
+                    end_address,
+                    read: window_state.breakpoint_read,
+                    write: window_state.breakpoint_write,
+                    execute: window_state.breakpoint_exec,
+                });
+
+                window_state.breakpoint_start_addr.clear();
+                window_state.breakpoint_end_addr.clear();
+            }
         }
     });
     window_state.breakpoints_open = open;
