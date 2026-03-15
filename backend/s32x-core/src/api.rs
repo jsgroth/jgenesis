@@ -58,6 +58,26 @@ pub struct Sega32XEmulatorConfig {
     pub pwm_volume_adjustment_db: f64,
 }
 
+impl Default for Sega32XEmulatorConfig {
+    fn default() -> Self {
+        Self {
+            genesis: GenesisEmulatorConfig::default(),
+            sh2_clock_multiplier: NonZeroU64::new(crate::SH2_CLOCK_MULTIPLIER).unwrap(),
+            video_out: S32XVideoOut::default(),
+            darken_genesis_colors: true,
+            color_tint: S32XColorTint::default(),
+            show_high_priority: true,
+            show_low_priority: true,
+            void_color: S32XVoidColor::default(),
+            emulate_pixel_switch_delay: false,
+            apply_genesis_lpf_to_pwm: true,
+            pwm_resampling: S32XPwmResampling::default(),
+            pwm_enabled: true,
+            pwm_volume_adjustment_db: 0.0,
+        }
+    }
+}
+
 impl Sega32XEmulatorConfig {
     fn genesis_color_adjustment(&self) -> DarkenColors {
         if self.darken_genesis_colors { DarkenColors::Yes } else { DarkenColors::No }

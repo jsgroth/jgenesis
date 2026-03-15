@@ -77,6 +77,44 @@ pub struct GenesisEmulatorConfig {
     pub psg_volume_adjustment_db: f64,
 }
 
+impl Default for GenesisEmulatorConfig {
+    fn default() -> Self {
+        Self {
+            p1_controller_type: GenesisControllerType::default(),
+            p2_controller_type: GenesisControllerType::default(),
+            forced_timing_mode: None,
+            forced_region: None,
+            aspect_ratio: GenesisAspectRatio::default(),
+            force_square_pixels_in_h40: false,
+            adjust_aspect_ratio_in_2x_resolution: true,
+            anamorphic_widescreen: false,
+            remove_sprite_limits: false,
+            m68k_clock_divider: timing::NATIVE_M68K_DIVIDER,
+            non_linear_color_scale: true,
+            deinterlace: true,
+            render_vertical_border: false,
+            render_horizontal_border: false,
+            plane_a_enabled: true,
+            plane_b_enabled: true,
+            sprites_enabled: true,
+            window_enabled: true,
+            backdrop_enabled: true,
+            quantize_ym2612_output: true,
+            emulate_ym2612_ladder_effect: true,
+            opn2_busy_behavior: Opn2BusyBehavior::default(),
+            genesis_lpf_enabled: true,
+            genesis_lpf_cutoff: genesis_config::MODEL_1_VA2_LPF_CUTOFF,
+            ym2612_2nd_lpf_enabled: false,
+            ym2612_2nd_lpf_cutoff: genesis_config::MODEL_2_2ND_LPF_CUTOFF,
+            ym2612_channels_enabled: [true; 6],
+            ym2612_enabled: true,
+            psg_enabled: true,
+            ym2612_volume_adjustment_db: 0.0,
+            psg_volume_adjustment_db: 0.0,
+        }
+    }
+}
+
 impl GenesisEmulatorConfig {
     #[must_use]
     pub fn to_vdp_config(&self, color_adjustment: DarkenColors) -> VdpConfig {

@@ -6,6 +6,7 @@ use jgenesis_common::debug::{
     DebugBytesView, DebugMemoryView, DebugWordsView, EmptyDebugView, Endian,
 };
 use jgenesis_common::frontend::Color;
+use jgenesis_proc_macros::EnumAll;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 
@@ -30,7 +31,7 @@ pub struct CopySpriteAttributesResult {
     pub top_left_y: u16,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAll)]
 pub enum GenesisMemoryArea {
     CartridgeRom,
     WorkingRam,
