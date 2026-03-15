@@ -17,9 +17,10 @@ use jgenesis_common::frontend::{
 use jgenesis_common::sync::SharedVarSender;
 use sh2_emu::Sh2;
 use sh2_emu::bus::OpSize;
+use std::array;
 use std::fmt::{Debug, Display};
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, SendError, Sender, TryRecvError};
 use std::sync::{Arc, mpsc};
 
@@ -331,13 +332,14 @@ impl Sega32XEmulator {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Sh2BreakStatus<T> {
-    pub master: T,
-    pub slave: T,
+pub struct Sh2BreakStatus {
+    pub master: Option<u32>,
+    pub slave: Option<u32>,
 }
 
-impl<T: Copy> Sh2BreakStatus<T> {
-    pub fn get(&self, which: WhichCpu) -> T {
+impl Sh2BreakStatus {
+    #[must_use]
+    pub fn get(&self, which: WhichCpu) -> Option<u32> {
         match which {
             WhichCpu::Master => self.master,
             WhichCpu::Slave => self.slave,
@@ -345,18 +347,32 @@ impl<T: Copy> Sh2BreakStatus<T> {
     }
 }
 
+pub struct Sh2BreakStatusAtomic {
+    pub breaking: [AtomicBool; 2],
+    pub break_pc: [AtomicU32; 2],
+}
+
+impl Sh2BreakStatusAtomic {
+    fn new() -> Self {
+        Self {
+            breaking: array::from_fn(|_| AtomicBool::new(false)),
+            break_pc: array::from_fn(|_| AtomicU32::new(0)),
+        }
+    }
+}
+
 pub struct Sega32XDebugger {
     command_receiver: Receiver<Sega32XDebugCommand>,
     state_sender: SharedVarSender<Sega32XDebugState>,
-    master_breakpoints: Sh2Breakpoints,
-    slave_breakpoints: Sh2Breakpoints,
-    break_status: Arc<Sh2BreakStatus<AtomicBool>>,
+    last_sh2_pc: [u32; 2],
+    breakpoints: [Sh2Breakpoints; 2],
+    break_status: Arc<Sh2BreakStatusAtomic>,
     break_step: Option<(WhichCpu, u32)>,
 }
 
 pub struct Sega32XDebuggerHandle {
     pub command_sender: Sender<Sega32XDebugCommand>,
-    pub break_status: Arc<Sh2BreakStatus<AtomicBool>>,
+    pub break_status: Arc<Sh2BreakStatusAtomic>,
 }
 
 impl Sega32XDebuggerHandle {
@@ -370,15 +386,27 @@ impl Sega32XDebuggerHandle {
         self.command_sender.send(command)
     }
 
-    #[must_use]
-    pub fn take_break_status(&self) -> Sh2BreakStatus<bool> {
-        let [master_break, slave_break] = [&self.break_status.master, &self.break_status.slave]
-            .map(|break_status| {
-                break_status.compare_exchange(true, false, Ordering::AcqRel, Ordering::Relaxed)
-                    == Ok(true)
-            });
+    fn take_break_status_one(&self, which: WhichCpu) -> Option<u32> {
+        if self.break_status.breaking[which as usize].compare_exchange(
+            true,
+            false,
+            Ordering::AcqRel,
+            Ordering::Relaxed,
+        ) != Ok(true)
+        {
+            return None;
+        }
 
-        Sh2BreakStatus { master: master_break, slave: slave_break }
+        let pc = self.break_status.break_pc[which as usize].load(Ordering::Acquire);
+        Some(pc)
+    }
+
+    #[must_use]
+    pub fn take_break_status(&self) -> Sh2BreakStatus {
+        let master = self.take_break_status_one(WhichCpu::Master);
+        let slave = self.take_break_status_one(WhichCpu::Slave);
+
+        Sh2BreakStatus { master, slave }
     }
 }
 
@@ -386,16 +414,13 @@ impl Sega32XDebugger {
     #[must_use]
     pub fn new(state_sender: SharedVarSender<Sega32XDebugState>) -> (Self, Sega32XDebuggerHandle) {
         let (command_sender, command_receiver) = mpsc::channel();
-        let break_status = Arc::new(Sh2BreakStatus {
-            master: AtomicBool::new(false),
-            slave: AtomicBool::new(false),
-        });
+        let break_status = Arc::new(Sh2BreakStatusAtomic::new());
 
         let debugger = Self {
             command_receiver,
             state_sender,
-            master_breakpoints: Sh2Breakpoints::none(),
-            slave_breakpoints: Sh2Breakpoints::none(),
+            last_sh2_pc: array::from_fn(|_| 0),
+            breakpoints: array::from_fn(|_| Sh2Breakpoints::none()),
             break_status: Arc::clone(&break_status),
             break_step: None,
         };
@@ -433,25 +458,18 @@ impl Sega32XDebugger {
                 debug_view.apply_32x_memory_edit(memory_area, address, value);
             }
             Sega32XDebugCommand::UpdateBreakpoints(which, breakpoints) => {
-                let breakpoints = Sh2Breakpoints::new(&breakpoints);
-                match which {
-                    WhichCpu::Master => self.master_breakpoints = breakpoints,
-                    WhichCpu::Slave => self.slave_breakpoints = breakpoints,
-                }
+                self.breakpoints[which as usize] = Sh2Breakpoints::new(&breakpoints);
             }
             Sega32XDebugCommand::BreakPause(which) => {
                 log::info!("Received pause command for {which:?}");
-                self.handle_breakpoint(which, false, debug_view);
+                self.break_step = Some((which, 1)); // Break at start of next instruction
             }
             Sega32XDebugCommand::BreakResume | Sega32XDebugCommand::BreakStep(_) => {}
         }
     }
 
     pub(crate) fn breakpoints(&self, which: WhichCpu) -> &Sh2Breakpoints {
-        match which {
-            WhichCpu::Master => &self.master_breakpoints,
-            WhichCpu::Slave => &self.slave_breakpoints,
-        }
+        &self.breakpoints[which as usize]
     }
 
     pub(crate) fn with_genesis_ram<'a>(
@@ -463,17 +481,14 @@ impl Sega32XDebugger {
     }
 
     fn set_break_status(&self, which: WhichCpu) {
-        let break_status = match which {
-            WhichCpu::Master => &self.break_status.master,
-            WhichCpu::Slave => &self.break_status.slave,
-        };
-        break_status.store(true, Ordering::Release);
+        let break_idx = which as usize;
+        self.break_status.break_pc[break_idx].store(self.last_sh2_pc[break_idx], Ordering::Relaxed);
+        self.break_status.breaking[break_idx].store(true, Ordering::Release);
     }
 
     pub(crate) fn handle_breakpoint(
         &mut self,
         which: WhichCpu,
-        execute: bool,
         debug_view: &mut Sega32XEmulatorDebugView<'_>,
     ) {
         self.state_sender.update(debug_view.to_debug_state());
@@ -485,14 +500,13 @@ impl Sega32XDebugger {
             match self.command_receiver.recv() {
                 Ok(Sega32XDebugCommand::BreakResume) => break,
                 Ok(Sega32XDebugCommand::BreakStep(step_which)) => {
-                    self.break_step = Some((step_which, 1 + u32::from(!execute)));
+                    self.break_step = Some((step_which, 1 + u32::from(step_which != which)));
                     break;
                 }
                 Ok(command) => self.process_command(command, debug_view),
                 Err(_) => {
                     // Debugger window was closed
-                    self.master_breakpoints = Sh2Breakpoints::none();
-                    self.slave_breakpoints = Sh2Breakpoints::none();
+                    self.breakpoints = array::from_fn(|_| Sh2Breakpoints::none());
                     break;
                 }
             }
@@ -513,6 +527,10 @@ impl Sega32XDebugger {
         } else {
             false
         }
+    }
+
+    pub(crate) fn update_sh2_pc(&mut self, which: WhichCpu, pc: u32) {
+        self.last_sh2_pc[which as usize] = pc;
     }
 }
 

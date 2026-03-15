@@ -2,7 +2,9 @@
 
 pub(crate) mod debug;
 
+use crate::api::debug::Sega32XDebuggerGenesisRamRaw;
 use crate::bootrom;
+use crate::bus::debug::DebugSh2Bus;
 use crate::core::{Sega32X, Sega32XBus};
 use crate::registers::Access;
 use genesis_config::GenesisRegion;
@@ -409,8 +411,8 @@ impl PhysicalMedium for Sega32X {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WhichCpu {
-    Master,
-    Slave,
+    Master = 0,
+    Slave = 1,
 }
 
 impl WhichCpu {
@@ -436,6 +438,7 @@ pub struct Sh2Bus {
     pub which: WhichCpu,
     pub cycle_counter: u64,
     pub cycle_limit: u64,
+    debugger: Option<(Sega32XDebuggerGenesisRamRaw, NonNull<Sh2>)>,
 }
 
 sh2_emu::impl_sh2_lookup_table!(Sh2Bus);
@@ -605,6 +608,7 @@ impl Sh2Bus {
                 which,
                 cycle_counter,
                 cycle_limit,
+                debugger: None,
             },
             _bus_marker: PhantomData,
             _other_marker: PhantomData,
@@ -630,11 +634,7 @@ impl Sh2Bus {
     // the slave SH-2. After the slave SH-2 sees a specific value from the master SH-2, it
     // writes to the communication port twice in quick succession, and the master SH-2 must
     // read the first value before it's overwritten
-    fn sync_if_comm_port_accessed_generic(
-        &mut self,
-        address: u32,
-        mut execute_cpu: impl FnMut(&mut Sh2, Sh2Bus) -> u64,
-    ) {
+    fn sync_if_comm_port_accessed(&mut self, address: u32) {
         // $00004020-$0000402F are the communication ports
         if !(0x4020..0x4030).contains(&address) {
             return;
@@ -648,26 +648,36 @@ impl Sh2Bus {
         // bus copy.
         unsafe {
             let limit = cmp::min(self.cycle_limit, self.cycle_counter);
-            let bus = Sh2Bus {
+            let mut bus = Sh2Bus {
                 s32x_bus: self.s32x_bus,
                 which: self.which.other(),
                 cycle_counter: cycle_counter.read(),
                 cycle_limit: limit,
                 other_sh2: None,
+                debugger: None,
             };
 
-            let new_cycle_counter = execute_cpu(cpu.as_mut(), bus);
-            cycle_counter.write(new_cycle_counter);
-        }
-    }
+            match &mut self.debugger {
+                Some((debugger, debug_other_sh2)) => {
+                    let mut debug_bus = DebugSh2Bus {
+                        bus,
+                        debugger: debugger.clone(),
+                        other_sh2: Some(*debug_other_sh2),
+                    };
 
-    fn sync_if_comm_port_accessed(&mut self, address: u32) {
-        self.sync_if_comm_port_accessed_generic(address, |cpu, mut bus| {
-            while bus.cycle_counter < bus.cycle_limit {
-                cpu.execute(crate::core::SH2_EXECUTION_SLICE_LEN, &mut bus);
+                    while debug_bus.cycle_counter() < limit {
+                        cpu.as_mut().execute(crate::core::SH2_EXECUTION_SLICE_LEN, &mut debug_bus);
+                    }
+                    cycle_counter.write(debug_bus.cycle_counter());
+                }
+                None => {
+                    while bus.cycle_counter < bus.cycle_limit {
+                        cpu.as_mut().execute(crate::core::SH2_EXECUTION_SLICE_LEN, &mut bus);
+                    }
+                    cycle_counter.write(bus.cycle_counter);
+                }
             }
-            bus.cycle_counter
-        });
+        }
     }
 
     // $00000000-$01FFFFFF: Boot ROM, 32X registers, 32X CRAM

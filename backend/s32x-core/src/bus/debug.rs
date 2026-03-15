@@ -41,6 +41,7 @@ impl DebugSh2Bus {
                         which,
                         cycle_counter,
                         cycle_limit,
+                        debugger: None,
                     },
                     debugger: debugger.as_raw(genesis_vdp),
                     other_sh2: None,
@@ -60,26 +61,6 @@ impl DebugSh2Bus {
 }
 
 sh2_emu::impl_sh2_lookup_table!(DebugSh2Bus);
-
-impl DebugSh2Bus {
-    fn sync_if_comm_port_accessed(&mut self, address: u32, accessing_cpu: &mut Sh2) {
-        self.bus.sync_if_comm_port_accessed_generic(address, |cpu, bus| {
-            assert!(bus.other_sh2.is_none());
-
-            let cycle_limit = bus.cycle_limit;
-            let mut debug_bus = Self {
-                bus,
-                debugger: self.debugger.clone(),
-                other_sh2: Some(accessing_cpu.into()),
-            };
-
-            while debug_bus.cycle_counter() < cycle_limit {
-                cpu.execute(crate::core::SH2_EXECUTION_SLICE_LEN, &mut debug_bus);
-            }
-            debug_bus.cycle_counter()
-        });
-    }
-}
 
 pub(crate) struct DebugSh2BusGuard<'bus, 'other, 'debug, 'genram, 'genvdp> {
     bus: DebugSh2Bus,
@@ -166,10 +147,22 @@ impl<'a> Sh2BusDebugView<'a> {
         unsafe { self.0.debugger.debugger.as_mut().should_break_on_step(which) }
     }
 
-    fn handle_breakpoint(&mut self, execute: bool, cpu: &mut Sh2) {
+    fn handle_breakpoint(&mut self, cpu: &mut Sh2) {
         let which = self.0.bus.which;
         let (mut debug_view, debugger) = self.as_32x_debug_view_and_debugger(cpu);
-        debugger.handle_breakpoint(which, execute, &mut debug_view);
+        debugger.handle_breakpoint(which, &mut debug_view);
+    }
+
+    fn with_debugger_on_inner_bus<T>(
+        &mut self,
+        cpu: &mut Sh2,
+        op: impl FnOnce(&mut Sh2Bus) -> T,
+    ) -> T {
+        self.0.bus.debugger = Some((self.0.debugger.clone(), cpu.into()));
+        let value = op(&mut self.0.bus);
+        self.0.bus.debugger = None;
+
+        value
     }
 }
 
@@ -181,7 +174,7 @@ impl Sh2Debugger for Sh2BusDebugView<'_> {
                 self.0.bus.which,
                 OpSize::display::<SIZE>()
             );
-            self.handle_breakpoint(false, cpu);
+            self.handle_breakpoint(cpu);
         }
     }
 
@@ -191,9 +184,7 @@ impl Sh2Debugger for Sh2BusDebugView<'_> {
         ctx: AccessContext,
         cpu: &mut Sh2,
     ) -> u32 {
-        self.0.sync_if_comm_port_accessed(address, cpu);
-
-        self.0.read::<SIZE>(address, ctx)
+        self.with_debugger_on_inner_bus(cpu, |bus| bus.read::<SIZE>(address, ctx))
     }
 
     fn check_write<const SIZE: u8>(&mut self, address: u32, value: u32, cpu: &mut Sh2) {
@@ -203,7 +194,7 @@ impl Sh2Debugger for Sh2BusDebugView<'_> {
                 self.0.bus.which,
                 OpSize::display::<SIZE>()
             );
-            self.handle_breakpoint(false, cpu);
+            self.handle_breakpoint(cpu);
         }
     }
 
@@ -214,9 +205,7 @@ impl Sh2Debugger for Sh2BusDebugView<'_> {
         ctx: AccessContext,
         cpu: &mut Sh2,
     ) {
-        self.0.sync_if_comm_port_accessed(address, cpu);
-
-        self.0.write::<SIZE>(address, value, ctx);
+        self.with_debugger_on_inner_bus(cpu, |bus| bus.write::<SIZE>(address, value, ctx));
     }
 
     fn apply_read_cache_line(
@@ -225,21 +214,25 @@ impl Sh2Debugger for Sh2BusDebugView<'_> {
         ctx: AccessContext,
         cpu: &mut Sh2,
     ) -> [u16; 8] {
-        self.0.sync_if_comm_port_accessed(address, cpu);
-
-        self.0.read_cache_line(address, ctx)
+        self.with_debugger_on_inner_bus(cpu, |bus| bus.read_cache_line(address, ctx))
     }
 
     fn check_execute(&mut self, pc: u32, _opcode: u16, cpu: &mut Sh2) {
-        let break_step = self.check_break_step(self.0.bus.which);
+        let which = self.0.bus.which;
+
+        unsafe {
+            self.0.debugger.debugger.as_mut().update_sh2_pc(which, pc);
+        }
+
+        let break_step = self.check_break_step(which);
         let break_execute = self.breakpoints().should_break_execute(pc);
 
         if break_execute {
-            log::info!("[{:?}] PC={pc:08X} triggered execute breakpoint", self.0.bus.which);
+            log::info!("[{which:?}] PC={pc:08X} triggered execute breakpoint");
         }
 
         if break_step || break_execute {
-            self.handle_breakpoint(true, cpu);
+            self.handle_breakpoint(cpu);
         }
     }
 }

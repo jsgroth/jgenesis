@@ -260,7 +260,7 @@ impl State {
 pub(crate) enum GenesisBasedDebugState<'a> {
     Genesis(&'a mut GenesisDebugState),
     SegaCd(&'a mut SegaCdDebugState),
-    Sega32X(&'a mut Sega32XDebugState, &'a Sender<Sega32XDebugCommand>, Sh2BreakStatus<bool>),
+    Sega32X(&'a mut Sega32XDebugState, &'a Sender<Sega32XDebugCommand>, Sh2BreakStatus),
 }
 
 macro_rules! match_each_state_variant {

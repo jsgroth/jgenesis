@@ -134,20 +134,30 @@ pub fn render_disassembly_window(
     debug_state: &mut Sega32XDebugState,
     window_state: &mut Sh2DebugWindowState,
     command_sender: &Sender<Sega32XDebugCommand>,
-    break_status: Sh2BreakStatus<bool>,
+    break_status: Sh2BreakStatus,
 ) {
+    let window_title = window_state.which.disassembly_window_title();
+
+    if let Some(break_pc) = break_status.get(window_state.which) {
+        window_state.disassembly_open = true;
+        ctx.move_to_top(LayerId::new(Order::Middle, window_title.into()));
+
+        let sh2 = match window_state.which {
+            WhichCpu::Master => &mut debug_state.sh2_master,
+            WhichCpu::Slave => &mut debug_state.sh2_slave,
+        };
+
+        // Without this, read/write breakpoints will show the SH-2 at the instruction *after* the
+        // one that triggered the breakpoint
+        sh2.set_pc(break_pc);
+
+        window_state.try_jump_to_address(break_pc);
+    }
+
     let sh2 = match window_state.which {
         WhichCpu::Master => debug_state.sh2_master.clone(),
         WhichCpu::Slave => debug_state.sh2_slave.clone(),
     };
-
-    let window_title = window_state.which.disassembly_window_title();
-
-    if break_status.get(window_state.which) {
-        window_state.try_jump_to_address(sh2.pc());
-        window_state.disassembly_open = true;
-        ctx.move_to_top(LayerId::new(Order::Middle, window_title.into()));
-    }
 
     let mut open = window_state.disassembly_open;
     Window::new(window_title).open(&mut open).resizable([true, true]).default_width(650.0).show(
