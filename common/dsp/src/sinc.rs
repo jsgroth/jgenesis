@@ -9,7 +9,7 @@ use std::collections::VecDeque;
 use std::marker::PhantomData;
 use std::{array, iter};
 
-const LINEAR_INTERPOLATION_BITS: u32 = 10;
+const LINEAR_INTERPOLATION_BITS: u32 = 20;
 
 pub trait SincKernel {
     fn fir() -> &'static [f32];
