@@ -7,8 +7,10 @@ use jgenesis_common::debug::{
 };
 use jgenesis_common::frontend::Color;
 use jgenesis_proc_macros::EnumAll;
+use m68000_emu::M68000;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
+use z80_emu::Z80;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SpriteAttributeEntry {
@@ -48,6 +50,8 @@ pub enum GenesisDebugCommand {
 
 #[derive(Debug, Clone)]
 pub struct GenesisDebugState {
+    m68k: M68000,
+    z80: Z80,
     cartridge_rom: Option<Box<[u16]>>,
     working_ram: Box<[u16]>,
     audio_ram: Box<[u8]>,
@@ -55,13 +59,30 @@ pub struct GenesisDebugState {
 }
 
 impl GenesisDebugState {
-    pub fn new<Medium: PhysicalMedium>(memory: &Memory<Medium>, vdp: &Vdp) -> Self {
+    pub fn new<Medium: PhysicalMedium>(
+        m68k: &M68000,
+        z80: &Z80,
+        memory: &Memory<Medium>,
+        vdp: &Vdp,
+    ) -> Self {
         Self {
+            m68k: m68k.clone(),
+            z80: z80.clone(),
             cartridge_rom: memory.clone_cartridge_rom(),
             working_ram: memory.clone_working_ram(),
             audio_ram: memory.clone_audio_ram(),
             vdp: vdp.to_debug_state(),
         }
+    }
+
+    #[must_use]
+    pub fn m68k(&self) -> &M68000 {
+        &self.m68k
+    }
+
+    #[must_use]
+    pub fn z80(&mut self) -> &Z80 {
+        &self.z80
     }
 
     pub fn copy_cram(&self, out: &mut [Color], modifier: ColorModifier) {
@@ -124,13 +145,20 @@ impl<MediumView: PhysicalMediumDebugView> GenesisMemoryDebugView<'_, MediumView>
 }
 
 pub struct BaseGenesisDebugView<'a, MediumView> {
+    m68k: &'a mut M68000,
+    z80: &'a mut Z80,
     memory: GenesisMemoryDebugView<'a, MediumView>,
     vdp: &'a mut Vdp,
 }
 
 impl<'a, MediumView: PhysicalMediumDebugView> BaseGenesisDebugView<'a, MediumView> {
-    pub fn new(memory: GenesisMemoryDebugView<'a, MediumView>, vdp: &'a mut Vdp) -> Self {
-        Self { memory, vdp }
+    pub fn new(
+        m68k: &'a mut M68000,
+        z80: &'a mut Z80,
+        memory: GenesisMemoryDebugView<'a, MediumView>,
+        vdp: &'a mut Vdp,
+    ) -> Self {
+        Self { m68k, z80, memory, vdp }
     }
 
     pub fn memory(&mut self) -> &mut GenesisMemoryDebugView<'a, MediumView> {
@@ -162,6 +190,8 @@ impl<'a, MediumView: PhysicalMediumDebugView> BaseGenesisDebugView<'a, MediumVie
 
     pub fn to_debug_state(&mut self) -> GenesisDebugState {
         GenesisDebugState {
+            m68k: self.m68k.clone(),
+            z80: self.z80.clone(),
             cartridge_rom: self
                 .memory
                 .medium_view
@@ -189,12 +219,14 @@ pub type GenesisEmulatorDebugView<'a> = BaseGenesisDebugView<'a, CartridgeDebugV
 impl GenesisEmulator {
     #[must_use]
     pub fn to_debug_state(&self) -> GenesisDebugState {
-        GenesisDebugState::new(&self.memory, &self.vdp)
+        GenesisDebugState::new(&self.m68k, &self.z80, &self.memory, &self.vdp)
     }
 
     #[must_use]
     pub fn as_debug_view(&mut self) -> GenesisEmulatorDebugView<'_> {
         GenesisEmulatorDebugView {
+            m68k: &mut self.m68k,
+            z80: &mut self.z80,
             memory: self
                 .memory
                 .as_debug_view(|cartridge| CartridgeDebugView { rom: cartridge.debug_rom_view() }),
