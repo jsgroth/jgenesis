@@ -16,6 +16,7 @@ use jgenesis_common::frontend::{
 };
 use jgenesis_common::sync::SharedVarSender;
 use jgenesis_proc_macros::EnumAll;
+use m68000_emu::M68000;
 use sh2_emu::Sh2;
 use sh2_emu::bus::OpSize;
 use std::array;
@@ -24,6 +25,7 @@ use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, SendError, Sender, TryRecvError};
 use std::sync::{Arc, mpsc};
+use z80_emu::Z80;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAll)]
 pub enum S32XMemoryArea {
@@ -282,7 +284,7 @@ impl Sega32XEmulator {
         let sega_32x = self.memory.medium();
 
         Sega32XDebugState {
-            genesis: GenesisDebugState::new(&self.memory, &self.vdp),
+            genesis: GenesisDebugState::new(&self.m68k, &self.z80, &self.memory, &self.vdp),
             sdram: sega_32x.s32x_bus.sdram.to_vec().into_boxed_slice(),
             sh2_master: sega_32x.clone_sh2_master(),
             sh2_slave: sega_32x.clone_sh2_slave(),
@@ -296,6 +298,8 @@ impl Sega32XEmulator {
     pub fn as_debug_view(&mut self) -> Sega32XEmulatorDebugView<'_> {
         Sega32XEmulatorDebugView {
             genesis: BaseGenesisDebugView::new(
+                &mut self.m68k,
+                &mut self.z80,
                 self.memory.as_debug_view(Sega32X::as_debug_view),
                 &mut self.vdp,
             ),
@@ -473,12 +477,14 @@ impl Sega32XDebugger {
         &self.breakpoints[which as usize]
     }
 
-    pub(crate) fn with_genesis_ram<'a>(
+    pub(crate) fn for_sh2_exec<'a>(
         &'a mut self,
+        m68k: &'a mut M68000,
+        z80: &'a mut Z80,
         working_ram: &'a mut [u16],
         audio_ram: &'a mut [u8],
-    ) -> Sega32XDebuggerGenesisRam<'a> {
-        Sega32XDebuggerGenesisRam { debugger: self, working_ram, audio_ram }
+    ) -> Sega32XDebuggerForSh2<'a> {
+        Sega32XDebuggerForSh2 { debugger: self, m68k, z80, working_ram, audio_ram }
     }
 
     fn set_break_status(&self, which: WhichCpu) {
@@ -535,20 +541,24 @@ impl Sega32XDebugger {
     }
 }
 
-pub(crate) struct Sega32XDebuggerGenesisRam<'a> {
+pub(crate) struct Sega32XDebuggerForSh2<'a> {
     pub debugger: &'a mut Sega32XDebugger,
+    pub m68k: &'a mut M68000,
+    pub z80: &'a mut Z80,
     pub working_ram: &'a mut [u16],
     pub audio_ram: &'a mut [u8],
 }
 
-impl Sega32XDebuggerGenesisRam<'_> {
+impl Sega32XDebuggerForSh2<'_> {
     /// # Safety
     ///
-    /// The caller must not touch the values referenced by `self` or `vdp` until after the returned
-    /// [`Sega32XDebuggerGenesisRamRaw`] has been dropped.
-    pub unsafe fn as_raw(&mut self, vdp: &mut GenesisVdp) -> Sega32XDebuggerGenesisRamRaw {
-        Sega32XDebuggerGenesisRamRaw {
+    /// The caller must not touch the values referenced until after the returned
+    /// [`Sega32XDebuggerForSh2Raw`] has been dropped.
+    pub unsafe fn as_raw(&mut self, vdp: &mut GenesisVdp) -> Sega32XDebuggerForSh2Raw {
+        Sega32XDebuggerForSh2Raw {
             debugger: self.debugger.into(),
+            m68k: self.m68k.into(),
+            z80: self.z80.into(),
             working_ram: self.working_ram.into(),
             audio_ram: self.audio_ram.into(),
             vdp: vdp.into(),
@@ -557,8 +567,10 @@ impl Sega32XDebuggerGenesisRam<'_> {
 }
 
 #[derive(Clone)]
-pub(crate) struct Sega32XDebuggerGenesisRamRaw {
+pub(crate) struct Sega32XDebuggerForSh2Raw {
     pub debugger: NonNull<Sega32XDebugger>,
+    pub m68k: NonNull<M68000>,
+    pub z80: NonNull<Z80>,
     pub working_ram: NonNull<[u16]>,
     pub audio_ram: NonNull<[u8]>,
     pub vdp: NonNull<GenesisVdp>,

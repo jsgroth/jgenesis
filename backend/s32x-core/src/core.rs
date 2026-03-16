@@ -1,7 +1,7 @@
 //! 32X core code
 
 use crate::api::Sega32XEmulatorConfig;
-use crate::api::debug::{Sega32XDebuggerGenesisRam, Sega32XMediumView};
+use crate::api::debug::{Sega32XDebuggerForSh2, Sega32XMediumView};
 use crate::audio::PwmResampler;
 use crate::bootrom::M68kVectors;
 use crate::bus::debug::DebugSh2Bus;
@@ -108,7 +108,7 @@ impl Sega32X {
         total_mclk_cycles: u64,
         pwm_resampler: &mut PwmResampler,
         genesis_vdp: &mut GenesisVdp,
-        debugger: Sega32XDebuggerGenesisRam<'_>,
+        debugger: Sega32XDebuggerForSh2<'_>,
     ) {
         self.tick_inner::<true>(total_mclk_cycles, pwm_resampler, genesis_vdp, Some(debugger));
     }
@@ -119,7 +119,7 @@ impl Sega32X {
         mut total_mclk_cycles: u64,
         pwm_resampler: &mut PwmResampler,
         genesis_vdp: &mut GenesisVdp,
-        mut debugger: Option<Sega32XDebuggerGenesisRam<'_>>,
+        mut debugger: Option<Sega32XDebuggerForSh2<'_>>,
     ) {
         while total_mclk_cycles > 0 {
             let h_interrupt_enabled = self.s32x_bus.registers.either_h_interrupt_enabled();
@@ -244,7 +244,7 @@ struct ExecuteCpuArgs<'cpu, 'bus, 'other, 'genvdp, 'debug, 'genram> {
     cycle_limit: u64,
     other_cpu: (&'other mut Sh2, &'other mut u64),
     genesis_vdp: &'genvdp mut GenesisVdp,
-    debugger: Option<&'debug mut Sega32XDebuggerGenesisRam<'genram>>,
+    debugger: Option<&'debug mut Sega32XDebuggerForSh2<'genram>>,
 }
 
 #[inline]

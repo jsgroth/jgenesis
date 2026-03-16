@@ -122,7 +122,7 @@ impl SegaCdEmulator {
         let sega_cd = self.memory.medium();
 
         SegaCdDebugState {
-            genesis: GenesisDebugState::new(&self.memory, &self.vdp),
+            genesis: GenesisDebugState::new(&self.main_cpu, &self.z80, &self.memory, &self.vdp),
             bios_rom: sega_cd.bios().to_vec().into_boxed_slice(),
             prg_ram: sega_cd.clone_prg_ram(),
             word_ram: sega_cd.word_ram().clone(),
@@ -135,6 +135,8 @@ impl SegaCdEmulator {
     pub fn as_debug_view(&mut self) -> SegaCdEmulatorDebugView<'_> {
         SegaCdEmulatorDebugView {
             genesis: BaseGenesisDebugView::new(
+                &mut self.main_cpu,
+                &mut self.z80,
                 self.memory.as_debug_view(SegaCd::as_debug_view),
                 &mut self.vdp,
             ),

@@ -2,7 +2,7 @@
 
 pub(crate) mod debug;
 
-use crate::api::debug::Sega32XDebuggerGenesisRamRaw;
+use crate::api::debug::Sega32XDebuggerForSh2Raw;
 use crate::bootrom;
 use crate::bus::debug::DebugSh2Bus;
 use crate::core::{Sega32X, Sega32XBus};
@@ -438,7 +438,7 @@ pub struct Sh2Bus {
     pub which: WhichCpu,
     pub cycle_counter: u64,
     pub cycle_limit: u64,
-    debugger: Option<(Sega32XDebuggerGenesisRamRaw, NonNull<Sh2>)>,
+    debugger: Option<(Sega32XDebuggerForSh2Raw, NonNull<Sh2>)>,
 }
 
 sh2_emu::impl_sh2_lookup_table!(Sh2Bus);

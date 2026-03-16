@@ -223,7 +223,7 @@ impl Sega32XEmulator {
                 mclk_cycles,
                 pwm_resampler,
                 &mut self.vdp,
-                debugger.with_genesis_ram(working_ram, audio_ram),
+                debugger.for_sh2_exec(&mut self.m68k, &mut self.z80, working_ram, audio_ram),
             );
         } else {
             self.memory.medium_mut().tick(mclk_cycles, pwm_resampler, &mut self.vdp);

@@ -1,7 +1,7 @@
 use crate::GenesisVdp;
 use crate::api::debug::{
-    Sega32XDebugger, Sega32XDebuggerGenesisRam, Sega32XDebuggerGenesisRamRaw,
-    Sega32XEmulatorDebugView, Sega32XMediumView, Sh2Breakpoints,
+    Sega32XDebugger, Sega32XDebuggerForSh2, Sega32XDebuggerForSh2Raw, Sega32XEmulatorDebugView,
+    Sega32XMediumView, Sh2Breakpoints,
 };
 use crate::bus::{OtherCpu, Sh2Bus, WhichCpu};
 use crate::core::Sega32XBus;
@@ -15,7 +15,7 @@ use std::ptr::NonNull;
 
 pub(crate) struct DebugSh2Bus {
     pub(crate) bus: Sh2Bus,
-    pub(crate) debugger: Sega32XDebuggerGenesisRamRaw,
+    pub(crate) debugger: Sega32XDebuggerForSh2Raw,
     pub(crate) other_sh2: Option<NonNull<Sh2>>,
 }
 
@@ -27,7 +27,7 @@ impl DebugSh2Bus {
         cycle_limit: u64,
         other_sh2: Option<(&'other mut Sh2, &'other mut u64)>,
         genesis_vdp: &'genvdp mut GenesisVdp,
-        debugger: &'debug mut Sega32XDebuggerGenesisRam<'genram>,
+        debugger: &'debug mut Sega32XDebuggerForSh2<'genram>,
     ) -> DebugSh2BusGuard<'bus, 'other, 'debug, 'genram, 'genvdp> {
         unsafe {
             DebugSh2BusGuard {
@@ -116,6 +116,8 @@ impl<'a> Sh2BusDebugView<'a> {
 
             let debug_view = Sega32XEmulatorDebugView {
                 genesis: BaseGenesisDebugView::new(
+                    self.0.debugger.m68k.as_mut(),
+                    self.0.debugger.z80.as_mut(),
                     GenesisMemoryDebugView {
                         medium_view: Sega32XMediumView {
                             cartridge_rom: s32x_bus.cartridge.debug_rom_view(),
@@ -307,6 +309,8 @@ mod tests {
     use genesis_core::vdp::DarkenColors;
     use jgenesis_common::boxedarray::BoxedWordArray;
     use jgenesis_common::frontend::TimingMode;
+    use m68000_emu::M68000;
+    use z80_emu::Z80;
 
     const COMM_PORT_0: u32 = 0x20004020;
 
@@ -359,13 +363,19 @@ mod tests {
 
         sh2_slave_cycles = 0;
 
+        let mut m68k = M68000::default();
+        let mut z80 = Z80::new();
         let mut genesis_vdp =
             GenesisVdp::new(TimingMode::Ntsc, emu_config.genesis.to_vdp_config(DarkenColors::Yes));
         let mut working_ram = vec![0; 64 * 1024];
         let mut audio_ram = vec![0; 8 * 1024];
 
-        let mut debugger_with_genram =
-            debugger.with_genesis_ram(working_ram.as_mut_slice(), audio_ram.as_mut_slice());
+        let mut debugger_for_sh2 = debugger.for_sh2_exec(
+            &mut m68k,
+            &mut z80,
+            working_ram.as_mut_slice(),
+            audio_ram.as_mut_slice(),
+        );
         let mut debug_bus = DebugSh2Bus::create(
             &mut s32x_bus,
             WhichCpu::Master,
@@ -373,7 +383,7 @@ mod tests {
             1024,
             Some((&mut sh2_slave, &mut sh2_slave_cycles)),
             &mut genesis_vdp,
-            &mut debugger_with_genram,
+            &mut debugger_for_sh2,
         );
 
         for _ in 0..10 {
