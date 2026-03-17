@@ -77,8 +77,8 @@ impl DebuggerWindow {
     ) -> Result<Self, DebuggerError> {
         let scale_factor =
             scale_factor.or_else(|| crate::try_get_primary_display_scale(video)).unwrap_or(1.0);
-        let window_width = (800.0 * scale_factor).round() as u32;
-        let window_height = (700.0 * scale_factor).round() as u32;
+        let window_width = (900.0 * scale_factor).round() as u32;
+        let window_height = (790.0 * scale_factor).round() as u32;
 
         let window = video
             .window("Memory Viewer", window_width, window_height)
