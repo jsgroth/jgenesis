@@ -1,4 +1,5 @@
 use crate::GenesisEmulator;
+use crate::cartridge::Cartridge;
 use crate::memory::{Memory, PhysicalMedium};
 use crate::vdp::debug::VdpDebugState;
 use crate::vdp::{ColorModifier, Vdp};
@@ -52,7 +53,7 @@ pub enum GenesisDebugCommand {
 pub struct GenesisDebugState {
     m68k: M68000,
     z80: Z80,
-    cartridge_rom: Option<Box<[u16]>>,
+    cartridge: Option<Cartridge>,
     working_ram: Box<[u16]>,
     audio_ram: Box<[u8]>,
     vdp: VdpDebugState,
@@ -68,7 +69,7 @@ impl GenesisDebugState {
         Self {
             m68k: m68k.clone(),
             z80: z80.clone(),
-            cartridge_rom: memory.clone_cartridge_rom(),
+            cartridge: memory.clone_cartridge(),
             working_ram: memory.clone_working_ram(),
             audio_ram: memory.clone_audio_ram(),
             vdp: vdp.to_debug_state(),
@@ -86,8 +87,13 @@ impl GenesisDebugState {
     }
 
     #[must_use]
+    pub fn cartridge(&self) -> Option<&Cartridge> {
+        self.cartridge.as_ref()
+    }
+
+    #[must_use]
     pub fn cartridge_rom(&self) -> Option<&[u16]> {
-        self.cartridge_rom.as_deref()
+        self.cartridge.as_ref().map(Cartridge::debug_rom_view_shared)
     }
 
     #[must_use]
@@ -121,8 +127,10 @@ impl GenesisDebugState {
     #[must_use]
     pub fn memory_view(&mut self, memory_area: GenesisMemoryArea) -> Box<dyn DebugMemoryView + '_> {
         match memory_area {
-            GenesisMemoryArea::CartridgeRom => match self.cartridge_rom.as_mut() {
-                Some(cartridge_rom) => Box::new(DebugWordsView(cartridge_rom, Endian::Big)),
+            GenesisMemoryArea::CartridgeRom => match self.cartridge.as_mut() {
+                Some(cartridge) => {
+                    Box::new(DebugWordsView(cartridge.debug_rom_view(), Endian::Big))
+                }
                 None => Box::new(EmptyDebugView),
             },
             GenesisMemoryArea::WorkingRam => {
@@ -137,7 +145,7 @@ impl GenesisDebugState {
 }
 
 pub trait PhysicalMediumDebugView {
-    fn debug_cartridge_rom(&mut self) -> Option<&mut [u16]> {
+    fn debug_cartridge(&mut self) -> Option<&mut Cartridge> {
         None
     }
 }
@@ -182,8 +190,8 @@ impl<'a, MediumView: PhysicalMediumDebugView> BaseGenesisDebugView<'a, MediumVie
     pub fn apply_memory_edit(&mut self, memory_area: GenesisMemoryArea, address: usize, value: u8) {
         match memory_area {
             GenesisMemoryArea::CartridgeRom => {
-                if let Some(rom) = self.memory.medium_view.debug_cartridge_rom() {
-                    DebugWordsView(rom, Endian::Big).write(address, value);
+                if let Some(cartridge) = self.memory.medium_view.debug_cartridge() {
+                    DebugWordsView(cartridge.debug_rom_view(), Endian::Big).write(address, value);
                 }
             }
             GenesisMemoryArea::WorkingRam => {
@@ -202,11 +210,7 @@ impl<'a, MediumView: PhysicalMediumDebugView> BaseGenesisDebugView<'a, MediumVie
         GenesisDebugState {
             m68k: self.m68k.clone(),
             z80: self.z80.clone(),
-            cartridge_rom: self
-                .memory
-                .medium_view
-                .debug_cartridge_rom()
-                .map(|rom| rom.to_vec().into_boxed_slice()),
+            cartridge: self.memory.medium_view.debug_cartridge().map(|cartridge| cartridge.clone()),
             working_ram: self.memory.working_ram.to_vec().into_boxed_slice(),
             audio_ram: self.memory.audio_ram.to_vec().into_boxed_slice(),
             vdp: self.vdp.to_debug_state(),
@@ -215,12 +219,12 @@ impl<'a, MediumView: PhysicalMediumDebugView> BaseGenesisDebugView<'a, MediumVie
 }
 
 pub struct CartridgeDebugView<'a> {
-    pub(crate) rom: &'a mut [u16],
+    pub(crate) cartridge: &'a mut Cartridge,
 }
 
 impl PhysicalMediumDebugView for CartridgeDebugView<'_> {
-    fn debug_cartridge_rom(&mut self) -> Option<&mut [u16]> {
-        Some(self.rom)
+    fn debug_cartridge(&mut self) -> Option<&mut Cartridge> {
+        Some(self.cartridge)
     }
 }
 
@@ -237,9 +241,7 @@ impl GenesisEmulator {
         GenesisEmulatorDebugView {
             m68k: &mut self.m68k,
             z80: &mut self.z80,
-            memory: self
-                .memory
-                .as_debug_view(|cartridge| CartridgeDebugView { rom: cartridge.debug_rom_view() }),
+            memory: self.memory.as_debug_view(|cartridge| CartridgeDebugView { cartridge }),
             vdp: &mut self.vdp,
         }
     }

@@ -120,7 +120,7 @@ impl<'a> Sh2BusDebugView<'a> {
                     self.0.debugger.z80.as_mut(),
                     GenesisMemoryDebugView {
                         medium_view: Sega32XMediumView {
-                            cartridge_rom: s32x_bus.cartridge.debug_rom_view(),
+                            cartridge: &mut s32x_bus.cartridge,
                             sdram: s32x_bus.sdram.as_mut_slice(),
                             sh2_master,
                             sh2_slave,

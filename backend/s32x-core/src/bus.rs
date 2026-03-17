@@ -8,6 +8,7 @@ use crate::bus::debug::DebugSh2Bus;
 use crate::core::{Sega32X, Sega32XBus};
 use crate::registers::Access;
 use genesis_config::GenesisRegion;
+use genesis_core::cartridge::Cartridge;
 use genesis_core::memory::PhysicalMedium;
 use jgenesis_common::num::{GetBit, U16Ext};
 use sh2_emu::Sh2;
@@ -404,8 +405,8 @@ impl PhysicalMedium for Sega32X {
         self.region
     }
 
-    fn clone_cartridge_rom(&self) -> Option<Box<[u16]>> {
-        self.s32x_bus.cartridge.clone_cartridge_rom()
+    fn clone_cartridge(&self) -> Option<Cartridge> {
+        Some(self.s32x_bus.cartridge.clone())
     }
 }
 

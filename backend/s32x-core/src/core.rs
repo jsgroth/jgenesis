@@ -225,7 +225,7 @@ impl Sega32X {
 
     pub fn as_debug_view(&mut self) -> Sega32XMediumView<'_> {
         Sega32XMediumView {
-            cartridge_rom: self.s32x_bus.cartridge.debug_rom_view(),
+            cartridge: &mut self.s32x_bus.cartridge,
             sdram: self.s32x_bus.sdram.as_mut_slice(),
             sh2_master: &mut self.sh2_master,
             sh2_slave: &mut self.sh2_slave,
