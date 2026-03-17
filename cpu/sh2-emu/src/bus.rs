@@ -26,7 +26,7 @@ impl Display for AccessContext {
                 write!(
                     f,
                     "PC={pc:08X}, opcode={opcode:04X}, instruction='{}'",
-                    disassemble::disassemble(opcode)
+                    disassemble::disassemble(opcode, DisassembleOptions::default())
                 )
             }
             Self::InterruptVector => write!(f, "Interrupt vector fetch"),
@@ -155,4 +155,5 @@ macro_rules! impl_sh2_lookup_table {
 }
 
 use crate::debug::Sh2Debugger;
+use crate::disassemble::DisassembleOptions;
 pub use impl_sh2_lookup_table;

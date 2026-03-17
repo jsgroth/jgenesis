@@ -26,7 +26,7 @@ use crate::registers::{Sh2Registers, Sh7604Registers};
 use crate::sci::SerialInterface;
 use crate::wdt::WatchdogTimer;
 use bincode::{Decode, Encode};
-pub use disassemble::disassemble;
+pub use disassemble::{BranchDisplacement, DisassembleOptions, disassemble};
 pub use instructions::OpcodeTable;
 use jgenesis_common::debug::DebugMemoryView;
 use std::env;
@@ -205,7 +205,7 @@ impl Sh2 {
             log::trace!(
                 "[{}] Executing opcode {opcode:04X} at PC {pc:08X}: {}",
                 self.name,
-                disassemble::disassemble(opcode)
+                disassemble::disassemble(opcode, DisassembleOptions::default())
             );
             log::trace!("  Registers: {:08X?}", self.registers.gpr);
             log::trace!(
