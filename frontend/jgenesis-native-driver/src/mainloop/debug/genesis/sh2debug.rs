@@ -73,6 +73,7 @@ pub struct Sh2DebugWindowState {
     pub disassembly_open: bool,
     pub breakpoints_open: bool,
     pub disassembly_area: DisassemblyArea,
+    pub disassembly_address: String,
     pub disasm_scroll_to_row: Option<usize>,
     pub breakpoints: Vec<Sh2Breakpoint>,
     pub breakpoint_start_addr: String,
@@ -89,6 +90,7 @@ impl Sh2DebugWindowState {
             disassembly_open: false,
             breakpoints_open: false,
             disassembly_area: DisassemblyArea::Sdram { cached: true },
+            disassembly_address: String::new(),
             disasm_scroll_to_row: None,
             breakpoints: Vec::new(),
             breakpoint_start_addr: String::new(),
@@ -160,9 +162,11 @@ pub fn render_disassembly_window(
     };
 
     let mut open = window_state.disassembly_open;
-    Window::new(window_title).open(&mut open).resizable([true, true]).default_width(650.0).show(
-        ctx,
-        |ui| {
+    Window::new(window_title)
+        .open(&mut open)
+        .resizable([true, true])
+        .default_size([650.0, 500.0])
+        .show(ctx, |ui| {
             egui::TopBottomPanel::new(TopBottomSide::Top, format!("{window_title}_top_panel"))
                 .show_inside(ui, |ui| {
                     ui.horizontal(|ui| {
@@ -198,6 +202,26 @@ pub fn render_disassembly_window(
                     ] {
                         ui.radio_value(&mut window_state.disassembly_area, value, label);
                     }
+
+                    ui.horizontal(|ui| {
+                        let text_resp = ui.add(
+                            TextEdit::singleline(&mut window_state.disassembly_address)
+                                .desired_width(80.0),
+                        );
+                        let button_resp = ui.button("Jump to address");
+
+                        let should_jump = button_resp.clicked()
+                            || (text_resp.lost_focus()
+                                && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                        if should_jump
+                            && let Ok(address) =
+                                u32::from_str_radix(&window_state.disassembly_address, 16)
+                        {
+                            window_state.try_jump_to_address(address);
+                        }
+                    });
+
+                    ui.add_space(3.0);
 
                     if ui.button("Jump to PC").clicked() {
                         window_state.try_jump_to_address(sh2.pc());
@@ -286,8 +310,7 @@ pub fn render_disassembly_window(
                     });
                 });
             });
-        },
-    );
+        });
     window_state.disassembly_open = open;
 }
 
@@ -351,22 +374,30 @@ pub fn render_breakpoints_window(
             ui.separator();
         }
 
+        let mut enter_pressed = false;
+
         ui.heading("Add Breakpoint");
         ui.horizontal(|ui| {
             ui.label("$");
-            ui.add(
+            let start_resp = ui.add(
                 TextEdit::singleline(&mut window_state.breakpoint_start_addr).desired_width(80.0),
             );
             ui.label("-");
             ui.label("$");
-            ui.add(TextEdit::singleline(&mut window_state.breakpoint_end_addr).desired_width(80.0));
+            let end_resp = ui.add(
+                TextEdit::singleline(&mut window_state.breakpoint_end_addr).desired_width(80.0),
+            );
 
             ui.checkbox(&mut window_state.breakpoint_read, "Read");
             ui.checkbox(&mut window_state.breakpoint_write, "Write");
             ui.checkbox(&mut window_state.breakpoint_exec, "Execute");
+
+            enter_pressed = (start_resp.lost_focus() || end_resp.lost_focus())
+                && ui.input(|i| i.key_pressed(egui::Key::Enter));
         });
 
-        if ui.button("Add").clicked()
+        let button_resp = ui.button("Add");
+        if (button_resp.clicked() || enter_pressed)
             && let Ok(start_address) = u32::from_str_radix(&window_state.breakpoint_start_addr, 16)
         {
             if window_state.breakpoint_end_addr.is_empty() {

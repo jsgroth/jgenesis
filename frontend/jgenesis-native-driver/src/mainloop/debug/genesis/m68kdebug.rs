@@ -115,7 +115,7 @@ impl M68kDebugMemoryMap for SegaCdMainMemoryMap<'_> {
         Some((
             "PRG RAM Bank",
             format!(
-                "{} (${:05X}-${:05X})",
+                "{} ({:05X}-{:05X})",
                 self.prg_ram_base_addr >> 17,
                 self.prg_ram_base_addr,
                 self.prg_ram_base_addr | 0x1FFFF
@@ -212,12 +212,16 @@ pub fn render_disassembly_window<MemoryMap: M68kDebugMemoryMap>(
                 ui,
                 |ui| {
                     ui.horizontal(|ui| {
-                        ui.add(
+                        let text_resp = ui.add(
                             TextEdit::singleline(&mut state.disassemble_jump_addr)
                                 .desired_width(60.0),
                         );
+                        let button_resp = ui.button("Jump to address");
 
-                        if ui.button("Jump to address").clicked()
+                        let should_jump = button_resp.clicked()
+                            || (text_resp.lost_focus()
+                                && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                        if should_jump
                             && let Ok(address) =
                                 u32::from_str_radix(&state.disassemble_jump_addr, 16)
                         {
