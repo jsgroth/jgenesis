@@ -96,6 +96,7 @@ const CELL_IMAGE_V4_SIZE_BYTES: u32 = 4 * 8 * 8 / 2;
 const CELL_IMAGE_H_SIZE_BYTES: u32 = 64 * 8 / 2;
 
 impl WordRam {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             ram: BoxedByteArray::new(),
@@ -109,10 +110,12 @@ impl WordRam {
         }
     }
 
+    #[must_use]
     pub fn mode(&self) -> WordRamMode {
         self.mode
     }
 
+    #[must_use]
     pub fn read_control(&self) -> u8 {
         let (dmna, ret) = match self.mode {
             WordRamMode::TwoM => {
@@ -130,7 +133,7 @@ impl WordRam {
         (u8::from(self.mode.to_bit()) << 2) | (u8::from(dmna) << 1) | u8::from(ret)
     }
 
-    pub fn main_cpu_write_control(&mut self, value: u8) {
+    pub(crate) fn main_cpu_write_control(&mut self, value: u8) {
         let dmna = value.bit(1);
 
         // DMNA=1 always returns 2M word RAM to sub CPU, regardless of mode
@@ -148,7 +151,7 @@ impl WordRam {
         log::trace!("Main CPU control write; DMNA={}, mode={:?}", u8::from(dmna), self.mode);
     }
 
-    pub fn sub_cpu_write_control(&mut self, value: u8) {
+    pub(crate) fn sub_cpu_write_control(&mut self, value: u8) {
         self.mode = WordRamMode::from_bit(value.bit(2));
         let ret = value.bit(0);
 
@@ -239,6 +242,7 @@ impl WordRam {
         }
     }
 
+    #[must_use]
     pub fn main_cpu_read_ram(&self, address: u32) -> u8 {
         match self.main_cpu_map_address(address) {
             None => 0x00,
@@ -246,7 +250,7 @@ impl WordRam {
         }
     }
 
-    pub fn main_cpu_write_ram(&mut self, address: u32, value: u8) {
+    pub(crate) fn main_cpu_write_ram(&mut self, address: u32, value: u8) {
         match self.main_cpu_map_address(address) {
             None => {}
             Some(addr) => {
@@ -276,7 +280,7 @@ impl WordRam {
         }
     }
 
-    pub fn sub_cpu_read_ram(&mut self, address: u32) -> u8 {
+    pub(crate) fn sub_cpu_read_ram(&mut self, address: u32) -> u8 {
         match self.sub_cpu_map_address(address) {
             WordRamSubMapResult::None => 0,
             WordRamSubMapResult::Byte(addr) => {
@@ -294,7 +298,23 @@ impl WordRam {
         }
     }
 
-    pub fn sub_cpu_write_ram(&mut self, address: u32, value: u8) {
+    #[must_use]
+    pub fn sub_cpu_peek_ram(&self, address: u32) -> u8 {
+        match self.sub_cpu_map_address(address) {
+            WordRamSubMapResult::None => 0,
+            WordRamSubMapResult::Byte(addr) => self.ram[addr as usize],
+            WordRamSubMapResult::Pixel(pixel_addr) => {
+                let byte_addr = (pixel_addr >> 1) as usize;
+                if pixel_addr.bit(0) {
+                    self.ram[byte_addr] & 0x0F
+                } else {
+                    self.ram[byte_addr] >> 4
+                }
+            }
+        }
+    }
+
+    pub(crate) fn sub_cpu_write_ram(&mut self, address: u32, value: u8) {
         match self.sub_cpu_map_address(address) {
             WordRamSubMapResult::None => {}
             WordRamSubMapResult::Byte(byte_addr) => {
@@ -311,11 +331,13 @@ impl WordRam {
     }
 
     /// Is sub CPU access to word RAM currently blocked (i.e. in 2M mode and main CPU owns word RAM)
+    #[must_use]
     pub fn is_sub_access_blocked(&self) -> bool {
         self.mode == WordRamMode::TwoM && self.owner_2m == ScdCpu::Main
     }
 
     /// Did the sub CPU access word RAM while access was blocked
+    #[must_use]
     pub fn sub_performed_blocked_access(&self) -> bool {
         !self.sub_buffered_writes.is_empty() || self.sub_blocked_read
     }
@@ -326,7 +348,7 @@ impl WordRam {
         }
     }
 
-    pub fn graphics_write_ram(&mut self, address: u32, nibble: Nibble, pixel: u8) {
+    pub(crate) fn graphics_write_ram(&mut self, address: u32, nibble: Nibble, pixel: u8) {
         match self.sub_cpu_map_address(address) {
             WordRamSubMapResult::None => {}
             WordRamSubMapResult::Byte(addr) => {
@@ -381,7 +403,7 @@ impl WordRam {
         }
     }
 
-    pub fn dma_write(&mut self, address: u32, value: u8) {
+    pub(crate) fn dma_write(&mut self, address: u32, value: u8) {
         // Word RAM DMA writes should go to $080000 in 2M mode and $0C0000 in 1M mode
         // In 1M mode, $080000-$0BFFFF is a dot image of word RAM, and the raw bytes are at $0C0000-$0DFFFF
         let base_address = match self.mode {
@@ -398,12 +420,20 @@ impl WordRam {
         self.sub_cpu_write_ram(base_address | address, value);
     }
 
+    #[must_use]
     pub fn priority_mode(&self) -> WordRamPriorityMode {
         self.priority_mode
     }
 
+    #[must_use]
     pub fn debug_view(&mut self) -> impl DebugMemoryView {
         DebugBytesView(self.ram.as_mut_slice())
+    }
+}
+
+impl Default for WordRam {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

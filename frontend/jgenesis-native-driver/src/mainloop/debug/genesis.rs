@@ -1,7 +1,12 @@
+mod m68kdebug;
 mod sh2debug;
 
 use crate::mainloop::audio::SdlAudioOutput;
 use crate::mainloop::debug;
+use crate::mainloop::debug::genesis::m68kdebug::{
+    Genesis68kMemoryMap, M68kDebugWindowState, S32XMemoryMap, SegaCdMainMemoryMap,
+    SegaCdSubMemoryMap,
+};
 use crate::mainloop::debug::genesis::sh2debug::Sh2DebugWindowState;
 use crate::mainloop::debug::memviewer::MemoryViewerState;
 use crate::mainloop::debug::{
@@ -229,6 +234,8 @@ struct State {
     h_scroll: HScrollWindowState,
     sprite_attributes: SpriteAttributesWindowState,
     s32x_palette: S32XPaletteRamState,
+    m68k: M68kDebugWindowState,
+    m68k_sub: M68kDebugWindowState,
     sh2_master: Sh2DebugWindowState,
     sh2_slave: Sh2DebugWindowState,
     vdp_registers_open: bool,
@@ -247,6 +254,8 @@ impl State {
             h_scroll: HScrollWindowState::new(),
             sprite_attributes: SpriteAttributesWindowState::new(),
             s32x_palette: S32XPaletteRamState::new(),
+            m68k: M68kDebugWindowState::new(),
+            m68k_sub: M68kDebugWindowState::new_with_title("Sub 68000 Disassembly"),
             sh2_master: Sh2DebugWindowState::new(WhichCpu::Master),
             sh2_slave: Sh2DebugWindowState::new(WhichCpu::Slave),
             vdp_registers_open: false,
@@ -419,8 +428,20 @@ fn render(
                 }
             });
 
-            if matches!(debug_state, GenesisBasedDebugState::Sega32X(..)) {
-                ui.menu_button("CPU Debuggers", |ui| {
+            ui.menu_button("CPU Debuggers", |ui| {
+                if ui.button("68000 Disassembly").clicked() {
+                    state.m68k.open = true;
+                    ui.close_kind(UiKind::Menu);
+                }
+
+                if matches!(debug_state, GenesisBasedDebugState::SegaCd(..))
+                    && ui.button("Sub 68000 Disassembly").clicked()
+                {
+                    state.m68k_sub.open = true;
+                    ui.close_kind(UiKind::Menu);
+                }
+
+                if matches!(debug_state, GenesisBasedDebugState::Sega32X(..)) {
                     if ui.button("SH-2 Master Disassembly").clicked() {
                         state.sh2_master.disassembly_open = true;
                         ui.close_kind(UiKind::Menu);
@@ -440,8 +461,8 @@ fn render(
                         state.sh2_slave.breakpoints_open = true;
                         ui.close_kind(UiKind::Menu);
                     }
-                });
-            }
+                }
+            });
         });
     });
 
@@ -460,6 +481,36 @@ fn render(
     render_vram_window(ctx.egui_ctx, screen_width, debug_state, &mut state.vram);
     render_h_scroll_window(ctx.egui_ctx, debug_state, &mut state.h_scroll);
     render_sprite_attributes_window(ctx.egui_ctx, debug_state, &mut state.sprite_attributes);
+
+    match debug_state {
+        GenesisBasedDebugState::Genesis(debug_state) => {
+            let m68k = debug_state.m68k();
+            let memory_map = Genesis68kMemoryMap {
+                cartridge_rom: debug_state.cartridge_rom().unwrap_or(&[]),
+                working_ram: debug_state.working_ram(),
+            };
+            m68kdebug::render_disassembly_window(ctx.egui_ctx, m68k, &memory_map, &mut state.m68k);
+        }
+        GenesisBasedDebugState::SegaCd(debug_state) => {
+            let memory_map = SegaCdMainMemoryMap::new(debug_state);
+            let m68k = debug_state.genesis.m68k();
+            m68kdebug::render_disassembly_window(ctx.egui_ctx, m68k, &memory_map, &mut state.m68k);
+
+            let sub_memory_map = SegaCdSubMemoryMap::new(debug_state);
+            let sub_cpu = debug_state.sub_cpu();
+            m68kdebug::render_disassembly_window(
+                ctx.egui_ctx,
+                sub_cpu,
+                &sub_memory_map,
+                &mut state.m68k_sub,
+            );
+        }
+        GenesisBasedDebugState::Sega32X(debug_state, ..) => {
+            let memory_map = S32XMemoryMap::new(debug_state);
+            let m68k = debug_state.genesis.m68k();
+            m68kdebug::render_disassembly_window(ctx.egui_ctx, m68k, &memory_map, &mut state.m68k);
+        }
+    }
 
     if let GenesisBasedDebugState::Sega32X(debug_state, command_sender, break_status) =
         &mut debug_state

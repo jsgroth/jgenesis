@@ -1,4 +1,4 @@
-mod instructions;
+pub(crate) mod instructions;
 
 use crate::core::instructions::Instruction;
 use crate::traits::BusInterface;
@@ -116,7 +116,7 @@ impl Registers {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DataRegister(u8);
+pub struct DataRegister(pub(crate) u8);
 
 impl DataRegister {
     const ALL: [Self; 8] = [Self(0), Self(1), Self(2), Self(3), Self(4), Self(5), Self(6), Self(7)];
@@ -147,7 +147,7 @@ impl From<u8> for DataRegister {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AddressRegister(u8);
+pub struct AddressRegister(pub(crate) u8);
 
 impl AddressRegister {
     const ALL: [Self; 8] = [Self(0), Self(1), Self(2), Self(3), Self(4), Self(5), Self(6), Self(7)];
@@ -229,7 +229,7 @@ impl Display for OpSize {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum IndexRegister {
+pub(crate) enum IndexRegister {
     Data(DataRegister),
     Address(AddressRegister),
 }
@@ -248,7 +248,7 @@ impl IndexRegister {
     }
 }
 
-fn parse_index(extension: u16) -> (IndexRegister, IndexSize) {
+pub(crate) fn parse_index(extension: u16) -> (IndexRegister, IndexSize) {
     let register_number = ((extension >> 12) & 0x07) as u8;
     let register = if extension.bit(15) {
         IndexRegister::Address(register_number.into())
@@ -262,7 +262,7 @@ fn parse_index(extension: u16) -> (IndexRegister, IndexSize) {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum IndexSize {
+pub(crate) enum IndexSize {
     SignExtendedWord,
     LongWord,
 }

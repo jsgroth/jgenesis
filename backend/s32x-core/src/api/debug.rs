@@ -153,15 +153,22 @@ pub struct Sega32XDebugState {
 }
 
 impl Sega32XDebugState {
+    #[must_use]
     pub fn genesis(&mut self) -> &mut GenesisDebugState {
         &mut self.genesis
     }
 
+    #[must_use]
     pub fn sh2(&mut self, which: WhichCpu) -> &mut Sh2 {
         match which {
             WhichCpu::Master => &mut self.sh2_master,
             WhichCpu::Slave => &mut self.sh2_slave,
         }
+    }
+
+    #[must_use]
+    pub fn m68k_rom_bank(&self) -> u8 {
+        self.system_registers.m68k_rom_bank
     }
 
     pub fn copy_palette(&mut self, out: &mut [Color]) {

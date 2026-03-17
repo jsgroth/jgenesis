@@ -622,12 +622,17 @@ impl SegaCd {
         self.cdc().clone()
     }
 
+    pub fn prg_ram_bank(&self) -> u8 {
+        self.registers.prg_ram_bank
+    }
+
     pub fn as_debug_view(&mut self) -> SegaCdMediumView<'_> {
         SegaCdMediumView {
             bios_rom: self.bios.0.as_mut_slice(),
             prg_ram: self.prg_ram.as_mut_slice(),
             word_ram: &mut self.word_ram,
             cdc: self.disc_drive.cdc_mut(),
+            prg_ram_bank: self.registers.prg_ram_bank,
         }
     }
 }

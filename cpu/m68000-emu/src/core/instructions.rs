@@ -315,6 +315,10 @@ impl Instruction {
             | Self::Unlink(..) => None,
         }
     }
+
+    pub(crate) fn decode_from(opcode: u16) -> Self {
+        table::decode(opcode)
+    }
 }
 
 impl<B: BusInterface> InstructionExecutor<'_, '_, B> {

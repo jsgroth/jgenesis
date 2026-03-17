@@ -7,6 +7,7 @@ use genesis_core::api::debug::{
     BaseGenesisDebugView, GenesisDebugState, GenesisMemoryArea, PhysicalMediumDebugView,
 };
 use jgenesis_common::debug::{DebugBytesView, DebugMemoryView};
+use m68000_emu::M68000;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 
@@ -27,17 +28,44 @@ pub enum SegaCdDebugCommand {
 
 #[derive(Debug, Clone)]
 pub struct SegaCdDebugState {
-    genesis: GenesisDebugState,
+    pub genesis: GenesisDebugState,
+    sub_cpu: M68000,
     bios_rom: Box<[u8]>,
     prg_ram: Box<[u8]>,
     word_ram: WordRam,
     pcm: Rf5c164,
     cdc: Rchip,
+    prg_ram_bank: u8,
 }
 
 impl SegaCdDebugState {
     pub fn genesis(&mut self) -> &mut GenesisDebugState {
         &mut self.genesis
+    }
+
+    #[must_use]
+    pub fn sub_cpu(&self) -> &M68000 {
+        &self.sub_cpu
+    }
+
+    #[must_use]
+    pub fn bios_rom(&self) -> &[u8] {
+        &self.bios_rom
+    }
+
+    #[must_use]
+    pub fn prg_ram(&self) -> &[u8] {
+        &self.prg_ram
+    }
+
+    #[must_use]
+    pub fn main_cpu_prg_ram_bank(&self) -> u8 {
+        self.prg_ram_bank
+    }
+
+    #[must_use]
+    pub fn word_ram(&self) -> &WordRam {
+        &self.word_ram
     }
 
     #[must_use]
@@ -60,12 +88,14 @@ pub struct SegaCdMediumView<'a> {
     pub(crate) prg_ram: &'a mut [u8],
     pub(crate) word_ram: &'a mut WordRam,
     pub(crate) cdc: &'a mut Rchip,
+    pub(crate) prg_ram_bank: u8,
 }
 
 impl PhysicalMediumDebugView for SegaCdMediumView<'_> {}
 
 pub struct SegaCdEmulatorDebugView<'a> {
     genesis: BaseGenesisDebugView<'a, SegaCdMediumView<'a>>,
+    sub_cpu: &'a mut M68000,
     pcm: &'a mut Rf5c164,
 }
 
@@ -107,11 +137,13 @@ impl SegaCdEmulatorDebugView<'_> {
     pub fn to_debug_state(&mut self) -> SegaCdDebugState {
         SegaCdDebugState {
             genesis: self.genesis.to_debug_state(),
+            sub_cpu: self.sub_cpu.clone(),
             bios_rom: self.genesis.medium_view().bios_rom.to_vec().into_boxed_slice(),
             prg_ram: self.genesis.medium_view().prg_ram.to_vec().into_boxed_slice(),
             word_ram: self.genesis.medium_view().word_ram.clone(),
             pcm: self.pcm.clone(),
             cdc: self.genesis.medium_view().cdc.clone(),
+            prg_ram_bank: self.genesis.medium_view().prg_ram_bank,
         }
     }
 }
@@ -123,11 +155,13 @@ impl SegaCdEmulator {
 
         SegaCdDebugState {
             genesis: GenesisDebugState::new(&self.main_cpu, &self.z80, &self.memory, &self.vdp),
+            sub_cpu: self.sub_cpu.clone(),
             bios_rom: sega_cd.bios().to_vec().into_boxed_slice(),
             prg_ram: sega_cd.clone_prg_ram(),
             word_ram: sega_cd.word_ram().clone(),
             pcm: self.pcm.clone(),
             cdc: sega_cd.clone_cdc(),
+            prg_ram_bank: self.memory.medium().prg_ram_bank(),
         }
     }
 
@@ -140,6 +174,7 @@ impl SegaCdEmulator {
                 self.memory.as_debug_view(SegaCd::as_debug_view),
                 &mut self.vdp,
             ),
+            sub_cpu: &mut self.sub_cpu,
             pcm: &mut self.pcm,
         }
     }
