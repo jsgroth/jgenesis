@@ -2399,6 +2399,7 @@ dependencies = [
  "jgenesis-proc-macros",
  "jgenesis-renderer",
  "log",
+ "m68000-emu",
  "nes-config",
  "nes-core",
  "pollster",
@@ -2415,6 +2416,7 @@ dependencies = [
  "snes-core",
  "thiserror 2.0.18",
  "wgpu",
+ "z80-emu",
  "zip",
  "zstd",
 ]

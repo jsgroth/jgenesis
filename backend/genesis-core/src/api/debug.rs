@@ -85,6 +85,16 @@ impl GenesisDebugState {
         &self.z80
     }
 
+    #[must_use]
+    pub fn cartridge_rom(&self) -> Option<&[u16]> {
+        self.cartridge_rom.as_deref()
+    }
+
+    #[must_use]
+    pub fn working_ram(&self) -> &[u16] {
+        self.working_ram.as_ref()
+    }
+
     pub fn copy_cram(&self, out: &mut [Color], modifier: ColorModifier) {
         self.vdp.copy_cram(out, modifier);
     }
