@@ -1,6 +1,7 @@
 use egui::panel::Side;
 use egui::{Align, CentralPanel, Grid, RichText, SidePanel, TextEdit, Window};
 use egui_extras::{Column, TableBuilder};
+use genesis_core::cartridge::Cartridge;
 use jgenesis_common::num::GetBit;
 use m68000_emu::M68000;
 use m68000_emu::disassemble::DisassembledInstruction;
@@ -50,7 +51,7 @@ fn read_u16(memory: &[u8], address: usize) -> u16 {
 }
 
 pub struct Genesis68kMemoryMap<'a> {
-    pub cartridge_rom: &'a [u16],
+    pub cartridge: &'a Cartridge,
     pub working_ram: &'a [u16],
 }
 
@@ -59,9 +60,7 @@ impl M68kDebugMemoryMap for Genesis68kMemoryMap<'_> {
         let address = address & 0xFFFFFF;
 
         match address {
-            0x000000..=0x7FFFFF => {
-                self.cartridge_rom.get((address >> 1) as usize).copied().unwrap_or(0xFFFF)
-            }
+            0x000000..=0x7FFFFF => self.cartridge.peek_word(address),
             0xE00000..=0xFFFFFF => self.working_ram[((address & 0xFFFF) >> 1) as usize],
             _ => 0xFFFF,
         }
@@ -153,18 +152,20 @@ impl M68kDebugMemoryMap for SegaCdSubMemoryMap<'_> {
 }
 
 pub struct S32XMemoryMap<'a> {
-    pub cartridge_rom: &'a [u16],
+    pub cartridge: &'a Cartridge,
     pub working_ram: &'a [u16],
     pub banked_rom_base_addr: u32,
 }
 
 impl<'a> S32XMemoryMap<'a> {
-    pub fn new(debug_state: &'a Sega32XDebugState) -> Self {
-        Self {
-            cartridge_rom: debug_state.genesis.cartridge_rom().unwrap_or(&[]),
+    pub fn new(debug_state: &'a Sega32XDebugState) -> Option<Self> {
+        let cartridge = debug_state.genesis.cartridge()?;
+
+        Some(Self {
+            cartridge,
             working_ram: debug_state.genesis.working_ram(),
             banked_rom_base_addr: u32::from(debug_state.m68k_rom_bank()) << 20,
-        }
+        })
     }
 }
 
@@ -173,17 +174,11 @@ impl M68kDebugMemoryMap for S32XMemoryMap<'_> {
         let address = address & 0xFFFFFF;
 
         match address {
-            0x000000..=0x3FFFFF => {
-                self.cartridge_rom.get((address >> 1) as usize).copied().unwrap_or(0xFFFF)
-            }
-            0x880000..=0x8FFFFF => self
-                .cartridge_rom
-                .get(((address & 0x7FFFF) >> 1) as usize)
-                .copied()
-                .unwrap_or(0xFFFF),
+            0x000000..=0x3FFFFF => self.cartridge.peek_word(address),
+            0x880000..=0x8FFFFF => self.cartridge.peek_word(address & 0x7FFFF),
             0x900000..=0x9FFFFF => {
                 let address = (self.banked_rom_base_addr | (address & 0xFFFFF)) >> 1;
-                self.cartridge_rom.get(address as usize).copied().unwrap_or(0xFFFF)
+                self.cartridge.peek_word(address)
             }
             0xE00000..=0xFFFFFF => self.working_ram[((address & 0xFFFF) >> 1) as usize],
             _ => 0xFFFF,

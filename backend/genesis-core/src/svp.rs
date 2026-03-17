@@ -347,6 +347,19 @@ impl Svp {
 
     pub fn m68k_read(&mut self, address: u32, rom: &[u16]) -> u16 {
         match address {
+            0xA15004 => {
+                // XST status; reads clear the SSP1601 written flag
+                self.registers.xst.m68k_read_status()
+            }
+            _ => {
+                // No other addresses require mutating inner state
+                self.m68k_peek(address, rom)
+            }
+        }
+    }
+
+    pub fn m68k_peek(&self, address: u32, rom: &[u16]) -> u16 {
+        match address {
             0x000000..=0x1FFFFF => {
                 // ROM
                 rom[(address >> 1) as usize]
@@ -361,7 +374,7 @@ impl Svp {
             }
             0xA15004 => {
                 // XST status
-                self.registers.xst.m68k_read_status()
+                self.registers.xst.status()
             }
             _ => {
                 // Invalid or unused

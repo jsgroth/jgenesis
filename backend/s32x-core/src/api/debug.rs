@@ -10,6 +10,7 @@ use genesis_config::GenesisInputs;
 use genesis_core::api::debug::{
     BaseGenesisDebugView, GenesisDebugState, GenesisMemoryArea, PhysicalMediumDebugView,
 };
+use genesis_core::cartridge::Cartridge;
 use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
 use jgenesis_common::frontend::{
     AudioOutput, Color, InputPoller, Renderer, SaveWriter, TickResult,
@@ -207,7 +208,7 @@ impl Sega32XDebugState {
 }
 
 pub struct Sega32XMediumView<'a> {
-    pub(crate) cartridge_rom: &'a mut [u16],
+    pub(crate) cartridge: &'a mut Cartridge,
     pub(crate) sdram: &'a mut [u16],
     pub(crate) sh2_master: &'a mut Sh2,
     pub(crate) sh2_slave: &'a mut Sh2,
@@ -217,8 +218,8 @@ pub struct Sega32XMediumView<'a> {
 }
 
 impl PhysicalMediumDebugView for Sega32XMediumView<'_> {
-    fn debug_cartridge_rom(&mut self) -> Option<&mut [u16]> {
-        Some(self.cartridge_rom)
+    fn debug_cartridge(&mut self) -> Option<&mut Cartridge> {
+        Some(self.cartridge)
     }
 }
 

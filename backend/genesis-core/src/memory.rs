@@ -31,7 +31,7 @@ pub trait PhysicalMedium {
 
     fn region(&self) -> GenesisRegion;
 
-    fn clone_cartridge_rom(&self) -> Option<Box<[u16]>> {
+    fn clone_cartridge(&self) -> Option<Cartridge> {
         None
     }
 }
@@ -143,8 +143,8 @@ impl<Medium: PhysicalMedium> Memory<Medium> {
         self.signals = Signals::default();
     }
 
-    pub fn clone_cartridge_rom(&self) -> Option<Box<[u16]>> {
-        self.physical_medium.clone_cartridge_rom()
+    pub fn clone_cartridge(&self) -> Option<Cartridge> {
+        self.medium().clone_cartridge()
     }
 
     pub fn clone_working_ram(&self) -> Box<[u16]> {

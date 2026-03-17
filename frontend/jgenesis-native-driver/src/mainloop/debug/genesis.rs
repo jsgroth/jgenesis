@@ -484,12 +484,17 @@ fn render(
 
     match debug_state {
         GenesisBasedDebugState::Genesis(debug_state) => {
-            let m68k = debug_state.m68k();
-            let memory_map = Genesis68kMemoryMap {
-                cartridge_rom: debug_state.cartridge_rom().unwrap_or(&[]),
-                working_ram: debug_state.working_ram(),
-            };
-            m68kdebug::render_disassembly_window(ctx.egui_ctx, m68k, &memory_map, &mut state.m68k);
+            if let Some(cartridge) = debug_state.cartridge() {
+                let m68k = debug_state.m68k();
+                let memory_map =
+                    Genesis68kMemoryMap { cartridge, working_ram: debug_state.working_ram() };
+                m68kdebug::render_disassembly_window(
+                    ctx.egui_ctx,
+                    m68k,
+                    &memory_map,
+                    &mut state.m68k,
+                );
+            }
         }
         GenesisBasedDebugState::SegaCd(debug_state) => {
             let memory_map = SegaCdMainMemoryMap::new(debug_state);
@@ -506,9 +511,15 @@ fn render(
             );
         }
         GenesisBasedDebugState::Sega32X(debug_state, ..) => {
-            let memory_map = S32XMemoryMap::new(debug_state);
-            let m68k = debug_state.genesis.m68k();
-            m68kdebug::render_disassembly_window(ctx.egui_ctx, m68k, &memory_map, &mut state.m68k);
+            if let Some(memory_map) = S32XMemoryMap::new(debug_state) {
+                let m68k = debug_state.genesis.m68k();
+                m68kdebug::render_disassembly_window(
+                    ctx.egui_ctx,
+                    m68k,
+                    &memory_map,
+                    &mut state.m68k,
+                );
+            }
         }
     }
 

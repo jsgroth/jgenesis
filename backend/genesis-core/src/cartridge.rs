@@ -252,6 +252,15 @@ impl Mapper {
         }
     }
 
+    fn peek_word(&self, address: u32, rom: &Rom, external: &ExternalMemory) -> Option<u16> {
+        match self {
+            Self::Basic(mapper) => mapper.read_word(address, rom, external),
+            Self::Ssf(mapper) => mapper.read_word(address, rom, external),
+            Self::Svp(svp) => Some(svp.m68k_peek(address, &rom.0)),
+            Self::UnlRockmanX3 => rom.read_word(address),
+        }
+    }
+
     fn write_byte(&mut self, address: u32, value: u8, external: &mut ExternalMemory) {
         match self {
             Self::Basic(mapper) => mapper.write_byte(address, value, external),
@@ -521,8 +530,18 @@ impl Cartridge {
     }
 
     #[must_use]
+    pub fn peek_word(&self, address: u32) -> u16 {
+        self.mapper.peek_word(address, &self.rom, &self.external).unwrap_or(0xFFFF)
+    }
+
+    #[must_use]
     pub fn debug_rom_view(&mut self) -> &mut [u16] {
         self.rom.0.as_mut()
+    }
+
+    #[must_use]
+    pub fn debug_rom_view_shared(&self) -> &[u16] {
+        self.rom.0.as_ref()
     }
 }
 
@@ -721,7 +740,7 @@ impl PhysicalMedium for Cartridge {
         self.region
     }
 
-    fn clone_cartridge_rom(&self) -> Option<Box<[u16]>> {
-        Some(self.rom.0.clone())
+    fn clone_cartridge(&self) -> Option<Cartridge> {
+        Some(self.clone())
     }
 }
