@@ -7,7 +7,7 @@ use crate::bus::{OtherCpu, Sh2Bus, WhichCpu};
 use crate::core::{Sega32X, Sega32XBus};
 use genesis_core::api::debug::{BaseGenesisDebugView, GenesisMemoryDebugView};
 use genesis_core::memory::MainBus;
-use genesis_core::memory::debug::MainBusDebugger;
+use genesis_core::memory::debug::MainBus68kDebugger;
 use m68000_emu::M68000;
 use sh2_emu::Sh2;
 use sh2_emu::bus::{AccessContext, BusInterface, OpSize};
@@ -298,7 +298,7 @@ impl BusInterface for DebugSh2Bus {
     }
 }
 
-impl MainBusDebugger<Sega32X> for Sega32XDebuggerFor68k<'_> {
+impl MainBus68kDebugger<Sega32X> for Sega32XDebuggerFor68k<'_> {
     fn check_read_breakpoint<const WORD: bool>(&mut self, address: u32) -> bool {
         self.debugger.m68k_breakpoints().check_read::<WORD>(address)
     }

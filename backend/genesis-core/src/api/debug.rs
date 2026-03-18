@@ -10,7 +10,7 @@ use jgenesis_common::frontend::Color;
 use jgenesis_common::sync::SharedVarSender;
 use jgenesis_proc_macros::EnumAll;
 use m68000_emu::M68000;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, SendError, Sender, TryRecvError};
 use std::sync::{Arc, mpsc};
 use z80_emu::Z80;
@@ -50,9 +50,12 @@ pub enum GenesisMemoryArea {
 pub enum GenesisDebugCommand {
     EditMemory(GenesisMemoryArea, usize, u8),
     Update68kBreakpoints(Vec<M68000Breakpoint>),
-    BreakPause,
+    UpdateZ80Breakpoints(Vec<Z80Breakpoint>),
+    BreakPause68k,
+    BreakPauseZ80,
     BreakResume,
-    Break68kStep,
+    BreakStep68k,
+    BreakStepZ80,
 }
 
 #[derive(Debug, Clone)]
@@ -401,15 +404,158 @@ impl Default for M68000BreakpointManager {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Z80Breakpoint {
+    pub start_address: u16,
+    pub end_address: u16,
+    pub read: bool,
+    pub write: bool,
+    pub execute: bool,
+}
+
+pub struct Z80Breakpoints {
+    read: Vec<(u16, u16)>,
+    write: Vec<(u16, u16)>,
+    execute: Vec<(u16, u16)>,
+}
+
+impl Z80Breakpoints {
+    #[must_use]
+    pub fn new(breakpoints: &[Z80Breakpoint]) -> Self {
+        let mut read = Vec::new();
+        let mut write = Vec::new();
+        let mut execute = Vec::new();
+
+        for &breakpoint in breakpoints {
+            if breakpoint.read {
+                read.push((breakpoint.start_address, breakpoint.end_address));
+            }
+
+            if breakpoint.write {
+                write.push((breakpoint.start_address, breakpoint.end_address));
+            }
+
+            if breakpoint.execute {
+                execute.push((breakpoint.start_address, breakpoint.end_address));
+            }
+        }
+
+        Self { read, write, execute }
+    }
+
+    #[must_use]
+    pub fn none() -> Self {
+        Self::new(&[])
+    }
+
+    #[must_use]
+    pub fn check_read(&self, address: u16) -> bool {
+        self.read.iter().any(|&(start, end)| (start..=end).contains(&address))
+    }
+
+    #[must_use]
+    pub fn check_write(&self, address: u16) -> bool {
+        self.write.iter().any(|&(start, end)| (start..=end).contains(&address))
+    }
+
+    #[must_use]
+    pub fn check_execute(&self, address: u16) -> bool {
+        self.execute.iter().any(|&(start, end)| (start..=end).contains(&address))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Z80BreakStatus {
+    pub breaking: bool,
+    pub pc: u16,
+}
+
+pub struct Z80BreakStatusAtomic {
+    pub breaking: AtomicBool,
+    pub pc: AtomicU16,
+}
+
+impl Z80BreakStatusAtomic {
+    #[must_use]
+    pub fn new() -> Self {
+        Self { breaking: AtomicBool::new(false), pc: AtomicU16::new(0) }
+    }
+
+    #[must_use]
+    pub fn take(&self) -> Option<Z80BreakStatus> {
+        if self.breaking.compare_exchange(true, false, Ordering::AcqRel, Ordering::Relaxed)
+            != Ok(true)
+        {
+            return None;
+        }
+
+        let pc = self.pc.load(Ordering::Acquire);
+        Some(Z80BreakStatus { breaking: true, pc })
+    }
+
+    pub fn set_breaking(&self, pc: u16) {
+        self.pc.store(pc, Ordering::Relaxed);
+        self.breaking.store(true, Ordering::Release);
+    }
+}
+
+impl Default for Z80BreakStatusAtomic {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub struct Z80BreakpointManager {
+    pub breakpoints: Z80Breakpoints,
+    pub status: Arc<Z80BreakStatusAtomic>,
+    pub last_pc: u16,
+    pub step: Option<u32>,
+}
+
+impl Z80BreakpointManager {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            breakpoints: Z80Breakpoints::none(),
+            status: Arc::new(Z80BreakStatusAtomic::new()),
+            last_pc: 0,
+            step: None,
+        }
+    }
+
+    pub fn set_break_status(&self) {
+        self.status.set_breaking(self.last_pc);
+    }
+
+    pub fn clear(&mut self) {
+        self.breakpoints = Z80Breakpoints::none();
+        self.step = None;
+    }
+}
+
+impl Default for Z80BreakpointManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GenesisCpu {
+    M68k,
+    Z80,
+}
+
 pub struct GenesisDebugger {
     command_receiver: Receiver<GenesisDebugCommand>,
     state_sender: SharedVarSender<GenesisDebugState>,
-    breakpoint_manager: M68000BreakpointManager,
+    m68k_breakpoints: M68000BreakpointManager,
+    z80_breakpoints: Z80BreakpointManager,
 }
 
 pub struct GenesisDebuggerHandle {
     pub command_sender: Sender<GenesisDebugCommand>,
-    pub break_status: Arc<M68000BreakStatusAtomic>,
+    pub m68k_break_status: Arc<M68000BreakStatusAtomic>,
+    pub z80_break_status: Arc<Z80BreakStatusAtomic>,
 }
 
 impl GenesisDebugger {
@@ -420,47 +566,45 @@ impl GenesisDebugger {
         let debugger = Self {
             command_receiver,
             state_sender,
-            breakpoint_manager: M68000BreakpointManager::new(),
+            m68k_breakpoints: M68000BreakpointManager::new(),
+            z80_breakpoints: Z80BreakpointManager::new(),
         };
 
         let handle = GenesisDebuggerHandle {
             command_sender,
-            break_status: Arc::clone(&debugger.breakpoint_manager.status),
+            m68k_break_status: Arc::clone(&debugger.m68k_breakpoints.status),
+            z80_break_status: Arc::clone(&debugger.z80_breakpoints.status),
         };
 
         (debugger, handle)
     }
 
     #[must_use]
-    pub fn check_read_breakpoint<const WORD: bool>(&self, address: u32) -> bool {
-        self.breakpoint_manager.breakpoints.check_read::<WORD>(address)
+    pub fn m68k_breakpoints(&self) -> &M68000Breakpoints {
+        &self.m68k_breakpoints.breakpoints
     }
 
     #[must_use]
-    pub fn check_write_breakpoint<const WORD: bool>(&self, address: u32) -> bool {
-        self.breakpoint_manager.breakpoints.check_write::<WORD>(address)
+    pub fn z80_breakpoints(&self) -> &Z80Breakpoints {
+        &self.z80_breakpoints.breakpoints
     }
 
     #[must_use]
-    pub fn check_execute_breakpoint(&self, address: u32) -> bool {
-        self.breakpoint_manager.breakpoints.check_execute(address)
+    pub fn check_68k_break_step(&mut self) -> bool {
+        check_break_step(&mut self.m68k_breakpoints.step)
     }
 
     #[must_use]
-    pub fn check_break_step(&mut self) -> bool {
-        let Some(remaining) = &mut self.breakpoint_manager.step else { return false };
-
-        *remaining -= 1;
-        if *remaining == 0 {
-            self.breakpoint_manager.step = None;
-            true
-        } else {
-            false
-        }
+    pub fn check_z80_break_step(&mut self) -> bool {
+        check_break_step(&mut self.z80_breakpoints.step)
     }
 
-    pub fn update_pc(&mut self, address: u32) {
-        self.breakpoint_manager.last_pc = address;
+    pub fn update_68k_pc(&mut self, address: u32) {
+        self.m68k_breakpoints.last_pc = address;
+    }
+
+    pub fn update_z80_pc(&mut self, address: u16) {
+        self.z80_breakpoints.last_pc = address;
     }
 
     pub fn process_commands(&mut self, debug_view: &mut GenesisEmulatorDebugView<'_>) {
@@ -469,7 +613,7 @@ impl GenesisDebugger {
                 Ok(command) => self.process_command(command, debug_view),
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
-                    self.breakpoint_manager.clear();
+                    self.m68k_breakpoints.clear();
                     break;
                 }
             }
@@ -486,31 +630,58 @@ impl GenesisDebugger {
                 debug_view.apply_memory_edit(memory_area, address, value);
             }
             GenesisDebugCommand::Update68kBreakpoints(breakpoints) => {
-                self.breakpoint_manager.breakpoints = M68000Breakpoints::new(&breakpoints);
+                self.m68k_breakpoints.breakpoints = M68000Breakpoints::new(&breakpoints);
             }
-            GenesisDebugCommand::BreakPause => {
-                self.breakpoint_manager.step = Some(1);
+            GenesisDebugCommand::UpdateZ80Breakpoints(breakpoints) => {
+                self.z80_breakpoints.breakpoints = Z80Breakpoints::new(&breakpoints);
             }
-            GenesisDebugCommand::BreakResume | GenesisDebugCommand::Break68kStep => {}
+            GenesisDebugCommand::BreakPause68k => {
+                self.m68k_breakpoints.step = Some(1);
+            }
+            GenesisDebugCommand::BreakPauseZ80 => {
+                self.z80_breakpoints.step = Some(1);
+            }
+            GenesisDebugCommand::BreakResume
+            | GenesisDebugCommand::BreakStep68k
+            | GenesisDebugCommand::BreakStepZ80 => {}
         }
     }
 
-    pub fn handle_68k_breakpoint(&mut self, debug_view: &mut GenesisEmulatorDebugView<'_>) {
+    pub fn handle_breakpoint(
+        &mut self,
+        which: GenesisCpu,
+        debug_view: &mut GenesisEmulatorDebugView<'_>,
+    ) {
         self.state_sender.update(debug_view.to_debug_state());
-        self.breakpoint_manager.set_break_status();
-        self.breakpoint_manager.step = None;
+
+        match which {
+            GenesisCpu::M68k => {
+                self.m68k_breakpoints.set_break_status();
+            }
+            GenesisCpu::Z80 => {
+                self.z80_breakpoints.set_break_status();
+            }
+        }
+
+        self.m68k_breakpoints.step = None;
+        self.z80_breakpoints.step = None;
 
         loop {
             match self.command_receiver.recv() {
                 Ok(GenesisDebugCommand::BreakResume) => break,
-                Ok(GenesisDebugCommand::Break68kStep) => {
-                    self.breakpoint_manager.step = Some(1);
+                Ok(GenesisDebugCommand::BreakStep68k) => {
+                    self.m68k_breakpoints.step = Some(1 + u32::from(which != GenesisCpu::M68k));
+                    break;
+                }
+                Ok(GenesisDebugCommand::BreakStepZ80) => {
+                    self.z80_breakpoints.step = Some(1 + u32::from(which != GenesisCpu::Z80));
                     break;
                 }
                 Ok(command) => self.process_command(command, debug_view),
                 Err(_) => {
                     // Debugger window closed
-                    self.breakpoint_manager.clear();
+                    self.m68k_breakpoints.clear();
+                    self.z80_breakpoints.clear();
                     break;
                 }
             }
@@ -540,6 +711,18 @@ impl GenesisDebugger {
     }
 }
 
+fn check_break_step(step: &mut Option<u32>) -> bool {
+    let Some(remaining) = step else { return false };
+
+    *remaining -= 1;
+    if *remaining == 0 {
+        *step = None;
+        true
+    } else {
+        false
+    }
+}
+
 impl GenesisDebuggerHandle {
     /// # Errors
     ///
@@ -553,7 +736,7 @@ impl GenesisDebuggerHandle {
 
     #[must_use]
     pub fn take_68k_break_status(&self) -> Option<M68000BreakStatus> {
-        self.break_status.take()
+        self.m68k_break_status.take()
     }
 }
 

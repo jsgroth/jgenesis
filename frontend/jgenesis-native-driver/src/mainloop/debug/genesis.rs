@@ -515,93 +515,7 @@ fn render(
         &mut state.z80,
     );
 
-    match debug_state {
-        GenesisBasedDebugState::Genesis(debug_state, debugger_handle) => {
-            if let Some(cartridge) = debug_state.cartridge() {
-                let m68k = debug_state.m68k();
-                let memory_map =
-                    Genesis68kMemoryMap { cartridge, working_ram: debug_state.working_ram() };
-                m68kdebug::render_disassembly_window(
-                    ctx.egui_ctx,
-                    m68k,
-                    &memory_map,
-                    &mut state.m68k,
-                    debugger_handle.take_68k_break_status(),
-                    Some(&mut |command| {
-                        let genesis_cmd = match command {
-                            M68kBreakCommand::Pause => GenesisDebugCommand::BreakPause,
-                            M68kBreakCommand::Resume => GenesisDebugCommand::BreakResume,
-                            M68kBreakCommand::Step => GenesisDebugCommand::Break68kStep,
-                        };
-                        let _ = debugger_handle.send_command(genesis_cmd);
-                    }),
-                );
-
-                m68kdebug::render_breakpoints_window(
-                    ctx.egui_ctx,
-                    &mut state.m68k,
-                    |breakpoints| {
-                        let _ = debugger_handle
-                            .send_command(GenesisDebugCommand::Update68kBreakpoints(breakpoints));
-                    },
-                );
-            }
-        }
-        GenesisBasedDebugState::SegaCd(debug_state) => {
-            let memory_map = SegaCdMainMemoryMap::new(debug_state);
-            let m68k = debug_state.genesis.m68k();
-            m68kdebug::render_disassembly_window(
-                ctx.egui_ctx,
-                m68k,
-                &memory_map,
-                &mut state.m68k,
-                None,
-                None,
-            );
-
-            let sub_memory_map = SegaCdSubMemoryMap::new(debug_state);
-            let sub_cpu = debug_state.sub_cpu();
-            m68kdebug::render_disassembly_window(
-                ctx.egui_ctx,
-                sub_cpu,
-                &sub_memory_map,
-                &mut state.m68k_sub,
-                None,
-                None,
-            );
-        }
-        GenesisBasedDebugState::Sega32X(debug_state, debugger_handle) => {
-            if let Some(memory_map) = S32XMemoryMap::new(debug_state) {
-                let m68k = debug_state.genesis.m68k();
-                let break_status = debugger_handle.take_68k_break_status();
-
-                m68kdebug::render_disassembly_window(
-                    ctx.egui_ctx,
-                    m68k,
-                    &memory_map,
-                    &mut state.m68k,
-                    break_status,
-                    Some(&mut |command| {
-                        let s32x_command = match command {
-                            M68kBreakCommand::Pause => Sega32XDebugCommand::BreakPause68k,
-                            M68kBreakCommand::Resume => Sega32XDebugCommand::BreakResume,
-                            M68kBreakCommand::Step => Sega32XDebugCommand::BreakStep68k,
-                        };
-                        let _ = debugger_handle.send_command(s32x_command);
-                    }),
-                );
-
-                m68kdebug::render_breakpoints_window(
-                    ctx.egui_ctx,
-                    &mut state.m68k,
-                    |breakpoints| {
-                        let _ = debugger_handle
-                            .send_command(Sega32XDebugCommand::Update68kBreakpoints(breakpoints));
-                    },
-                );
-            }
-        }
-    }
+    render_m68k_debug_windows(ctx.egui_ctx, debug_state, state);
 
     if let GenesisBasedDebugState::Sega32X(debug_state, debugger_handle) = &mut debug_state {
         render_32x_palette_window(ctx.egui_ctx, debug_state, &mut state.s32x_palette);
@@ -648,6 +562,92 @@ fn render(
             &mut state.sh2_slave,
             &debugger_handle.command_sender,
         );
+    }
+}
+
+fn render_m68k_debug_windows(
+    ctx: &egui::Context,
+    debug_state: &mut GenesisBasedDebugState,
+    state: &mut State,
+) {
+    match debug_state {
+        GenesisBasedDebugState::Genesis(debug_state, debugger_handle) => {
+            if let Some(cartridge) = debug_state.cartridge() {
+                let m68k = debug_state.m68k();
+                let memory_map =
+                    Genesis68kMemoryMap { cartridge, working_ram: debug_state.working_ram() };
+                m68kdebug::render_disassembly_window(
+                    ctx,
+                    m68k,
+                    &memory_map,
+                    &mut state.m68k,
+                    debugger_handle.take_68k_break_status(),
+                    Some(&mut |command| {
+                        let genesis_cmd = match command {
+                            M68kBreakCommand::Pause => GenesisDebugCommand::BreakPause68k,
+                            M68kBreakCommand::Resume => GenesisDebugCommand::BreakResume,
+                            M68kBreakCommand::Step => GenesisDebugCommand::BreakStep68k,
+                        };
+                        let _ = debugger_handle.send_command(genesis_cmd);
+                    }),
+                );
+
+                m68kdebug::render_breakpoints_window(ctx, &mut state.m68k, |breakpoints| {
+                    let _ = debugger_handle
+                        .send_command(GenesisDebugCommand::Update68kBreakpoints(breakpoints));
+                });
+            }
+        }
+        GenesisBasedDebugState::SegaCd(debug_state) => {
+            let memory_map = SegaCdMainMemoryMap::new(debug_state);
+            let m68k = debug_state.genesis.m68k();
+            m68kdebug::render_disassembly_window(
+                ctx,
+                m68k,
+                &memory_map,
+                &mut state.m68k,
+                None,
+                None,
+            );
+
+            let sub_memory_map = SegaCdSubMemoryMap::new(debug_state);
+            let sub_cpu = debug_state.sub_cpu();
+            m68kdebug::render_disassembly_window(
+                ctx,
+                sub_cpu,
+                &sub_memory_map,
+                &mut state.m68k_sub,
+                None,
+                None,
+            );
+        }
+        GenesisBasedDebugState::Sega32X(debug_state, debugger_handle) => {
+            if let Some(memory_map) = S32XMemoryMap::new(debug_state) {
+                let m68k = debug_state.genesis.m68k();
+                let break_status = debugger_handle.take_68k_break_status();
+
+                m68kdebug::render_disassembly_window(
+                    ctx,
+                    m68k,
+                    &memory_map,
+                    &mut state.m68k,
+                    break_status,
+                    Some(&mut |command| {
+                        let s32x_command = match command {
+                            M68kBreakCommand::Pause => Sega32XDebugCommand::BreakPause68k,
+                            M68kBreakCommand::Resume => Sega32XDebugCommand::BreakResume,
+                            M68kBreakCommand::Step => Sega32XDebugCommand::BreakStep68k,
+                        };
+                        let _ = debugger_handle.send_command(s32x_command);
+                    }),
+                );
+
+                m68kdebug::render_breakpoints_window(ctx, &mut state.m68k, |breakpoints| {
+                    let _ = debugger_handle
+                        .send_command(Sega32XDebugCommand::Update68kBreakpoints(breakpoints));
+                });
+            }
+        }
     }
 }
 
