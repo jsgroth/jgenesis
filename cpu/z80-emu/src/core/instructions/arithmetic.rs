@@ -15,9 +15,10 @@ macro_rules! impl_a_r_add_op {
         ) -> u32 {
             let read_target =
                 super::parse_register_from_opcode(opcode, index).expect("invalid opcode");
-            let operand = read_target.read_from(self.registers);
+            let operand = read_target.read_from(&self.cpu.registers);
 
-            self.registers.a = $op_fn(self.registers.a, operand, with_carry, &mut self.registers.f);
+            self.cpu.registers.a =
+                $op_fn(self.cpu.registers.a, operand, with_carry, &mut self.cpu.registers.f);
 
             4
         }
@@ -29,7 +30,8 @@ macro_rules! impl_a_immediate_add_op {
         pub(super) fn $name(&mut self, with_carry: bool) -> u32 {
             let operand = self.fetch_operand();
 
-            self.registers.a = $op_fn(self.registers.a, operand, with_carry, &mut self.registers.f);
+            self.cpu.registers.a =
+                $op_fn(self.cpu.registers.a, operand, with_carry, &mut self.cpu.registers.f);
 
             7
         }
@@ -42,7 +44,8 @@ macro_rules! impl_a_hl_add_op {
             let address = self.fetch_indirect_hl_address(index);
             let operand = self.bus.read_memory(address);
 
-            self.registers.a = $op_fn(self.registers.a, operand, with_carry, &mut self.registers.f);
+            self.cpu.registers.a =
+                $op_fn(self.cpu.registers.a, operand, with_carry, &mut self.cpu.registers.f);
 
             match index {
                 Some(_) => 15,
@@ -57,9 +60,9 @@ macro_rules! impl_a_r_bit_op {
         pub(super) fn $name(&mut self, opcode: u8, index: Option<IndexRegister>) -> u32 {
             let read_target =
                 super::parse_register_from_opcode(opcode, index).expect("invalid opcode");
-            let operand = read_target.read_from(self.registers);
+            let operand = read_target.read_from(&self.cpu.registers);
 
-            self.registers.a = $op_fn(self.registers.a, operand, &mut self.registers.f);
+            self.cpu.registers.a = $op_fn(self.cpu.registers.a, operand, &mut self.cpu.registers.f);
 
             4
         }
@@ -71,7 +74,7 @@ macro_rules! impl_a_immediate_bit_op {
         pub(super) fn $name(&mut self) -> u32 {
             let operand = self.fetch_operand();
 
-            self.registers.a = $op_fn(self.registers.a, operand, &mut self.registers.f);
+            self.cpu.registers.a = $op_fn(self.cpu.registers.a, operand, &mut self.cpu.registers.f);
 
             7
         }
@@ -84,7 +87,7 @@ macro_rules! impl_a_hl_bit_op {
             let address = self.fetch_indirect_hl_address(index);
             let operand = self.bus.read_memory(address);
 
-            self.registers.a = $op_fn(self.registers.a, operand, &mut self.registers.f);
+            self.cpu.registers.a = $op_fn(self.cpu.registers.a, operand, &mut self.cpu.registers.f);
 
             match index {
                 Some(_) => 15,
@@ -99,10 +102,10 @@ macro_rules! impl_r_increment_op {
         pub(super) fn $name(&mut self, opcode: u8, index: Option<IndexRegister>) -> u32 {
             let register =
                 super::parse_register_from_opcode(opcode >> 3, index).expect("invalid opcode");
-            let original = register.read_from(self.registers);
-            let modified = $op_fn(original, &mut self.registers.f);
+            let original = register.read_from(&self.cpu.registers);
+            let modified = $op_fn(original, &mut self.cpu.registers.f);
 
-            register.write_to(modified, self.registers);
+            register.write_to(modified, &mut self.cpu.registers);
 
             4
         }
@@ -114,7 +117,7 @@ macro_rules! impl_hl_increment_op {
         pub(super) fn $name(&mut self, index: Option<IndexRegister>) -> u32 {
             let address = self.fetch_indirect_hl_address(index);
             let original = self.bus.read_memory(address);
-            let modified = $op_fn(original, &mut self.registers.f);
+            let modified = $op_fn(original, &mut self.cpu.registers.f);
 
             self.bus.write_memory(address, modified);
 
@@ -130,10 +133,10 @@ macro_rules! impl_16_bit_increment_op {
     ($name:ident, $op_fn:ident) => {
         pub(super) fn $name(&mut self, opcode: u8, index: Option<IndexRegister>) -> u32 {
             let register = super::parse_dd_register(opcode, index);
-            let original = register.read_from(self.registers);
+            let original = register.read_from(&self.cpu.registers);
             let modified = $op_fn(original);
 
-            register.write_to(modified, self.registers);
+            register.write_to(modified, &mut self.cpu.registers);
 
             6
         }
@@ -178,11 +181,11 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         let l_register = index.map_or(Register16::HL, IndexRegister::into);
         let r_register = super::parse_dd_register(opcode, index);
 
-        let l_value = l_register.read_from(self.registers);
-        let r_value = r_register.read_from(self.registers);
+        let l_value = l_register.read_from(&self.cpu.registers);
+        let r_value = r_register.read_from(&self.cpu.registers);
 
-        let sum = add_u16(l_value, r_value, false, &mut self.registers.f);
-        l_register.write_to(sum, self.registers);
+        let sum = add_u16(l_value, r_value, false, &mut self.cpu.registers.f);
+        l_register.write_to(sum, &mut self.cpu.registers);
 
         11
     }
@@ -190,11 +193,11 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     pub(super) fn adc_hl_ss(&mut self, opcode: u8) -> u32 {
         let register = super::parse_dd_register(opcode, None);
 
-        let l_value = Register16::HL.read_from(self.registers);
-        let r_value = register.read_from(self.registers);
+        let l_value = Register16::HL.read_from(&self.cpu.registers);
+        let r_value = register.read_from(&self.cpu.registers);
 
-        let sum = add_u16(l_value, r_value, true, &mut self.registers.f);
-        Register16::HL.write_to(sum, self.registers);
+        let sum = add_u16(l_value, r_value, true, &mut self.cpu.registers.f);
+        Register16::HL.write_to(sum, &mut self.cpu.registers);
 
         15
     }
@@ -202,18 +205,18 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     pub(super) fn sbc_hl_ss(&mut self, opcode: u8) -> u32 {
         let register = super::parse_dd_register(opcode, None);
 
-        let l_value = Register16::HL.read_from(self.registers);
-        let r_value = register.read_from(self.registers);
+        let l_value = Register16::HL.read_from(&self.cpu.registers);
+        let r_value = register.read_from(&self.cpu.registers);
 
-        let difference = sbc_u16(l_value, r_value, &mut self.registers.f);
-        Register16::HL.write_to(difference, self.registers);
+        let difference = sbc_u16(l_value, r_value, &mut self.cpu.registers.f);
+        Register16::HL.write_to(difference, &mut self.cpu.registers);
 
         15
     }
 
     pub(super) fn daa(&mut self) -> u32 {
-        let a = self.registers.a;
-        let flags = self.registers.f;
+        let a = self.cpu.registers.a;
+        let flags = self.cpu.registers.f;
 
         let mut diff = 0;
         if flags.half_carry || (a & 0x0F > 0x09) {
@@ -228,8 +231,8 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
 
         let half_carry = a.bit(4) != value.bit(4);
 
-        self.registers.a = value;
-        self.registers.f = Flags {
+        self.cpu.registers.a = value;
+        self.cpu.registers.f = Flags {
             sign: sign_flag(value),
             zero: zero_flag(value),
             half_carry,
@@ -242,61 +245,61 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     }
 
     pub(super) fn cpl(&mut self) -> u32 {
-        self.registers.a = !self.registers.a;
-        self.registers.f = Flags { half_carry: true, subtract: true, ..self.registers.f };
+        self.cpu.registers.a = !self.cpu.registers.a;
+        self.cpu.registers.f = Flags { half_carry: true, subtract: true, ..self.cpu.registers.f };
 
         4
     }
 
     pub(super) fn neg(&mut self) -> u32 {
-        self.registers.a = subtract(0, self.registers.a, false, &mut self.registers.f);
+        self.cpu.registers.a = subtract(0, self.cpu.registers.a, false, &mut self.cpu.registers.f);
 
         8
     }
 
     pub(super) fn ccf(&mut self) -> u32 {
-        let prev_carry = self.registers.f.carry;
-        self.registers.f = Flags {
+        let prev_carry = self.cpu.registers.f.carry;
+        self.cpu.registers.f = Flags {
             half_carry: prev_carry,
             subtract: false,
             carry: !prev_carry,
-            ..self.registers.f
+            ..self.cpu.registers.f
         };
 
         4
     }
 
     pub(super) fn scf(&mut self) -> u32 {
-        self.registers.f =
-            Flags { half_carry: false, subtract: false, carry: true, ..self.registers.f };
+        self.cpu.registers.f =
+            Flags { half_carry: false, subtract: false, carry: true, ..self.cpu.registers.f };
 
         4
     }
 
     pub(super) fn compare_block(&mut self, mode: BlockMode, repeat: bool) -> u32 {
-        let a = self.registers.a;
-        let bc = Register16::BC.read_from(self.registers);
-        let hl = Register16::HL.read_from(self.registers);
+        let a = self.cpu.registers.a;
+        let bc = Register16::BC.read_from(&self.cpu.registers);
+        let hl = Register16::HL.read_from(&self.cpu.registers);
         let operand = self.bus.read_memory(hl);
 
         let difference = a.wrapping_sub(operand);
         let half_carry = a & 0x0F < operand & 0x0F;
 
-        Register16::HL.write_to(mode.apply(hl), self.registers);
-        Register16::BC.write_to(bc.wrapping_sub(1), self.registers);
+        Register16::HL.write_to(mode.apply(hl), &mut self.cpu.registers);
+        Register16::BC.write_to(bc.wrapping_sub(1), &mut self.cpu.registers);
 
-        self.registers.f = Flags {
+        self.cpu.registers.f = Flags {
             sign: sign_flag(difference),
             zero: zero_flag(difference),
             half_carry,
             overflow: bc != 1,
             subtract: true,
-            ..self.registers.f
+            ..self.cpu.registers.f
         };
 
         let should_repeat = repeat && difference != 0 && bc != 1;
         if should_repeat {
-            self.registers.pc -= 2;
+            self.cpu.registers.pc -= 2;
             21
         } else {
             16
@@ -515,74 +518,74 @@ fn decrement_u16(value: u16) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::Registers;
+    use crate::Z80;
     use crate::traits::InMemoryBus;
 
     #[test]
     fn cpl() {
-        let mut registers = Registers::new();
+        let mut cpu = Z80::new();
         let mut bus = InMemoryBus::new();
 
-        registers.a = 0x37;
-        registers.f = 0_u8.into();
+        cpu.registers.a = 0x37;
+        cpu.registers.f = 0_u8.into();
 
-        InstructionExecutor::new(&mut registers, &mut bus).cpl();
+        InstructionExecutor::new(&mut cpu, &mut bus).cpl();
 
-        assert_eq!(registers.a, 0xC8);
-        assert_eq!(u8::from(registers.f) & 0xD7, 0x12);
+        assert_eq!(cpu.registers.a, 0xC8);
+        assert_eq!(u8::from(cpu.registers.f) & 0xD7, 0x12);
 
         let value = rand::random();
-        registers.a = value;
-        registers.f = 0xFF_u8.into();
+        cpu.registers.a = value;
+        cpu.registers.f = 0xFF_u8.into();
 
-        InstructionExecutor::new(&mut registers, &mut bus).cpl();
+        InstructionExecutor::new(&mut cpu, &mut bus).cpl();
 
-        assert_eq!(registers.a, !value);
-        assert_eq!(u8::from(registers.f) & 0xD7, 0xD7);
+        assert_eq!(cpu.registers.a, !value);
+        assert_eq!(u8::from(cpu.registers.f) & 0xD7, 0xD7);
     }
 
     #[test]
     fn ccf() {
-        let mut registers = Registers::new();
+        let mut cpu = Z80::new();
         let mut bus = InMemoryBus::new();
 
-        registers.f = 0_u8.into();
+        cpu.registers.f = 0_u8.into();
 
-        InstructionExecutor::new(&mut registers, &mut bus).ccf();
-        assert_eq!(u8::from(registers.f) & 0xD7, 0x01);
+        InstructionExecutor::new(&mut cpu, &mut bus).ccf();
+        assert_eq!(u8::from(cpu.registers.f) & 0xD7, 0x01);
 
-        InstructionExecutor::new(&mut registers, &mut bus).ccf();
-        assert_eq!(u8::from(registers.f) & 0xD7, 0x10);
+        InstructionExecutor::new(&mut cpu, &mut bus).ccf();
+        assert_eq!(u8::from(cpu.registers.f) & 0xD7, 0x10);
 
-        InstructionExecutor::new(&mut registers, &mut bus).ccf();
-        assert_eq!(u8::from(registers.f) & 0xD7, 0x01);
+        InstructionExecutor::new(&mut cpu, &mut bus).ccf();
+        assert_eq!(u8::from(cpu.registers.f) & 0xD7, 0x01);
 
-        registers.f = 0xFF_u8.into();
+        cpu.registers.f = 0xFF_u8.into();
 
-        InstructionExecutor::new(&mut registers, &mut bus).ccf();
-        assert_eq!(u8::from(registers.f) & 0xD7, 0xD4);
+        InstructionExecutor::new(&mut cpu, &mut bus).ccf();
+        assert_eq!(u8::from(cpu.registers.f) & 0xD7, 0xD4);
 
-        InstructionExecutor::new(&mut registers, &mut bus).ccf();
-        assert_eq!(u8::from(registers.f) & 0xD7, 0xC5);
+        InstructionExecutor::new(&mut cpu, &mut bus).ccf();
+        assert_eq!(u8::from(cpu.registers.f) & 0xD7, 0xC5);
     }
 
     #[test]
     fn scf() {
-        let mut registers = Registers::new();
+        let mut cpu = Z80::new();
         let mut bus = InMemoryBus::new();
 
-        registers.f = 0_u8.into();
+        cpu.registers.f = 0_u8.into();
 
         for _ in 0..2 {
-            InstructionExecutor::new(&mut registers, &mut bus).scf();
-            assert_eq!(u8::from(registers.f) & 0xD7, 0x01);
+            InstructionExecutor::new(&mut cpu, &mut bus).scf();
+            assert_eq!(u8::from(cpu.registers.f) & 0xD7, 0x01);
         }
 
-        registers.f = 0xFF_u8.into();
+        cpu.registers.f = 0xFF_u8.into();
 
         for _ in 0..2 {
-            InstructionExecutor::new(&mut registers, &mut bus).scf();
-            assert_eq!(u8::from(registers.f) & 0xD7, 0xC5);
+            InstructionExecutor::new(&mut cpu, &mut bus).scf();
+            assert_eq!(u8::from(cpu.registers.f) & 0xD7, 0xC5);
         }
     }
 }

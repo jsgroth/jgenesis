@@ -375,7 +375,7 @@ impl Z80 {
 
         self.stalled = false;
 
-        instructions::execute(&mut self.registers, bus)
+        instructions::execute(self, bus)
     }
 
     /// Tick the Z80 for a single T-cycle.
