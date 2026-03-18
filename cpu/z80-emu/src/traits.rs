@@ -69,7 +69,7 @@ impl InMemoryBus {
 #[cfg(test)]
 impl BusInterface for InMemoryBus {
     type DebugView<'a>
-        = DummyZ80Debugger
+        = crate::debug::DummyZ80Debugger
     where
         Self: 'a;
 
