@@ -1,3 +1,4 @@
+use crate::debug::DummyM68000Debugger;
 use crate::traits::BusInterface;
 
 pub struct InMemoryBus {
@@ -12,6 +13,11 @@ impl InMemoryBus {
 }
 
 impl BusInterface for InMemoryBus {
+    type DebugView<'a>
+        = DummyM68000Debugger
+    where
+        Self: 'a;
+
     fn read_byte(&mut self, address: u32) -> u8 {
         self.memory[(address & Self::ADDRESS_MASK) as usize]
     }

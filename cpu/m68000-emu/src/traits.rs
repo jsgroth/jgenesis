@@ -1,6 +1,12 @@
+use crate::debug::M68000Debugger;
+
 pub trait BusInterface {
     // Addresses are 32-bit internally but the 68000 only has a 24-bit address bus
     const ADDRESS_MASK: u32 = 0x00FF_FFFF;
+
+    type DebugView<'a>: M68000Debugger
+    where
+        Self: 'a;
 
     fn read_byte(&mut self, address: u32) -> u8;
 
@@ -33,4 +39,8 @@ pub trait BusInterface {
     fn halt(&self) -> bool;
 
     fn reset(&self) -> bool;
+
+    fn debug_view(&mut self) -> Option<Self::DebugView<'_>> {
+        None
+    }
 }
