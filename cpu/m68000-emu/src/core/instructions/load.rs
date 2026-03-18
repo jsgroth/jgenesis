@@ -16,12 +16,12 @@ macro_rules! impl_move {
             let value = self.$read_method(source)?;
 
             if !dest.is_address_direct() {
-                self.registers.ccr = ConditionCodes {
+                self.cpu.registers.ccr = ConditionCodes {
                     carry: false,
                     overflow: false,
                     zero: value == 0,
                     negative: value.sign_bit(),
-                    ..self.registers.ccr
+                    ..self.cpu.registers.ccr
                 };
             }
 
@@ -43,11 +43,11 @@ macro_rules! impl_move {
 macro_rules! impl_exg {
     ($name:ident, $tx:ty, $ty:ty) => {
         pub(super) fn $name(&mut self, rx: $tx, ry: $ty) -> u32 {
-            let x_val = rx.read_from(self.registers);
-            let y_val = ry.read_from(self.registers);
+            let x_val = rx.read_from(&self.cpu.registers);
+            let y_val = ry.read_from(&self.cpu.registers);
 
-            rx.write_long_word_to(self.registers, y_val);
-            ry.write_long_word_to(self.registers, x_val);
+            rx.write_long_word_to(&mut self.cpu.registers, y_val);
+            ry.write_long_word_to(&mut self.cpu.registers, x_val);
 
             6
         }
@@ -62,12 +62,12 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
                 let high_word = (value >> 16) as u16;
                 let low_word = value as u16;
 
-                let address = register.read_from(self.registers).wrapping_sub(2);
-                register.write_long_word_to(self.registers, address);
+                let address = register.read_from(&self.cpu.registers).wrapping_sub(2);
+                register.write_long_word_to(&mut self.cpu.registers, address);
                 self.write_bus_word(address, low_word)?;
 
                 let address = address.wrapping_sub(2);
-                register.write_long_word_to(self.registers, address);
+                register.write_long_word_to(&mut self.cpu.registers, address);
                 self.write_bus_word(address, high_word)?;
 
                 Ok(())
@@ -82,7 +82,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
 
     pub(super) fn move_from_sr(&mut self, dest: AddressingMode) -> ExecuteResult<u32> {
         let dest_resolved = self.resolve_address_with_post(dest, OpSize::Word)?;
-        self.write_word_resolved(dest_resolved, self.registers.status_register())?;
+        self.write_word_resolved(dest_resolved, self.cpu.registers.status_register())?;
 
         Ok(if dest.is_data_direct() {
             6
@@ -94,32 +94,32 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     pub(super) fn move_to_ccr(&mut self, source: AddressingMode) -> ExecuteResult<u32> {
         let value = self.read_word(source)?;
 
-        self.registers.ccr = (value as u8).into();
+        self.cpu.registers.ccr = (value as u8).into();
 
         Ok(12 + source.address_calculation_cycles(OpSize::Word))
     }
 
     pub(super) fn move_to_sr(&mut self, source: AddressingMode) -> ExecuteResult<u32> {
-        if !self.registers.supervisor_mode {
+        if !self.cpu.registers.supervisor_mode {
             return Err(Exception::PrivilegeViolation);
         }
 
         let value = self.read_word(source)?;
 
-        self.registers.set_status_register(value);
+        self.cpu.registers.set_status_register(value);
 
         Ok(12 + source.address_calculation_cycles(OpSize::Word))
     }
 
     pub(super) fn moveq(&mut self, data: i8, register: DataRegister) -> u32 {
-        register.write_long_word_to(self.registers, data as u32);
+        register.write_long_word_to(&mut self.cpu.registers, data as u32);
 
-        self.registers.ccr = ConditionCodes {
+        self.cpu.registers.ccr = ConditionCodes {
             carry: false,
             overflow: false,
             zero: data == 0,
             negative: data < 0,
-            ..self.registers.ccr
+            ..self.cpu.registers.ccr
         };
 
         4
@@ -130,17 +130,18 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         direction: UspDirection,
         register: AddressRegister,
     ) -> ExecuteResult<u32> {
-        if !self.registers.supervisor_mode {
+        if !self.cpu.registers.supervisor_mode {
             return Err(Exception::PrivilegeViolation);
         }
 
         match direction {
             UspDirection::RegisterToUsp => {
-                let value = register.read_from(self.registers);
-                self.registers.usp = value;
+                let value = register.read_from(&self.cpu.registers);
+                self.cpu.registers.usp = value;
             }
             UspDirection::UspToRegister => {
-                register.write_long_word_to(self.registers, self.registers.usp);
+                let usp = self.cpu.registers.usp;
+                register.write_long_word_to(&mut self.cpu.registers, usp);
             }
         }
 
@@ -174,7 +175,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         match direction {
             Direction::RegisterToMemory => {
                 for register in iter {
-                    let value = register.read_from(self.registers);
+                    let value = register.read_from(&self.cpu.registers);
                     match size {
                         OpSize::Word => {
                             self.write_bus_word(address, value as u16)?;
@@ -195,8 +196,10 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
                     match size {
                         OpSize::Word => {
                             if let Some(postinc_register) = postinc_register {
-                                postinc_register
-                                    .write_long_word_to(self.registers, address.wrapping_add(2));
+                                postinc_register.write_long_word_to(
+                                    &mut self.cpu.registers,
+                                    address.wrapping_add(2),
+                                );
                             }
 
                             let value = self.read_bus_word(address)? as i16 as u32;
@@ -204,7 +207,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
                                 Register::Address(register)
                                     if Some(register) == postinc_register => {}
                                 _ => {
-                                    register.write_to(self.registers, value);
+                                    register.write_to(&mut self.cpu.registers, value);
                                 }
                             }
 
@@ -212,8 +215,10 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
                         }
                         OpSize::LongWord => {
                             if let Some(postinc_register) = postinc_register {
-                                postinc_register
-                                    .write_long_word_to(self.registers, address.wrapping_add(2));
+                                postinc_register.write_long_word_to(
+                                    &mut self.cpu.registers,
+                                    address.wrapping_add(2),
+                                );
                             }
 
                             let value = self.read_bus_long_word(address)?;
@@ -221,7 +226,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
                                 Register::Address(register)
                                     if Some(register) == postinc_register => {}
                                 _ => {
-                                    register.write_to(self.registers, value);
+                                    register.write_to(&mut self.cpu.registers, value);
                                 }
                             }
 
@@ -234,7 +239,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
                 }
 
                 if let Some(postinc_register) = postinc_register {
-                    postinc_register.write_long_word_to(self.registers, address);
+                    postinc_register.write_long_word_to(&mut self.cpu.registers, address);
                 }
             }
         }
@@ -261,7 +266,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         extension: u16,
     ) -> ExecuteResult<u32> {
         let iter = MultipleRegisterIter::new_reverse(extension);
-        let mut address = predec_register.read_from(self.registers);
+        let mut address = predec_register.read_from(&self.cpu.registers);
 
         let mut count = 0;
         for register in iter {
@@ -269,11 +274,11 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
             match size {
                 OpSize::Word => {
                     address = address.wrapping_sub(2);
-                    let value = register.read_from(self.registers) as u16;
+                    let value = register.read_from(&self.cpu.registers) as u16;
                     self.write_bus_word(address, value)?;
                 }
                 OpSize::LongWord => {
-                    let value = register.read_from(self.registers);
+                    let value = register.read_from(&self.cpu.registers);
                     let high_word = (value >> 16) as u16;
                     let low_word = value as u16;
 
@@ -289,7 +294,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
             count += 1;
         }
 
-        predec_register.write_long_word_to(self.registers, address);
+        predec_register.write_long_word_to(&mut self.cpu.registers, address);
 
         Ok(8 + match size {
             OpSize::Word => 4 * count,
@@ -307,11 +312,11 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     ) -> ExecuteResult<u32> {
         let extension = self.fetch_operand()?;
         let displacement = extension as i16;
-        let address = a_register.read_from(self.registers).wrapping_add(displacement as u32);
+        let address = a_register.read_from(&self.cpu.registers).wrapping_add(displacement as u32);
 
         match (size, direction) {
             (OpSize::Word, Direction::RegisterToMemory) => {
-                let value = d_register.read_from(self.registers);
+                let value = d_register.read_from(&self.cpu.registers);
                 let [msb, lsb] = (value as u16).to_be_bytes();
                 self.bus.write_byte(address, msb);
                 self.bus.write_byte(address.wrapping_add(2), lsb);
@@ -319,10 +324,10 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
             (OpSize::Word, Direction::MemoryToRegister) => {
                 let msb = self.bus.read_byte(address);
                 let lsb = self.bus.read_byte(address.wrapping_add(2));
-                d_register.write_word_to(self.registers, u16::from_be_bytes([msb, lsb]));
+                d_register.write_word_to(&mut self.cpu.registers, u16::from_be_bytes([msb, lsb]));
             }
             (OpSize::LongWord, Direction::RegisterToMemory) => {
-                let value = d_register.read_from(self.registers);
+                let value = d_register.read_from(&self.cpu.registers);
                 let mut address = address;
                 for byte in value.to_be_bytes() {
                     self.bus.write_byte(address, byte);
@@ -335,7 +340,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
                 let b1 = self.bus.read_byte(address.wrapping_add(4));
                 let b0 = self.bus.read_byte(address.wrapping_add(6));
                 let value = u32::from_be_bytes([b3, b2, b1, b0]);
-                d_register.write_long_word_to(self.registers, value);
+                d_register.write_long_word_to(&mut self.cpu.registers, value);
             }
             (OpSize::Byte, _) => panic!("MOVEP does not support size byte"),
         }

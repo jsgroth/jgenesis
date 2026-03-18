@@ -11,12 +11,13 @@ macro_rules! impl_extend_op_method {
             let (_, operand_r) = self.$read_method(source)?;
             let (dest_resolved, operand_l) = self.$read_method(dest)?;
 
-            let (value, carry, overflow) = $op_fn(operand_l, operand_r, self.registers.ccr.extend);
+            let (value, carry, overflow) =
+                $op_fn(operand_l, operand_r, self.cpu.registers.ccr.extend);
 
-            self.registers.ccr = ConditionCodes {
+            self.cpu.registers.ccr = ConditionCodes {
                 carry,
                 overflow,
-                zero: self.registers.ccr.zero && value == 0,
+                zero: self.cpu.registers.ccr.zero && value == 0,
                 negative: value.sign_bit(),
                 extend: carry,
             };
@@ -58,7 +59,7 @@ macro_rules! impl_op_method {
             let (value, carry, overflow) = $op_fn(operand_l, operand_r, false);
 
             if !dest.is_address_direct() {
-                self.registers.ccr = ConditionCodes {
+                self.cpu.registers.ccr = ConditionCodes {
                     carry,
                     overflow,
                     zero: value == 0,
@@ -83,13 +84,13 @@ macro_rules! impl_neg {
         ) -> ExecuteResult<u32> {
             let dest_resolved = self.resolve_address_with_post(dest, $size)?;
             let operand_r = self.$read_method(dest_resolved)?;
-            let extend = with_extend && self.registers.ccr.extend;
+            let extend = with_extend && self.cpu.registers.ccr.extend;
             let (difference, carry, overflow) = $sub_fn(0, operand_r, extend);
 
-            self.registers.ccr = ConditionCodes {
+            self.cpu.registers.ccr = ConditionCodes {
                 carry,
                 overflow,
-                zero: (!with_extend || self.registers.ccr.zero) && difference == 0,
+                zero: (!with_extend || self.cpu.registers.ccr.zero) && difference == 0,
                 negative: difference.sign_bit(),
                 extend: carry,
             };
@@ -115,7 +116,7 @@ macro_rules! impl_cmp {
             let source_operand = self.$read_method(source)?;
             let dest_operand = self.$read_method(dest)?;
 
-            $cmp_fn(source_operand, dest_operand, &mut self.registers.ccr);
+            $cmp_fn(source_operand, dest_operand, &mut self.cpu.registers.ccr);
 
             let cycles = $cycles_fn(source, dest);
             Ok(cycles)
@@ -193,12 +194,12 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     ) -> ExecuteResult<(ResolvedAddress, u32)> {
         match source {
             AddressingMode::AddressIndirectPredecrement(register) => {
-                let address = register.read_from(self.registers).wrapping_sub(2);
-                register.write_long_word_to(self.registers, address);
+                let address = register.read_from(&self.cpu.registers).wrapping_sub(2);
+                register.write_long_word_to(&mut self.cpu.registers, address);
                 let low_word = self.read_bus_word(address)?;
 
                 let address = address.wrapping_sub(2);
-                register.write_long_word_to(self.registers, address);
+                register.write_long_word_to(&mut self.cpu.registers, address);
                 let high_word = self.read_bus_word(address)?;
 
                 let value = (u32::from(high_word) << 16) | u32::from(low_word);
@@ -228,10 +229,10 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         dest: AddressRegister,
     ) -> ExecuteResult<u32> {
         let operand_r = self.read_address_operand(size, source)?;
-        let operand_l = dest.read_from(self.registers);
+        let operand_l = dest.read_from(&self.cpu.registers);
 
         let sum = operand_l.wrapping_add(operand_r);
-        dest.write_long_word_to(self.registers, sum);
+        dest.write_long_word_to(&mut self.cpu.registers, sum);
 
         Ok(super::binary_op_cycles(size, source, AddressingMode::AddressDirect(dest)))
     }
@@ -296,10 +297,10 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         dest: AddressRegister,
     ) -> ExecuteResult<u32> {
         let operand_r = self.read_address_operand(size, source)?;
-        let operand_l = dest.read_from(self.registers);
+        let operand_l = dest.read_from(&self.cpu.registers);
 
         let difference = operand_l.wrapping_sub(operand_r);
-        dest.write_long_word_to(self.registers, difference);
+        dest.write_long_word_to(&mut self.cpu.registers, difference);
 
         Ok(super::binary_op_cycles(size, source, AddressingMode::AddressDirect(dest)))
     }
@@ -390,9 +391,9 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         dest: AddressRegister,
     ) -> ExecuteResult<u32> {
         let source_operand = self.read_address_operand(size, source)?;
-        let dest_operand = dest.read_from(self.registers);
+        let dest_operand = dest.read_from(&self.cpu.registers);
 
-        compare_long_words(source_operand, dest_operand, &mut self.registers.ccr);
+        compare_long_words(source_operand, dest_operand, &mut self.cpu.registers.ccr);
 
         Ok(6 + source.address_calculation_cycles(size))
     }
@@ -403,17 +404,17 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         source: AddressingMode,
     ) -> ExecuteResult<u32> {
         let operand_l = self.read_word(source)? as i16;
-        let operand_r = register.read_from(self.registers) as i16;
+        let operand_r = register.read_from(&self.cpu.registers) as i16;
 
         let value = (i32::from(operand_l) * i32::from(operand_r)) as u32;
-        register.write_long_word_to(self.registers, value);
+        register.write_long_word_to(&mut self.cpu.registers, value);
 
-        self.registers.ccr = ConditionCodes {
+        self.cpu.registers.ccr = ConditionCodes {
             carry: false,
             overflow: false,
             zero: value == 0,
             negative: value.sign_bit(),
-            ..self.registers.ccr
+            ..self.cpu.registers.ccr
         };
 
         let mut last_bit = false;
@@ -435,29 +436,29 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         source: AddressingMode,
     ) -> ExecuteResult<u32> {
         let operand_l = self.read_word(source)?;
-        let operand_r = register.read_from(self.registers) as u16;
+        let operand_r = register.read_from(&self.cpu.registers) as u16;
 
         let value = u32::from(operand_l) * u32::from(operand_r);
-        register.write_long_word_to(self.registers, value);
+        register.write_long_word_to(&mut self.cpu.registers, value);
 
-        self.registers.ccr = ConditionCodes {
+        self.cpu.registers.ccr = ConditionCodes {
             carry: false,
             overflow: false,
             zero: value == 0,
             negative: value.sign_bit(),
-            ..self.registers.ccr
+            ..self.cpu.registers.ccr
         };
 
         Ok(38 + 2 * operand_l.count_ones() + source.address_calculation_cycles(OpSize::Word))
     }
 
     fn divide_by_zero_error(&mut self, source: AddressingMode) -> Exception {
-        self.registers.ccr = ConditionCodes {
+        self.cpu.registers.ccr = ConditionCodes {
             carry: false,
             overflow: false,
             zero: false,
             negative: false,
-            ..self.registers.ccr
+            ..self.cpu.registers.ccr
         };
 
         Exception::DivisionByZero { cycles: source.address_calculation_cycles(OpSize::Word) }
@@ -468,7 +469,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         register: DataRegister,
         source: AddressingMode,
     ) -> ExecuteResult<u32> {
-        let operand_l = register.read_from(self.registers) as i32;
+        let operand_l = register.read_from(&self.cpu.registers) as i32;
         let operand_r: i32 = (self.read_word(source)? as i16).into();
 
         if operand_r == 0 {
@@ -479,8 +480,8 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         let remainder = operand_l % operand_r;
 
         if quotient > i16::MAX.into() || quotient < i16::MIN.into() {
-            self.registers.ccr =
-                ConditionCodes { carry: false, overflow: true, ..self.registers.ccr };
+            self.cpu.registers.ccr =
+                ConditionCodes { carry: false, overflow: true, ..self.cpu.registers.ccr };
 
             return if operand_l.wrapping_abs() >> 16 >= operand_r.abs() {
                 // Absolute overflows take 16 cycles for non-negative dividend and 18 for negative dividend
@@ -493,14 +494,14 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         }
 
         let value = ((quotient as u32) & 0x0000_FFFF) | ((remainder as u32) << 16);
-        register.write_long_word_to(self.registers, value);
+        register.write_long_word_to(&mut self.cpu.registers, value);
 
-        self.registers.ccr = ConditionCodes {
+        self.cpu.registers.ccr = ConditionCodes {
             carry: false,
             overflow: false,
             zero: quotient == 0,
             negative: quotient < 0,
-            ..self.registers.ccr
+            ..self.cpu.registers.ccr
         };
 
         Ok(divs_cycle_count(operand_l, operand_r, quotient, source))
@@ -511,7 +512,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         register: DataRegister,
         source: AddressingMode,
     ) -> ExecuteResult<u32> {
-        let operand_l = register.read_from(self.registers);
+        let operand_l = register.read_from(&self.cpu.registers);
         let operand_r: u32 = self.read_word(source)?.into();
 
         if operand_r == 0 {
@@ -522,22 +523,22 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         let remainder = operand_l % operand_r;
 
         if quotient > u16::MAX.into() {
-            self.registers.ccr =
-                ConditionCodes { carry: false, overflow: true, ..self.registers.ccr };
+            self.cpu.registers.ccr =
+                ConditionCodes { carry: false, overflow: true, ..self.cpu.registers.ccr };
 
             // Overflow is always 10 cycles plus the time to read the divisor
             return Ok(10 + source.address_calculation_cycles(OpSize::Word));
         }
 
         let value = (quotient & 0x0000_FFFF) | (remainder << 16);
-        register.write_long_word_to(self.registers, value);
+        register.write_long_word_to(&mut self.cpu.registers, value);
 
-        self.registers.ccr = ConditionCodes {
+        self.cpu.registers.ccr = ConditionCodes {
             carry: false,
             overflow: false,
             zero: quotient == 0,
             negative: quotient.bit(15),
-            ..self.registers.ccr
+            ..self.cpu.registers.ccr
         };
 
         Ok(divu_cycle_count(operand_l, operand_r, source))
@@ -553,7 +554,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         let dest_resolved = self.resolve_address(dest, OpSize::Byte)?;
         let operand_r = self.read_byte_resolved(dest_resolved);
 
-        let extend: u8 = self.registers.ccr.extend.into();
+        let extend: u8 = self.cpu.registers.ccr.extend.into();
 
         let (sum, carry) = match operand_l.overflowing_add(operand_r) {
             (sum, true) => (sum + extend, true),
@@ -576,10 +577,10 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         log::trace!("sum={sum:02X}");
 
         let carry = carry || corrected_carry;
-        self.registers.ccr = ConditionCodes {
+        self.cpu.registers.ccr = ConditionCodes {
             carry,
             overflow,
-            zero: self.registers.ccr.zero && corrected_sum == 0,
+            zero: self.cpu.registers.ccr.zero && corrected_sum == 0,
             negative: corrected_sum.sign_bit(),
             extend: carry,
         };
@@ -626,7 +627,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     }
 
     fn decimal_subtract(&mut self, operand_l: u8, operand_r: u8) -> u8 {
-        let extend: u8 = self.registers.ccr.extend.into();
+        let extend: u8 = self.cpu.registers.ccr.extend.into();
 
         let (difference, borrow) = match operand_l.overflowing_sub(operand_r) {
             (difference, true) => (difference - extend, true),
@@ -647,10 +648,10 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         let overflow = bit_6_borrow != corrected_borrow;
 
         let borrow = borrow || corrected_borrow;
-        self.registers.ccr = ConditionCodes {
+        self.cpu.registers.ccr = ConditionCodes {
             carry: borrow,
             overflow,
-            zero: self.registers.ccr.zero && corrected_difference == 0,
+            zero: self.cpu.registers.ccr.zero && corrected_difference == 0,
             negative: corrected_difference.sign_bit(),
             extend: borrow,
         };
