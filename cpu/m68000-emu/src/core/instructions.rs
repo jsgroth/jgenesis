@@ -8,6 +8,7 @@ use crate::core::{
     AddressRegister, AddressingMode, ConditionCodes, DataRegister, Exception, ExecuteResult,
     InstructionExecutor, OpSize, Registers,
 };
+use crate::debug::BusDebugExt;
 use crate::traits::BusInterface;
 use jgenesis_proc_macros::EnumAll;
 use std::fmt::{Display, Formatter};
@@ -326,6 +327,8 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         use Instruction::*;
 
         let initial_pc = self.cpu.registers.pc;
+
+        self.bus.check_execute(initial_pc, self.cpu);
 
         let opcode = self.fetch_operand()?;
         self.opcode = opcode;

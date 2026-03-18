@@ -6,6 +6,7 @@ use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::EnumAll;
 use std::fmt::{Display, Formatter};
 
+use crate::debug::BusDebugExt;
 pub use instructions::cycles_if_move_btst_cmp;
 
 #[derive(Debug, Clone, Copy)]
@@ -436,7 +437,7 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
             return Err(Exception::AddressError(address, BusOpType::Read));
         }
 
-        Ok(self.bus.read_word(address))
+        Ok(self.bus.read_word_debug(address, self.cpu))
     }
 
     // Write a word to the bus; returns an address error if address is odd
@@ -445,7 +446,7 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
             return Err(Exception::AddressError(address, BusOpType::Write));
         }
 
-        self.bus.write_word(address, value);
+        self.bus.write_word_debug(address, value, self.cpu);
 
         Ok(())
     }
@@ -456,7 +457,7 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
             return Err(Exception::AddressError(address, BusOpType::Read));
         }
 
-        Ok(self.bus.read_long_word(address))
+        Ok(self.bus.read_longword_debug(address, self.cpu))
     }
 
     // Write a long word to the bus; returns an address error if address is odd
@@ -465,16 +466,21 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
             return Err(Exception::AddressError(address, BusOpType::Write));
         }
 
-        self.bus.write_long_word(address, value);
+        self.bus.write_longword_debug(address, value, self.cpu);
 
         Ok(())
     }
 
     // Fetch a word from the current PC and increment PC; returns an address error if PC is odd
     fn fetch_operand(&mut self) -> ExecuteResult<u16> {
+        let prefetch_addr = self.cpu.registers.pc.wrapping_add(2);
+        if self.cpu.registers.pc & 1 != 0 {
+            return Err(Exception::AddressError(prefetch_addr, BusOpType::Read));
+        }
+
         let operand = self.cpu.registers.prefetch;
-        self.cpu.registers.prefetch = self.read_bus_word(self.cpu.registers.pc.wrapping_add(2))?;
-        self.cpu.registers.pc = self.cpu.registers.pc.wrapping_add(2);
+        self.cpu.registers.prefetch = self.bus.read_word(prefetch_addr);
+        self.cpu.registers.pc = prefetch_addr;
 
         Ok(operand)
     }
@@ -590,7 +596,9 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
                 register.read_from(&self.cpu.registers) as u8
             }
             ResolvedAddress::Memory(address)
-            | ResolvedAddress::MemoryPostincrement { address, .. } => self.bus.read_byte(address),
+            | ResolvedAddress::MemoryPostincrement { address, .. } => {
+                self.bus.read_byte_debug(address, self.cpu)
+            }
             ResolvedAddress::Immediate(value) => value as u8,
         }
     }
@@ -663,7 +671,7 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
             }
             ResolvedAddress::Memory(address)
             | ResolvedAddress::MemoryPostincrement { address, .. } => {
-                self.bus.write_byte(address, value);
+                self.bus.write_byte_debug(address, value, self.cpu);
             }
             ResolvedAddress::Immediate(..) => panic!("cannot write to immediate addressing mode"),
         }

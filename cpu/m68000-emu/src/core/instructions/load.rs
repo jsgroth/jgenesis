@@ -3,6 +3,7 @@ use crate::core::{
     AddressRegister, AddressingMode, ConditionCodes, DataRegister, Exception, ExecuteResult,
     InstructionExecutor, OpSize, Registers, ResolvedAddress,
 };
+use crate::debug::BusDebugExt;
 use crate::traits::BusInterface;
 use jgenesis_common::num::{GetBit, SignBit};
 
@@ -318,27 +319,27 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
             (OpSize::Word, Direction::RegisterToMemory) => {
                 let value = d_register.read_from(&self.cpu.registers);
                 let [msb, lsb] = (value as u16).to_be_bytes();
-                self.bus.write_byte(address, msb);
-                self.bus.write_byte(address.wrapping_add(2), lsb);
+                self.bus.write_byte_debug(address, msb, self.cpu);
+                self.bus.write_byte_debug(address.wrapping_add(2), lsb, self.cpu);
             }
             (OpSize::Word, Direction::MemoryToRegister) => {
-                let msb = self.bus.read_byte(address);
-                let lsb = self.bus.read_byte(address.wrapping_add(2));
+                let msb = self.bus.read_byte_debug(address, self.cpu);
+                let lsb = self.bus.read_byte_debug(address.wrapping_add(2), self.cpu);
                 d_register.write_word_to(&mut self.cpu.registers, u16::from_be_bytes([msb, lsb]));
             }
             (OpSize::LongWord, Direction::RegisterToMemory) => {
                 let value = d_register.read_from(&self.cpu.registers);
                 let mut address = address;
                 for byte in value.to_be_bytes() {
-                    self.bus.write_byte(address, byte);
+                    self.bus.write_byte_debug(address, byte, self.cpu);
                     address = address.wrapping_add(2);
                 }
             }
             (OpSize::LongWord, Direction::MemoryToRegister) => {
-                let b3 = self.bus.read_byte(address);
-                let b2 = self.bus.read_byte(address.wrapping_add(2));
-                let b1 = self.bus.read_byte(address.wrapping_add(4));
-                let b0 = self.bus.read_byte(address.wrapping_add(6));
+                let b3 = self.bus.read_byte_debug(address, self.cpu);
+                let b2 = self.bus.read_byte_debug(address.wrapping_add(2), self.cpu);
+                let b1 = self.bus.read_byte_debug(address.wrapping_add(4), self.cpu);
+                let b0 = self.bus.read_byte_debug(address.wrapping_add(6), self.cpu);
                 let value = u32::from_be_bytes([b3, b2, b1, b0]);
                 d_register.write_long_word_to(&mut self.cpu.registers, value);
             }
