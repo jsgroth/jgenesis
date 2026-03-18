@@ -2,9 +2,11 @@
 
 pub mod debug;
 
+use crate::api::debug::GenesisDebugger;
 use crate::audio::GenesisAudioResampler;
 use crate::cartridge::Cartridge;
 use crate::input::InputState;
+use crate::memory::debug::Debug68kBus;
 use crate::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use crate::timing::{CycleCounters, GenesisCycleCounters};
 use crate::vdp::{DarkenColors, Vdp, VdpConfig, VdpTickEffect};
@@ -17,7 +19,7 @@ use genesis_config::{
 };
 use jgenesis_common::frontend::{
     AudioOutput, EmulatorConfigTrait, EmulatorTrait, InputPoller, PartialClone, RenderFrameOptions,
-    Renderer, SaveWriter, TickEffect, TimingMode,
+    Renderer, SaveWriter, TickEffect, TickResult, TimingMode,
 };
 use jgenesis_proc_macros::ConfigDisplay;
 use m68000_emu::M68000;
@@ -271,67 +273,22 @@ impl GenesisEmulator {
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
         render_frame(self.timing_mode, &self.vdp, &self.config, renderer)
     }
-}
 
-/// Render the current VDP frame buffer.
-///
-/// # Errors
-///
-/// This function will propagate any error returned by the renderer.
-pub fn render_frame<R: Renderer>(
-    timing_mode: TimingMode,
-    vdp: &Vdp,
-    config: &GenesisEmulatorConfig,
-    renderer: &mut R,
-) -> Result<(), R::Err> {
-    let frame_size = vdp.frame_size();
-    let pixel_aspect_ratio = config.aspect_ratio.to_pixel_aspect_ratio(
-        timing_mode,
-        frame_size,
-        config.to_gen_par_params(),
-    );
-    let target_fps = target_framerate(vdp, timing_mode);
-
-    renderer.render_frame(
-        vdp.frame_buffer(),
-        frame_size,
-        target_fps,
-        RenderFrameOptions::pixel_aspect_ratio(pixel_aspect_ratio),
-    )
-}
-
-impl EmulatorTrait for GenesisEmulator {
-    type Button = GenesisButton;
-    type Inputs = GenesisInputs;
-    type Config = GenesisEmulatorConfig;
-
-    type Err<
-        RErr: Debug + Display + Send + Sync + 'static,
-        AErr: Debug + Display + Send + Sync + 'static,
-        SErr: Debug + Display + Send + Sync + 'static,
-    > = GenesisError<RErr, AErr, SErr>;
-
-    /// Execute one 68000 CPU instruction and run the rest of the components for the appropriate
-    /// number of cycles.
-    ///
-    /// # Errors
-    ///
-    /// This method will propagate any errors encountered while rendering frames or pushing audio
-    /// samples.
     #[inline]
-    fn tick<R, A, I, S>(
+    fn tick_inner<const DEBUG: bool, R, A, I, S>(
         &mut self,
         renderer: &mut R,
         audio_output: &mut A,
         input_poller: &mut I,
         save_writer: &mut S,
-    ) -> GenesisResult<R::Err, A::Err, S::Err>
+        debugger: Option<&mut GenesisDebugger>,
+    ) -> TickResult<GenesisError<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
         R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
         A::Err: Debug + Display + Send + Sync + 'static,
-        I: InputPoller<Self::Inputs>,
+        I: InputPoller<GenesisInputs>,
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
@@ -342,6 +299,10 @@ impl EmulatorTrait for GenesisEmulator {
         let m68k_wait = bus.cycles.m68k_wait_cpu_cycles != 0;
         let m68k_cycles = if m68k_wait {
             bus.cycles.take_m68k_wait_cpu_cycles()
+        } else if DEBUG && let Some(debugger) = debugger {
+            let mut debug_bus =
+                Debug68kBus { bus: &mut bus, debugger: debugger.for_68k(&mut self.z80) };
+            self.m68k.execute_instruction(&mut debug_bus)
         } else {
             self.m68k.execute_instruction(&mut bus)
         };
@@ -409,6 +370,108 @@ impl EmulatorTrait for GenesisEmulator {
         self.main_bus_writes = new_main_bus!(self, m68k_reset: false).apply_writes();
 
         Ok(tick_effect)
+    }
+
+    /// # Errors
+    ///
+    /// This method will propagate any errors encountered while rendering frames or pushing audio
+    /// samples.
+    pub fn debug_tick<R, A, I, S>(
+        &mut self,
+        renderer: &mut R,
+        audio_output: &mut A,
+        input_poller: &mut I,
+        save_writer: &mut S,
+        debugger: &mut GenesisDebugger,
+    ) -> TickResult<GenesisError<R::Err, A::Err, S::Err>>
+    where
+        R: Renderer,
+        R::Err: Debug + Display + Send + Sync + 'static,
+        A: AudioOutput,
+        A::Err: Debug + Display + Send + Sync + 'static,
+        I: InputPoller<GenesisInputs>,
+        S: SaveWriter,
+        S::Err: Debug + Display + Send + Sync + 'static,
+    {
+        self.tick_inner::<true, _, _, _, _>(
+            renderer,
+            audio_output,
+            input_poller,
+            save_writer,
+            Some(debugger),
+        )
+    }
+}
+
+/// Render the current VDP frame buffer.
+///
+/// # Errors
+///
+/// This function will propagate any error returned by the renderer.
+pub fn render_frame<R: Renderer>(
+    timing_mode: TimingMode,
+    vdp: &Vdp,
+    config: &GenesisEmulatorConfig,
+    renderer: &mut R,
+) -> Result<(), R::Err> {
+    let frame_size = vdp.frame_size();
+    let pixel_aspect_ratio = config.aspect_ratio.to_pixel_aspect_ratio(
+        timing_mode,
+        frame_size,
+        config.to_gen_par_params(),
+    );
+    let target_fps = target_framerate(vdp, timing_mode);
+
+    renderer.render_frame(
+        vdp.frame_buffer(),
+        frame_size,
+        target_fps,
+        RenderFrameOptions::pixel_aspect_ratio(pixel_aspect_ratio),
+    )
+}
+
+impl EmulatorTrait for GenesisEmulator {
+    type Button = GenesisButton;
+    type Inputs = GenesisInputs;
+    type Config = GenesisEmulatorConfig;
+
+    type Err<
+        RErr: Debug + Display + Send + Sync + 'static,
+        AErr: Debug + Display + Send + Sync + 'static,
+        SErr: Debug + Display + Send + Sync + 'static,
+    > = GenesisError<RErr, AErr, SErr>;
+
+    /// Execute one 68000 CPU instruction and run the rest of the components for the appropriate
+    /// number of cycles.
+    ///
+    /// # Errors
+    ///
+    /// This method will propagate any errors encountered while rendering frames or pushing audio
+    /// samples.
+    #[inline]
+    fn tick<R, A, I, S>(
+        &mut self,
+        renderer: &mut R,
+        audio_output: &mut A,
+        input_poller: &mut I,
+        save_writer: &mut S,
+    ) -> GenesisResult<R::Err, A::Err, S::Err>
+    where
+        R: Renderer,
+        R::Err: Debug + Display + Send + Sync + 'static,
+        A: AudioOutput,
+        A::Err: Debug + Display + Send + Sync + 'static,
+        I: InputPoller<Self::Inputs>,
+        S: SaveWriter,
+        S::Err: Debug + Display + Send + Sync + 'static,
+    {
+        self.tick_inner::<false, _, _, _, _>(
+            renderer,
+            audio_output,
+            input_poller,
+            save_writer,
+            None,
+        )
     }
 
     fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>

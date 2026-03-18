@@ -1,5 +1,7 @@
 //! Genesis memory map and 68000 + Z80 bus interfaces
 
+pub mod debug;
+
 use crate::GenesisRegionExt;
 use crate::api::debug::{GenesisMemoryDebugView, PhysicalMediumDebugView};
 use crate::cartridge::Cartridge;

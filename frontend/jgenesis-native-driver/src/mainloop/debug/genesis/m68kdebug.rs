@@ -1,6 +1,8 @@
-use egui::panel::Side;
-use egui::{Align, CentralPanel, Grid, RichText, SidePanel, TextEdit, Window};
+use crate::mainloop::debug::genesis::widgets::{BreakpointsWidget, U24};
+use egui::panel::{Side, TopBottomSide};
+use egui::{Align, CentralPanel, Grid, RichText, SidePanel, TextEdit, TopBottomPanel, Window};
 use egui_extras::{Column, TableBuilder};
+use genesis_core::api::debug::{M68000BreakStatus, M68000Breakpoint};
 use genesis_core::cartridge::Cartridge;
 use jgenesis_common::num::GetBit;
 use m68000_emu::M68000;
@@ -9,12 +11,21 @@ use s32x_core::api::debug::Sega32XDebugState;
 use segacd_core::WordRam;
 use segacd_core::api::debug::SegaCdDebugState;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum M68kBreakCommand {
+    Pause,
+    Resume,
+    Step,
+}
+
 pub struct M68kDebugWindowState {
     pub window_title: String,
-    pub open: bool,
+    pub disassembly_open: bool,
+    pub breakpoints_open: bool,
     pub disassemble_start: u32,
     pub disassemble_jump_addr: String,
     pub disassemble_reset_table: bool,
+    pub breakpoints: BreakpointsWidget<U24>,
 }
 
 impl M68kDebugWindowState {
@@ -23,12 +34,17 @@ impl M68kDebugWindowState {
     }
 
     pub fn new_with_title(window_title: impl Into<String>) -> Self {
+        let window_title = window_title.into();
+        let breakpoints_id = format!("{window_title}_breakpoints");
+
         Self {
-            window_title: window_title.into(),
-            open: false,
+            window_title,
+            disassembly_open: false,
+            breakpoints_open: false,
             disassemble_start: 0,
             disassemble_jump_addr: String::new(),
             disassemble_reset_table: false,
+            breakpoints: BreakpointsWidget::new(breakpoints_id),
         }
     }
 
@@ -177,7 +193,7 @@ impl M68kDebugMemoryMap for S32XMemoryMap<'_> {
             0x000000..=0x3FFFFF => self.cartridge.peek_word(address),
             0x880000..=0x8FFFFF => self.cartridge.peek_word(address & 0x7FFFF),
             0x900000..=0x9FFFFF => {
-                let address = (self.banked_rom_base_addr | (address & 0xFFFFF)) >> 1;
+                let address = self.banked_rom_base_addr | (address & 0xFFFFF);
                 self.cartridge.peek_word(address)
             }
             0xE00000..=0xFFFFFF => self.working_ram[((address & 0xFFFF) >> 1) as usize],
@@ -201,13 +217,43 @@ pub fn render_disassembly_window<MemoryMap: M68kDebugMemoryMap>(
     m68k: &M68000,
     memory_map: &MemoryMap,
     state: &mut M68kDebugWindowState,
+    break_status: Option<M68000BreakStatus>,
+    handle_command: Option<&mut dyn FnMut(M68kBreakCommand)>,
 ) {
-    let mut open = state.open;
+    if let Some(break_status) = break_status {
+        state.move_disassembly_table(break_status.pc);
+    }
+
+    let mut open = state.disassembly_open;
     Window::new(&state.window_title)
         .open(&mut open)
         .resizable([true, true])
         .default_width(650.0)
         .show(ctx, |ui| {
+            if let Some(handle_command) = handle_command {
+                TopBottomPanel::new(
+                    TopBottomSide::Top,
+                    format!("{}_top_panel", state.window_title),
+                )
+                .show_inside(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if ui.button("Pause").clicked() {
+                            handle_command(M68kBreakCommand::Pause);
+                        }
+
+                        if ui.button("Resume").clicked() {
+                            handle_command(M68kBreakCommand::Resume);
+                        }
+
+                        if ui.button("Step").clicked() {
+                            handle_command(M68kBreakCommand::Step);
+                        }
+                    });
+
+                    ui.add_space(5.0);
+                });
+            }
+
             SidePanel::new(Side::Right, format!("{}_right_panel", state.window_title)).show_inside(
                 ui,
                 |ui| {
@@ -354,7 +400,32 @@ pub fn render_disassembly_window<MemoryMap: M68kDebugMemoryMap>(
                 });
             });
         });
-    state.open = open;
+    state.disassembly_open = open;
+}
+
+pub fn render_breakpoints_window(
+    ctx: &egui::Context,
+    state: &mut M68kDebugWindowState,
+    mut update_breakpoints: impl FnMut(Vec<M68000Breakpoint>),
+) {
+    let mut open = state.breakpoints_open;
+    Window::new("68000 Breakpoints").open(&mut open).resizable([true, true]).show(ctx, |ui| {
+        state.breakpoints.render(ui, |breakpoints| {
+            let m68k_breakpoints = breakpoints
+                .iter()
+                .map(|breakpoint| M68000Breakpoint {
+                    start_address: breakpoint.start_address.get(),
+                    end_address: breakpoint.end_address.get(),
+                    read: breakpoint.read,
+                    write: breakpoint.write,
+                    execute: breakpoint.execute,
+                })
+                .collect();
+
+            update_breakpoints(m68k_breakpoints);
+        });
+    });
+    state.breakpoints_open = open;
 }
 
 fn monospace_u16(value: u16) -> RichText {

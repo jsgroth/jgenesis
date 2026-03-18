@@ -1,3 +1,4 @@
+use crate::mainloop::debug::genesis::widgets::BreakpointsWidget;
 use egui::panel::{Side, TopBottomSide};
 use egui::{Align, FontFamily, Grid, LayerId, Order, RichText, TextEdit, Window};
 use egui_extras::{Column, TableBuilder};
@@ -75,12 +76,7 @@ pub struct Sh2DebugWindowState {
     pub disassembly_area: DisassemblyArea,
     pub disassembly_address: String,
     pub disasm_scroll_to_row: Option<usize>,
-    pub breakpoints: Vec<Sh2Breakpoint>,
-    pub breakpoint_start_addr: String,
-    pub breakpoint_end_addr: String,
-    pub breakpoint_read: bool,
-    pub breakpoint_write: bool,
-    pub breakpoint_exec: bool,
+    pub breakpoints: BreakpointsWidget<u32>,
 }
 
 impl Sh2DebugWindowState {
@@ -92,12 +88,7 @@ impl Sh2DebugWindowState {
             disassembly_area: DisassemblyArea::Sdram { cached: true },
             disassembly_address: String::new(),
             disasm_scroll_to_row: None,
-            breakpoints: Vec::new(),
-            breakpoint_start_addr: String::new(),
-            breakpoint_end_addr: String::new(),
-            breakpoint_read: false,
-            breakpoint_write: false,
-            breakpoint_exec: false,
+            breakpoints: BreakpointsWidget::new(format!("{which:?}_breakpoints")),
         }
     }
 
@@ -172,7 +163,7 @@ pub fn render_disassembly_window(
                     ui.horizontal(|ui| {
                         if ui.button("Pause").clicked() {
                             let _ = command_sender
-                                .send(Sega32XDebugCommand::BreakPause(window_state.which));
+                                .send(Sega32XDebugCommand::BreakPauseSh2(window_state.which));
                         }
 
                         if ui.button("Resume").clicked() {
@@ -181,7 +172,7 @@ pub fn render_disassembly_window(
 
                         if ui.button("Step").clicked() {
                             let _ = command_sender
-                                .send(Sega32XDebugCommand::BreakStep(window_state.which));
+                                .send(Sega32XDebugCommand::BreakStepSh2(window_state.which));
                         }
                     });
 
@@ -324,120 +315,27 @@ pub fn render_breakpoints_window(
 ) {
     let window_title = window_state.which.breakpoints_window_title();
 
-    let initial_breakpoints = window_state.breakpoints.clone();
-
     let mut open = window_state.breakpoints_open;
     Window::new(window_title).open(&mut open).resizable([true, true]).show(ctx, |ui| {
-        if !window_state.breakpoints.is_empty() {
-            Grid::new(format!("{window_title}_breakpoints")).show(ui, |ui| {
-                ui.heading("Addresses");
-                ui.heading("R");
-                ui.heading("W");
-                ui.heading("X");
-                ui.label("");
-                ui.end_row();
+        window_state.breakpoints.render(ui, |breakpoints| {
+            let sh2_breakpoints = breakpoints
+                .iter()
+                .map(|breakpoint| Sh2Breakpoint {
+                    start_address: breakpoint.start_address,
+                    end_address: breakpoint.end_address,
+                    read: breakpoint.read,
+                    write: breakpoint.write,
+                    execute: breakpoint.execute,
+                })
+                .collect();
 
-                let mut remove_idx: Option<usize> = None;
-                for (i, breakpoint) in window_state.breakpoints.iter_mut().enumerate() {
-                    if breakpoint.start_address == breakpoint.end_address {
-                        ui.label(
-                            RichText::new(format!("${:08X}", breakpoint.start_address))
-                                .family(FontFamily::Monospace),
-                        );
-                    } else {
-                        ui.label(
-                            RichText::new(format!(
-                                "${:08X}-${:08X}",
-                                breakpoint.start_address, breakpoint.end_address
-                            ))
-                            .family(FontFamily::Monospace),
-                        );
-                    }
-
-                    for value in
-                        [&mut breakpoint.read, &mut breakpoint.write, &mut breakpoint.execute]
-                    {
-                        ui.checkbox(value, "");
-                    }
-
-                    if ui.button("Remove").clicked() {
-                        remove_idx = Some(i);
-                    }
-
-                    ui.end_row();
-                }
-
-                if let Some(remove_idx) = remove_idx
-                    && remove_idx < window_state.breakpoints.len()
-                {
-                    window_state.breakpoints.remove(remove_idx);
-                }
-            });
-
-            ui.separator();
-        }
-
-        let mut enter_pressed = false;
-
-        ui.heading("Add Breakpoint");
-        ui.horizontal(|ui| {
-            ui.label("$");
-            let start_resp = ui.add(
-                TextEdit::singleline(&mut window_state.breakpoint_start_addr).desired_width(80.0),
-            );
-            ui.label("-");
-            ui.label("$");
-            let end_resp = ui.add(
-                TextEdit::singleline(&mut window_state.breakpoint_end_addr).desired_width(80.0),
-            );
-
-            ui.checkbox(&mut window_state.breakpoint_read, "Read");
-            ui.checkbox(&mut window_state.breakpoint_write, "Write");
-            ui.checkbox(&mut window_state.breakpoint_exec, "Execute");
-
-            enter_pressed = (start_resp.lost_focus() || end_resp.lost_focus())
-                && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            let _ = command_sender.send(Sega32XDebugCommand::UpdateSh2Breakpoints(
+                window_state.which,
+                sh2_breakpoints,
+            ));
         });
-
-        let button_resp = ui.button("Add");
-        if (button_resp.clicked() || enter_pressed)
-            && let Ok(start_address) = u32::from_str_radix(&window_state.breakpoint_start_addr, 16)
-        {
-            if window_state.breakpoint_end_addr.is_empty() {
-                window_state.breakpoints.push(Sh2Breakpoint {
-                    start_address,
-                    end_address: start_address,
-                    read: window_state.breakpoint_read,
-                    write: window_state.breakpoint_write,
-                    execute: window_state.breakpoint_exec,
-                });
-
-                window_state.breakpoint_start_addr.clear();
-            } else if let Ok(end_address) =
-                u32::from_str_radix(&window_state.breakpoint_end_addr, 16)
-                && end_address >= start_address
-            {
-                window_state.breakpoints.push(Sh2Breakpoint {
-                    start_address,
-                    end_address,
-                    read: window_state.breakpoint_read,
-                    write: window_state.breakpoint_write,
-                    execute: window_state.breakpoint_exec,
-                });
-
-                window_state.breakpoint_start_addr.clear();
-                window_state.breakpoint_end_addr.clear();
-            }
-        }
     });
     window_state.breakpoints_open = open;
-
-    if initial_breakpoints != window_state.breakpoints {
-        let _ = command_sender.send(Sega32XDebugCommand::UpdateBreakpoints(
-            window_state.which,
-            window_state.breakpoints.clone(),
-        ));
-    }
 }
 
 fn monospace_u16(value: u16) -> RichText {

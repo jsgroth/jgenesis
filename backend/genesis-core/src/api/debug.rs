@@ -7,10 +7,12 @@ use jgenesis_common::debug::{
     DebugBytesView, DebugMemoryView, DebugWordsView, EmptyDebugView, Endian,
 };
 use jgenesis_common::frontend::Color;
+use jgenesis_common::sync::SharedVarSender;
 use jgenesis_proc_macros::EnumAll;
 use m68000_emu::M68000;
-use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender, TryRecvError};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::mpsc::{Receiver, SendError, Sender, TryRecvError};
+use std::sync::{Arc, mpsc};
 use z80_emu::Z80;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -44,9 +46,13 @@ pub enum GenesisMemoryArea {
     Vsram,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum GenesisDebugCommand {
     EditMemory(GenesisMemoryArea, usize, u8),
+    Update68kBreakpoints(Vec<M68000Breakpoint>),
+    BreakPause,
+    BreakResume,
+    Break68kStep,
 }
 
 #[derive(Debug, Clone)]
@@ -168,10 +174,10 @@ impl<MediumView: PhysicalMediumDebugView> GenesisMemoryDebugView<'_, MediumView>
 }
 
 pub struct BaseGenesisDebugView<'a, MediumView> {
-    m68k: &'a mut M68000,
-    z80: &'a mut Z80,
-    memory: GenesisMemoryDebugView<'a, MediumView>,
-    vdp: &'a mut Vdp,
+    pub m68k: &'a mut M68000,
+    pub z80: &'a mut Z80,
+    pub memory: GenesisMemoryDebugView<'a, MediumView>,
+    pub vdp: &'a mut Vdp,
 }
 
 impl<'a, MediumView: PhysicalMediumDebugView> BaseGenesisDebugView<'a, MediumView> {
@@ -252,32 +258,311 @@ impl GenesisEmulator {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct M68000Breakpoint {
+    pub start_address: u32,
+    pub end_address: u32,
+    pub read: bool,
+    pub write: bool,
+    pub execute: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct M68000Breakpoints {
+    read_byte: Vec<(u32, u32)>,
+    read_word: Vec<(u32, u32)>,
+    write_byte: Vec<(u32, u32)>,
+    write_word: Vec<(u32, u32)>,
+    execute: Vec<(u32, u32)>,
+}
+
+impl M68000Breakpoints {
+    #[must_use]
+    pub fn new(breakpoints: &[M68000Breakpoint]) -> Self {
+        let mut read_byte = Vec::new();
+        let mut read_word = Vec::new();
+        let mut write_byte = Vec::new();
+        let mut write_word = Vec::new();
+        let mut execute = Vec::new();
+
+        for &breakpoint in breakpoints {
+            if breakpoint.read {
+                read_byte.push((breakpoint.start_address, breakpoint.end_address));
+                read_word.push((breakpoint.start_address & !1, breakpoint.end_address & !1));
+            }
+
+            if breakpoint.write {
+                write_byte.push((breakpoint.start_address, breakpoint.end_address));
+                write_word.push((breakpoint.start_address & !1, breakpoint.end_address & !1));
+            }
+
+            if breakpoint.execute {
+                execute.push((breakpoint.start_address & !1, breakpoint.end_address & !1));
+            }
+        }
+
+        Self { read_byte, read_word, write_byte, write_word, execute }
+    }
+
+    #[must_use]
+    pub fn none() -> Self {
+        Self::new(&[])
+    }
+
+    #[must_use]
+    pub fn check_read<const WORD: bool>(&self, address: u32) -> bool {
+        let ranges = if WORD { &self.read_word } else { &self.read_byte };
+        ranges.iter().any(|&(start, end)| (start..=end).contains(&address))
+    }
+
+    #[must_use]
+    pub fn check_write<const WORD: bool>(&self, address: u32) -> bool {
+        let ranges = if WORD { &self.write_word } else { &self.write_byte };
+        ranges.iter().any(|&(start, end)| (start..=end).contains(&address))
+    }
+
+    #[must_use]
+    pub fn check_execute(&self, address: u32) -> bool {
+        self.execute.iter().any(|&(start, end)| (start..=end).contains(&address))
+    }
+}
+
+pub struct M68000BreakStatus {
+    pub status: bool,
+    pub pc: u32,
+}
+
+pub struct M68000BreakStatusAtomic {
+    pub breaking: AtomicBool,
+    pub pc: AtomicU32,
+}
+
+impl M68000BreakStatusAtomic {
+    #[must_use]
+    pub fn new() -> Self {
+        Self { breaking: AtomicBool::new(false), pc: AtomicU32::new(0) }
+    }
+
+    #[must_use]
+    pub fn take(&self) -> Option<M68000BreakStatus> {
+        if self.breaking.compare_exchange(true, false, Ordering::AcqRel, Ordering::Relaxed)
+            != Ok(true)
+        {
+            return None;
+        }
+
+        let pc = self.pc.load(Ordering::Acquire);
+        Some(M68000BreakStatus { status: true, pc })
+    }
+
+    pub fn set_breaking(&self, pc: u32) {
+        self.pc.store(pc, Ordering::Relaxed);
+        self.breaking.store(true, Ordering::Release);
+    }
+}
+
+impl Default for M68000BreakStatusAtomic {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub struct M68000BreakpointManager {
+    pub breakpoints: M68000Breakpoints,
+    pub last_pc: u32,
+    pub status: Arc<M68000BreakStatusAtomic>,
+    pub step: Option<u32>,
+}
+
+impl M68000BreakpointManager {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            breakpoints: M68000Breakpoints::none(),
+            last_pc: 0,
+            status: Arc::new(M68000BreakStatusAtomic::new()),
+            step: None,
+        }
+    }
+
+    pub fn set_break_status(&self) {
+        self.status.set_breaking(self.last_pc);
+    }
+
+    pub fn clear(&mut self) {
+        self.breakpoints = M68000Breakpoints::none();
+        self.step = None;
+    }
+}
+
+impl Default for M68000BreakpointManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct GenesisDebugger {
     command_receiver: Receiver<GenesisDebugCommand>,
+    state_sender: SharedVarSender<GenesisDebugState>,
+    breakpoint_manager: M68000BreakpointManager,
+}
+
+pub struct GenesisDebuggerHandle {
+    pub command_sender: Sender<GenesisDebugCommand>,
+    pub break_status: Arc<M68000BreakStatusAtomic>,
 }
 
 impl GenesisDebugger {
     #[must_use]
-    pub fn new() -> (Self, Sender<GenesisDebugCommand>) {
+    pub fn new(state_sender: SharedVarSender<GenesisDebugState>) -> (Self, GenesisDebuggerHandle) {
         let (command_sender, command_receiver) = mpsc::channel();
 
-        (Self { command_receiver }, command_sender)
+        let debugger = Self {
+            command_receiver,
+            state_sender,
+            breakpoint_manager: M68000BreakpointManager::new(),
+        };
+
+        let handle = GenesisDebuggerHandle {
+            command_sender,
+            break_status: Arc::clone(&debugger.breakpoint_manager.status),
+        };
+
+        (debugger, handle)
+    }
+
+    #[must_use]
+    pub fn check_read_breakpoint<const WORD: bool>(&self, address: u32) -> bool {
+        self.breakpoint_manager.breakpoints.check_read::<WORD>(address)
+    }
+
+    #[must_use]
+    pub fn check_write_breakpoint<const WORD: bool>(&self, address: u32) -> bool {
+        self.breakpoint_manager.breakpoints.check_write::<WORD>(address)
+    }
+
+    #[must_use]
+    pub fn check_execute_breakpoint(&self, address: u32) -> bool {
+        self.breakpoint_manager.breakpoints.check_execute(address)
+    }
+
+    #[must_use]
+    pub fn check_break_step(&mut self) -> bool {
+        let Some(remaining) = &mut self.breakpoint_manager.step else { return false };
+
+        *remaining -= 1;
+        if *remaining == 0 {
+            self.breakpoint_manager.step = None;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn update_pc(&mut self, address: u32) {
+        self.breakpoint_manager.last_pc = address;
     }
 
     pub fn process_commands(&mut self, debug_view: &mut GenesisEmulatorDebugView<'_>) {
         loop {
             match self.command_receiver.try_recv() {
-                Ok(command) => match command {
-                    GenesisDebugCommand::EditMemory(memory_area, address, value) => {
-                        debug_view.apply_memory_edit(memory_area, address, value);
-                    }
-                },
+                Ok(command) => self.process_command(command, debug_view),
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
-                    // TODO debugger window was closed; clear breakpoints and break status
+                    self.breakpoint_manager.clear();
                     break;
                 }
             }
         }
     }
+
+    pub fn process_command(
+        &mut self,
+        command: GenesisDebugCommand,
+        debug_view: &mut GenesisEmulatorDebugView<'_>,
+    ) {
+        match command {
+            GenesisDebugCommand::EditMemory(memory_area, address, value) => {
+                debug_view.apply_memory_edit(memory_area, address, value);
+            }
+            GenesisDebugCommand::Update68kBreakpoints(breakpoints) => {
+                self.breakpoint_manager.breakpoints = M68000Breakpoints::new(&breakpoints);
+            }
+            GenesisDebugCommand::BreakPause => {
+                self.breakpoint_manager.step = Some(1);
+            }
+            GenesisDebugCommand::BreakResume | GenesisDebugCommand::Break68kStep => {}
+        }
+    }
+
+    pub fn handle_68k_breakpoint(&mut self, debug_view: &mut GenesisEmulatorDebugView<'_>) {
+        self.state_sender.update(debug_view.to_debug_state());
+        self.breakpoint_manager.set_break_status();
+        self.breakpoint_manager.step = None;
+
+        loop {
+            match self.command_receiver.recv() {
+                Ok(GenesisDebugCommand::BreakResume) => break,
+                Ok(GenesisDebugCommand::Break68kStep) => {
+                    self.breakpoint_manager.step = Some(1);
+                    break;
+                }
+                Ok(command) => self.process_command(command, debug_view),
+                Err(_) => {
+                    // Debugger window closed
+                    self.breakpoint_manager.clear();
+                    break;
+                }
+            }
+        }
+    }
+
+    pub fn for_68k<'slf, 'z80, 'ret>(
+        &'slf mut self,
+        z80: &'z80 mut Z80,
+    ) -> GenesisDebuggerFor68k<'ret>
+    where
+        'slf: 'ret,
+        'z80: 'ret,
+    {
+        GenesisDebuggerFor68k { debugger: self, z80 }
+    }
+
+    pub fn for_z80<'slf, 'm68k, 'ret>(
+        &'slf mut self,
+        m68k: &'m68k mut M68000,
+    ) -> GenesisDebuggerForZ80<'ret>
+    where
+        'slf: 'ret,
+        'm68k: 'ret,
+    {
+        GenesisDebuggerForZ80 { debugger: self, m68k }
+    }
+}
+
+impl GenesisDebuggerHandle {
+    /// # Errors
+    ///
+    /// Propagates any errors from the underlying MPSC [`Sender`]
+    pub fn send_command(
+        &self,
+        command: GenesisDebugCommand,
+    ) -> Result<(), SendError<GenesisDebugCommand>> {
+        self.command_sender.send(command)
+    }
+
+    #[must_use]
+    pub fn take_68k_break_status(&self) -> Option<M68000BreakStatus> {
+        self.break_status.take()
+    }
+}
+
+pub struct GenesisDebuggerFor68k<'a> {
+    pub debugger: &'a mut GenesisDebugger,
+    pub z80: &'a mut Z80,
+}
+
+pub struct GenesisDebuggerForZ80<'a> {
+    pub debugger: &'a mut GenesisDebugger,
+    pub m68k: &'a mut M68000,
 }
