@@ -1,9 +1,31 @@
+# Next
+
+## New Features
+* (**Sega CD**) Added support for CD-ROM images that store audio tracks in WAV files, if the WAV contains 44100 Hz 16-bit stereo samples (same as CD-DA)
+* (**Sega CD**) Added support for CD-ROM images that store the data track in MODE1/2048 format (e.g. most CUE/ISO/WAV images)
+
+## Improvements
+* Sinc audio interpolation now uses much higher precision for the step between input samples during interpolation, which may slightly improve audio quality for the systems with higher internal sample rates (mainly GB/GBC and NES)
+
+## Fixes
+* (**Sega CD**) The CD-ROM image reading code no longer validates CD-ROM EDC sector checksums; this fixes some game hacks not working (e.g. the _Vay_ random encounter reduction hack) (#614)
+* (**GB**) Fixed the MBC1 mapper code not correctly handling ROM banks where the lowest 5 bits are zero but the highest bits are non-zero (#615)
+* (**GB**) Fixed the MBC2 mapper code not correctly ignoring the highest 4 bits on reads/writes in all cases (#616)
+
+# 0.11.3
+
+## Fixes
+* (**Sega CD**) Fixed the emulator failing to load CHD images that use zstd compression (#613)
+* (**GBA**) Fixed the OBJ window enabled bit in the DISPCNT register not doing anything beyond tripping the "is any window enabled" logic
+* (**GBA**) Fixed the sprite H mosaic implementation not correctly latching priority or the semi-transparency flag
+
 # 0.11.2
 
 ## New Features
 * (**Genesis**) Added an anamorphic widescreen aspect ratio option that stretches the screen horizontally to a 16:9 screen aspect ratio (#605)
 * Added a new general video setting to change the wgpu power preference setting, which controls what graphics device the emulator uses if multiple are available (e.g. both a dedicated and integrated GPU) (#606)
   * (Previously this was hardcoded to always prefer a dedicated GPU if available)
+* The executable now supports a -v / --version command-line arg that prints the current version (#612)
 
 ## Improvements
 * On Windows, the wgpu backend Auto setting now prefers DirectX 12 over Vulkan if both are available (#606)
