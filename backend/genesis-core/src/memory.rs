@@ -12,6 +12,7 @@ use genesis_config::GenesisRegion;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::PartialClone;
+use m68000_emu::debug::DummyM68000Debugger;
 use smsgg_core::psg::Sn76489;
 use std::mem;
 use z80_emu::traits::InterruptLine;
@@ -492,6 +493,11 @@ const ADDRESS_MASK: u32 = 0xFFFFFF;
 impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterface
     for MainBus<'_, Medium, REFRESH_INTERVAL>
 {
+    type DebugView<'a>
+        = DummyM68000Debugger
+    where
+        Self: 'a;
+
     #[inline]
     fn read_byte(&mut self, address: u32) -> u8 {
         let address = address & ADDRESS_MASK;

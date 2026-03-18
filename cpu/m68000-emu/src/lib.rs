@@ -1,6 +1,7 @@
 #[cfg(any(test, feature = "memorybus"))]
 pub mod bus;
 mod core;
+pub mod debug;
 pub mod disassemble;
 pub mod traits;
 

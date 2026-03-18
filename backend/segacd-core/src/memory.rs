@@ -22,6 +22,7 @@ use jgenesis_common::boxedarray::BoxedByteArray;
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use m68000_emu::BusInterface;
+use m68000_emu::debug::DummyM68000Debugger;
 use std::ops::Deref;
 use std::path::Path;
 use std::{array, mem};
@@ -1343,6 +1344,11 @@ impl<'a> SubBus<'a> {
 const SUB_BUS_ADDRESS_MASK: u32 = 0x0FFFFF;
 
 impl BusInterface for SubBus<'_> {
+    type DebugView<'a>
+        = DummyM68000Debugger
+    where
+        Self: 'a;
+
     #[inline]
     fn read_byte(&mut self, address: u32) -> u8 {
         let address = address & SUB_BUS_ADDRESS_MASK;
