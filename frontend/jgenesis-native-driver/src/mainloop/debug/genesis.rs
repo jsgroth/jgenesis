@@ -1,5 +1,6 @@
 mod m68kdebug;
 mod sh2debug;
+mod z80debug;
 
 use crate::mainloop::audio::SdlAudioOutput;
 use crate::mainloop::debug;
@@ -8,6 +9,7 @@ use crate::mainloop::debug::genesis::m68kdebug::{
     SegaCdSubMemoryMap,
 };
 use crate::mainloop::debug::genesis::sh2debug::Sh2DebugWindowState;
+use crate::mainloop::debug::genesis::z80debug::{GenesisZ80MemoryMap, Z80DebugWindowState};
 use crate::mainloop::debug::memviewer::MemoryViewerState;
 use crate::mainloop::debug::{
     DebugRenderContext, DebuggerMainProcess, DebuggerRunnerProcess, memviewer,
@@ -44,6 +46,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::hash::Hash;
 use std::sync::mpsc::Sender;
+use z80_emu::Z80;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum MemoryArea {
@@ -234,6 +237,7 @@ struct State {
     h_scroll: HScrollWindowState,
     sprite_attributes: SpriteAttributesWindowState,
     s32x_palette: S32XPaletteRamState,
+    z80: Z80DebugWindowState,
     m68k: M68kDebugWindowState,
     m68k_sub: M68kDebugWindowState,
     sh2_master: Sh2DebugWindowState,
@@ -254,6 +258,7 @@ impl State {
             h_scroll: HScrollWindowState::new(),
             sprite_attributes: SpriteAttributesWindowState::new(),
             s32x_palette: S32XPaletteRamState::new(),
+            z80: Z80DebugWindowState::new(),
             m68k: M68kDebugWindowState::new(),
             m68k_sub: M68kDebugWindowState::new_with_title("Sub 68000 Disassembly"),
             sh2_master: Sh2DebugWindowState::new(WhichCpu::Master),
@@ -276,13 +281,21 @@ macro_rules! match_each_state_variant {
     ($self:expr, state => state.$method:ident($($param:tt)*)) => {
         match $self {
             Self::Genesis(state) => state.$method($($param)*),
-            Self::SegaCd(state) => state.genesis().$method($($param)*),
-            Self::Sega32X(state, ..) => state.genesis().$method($($param)*),
+            Self::SegaCd(state) => state.genesis.$method($($param)*),
+            Self::Sega32X(state, ..) => state.genesis.$method($($param)*),
         }
     }
 }
 
 impl GenesisBasedDebugState<'_> {
+    fn z80(&self) -> &Z80 {
+        match_each_state_variant!(self, state => state.z80())
+    }
+
+    fn audio_ram(&self) -> &[u8] {
+        match_each_state_variant!(self, state => state.audio_ram())
+    }
+
     fn copy_cram(&mut self, out: &mut [Color], modifier: ColorModifier) {
         match_each_state_variant!(self, state => state.copy_cram(out, modifier));
     }
@@ -441,6 +454,11 @@ fn render(
                     ui.close_kind(UiKind::Menu);
                 }
 
+                if ui.button("Z80 Disassembly").clicked() {
+                    state.z80.open = true;
+                    ui.close_kind(UiKind::Menu);
+                }
+
                 if matches!(debug_state, GenesisBasedDebugState::Sega32X(..)) {
                     if ui.button("SH-2 Master Disassembly").clicked() {
                         state.sh2_master.disassembly_open = true;
@@ -481,6 +499,13 @@ fn render(
     render_vram_window(ctx.egui_ctx, screen_width, debug_state, &mut state.vram);
     render_h_scroll_window(ctx.egui_ctx, debug_state, &mut state.h_scroll);
     render_sprite_attributes_window(ctx.egui_ctx, debug_state, &mut state.sprite_attributes);
+
+    z80debug::render_disassembly_window(
+        ctx.egui_ctx,
+        debug_state.z80(),
+        GenesisZ80MemoryMap::new(debug_state.audio_ram()),
+        &mut state.z80,
+    );
 
     match debug_state {
         GenesisBasedDebugState::Genesis(debug_state) => {

@@ -80,9 +80,23 @@ impl<F: FnMut() -> u8> ByteReader<F> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct DisassembledInstruction {
     pub opcodes: Vec<u8>,
     pub text: String,
+}
+
+impl DisassembledInstruction {
+    #[must_use]
+    pub fn new() -> Self {
+        Self { opcodes: Vec::new(), text: String::new() }
+    }
+}
+
+impl Default for DisassembledInstruction {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 pub fn disassemble_into(out: &mut DisassembledInstruction, pc: u16, reader: impl FnMut() -> u8) {
@@ -394,8 +408,12 @@ fn ld_r_r(
     index: Option<IndexRegister>,
     reader: &mut ByteReader<impl FnMut() -> u8>,
 ) -> String {
-    let dest = r_register(opcode, index, reader);
-    let source = r_register(opcode << 3, index, reader);
+    let dest_index = if (opcode & 7) != 6 { index } else { None };
+    let dest = r_register(opcode, dest_index, reader);
+
+    let source_index = if ((opcode >> 3) & 7) != 6 { index } else { None };
+    let source = r_register(opcode << 3, source_index, reader);
+
     format!("ld {dest}, {source}")
 }
 
@@ -663,4 +681,37 @@ fn ld_dd_direct(opcode: u8, reader: &mut ByteReader<impl FnMut() -> u8>) -> Stri
     let address = reader.read_word();
     let register = dd_register(opcode, None);
     format!("ld {register}, (${address:04X})")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn iter_reader(iterable: impl IntoIterator<Item = u8>) -> impl FnMut() -> u8 {
+        let mut iter = iterable.into_iter();
+        move || iter.next().expect("ran out of opcodes")
+    }
+
+    #[test]
+    fn ld_r_r_index() {
+        let mut out = DisassembledInstruction::new();
+
+        disassemble_into(&mut out, 0, iter_reader([0x66]));
+        assert_eq!(out.text.as_str(), "ld h, (hl)");
+
+        disassemble_into(&mut out, 0, iter_reader([0xDD, 0x66, 0x05]));
+        assert_eq!(out.text.as_str(), "ld h, (ix+5)");
+
+        disassemble_into(&mut out, 0, iter_reader([0x75]));
+        assert_eq!(out.text.as_str(), "ld (hl), l");
+
+        disassemble_into(&mut out, 0, iter_reader([0xFD, 0x75, 0xFD]));
+        assert_eq!(out.text.as_str(), "ld (iy-3), l");
+
+        disassemble_into(&mut out, 0, iter_reader([0x76]));
+        assert_eq!(out.text.as_str(), "halt");
+
+        disassemble_into(&mut out, 0, iter_reader([0xDD, 0x76]));
+        assert_eq!(out.text.as_str(), "halt");
+    }
 }

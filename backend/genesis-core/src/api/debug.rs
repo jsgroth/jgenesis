@@ -82,7 +82,7 @@ impl GenesisDebugState {
     }
 
     #[must_use]
-    pub fn z80(&mut self) -> &Z80 {
+    pub fn z80(&self) -> &Z80 {
         &self.z80
     }
 
@@ -99,6 +99,11 @@ impl GenesisDebugState {
     #[must_use]
     pub fn working_ram(&self) -> &[u16] {
         self.working_ram.as_ref()
+    }
+
+    #[must_use]
+    pub fn audio_ram(&self) -> &[u8] {
+        self.audio_ram.as_ref()
     }
 
     pub fn copy_cram(&self, out: &mut [Color], modifier: ColorModifier) {
