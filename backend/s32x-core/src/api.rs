@@ -12,7 +12,7 @@ use genesis_config::{
     GenesisButton, GenesisRegion, S32XColorTint, S32XPwmResampling, S32XVideoOut, S32XVoidColor,
 };
 use genesis_core::input::InputState;
-use genesis_core::memory::debug::Debug68kBus;
+use genesis_core::memory::debug::DebugMainBus;
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::timing::GenesisCycleCounters;
 use genesis_core::vdp::{DarkenColors, Vdp, VdpTickEffect};
@@ -203,7 +203,7 @@ impl Sega32XEmulator {
             bus.cycles.take_m68k_wait_cpu_cycles()
         } else if DEBUG && let Some(debugger) = &mut debugger {
             let mut debug_bus =
-                Debug68kBus { bus: &mut bus, debugger: debugger.for_68k(&mut self.z80) };
+                DebugMainBus { bus: &mut bus, debugger: debugger.for_68k(&mut self.z80) };
             self.m68k.execute_instruction(&mut debug_bus)
         } else {
             self.m68k.execute_instruction(&mut bus)

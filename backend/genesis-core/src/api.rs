@@ -6,7 +6,7 @@ use crate::api::debug::GenesisDebugger;
 use crate::audio::GenesisAudioResampler;
 use crate::cartridge::Cartridge;
 use crate::input::InputState;
-use crate::memory::debug::Debug68kBus;
+use crate::memory::debug::DebugMainBus;
 use crate::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use crate::timing::{CycleCounters, GenesisCycleCounters};
 use crate::vdp::{DarkenColors, Vdp, VdpConfig, VdpTickEffect};
@@ -301,7 +301,7 @@ impl GenesisEmulator {
             bus.cycles.take_m68k_wait_cpu_cycles()
         } else if DEBUG && let Some(debugger) = debugger {
             let mut debug_bus =
-                Debug68kBus { bus: &mut bus, debugger: debugger.for_68k(&mut self.z80) };
+                DebugMainBus { bus: &mut bus, debugger: debugger.for_68k(&mut self.z80) };
             self.m68k.execute_instruction(&mut debug_bus)
         } else {
             self.m68k.execute_instruction(&mut bus)
