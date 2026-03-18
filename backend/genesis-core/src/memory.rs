@@ -17,6 +17,7 @@ use jgenesis_proc_macros::PartialClone;
 use m68000_emu::debug::DummyM68000Debugger;
 use smsgg_core::psg::Sn76489;
 use std::mem;
+use z80_emu::debug::DummyZ80Debugger;
 use z80_emu::traits::InterruptLine;
 
 pub trait PhysicalMedium {
@@ -613,6 +614,11 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterfa
 impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> z80_emu::BusInterface
     for MainBus<'_, Medium, REFRESH_INTERVAL>
 {
+    type DebugView<'a>
+        = DummyZ80Debugger
+    where
+        Self: 'a;
+
     #[inline]
     // TODO remove
     #[allow(clippy::match_same_arms)]
