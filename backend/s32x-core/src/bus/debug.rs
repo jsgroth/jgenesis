@@ -1,11 +1,14 @@
 use crate::GenesisVdp;
 use crate::api::debug::{
-    Sega32XDebugger, Sega32XDebuggerForSh2, Sega32XDebuggerForSh2Raw, Sega32XEmulatorDebugView,
-    Sega32XMediumView, Sh2Breakpoints,
+    DebugWhichCpu, Sega32XDebugger, Sega32XDebuggerFor68k, Sega32XDebuggerForSh2,
+    Sega32XDebuggerForSh2Raw, Sega32XEmulatorDebugView, Sega32XMediumView, Sh2Breakpoints,
 };
 use crate::bus::{OtherCpu, Sh2Bus, WhichCpu};
-use crate::core::Sega32XBus;
+use crate::core::{Sega32X, Sega32XBus};
 use genesis_core::api::debug::{BaseGenesisDebugView, GenesisMemoryDebugView};
+use genesis_core::memory::MainBus;
+use genesis_core::memory::debug::MainBusDebugger;
+use m68000_emu::M68000;
 use sh2_emu::Sh2;
 use sh2_emu::bus::{AccessContext, BusInterface, OpSize};
 use sh2_emu::debug::Sh2Debugger;
@@ -142,17 +145,17 @@ impl<'a> Sh2BusDebugView<'a> {
     }
 
     fn breakpoints(&self) -> &Sh2Breakpoints {
-        unsafe { self.0.debugger.debugger.as_ref().breakpoints(self.0.bus.which) }
+        unsafe { self.0.debugger.debugger.as_ref().sh2_breakpoints(self.0.bus.which) }
     }
 
     fn check_break_step(&mut self, which: WhichCpu) -> bool {
-        unsafe { self.0.debugger.debugger.as_mut().should_break_on_step(which) }
+        unsafe { self.0.debugger.debugger.as_mut().check_sh2_break_step(which) }
     }
 
     fn handle_breakpoint(&mut self, cpu: &mut Sh2) {
         let which = self.0.bus.which;
         let (mut debug_view, debugger) = self.as_32x_debug_view_and_debugger(cpu);
-        debugger.handle_breakpoint(which, &mut debug_view);
+        debugger.handle_breakpoint(DebugWhichCpu::Sh2(which), &mut debug_view);
     }
 
     fn with_debugger_on_inner_bus<T>(
@@ -295,6 +298,41 @@ impl BusInterface for DebugSh2Bus {
     }
 }
 
+impl MainBusDebugger<Sega32X> for Sega32XDebuggerFor68k<'_> {
+    fn check_read_breakpoint<const WORD: bool>(&mut self, address: u32) -> bool {
+        self.debugger.m68k_breakpoints().check_read::<WORD>(address)
+    }
+
+    fn check_write_breakpoint<const WORD: bool>(&mut self, address: u32) -> bool {
+        self.debugger.m68k_breakpoints().check_write::<WORD>(address)
+    }
+
+    fn check_execute_breakpoint(&mut self, pc: u32) -> bool {
+        self.debugger.update_68k_pc(pc);
+        self.debugger.m68k_breakpoints().check_execute(pc)
+    }
+
+    fn check_break_step(&mut self) -> bool {
+        self.debugger.check_68k_break_step()
+    }
+
+    fn handle_breakpoint<const REFRESH_INTERVAL: u32>(
+        &mut self,
+        cpu: &mut M68000,
+        bus: &mut MainBus<'_, Sega32X, REFRESH_INTERVAL>,
+    ) {
+        let mut debug_view = Sega32XEmulatorDebugView {
+            genesis: BaseGenesisDebugView {
+                m68k: cpu,
+                z80: self.z80,
+                memory: bus.memory.as_debug_view(Sega32X::as_debug_view),
+                vdp: bus.vdp,
+            },
+        };
+        self.debugger.handle_breakpoint(DebugWhichCpu::M68k, &mut debug_view);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -370,7 +408,7 @@ mod tests {
         let mut working_ram = vec![0; 64 * 1024];
         let mut audio_ram = vec![0; 8 * 1024];
 
-        let mut debugger_for_sh2 = debugger.for_sh2_exec(
+        let mut debugger_for_sh2 = debugger.for_sh2(
             &mut m68k,
             &mut z80,
             working_ram.as_mut_slice(),
@@ -428,7 +466,7 @@ mod tests {
         );
 
         debugger_handle
-            .send_command(Sega32XDebugCommand::UpdateBreakpoints(
+            .send_command(Sega32XDebugCommand::UpdateSh2Breakpoints(
                 WhichCpu::Master,
                 vec![Sh2Breakpoint {
                     start_address: COMM_PORT_0,

@@ -12,6 +12,7 @@ use genesis_config::{
     GenesisButton, GenesisRegion, S32XColorTint, S32XPwmResampling, S32XVideoOut, S32XVoidColor,
 };
 use genesis_core::input::InputState;
+use genesis_core::memory::debug::Debug68kBus;
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::timing::GenesisCycleCounters;
 use genesis_core::vdp::{DarkenColors, Vdp, VdpTickEffect};
@@ -183,7 +184,7 @@ impl Sega32XEmulator {
         audio_output: &mut A,
         input_poller: &mut I,
         save_writer: &mut S,
-        debugger: Option<&mut Sega32XDebugger>,
+        mut debugger: Option<&mut Sega32XDebugger>,
     ) -> TickResult<Sega32XError<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
@@ -200,6 +201,10 @@ impl Sega32XEmulator {
         let m68k_wait = bus.cycles.m68k_wait_cpu_cycles != 0;
         let m68k_cycles = if m68k_wait {
             bus.cycles.take_m68k_wait_cpu_cycles()
+        } else if DEBUG && let Some(debugger) = &mut debugger {
+            let mut debug_bus =
+                Debug68kBus { bus: &mut bus, debugger: debugger.for_68k(&mut self.z80) };
+            self.m68k.execute_instruction(&mut debug_bus)
         } else {
             self.m68k.execute_instruction(&mut bus)
         };
@@ -223,7 +228,7 @@ impl Sega32XEmulator {
                 mclk_cycles,
                 pwm_resampler,
                 &mut self.vdp,
-                debugger.for_sh2_exec(&mut self.m68k, &mut self.z80, working_ram, audio_ram),
+                debugger.for_sh2(&mut self.m68k, &mut self.z80, working_ram, audio_ram),
             );
         } else {
             self.memory.medium_mut().tick(mclk_cycles, pwm_resampler, &mut self.vdp);
