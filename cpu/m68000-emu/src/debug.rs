@@ -5,7 +5,7 @@ pub trait M68000Debugger {
 
     fn check_write<const WORD: bool>(&mut self, address: u32, value: u16, cpu: &mut M68000);
 
-    fn check_execute(&mut self, pc: u32, first_opcode: bool, cpu: &mut M68000);
+    fn check_execute(&mut self, pc: u32, cpu: &mut M68000);
 }
 
 pub struct DummyM68000Debugger;
@@ -15,7 +15,7 @@ impl M68000Debugger for DummyM68000Debugger {
 
     fn check_write<const WORD: bool>(&mut self, _address: u32, _value: u16, _cpu: &mut M68000) {}
 
-    fn check_execute(&mut self, _pc: u32, _first_opcode: bool, _cpu: &mut M68000) {}
+    fn check_execute(&mut self, _pc: u32, _cpu: &mut M68000) {}
 }
 
 pub(crate) trait BusDebugExt {
@@ -38,7 +38,7 @@ pub(crate) trait BusDebugExt {
         self.write_word_debug(address + 2, value as u16, cpu);
     }
 
-    fn check_execute(&mut self, pc: u32, first_opcode: bool, cpu: &mut M68000);
+    fn check_execute(&mut self, pc: u32, cpu: &mut M68000);
 }
 
 impl<B: BusInterface> BusDebugExt for B {
@@ -70,9 +70,9 @@ impl<B: BusInterface> BusDebugExt for B {
         self.write_word(address, value);
     }
 
-    fn check_execute(&mut self, pc: u32, first_opcode: bool, cpu: &mut M68000) {
+    fn check_execute(&mut self, pc: u32, cpu: &mut M68000) {
         if let Some(mut debugger) = self.debug_view() {
-            debugger.check_execute(pc, first_opcode, cpu);
+            debugger.check_execute(pc, cpu);
         }
     }
 }
