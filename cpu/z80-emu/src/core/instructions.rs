@@ -8,6 +8,7 @@ mod mnemonics;
 
 use crate::Z80;
 use crate::core::{IndexRegister, InterruptMode, Register8, Register16};
+use crate::debug::BusDebugExt;
 use crate::traits::{BusInterface, InterruptLine};
 use jgenesis_common::num::GetBit;
 
@@ -145,30 +146,30 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
     }
 
     fn read_memory_u16(&mut self, address: u16) -> u16 {
-        let lsb = self.bus.read_memory(address);
-        let msb = self.bus.read_memory(address.wrapping_add(1));
+        let lsb = self.bus.read_memory_debug(address, self.cpu);
+        let msb = self.bus.read_memory_debug(address.wrapping_add(1), self.cpu);
         u16::from_le_bytes([lsb, msb])
     }
 
     fn write_memory_u16(&mut self, address: u16, value: u16) {
         let [lsb, msb] = value.to_le_bytes();
-        self.bus.write_memory(address, lsb);
-        self.bus.write_memory(address.wrapping_add(1), msb);
+        self.bus.write_memory_debug(address, lsb, self.cpu);
+        self.bus.write_memory_debug(address.wrapping_add(1), msb, self.cpu);
     }
 
     fn push_stack(&mut self, value: u16) {
         let [lsb, msb] = value.to_le_bytes();
 
         self.cpu.registers.sp = self.cpu.registers.sp.wrapping_sub(1);
-        self.bus.write_memory(self.cpu.registers.sp, msb);
+        self.bus.write_memory_debug(self.cpu.registers.sp, msb, self.cpu);
         self.cpu.registers.sp = self.cpu.registers.sp.wrapping_sub(1);
-        self.bus.write_memory(self.cpu.registers.sp, lsb);
+        self.bus.write_memory_debug(self.cpu.registers.sp, lsb, self.cpu);
     }
 
     fn pop_stack(&mut self) -> u16 {
-        let lsb = self.bus.read_memory(self.cpu.registers.sp);
+        let lsb = self.bus.read_memory_debug(self.cpu.registers.sp, self.cpu);
         self.cpu.registers.sp = self.cpu.registers.sp.wrapping_add(1);
-        let msb = self.bus.read_memory(self.cpu.registers.sp);
+        let msb = self.bus.read_memory_debug(self.cpu.registers.sp, self.cpu);
         self.cpu.registers.sp = self.cpu.registers.sp.wrapping_add(1);
 
         u16::from_le_bytes([lsb, msb])
@@ -348,6 +349,8 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
         if self.cpu.registers.halted {
             return control::nop();
         }
+
+        self.bus.check_execute(self.cpu.registers.pc, self.cpu);
 
         let ParseResult { opcode, index_prefix: index, index_fetch_t_cycles } = self.parse_opcode();
 
