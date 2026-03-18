@@ -2,6 +2,7 @@ use crate::core::instructions::{
     BlockMode, InstructionExecutor, parity_flag, sign_flag, zero_flag,
 };
 use crate::core::{Flags, IndexRegister, Register16};
+use crate::debug::BusDebugExt;
 use crate::traits::BusInterface;
 use jgenesis_common::num::GetBit;
 
@@ -42,7 +43,7 @@ macro_rules! impl_a_hl_add_op {
     ($name:ident, $op_fn:ident) => {
         pub(super) fn $name(&mut self, index: Option<IndexRegister>, with_carry: bool) -> u32 {
             let address = self.fetch_indirect_hl_address(index);
-            let operand = self.bus.read_memory(address);
+            let operand = self.bus.read_memory_debug(address, self.cpu);
 
             self.cpu.registers.a =
                 $op_fn(self.cpu.registers.a, operand, with_carry, &mut self.cpu.registers.f);
@@ -85,7 +86,7 @@ macro_rules! impl_a_hl_bit_op {
     ($name:ident, $op_fn:ident) => {
         pub(super) fn $name(&mut self, index: Option<IndexRegister>) -> u32 {
             let address = self.fetch_indirect_hl_address(index);
-            let operand = self.bus.read_memory(address);
+            let operand = self.bus.read_memory_debug(address, self.cpu);
 
             self.cpu.registers.a = $op_fn(self.cpu.registers.a, operand, &mut self.cpu.registers.f);
 
@@ -116,10 +117,10 @@ macro_rules! impl_hl_increment_op {
     ($name:ident, $op_fn:ident) => {
         pub(super) fn $name(&mut self, index: Option<IndexRegister>) -> u32 {
             let address = self.fetch_indirect_hl_address(index);
-            let original = self.bus.read_memory(address);
+            let original = self.bus.read_memory_debug(address, self.cpu);
             let modified = $op_fn(original, &mut self.cpu.registers.f);
 
-            self.bus.write_memory(address, modified);
+            self.bus.write_memory_debug(address, modified, self.cpu);
 
             match index {
                 Some(_) => 19,
@@ -280,7 +281,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         let a = self.cpu.registers.a;
         let bc = Register16::BC.read_from(&self.cpu.registers);
         let hl = Register16::HL.read_from(&self.cpu.registers);
-        let operand = self.bus.read_memory(hl);
+        let operand = self.bus.read_memory_debug(hl, self.cpu);
 
         let difference = a.wrapping_sub(operand);
         let half_carry = a & 0x0F < operand & 0x0F;

@@ -1,5 +1,6 @@
 use crate::core::instructions::{BlockMode, InstructionExecutor, sign_flag, zero_flag};
 use crate::core::{Flags, IndexRegister, Register8, Register16};
+use crate::debug::BusDebugExt;
 use crate::traits::BusInterface;
 use std::mem;
 
@@ -29,7 +30,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         let write_target =
             super::parse_register_from_opcode(opcode >> 3, None).expect("invalid opcode");
         let address = self.fetch_indirect_hl_address(index);
-        let value = self.bus.read_memory(address);
+        let value = self.bus.read_memory_debug(address, self.cpu);
 
         write_target.write_to(value, &mut self.cpu.registers);
 
@@ -44,7 +45,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         let value = read_target.read_from(&self.cpu.registers);
         let address = self.fetch_indirect_hl_address(index);
 
-        self.bus.write_memory(address, value);
+        self.bus.write_memory_debug(address, value, self.cpu);
 
         match index {
             Some(_) => 15,
@@ -56,7 +57,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         let address = self.fetch_indirect_hl_address(index);
         let value = self.fetch_operand();
 
-        self.bus.write_memory(address, value);
+        self.bus.write_memory_debug(address, value, self.cpu);
 
         match index {
             Some(_) => 15,
@@ -66,7 +67,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
 
     pub(super) fn ld_a_indirect(&mut self, register: Register16) -> u32 {
         let address = register.read_from(&self.cpu.registers);
-        let value = self.bus.read_memory(address);
+        let value = self.bus.read_memory_debug(address, self.cpu);
 
         self.cpu.registers.a = value;
 
@@ -75,7 +76,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
 
     pub(super) fn ld_a_direct(&mut self) -> u32 {
         let address = self.fetch_operand_u16();
-        let value = self.bus.read_memory(address);
+        let value = self.bus.read_memory_debug(address, self.cpu);
 
         self.cpu.registers.a = value;
 
@@ -85,14 +86,14 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     pub(super) fn ld_indirect_a(&mut self, register: Register16) -> u32 {
         let address = register.read_from(&self.cpu.registers);
 
-        self.bus.write_memory(address, self.cpu.registers.a);
+        self.bus.write_memory_debug(address, self.cpu.registers.a, self.cpu);
 
         7
     }
 
     pub(super) fn ld_direct_a(&mut self) -> u32 {
         let address = self.fetch_operand_u16();
-        self.bus.write_memory(address, self.cpu.registers.a);
+        self.bus.write_memory_debug(address, self.cpu.registers.a, self.cpu);
 
         13
     }
@@ -241,8 +242,8 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         let hl = Register16::HL.read_from(&self.cpu.registers);
         let de = Register16::DE.read_from(&self.cpu.registers);
 
-        let value = self.bus.read_memory(hl);
-        self.bus.write_memory(de, value);
+        let value = self.bus.read_memory_debug(hl, self.cpu);
+        self.bus.write_memory_debug(de, value, self.cpu);
 
         let bc = Register16::BC.read_from(&self.cpu.registers);
         Register16::BC.write_to(bc.wrapping_sub(1), &mut self.cpu.registers);
