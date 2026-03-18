@@ -1,3 +1,5 @@
+use crate::debug::Z80Debugger;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
 pub enum InterruptLine {
@@ -6,6 +8,10 @@ pub enum InterruptLine {
 }
 
 pub trait BusInterface {
+    type DebugView<'a>: Z80Debugger
+    where
+        Self: 'a;
+
     /// Read a byte from the given memory address.
     fn read_memory(&mut self, address: u16) -> u8;
 
@@ -29,6 +35,10 @@ pub trait BusInterface {
 
     /// Poll the RESET line; setting this resets and halts the Z80
     fn reset(&self) -> bool;
+
+    fn debug_view(&mut self) -> Option<Self::DebugView<'_>> {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -58,6 +68,11 @@ impl InMemoryBus {
 
 #[cfg(test)]
 impl BusInterface for InMemoryBus {
+    type DebugView<'a>
+        = DummyZ80Debugger
+    where
+        Self: 'a;
+
     fn read_memory(&mut self, address: u16) -> u8 {
         self.memory[address as usize]
     }

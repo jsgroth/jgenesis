@@ -1,4 +1,5 @@
 mod core;
+pub mod debug;
 mod disassemble;
 pub mod traits;
 

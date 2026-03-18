@@ -6,6 +6,7 @@ use std::io::Write;
 use std::path::Path;
 use std::{env, fs, io, process};
 use z80_emu::Z80;
+use z80_emu::debug::DummyZ80Debugger;
 use z80_emu::traits::{BusInterface, InterruptLine};
 
 // This is an I/O routine that emulates the CP/M's $05 syscall, which does the following:
@@ -88,6 +89,11 @@ impl FullyWritableBus {
 }
 
 impl BusInterface for FullyWritableBus {
+    type DebugView<'a>
+        = DummyZ80Debugger
+    where
+        Self: 'a;
+
     fn read_memory(&mut self, address: u16) -> u8 {
         self.memory[address as usize]
     }
