@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Install latest stable Rust toolchain
       run: |
@@ -64,7 +64,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install latest stable Rust toolchain
         run: |
@@ -90,7 +90,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install latest stable Rust toolchain
         run: |
@@ -153,7 +153,7 @@ jobs:
       DXC_ZIP_FILE: dxc_2025_07_14.zip
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install latest stable Rust toolchain
         run: |
