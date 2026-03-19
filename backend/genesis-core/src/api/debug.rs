@@ -738,6 +738,11 @@ impl GenesisDebuggerHandle {
     pub fn take_68k_break_status(&self) -> Option<M68000BreakStatus> {
         self.m68k_break_status.take()
     }
+
+    #[must_use]
+    pub fn take_z80_break_status(&self) -> Option<Z80BreakStatus> {
+        self.z80_break_status.take()
+    }
 }
 
 pub struct GenesisDebuggerFor68k<'a> {

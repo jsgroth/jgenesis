@@ -10,7 +10,9 @@ use crate::mainloop::debug::genesis::m68kdebug::{
     SegaCdMainMemoryMap, SegaCdSubMemoryMap,
 };
 use crate::mainloop::debug::genesis::sh2debug::Sh2DebugWindowState;
-use crate::mainloop::debug::genesis::z80debug::{GenesisZ80MemoryMap, Z80DebugWindowState};
+use crate::mainloop::debug::genesis::z80debug::{
+    GenesisZ80MemoryMap, Z80BreakCommand, Z80DebugWindowState,
+};
 use crate::mainloop::debug::memviewer::MemoryViewerState;
 use crate::mainloop::debug::{
     DebugRenderContext, DebuggerMainProcess, DebuggerRunnerProcess, memviewer,
@@ -463,7 +465,14 @@ fn render(
                 }
 
                 if ui.button("Z80 Disassembly").clicked() {
-                    state.z80.open = true;
+                    state.z80.disassembly_open = true;
+                    ui.close_kind(UiKind::Menu);
+                }
+
+                if matches!(debug_state, GenesisBasedDebugState::Genesis(..))
+                    && ui.button("Z80 Breakpoints").clicked()
+                {
+                    state.z80.breakpoints_open = true;
                     ui.close_kind(UiKind::Menu);
                 }
 
@@ -508,14 +517,8 @@ fn render(
     render_h_scroll_window(ctx.egui_ctx, debug_state, &mut state.h_scroll);
     render_sprite_attributes_window(ctx.egui_ctx, debug_state, &mut state.sprite_attributes);
 
-    z80debug::render_disassembly_window(
-        ctx.egui_ctx,
-        debug_state.z80(),
-        GenesisZ80MemoryMap::new(debug_state.audio_ram()),
-        &mut state.z80,
-    );
-
     render_m68k_debug_windows(ctx.egui_ctx, debug_state, state);
+    render_z80_debug_windows(ctx.egui_ctx, debug_state, state);
 
     if let GenesisBasedDebugState::Sega32X(debug_state, debugger_handle) = &mut debug_state {
         render_32x_palette_window(ctx.egui_ctx, debug_state, &mut state.s32x_palette);
@@ -567,7 +570,7 @@ fn render(
 
 fn render_m68k_debug_windows(
     ctx: &egui::Context,
-    debug_state: &mut GenesisBasedDebugState,
+    debug_state: &mut GenesisBasedDebugState<'_>,
     state: &mut State,
 ) {
     match debug_state {
@@ -647,6 +650,49 @@ fn render_m68k_debug_windows(
                         .send_command(Sega32XDebugCommand::Update68kBreakpoints(breakpoints));
                 });
             }
+        }
+    }
+}
+
+fn render_z80_debug_windows(
+    ctx: &egui::Context,
+    debug_state: &mut GenesisBasedDebugState<'_>,
+    state: &mut State,
+) {
+    match debug_state {
+        GenesisBasedDebugState::Genesis(debug_state, debugger_handle) => {
+            let break_status = debugger_handle.take_z80_break_status();
+
+            z80debug::render_disassembly_window(
+                ctx,
+                debug_state.z80(),
+                GenesisZ80MemoryMap::new(debug_state.audio_ram()),
+                &mut state.z80,
+                break_status,
+                Some(&mut |command| {
+                    let genesis_command = match command {
+                        Z80BreakCommand::Pause => GenesisDebugCommand::BreakPauseZ80,
+                        Z80BreakCommand::Resume => GenesisDebugCommand::BreakResume,
+                        Z80BreakCommand::Step => GenesisDebugCommand::BreakStepZ80,
+                    };
+                    let _ = debugger_handle.send_command(genesis_command);
+                }),
+            );
+
+            z80debug::render_breakpoints_window(ctx, &mut state.z80, |breakpoints| {
+                let _ = debugger_handle
+                    .send_command(GenesisDebugCommand::UpdateZ80Breakpoints(breakpoints));
+            });
+        }
+        GenesisBasedDebugState::SegaCd(..) | GenesisBasedDebugState::Sega32X(..) => {
+            z80debug::render_disassembly_window(
+                ctx,
+                debug_state.z80(),
+                GenesisZ80MemoryMap::new(debug_state.audio_ram()),
+                &mut state.z80,
+                None,
+                None,
+            );
         }
     }
 }

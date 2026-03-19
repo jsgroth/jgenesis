@@ -1,6 +1,9 @@
 use crate::mainloop::debug::genesis::widgets::{BreakpointsWidget, U24};
 use egui::panel::{Side, TopBottomSide};
-use egui::{Align, CentralPanel, Grid, RichText, SidePanel, TextEdit, TopBottomPanel, Window};
+use egui::{
+    Align, CentralPanel, Grid, Id, LayerId, Order, RichText, SidePanel, TextEdit, TopBottomPanel,
+    Window,
+};
 use egui_extras::{Column, TableBuilder};
 use genesis_core::api::debug::{M68000BreakStatus, M68000Breakpoint};
 use genesis_core::cartridge::Cartridge;
@@ -23,6 +26,7 @@ pub struct M68kDebugWindowState {
     pub disassembly_open: bool,
     pub breakpoints_open: bool,
     pub disassemble_start: u32,
+    pub disassemble_end_addr: Option<u32>,
     pub disassemble_jump_addr: String,
     pub disassemble_reset_table: bool,
     pub breakpoints: BreakpointsWidget<U24>,
@@ -42,9 +46,19 @@ impl M68kDebugWindowState {
             disassembly_open: false,
             breakpoints_open: false,
             disassemble_start: 0,
+            disassemble_end_addr: None,
             disassemble_jump_addr: String::new(),
             disassemble_reset_table: false,
             breakpoints: BreakpointsWidget::new(breakpoints_id),
+        }
+    }
+
+    fn maybe_move_disassembly_table(&mut self, address: u32) {
+        if self
+            .disassemble_end_addr
+            .is_none_or(|end_addr| !(self.disassemble_start..end_addr).contains(&address))
+        {
+            self.move_disassembly_table(address);
         }
     }
 
@@ -221,7 +235,9 @@ pub fn render_disassembly_window<MemoryMap: M68kDebugMemoryMap>(
     handle_command: Option<&mut dyn FnMut(M68kBreakCommand)>,
 ) {
     if let Some(break_status) = break_status {
-        state.move_disassembly_table(break_status.pc);
+        state.maybe_move_disassembly_table(break_status.pc);
+        state.disassembly_open = true;
+        ctx.move_to_top(LayerId::new(Order::Middle, Id::new(&state.window_title)));
     }
 
     let mut open = state.disassembly_open;
@@ -397,6 +413,8 @@ pub fn render_disassembly_window<MemoryMap: M68kDebugMemoryMap>(
                             });
                         });
                     }
+
+                    state.disassemble_end_addr = Some(pc);
                 });
             });
         });
