@@ -1,6 +1,6 @@
 use crate::mainloop::debug::genesis::widgets::BreakpointsWidget;
 use egui::panel::{Side, TopBottomSide};
-use egui::{Align, FontFamily, Grid, LayerId, Order, RichText, TextEdit, Window};
+use egui::{Align, Grid, LayerId, Order, RichText, TextEdit, Window};
 use egui_extras::{Column, TableBuilder};
 use genesis_core::api::debug::GenesisMemoryArea;
 use s32x_core::WhichCpu;
@@ -256,6 +256,17 @@ pub fn render_disassembly_window(
                         ui.label(monospace_u32(registers.pc));
                         ui.end_row();
                     });
+
+                    ui.label(
+                        RichText::new(format!(
+                            "T={} S={} Q={} M={}",
+                            u8::from(registers.sr.t),
+                            u8::from(registers.sr.s),
+                            u8::from(registers.sr.q),
+                            u8::from(registers.sr.m)
+                        ))
+                        .monospace(),
+                    );
                 });
 
             egui::CentralPanel::default().show_inside(ui, |ui| {
@@ -297,8 +308,7 @@ pub fn render_disassembly_window(
                                 branch_displacement: BranchDisplacement::Absolute { pc: address },
                             };
                             ui.label(
-                                RichText::new(sh2_emu::disassemble(opcode, options))
-                                    .family(FontFamily::Monospace),
+                                RichText::new(sh2_emu::disassemble(opcode, options)).monospace(),
                             );
                         });
                     });
@@ -339,9 +349,9 @@ pub fn render_breakpoints_window(
 }
 
 fn monospace_u16(value: u16) -> RichText {
-    RichText::new(format!("{value:04X}")).family(FontFamily::Monospace)
+    RichText::new(format!("{value:04X}")).monospace()
 }
 
 fn monospace_u32(value: u32) -> RichText {
-    RichText::new(format!("{value:08X}")).family(FontFamily::Monospace)
+    RichText::new(format!("{value:08X}")).monospace()
 }
