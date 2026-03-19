@@ -214,7 +214,13 @@ impl Sega32XEmulator {
 
         while bus.cycles.should_tick_z80() {
             if !bus.cycles.z80_halt {
-                self.z80.tick(&mut bus);
+                if DEBUG && let Some(debugger) = &mut debugger {
+                    let mut debug_bus =
+                        DebugMainBus { bus: &mut bus, debugger: debugger.for_z80(&mut self.m68k) };
+                    self.z80.tick(&mut debug_bus);
+                } else {
+                    self.z80.tick(&mut bus);
+                }
             }
             bus.cycles.decrement_z80();
         }
