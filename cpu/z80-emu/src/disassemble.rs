@@ -258,7 +258,7 @@ fn r_register(
     index: Option<IndexRegister>,
     reader: &mut ByteReader<impl FnMut() -> u8>,
 ) -> Cow<'static, str> {
-    match (opcode >> 3) & 7 {
+    match opcode & 7 {
         0 => "b".into(),
         1 => "c".into(),
         2 => "d".into(),
@@ -321,7 +321,7 @@ fn inc_r(
     index: Option<IndexRegister>,
     reader: &mut ByteReader<impl FnMut() -> u8>,
 ) -> String {
-    let register = r_register(opcode, index, reader);
+    let register = r_register(opcode >> 3, index, reader);
     format!("inc {register}")
 }
 
@@ -330,7 +330,7 @@ fn dec_r(
     index: Option<IndexRegister>,
     reader: &mut ByteReader<impl FnMut() -> u8>,
 ) -> String {
-    let register = r_register(opcode, index, reader);
+    let register = r_register(opcode >> 3, index, reader);
     format!("dec {register}")
 }
 
@@ -339,7 +339,7 @@ fn ld_r_immediate(
     index: Option<IndexRegister>,
     reader: &mut ByteReader<impl FnMut() -> u8>,
 ) -> String {
-    let register = r_register(opcode, index, reader);
+    let register = r_register(opcode >> 3, index, reader);
     let immediate = reader.read_byte();
     format!("ld {register}, #0x{immediate:02X}")
 }
@@ -409,10 +409,10 @@ fn ld_r_r(
     reader: &mut ByteReader<impl FnMut() -> u8>,
 ) -> String {
     let dest_index = if (opcode & 7) != 6 { index } else { None };
-    let dest = r_register(opcode, dest_index, reader);
+    let dest = r_register(opcode >> 3, dest_index, reader);
 
     let source_index = if ((opcode >> 3) & 7) != 6 { index } else { None };
-    let source = r_register(opcode << 3, source_index, reader);
+    let source = r_register(opcode, source_index, reader);
 
     format!("ld {dest}, {source}")
 }
@@ -713,5 +713,22 @@ mod tests {
 
         disassemble_into(&mut out, 0, iter_reader([0xDD, 0x76]));
         assert_eq!(out.text.as_str(), "halt");
+    }
+
+    #[test]
+    fn other_register_operands() {
+        let mut out = DisassembledInstruction::new();
+
+        disassemble_into(&mut out, 0, iter_reader([0x0C]));
+        assert_eq!(out.text.as_str(), "inc c");
+
+        disassemble_into(&mut out, 0, iter_reader([0xA2]));
+        assert_eq!(out.text.as_str(), "and d");
+
+        disassemble_into(&mut out, 0, iter_reader([0x2D]));
+        assert_eq!(out.text.as_str(), "dec l");
+
+        disassemble_into(&mut out, 0, iter_reader([0xFD, 0x36, 0x00, 0x34]));
+        assert_eq!(out.text.as_str(), "ld (iy), #0x34");
     }
 }
