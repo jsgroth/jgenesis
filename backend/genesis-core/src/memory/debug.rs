@@ -36,7 +36,7 @@ pub trait MainBusZ80Debugger<Medium> {
 
     fn check_write_breakpoint(&self, address: u16) -> bool;
 
-    fn check_execute_breakpoint(&self, pc: u16) -> bool;
+    fn check_execute_breakpoint(&mut self, pc: u16) -> bool;
 
     fn check_break_step(&mut self) -> bool;
 
@@ -134,8 +134,9 @@ where
         if check_step || check_execute {
             if check_execute {
                 log::info!("Z80 PC={pc:04X} triggered execute breakpoint");
-                self.0.debugger.handle_breakpoint(cpu, self.0.bus);
             }
+
+            self.0.debugger.handle_breakpoint(cpu, self.0.bus);
         }
     }
 }
@@ -279,7 +280,8 @@ impl MainBusZ80Debugger<Cartridge> for GenesisDebuggerForZ80<'_> {
         self.debugger.z80_breakpoints().check_write(address)
     }
 
-    fn check_execute_breakpoint(&self, pc: u16) -> bool {
+    fn check_execute_breakpoint(&mut self, pc: u16) -> bool {
+        self.debugger.update_z80_pc(pc);
         self.debugger.z80_breakpoints().check_execute(pc)
     }
 

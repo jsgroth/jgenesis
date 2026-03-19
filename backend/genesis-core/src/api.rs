@@ -281,7 +281,7 @@ impl GenesisEmulator {
         audio_output: &mut A,
         input_poller: &mut I,
         save_writer: &mut S,
-        debugger: Option<&mut GenesisDebugger>,
+        mut debugger: Option<&mut GenesisDebugger>,
     ) -> TickResult<GenesisError<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
@@ -299,7 +299,7 @@ impl GenesisEmulator {
         let m68k_wait = bus.cycles.m68k_wait_cpu_cycles != 0;
         let m68k_cycles = if m68k_wait {
             bus.cycles.take_m68k_wait_cpu_cycles()
-        } else if DEBUG && let Some(debugger) = debugger {
+        } else if DEBUG && let Some(debugger) = &mut debugger {
             let mut debug_bus =
                 DebugMainBus { bus: &mut bus, debugger: debugger.for_68k(&mut self.z80) };
             self.m68k.execute_instruction(&mut debug_bus)
@@ -316,7 +316,13 @@ impl GenesisEmulator {
 
         while bus.cycles.should_tick_z80() {
             if !bus.cycles.z80_halt {
-                self.z80.tick(&mut bus);
+                if DEBUG && let Some(debugger) = &mut debugger {
+                    let mut debug_bus =
+                        DebugMainBus { bus: &mut bus, debugger: debugger.for_z80(&mut self.m68k) };
+                    self.z80.tick(&mut debug_bus);
+                } else {
+                    self.z80.tick(&mut bus);
+                }
             }
             bus.cycles.decrement_z80();
         }

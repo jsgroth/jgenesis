@@ -1,22 +1,49 @@
-use egui::panel::Side;
-use egui::{Align, CentralPanel, Grid, RichText, SidePanel, TextEdit, Window};
+use crate::mainloop::debug::genesis::widgets::BreakpointsWidget;
+use egui::panel::{Side, TopBottomSide};
+use egui::{
+    Align, CentralPanel, Grid, Id, LayerId, Order, RichText, SidePanel, TextEdit, TopBottomPanel,
+    Window,
+};
 use egui_extras::{Column, TableBuilder};
+use genesis_core::api::debug::{Z80BreakStatus, Z80Breakpoint};
 use z80_emu::{DisassembledInstruction, Z80};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Z80BreakCommand {
+    Pause,
+    Resume,
+    Step,
+}
+
 pub struct Z80DebugWindowState {
-    pub open: bool,
+    pub disassembly_open: bool,
     pub disassembly_address: u16,
+    pub disassembly_end_address: Option<u16>,
     pub disassembly_addr_changed: bool,
     pub jump_to_address: String,
+    pub breakpoints_open: bool,
+    pub breakpoints: BreakpointsWidget<u16>,
 }
 
 impl Z80DebugWindowState {
     pub fn new() -> Self {
         Self {
-            open: false,
+            disassembly_open: false,
             disassembly_address: 0,
+            disassembly_end_address: None,
             disassembly_addr_changed: false,
             jump_to_address: String::new(),
+            breakpoints_open: false,
+            breakpoints: BreakpointsWidget::new("z80_breakpoints"),
+        }
+    }
+
+    fn maybe_change_disassembly_address(&mut self, address: u16) {
+        if self
+            .disassembly_end_address
+            .is_none_or(|end_addr| !(self.disassembly_address..end_addr).contains(&address))
+        {
+            self.change_disassembly_address(address);
         }
     }
 
@@ -51,13 +78,41 @@ pub fn render_disassembly_window(
     z80: &Z80,
     memory_map: impl Z80MemoryMap,
     state: &mut Z80DebugWindowState,
+    break_status: Option<Z80BreakStatus>,
+    handle_command: Option<&mut dyn FnMut(Z80BreakCommand)>,
 ) {
-    let mut open = state.open;
-    Window::new("Z80 Disassembly")
-        .open(&mut open)
-        .resizable([true, true])
-        .default_width(650.0)
-        .show(ctx, |ui| {
+    const WINDOW_TITLE: &str = "Z80 Disassembly";
+
+    if let Some(break_status) = break_status {
+        state.maybe_change_disassembly_address(break_status.pc);
+        state.disassembly_open = true;
+        ctx.move_to_top(LayerId::new(Order::Middle, Id::new(WINDOW_TITLE)));
+    }
+
+    let mut open = state.disassembly_open;
+    Window::new(WINDOW_TITLE).open(&mut open).resizable([true, true]).default_width(650.0).show(
+        ctx,
+        |ui| {
+            if let Some(handle_command) = handle_command {
+                TopBottomPanel::new(TopBottomSide::Top, "z80_top_panel").show_inside(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if ui.button("Pause").clicked() {
+                            handle_command(Z80BreakCommand::Pause);
+                        }
+
+                        if ui.button("Resume").clicked() {
+                            handle_command(Z80BreakCommand::Resume);
+                        }
+
+                        if ui.button("Step").clicked() {
+                            handle_command(Z80BreakCommand::Step);
+                        }
+                    });
+
+                    ui.add_space(3.0);
+                });
+            }
+
             SidePanel::new(Side::Right, "z80_right_panel").show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
                     let text_resp = ui
@@ -185,10 +240,37 @@ pub fn render_disassembly_window(
                             });
                         });
                     }
+
+                    state.disassembly_end_address = Some(pc);
                 });
             });
+        },
+    );
+    state.disassembly_open = open;
+}
+
+pub fn render_breakpoints_window(
+    ctx: &egui::Context,
+    state: &mut Z80DebugWindowState,
+    update_breakpoints: impl FnOnce(Vec<Z80Breakpoint>),
+) {
+    let mut open = state.breakpoints_open;
+    Window::new("Z80 Breakpoints").open(&mut open).resizable([true, true]).show(ctx, |ui| {
+        state.breakpoints.render(ui, |breakpoints| {
+            let z80_breakpoints = breakpoints
+                .iter()
+                .map(|breakpoint| Z80Breakpoint {
+                    start_address: breakpoint.start_address,
+                    end_address: breakpoint.end_address,
+                    read: breakpoint.read,
+                    write: breakpoint.write,
+                    execute: breakpoint.execute,
+                })
+                .collect();
+            update_breakpoints(z80_breakpoints);
         });
-    state.open = open;
+    });
+    state.breakpoints_open = open;
 }
 
 fn monospace_bool(value: bool) -> RichText {
