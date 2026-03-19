@@ -21,6 +21,7 @@ pub struct Z80DebugWindowState {
     pub disassembly_end_address: Option<u16>,
     pub disassembly_addr_changed: bool,
     pub jump_to_address: String,
+    pub break_status_last_frame: Z80BreakStatus,
     pub breakpoints_open: bool,
     pub breakpoints: BreakpointsWidget<u16>,
 }
@@ -33,6 +34,7 @@ impl Z80DebugWindowState {
             disassembly_end_address: None,
             disassembly_addr_changed: false,
             jump_to_address: String::new(),
+            break_status_last_frame: Z80BreakStatus::default(),
             breakpoints_open: false,
             breakpoints: BreakpointsWidget::new("z80_breakpoints"),
         }
@@ -78,16 +80,17 @@ pub fn render_disassembly_window(
     z80: &Z80,
     memory_map: impl Z80MemoryMap,
     state: &mut Z80DebugWindowState,
-    break_status: Option<Z80BreakStatus>,
+    break_status: Z80BreakStatus,
     handle_command: Option<&mut dyn FnMut(Z80BreakCommand)>,
 ) {
     const WINDOW_TITLE: &str = "Z80 Disassembly";
 
-    if let Some(break_status) = break_status {
+    if break_status.breaking && break_status != state.break_status_last_frame {
         state.maybe_change_disassembly_address(break_status.pc);
         state.disassembly_open = true;
         ctx.move_to_top(LayerId::new(Order::Middle, Id::new(WINDOW_TITLE)));
     }
+    state.break_status_last_frame = break_status;
 
     let mut open = state.disassembly_open;
     Window::new(WINDOW_TITLE).open(&mut open).resizable([true, true]).default_width(650.0).show(
@@ -215,13 +218,15 @@ pub fn render_disassembly_window(
                     table_builder = table_builder.scroll_to_row(0, Some(Align::Min));
                 }
 
+                let z80_pc = if break_status.breaking { break_status.pc } else { z80.pc() };
+
                 table_builder.body(|mut body| {
                     let mut pc = state.disassembly_address;
                     let mut instruction = DisassembledInstruction::new();
 
                     for _ in 0..100 {
                         body.row(15.0, |mut row| {
-                            if pc == z80.pc() {
+                            if pc == z80_pc {
                                 row.set_selected(true);
                             }
 

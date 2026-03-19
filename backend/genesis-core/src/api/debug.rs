@@ -330,8 +330,9 @@ impl M68000Breakpoints {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct M68000BreakStatus {
-    pub status: bool,
+    pub breaking: bool,
     pub pc: u32,
 }
 
@@ -347,20 +348,19 @@ impl M68000BreakStatusAtomic {
     }
 
     #[must_use]
-    pub fn take(&self) -> Option<M68000BreakStatus> {
-        if self.breaking.compare_exchange(true, false, Ordering::AcqRel, Ordering::Relaxed)
-            != Ok(true)
-        {
-            return None;
-        }
-
-        let pc = self.pc.load(Ordering::Acquire);
-        Some(M68000BreakStatus { status: true, pc })
+    pub fn get(&self) -> M68000BreakStatus {
+        let breaking = self.breaking.load(Ordering::Acquire);
+        let pc = self.pc.load(Ordering::Relaxed);
+        M68000BreakStatus { breaking, pc }
     }
 
     pub fn set_breaking(&self, pc: u32) {
         self.pc.store(pc, Ordering::Relaxed);
         self.breaking.store(true, Ordering::Release);
+    }
+
+    pub fn clear_breaking(&self) {
+        self.breaking.store(false, Ordering::Release);
     }
 }
 
@@ -390,6 +390,10 @@ impl M68000BreakpointManager {
 
     pub fn set_break_status(&self) {
         self.status.set_breaking(self.last_pc);
+    }
+
+    pub fn clear_break_status(&self) {
+        self.status.clear_breaking();
     }
 
     pub fn clear(&mut self) {
@@ -464,7 +468,7 @@ impl Z80Breakpoints {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Z80BreakStatus {
     pub breaking: bool,
     pub pc: u16,
@@ -482,20 +486,19 @@ impl Z80BreakStatusAtomic {
     }
 
     #[must_use]
-    pub fn take(&self) -> Option<Z80BreakStatus> {
-        if self.breaking.compare_exchange(true, false, Ordering::AcqRel, Ordering::Relaxed)
-            != Ok(true)
-        {
-            return None;
-        }
-
-        let pc = self.pc.load(Ordering::Acquire);
-        Some(Z80BreakStatus { breaking: true, pc })
+    pub fn get(&self) -> Z80BreakStatus {
+        let breaking = self.breaking.load(Ordering::Acquire);
+        let pc = self.pc.load(Ordering::Relaxed);
+        Z80BreakStatus { breaking, pc }
     }
 
     pub fn set_breaking(&self, pc: u16) {
         self.pc.store(pc, Ordering::Relaxed);
         self.breaking.store(true, Ordering::Release);
+    }
+
+    pub fn clear_breaking(&self) {
+        self.breaking.store(false, Ordering::Release);
     }
 }
 
@@ -525,6 +528,10 @@ impl Z80BreakpointManager {
 
     pub fn set_break_status(&self) {
         self.status.set_breaking(self.last_pc);
+    }
+
+    pub fn clear_break_status(&self) {
+        self.status.clear_breaking();
     }
 
     pub fn clear(&mut self) {
@@ -686,6 +693,15 @@ impl GenesisDebugger {
                 }
             }
         }
+
+        match which {
+            GenesisCpu::M68k => {
+                self.m68k_breakpoints.clear_break_status();
+            }
+            GenesisCpu::Z80 => {
+                self.z80_breakpoints.clear_break_status();
+            }
+        }
     }
 
     pub fn for_68k<'slf, 'z80, 'ret>(
@@ -735,13 +751,13 @@ impl GenesisDebuggerHandle {
     }
 
     #[must_use]
-    pub fn take_68k_break_status(&self) -> Option<M68000BreakStatus> {
-        self.m68k_break_status.take()
+    pub fn m68k_break_status(&self) -> M68000BreakStatus {
+        self.m68k_break_status.get()
     }
 
     #[must_use]
-    pub fn take_z80_break_status(&self) -> Option<Z80BreakStatus> {
-        self.z80_break_status.take()
+    pub fn z80_break_status(&self) -> Z80BreakStatus {
+        self.z80_break_status.get()
     }
 }
 

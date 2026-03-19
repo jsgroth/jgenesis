@@ -353,15 +353,21 @@ impl Sega32XEmulator {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Sh2BreakStatus {
-    pub master: Option<u32>,
-    pub slave: Option<u32>,
+    pub breaking: bool,
+    pub pc: u32,
 }
 
-impl Sh2BreakStatus {
+#[derive(Debug, Clone, Copy)]
+pub struct S32XSh2BreakStatus {
+    pub master: Sh2BreakStatus,
+    pub slave: Sh2BreakStatus,
+}
+
+impl S32XSh2BreakStatus {
     #[must_use]
-    pub fn get(&self, which: WhichCpu) -> Option<u32> {
+    pub fn get(&self, which: WhichCpu) -> Sh2BreakStatus {
         match which {
             WhichCpu::Master => self.master,
             WhichCpu::Slave => self.slave,
@@ -428,37 +434,29 @@ impl Sega32XDebuggerHandle {
         self.command_sender.send(command)
     }
 
-    fn take_sh2_break_status_one(&self, which: WhichCpu) -> Option<u32> {
-        if self.sh2_break_status.breaking[which as usize].compare_exchange(
-            true,
-            false,
-            Ordering::AcqRel,
-            Ordering::Relaxed,
-        ) != Ok(true)
-        {
-            return None;
-        }
-
-        let pc = self.sh2_break_status.break_pc[which as usize].load(Ordering::Acquire);
-        Some(pc)
+    fn sh2_break_status_one(&self, which: WhichCpu) -> Sh2BreakStatus {
+        let break_idx = which as usize;
+        let breaking = self.sh2_break_status.breaking[break_idx].load(Ordering::Acquire);
+        let pc = self.sh2_break_status.break_pc[break_idx].load(Ordering::Relaxed);
+        Sh2BreakStatus { breaking, pc }
     }
 
     #[must_use]
-    pub fn take_sh2_break_status(&self) -> Sh2BreakStatus {
-        let master = self.take_sh2_break_status_one(WhichCpu::Master);
-        let slave = self.take_sh2_break_status_one(WhichCpu::Slave);
+    pub fn sh2_break_status(&self) -> S32XSh2BreakStatus {
+        let master = self.sh2_break_status_one(WhichCpu::Master);
+        let slave = self.sh2_break_status_one(WhichCpu::Slave);
 
-        Sh2BreakStatus { master, slave }
+        S32XSh2BreakStatus { master, slave }
     }
 
     #[must_use]
-    pub fn take_68k_break_status(&self) -> Option<M68000BreakStatus> {
-        self.m68k_break_status.take()
+    pub fn m68k_break_status(&self) -> M68000BreakStatus {
+        self.m68k_break_status.get()
     }
 
     #[must_use]
-    pub fn take_z80_break_status(&self) -> Option<Z80BreakStatus> {
-        self.z80_break_status.take()
+    pub fn z80_break_status(&self) -> Z80BreakStatus {
+        self.z80_break_status.get()
     }
 }
 
@@ -594,6 +592,10 @@ impl Sega32XDebugger {
         self.sh2_break_status.breaking[break_idx].store(true, Ordering::Release);
     }
 
+    fn clear_sh2_break_status(&self, which: WhichCpu) {
+        self.sh2_break_status.breaking[which as usize].store(false, Ordering::Release);
+    }
+
     fn set_68k_break_status(&self) {
         self.m68k_breakpoints.set_break_status();
     }
@@ -651,6 +653,18 @@ impl Sega32XDebugger {
 
                     break;
                 }
+            }
+        }
+
+        match which {
+            DebugWhichCpu::Sh2(which) => {
+                self.clear_sh2_break_status(which);
+            }
+            DebugWhichCpu::M68k => {
+                self.m68k_breakpoints.clear_break_status();
+            }
+            DebugWhichCpu::Z80 => {
+                self.z80_breakpoints.clear_break_status();
             }
         }
     }
