@@ -1,22 +1,34 @@
+use std::borrow::Cow;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BranchDestination {
     Displacement,
     Absolute { pc: u32 },
 }
 
-#[derive(Debug, Clone)]
-pub struct DisassembleOptions {
-    pub branch_displacement: BranchDestination,
+#[derive(Clone)]
+pub enum PcRelativeLoad<'a> {
+    NoComment,
+    ValueInComment { pc: u32, peek: &'a dyn Fn(u32) -> u16 },
 }
 
-impl Default for DisassembleOptions {
+#[derive(Clone)]
+pub struct DisassembleOptions<'a> {
+    pub branch_displacement: BranchDestination,
+    pub pc_relative_load: PcRelativeLoad<'a>,
+}
+
+impl Default for DisassembleOptions<'_> {
     fn default() -> Self {
-        Self { branch_displacement: BranchDestination::Displacement }
+        Self {
+            branch_displacement: BranchDestination::Displacement,
+            pc_relative_load: PcRelativeLoad::NoComment,
+        }
     }
 }
 
 #[must_use]
-pub fn disassemble(opcode: u16, options: DisassembleOptions) -> String {
+pub fn disassemble(opcode: u16, options: DisassembleOptions<'_>) -> String {
     match opcode {
         0b0000_0000_0001_1001 => "div0u".into(),
         0b0000_0000_0000_1011 => "rts".into(),
@@ -31,7 +43,7 @@ pub fn disassemble(opcode: u16, options: DisassembleOptions) -> String {
 }
 
 #[inline]
-fn decode_xnnx(opcode: u16, options: DisassembleOptions) -> String {
+fn decode_xnnx(opcode: u16, options: DisassembleOptions<'_>) -> String {
     match opcode & 0b1111_0000_0000_1111 {
         0b0110_0000_0000_0011 => {
             format!("mov r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
@@ -200,7 +212,7 @@ fn decode_xnnx(opcode: u16, options: DisassembleOptions) -> String {
 }
 
 #[inline]
-fn decode_xxnn(opcode: u16, options: DisassembleOptions) -> String {
+fn decode_xxnn(opcode: u16, options: DisassembleOptions<'_>) -> String {
     match opcode & 0b1111_1111_0000_0000 {
         0b1000_0000_0000_0000 => format!(
             "mov.b r0, @({},r{})",
@@ -228,7 +240,18 @@ fn decode_xxnn(opcode: u16, options: DisassembleOptions) -> String {
         0b1100_0100_0000_0000 => format!("mov.b @({},gbr), r0", parse_8bit_displacement(opcode)),
         0b1100_0101_0000_0000 => format!("mov.w @({},gbr), r0", parse_8bit_displacement(opcode)),
         0b1100_0110_0000_0000 => format!("mov.l @({},gbr), r0", parse_8bit_displacement(opcode)),
-        0b1100_0111_0000_0000 => format!("mova @({},pc), r0", parse_8bit_displacement(opcode)),
+        0b1100_0111_0000_0000 => {
+            let comment = match options.pc_relative_load {
+                PcRelativeLoad::NoComment => String::new(),
+                PcRelativeLoad::ValueInComment { pc, .. } => {
+                    let displacement = (opcode & 0xFF) << 2;
+                    let address = (pc & !3).wrapping_add(4).wrapping_add(displacement.into());
+                    format!("  ;${address:08X}")
+                }
+            };
+
+            format!("mova @({},pc), r0{comment}", parse_8bit_displacement(opcode))
+        }
         0b1000_1000_0000_0000 => format!("cmp/eq #{}, r0", parse_signed_immediate(opcode)),
         0b1100_1001_0000_0000 => format!("and #{}, r0", parse_unsigned_immediate(opcode)),
         0b1100_1101_0000_0000 => format!("and.b #{}, @(r0,gbr)", parse_unsigned_immediate(opcode)),
@@ -280,7 +303,7 @@ fn decode_xxnn(opcode: u16, options: DisassembleOptions) -> String {
 }
 
 #[inline]
-fn decode_xnxx(opcode: u16, options: DisassembleOptions) -> String {
+fn decode_xnxx(opcode: u16, options: DisassembleOptions<'_>) -> String {
     match opcode & 0b1111_0000_1111_1111 {
         0b0000_0000_0010_1001 => format!("movt r{}", parse_register_high(opcode)),
         0b0100_0000_0001_0001 => format!("cmp/pz r{}", parse_register_high(opcode)),
@@ -334,21 +357,29 @@ fn decode_xnxx(opcode: u16, options: DisassembleOptions) -> String {
 }
 
 #[inline]
-fn decode_xnnn(opcode: u16, options: DisassembleOptions) -> String {
+fn decode_xnnn(opcode: u16, options: DisassembleOptions<'_>) -> String {
     match opcode & 0b1111_0000_0000_0000 {
         0b1110_0000_0000_0000 => {
             format!("mov.b #{}, r{}", parse_signed_immediate(opcode), parse_register_high(opcode))
         }
-        0b1001_0000_0000_0000 => format!(
-            "mov.w @({},pc), r{}",
-            parse_8bit_displacement(opcode),
-            parse_register_high(opcode)
-        ),
-        0b1101_0000_0000_0000 => format!(
-            "mov.l @({},pc), r{}",
-            parse_8bit_displacement(opcode),
-            parse_register_high(opcode)
-        ),
+        0b1001_0000_0000_0000 => {
+            let comment = pc_relative_load_word(opcode, options.pc_relative_load);
+
+            format!(
+                "mov.w @({},pc), r{}{comment}",
+                parse_8bit_displacement(opcode),
+                parse_register_high(opcode)
+            )
+        }
+        0b1101_0000_0000_0000 => {
+            let comment = pc_relative_load_longword(opcode, options.pc_relative_load);
+
+            format!(
+                "mov.l @({},pc), r{}{comment}",
+                parse_8bit_displacement(opcode),
+                parse_register_high(opcode)
+            )
+        }
         0b0001_0000_0000_0000 => format!(
             "mov.l r{}, @({},r{})",
             parse_register_low(opcode),
@@ -420,4 +451,31 @@ fn branch_destination(displacement: i32, branch_displacement: BranchDestination)
             format!("${address:08X}")
         }
     }
+}
+
+#[inline]
+fn pc_relative_load_word(opcode: u16, pc_relative_load: PcRelativeLoad<'_>) -> Cow<'static, str> {
+    let PcRelativeLoad::ValueInComment { pc, peek } = pc_relative_load else { return "".into() };
+
+    let displacement = (opcode & 0xFF) << 1;
+    let address = pc.wrapping_add(4).wrapping_add(displacement.into());
+    let value = peek(address);
+
+    format!("  ;0x{value:04X}").into()
+}
+
+#[inline]
+fn pc_relative_load_longword(
+    opcode: u16,
+    pc_relative_load: PcRelativeLoad<'_>,
+) -> Cow<'static, str> {
+    let PcRelativeLoad::ValueInComment { pc, peek } = pc_relative_load else { return "".into() };
+
+    let displacement = (opcode & 0xFF) << 2;
+    let address = (pc & !3).wrapping_add(4).wrapping_add(displacement.into());
+    let high: u32 = peek(address).into();
+    let low: u32 = peek(address + 2).into();
+    let value = low | (high << 16);
+
+    format!("  ;0x{value:08X}").into()
 }

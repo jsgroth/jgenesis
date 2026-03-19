@@ -2,12 +2,11 @@ use crate::mainloop::debug::genesis::widgets::BreakpointsWidget;
 use egui::panel::{Side, TopBottomSide};
 use egui::{Align, Grid, LayerId, Order, RichText, TextEdit, Window};
 use egui_extras::{Column, TableBuilder};
-use genesis_core::api::debug::GenesisMemoryArea;
 use s32x_core::WhichCpu;
 use s32x_core::api::debug::{
     Sega32XDebugCommand, Sega32XDebugState, Sh2BreakStatus, Sh2Breakpoint,
 };
-use sh2_emu::{BranchDestination, DisassembleOptions, Sh2};
+use sh2_emu::{BranchDestination, DisassembleOptions, PcRelativeLoad, Sh2};
 use std::ops::Range;
 use std::sync::mpsc::Sender;
 
@@ -44,7 +43,7 @@ impl DisassemblyArea {
         }
     }
 
-    fn read_address(self, address: u32, cpu: &Sh2, debug_state: &mut Sega32XDebugState) -> u16 {
+    fn read_address(self, address: u32, cpu: &Sh2, debug_state: &Sega32XDebugState) -> u16 {
         match self {
             Self::Sdram { cached } => {
                 if cached && let Some(word) = cpu.peek_cache(address) {
@@ -58,11 +57,9 @@ impl DisassemblyArea {
                     return word;
                 }
 
-                let cartridge_addr = (address & 0x3FFFFF & !1) as usize;
-                let rom_view = debug_state.genesis.memory_view(GenesisMemoryArea::CartridgeRom);
-                let msb = rom_view.read(cartridge_addr);
-                let lsb = rom_view.read(cartridge_addr + 1);
-                u16::from_be_bytes([msb, lsb])
+                let Some(cartridge) = debug_state.genesis.cartridge() else { return 0 };
+                let cartridge_addr = address & 0x3FFFFF & !1;
+                cartridge.peek_word(cartridge_addr)
             }
             Self::Cache => cpu.peek_data_array(address),
         }
@@ -149,7 +146,7 @@ pub fn render_disassembly_window(
     Window::new(window_title)
         .open(&mut open)
         .resizable([true, true])
-        .default_size([650.0, 500.0])
+        .default_size([750.0, 550.0])
         .show(ctx, |ui| {
             egui::TopBottomPanel::new(TopBottomSide::Top, format!("{window_title}_top_panel"))
                 .show_inside(ui, |ui| {
@@ -273,7 +270,7 @@ pub fn render_disassembly_window(
                     .column(Column::remainder());
 
                 if let Some(scroll_to_row) = window_state.disasm_scroll_to_row.take() {
-                    table_builder = table_builder.scroll_to_row(scroll_to_row, Some(Align::Min));
+                    table_builder = table_builder.scroll_to_row(scroll_to_row, Some(Align::Center));
                 }
 
                 let sh2_pc =
@@ -297,9 +294,16 @@ pub fn render_disassembly_window(
                             ui.label(monospace_u16(opcode));
                         });
 
+                        let pc_relative_load = PcRelativeLoad::ValueInComment {
+                            pc: address,
+                            peek: &|address| {
+                                disassembly_area.read_address(address, &sh2, debug_state)
+                            },
+                        };
                         row.col(|ui| {
                             let options = DisassembleOptions {
                                 branch_displacement: BranchDestination::Absolute { pc: address },
+                                pc_relative_load,
                             };
                             ui.label(
                                 RichText::new(sh2_emu::disassemble(opcode, options)).monospace(),
