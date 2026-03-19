@@ -7,7 +7,7 @@ use s32x_core::WhichCpu;
 use s32x_core::api::debug::{
     Sega32XDebugCommand, Sega32XDebugState, Sh2BreakStatus, Sh2Breakpoint,
 };
-use sh2_emu::{BranchDisplacement, DisassembleOptions, Sh2};
+use sh2_emu::{BranchDestination, DisassembleOptions, Sh2};
 use std::ops::Range;
 use std::sync::mpsc::Sender;
 
@@ -299,7 +299,7 @@ pub fn render_disassembly_window(
 
                         row.col(|ui| {
                             let options = DisassembleOptions {
-                                branch_displacement: BranchDisplacement::Absolute { pc: address },
+                                branch_displacement: BranchDestination::Absolute { pc: address },
                             };
                             ui.label(
                                 RichText::new(sh2_emu::disassemble(opcode, options)).monospace(),

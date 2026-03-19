@@ -1,17 +1,17 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BranchDisplacement {
-    Offset,
+pub enum BranchDestination {
+    Displacement,
     Absolute { pc: u32 },
 }
 
 #[derive(Debug, Clone)]
 pub struct DisassembleOptions {
-    pub branch_displacement: BranchDisplacement,
+    pub branch_displacement: BranchDestination,
 }
 
 impl Default for DisassembleOptions {
     fn default() -> Self {
-        Self { branch_displacement: BranchDisplacement::Offset }
+        Self { branch_displacement: BranchDestination::Displacement }
     }
 }
 
@@ -239,24 +239,48 @@ fn decode_xxnn(opcode: u16, options: DisassembleOptions) -> String {
         0b1100_1010_0000_0000 => format!("xor #{}, r0", parse_unsigned_immediate(opcode)),
         0b1100_1110_0000_0000 => format!("xor.b #{}, @(r0,gbr)", parse_unsigned_immediate(opcode)),
         0b1000_1011_0000_0000 => {
-            format!("bf {}", parse_branch_displacement(opcode, options.branch_displacement))
+            format!(
+                "bf {}",
+                branch_destination(
+                    parse_signed_immediate(opcode).into(),
+                    options.branch_displacement
+                )
+            )
         }
         0b1000_1111_0000_0000 => {
-            format!("bf/s {}", parse_branch_displacement(opcode, options.branch_displacement))
+            format!(
+                "bf/s {}",
+                branch_destination(
+                    parse_signed_immediate(opcode).into(),
+                    options.branch_displacement
+                )
+            )
         }
         0b1000_1001_0000_0000 => {
-            format!("bt {}", parse_branch_displacement(opcode, options.branch_displacement))
+            format!(
+                "bt {}",
+                branch_destination(
+                    parse_signed_immediate(opcode).into(),
+                    options.branch_displacement
+                )
+            )
         }
         0b1000_1101_0000_0000 => {
-            format!("bt/s {}", parse_branch_displacement(opcode, options.branch_displacement))
+            format!(
+                "bt/s {}",
+                branch_destination(
+                    parse_signed_immediate(opcode).into(),
+                    options.branch_displacement
+                )
+            )
         }
-        0b1100_0011_0000_0000 => format!("trapa #{}", parse_signed_immediate(opcode)),
-        _ => decode_xnxx(opcode),
+        0b1100_0011_0000_0000 => format!("trapa #{}", opcode & 0xFF),
+        _ => decode_xnxx(opcode, options),
     }
 }
 
 #[inline]
-fn decode_xnxx(opcode: u16) -> String {
+fn decode_xnxx(opcode: u16, options: DisassembleOptions) -> String {
     match opcode & 0b1111_0000_1111_1111 {
         0b0000_0000_0010_1001 => format!("movt r{}", parse_register_high(opcode)),
         0b0100_0000_0001_0001 => format!("cmp/pz r{}", parse_register_high(opcode)),
@@ -305,12 +329,12 @@ fn decode_xnxx(opcode: u16) -> String {
         0b0100_0000_0000_0010 => format!("sts.l mach, @-r{}", parse_register_high(opcode)),
         0b0100_0000_0001_0010 => format!("sts.l macl, @-r{}", parse_register_high(opcode)),
         0b0100_0000_0010_0010 => format!("sts.l pr, @-r{}", parse_register_high(opcode)),
-        _ => decode_xnnn(opcode),
+        _ => decode_xnnn(opcode, options),
     }
 }
 
 #[inline]
-fn decode_xnnn(opcode: u16) -> String {
+fn decode_xnnn(opcode: u16, options: DisassembleOptions) -> String {
     match opcode & 0b1111_0000_0000_0000 {
         0b1110_0000_0000_0000 => {
             format!("mov.b #{}, r{}", parse_signed_immediate(opcode), parse_register_high(opcode))
@@ -340,8 +364,14 @@ fn decode_xnnn(opcode: u16) -> String {
         0b0111_0000_0000_0000 => {
             format!("add #{}, r{}", parse_signed_immediate(opcode), parse_register_high(opcode))
         }
-        0b1010_0000_0000_0000 => format!("bra {}", parse_12bit_displacement(opcode)),
-        0b1011_0000_0000_0000 => format!("bsr {}", parse_12bit_displacement(opcode)),
+        0b1010_0000_0000_0000 => format!(
+            "bra {}",
+            branch_destination(parse_12bit_displacement(opcode), options.branch_displacement)
+        ),
+        0b1011_0000_0000_0000 => format!(
+            "bsr {}",
+            branch_destination(parse_12bit_displacement(opcode), options.branch_displacement)
+        ),
         _ => "illegal".into(),
     }
 }
@@ -382,13 +412,11 @@ fn parse_register_high(opcode: u16) -> u16 {
 }
 
 #[inline]
-fn parse_branch_displacement(opcode: u16, branch_displacement: BranchDisplacement) -> String {
-    let displacement = parse_signed_immediate(opcode);
-
+fn branch_destination(displacement: i32, branch_displacement: BranchDestination) -> String {
     match branch_displacement {
-        BranchDisplacement::Offset => displacement.to_string(),
-        BranchDisplacement::Absolute { pc } => {
-            let address = pc.wrapping_add(4).wrapping_add_signed(i32::from(displacement) << 1);
+        BranchDestination::Displacement => displacement.to_string(),
+        BranchDestination::Absolute { pc } => {
+            let address = pc.wrapping_add(4).wrapping_add_signed(displacement << 1);
             format!("${address:08X}")
         }
     }
