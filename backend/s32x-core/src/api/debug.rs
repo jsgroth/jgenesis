@@ -10,7 +10,8 @@ use genesis_config::GenesisInputs;
 use genesis_core::api::debug::{
     BaseGenesisDebugView, GenesisDebugState, GenesisMemoryArea, M68000BreakStatus,
     M68000BreakStatusAtomic, M68000Breakpoint, M68000BreakpointManager, M68000Breakpoints,
-    PhysicalMediumDebugView,
+    PhysicalMediumDebugView, Z80BreakStatus, Z80BreakStatusAtomic, Z80Breakpoint,
+    Z80BreakpointManager, Z80Breakpoints,
 };
 use genesis_core::cartridge::Cartridge;
 use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
@@ -140,11 +141,14 @@ pub enum Sega32XDebugCommand {
     Edit32XMemory(S32XMemoryArea, usize, u8),
     UpdateSh2Breakpoints(WhichCpu, Vec<Sh2Breakpoint>),
     Update68kBreakpoints(Vec<M68000Breakpoint>),
+    UpdateZ80Breakpoints(Vec<Z80Breakpoint>),
     BreakResume,
     BreakPauseSh2(WhichCpu),
     BreakStepSh2(WhichCpu),
     BreakPause68k,
     BreakStep68k,
+    BreakPauseZ80,
+    BreakStepZ80,
 }
 
 #[derive(Debug, Clone)]
@@ -383,13 +387,14 @@ impl Sh2BreakStatusAtomic {
 pub enum DebugWhichCpu {
     Sh2(WhichCpu),
     M68k,
+    Z80,
 }
 
 impl DebugWhichCpu {
     fn sh2_which(self) -> Option<WhichCpu> {
         match self {
             Self::Sh2(which) => Some(which),
-            Self::M68k => None,
+            Self::M68k | Self::Z80 => None,
         }
     }
 }
@@ -402,12 +407,14 @@ pub struct Sega32XDebugger {
     sh2_break_status: Arc<Sh2BreakStatusAtomic>,
     sh2_break_step: Option<(WhichCpu, u32)>,
     m68k_breakpoints: M68000BreakpointManager,
+    z80_breakpoints: Z80BreakpointManager,
 }
 
 pub struct Sega32XDebuggerHandle {
     pub command_sender: Sender<Sega32XDebugCommand>,
     pub sh2_break_status: Arc<Sh2BreakStatusAtomic>,
     pub m68k_break_status: Arc<M68000BreakStatusAtomic>,
+    pub z80_break_status: Arc<Z80BreakStatusAtomic>,
 }
 
 impl Sega32XDebuggerHandle {
@@ -448,6 +455,11 @@ impl Sega32XDebuggerHandle {
     pub fn take_68k_break_status(&self) -> Option<M68000BreakStatus> {
         self.m68k_break_status.take()
     }
+
+    #[must_use]
+    pub fn take_z80_break_status(&self) -> Option<Z80BreakStatus> {
+        self.z80_break_status.take()
+    }
 }
 
 impl Sega32XDebugger {
@@ -463,12 +475,14 @@ impl Sega32XDebugger {
             sh2_break_status: Arc::new(Sh2BreakStatusAtomic::new()),
             sh2_break_step: None,
             m68k_breakpoints: M68000BreakpointManager::new(),
+            z80_breakpoints: Z80BreakpointManager::new(),
         };
 
         let handle = Sega32XDebuggerHandle {
             command_sender,
             sh2_break_status: Arc::clone(&debugger.sh2_break_status),
             m68k_break_status: Arc::clone(&debugger.m68k_breakpoints.status),
+            z80_break_status: Arc::clone(&debugger.z80_breakpoints.status),
         };
 
         (debugger, handle)
@@ -507,6 +521,9 @@ impl Sega32XDebugger {
             Sega32XDebugCommand::Update68kBreakpoints(breakpoints) => {
                 self.m68k_breakpoints.breakpoints = M68000Breakpoints::new(&breakpoints);
             }
+            Sega32XDebugCommand::UpdateZ80Breakpoints(breakpoints) => {
+                self.z80_breakpoints.breakpoints = Z80Breakpoints::new(&breakpoints);
+            }
             Sega32XDebugCommand::BreakPauseSh2(which) => {
                 log::info!("Received pause command for {which:?}");
                 self.sh2_break_step = Some((which, 1)); // Break at start of next instruction
@@ -515,9 +532,14 @@ impl Sega32XDebugger {
                 log::info!("Received pause command for 68000");
                 self.m68k_breakpoints.step = Some(1);
             }
+            Sega32XDebugCommand::BreakPauseZ80 => {
+                log::info!("Received pause command for Z80");
+                self.z80_breakpoints.step = Some(1);
+            }
             Sega32XDebugCommand::BreakResume
             | Sega32XDebugCommand::BreakStepSh2(_)
-            | Sega32XDebugCommand::BreakStep68k => {}
+            | Sega32XDebugCommand::BreakStep68k
+            | Sega32XDebugCommand::BreakStepZ80 => {}
         }
     }
 
@@ -527,6 +549,10 @@ impl Sega32XDebugger {
 
     pub(crate) fn m68k_breakpoints(&self) -> &M68000Breakpoints {
         &self.m68k_breakpoints.breakpoints
+    }
+
+    pub(crate) fn z80_breakpoints(&self) -> &Z80Breakpoints {
+        &self.z80_breakpoints.breakpoints
     }
 
     pub(crate) fn for_sh2<'a>(
@@ -550,6 +576,17 @@ impl Sega32XDebugger {
         Sega32XDebuggerFor68k { debugger: self, z80 }
     }
 
+    pub(crate) fn for_z80<'slf, 'm68k, 'ret>(
+        &'slf mut self,
+        m68k: &'m68k mut M68000,
+    ) -> Sega32XDebuggerForZ80<'ret>
+    where
+        'slf: 'ret,
+        'm68k: 'ret,
+    {
+        Sega32XDebuggerForZ80 { debugger: self, m68k }
+    }
+
     fn set_sh2_break_status(&self, which: WhichCpu) {
         let break_idx = which as usize;
         self.sh2_break_status.break_pc[break_idx]
@@ -559,6 +596,10 @@ impl Sega32XDebugger {
 
     fn set_68k_break_status(&self) {
         self.m68k_breakpoints.set_break_status();
+    }
+
+    fn set_z80_break_status(&self) {
+        self.z80_breakpoints.set_break_status();
     }
 
     pub(crate) fn handle_breakpoint(
@@ -575,10 +616,14 @@ impl Sega32XDebugger {
             DebugWhichCpu::M68k => {
                 self.set_68k_break_status();
             }
+            DebugWhichCpu::Z80 => {
+                self.set_z80_break_status();
+            }
         }
 
         self.sh2_break_step = None;
         self.m68k_breakpoints.step = None;
+        self.z80_breakpoints.step = None;
 
         loop {
             match self.command_receiver.recv() {
@@ -592,13 +637,17 @@ impl Sega32XDebugger {
                     self.m68k_breakpoints.step = Some(1 + u32::from(which != DebugWhichCpu::M68k));
                     break;
                 }
+                Ok(Sega32XDebugCommand::BreakStepZ80) => {
+                    self.z80_breakpoints.step = Some(1 + u32::from(which != DebugWhichCpu::Z80));
+                    break;
+                }
                 Ok(command) => self.process_command(command, debug_view),
                 Err(_) => {
                     // Debugger window was closed
                     self.sh2_breakpoints = array::from_fn(|_| Sh2Breakpoints::none());
-                    self.m68k_breakpoints.breakpoints = M68000Breakpoints::none();
                     self.sh2_break_step = None;
-                    self.m68k_breakpoints.step = None;
+                    self.m68k_breakpoints.clear();
+                    self.z80_breakpoints.clear();
 
                     break;
                 }
@@ -623,15 +672,11 @@ impl Sega32XDebugger {
     }
 
     pub(crate) fn check_68k_break_step(&mut self) -> bool {
-        let Some(remaining) = &mut self.m68k_breakpoints.step else { return false };
+        check_break_step(&mut self.m68k_breakpoints.step)
+    }
 
-        *remaining -= 1;
-        if *remaining == 0 {
-            self.m68k_breakpoints.step = None;
-            true
-        } else {
-            false
-        }
+    pub(crate) fn check_z80_break_step(&mut self) -> bool {
+        check_break_step(&mut self.z80_breakpoints.step)
     }
 
     pub(crate) fn update_sh2_pc(&mut self, which: WhichCpu, pc: u32) {
@@ -640,6 +685,22 @@ impl Sega32XDebugger {
 
     pub(crate) fn update_68k_pc(&mut self, pc: u32) {
         self.m68k_breakpoints.last_pc = pc;
+    }
+
+    pub(crate) fn update_z80_pc(&mut self, pc: u16) {
+        self.z80_breakpoints.last_pc = pc;
+    }
+}
+
+fn check_break_step(step: &mut Option<u32>) -> bool {
+    let Some(remaining) = step else { return false };
+
+    *remaining -= 1;
+    if *remaining == 0 {
+        *step = None;
+        true
+    } else {
+        false
     }
 }
 
@@ -681,4 +742,9 @@ pub(crate) struct Sega32XDebuggerForSh2Raw {
 pub(crate) struct Sega32XDebuggerFor68k<'a> {
     pub debugger: &'a mut Sega32XDebugger,
     pub z80: &'a mut Z80,
+}
+
+pub(crate) struct Sega32XDebuggerForZ80<'a> {
+    pub debugger: &'a mut Sega32XDebugger,
+    pub m68k: &'a mut M68000,
 }

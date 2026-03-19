@@ -469,8 +469,10 @@ fn render(
                     ui.close_kind(UiKind::Menu);
                 }
 
-                if matches!(debug_state, GenesisBasedDebugState::Genesis(..))
-                    && ui.button("Z80 Breakpoints").clicked()
+                if matches!(
+                    debug_state,
+                    GenesisBasedDebugState::Genesis(..) | GenesisBasedDebugState::Sega32X(..)
+                ) && ui.button("Z80 Breakpoints").clicked()
                 {
                     state.z80.breakpoints_open = true;
                     ui.close_kind(UiKind::Menu);
@@ -684,7 +686,7 @@ fn render_z80_debug_windows(
                     .send_command(GenesisDebugCommand::UpdateZ80Breakpoints(breakpoints));
             });
         }
-        GenesisBasedDebugState::SegaCd(..) | GenesisBasedDebugState::Sega32X(..) => {
+        GenesisBasedDebugState::SegaCd(..) => {
             z80debug::render_disassembly_window(
                 ctx,
                 debug_state.z80(),
@@ -693,6 +695,30 @@ fn render_z80_debug_windows(
                 None,
                 None,
             );
+        }
+        GenesisBasedDebugState::Sega32X(debug_state, debugger_handle) => {
+            let break_status = debugger_handle.take_z80_break_status();
+
+            z80debug::render_disassembly_window(
+                ctx,
+                debug_state.genesis.z80(),
+                GenesisZ80MemoryMap::new(debug_state.genesis.audio_ram()),
+                &mut state.z80,
+                break_status,
+                Some(&mut |command| {
+                    let s32x_command = match command {
+                        Z80BreakCommand::Pause => Sega32XDebugCommand::BreakPauseZ80,
+                        Z80BreakCommand::Resume => Sega32XDebugCommand::BreakResume,
+                        Z80BreakCommand::Step => Sega32XDebugCommand::BreakStepZ80,
+                    };
+                    let _ = debugger_handle.send_command(s32x_command);
+                }),
+            );
+
+            z80debug::render_breakpoints_window(ctx, &mut state.z80, |breakpoints| {
+                let _ = debugger_handle
+                    .send_command(Sega32XDebugCommand::UpdateZ80Breakpoints(breakpoints));
+            });
         }
     }
 }

@@ -1,13 +1,14 @@
 use crate::GenesisVdp;
 use crate::api::debug::{
     DebugWhichCpu, Sega32XDebugger, Sega32XDebuggerFor68k, Sega32XDebuggerForSh2,
-    Sega32XDebuggerForSh2Raw, Sega32XEmulatorDebugView, Sega32XMediumView, Sh2Breakpoints,
+    Sega32XDebuggerForSh2Raw, Sega32XDebuggerForZ80, Sega32XEmulatorDebugView, Sega32XMediumView,
+    Sh2Breakpoints,
 };
 use crate::bus::{OtherCpu, Sh2Bus, WhichCpu};
 use crate::core::{Sega32X, Sega32XBus};
 use genesis_core::api::debug::{BaseGenesisDebugView, GenesisMemoryDebugView};
 use genesis_core::memory::MainBus;
-use genesis_core::memory::debug::MainBus68kDebugger;
+use genesis_core::memory::debug::{MainBus68kDebugger, MainBusZ80Debugger};
 use m68000_emu::M68000;
 use sh2_emu::Sh2;
 use sh2_emu::bus::{AccessContext, BusInterface, OpSize};
@@ -15,6 +16,7 @@ use sh2_emu::debug::Sh2Debugger;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
+use z80_emu::Z80;
 
 pub(crate) struct DebugSh2Bus {
     pub(crate) bus: Sh2Bus,
@@ -330,6 +332,41 @@ impl MainBus68kDebugger<Sega32X> for Sega32XDebuggerFor68k<'_> {
             },
         };
         self.debugger.handle_breakpoint(DebugWhichCpu::M68k, &mut debug_view);
+    }
+}
+
+impl MainBusZ80Debugger<Sega32X> for Sega32XDebuggerForZ80<'_> {
+    fn check_read_breakpoint(&self, address: u16) -> bool {
+        self.debugger.z80_breakpoints().check_read(address)
+    }
+
+    fn check_write_breakpoint(&self, address: u16) -> bool {
+        self.debugger.z80_breakpoints().check_write(address)
+    }
+
+    fn check_execute_breakpoint(&mut self, pc: u16) -> bool {
+        self.debugger.update_z80_pc(pc);
+        self.debugger.z80_breakpoints().check_execute(pc)
+    }
+
+    fn check_break_step(&mut self) -> bool {
+        self.debugger.check_z80_break_step()
+    }
+
+    fn handle_breakpoint<const REFRESH_INTERVAL: u32>(
+        &mut self,
+        cpu: &mut Z80,
+        bus: &mut MainBus<'_, Sega32X, REFRESH_INTERVAL>,
+    ) {
+        let mut debug_view = Sega32XEmulatorDebugView {
+            genesis: BaseGenesisDebugView {
+                m68k: self.m68k,
+                z80: cpu,
+                memory: bus.memory.as_debug_view(Sega32X::as_debug_view),
+                vdp: bus.vdp,
+            },
+        };
+        self.debugger.handle_breakpoint(DebugWhichCpu::Z80, &mut debug_view);
     }
 }
 
