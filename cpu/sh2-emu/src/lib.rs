@@ -26,7 +26,7 @@ use crate::registers::{Sh2Registers, Sh7604Registers};
 use crate::sci::SerialInterface;
 use crate::wdt::WatchdogTimer;
 use bincode::{Decode, Encode};
-pub use disassemble::{BranchDestination, DisassembleOptions, disassemble};
+pub use disassemble::{BranchDestination, DisassembleOptions, PcRelativeLoad, disassemble};
 pub use instructions::OpcodeTable;
 use jgenesis_common::debug::DebugMemoryView;
 use std::env;
