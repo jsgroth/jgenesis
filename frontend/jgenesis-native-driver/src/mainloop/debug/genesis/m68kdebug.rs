@@ -29,6 +29,7 @@ pub struct M68kDebugWindowState {
     pub disassemble_end_addr: Option<u32>,
     pub disassemble_jump_addr: String,
     pub disassemble_reset_table: bool,
+    pub break_status_last_frame: M68000BreakStatus,
     pub breakpoints: BreakpointsWidget<U24>,
 }
 
@@ -49,6 +50,7 @@ impl M68kDebugWindowState {
             disassemble_end_addr: None,
             disassemble_jump_addr: String::new(),
             disassemble_reset_table: false,
+            break_status_last_frame: M68000BreakStatus::default(),
             breakpoints: BreakpointsWidget::new(breakpoints_id),
         }
     }
@@ -231,14 +233,15 @@ pub fn render_disassembly_window<MemoryMap: M68kDebugMemoryMap>(
     m68k: &M68000,
     memory_map: &MemoryMap,
     state: &mut M68kDebugWindowState,
-    break_status: Option<M68000BreakStatus>,
+    break_status: M68000BreakStatus,
     handle_command: Option<&mut dyn FnMut(M68kBreakCommand)>,
 ) {
-    if let Some(break_status) = break_status {
+    if break_status.breaking && break_status != state.break_status_last_frame {
         state.maybe_move_disassembly_table(break_status.pc);
         state.disassembly_open = true;
         ctx.move_to_top(LayerId::new(Order::Middle, Id::new(&state.window_title)));
     }
+    state.break_status_last_frame = break_status;
 
     let mut open = state.disassembly_open;
     Window::new(&state.window_title)
@@ -384,13 +387,15 @@ pub fn render_disassembly_window<MemoryMap: M68kDebugMemoryMap>(
                     table_builder = table_builder.scroll_to_row(0, Some(Align::Min));
                 }
 
+                let m68k_pc = if break_status.breaking { break_status.pc } else { m68k.pc() };
+
                 table_builder.body(|mut body| {
                     let mut pc = state.disassemble_start;
                     let mut disassembled_instruction = DisassembledInstruction::new();
 
                     for _ in 0..100 {
                         body.row(15.0, |mut row| {
-                            if pc == m68k.pc() {
+                            if pc == m68k_pc {
                                 row.set_selected(true);
                             }
 

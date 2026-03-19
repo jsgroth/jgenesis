@@ -76,6 +76,7 @@ pub struct Sh2DebugWindowState {
     pub disassembly_area: DisassemblyArea,
     pub disassembly_address: String,
     pub disasm_scroll_to_row: Option<usize>,
+    pub break_status_last_frame: Sh2BreakStatus,
     pub breakpoints: BreakpointsWidget<u32>,
 }
 
@@ -88,6 +89,7 @@ impl Sh2DebugWindowState {
             disassembly_area: DisassemblyArea::Sdram { cached: true },
             disassembly_address: String::new(),
             disasm_scroll_to_row: None,
+            break_status_last_frame: Sh2BreakStatus::default(),
             breakpoints: BreakpointsWidget::new(format!("{which:?}_breakpoints")),
         }
     }
@@ -131,21 +133,12 @@ pub fn render_disassembly_window(
 ) {
     let window_title = window_state.which.disassembly_window_title();
 
-    if let Some(break_pc) = break_status.get(window_state.which) {
+    if break_status.breaking && break_status != window_state.break_status_last_frame {
+        window_state.try_jump_to_address(break_status.pc);
         window_state.disassembly_open = true;
         ctx.move_to_top(LayerId::new(Order::Middle, window_title.into()));
-
-        let sh2 = match window_state.which {
-            WhichCpu::Master => &mut debug_state.sh2_master,
-            WhichCpu::Slave => &mut debug_state.sh2_slave,
-        };
-
-        // Without this, read/write breakpoints will show the SH-2 at the instruction *after* the
-        // one that triggered the breakpoint
-        sh2.set_pc(break_pc);
-
-        window_state.try_jump_to_address(break_pc);
     }
+    window_state.break_status_last_frame = break_status;
 
     let sh2 = match window_state.which {
         WhichCpu::Master => debug_state.sh2_master.clone(),
@@ -283,7 +276,8 @@ pub fn render_disassembly_window(
                     table_builder = table_builder.scroll_to_row(scroll_to_row, Some(Align::Min));
                 }
 
-                let sh2_pc = sh2.pc() as usize;
+                let sh2_pc =
+                    (if break_status.breaking { break_status.pc } else { sh2.pc() }) as usize;
                 let pc_row_index =
                     address_range.contains(&sh2_pc).then(|| (sh2_pc - address_range.start) / 2);
 
