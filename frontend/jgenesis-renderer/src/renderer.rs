@@ -1180,6 +1180,8 @@ pub enum RendererError {
         "Frame buffer of len {buffer_len} is too small for specified frame size of {frame_width}x{frame_height}"
     )]
     FrameBufferTooSmall { frame_width: u32, frame_height: u32, buffer_len: usize },
+    #[error("Invalid target fps value, must be finite and positive: {0}")]
+    InvalidTargetFps(f64),
     #[error("Error creating surface from window: {0}")]
     WindowHandleError(#[from] HandleError),
     #[error("Error creating wgpu surface: {0}")]
@@ -1189,7 +1191,7 @@ pub enum RendererError {
     #[error("Error getting handle to wgpu output surface: {0}")]
     WgpuSurface(#[from] wgpu::SurfaceError),
     #[error("Failed to obtain wgpu adapter")]
-    NoWgpuAdapter,
+    WgpuRequestAdapter(#[from] wgpu::RequestAdapterError),
     #[error(
         "wgpu adapter does not support present mode {desired:?}; supported modes are {available:?}"
     )]
@@ -1311,6 +1313,10 @@ impl FrameTimeTracker {
         }
     }
 
+    fn set_target_fps(&mut self, fps: f64) {
+        self.frame_interval_nanos = (1_000_000_000.0_f64 / fps).round() as u128;
+    }
+
     fn sync(&mut self) {
         if !self.sync_enabled {
             return;
@@ -1376,6 +1382,7 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             backend_options: wgpu::BackendOptions {
                 dx12: config::dx12_backend_options(),
                 gl: wgpu::GlBackendOptions::default(),
+                noop: wgpu::NoopBackendOptions::default(),
             },
         });
 
@@ -1390,8 +1397,7 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
             })
-            .await
-            .ok_or(RendererError::NoWgpuAdapter)?;
+            .await?;
 
         let adapter_info = adapter.get_info();
         log::info!(
@@ -1401,19 +1407,17 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
         );
 
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: "device".into(),
-                    required_features: wgpu::Features::empty(),
-                    required_limits: if config.use_webgl2_limits {
-                        wgpu::Limits::downlevel_webgl2_defaults()
-                    } else {
-                        wgpu::Limits::default()
-                    },
-                    memory_hints: wgpu::MemoryHints::default(),
+            .request_device(&wgpu::DeviceDescriptor {
+                label: "device".into(),
+                required_features: wgpu::Features::empty(),
+                required_limits: if config.use_webgl2_limits {
+                    wgpu::Limits::downlevel_webgl2_defaults()
+                } else {
+                    wgpu::Limits::default()
                 },
-                None,
-            )
+                memory_hints: wgpu::MemoryHints::default(),
+                trace: wgpu::Trace::Off,
+            })
             .await?;
 
         let surface_capabilities = surface.get_capabilities(&adapter);
@@ -1551,22 +1555,6 @@ impl<Window> WgpuRenderer<Window> {
         self.speed_multiplier = speed_multiplier;
     }
 
-    /// Set the target framerate to use for frame time sync (if enabled).
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if `fps` is infinite, NaN, or 0.
-    pub fn set_target_fps(&mut self, fps: f64) {
-        assert!(fps.is_finite() && fps != 0.0);
-
-        self.frame_time_tracker.frame_interval_nanos = (1_000_000_000.0_f64 / fps).round() as u128;
-
-        log::debug!(
-            "Set frame time interval to {}ns for target framerate {fps} FPS",
-            self.frame_time_tracker.frame_interval_nanos
-        );
-    }
-
     pub fn config(&self) -> &RendererConfig {
         &self.renderer_config
     }
@@ -1615,9 +1603,10 @@ impl<Window> Renderer for WgpuRenderer<Window> {
         &mut self,
         frame_buffer: &[Color],
         frame_size: FrameSize,
+        target_fps: f64,
         options: RenderFrameOptions,
     ) -> Result<(), Self::Err> {
-        if frame_size.width * frame_size.height > frame_buffer.len() as u32 {
+        if frame_size.len() > frame_buffer.len() as u32 {
             return Err(RendererError::FrameBufferTooSmall {
                 frame_width: frame_size.width,
                 frame_height: frame_size.height,
@@ -1625,10 +1614,16 @@ impl<Window> Renderer for WgpuRenderer<Window> {
             });
         }
 
+        if !target_fps.is_finite() || target_fps <= 0.0 {
+            return Err(RendererError::InvalidTargetFps(target_fps));
+        }
+
         self.frame_count += 1;
         if !self.frame_count.is_multiple_of(self.speed_multiplier) {
             return Ok(());
         }
+
+        self.frame_time_tracker.set_target_fps(target_fps);
 
         let pipeline = self.pipelines.get_or_insert(frame_size, options, || {
             log::info!(

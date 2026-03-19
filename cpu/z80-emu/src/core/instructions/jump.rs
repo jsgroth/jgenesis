@@ -48,7 +48,7 @@ macro_rules! impl_jr_op {
         pub(super) fn $name(&mut self) -> u32 {
             let offset = self.fetch_operand() as i8;
 
-            self.registers.pc = (i32::from(self.registers.pc) + i32::from(offset)) as u16;
+            self.cpu.registers.pc = (i32::from(self.cpu.registers.pc) + i32::from(offset)) as u16;
 
             12
         }
@@ -57,8 +57,9 @@ macro_rules! impl_jr_op {
         pub(super) fn $name(&mut self) -> u32 {
             let offset = self.fetch_operand() as i8;
 
-            if self.registers.f.$flag == $flag_value {
-                self.registers.pc = (i32::from(self.registers.pc) + i32::from(offset)) as u16;
+            if self.cpu.registers.f.$flag == $flag_value {
+                self.cpu.registers.pc =
+                    (i32::from(self.cpu.registers.pc) + i32::from(offset)) as u16;
                 12
             } else {
                 7
@@ -76,7 +77,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
 
     pub(super) fn jp_nn(&mut self) -> u32 {
         let address = self.fetch_operand_u16();
-        self.registers.pc = address;
+        self.cpu.registers.pc = address;
 
         10
     }
@@ -85,8 +86,8 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         let condition = JumpCondition::from_opcode(opcode);
         let address = self.fetch_operand_u16();
 
-        if condition.check(self.registers) {
-            self.registers.pc = address;
+        if condition.check(&self.cpu.registers) {
+            self.cpu.registers.pc = address;
         }
 
         10
@@ -94,9 +95,9 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
 
     pub(super) fn jp_hl(&mut self, index: Option<IndexRegister>) -> u32 {
         let register = index.map_or(Register16::HL, IndexRegister::into);
-        let address = register.read_from(self.registers);
+        let address = register.read_from(&self.cpu.registers);
 
-        self.registers.pc = address;
+        self.cpu.registers.pc = address;
 
         4
     }
@@ -104,11 +105,11 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     pub(super) fn djnz_e(&mut self) -> u32 {
         let offset = self.fetch_operand() as i8;
 
-        let b = self.registers.b;
-        self.registers.b = b.wrapping_sub(1);
+        let b = self.cpu.registers.b;
+        self.cpu.registers.b = b.wrapping_sub(1);
 
         if b != 1 {
-            self.registers.pc = (i32::from(self.registers.pc) + i32::from(offset)) as u16;
+            self.cpu.registers.pc = (i32::from(self.cpu.registers.pc) + i32::from(offset)) as u16;
             13
         } else {
             8
@@ -118,8 +119,8 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     pub(super) fn call_nn(&mut self) -> u32 {
         let address = self.fetch_operand_u16();
 
-        self.push_stack(self.registers.pc);
-        self.registers.pc = address;
+        self.push_stack(self.cpu.registers.pc);
+        self.cpu.registers.pc = address;
 
         17
     }
@@ -128,9 +129,9 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         let condition = JumpCondition::from_opcode(opcode);
         let address = self.fetch_operand_u16();
 
-        if condition.check(self.registers) {
-            self.push_stack(self.registers.pc);
-            self.registers.pc = address;
+        if condition.check(&self.cpu.registers) {
+            self.push_stack(self.cpu.registers.pc);
+            self.cpu.registers.pc = address;
 
             17
         } else {
@@ -139,7 +140,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     }
 
     pub(super) fn ret(&mut self) -> u32 {
-        self.registers.pc = self.pop_stack();
+        self.cpu.registers.pc = self.pop_stack();
 
         10
     }
@@ -147,8 +148,8 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     pub(super) fn ret_cc(&mut self, opcode: u8) -> u32 {
         let condition = JumpCondition::from_opcode(opcode);
 
-        if condition.check(self.registers) {
-            self.registers.pc = self.pop_stack();
+        if condition.check(&self.cpu.registers) {
+            self.cpu.registers.pc = self.pop_stack();
             11
         } else {
             5
@@ -157,8 +158,8 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
 
     // On systems that don't use the special RETI hardware line, RETI and RETN behave identically
     pub(super) fn reti_retn(&mut self) -> u32 {
-        self.registers.pc = self.pop_stack();
-        self.registers.iff1 = self.registers.iff2;
+        self.cpu.registers.pc = self.pop_stack();
+        self.cpu.registers.iff1 = self.cpu.registers.iff2;
 
         14
     }
@@ -166,8 +167,8 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     pub(super) fn rst_p(&mut self, opcode: u8) -> u32 {
         let address = opcode & 0x38;
 
-        self.push_stack(self.registers.pc);
-        self.registers.pc = address.into();
+        self.push_stack(self.cpu.registers.pc);
+        self.cpu.registers.pc = address.into();
 
         11
     }

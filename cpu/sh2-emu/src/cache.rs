@@ -14,7 +14,6 @@
 //!   objects/"sprites" that are partially offscreen will not display at all until they are entirely
 //!   onscreen.
 
-use crate::bus::{AccessContext, BusInterface};
 use bincode::{Decode, Encode};
 use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
 use jgenesis_common::num::{GetBit, U16Ext};
@@ -161,6 +160,30 @@ impl CpuCache {
         None
     }
 
+    pub fn peek(&self, address: u32) -> Option<u16> {
+        if !self.control.cache_enabled {
+            return None;
+        }
+
+        let entry_idx = cache_entry_index(address);
+        let tag = tag_address(address);
+
+        for way_idx in (0..4).rev() {
+            if self.ways[way_idx].valid_bits.bit(entry_idx as u8)
+                && self.ways[way_idx].tags[entry_idx] == tag
+            {
+                let address = cache_ram_addr(way_idx, entry_idx) | ((address as usize) & 0xE);
+                return Some(self.ram[address >> 1]);
+            }
+        }
+
+        None
+    }
+
+    pub fn peek_data_array(&self, address: u32) -> u16 {
+        self.ram[((address >> 1) as usize) & (CACHE_RAM_LEN_WORDS - 1)]
+    }
+
     #[inline]
     pub fn should_replace_instruction(&self) -> bool {
         self.control.cache_enabled && !self.control.disable_instruction_replacement
@@ -172,12 +195,7 @@ impl CpuCache {
     }
 
     #[must_use]
-    pub fn replace<B: BusInterface + ?Sized>(
-        &mut self,
-        address: u32,
-        bus: &mut B,
-        ctx: AccessContext,
-    ) -> u32 {
+    pub fn replace(&mut self, address: u32, cache_line: [u16; 8]) -> u32 {
         let entry_idx = cache_entry_index(address);
 
         let lru_bits = self.lru_bits[entry_idx];
@@ -200,15 +218,13 @@ impl CpuCache {
         self.ways[way_idx].valid_bits |= 1 << entry_idx;
         self.update_lru_bits(way_idx, entry_idx);
 
-        let longwords = bus.read_cache_line(address & 0x1FFFFFF0, ctx);
-        let mut ram_addr = cache_ram_addr(way_idx, entry_idx) >> 1;
-        for longword in longwords {
-            self.ram[ram_addr] = (longword >> 16) as u16;
-            self.ram[ram_addr + 1] = longword as u16;
-            ram_addr += 2;
-        }
+        let ram_addr = cache_ram_addr(way_idx, entry_idx) >> 1;
+        self.ram[ram_addr..ram_addr + 8].copy_from_slice(&cache_line);
 
-        longwords[((address >> 2) & 3) as usize]
+        let cache_line_addr = ((address >> 1) & 7 & !1) as usize;
+        let high: u32 = cache_line[cache_line_addr].into();
+        let low: u32 = cache_line[cache_line_addr + 1].into();
+        low | (high << 16)
     }
 
     #[inline(always)]

@@ -4,6 +4,7 @@
 
 pub mod debug;
 
+use crate::api::debug::Sega32XDebugger;
 use crate::audio::Sega32XResampler;
 use crate::core::Sega32X;
 use bincode::{Decode, Encode};
@@ -11,14 +12,15 @@ use genesis_config::{
     GenesisButton, GenesisRegion, S32XColorTint, S32XPwmResampling, S32XVideoOut, S32XVoidColor,
 };
 use genesis_core::input::InputState;
+use genesis_core::memory::debug::DebugMainBus;
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::timing::GenesisCycleCounters;
 use genesis_core::vdp::{DarkenColors, Vdp, VdpTickEffect};
 use genesis_core::ym2612::Ym2612;
 use genesis_core::{GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorConfigTrait, EmulatorTrait, Renderer, SaveWriter, TickEffect, TickResult,
-    TimingMode,
+    AudioOutput, EmulatorConfigTrait, EmulatorTrait, InputPoller, Renderer, SaveWriter, TickEffect,
+    TickResult, TimingMode,
 };
 use jgenesis_proc_macros::{ConfigDisplay, PartialClone};
 use m68000_emu::M68000;
@@ -55,6 +57,26 @@ pub struct Sega32XEmulatorConfig {
     pub pwm_resampling: S32XPwmResampling,
     pub pwm_enabled: bool,
     pub pwm_volume_adjustment_db: f64,
+}
+
+impl Default for Sega32XEmulatorConfig {
+    fn default() -> Self {
+        Self {
+            genesis: GenesisEmulatorConfig::default(),
+            sh2_clock_multiplier: NonZeroU64::new(crate::SH2_CLOCK_MULTIPLIER).unwrap(),
+            video_out: S32XVideoOut::default(),
+            darken_genesis_colors: true,
+            color_tint: S32XColorTint::default(),
+            show_high_priority: true,
+            show_low_priority: true,
+            void_color: S32XVoidColor::default(),
+            emulate_pixel_switch_delay: false,
+            apply_genesis_lpf_to_pwm: true,
+            pwm_resampling: S32XPwmResampling::default(),
+            pwm_enabled: true,
+            pwm_volume_adjustment_db: 0.0,
+        }
+    }
 }
 
 impl Sega32XEmulatorConfig {
@@ -155,65 +177,34 @@ impl Sega32XEmulator {
         emulator
     }
 
-    #[must_use]
-    pub fn cartridge_title(&self) -> String {
-        self.memory.medium().cartridge().program_title().into()
-    }
-
     #[inline]
-    #[must_use]
-    pub fn has_sram(&self) -> bool {
-        self.memory.medium().cartridge().is_ram_persistent()
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn timing_mode(&self) -> TimingMode {
-        self.timing_mode
-    }
-
-    fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
-        let frame_size = self.vdp.frame_size();
-        let aspect_ratio = self.config.genesis.aspect_ratio.to_pixel_aspect_ratio(
-            self.timing_mode,
-            frame_size,
-            self.config.genesis.to_gen_par_params(),
-        );
-        self.memory.medium_mut().vdp().render_frame(&self.vdp, aspect_ratio, renderer)
-    }
-}
-
-impl EmulatorTrait for Sega32XEmulator {
-    type Button = GenesisButton;
-    type Inputs = GenesisInputs;
-    type Config = Sega32XEmulatorConfig;
-    type Err<
-        RErr: Debug + Display + Send + Sync + 'static,
-        AErr: Debug + Display + Send + Sync + 'static,
-        SErr: Debug + Display + Send + Sync + 'static,
-    > = Sega32XError<RErr, AErr, SErr>;
-
-    fn tick<R, A, S>(
+    fn tick_inner<const DEBUG: bool, R, A, I, S>(
         &mut self,
         renderer: &mut R,
         audio_output: &mut A,
-        inputs: &Self::Inputs,
+        input_poller: &mut I,
         save_writer: &mut S,
-    ) -> TickResult<Self::Err<R::Err, A::Err, S::Err>>
+        mut debugger: Option<&mut Sega32XDebugger>,
+    ) -> TickResult<Sega32XError<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
         R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
         A::Err: Debug + Display + Send + Sync + 'static,
+        I: InputPoller<GenesisInputs>,
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
-        self.input.set_inputs(*inputs);
+        self.input.set_inputs(*input_poller.poll());
 
         let mut bus = new_main_bus!(self, m68k_reset: false);
         let m68k_wait = bus.cycles.m68k_wait_cpu_cycles != 0;
         let m68k_cycles = if m68k_wait {
             bus.cycles.take_m68k_wait_cpu_cycles()
+        } else if DEBUG && let Some(debugger) = &mut debugger {
+            let mut debug_bus =
+                DebugMainBus { bus: &mut bus, debugger: debugger.for_68k(&mut self.z80) };
+            self.m68k.execute_instruction(&mut debug_bus)
         } else {
             self.m68k.execute_instruction(&mut bus)
         };
@@ -223,18 +214,32 @@ impl EmulatorTrait for Sega32XEmulator {
 
         while bus.cycles.should_tick_z80() {
             if !bus.cycles.z80_halt {
-                self.z80.tick(&mut bus);
+                if DEBUG && let Some(debugger) = &mut debugger {
+                    let mut debug_bus =
+                        DebugMainBus { bus: &mut bus, debugger: debugger.for_z80(&mut self.m68k) };
+                    self.z80.tick(&mut debug_bus);
+                } else {
+                    self.z80.tick(&mut bus);
+                }
             }
             bus.cycles.decrement_z80();
         }
 
         self.main_bus_writes = bus.take_writes();
 
-        self.memory.medium_mut().tick(
-            mclk_cycles,
-            self.audio_resampler.pwm_resampler_mut(),
-            &self.vdp,
-        );
+        let pwm_resampler = self.audio_resampler.pwm_resampler_mut();
+        if DEBUG && let Some(debugger) = debugger {
+            let (sega_32x, working_ram, audio_ram) = self.memory.medium_mut_with_ram();
+            sega_32x.tick_debug(
+                mclk_cycles,
+                pwm_resampler,
+                &mut self.vdp,
+                debugger.for_sh2(&mut self.m68k, &mut self.z80, working_ram, audio_ram),
+            );
+        } else {
+            self.memory.medium_mut().tick(mclk_cycles, pwm_resampler, &mut self.vdp);
+        }
+
         self.input.tick(m68k_cycles);
 
         if self.cycles.has_ym2612_ticks() {
@@ -279,6 +284,69 @@ impl EmulatorTrait for Sega32XEmulator {
         self.main_bus_writes = new_main_bus!(self, m68k_reset: false).apply_writes();
 
         Ok(tick_effect)
+    }
+
+    #[must_use]
+    pub fn cartridge_title(&self) -> String {
+        self.memory.medium().cartridge().program_title().into()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn has_sram(&self) -> bool {
+        self.memory.medium().cartridge().is_ram_persistent()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn timing_mode(&self) -> TimingMode {
+        self.timing_mode
+    }
+
+    fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
+        let frame_size = self.vdp.frame_size();
+        let aspect_ratio = self.config.genesis.aspect_ratio.to_pixel_aspect_ratio(
+            self.timing_mode,
+            frame_size,
+            self.config.genesis.to_gen_par_params(),
+        );
+        self.memory.medium_mut().vdp().render_frame(&self.vdp, aspect_ratio, renderer)
+    }
+}
+
+impl EmulatorTrait for Sega32XEmulator {
+    type Button = GenesisButton;
+    type Inputs = GenesisInputs;
+    type Config = Sega32XEmulatorConfig;
+    type Err<
+        RErr: Debug + Display + Send + Sync + 'static,
+        AErr: Debug + Display + Send + Sync + 'static,
+        SErr: Debug + Display + Send + Sync + 'static,
+    > = Sega32XError<RErr, AErr, SErr>;
+
+    fn tick<R, A, I, S>(
+        &mut self,
+        renderer: &mut R,
+        audio_output: &mut A,
+        input_poller: &mut I,
+        save_writer: &mut S,
+    ) -> TickResult<Self::Err<R::Err, A::Err, S::Err>>
+    where
+        R: Renderer,
+        R::Err: Debug + Display + Send + Sync + 'static,
+        A: AudioOutput,
+        A::Err: Debug + Display + Send + Sync + 'static,
+        I: InputPoller<Self::Inputs>,
+        S: SaveWriter,
+        S::Err: Debug + Display + Send + Sync + 'static,
+    {
+        self.tick_inner::<false, _, _, _, _>(
+            renderer,
+            audio_output,
+            input_poller,
+            save_writer,
+            None,
+        )
     }
 
     fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>

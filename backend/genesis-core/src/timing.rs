@@ -200,4 +200,6 @@ impl<const REFRESH_INTERVAL: u32> CycleCounters<REFRESH_INTERVAL> {
     }
 }
 
-pub type GenesisCycleCounters = CycleCounters<128>;
+pub const GENESIS_REFRESH_INTERVAL: u32 = 128;
+
+pub type GenesisCycleCounters = CycleCounters<GENESIS_REFRESH_INTERVAL>;

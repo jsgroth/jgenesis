@@ -262,7 +262,7 @@ impl<Bus: BusInterface> Arm7Tdmi<Bus> {
         }
     }
 
-    fn refill_prefetch(&mut self, bus: &mut (impl BusInterface + ?Sized)) {
+    fn refill_prefetch(&mut self, bus: &mut Bus) {
         self.fetch_cycle = MemoryCycle::N;
 
         match self.registers.cpsr.state {
@@ -281,14 +281,14 @@ impl<Bus: BusInterface> Arm7Tdmi<Bus> {
         }
     }
 
-    fn fetch_opcode(&mut self, bus: &mut (impl BusInterface + ?Sized)) {
+    fn fetch_opcode(&mut self, bus: &mut Bus) {
         match self.registers.cpsr.state {
             CpuState::Arm => self.fetch_opcode_state::<true>(bus),
             CpuState::Thumb => self.fetch_opcode_state::<false>(bus),
         }
     }
 
-    fn fetch_opcode_state<const ARM: bool>(&mut self, bus: &mut (impl BusInterface + ?Sized)) {
+    fn fetch_opcode_state<const ARM: bool>(&mut self, bus: &mut Bus) {
         self.irq_disabled_latch = self.registers.cpsr.irq_disabled;
 
         let fetch_cycle = self.fetch_cycle;
@@ -437,7 +437,7 @@ impl<Bus: BusInterface> Arm7Tdmi<Bus> {
         self.registers.cpsr.mode = new_mode;
     }
 
-    fn handle_exception(&mut self, exception: Exception, bus: &mut (impl BusInterface + ?Sized)) {
+    fn handle_exception(&mut self, exception: Exception, bus: &mut Bus) {
         log::trace!("Handling exception of type {exception:?}");
 
         let mode = exception.new_mode();

@@ -8,6 +8,7 @@ use crate::vdp::Vdp;
 use jgenesis_common::num::GetBit;
 use smsgg_config::SmsGgRegion;
 use ym_opll::Ym2413;
+use z80_emu::debug::DummyZ80Debugger;
 use z80_emu::traits::{BusInterface, InterruptLine};
 
 pub struct Bus<'a> {
@@ -33,6 +34,11 @@ impl<'a> Bus<'a> {
 }
 
 impl BusInterface for Bus<'_> {
+    type DebugView<'a>
+        = DummyZ80Debugger
+    where
+        Self: 'a;
+
     fn read_memory(&mut self, address: u16) -> u8 {
         self.memory.read(address)
     }

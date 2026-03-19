@@ -1,6 +1,9 @@
 //! Genesis memory map and 68000 + Z80 bus interfaces
 
+pub mod debug;
+
 use crate::GenesisRegionExt;
+use crate::api::debug::{GenesisMemoryDebugView, PhysicalMediumDebugView};
 use crate::cartridge::Cartridge;
 use crate::input::InputState;
 use crate::timing::CycleCounters;
@@ -8,12 +11,13 @@ use crate::vdp::Vdp;
 use crate::ym2612::Ym2612;
 use bincode::{Decode, Encode};
 use genesis_config::GenesisRegion;
-use jgenesis_common::debug::{DebugBytesView, DebugMemoryView, DebugWordsView, Endian};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::PartialClone;
+use m68000_emu::debug::DummyM68000Debugger;
 use smsgg_core::psg::Sn76489;
 use std::mem;
+use z80_emu::debug::DummyZ80Debugger;
 use z80_emu::traits::InterruptLine;
 
 pub trait PhysicalMedium {
@@ -30,6 +34,10 @@ pub trait PhysicalMedium {
     fn write_word(&mut self, address: u32, value: u16);
 
     fn region(&self) -> GenesisRegion;
+
+    fn clone_cartridge(&self) -> Option<Cartridge> {
+        None
+    }
 }
 
 const MAIN_RAM_LEN_WORDS: usize = 64 * 1024 / 2;
@@ -71,7 +79,7 @@ impl Signals {
     }
 }
 
-#[derive(Debug, Encode, Decode, PartialClone)]
+#[derive(Debug, Clone, Encode, Decode, PartialClone)]
 pub struct Memory<Medium> {
     #[partial_clone(partial)]
     physical_medium: Medium,
@@ -129,18 +137,41 @@ impl<Medium: PhysicalMedium> Memory<Medium> {
     }
 
     #[inline]
+    #[must_use]
+    pub fn medium_mut_with_ram(&mut self) -> (&mut Medium, &mut [u16], &mut [u8]) {
+        (&mut self.physical_medium, self.main_ram.as_mut_slice(), self.audio_ram.as_mut_slice())
+    }
+
+    #[inline]
     pub fn reset_z80_signals(&mut self) {
         self.signals = Signals::default();
     }
 
-    #[must_use]
-    pub fn debug_working_ram_view(&mut self) -> impl DebugMemoryView {
-        DebugWordsView(self.main_ram.as_mut_slice(), Endian::Big)
+    pub fn clone_cartridge(&self) -> Option<Cartridge> {
+        self.medium().clone_cartridge()
     }
 
-    #[must_use]
-    pub fn debug_audio_ram_view(&mut self) -> impl DebugMemoryView {
-        DebugBytesView(self.audio_ram.as_mut_slice())
+    pub fn clone_working_ram(&self) -> Box<[u16]> {
+        self.main_ram.clone()
+    }
+
+    pub fn clone_audio_ram(&self) -> Box<[u8]> {
+        self.audio_ram.clone()
+    }
+
+    pub fn as_debug_view<'a, MediumView>(
+        &'a mut self,
+        view_fn: impl FnOnce(&'a mut Medium) -> MediumView,
+    ) -> GenesisMemoryDebugView<'a, MediumView>
+    where
+        Medium: 'a,
+        MediumView: PhysicalMediumDebugView,
+    {
+        GenesisMemoryDebugView {
+            medium_view: view_fn(&mut self.physical_medium),
+            working_ram: self.main_ram.as_mut_slice(),
+            audio_ram: self.audio_ram.as_mut_slice(),
+        }
     }
 }
 
@@ -465,6 +496,11 @@ const ADDRESS_MASK: u32 = 0xFFFFFF;
 impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterface
     for MainBus<'_, Medium, REFRESH_INTERVAL>
 {
+    type DebugView<'a>
+        = DummyM68000Debugger
+    where
+        Self: 'a;
+
     #[inline]
     fn read_byte(&mut self, address: u32) -> u8 {
         let address = address & ADDRESS_MASK;
@@ -578,6 +614,11 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterfa
 impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> z80_emu::BusInterface
     for MainBus<'_, Medium, REFRESH_INTERVAL>
 {
+    type DebugView<'a>
+        = DummyZ80Debugger
+    where
+        Self: 'a;
+
     #[inline]
     // TODO remove
     #[allow(clippy::match_same_arms)]

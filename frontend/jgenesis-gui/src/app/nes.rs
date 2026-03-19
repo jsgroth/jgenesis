@@ -498,6 +498,10 @@ const PALETTE_TEXTURE_SIZE_64: [usize; 2] = [16, 4];
 const PALETTE_TEXTURE_SIZE_64_1D: usize = PALETTE_TEXTURE_SIZE_64[0] * PALETTE_TEXTURE_SIZE_64[1];
 const PALETTE_TEXTURE_SIZE_512: [usize; 2] = [16, 32];
 
+fn tex_size_to_vec2(tex_size: [usize; 2]) -> Vec2 {
+    Vec2::new(tex_size[0] as f32, tex_size[1] as f32)
+}
+
 const PALETTE_TEXTURE_OPTIONS: TextureOptions = TextureOptions {
     magnification: TextureFilter::Nearest,
     minification: TextureFilter::Nearest,
@@ -518,6 +522,7 @@ pub fn create_palette_textures(ctx: &Context, palette: &NesPalette) -> NesPalett
         "nes_palette_texture_64c".into(),
         ImageData::Color(Arc::new(ColorImage {
             size: PALETTE_TEXTURE_SIZE_64,
+            source_size: tex_size_to_vec2(PALETTE_TEXTURE_SIZE_64),
             pixels: pixels_64_color,
         })),
         PALETTE_TEXTURE_OPTIONS,
@@ -525,7 +530,11 @@ pub fn create_palette_textures(ctx: &Context, palette: &NesPalette) -> NesPalett
 
     let texture_512_color = ctx.tex_manager().write().alloc(
         "nes_palette_texture_512c".into(),
-        ImageData::Color(Arc::new(ColorImage { size: PALETTE_TEXTURE_SIZE_512, pixels })),
+        ImageData::Color(Arc::new(ColorImage {
+            size: PALETTE_TEXTURE_SIZE_512,
+            source_size: tex_size_to_vec2(PALETTE_TEXTURE_SIZE_512),
+            pixels,
+        })),
         PALETTE_TEXTURE_OPTIONS,
     );
 
@@ -541,6 +550,7 @@ pub fn update_palette_textures(ctx: &Context, state: &NesPaletteState, palette: 
         ImageDelta {
             image: ImageData::Color(Arc::new(ColorImage {
                 size: PALETTE_TEXTURE_SIZE_64,
+                source_size: tex_size_to_vec2(PALETTE_TEXTURE_SIZE_64),
                 pixels: pixels_64_color,
             })),
             options: PALETTE_TEXTURE_OPTIONS,
@@ -553,6 +563,7 @@ pub fn update_palette_textures(ctx: &Context, state: &NesPaletteState, palette: 
         ImageDelta {
             image: ImageData::Color(Arc::new(ColorImage {
                 size: PALETTE_TEXTURE_SIZE_512,
+                source_size: tex_size_to_vec2(PALETTE_TEXTURE_SIZE_512),
                 pixels,
             })),
             options: PALETTE_TEXTURE_OPTIONS,

@@ -6,7 +6,9 @@ mod jump;
 mod load;
 mod mnemonics;
 
-use crate::core::{IndexRegister, InterruptMode, Register8, Register16, Registers};
+use crate::Z80;
+use crate::core::{IndexRegister, InterruptMode, Register8, Register16};
+use crate::debug::BusDebugExt;
 use crate::traits::{BusInterface, InterruptLine};
 use jgenesis_common::num::GetBit;
 
@@ -84,19 +86,19 @@ struct ParseResult {
     index_fetch_t_cycles: u32,
 }
 
-struct InstructionExecutor<'registers, 'bus, B> {
-    registers: &'registers mut Registers,
+struct InstructionExecutor<'cpu, 'bus, B> {
+    cpu: &'cpu mut Z80,
     bus: &'bus mut B,
 }
 
-impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
-    fn new(registers: &'registers mut Registers, bus: &'bus mut B) -> Self {
-        Self { registers, bus }
+impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
+    fn new(cpu: &'cpu mut Z80, bus: &'bus mut B) -> Self {
+        Self { cpu, bus }
     }
 
     fn fetch_operand(&mut self) -> u8 {
-        let operand = self.bus.read_memory(self.registers.pc);
-        self.registers.pc = self.registers.pc.wrapping_add(1);
+        let operand = self.bus.read_memory(self.cpu.registers.pc);
+        self.cpu.registers.pc = self.cpu.registers.pc.wrapping_add(1);
         operand
     }
 
@@ -135,52 +137,52 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     fn fetch_indirect_hl_address(&mut self, index: Option<IndexRegister>) -> u16 {
         match index {
             Some(index) => {
-                let index = index.read_from(self.registers);
+                let index = index.read_from(&self.cpu.registers);
                 let offset = self.fetch_operand() as i8;
                 (i32::from(index) + i32::from(offset)) as u16
             }
-            None => Register16::HL.read_from(self.registers),
+            None => Register16::HL.read_from(&self.cpu.registers),
         }
     }
 
     fn read_memory_u16(&mut self, address: u16) -> u16 {
-        let lsb = self.bus.read_memory(address);
-        let msb = self.bus.read_memory(address.wrapping_add(1));
+        let lsb = self.bus.read_memory_debug(address, self.cpu);
+        let msb = self.bus.read_memory_debug(address.wrapping_add(1), self.cpu);
         u16::from_le_bytes([lsb, msb])
     }
 
     fn write_memory_u16(&mut self, address: u16, value: u16) {
         let [lsb, msb] = value.to_le_bytes();
-        self.bus.write_memory(address, lsb);
-        self.bus.write_memory(address.wrapping_add(1), msb);
+        self.bus.write_memory_debug(address, lsb, self.cpu);
+        self.bus.write_memory_debug(address.wrapping_add(1), msb, self.cpu);
     }
 
     fn push_stack(&mut self, value: u16) {
         let [lsb, msb] = value.to_le_bytes();
 
-        self.registers.sp = self.registers.sp.wrapping_sub(1);
-        self.bus.write_memory(self.registers.sp, msb);
-        self.registers.sp = self.registers.sp.wrapping_sub(1);
-        self.bus.write_memory(self.registers.sp, lsb);
+        self.cpu.registers.sp = self.cpu.registers.sp.wrapping_sub(1);
+        self.bus.write_memory_debug(self.cpu.registers.sp, msb, self.cpu);
+        self.cpu.registers.sp = self.cpu.registers.sp.wrapping_sub(1);
+        self.bus.write_memory_debug(self.cpu.registers.sp, lsb, self.cpu);
     }
 
     fn pop_stack(&mut self) -> u16 {
-        let lsb = self.bus.read_memory(self.registers.sp);
-        self.registers.sp = self.registers.sp.wrapping_add(1);
-        let msb = self.bus.read_memory(self.registers.sp);
-        self.registers.sp = self.registers.sp.wrapping_add(1);
+        let lsb = self.bus.read_memory_debug(self.cpu.registers.sp, self.cpu);
+        self.cpu.registers.sp = self.cpu.registers.sp.wrapping_add(1);
+        let msb = self.bus.read_memory_debug(self.cpu.registers.sp, self.cpu);
+        self.cpu.registers.sp = self.cpu.registers.sp.wrapping_add(1);
 
         u16::from_le_bytes([lsb, msb])
     }
 
     fn check_pending_interrupt(&self) -> Option<InterruptType> {
-        if self.registers.interrupt_delay {
+        if self.cpu.registers.interrupt_delay {
             None
         } else if self.bus.nmi() == InterruptLine::Low
-            && self.registers.last_nmi == InterruptLine::High
+            && self.cpu.registers.last_nmi == InterruptLine::High
         {
             Some(InterruptType::Nmi)
-        } else if self.registers.iff1 && self.bus.int() == InterruptLine::Low {
+        } else if self.cpu.registers.iff1 && self.bus.int() == InterruptLine::Low {
             Some(InterruptType::Int)
         } else {
             None
@@ -190,22 +192,22 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     fn interrupt_service_routine(&mut self, interrupt_type: InterruptType) -> u32 {
         log::trace!("Executing interrupt service routine for interrupt type {interrupt_type:?}");
 
-        self.registers.halted = false;
+        self.cpu.registers.halted = false;
 
         match interrupt_type {
             InterruptType::Nmi => {
-                self.push_stack(self.registers.pc);
-                self.registers.pc = 0x0066;
-                self.registers.iff1 = false;
+                self.push_stack(self.cpu.registers.pc);
+                self.cpu.registers.pc = 0x0066;
+                self.cpu.registers.iff1 = false;
 
                 11
             }
             InterruptType::Int => {
-                self.registers.iff1 = false;
-                self.registers.iff2 = false;
+                self.cpu.registers.iff1 = false;
+                self.cpu.registers.iff2 = false;
 
                 #[allow(unreachable_code)]
-                match self.registers.interrupt_mode {
+                match self.cpu.registers.interrupt_mode {
                     // Modes 0 and 1 don't actually work the same way in actual hardware, but for
                     // the purposes of emulating these consoles they do.
                     // Mode 1 (used exclusively by the overwhelming majority of games) is defined to
@@ -214,16 +216,16 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                     // will always read $FF (RST $38) if it handles an interrupt while in mode 0.
                     // Some games depend on this mode 0 behavior, e.g. Blaster Master 2
                     InterruptMode::Mode0 | InterruptMode::Mode1 => {
-                        self.push_stack(self.registers.pc);
-                        self.registers.pc = 0x0038;
+                        self.push_stack(self.cpu.registers.pc);
+                        self.cpu.registers.pc = 0x0038;
 
                         13
                     }
                     InterruptMode::Mode2 => {
                         log::error!("Interrupt mode 2 is not implemented; treating as mode 1");
 
-                        self.push_stack(self.registers.pc);
-                        self.registers.pc = 0x0038;
+                        self.push_stack(self.cpu.registers.pc);
+                        self.cpu.registers.pc = 0x0038;
 
                         19
                     }
@@ -332,42 +334,45 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     }
 
     fn execute(mut self) -> u32 {
-        self.registers.r = (self.registers.r.wrapping_add(1) & 0x7F) | (self.registers.r & 0x80);
+        self.cpu.registers.r =
+            (self.cpu.registers.r.wrapping_add(1) & 0x7F) | (self.cpu.registers.r & 0x80);
 
         let interrupt_type = self.check_pending_interrupt();
 
-        self.registers.interrupt_delay = false;
-        self.registers.last_nmi = self.bus.nmi();
+        self.cpu.registers.interrupt_delay = false;
+        self.cpu.registers.last_nmi = self.bus.nmi();
 
         if let Some(interrupt_type) = interrupt_type {
             return self.interrupt_service_routine(interrupt_type);
         }
 
-        if self.registers.halted {
+        if self.cpu.registers.halted {
             return control::nop();
         }
+
+        self.bus.check_execute(self.cpu.registers.pc, self.cpu);
 
         let ParseResult { opcode, index_prefix: index, index_fetch_t_cycles } = self.parse_opcode();
 
         log::trace!(
             "PC={:04X}, opcode={opcode:02X} ({}), index={index:?}, a={:02X}, next={:02X} {:02X}, sp={:04X}, a={:02X}, f={:02X}, b={:02X}, c={:02X}, d={:02X}, e={:02X}, h={:02X}, l={:02X}, ix={:04X}, iy={:04X}, iff1={}",
-            self.registers.pc.wrapping_sub(1),
-            mnemonics::for_opcode(opcode, self.bus.read_memory(self.registers.pc)),
-            self.registers.a,
-            self.bus.read_memory(self.registers.pc),
-            self.bus.read_memory(self.registers.pc.wrapping_add(1)),
-            self.registers.sp,
-            self.registers.a,
-            u8::from(self.registers.f),
-            self.registers.b,
-            self.registers.c,
-            self.registers.d,
-            self.registers.e,
-            self.registers.h,
-            self.registers.l,
-            self.registers.ix,
-            self.registers.iy,
-            self.registers.iff1
+            self.cpu.registers.pc.wrapping_sub(1),
+            mnemonics::for_opcode(opcode, self.bus.read_memory(self.cpu.registers.pc)),
+            self.cpu.registers.a,
+            self.bus.read_memory(self.cpu.registers.pc),
+            self.bus.read_memory(self.cpu.registers.pc.wrapping_add(1)),
+            self.cpu.registers.sp,
+            self.cpu.registers.a,
+            u8::from(self.cpu.registers.f),
+            self.cpu.registers.b,
+            self.cpu.registers.c,
+            self.cpu.registers.d,
+            self.cpu.registers.e,
+            self.cpu.registers.h,
+            self.cpu.registers.l,
+            self.cpu.registers.ix,
+            self.cpu.registers.iy,
+            self.cpu.registers.iff1
         );
 
         let instruction_t_cycles = match opcode {
@@ -464,6 +469,6 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     }
 }
 
-pub fn execute<B: BusInterface>(registers: &mut Registers, bus: &mut B) -> u32 {
-    InstructionExecutor::new(registers, bus).execute()
+pub fn execute<B: BusInterface>(cpu: &mut Z80, bus: &mut B) -> u32 {
+    InstructionExecutor::new(cpu, bus).execute()
 }

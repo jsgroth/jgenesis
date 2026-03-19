@@ -1,8 +1,8 @@
 use crate::config::GameBoyConfig;
 use crate::config::RomReadResult;
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
-use crate::mainloop::{NativeEmulatorArgs, debug, file_name_no_ext, save};
-use crate::{AudioError, NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
+use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, debug, file_name_no_ext, save};
+use crate::{NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
 use gb_core::api::{BootRoms, GameBoyEmulator};
 use jgenesis_native_config::common::WindowSize;
 use std::fs;
@@ -14,12 +14,12 @@ impl NativeGameBoyEmulator {
     /// # Errors
     ///
     /// This method will return an error if it is unable to reload audio config.
-    pub fn reload_gb_config(&mut self, config: Box<GameBoyConfig>) -> Result<(), AudioError> {
+    pub fn reload_gb_config(&mut self, config: Box<GameBoyConfig>) -> NativeEmulatorResult<()> {
         log::info!("Reloading config: {config}");
 
         self.reload_common_config(&config.common)?;
 
-        self.update_emulator_config(&config.emulator_config);
+        self.update_and_reload_config(&config.emulator_config)?;
 
         self.input_mapper.update_mappings(
             config.common.axis_deadzone,
@@ -62,30 +62,33 @@ pub fn create_gb(config: Box<GameBoyConfig>) -> NativeEmulatorResult<NativeGameB
         &extension,
     )?;
 
-    let mut save_writer = FsSaveWriter::new(save_path);
-
     let emulator_config = config.emulator_config;
-    let emulator = GameBoyEmulator::create(rom, boot_roms, emulator_config, &mut save_writer)?;
+    let initial_window_size = config.common.initial_window_size;
+    let rom_file_path = config.common.rom_file_path.clone();
 
-    let rom_title = file_name_no_ext(&config.common.rom_file_path)?;
-    let window_title = format!("gb - {rom_title}");
+    let create_emulator_fn = move |save_writer: &mut FsSaveWriter| {
+        let emulator = GameBoyEmulator::create(rom, boot_roms, emulator_config, save_writer)?;
 
-    let default_window_size = WindowSize::new_gb(config.common.initial_window_size);
+        let rom_title = file_name_no_ext(rom_file_path)?;
+        let window_title = format!("gb - {rom_title}");
+
+        let default_window_size = WindowSize::new_gb(initial_window_size);
+
+        Ok(CreatedEmulator { emulator, window_title, default_window_size })
+    };
 
     NativeGameBoyEmulator::new(
         NativeEmulatorArgs::new(
-            emulator,
+            Box::new(create_emulator_fn),
             emulator_config,
             config.common,
             extension,
-            default_window_size,
-            &window_title,
-            save_writer,
+            save_path,
             save_state_path,
             config.inputs.to_mapping_vec(),
         )
         .with_turbo_mappings(config.inputs.to_turbo_mapping_vec())
-        .with_debug_render_fn(debug::gb::render_fn),
+        .with_debug_fn(|| debug::partial_clone_debug_fn(debug::gb::render_fn())),
     )
 }
 

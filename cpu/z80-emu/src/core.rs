@@ -5,15 +5,15 @@ mod instructions;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
-struct Flags {
-    sign: bool,
-    zero: bool,
-    y: bool,
-    half_carry: bool,
-    x: bool,
-    overflow: bool,
-    subtract: bool,
-    carry: bool,
+pub struct Flags {
+    pub sign: bool,
+    pub zero: bool,
+    pub y: bool,
+    pub half_carry: bool,
+    pub x: bool,
+    pub overflow: bool,
+    pub subtract: bool,
+    pub carry: bool,
 }
 
 impl From<Flags> for u8 {
@@ -55,37 +55,38 @@ pub enum InterruptMode {
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
 pub struct Registers {
-    a: u8,
-    f: Flags,
-    b: u8,
-    c: u8,
-    d: u8,
-    e: u8,
-    h: u8,
-    l: u8,
-    ap: u8,
-    fp: Flags,
-    bp: u8,
-    cp: u8,
-    dp: u8,
-    ep: u8,
-    hp: u8,
-    lp: u8,
-    i: u8,
-    r: u8,
-    ix: u16,
-    iy: u16,
-    sp: u16,
-    pc: u16,
-    iff1: bool,
-    iff2: bool,
-    interrupt_mode: InterruptMode,
-    interrupt_delay: bool,
-    last_nmi: InterruptLine,
-    halted: bool,
+    pub a: u8,
+    pub f: Flags,
+    pub b: u8,
+    pub c: u8,
+    pub d: u8,
+    pub e: u8,
+    pub h: u8,
+    pub l: u8,
+    pub ap: u8,
+    pub fp: Flags,
+    pub bp: u8,
+    pub cp: u8,
+    pub dp: u8,
+    pub ep: u8,
+    pub hp: u8,
+    pub lp: u8,
+    pub i: u8,
+    pub r: u8,
+    pub ix: u16,
+    pub iy: u16,
+    pub sp: u16,
+    pub pc: u16,
+    pub iff1: bool,
+    pub iff2: bool,
+    pub interrupt_mode: InterruptMode,
+    pub interrupt_delay: bool,
+    pub last_nmi: InterruptLine,
+    pub halted: bool,
 }
 
 impl Registers {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             a: 0xFF,
@@ -117,6 +118,12 @@ impl Registers {
             last_nmi: InterruptLine::High,
             halted: false,
         }
+    }
+}
+
+impl Default for Registers {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -323,6 +330,11 @@ impl Z80 {
         self.registers.pc = pc;
     }
 
+    #[must_use]
+    pub fn registers(&self) -> &Registers {
+        &self.registers
+    }
+
     pub fn set_sp(&mut self, sp: u16) {
         self.registers.sp = sp;
     }
@@ -363,7 +375,7 @@ impl Z80 {
 
         self.stalled = false;
 
-        instructions::execute(&mut self.registers, bus)
+        instructions::execute(self, bus)
     }
 
     /// Tick the Z80 for a single T-cycle.

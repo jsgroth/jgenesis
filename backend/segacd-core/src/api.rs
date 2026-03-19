@@ -18,8 +18,8 @@ use genesis_core::vdp::{DarkenColors, Vdp, VdpTickEffect};
 use genesis_core::ym2612::Ym2612;
 use genesis_core::{GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorConfigTrait, EmulatorTrait, PartialClone, Renderer, SaveWriter,
-    TickEffect, TimingMode,
+    AudioOutput, EmulatorConfigTrait, EmulatorTrait, InputPoller, PartialClone, Renderer,
+    SaveWriter, TickEffect, TimingMode,
 };
 use jgenesis_proc_macros::ConfigDisplay;
 use m68000_emu::M68000;
@@ -336,11 +336,11 @@ impl EmulatorTrait for SegaCdEmulator {
         SErr: Debug + Display + Send + Sync + 'static,
     > = SegaCdError<RErr, AErr, SErr>;
 
-    fn tick<R, A, S>(
+    fn tick<R, A, I, S>(
         &mut self,
         renderer: &mut R,
         audio_output: &mut A,
-        inputs: &Self::Inputs,
+        input_poller: &mut I,
         save_writer: &mut S,
     ) -> Result<TickEffect, Self::Err<R::Err, A::Err, S::Err>>
     where
@@ -348,9 +348,12 @@ impl EmulatorTrait for SegaCdEmulator {
         R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
         A::Err: Debug + Display + Send + Sync + 'static,
+        I: InputPoller<Self::Inputs>,
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
+        self.input.set_inputs(*input_poller.poll());
+
         let mut main_bus = new_main_bus!(self, m68k_reset: false);
 
         // Main 68000
@@ -464,8 +467,6 @@ impl EmulatorTrait for SegaCdEmulator {
         let mut tick_effect = TickEffect::None;
         if self.vdp.tick(genesis_mclk_elapsed, &mut self.memory) == VdpTickEffect::FrameComplete {
             self.render_frame(renderer).map_err(SegaCdError::Render)?;
-
-            self.input.set_inputs(*inputs);
 
             if self.memory.medium_mut().get_and_clear_backup_ram_dirty_bit() {
                 let sega_cd = self.memory.medium();

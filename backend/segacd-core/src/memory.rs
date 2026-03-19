@@ -4,6 +4,7 @@ mod backupram;
 mod font;
 pub(crate) mod wordram;
 
+use crate::api::debug::SegaCdMediumView;
 use crate::api::{SegaCdEmulatorConfig, SegaCdLoadResult};
 use crate::cddrive::cdc::{DeviceDestination, Rchip};
 use crate::cddrive::cdd::{CdDrive, CdModel};
@@ -18,10 +19,10 @@ use genesis_config::GenesisRegion;
 use genesis_core::GenesisRegionExt;
 use genesis_core::memory::{Memory, PhysicalMedium};
 use jgenesis_common::boxedarray::BoxedByteArray;
-use jgenesis_common::debug::{DebugBytesView, DebugMemoryView};
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use m68000_emu::BusInterface;
+use m68000_emu::debug::DummyM68000Debugger;
 use std::ops::Deref;
 use std::path::Path;
 use std::{array, mem};
@@ -614,20 +615,26 @@ impl SegaCd {
         self.cdd_mut().change_disc(rom_path, format, load_disc_into_ram)
     }
 
-    pub fn debug_bios_rom_view(&mut self) -> impl DebugMemoryView {
-        DebugBytesView(self.bios.0.as_mut_slice())
+    pub fn clone_prg_ram(&self) -> Box<[u8]> {
+        self.prg_ram.to_vec().into_boxed_slice()
     }
 
-    pub fn debug_prg_ram_view(&mut self) -> impl DebugMemoryView {
-        DebugBytesView(self.prg_ram.as_mut_slice())
+    pub fn clone_cdc(&self) -> Rchip {
+        self.cdc().clone()
     }
 
-    pub fn debug_word_ram_view(&mut self) -> impl DebugMemoryView {
-        self.word_ram.debug_view()
+    pub fn prg_ram_bank(&self) -> u8 {
+        self.registers.prg_ram_bank
     }
 
-    pub fn debug_cdc_ram_view(&mut self) -> impl DebugMemoryView {
-        self.cdc_mut().debug_ram_view()
+    pub fn as_debug_view(&mut self) -> SegaCdMediumView<'_> {
+        SegaCdMediumView {
+            bios_rom: self.bios.0.as_mut_slice(),
+            prg_ram: self.prg_ram.as_mut_slice(),
+            word_ram: &mut self.word_ram,
+            cdc: self.disc_drive.cdc_mut(),
+            prg_ram_bank: self.registers.prg_ram_bank,
+        }
     }
 }
 
@@ -1337,6 +1344,11 @@ impl<'a> SubBus<'a> {
 const SUB_BUS_ADDRESS_MASK: u32 = 0x0FFFFF;
 
 impl BusInterface for SubBus<'_> {
+    type DebugView<'a>
+        = DummyM68000Debugger
+    where
+        Self: 'a;
+
     #[inline]
     fn read_byte(&mut self, address: u32) -> u8 {
         let address = address & SUB_BUS_ADDRESS_MASK;

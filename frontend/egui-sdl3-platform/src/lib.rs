@@ -2,7 +2,7 @@
 //! <https://github.com/hasenbanck/egui_winit_platform>
 
 use egui::ahash::HashMapExt;
-use egui::{MouseWheelUnit, ViewportIdMap, ViewportInfo};
+use egui::{MouseWheelUnit, OutputCommand, PlatformOutput, ViewportIdMap, ViewportInfo};
 use sdl3::event::Event as SdlEvent;
 use sdl3::event::WindowEvent as SdlWindowEvent;
 use sdl3::mouse::MouseWheelDirection;
@@ -12,6 +12,7 @@ pub struct Platform {
     scale_factor: f32,
     context: egui::Context,
     raw_input: egui::RawInput,
+    copied_text: String,
 }
 
 impl Platform {
@@ -36,7 +37,13 @@ impl Platform {
             ..egui::RawInput::default()
         };
 
-        Self { window_id: window.id(), scale_factor, context, raw_input }
+        Self {
+            window_id: window.id(),
+            scale_factor,
+            context,
+            raw_input,
+            copied_text: String::new(),
+        }
     }
 
     pub fn handle_event(&mut self, event: &SdlEvent) {
@@ -111,6 +118,23 @@ impl Platform {
                     repeat,
                     modifiers,
                 });
+
+                if modifiers.ctrl {
+                    match keycode {
+                        sdl3::keyboard::Keycode::C => {
+                            self.raw_input.events.push(egui::Event::Copy);
+                        }
+                        sdl3::keyboard::Keycode::X => {
+                            self.raw_input.events.push(egui::Event::Cut);
+                        }
+                        sdl3::keyboard::Keycode::V => {
+                            self.raw_input
+                                .events
+                                .push(egui::Event::Paste(self.copied_text.clone()));
+                        }
+                        _ => {}
+                    }
+                }
             }
             &SdlEvent::KeyUp { window_id, keycode: Some(keycode), keymod, repeat, .. }
                 if window_id == self.window_id =>
@@ -146,6 +170,18 @@ impl Platform {
     #[must_use]
     pub fn context(&self) -> &egui::Context {
         &self.context
+    }
+
+    pub fn handle_egui_output(&mut self, platform_output: &PlatformOutput) {
+        for command in &platform_output.commands {
+            match command {
+                OutputCommand::CopyText(text) => {
+                    // TODO this should probably integrate with the system clipboard
+                    self.copied_text.clone_from(text);
+                }
+                OutputCommand::CopyImage(_) | OutputCommand::OpenUrl(_) => {}
+            }
+        }
     }
 }
 

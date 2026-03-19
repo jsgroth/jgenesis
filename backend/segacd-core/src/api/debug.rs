@@ -1,10 +1,15 @@
 use crate::api::SegaCdEmulator;
+use crate::cddrive::cdc::Rchip;
+use crate::memory::SegaCd;
+use crate::memory::wordram::WordRam;
+use crate::rf5c164::Rf5c164;
 use genesis_core::api::debug::{
-    CopySpriteAttributesResult, GenesisMemoryArea, SpriteAttributeEntry,
+    BaseGenesisDebugView, GenesisDebugState, GenesisMemoryArea, PhysicalMediumDebugView,
 };
-use genesis_core::vdp::ColorModifier;
-use jgenesis_common::debug::{DebugMemoryView, EmptyDebugView};
-use jgenesis_common::frontend::Color;
+use jgenesis_common::debug::{DebugBytesView, DebugMemoryView};
+use m68000_emu::M68000;
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SegaCdMemoryArea {
@@ -15,62 +20,195 @@ pub enum SegaCdMemoryArea {
     CdcRam,
 }
 
-pub struct SegaCdDebugView<'emu>(&'emu mut SegaCdEmulator);
+#[derive(Debug, Clone, Copy)]
+pub enum SegaCdDebugCommand {
+    EditGenesisMemory(GenesisMemoryArea, usize, u8),
+    EditSegaCdMemory(SegaCdMemoryArea, usize, u8),
+}
 
-impl SegaCdEmulator {
+#[derive(Debug, Clone)]
+pub struct SegaCdDebugState {
+    pub genesis: GenesisDebugState,
+    sub_cpu: M68000,
+    bios_rom: Box<[u8]>,
+    prg_ram: Box<[u8]>,
+    word_ram: WordRam,
+    pcm: Rf5c164,
+    cdc: Rchip,
+    prg_ram_bank: u8,
+}
+
+impl SegaCdDebugState {
+    pub fn genesis(&mut self) -> &mut GenesisDebugState {
+        &mut self.genesis
+    }
+
     #[must_use]
-    pub fn debug(&mut self) -> SegaCdDebugView<'_> {
-        SegaCdDebugView(self)
+    pub fn sub_cpu(&self) -> &M68000 {
+        &self.sub_cpu
+    }
+
+    #[must_use]
+    pub fn bios_rom(&self) -> &[u8] {
+        &self.bios_rom
+    }
+
+    #[must_use]
+    pub fn prg_ram(&self) -> &[u8] {
+        &self.prg_ram
+    }
+
+    #[must_use]
+    pub fn main_cpu_prg_ram_bank(&self) -> u8 {
+        self.prg_ram_bank
+    }
+
+    #[must_use]
+    pub fn word_ram(&self) -> &WordRam {
+        &self.word_ram
+    }
+
+    #[must_use]
+    pub fn scd_memory_view(
+        &mut self,
+        memory_area: SegaCdMemoryArea,
+    ) -> Box<dyn DebugMemoryView + '_> {
+        match memory_area {
+            SegaCdMemoryArea::BiosRom => Box::new(DebugBytesView(&mut self.bios_rom)),
+            SegaCdMemoryArea::PrgRam => Box::new(DebugBytesView(&mut self.prg_ram)),
+            SegaCdMemoryArea::WordRam => Box::new(self.word_ram.debug_view()),
+            SegaCdMemoryArea::PcmRam => Box::new(self.pcm.debug_ram_view()),
+            SegaCdMemoryArea::CdcRam => Box::new(self.cdc.debug_ram_view()),
+        }
     }
 }
 
-impl<'emu> SegaCdDebugView<'emu> {
-    pub fn copy_cram(&self, out: &mut [Color], modifier: ColorModifier) {
-        self.0.vdp.copy_cram(out, modifier);
-    }
+pub struct SegaCdMediumView<'a> {
+    pub(crate) bios_rom: &'a mut [u8],
+    pub(crate) prg_ram: &'a mut [u8],
+    pub(crate) word_ram: &'a mut WordRam,
+    pub(crate) cdc: &'a mut Rchip,
+    pub(crate) prg_ram_bank: u8,
+}
 
-    pub fn copy_vram(&self, out: &mut [Color], palette: u8, row_len: usize) {
-        self.0.vdp.copy_vram(out, palette, row_len);
-    }
+impl PhysicalMediumDebugView for SegaCdMediumView<'_> {}
 
-    pub fn dump_vdp_registers(&self, callback: impl FnMut(&str, &[(&str, &str)])) {
-        self.0.vdp.dump_registers(callback);
-    }
+pub struct SegaCdEmulatorDebugView<'a> {
+    genesis: BaseGenesisDebugView<'a, SegaCdMediumView<'a>>,
+    sub_cpu: &'a mut M68000,
+    pcm: &'a mut Rf5c164,
+}
 
-    pub fn copy_h_scroll(&self, out: &mut [(u16, u16)]) {
-        self.0.vdp.copy_h_scroll(out);
-    }
-
-    pub fn copy_sprite_attributes(
-        &self,
-        out: &mut [SpriteAttributeEntry],
-    ) -> CopySpriteAttributesResult {
-        self.0.vdp.copy_sprite_attributes(out)
-    }
-
-    #[must_use]
-    pub fn genesis_memory_view(
-        self,
+impl SegaCdEmulatorDebugView<'_> {
+    pub fn apply_genesis_memory_edit(
+        &mut self,
         memory_area: GenesisMemoryArea,
-    ) -> Box<dyn DebugMemoryView + 'emu> {
+        address: usize,
+        value: u8,
+    ) {
+        self.genesis.apply_memory_edit(memory_area, address, value);
+    }
+
+    pub fn apply_scd_memory_edit(
+        &mut self,
+        memory_area: SegaCdMemoryArea,
+        address: usize,
+        value: u8,
+    ) {
         match memory_area {
-            GenesisMemoryArea::CartridgeRom => Box::new(EmptyDebugView),
-            GenesisMemoryArea::WorkingRam => Box::new(self.0.memory.debug_working_ram_view()),
-            GenesisMemoryArea::AudioRam => Box::new(self.0.memory.debug_audio_ram_view()),
-            GenesisMemoryArea::Vram => Box::new(self.0.vdp.debug_vram_view()),
-            GenesisMemoryArea::Cram => Box::new(self.0.vdp.debug_cram_view()),
-            GenesisMemoryArea::Vsram => Box::new(self.0.vdp.debug_vsram_view()),
+            SegaCdMemoryArea::BiosRom => {
+                DebugBytesView(self.genesis.medium_view().bios_rom).write(address, value);
+            }
+            SegaCdMemoryArea::PrgRam => {
+                DebugBytesView(self.genesis.medium_view().prg_ram).write(address, value);
+            }
+            SegaCdMemoryArea::WordRam => {
+                self.genesis.medium_view().word_ram.debug_view().write(address, value);
+            }
+            SegaCdMemoryArea::PcmRam => {
+                self.pcm.debug_ram_view().write(address, value);
+            }
+            SegaCdMemoryArea::CdcRam => {
+                self.genesis.medium_view().cdc.debug_ram_view().write(address, value);
+            }
+        }
+    }
+
+    pub fn to_debug_state(&mut self) -> SegaCdDebugState {
+        SegaCdDebugState {
+            genesis: self.genesis.to_debug_state(),
+            sub_cpu: self.sub_cpu.clone(),
+            bios_rom: self.genesis.medium_view().bios_rom.to_vec().into_boxed_slice(),
+            prg_ram: self.genesis.medium_view().prg_ram.to_vec().into_boxed_slice(),
+            word_ram: self.genesis.medium_view().word_ram.clone(),
+            pcm: self.pcm.clone(),
+            cdc: self.genesis.medium_view().cdc.clone(),
+            prg_ram_bank: self.genesis.medium_view().prg_ram_bank,
+        }
+    }
+}
+
+impl SegaCdEmulator {
+    #[must_use]
+    pub fn to_debug_state(&self) -> SegaCdDebugState {
+        let sega_cd = self.memory.medium();
+
+        SegaCdDebugState {
+            genesis: GenesisDebugState::new(&self.main_cpu, &self.z80, &self.memory, &self.vdp),
+            sub_cpu: self.sub_cpu.clone(),
+            bios_rom: sega_cd.bios().to_vec().into_boxed_slice(),
+            prg_ram: sega_cd.clone_prg_ram(),
+            word_ram: sega_cd.word_ram().clone(),
+            pcm: self.pcm.clone(),
+            cdc: sega_cd.clone_cdc(),
+            prg_ram_bank: self.memory.medium().prg_ram_bank(),
         }
     }
 
     #[must_use]
-    pub fn scd_memory_view(self, memory_area: SegaCdMemoryArea) -> Box<dyn DebugMemoryView + 'emu> {
-        match memory_area {
-            SegaCdMemoryArea::BiosRom => Box::new(self.0.memory.medium_mut().debug_bios_rom_view()),
-            SegaCdMemoryArea::PrgRam => Box::new(self.0.memory.medium_mut().debug_prg_ram_view()),
-            SegaCdMemoryArea::WordRam => Box::new(self.0.memory.medium_mut().debug_word_ram_view()),
-            SegaCdMemoryArea::PcmRam => Box::new(self.0.pcm.debug_ram_view()),
-            SegaCdMemoryArea::CdcRam => Box::new(self.0.memory.medium_mut().debug_cdc_ram_view()),
+    pub fn as_debug_view(&mut self) -> SegaCdEmulatorDebugView<'_> {
+        SegaCdEmulatorDebugView {
+            genesis: BaseGenesisDebugView::new(
+                &mut self.main_cpu,
+                &mut self.z80,
+                self.memory.as_debug_view(SegaCd::as_debug_view),
+                &mut self.vdp,
+            ),
+            sub_cpu: &mut self.sub_cpu,
+            pcm: &mut self.pcm,
+        }
+    }
+}
+
+pub struct SegaCdDebugger {
+    command_receiver: Receiver<SegaCdDebugCommand>,
+}
+
+impl SegaCdDebugger {
+    #[must_use]
+    pub fn new() -> (Self, Sender<SegaCdDebugCommand>) {
+        let (command_sender, command_receiver) = mpsc::channel();
+
+        (Self { command_receiver }, command_sender)
+    }
+
+    pub fn process_commands(&mut self, debug_view: &mut SegaCdEmulatorDebugView<'_>) {
+        loop {
+            match self.command_receiver.try_recv() {
+                Ok(command) => match command {
+                    SegaCdDebugCommand::EditGenesisMemory(memory_area, address, value) => {
+                        debug_view.apply_genesis_memory_edit(memory_area, address, value);
+                    }
+                    SegaCdDebugCommand::EditSegaCdMemory(memory_area, address, value) => {
+                        debug_view.apply_scd_memory_edit(memory_area, address, value);
+                    }
+                },
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    // TODO clear breakpoint/break status; debugger window closed
+                    break;
+                }
+            }
         }
     }
 }

@@ -4,6 +4,7 @@
 //! because the highest 3 bits are only used internally
 
 use crate::disassemble;
+use crate::instructions::OpcodeTable;
 use bincode::{Decode, Encode};
 use std::fmt::{Display, Formatter};
 
@@ -25,7 +26,7 @@ impl Display for AccessContext {
                 write!(
                     f,
                     "PC={pc:08X}, opcode={opcode:04X}, instruction='{}'",
-                    disassemble::disassemble(opcode)
+                    disassemble::disassemble(opcode, DisassembleOptions::default())
                 )
             }
             Self::InterruptVector => write!(f, "Interrupt vector fetch"),
@@ -71,19 +72,40 @@ impl OpSize {
 }
 
 pub trait BusInterface {
-    fn read_byte(&mut self, address: u32, ctx: AccessContext) -> u8;
+    /// Debug view type; if not implemented, set to [`crate::debug::DummySh2Debugger`]
+    type DebugView<'a>: Sh2Debugger
+    where
+        Self: 'a;
 
-    fn read_word(&mut self, address: u32, ctx: AccessContext) -> u16;
+    fn read<const SIZE: u8>(&mut self, address: u32, ctx: AccessContext) -> u32;
 
-    fn read_longword(&mut self, address: u32, ctx: AccessContext) -> u32;
+    fn read_byte(&mut self, address: u32, ctx: AccessContext) -> u8 {
+        self.read::<{ OpSize::BYTE }>(address, ctx) as u8
+    }
 
-    fn read_cache_line(&mut self, address: u32, ctx: AccessContext) -> [u32; 4];
+    fn read_word(&mut self, address: u32, ctx: AccessContext) -> u16 {
+        self.read::<{ OpSize::WORD }>(address, ctx) as u16
+    }
 
-    fn write_byte(&mut self, address: u32, value: u8, ctx: AccessContext);
+    fn read_longword(&mut self, address: u32, ctx: AccessContext) -> u32 {
+        self.read::<{ OpSize::LONGWORD }>(address, ctx)
+    }
 
-    fn write_word(&mut self, address: u32, value: u16, ctx: AccessContext);
+    fn read_cache_line(&mut self, address: u32, ctx: AccessContext) -> [u16; 8];
 
-    fn write_longword(&mut self, address: u32, value: u32, ctx: AccessContext);
+    fn write<const SIZE: u8>(&mut self, address: u32, value: u32, ctx: AccessContext);
+
+    fn write_byte(&mut self, address: u32, value: u8, ctx: AccessContext) {
+        self.write::<{ OpSize::BYTE }>(address, value.into(), ctx);
+    }
+
+    fn write_word(&mut self, address: u32, value: u16, ctx: AccessContext) {
+        self.write::<{ OpSize::WORD }>(address, value.into(), ctx);
+    }
+
+    fn write_longword(&mut self, address: u32, value: u32, ctx: AccessContext) {
+        self.write::<{ OpSize::LONGWORD }>(address, value, ctx);
+    }
 
     /// The CPU will halt while this is `true` and then reset when it changes from `true` to `false`
     fn reset(&self) -> bool;
@@ -108,4 +130,30 @@ pub trait BusInterface {
     fn increment_cycle_counter(&mut self, cycles: u64);
 
     fn should_stop_execution(&self) -> bool;
+
+    fn debug_view(&mut self) -> Option<Self::DebugView<'_>> {
+        None
+    }
 }
+
+pub trait Sh2LookupTable<Bus: BusInterface> {
+    fn table<'a>() -> &'a OpcodeTable<Bus>;
+}
+
+#[macro_export]
+macro_rules! impl_sh2_lookup_table {
+    ($bus:ident) => {
+        impl $crate::bus::Sh2LookupTable<$bus> for $crate::Sh2 {
+            fn table<'a>() -> &'a $crate::OpcodeTable<$bus> {
+                static TABLE: ::std::sync::LazyLock<$crate::OpcodeTable<$bus>> =
+                    ::std::sync::LazyLock::new(|| $crate::OpcodeTable::new());
+
+                &*TABLE
+            }
+        }
+    };
+}
+
+use crate::debug::Sh2Debugger;
+use crate::disassemble::DisassembleOptions;
+pub use impl_sh2_lookup_table;

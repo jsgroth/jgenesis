@@ -13,8 +13,8 @@ use gba_core::api::GameBoyAdvanceEmulator;
 use genesis_core::{GenesisEmulator, GenesisInputs};
 use jgenesis_common::audio::DynamicResamplingRate;
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorTrait, FrameSize, RenderFrameOptions, Renderer, SaveWriter,
-    TickEffect,
+    AudioOutput, Color, ConstantInputPoller, EmulatorTrait, FrameSize, RenderFrameOptions,
+    Renderer, SaveWriter, TickEffect,
 };
 use jgenesis_renderer::renderer::{WgpuRenderer, WindowSize};
 use js_sys::Uint8Array;
@@ -197,13 +197,14 @@ impl RandomNoiseGenerator {
     }
 
     fn render<R: Renderer>(&self, renderer: &mut R) -> Result<(), R::Err> {
-        renderer.render_frame(&self.buffer, STATIC_FRAME_SIZE, RenderFrameOptions::default())
+        renderer.render_frame(&self.buffer, STATIC_FRAME_SIZE, 60.0, RenderFrameOptions::default())
     }
 }
 
 struct QueuedFrame {
     buffer: Vec<Color>,
     size: FrameSize,
+    target_fps: f64,
     options: RenderFrameOptions,
     queued: bool,
 }
@@ -213,6 +214,7 @@ impl QueuedFrame {
         Self {
             buffer: Vec::with_capacity(320 * 224),
             size: FrameSize { width: 320, height: 224 },
+            target_fps: 60.0,
             options: RenderFrameOptions::default(),
             queued: false,
         }
@@ -226,12 +228,14 @@ impl Renderer for QueuedFrame {
         &mut self,
         frame_buffer: &[Color],
         frame_size: FrameSize,
+        target_fps: f64,
         options: RenderFrameOptions,
     ) -> Result<(), Self::Err> {
         self.buffer.clear();
         self.buffer.extend(&frame_buffer[..(frame_size.width * frame_size.height) as usize]);
 
         self.size = frame_size;
+        self.target_fps = target_fps;
         self.options = options;
         self.queued = true;
 
@@ -261,53 +265,27 @@ impl Emulator {
         A::Err: Debug + Display + Send + Sync + 'static,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
+        macro_rules! run_emulator {
+            ($emulator:expr, $inputs:expr) => {
+                while $emulator
+                    .tick(renderer, audio_output, &mut ConstantInputPoller($inputs), save_writer)
+                    .expect("Emulator error")
+                    != TickEffect::FrameRendered
+                {}
+            };
+        }
+
         match self {
             Self::None(noise_generator) => {
                 noise_generator.randomize();
                 noise_generator.render(renderer).expect("Failed to render random noise");
             }
-            Self::SmsGg(emulator, inputs) => {
-                while emulator
-                    .tick(renderer, audio_output, inputs, save_writer)
-                    .expect("Emulator error")
-                    != TickEffect::FrameRendered
-                {}
-            }
-            Self::Genesis(emulator, inputs) => {
-                while emulator
-                    .tick(renderer, audio_output, inputs, save_writer)
-                    .expect("Emulator error")
-                    != TickEffect::FrameRendered
-                {}
-            }
-            Self::SegaCd(emulator, inputs) => {
-                while emulator
-                    .tick(renderer, audio_output, inputs, save_writer)
-                    .expect("Emulator error")
-                    != TickEffect::FrameRendered
-                {}
-            }
-            Self::Sega32X(emulator, inputs) => {
-                while emulator
-                    .tick(renderer, audio_output, inputs, save_writer)
-                    .expect("Emulator error")
-                    != TickEffect::FrameRendered
-                {}
-            }
-            Self::Snes(emulator, inputs) => {
-                while emulator
-                    .tick(renderer, audio_output, inputs, save_writer)
-                    .expect("Emulator error")
-                    != TickEffect::FrameRendered
-                {}
-            }
-            Self::Gba(emulator, inputs) => {
-                while emulator
-                    .tick(renderer, audio_output, inputs, save_writer)
-                    .expect("Emulator error")
-                    != TickEffect::FrameRendered
-                {}
-            }
+            Self::SmsGg(emulator, inputs) => run_emulator!(emulator, inputs),
+            Self::Genesis(emulator, inputs) => run_emulator!(emulator, inputs),
+            Self::SegaCd(emulator, inputs) => run_emulator!(emulator, inputs),
+            Self::Sega32X(emulator, inputs) => run_emulator!(emulator, inputs),
+            Self::Snes(emulator, inputs) => run_emulator!(emulator, inputs),
+            Self::Gba(emulator, inputs) => run_emulator!(emulator, inputs),
         }
     }
 
@@ -482,6 +460,7 @@ pub async fn run_emulator(config_ref: WebConfigRef, emulator_channel: EmulatorCh
         .render_frame(
             &[Color::rgb(128, 128, 128)],
             FrameSize { width: 1, height: 1 },
+            60.0,
             RenderFrameOptions::default(),
         )
         .expect("Unable to render blank frame");
@@ -655,6 +634,7 @@ impl AppState {
             .render_frame(
                 &self.queued_frame.buffer,
                 self.queued_frame.size,
+                self.queued_frame.target_fps,
                 self.queued_frame.options,
             )
             .expect("Frame render error");
