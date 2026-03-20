@@ -44,7 +44,10 @@ impl Vdp {
                     out[out_idx] = match self.registers.version.hardware() {
                         SmsGgHardware::MasterSystem => sms_color_to_rgb(color as u8),
                         SmsGgHardware::GameGear => gg_color_to_rgb(color),
-                        SmsGgHardware::Sg1000 => todo!("SG-1000 debug VRAM"),
+                        SmsGgHardware::Sg1000 => {
+                            // SG-1000 has no CRAM
+                            Color::BLACK
+                        }
                     };
                 }
             }
