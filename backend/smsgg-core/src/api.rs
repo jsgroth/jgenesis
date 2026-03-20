@@ -68,6 +68,7 @@ impl DerefMut for FrameBuffer {
 pub enum SmsGgHardware {
     MasterSystem,
     GameGear,
+    Sg1000,
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
@@ -98,8 +99,11 @@ impl SmsGgEmulatorConfig {
         self.forced_region.unwrap_or_else(|| memory.guess_cartridge_region())
     }
 
-    pub(crate) fn render_options(&self, is_sms: bool) -> RenderFrameOptions {
-        if is_sms { self.sms_render_options() } else { self.gg_render_options() }
+    pub(crate) fn render_options(&self, hardware: SmsGgHardware) -> RenderFrameOptions {
+        match hardware {
+            SmsGgHardware::MasterSystem | SmsGgHardware::Sg1000 => self.sms_render_options(),
+            SmsGgHardware::GameGear => self.gg_render_options(),
+        }
     }
 
     pub(crate) fn sms_render_options(&self) -> RenderFrameOptions {
@@ -191,11 +195,7 @@ impl SmsGgEmulator {
 
     #[must_use]
     pub fn hardware(&self) -> SmsGgHardware {
-        if self.vdp_version.is_master_system() {
-            SmsGgHardware::MasterSystem
-        } else {
-            SmsGgHardware::GameGear
-        }
+        self.vdp_version.hardware()
     }
 
     #[must_use]
@@ -235,7 +235,7 @@ impl SmsGgEmulator {
         renderer.render_frame(
             &self.frame_buffer,
             frame_size,
-            self.config.render_options(self.vdp_version.is_master_system()),
+            self.config.render_options(self.vdp_version.hardware()),
         )
     }
 
@@ -273,6 +273,8 @@ fn determine_vdp_version(hardware: SmsGgHardware, config: &SmsGgEmulatorConfig) 
             VdpVersion::PalMasterSystem2
         }
         (SmsGgHardware::GameGear, _, _) => VdpVersion::GameGear,
+        (SmsGgHardware::Sg1000, TimingMode::Ntsc, _) => VdpVersion::NtscSg1000,
+        (SmsGgHardware::Sg1000, TimingMode::Pal, _) => VdpVersion::PalSg1000,
     }
 }
 
@@ -280,6 +282,7 @@ fn determine_psg_version(hardware: SmsGgHardware, config: &SmsGgEmulatorConfig) 
     config.forced_psg_version.unwrap_or(match hardware {
         SmsGgHardware::MasterSystem => Sn76489Version::MasterSystem2,
         SmsGgHardware::GameGear => Sn76489Version::Standard,
+        SmsGgHardware::Sg1000 => Sn76489Version::Discrete,
     })
 }
 
@@ -470,21 +473,21 @@ fn populate_frame_buffer(
 
     for (i, row) in vdp_buffer.iter().skip(row_skip).take(row_take).enumerate() {
         for (j, color) in row.iter().copied().skip(col_skip).enumerate() {
-            let (r, g, b) = if vdp_version.is_master_system() {
-                (
+            let color = match vdp_version.hardware() {
+                SmsGgHardware::MasterSystem => Color::rgb(
                     vdp::convert_sms_color(color & 0x03),
                     vdp::convert_sms_color((color >> 2) & 0x03),
                     vdp::convert_sms_color((color >> 4) & 0x03),
-                )
-            } else {
-                (
+                ),
+                SmsGgHardware::GameGear => Color::rgb(
                     vdp::convert_gg_color(color & 0x0F),
                     vdp::convert_gg_color((color >> 4) & 0x0F),
                     vdp::convert_gg_color((color >> 8) & 0x0F),
-                )
+                ),
+                SmsGgHardware::Sg1000 => vdp::convert_sg_color(color),
             };
 
-            frame_buffer[i * screen_width + j] = Color::rgb(r, g, b);
+            frame_buffer[i * screen_width + j] = color;
         }
     }
 }

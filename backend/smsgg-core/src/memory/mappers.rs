@@ -1,6 +1,7 @@
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::MatchEachVariantMacro;
+use std::cmp;
 use std::ops::RangeInclusive;
 
 const CODEMASTERS_CHECKSUM_ADDR: usize = 0x7FE6;
@@ -160,10 +161,49 @@ impl CodemastersMapper {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct Sg1000Mapper {
+    ram_start_addr: usize,
+}
+
+impl Sg1000Mapper {
+    pub fn new(unmirrored_rom: &[u8]) -> Self {
+        // Some documentation says RAM starts at $A000, but some games have more than 8KB of RAM
+        // and expect it to start at $8000 (e.g. The Castle)
+        Self { ram_start_addr: cmp::max(0x8000, unmirrored_rom.len()) }
+    }
+}
+
+#[allow(clippy::unused_self)]
+impl Sg1000Mapper {
+    pub fn read(&self, address: u16, rom: &[u8], ram: &[u8]) -> u8 {
+        match address {
+            0x0000..=0x7FFF => rom[(address as usize) & (rom.len() - 1)],
+            0x8000..=0xFFFF => {
+                let address = address as usize;
+                if address < self.ram_start_addr {
+                    rom[address & (rom.len() - 1)]
+                } else {
+                    ram[(address - self.ram_start_addr) & (ram.len() - 1)]
+                }
+            }
+        }
+    }
+
+    pub fn write(&mut self, address: u16, value: u8, ram: &mut [u8], ram_dirty: &mut bool) {
+        let address = address as usize;
+        if address >= self.ram_start_addr {
+            ram[(address - self.ram_start_addr) & (ram.len() - 1)] = value;
+            *ram_dirty = true;
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, MatchEachVariantMacro)]
 pub enum Mapper {
     Sega(SegaMapper),
     Codemasters(CodemastersMapper),
+    Sg1000(Sg1000Mapper),
 }
 
 impl Mapper {
@@ -210,6 +250,7 @@ impl Mapper {
         match self {
             Self::Sega(_) => "Sega",
             Self::Codemasters(_) => "Codemasters",
+            Self::Sg1000(_) => "SG-1000",
         }
     }
 }

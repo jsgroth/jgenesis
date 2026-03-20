@@ -57,6 +57,7 @@ impl ListFiltersExt for ListFilters {
         [
             self.master_system.then_some(Console::MasterSystem),
             self.game_gear.then_some(Console::GameGear),
+            self.sg_1000.then_some(Console::Sg1000),
             self.genesis.then_some(Console::Genesis),
             self.sega_cd.then_some(Console::SegaCd),
             self.sega_32x.then_some(Console::Sega32X),
@@ -989,7 +990,7 @@ impl App {
         ui.horizontal(|ui| {
             let textedit = TextEdit::singleline(&mut self.state.title_match)
                 .hint_text("Filter by name")
-                .desired_width(280.0);
+                .desired_width(250.0);
             if ui.add(textedit).changed() {
                 self.state.title_match_lowercase = Rc::from(self.state.title_match.to_lowercase());
                 self.refresh_filtered_rom_list();
@@ -1007,8 +1008,9 @@ impl App {
 
             ui.checkbox(&mut self.config.list_filters.master_system, "SMS");
             ui.checkbox(&mut self.config.list_filters.game_gear, "GG");
-            ui.checkbox(&mut self.config.list_filters.genesis, "Genesis");
-            ui.checkbox(&mut self.config.list_filters.sega_cd, "Sega CD");
+            ui.checkbox(&mut self.config.list_filters.sg_1000, "SG");
+            ui.checkbox(&mut self.config.list_filters.genesis, "GEN");
+            ui.checkbox(&mut self.config.list_filters.sega_cd, "SCD");
             ui.checkbox(&mut self.config.list_filters.sega_32x, "32X");
             ui.checkbox(&mut self.config.list_filters.nes, "NES");
             ui.checkbox(&mut self.config.list_filters.snes, "SNES");

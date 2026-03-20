@@ -4,10 +4,10 @@ mod mappers;
 mod metadata;
 
 use crate::SmsGgHardware;
-use crate::memory::mappers::Mapper;
+use crate::memory::mappers::{Mapper, Sg1000Mapper};
 use bincode::{Decode, Encode};
 use crc::Crc;
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use smsgg_config::SmsGgRegion;
 use std::ops::Index;
@@ -43,8 +43,11 @@ struct Cartridge {
 }
 
 impl Cartridge {
-    fn new(mut rom: Vec<u8>, initial_ram: Option<Vec<u8>>) -> Self {
-        let mapper = Mapper::detect_from_rom(&rom);
+    fn new(hardware: SmsGgHardware, mut rom: Vec<u8>, initial_ram: Option<Vec<u8>>) -> Self {
+        let mapper = match hardware {
+            SmsGgHardware::Sg1000 => Mapper::Sg1000(Sg1000Mapper::new(&rom)),
+            SmsGgHardware::MasterSystem | SmsGgHardware::GameGear => Mapper::detect_from_rom(&rom),
+        };
         log::info!("Detected mapper {} from ROM header", mapper.name());
 
         let checksum = CRC.checksum(&rom);
@@ -117,6 +120,15 @@ impl GameGearRegisters {
     }
 }
 
+impl SmsGgHardware {
+    fn ram_mask(self) -> u16 {
+        match self {
+            Self::MasterSystem | Self::GameGear => 0x1FFF, // 8KB RAM
+            Self::Sg1000 => 0x03FF,                        // 1KB RAM
+        }
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode, PartialClone)]
 pub struct Memory {
     #[partial_clone(partial)]
@@ -148,7 +160,7 @@ impl Memory {
         }
 
         Self {
-            cartridge: Cartridge::new(rom, initial_cartridge_ram),
+            cartridge: Cartridge::new(hardware, rom, initial_cartridge_ram),
             bios_rom,
             bios_rom_banks: [0, 1, 2],
             ram,
@@ -163,23 +175,26 @@ impl Memory {
         match address {
             0x0000..=0xBFFF => {
                 match self.hardware {
-                    SmsGgHardware::MasterSystem => {
+                    SmsGgHardware::MasterSystem | SmsGgHardware::Sg1000 => {
+                        let bios_enabled = self.hardware == SmsGgHardware::MasterSystem
+                            && self.memory_control.bios_enabled;
                         if self.memory_control.cartridge_enabled {
                             let cartridge_byte = self.cartridge.read(address);
-                            if self.memory_control.bios_enabled {
+                            if bios_enabled {
                                 // Cartridge and BIOS are both enabled; return logical AND of their bytes
                                 let bios_byte = self.read_bios_sms(address);
                                 cartridge_byte & bios_byte
                             } else {
                                 cartridge_byte
                             }
-                        } else if self.memory_control.bios_enabled {
+                        } else if bios_enabled {
                             self.read_bios_sms(address)
                         } else {
                             log::debug!(
                                 "Slot read ${address:04X} with neither cartridge nor BIOS enabled"
                             );
-                            0xFF
+                            // TODO this should be open bus; fake it by returning address high byte
+                            address.msb()
                         }
                     }
                     SmsGgHardware::GameGear => {
@@ -198,7 +213,8 @@ impl Memory {
                 }
             }
             0xC000..=0xFFFF => {
-                let ram_addr = address & 0x1FFF;
+                // TODO only if RAM enabled
+                let ram_addr = address & self.hardware.ram_mask();
                 self.ram[ram_addr as usize]
             }
         }
@@ -229,11 +245,15 @@ impl Memory {
 
     pub fn write(&mut self, address: u16, value: u8) {
         if address >= 0xC000 {
-            let ram_addr = address & 0x1FFF;
+            // TODO only if RAM enabled
+            let ram_addr = address & self.hardware.ram_mask();
             self.ram[ram_addr as usize] = value;
         }
 
-        if self.memory_control.bios_enabled && (0xFFFD..=0xFFFF).contains(&address) {
+        if self.hardware != SmsGgHardware::Sg1000
+            && self.memory_control.bios_enabled
+            && (0xFFFD..=0xFFFF).contains(&address)
+        {
             log::debug!("BIOS ROM bank {} set to {value:02X}", address - 0xFFFD);
             self.bios_rom_banks[(address - 0xFFFD) as usize] = value.into();
         }

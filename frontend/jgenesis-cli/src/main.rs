@@ -21,6 +21,7 @@ use jgenesis_renderer::config::{
 };
 use nes_config::{NesAspectRatio, NesAudioResampler, NesPalette};
 use smsgg_config::{GgAspectRatio, SmsAspectRatio, SmsGgRegion, SmsModel, Sn76489Version};
+use smsgg_core::SmsGgHardware;
 use snes_config::{AudioInterpolationMode, SnesAspectRatio};
 use std::fmt::Debug;
 use std::fs;
@@ -30,6 +31,8 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumAll, EnumDisplay, CustomValueEnum)]
 enum Hardware {
     MasterSystem,
+    GameGear,
+    Sg1000,
     Genesis,
     SegaCd,
     Sega32X,
@@ -967,7 +970,9 @@ fn main() -> anyhow::Result<()> {
     args.apply_overrides(&mut config)?;
 
     match hardware {
-        Hardware::MasterSystem => run_sms(args, config),
+        Hardware::MasterSystem => run_smsgg(args, config, SmsGgHardware::MasterSystem),
+        Hardware::GameGear => run_smsgg(args, config, SmsGgHardware::GameGear),
+        Hardware::Sg1000 => run_smsgg(args, config, SmsGgHardware::Sg1000),
         Hardware::Genesis => run_genesis(args, config),
         Hardware::SegaCd => run_sega_cd(args, config),
         Hardware::Sega32X => run_32x(args, config),
@@ -992,7 +997,9 @@ fn guess_hardware(args: &Args) -> Hardware {
         });
 
     match console {
-        Console::MasterSystem | Console::GameGear => Hardware::MasterSystem,
+        Console::MasterSystem => Hardware::MasterSystem,
+        Console::GameGear => Hardware::GameGear,
+        Console::Sg1000 => Hardware::Sg1000,
         Console::Genesis => Hardware::Genesis,
         Console::SegaCd => Hardware::SegaCd,
         Console::Sega32X => Hardware::Sega32X,
@@ -1003,8 +1010,8 @@ fn guess_hardware(args: &Args) -> Hardware {
     }
 }
 
-fn run_sms(args: Args, config: AppConfig) -> anyhow::Result<()> {
-    let mut smsgg_config = config.smsgg_config(args.file_path.clone(), None);
+fn run_smsgg(args: Args, config: AppConfig, hardware: SmsGgHardware) -> anyhow::Result<()> {
+    let mut smsgg_config = config.smsgg_config(args.file_path.clone(), Some(hardware));
     smsgg_config.run_without_cartridge = args.sms_no_cartridge;
 
     let mut emulator = jgenesis_native_driver::create_smsgg(smsgg_config)?;

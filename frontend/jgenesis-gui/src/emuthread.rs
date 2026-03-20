@@ -83,7 +83,7 @@ trait ConsoleExt {
 impl ConsoleExt for Console {
     fn running_status(self) -> EmuThreadStatus {
         match self {
-            Self::MasterSystem | Self::GameGear => EmuThreadStatus::RunningSmsGg,
+            Self::MasterSystem | Self::GameGear | Self::Sg1000 => EmuThreadStatus::RunningSmsGg,
             Self::Genesis => EmuThreadStatus::RunningGenesis,
             Self::SegaCd => EmuThreadStatus::RunningSegaCd,
             Self::Sega32X => EmuThreadStatus::Running32X,
@@ -346,6 +346,9 @@ impl GenericEmulator {
             )?)),
             Console::GameGear => Self::SmsGg(Box::new(jgenesis_native_driver::create_smsgg(
                 config.smsgg_config(path, Some(SmsGgHardware::GameGear)),
+            )?)),
+            Console::Sg1000 => Self::SmsGg(Box::new(jgenesis_native_driver::create_smsgg(
+                config.smsgg_config(path, Some(SmsGgHardware::Sg1000)),
             )?)),
             Console::Genesis => Self::Genesis(Box::new(jgenesis_native_driver::create_genesis(
                 config.genesis_config(path),

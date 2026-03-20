@@ -20,7 +20,8 @@ pub const GAME_GEAR_LCD_ASPECT_RATIO: f64 = 1.2;
 pub enum Sn76489Version {
     #[default]
     MasterSystem2,
-    Standard,
+    Standard, // Sega-customized version used in SMS, Game Gear, Genesis
+    Discrete, // Stock TI version used in SG-1000
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]

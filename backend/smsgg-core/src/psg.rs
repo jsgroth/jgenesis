@@ -162,13 +162,18 @@ impl NoiseGenerator {
         }
     }
 
-    fn shift_lfsr(&mut self) {
+    fn shift_lfsr(&mut self, version: Sn76489Version) {
         self.current_lfsr_output =
             if self.lfsr.bit(0) { WaveOutput::Positive } else { WaveOutput::Negative };
 
         let input_bit = match self.noise_type {
             NoiseType::Periodic => self.lfsr.bit(0),
-            NoiseType::White => self.lfsr.bit(0) ^ self.lfsr.bit(3),
+            NoiseType::White => match version {
+                Sn76489Version::Standard | Sn76489Version::MasterSystem2 => {
+                    self.lfsr.bit(0) ^ self.lfsr.bit(3)
+                }
+                Sn76489Version::Discrete => self.lfsr.bit(0) ^ self.lfsr.bit(2) ^ self.lfsr.bit(15),
+            },
         };
 
         self.lfsr = (self.lfsr >> 1) | (u16::from(input_bit) << 15);
@@ -181,7 +186,7 @@ impl NoiseGenerator {
         self.lfsr = INITIAL_LFSR;
     }
 
-    fn clock(&mut self, tone2: u16) {
+    fn clock(&mut self, tone2: u16, version: Sn76489Version) {
         self.counter = self.counter.saturating_sub(1);
         if self.counter != 0 {
             return;
@@ -190,7 +195,7 @@ impl NoiseGenerator {
         self.counter = self.counter_reload.value(tone2);
         self.current_counter_output = self.current_counter_output.invert();
         if self.current_counter_output == WaveOutput::Positive {
-            self.shift_lfsr();
+            self.shift_lfsr(version);
         }
     }
 
@@ -368,7 +373,7 @@ impl Sn76489 {
             for channel in &mut self.square_wave_channels {
                 channel.clock();
             }
-            self.noise_channel.clock(self.square_wave_channels[2].tone);
+            self.noise_channel.clock(self.square_wave_channels[2].tone, self.version);
 
             Sn76489TickEffect::Clocked
         } else {
@@ -390,7 +395,7 @@ impl Sn76489 {
         // TODO rewrite to use integer arithmetic as much as possible
         let volume_table = match self.version {
             Sn76489Version::MasterSystem2 => &SMS2_ATTENUATION_TO_VOLUME,
-            Sn76489Version::Standard => &ATTENUATION_TO_VOLUME,
+            Sn76489Version::Standard | Sn76489Version::Discrete => &ATTENUATION_TO_VOLUME,
         };
 
         let square_samples = self.square_wave_channels.map(|channel| channel.sample(volume_table));

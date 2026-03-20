@@ -101,7 +101,7 @@ pub const PSG_VERSION: HelpText = HelpText {
     text: &[
         "Configure which PSG model to use.",
         "The SMS2 PSG has been observed to clip channels playing at the highest volumes, and some games have extremely loud sound effects if this is not emulated.",
-        "The Auto setting uses the SMS2 option for Master System emulation and the SMS1 / Game Gear option for Game Gear emulation.",
+        "The Auto setting uses the SMS2 option for Master System emulation, SMS1 / Game Gear for Game Gear emulation, and SG-1000 for SG-1000 emulation.",
     ],
 };
 

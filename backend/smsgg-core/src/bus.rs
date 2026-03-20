@@ -1,10 +1,10 @@
 //! Implementation of the Z80's bus interface, which connects it to all other components
 
-use crate::VdpVersion;
 use crate::input::InputState;
 use crate::memory::Memory;
 use crate::psg::Sn76489;
 use crate::vdp::Vdp;
+use crate::{SmsGgHardware, VdpVersion};
 use jgenesis_common::num::GetBit;
 use smsgg_config::SmsGgRegion;
 use ym_opll::Ym2413;
@@ -69,12 +69,22 @@ impl BusInterface for Bus<'_> {
                 0xFF
             }
             (false, true, false) => {
-                log::trace!("V counter read");
-                self.vdp.v_counter()
+                if self.version.hardware() != SmsGgHardware::Sg1000 {
+                    log::trace!("V counter read");
+                    self.vdp.v_counter()
+                } else {
+                    // Invalid read
+                    0xFF
+                }
             }
             (false, true, true) => {
-                log::trace!("H counter read");
-                self.vdp.h_counter()
+                if self.version.hardware() != SmsGgHardware::Sg1000 {
+                    log::trace!("H counter read");
+                    self.vdp.h_counter()
+                } else {
+                    // Invalid read
+                    0xFF
+                }
             }
             (true, false, false) => {
                 log::trace!("VDP data read");
@@ -155,7 +165,9 @@ impl BusInterface for Bus<'_> {
     }
 
     fn nmi(&self) -> InterruptLine {
-        if self.version.is_master_system() && self.input.pause_pressed() {
+        if matches!(self.version.hardware(), SmsGgHardware::MasterSystem | SmsGgHardware::Sg1000)
+            && self.input.pause_pressed()
+        {
             InterruptLine::Low
         } else {
             InterruptLine::High

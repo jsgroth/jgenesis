@@ -26,12 +26,13 @@ impl SmsGgHardwareExt for SmsGgHardware {
         match self {
             Self::MasterSystem => config.sms_bios_path.as_ref(),
             Self::GameGear => config.gg_bios_path.as_ref(),
+            Self::Sg1000 => None,
         }
     }
 
     fn no_bios_error(self) -> NativeEmulatorError {
         match self {
-            Self::MasterSystem => NativeEmulatorError::SmsNoBios,
+            Self::MasterSystem | Self::Sg1000 => NativeEmulatorError::SmsNoBios,
             Self::GameGear => NativeEmulatorError::GgNoBios,
         }
     }
@@ -40,6 +41,7 @@ impl SmsGgHardwareExt for SmsGgHardware {
         match self {
             Self::MasterSystem => "sms",
             Self::GameGear => "gg",
+            Self::Sg1000 => "sg",
         }
     }
 
@@ -47,6 +49,7 @@ impl SmsGgHardwareExt for SmsGgHardware {
         match self {
             Self::MasterSystem => config.sms_boot_from_bios,
             Self::GameGear => config.gg_boot_from_bios,
+            Self::Sg1000 => false,
         }
     }
 }
@@ -135,7 +138,11 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
 
     let mut save_writer = FsSaveWriter::new(save_path);
 
-    let window_title = format!("smsgg - {rom_title}");
+    let window_title = match hardware {
+        SmsGgHardware::MasterSystem => format!("sms - {rom_title}"),
+        SmsGgHardware::GameGear => format!("gg - {rom_title}"),
+        SmsGgHardware::Sg1000 => format!("sg1000 - {rom_title}"),
+    };
 
     let bios_rom = if hardware.boot_from_bios(&config) {
         let Some(bios_path) = hardware.bios_path(&config) else {
@@ -154,7 +161,7 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
         SmsGgEmulator::create(rom, bios_rom, hardware, emulator_config, &mut save_writer);
 
     let default_window_size = match hardware {
-        SmsGgHardware::MasterSystem => {
+        SmsGgHardware::MasterSystem | SmsGgHardware::Sg1000 => {
             WindowSize::new_sms(config.common.initial_window_size, emulator_config.sms_aspect_ratio)
         }
         SmsGgHardware::GameGear => WindowSize::new_game_gear(
@@ -181,12 +188,16 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
 }
 
 fn hardware_for_ext(extension: &str) -> SmsGgHardware {
-    match extension.to_ascii_lowercase().as_str() {
-        "sms" => SmsGgHardware::MasterSystem,
-        "gg" => SmsGgHardware::GameGear,
-        _ => {
-            log::error!("Unrecognized file extension '{extension}', defaulting to SMS mode");
-            SmsGgHardware::MasterSystem
-        }
+    let extension = extension.to_ascii_lowercase();
+
+    if extensions::MASTER_SYSTEM.contains(&extension.as_str()) {
+        SmsGgHardware::MasterSystem
+    } else if extensions::GAME_GEAR.contains(&extension.as_str()) {
+        SmsGgHardware::GameGear
+    } else if extensions::SG_1000.contains(&extension.as_str()) {
+        SmsGgHardware::Sg1000
+    } else {
+        log::error!("Unrecognized file extension '{extension}', defaulting to SMS mode");
+        SmsGgHardware::MasterSystem
     }
 }

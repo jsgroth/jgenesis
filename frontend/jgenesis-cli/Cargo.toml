@@ -26,6 +26,8 @@ jgenesis-native-driver = { path = "../jgenesis-native-driver", features = ["clap
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 jgenesis-renderer = { path = "../jgenesis-renderer", features = ["clap"] }
 
+smsgg-core = { path = "../../backend/smsgg-core" }
+
 anyhow = { workspace = true }
 clap = { workspace = true }
 env_logger = { workspace = true }

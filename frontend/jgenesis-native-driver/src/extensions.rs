@@ -9,6 +9,7 @@ use std::path::Path;
 use std::sync::LazyLock;
 use std::{fs, io};
 
+pub const SG_1000: &[&str] = &["sg"];
 pub const MASTER_SYSTEM: &[&str] = &["sms"];
 pub const GAME_GEAR: &[&str] = &["gg"];
 pub const GENESIS: &[&str] = &["gen", "md", "bin", "smd"];
@@ -23,7 +24,10 @@ pub const GAME_BOY_ADVANCE: &[&str] = &["gba", "bin"];
 pub const SUPPORTED_ARCHIVES: &[&str] = &["zip", "7z"];
 
 pub static SMSGG: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
-    [MASTER_SYSTEM, GAME_GEAR].into_iter().flat_map(|system| system.iter().copied()).collect()
+    [SG_1000, MASTER_SYSTEM, GAME_GEAR]
+        .into_iter()
+        .flat_map(|system| system.iter().copied())
+        .collect()
 });
 
 pub static GB_GBC: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
@@ -32,6 +36,7 @@ pub static GB_GBC: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
 
 pub static ALL_CARTRIDGE_BASED: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
     [
+        SG_1000,
         MASTER_SYSTEM,
         GAME_GEAR,
         GENESIS,
@@ -101,6 +106,7 @@ static EXTENSION_LOOKUP: LazyLock<HashMap<&'static str, Console>> =
 
 fn build_extension_lookup() -> HashMap<&'static str, Console> {
     [
+        (SG_1000, Console::Sg1000),
         (MASTER_SYSTEM, Console::MasterSystem),
         (GAME_GEAR, Console::GameGear),
         (GENESIS, Console::Genesis),
@@ -132,6 +138,7 @@ pub struct ConsoleWithSize {
 pub enum Console {
     MasterSystem,
     GameGear,
+    Sg1000,
     Genesis,
     SegaCd,
     Sega32X,
@@ -205,6 +212,7 @@ impl Console {
     #[must_use]
     pub fn display_str(self) -> &'static str {
         match self {
+            Self::Sg1000 => "SG-1000",
             Self::MasterSystem => "Master System",
             Self::GameGear => "Game Gear",
             Self::Genesis => "Genesis",
@@ -222,7 +230,7 @@ impl Console {
     #[must_use]
     pub fn supported_extensions(self) -> &'static [&'static str] {
         match self {
-            Self::MasterSystem | Self::GameGear => &SMSGG,
+            Self::Sg1000 | Self::MasterSystem | Self::GameGear => &SMSGG,
             Self::Genesis => GENESIS,
             Self::SegaCd => SEGA_CD,
             Self::Sega32X => SEGA_32X,

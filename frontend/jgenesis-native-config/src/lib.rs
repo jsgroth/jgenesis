@@ -34,6 +34,8 @@ pub struct ListFilters {
     #[serde(default = "true_fn")]
     pub game_gear: bool,
     #[serde(default = "true_fn")]
+    pub sg_1000: bool,
+    #[serde(default = "true_fn")]
     pub genesis: bool,
     #[serde(default = "true_fn")]
     pub sega_cd: bool,

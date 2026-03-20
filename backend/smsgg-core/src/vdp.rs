@@ -7,7 +7,7 @@
 mod debug;
 mod tms9918;
 
-use crate::SmsGgEmulatorConfig;
+use crate::{SmsGgEmulatorConfig, SmsGgHardware};
 use bincode::de::{BorrowDecoder, Decoder};
 use bincode::enc::Encoder;
 use bincode::error::{DecodeError, EncodeError};
@@ -119,18 +119,21 @@ pub enum VdpVersion {
     NtscMasterSystem2,
     PalMasterSystem2,
     GameGear,
+    NtscSg1000,
+    PalSg1000,
 }
 
 impl VdpVersion {
     #[must_use]
-    pub fn is_master_system(self) -> bool {
-        matches!(
-            self,
+    pub fn hardware(self) -> SmsGgHardware {
+        match self {
+            Self::NtscSg1000 | Self::PalSg1000 => SmsGgHardware::Sg1000,
             Self::NtscMasterSystem1
-                | Self::NtscMasterSystem2
-                | Self::PalMasterSystem1
-                | Self::PalMasterSystem2
-        )
+            | Self::NtscMasterSystem2
+            | Self::PalMasterSystem1
+            | Self::PalMasterSystem2 => SmsGgHardware::MasterSystem,
+            Self::GameGear => SmsGgHardware::GameGear,
+        }
     }
 
     fn is_sms1(self) -> bool {
@@ -140,26 +143,23 @@ impl VdpVersion {
     #[must_use]
     pub fn timing_mode(self) -> TimingMode {
         match self {
-            Self::NtscMasterSystem1 | Self::NtscMasterSystem2 | Self::GameGear => TimingMode::Ntsc,
-            Self::PalMasterSystem1 | Self::PalMasterSystem2 => TimingMode::Pal,
-        }
-    }
-
-    const fn cram_address_mask(self) -> u16 {
-        match self {
             Self::NtscMasterSystem1
-            | Self::PalMasterSystem1
             | Self::NtscMasterSystem2
-            | Self::PalMasterSystem2 => 0x001F,
-            Self::GameGear => 0x003F,
+            | Self::GameGear
+            | Self::NtscSg1000 => TimingMode::Ntsc,
+            Self::PalMasterSystem1 | Self::PalMasterSystem2 | Self::PalSg1000 => TimingMode::Pal,
         }
     }
 
     #[must_use]
     const fn viewport_size(self, gg_use_sms_resolution: bool, mode: Mode) -> ViewportSize {
         let mut viewport = match self {
-            Self::NtscMasterSystem1 | Self::NtscMasterSystem2 => ViewportSize::NTSC_SMS,
-            Self::PalMasterSystem1 | Self::PalMasterSystem2 => ViewportSize::PAL_SMS,
+            Self::NtscMasterSystem1 | Self::NtscMasterSystem2 | Self::NtscSg1000 => {
+                ViewportSize::NTSC_SMS
+            }
+            Self::PalMasterSystem1 | Self::PalMasterSystem2 | Self::PalSg1000 => {
+                ViewportSize::PAL_SMS
+            }
             Self::GameGear => {
                 if gg_use_sms_resolution {
                     ViewportSize::GAME_GEAR_EXPANDED
@@ -171,6 +171,7 @@ impl VdpVersion {
 
         if matches!(mode, Mode::Four224Line) {
             match self {
+                Self::NtscSg1000 | Self::PalSg1000 => {}
                 Self::NtscMasterSystem1
                 | Self::NtscMasterSystem2
                 | Self::PalMasterSystem1
@@ -216,8 +217,10 @@ enum Mode {
     #[default]
     Four,
     Four224Line,
-    // TMS9918 mode 2
+    Text,
+    GraphicsI,
     GraphicsII,
+    Multicolor,
 }
 
 impl Display for Mode {
@@ -225,37 +228,51 @@ impl Display for Mode {
         match self {
             Self::Four => write!(f, "4"),
             Self::Four224Line => write!(f, "4 (224-line)"),
+            Self::Text => write!(f, "Text"),
+            Self::GraphicsI => write!(f, "Graphics I"),
             Self::GraphicsII => write!(f, "Graphics II"),
+            Self::Multicolor => write!(f, "Multicolor"),
         }
     }
 }
 
 impl Mode {
-    fn from_mode_bits(mode_bits: [bool; 4]) -> Self {
-        match mode_bits {
+    fn from_mode_bits(hardware: SmsGgHardware, mode_bits: [bool; 4]) -> Self {
+        let mode = match mode_bits {
             [false, _, false, true] | [false, false, true, true] | [true, true, true, true] => {
                 Self::Four
             }
             [true, true, false, true] => Self::Four224Line,
+            [false, false, false, false] => Self::GraphicsI,
+            [true, false, false, false] => Self::Text,
             [false, true, false, false] => Self::GraphicsII,
+            [false, false, true, false] => Self::Multicolor,
             _ => {
                 log::debug!("Unsupported mode, defaulting to mode 4: {mode_bits:?}");
                 Self::Four
             }
+        };
+
+        match (hardware, mode) {
+            (SmsGgHardware::Sg1000, Mode::Four | Mode::Four224Line) => {
+                // Invalid; just render in text mode
+                Mode::Text
+            }
+            _ => mode,
         }
     }
 
     const fn name_table_rows(self) -> u16 {
         match self {
-            Self::Four | Self::GraphicsII => 28,
             Self::Four224Line => 32,
+            _ => 28,
         }
     }
 
     const fn active_scanlines(self) -> u16 {
         match self {
-            Self::Four | Self::GraphicsII => 192,
             Self::Four224Line => 224,
+            _ => 192,
         }
     }
 }
@@ -314,6 +331,7 @@ struct Registers {
     line_interrupt_pending: bool,
     sprite_overflow: bool,
     sprite_collision: bool,
+    tms9918_5th_sprite: u8,
     vertical_scroll_lock: bool,
     horizontal_scroll_lock: bool,
     hide_left_column: bool,
@@ -326,6 +344,7 @@ struct Registers {
     // Registers used only in legacy TMS9918 modes
     color_table_address: u16,
     pattern_generator_address: u16,
+    text_mode_color_1: u8,
 }
 
 impl Registers {
@@ -350,6 +369,7 @@ impl Registers {
             line_interrupt_pending: false,
             sprite_overflow: false,
             sprite_collision: false,
+            tms9918_5th_sprite: 0,
             vertical_scroll_lock: false,
             horizontal_scroll_lock: false,
             hide_left_column: false,
@@ -361,6 +381,7 @@ impl Registers {
             line_counter_reload_value: 0,
             color_table_address: 0,
             pattern_generator_address: 0,
+            text_mode_color_1: 0,
         }
     }
 
@@ -368,6 +389,13 @@ impl Registers {
         let status_flags = (u8::from(self.frame_interrupt_flag) << 7)
             | (u8::from(self.sprite_overflow) << 6)
             | (u8::from(self.sprite_collision) << 5);
+
+        let fifth_sprite =
+            if self.sprite_overflow && self.version.hardware() == SmsGgHardware::Sg1000 {
+                self.tms9918_5th_sprite
+            } else {
+                0
+            };
 
         // Control reads clear all status/interrupt flags and reset the control write toggle
         self.frame_interrupt_pending = false;
@@ -377,7 +405,7 @@ impl Registers {
         self.sprite_collision = false;
         self.control_write_flag = ControlWriteFlag::First;
 
-        status_flags
+        status_flags | fifth_sprite
     }
 
     fn write_control(&mut self, value: u8, vram: &Vram) {
@@ -460,18 +488,25 @@ impl Registers {
             }
             DataWriteLocation::Cram => {
                 // CRAM only uses the lowest 5 or 6 address bits
-                let cram_addr = self.data_address & self.version.cram_address_mask();
-                if self.version.is_master_system() {
-                    // SMS CRAM is 8-bit; writes go through directly
-                    cram[cram_addr as usize] = value;
-                } else {
-                    // Game Gear CRAM is 16-bit; even addr writes are latched, odd addr writes
-                    // persist a 16-bit word
-                    if !cram_addr.bit(0) {
-                        self.cram_write_latch = value;
-                    } else {
-                        cram[(cram_addr & !1) as usize] = self.cram_write_latch;
+                match self.version.hardware() {
+                    SmsGgHardware::MasterSystem => {
+                        // SMS CRAM is 8-bit; writes go through directly
+                        let cram_addr = self.data_address & 0x1F;
                         cram[cram_addr as usize] = value;
+                    }
+                    SmsGgHardware::GameGear => {
+                        // Game Gear CRAM is 16-bit; even addr writes are latched, odd addr writes
+                        // persist a 16-bit word
+                        let cram_addr = self.data_address & 0x3F;
+                        if !cram_addr.bit(0) {
+                            self.cram_write_latch = value;
+                        } else {
+                            cram[(cram_addr & !1) as usize] = self.cram_write_latch;
+                            cram[cram_addr as usize] = value;
+                        }
+                    }
+                    SmsGgHardware::Sg1000 => {
+                        // SG-1000 does not have CRAM
                     }
                 }
             }
@@ -497,7 +532,7 @@ impl Registers {
                 self.sprite.shift_sprites_left = value.bit(3);
                 self.mode_bits[3] = value.bit(2);
                 self.mode_bits[1] = value.bit(1);
-                self.mode = Mode::from_mode_bits(self.mode_bits);
+                self.mode = Mode::from_mode_bits(self.version.hardware(), self.mode_bits);
                 // TODO sync/monochrome bit
 
                 log::debug!("  Vertical scroll lock: {}", self.vertical_scroll_lock);
@@ -513,7 +548,7 @@ impl Registers {
                 self.frame_interrupt_enabled = value.bit(5);
                 self.mode_bits[0] = value.bit(4);
                 self.mode_bits[2] = value.bit(3);
-                self.mode = Mode::from_mode_bits(self.mode_bits);
+                self.mode = Mode::from_mode_bits(self.version.hardware(), self.mode_bits);
                 self.sprite.double_sprite_height = value.bit(1);
                 self.sprite.double_sprite_size = value.bit(0);
 
@@ -577,7 +612,11 @@ impl Registers {
                 // Backdrop color
                 self.backdrop_color = value & 0x0F;
 
+                // Bit 1 color in TMS9918 text mode
+                self.text_mode_color_1 = value >> 4;
+
                 log::debug!("  Backdrop color: {}", self.backdrop_color);
+                log::debug!("  TMS9918 text mode color 1: {}", self.text_mode_color_1);
             }
             8 => {
                 // X scrollf
@@ -754,7 +793,7 @@ fn render_sprite_pixels(
     line_buffer: &mut SpriteLineBuffer,
 ) {
     let sprite_width: u16 = registers.sprite_width().into();
-    let sprite_x_downshift: i32 = registers.shift_sprites_left.into();
+    let sprite_x_downshift: i32 = registers.double_sprite_size.into();
 
     // Mask out bits 11-12 (only used in legacy modes)
     let base_sprite_pattern_addr = registers.base_sprite_pattern_address & 0x2000;
@@ -932,23 +971,25 @@ impl Vdp {
     }
 
     fn read_color_ram_word(&self, address: u8) -> u16 {
-        if self.registers.version.is_master_system() {
-            self.color_ram[address as usize].into()
-        } else {
-            // Game Gear
-            u16::from_le_bytes([
+        match self.registers.version.hardware() {
+            SmsGgHardware::MasterSystem => self.color_ram[address as usize].into(),
+            SmsGgHardware::GameGear => u16::from_le_bytes([
                 self.color_ram[(2 * address) as usize],
                 self.color_ram[(2 * address + 1) as usize],
-            ])
+            ]),
+            SmsGgHardware::Sg1000 => {
+                // SG-1000 does not have CRAM
+                0xFFFF
+            }
         }
     }
 
     fn read_name_table_word(&self, row: u16, col: u16) -> BgTileData {
         let base_name_table_addr = match self.registers.mode {
-            // Mask out bit 10 (only used by legacy modes)
-            Mode::Four | Mode::GraphicsII => self.registers.base_name_table_address & 0xF800,
             // Mask out bit 11 and offset by $0700
             Mode::Four224Line => (self.registers.base_name_table_address & 0xF000) | 0x0700,
+            // Mask out bit 10 (only used by legacy modes)
+            _ => self.registers.base_name_table_address & 0xF800,
         };
         let name_table_addr = (base_name_table_addr + (row << 6) + (col << 1))
             & self.registers.name_table_address_mask;
@@ -965,9 +1006,13 @@ impl Vdp {
     }
 
     fn render_scanline(&mut self, scanline: u16) {
-        if self.registers.mode == Mode::GraphicsII {
-            self.render_graphics_2_scanline(scanline);
-            return;
+        match self.registers.mode {
+            Mode::Text => return self.render_text_scanline(scanline),
+            Mode::GraphicsI | Mode::GraphicsII => {
+                return self.render_graphics_12_scanline(scanline, self.registers.mode);
+            }
+            Mode::Multicolor => return self.render_multicolor_scanline(scanline),
+            Mode::Four | Mode::Four224Line => {}
         }
 
         let frame_buffer_row = self.frame_buffer_row(scanline);
@@ -1052,8 +1097,16 @@ impl Vdp {
     }
 
     fn backdrop_color(&self) -> u16 {
-        // Backdrop color always reads from the second half of CRAM (sprite colors)
-        self.read_color_ram_word(0x10 | self.registers.backdrop_color)
+        match self.registers.version.hardware() {
+            SmsGgHardware::MasterSystem | SmsGgHardware::GameGear => {
+                // Backdrop color always reads from the second half of CRAM (sprite colors)
+                self.read_color_ram_word(0x10 | self.registers.backdrop_color)
+            }
+            SmsGgHardware::Sg1000 => {
+                let color_table = tms9918::color_table(self.registers.version.hardware());
+                color_table[self.registers.backdrop_color as usize].into()
+            }
+        }
     }
 
     fn trace_log_current_state(&self) {
@@ -1220,6 +1273,10 @@ impl Vdp {
     }
 
     fn per_line_sprite_processing(&mut self, active_scanlines: u16, scanlines_per_frame: u16) {
+        if !matches!(self.registers.mode, Mode::Four | Mode::Four224Line) {
+            return;
+        }
+
         self.sprite_buffer.clear();
         self.sprite_line_buffer.clear();
 
@@ -1253,12 +1310,7 @@ impl Vdp {
     }
 
     fn fill_vertical_border(&mut self) {
-        let backdrop_color = match self.registers.mode {
-            Mode::Four | Mode::Four224Line => self.backdrop_color(),
-            Mode::GraphicsII => {
-                tms9918::TMS9918_COLOR_TO_SMS_COLOR[self.registers.backdrop_color as usize].into()
-            }
-        };
+        let backdrop_color = self.backdrop_color();
 
         let ViewportSize { top_border_height, height, bottom_border_height, .. } =
             self.frame_buffer.viewport;
@@ -1316,20 +1368,6 @@ impl Vdp {
         };
 
         let v_counter = match (self.registers.version.timing_mode(), self.registers.mode) {
-            (TimingMode::Ntsc, Mode::Four | Mode::GraphicsII) => {
-                if scanline <= 0xDA {
-                    scanline as u8
-                } else {
-                    (scanline - 6) as u8
-                }
-            }
-            (TimingMode::Pal, Mode::Four | Mode::GraphicsII) => {
-                if scanline <= 0xF2 {
-                    scanline as u8
-                } else {
-                    (scanline - 57) as u8
-                }
-            }
             (TimingMode::Ntsc, Mode::Four224Line) => {
                 if scanline <= 0xEA {
                     scanline as u8
@@ -1342,6 +1380,20 @@ impl Vdp {
                     scanline as u8
                 } else if scanline <= 0x102 {
                     (scanline - 0x100) as u8
+                } else {
+                    (scanline - 57) as u8
+                }
+            }
+            (TimingMode::Ntsc, _) => {
+                if scanline <= 0xDA {
+                    scanline as u8
+                } else {
+                    (scanline - 6) as u8
+                }
+            }
+            (TimingMode::Pal, _) => {
+                if scanline <= 0xF2 {
+                    scanline as u8
                 } else {
                     (scanline - 57) as u8
                 }
@@ -1436,4 +1488,8 @@ pub fn gg_color_to_rgb(color: u16) -> Color {
     let g = convert_gg_color((color >> 4) & 0x0F);
     let b = convert_gg_color((color >> 8) & 0x0F);
     Color::rgb(r, g, b)
+}
+
+pub fn convert_sg_color(color: u16) -> Color {
+    tms9918::TMS9918_COLOR_TO_RGB8[(color & 0xF) as usize]
 }

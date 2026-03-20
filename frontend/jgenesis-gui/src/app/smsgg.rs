@@ -286,6 +286,12 @@ impl App {
                             "SMS1 / Game Gear",
                         )
                         .on_hover_text("SMS1 and Game Gear PSGs correctly play high volumes");
+                        ui.radio_value(
+                            &mut self.config.smsgg.psg_version,
+                            Some(Sn76489Version::Discrete),
+                            "SG-1000",
+                        )
+                        .on_hover_text("SG-1000 PSG has a slightly different white noise sound");
                     });
                 })
                 .response

@@ -1,22 +1,29 @@
 use crate::vdp::{VRAM_LEN, Vdp, convert_gg_color, convert_sms_color, get_color_id};
 
+use crate::SmsGgHardware;
 use jgenesis_common::frontend::Color;
 
 impl Vdp {
     pub fn copy_cram(&self, out: &mut [Color]) {
-        if self.registers.version.is_master_system() {
-            for (out_color, &cram_byte) in out.iter_mut().zip(&self.color_ram[..32]) {
-                *out_color = sms_color_to_rgb(cram_byte);
+        match self.registers.version.hardware() {
+            SmsGgHardware::MasterSystem => {
+                for (out_color, &cram_byte) in out.iter_mut().zip(&self.color_ram[..32]) {
+                    *out_color = sms_color_to_rgb(cram_byte);
+                }
             }
-        } else {
-            // Game Gear
-            let colors_iter = self
-                .color_ram
-                .chunks_exact(2)
-                .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]));
+            SmsGgHardware::GameGear => {
+                let colors_iter = self
+                    .color_ram
+                    .chunks_exact(2)
+                    .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]));
 
-            for (out_color, cram_color) in out.iter_mut().zip(colors_iter) {
-                *out_color = gg_color_to_rgb(cram_color);
+                for (out_color, cram_color) in out.iter_mut().zip(colors_iter) {
+                    *out_color = gg_color_to_rgb(cram_color);
+                }
+            }
+            SmsGgHardware::Sg1000 => {
+                // SG-1000 has no CRAM
+                out.fill(Color::BLACK);
             }
         }
     }
@@ -34,10 +41,10 @@ impl Vdp {
                     let color_id = get_color_id(tile, row as u16, col as u16, false);
                     let color = self.read_color_ram_word((palette << 4) | color_id);
 
-                    out[out_idx] = if self.registers.version.is_master_system() {
-                        sms_color_to_rgb(color as u8)
-                    } else {
-                        gg_color_to_rgb(color)
+                    out[out_idx] = match self.registers.version.hardware() {
+                        SmsGgHardware::MasterSystem => sms_color_to_rgb(color as u8),
+                        SmsGgHardware::GameGear => gg_color_to_rgb(color),
+                        SmsGgHardware::Sg1000 => todo!("SG-1000 debug VRAM"),
                     };
                 }
             }
