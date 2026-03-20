@@ -82,7 +82,7 @@ fn generate_normalized_ntsc_signal(nes_color: u8, emphasis: ColorEmphasis, phase
 }
 
 // From <https://www.nesdev.org/wiki/NTSC_video#Chroma_saturation_correction>
-const CHROMA_SATURATION_CORRECTION: f64 = 2.0 * (40.0 / 140.0) / (0.524 - 0.148);
+const CHROMA_SATURATION_CORRECTION: f64 = 2.0;
 
 const SAMPLES: u8 = 12;
 const WEIGHT: f64 = 1.0 / (SAMPLES as f64);

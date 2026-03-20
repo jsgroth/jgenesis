@@ -1,6 +1,9 @@
+mod old_default_nes_palette;
+
 use crate::AppConfig;
 use crate::input::GenericInput;
 use crate::input::mappings::HotkeyConfig;
+use nes_config::NesPalette;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
@@ -92,6 +95,10 @@ pub fn migrate_config(config: &AppConfig, config_str: &str) -> Option<AppConfig>
 
     if old_version < SemVer::new(0, 10, 2) {
         migrate_config_0_10_2(&mut new_config, config_str);
+    }
+
+    if old_version < SemVer::new(0, 11, 4) {
+        migrate_config_0_11_4(&mut new_config, config_str);
     }
 
     new_config.config_version = Some(current_config_version().into());
@@ -188,6 +195,28 @@ fn migrate_config_0_10_2(config: &mut AppConfig, config_str: &str) {
 
     config.smsgg.sms_bios_path = old_config.smsgg.bios_path;
     config.smsgg.sms_boot_from_bios = old_config.smsgg.boot_from_bios;
+}
+
+fn migrate_config_0_11_4(config: &mut AppConfig, config_str: &str) {
+    // NES default palette changed; change it if currently configured to use the old default
+    // nes.palette
+
+    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+    struct LimitedNesConfig {
+        palette: NesPalette,
+    }
+
+    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+    struct LimitedAppConfig {
+        nes: LimitedNesConfig,
+    }
+
+    let Ok(old_config) = toml::from_str::<LimitedAppConfig>(config_str) else { return };
+
+    if old_config.nes.palette == old_default_nes_palette::PALETTE {
+        log::info!("Detected old default NES palette; changing to new default");
+        config.nes.palette = NesPalette::default();
+    }
 }
 
 #[cfg(test)]
