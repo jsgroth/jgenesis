@@ -1,5 +1,4 @@
 mod audio;
-mod debug;
 mod gb;
 mod gba;
 mod genesis;
@@ -29,8 +28,7 @@ use crate::config::CommonConfig;
 use crate::fpstracker::FpsTracker;
 use crate::input::{InputEvent, InputMapper, Joysticks};
 use crate::mainloop::audio::{SdlAudioOutput, SdlAudioOutputHandle};
-use crate::mainloop::debug::{DebugFn, DebuggerWindow};
-use crate::mainloop::render::RecvFrameError;
+use crate::mainloop::render::{RecvFrameError, ThreadedRenderer};
 use crate::mainloop::runner::{
     ChangeDiscFn, RemoveDiscFn, RunnerCommand, RunnerCommandResponse, RunnerSpawnArgs, RunnerThread,
 };
@@ -107,7 +105,15 @@ impl RendererExt for WgpuRenderer<Window> {
     }
 }
 
-struct HotkeyState<Emulator> {
+type NativeDebugFn<Emulator> = DebugFn<
+    Emulator,
+    ThreadedRenderer,
+    SdlAudioOutput,
+    ThreadedInputPoller<<Emulator as EmulatorTrait>::Inputs>,
+    FsSaveWriter,
+>;
+
+struct HotkeyState<Emulator: EmulatorTrait> {
     hide_mouse_cursor: HideMouseCursor,
     save_state_slot: usize,
     paused: bool,
@@ -117,11 +123,11 @@ struct HotkeyState<Emulator> {
     debugger_window: Option<DebuggerWindow>,
     window_scale_factor: Option<f32>,
     egui_theme: EguiTheme,
-    debug_fn: DebugFn<Emulator>,
+    debug_fn: NativeDebugFn<Emulator>,
 }
 
 impl<Emulator: EmulatorTrait> HotkeyState<Emulator> {
-    fn new(common_config: &CommonConfig, debug_fn: DebugFn<Emulator>) -> Self {
+    fn new(common_config: &CommonConfig, debug_fn: NativeDebugFn<Emulator>) -> Self {
         Self {
             hide_mouse_cursor: common_config.hide_mouse_cursor,
             save_state_slot: 0,
@@ -371,7 +377,7 @@ pub(crate) struct NativeEmulatorArgs<'input, 'turbo, Emulator: EmulatorTrait> {
     pub button_mappings: ButtonMappingVec<'input, Emulator::Button>,
     pub turbo_mappings: ButtonMappingVec<'turbo, Emulator::Button>,
     pub initial_inputs: Emulator::Inputs,
-    pub debug_fn: DebugFn<Emulator>,
+    pub debug_fn: NativeDebugFn<Emulator>,
 }
 
 impl<'input, 'turbo, Emulator> NativeEmulatorArgs<'input, 'turbo, Emulator>
@@ -400,7 +406,7 @@ where
             button_mappings,
             turbo_mappings: vec![],
             initial_inputs: Emulator::Inputs::default(),
-            debug_fn: debug::null_debug_fn,
+            debug_fn: jgenesis_debugger_frontend::null_debug_fn,
         }
     }
 
@@ -417,7 +423,7 @@ where
         self
     }
 
-    pub fn with_debug_fn(mut self, debug_fn: DebugFn<Emulator>) -> Self {
+    pub fn with_debug_fn(mut self, debug_fn: NativeDebugFn<Emulator>) -> Self {
         self.debug_fn = debug_fn;
         self
     }
@@ -1040,4 +1046,6 @@ macro_rules! bincode_config {
     };
 }
 
+use crate::mainloop::input::ThreadedInputPoller;
 use bincode_config;
+use jgenesis_debugger_frontend::{DebugFn, DebuggerWindow};

@@ -1,7 +1,7 @@
 use crate::config::SnesConfig;
 
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
-use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, debug, save};
+use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, save};
 use crate::{NativeEmulator, NativeEmulatorResult, extensions};
 
 use crate::config::RomReadResult;
@@ -100,6 +100,10 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
         )
         .with_turbo_mappings(config.inputs.to_turbo_mapping_vec())
         .with_initial_inputs(initial_inputs)
-        .with_debug_fn(|| debug::partial_clone_debug_fn(debug::snes::render_fn())),
+        .with_debug_fn(|| {
+            jgenesis_debugger_frontend::partial_clone_debug_fn(
+                jgenesis_debugger_frontend::snes::render_fn(),
+            )
+        }),
     )
 }

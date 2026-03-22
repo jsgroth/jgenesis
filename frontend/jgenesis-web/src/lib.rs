@@ -260,11 +260,7 @@ impl Emulator {
         renderer: &mut R,
         audio_output: &mut A,
         save_writer: &mut S,
-    ) where
-        R::Err: Debug + Display + Send + Sync + 'static,
-        A::Err: Debug + Display + Send + Sync + 'static,
-        S::Err: Debug + Display + Send + Sync + 'static,
-    {
+    ) {
         macro_rules! run_emulator {
             ($emulator:expr, $inputs:expr) => {
                 while $emulator

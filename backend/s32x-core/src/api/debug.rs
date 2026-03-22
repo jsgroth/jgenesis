@@ -24,7 +24,7 @@ use m68000_emu::M68000;
 use sh2_emu::Sh2;
 use sh2_emu::bus::OpSize;
 use std::array;
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, SendError, Sender, TryRecvError};
@@ -336,12 +336,9 @@ impl Sega32XEmulator {
     ) -> TickResult<Sega32XError<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
-        R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
-        A::Err: Debug + Display + Send + Sync + 'static,
         I: InputPoller<GenesisInputs>,
         S: SaveWriter,
-        S::Err: Debug + Display + Send + Sync + 'static,
     {
         self.tick_inner::<true, _, _, _, _>(
             renderer,

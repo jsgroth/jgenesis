@@ -1,6 +1,5 @@
 use crate::config::CommonConfig;
 use crate::mainloop::audio::{SdlAudioOutput, SdlAudioOutputHandle};
-use crate::mainloop::debug::DebuggerRunnerProcess;
 use crate::mainloop::input::{ThreadedInputPoller, ThreadedInputPollerHandle};
 use crate::mainloop::render::{RecvFrameError, ThreadedRenderer, ThreadedRendererHandle};
 use crate::mainloop::rewind::Rewinder;
@@ -9,6 +8,7 @@ use crate::mainloop::state::SaveStatePaths;
 use crate::mainloop::{CreateEmulatorFn, CreatedEmulator, save, state};
 use crate::{NativeEmulatorError, NativeEmulatorResult, SaveStateMetadata};
 use jgenesis_common::frontend::{AudioOutput, EmulatorTrait, Renderer, SaveWriter, TickEffect};
+use jgenesis_debugger_frontend::DebuggerRunnerProcess;
 use jgenesis_native_config::common::WindowSize;
 use std::error::Error;
 use std::path::PathBuf;
@@ -37,7 +37,7 @@ pub enum RunnerCommand<Emulator: EmulatorTrait> {
     SaveState { slot: usize },
     LoadState { slot: usize },
     ReloadConfig(Box<(CommonConfig, Emulator::Config)>),
-    StartDebugger(Box<dyn DebuggerRunnerProcess<Emulator>>),
+    StartDebugger(Box<NativeDebuggerRunnerProcess<Emulator>>),
     StopDebugger,
 }
 
@@ -50,6 +50,14 @@ pub enum RunnerCommandResponse {
     ChangeDiscSucceeded { window_title: String },
     ChangeDiscFailed(Box<dyn Error + Send + Sync + 'static>),
 }
+
+pub type NativeDebuggerRunnerProcess<Emulator> = dyn DebuggerRunnerProcess<
+        Emulator,
+        ThreadedRenderer,
+        SdlAudioOutput,
+        ThreadedInputPoller<<Emulator as EmulatorTrait>::Inputs>,
+        FsSaveWriter,
+    >;
 
 struct RunnerThreadState<Emulator: EmulatorTrait> {
     emulator: Emulator,
@@ -72,7 +80,7 @@ struct RunnerThreadState<Emulator: EmulatorTrait> {
     rewinder: Rewinder<Emulator>,
     change_disc_fn: ChangeDiscFn<Emulator>,
     remove_disc_fn: RemoveDiscFn<Emulator>,
-    debugger_process: Option<Box<dyn DebuggerRunnerProcess<Emulator>>>,
+    debugger_process: Option<Box<NativeDebuggerRunnerProcess<Emulator>>>,
 }
 
 impl<Emulator: EmulatorTrait> RunnerThreadState<Emulator> {

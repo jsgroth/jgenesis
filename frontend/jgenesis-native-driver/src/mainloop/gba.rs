@@ -1,6 +1,6 @@
 use crate::config::{GameBoyAdvanceConfig, RomReadResult};
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
-use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, debug, file_name_no_ext, save};
+use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, file_name_no_ext, save};
 use crate::{NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
 use gba_config::{GbaInputs, SolarSensorState};
 use gba_core::api::GameBoyAdvanceEmulator;
@@ -101,6 +101,10 @@ pub fn create_gba(config: Box<GameBoyAdvanceConfig>) -> NativeEmulatorResult<Nat
         )
         .with_turbo_mappings(config.inputs.to_turbo_mapping_vec())
         .with_initial_inputs(initial_inputs)
-        .with_debug_fn(|| debug::partial_clone_debug_fn(debug::gba::render_fn())),
+        .with_debug_fn(|| {
+            jgenesis_debugger_frontend::partial_clone_debug_fn(
+                jgenesis_debugger_frontend::gba::render_fn(),
+            )
+        }),
     )
 }

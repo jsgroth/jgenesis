@@ -3,24 +3,15 @@ mod sh2debug;
 mod widgets;
 mod z80debug;
 
-use crate::mainloop::audio::SdlAudioOutput;
-use crate::mainloop::debug;
-use crate::mainloop::debug::genesis::m68kdebug::{
+use crate::genesis::m68kdebug::{
     Genesis68kMemoryMap, M68kBreakCommand, M68kDebugWindowState, S32XMemoryMap,
     SegaCdMainMemoryMap, SegaCdSubMemoryMap,
 };
-use crate::mainloop::debug::genesis::sh2debug::Sh2DebugWindowState;
-use crate::mainloop::debug::genesis::z80debug::{
-    GenesisZ80MemoryMap, Z80BreakCommand, Z80DebugWindowState,
-};
-use crate::mainloop::debug::memviewer::MemoryViewerState;
-use crate::mainloop::debug::{
-    DebugRenderContext, DebuggerMainProcess, DebuggerRunnerProcess, memviewer,
-};
-use crate::mainloop::input::ThreadedInputPoller;
-use crate::mainloop::render::ThreadedRenderer;
-use crate::mainloop::runner::RunTillNextErr;
-use crate::mainloop::save::FsSaveWriter;
+use crate::genesis::sh2debug::Sh2DebugWindowState;
+use crate::genesis::z80debug::{GenesisZ80MemoryMap, Z80BreakCommand, Z80DebugWindowState};
+use crate::memviewer::MemoryViewerState;
+use crate::process::{DebuggerProcesses, RunTillNextResult};
+use crate::{DebugRenderContext, DebuggerMainProcess, DebuggerRunnerProcess, memviewer};
 use egui::panel::TopBottomSide;
 use egui::scroll_area::ScrollBarVisibility;
 use egui::{TopBottomPanel, UiKind, Vec2, Window};
@@ -34,7 +25,9 @@ use genesis_core::api::debug::{
 };
 use genesis_core::vdp::ColorModifier;
 use jgenesis_common::debug::{DebugMemoryView, DebugViewWithWriteHook, Endian};
-use jgenesis_common::frontend::{Color, TickEffect};
+use jgenesis_common::frontend::{
+    AudioOutput, Color, InputPoller, Renderer, SaveWriter, TickEffect,
+};
 use jgenesis_common::sync::{SharedVarReceiver, SharedVarSender};
 use s32x_core::WhichCpu;
 use s32x_core::api::Sega32XEmulator;
@@ -359,7 +352,8 @@ impl GenesisBasedDebugState<'_> {
     }
 }
 
-pub type GenesisDebugRenderFn = dyn FnMut(DebugRenderContext<'_>, &mut GenesisBasedDebugState<'_>);
+pub(crate) type GenesisDebugRenderFn =
+    dyn FnMut(DebugRenderContext<'_>, &mut GenesisBasedDebugState<'_>);
 
 pub(crate) fn render_fn(
     memory_edit_hook: Box<dyn FnMut(MemoryArea, usize, u8)>,
@@ -513,7 +507,7 @@ fn render(
 
     render_vdp_registers_window(ctx.egui_ctx, debug_state, &mut state.vdp_registers_open);
 
-    let screen_width = debug::screen_width(ctx.egui_ctx);
+    let screen_width = crate::screen_width(ctx.egui_ctx);
 
     render_cram_window(ctx.egui_ctx, screen_width, debug_state, &mut state.cram);
     render_vram_window(ctx.egui_ctx, screen_width, debug_state, &mut state.vram);
@@ -758,7 +752,7 @@ fn render_cram_window(
         let width = height * 4.0;
 
         let texture =
-            debug::update_egui_texture(ctx, [16, 4], state.buffer.as_slice(), &mut state.texture);
+            crate::update_egui_texture(ctx, [16, 4], state.buffer.as_slice(), &mut state.texture);
         ui.image((texture, Vec2::new(width, height)));
     });
 }
@@ -786,7 +780,7 @@ fn render_vram_window(
         }
         let width = height * 2.0;
 
-        let texture = debug::update_egui_texture(
+        let texture = crate::update_egui_texture(
             ctx,
             [64 * 8, 32 * 8],
             state.buffer.as_slice(),
@@ -804,7 +798,7 @@ fn render_h_scroll_window(
     Window::new("H Scroll Table").default_width(200.0).open(&mut state.open).show(ctx, |ui| {
         emu_state.copy_h_scroll(state.buffer.as_mut_slice());
 
-        debug::brighten_faint_bg_color(ui);
+        crate::brighten_faint_bg_color(ui);
 
         TableBuilder::new(ui)
             .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
@@ -863,7 +857,7 @@ fn render_sprite_attributes_window(
                 (0, 0)
             };
 
-            debug::brighten_faint_bg_color(ui);
+            crate::brighten_faint_bg_color(ui);
 
             TableBuilder::new(ui)
                 .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
@@ -932,7 +926,7 @@ fn render_32x_palette_window(
                 size = ui.available_height();
             }
 
-            let texture = debug::update_egui_texture(
+            let texture = crate::update_egui_texture(
                 ctx,
                 [16, 16],
                 state.buffer.as_slice(),
@@ -948,8 +942,8 @@ fn render_vdp_registers_window(
     emu_state: &mut GenesisBasedDebugState<'_>,
     open: &mut bool,
 ) {
-    debug::render_registers_window(ctx, "VDP Registers", open, |ui| {
-        emu_state.dump_vdp_registers(debug::dump_registers_callback(ui));
+    crate::render_registers_window(ctx, "VDP Registers", open, |ui| {
+        emu_state.dump_vdp_registers(crate::dump_registers_callback(ui));
     });
 }
 
@@ -958,8 +952,8 @@ fn render_32x_system_registers_window(
     emu_state: &mut Sega32XDebugState,
     open: &mut bool,
 ) {
-    debug::render_registers_window(ctx, "32X System Registers", open, |ui| {
-        emu_state.dump_32x_system_registers(debug::dump_registers_callback(ui));
+    crate::render_registers_window(ctx, "32X System Registers", open, |ui| {
+        emu_state.dump_32x_system_registers(crate::dump_registers_callback(ui));
     });
 }
 
@@ -968,8 +962,8 @@ fn render_32x_vdp_registers_window(
     emu_state: &mut Sega32XDebugState,
     open: &mut bool,
 ) {
-    debug::render_registers_window(ctx, "32X VDP Registers", open, |ui| {
-        emu_state.dump_32x_vdp_registers(debug::dump_registers_callback(ui));
+    crate::render_registers_window(ctx, "32X VDP Registers", open, |ui| {
+        emu_state.dump_32x_vdp_registers(crate::dump_registers_callback(ui));
     });
 }
 
@@ -978,8 +972,8 @@ fn render_32x_pwm_registers_window(
     emu_state: &mut Sega32XDebugState,
     open: &mut bool,
 ) {
-    debug::render_registers_window(ctx, "32X PWM Registers", open, |ui| {
-        emu_state.dump_pwm_registers(debug::dump_registers_callback(ui));
+    crate::render_registers_window(ctx, "32X PWM Registers", open, |ui| {
+        emu_state.dump_pwm_registers(crate::dump_registers_callback(ui));
     });
 }
 
@@ -988,7 +982,13 @@ struct GenesisDebugRunnerProcess {
     debugger: GenesisDebugger,
 }
 
-impl DebuggerRunnerProcess<GenesisEmulator> for GenesisDebugRunnerProcess {
+impl<R, A, I, S> DebuggerRunnerProcess<GenesisEmulator, R, A, I, S> for GenesisDebugRunnerProcess
+where
+    R: Renderer,
+    A: AudioOutput,
+    I: InputPoller<GenesisInputs>,
+    S: SaveWriter,
+{
     fn run(
         &mut self,
         emulator: &mut GenesisEmulator,
@@ -1002,11 +1002,11 @@ impl DebuggerRunnerProcess<GenesisEmulator> for GenesisDebugRunnerProcess {
     fn run_emulator_till_next_frame(
         &mut self,
         emulator: &mut GenesisEmulator,
-        renderer: &mut ThreadedRenderer,
-        audio_output: &mut SdlAudioOutput,
-        input_poller: &mut ThreadedInputPoller<GenesisInputs>,
-        save_writer: &mut FsSaveWriter,
-    ) -> Result<(), RunTillNextErr<GenesisEmulator>> {
+        renderer: &mut R,
+        audio_output: &mut A,
+        input_poller: &mut I,
+        save_writer: &mut S,
+    ) -> RunTillNextResult<GenesisEmulator, R::Err, A::Err, S::Err> {
         while emulator.debug_tick(
             renderer,
             audio_output,
@@ -1038,8 +1038,14 @@ impl DebuggerMainProcess for GenesisDebugMainProcess {
     }
 }
 
-pub fn genesis_debug_fn()
--> (Box<dyn DebuggerRunnerProcess<GenesisEmulator>>, Box<dyn DebuggerMainProcess>) {
+#[must_use]
+pub fn genesis_debug_fn<R, A, I, S>() -> DebuggerProcesses<GenesisEmulator, R, A, I, S>
+where
+    R: Renderer,
+    A: AudioOutput,
+    I: InputPoller<GenesisInputs>,
+    S: SaveWriter,
+{
     let (state_sender, state_receiver) = jgenesis_common::sync::new_shared_var();
     let (debugger, debugger_handle) = GenesisDebugger::new(state_sender.clone());
 
@@ -1072,7 +1078,13 @@ struct SegaCdDebugRunnerProcess {
     debugger: SegaCdDebugger,
 }
 
-impl DebuggerRunnerProcess<SegaCdEmulator> for SegaCdDebugRunnerProcess {
+impl<R, A, I, S> DebuggerRunnerProcess<SegaCdEmulator, R, A, I, S> for SegaCdDebugRunnerProcess
+where
+    R: Renderer,
+    A: AudioOutput,
+    I: InputPoller<GenesisInputs>,
+    S: SaveWriter,
+{
     fn run(
         &mut self,
         emulator: &mut SegaCdEmulator,
@@ -1101,8 +1113,14 @@ impl DebuggerMainProcess for SegaCdDebugMainProcess {
     }
 }
 
-pub fn sega_cd_debug_fn()
--> (Box<dyn DebuggerRunnerProcess<SegaCdEmulator>>, Box<dyn DebuggerMainProcess>) {
+#[must_use]
+pub fn sega_cd_debug_fn<R, A, I, S>() -> DebuggerProcesses<SegaCdEmulator, R, A, I, S>
+where
+    R: Renderer,
+    A: AudioOutput,
+    I: InputPoller<GenesisInputs>,
+    S: SaveWriter,
+{
     let (state_sender, state_receiver) = jgenesis_common::sync::new_shared_var();
     let (debugger, command_sender) = SegaCdDebugger::new();
 
@@ -1136,7 +1154,13 @@ struct Sega32XDebugRunnerProcess {
     debugger: Sega32XDebugger,
 }
 
-impl DebuggerRunnerProcess<Sega32XEmulator> for Sega32XDebugRunnerProcess {
+impl<R, A, I, S> DebuggerRunnerProcess<Sega32XEmulator, R, A, I, S> for Sega32XDebugRunnerProcess
+where
+    R: Renderer,
+    A: AudioOutput,
+    I: InputPoller<GenesisInputs>,
+    S: SaveWriter,
+{
     fn run(
         &mut self,
         emulator: &mut Sega32XEmulator,
@@ -1150,11 +1174,11 @@ impl DebuggerRunnerProcess<Sega32XEmulator> for Sega32XDebugRunnerProcess {
     fn run_emulator_till_next_frame(
         &mut self,
         emulator: &mut Sega32XEmulator,
-        renderer: &mut ThreadedRenderer,
-        audio_output: &mut SdlAudioOutput,
-        input_poller: &mut ThreadedInputPoller<GenesisInputs>,
-        save_writer: &mut FsSaveWriter,
-    ) -> Result<(), RunTillNextErr<Sega32XEmulator>> {
+        renderer: &mut R,
+        audio_output: &mut A,
+        input_poller: &mut I,
+        save_writer: &mut S,
+    ) -> RunTillNextResult<Sega32XEmulator, R::Err, A::Err, S::Err> {
         while emulator.debug_tick(
             renderer,
             audio_output,
@@ -1186,8 +1210,14 @@ impl DebuggerMainProcess for Sega32XDebugMainProcess {
     }
 }
 
-pub fn sega_32x_debug_fn()
--> (Box<dyn DebuggerRunnerProcess<Sega32XEmulator>>, Box<dyn DebuggerMainProcess>) {
+#[must_use]
+pub fn sega_32x_debug_fn<R, A, I, S>() -> DebuggerProcesses<Sega32XEmulator, R, A, I, S>
+where
+    R: Renderer,
+    A: AudioOutput,
+    I: InputPoller<GenesisInputs>,
+    S: SaveWriter,
+{
     let (state_sender, state_receiver) = jgenesis_common::sync::new_shared_var();
     let (debugger, debugger_handle) = Sega32XDebugger::new(state_sender.clone());
 

@@ -1,7 +1,7 @@
 use crate::config::GameBoyConfig;
 use crate::config::RomReadResult;
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
-use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, debug, file_name_no_ext, save};
+use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, file_name_no_ext, save};
 use crate::{NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
 use gb_core::api::{BootRoms, GameBoyEmulator};
 use jgenesis_native_config::common::WindowSize;
@@ -88,7 +88,11 @@ pub fn create_gb(config: Box<GameBoyConfig>) -> NativeEmulatorResult<NativeGameB
             config.inputs.to_mapping_vec(),
         )
         .with_turbo_mappings(config.inputs.to_turbo_mapping_vec())
-        .with_debug_fn(|| debug::partial_clone_debug_fn(debug::gb::render_fn())),
+        .with_debug_fn(|| {
+            jgenesis_debugger_frontend::partial_clone_debug_fn(
+                jgenesis_debugger_frontend::gb::render_fn(),
+            )
+        }),
     )
 }
 

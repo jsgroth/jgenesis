@@ -2,7 +2,7 @@ use crate::config::SmsGgConfig;
 use std::fs;
 
 use crate::mainloop::save::FsSaveWriter;
-use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, debug, file_name_no_ext, save};
+use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, file_name_no_ext, save};
 use crate::{NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
 
 use jgenesis_native_config::common::WindowSize;
@@ -183,7 +183,11 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
             config.inputs.to_mapping_vec(),
         )
         .with_turbo_mappings(config.inputs.to_turbo_mapping_vec())
-        .with_debug_fn(|| debug::partial_clone_debug_fn(debug::smsgg::render_fn())),
+        .with_debug_fn(|| {
+            jgenesis_debugger_frontend::partial_clone_debug_fn(
+                jgenesis_debugger_frontend::smsgg::render_fn(),
+            )
+        }),
     )
 }
 

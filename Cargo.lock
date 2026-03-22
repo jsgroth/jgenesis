@@ -2315,6 +2315,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "jgenesis-debugger-frontend"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "egui",
+ "egui-sdl3-platform",
+ "egui-wgpu",
+ "egui_extras",
+ "gb-core",
+ "gba-core",
+ "genesis-config",
+ "genesis-core",
+ "jgenesis-common",
+ "jgenesis-native-config",
+ "jgenesis-renderer",
+ "log",
+ "m68000-emu",
+ "nes-core",
+ "pollster",
+ "rfd",
+ "s32x-core",
+ "sdl3",
+ "segacd-core",
+ "sh2-emu",
+ "smsgg-core",
+ "snes-core",
+ "thiserror 2.0.18",
+ "wgpu",
+ "z80-emu",
+]
+
+[[package]]
 name = "jgenesis-gui"
 version = "0.11.3"
 dependencies = [
@@ -2396,6 +2428,7 @@ dependencies = [
  "genesis-config",
  "genesis-core",
  "jgenesis-common",
+ "jgenesis-debugger-frontend",
  "jgenesis-native-config",
  "jgenesis-proc-macros",
  "jgenesis-renderer",

@@ -188,12 +188,9 @@ impl Sega32XEmulator {
     ) -> TickResult<Sega32XError<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
-        R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
-        A::Err: Debug + Display + Send + Sync + 'static,
         I: InputPoller<GenesisInputs>,
         S: SaveWriter,
-        S::Err: Debug + Display + Send + Sync + 'static,
     {
         self.input.set_inputs(*input_poller.poll());
 
@@ -333,12 +330,9 @@ impl EmulatorTrait for Sega32XEmulator {
     ) -> TickResult<Self::Err<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
-        R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
-        A::Err: Debug + Display + Send + Sync + 'static,
         I: InputPoller<Self::Inputs>,
         S: SaveWriter,
-        S::Err: Debug + Display + Send + Sync + 'static,
     {
         self.tick_inner::<false, _, _, _, _>(
             renderer,

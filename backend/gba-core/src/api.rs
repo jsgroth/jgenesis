@@ -290,12 +290,9 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
     ) -> TickResult<Self::Err<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
-        R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
-        A::Err: Debug + Display + Send + Sync + 'static,
         I: InputPoller<Self::Inputs>,
         S: SaveWriter,
-        S::Err: Debug + Display + Send + Sync + 'static,
     {
         let inputs = *input_poller.poll();
 

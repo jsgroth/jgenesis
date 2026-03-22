@@ -285,12 +285,9 @@ impl GenesisEmulator {
     ) -> TickResult<GenesisError<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
-        R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
-        A::Err: Debug + Display + Send + Sync + 'static,
         I: InputPoller<GenesisInputs>,
         S: SaveWriter,
-        S::Err: Debug + Display + Send + Sync + 'static,
     {
         self.input.set_inputs(*input_poller.poll());
 
@@ -392,12 +389,9 @@ impl GenesisEmulator {
     ) -> TickResult<GenesisError<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
-        R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
-        A::Err: Debug + Display + Send + Sync + 'static,
         I: InputPoller<GenesisInputs>,
         S: SaveWriter,
-        S::Err: Debug + Display + Send + Sync + 'static,
     {
         self.tick_inner::<true, _, _, _, _>(
             renderer,
@@ -464,12 +458,9 @@ impl EmulatorTrait for GenesisEmulator {
     ) -> GenesisResult<R::Err, A::Err, S::Err>
     where
         R: Renderer,
-        R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
-        A::Err: Debug + Display + Send + Sync + 'static,
         I: InputPoller<Self::Inputs>,
         S: SaveWriter,
-        S::Err: Debug + Display + Send + Sync + 'static,
     {
         self.tick_inner::<false, _, _, _, _>(
             renderer,

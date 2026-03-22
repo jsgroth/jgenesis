@@ -1,5 +1,4 @@
-use crate::mainloop::debug;
-use crate::mainloop::debug::{DebugRenderContext, DebugRenderFn, SelectableButton};
+use crate::{DebugRenderContext, DebugRenderFn, SelectableButton};
 use egui::{CentralPanel, ScrollArea, Vec2};
 use jgenesis_common::frontend::Color;
 use nes_core::api::{NesEmulator, PatternTable};
@@ -41,6 +40,7 @@ impl State {
     }
 }
 
+#[must_use]
 pub fn render_fn() -> Box<DebugRenderFn<NesEmulator>> {
     let mut state = State::new();
     Box::new(move |ctx, emulator| render(ctx, emulator, &mut state))
@@ -51,7 +51,7 @@ fn render(mut ctx: DebugRenderContext<'_>, emulator: &mut NesEmulator, state: &m
     update_oam_texture(&mut ctx, emulator, state);
     update_palette_ram_texture(&mut ctx, emulator, state);
 
-    let screen_width = debug::screen_width(ctx.egui_ctx);
+    let screen_width = crate::screen_width(ctx.egui_ctx);
 
     CentralPanel::default().show(ctx.egui_ctx, |ui| {
         ui.horizontal(|ui| {
@@ -137,7 +137,7 @@ fn update_nametables_texture(
     }
 
     if state.nametables_texture.is_none() {
-        let (wgpu_texture, egui_texture) = debug::create_texture(
+        let (wgpu_texture, egui_texture) = crate::create_texture(
             "debug_nes_nametables",
             2 * 256,
             2 * 240,
@@ -150,7 +150,7 @@ fn update_nametables_texture(
     let (wgpu_texture, egui_texture) = state.nametables_texture.as_ref().unwrap();
     let egui_texture = *egui_texture;
 
-    debug::write_textures(
+    crate::write_textures(
         wgpu_texture,
         egui_texture,
         bytemuck::cast_slice(&state.nametables_buffer),
@@ -169,13 +169,13 @@ fn update_oam_texture(
 
     if state.oam_texture.is_none() {
         let (wgpu_texture, egui_texture) =
-            debug::create_texture("debug_nes_oam", 8 * 8, 8 * 8, ctx.device, ctx.renderer);
+            crate::create_texture("debug_nes_oam", 8 * 8, 8 * 8, ctx.device, ctx.renderer);
         state.oam_texture = Some((wgpu_texture, egui_texture));
     }
 
     if state.oam_double_height_texture.is_none() {
         let (wgpu_texture, egui_texture) =
-            debug::create_texture("debug_nes_oam_2x", 8 * 8, 2 * 8 * 8, ctx.device, ctx.renderer);
+            crate::create_texture("debug_nes_oam_2x", 8 * 8, 2 * 8 * 8, ctx.device, ctx.renderer);
         state.oam_double_height_texture = Some((wgpu_texture, egui_texture));
     }
 
@@ -183,7 +183,7 @@ fn update_oam_texture(
         let (wgpu_texture, egui_texture) = state.oam_double_height_texture.as_ref().unwrap();
         let egui_texture = *egui_texture;
 
-        debug::write_textures(
+        crate::write_textures(
             wgpu_texture,
             egui_texture,
             bytemuck::cast_slice(&state.oam_buffer),
@@ -193,7 +193,7 @@ fn update_oam_texture(
         let (wgpu_texture, egui_texture) = state.oam_texture.as_ref().unwrap();
         let egui_texture = *egui_texture;
 
-        debug::write_textures(
+        crate::write_textures(
             wgpu_texture,
             egui_texture,
             bytemuck::cast_slice(&state.oam_buffer[..64 * 64]),
@@ -212,12 +212,12 @@ fn update_palette_ram_texture(
 
     if state.palette_ram_texture.is_none() {
         let (wgpu_texture, egui_texture) =
-            debug::create_texture("debug_nes_palette_ram", 4, 8, ctx.device, ctx.renderer);
+            crate::create_texture("debug_nes_palette_ram", 4, 8, ctx.device, ctx.renderer);
         state.palette_ram_texture = Some((wgpu_texture, egui_texture));
     }
 
     let (wgpu_texture, egui_texture) = state.palette_ram_texture.as_ref().unwrap();
     let egui_texture = *egui_texture;
 
-    debug::write_textures(wgpu_texture, egui_texture, bytemuck::cast_slice(&colors), ctx);
+    crate::write_textures(wgpu_texture, egui_texture, bytemuck::cast_slice(&colors), ctx);
 }

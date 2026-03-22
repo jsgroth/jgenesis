@@ -106,7 +106,7 @@ impl RenderFrameOptions {
 }
 
 pub trait Renderer {
-    type Err;
+    type Err: Debug + Display + Send + Sync + 'static;
 
     /// Render a frame.
     ///
@@ -133,7 +133,7 @@ pub trait Renderer {
 }
 
 pub trait AudioOutput {
-    type Err;
+    type Err: Debug + Display + Send + Sync + 'static;
 
     /// Push a stereo audio sample.
     ///
@@ -144,7 +144,7 @@ pub trait AudioOutput {
 }
 
 pub trait SaveWriter {
-    type Err;
+    type Err: Debug + Display + Send + Sync + 'static;
 
     /// Read an array of bytes using the given extension.
     ///
@@ -276,12 +276,9 @@ pub trait EmulatorTrait: Encode + Decode<()> + PartialClone + 'static {
     ) -> TickResult<Self::Err<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
-        R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
-        A::Err: Debug + Display + Send + Sync + 'static,
         I: InputPoller<Self::Inputs>,
-        S: SaveWriter,
-        S::Err: Debug + Display + Send + Sync + 'static;
+        S: SaveWriter;
 
     /// Forcibly render the current frame buffer.
     ///

@@ -290,12 +290,9 @@ impl EmulatorTrait for NesEmulator {
     ) -> TickResult<Self::Err<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
-        R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
-        A::Err: Debug + Display + Send + Sync + 'static,
         I: InputPoller<Self::Inputs>,
         S: SaveWriter,
-        S::Err: Debug + Display + Send + Sync + 'static,
     {
         let prev_in_vblank = self.ppu_state.in_vblank();
 

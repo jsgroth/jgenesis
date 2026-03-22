@@ -35,6 +35,7 @@ sh2-emu = { path = "../../cpu/sh2-emu" }
 z80-emu = { path = "../../cpu/z80-emu" }
 
 egui-sdl3-platform = { path = "../egui-sdl3-platform" }
+jgenesis-debugger-frontend = { path = "../jgenesis-debugger-frontend" }
 jgenesis-native-config = { path = "../jgenesis-native-config" }
 jgenesis-renderer = { path = "../jgenesis-renderer", features = ["serde", "ttf"] }
 

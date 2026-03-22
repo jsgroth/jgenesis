@@ -1,7 +1,7 @@
 use crate::config::NesConfig;
 
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
-use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, debug, file_name_no_ext, save};
+use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, file_name_no_ext, save};
 use crate::{NativeEmulator, NativeEmulatorResult, extensions};
 
 use nes_core::api::NesEmulator;
@@ -104,6 +104,10 @@ pub fn create_nes(config: Box<NesConfig>) -> NativeEmulatorResult<NativeNesEmula
         )
         .with_turbo_mappings(config.inputs.to_turbo_mapping_vec())
         .with_initial_inputs(initial_inputs)
-        .with_debug_fn(|| debug::partial_clone_debug_fn(debug::nes::render_fn())),
+        .with_debug_fn(|| {
+            jgenesis_debugger_frontend::partial_clone_debug_fn(
+                jgenesis_debugger_frontend::nes::render_fn(),
+            )
+        }),
     )
 }

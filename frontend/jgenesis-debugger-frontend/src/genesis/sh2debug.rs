@@ -1,4 +1,4 @@
-use crate::mainloop::debug::genesis::widgets::BreakpointsWidget;
+use crate::genesis::widgets::BreakpointsWidget;
 use egui::panel::{Side, TopBottomSide};
 use egui::{Align, Grid, LayerId, Order, RichText, TextEdit, Window};
 use egui_extras::{Column, TableBuilder};

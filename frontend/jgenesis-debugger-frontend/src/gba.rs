@@ -1,6 +1,5 @@
-use crate::mainloop::debug;
-use crate::mainloop::debug::memviewer::MemoryViewerState;
-use crate::mainloop::debug::{DebugRenderContext, DebugRenderFn, memviewer};
+use crate::memviewer::MemoryViewerState;
+use crate::{DebugRenderContext, DebugRenderFn, memviewer};
 use egui::panel::TopBottomSide;
 use egui::{TopBottomPanel, UiKind, Vec2, Window};
 use gba_core::api::GameBoyAdvanceEmulator;
@@ -48,6 +47,7 @@ impl State {
     }
 }
 
+#[must_use]
 pub fn render_fn() -> Box<DebugRenderFn<GameBoyAdvanceEmulator>> {
     let mut state = State::new();
     Box::new(move |ctx, emulator| render(ctx, emulator, &mut state))
@@ -115,7 +115,7 @@ fn render_palette_window(
     state: &mut PaletteWindowState,
 ) {
     Window::new(title).open(&mut state.open).default_size([350.0, 400.0]).show(ctx, |ui| {
-        let texture = debug::update_egui_texture(
+        let texture = crate::update_egui_texture(
             ctx,
             [16, 16],
             &buffer[state.offset..state.offset + 256],

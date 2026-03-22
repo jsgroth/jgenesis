@@ -68,6 +68,9 @@ pub struct DebuggerWindow {
 }
 
 impl DebuggerWindow {
+    /// # Errors
+    ///
+    /// Propagates any errors encountered while initializing the window or the wgpu renderer.
     pub fn new(
         video: &VideoSubsystem,
         scale_factor: Option<f32>,
@@ -76,7 +79,7 @@ impl DebuggerWindow {
         debugger_process: Box<dyn DebuggerMainProcess>,
     ) -> Result<Self, DebuggerError> {
         let scale_factor =
-            scale_factor.or_else(|| crate::try_get_primary_display_scale(video)).unwrap_or(1.0);
+            scale_factor.or_else(|| try_get_primary_display_scale(video)).unwrap_or(1.0);
         let window_width = (900.0 * scale_factor).round() as u32;
         let window_height = (790.0 * scale_factor).round() as u32;
 
@@ -165,6 +168,11 @@ impl DebuggerWindow {
         })
     }
 
+    /// Update internal state and render the debugger frontend.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any errors encountered while rendering.
     pub fn update(&mut self) -> Result<(), DebuggerError> {
         let egui_input = self.platform.take_raw_input(
             SystemTime::now().duration_since(self.start_time).unwrap_or_default().as_secs_f64(),
@@ -277,6 +285,10 @@ impl DebuggerWindow {
     pub fn window_id(&self) -> u32 {
         self.window.id()
     }
+}
+
+fn try_get_primary_display_scale(video: &VideoSubsystem) -> Option<f32> {
+    video.get_primary_display().ok().and_then(|display| display.get_content_scale().ok())
 }
 
 fn screen_width(ctx: &egui::Context) -> f32 {
