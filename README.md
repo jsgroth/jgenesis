@@ -10,6 +10,7 @@ Linux, Windows, and web (WASM) are officially supported. Other platforms may wor
   * Sega Genesis / Mega Drive
   * Sega CD / Mega CD
   * Sega 32X / Mega 32X
+  * SG-1000
   * Sega Master System / Mark III
   * Game Gear
   * Nintendo Entertainment System (NES) / Famicom

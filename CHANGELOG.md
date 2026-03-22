@@ -1,10 +1,12 @@
 # Next
 
 ## New Features
+* Added support for SG-1000 emulation
 * (**Sega CD**) Added support for CD-ROM images that store audio tracks in WAV files, if the WAV contains 44100 Hz 16-bit stereo samples (same as CD-DA)
 * (**Sega CD**) Added support for CD-ROM images that store the data track in MODE1/2048 format (e.g. most CUE/ISO/WAV images)
 
 ## Improvements
+* (**NES**) Slightly increased saturation in the default color palette and the palette generator (the previous behavior was due to a bug in NTSC-to-YUV conversion)
 * Sinc audio interpolation now uses much higher precision for the step between input samples during interpolation, which may slightly improve audio quality for the systems with higher internal sample rates (mainly GB/GBC and NES)
 
 ## Fixes
