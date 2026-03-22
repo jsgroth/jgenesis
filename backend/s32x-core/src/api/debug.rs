@@ -687,7 +687,7 @@ impl Sega32XDebugger {
     }
 
     pub(crate) fn check_z80_break_step(&mut self) -> bool {
-        check_break_step(&mut self.z80_breakpoints.step)
+        self.z80_breakpoints.check_break_step()
     }
 
     pub(crate) fn update_sh2_pc(&mut self, which: WhichCpu, pc: u32) {

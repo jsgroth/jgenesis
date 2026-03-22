@@ -234,7 +234,7 @@ pub fn render_disassembly_window<MemoryMap: M68kDebugMemoryMap>(
     memory_map: &MemoryMap,
     state: &mut M68kDebugWindowState,
     break_status: M68000BreakStatus,
-    handle_command: Option<&mut dyn FnMut(M68kBreakCommand)>,
+    handle_command: Option<impl FnMut(M68kBreakCommand)>,
 ) {
     if break_status.breaking && break_status != state.break_status_last_frame {
         state.maybe_move_disassembly_table(break_status.pc);
@@ -249,7 +249,7 @@ pub fn render_disassembly_window<MemoryMap: M68kDebugMemoryMap>(
         .resizable([true, true])
         .default_width(650.0)
         .show(ctx, |ui| {
-            if let Some(handle_command) = handle_command {
+            if let Some(mut handle_command) = handle_command {
                 TopBottomPanel::new(
                     TopBottomSide::Top,
                     format!("{}_top_panel", state.window_title),
@@ -428,26 +428,30 @@ pub fn render_disassembly_window<MemoryMap: M68kDebugMemoryMap>(
 
 pub fn render_breakpoints_window(
     ctx: &egui::Context,
+    window_title: Option<&str>,
     state: &mut M68kDebugWindowState,
     mut update_breakpoints: impl FnMut(Vec<M68000Breakpoint>),
 ) {
     let mut open = state.breakpoints_open;
-    Window::new("68000 Breakpoints").open(&mut open).resizable([true, true]).show(ctx, |ui| {
-        state.breakpoints.render(ui, |breakpoints| {
-            let m68k_breakpoints = breakpoints
-                .iter()
-                .map(|breakpoint| M68000Breakpoint {
-                    start_address: breakpoint.start_address.get(),
-                    end_address: breakpoint.end_address.get(),
-                    read: breakpoint.read,
-                    write: breakpoint.write,
-                    execute: breakpoint.execute,
-                })
-                .collect();
+    Window::new(window_title.unwrap_or("68000 Breakpoints"))
+        .open(&mut open)
+        .resizable([true, true])
+        .show(ctx, |ui| {
+            state.breakpoints.render(ui, |breakpoints| {
+                let m68k_breakpoints = breakpoints
+                    .iter()
+                    .map(|breakpoint| M68000Breakpoint {
+                        start_address: breakpoint.start_address.get(),
+                        end_address: breakpoint.end_address.get(),
+                        read: breakpoint.read,
+                        write: breakpoint.write,
+                        execute: breakpoint.execute,
+                    })
+                    .collect();
 
-            update_breakpoints(m68k_breakpoints);
+                update_breakpoints(m68k_breakpoints);
+            });
         });
-    });
     state.breakpoints_open = open;
 }
 

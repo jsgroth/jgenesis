@@ -400,6 +400,11 @@ impl M68000BreakpointManager {
         self.breakpoints = M68000Breakpoints::none();
         self.step = None;
     }
+
+    #[must_use]
+    pub fn check_break_step(&mut self) -> bool {
+        check_break_step(&mut self.step)
+    }
 }
 
 impl Default for M68000BreakpointManager {
@@ -538,6 +543,11 @@ impl Z80BreakpointManager {
         self.breakpoints = Z80Breakpoints::none();
         self.step = None;
     }
+
+    #[must_use]
+    pub fn check_break_step(&mut self) -> bool {
+        check_break_step(&mut self.step)
+    }
 }
 
 impl Default for Z80BreakpointManager {
@@ -598,12 +608,12 @@ impl GenesisDebugger {
 
     #[must_use]
     pub fn check_68k_break_step(&mut self) -> bool {
-        check_break_step(&mut self.m68k_breakpoints.step)
+        self.m68k_breakpoints.check_break_step()
     }
 
     #[must_use]
     pub fn check_z80_break_step(&mut self) -> bool {
-        check_break_step(&mut self.z80_breakpoints.step)
+        self.z80_breakpoints.check_break_step()
     }
 
     pub fn update_68k_pc(&mut self, address: u32) {

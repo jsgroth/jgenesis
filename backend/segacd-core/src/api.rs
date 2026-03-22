@@ -2,9 +2,11 @@
 
 pub mod debug;
 
+use crate::api::debug::SegaCdDebugger;
 use crate::audio::AudioResampler;
 use crate::graphics::GraphicsCoprocessor;
 use crate::memory;
+use crate::memory::debug::DebugSubBus;
 use crate::memory::{SegaCd, SubBus};
 use crate::rf5c164::Rf5c164;
 use bincode::{Decode, Encode};
@@ -12,6 +14,7 @@ use cdrom::CdRomError;
 use cdrom::reader::{CdRom, CdRomFileFormat};
 use genesis_config::{GenesisButton, GenesisRegion, PcmInterpolation};
 use genesis_core::input::InputState;
+use genesis_core::memory::debug::DebugMainBus;
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::timing::GenesisCycleCounters;
 use genesis_core::vdp::{DarkenColors, Vdp, VdpTickEffect};
@@ -19,7 +22,7 @@ use genesis_core::ym2612::Ym2612;
 use genesis_core::{GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_common::frontend::{
     AudioOutput, EmulatorConfigTrait, EmulatorTrait, InputPoller, PartialClone, Renderer,
-    SaveWriter, TickEffect, TimingMode,
+    SaveWriter, TickEffect, TickResult, TimingMode,
 };
 use jgenesis_proc_macros::ConfigDisplay;
 use m68000_emu::M68000;
@@ -262,7 +265,11 @@ impl SegaCdEmulator {
     }
 
     #[inline]
-    fn tick_sub_cpu(&mut self, mut sub_cpu_cycles: u64) {
+    fn tick_sub_cpu<const DEBUG: bool>(
+        &mut self,
+        mut sub_cpu_cycles: u64,
+        mut debugger: Option<&mut SegaCdDebugger>,
+    ) {
         if self.memory.medium().word_ram().sub_performed_blocked_access() {
             // If the sub CPU accesses word RAM while it's in 2M mode and owned by the main CPU, it
             // should halt until the main CPU writes DMNA=1 to transfer ownership to the sub CPU.
@@ -277,7 +284,21 @@ impl SegaCdEmulator {
             bus.flush_buffered_writes();
 
             let wait_cycles = self.sub_cpu_wait_cycles;
-            self.sub_cpu_wait_cycles = self.sub_cpu.execute_instruction(&mut bus).into();
+
+            self.sub_cpu_wait_cycles = if DEBUG && let Some(debugger) = &mut debugger {
+                let mut debug_bus = DebugSubBus {
+                    bus: &mut bus,
+                    debugger: debugger.for_sub_cpu(
+                        &mut self.main_cpu,
+                        &mut self.z80,
+                        &mut self.vdp,
+                    ),
+                };
+                self.sub_cpu.execute_instruction(&mut debug_bus).into()
+            } else {
+                self.sub_cpu.execute_instruction(&mut bus).into()
+            };
+
             sub_cpu_cycles -= wait_cycles;
 
             if bus.memory.medium().word_ram().sub_performed_blocked_access() {
@@ -323,30 +344,19 @@ impl SegaCdEmulator {
 
         Ok(())
     }
-}
 
-impl EmulatorTrait for SegaCdEmulator {
-    type Button = GenesisButton;
-    type Inputs = GenesisInputs;
-    type Config = SegaCdEmulatorConfig;
-
-    type Err<
-        RErr: Debug + Display + Send + Sync + 'static,
-        AErr: Debug + Display + Send + Sync + 'static,
-        SErr: Debug + Display + Send + Sync + 'static,
-    > = SegaCdError<RErr, AErr, SErr>;
-
-    fn tick<R, A, I, S>(
+    fn tick_inner<const DEBUG: bool, R, A, I, S>(
         &mut self,
         renderer: &mut R,
         audio_output: &mut A,
         input_poller: &mut I,
         save_writer: &mut S,
-    ) -> Result<TickEffect, Self::Err<R::Err, A::Err, S::Err>>
+        mut debugger: Option<&mut SegaCdDebugger>,
+    ) -> TickResult<SegaCdError<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
         A: AudioOutput,
-        I: InputPoller<Self::Inputs>,
+        I: InputPoller<GenesisInputs>,
         S: SaveWriter,
     {
         self.input.set_inputs(*input_poller.poll());
@@ -358,6 +368,12 @@ impl EmulatorTrait for SegaCdEmulator {
         let m68k_wait = main_bus.cycles.m68k_wait_cpu_cycles != 0;
         let main_cpu_cycles = if m68k_wait {
             main_bus.cycles.take_m68k_wait_cpu_cycles()
+        } else if DEBUG && let Some(debugger) = &mut debugger {
+            let mut debug_bus = DebugMainBus {
+                bus: &mut main_bus,
+                debugger: debugger.for_main_cpu(&mut self.sub_cpu, &mut self.z80, &mut self.pcm),
+            };
+            self.main_cpu.execute_instruction(&mut debug_bus)
         } else {
             self.main_cpu.execute_instruction(&mut main_bus)
         };
@@ -371,7 +387,19 @@ impl EmulatorTrait for SegaCdEmulator {
         // Z80
         while main_bus.cycles.should_tick_z80() {
             if !main_bus.cycles.z80_halt {
-                self.z80.tick(&mut main_bus);
+                if DEBUG && let Some(debugger) = &mut debugger {
+                    let mut debug_bus = DebugMainBus {
+                        bus: &mut main_bus,
+                        debugger: debugger.for_z80(
+                            &mut self.main_cpu,
+                            &mut self.sub_cpu,
+                            &mut self.pcm,
+                        ),
+                    };
+                    self.z80.tick(&mut debug_bus);
+                } else {
+                    self.z80.tick(&mut main_bus);
+                }
             }
             main_bus.cycles.decrement_z80();
         }
@@ -430,7 +458,7 @@ impl EmulatorTrait for SegaCdEmulator {
         }
 
         // Sub 68000
-        self.tick_sub_cpu(sub_cpu_cycles);
+        self.tick_sub_cpu::<DEBUG>(sub_cpu_cycles, debugger);
 
         // Input state (for 6-button controller reset)
         self.input.tick(main_cpu_cycles);
@@ -490,6 +518,40 @@ impl EmulatorTrait for SegaCdEmulator {
         self.main_bus_writes = new_main_bus!(self, m68k_reset: false).apply_writes();
 
         Ok(tick_effect)
+    }
+}
+
+impl EmulatorTrait for SegaCdEmulator {
+    type Button = GenesisButton;
+    type Inputs = GenesisInputs;
+    type Config = SegaCdEmulatorConfig;
+
+    type Err<
+        RErr: Debug + Display + Send + Sync + 'static,
+        AErr: Debug + Display + Send + Sync + 'static,
+        SErr: Debug + Display + Send + Sync + 'static,
+    > = SegaCdError<RErr, AErr, SErr>;
+
+    fn tick<R, A, I, S>(
+        &mut self,
+        renderer: &mut R,
+        audio_output: &mut A,
+        input_poller: &mut I,
+        save_writer: &mut S,
+    ) -> Result<TickEffect, Self::Err<R::Err, A::Err, S::Err>>
+    where
+        R: Renderer,
+        A: AudioOutput,
+        I: InputPoller<Self::Inputs>,
+        S: SaveWriter,
+    {
+        self.tick_inner::<false, _, _, _, _>(
+            renderer,
+            audio_output,
+            input_poller,
+            save_writer,
+            None,
+        )
     }
 
     fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>

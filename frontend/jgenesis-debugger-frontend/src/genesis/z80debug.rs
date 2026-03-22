@@ -81,7 +81,7 @@ pub fn render_disassembly_window(
     memory_map: impl Z80MemoryMap,
     state: &mut Z80DebugWindowState,
     break_status: Z80BreakStatus,
-    handle_command: Option<&mut dyn FnMut(Z80BreakCommand)>,
+    handle_command: Option<impl FnMut(Z80BreakCommand)>,
 ) {
     const WINDOW_TITLE: &str = "Z80 Disassembly";
 
@@ -96,7 +96,7 @@ pub fn render_disassembly_window(
     Window::new(WINDOW_TITLE).open(&mut open).resizable([true, true]).default_width(650.0).show(
         ctx,
         |ui| {
-            if let Some(handle_command) = handle_command {
+            if let Some(mut handle_command) = handle_command {
                 TopBottomPanel::new(TopBottomSide::Top, "z80_top_panel").show_inside(ui, |ui| {
                     ui.horizontal(|ui| {
                         if ui.button("Pause").clicked() {
