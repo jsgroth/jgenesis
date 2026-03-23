@@ -140,7 +140,7 @@ impl App {
         Window::new("SMS/GG Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             let rect = ui
                 .group(|ui| {
-                    ui.label("Master System aspect ratio");
+                    ui.label("Master System / SG-1000 aspect ratio");
 
                     ui.horizontal(|ui| {
                         ui.radio_value(
@@ -219,7 +219,7 @@ impl App {
             let rect = ui
                 .checkbox(
                     &mut self.config.smsgg.sms_crop_vertical_border,
-                    "(SMS) Crop vertical border",
+                    "(SMS/SG) Crop vertical border",
                 )
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
@@ -227,7 +227,7 @@ impl App {
             }
 
             let rect = ui
-                .checkbox(&mut self.config.smsgg.sms_crop_left_border, "(SMS) Crop left border")
+                .checkbox(&mut self.config.smsgg.sms_crop_left_border, "(SMS/SG) Crop left border")
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::SMS_CROP_LEFT_BORDER);

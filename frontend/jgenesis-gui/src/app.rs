@@ -716,7 +716,7 @@ impl App {
     fn render_settings_menu(&mut self, ui: &mut Ui) {
         ui.menu_button("Settings", |ui| {
             for (label, window) in [
-                ("SMS / Game Gear", OpenWindow::SmsGgGeneral),
+                ("SMS / Game Gear / SG", OpenWindow::SmsGgGeneral),
                 ("Genesis / Sega CD / 32X", OpenWindow::GenesisGeneral),
                 ("NES", OpenWindow::NesGeneral),
                 ("SNES", OpenWindow::SnesGeneral),
@@ -758,7 +758,7 @@ impl App {
             ui.separator();
 
             for (label, window) in [
-                ("SMS / Game Gear", OpenWindow::SmsGgVideo),
+                ("SMS / Game Gear / SG", OpenWindow::SmsGgVideo),
                 ("Genesis / Sega CD / 32X", OpenWindow::GenesisVideo),
                 ("NES", OpenWindow::NesVideo),
                 ("SNES", OpenWindow::SnesVideo),
@@ -783,7 +783,7 @@ impl App {
             ui.separator();
 
             for (label, window) in [
-                ("SMS / Game Gear", OpenWindow::SmsGgAudio),
+                ("SMS / Game Gear / SG", OpenWindow::SmsGgAudio),
                 ("Genesis / Sega CD / 32X", OpenWindow::GenesisAudio),
                 ("NES", OpenWindow::NesAudio),
                 ("SNES", OpenWindow::SnesAudio),
@@ -807,7 +807,7 @@ impl App {
 
             ui.separator();
 
-            if ui.button("SMS / Game Gear").clicked() {
+            if ui.button("SMS / Game Gear / SG").clicked() {
                 self.state.open_windows.insert(OpenWindow::SmsGgInput);
                 ui.close_menu();
             }
@@ -870,7 +870,7 @@ impl App {
     fn render_overclock_menu(&mut self, ui: &mut Ui) {
         ui.menu_button("Overclocking", |ui| {
             for (label, window) in [
-                ("SMS / Game Gear", OpenWindow::SmsGgOverclock),
+                ("SMS / Game Gear / SG", OpenWindow::SmsGgOverclock),
                 ("Genesis / Sega CD / 32X", OpenWindow::GenesisOverclock),
                 ("SNES", OpenWindow::SnesOverclock),
             ] {
