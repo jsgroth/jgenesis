@@ -436,6 +436,10 @@ impl EmulatorTrait for SmsGgEmulator {
         self.reset_frames_remaining = 0;
     }
 
+    fn save_state_version() -> &'static str {
+        "0.11.4-0"
+    }
+
     fn target_fps(&self) -> f64 {
         let timing_mode = self.vdp.timing_mode();
         let mclk_frequency = timing_mode.mclk_frequency();
