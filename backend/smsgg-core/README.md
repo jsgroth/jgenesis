@@ -1,6 +1,6 @@
 # smsgg-core
 
-Sega Master System / Game Gear emulation core.
+Sega Master System / Game Gear / SG-1000 emulation core.
 
 The Sega Master System contains the following components:
 * Z80 CPU clocked at 3.58 MHz
@@ -21,6 +21,12 @@ The Game Gear is nearly identical to the Master System hardware-wise, with a few
 * The VDP color format is changed from 6-bit RGB to 12-bit RGB, and color RAM is doubled in size to accommodate this
 * The Start/Pause button flips a bit in a register instead of generating an NMI
 * There is a new stereo sound control register that enables hard panning each of the 4 audio channels
+
+SG-1000 is the Master System's predecessor, and it differs in the following ways:
+* 1KB of working RAM instead of 8KB
+* Video processor is an actual TMS9918A, not Sega's customized version used in SMS/GG (and a later version in Genesis)
+* SN76489's noise channel has slightly different behavior in white noise mode, since it's a stock SN76489 rather than a Sega-customized chip
+* Cartridge memory mapping is much simpler; no games used memory-banking mappers
 
 This crate contains code for:
 * SMS/GG VDP

@@ -97,7 +97,7 @@ Emulation core for the Yamaha OPLL sound chip, used in the Sega Master System FM
 
 ### `smsgg-core`
 
-Emulation core for the Sega Master System and Game Gear. The core is shared because there are very few hardware differences between the two.
+Emulation core for the Sega Master System, Game Gear, and SG-1000. The core is shared because there are very few hardware differences between the three.
 
 ### `genesis-core`
 
