@@ -1,3 +1,40 @@
+//! A brief overview of the various structs involved here:
+//!
+//! * [`GenesisDebugState`] contains all data needed for the frontend to render the debugger UI,
+//!   and it owns all of its data so it can be safely sent between threads
+//!
+//! * [`GenesisEmulatorDebugView`] contains mutable references to everything that the backend needs
+//!   to access in order to process debugger commands
+//!
+//! * [`GenesisDebugger`] stores current debugger backend state (e.g. breakpoints and current PCs)
+//!
+//! * [`GenesisDebugCommand`] is an enum of debugger commands that the UI can send to the backend
+//!
+//! [`GenesisEmulatorDebugView`] does not have a mutable reference to [`GenesisEmulator`] itself
+//! because the emulator needs to construct a [`GenesisEmulatorDebugView`] when a breakpoint is
+//! tripped, at which point the debugger code has access to component mutable references but not
+//! the full emulator struct.
+//!
+//! The backend can create a [`GenesisEmulatorDebugView`] either from a [`GenesisEmulator`] value
+//! (done when processing debug commands between frames) or from mutable references to the individual
+//! components (done when handling a breakpoint).
+//!
+//! [`GenesisEmulatorDebugView`] then has a method to create a [`GenesisDebugState`] from itself by
+//! cloning all of the data that [`GenesisDebugState`] needs to own. This is done once for frame
+//! during normal execution to periodically send updated emulator state to the UI, and it's done
+//! immediately upon handling a breakpoint so that the UI sees the emulator state at the exact
+//! point where the breakpoint tripped.
+//!
+//! [`GenesisDebuggerFor68k`] and [`GenesisDebuggerForZ80`] are structs that wrap a [`GenesisDebugger`]
+//! along with mutable references to components that are not on the named CPU's bus. For example,
+//! both the 68000 and Z80 CPUs are required to construct a [`GenesisEmulatorDebugView`], so
+//! [`GenesisDebuggerFor68k`] contains a mutable reference to the Z80 CPU struct (which is not on
+//! the 68000 bus).
+//!
+//! The Sega CD and 32X versions of this code work very similarly, though the 32X version is much
+//! messier due to the need to avoid putting any lifetime parameters on the SH-2 bus struct
+//! combined with the communication port catch-up code.
+
 use crate::GenesisEmulator;
 use crate::cartridge::Cartridge;
 use crate::memory::{Memory, PhysicalMedium};
@@ -246,11 +283,6 @@ pub type GenesisEmulatorDebugView<'a> = BaseGenesisDebugView<'a, CartridgeDebugV
 
 impl GenesisEmulator {
     #[must_use]
-    pub fn to_debug_state(&self) -> GenesisDebugState {
-        GenesisDebugState::new(&self.m68k, &self.z80, &self.memory, &self.vdp)
-    }
-
-    #[must_use]
     pub fn as_debug_view(&mut self) -> GenesisEmulatorDebugView<'_> {
         GenesisEmulatorDebugView {
             m68k: &mut self.m68k,
@@ -402,6 +434,22 @@ impl M68000BreakpointManager {
     }
 
     #[must_use]
+    pub fn check_read<const WORD: bool>(&self, address: u32) -> bool {
+        self.breakpoints.check_read::<WORD>(address)
+    }
+
+    #[must_use]
+    pub fn check_write<const WORD: bool>(&self, address: u32) -> bool {
+        self.breakpoints.check_write::<WORD>(address)
+    }
+
+    #[must_use]
+    pub fn update_pc_and_check_execute(&mut self, pc: u32) -> bool {
+        self.last_pc = pc;
+        self.breakpoints.check_execute(pc)
+    }
+
+    #[must_use]
     pub fn check_break_step(&mut self) -> bool {
         check_break_step(&mut self.step)
     }
@@ -545,6 +593,22 @@ impl Z80BreakpointManager {
     }
 
     #[must_use]
+    pub fn check_read(&self, address: u16) -> bool {
+        self.breakpoints.check_read(address)
+    }
+
+    #[must_use]
+    pub fn check_write(&self, address: u16) -> bool {
+        self.breakpoints.check_write(address)
+    }
+
+    #[must_use]
+    pub fn update_pc_and_check_execute(&mut self, pc: u16) -> bool {
+        self.last_pc = pc;
+        self.breakpoints.check_execute(pc)
+    }
+
+    #[must_use]
     pub fn check_break_step(&mut self) -> bool {
         check_break_step(&mut self.step)
     }
@@ -597,13 +661,13 @@ impl GenesisDebugger {
     }
 
     #[must_use]
-    pub fn m68k_breakpoints(&self) -> &M68000Breakpoints {
-        &self.m68k_breakpoints.breakpoints
+    pub fn m68k_breakpoints(&mut self) -> &mut M68000BreakpointManager {
+        &mut self.m68k_breakpoints
     }
 
     #[must_use]
-    pub fn z80_breakpoints(&self) -> &Z80Breakpoints {
-        &self.z80_breakpoints.breakpoints
+    pub fn z80_breakpoints(&mut self) -> &mut Z80BreakpointManager {
+        &mut self.z80_breakpoints
     }
 
     #[must_use]
@@ -614,14 +678,6 @@ impl GenesisDebugger {
     #[must_use]
     pub fn check_z80_break_step(&mut self) -> bool {
         self.z80_breakpoints.check_break_step()
-    }
-
-    pub fn update_68k_pc(&mut self, address: u32) {
-        self.m68k_breakpoints.last_pc = address;
-    }
-
-    pub fn update_z80_pc(&mut self, address: u16) {
-        self.z80_breakpoints.last_pc = address;
     }
 
     pub fn process_commands(&mut self, debug_view: &mut GenesisEmulatorDebugView<'_>) {

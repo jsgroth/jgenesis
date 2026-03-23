@@ -227,12 +227,10 @@ impl Sh2Debugger for Sh2BusDebugView<'_> {
     fn check_execute(&mut self, pc: u32, _opcode: u16, cpu: &mut Sh2) {
         let which = self.0.bus.which;
 
-        unsafe {
-            self.0.debugger.debugger.as_mut().update_sh2_pc(which, pc);
-        }
+        let break_execute =
+            unsafe { self.0.debugger.debugger.as_mut().update_sh2_pc_and_check_execute(which, pc) };
 
         let break_step = self.check_break_step(which);
-        let break_execute = self.breakpoints().should_break_execute(pc);
 
         if break_execute {
             log::info!("[{which:?}] PC={pc:08X} triggered execute breakpoint");
@@ -310,8 +308,7 @@ impl MainBus68kDebugger<Sega32X> for Sega32XDebuggerFor68k<'_> {
     }
 
     fn check_execute_breakpoint(&mut self, pc: u32) -> bool {
-        self.debugger.update_68k_pc(pc);
-        self.debugger.m68k_breakpoints().check_execute(pc)
+        self.debugger.m68k_breakpoints().update_pc_and_check_execute(pc)
     }
 
     fn check_break_step(&mut self) -> bool {
@@ -336,17 +333,16 @@ impl MainBus68kDebugger<Sega32X> for Sega32XDebuggerFor68k<'_> {
 }
 
 impl MainBusZ80Debugger<Sega32X> for Sega32XDebuggerForZ80<'_> {
-    fn check_read_breakpoint(&self, address: u16) -> bool {
+    fn check_read_breakpoint(&mut self, address: u16) -> bool {
         self.debugger.z80_breakpoints().check_read(address)
     }
 
-    fn check_write_breakpoint(&self, address: u16) -> bool {
+    fn check_write_breakpoint(&mut self, address: u16) -> bool {
         self.debugger.z80_breakpoints().check_write(address)
     }
 
     fn check_execute_breakpoint(&mut self, pc: u16) -> bool {
-        self.debugger.update_z80_pc(pc);
-        self.debugger.z80_breakpoints().check_execute(pc)
+        self.debugger.z80_breakpoints().update_pc_and_check_execute(pc)
     }
 
     fn check_break_step(&mut self) -> bool {

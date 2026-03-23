@@ -95,6 +95,8 @@ impl DebuggerMainProcess for NullDebugger {
     }
 }
 
+/// Create a dummy debugger implementation that implements the required traits but does not actually
+/// do anything.
 #[must_use]
 pub fn null_debug_fn<Emulator, R, A, I, S>() -> DebuggerProcesses<Emulator, R, A, I, S>
 where
@@ -150,6 +152,11 @@ impl<Emulator: Send + Sync + 'static> DebuggerMainProcess for PartialCloneMainPr
     }
 }
 
+/// Create a debugger implementation that sends the emulator state to the debugger frontend once
+/// per frame via [`jgenesis_common::frontend::PartialClone::partial_clone`].
+///
+/// This implementation does not support mutating emulator state or sending commands to the emulator
+/// runner thread. `render_fn` is passed a copy of the current emulator state, not the emulator itself.
 #[must_use]
 pub fn partial_clone_debug_fn<Emulator, R, A, I, S>(
     render_fn: Box<DebugRenderFn<Emulator>>,

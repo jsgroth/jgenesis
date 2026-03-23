@@ -1,7 +1,7 @@
-//! `Renderer` implementation that delegates to another thread to perform the actual rendering
+//! [`Renderer`] implementation that delegates to another thread to perform the actual rendering
 //!
-//! When `render_frame()` is called, blocks until the other thread acknowledges that it has
-//! completed rendering
+//! When [`ThreadedRenderer::render_frame`] is called, blocks until the other thread acknowledges
+//! that it has completed rendering
 
 use jgenesis_common::frontend::{Color, FrameSize, RenderFrameOptions, Renderer};
 use std::slice;

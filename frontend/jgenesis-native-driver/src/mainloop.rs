@@ -30,7 +30,8 @@ use crate::input::{InputEvent, InputMapper, Joysticks};
 use crate::mainloop::audio::{SdlAudioOutput, SdlAudioOutputHandle};
 use crate::mainloop::render::{RecvFrameError, ThreadedRenderer};
 use crate::mainloop::runner::{
-    ChangeDiscFn, RemoveDiscFn, RunnerCommand, RunnerCommandResponse, RunnerSpawnArgs, RunnerThread,
+    ChangeDiscFn, RemoveDiscFn, RunnerCommand, RunnerCommandResponse, RunnerSpawnArgs,
+    RunnerThreadHandle,
 };
 use crate::mainloop::save::FsSaveWriter;
 pub use audio::AudioError;
@@ -175,7 +176,7 @@ pub enum NativeTickEffect {
 }
 
 pub struct NativeEmulator<Emulator: EmulatorTrait> {
-    runner: RunnerThread<Emulator>,
+    runner: RunnerThreadHandle<Emulator>,
     // Config sent from the frontend
     raw_config: Emulator::Config,
     // Config with overclocking maybe forcibly disabled due to hotkey state
@@ -476,7 +477,7 @@ where
 
         let save_writer = FsSaveWriter::new(save_path);
 
-        let runner = RunnerThread::spawn(RunnerSpawnArgs {
+        let runner = runner::spawn(RunnerSpawnArgs {
             create_emulator_fn,
             change_disc_fn,
             remove_disc_fn,
@@ -853,10 +854,10 @@ where
         match hotkey {
             Hotkey::FastForward => {
                 self.renderer.set_speed_multiplier(1);
-                self.runner.send_command(RunnerCommand::FastForward(false))?;
+                self.runner.send_command(RunnerCommand::FastForward { enabled: false })?;
             }
             Hotkey::Rewind => {
-                self.runner.send_command(RunnerCommand::Rewind(false))?;
+                self.runner.send_command(RunnerCommand::Rewind { enabled: false })?;
                 self.hotkey_state.rewinding = false;
             }
             _ => {}
@@ -890,7 +891,7 @@ where
             }
             CompactHotkey::FastForward => self.enable_fast_forward()?,
             CompactHotkey::Rewind => {
-                self.runner.send_command(RunnerCommand::Rewind(true))?;
+                self.runner.send_command(RunnerCommand::Rewind { enabled: true })?;
                 self.hotkey_state.rewinding = true;
             }
             CompactHotkey::ToggleOverclocking => self.toggle_overclocking()?,
@@ -941,7 +942,7 @@ where
 
     fn enable_fast_forward(&mut self) -> NativeEmulatorResult<()> {
         self.renderer.set_speed_multiplier(self.hotkey_state.fast_forward_multiplier);
-        self.runner.send_command(RunnerCommand::FastForward(true))
+        self.runner.send_command(RunnerCommand::FastForward { enabled: true })
     }
 
     fn toggle_overclocking(&mut self) -> NativeEmulatorResult<()> {

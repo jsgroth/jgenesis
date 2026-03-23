@@ -32,9 +32,9 @@ pub trait MainBus68kDebugger<Medium> {
 }
 
 pub trait MainBusZ80Debugger<Medium> {
-    fn check_read_breakpoint(&self, address: u16) -> bool;
+    fn check_read_breakpoint(&mut self, address: u16) -> bool;
 
-    fn check_write_breakpoint(&self, address: u16) -> bool;
+    fn check_write_breakpoint(&mut self, address: u16) -> bool;
 
     fn check_execute_breakpoint(&mut self, pc: u16) -> bool;
 
@@ -247,8 +247,7 @@ impl MainBus68kDebugger<Cartridge> for GenesisDebuggerFor68k<'_> {
     }
 
     fn check_execute_breakpoint(&mut self, pc: u32) -> bool {
-        self.debugger.update_68k_pc(pc);
-        self.debugger.m68k_breakpoints().check_execute(pc)
+        self.debugger.m68k_breakpoints().update_pc_and_check_execute(pc)
     }
 
     fn check_break_step(&mut self) -> bool {
@@ -272,17 +271,16 @@ impl MainBus68kDebugger<Cartridge> for GenesisDebuggerFor68k<'_> {
 }
 
 impl MainBusZ80Debugger<Cartridge> for GenesisDebuggerForZ80<'_> {
-    fn check_read_breakpoint(&self, address: u16) -> bool {
+    fn check_read_breakpoint(&mut self, address: u16) -> bool {
         self.debugger.z80_breakpoints().check_read(address)
     }
 
-    fn check_write_breakpoint(&self, address: u16) -> bool {
+    fn check_write_breakpoint(&mut self, address: u16) -> bool {
         self.debugger.z80_breakpoints().check_write(address)
     }
 
     fn check_execute_breakpoint(&mut self, pc: u16) -> bool {
-        self.debugger.update_z80_pc(pc);
-        self.debugger.z80_breakpoints().check_execute(pc)
+        self.debugger.z80_breakpoints().update_pc_and_check_execute(pc)
     }
 
     fn check_break_step(&mut self) -> bool {

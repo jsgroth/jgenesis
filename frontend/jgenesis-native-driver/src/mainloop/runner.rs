@@ -32,8 +32,8 @@ pub enum RunnerCommand<Emulator: EmulatorTrait> {
     ChangeDisc(PathBuf),
     RemoveDisc,
     StepFrame,
-    FastForward(bool),
-    Rewind(bool),
+    FastForward { enabled: bool },
+    Rewind { enabled: bool },
     SaveState { slot: usize },
     LoadState { slot: usize },
     ReloadConfig(Box<(CommonConfig, Emulator::Config)>),
@@ -143,7 +143,7 @@ pub struct RunnerSpawnArgs<'a, Emulator: EmulatorTrait> {
     pub save_writer: FsSaveWriter,
 }
 
-pub struct RunnerThread<Emulator: EmulatorTrait> {
+pub struct RunnerThreadHandle<Emulator: EmulatorTrait> {
     initial_window_title: String,
     default_window_size: WindowSize,
     renderer_handle: ThreadedRendererHandle,
@@ -155,103 +155,115 @@ pub struct RunnerThread<Emulator: EmulatorTrait> {
     paused: Arc<AtomicBool>,
 }
 
-impl<Emulator: EmulatorTrait> RunnerThread<Emulator> {
-    pub fn spawn(
-        RunnerSpawnArgs {
-            create_emulator_fn,
-            change_disc_fn,
-            remove_disc_fn,
-            common_config,
-            emulator_config,
-            rom_extension,
-            save_state_path,
-            initial_inputs,
-            audio_output_handle,
-            audio_output,
-            mut save_writer,
-        }: RunnerSpawnArgs<'_, Emulator>,
-    ) -> NativeEmulatorResult<Self> {
-        let (init_sender, init_receiver) = mpsc::sync_channel(0);
-        let (command_sender, command_receiver) = mpsc::channel();
-        let (response_sender, response_receiver) = mpsc::channel();
-        let (error_sender, error_receiver) = mpsc::channel();
+/// Spawn a runner thread and return a handle to it.
+///
+/// # Errors
+///
+/// Propagates any errors encountered while initializing the emulator in the runner thread.
+///
+/// If this function returns an error, the runner thread has terminated (or was not started).
+pub fn spawn<Emulator: EmulatorTrait>(
+    RunnerSpawnArgs {
+        create_emulator_fn,
+        change_disc_fn,
+        remove_disc_fn,
+        common_config,
+        emulator_config,
+        rom_extension,
+        save_state_path,
+        initial_inputs,
+        audio_output_handle,
+        audio_output,
+        mut save_writer,
+    }: RunnerSpawnArgs<'_, Emulator>,
+) -> NativeEmulatorResult<RunnerThreadHandle<Emulator>> {
+    let (init_sender, init_receiver) = mpsc::sync_channel(0);
+    let (command_sender, command_receiver) = mpsc::channel();
+    let (response_sender, response_receiver) = mpsc::channel();
+    let (error_sender, error_receiver) = mpsc::channel();
 
-        let paused = Arc::new(AtomicBool::new(false));
+    let paused = Arc::new(AtomicBool::new(false));
 
-        let (renderer, renderer_handle) = ThreadedRenderer::new();
-        let input_poller = ThreadedInputPoller::new(initial_inputs);
-        let input_poller_handle = input_poller.handle();
+    let (renderer, renderer_handle) = ThreadedRenderer::new();
+    let input_poller = ThreadedInputPoller::new(initial_inputs);
+    let input_poller_handle = input_poller.handle();
 
-        let save_state_paths = state::init_paths(&save_state_path)?;
-        let save_state_metadata = Arc::new(Mutex::new(SaveStateMetadata::load(
-            &save_state_paths,
-            Emulator::save_state_version(),
-        )));
+    let save_state_paths = state::init_paths(&save_state_path)?;
+    let save_state_metadata = Arc::new(Mutex::new(SaveStateMetadata::load(
+        &save_state_paths,
+        Emulator::save_state_version(),
+    )));
 
-        let runner_handle = {
-            let paused = Arc::clone(&paused);
-            let save_state_metadata = Arc::clone(&save_state_metadata);
+    let runner_handle = {
+        let paused = Arc::clone(&paused);
+        let save_state_metadata = Arc::clone(&save_state_metadata);
 
-            let common_config = common_config.clone();
+        let common_config = common_config.clone();
 
-            thread::spawn(move || match create_emulator_fn(&mut save_writer) {
-                Ok(CreatedEmulator { emulator, window_title, default_window_size }) => {
-                    init_sender.send(Ok((window_title, default_window_size))).unwrap();
+        thread::spawn(move || match create_emulator_fn(&mut save_writer) {
+            Ok(CreatedEmulator { emulator, window_title, default_window_size }) => {
+                init_sender.send(Ok((window_title, default_window_size))).unwrap();
 
-                    let rewinder = Rewinder::new(Duration::from_secs(
-                        common_config.rewind_buffer_length_seconds,
-                    ));
+                let rewinder =
+                    Rewinder::new(Duration::from_secs(common_config.rewind_buffer_length_seconds));
 
-                    let rom_path = common_config.rom_file_path.clone();
-                    run_thread(RunnerThreadState {
-                        emulator,
-                        renderer,
-                        audio_output,
-                        input_poller,
-                        save_writer,
-                        common_config,
-                        emulator_config,
-                        command_receiver,
-                        response_sender,
-                        error_sender,
-                        rom_path,
-                        rom_extension,
-                        base_save_state_path: save_state_path,
-                        save_state_paths,
-                        save_state_metadata,
-                        paused,
-                        step_frame: false,
-                        rewinder,
-                        change_disc_fn,
-                        remove_disc_fn,
-                        debugger_process: None,
-                    });
+                let rom_path = common_config.rom_file_path.clone();
+                run_thread(RunnerThreadState {
+                    emulator,
+                    renderer,
+                    audio_output,
+                    input_poller,
+                    save_writer,
+                    common_config,
+                    emulator_config,
+                    command_receiver,
+                    response_sender,
+                    error_sender,
+                    rom_path,
+                    rom_extension,
+                    base_save_state_path: save_state_path,
+                    save_state_paths,
+                    save_state_metadata,
+                    paused,
+                    step_frame: false,
+                    rewinder,
+                    change_disc_fn,
+                    remove_disc_fn,
+                    debugger_process: None,
+                });
 
-                    log::info!("Runner thread has terminated");
-                }
-                Err(err) => {
-                    init_sender.send(Err(err)).unwrap();
-                }
-            })
-        };
-
-        audio_output_handle.set_emulator_thread(runner_handle.thread().clone());
-
-        let (initial_window_title, default_window_size) = init_receiver.recv().unwrap()?;
-
-        Ok(Self {
-            initial_window_title,
-            default_window_size,
-            renderer_handle,
-            input_poller_handle,
-            command_sender,
-            response_receiver,
-            error_receiver,
-            save_state_metadata,
-            paused,
+                log::info!("Runner thread has terminated");
+            }
+            Err(err) => {
+                init_sender.send(Err(err)).unwrap();
+            }
         })
-    }
+    };
 
+    audio_output_handle.set_emulator_thread(runner_handle.thread().clone());
+
+    let (initial_window_title, default_window_size) = init_receiver.recv().unwrap()?;
+
+    Ok(RunnerThreadHandle {
+        initial_window_title,
+        default_window_size,
+        renderer_handle,
+        input_poller_handle,
+        command_sender,
+        response_receiver,
+        error_receiver,
+        save_state_metadata,
+        paused,
+    })
+}
+
+impl<Emulator: EmulatorTrait> RunnerThreadHandle<Emulator> {
+    /// Receive and render a pending frame if one is available. Blocks for up to `timeout`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error on timeout, if the runner thread has disconnected, or if `renderer`
+    /// returns an error rendering the received frame.
     pub fn try_recv_frame<R: Renderer>(
         &self,
         renderer: &mut R,
@@ -260,6 +272,11 @@ impl<Emulator: EmulatorTrait> RunnerThread<Emulator> {
         self.renderer_handle.try_recv_frame(renderer, timeout)
     }
 
+    /// Receive and propagate an error from the runner thread if one is available. Does not block.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if one is received or if the runner thread has disconnected.
     pub fn try_recv_error(&self) -> NativeEmulatorResult<()> {
         match self.error_receiver.try_recv() {
             Ok(err) => Err(NativeEmulatorError::Emulator(err)),
@@ -268,18 +285,30 @@ impl<Emulator: EmulatorTrait> RunnerThread<Emulator> {
         }
     }
 
+    /// Receive a command response from the runner thread if one is available. Does not block.
+    ///
+    /// The main thread should *not* wait for a response after sending a command; this is very
+    /// likely to cause a deadlock since the runner may be waiting for the main thread to receive
+    /// a frame.
     pub fn try_recv_command_response(&self) -> Option<RunnerCommandResponse> {
         self.response_receiver.try_recv().ok()
     }
 
+    /// Tell the runner thread whether it should pause emulation.
     pub fn set_paused(&self, paused: bool) {
         self.paused.store(paused, Ordering::Relaxed);
     }
 
+    /// Send updated inputs to the runner thread.
     pub fn update_inputs(&mut self, inputs: &Emulator::Inputs) {
         self.input_poller_handle.update_inputs(inputs);
     }
 
+    /// Send a command to the runner thread.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the runner thread has disconnected.
     pub fn send_command(&self, command: RunnerCommand<Emulator>) -> NativeEmulatorResult<()> {
         self.command_sender.send(command).map_err(|_| NativeEmulatorError::LostRunnerConnection)
     }
@@ -299,17 +328,15 @@ impl<Emulator: EmulatorTrait> RunnerThread<Emulator> {
 
 fn run_thread<Emulator: EmulatorTrait>(mut state: RunnerThreadState<Emulator>) {
     loop {
-        while let Ok(command) = state.command_receiver.try_recv() {
-            match handle_command(&mut state, command) {
-                Ok(CommandEffect::None) => {}
-                Ok(CommandEffect::Terminate) => return,
-                Err(CommandError::ReloadConfig(err)) => {
-                    log::error!("{err}");
-                }
-                Err(CommandError::LostConnection) => {
-                    log::error!("{}", CommandError::LostConnection);
-                    return;
-                }
+        match handle_commands(&mut state) {
+            Ok(CommandEffect::None) => {}
+            Ok(CommandEffect::Terminate) => return,
+            Err(CommandError::ReloadConfig(err)) => {
+                log::error!("{}", CommandError::ReloadConfig(err));
+            }
+            Err(CommandError::LostConnection) => {
+                log::error!("{}", CommandError::LostConnection);
+                return;
             }
         }
 
@@ -370,6 +397,21 @@ enum CommandError {
     LostConnection,
 }
 
+fn handle_commands<Emulator: EmulatorTrait>(
+    state: &mut RunnerThreadState<Emulator>,
+) -> Result<CommandEffect, CommandError> {
+    loop {
+        match state.command_receiver.try_recv() {
+            Ok(command) => match handle_command(state, command) {
+                Ok(CommandEffect::None) => {}
+                other => return other,
+            },
+            Err(TryRecvError::Empty) => return Ok(CommandEffect::None),
+            Err(TryRecvError::Disconnected) => return Err(CommandError::LostConnection),
+        }
+    }
+}
+
 fn handle_command<Emulator: EmulatorTrait>(
     state: &mut RunnerThreadState<Emulator>,
     command: RunnerCommand<Emulator>,
@@ -393,16 +435,16 @@ fn handle_command<Emulator: EmulatorTrait>(
         RunnerCommand::StepFrame => {
             state.step_frame = true;
         }
-        RunnerCommand::FastForward(true) => {
+        RunnerCommand::FastForward { enabled: true } => {
             state.audio_output.set_speed_multiplier(state.common_config.fast_forward_multiplier);
         }
-        RunnerCommand::FastForward(false) => {
+        RunnerCommand::FastForward { enabled: false } => {
             state.audio_output.set_speed_multiplier(1);
         }
-        RunnerCommand::Rewind(true) => {
+        RunnerCommand::Rewind { enabled: true } => {
             state.rewinder.start_rewinding();
         }
-        RunnerCommand::Rewind(false) => {
+        RunnerCommand::Rewind { enabled: false } => {
             state.rewinder.stop_rewinding();
         }
         RunnerCommand::SaveState { slot } => {

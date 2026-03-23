@@ -215,14 +215,6 @@ impl Sega32X {
         &mut self.s32x_bus.cartridge
     }
 
-    pub fn clone_sh2_master(&self) -> Sh2 {
-        self.sh2_master.clone()
-    }
-
-    pub fn clone_sh2_slave(&self) -> Sh2 {
-        self.sh2_slave.clone()
-    }
-
     pub fn as_debug_view(&mut self) -> Sega32XMediumView<'_> {
         Sega32XMediumView {
             cartridge: &mut self.s32x_bus.cartridge,

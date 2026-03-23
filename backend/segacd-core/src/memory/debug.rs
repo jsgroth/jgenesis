@@ -76,11 +76,9 @@ impl M68000Debugger for DebugSubBusView<'_, '_, '_, '_> {
     }
 
     fn check_execute(&mut self, pc: u32, cpu: &mut M68000) {
-        self.0.debugger.debugger.update_68k_pc(ScdCpu::Sub, pc);
-
         let break_step = self.0.debugger.debugger.check_sub_break_step();
         let break_execute =
-            self.0.debugger.debugger.m68k_breakpoints(ScdCpu::Sub).check_execute(pc);
+            self.0.debugger.debugger.m68k_breakpoints(ScdCpu::Sub).update_pc_and_check_execute(pc);
 
         if break_step || break_execute {
             if break_execute {

@@ -1028,8 +1028,9 @@ where
         &mut self,
         emulator: &mut GenesisEmulator,
     ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-        self.debugger.process_commands(&mut emulator.as_debug_view());
-        self.state_sender.update(emulator.to_debug_state());
+        let mut debug_view = emulator.as_debug_view();
+        self.debugger.process_commands(&mut debug_view);
+        self.state_sender.update(debug_view.to_debug_state());
 
         Ok(())
     }
@@ -1124,8 +1125,9 @@ where
         &mut self,
         emulator: &mut SegaCdEmulator,
     ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-        self.debugger.process_commands(&mut emulator.as_debug_view());
-        self.state_sender.update(emulator.to_debug_state());
+        let mut debug_view = emulator.as_debug_view();
+        self.debugger.process_commands(&mut debug_view);
+        self.state_sender.update(debug_view.to_debug_state());
 
         Ok(())
     }
@@ -1228,8 +1230,9 @@ where
         &mut self,
         emulator: &mut Sega32XEmulator,
     ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-        self.debugger.process_commands(&mut emulator.as_debug_view());
-        self.state_sender.update(emulator.to_debug_state());
+        let mut debug_view = emulator.as_debug_view();
+        self.debugger.process_commands(&mut debug_view);
+        self.state_sender.update(debug_view.to_debug_state());
 
         Ok(())
     }

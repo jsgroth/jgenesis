@@ -170,22 +170,6 @@ impl SegaCdEmulatorDebugView<'_> {
 
 impl SegaCdEmulator {
     #[must_use]
-    pub fn to_debug_state(&self) -> SegaCdDebugState {
-        let sega_cd = self.memory.medium();
-
-        SegaCdDebugState {
-            genesis: GenesisDebugState::new(&self.main_cpu, &self.z80, &self.memory, &self.vdp),
-            sub_cpu: self.sub_cpu.clone(),
-            bios_rom: sega_cd.bios().to_vec().into_boxed_slice(),
-            prg_ram: sega_cd.clone_prg_ram(),
-            word_ram: sega_cd.word_ram().clone(),
-            pcm: self.pcm.clone(),
-            cdc: sega_cd.clone_cdc(),
-            prg_ram_bank: self.memory.medium().prg_ram_bank(),
-        }
-    }
-
-    #[must_use]
     pub fn as_debug_view(&mut self) -> SegaCdEmulatorDebugView<'_> {
         SegaCdEmulatorDebugView {
             genesis: BaseGenesisDebugView::new(
@@ -348,30 +332,15 @@ impl SegaCdDebugger {
         }
     }
 
-    pub(crate) fn m68k_breakpoints(&self, which: ScdCpu) -> &M68000Breakpoints {
+    pub(crate) fn m68k_breakpoints(&mut self, which: ScdCpu) -> &mut M68000BreakpointManager {
         match which {
-            ScdCpu::Main => &self.main_cpu_breakpoints.breakpoints,
-            ScdCpu::Sub => &self.sub_cpu_breakpoints.breakpoints,
+            ScdCpu::Main => &mut self.main_cpu_breakpoints,
+            ScdCpu::Sub => &mut self.sub_cpu_breakpoints,
         }
-    }
-
-    pub(crate) fn z80_breakpoints(&self) -> &Z80Breakpoints {
-        &self.z80_breakpoints.breakpoints
     }
 
     pub(crate) fn check_sub_break_step(&mut self) -> bool {
         self.sub_cpu_breakpoints.check_break_step()
-    }
-
-    pub(crate) fn update_68k_pc(&mut self, which: ScdCpu, pc: u32) {
-        match which {
-            ScdCpu::Main => self.main_cpu_breakpoints.last_pc = pc,
-            ScdCpu::Sub => self.sub_cpu_breakpoints.last_pc = pc,
-        }
-    }
-
-    pub(crate) fn update_z80_pc(&mut self, pc: u16) {
-        self.z80_breakpoints.last_pc = pc;
     }
 
     pub(crate) fn for_main_cpu<'slf, 'emu, 'ret>(
@@ -478,16 +447,15 @@ pub(crate) struct SegaCdDebuggerForMainCpu<'a> {
 
 impl MainBus68kDebugger<SegaCd> for SegaCdDebuggerForMainCpu<'_> {
     fn check_read_breakpoint<const WORD: bool>(&mut self, address: u32) -> bool {
-        self.debugger.m68k_breakpoints(ScdCpu::Main).check_read::<WORD>(address)
+        self.debugger.main_cpu_breakpoints.check_read::<WORD>(address)
     }
 
     fn check_write_breakpoint<const WORD: bool>(&mut self, address: u32) -> bool {
-        self.debugger.m68k_breakpoints(ScdCpu::Main).check_write::<WORD>(address)
+        self.debugger.main_cpu_breakpoints.check_write::<WORD>(address)
     }
 
     fn check_execute_breakpoint(&mut self, pc: u32) -> bool {
-        self.debugger.update_68k_pc(ScdCpu::Main, pc);
-        self.debugger.m68k_breakpoints(ScdCpu::Main).check_execute(pc)
+        self.debugger.main_cpu_breakpoints.update_pc_and_check_execute(pc)
     }
 
     fn check_break_step(&mut self) -> bool {
@@ -521,17 +489,16 @@ pub(crate) struct SegaCdDebuggerForZ80<'a> {
 }
 
 impl MainBusZ80Debugger<SegaCd> for SegaCdDebuggerForZ80<'_> {
-    fn check_read_breakpoint(&self, address: u16) -> bool {
-        self.debugger.z80_breakpoints().check_read(address)
+    fn check_read_breakpoint(&mut self, address: u16) -> bool {
+        self.debugger.z80_breakpoints.check_read(address)
     }
 
-    fn check_write_breakpoint(&self, address: u16) -> bool {
-        self.debugger.z80_breakpoints().check_write(address)
+    fn check_write_breakpoint(&mut self, address: u16) -> bool {
+        self.debugger.z80_breakpoints.check_write(address)
     }
 
     fn check_execute_breakpoint(&mut self, pc: u16) -> bool {
-        self.debugger.update_z80_pc(pc);
-        self.debugger.z80_breakpoints().check_execute(pc)
+        self.debugger.z80_breakpoints.update_pc_and_check_execute(pc)
     }
 
     fn check_break_step(&mut self) -> bool {

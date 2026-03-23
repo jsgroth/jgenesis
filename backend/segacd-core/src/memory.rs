@@ -616,18 +616,6 @@ impl SegaCd {
         self.cdd_mut().change_disc(rom_path, format, load_disc_into_ram)
     }
 
-    pub fn clone_prg_ram(&self) -> Box<[u8]> {
-        self.prg_ram.to_vec().into_boxed_slice()
-    }
-
-    pub fn clone_cdc(&self) -> Rchip {
-        self.cdc().clone()
-    }
-
-    pub fn prg_ram_bank(&self) -> u8 {
-        self.registers.prg_ram_bank
-    }
-
     pub fn as_debug_view(&mut self) -> SegaCdMediumView<'_> {
         SegaCdMediumView {
             bios_rom: self.bios.0.as_mut_slice(),

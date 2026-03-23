@@ -1,3 +1,5 @@
+//! [`InputPoller`] implementation that receives inputs updates from another thread.
+
 use jgenesis_common::frontend::InputPoller;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};

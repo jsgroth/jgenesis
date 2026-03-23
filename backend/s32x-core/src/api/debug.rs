@@ -297,21 +297,6 @@ impl Sega32XEmulatorDebugView<'_> {
 
 impl Sega32XEmulator {
     #[must_use]
-    pub fn to_debug_state(&self) -> Sega32XDebugState {
-        let sega_32x = self.memory.medium();
-
-        Sega32XDebugState {
-            genesis: GenesisDebugState::new(&self.m68k, &self.z80, &self.memory, &self.vdp),
-            sdram: sega_32x.s32x_bus.sdram.to_vec().into_boxed_slice(),
-            sh2_master: sega_32x.clone_sh2_master(),
-            sh2_slave: sega_32x.clone_sh2_slave(),
-            system_registers: sega_32x.s32x_bus.registers.clone(),
-            s32x_vdp: sega_32x.s32x_bus.vdp.to_debug_state(),
-            pwm: sega_32x.s32x_bus.pwm.clone(),
-        }
-    }
-
-    #[must_use]
     pub fn as_debug_view(&mut self) -> Sega32XEmulatorDebugView<'_> {
         Sega32XEmulatorDebugView {
             genesis: BaseGenesisDebugView::new(
@@ -542,12 +527,12 @@ impl Sega32XDebugger {
         &self.sh2_breakpoints[which as usize]
     }
 
-    pub(crate) fn m68k_breakpoints(&self) -> &M68000Breakpoints {
-        &self.m68k_breakpoints.breakpoints
+    pub(crate) fn m68k_breakpoints(&mut self) -> &mut M68000BreakpointManager {
+        &mut self.m68k_breakpoints
     }
 
-    pub(crate) fn z80_breakpoints(&self) -> &Z80Breakpoints {
-        &self.z80_breakpoints.breakpoints
+    pub(crate) fn z80_breakpoints(&mut self) -> &mut Z80BreakpointManager {
+        &mut self.z80_breakpoints
     }
 
     pub(crate) fn for_sh2<'a>(
@@ -690,16 +675,9 @@ impl Sega32XDebugger {
         self.z80_breakpoints.check_break_step()
     }
 
-    pub(crate) fn update_sh2_pc(&mut self, which: WhichCpu, pc: u32) {
+    pub(crate) fn update_sh2_pc_and_check_execute(&mut self, which: WhichCpu, pc: u32) -> bool {
         self.last_sh2_pc[which as usize] = pc;
-    }
-
-    pub(crate) fn update_68k_pc(&mut self, pc: u32) {
-        self.m68k_breakpoints.last_pc = pc;
-    }
-
-    pub(crate) fn update_z80_pc(&mut self, pc: u16) {
-        self.z80_breakpoints.last_pc = pc;
+        self.sh2_breakpoints(which).should_break_execute(pc)
     }
 }
 
