@@ -1,6 +1,6 @@
 use crate::genesis::widgets::{BreakpointsWidget, U24};
 use egui::panel::{Side, TopBottomSide};
-use egui::{Align, CentralPanel, Grid, RichText, SidePanel, TextEdit, TopBottomPanel, Window};
+use egui::{Align, CentralPanel, Grid, RichText, SidePanel, TextEdit, TopBottomPanel, Ui, Window};
 use egui_extras::{Column, TableBuilder};
 use genesis_core::api::debug::{M68000BreakStatus, M68000Breakpoint};
 use genesis_core::cartridge::Cartridge;
@@ -241,10 +241,10 @@ impl M68kDebugMemoryMap for S32XMemoryMap<'_> {
     }
 }
 
-pub fn render_disassembly_window<MemoryMap: M68kDebugMemoryMap>(
+pub fn render_disassembly_window(
     ctx: &egui::Context,
     m68k: &M68000,
-    memory_map: &MemoryMap,
+    memory_map: impl M68kDebugMemoryMap,
     state: &mut M68kDebugWindowState,
     break_status: M68000BreakStatus,
     handle_command: Option<impl FnMut(M68kBreakCommand)>,
@@ -264,182 +264,202 @@ pub fn render_disassembly_window<MemoryMap: M68kDebugMemoryMap>(
         .default_pos(crate::rand_window_pos())
         .default_width(650.0)
         .show(ctx, |ui| {
-            if let Some(mut handle_command) = handle_command {
-                TopBottomPanel::new(
-                    TopBottomSide::Top,
-                    format!("{}_top_panel", state.disassembly_window_title),
-                )
-                .show_inside(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        if ui.button("Pause").clicked() {
-                            handle_command(M68kBreakCommand::Pause);
-                        }
-
-                        if ui.button("Resume").clicked() {
-                            handle_command(M68kBreakCommand::Resume);
-                        }
-
-                        if ui.button("Step").clicked() {
-                            handle_command(M68kBreakCommand::Step);
-                        }
-                    });
-
-                    ui.add_space(5.0);
-                });
+            if let Some(handle_command) = handle_command {
+                render_disasm_top_panel(state, handle_command, ui);
             }
 
-            SidePanel::new(Side::Right, format!("{}_right_panel", state.disassembly_window_title))
-                .show_inside(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        let text_resp = ui.add(
-                            TextEdit::singleline(&mut state.disassemble_jump_addr)
-                                .desired_width(60.0),
-                        );
-                        let button_resp = ui.button("Jump to address");
+            render_disasm_right_panel(m68k, &memory_map, state, ui);
+            render_disasm_central_panel(m68k, &memory_map, state, break_status, ui);
+        });
+    state.disassembly_open = open;
+}
 
-                        let should_jump = button_resp.clicked()
-                            || (text_resp.lost_focus()
-                                && ui.input(|i| i.key_pressed(egui::Key::Enter)));
-                        if should_jump
-                            && let Ok(address) =
-                                u32::from_str_radix(&state.disassemble_jump_addr, 16)
-                        {
-                            state.move_disassembly_table(address & 0xFFFFFF & !1);
-                        }
-                    });
+fn render_disasm_top_panel(
+    state: &mut M68kDebugWindowState,
+    mut handle_command: impl FnMut(M68kBreakCommand),
+    ui: &mut Ui,
+) {
+    TopBottomPanel::new(
+        TopBottomSide::Top,
+        format!("{}_top_panel", state.disassembly_window_title),
+    )
+    .show_inside(ui, |ui| {
+        ui.horizontal(|ui| {
+            if ui.button("Pause").clicked() {
+                handle_command(M68kBreakCommand::Pause);
+            }
 
-                    ui.add_space(3.0);
+            if ui.button("Resume").clicked() {
+                handle_command(M68kBreakCommand::Resume);
+            }
 
-                    if ui.button("Jump to PC").clicked() {
-                        state.move_disassembly_table(m68k.pc());
+            if ui.button("Step").clicked() {
+                handle_command(M68kBreakCommand::Step);
+            }
+        });
+
+        ui.add_space(5.0);
+    });
+}
+
+fn render_disasm_right_panel(
+    m68k: &M68000,
+    memory_map: &impl M68kDebugMemoryMap,
+    state: &mut M68kDebugWindowState,
+    ui: &mut Ui,
+) {
+    SidePanel::new(Side::Right, format!("{}_right_panel", state.disassembly_window_title))
+        .show_inside(ui, |ui| {
+            ui.horizontal(|ui| {
+                let text_resp = ui.add(
+                    TextEdit::singleline(&mut state.disassemble_jump_addr).desired_width(60.0),
+                );
+                let button_resp = ui.button("Jump to address");
+
+                let should_jump = button_resp.clicked()
+                    || (text_resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                if should_jump
+                    && let Ok(address) = u32::from_str_radix(&state.disassemble_jump_addr, 16)
+                {
+                    state.move_disassembly_table(address & 0xFFFFFF & !1);
+                }
+            });
+
+            ui.add_space(3.0);
+
+            if ui.button("Jump to PC").clicked() {
+                state.move_disassembly_table(m68k.pc());
+            }
+
+            ui.separator();
+
+            let data_registers = m68k.data_registers();
+            let address_registers = m68k.address_registers();
+            let status_register = m68k.status_register();
+            let supervisor = status_register.bit(13);
+
+            Grid::new(format!("{}_registers", state.disassembly_window_title)).show(ui, |ui| {
+                for i in 0..7 {
+                    ui.label(format!("D{i}"));
+                    ui.label(monospace_u32(data_registers[i]));
+
+                    ui.label(format!("A{i}"));
+                    ui.label(monospace_u32(address_registers[i]));
+
+                    ui.end_row();
+                }
+
+                ui.label("D7");
+                ui.label(monospace_u32(data_registers[7]));
+
+                let a7 = if supervisor {
+                    m68k.supervisor_stack_pointer()
+                } else {
+                    m68k.user_stack_pointer()
+                };
+                ui.label("A7");
+                ui.label(monospace_u32(a7));
+
+                ui.end_row();
+
+                ui.label("SSP");
+                ui.label(monospace_u32(m68k.supervisor_stack_pointer()));
+
+                ui.label("USP");
+                ui.label(monospace_u32(m68k.user_stack_pointer()));
+
+                ui.end_row();
+
+                ui.label("SR");
+                ui.label(monospace_u16(status_register));
+
+                ui.label("PC");
+                ui.label(monospace_u32(m68k.pc()));
+
+                ui.end_row();
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("CCR");
+
+                ui.add_space(20.0);
+
+                let carry: u8 = status_register.bit(0).into();
+                let overflow: u8 = status_register.bit(1).into();
+                let zero: u8 = status_register.bit(2).into();
+                let negative: u8 = status_register.bit(3).into();
+                let extend: u8 = status_register.bit(4).into();
+                ui.label(
+                    RichText::new(format!(
+                        "C={carry} V={overflow} Z={zero} N={negative} X={extend}"
+                    ))
+                    .monospace(),
+                );
+            });
+
+            if let Some((label, text)) = memory_map.extra_info() {
+                ui.horizontal(|ui| {
+                    ui.label(label);
+                    ui.add_space(5.0);
+                    ui.label(RichText::new(text).monospace());
+                });
+            }
+        });
+}
+
+fn render_disasm_central_panel(
+    m68k: &M68000,
+    memory_map: &impl M68kDebugMemoryMap,
+    state: &mut M68kDebugWindowState,
+    break_status: M68000BreakStatus,
+    ui: &mut Ui,
+) {
+    CentralPanel::default().show_inside(ui, |ui| {
+        let mut table_builder = TableBuilder::new(ui)
+            .column(Column::auto().at_least(60.0))
+            .column(Column::remainder())
+            .striped(true);
+
+        if state.disassemble_reset_table {
+            state.disassemble_reset_table = false;
+            table_builder = table_builder.scroll_to_row(0, Some(Align::Min));
+        }
+
+        let m68k_pc = if break_status.breaking { break_status.pc } else { m68k.pc() };
+
+        table_builder.body(|mut body| {
+            let mut pc = state.disassemble_start;
+            let mut disassembled_instruction = DisassembledInstruction::new();
+
+            for _ in 0..100 {
+                body.row(15.0, |mut row| {
+                    if pc == m68k_pc {
+                        row.set_selected(true);
                     }
 
-                    ui.separator();
+                    row.col(|ui| {
+                        ui.label(monospace_u24(pc));
+                    });
 
-                    let data_registers = m68k.data_registers();
-                    let address_registers = m68k.address_registers();
-                    let status_register = m68k.status_register();
-                    let supervisor = status_register.bit(13);
-
-                    Grid::new(format!("{}_registers", state.disassembly_window_title)).show(
-                        ui,
-                        |ui| {
-                            for i in 0..7 {
-                                ui.label(format!("D{i}"));
-                                ui.label(monospace_u32(data_registers[i]));
-
-                                ui.label(format!("A{i}"));
-                                ui.label(monospace_u32(address_registers[i]));
-
-                                ui.end_row();
-                            }
-
-                            ui.label("D7");
-                            ui.label(monospace_u32(data_registers[7]));
-
-                            let a7 = if supervisor {
-                                m68k.supervisor_stack_pointer()
-                            } else {
-                                m68k.user_stack_pointer()
-                            };
-                            ui.label("A7");
-                            ui.label(monospace_u32(a7));
-
-                            ui.end_row();
-
-                            ui.label("SSP");
-                            ui.label(monospace_u32(m68k.supervisor_stack_pointer()));
-
-                            ui.label("USP");
-                            ui.label(monospace_u32(m68k.user_stack_pointer()));
-
-                            ui.end_row();
-
-                            ui.label("SR");
-                            ui.label(monospace_u16(status_register));
-
-                            ui.label("PC");
-                            ui.label(monospace_u32(m68k.pc()));
-
-                            ui.end_row();
+                    m68000_emu::disassemble::disassemble_into(
+                        &mut disassembled_instruction,
+                        pc,
+                        || {
+                            let word = memory_map.peek(pc);
+                            pc = (pc + 2) & 0xFFFFFF;
+                            word
                         },
                     );
 
-                    ui.horizontal(|ui| {
-                        ui.label("CCR");
-
-                        ui.add_space(20.0);
-
-                        let carry: u8 = status_register.bit(0).into();
-                        let overflow: u8 = status_register.bit(1).into();
-                        let zero: u8 = status_register.bit(2).into();
-                        let negative: u8 = status_register.bit(3).into();
-                        let extend: u8 = status_register.bit(4).into();
-                        ui.label(
-                            RichText::new(format!(
-                                "C={carry} V={overflow} Z={zero} N={negative} X={extend}"
-                            ))
-                            .monospace(),
-                        );
+                    row.col(|ui| {
+                        ui.label(RichText::new(&disassembled_instruction.text).monospace());
                     });
-
-                    if let Some((label, text)) = memory_map.extra_info() {
-                        ui.horizontal(|ui| {
-                            ui.label(label);
-                            ui.add_space(5.0);
-                            ui.label(RichText::new(text).monospace());
-                        });
-                    }
                 });
+            }
 
-            CentralPanel::default().show_inside(ui, |ui| {
-                let mut table_builder = TableBuilder::new(ui)
-                    .column(Column::auto().at_least(60.0))
-                    .column(Column::remainder())
-                    .striped(true);
-
-                if state.disassemble_reset_table {
-                    state.disassemble_reset_table = false;
-                    table_builder = table_builder.scroll_to_row(0, Some(Align::Min));
-                }
-
-                let m68k_pc = if break_status.breaking { break_status.pc } else { m68k.pc() };
-
-                table_builder.body(|mut body| {
-                    let mut pc = state.disassemble_start;
-                    let mut disassembled_instruction = DisassembledInstruction::new();
-
-                    for _ in 0..100 {
-                        body.row(15.0, |mut row| {
-                            if pc == m68k_pc {
-                                row.set_selected(true);
-                            }
-
-                            row.col(|ui| {
-                                ui.label(monospace_u24(pc));
-                            });
-
-                            m68000_emu::disassemble::disassemble_into(
-                                &mut disassembled_instruction,
-                                pc,
-                                || {
-                                    let word = memory_map.peek(pc);
-                                    pc = (pc + 2) & 0xFFFFFF;
-                                    word
-                                },
-                            );
-
-                            row.col(|ui| {
-                                ui.label(RichText::new(&disassembled_instruction.text).monospace());
-                            });
-                        });
-                    }
-
-                    state.disassemble_end_addr = Some(pc);
-                });
-            });
+            state.disassemble_end_addr = Some(pc);
         });
-    state.disassembly_open = open;
+    });
 }
 
 pub fn render_breakpoints_window(

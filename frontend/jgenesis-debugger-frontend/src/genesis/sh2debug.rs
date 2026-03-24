@@ -1,6 +1,6 @@
 use crate::genesis::widgets::BreakpointsWidget;
 use egui::panel::{Side, TopBottomSide};
-use egui::{Align, Grid, RichText, TextEdit, Window};
+use egui::{Align, Grid, RichText, TextEdit, Ui, Window};
 use egui_extras::{Column, TableBuilder};
 use s32x_core::WhichCpu;
 use s32x_core::api::debug::{
@@ -160,172 +160,192 @@ pub fn render_disassembly_window(
         .default_pos(crate::rand_window_pos())
         .default_size([750.0, 550.0])
         .show(ctx, |ui| {
-            egui::TopBottomPanel::new(TopBottomSide::Top, format!("{window_title}_top_panel"))
-                .show_inside(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        if ui.button("Pause").clicked() {
-                            let _ = command_sender
-                                .send(Sega32XDebugCommand::BreakPauseSh2(window_state.which));
-                        }
+            render_disasm_top_panel(window_state, command_sender, window_title, ui);
+            render_disasm_right_panel(&sh2, window_state, window_title, ui);
+            render_disasm_central_panel(&sh2, debug_state, window_state, break_status, ui);
+        });
+    window_state.disassembly_open = open;
+}
 
-                        if ui.button("Resume").clicked() {
-                            let _ = command_sender.send(Sega32XDebugCommand::BreakResume);
-                        }
-
-                        if ui.button("Step").clicked() {
-                            let _ = command_sender
-                                .send(Sega32XDebugCommand::BreakStepSh2(window_state.which));
-                        }
-                    });
-
-                    ui.add_space(3.0);
-                });
-
-            egui::SidePanel::new(Side::Right, format!("{window_title}_left_panel"))
-                .min_width(300.0)
-                .show_inside(ui, |ui| {
-                    ui.heading("Disassembly Area");
-
-                    for (value, label) in [
-                        (DisassemblyArea::Sdram { cached: true }, "SDRAM (Cached)"),
-                        (DisassemblyArea::Sdram { cached: false }, "SDRAM (Uncached)"),
-                        (DisassemblyArea::CartridgeRom { cached: true }, "ROM (Cached)"),
-                        (DisassemblyArea::CartridgeRom { cached: false }, "ROM (Uncached)"),
-                        (DisassemblyArea::Cache, "CPU Cache"),
-                    ] {
-                        ui.radio_value(&mut window_state.disassembly_area, value, label);
-                    }
-
-                    ui.horizontal(|ui| {
-                        let text_resp = ui.add(
-                            TextEdit::singleline(&mut window_state.disassembly_address)
-                                .desired_width(80.0),
-                        );
-                        let button_resp = ui.button("Jump to address");
-
-                        let should_jump = button_resp.clicked()
-                            || (text_resp.lost_focus()
-                                && ui.input(|i| i.key_pressed(egui::Key::Enter)));
-                        if should_jump
-                            && let Ok(address) =
-                                u32::from_str_radix(&window_state.disassembly_address, 16)
-                        {
-                            window_state.try_jump_to_address(address);
-                        }
-                    });
-
-                    ui.add_space(3.0);
-
-                    if ui.button("Jump to PC").clicked() {
-                        window_state.try_jump_to_address(sh2.pc());
-                    }
-
-                    ui.separator();
-
-                    let registers = sh2.registers();
-                    Grid::new(format!("{window_title}_reg_grid")).num_columns(4).show(ui, |ui| {
-                        for i in 0..8 {
-                            for r in [i, i + 8] {
-                                ui.label(format!("R{r}"));
-                                ui.label(monospace_u32(registers.gpr[r]));
-                                ui.label("");
-                            }
-                            ui.end_row();
-                        }
-
-                        ui.label("SR");
-                        ui.label(monospace_u32(registers.sr.into()));
-                        ui.label("");
-                        ui.label("VBR");
-                        ui.label(monospace_u32(registers.vbr));
-                        ui.end_row();
-
-                        ui.label("GBR");
-                        ui.label(monospace_u32(registers.gbr));
-                        ui.label("");
-                        ui.label("PR");
-                        ui.label(monospace_u32(registers.pr));
-                        ui.end_row();
-
-                        ui.label("MACH");
-                        ui.label(monospace_u32(registers.mach));
-                        ui.label("");
-                        ui.label("MACL");
-                        ui.label(monospace_u32(registers.macl));
-                        ui.end_row();
-
-                        ui.label("PC");
-                        ui.label(monospace_u32(registers.pc));
-                        ui.end_row();
-                    });
-
-                    ui.label(
-                        RichText::new(format!(
-                            "T={} S={} Q={} M={}",
-                            u8::from(registers.sr.t),
-                            u8::from(registers.sr.s),
-                            u8::from(registers.sr.q),
-                            u8::from(registers.sr.m)
-                        ))
-                        .monospace(),
-                    );
-                });
-
-            egui::CentralPanel::default().show_inside(ui, |ui| {
-                let disassembly_area = window_state.disassembly_area;
-                let address_range = disassembly_area.address_range();
-
-                let mut table_builder = TableBuilder::new(ui)
-                    .striped(true)
-                    .column(Column::auto().at_least(80.0))
-                    .column(Column::auto().at_least(40.0))
-                    .column(Column::remainder());
-
-                if let Some(scroll_to_row) = window_state.disasm_scroll_to_row.take() {
-                    table_builder = table_builder.scroll_to_row(scroll_to_row, Some(Align::Center));
+fn render_disasm_top_panel(
+    window_state: &mut Sh2DebugWindowState,
+    command_sender: &Sender<Sega32XDebugCommand>,
+    window_title: &str,
+    ui: &mut Ui,
+) {
+    egui::TopBottomPanel::new(TopBottomSide::Top, format!("{window_title}_top_panel")).show_inside(
+        ui,
+        |ui| {
+            ui.horizontal(|ui| {
+                if ui.button("Pause").clicked() {
+                    let _ =
+                        command_sender.send(Sega32XDebugCommand::BreakPauseSh2(window_state.which));
                 }
 
-                let sh2_pc =
-                    (if break_status.breaking { break_status.pc } else { sh2.pc() }) as usize;
-                let pc_row_index =
-                    address_range.contains(&sh2_pc).then(|| (sh2_pc - address_range.start) / 2);
+                if ui.button("Resume").clicked() {
+                    let _ = command_sender.send(Sega32XDebugCommand::BreakResume);
+                }
 
-                table_builder.body(|body| {
-                    body.rows(15.0, (address_range.end - address_range.start) / 2, |mut row| {
-                        row.set_selected(pc_row_index == Some(row.index()));
+                if ui.button("Step").clicked() {
+                    let _ =
+                        command_sender.send(Sega32XDebugCommand::BreakStepSh2(window_state.which));
+                }
+            });
 
-                        let address = (address_range.start + 2 * row.index()) as u32;
+            ui.add_space(3.0);
+        },
+    );
+}
 
-                        row.col(|ui| {
-                            ui.label(monospace_u32(address));
-                        });
+fn render_disasm_right_panel(
+    sh2: &Sh2,
+    window_state: &mut Sh2DebugWindowState,
+    window_title: &str,
+    ui: &mut Ui,
+) {
+    egui::SidePanel::new(Side::Right, format!("{window_title}_left_panel"))
+        .min_width(300.0)
+        .show_inside(ui, |ui| {
+            ui.heading("Disassembly Area");
 
-                        let opcode = disassembly_area.read_address(address, &sh2, debug_state);
+            for (value, label) in [
+                (DisassemblyArea::Sdram { cached: true }, "SDRAM (Cached)"),
+                (DisassemblyArea::Sdram { cached: false }, "SDRAM (Uncached)"),
+                (DisassemblyArea::CartridgeRom { cached: true }, "ROM (Cached)"),
+                (DisassemblyArea::CartridgeRom { cached: false }, "ROM (Uncached)"),
+                (DisassemblyArea::Cache, "CPU Cache"),
+            ] {
+                ui.radio_value(&mut window_state.disassembly_area, value, label);
+            }
 
-                        row.col(|ui| {
-                            ui.label(monospace_u16(opcode));
-                        });
+            ui.horizontal(|ui| {
+                let text_resp = ui.add(
+                    TextEdit::singleline(&mut window_state.disassembly_address).desired_width(80.0),
+                );
+                let button_resp = ui.button("Jump to address");
 
-                        let pc_relative_load = PcRelativeLoad::ValueInComment {
-                            pc: address,
-                            peek: &|address| {
-                                disassembly_area.read_address(address, &sh2, debug_state)
-                            },
-                        };
-                        row.col(|ui| {
-                            let options = DisassembleOptions {
-                                branch_displacement: BranchDestination::Absolute { pc: address },
-                                pc_relative_load,
-                            };
-                            ui.label(
-                                RichText::new(sh2_emu::disassemble(opcode, options)).monospace(),
-                            );
-                        });
-                    });
+                let should_jump = button_resp.clicked()
+                    || (text_resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                if should_jump
+                    && let Ok(address) = u32::from_str_radix(&window_state.disassembly_address, 16)
+                {
+                    window_state.try_jump_to_address(address);
+                }
+            });
+
+            ui.add_space(3.0);
+
+            if ui.button("Jump to PC").clicked() {
+                window_state.try_jump_to_address(sh2.pc());
+            }
+
+            ui.separator();
+
+            let registers = sh2.registers();
+            Grid::new(format!("{window_title}_reg_grid")).num_columns(4).show(ui, |ui| {
+                for i in 0..8 {
+                    for r in [i, i + 8] {
+                        ui.label(format!("R{r}"));
+                        ui.label(monospace_u32(registers.gpr[r]));
+                        ui.label("");
+                    }
+                    ui.end_row();
+                }
+
+                ui.label("SR");
+                ui.label(monospace_u32(registers.sr.into()));
+                ui.label("");
+                ui.label("VBR");
+                ui.label(monospace_u32(registers.vbr));
+                ui.end_row();
+
+                ui.label("GBR");
+                ui.label(monospace_u32(registers.gbr));
+                ui.label("");
+                ui.label("PR");
+                ui.label(monospace_u32(registers.pr));
+                ui.end_row();
+
+                ui.label("MACH");
+                ui.label(monospace_u32(registers.mach));
+                ui.label("");
+                ui.label("MACL");
+                ui.label(monospace_u32(registers.macl));
+                ui.end_row();
+
+                ui.label("PC");
+                ui.label(monospace_u32(registers.pc));
+                ui.end_row();
+            });
+
+            ui.label(
+                RichText::new(format!(
+                    "T={} S={} Q={} M={}",
+                    u8::from(registers.sr.t),
+                    u8::from(registers.sr.s),
+                    u8::from(registers.sr.q),
+                    u8::from(registers.sr.m)
+                ))
+                .monospace(),
+            );
+        });
+}
+
+fn render_disasm_central_panel(
+    sh2: &Sh2,
+    debug_state: &mut Sega32XDebugState,
+    window_state: &mut Sh2DebugWindowState,
+    break_status: Sh2BreakStatus,
+    ui: &mut Ui,
+) {
+    egui::CentralPanel::default().show_inside(ui, |ui| {
+        let disassembly_area = window_state.disassembly_area;
+        let address_range = disassembly_area.address_range();
+
+        let mut table_builder = TableBuilder::new(ui)
+            .striped(true)
+            .column(Column::auto().at_least(80.0))
+            .column(Column::auto().at_least(40.0))
+            .column(Column::remainder());
+
+        if let Some(scroll_to_row) = window_state.disasm_scroll_to_row.take() {
+            table_builder = table_builder.scroll_to_row(scroll_to_row, Some(Align::Center));
+        }
+
+        let sh2_pc = (if break_status.breaking { break_status.pc } else { sh2.pc() }) as usize;
+        let pc_row_index =
+            address_range.contains(&sh2_pc).then(|| (sh2_pc - address_range.start) / 2);
+
+        table_builder.body(|body| {
+            body.rows(15.0, (address_range.end - address_range.start) / 2, |mut row| {
+                row.set_selected(pc_row_index == Some(row.index()));
+
+                let address = (address_range.start + 2 * row.index()) as u32;
+
+                row.col(|ui| {
+                    ui.label(monospace_u32(address));
+                });
+
+                let opcode = disassembly_area.read_address(address, sh2, debug_state);
+
+                row.col(|ui| {
+                    ui.label(monospace_u16(opcode));
+                });
+
+                let pc_relative_load = PcRelativeLoad::ValueInComment {
+                    pc: address,
+                    peek: &|address| disassembly_area.read_address(address, sh2, debug_state),
+                };
+                row.col(|ui| {
+                    let options = DisassembleOptions {
+                        branch_displacement: BranchDestination::Absolute { pc: address },
+                        pc_relative_load,
+                    };
+                    ui.label(RichText::new(sh2_emu::disassemble(opcode, options)).monospace());
                 });
             });
         });
-    window_state.disassembly_open = open;
+    });
 }
 
 pub fn render_breakpoints_window(

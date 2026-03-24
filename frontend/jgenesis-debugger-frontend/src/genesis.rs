@@ -591,7 +591,7 @@ fn render_m68k_debug_windows(
                 m68kdebug::render_disassembly_window(
                     ctx,
                     m68k,
-                    &memory_map,
+                    memory_map,
                     &mut state.m68k,
                     debugger_handle.m68k_break_status(),
                     Some(|command| {
@@ -616,7 +616,7 @@ fn render_m68k_debug_windows(
             m68kdebug::render_disassembly_window(
                 ctx,
                 m68k,
-                &memory_map,
+                memory_map,
                 &mut state.m68k,
                 debugger_handle.main_cpu_break_status(),
                 Some(|command| {
@@ -634,7 +634,7 @@ fn render_m68k_debug_windows(
             m68kdebug::render_disassembly_window(
                 ctx,
                 sub_cpu,
-                &sub_memory_map,
+                sub_memory_map,
                 &mut state.m68k_sub,
                 debugger_handle.sub_cpu_break_status(),
                 Some(|command| {
@@ -664,7 +664,7 @@ fn render_m68k_debug_windows(
                 m68kdebug::render_disassembly_window(
                     ctx,
                     m68k,
-                    &memory_map,
+                    memory_map,
                     &mut state.m68k,
                     debugger_handle.m68k_break_status(),
                     Some(|command| {
