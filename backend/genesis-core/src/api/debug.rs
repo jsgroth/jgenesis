@@ -48,6 +48,7 @@ use jgenesis_common::frontend::Color;
 use jgenesis_common::sync::SharedVarSender;
 use jgenesis_proc_macros::EnumAll;
 use m68000_emu::M68000;
+use smsgg_core::psg::Sn76489;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, SendError, Sender, TryRecvError};
 use std::sync::{Arc, mpsc};
@@ -105,6 +106,7 @@ pub struct GenesisDebugState {
     audio_ram: Box<[u8]>,
     vdp: VdpDebugState,
     ym2612: Ym2612,
+    psg: Sn76489,
 }
 
 impl GenesisDebugState {
@@ -114,6 +116,7 @@ impl GenesisDebugState {
         memory: &Memory<Medium>,
         vdp: &Vdp,
         ym2612: &Ym2612,
+        psg: &Sn76489,
     ) -> Self {
         Self {
             m68k: m68k.clone(),
@@ -123,6 +126,7 @@ impl GenesisDebugState {
             audio_ram: memory.clone_audio_ram(),
             vdp: vdp.to_debug_state(),
             ym2612: ym2612.clone(),
+            psg: psg.clone(),
         }
     }
 
@@ -159,6 +163,11 @@ impl GenesisDebugState {
     #[must_use]
     pub fn ym2612(&self) -> &Ym2612 {
         &self.ym2612
+    }
+
+    #[must_use]
+    pub fn psg(&self) -> &Sn76489 {
+        &self.psg
     }
 
     pub fn copy_cram(&self, out: &mut [Color], modifier: ColorModifier) {
@@ -228,6 +237,7 @@ pub struct BaseGenesisDebugView<'a, MediumView> {
     pub memory: GenesisMemoryDebugView<'a, MediumView>,
     pub vdp: &'a mut Vdp,
     pub ym2612: &'a mut Ym2612,
+    pub psg: &'a mut Sn76489,
 }
 
 impl<'a, MediumView: PhysicalMediumDebugView> BaseGenesisDebugView<'a, MediumView> {
@@ -237,8 +247,9 @@ impl<'a, MediumView: PhysicalMediumDebugView> BaseGenesisDebugView<'a, MediumVie
         memory: GenesisMemoryDebugView<'a, MediumView>,
         vdp: &'a mut Vdp,
         ym2612: &'a mut Ym2612,
+        psg: &'a mut Sn76489,
     ) -> Self {
-        Self { m68k, z80, memory, vdp, ym2612 }
+        Self { m68k, z80, memory, vdp, ym2612, psg }
     }
 
     pub fn memory(&mut self) -> &mut GenesisMemoryDebugView<'a, MediumView> {
@@ -277,6 +288,7 @@ impl<'a, MediumView: PhysicalMediumDebugView> BaseGenesisDebugView<'a, MediumVie
             audio_ram: self.memory.audio_ram.to_vec().into_boxed_slice(),
             vdp: self.vdp.to_debug_state(),
             ym2612: self.ym2612.clone(),
+            psg: self.psg.clone(),
         }
     }
 }
@@ -302,6 +314,7 @@ impl GenesisEmulator {
             memory: self.memory.as_debug_view(|cartridge| CartridgeDebugView { cartridge }),
             vdp: &mut self.vdp,
             ym2612: &mut self.ym2612,
+            psg: &mut self.psg,
         }
     }
 }

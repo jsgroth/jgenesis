@@ -106,13 +106,13 @@ impl SquareWaveGenerator {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum NoiseType {
+pub enum NoiseMode {
     Periodic,
     White,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum NoiseReload {
+pub enum NoiseReload {
     Value(u16),
     Tone2,
 }
@@ -143,7 +143,7 @@ struct NoiseGenerator {
     counter_reload: NoiseReload,
     lfsr: u16,
     current_lfsr_output: WaveOutput,
-    noise_type: NoiseType,
+    noise_type: NoiseMode,
     attenuation: u8,
 }
 
@@ -157,7 +157,7 @@ impl NoiseGenerator {
             counter_reload: NoiseReload::from_noise_register(0x00),
             lfsr: INITIAL_LFSR,
             current_lfsr_output: WaveOutput::Negative,
-            noise_type: NoiseType::Periodic,
+            noise_type: NoiseMode::Periodic,
             attenuation: 0x0F,
         }
     }
@@ -167,8 +167,8 @@ impl NoiseGenerator {
             if self.lfsr.bit(0) { WaveOutput::Positive } else { WaveOutput::Negative };
 
         let input_bit = match self.noise_type {
-            NoiseType::Periodic => self.lfsr.bit(0),
-            NoiseType::White => match version {
+            NoiseMode::Periodic => self.lfsr.bit(0),
+            NoiseMode::White => match version {
                 Sn76489Version::Standard | Sn76489Version::MasterSystem2 => {
                     self.lfsr.bit(0) ^ self.lfsr.bit(3)
                 }
@@ -181,7 +181,7 @@ impl NoiseGenerator {
 
     fn write_data(&mut self, data: u8) {
         self.counter_reload = NoiseReload::from_noise_register(data);
-        self.noise_type = if data.bit(2) { NoiseType::White } else { NoiseType::Periodic };
+        self.noise_type = if data.bit(2) { NoiseMode::White } else { NoiseMode::Periodic };
 
         self.lfsr = INITIAL_LFSR;
     }
@@ -413,5 +413,30 @@ impl Sn76489 {
             / 4.0;
 
         (sample_l, sample_r)
+    }
+
+    #[must_use]
+    pub fn tone_frequencies(&self) -> [u16; 3] {
+        self.square_wave_channels.map(|channel| channel.tone)
+    }
+
+    #[must_use]
+    pub fn tone_attenuations(&self) -> [u8; 3] {
+        self.square_wave_channels.map(|channel| channel.attenuation)
+    }
+
+    #[must_use]
+    pub fn noise_mode(&self) -> NoiseMode {
+        self.noise_channel.noise_type
+    }
+
+    #[must_use]
+    pub fn noise_reload(&self) -> NoiseReload {
+        self.noise_channel.counter_reload
+    }
+
+    #[must_use]
+    pub fn noise_attenuation(&self) -> u8 {
+        self.noise_channel.attenuation
     }
 }

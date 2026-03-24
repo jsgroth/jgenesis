@@ -24,6 +24,7 @@ use jgenesis_proc_macros::EnumAll;
 use m68000_emu::M68000;
 use sh2_emu::Sh2;
 use sh2_emu::bus::OpSize;
+use smsgg_core::psg::Sn76489;
 use std::array;
 use std::fmt::Debug;
 use std::ptr::NonNull;
@@ -306,6 +307,7 @@ impl Sega32XEmulator {
                 self.memory.as_debug_view(Sega32X::as_debug_view),
                 &mut self.vdp,
                 &mut self.ym2612,
+                &mut self.psg,
             ),
         }
     }
@@ -698,11 +700,12 @@ fn check_break_step(step: &mut Option<u32>) -> bool {
 pub(crate) struct GenesisComponents<'a> {
     pub(crate) vdp: &'a mut GenesisVdp,
     pub(crate) ym2612: &'a mut Ym2612,
+    pub(crate) psg: &'a mut Sn76489,
 }
 
 impl<'a> GenesisComponents<'a> {
-    pub fn new(vdp: &'a mut GenesisVdp, ym2612: &'a mut Ym2612) -> Self {
-        Self { vdp, ym2612 }
+    pub fn new(vdp: &'a mut GenesisVdp, ym2612: &'a mut Ym2612, psg: &'a mut Sn76489) -> Self {
+        Self { vdp, ym2612, psg }
     }
 
     pub fn reborrow<'slf, 'ret>(&'slf mut self) -> GenesisComponents<'ret>
@@ -710,7 +713,7 @@ impl<'a> GenesisComponents<'a> {
         'slf: 'ret,
         'a: 'ret,
     {
-        GenesisComponents { vdp: self.vdp, ym2612: self.ym2612 }
+        GenesisComponents { vdp: self.vdp, ym2612: self.ym2612, psg: self.psg }
     }
 }
 
@@ -736,6 +739,7 @@ impl Sega32XDebuggerForSh2<'_> {
             audio_ram: self.audio_ram.into(),
             vdp: components.vdp.into(),
             ym2612: components.ym2612.into(),
+            psg: components.psg.into(),
         }
     }
 }
@@ -749,6 +753,7 @@ pub(crate) struct Sega32XDebuggerForSh2Raw {
     pub audio_ram: NonNull<[u8]>,
     pub vdp: NonNull<GenesisVdp>,
     pub ym2612: NonNull<Ym2612>,
+    pub psg: NonNull<Sn76489>,
 }
 
 pub(crate) struct Sega32XDebuggerFor68k<'a> {

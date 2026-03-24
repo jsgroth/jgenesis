@@ -137,6 +137,7 @@ impl<'a> Sh2BusDebugView<'a> {
                     },
                     self.0.debugger.vdp.as_mut(),
                     self.0.debugger.ym2612.as_mut(),
+                    self.0.debugger.psg.as_mut(),
                 ),
             };
 
@@ -327,6 +328,7 @@ impl MainBus68kDebugger<Sega32X> for Sega32XDebuggerFor68k<'_> {
                 memory: bus.memory.as_debug_view(Sega32X::as_debug_view),
                 vdp: bus.vdp,
                 ym2612: bus.ym2612,
+                psg: bus.psg,
             },
         };
         self.debugger.handle_breakpoint(DebugWhichCpu::M68k, &mut debug_view);
@@ -362,6 +364,7 @@ impl MainBusZ80Debugger<Sega32X> for Sega32XDebuggerForZ80<'_> {
                 memory: bus.memory.as_debug_view(Sega32X::as_debug_view),
                 vdp: bus.vdp,
                 ym2612: bus.ym2612,
+                psg: bus.psg,
             },
         };
         self.debugger.handle_breakpoint(DebugWhichCpu::Z80, &mut debug_view);
@@ -386,6 +389,8 @@ mod tests {
     use jgenesis_common::boxedarray::BoxedWordArray;
     use jgenesis_common::frontend::TimingMode;
     use m68000_emu::M68000;
+    use smsgg_config::Sn76489Version;
+    use smsgg_core::psg::Sn76489;
     use z80_emu::Z80;
 
     const COMM_PORT_0: u32 = 0x20004020;
@@ -444,6 +449,7 @@ mod tests {
         let mut genesis_vdp =
             GenesisVdp::new(TimingMode::Ntsc, emu_config.genesis.to_vdp_config(DarkenColors::Yes));
         let mut ym2612 = Ym2612::new_from_config(&GenesisEmulatorConfig::default());
+        let mut psg = Sn76489::new(Sn76489Version::default());
         let mut working_ram = vec![0; 64 * 1024];
         let mut audio_ram = vec![0; 8 * 1024];
 
@@ -459,7 +465,7 @@ mod tests {
             0,
             1024,
             Some((&mut sh2_slave, &mut sh2_slave_cycles)),
-            GenesisComponents { vdp: &mut genesis_vdp, ym2612: &mut ym2612 },
+            GenesisComponents { vdp: &mut genesis_vdp, ym2612: &mut ym2612, psg: &mut psg },
             &mut debugger_for_sh2,
         );
 

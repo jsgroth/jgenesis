@@ -265,6 +265,7 @@ impl MainBus68kDebugger<Cartridge> for GenesisDebuggerFor68k<'_> {
             memory: bus.memory.as_debug_view(|cartridge| CartridgeDebugView { cartridge }),
             vdp: bus.vdp,
             ym2612: bus.ym2612,
+            psg: bus.psg,
         };
 
         self.debugger.handle_breakpoint(GenesisCpu::M68k, &mut debug_view);
@@ -299,6 +300,7 @@ impl MainBusZ80Debugger<Cartridge> for GenesisDebuggerForZ80<'_> {
             memory: bus.memory.as_debug_view(|cartridge| CartridgeDebugView { cartridge }),
             vdp: bus.vdp,
             ym2612: bus.ym2612,
+            psg: bus.psg,
         };
         self.debugger.handle_breakpoint(GenesisCpu::Z80, &mut debug_view);
     }

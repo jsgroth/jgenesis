@@ -1,4 +1,5 @@
 mod m68kdebug;
+mod psgdebug;
 mod sh2debug;
 mod widgets;
 mod ym2612debug;
@@ -40,6 +41,7 @@ use segacd_core::api::SegaCdEmulator;
 use segacd_core::api::debug::{
     SegaCdDebugCommand, SegaCdDebugState, SegaCdDebugger, SegaCdDebuggerHandle, SegaCdMemoryArea,
 };
+use smsgg_core::psg::Sn76489;
 use std::collections::HashMap;
 use std::error::Error;
 use std::hash::Hash;
@@ -251,6 +253,7 @@ struct State {
     sh2_slave: Sh2DebugWindowState,
     vdp_registers_open: bool,
     ym2612: Ym2612DebugWindowState,
+    psg_open: bool,
     s32x_system_registers_open: bool,
     s32x_vdp_registers_open: bool,
     s32x_pwm_registers_open: bool,
@@ -276,6 +279,7 @@ impl State {
             sh2_slave: Sh2DebugWindowState::new(WhichCpu::Slave),
             vdp_registers_open: false,
             ym2612: Ym2612DebugWindowState::new(),
+            psg_open: false,
             s32x_system_registers_open: false,
             s32x_vdp_registers_open: false,
             s32x_pwm_registers_open: false,
@@ -302,6 +306,10 @@ macro_rules! match_each_state_variant {
 impl GenesisBasedDebugState<'_> {
     fn ym2612(&self) -> &Ym2612 {
         match_each_state_variant!(self, state => state.ym2612())
+    }
+
+    fn psg(&self) -> &Sn76489 {
+        match_each_state_variant!(self, state => state.psg())
     }
 
     fn copy_cram(&mut self, out: &mut [Color], modifier: ColorModifier) {
@@ -408,6 +416,12 @@ fn render(
 
                 if ui.button("YM2612").clicked() {
                     state.ym2612.open_window(ctx.egui_ctx);
+                    ui.close_kind(UiKind::Menu);
+                }
+
+                if ui.button("SN76489").clicked() {
+                    state.psg_open = true;
+                    move_to_top(ctx.egui_ctx, psgdebug::WINDOW_TITLE);
                     ui.close_kind(UiKind::Menu);
                 }
 
@@ -538,6 +552,8 @@ fn render(
         debug_state.ym2612().debug_view(),
         &mut state.ym2612,
     );
+
+    psgdebug::render_debug_window(ctx.egui_ctx, debug_state.psg(), &mut state.psg_open);
 
     let screen_width = crate::screen_width(ctx.egui_ctx);
 
