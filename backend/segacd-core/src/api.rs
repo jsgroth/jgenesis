@@ -292,6 +292,7 @@ impl SegaCdEmulator {
                         &mut self.main_cpu,
                         &mut self.z80,
                         &mut self.vdp,
+                        &mut self.ym2612,
                     ),
                 };
                 self.sub_cpu.execute_instruction(&mut debug_bus).into()

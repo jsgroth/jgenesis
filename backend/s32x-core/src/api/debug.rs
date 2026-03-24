@@ -14,6 +14,7 @@ use genesis_core::api::debug::{
     Z80BreakpointManager, Z80Breakpoints,
 };
 use genesis_core::cartridge::Cartridge;
+use genesis_core::ym2612::Ym2612;
 use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
 use jgenesis_common::frontend::{
     AudioOutput, Color, InputPoller, Renderer, SaveWriter, TickResult,
@@ -304,6 +305,7 @@ impl Sega32XEmulator {
                 &mut self.z80,
                 self.memory.as_debug_view(Sega32X::as_debug_view),
                 &mut self.vdp,
+                &mut self.ym2612,
             ),
         }
     }
@@ -693,6 +695,25 @@ fn check_break_step(step: &mut Option<u32>) -> bool {
     }
 }
 
+pub(crate) struct GenesisComponents<'a> {
+    pub(crate) vdp: &'a mut GenesisVdp,
+    pub(crate) ym2612: &'a mut Ym2612,
+}
+
+impl<'a> GenesisComponents<'a> {
+    pub fn new(vdp: &'a mut GenesisVdp, ym2612: &'a mut Ym2612) -> Self {
+        Self { vdp, ym2612 }
+    }
+
+    pub fn reborrow<'slf, 'ret>(&'slf mut self) -> GenesisComponents<'ret>
+    where
+        'slf: 'ret,
+        'a: 'ret,
+    {
+        GenesisComponents { vdp: self.vdp, ym2612: self.ym2612 }
+    }
+}
+
 pub(crate) struct Sega32XDebuggerForSh2<'a> {
     pub debugger: &'a mut Sega32XDebugger,
     pub m68k: &'a mut M68000,
@@ -706,14 +727,15 @@ impl Sega32XDebuggerForSh2<'_> {
     ///
     /// The caller must not touch the values referenced until after the returned
     /// [`Sega32XDebuggerForSh2Raw`] has been dropped.
-    pub unsafe fn as_raw(&mut self, vdp: &mut GenesisVdp) -> Sega32XDebuggerForSh2Raw {
+    pub unsafe fn as_raw(&mut self, components: GenesisComponents<'_>) -> Sega32XDebuggerForSh2Raw {
         Sega32XDebuggerForSh2Raw {
             debugger: self.debugger.into(),
             m68k: self.m68k.into(),
             z80: self.z80.into(),
             working_ram: self.working_ram.into(),
             audio_ram: self.audio_ram.into(),
-            vdp: vdp.into(),
+            vdp: components.vdp.into(),
+            ym2612: components.ym2612.into(),
         }
     }
 }
@@ -726,6 +748,7 @@ pub(crate) struct Sega32XDebuggerForSh2Raw {
     pub working_ram: NonNull<[u16]>,
     pub audio_ram: NonNull<[u8]>,
     pub vdp: NonNull<GenesisVdp>,
+    pub ym2612: NonNull<Ym2612>,
 }
 
 pub(crate) struct Sega32XDebuggerFor68k<'a> {

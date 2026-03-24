@@ -13,6 +13,7 @@ use genesis_core::api::debug::{
 use genesis_core::memory::MainBus;
 use genesis_core::memory::debug::{MainBus68kDebugger, MainBusZ80Debugger};
 use genesis_core::vdp::Vdp;
+use genesis_core::ym2612::Ym2612;
 use jgenesis_common::debug::{DebugBytesView, DebugMemoryView};
 use jgenesis_common::frontend::{AudioOutput, InputPoller, Renderer, SaveWriter, TickResult};
 use jgenesis_common::sync::SharedVarSender;
@@ -177,6 +178,7 @@ impl SegaCdEmulator {
                 &mut self.z80,
                 self.memory.as_debug_view(SegaCd::as_debug_view),
                 &mut self.vdp,
+                &mut self.ym2612,
             ),
             sub_cpu: &mut self.sub_cpu,
             pcm: &mut self.pcm,
@@ -361,12 +363,13 @@ impl SegaCdDebugger {
         main_cpu: &'emu mut M68000,
         z80: &'emu mut Z80,
         vdp: &'emu mut Vdp,
+        ym2612: &'emu mut Ym2612,
     ) -> SegaCdDebuggerForSubCpu<'ret>
     where
         'slf: 'ret,
         'emu: 'ret,
     {
-        SegaCdDebuggerForSubCpu { debugger: self, main_cpu, z80, vdp }
+        SegaCdDebuggerForSubCpu { debugger: self, main_cpu, z80, vdp, ym2612 }
     }
 
     pub(crate) fn for_z80<'slf, 'emu, 'ret>(
@@ -473,6 +476,7 @@ impl MainBus68kDebugger<SegaCd> for SegaCdDebuggerForMainCpu<'_> {
                 z80: self.z80,
                 memory: bus.memory.as_debug_view(SegaCd::as_debug_view),
                 vdp: bus.vdp,
+                ym2612: bus.ym2612,
             },
             sub_cpu: self.sub_cpu,
             pcm: self.pcm,
@@ -516,6 +520,7 @@ impl MainBusZ80Debugger<SegaCd> for SegaCdDebuggerForZ80<'_> {
                 z80: cpu,
                 memory: bus.memory.as_debug_view(SegaCd::as_debug_view),
                 vdp: bus.vdp,
+                ym2612: bus.ym2612,
             },
             sub_cpu: self.sub_cpu,
             pcm: self.pcm,
@@ -529,4 +534,5 @@ pub struct SegaCdDebuggerForSubCpu<'a> {
     pub(crate) main_cpu: &'a mut M68000,
     pub(crate) z80: &'a mut Z80,
     pub(crate) vdp: &'a mut Vdp,
+    pub(crate) ym2612: &'a mut Ym2612,
 }

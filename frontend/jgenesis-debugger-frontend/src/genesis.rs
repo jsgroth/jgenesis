@@ -1,6 +1,7 @@
 mod m68kdebug;
 mod sh2debug;
 mod widgets;
+mod ym2612debug;
 mod z80debug;
 
 use crate::genesis::m68kdebug::{
@@ -8,6 +9,7 @@ use crate::genesis::m68kdebug::{
     SegaCdMainMemoryMap, SegaCdSubMemoryMap,
 };
 use crate::genesis::sh2debug::Sh2DebugWindowState;
+use crate::genesis::ym2612debug::Ym2612DebugWindowState;
 use crate::genesis::z80debug::{GenesisZ80MemoryMap, Z80BreakCommand, Z80DebugWindowState};
 use crate::memviewer::MemoryViewerState;
 use crate::process::{DebuggerProcesses, RunTillNextResult};
@@ -23,6 +25,7 @@ use genesis_core::api::debug::{
     GenesisDebuggerHandle, GenesisMemoryArea, SpriteAttributeEntry,
 };
 use genesis_core::vdp::ColorModifier;
+use genesis_core::ym2612::Ym2612;
 use jgenesis_common::debug::{DebugMemoryView, DebugViewWithWriteHook, Endian};
 use jgenesis_common::frontend::{
     AudioOutput, Color, InputPoller, Renderer, SaveWriter, TickEffect,
@@ -247,6 +250,7 @@ struct State {
     sh2_master: Sh2DebugWindowState,
     sh2_slave: Sh2DebugWindowState,
     vdp_registers_open: bool,
+    ym2612: Ym2612DebugWindowState,
     s32x_system_registers_open: bool,
     s32x_vdp_registers_open: bool,
     s32x_pwm_registers_open: bool,
@@ -271,6 +275,7 @@ impl State {
             sh2_master: Sh2DebugWindowState::new(WhichCpu::Master),
             sh2_slave: Sh2DebugWindowState::new(WhichCpu::Slave),
             vdp_registers_open: false,
+            ym2612: Ym2612DebugWindowState::new(),
             s32x_system_registers_open: false,
             s32x_vdp_registers_open: false,
             s32x_pwm_registers_open: false,
@@ -295,6 +300,10 @@ macro_rules! match_each_state_variant {
 }
 
 impl GenesisBasedDebugState<'_> {
+    fn ym2612(&self) -> &Ym2612 {
+        match_each_state_variant!(self, state => state.ym2612())
+    }
+
     fn copy_cram(&mut self, out: &mut [Color], modifier: ColorModifier) {
         match_each_state_variant!(self, state => state.copy_cram(out, modifier));
     }
@@ -394,6 +403,11 @@ fn render(
                 if ui.button("VDP").clicked() {
                     state.vdp_registers_open = true;
                     move_to_top(ctx.egui_ctx, VDP_REGISTERS_WINDOW_TITLE);
+                    ui.close_kind(UiKind::Menu);
+                }
+
+                if ui.button("YM2612").clicked() {
+                    state.ym2612.open_window(ctx.egui_ctx);
                     ui.close_kind(UiKind::Menu);
                 }
 
@@ -518,6 +532,12 @@ fn render(
     );
 
     render_vdp_registers_window(ctx.egui_ctx, debug_state, &mut state.vdp_registers_open);
+
+    ym2612debug::render_debug_window(
+        ctx.egui_ctx,
+        debug_state.ym2612().debug_view(),
+        &mut state.ym2612,
+    );
 
     let screen_width = crate::screen_width(ctx.egui_ctx);
 

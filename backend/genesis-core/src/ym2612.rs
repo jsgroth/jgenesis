@@ -3,6 +3,7 @@
 //! This implementation is mostly based on community research documented here:
 //! <http://gendev.spritesmind.net/forum/viewtopic.php?f=24&t=386>
 
+mod debug;
 mod envelope;
 mod lfo;
 mod phase;
@@ -18,6 +19,11 @@ use genesis_config::Opn2BusyBehavior;
 use jgenesis_common::num::GetBit;
 use std::array;
 use std::sync::LazyLock;
+
+pub use debug::{
+    Channel3FrequencyMode, ChannelRegisters, GlobalRegisters, LfoState, OperatorRegisters,
+    TimerState, Ym2612DebugView,
+};
 
 const FM_SAMPLE_DIVIDER: u8 = 24;
 
@@ -406,7 +412,7 @@ impl Default for FmChannel {
 const WRITE_BUSY_CYCLES: u8 = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
-enum RegisterGroup {
+pub enum RegisterGroup {
     // Channel 1-3 and global registers
     #[default]
     One,

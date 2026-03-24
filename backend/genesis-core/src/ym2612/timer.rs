@@ -1,5 +1,6 @@
 //! YM2612 timers
 
+use crate::ym2612::debug::TimerState;
 use bincode::{Decode, Encode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,6 +85,15 @@ impl TimerA {
     pub fn write_interval_low(&mut self, value: u8) {
         self.interval = (self.interval & !3) | u16::from(value & 3);
     }
+
+    pub fn to_debug_state(&self) -> TimerState {
+        TimerState {
+            enabled: self.enabled_next,
+            overflow_flag: self.overflow_flag,
+            overflow_flag_enabled: self.overflow_flag_enabled,
+            interval: self.interval,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -145,5 +155,14 @@ impl TimerB {
         self.enabled_next = enabled;
         self.overflow_flag_enabled = overflow_flag_enabled;
         self.overflow_flag &= !clear_overflow_flag;
+    }
+
+    pub fn to_debug_state(&self) -> TimerState {
+        TimerState {
+            enabled: self.enabled_next,
+            overflow_flag: self.overflow_flag,
+            overflow_flag_enabled: self.overflow_flag_enabled,
+            interval: self.interval.into(),
+        }
     }
 }

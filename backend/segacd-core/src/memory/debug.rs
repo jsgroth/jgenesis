@@ -97,6 +97,7 @@ impl DebugSubBusView<'_, '_, '_, '_> {
                 z80: self.0.debugger.z80,
                 memory: self.0.bus.memory.as_debug_view(SegaCd::as_debug_view),
                 vdp: self.0.debugger.vdp,
+                ym2612: self.0.debugger.ym2612,
             },
             sub_cpu: cpu,
             pcm: self.0.bus.pcm,

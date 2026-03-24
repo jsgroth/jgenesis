@@ -1,15 +1,15 @@
 //! 32X core code
 
 use crate::api::Sega32XEmulatorConfig;
-use crate::api::debug::{Sega32XDebuggerForSh2, Sega32XMediumView};
+use crate::api::debug::{GenesisComponents, Sega32XDebuggerForSh2, Sega32XMediumView};
 use crate::audio::PwmResampler;
+use crate::bootrom;
 use crate::bootrom::M68kVectors;
 use crate::bus::debug::DebugSh2Bus;
 use crate::bus::{Sh2Bus, WhichCpu};
 use crate::pwm::PwmChip;
 use crate::registers::SystemRegisters;
 use crate::vdp::Vdp;
-use crate::{GenesisVdp, bootrom};
 use bincode::{Decode, Encode};
 use genesis_config::GenesisRegion;
 use genesis_core::cartridge::Cartridge;
@@ -98,19 +98,24 @@ impl Sega32X {
         &mut self,
         total_mclk_cycles: u64,
         pwm_resampler: &mut PwmResampler,
-        genesis_vdp: &mut GenesisVdp,
+        genesis_components: GenesisComponents<'_>,
     ) {
-        self.tick_inner::<false>(total_mclk_cycles, pwm_resampler, genesis_vdp, None);
+        self.tick_inner::<false>(total_mclk_cycles, pwm_resampler, genesis_components, None);
     }
 
     pub fn tick_debug(
         &mut self,
         total_mclk_cycles: u64,
         pwm_resampler: &mut PwmResampler,
-        genesis_vdp: &mut GenesisVdp,
+        genesis_components: GenesisComponents<'_>,
         debugger: Sega32XDebuggerForSh2<'_>,
     ) {
-        self.tick_inner::<true>(total_mclk_cycles, pwm_resampler, genesis_vdp, Some(debugger));
+        self.tick_inner::<true>(
+            total_mclk_cycles,
+            pwm_resampler,
+            genesis_components,
+            Some(debugger),
+        );
     }
 
     #[inline]
@@ -118,7 +123,7 @@ impl Sega32X {
         &mut self,
         mut total_mclk_cycles: u64,
         pwm_resampler: &mut PwmResampler,
-        genesis_vdp: &mut GenesisVdp,
+        mut genesis_components: GenesisComponents<'_>,
         mut debugger: Option<Sega32XDebuggerForSh2<'_>>,
     ) {
         while total_mclk_cycles > 0 {
@@ -158,7 +163,7 @@ impl Sega32X {
                 cycle_counter: self.slave_cycles,
                 cycle_limit: self.global_cycles,
                 other_cpu: (&mut self.sh2_master, &mut self.master_cycles),
-                genesis_vdp,
+                genesis_components: genesis_components.reborrow(),
                 debugger: debugger.as_mut(),
             });
 
@@ -170,7 +175,7 @@ impl Sega32X {
                 cycle_counter: self.master_cycles,
                 cycle_limit: self.global_cycles,
                 other_cpu: (&mut self.sh2_slave, &mut self.slave_cycles),
-                genesis_vdp,
+                genesis_components: genesis_components.reborrow(),
                 debugger: debugger.as_mut(),
             });
 
@@ -183,7 +188,11 @@ impl Sega32X {
             self.sh2_slave.tick_peripherals(elapsed_pwm_cycles, &mut *peripherals_bus);
 
             // 32X VDP
-            self.s32x_bus.vdp.tick(mclk_cycles, &mut self.s32x_bus.registers, genesis_vdp);
+            self.s32x_bus.vdp.tick(
+                mclk_cycles,
+                &mut self.s32x_bus.registers,
+                genesis_components.vdp,
+            );
 
             // PWM chip
             self.s32x_bus.pwm.tick(elapsed_pwm_cycles, &mut self.s32x_bus.registers, pwm_resampler);
@@ -228,14 +237,14 @@ impl Sega32X {
     }
 }
 
-struct ExecuteCpuArgs<'cpu, 'bus, 'other, 'genvdp, 'debug, 'genram> {
+struct ExecuteCpuArgs<'cpu, 'bus, 'other, 'gencomp, 'debug, 'genram> {
     cpu: &'cpu mut Sh2,
     s32x_bus: &'bus mut Sega32XBus,
     which: WhichCpu,
     cycle_counter: u64,
     cycle_limit: u64,
     other_cpu: (&'other mut Sh2, &'other mut u64),
-    genesis_vdp: &'genvdp mut GenesisVdp,
+    genesis_components: GenesisComponents<'gencomp>,
     debugger: Option<&'debug mut Sega32XDebuggerForSh2<'genram>>,
 }
 
@@ -249,7 +258,7 @@ fn execute_cpu<const DEBUG: bool>(
         cycle_counter,
         cycle_limit,
         other_cpu,
-        genesis_vdp,
+        genesis_components,
         debugger,
     }: ExecuteCpuArgs<'_, '_, '_, '_, '_, '_>,
 ) -> u64 {
@@ -260,7 +269,7 @@ fn execute_cpu<const DEBUG: bool>(
             cycle_counter,
             cycle_limit,
             Some(other_cpu),
-            genesis_vdp,
+            genesis_components,
             debugger,
         );
         while bus.cycle_counter() < cycle_limit {

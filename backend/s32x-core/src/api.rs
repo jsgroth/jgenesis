@@ -4,7 +4,7 @@
 
 pub mod debug;
 
-use crate::api::debug::Sega32XDebugger;
+use crate::api::debug::{GenesisComponents, Sega32XDebugger};
 use crate::audio::Sega32XResampler;
 use crate::core::Sega32X;
 use bincode::{Decode, Encode};
@@ -230,11 +230,15 @@ impl Sega32XEmulator {
             sega_32x.tick_debug(
                 mclk_cycles,
                 pwm_resampler,
-                &mut self.vdp,
+                GenesisComponents::new(&mut self.vdp, &mut self.ym2612),
                 debugger.for_sh2(&mut self.m68k, &mut self.z80, working_ram, audio_ram),
             );
         } else {
-            self.memory.medium_mut().tick(mclk_cycles, pwm_resampler, &mut self.vdp);
+            self.memory.medium_mut().tick(
+                mclk_cycles,
+                pwm_resampler,
+                GenesisComponents::new(&mut self.vdp, &mut self.ym2612),
+            );
         }
 
         self.input.tick(m68k_cycles);

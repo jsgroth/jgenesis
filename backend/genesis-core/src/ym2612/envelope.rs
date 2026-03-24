@@ -59,10 +59,10 @@ pub(super) struct EnvelopeGenerator {
     pub(super) key_scale_rate: u8,
     cycle_count: u16,
     divider: u8,
-    ssg_enabled: bool,
-    ssg_attack: bool,
-    ssg_alternate: bool,
-    ssg_hold: bool,
+    pub(super) ssg_enabled: bool,
+    pub(super) ssg_attack: bool,
+    pub(super) ssg_alternate: bool,
+    pub(super) ssg_hold: bool,
     ssg_invert_output: bool,
 }
 

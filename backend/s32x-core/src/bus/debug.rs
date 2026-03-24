@@ -1,8 +1,7 @@
-use crate::GenesisVdp;
 use crate::api::debug::{
-    DebugWhichCpu, Sega32XDebugger, Sega32XDebuggerFor68k, Sega32XDebuggerForSh2,
-    Sega32XDebuggerForSh2Raw, Sega32XDebuggerForZ80, Sega32XEmulatorDebugView, Sega32XMediumView,
-    Sh2Breakpoints,
+    DebugWhichCpu, GenesisComponents, Sega32XDebugger, Sega32XDebuggerFor68k,
+    Sega32XDebuggerForSh2, Sega32XDebuggerForSh2Raw, Sega32XDebuggerForZ80,
+    Sega32XEmulatorDebugView, Sega32XMediumView, Sh2Breakpoints,
 };
 use crate::bus::{OtherCpu, Sh2Bus, WhichCpu};
 use crate::core::{Sega32X, Sega32XBus};
@@ -25,15 +24,15 @@ pub(crate) struct DebugSh2Bus {
 }
 
 impl DebugSh2Bus {
-    pub(crate) fn create<'bus, 'other, 'debug, 'genram, 'genvdp>(
+    pub(crate) fn create<'bus, 'other, 'debug, 'genram, 'gencomp>(
         s32x_bus: &'bus mut Sega32XBus,
         which: WhichCpu,
         cycle_counter: u64,
         cycle_limit: u64,
         other_sh2: Option<(&'other mut Sh2, &'other mut u64)>,
-        genesis_vdp: &'genvdp mut GenesisVdp,
+        genesis_components: GenesisComponents<'gencomp>,
         debugger: &'debug mut Sega32XDebuggerForSh2<'genram>,
-    ) -> DebugSh2BusGuard<'bus, 'other, 'debug, 'genram, 'genvdp> {
+    ) -> DebugSh2BusGuard<'bus, 'other, 'debug, 'genram, 'gencomp> {
         unsafe {
             DebugSh2BusGuard {
                 bus: Self {
@@ -48,7 +47,7 @@ impl DebugSh2Bus {
                         cycle_limit,
                         debugger: None,
                     },
-                    debugger: debugger.as_raw(genesis_vdp),
+                    debugger: debugger.as_raw(genesis_components),
                     other_sh2: None,
                 },
                 _bus_marker: PhantomData,
@@ -137,6 +136,7 @@ impl<'a> Sh2BusDebugView<'a> {
                         audio_ram: self.0.debugger.audio_ram.as_mut(),
                     },
                     self.0.debugger.vdp.as_mut(),
+                    self.0.debugger.ym2612.as_mut(),
                 ),
             };
 
@@ -326,6 +326,7 @@ impl MainBus68kDebugger<Sega32X> for Sega32XDebuggerFor68k<'_> {
                 z80: self.z80,
                 memory: bus.memory.as_debug_view(Sega32X::as_debug_view),
                 vdp: bus.vdp,
+                ym2612: bus.ym2612,
             },
         };
         self.debugger.handle_breakpoint(DebugWhichCpu::M68k, &mut debug_view);
@@ -360,6 +361,7 @@ impl MainBusZ80Debugger<Sega32X> for Sega32XDebuggerForZ80<'_> {
                 z80: cpu,
                 memory: bus.memory.as_debug_view(Sega32X::as_debug_view),
                 vdp: bus.vdp,
+                ym2612: bus.ym2612,
             },
         };
         self.debugger.handle_breakpoint(DebugWhichCpu::Z80, &mut debug_view);
@@ -369,15 +371,18 @@ impl MainBusZ80Debugger<Sega32X> for Sega32XDebuggerForZ80<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::GenesisVdp;
     use crate::api::Sega32XEmulatorConfig;
     use crate::api::debug::{S32XMemoryArea, Sega32XDebugCommand, Sh2Breakpoint};
     use crate::core::SerialInterface;
     use crate::pwm::PwmChip;
     use crate::registers::SystemRegisters;
     use crate::vdp::Vdp;
+    use genesis_core::GenesisEmulatorConfig;
     use genesis_core::api::debug::GenesisMemoryArea;
     use genesis_core::cartridge::Cartridge;
     use genesis_core::vdp::DarkenColors;
+    use genesis_core::ym2612::Ym2612;
     use jgenesis_common::boxedarray::BoxedWordArray;
     use jgenesis_common::frontend::TimingMode;
     use m68000_emu::M68000;
@@ -438,6 +443,7 @@ mod tests {
         let mut z80 = Z80::new();
         let mut genesis_vdp =
             GenesisVdp::new(TimingMode::Ntsc, emu_config.genesis.to_vdp_config(DarkenColors::Yes));
+        let mut ym2612 = Ym2612::new_from_config(&GenesisEmulatorConfig::default());
         let mut working_ram = vec![0; 64 * 1024];
         let mut audio_ram = vec![0; 8 * 1024];
 
@@ -453,7 +459,7 @@ mod tests {
             0,
             1024,
             Some((&mut sh2_slave, &mut sh2_slave_cycles)),
-            &mut genesis_vdp,
+            GenesisComponents { vdp: &mut genesis_vdp, ym2612: &mut ym2612 },
             &mut debugger_for_sh2,
         );
 

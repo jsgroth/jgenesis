@@ -1,5 +1,6 @@
 //! YM2612 low frequency oscillator (LFO)
 
+use crate::ym2612::debug::LfoState;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 
@@ -35,12 +36,13 @@ pub struct LowFrequencyOscillator {
     enabled: bool,
     counter: u8,
     divider: u8,
+    max_divider: u8,
     frequency: u8,
 }
 
 impl LowFrequencyOscillator {
     pub fn new() -> Self {
-        Self { enabled: false, counter: 0, divider: 0, frequency: LFO_DIVIDERS[0] }
+        Self { enabled: false, counter: 0, divider: 0, max_divider: LFO_DIVIDERS[0], frequency: 0 }
     }
 
     pub fn set_enabled(&mut self, enabled: bool) {
@@ -51,7 +53,8 @@ impl LowFrequencyOscillator {
     }
 
     pub fn set_frequency(&mut self, frequency: u8) {
-        self.frequency = LFO_DIVIDERS[frequency as usize];
+        self.frequency = frequency;
+        self.max_divider = LFO_DIVIDERS[frequency as usize];
     }
 
     pub fn counter(&self) -> u8 {
@@ -62,13 +65,17 @@ impl LowFrequencyOscillator {
     pub fn tick(&mut self) {
         // TODO is this the correct way to handle LFO frequency changes?
         self.divider += 1;
-        if self.divider >= self.frequency {
+        if self.divider >= self.max_divider {
             self.divider = 0;
 
             if self.enabled {
                 self.counter = (self.counter + 1) & LFO_COUNTER_MASK;
             }
         }
+    }
+
+    pub fn to_debug_state(&self) -> LfoState {
+        LfoState { enabled: self.enabled, frequency: self.frequency, divider: self.max_divider }
     }
 }
 
