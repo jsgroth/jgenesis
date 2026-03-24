@@ -103,7 +103,9 @@ pub fn render_disassembly_window(
     let mut open = state.disassembly_open;
     Window::new(DISASSEMBLY_WINDOW_TITLE)
         .open(&mut open)
+        .constrain(false)
         .resizable([true, true])
+        .default_pos(crate::rand_window_pos())
         .default_width(650.0)
         .show(ctx, |ui| {
             if let Some(mut handle_command) = handle_command {
@@ -269,21 +271,26 @@ pub fn render_breakpoints_window(
     update_breakpoints: impl FnOnce(Vec<Z80Breakpoint>),
 ) {
     let mut open = state.breakpoints_open;
-    Window::new(BREAKPOINTS_WINDOW_TITLE).open(&mut open).resizable([true, true]).show(ctx, |ui| {
-        state.breakpoints.render(ui, |breakpoints| {
-            let z80_breakpoints = breakpoints
-                .iter()
-                .map(|breakpoint| Z80Breakpoint {
-                    start_address: breakpoint.start_address,
-                    end_address: breakpoint.end_address,
-                    read: breakpoint.read,
-                    write: breakpoint.write,
-                    execute: breakpoint.execute,
-                })
-                .collect();
-            update_breakpoints(z80_breakpoints);
+    Window::new(BREAKPOINTS_WINDOW_TITLE)
+        .open(&mut open)
+        .constrain(false)
+        .resizable([true, true])
+        .default_pos(crate::rand_window_pos())
+        .show(ctx, |ui| {
+            state.breakpoints.render(ui, |breakpoints| {
+                let z80_breakpoints = breakpoints
+                    .iter()
+                    .map(|breakpoint| Z80Breakpoint {
+                        start_address: breakpoint.start_address,
+                        end_address: breakpoint.end_address,
+                        read: breakpoint.read,
+                        write: breakpoint.write,
+                        execute: breakpoint.execute,
+                    })
+                    .collect();
+                update_breakpoints(z80_breakpoints);
+            });
         });
-    });
     state.breakpoints_open = open;
 }
 

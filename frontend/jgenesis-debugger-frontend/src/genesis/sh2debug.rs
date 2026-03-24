@@ -155,7 +155,9 @@ pub fn render_disassembly_window(
     let mut open = window_state.disassembly_open;
     Window::new(window_title)
         .open(&mut open)
+        .constrain(false)
         .resizable([true, true])
+        .default_pos(crate::rand_window_pos())
         .default_size([750.0, 550.0])
         .show(ctx, |ui| {
             egui::TopBottomPanel::new(TopBottomSide::Top, format!("{window_title}_top_panel"))
@@ -334,25 +336,30 @@ pub fn render_breakpoints_window(
     let window_title = window_state.which.breakpoints_window_title();
 
     let mut open = window_state.breakpoints_open;
-    Window::new(window_title).open(&mut open).resizable([true, true]).show(ctx, |ui| {
-        window_state.breakpoints.render(ui, |breakpoints| {
-            let sh2_breakpoints = breakpoints
-                .iter()
-                .map(|breakpoint| Sh2Breakpoint {
-                    start_address: breakpoint.start_address,
-                    end_address: breakpoint.end_address,
-                    read: breakpoint.read,
-                    write: breakpoint.write,
-                    execute: breakpoint.execute,
-                })
-                .collect();
+    Window::new(window_title)
+        .open(&mut open)
+        .constrain(false)
+        .resizable([true, true])
+        .default_pos(crate::rand_window_pos())
+        .show(ctx, |ui| {
+            window_state.breakpoints.render(ui, |breakpoints| {
+                let sh2_breakpoints = breakpoints
+                    .iter()
+                    .map(|breakpoint| Sh2Breakpoint {
+                        start_address: breakpoint.start_address,
+                        end_address: breakpoint.end_address,
+                        read: breakpoint.read,
+                        write: breakpoint.write,
+                        execute: breakpoint.execute,
+                    })
+                    .collect();
 
-            let _ = command_sender.send(Sega32XDebugCommand::UpdateSh2Breakpoints(
-                window_state.which,
-                sh2_breakpoints,
-            ));
+                let _ = command_sender.send(Sega32XDebugCommand::UpdateSh2Breakpoints(
+                    window_state.which,
+                    sh2_breakpoints,
+                ));
+            });
         });
-    });
     window_state.breakpoints_open = open;
 }
 

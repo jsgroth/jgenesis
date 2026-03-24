@@ -259,7 +259,9 @@ pub fn render_disassembly_window<MemoryMap: M68kDebugMemoryMap>(
     let mut open = state.disassembly_open;
     Window::new(&state.disassembly_window_title)
         .open(&mut open)
+        .constrain(false)
         .resizable([true, true])
+        .default_pos(crate::rand_window_pos())
         .default_width(650.0)
         .show(ctx, |ui| {
             if let Some(mut handle_command) = handle_command {
@@ -446,9 +448,12 @@ pub fn render_breakpoints_window(
     mut update_breakpoints: impl FnMut(Vec<M68000Breakpoint>),
 ) {
     let mut open = state.breakpoints_open;
-    Window::new(&state.breakpoints_window_title).open(&mut open).resizable([true, true]).show(
-        ctx,
-        |ui| {
+    Window::new(&state.breakpoints_window_title)
+        .open(&mut open)
+        .constrain(false)
+        .resizable([true, true])
+        .default_pos(crate::rand_window_pos())
+        .show(ctx, |ui| {
             state.breakpoints.render(ui, |breakpoints| {
                 let m68k_breakpoints = breakpoints
                     .iter()
@@ -463,8 +468,7 @@ pub fn render_breakpoints_window(
 
                 update_breakpoints(m68k_breakpoints);
             });
-        },
-    );
+        });
     state.breakpoints_open = open;
 }
 

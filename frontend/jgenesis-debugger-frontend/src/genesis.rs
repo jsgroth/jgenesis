@@ -42,7 +42,7 @@ use std::error::Error;
 use std::hash::Hash;
 
 const CRAM_WINDOW_TITLE: &str = "CRAM";
-const VRAM_WINDOW_TITLE: &str = "VRAM:";
+const VRAM_WINDOW_TITLE: &str = "VRAM";
 const H_SCROLL_WINDOW_TITLE: &str = "H Scroll Table";
 const SPRITE_ATTRIBUTES_WINDOW_TITLE: &str = "Sprite Attribute Table";
 const S32X_PALETTE_WINDOW_TITLE: &str = "32X Palette RAM";
@@ -784,9 +784,11 @@ fn render_cram_window(
     emu_state: &mut GenesisBasedDebugState<'_>,
     state: &mut CramWindowState,
 ) {
-    Window::new(CRAM_WINDOW_TITLE).default_width(screen_width * 0.95).open(&mut state.open).show(
-        ctx,
-        |ui| {
+    Window::new(CRAM_WINDOW_TITLE)
+        .open(&mut state.open)
+        .constrain(false)
+        .default_width(screen_width * 0.95)
+        .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.radio_value(&mut state.modifier, ColorModifier::None, "Normal");
                 ui.radio_value(&mut state.modifier, ColorModifier::Shadow, "Shadowed");
@@ -808,8 +810,7 @@ fn render_cram_window(
                 &mut state.texture,
             );
             ui.image((texture, Vec2::new(width, height)));
-        },
-    );
+        });
 }
 
 fn render_vram_window(
@@ -818,9 +819,11 @@ fn render_vram_window(
     emu_state: &mut GenesisBasedDebugState<'_>,
     state: &mut VramWindowState,
 ) {
-    Window::new(VRAM_WINDOW_TITLE).default_width(screen_width * 0.95).open(&mut state.open).show(
-        ctx,
-        |ui| {
+    Window::new(VRAM_WINDOW_TITLE)
+        .open(&mut state.open)
+        .constrain(false)
+        .default_width(screen_width * 0.95)
+        .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Palette");
 
@@ -844,8 +847,7 @@ fn render_vram_window(
                 &mut state.texture,
             );
             ui.image((texture, Vec2::new(width, height)));
-        },
-    );
+        });
 }
 
 fn render_h_scroll_window(
@@ -853,47 +855,52 @@ fn render_h_scroll_window(
     emu_state: &mut GenesisBasedDebugState<'_>,
     state: &mut HScrollWindowState,
 ) {
-    Window::new(H_SCROLL_WINDOW_TITLE).default_width(200.0).open(&mut state.open).show(ctx, |ui| {
-        emu_state.copy_h_scroll(state.buffer.as_mut_slice());
+    Window::new(H_SCROLL_WINDOW_TITLE)
+        .open(&mut state.open)
+        .constrain(false)
+        .default_pos(crate::rand_window_pos())
+        .default_width(200.0)
+        .show(ctx, |ui| {
+            emu_state.copy_h_scroll(state.buffer.as_mut_slice());
 
-        crate::brighten_faint_bg_color(ui);
+            crate::brighten_faint_bg_color(ui);
 
-        TableBuilder::new(ui)
-            .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
-            .column(Column::auto().at_least(50.0))
-            .columns(Column::auto(), 2)
-            .column(Column::remainder())
-            .striped(true)
-            .header(20.0, |mut header| {
-                header.col(|ui| {
-                    ui.heading("Line");
-                });
-                header.col(|ui| {
-                    ui.heading("Plane A");
-                });
-                header.col(|ui| {
-                    ui.heading("Plane B");
-                });
-                header.col(|_ui| {});
-            })
-            .body(|body| {
-                body.rows(18.0, 256, |mut row| {
-                    let line = row.index();
-                    let (h_scroll_a, h_scroll_b) = state.buffer[line];
+            TableBuilder::new(ui)
+                .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
+                .column(Column::auto().at_least(50.0))
+                .columns(Column::auto(), 2)
+                .column(Column::remainder())
+                .striped(true)
+                .header(20.0, |mut header| {
+                    header.col(|ui| {
+                        ui.heading("Line");
+                    });
+                    header.col(|ui| {
+                        ui.heading("Plane A");
+                    });
+                    header.col(|ui| {
+                        ui.heading("Plane B");
+                    });
+                    header.col(|_ui| {});
+                })
+                .body(|body| {
+                    body.rows(18.0, 256, |mut row| {
+                        let line = row.index();
+                        let (h_scroll_a, h_scroll_b) = state.buffer[line];
 
-                    row.col(|ui| {
-                        ui.label(line.to_string());
+                        row.col(|ui| {
+                            ui.label(line.to_string());
+                        });
+                        row.col(|ui| {
+                            ui.label(h_scroll_a.to_string());
+                        });
+                        row.col(|ui| {
+                            ui.label(h_scroll_b.to_string());
+                        });
+                        row.col(|_ui| {});
                     });
-                    row.col(|ui| {
-                        ui.label(h_scroll_a.to_string());
-                    });
-                    row.col(|ui| {
-                        ui.label(h_scroll_b.to_string());
-                    });
-                    row.col(|_ui| {});
                 });
-            });
-    });
+        });
 }
 
 fn render_sprite_attributes_window(
@@ -901,9 +908,12 @@ fn render_sprite_attributes_window(
     emu_state: &mut GenesisBasedDebugState<'_>,
     state: &mut SpriteAttributesWindowState,
 ) {
-    Window::new(SPRITE_ATTRIBUTES_WINDOW_TITLE).open(&mut state.open).default_width(500.0).show(
-        ctx,
-        |ui| {
+    Window::new(SPRITE_ATTRIBUTES_WINDOW_TITLE)
+        .open(&mut state.open)
+        .constrain(false)
+        .default_pos(crate::rand_window_pos())
+        .default_width(500.0)
+        .show(ctx, |ui| {
             let CopySpriteAttributesResult { sprite_table_len, top_left_x, top_left_y } =
                 emu_state.copy_sprite_attributes(state.buffer.as_mut_slice());
 
@@ -965,8 +975,7 @@ fn render_sprite_attributes_window(
                         row.col(|_ui| {});
                     });
                 });
-        },
-    );
+        });
 }
 
 fn render_32x_palette_window(
@@ -974,9 +983,12 @@ fn render_32x_palette_window(
     emu_state: &mut Sega32XDebugState,
     state: &mut S32XPaletteRamState,
 ) {
-    Window::new(S32X_PALETTE_WINDOW_TITLE).open(&mut state.open).default_size([500.0, 550.0]).show(
-        ctx,
-        |ui| {
+    Window::new(S32X_PALETTE_WINDOW_TITLE)
+        .open(&mut state.open)
+        .constrain(false)
+        .default_pos(crate::rand_window_pos())
+        .default_size([500.0, 550.0])
+        .show(ctx, |ui| {
             emu_state.copy_palette(state.buffer.as_mut_slice());
 
             let mut size = ui.available_width();
@@ -991,8 +1003,7 @@ fn render_32x_palette_window(
                 &mut state.texture,
             );
             ui.image((texture, Vec2::new(size, size)));
-        },
-    );
+        });
 }
 
 fn render_vdp_registers_window(

@@ -21,9 +21,9 @@ use jgenesis_native_config::EguiTheme;
 use jgenesis_renderer::config::RendererConfig;
 use sdl3::VideoSubsystem;
 use sdl3::video::{Window, WindowBuildError};
-use std::iter;
 use std::sync::Arc;
 use std::time::SystemTime;
+use std::{array, iter};
 use thiserror::Error;
 
 pub use process::{
@@ -439,22 +439,26 @@ fn render_registers_window(
     open: &mut bool,
     render_registers: impl FnOnce(&mut Ui),
 ) {
-    egui::Window::new(window_title).open(open).show(ctx, |ui| {
-        ScrollArea::vertical().show(ui, |ui| {
-            brighten_faint_bg_color(ui);
+    egui::Window::new(window_title)
+        .open(open)
+        .constrain(false)
+        .default_pos(rand_window_pos())
+        .show(ctx, |ui| {
+            ScrollArea::vertical().show(ui, |ui| {
+                brighten_faint_bg_color(ui);
 
-            render_registers(ui);
+                render_registers(ui);
+            });
         });
-    });
 }
 
 fn brighten_faint_bg_color(ui: &mut Ui) {
     // Make stripes a little lighter
     let color = ui.visuals_mut().faint_bg_color;
     ui.visuals_mut().faint_bg_color = Color32::from_rgba_premultiplied(
-        color.r().saturating_add(10),
-        color.g().saturating_add(10),
-        color.b().saturating_add(10),
+        color.r().saturating_add(5),
+        color.g().saturating_add(5),
+        color.b().saturating_add(5),
         color.a(),
     );
 }
@@ -497,4 +501,11 @@ fn dump_registers_callback(ui: &mut Ui) -> impl FnMut(&str, &[(&str, &str)]) {
 
         render_registers_table(ui, register, values);
     }
+}
+
+// When an egui Window is created with constrain=false, letting egui decide the default position can
+// cause the window to spawn offscreen. Instead, for windows that aren't initially open, spawn them
+// in a random position near-ish the top-left corner of the screen
+fn rand_window_pos() -> [f32; 2] {
+    array::from_fn(|_| 100.0 + rand::random_range(-50.0..=50.0))
 }

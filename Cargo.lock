@@ -2334,6 +2334,7 @@ dependencies = [
  "m68000-emu",
  "nes-core",
  "pollster",
+ "rand 0.9.2",
  "rfd",
  "s32x-core",
  "sdl3",
