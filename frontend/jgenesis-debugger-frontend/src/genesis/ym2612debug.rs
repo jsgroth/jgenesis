@@ -45,20 +45,20 @@ pub fn render_debug_window(
         .default_pos(default_pos)
         .default_height(650.0)
         .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Channel:");
+
+                for i in 0..6 {
+                    ui.radio_value(&mut state.channel, i, (i + 1).to_string());
+                }
+            });
+
             ui.spacing_mut().scroll = ScrollStyle::solid();
 
             ScrollArea::vertical()
                 .auto_shrink([true, false])
                 .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
                 .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label("Channel:");
-
-                        for i in 0..6 {
-                            ui.radio_value(&mut state.channel, i, (i + 1).to_string());
-                        }
-                    });
-
                     let global = ym2612.global_registers();
                     let channel = ym2612.channel_registers();
                     let operator = ym2612.operator_registers();
