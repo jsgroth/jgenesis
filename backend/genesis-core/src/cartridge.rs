@@ -4,7 +4,6 @@ use crate::svp::Svp;
 use bincode::{Decode, Encode};
 use crc::Crc;
 use genesis_config::GenesisRegion;
-use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use regex::Regex;
@@ -250,6 +249,15 @@ impl Mapper {
                     _ => rom.read_word(address),
                 }
             }
+        }
+    }
+
+    fn peek_word(&self, address: u32, rom: &Rom, external: &ExternalMemory) -> Option<u16> {
+        match self {
+            Self::Basic(mapper) => mapper.read_word(address, rom, external),
+            Self::Ssf(mapper) => mapper.read_word(address, rom, external),
+            Self::Svp(svp) => Some(svp.m68k_peek(address, &rom.0)),
+            Self::UnlRockmanX3 => rom.read_word(address),
         }
     }
 
@@ -522,8 +530,18 @@ impl Cartridge {
     }
 
     #[must_use]
-    pub fn debug_rom_view(&mut self) -> impl DebugMemoryView {
-        DebugWordsView(self.rom.0.as_mut(), Endian::Big)
+    pub fn peek_word(&self, address: u32) -> u16 {
+        self.mapper.peek_word(address, &self.rom, &self.external).unwrap_or(0xFFFF)
+    }
+
+    #[must_use]
+    pub fn debug_rom_view(&mut self) -> &mut [u16] {
+        self.rom.0.as_mut()
+    }
+
+    #[must_use]
+    pub fn debug_rom_view_shared(&self) -> &[u16] {
+        self.rom.0.as_ref()
     }
 }
 
@@ -720,5 +738,9 @@ impl PhysicalMedium for Cartridge {
     #[inline]
     fn region(&self) -> GenesisRegion {
         self.region
+    }
+
+    fn clone_cartridge(&self) -> Option<Cartridge> {
+        Some(self.clone())
     }
 }

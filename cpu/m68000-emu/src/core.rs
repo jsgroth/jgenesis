@@ -1,4 +1,4 @@
-mod instructions;
+pub(crate) mod instructions;
 
 use crate::core::instructions::Instruction;
 use crate::traits::BusInterface;
@@ -6,6 +6,7 @@ use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::EnumAll;
 use std::fmt::{Display, Formatter};
 
+use crate::debug::BusDebugExt;
 pub use instructions::cycles_if_move_btst_cmp;
 
 #[derive(Debug, Clone, Copy)]
@@ -116,7 +117,7 @@ impl Registers {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DataRegister(u8);
+pub struct DataRegister(pub(crate) u8);
 
 impl DataRegister {
     const ALL: [Self; 8] = [Self(0), Self(1), Self(2), Self(3), Self(4), Self(5), Self(6), Self(7)];
@@ -147,7 +148,7 @@ impl From<u8> for DataRegister {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AddressRegister(u8);
+pub struct AddressRegister(pub(crate) u8);
 
 impl AddressRegister {
     const ALL: [Self; 8] = [Self(0), Self(1), Self(2), Self(3), Self(4), Self(5), Self(6), Self(7)];
@@ -229,7 +230,7 @@ impl Display for OpSize {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum IndexRegister {
+pub(crate) enum IndexRegister {
     Data(DataRegister),
     Address(AddressRegister),
 }
@@ -248,7 +249,7 @@ impl IndexRegister {
     }
 }
 
-fn parse_index(extension: u16) -> (IndexRegister, IndexSize) {
+pub(crate) fn parse_index(extension: u16) -> (IndexRegister, IndexSize) {
     let register_number = ((extension >> 12) & 0x07) as u8;
     let register = if extension.bit(15) {
         IndexRegister::Address(register_number.into())
@@ -262,7 +263,7 @@ fn parse_index(extension: u16) -> (IndexRegister, IndexSize) {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum IndexSize {
+pub(crate) enum IndexSize {
     SignExtendedWord,
     LongWord,
 }
@@ -409,13 +410,11 @@ impl Display for ResolvedAddress {
 }
 
 #[derive(Debug)]
-struct InstructionExecutor<'registers, 'bus, B> {
-    registers: &'registers mut Registers,
+struct InstructionExecutor<'cpu, 'bus, B> {
+    cpu: &'cpu mut M68000,
     bus: &'bus mut B,
-    allow_tas_writes: bool,
     opcode: u16,
     instruction: Option<Instruction>,
-    name: &'registers str,
 }
 
 const ADDRESS_ERROR_VECTOR: u32 = 3;
@@ -427,14 +426,9 @@ const LINE_1010_VECTOR: u32 = 10;
 const LINE_1111_VECTOR: u32 = 11;
 const AUTO_VECTORED_INTERRUPT_BASE_ADDRESS: u32 = 0x60;
 
-impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
-    fn new(
-        registers: &'registers mut Registers,
-        bus: &'bus mut B,
-        allow_tas_writes: bool,
-        name: &'registers str,
-    ) -> Self {
-        Self { registers, bus, allow_tas_writes, opcode: 0, instruction: None, name }
+impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
+    fn new(cpu: &'cpu mut M68000, bus: &'bus mut B) -> Self {
+        Self { cpu, bus, opcode: 0, instruction: None }
     }
 
     // Read a word from the bus; returns an address error if address is odd
@@ -443,7 +437,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             return Err(Exception::AddressError(address, BusOpType::Read));
         }
 
-        Ok(self.bus.read_word(address))
+        Ok(self.bus.read_word_debug(address, self.cpu))
     }
 
     // Write a word to the bus; returns an address error if address is odd
@@ -452,7 +446,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             return Err(Exception::AddressError(address, BusOpType::Write));
         }
 
-        self.bus.write_word(address, value);
+        self.bus.write_word_debug(address, value, self.cpu);
 
         Ok(())
     }
@@ -463,7 +457,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             return Err(Exception::AddressError(address, BusOpType::Read));
         }
 
-        Ok(self.bus.read_long_word(address))
+        Ok(self.bus.read_longword_debug(address, self.cpu))
     }
 
     // Write a long word to the bus; returns an address error if address is odd
@@ -472,16 +466,21 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             return Err(Exception::AddressError(address, BusOpType::Write));
         }
 
-        self.bus.write_long_word(address, value);
+        self.bus.write_longword_debug(address, value, self.cpu);
 
         Ok(())
     }
 
     // Fetch a word from the current PC and increment PC; returns an address error if PC is odd
     fn fetch_operand(&mut self) -> ExecuteResult<u16> {
-        let operand = self.registers.prefetch;
-        self.registers.prefetch = self.read_bus_word(self.registers.pc.wrapping_add(2))?;
-        self.registers.pc = self.registers.pc.wrapping_add(2);
+        let prefetch_addr = self.cpu.registers.pc.wrapping_add(2);
+        if self.cpu.registers.pc & 1 != 0 {
+            return Err(Exception::AddressError(prefetch_addr, BusOpType::Read));
+        }
+
+        let operand = self.cpu.registers.prefetch;
+        self.cpu.registers.prefetch = self.bus.read_word(prefetch_addr);
+        self.cpu.registers.pc = prefetch_addr;
 
         Ok(operand)
     }
@@ -497,49 +496,50 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             AddressingMode::DataDirect(register) => ResolvedAddress::DataRegister(register),
             AddressingMode::AddressDirect(register) => ResolvedAddress::AddressRegister(register),
             AddressingMode::AddressIndirect(register) => {
-                ResolvedAddress::Memory(register.read_from(self.registers))
+                ResolvedAddress::Memory(register.read_from(&self.cpu.registers))
             }
             AddressingMode::AddressIndirectPredecrement(register) => {
                 let increment = size.increment_step_for(register);
-                let address = register.read_from(self.registers).wrapping_sub(increment);
-                register.write_long_word_to(self.registers, address);
+                let address = register.read_from(&self.cpu.registers).wrapping_sub(increment);
+                register.write_long_word_to(&mut self.cpu.registers, address);
                 ResolvedAddress::Memory(address)
             }
             AddressingMode::AddressIndirectPostincrement(register) => {
                 let increment = size.increment_step_for(register);
-                let address = register.read_from(self.registers);
+                let address = register.read_from(&self.cpu.registers);
                 ResolvedAddress::MemoryPostincrement { address, register, increment }
             }
             AddressingMode::AddressIndirectDisplacement(register) => {
                 let extension = self.fetch_operand()?;
                 let displacement = extension as i16;
-                let address = register.read_from(self.registers).wrapping_add(displacement as u32);
+                let address =
+                    register.read_from(&self.cpu.registers).wrapping_add(displacement as u32);
                 ResolvedAddress::Memory(address)
             }
             AddressingMode::AddressIndirectIndexed(register) => {
                 let extension = self.fetch_operand()?;
                 let (index_register, index_size) = parse_index(extension);
-                let index = index_register.read_from(self.registers, index_size);
+                let index = index_register.read_from(&self.cpu.registers, index_size);
                 let displacement = extension as i8;
 
                 let address = register
-                    .read_from(self.registers)
+                    .read_from(&self.cpu.registers)
                     .wrapping_add(index)
                     .wrapping_add(displacement as u32);
                 ResolvedAddress::Memory(address)
             }
             AddressingMode::PcRelativeDisplacement => {
-                let pc = self.registers.pc;
+                let pc = self.cpu.registers.pc;
                 let extension = self.fetch_operand()?;
                 let displacement = extension as i16;
                 let address = pc.wrapping_add(displacement as u32);
                 ResolvedAddress::Memory(address)
             }
             AddressingMode::PcRelativeIndexed => {
-                let pc = self.registers.pc;
+                let pc = self.cpu.registers.pc;
                 let extension = self.fetch_operand()?;
                 let (index_register, index_size) = parse_index(extension);
-                let index = index_register.read_from(self.registers, index_size);
+                let index = index_register.read_from(&self.cpu.registers, index_size);
                 let displacement = extension as i8;
 
                 let address = pc.wrapping_add(index).wrapping_add(displacement as u32);
@@ -571,7 +571,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             AddressingMode::Quick(value) => ResolvedAddress::Immediate(value.into()),
         };
 
-        log::trace!("[{}] {addressing_mode} resolved to {resolved_address}", self.name);
+        log::trace!("[{}] {addressing_mode} resolved to {resolved_address}", self.cpu.name);
 
         Ok(resolved_address)
     }
@@ -583,16 +583,22 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         size: OpSize,
     ) -> ExecuteResult<ResolvedAddress> {
         let resolved = self.resolve_address(addressing_mode, size)?;
-        resolved.apply_post(self.registers);
+        resolved.apply_post(&mut self.cpu.registers);
         Ok(resolved)
     }
 
     fn read_byte_resolved(&mut self, resolved_address: ResolvedAddress) -> u8 {
         match resolved_address {
-            ResolvedAddress::DataRegister(register) => register.read_from(self.registers) as u8,
-            ResolvedAddress::AddressRegister(register) => register.read_from(self.registers) as u8,
+            ResolvedAddress::DataRegister(register) => {
+                register.read_from(&self.cpu.registers) as u8
+            }
+            ResolvedAddress::AddressRegister(register) => {
+                register.read_from(&self.cpu.registers) as u8
+            }
             ResolvedAddress::Memory(address)
-            | ResolvedAddress::MemoryPostincrement { address, .. } => self.bus.read_byte(address),
+            | ResolvedAddress::MemoryPostincrement { address, .. } => {
+                self.bus.read_byte_debug(address, self.cpu)
+            }
             ResolvedAddress::Immediate(value) => value as u8,
         }
     }
@@ -611,10 +617,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     fn read_word_resolved(&mut self, resolved_address: ResolvedAddress) -> ExecuteResult<u16> {
         match resolved_address {
             ResolvedAddress::DataRegister(register) => {
-                Ok(register.read_from(self.registers) as u16)
+                Ok(register.read_from(&self.cpu.registers) as u16)
             }
             ResolvedAddress::AddressRegister(register) => {
-                Ok(register.read_from(self.registers) as u16)
+                Ok(register.read_from(&self.cpu.registers) as u16)
             }
             ResolvedAddress::Memory(address)
             | ResolvedAddress::MemoryPostincrement { address, .. } => self.read_bus_word(address),
@@ -625,8 +631,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     // Read a long word from the given location; will return an address error if the location is an odd memory address
     fn read_long_word_resolved(&mut self, resolved_address: ResolvedAddress) -> ExecuteResult<u32> {
         match resolved_address {
-            ResolvedAddress::DataRegister(register) => Ok(register.read_from(self.registers)),
-            ResolvedAddress::AddressRegister(register) => Ok(register.read_from(self.registers)),
+            ResolvedAddress::DataRegister(register) => Ok(register.read_from(&self.cpu.registers)),
+            ResolvedAddress::AddressRegister(register) => {
+                Ok(register.read_from(&self.cpu.registers))
+            }
             ResolvedAddress::Memory(address)
             | ResolvedAddress::MemoryPostincrement { address, .. } => {
                 self.read_bus_long_word(address)
@@ -656,14 +664,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     fn write_byte_resolved(&mut self, resolved_address: ResolvedAddress, value: u8) {
         match resolved_address {
             ResolvedAddress::DataRegister(register) => {
-                register.write_byte_to(self.registers, value);
+                register.write_byte_to(&mut self.cpu.registers, value);
             }
             ResolvedAddress::AddressRegister(register) => {
-                register.write_byte_to(self.registers, value);
+                register.write_byte_to(&mut self.cpu.registers, value);
             }
             ResolvedAddress::Memory(address)
             | ResolvedAddress::MemoryPostincrement { address, .. } => {
-                self.bus.write_byte(address, value);
+                self.bus.write_byte_debug(address, value, self.cpu);
             }
             ResolvedAddress::Immediate(..) => panic!("cannot write to immediate addressing mode"),
         }
@@ -688,10 +696,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     ) -> ExecuteResult<()> {
         match resolved_address {
             ResolvedAddress::DataRegister(register) => {
-                register.write_word_to(self.registers, value);
+                register.write_word_to(&mut self.cpu.registers, value);
             }
             ResolvedAddress::AddressRegister(register) => {
-                register.write_word_to(self.registers, value);
+                register.write_word_to(&mut self.cpu.registers, value);
             }
             ResolvedAddress::Memory(address)
             | ResolvedAddress::MemoryPostincrement { address, .. } => {
@@ -710,10 +718,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     ) -> ExecuteResult<()> {
         match resolved_address {
             ResolvedAddress::DataRegister(register) => {
-                register.write_long_word_to(self.registers, value);
+                register.write_long_word_to(&mut self.cpu.registers, value);
             }
             ResolvedAddress::AddressRegister(register) => {
-                register.write_long_word_to(self.registers, value);
+                register.write_long_word_to(&mut self.cpu.registers, value);
             }
             ResolvedAddress::Memory(address)
             | ResolvedAddress::MemoryPostincrement { address, .. } => {
@@ -728,7 +736,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     fn write_byte(&mut self, dest: AddressingMode, value: u8) -> ExecuteResult<()> {
         let resolved_address = self.resolve_address(dest, OpSize::Byte)?;
         self.write_byte_resolved(resolved_address, value);
-        resolved_address.apply_post(self.registers);
+        resolved_address.apply_post(&mut self.cpu.registers);
 
         Ok(())
     }
@@ -736,7 +744,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     fn write_word(&mut self, dest: AddressingMode, value: u16) -> ExecuteResult<()> {
         let resolved_address = self.resolve_address(dest, OpSize::Word)?;
         self.write_word_resolved(resolved_address, value)?;
-        resolved_address.apply_post(self.registers);
+        resolved_address.apply_post(&mut self.cpu.registers);
 
         Ok(())
     }
@@ -744,14 +752,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     fn write_long_word(&mut self, dest: AddressingMode, value: u32) -> ExecuteResult<()> {
         let resolved_address = self.resolve_address(dest, OpSize::LongWord)?;
         self.write_long_word_resolved(resolved_address, value)?;
-        resolved_address.apply_post(self.registers);
+        resolved_address.apply_post(&mut self.cpu.registers);
 
         Ok(())
     }
 
     fn push_stack_u16(&mut self, value: u16) -> ExecuteResult<()> {
-        let sp = self.registers.sp().wrapping_sub(2);
-        self.registers.set_sp(sp);
+        let sp = self.cpu.registers.sp().wrapping_sub(2);
+        self.cpu.registers.set_sp(sp);
 
         self.write_bus_word(sp, value)?;
 
@@ -762,8 +770,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let high_word = (value >> 16) as u16;
         let low_word = value as u16;
 
-        let sp = self.registers.sp().wrapping_sub(4);
-        self.registers.set_sp(sp);
+        let sp = self.cpu.registers.sp().wrapping_sub(4);
+        self.cpu.registers.set_sp(sp);
 
         self.write_bus_word(sp, high_word)?;
         self.write_bus_word(sp.wrapping_add(2), low_word)?;
@@ -772,36 +780,36 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     }
 
     fn pop_stack_u16(&mut self) -> ExecuteResult<u16> {
-        let sp = self.registers.sp();
+        let sp = self.cpu.registers.sp();
         let value = self.read_bus_word(sp)?;
 
-        self.registers.set_sp(sp.wrapping_add(2));
+        self.cpu.registers.set_sp(sp.wrapping_add(2));
 
         Ok(value)
     }
 
     fn pop_stack_u32(&mut self) -> ExecuteResult<u32> {
-        let sp = self.registers.sp();
+        let sp = self.cpu.registers.sp();
         let value = self.read_bus_long_word(sp)?;
 
-        self.registers.set_sp(sp.wrapping_add(4));
+        self.cpu.registers.set_sp(sp.wrapping_add(4));
 
         Ok(value)
     }
 
     fn handle_address_error(&mut self, address: u32, op_type: BusOpType) -> ExecuteResult<()> {
-        let sr = self.registers.status_register();
-        let supervisor_mode = self.registers.supervisor_mode;
+        let sr = self.cpu.registers.status_register();
+        let supervisor_mode = self.cpu.registers.supervisor_mode;
 
-        self.registers.trace_enabled = false;
-        self.registers.supervisor_mode = true;
+        self.cpu.registers.trace_enabled = false;
+        self.cpu.registers.supervisor_mode = true;
 
         let dest = self.instruction.and_then(Instruction::dest_addressing_mode);
         let source = self.instruction.and_then(Instruction::source_addressing_mode);
 
         let pc = match (op_type, dest, source) {
             (BusOpType::Write, Some(AddressingMode::AddressIndirectPredecrement(..)), Some(_)) => {
-                self.registers.pc
+                self.cpu.registers.pc
             }
             (
                 BusOpType::Write,
@@ -817,8 +825,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                     | AddressingMode::AbsoluteShort
                     | AddressingMode::AbsoluteLong,
                 ),
-            ) => self.registers.pc.wrapping_sub(4),
-            _ => self.registers.pc.wrapping_sub(2),
+            ) => self.cpu.registers.pc.wrapping_sub(4),
+            _ => self.cpu.registers.pc.wrapping_sub(2),
         };
 
         log::trace!("Address error PC: {pc:08X}");
@@ -852,9 +860,9 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     }
 
     fn handle_trap(&mut self, vector: u32, pc: u32) -> ExecuteResult<()> {
-        let sr = self.registers.status_register();
-        self.registers.trace_enabled = false;
-        self.registers.supervisor_mode = true;
+        let sr = self.cpu.registers.status_register();
+        self.cpu.registers.trace_enabled = false;
+        self.cpu.registers.supervisor_mode = true;
 
         self.push_stack_u32(pc)?;
         self.push_stack_u16(sr)?;
@@ -866,12 +874,12 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     }
 
     fn handle_auto_vectored_interrupt(&mut self, interrupt_level: u8) -> ExecuteResult<u32> {
-        let sr = self.registers.status_register();
-        self.registers.trace_enabled = false;
-        self.registers.supervisor_mode = true;
-        self.registers.interrupt_priority_mask = interrupt_level;
+        let sr = self.cpu.registers.status_register();
+        self.cpu.registers.trace_enabled = false;
+        self.cpu.registers.supervisor_mode = true;
+        self.cpu.registers.interrupt_priority_mask = interrupt_level;
 
-        self.push_stack_u32(self.registers.pc)?;
+        self.push_stack_u32(self.cpu.registers.pc)?;
         self.push_stack_u16(sr)?;
 
         let vector_addr = AUTO_VECTORED_INTERRUPT_BASE_ADDRESS + 4 * u32::from(interrupt_level);
@@ -886,7 +894,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     }
 
     fn jump_to_address(&mut self, address: u32) -> ExecuteResult<()> {
-        self.registers.pc = address.wrapping_sub(2);
+        self.cpu.registers.pc = address.wrapping_sub(2);
 
         if address & 1 != 0 {
             return Err(Exception::AddressError(address, BusOpType::Jump));
@@ -898,13 +906,13 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     }
 
     fn execute(mut self) -> u32 {
-        self.registers.address_error = false;
-        self.registers.last_instruction_was_muldiv = false;
+        self.cpu.registers.address_error = false;
+        self.cpu.registers.last_instruction_was_muldiv = false;
 
-        if let Some(interrupt_level) = self.registers.pending_interrupt_level {
-            self.registers.pending_interrupt_level = None;
+        if let Some(interrupt_level) = self.cpu.registers.pending_interrupt_level {
+            self.cpu.registers.pending_interrupt_level = None;
             self.bus.acknowledge_interrupt(interrupt_level);
-            self.registers.stopped = false;
+            self.cpu.registers.stopped = false;
 
             return match self.handle_auto_vectored_interrupt(interrupt_level) {
                 Ok(cycles) => cycles,
@@ -914,9 +922,9 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         // TODO properly handle non-maskable level 7 interrupts?
         let interrupt_level = self.bus.interrupt_level() & 0x07;
-        if interrupt_level > self.registers.interrupt_priority_mask {
-            log::trace!("[{}] Handling interrupt of level {interrupt_level}", self.name);
-            self.registers.pending_interrupt_level = Some(interrupt_level);
+        if interrupt_level > self.cpu.registers.interrupt_priority_mask {
+            log::trace!("[{}] Handling interrupt of level {interrupt_level}", self.cpu.name);
+            self.cpu.registers.pending_interrupt_level = Some(interrupt_level);
 
             // The 68000 takes about 10 cycles before it begins to acknowledge a received interrupt:
             //   https://gendev.spritesmind.net/forum/viewtopic.php?t=2202
@@ -924,7 +932,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             return 10;
         }
 
-        if self.registers.stopped {
+        if self.cpu.registers.stopped {
             return 4;
         }
 
@@ -939,10 +947,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             Exception::AddressError(address, op_type) => {
                 log::error!(
                     "[{}] Encountered 68000 address error; address={address:08X}, op_type={op_type:?}",
-                    self.name
+                    self.cpu.name
                 );
 
-                self.registers.address_error = true;
+                self.cpu.registers.address_error = true;
                 if let Err(Exception::AddressError(address, _)) =
                     self.handle_address_error(address, op_type)
                 {
@@ -950,15 +958,15 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                     log::error!(
                         "address error triggered while handling address error; CPU is now frozen (address={address:06X})"
                     );
-                    self.registers.frozen = true;
+                    self.cpu.registers.frozen = true;
                 }
 
                 // Not completely accurate but close enough; this shouldn't occur in real software
                 50
             }
             Exception::PrivilegeViolation => {
-                if let Err(Exception::AddressError(address, op_type)) =
-                    self.handle_trap(PRIVILEGE_VIOLATION_VECTOR, self.registers.pc.wrapping_sub(2))
+                if let Err(Exception::AddressError(address, op_type)) = self
+                    .handle_trap(PRIVILEGE_VIOLATION_VECTOR, self.cpu.registers.pc.wrapping_sub(2))
                 {
                     log::error!(
                         "address error triggered while handling privilege violation exception (address={address:06X})"
@@ -978,14 +986,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                     _ => {
                         log::error!(
                             "[{}] Illegal opcode executed: {opcode:04X} / {opcode:016b}",
-                            self.name
+                            self.cpu.name
                         );
                         ILLEGAL_OPCODE_VECTOR
                     }
                 };
 
                 if let Err(Exception::AddressError(address, op_type)) =
-                    self.handle_trap(vector, self.registers.pc.wrapping_sub(2))
+                    self.handle_trap(vector, self.cpu.registers.pc.wrapping_sub(2))
                 {
                     log::error!(
                         "address error triggered while handling illegal opcode exception (opcode={opcode:04X}, address={address:06X})"
@@ -996,10 +1004,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 34
             }
             Exception::DivisionByZero { cycles } => {
-                log::warn!("[{}] Encountered 68000 divide by zero exception", self.name);
+                log::warn!("[{}] Encountered 68000 divide by zero exception", self.cpu.name);
 
                 if let Err(Exception::AddressError(address, op_type)) =
-                    self.handle_trap(DIVIDE_BY_ZERO_VECTOR, self.registers.pc)
+                    self.handle_trap(DIVIDE_BY_ZERO_VECTOR, self.cpu.registers.pc)
                 {
                     log::error!(
                         "address error triggered while handling divide by zero exception (address={address:06X})"
@@ -1011,7 +1019,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             }
             Exception::Trap(vector) => {
                 if let Err(Exception::AddressError(address, op_type)) =
-                    self.handle_trap(vector, self.registers.pc)
+                    self.handle_trap(vector, self.cpu.registers.pc)
                 {
                     log::error!(
                         "address error triggered while executing TRAP instruction (address={address:06X})"
@@ -1023,7 +1031,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             }
             Exception::CheckRegister { cycles } => {
                 if let Err(Exception::AddressError(address, op_type)) =
-                    self.handle_trap(CHECK_REGISTER_VECTOR, self.registers.pc)
+                    self.handle_trap(CHECK_REGISTER_VECTOR, self.cpu.registers.pc)
                 {
                     log::error!(
                         "address error triggered while executing CHK instruction (address={address:06X})"
@@ -1121,9 +1129,8 @@ impl M68000 {
     }
 
     fn populate_prefetch(&mut self, bus: &mut impl BusInterface) {
-        let mut executor =
-            InstructionExecutor::new(&mut self.registers, bus, self.allow_tas_writes, &self.name);
-        if let Err(exception) = executor.jump_to_address(executor.registers.pc) {
+        let mut executor = InstructionExecutor::new(self, bus);
+        if let Err(exception) = executor.jump_to_address(executor.cpu.registers.pc) {
             executor.handle_exception(exception);
         }
     }
@@ -1210,7 +1217,6 @@ impl M68000 {
             return 1;
         }
 
-        InstructionExecutor::new(&mut self.registers, bus, self.allow_tas_writes, &self.name)
-            .execute()
+        InstructionExecutor::new(self, bus).execute()
     }
 }

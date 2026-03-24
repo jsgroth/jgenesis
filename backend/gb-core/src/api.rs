@@ -17,8 +17,8 @@ use crate::{HardwareMode, audio, ppu};
 use bincode::{Decode, Encode};
 use gb_config::{GameBoyButton, GameBoyInputs, GbAspectRatio, GbAudioResampler, GbPalette};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, ColorCorrection, EmulatorConfigTrait, EmulatorTrait, RenderFrameOptions,
-    Renderer, SaveWriter, TickEffect, TickResult,
+    AudioOutput, Color, ColorCorrection, EmulatorConfigTrait, EmulatorTrait, InputPoller,
+    RenderFrameOptions, Renderer, SaveWriter, TickEffect, TickResult,
 };
 use jgenesis_proc_macros::{ConfigDisplay, PartialClone};
 use std::fmt::{Debug, Display};
@@ -204,22 +204,20 @@ impl EmulatorTrait for GameBoyEmulator {
         SErr: Debug + Display + Send + Sync + 'static,
     > = GameBoyError<RErr, AErr, SErr>;
 
-    fn tick<R, A, S>(
+    fn tick<R, A, I, S>(
         &mut self,
         renderer: &mut R,
         audio_output: &mut A,
-        inputs: &Self::Inputs,
+        input_poller: &mut I,
         save_writer: &mut S,
     ) -> TickResult<Self::Err<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
-        R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
-        A::Err: Debug + Display + Send + Sync + 'static,
+        I: InputPoller<Self::Inputs>,
         S: SaveWriter,
-        S::Err: Debug + Display + Send + Sync + 'static,
     {
-        self.input_state.set_inputs(*inputs);
+        self.input_state.set_inputs(*input_poller.poll());
 
         self.cpu.execute_instruction(&mut Bus {
             hardware_mode: self.hardware_mode,
@@ -246,6 +244,7 @@ impl EmulatorTrait for GameBoyEmulator {
                 .render_frame(
                     self.rgba_buffer.as_ref(),
                     ppu::FRAME_SIZE,
+                    self.target_fps(),
                     self.config.render_options(self.hardware_mode),
                 )
                 .map_err(GameBoyError::Rendering)?;
@@ -278,6 +277,7 @@ impl EmulatorTrait for GameBoyEmulator {
         renderer.render_frame(
             self.rgba_buffer.as_ref(),
             ppu::FRAME_SIZE,
+            self.target_fps(),
             self.config.render_options(self.hardware_mode),
         )
     }

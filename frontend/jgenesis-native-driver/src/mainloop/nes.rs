@@ -1,8 +1,8 @@
 use crate::config::NesConfig;
 
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
-use crate::mainloop::{NativeEmulatorArgs, debug, file_name_no_ext, save};
-use crate::{AudioError, NativeEmulator, NativeEmulatorResult, extensions};
+use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, file_name_no_ext, save};
+use crate::{NativeEmulator, NativeEmulatorResult, extensions};
 
 use nes_core::api::NesEmulator;
 use nes_core::input::{NesInputDevice, NesInputs, ZapperState};
@@ -32,12 +32,12 @@ impl NativeNesEmulator {
     /// # Errors
     ///
     /// This method will return an error if it is unable to reload audio config.
-    pub fn reload_nes_config(&mut self, config: Box<NesConfig>) -> Result<(), AudioError> {
+    pub fn reload_nes_config(&mut self, config: Box<NesConfig>) -> NativeEmulatorResult<()> {
         log::info!("Reloading config: {config}");
 
         self.reload_common_config(&config.common)?;
 
-        self.update_emulator_config(&config.emulator_config);
+        self.update_and_reload_config(&config.emulator_config)?;
 
         self.input_mapper.update_mappings(
             config.common.axis_deadzone,
@@ -69,38 +69,45 @@ pub fn create_nes(config: Box<NesConfig>) -> NativeEmulatorResult<NativeNesEmula
         &extension,
     )?;
 
-    let mut save_writer = FsSaveWriter::new(save_path);
-
     let emulator_config = config.emulator_config;
-    let emulator = NesEmulator::create(rom, emulator_config, &mut save_writer)?;
+    let initial_window_size = config.common.initial_window_size;
+    let rom_file_path = config.common.rom_file_path.clone();
 
-    let rom_title = file_name_no_ext(&config.common.rom_file_path)?;
-    let window_title = format!("nes - {rom_title}");
+    let create_emulator_fn = move |save_writer: &mut FsSaveWriter| {
+        let emulator = NesEmulator::create(rom, emulator_config, save_writer)?;
+
+        let rom_title = file_name_no_ext(rom_file_path)?;
+        let window_title = format!("nes - {rom_title}");
+
+        let default_window_size = WindowSize::new_nes(
+            initial_window_size,
+            emulator_config.aspect_ratio,
+            emulator.timing_mode(),
+            emulator_config.ntsc_crop_vertical_overscan,
+        );
+
+        Ok(CreatedEmulator { emulator, window_title, default_window_size })
+    };
 
     let initial_inputs =
         NesInputs { p1: NesJoypadState::default(), p2: config.inputs.p2_type.to_input_device() };
 
-    let default_window_size = WindowSize::new_nes(
-        config.common.initial_window_size,
-        emulator_config.aspect_ratio,
-        emulator.timing_mode(),
-        emulator_config.ntsc_crop_vertical_overscan,
-    );
-
     NativeNesEmulator::new(
         NativeEmulatorArgs::new(
-            emulator,
+            Box::new(create_emulator_fn),
             emulator_config,
             config.common,
             extension,
-            default_window_size,
-            &window_title,
-            save_writer,
+            save_path,
             save_state_path,
             config.inputs.to_mapping_vec(),
         )
         .with_turbo_mappings(config.inputs.to_turbo_mapping_vec())
         .with_initial_inputs(initial_inputs)
-        .with_debug_render_fn(debug::nes::render_fn),
+        .with_debug_fn(|| {
+            jgenesis_debugger_frontend::partial_clone_debug_fn(
+                jgenesis_debugger_frontend::nes::render_fn(),
+            )
+        }),
     )
 }

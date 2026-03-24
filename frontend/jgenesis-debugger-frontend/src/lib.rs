@@ -3,6 +3,7 @@ pub mod gba;
 pub mod genesis;
 mod memviewer;
 pub mod nes;
+mod process;
 pub mod smsgg;
 pub mod snes;
 
@@ -24,36 +25,36 @@ use std::iter;
 use std::sync::Arc;
 use std::time::SystemTime;
 use thiserror::Error;
-use wgpu::SurfaceTargetUnsafe;
-use wgpu::rwh::HandleError;
+
+pub use process::{
+    DebugFn, DebugRenderFn, DebuggerMainProcess, DebuggerRunnerProcess, null_debug_fn,
+    partial_clone_debug_fn,
+};
 
 #[derive(Debug, Error)]
 pub enum DebuggerError {
     #[error("Failed to create surface from window handle: {0}")]
-    WindowHandleError(#[from] HandleError),
+    WindowHandleError(#[from] wgpu::rwh::HandleError),
     #[error("Failed to create SDL3 window: {0}")]
     SdlWindowCreateFailed(#[from] WindowBuildError),
+    #[error("Failed to obtain wgpu adapter: {0}")]
+    RequestAdapterFailed(#[from] wgpu::RequestAdapterError),
     #[error("Failed to create wgpu surface: {0}")]
     CreateSurfaceFailed(#[from] wgpu::CreateSurfaceError),
     #[error("Failed to obtain wgpu surface output texture: {0}")]
     SurfaceCurrentTexture(#[from] wgpu::SurfaceError),
-    #[error("Failed to obtain wgpu adapter")]
-    RequestAdapterFailed,
     #[error("Failed to obtain wgpu device: {0}")]
     RequestDeviceFailed(#[from] wgpu::RequestDeviceError),
 }
 
-pub struct DebugRenderContext<'a, Emulator> {
+pub struct DebugRenderContext<'a> {
     egui_ctx: &'a egui::Context,
-    emulator: &'a mut Emulator,
     device: &'a wgpu::Device,
     queue: &'a wgpu::Queue,
     renderer: &'a mut egui_wgpu::Renderer,
 }
 
-pub type DebugRenderFn<Emulator> = dyn FnMut(DebugRenderContext<'_, Emulator>);
-
-pub struct DebuggerWindow<Emulator> {
+pub struct DebuggerWindow {
     surface: wgpu::Surface<'static>,
     surface_config: wgpu::SurfaceConfiguration,
     device: wgpu::Device,
@@ -61,23 +62,26 @@ pub struct DebuggerWindow<Emulator> {
     platform: egui_sdl3_platform::Platform,
     egui_renderer: egui_wgpu::Renderer,
     start_time: SystemTime,
-    render_fn: Box<DebugRenderFn<Emulator>>,
+    debugger_process: Box<dyn DebuggerMainProcess>,
     // SAFETY: The window must be dropped after the surface
     window: Window,
 }
 
-impl<Emulator> DebuggerWindow<Emulator> {
+impl DebuggerWindow {
+    /// # Errors
+    ///
+    /// Propagates any errors encountered while initializing the window or the wgpu renderer.
     pub fn new(
         video: &VideoSubsystem,
         scale_factor: Option<f32>,
         egui_theme: EguiTheme,
         render_config: &RendererConfig,
-        render_fn: Box<DebugRenderFn<Emulator>>,
+        debugger_process: Box<dyn DebuggerMainProcess>,
     ) -> Result<Self, DebuggerError> {
         let scale_factor =
-            scale_factor.or_else(|| crate::try_get_primary_display_scale(video)).unwrap_or(1.0);
-        let window_width = (800.0 * scale_factor).round() as u32;
-        let window_height = (700.0 * scale_factor).round() as u32;
+            scale_factor.or_else(|| try_get_primary_display_scale(video)).unwrap_or(1.0);
+        let window_width = (900.0 * scale_factor).round() as u32;
+        let window_height = (790.0 * scale_factor).round() as u32;
 
         let window = video
             .window("Memory Viewer", window_width, window_height)
@@ -94,31 +98,41 @@ impl<Emulator> DebuggerWindow<Emulator> {
             backend_options: wgpu::BackendOptions {
                 dx12: jgenesis_renderer::config::dx12_backend_options(),
                 gl: wgpu::GlBackendOptions::default(),
+                noop: wgpu::NoopBackendOptions::default(),
             },
         });
 
         // SAFETY: The surface must not outlive the window
-        let surface =
-            unsafe { instance.create_surface_unsafe(SurfaceTargetUnsafe::from_window(&window)?) }?;
+        let surface = unsafe {
+            instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_window(&window)?)
+        }?;
 
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: render_config.wgpu_power_preference.to_wgpu(),
             force_fallback_adapter: false,
             compatible_surface: Some(&surface),
-        }))
-        .ok_or(DebuggerError::RequestAdapterFailed)?;
+        }))?;
 
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
                 label: "debugger_device".into(),
                 required_features: wgpu::Features::default(),
                 required_limits: wgpu::Limits::default(),
                 memory_hints: wgpu::MemoryHints::default(),
-            },
-            None,
-        ))?;
+                trace: wgpu::Trace::Off,
+            }))?;
 
-        let surface_format = surface.get_capabilities(&adapter).formats[0];
+        let surface_capabilities = surface.get_capabilities(&adapter);
+
+        // egui prefers non-sRGB-aware surface formats
+        let surface_format = surface_capabilities
+            .formats
+            .iter()
+            .copied()
+            .find(|&format| !format.is_srgb())
+            .unwrap_or(surface_capabilities.formats[0]);
+        log::info!("Rendering debugger window with surface format {surface_format:?}");
+
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_DST,
             format: surface_format,
@@ -149,25 +163,32 @@ impl<Emulator> DebuggerWindow<Emulator> {
             platform,
             egui_renderer,
             start_time,
-            render_fn,
+            debugger_process,
             window,
         })
     }
 
-    pub fn update(&mut self, emulator: &mut Emulator) -> Result<(), DebuggerError> {
+    /// Update internal state and render the debugger frontend.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any errors encountered while rendering.
+    pub fn update(&mut self) -> Result<(), DebuggerError> {
         let egui_input = self.platform.take_raw_input(
             SystemTime::now().duration_since(self.start_time).unwrap_or_default().as_secs_f64(),
         );
 
         let full_output = self.platform.context().run(egui_input, |ctx| {
-            (self.render_fn)(DebugRenderContext {
+            if let Err(err) = self.debugger_process.run(DebugRenderContext {
                 egui_ctx: ctx,
-                emulator,
                 device: &self.device,
                 queue: &self.queue,
                 renderer: &mut self.egui_renderer,
-            });
+            }) {
+                log::error!("Error updating debugger window: {err}");
+            }
         });
+        self.platform.handle_egui_output(&full_output.platform_output);
 
         let output = match self.surface.get_current_texture() {
             Ok(output) => output,
@@ -266,6 +287,10 @@ impl<Emulator> DebuggerWindow<Emulator> {
     }
 }
 
+fn try_get_primary_display_scale(video: &VideoSubsystem) -> Option<f32> {
+    video.get_primary_display().ok().and_then(|display| display.get_content_scale().ok())
+}
+
 fn screen_width(ctx: &egui::Context) -> f32 {
     let window_margin = ctx.style().spacing.window_margin;
     ctx.available_rect().width() - f32::from(window_margin.left) - f32::from(window_margin.right)
@@ -327,11 +352,11 @@ impl<T: Copy + PartialEq> Widget for SelectableButton<'_, T> {
     }
 }
 
-fn write_textures<Emulator>(
+fn write_textures(
     wgpu_texture: &wgpu::Texture,
     egui_texture: egui::TextureId,
     data: &[u8],
-    ctx: &mut DebugRenderContext<'_, Emulator>,
+    ctx: &mut DebugRenderContext<'_>,
 ) {
     ctx.queue.write_texture(
         wgpu::TexelCopyTextureInfo {
@@ -412,7 +437,7 @@ fn render_registers_window(
     ctx: &egui::Context,
     window_title: &str,
     open: &mut bool,
-    render_registers: impl FnOnce(&mut egui::Ui),
+    render_registers: impl FnOnce(&mut Ui),
 ) {
     egui::Window::new(window_title).open(open).show(ctx, |ui| {
         ScrollArea::vertical().show(ui, |ui| {
@@ -434,7 +459,7 @@ fn brighten_faint_bg_color(ui: &mut Ui) {
     );
 }
 
-fn render_registers_table(ui: &mut egui::Ui, register: &str, values: &[(&str, &str)]) {
+fn render_registers_table(ui: &mut Ui, register: &str, values: &[(&str, &str)]) {
     TableBuilder::new(ui)
         .id_salt(register)
         .column(Column::exact(200.0))
@@ -461,7 +486,7 @@ fn render_registers_table(ui: &mut egui::Ui, register: &str, values: &[(&str, &s
         });
 }
 
-fn dump_registers_callback(ui: &mut egui::Ui) -> impl FnMut(&str, &[(&str, &str)]) {
+fn dump_registers_callback(ui: &mut Ui) -> impl FnMut(&str, &[(&str, &str)]) {
     let mut first = true;
 
     move |register, values| {

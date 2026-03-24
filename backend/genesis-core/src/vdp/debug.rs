@@ -1,13 +1,56 @@
 use crate::vdp;
-use crate::vdp::{ColorModifier, SpriteData, Vdp, colors, render, sprites};
+use crate::vdp::{
+    CachedSpriteData, ColorModifier, Cram, SpriteData, Vdp, Vram, Vsram, colors, render, sprites,
+};
 use jgenesis_common::debug::{DebugBytesView, DebugMemoryView, DebugWordsView, Endian};
 
 use crate::api::debug::{CopySpriteAttributesResult, SpriteAttributeEntry};
 use crate::vdp::colors::ColorTables;
+use crate::vdp::registers::{DebugRegister, Registers};
 use crate::vdp::render::PatternGeneratorRowArgs;
 use jgenesis_common::frontend::Color;
 
+#[derive(Debug, Clone)]
+pub struct VdpDebugState {
+    vram: Box<Vram>,
+    cram: Box<Cram>,
+    vsram: Box<Vsram>,
+    color_tables: ColorTables,
+    registers: Registers,
+    latched_registers: Registers,
+    debug_register: DebugRegister,
+    cached_sprite_attributes: Box<[CachedSpriteData]>,
+}
+
 impl Vdp {
+    #[must_use]
+    pub fn to_debug_state(&self) -> VdpDebugState {
+        VdpDebugState {
+            vram: self.vram.clone(),
+            cram: self.cram.clone(),
+            vsram: self.vsram.clone(),
+            color_tables: self.color_tables.clone(),
+            registers: self.registers.clone(),
+            latched_registers: self.latched_registers.clone(),
+            debug_register: self.debug_register,
+            cached_sprite_attributes: self.cached_sprite_attributes.clone(),
+        }
+    }
+
+    pub fn debug_vram_view(&mut self) -> impl DebugMemoryView {
+        DebugBytesView(self.vram.as_mut_slice())
+    }
+
+    pub fn debug_cram_view(&mut self) -> impl DebugMemoryView {
+        DebugWordsView(self.cram.as_mut_slice(), Endian::Big)
+    }
+
+    pub fn debug_vsram_view(&mut self) -> impl DebugMemoryView {
+        DebugBytesView(self.vsram.as_mut_slice())
+    }
+}
+
+impl VdpDebugState {
     pub fn copy_cram(&self, out: &mut [Color], modifier: ColorModifier) {
         for (out_color, &cram_color) in out.iter_mut().zip(self.cram.as_ref()) {
             *out_color = parse_gen_color(cram_color, modifier, &self.color_tables);

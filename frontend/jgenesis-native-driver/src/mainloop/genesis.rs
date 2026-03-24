@@ -1,15 +1,16 @@
 use crate::config::RomReadResult;
 use crate::config::{GenesisConfig, Sega32XConfig, SegaCdConfig};
+use crate::mainloop::runner::RunnerCommand;
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
-use crate::mainloop::{NativeEmulatorArgs, NativeEmulatorError, debug, save};
-use crate::{AudioError, NativeEmulator, NativeEmulatorResult, extensions};
+use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, NativeEmulatorError, save};
+use crate::{NativeEmulator, NativeEmulatorResult, extensions};
 use cdrom::reader::CdRom;
 use genesis_config::GenesisRegion;
 use genesis_core::GenesisEmulator;
 use jgenesis_native_config::common::WindowSize;
 use s32x_core::api::Sega32XEmulator;
 use segacd_core::CdRomFileFormat;
-use segacd_core::api::{SegaCdEmulator, SegaCdLoadResult};
+use segacd_core::api::SegaCdEmulator;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -19,12 +20,15 @@ impl NativeGenesisEmulator {
     /// # Errors
     ///
     /// This method will return an error if it is unable to reload audio config.
-    pub fn reload_genesis_config(&mut self, config: Box<GenesisConfig>) -> Result<(), AudioError> {
+    pub fn reload_genesis_config(
+        &mut self,
+        config: Box<GenesisConfig>,
+    ) -> NativeEmulatorResult<()> {
         log::info!("Reloading config: {config}");
 
         self.reload_common_config(&config.common)?;
 
-        self.update_emulator_config(&config.emulator_config);
+        self.update_and_reload_config(&config.emulator_config)?;
 
         self.input_mapper.update_mappings(
             config.common.axis_deadzone,
@@ -43,12 +47,12 @@ impl NativeSegaCdEmulator {
     /// # Errors
     ///
     /// This method will return an error if it is unable to reload audio config.
-    pub fn reload_sega_cd_config(&mut self, config: Box<SegaCdConfig>) -> Result<(), AudioError> {
+    pub fn reload_sega_cd_config(&mut self, config: Box<SegaCdConfig>) -> NativeEmulatorResult<()> {
         log::info!("Reloading config: {config}");
 
         self.reload_common_config(&config.genesis.common)?;
 
-        self.update_emulator_config(&config.emulator_config);
+        self.update_and_reload_config(&config.emulator_config)?;
 
         self.input_mapper.update_mappings(
             config.genesis.common.axis_deadzone,
@@ -60,9 +64,12 @@ impl NativeSegaCdEmulator {
         Ok(())
     }
 
+    /// # Errors
+    ///
+    /// This method will return an error if unable to send the command to the emulator runner thread.
     #[allow(clippy::missing_panics_doc)]
-    pub fn remove_disc(&mut self) {
-        self.emulator.remove_disc();
+    pub fn remove_disc(&mut self) -> NativeEmulatorResult<()> {
+        self.runner.send_command(RunnerCommand::RemoveDisc)?;
 
         // SAFETY: This is not reassigning the window
         unsafe {
@@ -71,39 +78,18 @@ impl NativeSegaCdEmulator {
                 .set_title("sega cd - (no disc)")
                 .expect("Given string literal will never contain a null character");
         }
+
+        Ok(())
     }
 
     /// # Errors
     ///
-    /// This method will return an error if the disc drive is unable to load the disc.
+    /// This method will return an error if unable to send the command to the emulator runner thread.
     #[allow(clippy::missing_panics_doc)]
-    pub fn change_disc<P: AsRef<Path>>(&mut self, rom_path: P) -> SegaCdLoadResult<()> {
-        let rom_format = CdRomFileFormat::from_file_path(rom_path.as_ref()).unwrap_or_else(|| {
-            log::warn!(
-                "Unrecognized CD-ROM file format, treating as CUE: {}",
-                rom_path.as_ref().display()
-            );
-            CdRomFileFormat::CueBin
-        });
-
+    pub fn change_disc<P: AsRef<Path>>(&mut self, rom_path: P) -> NativeEmulatorResult<()> {
         self.rom_path = rom_path.as_ref().to_path_buf();
-        self.emulator.change_disc(rom_path, rom_format)?;
 
-        let title = format!("sega cd - {}", self.emulator.disc_title());
-
-        // SAFETY: This is not reassigning the window
-        unsafe {
-            self.renderer
-                .window_mut()
-                .set_title(&title)
-                .expect("Disc title should have non-printable characters already removed");
-        }
-
-        if let Err(err) = self.update_save_paths(&self.common_config.clone()) {
-            log::error!("Error updating save paths on disc change: {err}");
-        }
-
-        Ok(())
+        self.runner.send_command(RunnerCommand::ChangeDisc(self.rom_path.clone()))
     }
 }
 
@@ -113,12 +99,12 @@ impl Native32XEmulator {
     /// # Errors
     ///
     /// Propagates any errors encountered while reloading audio config.
-    pub fn reload_32x_config(&mut self, config: Box<Sega32XConfig>) -> Result<(), AudioError> {
+    pub fn reload_32x_config(&mut self, config: Box<Sega32XConfig>) -> NativeEmulatorResult<()> {
         log::info!("Reloading config: {config}");
 
         self.reload_common_config(&config.genesis.common)?;
 
-        self.update_emulator_config(&config.emulator_config);
+        self.update_and_reload_config(&config.emulator_config)?;
 
         self.input_mapper.update_mappings(
             config.genesis.common.axis_deadzone,
@@ -149,39 +135,41 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
         &extension,
     )?;
 
-    let mut save_writer = FsSaveWriter::new(save_path);
-
     let emulator_config = config.emulator_config;
-    let emulator = GenesisEmulator::create(rom, emulator_config, &mut save_writer);
+    let initial_window_size = config.common.initial_window_size;
 
-    let mut cartridge_title = emulator.cartridge_title();
-    // Remove non-printable characters
-    cartridge_title.retain(|c| {
-        c.is_ascii_alphanumeric() || c.is_ascii_whitespace() || c.is_ascii_punctuation()
-    });
-    let window_title = format!("genesis - {cartridge_title}");
+    let create_emulator_fn = move |save_writer: &mut FsSaveWriter| {
+        let emulator = GenesisEmulator::create(rom, emulator_config, save_writer);
 
-    let default_window_size = WindowSize::new_genesis(
-        config.common.initial_window_size,
-        emulator_config.aspect_ratio,
-        emulator.timing_mode(),
-        emulator_config.to_gen_par_params(),
-    );
+        let mut cartridge_title = emulator.cartridge_title();
+        // Remove non-printable characters
+        cartridge_title.retain(|c| {
+            c.is_ascii_alphanumeric() || c.is_ascii_whitespace() || c.is_ascii_punctuation()
+        });
+        let window_title = format!("genesis - {cartridge_title}");
+
+        let default_window_size = WindowSize::new_genesis(
+            initial_window_size,
+            emulator_config.aspect_ratio,
+            emulator.timing_mode(),
+            emulator_config.to_gen_par_params(),
+        );
+
+        Ok(CreatedEmulator { emulator, window_title, default_window_size })
+    };
 
     NativeGenesisEmulator::new(
         NativeEmulatorArgs::new(
-            emulator,
+            Box::new(create_emulator_fn),
             emulator_config,
             config.common,
             extension,
-            default_window_size,
-            &window_title,
-            save_writer,
+            save_path,
             save_state_path,
             config.inputs.to_mapping_vec(),
         )
         .with_turbo_mappings(config.inputs.to_turbo_mapping_vec())
-        .with_debug_render_fn(debug::genesis::render_fn),
+        .with_debug_fn(|| jgenesis_debugger_frontend::genesis::genesis_debug_fn()),
     )
 }
 
@@ -240,46 +228,65 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
         save_state_path = determined_paths.save_state_path;
     }
 
-    let mut save_writer = FsSaveWriter::new(save_path);
-
     let bios = fs::read(&bios_file_path).map_err(|source| NativeEmulatorError::SegaCdBiosRead {
         path: bios_file_path.clone(),
         source,
     })?;
 
     let emulator_config = config.emulator_config;
-    let emulator = SegaCdEmulator::create(
-        bios,
-        rom_path,
-        rom_format,
-        config.run_without_disc,
-        emulator_config,
-        &mut save_writer,
-    )?;
+    let initial_window_size = config.genesis.common.initial_window_size;
+    let run_without_disc = config.run_without_disc;
+    let rom_path = rom_path.to_owned();
 
-    let window_title = format!("sega cd - {}", emulator.disc_title());
+    let create_emulator_fn = move |save_writer: &mut FsSaveWriter| {
+        let emulator = SegaCdEmulator::create(
+            bios,
+            rom_path,
+            rom_format,
+            run_without_disc,
+            emulator_config,
+            save_writer,
+        )?;
 
-    let default_window_size = WindowSize::new_genesis(
-        config.genesis.common.initial_window_size,
-        emulator_config.genesis.aspect_ratio,
-        emulator.timing_mode(),
-        emulator_config.genesis.to_gen_par_params(),
-    );
+        let window_title = format!("sega cd - {}", emulator.disc_title());
+
+        let default_window_size = WindowSize::new_genesis(
+            initial_window_size,
+            emulator_config.genesis.aspect_ratio,
+            emulator.timing_mode(),
+            emulator_config.genesis.to_gen_par_params(),
+        );
+
+        Ok(CreatedEmulator { emulator, window_title, default_window_size })
+    };
+
+    let change_disc_fn = |emulator: &mut SegaCdEmulator, path: PathBuf| {
+        let rom_format = CdRomFileFormat::from_file_path(&path).unwrap_or_else(|| {
+            log::warn!("Unrecognized CD-ROM file format, treating as CUE: {}", path.display());
+            CdRomFileFormat::CueBin
+        });
+
+        emulator.change_disc(path, rom_format)?;
+
+        let title = format!("sega cd - {}", emulator.disc_title());
+        Ok(title)
+    };
+
+    let remove_disc_fn = SegaCdEmulator::remove_disc;
 
     NativeSegaCdEmulator::new(
         NativeEmulatorArgs::new(
-            emulator,
+            Box::new(create_emulator_fn),
             emulator_config,
             config.genesis.common,
             SCD_SAVE_EXTENSION.into(),
-            default_window_size,
-            &window_title,
-            save_writer,
+            save_path,
             save_state_path,
             config.genesis.inputs.to_mapping_vec(),
         )
         .with_turbo_mappings(config.genesis.inputs.to_turbo_mapping_vec())
-        .with_debug_render_fn(debug::genesis::render_fn),
+        .with_debug_fn(|| jgenesis_debugger_frontend::genesis::sega_cd_debug_fn())
+        .with_disc_change_fns(change_disc_fn, remove_disc_fn),
     )
 }
 
@@ -333,34 +340,36 @@ pub fn create_32x(config: Box<Sega32XConfig>) -> NativeEmulatorResult<Native32XE
         &extension,
     )?;
 
-    let mut save_writer = FsSaveWriter::new(save_path);
-
     let emulator_config = config.emulator_config;
-    let emulator = Sega32XEmulator::create(rom, emulator_config, &mut save_writer);
+    let initial_window_size = config.genesis.common.initial_window_size;
 
-    let cartridge_title = emulator.cartridge_title();
-    let window_title = format!("32x - {cartridge_title}");
+    let create_emulator_fn = move |save_writer: &mut FsSaveWriter| {
+        let emulator = Sega32XEmulator::create(rom, emulator_config, save_writer);
 
-    let default_window_size = WindowSize::new_32x(
-        config.genesis.common.initial_window_size,
-        emulator_config.genesis.aspect_ratio,
-        emulator.timing_mode(),
-        emulator_config.genesis.to_gen_par_params(),
-    );
+        let cartridge_title = emulator.cartridge_title();
+        let window_title = format!("32x - {cartridge_title}");
+
+        let default_window_size = WindowSize::new_32x(
+            initial_window_size,
+            emulator_config.genesis.aspect_ratio,
+            emulator.timing_mode(),
+            emulator_config.genesis.to_gen_par_params(),
+        );
+
+        Ok(CreatedEmulator { emulator, window_title, default_window_size })
+    };
 
     Native32XEmulator::new(
         NativeEmulatorArgs::new(
-            emulator,
+            Box::new(create_emulator_fn),
             emulator_config,
             config.genesis.common,
             extension,
-            default_window_size,
-            &window_title,
-            save_writer,
+            save_path,
             save_state_path,
             config.genesis.inputs.to_mapping_vec(),
         )
         .with_turbo_mappings(config.genesis.inputs.to_turbo_mapping_vec())
-        .with_debug_render_fn(debug::genesis::render_fn),
+        .with_debug_fn(|| jgenesis_debugger_frontend::genesis::sega_32x_debug_fn()),
     )
 }

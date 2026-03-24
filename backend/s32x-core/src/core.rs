@@ -1,19 +1,20 @@
 //! 32X core code
 
 use crate::api::Sega32XEmulatorConfig;
+use crate::api::debug::{Sega32XDebuggerForSh2, Sega32XMediumView};
 use crate::audio::PwmResampler;
-use crate::bootrom;
 use crate::bootrom::M68kVectors;
-use crate::bus::{OtherCpu, Sh2Bus, WhichCpu};
+use crate::bus::debug::DebugSh2Bus;
+use crate::bus::{Sh2Bus, WhichCpu};
 use crate::pwm::PwmChip;
 use crate::registers::SystemRegisters;
 use crate::vdp::Vdp;
+use crate::{GenesisVdp, bootrom};
 use bincode::{Decode, Encode};
 use genesis_config::GenesisRegion;
 use genesis_core::cartridge::Cartridge;
 use genesis_core::timing;
 use jgenesis_common::boxedarray::BoxedWordArray;
-use jgenesis_common::debug::DebugMemoryView;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::PartialClone;
 use sh2_emu::Sh2;
@@ -34,7 +35,7 @@ pub struct SerialInterface {
     pub slave_to_master: Option<u8>,
 }
 
-#[derive(Debug, PartialClone, Encode, Decode)]
+#[derive(Debug, Clone, PartialClone, Encode, Decode)]
 pub struct Sega32XBus {
     #[partial_clone(partial)]
     pub cartridge: Cartridge,
@@ -45,7 +46,7 @@ pub struct Sega32XBus {
     pub serial: SerialInterface,
 }
 
-#[derive(Debug, PartialClone, Encode, Decode)]
+#[derive(Debug, Clone, PartialClone, Encode, Decode)]
 pub struct Sega32X {
     sh2_master: Sh2,
     sh2_slave: Sh2,
@@ -95,9 +96,30 @@ impl Sega32X {
 
     pub fn tick(
         &mut self,
+        total_mclk_cycles: u64,
+        pwm_resampler: &mut PwmResampler,
+        genesis_vdp: &mut GenesisVdp,
+    ) {
+        self.tick_inner::<false>(total_mclk_cycles, pwm_resampler, genesis_vdp, None);
+    }
+
+    pub fn tick_debug(
+        &mut self,
+        total_mclk_cycles: u64,
+        pwm_resampler: &mut PwmResampler,
+        genesis_vdp: &mut GenesisVdp,
+        debugger: Sega32XDebuggerForSh2<'_>,
+    ) {
+        self.tick_inner::<true>(total_mclk_cycles, pwm_resampler, genesis_vdp, Some(debugger));
+    }
+
+    #[inline]
+    fn tick_inner<const DEBUG: bool>(
+        &mut self,
         mut total_mclk_cycles: u64,
         pwm_resampler: &mut PwmResampler,
-        genesis_vdp: &genesis_core::vdp::Vdp,
+        genesis_vdp: &mut GenesisVdp,
+        mut debugger: Option<Sega32XDebuggerForSh2<'_>>,
     ) {
         while total_mclk_cycles > 0 {
             let h_interrupt_enabled = self.s32x_bus.registers.either_h_interrupt_enabled();
@@ -128,50 +150,42 @@ impl Sega32X {
 
             self.global_cycles += elapsed_sh2_cycles;
 
-            let mut slave_bus = Sh2Bus {
+            // Slave SH-2
+            self.slave_cycles = execute_cpu::<DEBUG>(ExecuteCpuArgs {
+                cpu: &mut self.sh2_slave,
                 s32x_bus: &mut self.s32x_bus,
                 which: WhichCpu::Slave,
                 cycle_counter: self.slave_cycles,
                 cycle_limit: self.global_cycles,
-                other_sh2: Some(OtherCpu {
-                    cpu: &mut self.sh2_master,
-                    cycle_counter: &mut self.master_cycles,
-                }),
-            };
-            while slave_bus.cycle_counter < self.global_cycles {
-                self.sh2_slave.execute(SH2_EXECUTION_SLICE_LEN, &mut slave_bus);
-            }
-            self.slave_cycles = slave_bus.cycle_counter;
+                other_cpu: (&mut self.sh2_master, &mut self.master_cycles),
+                genesis_vdp,
+                debugger: debugger.as_mut(),
+            });
 
-            let mut master_bus = Sh2Bus {
+            // Master SH-2
+            self.master_cycles = execute_cpu::<DEBUG>(ExecuteCpuArgs {
+                cpu: &mut self.sh2_master,
                 s32x_bus: &mut self.s32x_bus,
                 which: WhichCpu::Master,
                 cycle_counter: self.master_cycles,
                 cycle_limit: self.global_cycles,
-                other_sh2: Some(OtherCpu {
-                    cpu: &mut self.sh2_slave,
-                    cycle_counter: &mut self.slave_cycles,
-                }),
-            };
-            while master_bus.cycle_counter < self.global_cycles {
-                self.sh2_master.execute(SH2_EXECUTION_SLICE_LEN, &mut master_bus);
-            }
-            self.master_cycles = master_bus.cycle_counter;
+                other_cpu: (&mut self.sh2_slave, &mut self.slave_cycles),
+                genesis_vdp,
+                debugger: debugger.as_mut(),
+            });
 
-            let mut peripherals_bus = Sh2Bus {
-                s32x_bus: &mut self.s32x_bus,
-                which: WhichCpu::Master,
-                cycle_counter: 0,
-                cycle_limit: 0,
-                other_sh2: None,
-            };
-            self.sh2_master.tick_peripherals(elapsed_pwm_cycles, &mut peripherals_bus);
+            // SH-2/SH7604 peripherals (WDT, SCI)
+            let mut peripherals_bus =
+                Sh2Bus::create(&mut self.s32x_bus, WhichCpu::Master, 0, 0, None);
+            self.sh2_master.tick_peripherals(elapsed_pwm_cycles, &mut *peripherals_bus);
 
             peripherals_bus.which = WhichCpu::Slave;
-            self.sh2_slave.tick_peripherals(elapsed_pwm_cycles, &mut peripherals_bus);
+            self.sh2_slave.tick_peripherals(elapsed_pwm_cycles, &mut *peripherals_bus);
 
+            // 32X VDP
             self.s32x_bus.vdp.tick(mclk_cycles, &mut self.s32x_bus.registers, genesis_vdp);
 
+            // PWM chip
             self.s32x_bus.pwm.tick(elapsed_pwm_cycles, &mut self.s32x_bus.registers, pwm_resampler);
         }
     }
@@ -201,12 +215,72 @@ impl Sega32X {
         &mut self.s32x_bus.cartridge
     }
 
-    pub fn debug_master_sh2_cache(&mut self) -> impl DebugMemoryView {
-        self.sh2_master.debug_cache_view()
+    pub fn clone_sh2_master(&self) -> Sh2 {
+        self.sh2_master.clone()
     }
 
-    pub fn debug_slave_sh2_cache(&mut self) -> impl DebugMemoryView {
-        self.sh2_slave.debug_cache_view()
+    pub fn clone_sh2_slave(&self) -> Sh2 {
+        self.sh2_slave.clone()
+    }
+
+    pub fn as_debug_view(&mut self) -> Sega32XMediumView<'_> {
+        Sega32XMediumView {
+            cartridge: &mut self.s32x_bus.cartridge,
+            sdram: self.s32x_bus.sdram.as_mut_slice(),
+            sh2_master: &mut self.sh2_master,
+            sh2_slave: &mut self.sh2_slave,
+            system_registers: &mut self.s32x_bus.registers,
+            s32x_vdp: &mut self.s32x_bus.vdp,
+            pwm: &mut self.s32x_bus.pwm,
+        }
+    }
+}
+
+struct ExecuteCpuArgs<'cpu, 'bus, 'other, 'genvdp, 'debug, 'genram> {
+    cpu: &'cpu mut Sh2,
+    s32x_bus: &'bus mut Sega32XBus,
+    which: WhichCpu,
+    cycle_counter: u64,
+    cycle_limit: u64,
+    other_cpu: (&'other mut Sh2, &'other mut u64),
+    genesis_vdp: &'genvdp mut GenesisVdp,
+    debugger: Option<&'debug mut Sega32XDebuggerForSh2<'genram>>,
+}
+
+#[inline]
+#[must_use]
+fn execute_cpu<const DEBUG: bool>(
+    ExecuteCpuArgs {
+        cpu,
+        s32x_bus,
+        which,
+        cycle_counter,
+        cycle_limit,
+        other_cpu,
+        genesis_vdp,
+        debugger,
+    }: ExecuteCpuArgs<'_, '_, '_, '_, '_, '_>,
+) -> u64 {
+    if DEBUG && let Some(debugger) = debugger {
+        let mut bus = DebugSh2Bus::create(
+            s32x_bus,
+            which,
+            cycle_counter,
+            cycle_limit,
+            Some(other_cpu),
+            genesis_vdp,
+            debugger,
+        );
+        while bus.cycle_counter() < cycle_limit {
+            cpu.execute(SH2_EXECUTION_SLICE_LEN, &mut *bus);
+        }
+        bus.cycle_counter()
+    } else {
+        let mut bus = Sh2Bus::create(s32x_bus, which, cycle_counter, cycle_limit, Some(other_cpu));
+        while bus.cycle_counter < cycle_limit {
+            cpu.execute(SH2_EXECUTION_SLICE_LEN, &mut *bus);
+        }
+        bus.cycle_counter
     }
 }
 

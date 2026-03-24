@@ -1,5 +1,6 @@
 use crate::core::instructions::{InstructionExecutor, parity_flag, sign_flag, zero_flag};
 use crate::core::{Flags, IndexRegister, Register16, Registers};
+use crate::debug::BusDebugExt;
 use crate::traits::BusInterface;
 use jgenesis_common::num::GetBit;
 
@@ -15,20 +16,20 @@ macro_rules! impl_r_shift_op {
 
             match index {
                 Some((index_register, offset)) => {
-                    let address = compute_index_address(self.registers, index_register, offset);
-                    let original = self.bus.read_memory(address);
-                    let modified = $op_fn(original, $($thru_carry,)? &mut self.registers.f);
+                    let address = compute_index_address(&self.cpu.registers, index_register, offset);
+                    let original = self.bus.read_memory_debug(address, self.cpu);
+                    let modified = $op_fn(original, $($thru_carry,)? &mut self.cpu.registers.f);
 
-                    self.bus.write_memory(address, modified);
-                    register.write_to(modified, self.registers);
+                    self.bus.write_memory_debug(address, modified, self.cpu);
+                    register.write_to(modified, &mut self.cpu.registers);
 
                     19
                 }
                 None => {
-                    let original = register.read_from(self.registers);
-                    let modified = $op_fn(original, $($thru_carry,)? &mut self.registers.f);
+                    let original = register.read_from(&self.cpu.registers);
+                    let modified = $op_fn(original, $($thru_carry,)? &mut self.cpu.registers.f);
 
-                    register.write_to(modified, self.registers);
+                    register.write_to(modified, &mut self.cpu.registers);
 
                     8
                 }
@@ -42,16 +43,16 @@ macro_rules! impl_hl_shift_op {
         pub(super) fn $name(&mut self, index: Option<(IndexRegister, i8)>) -> u32 {
             let address = match index {
                 Some((index_register, offset)) => {
-                    let index_value = index_register.read_from(self.registers);
+                    let index_value = index_register.read_from(&self.cpu.registers);
                     (i32::from(index_value) + i32::from(offset)) as u16
                 }
-                None => Register16::HL.read_from(self.registers),
+                None => Register16::HL.read_from(&self.cpu.registers),
             };
 
-            let original = self.bus.read_memory(address);
-            let modified = $op_fn(original, $($thru_carry,)? &mut self.registers.f);
+            let original = self.bus.read_memory_debug(address, self.cpu);
+            let modified = $op_fn(original, $($thru_carry,)? &mut self.cpu.registers.f);
 
-            self.bus.write_memory(address, modified);
+            self.bus.write_memory_debug(address, modified, self.cpu);
 
             match index {
                 Some(_) => 19,
@@ -64,14 +65,14 @@ macro_rules! impl_hl_shift_op {
 macro_rules! impl_rotate_decimal_op {
     ($name:ident, $op_fn:ident) => {
         pub(super) fn $name(&mut self) -> u32 {
-            let a = self.registers.a;
-            let address = Register16::HL.read_from(self.registers);
-            let memory_value = self.bus.read_memory(address);
+            let a = self.cpu.registers.a;
+            let address = Register16::HL.read_from(&self.cpu.registers);
+            let memory_value = self.bus.read_memory_debug(address, self.cpu);
 
-            let (new_a, new_memory_value) = $op_fn(a, memory_value, &mut self.registers.f);
+            let (new_a, new_memory_value) = $op_fn(a, memory_value, &mut self.cpu.registers.f);
 
-            self.registers.a = new_a;
-            self.bus.write_memory(address, new_memory_value);
+            self.cpu.registers.a = new_a;
+            self.bus.write_memory_debug(address, new_memory_value, self.cpu);
 
             18
         }
@@ -86,20 +87,20 @@ macro_rules! impl_r_bit_op {
 
             match index {
                 Some((index, offset)) => {
-                    let address = compute_index_address(self.registers, index, offset);
-                    let original = self.bus.read_memory(address);
+                    let address = compute_index_address(&self.cpu.registers, index, offset);
+                    let original = self.bus.read_memory_debug(address, self.cpu);
                     let modified = $op_fn(original, bit);
 
-                    self.bus.write_memory(address, modified);
-                    register.write_to(modified, self.registers);
+                    self.bus.write_memory_debug(address, modified, self.cpu);
+                    register.write_to(modified, &mut self.cpu.registers);
 
                     19
                 }
                 None => {
-                    let original = register.read_from(self.registers);
+                    let original = register.read_from(&self.cpu.registers);
                     let modified = $op_fn(original, bit);
 
-                    register.write_to(modified, self.registers);
+                    register.write_to(modified, &mut self.cpu.registers);
 
                     8
                 }
@@ -112,15 +113,15 @@ macro_rules! impl_hl_bit_op {
     ($name:ident, $op_fn:ident) => {
         pub(super) fn $name(&mut self, opcode: u8, index: Option<(IndexRegister, i8)>) -> u32 {
             let address = match index {
-                Some((index, offset)) => compute_index_address(self.registers, index, offset),
-                None => Register16::HL.read_from(self.registers),
+                Some((index, offset)) => compute_index_address(&self.cpu.registers, index, offset),
+                None => Register16::HL.read_from(&self.cpu.registers),
             };
             let bit = (opcode >> 3) & 0x07;
 
-            let original = self.bus.read_memory(address);
+            let original = self.bus.read_memory_debug(address, self.cpu);
             let modified = $op_fn(original, bit);
 
-            self.bus.write_memory(address, modified);
+            self.bus.write_memory_debug(address, modified, self.cpu);
 
             match index {
                 Some(_) => 19,
@@ -166,44 +167,44 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
 
     // RLCA sets flags differently from RLC
     pub(super) fn rlca(&mut self) -> u32 {
-        let a = self.registers.a;
+        let a = self.cpu.registers.a;
 
-        self.registers.a = a.rotate_left(1);
-        self.registers.f =
-            Flags { half_carry: false, subtract: false, carry: a.bit(7), ..self.registers.f };
+        self.cpu.registers.a = a.rotate_left(1);
+        self.cpu.registers.f =
+            Flags { half_carry: false, subtract: false, carry: a.bit(7), ..self.cpu.registers.f };
 
         4
     }
 
     // RLA sets flags differently from RL
     pub(super) fn rla(&mut self) -> u32 {
-        let a = self.registers.a;
+        let a = self.cpu.registers.a;
 
-        self.registers.a = (a << 1) | u8::from(self.registers.f.carry);
-        self.registers.f =
-            Flags { half_carry: false, subtract: false, carry: a.bit(7), ..self.registers.f };
+        self.cpu.registers.a = (a << 1) | u8::from(self.cpu.registers.f.carry);
+        self.cpu.registers.f =
+            Flags { half_carry: false, subtract: false, carry: a.bit(7), ..self.cpu.registers.f };
 
         4
     }
 
     // RRCA sets flags differently from RRC
     pub(super) fn rrca(&mut self) -> u32 {
-        let a = self.registers.a;
+        let a = self.cpu.registers.a;
 
-        self.registers.a = a.rotate_right(1);
-        self.registers.f =
-            Flags { half_carry: false, subtract: false, carry: a.bit(0), ..self.registers.f };
+        self.cpu.registers.a = a.rotate_right(1);
+        self.cpu.registers.f =
+            Flags { half_carry: false, subtract: false, carry: a.bit(0), ..self.cpu.registers.f };
 
         4
     }
 
     // RRA sets flags differently from RR
     pub(super) fn rra(&mut self) -> u32 {
-        let a = self.registers.a;
+        let a = self.cpu.registers.a;
 
-        self.registers.a = (a >> 1) | (u8::from(self.registers.f.carry) << 7);
-        self.registers.f =
-            Flags { half_carry: false, subtract: false, carry: a.bit(0), ..self.registers.f };
+        self.cpu.registers.a = (a >> 1) | (u8::from(self.cpu.registers.f.carry) << 7);
+        self.cpu.registers.f =
+            Flags { half_carry: false, subtract: false, carry: a.bit(0), ..self.cpu.registers.f };
 
         4
     }
@@ -212,20 +213,20 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         let register = super::parse_register_from_opcode(opcode, None).expect("invalid opcode");
         let bit = (opcode >> 3) & 0x07;
 
-        bit_test(register.read_from(self.registers), bit, &mut self.registers.f);
+        bit_test(register.read_from(&self.cpu.registers), bit, &mut self.cpu.registers.f);
 
         8
     }
 
     pub(super) fn bit_b_hl(&mut self, opcode: u8, index: Option<(IndexRegister, i8)>) -> u32 {
         let address = match index {
-            Some((index, offset)) => compute_index_address(self.registers, index, offset),
-            None => Register16::HL.read_from(self.registers),
+            Some((index, offset)) => compute_index_address(&self.cpu.registers, index, offset),
+            None => Register16::HL.read_from(&self.cpu.registers),
         };
-        let value = self.bus.read_memory(address);
+        let value = self.bus.read_memory_debug(address, self.cpu);
         let bit = (opcode >> 3) & 0x07;
 
-        bit_test(value, bit, &mut self.registers.f);
+        bit_test(value, bit, &mut self.cpu.registers.f);
 
         match index {
             Some(_) => 16,

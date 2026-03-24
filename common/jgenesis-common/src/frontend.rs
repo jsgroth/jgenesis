@@ -48,6 +48,14 @@ pub struct FrameSize {
     pub height: u32,
 }
 
+impl FrameSize {
+    #[allow(clippy::len_without_is_empty)]
+    #[must_use]
+    pub fn len(self) -> u32 {
+        self.width * self.height
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct DisplayArea {
     pub width: u32,
@@ -98,13 +106,15 @@ impl RenderFrameOptions {
 }
 
 pub trait Renderer {
-    type Err;
+    type Err: Debug + Display + Send + Sync + 'static;
 
     /// Render a frame.
     ///
     /// The frame buffer may be larger than the specified frame size, but the len must be at least
     /// (`frame_width` * `frame_height`). Colors past the first (`frame_width` * `frame_height`)
     /// will be ignored.
+    ///
+    /// `target_fps` must be a finite positive value.
     ///
     /// If pixel aspect ratio is None, the frame will be stretched to fill the window. If it is
     /// Some, the frame will be rendered in the largest possible area that maintains the specified
@@ -117,12 +127,13 @@ pub trait Renderer {
         &mut self,
         frame_buffer: &[Color],
         frame_size: FrameSize,
+        target_fps: f64,
         options: RenderFrameOptions,
     ) -> Result<(), Self::Err>;
 }
 
 pub trait AudioOutput {
-    type Err;
+    type Err: Debug + Display + Send + Sync + 'static;
 
     /// Push a stereo audio sample.
     ///
@@ -133,7 +144,7 @@ pub trait AudioOutput {
 }
 
 pub trait SaveWriter {
-    type Err;
+    type Err: Debug + Display + Send + Sync + 'static;
 
     /// Read an array of bytes using the given extension.
     ///
@@ -223,16 +234,28 @@ pub trait MappableInputs<Button> {
     }
 }
 
-pub trait EmulatorConfigTrait: Clone {
+pub trait InputPoller<Inputs> {
+    fn poll(&mut self) -> &Inputs;
+}
+
+pub struct ConstantInputPoller<'a, Inputs>(pub &'a Inputs);
+
+impl<Inputs> InputPoller<Inputs> for ConstantInputPoller<'_, Inputs> {
+    fn poll(&mut self) -> &Inputs {
+        self.0
+    }
+}
+
+pub trait EmulatorConfigTrait: Clone + Send + Sync + 'static {
     #[must_use]
     fn with_overclocking_disabled(&self) -> Self {
         self.clone()
     }
 }
 
-pub trait EmulatorTrait: Encode + Decode<()> + PartialClone {
+pub trait EmulatorTrait: Encode + Decode<()> + PartialClone + 'static {
     type Button: Debug + Copy + Eq + Hash;
-    type Inputs: Default + MappableInputs<Self::Button>;
+    type Inputs: Clone + Eq + Default + MappableInputs<Self::Button> + Send + Sync + 'static;
     type Config: EmulatorConfigTrait;
 
     type Err<RErr: Debug + Display + Send + Sync + 'static, AErr: Debug + Display + Send + Sync + 'static, SErr: Debug + Display + Send + Sync + 'static>: Error + Send + Sync + 'static;
@@ -244,20 +267,18 @@ pub trait EmulatorTrait: Encode + Decode<()> + PartialClone {
     /// This method should propagate any errors encountered while rendering frames, pushing audio
     /// samples, or persisting save files.
     #[allow(clippy::type_complexity)]
-    fn tick<R, A, S>(
+    fn tick<R, A, I, S>(
         &mut self,
         renderer: &mut R,
         audio_output: &mut A,
-        inputs: &Self::Inputs,
+        input_poller: &mut I,
         save_writer: &mut S,
     ) -> TickResult<Self::Err<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
-        R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
-        A::Err: Debug + Display + Send + Sync + 'static,
-        S: SaveWriter,
-        S::Err: Debug + Display + Send + Sync + 'static;
+        I: InputPoller<Self::Inputs>,
+        S: SaveWriter;
 
     /// Forcibly render the current frame buffer.
     ///

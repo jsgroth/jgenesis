@@ -1,8 +1,51 @@
-use crate::vdp::{ColorTables, Vdp, u16_to_rgb};
+use crate::vdp::registers::Registers;
+use crate::vdp::{ColorTables, Cram, FrameBufferRam, Vdp, VdpConfig, u16_to_rgb};
 use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
 use jgenesis_common::frontend::Color;
 
+#[derive(Debug, Clone)]
+pub struct VdpDebugState {
+    frame_buffer_0: Box<FrameBufferRam>,
+    frame_buffer_1: Box<FrameBufferRam>,
+    cram: Box<Cram>,
+    registers: Registers,
+    config: VdpConfig,
+}
+
 impl Vdp {
+    pub fn to_debug_state(&self) -> VdpDebugState {
+        VdpDebugState {
+            frame_buffer_0: self.frame_buffer_0.clone(),
+            frame_buffer_1: self.frame_buffer_1.clone(),
+            cram: self.cram.clone(),
+            registers: self.registers.clone(),
+            config: self.config.clone(),
+        }
+    }
+
+    pub fn debug_frame_buffer_view(&mut self, frame_buffer: usize) -> impl DebugMemoryView {
+        let frame_buffer = match frame_buffer {
+            0 => &mut self.frame_buffer_0,
+            _ => &mut self.frame_buffer_1,
+        };
+
+        DebugWordsView(frame_buffer.as_mut_slice(), Endian::Big)
+    }
+
+    pub fn debug_palette_ram_view(&mut self) -> impl DebugMemoryView {
+        DebugWordsView(self.cram.as_mut_slice(), Endian::Big)
+    }
+}
+
+impl VdpDebugState {
+    pub fn hen_bit(&self) -> bool {
+        self.registers.h_interrupt_in_vblank
+    }
+
+    pub fn h_interrupt_interval(&self) -> u16 {
+        self.registers.h_interrupt_interval
+    }
+
     pub fn debug_frame_buffer_view(&mut self, frame_buffer: usize) -> impl DebugMemoryView {
         let frame_buffer = match frame_buffer {
             0 => &mut self.frame_buffer_0,

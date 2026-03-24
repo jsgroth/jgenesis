@@ -1,7 +1,7 @@
 use crate::config::{GameBoyAdvanceConfig, RomReadResult};
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
-use crate::mainloop::{NativeEmulatorArgs, debug, file_name_no_ext, save};
-use crate::{AudioError, NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
+use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, file_name_no_ext, save};
+use crate::{NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
 use gba_config::{GbaInputs, SolarSensorState};
 use gba_core::api::GameBoyAdvanceEmulator;
 use jgenesis_native_config::common::WindowSize;
@@ -17,12 +17,12 @@ impl NativeGbaEmulator {
     pub fn reload_gba_config(
         &mut self,
         config: Box<GameBoyAdvanceConfig>,
-    ) -> Result<(), AudioError> {
+    ) -> NativeEmulatorResult<()> {
         log::info!("Reloading config: {config}");
 
         self.reload_common_config(&config.common)?;
 
-        self.update_emulator_config(&config.emulator_config);
+        self.update_and_reload_config(&config.emulator_config)?;
 
         self.input_mapper.update_mappings(
             config.common.axis_deadzone,
@@ -72,33 +72,39 @@ pub fn create_gba(config: Box<GameBoyAdvanceConfig>) -> NativeEmulatorResult<Nat
         &extension,
     )?;
 
-    let mut save_writer = FsSaveWriter::new(save_path);
-
     let emulator_config = config.emulator_config;
-    let emulator =
-        GameBoyAdvanceEmulator::create(rom, bios_rom, emulator_config, &mut save_writer)?;
+    let initial_window_size = config.common.initial_window_size;
+    let rom_path = rom_path.to_owned();
 
-    let rom_title = file_name_no_ext(rom_path)?;
-    let window_title = format!("gba - {rom_title}");
+    let create_emulator_fn = move |save_writer: &mut FsSaveWriter| {
+        let emulator = GameBoyAdvanceEmulator::create(rom, bios_rom, emulator_config, save_writer)?;
 
-    let default_window_size = WindowSize::new_gba(config.common.initial_window_size);
+        let rom_title = file_name_no_ext(rom_path)?;
+        let window_title = format!("gba - {rom_title}");
+
+        let default_window_size = WindowSize::new_gba(initial_window_size);
+
+        Ok(CreatedEmulator { emulator, window_title, default_window_size })
+    };
 
     let initial_inputs = GbaInputs { solar: new_solar_state(&config), ..GbaInputs::default() };
 
     NativeGbaEmulator::new(
         NativeEmulatorArgs::new(
-            emulator,
+            Box::new(create_emulator_fn),
             emulator_config,
             config.common,
             extension,
-            default_window_size,
-            &window_title,
-            save_writer,
+            save_path,
             save_state_path,
             config.inputs.to_mapping_vec(),
         )
         .with_turbo_mappings(config.inputs.to_turbo_mapping_vec())
         .with_initial_inputs(initial_inputs)
-        .with_debug_render_fn(debug::gba::render_fn),
+        .with_debug_fn(|| {
+            jgenesis_debugger_frontend::partial_clone_debug_fn(
+                jgenesis_debugger_frontend::gba::render_fn(),
+            )
+        }),
     )
 }

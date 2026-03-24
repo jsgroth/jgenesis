@@ -8,6 +8,7 @@ use crate::core::{
     AddressRegister, AddressingMode, ConditionCodes, DataRegister, Exception, ExecuteResult,
     InstructionExecutor, OpSize, Registers,
 };
+use crate::debug::BusDebugExt;
 use crate::traits::BusInterface;
 use jgenesis_proc_macros::EnumAll;
 use std::fmt::{Display, Formatter};
@@ -315,13 +316,19 @@ impl Instruction {
             | Self::Unlink(..) => None,
         }
     }
+
+    pub(crate) fn decode_from(opcode: u16) -> Self {
+        table::decode(opcode)
+    }
 }
 
 impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     pub(super) fn do_execute(&mut self) -> ExecuteResult<u32> {
         use Instruction::*;
 
-        let initial_pc = self.registers.pc;
+        let initial_pc = self.cpu.registers.pc;
+
+        self.bus.check_execute(initial_pc, self.cpu);
 
         let opcode = self.fetch_operand()?;
         self.opcode = opcode;
@@ -330,10 +337,10 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         self.instruction = Some(instruction);
         log::trace!(
             "[{}] Decoded opcode {opcode:04X} (PC={initial_pc:06X}): {instruction}",
-            self.name
+            self.cpu.name
         );
 
-        self.registers.last_instruction_was_muldiv = matches!(
+        self.cpu.registers.last_instruction_was_muldiv = matches!(
             instruction,
             MultiplyUnsigned(..) | MultiplySigned(..) | DivideUnsigned(..) | DivideSigned(..)
         );

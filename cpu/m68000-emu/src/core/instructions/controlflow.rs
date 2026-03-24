@@ -26,7 +26,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         register: AddressRegister,
     ) -> ExecuteResult<u32> {
         let address = self.resolve_to_memory_address(source)?;
-        register.write_long_word_to(self.registers, address);
+        register.write_long_word_to(&mut self.cpu.registers, address);
 
         Ok(effective_address_cycles(source))
     }
@@ -47,7 +47,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
 
     pub(super) fn jsr(&mut self, source: AddressingMode) -> ExecuteResult<u32> {
         let address = self.resolve_to_memory_address(source)?;
-        let old_pc = self.registers.pc;
+        let old_pc = self.cpu.registers.pc;
         self.jump_to_address(address)?;
         self.push_stack_u32(old_pc)?;
 
@@ -59,23 +59,23 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         let displacement = extension as i16;
 
         if register.is_stack_pointer() {
-            self.push_stack_u32(self.registers.sp().wrapping_sub(4))?;
+            self.push_stack_u32(self.cpu.registers.sp().wrapping_sub(4))?;
         } else {
-            self.push_stack_u32(register.read_from(self.registers))?;
+            self.push_stack_u32(register.read_from(&self.cpu.registers))?;
         }
 
-        let sp = self.registers.sp();
-        register.write_long_word_to(self.registers, sp);
-        self.registers.set_sp(sp.wrapping_add(displacement as u32));
+        let sp = self.cpu.registers.sp();
+        register.write_long_word_to(&mut self.cpu.registers, sp);
+        self.cpu.registers.set_sp(sp.wrapping_add(displacement as u32));
 
         Ok(16)
     }
 
     pub(super) fn unlk(&mut self, register: AddressRegister) -> ExecuteResult<u32> {
-        self.registers.set_sp(register.read_from(self.registers));
+        self.cpu.registers.set_sp(register.read_from(&self.cpu.registers));
 
         let address = self.pop_stack_u32()?;
-        register.write_long_word_to(self.registers, address);
+        register.write_long_word_to(&mut self.cpu.registers, address);
 
         Ok(12)
     }
@@ -83,7 +83,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     pub(super) fn ret(&mut self, restore_ccr: bool) -> ExecuteResult<u32> {
         if restore_ccr {
             let word = self.pop_stack_u16()?;
-            self.registers.ccr = (word as u8).into();
+            self.cpu.registers.ccr = (word as u8).into();
         }
 
         let pc = self.pop_stack_u32()?;
@@ -93,21 +93,21 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     }
 
     pub(super) fn rte(&mut self) -> ExecuteResult<u32> {
-        if !self.registers.supervisor_mode {
+        if !self.cpu.registers.supervisor_mode {
             return Err(Exception::PrivilegeViolation);
         }
 
         let sr = self.pop_stack_u16()?;
 
         let pc = self.pop_stack_u32()?;
-        self.registers.set_status_register(sr);
+        self.cpu.registers.set_status_register(sr);
         self.jump_to_address(pc)?;
 
         Ok(20)
     }
 
     pub(super) fn trapv(&self) -> ExecuteResult<u32> {
-        if self.registers.ccr.overflow { Err(Exception::Trap(OVERFLOW_VECTOR)) } else { Ok(4) }
+        if self.cpu.registers.ccr.overflow { Err(Exception::Trap(OVERFLOW_VECTOR)) } else { Ok(4) }
     }
 
     pub(super) fn chk(
@@ -117,18 +117,18 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     ) -> ExecuteResult<u32> {
         let upper_bound = self.read_word(source)? as i16;
 
-        let value = register.read_from(self.registers) as i16;
+        let value = register.read_from(&self.cpu.registers) as i16;
 
-        self.registers.ccr =
-            ConditionCodes { carry: false, overflow: false, zero: false, ..self.registers.ccr };
+        self.cpu.registers.ccr =
+            ConditionCodes { carry: false, overflow: false, zero: false, ..self.cpu.registers.ccr };
 
         let address_cycles = source.address_calculation_cycles(OpSize::Word);
 
         if value > upper_bound {
-            self.registers.ccr.negative = value < 0;
+            self.cpu.registers.ccr.negative = value < 0;
             Err(Exception::CheckRegister { cycles: address_cycles + 8 })
         } else if value < 0 {
-            self.registers.ccr.negative = true;
+            self.cpu.registers.ccr.negative = true;
             Err(Exception::CheckRegister { cycles: address_cycles + 10 })
         } else {
             Ok(address_cycles + 10)
@@ -149,10 +149,10 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         condition: BranchCondition,
         displacement: i8,
     ) -> ExecuteResult<u32> {
-        let pc = self.registers.pc;
+        let pc = self.cpu.registers.pc;
         let (displacement, fetched_extension) = self.fetch_branch_displacement(displacement)?;
 
-        if condition.check(self.registers.ccr) {
+        if condition.check(self.cpu.registers.ccr) {
             let address = pc.wrapping_add(displacement as u32);
             self.jump_to_address(address)?;
 
@@ -165,10 +165,10 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     }
 
     pub(super) fn bsr(&mut self, displacement: i8) -> ExecuteResult<u32> {
-        let pc = self.registers.pc;
+        let pc = self.cpu.registers.pc;
         let (displacement, _) = self.fetch_branch_displacement(displacement)?;
 
-        self.push_stack_u32(self.registers.pc)?;
+        self.push_stack_u32(self.cpu.registers.pc)?;
 
         let address = pc.wrapping_add(displacement as u32);
         self.jump_to_address(address)?;
@@ -181,12 +181,12 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         condition: BranchCondition,
         register: DataRegister,
     ) -> ExecuteResult<u32> {
-        let pc = self.registers.pc;
+        let pc = self.cpu.registers.pc;
         let displacement = self.fetch_operand()? as i16;
 
-        if !condition.check(self.registers.ccr) {
-            let value = register.read_from(self.registers) as u16;
-            register.write_word_to(self.registers, value.wrapping_sub(1));
+        if !condition.check(self.cpu.registers.ccr) {
+            let value = register.read_from(&self.cpu.registers) as u16;
+            register.write_word_to(&mut self.cpu.registers, value.wrapping_sub(1));
 
             if value != 0 {
                 let address = pc.wrapping_add(displacement as u32);
@@ -206,7 +206,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         condition: BranchCondition,
         dest: AddressingMode,
     ) -> ExecuteResult<u32> {
-        let cc = condition.check(self.registers.ccr);
+        let cc = condition.check(self.cpu.registers.ccr);
         let value = if cc { 0xFF } else { 0x00 };
 
         self.write_byte(dest, value)?;
@@ -219,13 +219,13 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     }
 
     pub(super) fn stop(&mut self) -> ExecuteResult<u32> {
-        if !self.registers.supervisor_mode {
+        if !self.cpu.registers.supervisor_mode {
             return Err(Exception::PrivilegeViolation);
         }
 
         let sr = self.fetch_operand()?;
-        self.registers.set_status_register(sr);
-        self.registers.stopped = true;
+        self.cpu.registers.set_status_register(sr);
+        self.cpu.registers.stopped = true;
 
         Ok(4)
     }

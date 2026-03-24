@@ -16,12 +16,12 @@ macro_rules! impl_bit_op {
 
             let value = operand_l $operator operand_r;
 
-            self.registers.ccr = ConditionCodes {
+            self.cpu.registers.ccr = ConditionCodes {
                 carry: false,
                 overflow: false,
                 zero: value == 0,
                 negative: value.sign_bit(),
-                ..self.registers.ccr
+                ..self.cpu.registers.ccr
             };
 
             self.$write_method(dest_resolved, value)?;
@@ -64,8 +64,8 @@ macro_rules! impl_bit_op_to_ccr {
     ($name:ident, $operator:tt) => {
         pub(super) fn $name(&mut self) -> ExecuteResult<u32> {
             let byte = self.read_byte(AddressingMode::Immediate)?;
-            let value = byte $operator (u8::from(self.registers.ccr));
-            self.registers.ccr = value.into();
+            let value = byte $operator (u8::from(self.cpu.registers.ccr));
+            self.cpu.registers.ccr = value.into();
 
             Ok(20)
         }
@@ -75,13 +75,13 @@ macro_rules! impl_bit_op_to_ccr {
 macro_rules! impl_bit_op_to_sr {
     ($name:ident, $operator:tt) => {
         pub(super) fn $name(&mut self) -> ExecuteResult<u32> {
-            if !self.registers.supervisor_mode {
+            if !self.cpu.registers.supervisor_mode {
                 return Err(Exception::PrivilegeViolation);
             }
 
             let word = self.read_word(AddressingMode::Immediate)?;
-            let value = word $operator self.registers.status_register();
-            self.registers.set_status_register(value);
+            let value = word $operator self.cpu.registers.status_register();
+            self.cpu.registers.set_status_register(value);
 
             Ok(20)
         }
@@ -95,12 +95,12 @@ macro_rules! impl_not {
             let value = self.$read_method(dest_resolved)?;
             let negated = !value;
 
-            self.registers.ccr = ConditionCodes {
+            self.cpu.registers.ccr = ConditionCodes {
                 carry: false,
                 overflow: false,
                 zero: negated == 0,
                 negative: negated.sign_bit(),
-                ..self.registers.ccr
+                ..self.cpu.registers.ccr
             };
 
             self.$write_method(dest_resolved, negated)?;
@@ -117,12 +117,12 @@ macro_rules! impl_clr {
             // No-op read
             self.$read_method(dest_resolved)?;
 
-            self.registers.ccr = ConditionCodes {
+            self.cpu.registers.ccr = ConditionCodes {
                 carry: false,
                 overflow: false,
                 zero: true,
                 negative: false,
-                ..self.registers.ccr
+                ..self.cpu.registers.ccr
             };
 
             self.$write_method(dest_resolved, 0)?;
@@ -155,18 +155,18 @@ macro_rules! impl_bit_test_op {
 
             match dest {
                 AddressingMode::DataDirect(register) => {
-                    let $value = register.read_from(self.registers);
+                    let $value = register.read_from(&self.cpu.registers);
                     let $bit = bit_index % 32;
-                    self.registers.ccr.zero = !$value.bit($bit);
+                    self.cpu.registers.ccr.zero = !$value.bit($bit);
 
                     let value = $body;
-                    register.write_long_word_to(self.registers, value);
+                    register.write_long_word_to(&mut self.cpu.registers, value);
                 }
                 _ => {
                     let dest_resolved = self.resolve_address_with_post(dest, OpSize::Byte)?;
                     let $value = self.read_byte_resolved(dest_resolved);
                     let $bit = bit_index % 8;
-                    self.registers.ccr.zero = !$value.bit($bit);
+                    self.cpu.registers.ccr.zero = !$value.bit($bit);
 
                     let value = $body;
                     self.write_byte_resolved(dest_resolved, value);
@@ -190,31 +190,31 @@ macro_rules! impl_shift_register_op {
         $(, set $overflow:ident)?
     ) => {
         fn $name(&mut self, register: DataRegister, count: ShiftCount) -> u32 {
-            let shifts = count.get(self.registers) % 64;
+            let shifts = count.get(&self.cpu.registers) % 64;
 
-            self.registers.ccr.carry = false;
-            self.registers.ccr.overflow = false;
+            self.cpu.registers.ccr.carry = false;
+            self.cpu.registers.ccr.overflow = false;
 
-            let mut value = register.read_from(self.registers) as $signed_t;
+            let mut value = register.read_from(&self.cpu.registers) as $signed_t;
 
             for _ in 0..shifts {
                 let carry = value.bit($carry_bit);
-                self.registers.ccr.carry = carry;
-                self.registers.ccr.extend = carry;
+                self.cpu.registers.ccr.carry = carry;
+                self.cpu.registers.ccr.extend = carry;
 
                 $(
                     if value.sign_bit() != (value $operator 1).sign_bit() {
-                        self.registers.ccr.$overflow = true;
+                        self.cpu.registers.ccr.$overflow = true;
                     }
                 )?
 
                 value = value $operator 1;
             }
 
-            register.$register_write_method(self.registers, value as $unsigned_t);
+            register.$register_write_method(&mut self.cpu.registers, value as $unsigned_t);
 
-            self.registers.ccr.zero = value == 0;
-            self.registers.ccr.negative = value.sign_bit();
+            self.cpu.registers.ccr.zero = value == 0;
+            self.cpu.registers.ccr.negative = value.sign_bit();
 
             shifts.into()
         }
@@ -244,28 +244,28 @@ macro_rules! impl_rotate_register_op {
         $(, thru $extend:ident)?
     ) => {
         fn $name(&mut self, register: DataRegister, count: ShiftCount) -> u32 {
-            let rotates = count.get(self.registers) % 64;
+            let rotates = count.get(&self.cpu.registers) % 64;
 
-            self.registers.ccr.overflow = false;
-            self.registers.ccr.carry = impl_rotate_register_op!(@set_initial_carry $( self.registers.ccr.$extend )?);
+            self.cpu.registers.ccr.overflow = false;
+            self.cpu.registers.ccr.carry = impl_rotate_register_op!(@set_initial_carry $( self.cpu.registers.ccr.$extend )?);
 
-            let mut value = register.read_from(self.registers) as $t;
+            let mut value = register.read_from(&self.cpu.registers) as $t;
             for _ in 0..rotates {
                 let carry = value.bit($carry_bit);
-                let rotating_in = impl_rotate_register_op!(@set_carry carry $(, self.registers.ccr.$extend )?);
+                let rotating_in = impl_rotate_register_op!(@set_carry carry $(, self.cpu.registers.ccr.$extend )?);
 
                 value = (value $operator 1) | (<$t>::from(rotating_in) $( $opposite_op $opposite_shift )? );
 
-                self.registers.ccr.carry = carry;
+                self.cpu.registers.ccr.carry = carry;
                 $(
-                    self.registers.ccr.$extend = carry;
+                    self.cpu.registers.ccr.$extend = carry;
                 )?
             }
 
-            register.$register_write_method(self.registers, value);
+            register.$register_write_method(&mut self.cpu.registers, value);
 
-            self.registers.ccr.zero = value == 0;
-            self.registers.ccr.negative = value.sign_bit();
+            self.cpu.registers.ccr.zero = value == 0;
+            self.cpu.registers.ccr.negative = value.sign_bit();
 
             rotates.into()
         }
@@ -277,12 +277,12 @@ macro_rules! impl_tst {
         pub(super) fn $name(&mut self, source: AddressingMode) -> ExecuteResult<u32> {
             let value = self.$read_method(source)?;
 
-            self.registers.ccr = ConditionCodes {
+            self.cpu.registers.ccr = ConditionCodes {
                 carry: false,
                 overflow: false,
                 zero: value == 0,
                 negative: value.sign_bit(),
-                ..self.registers.ccr
+                ..self.cpu.registers.ccr
             };
 
             Ok(4 + source.address_calculation_cycles($size))
@@ -313,15 +313,15 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
 
         match dest {
             AddressingMode::DataDirect(register) => {
-                let value = register.read_from(self.registers);
+                let value = register.read_from(&self.cpu.registers);
                 let bit = bit_index % 32;
-                self.registers.ccr.zero = !value.bit(bit);
+                self.cpu.registers.ccr.zero = !value.bit(bit);
             }
             _ => {
                 let dest_resolved = self.resolve_address_with_post(dest, OpSize::Byte)?;
                 let value = self.read_byte_resolved(dest_resolved);
                 let bit = bit_index % 8;
-                self.registers.ccr.zero = !value.bit(bit);
+                self.cpu.registers.ccr.zero = !value.bit(bit);
             }
         }
 
@@ -388,42 +388,42 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     pub(super) fn ext(&mut self, size: OpSize, register: DataRegister) -> u32 {
         let (zero, sign) = match size {
             OpSize::Word => {
-                let byte = register.read_from(self.registers) as u8;
+                let byte = register.read_from(&self.cpu.registers) as u8;
                 let sign_extended = byte as i8 as u16;
-                register.write_word_to(self.registers, sign_extended);
+                register.write_word_to(&mut self.cpu.registers, sign_extended);
                 (sign_extended == 0, sign_extended.sign_bit())
             }
             OpSize::LongWord => {
-                let word = register.read_from(self.registers) as u16;
+                let word = register.read_from(&self.cpu.registers) as u16;
                 let sign_extended = word as i16 as u32;
-                register.write_long_word_to(self.registers, sign_extended);
+                register.write_long_word_to(&mut self.cpu.registers, sign_extended);
                 (sign_extended == 0, sign_extended.sign_bit())
             }
             OpSize::Byte => panic!("EXT does not support size byte"),
         };
 
-        self.registers.ccr = ConditionCodes {
+        self.cpu.registers.ccr = ConditionCodes {
             carry: false,
             overflow: false,
             zero,
             negative: sign,
-            ..self.registers.ccr
+            ..self.cpu.registers.ccr
         };
 
         4
     }
 
     pub(super) fn swap(&mut self, register: DataRegister) -> u32 {
-        let [b3, b2, b1, b0] = register.read_from(self.registers).to_be_bytes();
+        let [b3, b2, b1, b0] = register.read_from(&self.cpu.registers).to_be_bytes();
         let value = u32::from_be_bytes([b1, b0, b3, b2]);
-        register.write_long_word_to(self.registers, value);
+        register.write_long_word_to(&mut self.cpu.registers, value);
 
-        self.registers.ccr = ConditionCodes {
+        self.cpu.registers.ccr = ConditionCodes {
             carry: false,
             overflow: false,
             zero: value == 0,
             negative: value.sign_bit(),
-            ..self.registers.ccr
+            ..self.cpu.registers.ccr
         };
 
         4
@@ -463,7 +463,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
 
         let overflow = original.sign_bit() != value.sign_bit();
 
-        self.registers.ccr = ConditionCodes {
+        self.cpu.registers.ccr = ConditionCodes {
             carry,
             overflow,
             zero: value == 0,
@@ -508,7 +508,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
             ShiftDirection::Right => (original >> 1, original.bit(0)),
         };
 
-        self.registers.ccr = ConditionCodes {
+        self.cpu.registers.ccr = ConditionCodes {
             carry,
             overflow: false,
             zero: value == 0,
@@ -557,12 +557,12 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
             }
         };
 
-        self.registers.ccr = ConditionCodes {
+        self.cpu.registers.ccr = ConditionCodes {
             carry,
             overflow: false,
             zero: value == 0,
             negative: value.sign_bit(),
-            ..self.registers.ccr
+            ..self.cpu.registers.ccr
         };
 
         self.write_word_resolved(dest_resolved, value)?;
@@ -597,13 +597,13 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         let dest_resolved = self.resolve_address_with_post(dest, OpSize::Word)?;
         let original = self.read_word_resolved(dest_resolved)?;
 
-        let extend = self.registers.ccr.extend;
+        let extend = self.cpu.registers.ccr.extend;
         let (value, carry) = match direction {
             ShiftDirection::Left => ((original << 1) | u16::from(extend), original.bit(15)),
             ShiftDirection::Right => ((original >> 1) | (u16::from(extend) << 15), original.bit(0)),
         };
 
-        self.registers.ccr = ConditionCodes {
+        self.cpu.registers.ccr = ConditionCodes {
             carry,
             overflow: false,
             zero: value == 0,
@@ -624,15 +624,15 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         let dest_resolved = self.resolve_address_with_post(dest, OpSize::Byte)?;
         let value = self.read_byte_resolved(dest_resolved);
 
-        self.registers.ccr = ConditionCodes {
+        self.cpu.registers.ccr = ConditionCodes {
             carry: false,
             overflow: false,
             zero: value == 0,
             negative: value.sign_bit(),
-            ..self.registers.ccr
+            ..self.cpu.registers.ccr
         };
 
-        if dest.is_data_direct() || self.allow_tas_writes {
+        if dest.is_data_direct() || self.cpu.allow_tas_writes {
             self.write_byte_resolved(dest_resolved, value | 0x80);
         }
 

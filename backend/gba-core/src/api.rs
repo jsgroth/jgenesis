@@ -20,12 +20,16 @@ use arm7tdmi_emu::{Arm7Tdmi, Arm7TdmiResetArgs, CpuMode};
 use bincode::{Decode, Encode};
 use gba_config::{GbaAspectRatio, GbaAudioInterpolation, GbaButton, GbaInputs, GbaSaveMemory};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, ColorCorrection, EmulatorConfigTrait, EmulatorTrait, RenderFrameOptions,
-    Renderer, SaveWriter, TickEffect, TickResult,
+    AudioOutput, Color, ColorCorrection, EmulatorConfigTrait, EmulatorTrait, InputPoller,
+    RenderFrameOptions, Renderer, SaveWriter, TickEffect, TickResult,
 };
 use jgenesis_proc_macros::{ConfigDisplay, PartialClone};
 use std::fmt::{Debug, Display};
 use thiserror::Error;
+
+// Roughly 59.73 fps
+const TARGET_FPS: f64 =
+    (crate::GBA_CLOCK_SPEED as f64) / (ppu::LINES_PER_FRAME as f64) / (ppu::DOTS_PER_LINE as f64);
 
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct GbaAudioConfig {
@@ -232,7 +236,12 @@ impl GameBoyAdvanceEmulator {
         while self.stop_state.render_counter >= CYCLES_PER_FRAME {
             self.stop_state.render_counter -= CYCLES_PER_FRAME;
             renderer
-                .render_frame(BLANK_FRAME, ppu::FRAME_SIZE, self.config.render_options())
+                .render_frame(
+                    BLANK_FRAME,
+                    ppu::FRAME_SIZE,
+                    TARGET_FPS,
+                    self.config.render_options(),
+                )
                 .map_err(GbaError::Render)?;
             tick_effect = TickEffect::FrameRendered;
         }
@@ -272,31 +281,31 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
     > = GbaError<RErr, AErr, SErr>;
 
     #[inline]
-    fn tick<R, A, S>(
+    fn tick<R, A, I, S>(
         &mut self,
         renderer: &mut R,
         audio_output: &mut A,
-        inputs: &Self::Inputs,
+        input_poller: &mut I,
         save_writer: &mut S,
     ) -> TickResult<Self::Err<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
-        R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
-        A::Err: Debug + Display + Send + Sync + 'static,
+        I: InputPoller<Self::Inputs>,
         S: SaveWriter,
-        S::Err: Debug + Display + Send + Sync + 'static,
     {
+        let inputs = *input_poller.poll();
+
         if self.bus.interrupts.stopped() {
             // All hardware is stopped
             // Stop can only be broken by a keypad interrupt or a Game Pak interrupt
-            self.bus.inputs.update_inputs(*inputs, self.bus.state.cycles, &mut self.bus.interrupts);
+            self.bus.inputs.update_inputs(inputs, self.bus.state.cycles, &mut self.bus.interrupts);
             self.bus.cartridge.update_rtc_time(self.bus.state.cycles, &mut self.bus.interrupts);
 
             return self.tick_stopped::<_, _, S>(renderer, audio_output);
         }
 
-        self.bus.inputs.update_inputs(*inputs, self.bus.state.cycles, &mut self.bus.interrupts);
+        self.bus.inputs.update_inputs(inputs, self.bus.state.cycles, &mut self.bus.interrupts);
         self.bus.cartridge.set_solar_brightness(inputs.solar.brightness);
 
         // TODO halt should let the CPU execute for 1 more cycle before halting
@@ -328,6 +337,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
                 .render_frame(
                     self.bus.ppu.frame_buffer(),
                     ppu::FRAME_SIZE,
+                    TARGET_FPS,
                     self.config.render_options(),
                 )
                 .map_err(GbaError::Render)?;
@@ -362,6 +372,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
         renderer.render_frame(
             self.bus.ppu.frame_buffer(),
             ppu::FRAME_SIZE,
+            TARGET_FPS,
             self.config.render_options(),
         )
     }
@@ -389,10 +400,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
 
     #[inline]
     fn target_fps(&self) -> f64 {
-        // Roughly 59.73 fps
-        (crate::GBA_CLOCK_SPEED as f64)
-            / f64::from(ppu::LINES_PER_FRAME)
-            / f64::from(ppu::DOTS_PER_LINE)
+        TARGET_FPS
     }
 
     #[inline]

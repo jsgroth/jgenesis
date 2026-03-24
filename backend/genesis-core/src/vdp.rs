@@ -2,7 +2,7 @@
 
 mod colors;
 mod cramdots;
-mod debug;
+pub mod debug;
 mod fifo;
 mod registers;
 mod render;
@@ -1979,6 +1979,12 @@ impl Vdp {
     #[must_use]
     pub fn scanline_mclk(&self) -> u64 {
         self.state.scanline_mclk_cycles
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn timing_mode(&self) -> TimingMode {
+        self.timing_mode
     }
 }
 

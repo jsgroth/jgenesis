@@ -1,322 +1,409 @@
-pub fn disassemble(opcode: u16) -> String {
+use std::borrow::Cow;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BranchDestination {
+    Displacement,
+    Absolute { pc: u32 },
+}
+
+#[derive(Clone)]
+pub enum PcRelativeLoad<'a> {
+    NoComment,
+    ValueInComment { pc: u32, peek: &'a dyn Fn(u32) -> u16 },
+}
+
+#[derive(Clone)]
+pub struct DisassembleOptions<'a> {
+    pub branch_displacement: BranchDestination,
+    pub pc_relative_load: PcRelativeLoad<'a>,
+}
+
+impl Default for DisassembleOptions<'_> {
+    fn default() -> Self {
+        Self {
+            branch_displacement: BranchDestination::Displacement,
+            pc_relative_load: PcRelativeLoad::NoComment,
+        }
+    }
+}
+
+#[must_use]
+pub fn disassemble(opcode: u16, options: DisassembleOptions<'_>) -> String {
     match opcode {
-        0b0000_0000_0001_1001 => "DIV0U".into(),
-        0b0000_0000_0000_1011 => "RTS".into(),
-        0b0000_0000_0000_1000 => "CLRT".into(),
-        0b0000_0000_0010_1000 => "CLRMAC".into(),
-        0b0000_0000_0000_1001 => "NOP".into(),
-        0b0000_0000_0010_1011 => "RTE".into(),
-        0b0000_0000_0001_1000 => "SETT".into(),
-        0b0000_0000_0001_1011 => "SLEEP".into(),
-        _ => decode_xnnx(opcode),
+        0b0000_0000_0001_1001 => "div0u".into(),
+        0b0000_0000_0000_1011 => "rts".into(),
+        0b0000_0000_0000_1000 => "clrt".into(),
+        0b0000_0000_0010_1000 => "clrmac".into(),
+        0b0000_0000_0000_1001 => "nop".into(),
+        0b0000_0000_0010_1011 => "rte".into(),
+        0b0000_0000_0001_1000 => "sett".into(),
+        0b0000_0000_0001_1011 => "sleep".into(),
+        _ => decode_xnnx(opcode, options),
     }
 }
 
 #[inline]
-fn decode_xnnx(opcode: u16) -> String {
+fn decode_xnnx(opcode: u16, options: DisassembleOptions<'_>) -> String {
     match opcode & 0b1111_0000_0000_1111 {
         0b0110_0000_0000_0011 => {
-            format!("MOV R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("mov r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0010_0000_0000_0000 => {
-            format!("MOV.B R{}, @R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("mov.b r{}, @r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0010_0000_0000_0001 => {
-            format!("MOV.W R{}, @R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("mov.w r{}, @r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0010_0000_0000_0010 => {
-            format!("MOV.L R{}, @R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("mov.l r{}, @r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0110_0000_0000_0000 => {
-            format!("MOV.B @R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("mov.b @r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0110_0000_0000_0001 => {
-            format!("MOV.W @R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("mov.w @r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0110_0000_0000_0010 => {
-            format!("MOV.L @R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("mov.l @r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0010_0000_0000_0100 => {
-            format!("MOV.B R{}, @-R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("mov.b r{}, @-r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0010_0000_0000_0101 => {
-            format!("MOV.W R{}, @-R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("mov.w r{}, @-r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0010_0000_0000_0110 => {
-            format!("MOV.L R{}, @-R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("mov.l r{}, @-r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0110_0000_0000_0100 => {
-            format!("MOV.B @R{}+, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("mov.b @r{}+, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0110_0000_0000_0101 => {
-            format!("MOV.W @R{}+, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("mov.w @r{}+, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0110_0000_0000_0110 => {
-            format!("MOV.L @R{}+, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("mov.l @r{}+, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0000_0000_0000_0100 => {
-            format!("MOV.B R{}, @(R0,R{})", parse_register_low(opcode), parse_register_high(opcode))
+            format!("mov.b r{}, @(r0,r{})", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0000_0000_0000_0101 => {
-            format!("MOV.W R{}, @(R0,R{})", parse_register_low(opcode), parse_register_high(opcode))
+            format!("mov.w r{}, @(r0,r{})", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0000_0000_0000_0110 => {
-            format!("MOV.L R{}, @(R0,R{})", parse_register_low(opcode), parse_register_high(opcode))
+            format!("mov.l r{}, @(r0,r{})", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0000_0000_0000_1100 => {
-            format!("MOV.B @(R0,R{}), R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("mov.b @(r0,r{}), r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0000_0000_0000_1101 => {
-            format!("MOV.W @(R0,R{}), R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("mov.w @(r0,r{}), r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0000_0000_0000_1110 => {
-            format!("MOV.L @(R0,R{}), R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("mov.l @(r0,r{}), r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0110_0000_0000_1000 => {
-            format!("SWAP.B R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("swap.b r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0110_0000_0000_1001 => {
-            format!("SWAP.W R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("swap.w r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0010_0000_0000_1101 => {
-            format!("XTRCT R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("xtrct r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0011_0000_0000_1100 => {
-            format!("ADD R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("add r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0011_0000_0000_1110 => {
-            format!("ADDC R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("addc r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0011_0000_0000_1111 => {
-            format!("ADDV R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("addv r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0011_0000_0000_0000 => {
-            format!("CMP/EQ R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("cmp/eq r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0011_0000_0000_0010 => {
-            format!("CMP/HS R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("cmp/hs r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0011_0000_0000_0011 => {
-            format!("CMP/GE R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("cmp/ge r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0011_0000_0000_0110 => {
-            format!("CMP/HI R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("cmp/hi r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0011_0000_0000_0111 => {
-            format!("CMP/GT R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("cmp/gt r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0010_0000_0000_1100 => {
-            format!("CMP/STR R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("cmp/str r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0011_0000_0000_0100 => {
-            format!("DIV1 R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("div1 r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0010_0000_0000_0111 => {
-            format!("DIV0S R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("div0s r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0011_0000_0000_1101 => {
-            format!("DMULS.L R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("dmuls.l r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0011_0000_0000_0101 => {
-            format!("DMULU.L R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("dmulu.l r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0110_0000_0000_1110 => {
-            format!("EXTS.B R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("exts.b r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0110_0000_0000_1111 => {
-            format!("EXTS.W R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("exts.w r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0110_0000_0000_1100 => {
-            format!("EXTU.B R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("extu.b r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0110_0000_0000_1101 => {
-            format!("EXTU.W R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("extu.w r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0000_0000_0000_1111 => {
-            format!("MAC.L @R{}+, @R{}+", parse_register_low(opcode), parse_register_high(opcode))
+            format!("mac.l @r{}+, @r{}+", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0100_0000_0000_1111 => {
-            format!("MAC.W @R{}+, @R{}+", parse_register_low(opcode), parse_register_high(opcode))
+            format!("mac.w @r{}+, @r{}+", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0000_0000_0000_0111 => {
-            format!("MUL.L R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("mul.l r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0010_0000_0000_1111 => {
-            format!("MULS.W R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("muls.w r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0010_0000_0000_1110 => {
-            format!("MULU.W R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("mulu.w r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0110_0000_0000_1011 => {
-            format!("NEG R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("neg r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0110_0000_0000_1010 => {
-            format!("NEGC R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("negc r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0011_0000_0000_1000 => {
-            format!("SUB R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("sub r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0011_0000_0000_1010 => {
-            format!("SUBC R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("subc r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0011_0000_0000_1011 => {
-            format!("SUBV R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("subv r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0010_0000_0000_1001 => {
-            format!("AND R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("and r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0110_0000_0000_0111 => {
-            format!("NOT R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("not r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0010_0000_0000_1011 => {
-            format!("OR R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("or r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0010_0000_0000_1000 => {
-            format!("TST R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("tst r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0010_0000_0000_1010 => {
-            format!("XOR R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("xor r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
-        _ => decode_xxnn(opcode),
+        _ => decode_xxnn(opcode, options),
     }
 }
 
 #[inline]
-fn decode_xxnn(opcode: u16) -> String {
+fn decode_xxnn(opcode: u16, options: DisassembleOptions<'_>) -> String {
     match opcode & 0b1111_1111_0000_0000 {
         0b1000_0000_0000_0000 => format!(
-            "MOV.B R0, @({},R{})",
+            "mov.b r0, @({},r{})",
             parse_4bit_displacement(opcode),
             parse_register_low(opcode)
         ),
         0b1000_0001_0000_0000 => format!(
-            "MOV.W R0, @({},R{})",
+            "mov.w r0, @({},r{})",
             parse_4bit_displacement(opcode),
             parse_register_low(opcode)
         ),
         0b1000_0100_0000_0000 => format!(
-            "MOV.B @({},R{}), R0",
+            "mov.b @({},r{}), r0",
             parse_4bit_displacement(opcode),
             parse_register_low(opcode)
         ),
         0b1000_0101_0000_0000 => format!(
-            "MOV.W @({},R{}), R0",
+            "mov.w @({},r{}), r0",
             parse_4bit_displacement(opcode),
             parse_register_low(opcode)
         ),
-        0b1100_0000_0000_0000 => format!("MOV.B R0, @({},GBR)", parse_8bit_displacement(opcode)),
-        0b1100_0001_0000_0000 => format!("MOV.W R0, @({},GBR)", parse_8bit_displacement(opcode)),
-        0b1100_0010_0000_0000 => format!("MOV.L R0, @({},GBR)", parse_8bit_displacement(opcode)),
-        0b1100_0100_0000_0000 => format!("MOV.B @({},GBR), R0", parse_8bit_displacement(opcode)),
-        0b1100_0101_0000_0000 => format!("MOV.W @({},GBR), R0", parse_8bit_displacement(opcode)),
-        0b1100_0110_0000_0000 => format!("MOV.L @({},GBR), R0", parse_8bit_displacement(opcode)),
-        0b1100_0111_0000_0000 => format!("MOVA @({},PC), R0", parse_8bit_displacement(opcode)),
-        0b1000_1000_0000_0000 => format!("CMP/EQ #{}, R0", parse_signed_immediate(opcode)),
-        0b1100_1001_0000_0000 => format!("AND #{}, R0", parse_unsigned_immediate(opcode)),
-        0b1100_1101_0000_0000 => format!("AND.B #{}, @(R0,GBR)", parse_unsigned_immediate(opcode)),
-        0b1100_1011_0000_0000 => format!("OR #{}, R0", parse_unsigned_immediate(opcode)),
-        0b1100_1111_0000_0000 => format!("OR.B #{}, @(R0,GBR)", parse_unsigned_immediate(opcode)),
-        0b1100_1000_0000_0000 => format!("TST #{}, R0", parse_unsigned_immediate(opcode)),
-        0b1100_1100_0000_0000 => format!("TST.B #{}, @(R0,GBR)", parse_unsigned_immediate(opcode)),
-        0b1100_1010_0000_0000 => format!("XOR #{}, R0", parse_unsigned_immediate(opcode)),
-        0b1100_1110_0000_0000 => format!("XOR.B #{}, @(R0,GBR)", parse_unsigned_immediate(opcode)),
-        0b1000_1011_0000_0000 => format!("BF {}", parse_signed_immediate(opcode)),
-        0b1000_1111_0000_0000 => format!("BF/S {}", parse_signed_immediate(opcode)),
-        0b1000_1001_0000_0000 => format!("BT {}", parse_signed_immediate(opcode)),
-        0b1000_1101_0000_0000 => format!("BT/S {}", parse_signed_immediate(opcode)),
-        0b1100_0011_0000_0000 => format!("TRAPA #{}", parse_signed_immediate(opcode)),
-        _ => decode_xnxx(opcode),
+        0b1100_0000_0000_0000 => format!("mov.b r0, @({},gbr)", parse_8bit_displacement(opcode)),
+        0b1100_0001_0000_0000 => format!("mov.w r0, @({},gbr)", parse_8bit_displacement(opcode)),
+        0b1100_0010_0000_0000 => format!("mov.l r0, @({},gbr)", parse_8bit_displacement(opcode)),
+        0b1100_0100_0000_0000 => format!("mov.b @({},gbr), r0", parse_8bit_displacement(opcode)),
+        0b1100_0101_0000_0000 => format!("mov.w @({},gbr), r0", parse_8bit_displacement(opcode)),
+        0b1100_0110_0000_0000 => format!("mov.l @({},gbr), r0", parse_8bit_displacement(opcode)),
+        0b1100_0111_0000_0000 => {
+            let comment = match options.pc_relative_load {
+                PcRelativeLoad::NoComment => String::new(),
+                PcRelativeLoad::ValueInComment { pc, .. } => {
+                    let displacement = (opcode & 0xFF) << 2;
+                    let address = (pc & !3).wrapping_add(4).wrapping_add(displacement.into());
+                    format!("  ;${address:08X}")
+                }
+            };
+
+            format!("mova @({},pc), r0{comment}", parse_8bit_displacement(opcode))
+        }
+        0b1000_1000_0000_0000 => format!("cmp/eq #{}, r0", parse_signed_immediate(opcode)),
+        0b1100_1001_0000_0000 => format!("and #{}, r0", parse_unsigned_immediate(opcode)),
+        0b1100_1101_0000_0000 => format!("and.b #{}, @(r0,gbr)", parse_unsigned_immediate(opcode)),
+        0b1100_1011_0000_0000 => format!("or #{}, r0", parse_unsigned_immediate(opcode)),
+        0b1100_1111_0000_0000 => format!("or.b #{}, @(r0,gbr)", parse_unsigned_immediate(opcode)),
+        0b1100_1000_0000_0000 => format!("tst #{}, r0", parse_unsigned_immediate(opcode)),
+        0b1100_1100_0000_0000 => format!("tst.b #{}, @(r0,gbr)", parse_unsigned_immediate(opcode)),
+        0b1100_1010_0000_0000 => format!("xor #{}, r0", parse_unsigned_immediate(opcode)),
+        0b1100_1110_0000_0000 => format!("xor.b #{}, @(r0,gbr)", parse_unsigned_immediate(opcode)),
+        0b1000_1011_0000_0000 => {
+            format!(
+                "bf {}",
+                branch_destination(
+                    parse_signed_immediate(opcode).into(),
+                    options.branch_displacement
+                )
+            )
+        }
+        0b1000_1111_0000_0000 => {
+            format!(
+                "bf/s {}",
+                branch_destination(
+                    parse_signed_immediate(opcode).into(),
+                    options.branch_displacement
+                )
+            )
+        }
+        0b1000_1001_0000_0000 => {
+            format!(
+                "bt {}",
+                branch_destination(
+                    parse_signed_immediate(opcode).into(),
+                    options.branch_displacement
+                )
+            )
+        }
+        0b1000_1101_0000_0000 => {
+            format!(
+                "bt/s {}",
+                branch_destination(
+                    parse_signed_immediate(opcode).into(),
+                    options.branch_displacement
+                )
+            )
+        }
+        0b1100_0011_0000_0000 => format!("trapa #{}", opcode & 0xFF),
+        _ => decode_xnxx(opcode, options),
     }
 }
 
 #[inline]
-fn decode_xnxx(opcode: u16) -> String {
+fn decode_xnxx(opcode: u16, options: DisassembleOptions<'_>) -> String {
     match opcode & 0b1111_0000_1111_1111 {
-        0b0000_0000_0010_1001 => format!("MOVT R{}", parse_register_high(opcode)),
-        0b0100_0000_0001_0001 => format!("CMP/PZ R{}", parse_register_high(opcode)),
-        0b0100_0000_0001_0101 => format!("CMP/PL R{}", parse_register_high(opcode)),
-        0b0100_0000_0001_0000 => format!("DT R{}", parse_register_high(opcode)),
-        0b0100_0000_0001_1011 => format!("TAS.B @R{}", parse_register_high(opcode)),
-        0b0100_0000_0000_0100 => format!("ROTL R{}", parse_register_high(opcode)),
-        0b0100_0000_0000_0101 => format!("ROTR R{}", parse_register_high(opcode)),
-        0b0100_0000_0010_0100 => format!("ROTCL R{}", parse_register_high(opcode)),
-        0b0100_0000_0010_0101 => format!("ROTCR R{}", parse_register_high(opcode)),
-        0b0100_0000_0010_0000 => format!("SHAL R{}", parse_register_high(opcode)),
-        0b0100_0000_0010_0001 => format!("SHAR R{}", parse_register_high(opcode)),
-        0b0100_0000_0000_0000 => format!("SHLL R{}", parse_register_high(opcode)),
-        0b0100_0000_0000_0001 => format!("SHLR R{}", parse_register_high(opcode)),
-        0b0100_0000_0000_1000 => format!("SHLL2 R{}", parse_register_high(opcode)),
-        0b0100_0000_0000_1001 => format!("SHLR2 R{}", parse_register_high(opcode)),
-        0b0100_0000_0001_1000 => format!("SHLL8 R{}", parse_register_high(opcode)),
-        0b0100_0000_0001_1001 => format!("SHLR8 R{}", parse_register_high(opcode)),
-        0b0100_0000_0010_1000 => format!("SHLL16 R{}", parse_register_high(opcode)),
-        0b0100_0000_0010_1001 => format!("SHLR16 R{}", parse_register_high(opcode)),
-        0b0000_0000_0010_0011 => format!("BRAF R{}", parse_register_high(opcode)),
-        0b0000_0000_0000_0011 => format!("BSRF R{}", parse_register_high(opcode)),
-        0b0100_0000_0010_1011 => format!("JMP @R{}", parse_register_high(opcode)),
-        0b0100_0000_0000_1011 => format!("JSR @R{}", parse_register_high(opcode)),
-        0b0100_0000_0000_1110 => format!("LDC R{}, SR", parse_register_high(opcode)),
-        0b0100_0000_0001_1110 => format!("LDC R{}, GBR", parse_register_high(opcode)),
-        0b0100_0000_0010_1110 => format!("LDC R{}, VBR", parse_register_high(opcode)),
-        0b0100_0000_0000_0111 => format!("LDC.L @R{}+, SR", parse_register_high(opcode)),
-        0b0100_0000_0001_0111 => format!("LDC.L @R{}+, GBR", parse_register_high(opcode)),
-        0b0100_0000_0010_0111 => format!("LDC.L @R{}+, VBR", parse_register_high(opcode)),
-        0b0100_0000_0000_1010 => format!("LDS R{}, MACH", parse_register_high(opcode)),
-        0b0100_0000_0001_1010 => format!("LDS R{}, MACL", parse_register_high(opcode)),
-        0b0100_0000_0010_1010 => format!("LDS R{}, PR", parse_register_high(opcode)),
-        0b0100_0000_0000_0110 => format!("LDS.L @R{}+, MACH", parse_register_high(opcode)),
-        0b0100_0000_0001_0110 => format!("LDS.L @R{}+, MACL", parse_register_high(opcode)),
-        0b0100_0000_0010_0110 => format!("LDS.L @R{}+, PR", parse_register_high(opcode)),
-        0b0000_0000_0000_0010 => format!("STC SR, R{}", parse_register_high(opcode)),
-        0b0000_0000_0001_0010 => format!("STC GBR, R{}", parse_register_high(opcode)),
-        0b0000_0000_0010_0010 => format!("STC VBR, R{}", parse_register_high(opcode)),
-        0b0100_0000_0000_0011 => format!("STC.L SR, @-R{}", parse_register_high(opcode)),
-        0b0100_0000_0001_0011 => format!("STC.L GBR, @-R{}", parse_register_high(opcode)),
-        0b0100_0000_0010_0011 => format!("STC.L VBR, @-R{}", parse_register_high(opcode)),
-        0b0000_0000_0000_1010 => format!("STS MACH, R{}", parse_register_high(opcode)),
-        0b0000_0000_0001_1010 => format!("STS MACL, R{}", parse_register_high(opcode)),
-        0b0000_0000_0010_1010 => format!("STS PR, R{}", parse_register_high(opcode)),
-        0b0100_0000_0000_0010 => format!("STS.L MACH, @-R{}", parse_register_high(opcode)),
-        0b0100_0000_0001_0010 => format!("STS.L MACL, @-R{}", parse_register_high(opcode)),
-        0b0100_0000_0010_0010 => format!("STS.L PR, @-R{}", parse_register_high(opcode)),
-        _ => decode_xnnn(opcode),
+        0b0000_0000_0010_1001 => format!("movt r{}", parse_register_high(opcode)),
+        0b0100_0000_0001_0001 => format!("cmp/pz r{}", parse_register_high(opcode)),
+        0b0100_0000_0001_0101 => format!("cmp/pl r{}", parse_register_high(opcode)),
+        0b0100_0000_0001_0000 => format!("dt r{}", parse_register_high(opcode)),
+        0b0100_0000_0001_1011 => format!("tas.b @r{}", parse_register_high(opcode)),
+        0b0100_0000_0000_0100 => format!("rotl r{}", parse_register_high(opcode)),
+        0b0100_0000_0000_0101 => format!("rotr r{}", parse_register_high(opcode)),
+        0b0100_0000_0010_0100 => format!("rotcl r{}", parse_register_high(opcode)),
+        0b0100_0000_0010_0101 => format!("rotcr r{}", parse_register_high(opcode)),
+        0b0100_0000_0010_0000 => format!("shal r{}", parse_register_high(opcode)),
+        0b0100_0000_0010_0001 => format!("shar r{}", parse_register_high(opcode)),
+        0b0100_0000_0000_0000 => format!("shll r{}", parse_register_high(opcode)),
+        0b0100_0000_0000_0001 => format!("shlr r{}", parse_register_high(opcode)),
+        0b0100_0000_0000_1000 => format!("shll2 r{}", parse_register_high(opcode)),
+        0b0100_0000_0000_1001 => format!("shlr2 r{}", parse_register_high(opcode)),
+        0b0100_0000_0001_1000 => format!("shll8 r{}", parse_register_high(opcode)),
+        0b0100_0000_0001_1001 => format!("shlr8 r{}", parse_register_high(opcode)),
+        0b0100_0000_0010_1000 => format!("shll16 r{}", parse_register_high(opcode)),
+        0b0100_0000_0010_1001 => format!("shlr16 r{}", parse_register_high(opcode)),
+        0b0000_0000_0010_0011 => format!("braf r{}", parse_register_high(opcode)),
+        0b0000_0000_0000_0011 => format!("bsrf r{}", parse_register_high(opcode)),
+        0b0100_0000_0010_1011 => format!("jmp @r{}", parse_register_high(opcode)),
+        0b0100_0000_0000_1011 => format!("jsr @r{}", parse_register_high(opcode)),
+        0b0100_0000_0000_1110 => format!("ldc r{}, sr", parse_register_high(opcode)),
+        0b0100_0000_0001_1110 => format!("ldc r{}, gbr", parse_register_high(opcode)),
+        0b0100_0000_0010_1110 => format!("ldc r{}, vbr", parse_register_high(opcode)),
+        0b0100_0000_0000_0111 => format!("ldc.l @r{}+, sr", parse_register_high(opcode)),
+        0b0100_0000_0001_0111 => format!("ldc.l @r{}+, gbr", parse_register_high(opcode)),
+        0b0100_0000_0010_0111 => format!("ldc.l @r{}+, vbr", parse_register_high(opcode)),
+        0b0100_0000_0000_1010 => format!("lds r{}, mach", parse_register_high(opcode)),
+        0b0100_0000_0001_1010 => format!("lds r{}, macl", parse_register_high(opcode)),
+        0b0100_0000_0010_1010 => format!("lds r{}, pr", parse_register_high(opcode)),
+        0b0100_0000_0000_0110 => format!("lds.l @r{}+, mach", parse_register_high(opcode)),
+        0b0100_0000_0001_0110 => format!("lds.l @r{}+, macl", parse_register_high(opcode)),
+        0b0100_0000_0010_0110 => format!("lds.l @r{}+, pr", parse_register_high(opcode)),
+        0b0000_0000_0000_0010 => format!("stc sr, r{}", parse_register_high(opcode)),
+        0b0000_0000_0001_0010 => format!("stc gbr, r{}", parse_register_high(opcode)),
+        0b0000_0000_0010_0010 => format!("stc vbr, r{}", parse_register_high(opcode)),
+        0b0100_0000_0000_0011 => format!("stc.l sr, @-r{}", parse_register_high(opcode)),
+        0b0100_0000_0001_0011 => format!("stc.l gbr, @-r{}", parse_register_high(opcode)),
+        0b0100_0000_0010_0011 => format!("stc.l vbr, @-r{}", parse_register_high(opcode)),
+        0b0000_0000_0000_1010 => format!("sts mach, r{}", parse_register_high(opcode)),
+        0b0000_0000_0001_1010 => format!("sts macl, r{}", parse_register_high(opcode)),
+        0b0000_0000_0010_1010 => format!("sts pr, r{}", parse_register_high(opcode)),
+        0b0100_0000_0000_0010 => format!("sts.l mach, @-r{}", parse_register_high(opcode)),
+        0b0100_0000_0001_0010 => format!("sts.l macl, @-r{}", parse_register_high(opcode)),
+        0b0100_0000_0010_0010 => format!("sts.l pr, @-r{}", parse_register_high(opcode)),
+        _ => decode_xnnn(opcode, options),
     }
 }
 
 #[inline]
-fn decode_xnnn(opcode: u16) -> String {
+fn decode_xnnn(opcode: u16, options: DisassembleOptions<'_>) -> String {
     match opcode & 0b1111_0000_0000_0000 {
         0b1110_0000_0000_0000 => {
-            format!("MOV.B #{}, R{}", parse_signed_immediate(opcode), parse_register_high(opcode))
+            format!("mov.b #{}, r{}", parse_signed_immediate(opcode), parse_register_high(opcode))
         }
-        0b1001_0000_0000_0000 => format!(
-            "MOV.W ({},PC), R{}",
-            parse_8bit_displacement(opcode),
-            parse_register_high(opcode)
-        ),
-        0b1101_0000_0000_0000 => format!(
-            "MOV.L ({},PC), R{}",
-            parse_8bit_displacement(opcode),
-            parse_register_high(opcode)
-        ),
+        0b1001_0000_0000_0000 => {
+            let comment = pc_relative_load_word(opcode, options.pc_relative_load);
+
+            format!(
+                "mov.w @({},pc), r{}{comment}",
+                parse_8bit_displacement(opcode),
+                parse_register_high(opcode)
+            )
+        }
+        0b1101_0000_0000_0000 => {
+            let comment = pc_relative_load_longword(opcode, options.pc_relative_load);
+
+            format!(
+                "mov.l @({},pc), r{}{comment}",
+                parse_8bit_displacement(opcode),
+                parse_register_high(opcode)
+            )
+        }
         0b0001_0000_0000_0000 => format!(
-            "MOV.L R{}, @({},R{})",
+            "mov.l r{}, @({},r{})",
             parse_register_low(opcode),
             parse_4bit_displacement(opcode),
             parse_register_high(opcode)
         ),
         0b0101_0000_0000_0000 => format!(
-            "MOV.L @({},R{}), R{}",
+            "mov.l @({},r{}), r{}",
             parse_4bit_displacement(opcode),
             parse_register_low(opcode),
             parse_register_high(opcode)
         ),
         0b0111_0000_0000_0000 => {
-            format!("ADD #{}, R{}", parse_signed_immediate(opcode), parse_register_high(opcode))
+            format!("add #{}, r{}", parse_signed_immediate(opcode), parse_register_high(opcode))
         }
-        0b1010_0000_0000_0000 => format!("BRA {}", parse_12bit_displacement(opcode)),
-        0b1011_0000_0000_0000 => format!("BSR {}", parse_12bit_displacement(opcode)),
-        _ => format!("Illegal (?) SH-2 opcode {opcode:04X}"),
+        0b1010_0000_0000_0000 => format!(
+            "bra {}",
+            branch_destination(parse_12bit_displacement(opcode), options.branch_displacement)
+        ),
+        0b1011_0000_0000_0000 => format!(
+            "bsr {}",
+            branch_destination(parse_12bit_displacement(opcode), options.branch_displacement)
+        ),
+        _ => "illegal".into(),
     }
 }
 
@@ -353,4 +440,42 @@ fn parse_register_low(opcode: u16) -> u16 {
 #[inline]
 fn parse_register_high(opcode: u16) -> u16 {
     (opcode >> 8) & 0xF
+}
+
+#[inline]
+fn branch_destination(displacement: i32, branch_displacement: BranchDestination) -> String {
+    match branch_displacement {
+        BranchDestination::Displacement => displacement.to_string(),
+        BranchDestination::Absolute { pc } => {
+            let address = pc.wrapping_add(4).wrapping_add_signed(displacement << 1);
+            format!("${address:08X}")
+        }
+    }
+}
+
+#[inline]
+fn pc_relative_load_word(opcode: u16, pc_relative_load: PcRelativeLoad<'_>) -> Cow<'static, str> {
+    let PcRelativeLoad::ValueInComment { pc, peek } = pc_relative_load else { return "".into() };
+
+    let displacement = (opcode & 0xFF) << 1;
+    let address = pc.wrapping_add(4).wrapping_add(displacement.into());
+    let value = peek(address);
+
+    format!("  ;0x{value:04X}").into()
+}
+
+#[inline]
+fn pc_relative_load_longword(
+    opcode: u16,
+    pc_relative_load: PcRelativeLoad<'_>,
+) -> Cow<'static, str> {
+    let PcRelativeLoad::ValueInComment { pc, peek } = pc_relative_load else { return "".into() };
+
+    let displacement = (opcode & 0xFF) << 2;
+    let address = (pc & !3).wrapping_add(4).wrapping_add(displacement.into());
+    let high: u32 = peek(address).into();
+    let low: u32 = peek(address + 2).into();
+    let value = low | (high << 16);
+
+    format!("  ;0x{value:08X}").into()
 }
