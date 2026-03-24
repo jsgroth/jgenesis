@@ -4,19 +4,19 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-dsp = { path = "../../common/dsp" }
-jgenesis-common = { path = "../../common/jgenesis-common" }
-jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
+dsp = { workspace = true }
+jgenesis-common = { workspace = true }
+jgenesis-proc-macros = { workspace = true }
 
-genesis-config = { path = "../../config/genesis-config" }
-smsgg-config = { path = "../../config/smsgg-config" }
+genesis-config = { workspace = true }
+smsgg-config = { workspace = true }
 
-m68000-emu = { path = "../../cpu/m68000-emu" }
-sh2-emu = { path = "../../cpu/sh2-emu" }
-z80-emu = { path = "../../cpu/z80-emu" }
+m68000-emu = { workspace = true }
+sh2-emu = { workspace = true }
+z80-emu = { workspace = true }
 
-genesis-core = { path = "../genesis-core" }
-smsgg-core = { path = "../smsgg-core" }
+genesis-core = { workspace = true }
+smsgg-core = { workspace = true }
 
 bincode = { workspace = true, features = ["derive"] }
 log = { workspace = true }

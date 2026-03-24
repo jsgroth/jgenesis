@@ -12,8 +12,8 @@ serde = ["dep:serde"]
 ttf = ["dep:glyphon"]
 
 [dependencies]
-jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
-jgenesis-common = { path = "../../common/jgenesis-common" }
+jgenesis-proc-macros = { workspace = true }
+jgenesis-common = { workspace = true }
 
 bytemuck = { workspace = true }
 cfg-if = { workspace = true }

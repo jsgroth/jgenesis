@@ -9,6 +9,7 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
+# Third-party dependencies
 anyhow = "1"
 arrayvec = "0.7"
 base64 = "0.22"
@@ -57,6 +58,48 @@ js-sys = "0.3"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-time = "1"
+
+# Workspace common libraries
+cdrom = { path = "common/cdrom" }
+dsp = { path = "common/dsp" }
+jgenesis-common = { path = "common/jgenesis-common" }
+jgenesis-proc-macros = { path = "common/jgenesis-proc-macros" }
+
+# Workspace CPU libraries
+arm7tdmi-emu = { path = "cpu/arm7tdmi-emu" }
+m68000-emu = { path = "cpu/m68000-emu" }
+mos6502-emu = { path = "cpu/mos6502-emu" }
+sh2-emu = { path = "cpu/sh2-emu" }
+spc700-emu = { path = "cpu/spc700-emu" }
+wdc65816-emu = { path = "cpu/wdc65816-emu" }
+z80-emu = { path = "cpu/z80-emu" }
+
+# Workspace config libraries
+gba-config = { path = "config/gba-config" }
+gb-config = { path = "config/gb-config" }
+genesis-config = { path = "config/genesis-config" }
+nes-config = { path = "config/nes-config" }
+smsgg-config = { path = "config/smsgg-config" }
+snes-config = { path = "config/snes-config" }
+
+# Workspace backend libraries
+gba-core = { path = "backend/gba-core" }
+gb-core = { path = "backend/gb-core" }
+genesis-core = { path = "backend/genesis-core" }
+nes-core = { path = "backend/nes-core" }
+s32x-core = { path = "backend/s32x-core" }
+segacd-core = { path = "backend/segacd-core" }
+smsgg-core = { path = "backend/smsgg-core" }
+snes-coprocessors = { path = "backend/snes-coprocessors" }
+snes-core = { path = "backend/snes-core" }
+ym-opll = { path = "backend/ym-opll" }
+
+# Workspace frontend libraries
+egui-sdl3-platform = { path = "frontend/egui-sdl3-platform" }
+jgenesis-debugger-frontend = { path = "frontend/jgenesis-debugger-frontend" }
+jgenesis-native-config = { path = "frontend/jgenesis-native-config" }
+jgenesis-native-driver = { path = "frontend/jgenesis-native-driver" }
+jgenesis-renderer = { path = "frontend/jgenesis-renderer" }
 
 [profile.dev.build-override]
 opt-level = 1

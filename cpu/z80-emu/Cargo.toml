@@ -10,7 +10,7 @@ default = []
 bincode = ["dep:bincode"]
 
 [dependencies]
-jgenesis-common = { path = "../../common/jgenesis-common" }
+jgenesis-common = { workspace = true }
 
 bincode = { workspace = true, optional = true }
 log = { workspace = true }

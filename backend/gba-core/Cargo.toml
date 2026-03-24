@@ -4,16 +4,16 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-dsp = { path = "../../common/dsp" }
-jgenesis-common = { path = "../../common/jgenesis-common" }
-jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
+dsp = { workspace = true }
+jgenesis-common = { workspace = true }
+jgenesis-proc-macros = { workspace = true }
 
-arm7tdmi-emu = { path = "../../cpu/arm7tdmi-emu" }
+arm7tdmi-emu = { workspace = true }
 
-gba-config = { path = "../../config/gba-config" }
+gba-config = { workspace = true }
 
 # For some of the GBC APU functionality
-gb-core = { path = "../gb-core" }
+gb-core = { workspace = true }
 
 bincode = { workspace = true, features = ["derive"] }
 crc = { workspace = true }

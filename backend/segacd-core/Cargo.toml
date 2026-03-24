@@ -6,19 +6,19 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-dsp = { path = "../../common/dsp" }
-cdrom = { path = "../../common/cdrom" }
-jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
-jgenesis-common = { path = "../../common/jgenesis-common" }
+dsp = { workspace = true }
+cdrom = { workspace = true }
+jgenesis-proc-macros = { workspace = true }
+jgenesis-common = { workspace = true }
 
-genesis-config = { path = "../../config/genesis-config" }
-smsgg-config = { path = "../../config/smsgg-config" }
+genesis-config = { workspace = true }
+smsgg-config = { workspace = true }
 
-m68000-emu = { path = "../../cpu/m68000-emu" }
-z80-emu = { path = "../../cpu/z80-emu" }
+m68000-emu = { workspace = true }
+z80-emu = { workspace = true }
 
-genesis-core = { path = "../genesis-core" }
-smsgg-core = { path = "../smsgg-core" }
+genesis-core = { workspace = true }
+smsgg-core = { workspace = true }
 
 bincode = { workspace = true }
 log = { workspace = true }

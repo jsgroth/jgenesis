@@ -6,11 +6,11 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-jgenesis-common = { path = "../../common/jgenesis-common" }
-jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
+jgenesis-common = { workspace = true }
+jgenesis-proc-macros = { workspace = true }
 
-arm7tdmi-emu = { path = "../../cpu/arm7tdmi-emu" }
-wdc65816-emu = { path = "../../cpu/wdc65816-emu" }
+arm7tdmi-emu = { workspace = true }
+wdc65816-emu = { workspace = true }
 
 bincode = { workspace = true }
 bytemuck = { workspace = true }

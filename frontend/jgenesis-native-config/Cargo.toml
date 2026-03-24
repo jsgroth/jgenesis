@@ -8,17 +8,17 @@ default = []
 clap = ["dep:clap"]
 
 [dependencies]
-jgenesis-common = { path = "../../common/jgenesis-common", features = ["serde"] }
-jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
+jgenesis-common = { workspace = true, features = ["serde"] }
+jgenesis-proc-macros = { workspace = true }
 
-gb-config = { path = "../../config/gb-config", features = ["serde"] }
-gba-config = { path = "../../config/gba-config", features = ["serde"] }
-genesis-config = { path = "../../config/genesis-config", features = ["serde"] }
-nes-config = { path = "../../config/nes-config", features = ["serde"] }
-smsgg-config = { path = "../../config/smsgg-config", features = ["serde"] }
-snes-config = { path = "../../config/snes-config", features = ["serde"] }
+gb-config = { workspace = true, features = ["serde"] }
+gba-config = { workspace = true, features = ["serde"] }
+genesis-config = { workspace = true, features = ["serde"] }
+nes-config = { workspace = true, features = ["serde"] }
+smsgg-config = { workspace = true, features = ["serde"] }
+snes-config = { workspace = true, features = ["serde"] }
 
-jgenesis-renderer = { path = "../jgenesis-renderer", features = ["serde"] }
+jgenesis-renderer = { workspace = true, features = ["serde"] }
 
 cfg-if = { workspace = true }
 clap = { workspace = true, optional = true }

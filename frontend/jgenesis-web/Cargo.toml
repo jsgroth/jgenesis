@@ -9,21 +9,21 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-gba-core = { path = "../../backend/gba-core" }
-genesis-core = { path = "../../backend/genesis-core" }
-s32x-core = { path = "../../backend/s32x-core" }
-segacd-core = { path = "../../backend/segacd-core" }
-smsgg-core = { path = "../../backend/smsgg-core" }
-snes-core = { path = "../../backend/snes-core" }
+gba-core = { workspace = true }
+genesis-core = { workspace = true }
+s32x-core = { workspace = true }
+segacd-core = { workspace = true }
+smsgg-core = { workspace = true }
+snes-core = { workspace = true }
 
-gba-config = { path = "../../config/gba-config", features = ["serde"] }
-genesis-config = { path = "../../config/genesis-config", features = ["serde"] }
-smsgg-config = { path = "../../config/smsgg-config", features = ["serde"] }
-snes-config = { path = "../../config/snes-config", features = ["serde"] }
+gba-config = { workspace = true, features = ["serde"] }
+genesis-config = { workspace = true, features = ["serde"] }
+smsgg-config = { workspace = true, features = ["serde"] }
+snes-config = { workspace = true, features = ["serde"] }
 
-jgenesis-common = { path = "../../common/jgenesis-common", features = ["serde"] }
-jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
-jgenesis-renderer = { path = "../jgenesis-renderer", features = ["serde"] }
+jgenesis-common = { workspace = true, features = ["serde"] }
+jgenesis-proc-macros = { workspace = true }
+jgenesis-renderer = { workspace = true, features = ["serde"] }
 
 anyhow = { workspace = true }
 bincode = { workspace = true }

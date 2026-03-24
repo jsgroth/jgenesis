@@ -11,8 +11,8 @@ bincode = ["dep:bincode"]
 memorybus = []
 
 [dependencies]
-jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
-jgenesis-common = { path = "../../common/jgenesis-common" }
+jgenesis-proc-macros = { workspace = true }
+jgenesis-common = { workspace = true }
 
 bincode = { workspace = true, optional = true }
 log = { workspace = true }

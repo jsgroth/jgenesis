@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-jgenesis-common = { path = "../../common/jgenesis-common" }
-jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
+jgenesis-common = { workspace = true }
+jgenesis-proc-macros = { workspace = true }
 
 bincode = { workspace = true, features = ["derive"] }
 log = { workspace = true }

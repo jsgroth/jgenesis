@@ -13,20 +13,20 @@ sdl3-build-from-source = ["sdl3/build-from-source"]
 sdl3-static-link = ["sdl3/static-link"]
 
 [dependencies]
-gb-config = { path = "../../config/gb-config", features = ["clap"] }
-gba-config = { path = "../../config/gba-config", features = ["clap"] }
-genesis-config = { path = "../../config/genesis-config", features = ["clap"] }
-nes-config = { path = "../../config/nes-config", features = ["clap"] }
-smsgg-config = { path = "../../config/smsgg-config", features = ["clap"] }
-snes-config = { path = "../../config/snes-config", features = ["clap"] }
+gb-config = { workspace = true, features = ["clap"] }
+gba-config = { workspace = true, features = ["clap"] }
+genesis-config = { workspace = true, features = ["clap"] }
+nes-config = { workspace = true, features = ["clap"] }
+smsgg-config = { workspace = true, features = ["clap"] }
+snes-config = { workspace = true, features = ["clap"] }
 
-jgenesis-common = { path = "../../common/jgenesis-common", features = ["clap"] }
-jgenesis-native-config = { path = "../jgenesis-native-config", features = ["clap"] }
-jgenesis-native-driver = { path = "../jgenesis-native-driver", features = ["clap"] }
-jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
-jgenesis-renderer = { path = "../jgenesis-renderer", features = ["clap"] }
+jgenesis-common = { workspace = true, features = ["clap"] }
+jgenesis-native-config = { workspace = true, features = ["clap"] }
+jgenesis-native-driver = { workspace = true, features = ["clap"] }
+jgenesis-proc-macros = { workspace = true }
+jgenesis-renderer = { workspace = true, features = ["clap"] }
 
-smsgg-core = { path = "../../backend/smsgg-core" }
+smsgg-core = { workspace = true }
 
 anyhow = { workspace = true }
 clap = { workspace = true }

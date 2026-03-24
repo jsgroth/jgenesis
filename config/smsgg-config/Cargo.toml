@@ -9,8 +9,8 @@ clap = ["dep:clap"]
 serde = ["dep:serde"]
 
 [dependencies]
-jgenesis-common = { path = "../../common/jgenesis-common" }
-jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
+jgenesis-common = { workspace = true }
+jgenesis-proc-macros = { workspace = true }
 
 bincode = { workspace = true, features = ["derive"] }
 clap = { workspace = true, optional = true }

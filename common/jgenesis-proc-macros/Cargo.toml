@@ -15,7 +15,7 @@ syn = "2"
 
 [dev-dependencies]
 bincode = { workspace = true, features = ["derive"] }
-jgenesis-common = { path = "../jgenesis-common" }
+jgenesis-common = { workspace = true }
 
 [lints]
 workspace = true
