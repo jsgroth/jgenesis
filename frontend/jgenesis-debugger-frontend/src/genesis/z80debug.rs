@@ -197,6 +197,12 @@ fn render_disasm_right_panel(z80: &Z80, state: &mut Z80DebugWindowState, ui: &mu
             ui.label(monospace_bool(registers.iff2));
             ui.end_row();
 
+            ui.label("I");
+            ui.label(monospace_u8(registers.i));
+            ui.label("R");
+            ui.label(monospace_u8(registers.r));
+            ui.end_row();
+
             for ((label0, value0), (label1, value1)) in [
                 (("A'", registers.ap), ("F'", u8::from(registers.fp))),
                 (("B'", registers.bp), ("C'", registers.cp)),

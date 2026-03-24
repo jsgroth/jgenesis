@@ -119,6 +119,10 @@ impl Registers {
             halted: false,
         }
     }
+
+    fn increment_r(&mut self) {
+        self.r = (self.r.wrapping_add(1) & 0x7F) | (self.r & 0x80);
+    }
 }
 
 impl Default for Registers {

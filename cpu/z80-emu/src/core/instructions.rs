@@ -112,6 +112,9 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
         let mut index = None;
         let mut t_cycles = 0;
         loop {
+            // Increment R on every opcode fetch, including DD/FD prefixes
+            self.cpu.registers.increment_r();
+
             let opcode = self.fetch_operand();
             match opcode {
                 0xDD => {
@@ -235,6 +238,11 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
     }
 
     fn execute_cb_prefix(&mut self, index: Option<IndexRegister>) -> u32 {
+        // CB-prefixed instructions increment R an extra time, but only if there's no DD/FD prefix
+        if index.is_none() {
+            self.cpu.registers.increment_r();
+        }
+
         // For DD+CB and FD+CB instructions, the index offset comes before the last opcode byte
         let index_with_offset = match index {
             Some(index) => {
@@ -290,6 +298,9 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
     }
 
     fn execute_ed_prefix(&mut self) -> u32 {
+        // ED-prefixed instructions increment R an extra time for the second opcode fetch
+        self.cpu.registers.increment_r();
+
         let opcode2 = self.fetch_operand();
 
         match opcode2 {
@@ -334,15 +345,13 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
     }
 
     fn execute(mut self) -> u32 {
-        self.cpu.registers.r =
-            (self.cpu.registers.r.wrapping_add(1) & 0x7F) | (self.cpu.registers.r & 0x80);
-
         let interrupt_type = self.check_pending_interrupt();
 
         self.cpu.registers.interrupt_delay = false;
         self.cpu.registers.last_nmi = self.bus.nmi();
 
         if let Some(interrupt_type) = interrupt_type {
+            self.cpu.registers.increment_r();
             return self.interrupt_service_routine(interrupt_type);
         }
 
