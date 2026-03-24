@@ -65,7 +65,7 @@ fn render(ctx: DebugRenderContext<'_>, emulator: &mut GameBoyAdvanceEmulator, st
                     if ui.button(area.name()).clicked()
                         && let Some(memviewer_state) = state.memory_viewer_states.get_mut(&area)
                     {
-                        memviewer_state.open = true;
+                        memviewer_state.open_window(ctx.egui_ctx);
                         ui.close_kind(UiKind::Menu);
                     }
                 }

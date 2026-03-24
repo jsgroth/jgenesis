@@ -1,9 +1,6 @@
 use crate::genesis::widgets::{BreakpointsWidget, U24};
 use egui::panel::{Side, TopBottomSide};
-use egui::{
-    Align, CentralPanel, Grid, Id, LayerId, Order, RichText, SidePanel, TextEdit, TopBottomPanel,
-    Window,
-};
+use egui::{Align, CentralPanel, Grid, RichText, SidePanel, TextEdit, TopBottomPanel, Window};
 use egui_extras::{Column, TableBuilder};
 use genesis_core::api::debug::{M68000BreakStatus, M68000Breakpoint};
 use genesis_core::cartridge::Cartridge;
@@ -22,7 +19,8 @@ pub enum M68kBreakCommand {
 }
 
 pub struct M68kDebugWindowState {
-    pub window_title: String,
+    pub disassembly_window_title: String,
+    pub breakpoints_window_title: String,
     pub disassembly_open: bool,
     pub breakpoints_open: bool,
     pub disassemble_start: u32,
@@ -34,16 +32,21 @@ pub struct M68kDebugWindowState {
 }
 
 impl M68kDebugWindowState {
-    pub fn new() -> Self {
-        Self::new_with_title("68000 Disassembly")
+    pub fn new_default_titles() -> Self {
+        Self::new_with_titles("68000 Disassembly", "68000 Breakpoints")
     }
 
-    pub fn new_with_title(window_title: impl Into<String>) -> Self {
-        let window_title = window_title.into();
-        let breakpoints_id = format!("{window_title}_breakpoints");
+    pub fn new_with_titles(
+        disassembly_window_title: impl Into<String>,
+        breakpoints_window_title: impl Into<String>,
+    ) -> Self {
+        let disassembly_window_title = disassembly_window_title.into();
+        let breakpoints_window_title = breakpoints_window_title.into();
+        let breakpoints = BreakpointsWidget::new(&breakpoints_window_title);
 
         Self {
-            window_title,
+            disassembly_window_title,
+            breakpoints_window_title,
             disassembly_open: false,
             breakpoints_open: false,
             disassemble_start: 0,
@@ -51,8 +54,18 @@ impl M68kDebugWindowState {
             disassemble_jump_addr: String::new(),
             disassemble_reset_table: false,
             break_status_last_frame: M68000BreakStatus::default(),
-            breakpoints: BreakpointsWidget::new(breakpoints_id),
+            breakpoints,
         }
+    }
+
+    pub fn open_disassembly_window(&mut self, ctx: &egui::Context) {
+        self.disassembly_open = true;
+        super::move_to_top(ctx, &self.disassembly_window_title);
+    }
+
+    pub fn open_breakpoints_window(&mut self, ctx: &egui::Context) {
+        self.breakpoints_open = true;
+        super::move_to_top(ctx, &self.breakpoints_window_title);
     }
 
     fn maybe_move_disassembly_table(&mut self, address: u32) {
@@ -239,12 +252,12 @@ pub fn render_disassembly_window<MemoryMap: M68kDebugMemoryMap>(
     if break_status.breaking && break_status != state.break_status_last_frame {
         state.maybe_move_disassembly_table(break_status.pc);
         state.disassembly_open = true;
-        ctx.move_to_top(LayerId::new(Order::Middle, Id::new(&state.window_title)));
+        super::move_to_top(ctx, &state.disassembly_window_title);
     }
     state.break_status_last_frame = break_status;
 
     let mut open = state.disassembly_open;
-    Window::new(&state.window_title)
+    Window::new(&state.disassembly_window_title)
         .open(&mut open)
         .resizable([true, true])
         .default_width(650.0)
@@ -252,7 +265,7 @@ pub fn render_disassembly_window<MemoryMap: M68kDebugMemoryMap>(
             if let Some(mut handle_command) = handle_command {
                 TopBottomPanel::new(
                     TopBottomSide::Top,
-                    format!("{}_top_panel", state.window_title),
+                    format!("{}_top_panel", state.disassembly_window_title),
                 )
                 .show_inside(ui, |ui| {
                     ui.horizontal(|ui| {
@@ -273,9 +286,8 @@ pub fn render_disassembly_window<MemoryMap: M68kDebugMemoryMap>(
                 });
             }
 
-            SidePanel::new(Side::Right, format!("{}_right_panel", state.window_title)).show_inside(
-                ui,
-                |ui| {
+            SidePanel::new(Side::Right, format!("{}_right_panel", state.disassembly_window_title))
+                .show_inside(ui, |ui| {
                     ui.horizontal(|ui| {
                         let text_resp = ui.add(
                             TextEdit::singleline(&mut state.disassemble_jump_addr)
@@ -307,46 +319,49 @@ pub fn render_disassembly_window<MemoryMap: M68kDebugMemoryMap>(
                     let status_register = m68k.status_register();
                     let supervisor = status_register.bit(13);
 
-                    Grid::new(format!("{}_registers", state.window_title)).show(ui, |ui| {
-                        for i in 0..7 {
-                            ui.label(format!("D{i}"));
-                            ui.label(monospace_u32(data_registers[i]));
+                    Grid::new(format!("{}_registers", state.disassembly_window_title)).show(
+                        ui,
+                        |ui| {
+                            for i in 0..7 {
+                                ui.label(format!("D{i}"));
+                                ui.label(monospace_u32(data_registers[i]));
 
-                            ui.label(format!("A{i}"));
-                            ui.label(monospace_u32(address_registers[i]));
+                                ui.label(format!("A{i}"));
+                                ui.label(monospace_u32(address_registers[i]));
+
+                                ui.end_row();
+                            }
+
+                            ui.label("D7");
+                            ui.label(monospace_u32(data_registers[7]));
+
+                            let a7 = if supervisor {
+                                m68k.supervisor_stack_pointer()
+                            } else {
+                                m68k.user_stack_pointer()
+                            };
+                            ui.label("A7");
+                            ui.label(monospace_u32(a7));
 
                             ui.end_row();
-                        }
 
-                        ui.label("D7");
-                        ui.label(monospace_u32(data_registers[7]));
+                            ui.label("SSP");
+                            ui.label(monospace_u32(m68k.supervisor_stack_pointer()));
 
-                        let a7 = if supervisor {
-                            m68k.supervisor_stack_pointer()
-                        } else {
-                            m68k.user_stack_pointer()
-                        };
-                        ui.label("A7");
-                        ui.label(monospace_u32(a7));
+                            ui.label("USP");
+                            ui.label(monospace_u32(m68k.user_stack_pointer()));
 
-                        ui.end_row();
+                            ui.end_row();
 
-                        ui.label("SSP");
-                        ui.label(monospace_u32(m68k.supervisor_stack_pointer()));
+                            ui.label("SR");
+                            ui.label(monospace_u16(status_register));
 
-                        ui.label("USP");
-                        ui.label(monospace_u32(m68k.user_stack_pointer()));
+                            ui.label("PC");
+                            ui.label(monospace_u32(m68k.pc()));
 
-                        ui.end_row();
-
-                        ui.label("SR");
-                        ui.label(monospace_u16(status_register));
-
-                        ui.label("PC");
-                        ui.label(monospace_u32(m68k.pc()));
-
-                        ui.end_row();
-                    });
+                            ui.end_row();
+                        },
+                    );
 
                     ui.horizontal(|ui| {
                         ui.label("CCR");
@@ -373,8 +388,7 @@ pub fn render_disassembly_window<MemoryMap: M68kDebugMemoryMap>(
                             ui.label(RichText::new(text).monospace());
                         });
                     }
-                },
-            );
+                });
 
             CentralPanel::default().show_inside(ui, |ui| {
                 let mut table_builder = TableBuilder::new(ui)
@@ -428,15 +442,13 @@ pub fn render_disassembly_window<MemoryMap: M68kDebugMemoryMap>(
 
 pub fn render_breakpoints_window(
     ctx: &egui::Context,
-    window_title: Option<&str>,
     state: &mut M68kDebugWindowState,
     mut update_breakpoints: impl FnMut(Vec<M68000Breakpoint>),
 ) {
     let mut open = state.breakpoints_open;
-    Window::new(window_title.unwrap_or("68000 Breakpoints"))
-        .open(&mut open)
-        .resizable([true, true])
-        .show(ctx, |ui| {
+    Window::new(&state.breakpoints_window_title).open(&mut open).resizable([true, true]).show(
+        ctx,
+        |ui| {
             state.breakpoints.render(ui, |breakpoints| {
                 let m68k_breakpoints = breakpoints
                     .iter()
@@ -451,7 +463,8 @@ pub fn render_breakpoints_window(
 
                 update_breakpoints(m68k_breakpoints);
             });
-        });
+        },
+    );
     state.breakpoints_open = open;
 }
 

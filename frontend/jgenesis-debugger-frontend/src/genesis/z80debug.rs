@@ -1,12 +1,12 @@
 use crate::genesis::widgets::BreakpointsWidget;
 use egui::panel::{Side, TopBottomSide};
-use egui::{
-    Align, CentralPanel, Grid, Id, LayerId, Order, RichText, SidePanel, TextEdit, TopBottomPanel,
-    Window,
-};
+use egui::{Align, CentralPanel, Grid, RichText, SidePanel, TextEdit, TopBottomPanel, Window};
 use egui_extras::{Column, TableBuilder};
 use genesis_core::api::debug::{Z80BreakStatus, Z80Breakpoint};
 use z80_emu::{DisassembledInstruction, Z80};
+
+const DISASSEMBLY_WINDOW_TITLE: &str = "Z80 Disassembly";
+const BREAKPOINTS_WINDOW_TITLE: &str = "Z80 Breakpoints";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Z80BreakCommand {
@@ -38,6 +38,16 @@ impl Z80DebugWindowState {
             breakpoints_open: false,
             breakpoints: BreakpointsWidget::new("z80_breakpoints"),
         }
+    }
+
+    pub fn open_disassembly_window(&mut self, ctx: &egui::Context) {
+        self.disassembly_open = true;
+        super::move_to_top(ctx, DISASSEMBLY_WINDOW_TITLE);
+    }
+
+    pub fn open_breakpoints_window(&mut self, ctx: &egui::Context) {
+        self.breakpoints_open = true;
+        super::move_to_top(ctx, BREAKPOINTS_WINDOW_TITLE);
     }
 
     fn maybe_change_disassembly_address(&mut self, address: u16) {
@@ -83,19 +93,19 @@ pub fn render_disassembly_window(
     break_status: Z80BreakStatus,
     handle_command: Option<impl FnMut(Z80BreakCommand)>,
 ) {
-    const WINDOW_TITLE: &str = "Z80 Disassembly";
-
     if break_status.breaking && break_status != state.break_status_last_frame {
         state.maybe_change_disassembly_address(break_status.pc);
         state.disassembly_open = true;
-        ctx.move_to_top(LayerId::new(Order::Middle, Id::new(WINDOW_TITLE)));
+        super::move_to_top(ctx, DISASSEMBLY_WINDOW_TITLE);
     }
     state.break_status_last_frame = break_status;
 
     let mut open = state.disassembly_open;
-    Window::new(WINDOW_TITLE).open(&mut open).resizable([true, true]).default_width(650.0).show(
-        ctx,
-        |ui| {
+    Window::new(DISASSEMBLY_WINDOW_TITLE)
+        .open(&mut open)
+        .resizable([true, true])
+        .default_width(650.0)
+        .show(ctx, |ui| {
             if let Some(mut handle_command) = handle_command {
                 TopBottomPanel::new(TopBottomSide::Top, "z80_top_panel").show_inside(ui, |ui| {
                     ui.horizontal(|ui| {
@@ -249,8 +259,7 @@ pub fn render_disassembly_window(
                     state.disassembly_end_address = Some(pc);
                 });
             });
-        },
-    );
+        });
     state.disassembly_open = open;
 }
 
@@ -260,7 +269,7 @@ pub fn render_breakpoints_window(
     update_breakpoints: impl FnOnce(Vec<Z80Breakpoint>),
 ) {
     let mut open = state.breakpoints_open;
-    Window::new("Z80 Breakpoints").open(&mut open).resizable([true, true]).show(ctx, |ui| {
+    Window::new(BREAKPOINTS_WINDOW_TITLE).open(&mut open).resizable([true, true]).show(ctx, |ui| {
         state.breakpoints.render(ui, |breakpoints| {
             let z80_breakpoints = breakpoints
                 .iter()

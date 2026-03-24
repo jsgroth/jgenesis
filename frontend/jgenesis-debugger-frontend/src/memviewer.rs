@@ -1,6 +1,9 @@
 use egui::panel::Side;
 use egui::scroll_area::ScrollBarVisibility;
-use egui::{Align, CentralPanel, Color32, Context, FontId, RichText, SidePanel, TextEdit, Window};
+use egui::{
+    Align, CentralPanel, Color32, Context, FontId, Id, LayerId, Order, RichText, SidePanel,
+    TextEdit, Window,
+};
 use egui_extras::{Column, TableBuilder};
 use jgenesis_common::debug::{DebugMemoryView, Endian};
 use rfd::FileDialog;
@@ -76,6 +79,11 @@ impl MemoryViewerState {
     pub fn with_editable(mut self) -> Self {
         self.editable = true;
         self
+    }
+
+    pub fn open_window(&mut self, ctx: &Context) {
+        self.open = true;
+        ctx.move_to_top(LayerId::new(Order::Middle, Id::new(&self.window_title)));
     }
 }
 

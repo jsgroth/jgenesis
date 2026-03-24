@@ -1,6 +1,6 @@
 use crate::genesis::widgets::BreakpointsWidget;
 use egui::panel::{Side, TopBottomSide};
-use egui::{Align, Grid, LayerId, Order, RichText, TextEdit, Window};
+use egui::{Align, Grid, RichText, TextEdit, Window};
 use egui_extras::{Column, TableBuilder};
 use s32x_core::WhichCpu;
 use s32x_core::api::debug::{
@@ -91,6 +91,16 @@ impl Sh2DebugWindowState {
         }
     }
 
+    pub fn open_disassembly_window(&mut self, ctx: &egui::Context) {
+        self.disassembly_open = true;
+        super::move_to_top(ctx, self.which.disassembly_window_title());
+    }
+
+    pub fn open_breakpoints_window(&mut self, ctx: &egui::Context) {
+        self.breakpoints_open = true;
+        super::move_to_top(ctx, self.which.breakpoints_window_title());
+    }
+
     fn try_jump_to_address(&mut self, address: u32) {
         let Some(area) = DisassemblyArea::from_address(address) else { return };
 
@@ -133,7 +143,7 @@ pub fn render_disassembly_window(
     if break_status.breaking && break_status != window_state.break_status_last_frame {
         window_state.try_jump_to_address(break_status.pc);
         window_state.disassembly_open = true;
-        ctx.move_to_top(LayerId::new(Order::Middle, window_title.into()));
+        super::move_to_top(ctx, window_title);
     }
     window_state.break_status_last_frame = break_status;
 
