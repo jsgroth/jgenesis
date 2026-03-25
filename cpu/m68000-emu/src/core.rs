@@ -263,7 +263,7 @@ pub(crate) fn parse_index(extension: u16) -> (IndexRegister, IndexSize) {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum IndexSize {
+pub enum IndexSize {
     SignExtendedWord,
     LongWord,
 }
@@ -1157,6 +1157,11 @@ impl M68000 {
     #[must_use]
     pub fn supervisor_stack_pointer(&self) -> u32 {
         self.registers.ssp
+    }
+
+    #[must_use]
+    pub fn stack_pointer(&self) -> u32 {
+        if self.registers.supervisor_mode { self.registers.ssp } else { self.registers.usp }
     }
 
     pub fn set_supervisor_stack_pointer(&mut self, ssp: u32) {

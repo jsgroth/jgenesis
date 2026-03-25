@@ -348,7 +348,6 @@ fn render_disasm_right_panel(
             let data_registers = m68k.data_registers();
             let address_registers = m68k.address_registers();
             let status_register = m68k.status_register();
-            let supervisor = status_register.bit(13);
 
             Grid::new(format!("{}_registers", state.disassembly_window_title)).show(ui, |ui| {
                 for i in 0..7 {
@@ -364,13 +363,8 @@ fn render_disasm_right_panel(
                 ui.label("D7");
                 ui.label(monospace_u32(data_registers[7]));
 
-                let a7 = if supervisor {
-                    m68k.supervisor_stack_pointer()
-                } else {
-                    m68k.user_stack_pointer()
-                };
                 ui.label("A7");
-                ui.label(monospace_u32(a7));
+                ui.label(monospace_u32(m68k.stack_pointer()));
 
                 ui.end_row();
 
