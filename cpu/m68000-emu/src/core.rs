@@ -230,7 +230,7 @@ impl Display for OpSize {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum IndexRegister {
+pub enum IndexRegister {
     Data(DataRegister),
     Address(AddressRegister),
 }
