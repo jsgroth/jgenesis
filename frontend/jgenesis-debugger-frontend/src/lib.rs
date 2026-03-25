@@ -11,8 +11,8 @@ use sdl3::event::{Event, WindowEvent};
 
 use egui::epaint::ImageDelta;
 use egui::{
-    Button, Color32, ColorImage, ImageData, Response, ScrollArea, TextureFilter, TextureOptions,
-    TextureWrapMode, ThemePreference, Ui, Widget, WidgetText,
+    Button, Color32, ColorImage, Id, ImageData, LayerId, Order, Response, ScrollArea,
+    TextureFilter, TextureOptions, TextureWrapMode, ThemePreference, Ui, Widget, WidgetText,
 };
 use egui_extras::{Column, TableBuilder};
 use egui_wgpu::ScreenDescriptor;
@@ -21,6 +21,7 @@ use jgenesis_native_config::EguiTheme;
 use jgenesis_renderer::config::RendererConfig;
 use sdl3::VideoSubsystem;
 use sdl3::video::{Window, WindowBuildError};
+use std::hash::Hash;
 use std::sync::Arc;
 use std::time::SystemTime;
 use std::{array, iter};
@@ -508,4 +509,40 @@ fn dump_registers_callback(ui: &mut Ui) -> impl FnMut(&str, &[(&str, &str)]) {
 // in a random position near-ish the top-left corner of the screen
 fn rand_window_pos() -> [f32; 2] {
     array::from_fn(|_| 100.0 + rand::random_range(-50.0..=50.0))
+}
+
+fn move_to_top(ctx: &egui::Context, id: impl Hash) {
+    ctx.move_to_top(LayerId::new(Order::Middle, Id::new(id)));
+}
+
+fn window_on_top(ctx: &egui::Context, id: impl Hash) -> bool {
+    ctx.top_layer_id() == Some(LayerId::new(Order::Middle, Id::new(id)))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct UpDown {
+    up: bool,
+    down: bool,
+}
+
+impl UpDown {
+    fn xor(self) -> bool {
+        self.up ^ self.down
+    }
+
+    fn relative_scroll_offset(self) -> f32 {
+        if self.up && !self.down {
+            -15.0
+        } else if !self.up && self.down {
+            15.0
+        } else {
+            0.0
+        }
+    }
+}
+
+fn up_down_pressed(ctx: &egui::Context) -> UpDown {
+    let (up, down) =
+        ctx.input(|i| (i.key_pressed(egui::Key::ArrowUp), i.key_pressed(egui::Key::ArrowDown)));
+    UpDown { up, down }
 }

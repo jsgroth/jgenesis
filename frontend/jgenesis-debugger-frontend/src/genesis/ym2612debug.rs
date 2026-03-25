@@ -26,7 +26,7 @@ impl Ym2612DebugWindowState {
 
     pub fn open_window(&mut self, ctx: &egui::Context) {
         self.open = true;
-        super::move_to_top(ctx, WINDOW_TITLE);
+        crate::move_to_top(ctx, WINDOW_TITLE);
     }
 }
 

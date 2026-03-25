@@ -21,6 +21,7 @@ pub struct Z80DebugWindowState {
     pub disassembly_end_address: Option<u16>,
     pub disassembly_addr_changed: bool,
     pub jump_to_address: String,
+    pub disassembly_table_offset: f32,
     pub break_status_last_frame: Z80BreakStatus,
     pub breakpoints_open: bool,
     pub breakpoints: BreakpointsWidget<u16>,
@@ -34,6 +35,7 @@ impl Z80DebugWindowState {
             disassembly_end_address: None,
             disassembly_addr_changed: false,
             jump_to_address: String::new(),
+            disassembly_table_offset: 0.0,
             break_status_last_frame: Z80BreakStatus::default(),
             breakpoints_open: false,
             breakpoints: BreakpointsWidget::new("z80_breakpoints"),
@@ -42,12 +44,12 @@ impl Z80DebugWindowState {
 
     pub fn open_disassembly_window(&mut self, ctx: &egui::Context) {
         self.disassembly_open = true;
-        super::move_to_top(ctx, DISASSEMBLY_WINDOW_TITLE);
+        crate::move_to_top(ctx, DISASSEMBLY_WINDOW_TITLE);
     }
 
     pub fn open_breakpoints_window(&mut self, ctx: &egui::Context) {
         self.breakpoints_open = true;
-        super::move_to_top(ctx, BREAKPOINTS_WINDOW_TITLE);
+        crate::move_to_top(ctx, BREAKPOINTS_WINDOW_TITLE);
     }
 
     fn maybe_change_disassembly_address(&mut self, address: u16) {
@@ -104,7 +106,7 @@ pub fn render_disassembly_window(
 
         state.maybe_change_disassembly_address(move_to_pc);
         state.disassembly_open = true;
-        super::move_to_top(ctx, DISASSEMBLY_WINDOW_TITLE);
+        crate::move_to_top(ctx, DISASSEMBLY_WINDOW_TITLE);
     }
     state.break_status_last_frame = break_status;
 
@@ -249,6 +251,8 @@ fn render_disasm_central_panel(
     break_status: Z80BreakStatus,
     ui: &mut Ui,
 ) {
+    let ctx = ui.ctx().clone();
+
     CentralPanel::default().show_inside(ui, |ui| {
         let mut table_builder = TableBuilder::new(ui)
             .column(Column::auto().at_least(60.0))
@@ -258,11 +262,18 @@ fn render_disasm_central_panel(
         if state.disassembly_addr_changed {
             state.disassembly_addr_changed = false;
             table_builder = table_builder.scroll_to_row(0, Some(Align::Min));
+        } else if crate::window_on_top(&ctx, DISASSEMBLY_WINDOW_TITLE) {
+            let up_down = crate::up_down_pressed(&ctx);
+            if up_down.xor() {
+                table_builder = table_builder.vertical_scroll_offset(
+                    state.disassembly_table_offset + up_down.relative_scroll_offset(),
+                );
+            }
         }
 
         let z80_pc = if break_status.breaking { break_status.pc } else { z80.pc() };
 
-        table_builder.body(|mut body| {
+        let scroll_output = table_builder.body(|mut body| {
             let mut pc = state.disassembly_address;
             let mut instruction = DisassembledInstruction::new();
 
@@ -290,6 +301,7 @@ fn render_disasm_central_panel(
 
             state.disassembly_end_address = Some(pc);
         });
+        state.disassembly_table_offset = scroll_output.state.offset.y;
     });
 }
 

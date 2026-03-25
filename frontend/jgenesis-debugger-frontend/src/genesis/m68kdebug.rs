@@ -27,6 +27,7 @@ pub struct M68kDebugWindowState {
     pub disassemble_end_addr: Option<u32>,
     pub disassemble_jump_addr: String,
     pub disassemble_reset_table: bool,
+    pub disassemble_table_offset: f32,
     pub break_status_last_frame: M68000BreakStatus,
     pub breakpoints: BreakpointsWidget<U24>,
 }
@@ -53,6 +54,7 @@ impl M68kDebugWindowState {
             disassemble_end_addr: None,
             disassemble_jump_addr: String::new(),
             disassemble_reset_table: false,
+            disassemble_table_offset: 0.0,
             break_status_last_frame: M68000BreakStatus::default(),
             breakpoints,
         }
@@ -60,12 +62,12 @@ impl M68kDebugWindowState {
 
     pub fn open_disassembly_window(&mut self, ctx: &egui::Context) {
         self.disassembly_open = true;
-        super::move_to_top(ctx, &self.disassembly_window_title);
+        crate::move_to_top(ctx, &self.disassembly_window_title);
     }
 
     pub fn open_breakpoints_window(&mut self, ctx: &egui::Context) {
         self.breakpoints_open = true;
-        super::move_to_top(ctx, &self.breakpoints_window_title);
+        crate::move_to_top(ctx, &self.breakpoints_window_title);
     }
 
     fn maybe_move_disassembly_table(&mut self, address: u32) {
@@ -260,7 +262,7 @@ pub fn render_disassembly_window(
 
         state.maybe_move_disassembly_table(move_to_pc);
         state.disassembly_open = true;
-        super::move_to_top(ctx, &state.disassembly_window_title);
+        crate::move_to_top(ctx, &state.disassembly_window_title);
     }
     state.break_status_last_frame = break_status;
 
@@ -422,6 +424,8 @@ fn render_disasm_central_panel(
     break_status: M68000BreakStatus,
     ui: &mut Ui,
 ) {
+    let ctx = ui.ctx().clone();
+
     CentralPanel::default().show_inside(ui, |ui| {
         let mut table_builder = TableBuilder::new(ui)
             .column(Column::auto().at_least(60.0))
@@ -431,11 +435,18 @@ fn render_disasm_central_panel(
         if state.disassemble_reset_table {
             state.disassemble_reset_table = false;
             table_builder = table_builder.scroll_to_row(0, Some(Align::Min));
+        } else if crate::window_on_top(&ctx, &state.disassembly_window_title) {
+            let up_down = crate::up_down_pressed(&ctx);
+            if up_down.xor() {
+                table_builder = table_builder.vertical_scroll_offset(
+                    state.disassemble_table_offset + up_down.relative_scroll_offset(),
+                );
+            }
         }
 
         let m68k_pc = if break_status.breaking { break_status.pc } else { m68k.pc() };
 
-        table_builder.body(|mut body| {
+        let scroll_output = table_builder.body(|mut body| {
             let mut pc = state.disassemble_start;
             let mut disassembled_instruction = DisassembledInstruction::new();
 
@@ -467,6 +478,7 @@ fn render_disasm_central_panel(
 
             state.disassemble_end_addr = Some(pc);
         });
+        state.disassemble_table_offset = scroll_output.state.offset.y;
     });
 }
 

@@ -17,7 +17,7 @@ use crate::process::{DebuggerProcesses, RunTillNextResult};
 use crate::{DebugRenderContext, DebuggerMainProcess, DebuggerRunnerProcess, memviewer};
 use egui::panel::TopBottomSide;
 use egui::scroll_area::ScrollBarVisibility;
-use egui::{Id, LayerId, Order, TopBottomPanel, UiKind, Vec2, Window};
+use egui::{TopBottomPanel, UiKind, Vec2, Window};
 use egui_extras::{Column, TableBuilder};
 use genesis_config::GenesisInputs;
 use genesis_core::GenesisEmulator;
@@ -410,7 +410,7 @@ fn render(
             ui.menu_button("Register Viewers", |ui| {
                 if ui.button("VDP").clicked() {
                     state.vdp_registers_open = true;
-                    move_to_top(ctx.egui_ctx, VDP_REGISTERS_WINDOW_TITLE);
+                    crate::move_to_top(ctx.egui_ctx, VDP_REGISTERS_WINDOW_TITLE);
                     ui.close_kind(UiKind::Menu);
                 }
 
@@ -421,26 +421,26 @@ fn render(
 
                 if ui.button("SN76489").clicked() {
                     state.psg_open = true;
-                    move_to_top(ctx.egui_ctx, psgdebug::WINDOW_TITLE);
+                    crate::move_to_top(ctx.egui_ctx, psgdebug::WINDOW_TITLE);
                     ui.close_kind(UiKind::Menu);
                 }
 
                 if matches!(debug_state, GenesisBasedDebugState::Sega32X(..)) {
                     if ui.button("32X System Registers").clicked() {
                         state.s32x_system_registers_open = true;
-                        move_to_top(ctx.egui_ctx, S32X_SYSTEM_REGISTERS_WINDOW_TITLE);
+                        crate::move_to_top(ctx.egui_ctx, S32X_SYSTEM_REGISTERS_WINDOW_TITLE);
                         ui.close_kind(UiKind::Menu);
                     }
 
                     if ui.button("32X VDP").clicked() {
                         state.s32x_vdp_registers_open = true;
-                        move_to_top(ctx.egui_ctx, S32X_VDP_REGISTERS_WINDOW_TITLE);
+                        crate::move_to_top(ctx.egui_ctx, S32X_VDP_REGISTERS_WINDOW_TITLE);
                         ui.close_kind(UiKind::Menu);
                     }
 
                     if ui.button("32X PWM").clicked() {
                         state.s32x_pwm_registers_open = true;
-                        move_to_top(ctx.egui_ctx, S32X_PWM_REGISTERS_WINDOW_TITLE);
+                        crate::move_to_top(ctx.egui_ctx, S32X_PWM_REGISTERS_WINDOW_TITLE);
                         ui.close_kind(UiKind::Menu);
                     }
                 }
@@ -449,25 +449,25 @@ fn render(
             ui.menu_button("Video Memory", |ui| {
                 if ui.button("CRAM").clicked() {
                     state.cram.open = true;
-                    move_to_top(ctx.egui_ctx, CRAM_WINDOW_TITLE);
+                    crate::move_to_top(ctx.egui_ctx, CRAM_WINDOW_TITLE);
                     ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("VRAM").clicked() {
                     state.vram.open = true;
-                    move_to_top(ctx.egui_ctx, VRAM_WINDOW_TITLE);
+                    crate::move_to_top(ctx.egui_ctx, VRAM_WINDOW_TITLE);
                     ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("Sprite Attributes").clicked() {
                     state.sprite_attributes.open = true;
-                    move_to_top(ctx.egui_ctx, SPRITE_ATTRIBUTES_WINDOW_TITLE);
+                    crate::move_to_top(ctx.egui_ctx, SPRITE_ATTRIBUTES_WINDOW_TITLE);
                     ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("H Scroll Table").clicked() {
                     state.h_scroll.open = true;
-                    move_to_top(ctx.egui_ctx, H_SCROLL_WINDOW_TITLE);
+                    crate::move_to_top(ctx.egui_ctx, H_SCROLL_WINDOW_TITLE);
                     ui.close_kind(UiKind::Menu);
                 }
 
@@ -475,7 +475,7 @@ fn render(
                     && ui.button("32X Palette RAM").clicked()
                 {
                     state.s32x_palette.open = true;
-                    move_to_top(ctx.egui_ctx, S32X_PALETTE_WINDOW_TITLE);
+                    crate::move_to_top(ctx.egui_ctx, S32X_PALETTE_WINDOW_TITLE);
                     ui.close_kind(UiKind::Menu);
                 }
             });
@@ -1080,10 +1080,6 @@ fn render_32x_pwm_registers_window(
     crate::render_registers_window(ctx, "32X PWM Registers", open, |ui| {
         emu_state.dump_pwm_registers(crate::dump_registers_callback(ui));
     });
-}
-
-fn move_to_top(ctx: &egui::Context, id: impl Hash) {
-    ctx.move_to_top(LayerId::new(Order::Middle, Id::new(id)));
 }
 
 struct GenesisDebugRunnerProcess {

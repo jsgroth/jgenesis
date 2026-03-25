@@ -72,7 +72,8 @@ pub struct Sh2DebugWindowState {
     pub breakpoints_open: bool,
     pub disassembly_area: DisassemblyArea,
     pub disassembly_address: String,
-    pub disasm_scroll_to_row: Option<usize>,
+    pub disassembly_scroll_row: Option<usize>,
+    pub disassembly_table_offset: f32,
     pub break_status_last_frame: Sh2BreakStatus,
     pub breakpoints: BreakpointsWidget<u32>,
 }
@@ -85,7 +86,8 @@ impl Sh2DebugWindowState {
             breakpoints_open: false,
             disassembly_area: DisassemblyArea::Sdram { cached: true },
             disassembly_address: String::new(),
-            disasm_scroll_to_row: None,
+            disassembly_scroll_row: None,
+            disassembly_table_offset: 0.0,
             break_status_last_frame: Sh2BreakStatus::default(),
             breakpoints: BreakpointsWidget::new(format!("{which:?}_breakpoints")),
         }
@@ -93,19 +95,19 @@ impl Sh2DebugWindowState {
 
     pub fn open_disassembly_window(&mut self, ctx: &egui::Context) {
         self.disassembly_open = true;
-        super::move_to_top(ctx, self.which.disassembly_window_title());
+        crate::move_to_top(ctx, self.which.disassembly_window_title());
     }
 
     pub fn open_breakpoints_window(&mut self, ctx: &egui::Context) {
         self.breakpoints_open = true;
-        super::move_to_top(ctx, self.which.breakpoints_window_title());
+        crate::move_to_top(ctx, self.which.breakpoints_window_title());
     }
 
     fn try_jump_to_address(&mut self, address: u32) {
         let Some(area) = DisassemblyArea::from_address(address) else { return };
 
         self.disassembly_area = area;
-        self.disasm_scroll_to_row = Some(((address as usize) - area.address_range().start) / 2);
+        self.disassembly_scroll_row = Some(((address as usize) - area.address_range().start) / 2);
     }
 }
 
@@ -143,7 +145,7 @@ pub fn render_disassembly_window(
     if break_status.breaking && break_status != window_state.break_status_last_frame {
         window_state.try_jump_to_address(break_status.pc);
         window_state.disassembly_open = true;
-        super::move_to_top(ctx, window_title);
+        crate::move_to_top(ctx, window_title);
     }
     window_state.break_status_last_frame = break_status;
 
@@ -298,6 +300,8 @@ fn render_disasm_central_panel(
     break_status: Sh2BreakStatus,
     ui: &mut Ui,
 ) {
+    let ctx = ui.ctx().clone();
+
     egui::CentralPanel::default().show_inside(ui, |ui| {
         let disassembly_area = window_state.disassembly_area;
         let address_range = disassembly_area.address_range();
@@ -308,15 +312,22 @@ fn render_disasm_central_panel(
             .column(Column::auto().at_least(40.0))
             .column(Column::remainder());
 
-        if let Some(scroll_to_row) = window_state.disasm_scroll_to_row.take() {
+        if let Some(scroll_to_row) = window_state.disassembly_scroll_row.take() {
             table_builder = table_builder.scroll_to_row(scroll_to_row, Some(Align::Center));
+        } else if crate::window_on_top(&ctx, window_state.which.disassembly_window_title()) {
+            let up_down = crate::up_down_pressed(&ctx);
+            if up_down.xor() {
+                table_builder = table_builder.vertical_scroll_offset(
+                    window_state.disassembly_table_offset + up_down.relative_scroll_offset(),
+                );
+            }
         }
 
         let sh2_pc = (if break_status.breaking { break_status.pc } else { sh2.pc() }) as usize;
         let pc_row_index =
             address_range.contains(&sh2_pc).then(|| (sh2_pc - address_range.start) / 2);
 
-        table_builder.body(|body| {
+        let scroll_output = table_builder.body(|body| {
             body.rows(15.0, (address_range.end - address_range.start) / 2, |mut row| {
                 row.set_selected(pc_row_index == Some(row.index()));
 
@@ -345,6 +356,7 @@ fn render_disasm_central_panel(
                 });
             });
         });
+        window_state.disassembly_table_offset = scroll_output.state.offset.y;
     });
 }
 
