@@ -96,11 +96,13 @@ impl DisassembledIndex {
 pub enum MemoryAccess {
     Absolute {
         address: u32,
+        size: OpSize,
     },
     AddressIndirect {
         register: u8,
         displacement: u32,
         index: Option<(DisassembledIndex, IndexSize)>,
+        size: OpSize,
     },
     AddressIndirectPredecrement {
         register: u8,
@@ -110,20 +112,21 @@ pub enum MemoryAccess {
         pc: u32,
         displacement: u32,
         index: Option<(DisassembledIndex, IndexSize)>,
+        size: OpSize,
     },
 }
 
 impl MemoryAccess {
     #[must_use]
-    pub fn resolve_address(self, cpu: &M68000) -> u32 {
+    pub fn resolve_address(self, cpu: &M68000) -> (u32, OpSize) {
         match self {
-            Self::Absolute { address } => address,
-            Self::AddressIndirect { register, displacement, index } => {
+            Self::Absolute { address, size } => (address, size),
+            Self::AddressIndirect { register, displacement, index, size } => {
                 let mut address = address_register(cpu, register).wrapping_add(displacement);
                 if let Some((index, size)) = index {
                     address = address.wrapping_add(index.resolve(cpu, size));
                 }
-                address
+                (address, size)
             }
             Self::AddressIndirectPredecrement { register, size } => {
                 let decrement = match (size, register) {
@@ -131,14 +134,15 @@ impl MemoryAccess {
                     (OpSize::Byte, _) => 1,
                     (OpSize::LongWord, _) => 4,
                 };
-                address_register(cpu, register).wrapping_sub(decrement)
+                let address = address_register(cpu, register).wrapping_sub(decrement);
+                (address, size)
             }
-            Self::PcRelative { pc, displacement, index } => {
+            Self::PcRelative { pc, displacement, index, size } => {
                 let mut address = pc.wrapping_add(displacement);
                 if let Some((index, size)) = index {
                     address = address.wrapping_add(index.resolve(cpu, size));
                 }
-                address
+                (address, size)
             }
         }
     }
@@ -152,10 +156,9 @@ fn address_register(cpu: &M68000, register: u8) -> u32 {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InstructionType {
-    Jump,
-    Lea,
-    Other,
+pub enum MemoryReadType {
+    EffectiveAddress, // JMP, JSR, LEA, PEA
+    Read,
 }
 
 #[derive(Debug, Clone)]
@@ -164,7 +167,8 @@ pub struct DisassembledInstruction {
     pub text: String,
     pub next_opcode_addr: u32,
     pub memory_read: Option<MemoryAccess>,
-    pub instruction_type: InstructionType,
+    pub memory_read_type: MemoryReadType,
+    pub memory_write: Option<MemoryAccess>,
 }
 
 impl DisassembledInstruction {
@@ -175,7 +179,8 @@ impl DisassembledInstruction {
             text: String::new(),
             next_opcode_addr: 0,
             memory_read: None,
-            instruction_type: InstructionType::Other,
+            memory_read_type: MemoryReadType::Read,
+            memory_write: None,
         }
     }
 
@@ -183,7 +188,8 @@ impl DisassembledInstruction {
         self.opcodes.clear();
         self.text.clear();
         self.memory_read = None;
-        self.instruction_type = InstructionType::Other;
+        self.memory_read_type = MemoryReadType::Read;
+        self.memory_write = None;
     }
 }
 
@@ -350,9 +356,10 @@ where
         dest: AddressingMode,
     ) -> String {
         let (source_str, source_access) = self.resolve_addressing_mode(source, size);
-        let dest_str = self.operand_string(dest, size);
+        let (dest_str, dest_access) = self.resolve_addressing_mode(dest, size);
 
         self.out.memory_read = source_access;
+        self.out.memory_write = dest_access;
 
         format!("{name}.{} {source_str}, {dest_str}", size_str(size))
     }
@@ -380,9 +387,10 @@ where
 
     fn abcd(&mut self, source: AddressingMode, dest: AddressingMode) -> String {
         let (source_str, source_access) = self.resolve_addressing_mode(source, OpSize::Byte);
-        let dest_str = self.operand_string(dest, OpSize::Byte);
+        let (dest_str, dest_access) = self.resolve_addressing_mode(dest, OpSize::Byte);
 
         self.out.memory_read = source_access;
+        self.out.memory_write = dest_access;
 
         format!("abcd {source_str}, {dest_str}")
     }
@@ -409,6 +417,7 @@ where
     fn asl_asr_memory(&mut self, direction: ShiftDirection, dest: AddressingMode) -> String {
         let (dest_str, dest_access) = self.resolve_addressing_mode(dest, OpSize::Word);
         self.out.memory_read = dest_access;
+        self.out.memory_write = dest_access;
         format!("as{} {dest_str}", direction_str(direction))
     }
 
@@ -428,16 +437,17 @@ where
     }
 
     fn bit_op(&mut self, name: &str, source: AddressingMode, dest: AddressingMode) -> String {
-        let (source_str, source_access) = match source {
+        let source_str = match source {
             AddressingMode::Immediate => {
                 let bit = self.read_word() & 0xFF;
-                (format!("#{bit}").into(), None)
+                format!("#{bit}").into()
             }
-            _ => self.resolve_addressing_mode(source, OpSize::Byte),
+            _ => self.operand_string(source, OpSize::Byte),
         };
-        let dest_str = self.operand_string(dest, OpSize::Byte);
+        let (dest_str, dest_access) = self.resolve_addressing_mode(dest, OpSize::Byte);
 
-        self.out.memory_read = source_access;
+        self.out.memory_read = dest_access;
+        self.out.memory_write = dest_access;
 
         format!("{name} {source_str}, {dest_str}")
     }
@@ -502,7 +512,8 @@ where
     }
 
     fn clr(&mut self, size: OpSize, dest: AddressingMode) -> String {
-        let dest_str = self.operand_string(dest, size);
+        let (dest_str, dest_access) = self.resolve_addressing_mode(dest, size);
+        self.out.memory_write = dest_access;
         format!("clr.{} {dest_str}", size_str(size))
     }
 
@@ -572,14 +583,14 @@ where
     fn jmp(&mut self, dest: AddressingMode) -> String {
         let (dest_str, dest_access) = self.resolve_addressing_mode(dest, OpSize::LongWord);
         self.out.memory_read = dest_access;
-        self.out.instruction_type = InstructionType::Jump;
+        self.out.memory_read_type = MemoryReadType::EffectiveAddress;
         format!("jmp {dest_str}")
     }
 
     fn jsr(&mut self, dest: AddressingMode) -> String {
         let (dest_str, dest_access) = self.resolve_addressing_mode(dest, OpSize::LongWord);
         self.out.memory_read = dest_access;
-        self.out.instruction_type = InstructionType::Jump;
+        self.out.memory_read_type = MemoryReadType::EffectiveAddress;
         format!("jsr {dest_str}")
     }
 
@@ -591,13 +602,14 @@ where
     fn lea(&mut self, source: AddressingMode, dest: AddressRegister) -> String {
         let (source_str, source_access) = self.resolve_addressing_mode(source, OpSize::LongWord);
         self.out.memory_read = source_access;
-        self.out.instruction_type = InstructionType::Lea;
+        self.out.memory_read_type = MemoryReadType::EffectiveAddress;
         format!("lea {source_str}, {}", ADDRESS_REGISTERS[dest.0 as usize])
     }
 
     fn lsl_lsr_memory(&mut self, direction: ShiftDirection, dest: AddressingMode) -> String {
         let (dest_str, dest_access) = self.resolve_addressing_mode(dest, OpSize::Word);
         self.out.memory_read = dest_access;
+        self.out.memory_write = dest_access;
         format!("ls{} {dest_str}", direction_str(direction))
     }
 
@@ -627,7 +639,8 @@ where
     }
 
     fn move_from_sr(&mut self, dest: AddressingMode) -> String {
-        let dest_str = self.operand_string(dest, OpSize::Word);
+        let (dest_str, dest_access) = self.resolve_addressing_mode(dest, OpSize::Word);
+        self.out.memory_write = dest_access;
         format!("move sr, {dest_str}")
     }
 
@@ -638,6 +651,7 @@ where
 
         match direction {
             Direction::RegisterToMemory => {
+                self.out.memory_write = memory_access;
                 format!("movem.{} {registers_str}, {memory_str}", size_str(size))
             }
             Direction::MemoryToRegister => {
@@ -655,8 +669,17 @@ where
         direction: Direction,
     ) -> String {
         let displacement = self.read_word() as i16;
+
+        let memory_access = MemoryAccess::AddressIndirect {
+            register: address.0,
+            displacement: displacement as u32,
+            index: None,
+            size,
+        };
+
         match direction {
             Direction::RegisterToMemory => {
+                self.out.memory_write = Some(memory_access);
                 format!(
                     "movep.{} {}, ({displacement},{})",
                     size_str(size),
@@ -665,11 +688,7 @@ where
                 )
             }
             Direction::MemoryToRegister => {
-                self.out.memory_read = Some(MemoryAccess::AddressIndirect {
-                    register: address.0,
-                    displacement: displacement as u32,
-                    index: None,
-                });
+                self.out.memory_read = Some(memory_access);
                 format!(
                     "movep.{} ({displacement},{}), {}",
                     size_str(size),
@@ -719,18 +738,21 @@ where
         let name = if with_extend { "negx" } else { "neg" };
         let (dest_str, dest_access) = self.resolve_addressing_mode(dest, size);
         self.out.memory_read = dest_access;
+        self.out.memory_write = dest_access;
         format!("{name}.{} {dest_str}", size_str(size))
     }
 
     fn nbcd(&mut self, dest: AddressingMode) -> String {
         let (dest_str, dest_access) = self.resolve_addressing_mode(dest, OpSize::Byte);
         self.out.memory_read = dest_access;
+        self.out.memory_write = dest_access;
         format!("nbcd {dest_str}")
     }
 
     fn not(&mut self, size: OpSize, dest: AddressingMode) -> String {
         let (dest_str, dest_access) = self.resolve_addressing_mode(dest, size);
         self.out.memory_read = dest_access;
+        self.out.memory_write = dest_access;
         format!("not.{} {dest_str}", size_str(size))
     }
 
@@ -756,13 +778,14 @@ where
     fn pea(&mut self, source: AddressingMode) -> String {
         let (source_str, source_access) = self.resolve_addressing_mode(source, OpSize::LongWord);
         self.out.memory_read = source_access;
-        self.out.instruction_type = InstructionType::Lea;
+        self.out.memory_read_type = MemoryReadType::EffectiveAddress;
         format!("pea {source_str}")
     }
 
     fn rol_ror_memory(&mut self, direction: ShiftDirection, dest: AddressingMode) -> String {
         let (dest_str, dest_access) = self.resolve_addressing_mode(dest, OpSize::Word);
         self.out.memory_read = dest_access;
+        self.out.memory_write = dest_access;
         format!("ro{} {dest_str}", direction_str(direction))
     }
 
@@ -784,6 +807,7 @@ where
     fn roxl_roxr_memory(&mut self, direction: ShiftDirection, dest: AddressingMode) -> String {
         let (dest_str, dest_access) = self.resolve_addressing_mode(dest, OpSize::Word);
         self.out.memory_read = dest_access;
+        self.out.memory_write = dest_access;
         format!("rox{} {dest_str}", direction_str(direction))
     }
 
@@ -803,7 +827,8 @@ where
     }
 
     fn scc(&mut self, condition: BranchCondition, dest: AddressingMode) -> String {
-        let dest_str = self.operand_string(dest, OpSize::Byte);
+        let (dest_str, dest_access) = self.resolve_addressing_mode(dest, OpSize::Byte);
+        self.out.memory_write = dest_access;
         format!("s{} {dest_str}", condition_suffix(condition))
     }
 
@@ -829,8 +854,12 @@ where
     }
 
     fn sbcd(&mut self, source: AddressingMode, dest: AddressingMode) -> String {
-        let source_str = self.operand_string(source, OpSize::Byte);
-        let dest_str = self.operand_string(dest, OpSize::Byte);
+        let (source_str, source_access) = self.resolve_addressing_mode(source, OpSize::Byte);
+        let (dest_str, dest_access) = self.resolve_addressing_mode(dest, OpSize::Byte);
+
+        self.out.memory_read = source_access;
+        self.out.memory_write = dest_access;
+
         format!("sbcd {source_str}, {dest_str}")
     }
 
@@ -847,6 +876,7 @@ where
     fn tas(&mut self, dest: AddressingMode) -> String {
         let (dest_str, dest_access) = self.resolve_addressing_mode(dest, OpSize::Byte);
         self.out.memory_read = dest_access;
+        self.out.memory_write = dest_access;
         format!("tas {dest_str}")
     }
 
@@ -886,14 +916,22 @@ where
             }
             AddressingMode::AddressIndirect(AddressRegister(r)) => {
                 let s = ADDRESS_INDIRECT[r as usize];
-                let access =
-                    MemoryAccess::AddressIndirect { register: r, displacement: 0, index: None };
+                let access = MemoryAccess::AddressIndirect {
+                    register: r,
+                    displacement: 0,
+                    index: None,
+                    size,
+                };
                 (s.into(), Some(access))
             }
             AddressingMode::AddressIndirectPostincrement(AddressRegister(r)) => {
                 let s = ADDRESS_POSTINC[r as usize];
-                let access =
-                    MemoryAccess::AddressIndirect { register: r, displacement: 0, index: None };
+                let access = MemoryAccess::AddressIndirect {
+                    register: r,
+                    displacement: 0,
+                    index: None,
+                    size,
+                };
                 (s.into(), Some(access))
             }
             AddressingMode::AddressIndirectPredecrement(AddressRegister(r)) => {
@@ -908,6 +946,7 @@ where
                     register: r,
                     displacement: displacement as u32,
                     index: None,
+                    size,
                 };
                 (s.into(), Some(access))
             }
@@ -925,6 +964,7 @@ where
                     register: r,
                     displacement: displacement as u32,
                     index: Some((index_register.into(), index_size)),
+                    size,
                 };
                 (s.into(), Some(access))
             }
@@ -933,8 +973,12 @@ where
                 let displacement = self.read_word() as i16;
 
                 let s = format!("({displacement},pc)");
-                let access =
-                    MemoryAccess::PcRelative { pc, displacement: displacement as u32, index: None };
+                let access = MemoryAccess::PcRelative {
+                    pc,
+                    displacement: displacement as u32,
+                    index: None,
+                    size,
+                };
                 (s.into(), Some(access))
             }
             AddressingMode::PcRelativeIndexed => {
@@ -952,6 +996,7 @@ where
                     pc,
                     displacement: displacement as u32,
                     index: Some((index_register.into(), index_size)),
+                    size,
                 };
                 (s.into(), Some(access))
             }
@@ -959,7 +1004,7 @@ where
                 let address = (self.read_word() as i16 as u32) & 0xFFFFFF;
 
                 let s = format!("(0x{address:06X})");
-                let access = MemoryAccess::Absolute { address };
+                let access = MemoryAccess::Absolute { address, size };
                 (s.into(), Some(access))
             }
             AddressingMode::AbsoluteLong => {
@@ -968,7 +1013,7 @@ where
                 let address = (low | (high << 16)) & 0xFFFFFF;
 
                 let s = format!("(0x{address:06X})");
-                let access = MemoryAccess::Absolute { address };
+                let access = MemoryAccess::Absolute { address, size };
                 (s.into(), Some(access))
             }
             AddressingMode::Immediate => {

@@ -6,6 +6,7 @@ pub mod disassemble;
 pub mod traits;
 
 pub use crate::core::{
-    AddressRegister, DataRegister, IndexRegister, IndexSize, M68000, cycles_if_move_btst_cmp,
+    AddressRegister, DataRegister, IndexRegister, IndexSize, M68000, OpSize,
+    cycles_if_move_btst_cmp,
 };
 pub use traits::BusInterface;

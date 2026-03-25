@@ -6,8 +6,8 @@ mod ym2612debug;
 mod z80debug;
 
 use crate::genesis::m68kdebug::{
-    Genesis68kMemoryMap, M68kBreakCommand, M68kDebugWindowState, S32XMemoryMap,
-    SegaCdMainMemoryMap, SegaCdSubMemoryMap,
+    CartridgeMemoryMap, Genesis68kMemoryMap, M68kBreakCommand, M68kDebugWindowState,
+    S32X68kMemoryMap, SegaCdMainMemoryMap, SegaCdSubMemoryMap,
 };
 use crate::genesis::sh2debug::Sh2DebugWindowState;
 use crate::genesis::ym2612debug::Ym2612DebugWindowState;
@@ -622,8 +622,11 @@ fn render_m68k_debug_windows(
         GenesisBasedDebugState::Genesis(debug_state, debugger_handle) => {
             if let Some(cartridge) = debug_state.cartridge() {
                 let m68k = debug_state.m68k();
-                let memory_map =
-                    Genesis68kMemoryMap { cartridge, working_ram: debug_state.working_ram() };
+                let memory_map = Genesis68kMemoryMap {
+                    medium: CartridgeMemoryMap { cartridge },
+                    working_ram: debug_state.working_ram(),
+                    audio_ram: debug_state.audio_ram(),
+                };
                 m68kdebug::render_disassembly_window(
                     ctx,
                     m68k,
@@ -647,7 +650,11 @@ fn render_m68k_debug_windows(
             }
         }
         GenesisBasedDebugState::SegaCd(debug_state, debugger_handle) => {
-            let memory_map = SegaCdMainMemoryMap::new(debug_state);
+            let memory_map = Genesis68kMemoryMap {
+                medium: SegaCdMainMemoryMap::new(debug_state),
+                working_ram: debug_state.genesis.working_ram(),
+                audio_ram: debug_state.genesis.audio_ram(),
+            };
             let m68k = debug_state.genesis.m68k();
             m68kdebug::render_disassembly_window(
                 ctx,
@@ -694,7 +701,13 @@ fn render_m68k_debug_windows(
             });
         }
         GenesisBasedDebugState::Sega32X(debug_state, debugger_handle) => {
-            if let Some(memory_map) = S32XMemoryMap::new(debug_state) {
+            if let Some(s32x_memory_map) = S32X68kMemoryMap::new(debug_state) {
+                let memory_map = Genesis68kMemoryMap {
+                    medium: s32x_memory_map,
+                    working_ram: debug_state.genesis.working_ram(),
+                    audio_ram: debug_state.genesis.audio_ram(),
+                };
+
                 let m68k = debug_state.genesis.m68k();
 
                 m68kdebug::render_disassembly_window(

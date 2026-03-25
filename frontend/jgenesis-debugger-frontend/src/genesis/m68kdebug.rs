@@ -4,9 +4,9 @@ use egui::{Align, CentralPanel, Grid, RichText, SidePanel, TextEdit, TopBottomPa
 use egui_extras::{Column, TableBuilder};
 use genesis_core::api::debug::{M68000BreakStatus, M68000Breakpoint};
 use genesis_core::cartridge::Cartridge;
-use jgenesis_common::num::GetBit;
-use m68000_emu::M68000;
-use m68000_emu::disassemble::DisassembledInstruction;
+use jgenesis_common::num::{GetBit, U16Ext};
+use m68000_emu::disassemble::{DisassembledInstruction, MemoryAccess, MemoryReadType};
+use m68000_emu::{M68000, OpSize};
 use s32x_core::api::debug::Sega32XDebugState;
 use segacd_core::WordRam;
 use segacd_core::api::debug::SegaCdDebugState;
@@ -88,7 +88,7 @@ impl M68kDebugWindowState {
 }
 
 pub trait M68kDebugMemoryMap {
-    fn peek(&self, address: u32) -> u16;
+    fn peek(&self, address: u32) -> Option<u16>;
 
     fn extra_info(&self) -> Option<(&'static str, String)> {
         None
@@ -99,19 +99,42 @@ fn read_u16(memory: &[u8], address: usize) -> u16 {
     u16::from_be_bytes([memory[address], memory[address + 1]])
 }
 
-pub struct Genesis68kMemoryMap<'a> {
-    pub cartridge: &'a Cartridge,
+pub struct Genesis68kMemoryMap<'a, Medium> {
+    pub medium: Medium,
     pub working_ram: &'a [u16],
+    pub audio_ram: &'a [u8],
 }
 
-impl M68kDebugMemoryMap for Genesis68kMemoryMap<'_> {
-    fn peek(&self, address: u32) -> u16 {
+impl<Medium: M68kDebugMemoryMap> M68kDebugMemoryMap for Genesis68kMemoryMap<'_, Medium> {
+    fn peek(&self, address: u32) -> Option<u16> {
         let address = address & 0xFFFFFF;
 
         match address {
-            0x000000..=0x7FFFFF => self.cartridge.peek_word(address),
-            0xE00000..=0xFFFFFF => self.working_ram[((address & 0xFFFF) >> 1) as usize],
-            _ => 0xFFFF,
+            0xA00000..=0xA03FFF | 0xA08000..=0xA0BFFF => {
+                let byte = self.audio_ram[(address & 0x1FFF) as usize];
+                Some(u16::from_le_bytes([byte, byte]))
+            }
+            0xE00000..=0xFFFFFF => Some(self.working_ram[((address & 0xFFFF) >> 1) as usize]),
+            _ => self.medium.peek(address),
+        }
+    }
+
+    fn extra_info(&self) -> Option<(&'static str, String)> {
+        self.medium.extra_info()
+    }
+}
+
+pub struct CartridgeMemoryMap<'a> {
+    pub cartridge: &'a Cartridge,
+}
+
+impl M68kDebugMemoryMap for CartridgeMemoryMap<'_> {
+    fn peek(&self, address: u32) -> Option<u16> {
+        let address = address & 0xFFFFFF;
+
+        match address {
+            0x000000..=0x7FFFFF => Some(self.cartridge.peek_word(address)),
+            _ => None,
         }
     }
 }
@@ -120,7 +143,6 @@ pub struct SegaCdMainMemoryMap<'a> {
     pub bios_rom: &'a [u8],
     pub prg_ram: &'a [u8],
     pub word_ram: &'a WordRam,
-    pub working_ram: &'a [u16],
     pub prg_ram_base_addr: usize,
 }
 
@@ -130,17 +152,16 @@ impl<'a> SegaCdMainMemoryMap<'a> {
             bios_rom: debug_state.bios_rom(),
             prg_ram: debug_state.prg_ram(),
             word_ram: debug_state.word_ram(),
-            working_ram: debug_state.genesis.working_ram(),
             prg_ram_base_addr: usize::from(debug_state.main_cpu_prg_ram_bank()) << 17,
         }
     }
 }
 
 impl M68kDebugMemoryMap for SegaCdMainMemoryMap<'_> {
-    fn peek(&self, address: u32) -> u16 {
+    fn peek(&self, address: u32) -> Option<u16> {
         let address = address & 0xFFFFFF & !1;
 
-        match address {
+        let word = match address {
             0x000000..=0x1FFFFF => {
                 let relative_addr = (address & 0x1FFFF) as usize;
                 if address & 0x20000 == 0 {
@@ -155,9 +176,10 @@ impl M68kDebugMemoryMap for SegaCdMainMemoryMap<'_> {
                 let lsb = self.word_ram.main_cpu_read_ram(address + 1);
                 u16::from_be_bytes([msb, lsb])
             }
-            0xE00000..=0xFFFFFF => self.working_ram[((address & 0xFFFF) >> 1) as usize],
-            _ => 0xFFFF,
-        }
+            _ => return None,
+        };
+
+        Some(word)
     }
 
     fn extra_info(&self) -> Option<(&'static str, String)> {
@@ -185,53 +207,51 @@ impl<'a> SegaCdSubMemoryMap<'a> {
 }
 
 impl M68kDebugMemoryMap for SegaCdSubMemoryMap<'_> {
-    fn peek(&self, address: u32) -> u16 {
+    fn peek(&self, address: u32) -> Option<u16> {
         let address = address & 0x0FFFFF;
 
-        match address {
+        let word = match address {
             0x00000..=0x7FFFF => read_u16(self.prg_ram, address as usize),
             0x80000..=0xBFFFF => {
                 let msb = self.word_ram.sub_cpu_peek_ram(address);
                 let lsb = self.word_ram.sub_cpu_peek_ram(address + 1);
                 u16::from_be_bytes([msb, lsb])
             }
-            _ => 0xFFFF,
-        }
+            _ => return None,
+        };
+
+        Some(word)
     }
 }
 
-pub struct S32XMemoryMap<'a> {
+pub struct S32X68kMemoryMap<'a> {
     pub cartridge: &'a Cartridge,
-    pub working_ram: &'a [u16],
     pub banked_rom_base_addr: u32,
 }
 
-impl<'a> S32XMemoryMap<'a> {
+impl<'a> S32X68kMemoryMap<'a> {
     pub fn new(debug_state: &'a Sega32XDebugState) -> Option<Self> {
         let cartridge = debug_state.genesis.cartridge()?;
 
-        Some(Self {
-            cartridge,
-            working_ram: debug_state.genesis.working_ram(),
-            banked_rom_base_addr: u32::from(debug_state.m68k_rom_bank()) << 20,
-        })
+        Some(Self { cartridge, banked_rom_base_addr: u32::from(debug_state.m68k_rom_bank()) << 20 })
     }
 }
 
-impl M68kDebugMemoryMap for S32XMemoryMap<'_> {
-    fn peek(&self, address: u32) -> u16 {
+impl M68kDebugMemoryMap for S32X68kMemoryMap<'_> {
+    fn peek(&self, address: u32) -> Option<u16> {
         let address = address & 0xFFFFFF;
 
-        match address {
+        let word = match address {
             0x000000..=0x3FFFFF => self.cartridge.peek_word(address),
             0x880000..=0x8FFFFF => self.cartridge.peek_word(address & 0x7FFFF),
             0x900000..=0x9FFFFF => {
                 let address = self.banked_rom_base_addr | (address & 0xFFFFF);
                 self.cartridge.peek_word(address)
             }
-            0xE00000..=0xFFFFFF => self.working_ram[((address & 0xFFFF) >> 1) as usize],
-            _ => 0xFFFF,
-        }
+            _ => return None,
+        };
+
+        Some(word)
     }
 
     fn extra_info(&self) -> Option<(&'static str, String)> {
@@ -268,13 +288,16 @@ pub fn render_disassembly_window(
     }
     state.break_status_last_frame = break_status;
 
+    // Prevent window from spawning partially offscreen due to large default width
+    let default_pos = [50.0, crate::rand_window_pos()[1]];
+
     let mut open = state.disassembly_open;
     Window::new(&state.disassembly_window_title)
         .open(&mut open)
         .constrain(false)
         .resizable([true, true])
-        .default_pos(crate::rand_window_pos())
-        .default_width(650.0)
+        .default_pos(default_pos)
+        .default_width(750.0)
         .show(ctx, |ui| {
             if let Some(handle_command) = handle_command {
                 render_disasm_top_panel(state, handle_command, ui);
@@ -425,6 +448,7 @@ fn render_disasm_central_panel(
     CentralPanel::default().show_inside(ui, |ui| {
         let mut table_builder = TableBuilder::new(ui)
             .column(Column::auto().at_least(60.0))
+            .column(Column::auto().at_least(250.0))
             .column(Column::remainder())
             .striped(true);
 
@@ -443,7 +467,7 @@ fn render_disasm_central_panel(
 
         let scroll_output = table_builder.body(|mut body| {
             let mut pc = state.disassemble_start;
-            let mut disassembled_instruction = DisassembledInstruction::new();
+            let mut instruction = DisassembledInstruction::new();
 
             for _ in 0..100 {
                 body.row(15.0, |mut row| {
@@ -455,18 +479,28 @@ fn render_disasm_central_panel(
                         ui.label(monospace_u24(pc));
                     });
 
-                    m68000_emu::disassemble::disassemble_into(
-                        &mut disassembled_instruction,
-                        pc,
-                        || {
-                            let word = memory_map.peek(pc);
-                            pc = (pc + 2) & 0xFFFFFF;
-                            word
-                        },
-                    );
+                    m68000_emu::disassemble::disassemble_into(&mut instruction, pc, || {
+                        let word = memory_map.peek(pc).unwrap_or(0xFFFF);
+                        pc = (pc + 2) & 0xFFFFFF;
+                        word
+                    });
 
                     row.col(|ui| {
-                        ui.label(RichText::new(&disassembled_instruction.text).monospace());
+                        ui.label(RichText::new(&instruction.text).monospace());
+                    });
+
+                    row.col(|ui| {
+                        if let Some(memory_access) =
+                            instruction.memory_read.or(instruction.memory_write)
+                        {
+                            render_memory_access_col(
+                                memory_access,
+                                m68k,
+                                memory_map,
+                                &instruction,
+                                ui,
+                            );
+                        }
                     });
                 });
             }
@@ -476,6 +510,53 @@ fn render_disasm_central_panel(
         state.disassemble_table_offset = scroll_output.state.offset.y;
         state.disassemble_table_height = scroll_output.inner_rect.height();
     });
+}
+
+fn render_memory_access_col(
+    memory_read: MemoryAccess,
+    m68k: &M68000,
+    memory_map: &impl M68kDebugMemoryMap,
+    instruction: &DisassembledInstruction,
+    ui: &mut Ui,
+) {
+    let (mut address, size) = memory_read.resolve_address(m68k);
+    address &= 0xFFFFFF;
+
+    let value = match size {
+        OpSize::Byte => memory_map
+            .peek(address)
+            .map(|word| if !address.bit(0) { word.msb().into() } else { word.lsb().into() }),
+        OpSize::Word => memory_map.peek(address).map(u32::from),
+        OpSize::LongWord => {
+            let high = memory_map.peek(address);
+            let low = memory_map.peek(address.wrapping_add(2));
+            match (high, low) {
+                (Some(high), Some(low)) => Some(u32::from(low) | (u32::from(high) << 16)),
+                (Some(high), None) => Some(u32::from(high) << 16),
+                (None, Some(low)) => Some(low.into()),
+                (None, None) => None,
+            }
+        }
+    };
+
+    let value_str = value.map(|value| match size {
+        OpSize::Byte => format!("0x{value:02X}"),
+        OpSize::Word => format!("0x{value:04X}"),
+        OpSize::LongWord => format!("0x{value:08X}"),
+    });
+
+    match (memory_read, instruction.memory_read_type, value_str) {
+        (MemoryAccess::Absolute { .. }, MemoryReadType::Read, Some(value_str)) => {
+            ui.label(monospace_str(format!("; = {value_str}")));
+        }
+        (MemoryAccess::Absolute { .. }, ..) => {}
+        (_, MemoryReadType::Read, Some(value_str)) => {
+            ui.label(monospace_str(format!("; ${address:06X} = {value_str}")));
+        }
+        (_, MemoryReadType::Read, None) | (_, MemoryReadType::EffectiveAddress, _) => {
+            ui.label(monospace_str(format!("; ${address:06X}")));
+        }
+    }
 }
 
 pub fn render_breakpoints_window(
@@ -518,4 +599,8 @@ fn monospace_u24(value: u32) -> RichText {
 
 fn monospace_u32(value: u32) -> RichText {
     RichText::new(format!("{value:08X}")).monospace()
+}
+
+fn monospace_str(s: impl Into<String>) -> RichText {
+    RichText::new(s).monospace()
 }
