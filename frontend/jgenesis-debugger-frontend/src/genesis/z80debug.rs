@@ -94,7 +94,15 @@ pub fn render_disassembly_window(
     handle_command: Option<impl FnMut(Z80BreakCommand)>,
 ) {
     if break_status.breaking && break_status != state.break_status_last_frame {
-        state.maybe_change_disassembly_address(break_status.pc);
+        let mut move_to_pc = break_status.pc;
+        for previous_pc in break_status.previous_pcs {
+            if previous_pc > move_to_pc || previous_pc < move_to_pc.saturating_sub(16) {
+                break;
+            }
+            move_to_pc = previous_pc;
+        }
+
+        state.maybe_change_disassembly_address(move_to_pc);
         state.disassembly_open = true;
         super::move_to_top(ctx, DISASSEMBLY_WINDOW_TITLE);
     }

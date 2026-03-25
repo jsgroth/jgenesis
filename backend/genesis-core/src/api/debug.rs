@@ -49,6 +49,7 @@ use jgenesis_common::sync::SharedVarSender;
 use jgenesis_proc_macros::EnumAll;
 use m68000_emu::M68000;
 use smsgg_core::psg::Sn76489;
+use std::array;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, SendError, Sender, TryRecvError};
 use std::sync::{Arc, mpsc};
@@ -388,32 +389,46 @@ impl M68000Breakpoints {
     }
 }
 
+const PREV_PC_COUNT: usize = 10;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct M68000BreakStatus {
     pub breaking: bool,
     pub pc: u32,
+    pub previous_pcs: [u32; PREV_PC_COUNT],
 }
 
 pub struct M68000BreakStatusAtomic {
     pub breaking: AtomicBool,
     pub pc: AtomicU32,
+    pub previous_pcs: [AtomicU32; PREV_PC_COUNT],
 }
 
 impl M68000BreakStatusAtomic {
     #[must_use]
     pub fn new() -> Self {
-        Self { breaking: AtomicBool::new(false), pc: AtomicU32::new(0) }
+        Self {
+            breaking: AtomicBool::new(false),
+            pc: AtomicU32::new(0),
+            previous_pcs: array::from_fn(|_| AtomicU32::new(0)),
+        }
     }
 
     #[must_use]
     pub fn get(&self) -> M68000BreakStatus {
         let breaking = self.breaking.load(Ordering::Acquire);
         let pc = self.pc.load(Ordering::Relaxed);
-        M68000BreakStatus { breaking, pc }
+        let previous_pcs = array::from_fn(|i| self.previous_pcs[i].load(Ordering::Relaxed));
+
+        M68000BreakStatus { breaking, pc, previous_pcs }
     }
 
-    pub fn set_breaking(&self, pc: u32) {
-        self.pc.store(pc, Ordering::Relaxed);
+    pub fn set_breaking(&self, pcs_rev_iter: impl Iterator<Item = u32>) {
+        for (in_pc, out_pc) in pcs_rev_iter.zip(&self.previous_pcs) {
+            out_pc.store(in_pc, Ordering::Relaxed);
+        }
+        self.pc.store(self.previous_pcs[0].load(Ordering::Relaxed), Ordering::Relaxed);
+
         self.breaking.store(true, Ordering::Release);
     }
 
@@ -428,9 +443,73 @@ impl Default for M68000BreakStatusAtomic {
     }
 }
 
+pub struct RingBuffer<T, const N: usize> {
+    values: [T; N],
+    write_ptr: usize,
+}
+
+impl<T: Copy + Default, const N: usize> RingBuffer<T, N> {
+    #[must_use]
+    pub fn new() -> Self {
+        Self { values: array::from_fn(|_| T::default()), write_ptr: 0 }
+    }
+
+    pub fn write(&mut self, value: T) {
+        self.values[self.write_ptr] = value;
+        self.write_ptr = (self.write_ptr + 1) % N;
+    }
+
+    #[must_use]
+    pub fn last(&self) -> T {
+        let read_ptr = Self::ptr_minus_one(self.write_ptr);
+        self.values[read_ptr]
+    }
+
+    pub fn reverse_iter(&self) -> impl Iterator<Item = T> {
+        RingBufferIter { buffer: self, ptr: Self::ptr_minus_one(self.write_ptr), remaining: N }
+    }
+
+    fn ptr_minus_one(ptr: usize) -> usize {
+        if ptr == 0 { N - 1 } else { ptr - 1 }
+    }
+}
+
+impl<T: Copy + Default, const N: usize> Default for RingBuffer<T, N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+struct RingBufferIter<'a, T, const N: usize> {
+    buffer: &'a RingBuffer<T, N>,
+    ptr: usize,
+    remaining: usize,
+}
+
+impl<T: Copy + Default, const N: usize> Iterator for RingBufferIter<'_, T, N> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 {
+            return None;
+        }
+
+        let value = self.buffer.values[self.ptr];
+
+        self.ptr = RingBuffer::<T, N>::ptr_minus_one(self.ptr);
+        self.remaining -= 1;
+
+        Some(value)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
+}
+
 pub struct M68000BreakpointManager {
     pub breakpoints: M68000Breakpoints,
-    pub last_pc: u32,
+    pub last_pcs: RingBuffer<u32, PREV_PC_COUNT>,
     pub status: Arc<M68000BreakStatusAtomic>,
     pub step: Option<u32>,
 }
@@ -440,14 +519,14 @@ impl M68000BreakpointManager {
     pub fn new() -> Self {
         Self {
             breakpoints: M68000Breakpoints::none(),
-            last_pc: 0,
+            last_pcs: RingBuffer::new(),
             status: Arc::new(M68000BreakStatusAtomic::new()),
             step: None,
         }
     }
 
     pub fn set_break_status(&self) {
-        self.status.set_breaking(self.last_pc);
+        self.status.set_breaking(self.last_pcs.reverse_iter());
     }
 
     pub fn clear_break_status(&self) {
@@ -471,7 +550,7 @@ impl M68000BreakpointManager {
 
     #[must_use]
     pub fn update_pc_and_check_execute(&mut self, pc: u32) -> bool {
-        self.last_pc = pc;
+        self.last_pcs.write(pc);
         self.breakpoints.check_execute(pc)
     }
 
@@ -551,28 +630,40 @@ impl Z80Breakpoints {
 pub struct Z80BreakStatus {
     pub breaking: bool,
     pub pc: u16,
+    pub previous_pcs: [u16; PREV_PC_COUNT],
 }
 
 pub struct Z80BreakStatusAtomic {
     pub breaking: AtomicBool,
     pub pc: AtomicU16,
+    pub previous_pcs: [AtomicU16; PREV_PC_COUNT],
 }
 
 impl Z80BreakStatusAtomic {
     #[must_use]
     pub fn new() -> Self {
-        Self { breaking: AtomicBool::new(false), pc: AtomicU16::new(0) }
+        Self {
+            breaking: AtomicBool::new(false),
+            pc: AtomicU16::new(0),
+            previous_pcs: array::from_fn(|_| AtomicU16::new(0)),
+        }
     }
 
     #[must_use]
     pub fn get(&self) -> Z80BreakStatus {
         let breaking = self.breaking.load(Ordering::Acquire);
         let pc = self.pc.load(Ordering::Relaxed);
-        Z80BreakStatus { breaking, pc }
+        let previous_pcs = array::from_fn(|i| self.previous_pcs[i].load(Ordering::Relaxed));
+
+        Z80BreakStatus { breaking, pc, previous_pcs }
     }
 
-    pub fn set_breaking(&self, pc: u16) {
-        self.pc.store(pc, Ordering::Relaxed);
+    pub fn set_breaking(&self, pcs_rev_iter: impl Iterator<Item = u16>) {
+        for (in_pc, out_pc) in pcs_rev_iter.zip(&self.previous_pcs) {
+            out_pc.store(in_pc, Ordering::Relaxed);
+        }
+        self.pc.store(self.previous_pcs[0].load(Ordering::Relaxed), Ordering::Relaxed);
+
         self.breaking.store(true, Ordering::Release);
     }
 
@@ -590,7 +681,7 @@ impl Default for Z80BreakStatusAtomic {
 pub struct Z80BreakpointManager {
     pub breakpoints: Z80Breakpoints,
     pub status: Arc<Z80BreakStatusAtomic>,
-    pub last_pc: u16,
+    pub previous_pcs: RingBuffer<u16, PREV_PC_COUNT>,
     pub step: Option<u32>,
 }
 
@@ -600,13 +691,13 @@ impl Z80BreakpointManager {
         Self {
             breakpoints: Z80Breakpoints::none(),
             status: Arc::new(Z80BreakStatusAtomic::new()),
-            last_pc: 0,
+            previous_pcs: RingBuffer::new(),
             step: None,
         }
     }
 
     pub fn set_break_status(&self) {
-        self.status.set_breaking(self.last_pc);
+        self.status.set_breaking(self.previous_pcs.reverse_iter());
     }
 
     pub fn clear_break_status(&self) {
@@ -630,7 +721,7 @@ impl Z80BreakpointManager {
 
     #[must_use]
     pub fn update_pc_and_check_execute(&mut self, pc: u16) -> bool {
-        self.last_pc = pc;
+        self.previous_pcs.write(pc);
         self.breakpoints.check_execute(pc)
     }
 
