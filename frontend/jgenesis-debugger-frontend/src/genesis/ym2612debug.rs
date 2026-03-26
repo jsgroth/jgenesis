@@ -64,7 +64,7 @@ pub fn render_debug_window(
         .constrain(false)
         .resizable([true, true])
         .default_pos([50.0, 50.0])
-        .default_size([750.0, 650.0])
+        .default_size([700.0, 650.0])
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Channel:");
@@ -93,9 +93,7 @@ pub fn render_debug_window(
                             ui,
                         );
 
-                        let algorithm = channel[state.channel as usize].algorithm;
-                        let image = ALGORITHM_IMAGES[algorithm as usize].clone();
-                        ui.add(egui::Image::new(image).show_loading_spinner(false));
+                        render_algorithm_image(channel[state.channel as usize].algorithm, ui);
                     });
 
                     ui.horizontal(|ui| {
@@ -110,6 +108,17 @@ pub fn render_debug_window(
                     render_timer_registers(&global, ui);
                 });
         });
+}
+
+fn render_algorithm_image(algorithm: u8, ui: &mut Ui) {
+    ui.vertical_centered(|ui| {
+        ui.heading(format!("Algorithm {algorithm}"));
+
+        ui.add_space(10.0);
+
+        let image = ALGORITHM_IMAGES[algorithm as usize].clone();
+        ui.add(egui::Image::new(image).show_loading_spinner(false));
+    });
 }
 
 fn render_operator_registers(
