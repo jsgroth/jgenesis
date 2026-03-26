@@ -151,6 +151,7 @@ impl DebuggerWindow {
 
         let platform = egui_sdl3_platform::Platform::new(&window, window_scale);
         platform.context().set_theme(egui_theme_preference(egui_theme));
+        egui_extras::install_image_loaders(platform.context());
 
         let start_time = SystemTime::now();
 

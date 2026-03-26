@@ -27,8 +27,9 @@ jgenesis-renderer = { workspace = true }
 
 bytemuck = { workspace = true }
 egui = { workspace = true }
-egui_extras = { workspace = true }
+egui_extras = { workspace = true, features = ["image"] }
 egui-wgpu = { workspace = true }
+image = { workspace = true, features = ["png"] } # Needed for egui png loading
 log = { workspace = true }
 pollster = { workspace = true }
 rand = { workspace = true }

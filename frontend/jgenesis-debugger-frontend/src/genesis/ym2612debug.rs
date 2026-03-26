@@ -1,3 +1,4 @@
+use egui::emath::OrderedFloat;
 use egui::scroll_area::ScrollBarVisibility;
 use egui::style::ScrollStyle;
 use egui::{Grid, ScrollArea, Ui, Window};
@@ -14,14 +15,26 @@ const NTSC_MCLK_FREQUENCY: f64 = 53_693_175.0;
 // Roughly 53267 Hz
 const SAMPLE_RATE: f64 = NTSC_MCLK_FREQUENCY / 7.0 / 6.0 / 24.0;
 
+const ALGORITHM_IMAGES: &[egui::ImageSource<'static>; 8] = &[
+    egui::include_image!("ym2612/algorithm0.png"),
+    egui::include_image!("ym2612/algorithm1.png"),
+    egui::include_image!("ym2612/algorithm2.png"),
+    egui::include_image!("ym2612/algorithm3.png"),
+    egui::include_image!("ym2612/algorithm4.png"),
+    egui::include_image!("ym2612/algorithm5.png"),
+    egui::include_image!("ym2612/algorithm6.png"),
+    egui::include_image!("ym2612/algorithm7.png"),
+];
+
 pub struct Ym2612DebugWindowState {
     pub open: bool,
     pub channel: u8,
+    pub ever_rendered: bool,
 }
 
 impl Ym2612DebugWindowState {
     pub fn new() -> Self {
-        Self { open: false, channel: 0 }
+        Self { open: false, channel: 0, ever_rendered: false }
     }
 
     pub fn open_window(&mut self, ctx: &egui::Context) {
@@ -35,15 +48,23 @@ pub fn render_debug_window(
     ym2612: Ym2612DebugView<'_>,
     state: &mut Ym2612DebugWindowState,
 ) {
-    // Prevent window from spawning too low due to high default height
-    let default_pos = [crate::rand_window_pos()[0], 50.0];
+    if state.open && !state.ever_rendered {
+        // Preload algorithm images to avoid flicker due to egui asynchronously loading images
+        for image in ALGORITHM_IMAGES {
+            if let egui::ImageSource::Bytes { uri, bytes } = image {
+                ctx.include_bytes(uri.clone(), bytes.clone());
+                let _ = ctx.try_load_image(uri, egui::SizeHint::Scale(OrderedFloat(1.0)));
+            }
+        }
+    }
+    state.ever_rendered |= state.open;
 
     Window::new(WINDOW_TITLE)
         .open(&mut state.open)
         .constrain(false)
         .resizable([true, true])
-        .default_pos(default_pos)
-        .default_height(650.0)
+        .default_pos([50.0, 50.0])
+        .default_size([750.0, 650.0])
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Channel:");
@@ -71,6 +92,10 @@ pub fn render_debug_window(
                             &global,
                             ui,
                         );
+
+                        let algorithm = channel[state.channel as usize].algorithm;
+                        let image = ALGORITHM_IMAGES[algorithm as usize].clone();
+                        ui.add(egui::Image::new(image).show_loading_spinner(false));
                     });
 
                     ui.horizontal(|ui| {
