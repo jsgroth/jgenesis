@@ -645,9 +645,15 @@ pub fn parse_disc_region(disc: &mut CdRom) -> SegaCdLoadResult<GenesisRegion> {
         GenesisRegion::Americas
     });
 
-    // Hack to fix Snatcher (US/EU), which incorrectly reports its region as J in the header
     let serial_number = &rom_header[0x190..0x1A0];
-    if region == GenesisRegion::Japan && serial_number == "GM T-95035 -00  ".as_bytes() {
+
+    // The Smurfs (EU) has a US header but only works properly with PAL timings
+    if region == GenesisRegion::Americas && serial_number == b"GM T-151015-00  " {
+        return Ok(GenesisRegion::Europe);
+    }
+
+    // Hack to fix Snatcher (US/EU), which incorrectly reports its region as J in the header
+    if region == GenesisRegion::Japan && serial_number == b"GM T-95035 -00  " {
         let console_name = &rom_header[0x110..0x120];
         if console_name == "SEGA GENESIS    ".as_bytes() {
             return Ok(GenesisRegion::Americas);
