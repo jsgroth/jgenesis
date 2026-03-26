@@ -5,10 +5,7 @@ mod widgets;
 mod ym2612debug;
 mod z80debug;
 
-use crate::genesis::m68kdebug::{
-    CartridgeMemoryMap, Genesis68kMemoryMap, M68kBreakCommand, M68kDebugWindowState,
-    S32X68kMemoryMap, SegaCdMainMemoryMap, SegaCdSubMemoryMap,
-};
+use crate::genesis::m68kdebug::{M68kBreakCommand, M68kDebugWindowState, SegaCdSubMemoryMap};
 use crate::genesis::sh2debug::Sh2DebugWindowState;
 use crate::genesis::ym2612debug::Ym2612DebugWindowState;
 use crate::genesis::z80debug::{GenesisZ80MemoryMap, Z80BreakCommand, Z80DebugWindowState};
@@ -620,13 +617,8 @@ fn render_m68k_debug_windows(
 ) {
     match debug_state {
         GenesisBasedDebugState::Genesis(debug_state, debugger_handle) => {
-            if let Some(cartridge) = debug_state.cartridge() {
+            if let Some(memory_map) = m68kdebug::new_genesis_memory_map(debug_state) {
                 let m68k = debug_state.m68k();
-                let memory_map = Genesis68kMemoryMap {
-                    medium: CartridgeMemoryMap { cartridge },
-                    working_ram: debug_state.working_ram(),
-                    audio_ram: debug_state.audio_ram(),
-                };
                 m68kdebug::render_disassembly_window(
                     ctx,
                     m68k,
@@ -650,11 +642,7 @@ fn render_m68k_debug_windows(
             }
         }
         GenesisBasedDebugState::SegaCd(debug_state, debugger_handle) => {
-            let memory_map = Genesis68kMemoryMap {
-                medium: SegaCdMainMemoryMap::new(debug_state),
-                working_ram: debug_state.genesis.working_ram(),
-                audio_ram: debug_state.genesis.audio_ram(),
-            };
+            let memory_map = m68kdebug::new_scd_main_memory_map(debug_state);
             let m68k = debug_state.genesis.m68k();
             m68kdebug::render_disassembly_window(
                 ctx,
@@ -701,13 +689,7 @@ fn render_m68k_debug_windows(
             });
         }
         GenesisBasedDebugState::Sega32X(debug_state, debugger_handle) => {
-            if let Some(s32x_memory_map) = S32X68kMemoryMap::new(debug_state) {
-                let memory_map = Genesis68kMemoryMap {
-                    medium: s32x_memory_map,
-                    working_ram: debug_state.genesis.working_ram(),
-                    audio_ram: debug_state.genesis.audio_ram(),
-                };
-
+            if let Some(memory_map) = m68kdebug::new_32x_memory_map(debug_state) {
                 let m68k = debug_state.genesis.m68k();
 
                 m68kdebug::render_disassembly_window(
@@ -742,21 +724,23 @@ fn render_z80_debug_windows(
 ) {
     match debug_state {
         GenesisBasedDebugState::Genesis(debug_state, debugger_handle) => {
-            z80debug::render_disassembly_window(
-                ctx,
-                debug_state.z80(),
-                GenesisZ80MemoryMap::new(debug_state.audio_ram()),
-                &mut state.z80,
-                debugger_handle.z80_break_status(),
-                Some(|command| {
-                    let genesis_command = match command {
-                        Z80BreakCommand::Pause => GenesisDebugCommand::BreakPauseZ80,
-                        Z80BreakCommand::Resume => GenesisDebugCommand::BreakResume,
-                        Z80BreakCommand::Step => GenesisDebugCommand::BreakStepZ80,
-                    };
-                    let _ = debugger_handle.send_command(genesis_command);
-                }),
-            );
+            if let Some(m68k_memory_map) = m68kdebug::new_genesis_memory_map(debug_state) {
+                z80debug::render_disassembly_window(
+                    ctx,
+                    debug_state.z80(),
+                    GenesisZ80MemoryMap::new(debug_state, &m68k_memory_map),
+                    &mut state.z80,
+                    debugger_handle.z80_break_status(),
+                    Some(|command| {
+                        let genesis_command = match command {
+                            Z80BreakCommand::Pause => GenesisDebugCommand::BreakPauseZ80,
+                            Z80BreakCommand::Resume => GenesisDebugCommand::BreakResume,
+                            Z80BreakCommand::Step => GenesisDebugCommand::BreakStepZ80,
+                        };
+                        let _ = debugger_handle.send_command(genesis_command);
+                    }),
+                );
+            }
 
             z80debug::render_breakpoints_window(ctx, &mut state.z80, |breakpoints| {
                 let _ = debugger_handle
@@ -767,7 +751,10 @@ fn render_z80_debug_windows(
             z80debug::render_disassembly_window(
                 ctx,
                 debug_state.genesis.z80(),
-                GenesisZ80MemoryMap::new(debug_state.genesis.audio_ram()),
+                GenesisZ80MemoryMap::new(
+                    &debug_state.genesis,
+                    &m68kdebug::new_scd_main_memory_map(debug_state),
+                ),
                 &mut state.z80,
                 debugger_handle.z80_break_status(),
                 Some(|command| {
@@ -786,21 +773,23 @@ fn render_z80_debug_windows(
             });
         }
         GenesisBasedDebugState::Sega32X(debug_state, debugger_handle) => {
-            z80debug::render_disassembly_window(
-                ctx,
-                debug_state.genesis.z80(),
-                GenesisZ80MemoryMap::new(debug_state.genesis.audio_ram()),
-                &mut state.z80,
-                debugger_handle.z80_break_status(),
-                Some(|command| {
-                    let s32x_command = match command {
-                        Z80BreakCommand::Pause => Sega32XDebugCommand::BreakPauseZ80,
-                        Z80BreakCommand::Resume => Sega32XDebugCommand::BreakResume,
-                        Z80BreakCommand::Step => Sega32XDebugCommand::BreakStepZ80,
-                    };
-                    let _ = debugger_handle.send_command(s32x_command);
-                }),
-            );
+            if let Some(m68k_memory_map) = m68kdebug::new_32x_memory_map(debug_state) {
+                z80debug::render_disassembly_window(
+                    ctx,
+                    debug_state.genesis.z80(),
+                    GenesisZ80MemoryMap::new(&debug_state.genesis, &m68k_memory_map),
+                    &mut state.z80,
+                    debugger_handle.z80_break_status(),
+                    Some(|command| {
+                        let s32x_command = match command {
+                            Z80BreakCommand::Pause => Sega32XDebugCommand::BreakPauseZ80,
+                            Z80BreakCommand::Resume => Sega32XDebugCommand::BreakResume,
+                            Z80BreakCommand::Step => Sega32XDebugCommand::BreakStepZ80,
+                        };
+                        let _ = debugger_handle.send_command(s32x_command);
+                    }),
+                );
+            }
 
             z80debug::render_breakpoints_window(ctx, &mut state.z80, |breakpoints| {
                 let _ = debugger_handle

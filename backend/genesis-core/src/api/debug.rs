@@ -37,7 +37,6 @@
 
 use crate::GenesisEmulator;
 use crate::cartridge::Cartridge;
-use crate::memory::{Memory, PhysicalMedium};
 use crate::vdp::debug::VdpDebugState;
 use crate::vdp::{ColorModifier, Vdp};
 use crate::ym2612::Ym2612;
@@ -105,32 +104,13 @@ pub struct GenesisDebugState {
     cartridge: Option<Cartridge>,
     working_ram: Box<[u16]>,
     audio_ram: Box<[u8]>,
+    z80_bank_number: u32,
     vdp: VdpDebugState,
     ym2612: Ym2612,
     psg: Sn76489,
 }
 
 impl GenesisDebugState {
-    pub fn new<Medium: PhysicalMedium>(
-        m68k: &M68000,
-        z80: &Z80,
-        memory: &Memory<Medium>,
-        vdp: &Vdp,
-        ym2612: &Ym2612,
-        psg: &Sn76489,
-    ) -> Self {
-        Self {
-            m68k: m68k.clone(),
-            z80: z80.clone(),
-            cartridge: memory.clone_cartridge(),
-            working_ram: memory.clone_working_ram(),
-            audio_ram: memory.clone_audio_ram(),
-            vdp: vdp.to_debug_state(),
-            ym2612: ym2612.clone(),
-            psg: psg.clone(),
-        }
-    }
-
     #[must_use]
     pub fn m68k(&self) -> &M68000 {
         &self.m68k
@@ -159,6 +139,11 @@ impl GenesisDebugState {
     #[must_use]
     pub fn audio_ram(&self) -> &[u8] {
         self.audio_ram.as_ref()
+    }
+
+    #[must_use]
+    pub fn z80_bank_number(&self) -> u32 {
+        self.z80_bank_number
     }
 
     #[must_use]
@@ -224,6 +209,7 @@ pub struct GenesisMemoryDebugView<'a, MediumView> {
     pub medium_view: MediumView,
     pub working_ram: &'a mut [u16],
     pub audio_ram: &'a mut [u8],
+    pub z80_bank_number: u32,
 }
 
 impl<MediumView: PhysicalMediumDebugView> GenesisMemoryDebugView<'_, MediumView> {
@@ -287,6 +273,7 @@ impl<'a, MediumView: PhysicalMediumDebugView> BaseGenesisDebugView<'a, MediumVie
             cartridge: self.memory.medium_view.debug_cartridge().map(|cartridge| cartridge.clone()),
             working_ram: self.memory.working_ram.to_vec().into_boxed_slice(),
             audio_ram: self.memory.audio_ram.to_vec().into_boxed_slice(),
+            z80_bank_number: self.memory.z80_bank_number,
             vdp: self.vdp.to_debug_state(),
             ym2612: self.ym2612.clone(),
             psg: self.psg.clone(),

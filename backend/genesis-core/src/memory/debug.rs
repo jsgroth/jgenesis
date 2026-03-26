@@ -10,6 +10,12 @@ use z80_emu::Z80;
 use z80_emu::debug::Z80Debugger;
 use z80_emu::traits::InterruptLine;
 
+pub struct GenesisMemory<'a> {
+    pub working_ram: &'a mut [u16],
+    pub audio_ram: &'a mut [u8],
+    pub z80_bank_number: u32,
+}
+
 pub struct DebugMainBus<'busref, 'bus, const REFRESH_INTERVAL: u32, Medium, Debugger> {
     pub bus: &'busref mut MainBus<'bus, Medium, REFRESH_INTERVAL>,
     pub debugger: Debugger,

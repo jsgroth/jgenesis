@@ -226,12 +226,12 @@ impl Sega32XEmulator {
 
         let pwm_resampler = self.audio_resampler.pwm_resampler_mut();
         if DEBUG && let Some(debugger) = debugger {
-            let (sega_32x, working_ram, audio_ram) = self.memory.medium_mut_with_ram();
+            let (sega_32x, genesis_memory) = self.memory.medium_mut_with_ram();
             sega_32x.tick_debug(
                 mclk_cycles,
                 pwm_resampler,
                 GenesisComponents::new(&mut self.vdp, &mut self.ym2612, &mut self.psg),
-                debugger.for_sh2(&mut self.m68k, &mut self.z80, working_ram, audio_ram),
+                debugger.for_sh2(&mut self.m68k, &mut self.z80, genesis_memory),
             );
         } else {
             self.memory.medium_mut().tick(

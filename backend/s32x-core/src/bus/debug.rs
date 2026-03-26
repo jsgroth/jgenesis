@@ -134,6 +134,7 @@ impl<'a> Sh2BusDebugView<'a> {
                         },
                         working_ram: self.0.debugger.working_ram.as_mut(),
                         audio_ram: self.0.debugger.audio_ram.as_mut(),
+                        z80_bank_number: self.0.debugger.z80_bank_number,
                     },
                     self.0.debugger.vdp.as_mut(),
                     self.0.debugger.ym2612.as_mut(),
@@ -384,6 +385,7 @@ mod tests {
     use genesis_core::GenesisEmulatorConfig;
     use genesis_core::api::debug::GenesisMemoryArea;
     use genesis_core::cartridge::Cartridge;
+    use genesis_core::memory::debug::GenesisMemory;
     use genesis_core::vdp::DarkenColors;
     use genesis_core::ym2612::Ym2612;
     use jgenesis_common::boxedarray::BoxedWordArray;
@@ -456,8 +458,11 @@ mod tests {
         let mut debugger_for_sh2 = debugger.for_sh2(
             &mut m68k,
             &mut z80,
-            working_ram.as_mut_slice(),
-            audio_ram.as_mut_slice(),
+            GenesisMemory {
+                working_ram: working_ram.as_mut_slice(),
+                audio_ram: audio_ram.as_mut_slice(),
+                z80_bank_number: 0,
+            },
         );
         let mut debug_bus = DebugSh2Bus::create(
             &mut s32x_bus,

@@ -1,3 +1,4 @@
+use crate::Z80;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::mem;
@@ -80,16 +81,176 @@ impl<F: FnMut() -> u8> ByteReader<F> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IndirectRegister {
+    Bc,
+    De,
+    Hl,
+    Sp,
+    Ix { displacement: i8 },
+    Iy { displacement: i8 },
+}
+
+impl IndirectRegister {
+    fn from_index(index: IndexRegister, displacement: i8) -> Self {
+        match index {
+            IndexRegister::Ix => Self::Ix { displacement },
+            IndexRegister::Iy => Self::Iy { displacement },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemoryAccess {
+    Absolute(u16),
+    Indirect(IndirectRegister),
+}
+
+impl MemoryAccess {
+    #[must_use]
+    pub fn resolve_address(self, cpu: &Z80) -> u16 {
+        match self {
+            Self::Absolute(address) => address,
+            Self::Indirect(register) => {
+                let registers = cpu.registers();
+                match register {
+                    IndirectRegister::Bc => u16::from_be_bytes([registers.b, registers.c]),
+                    IndirectRegister::De => u16::from_be_bytes([registers.d, registers.e]),
+                    IndirectRegister::Hl => u16::from_be_bytes([registers.h, registers.l]),
+                    IndirectRegister::Sp => registers.sp,
+                    IndirectRegister::Ix { displacement } => {
+                        registers.ix.wrapping_add_signed(displacement.into())
+                    }
+                    IndirectRegister::Iy { displacement } => {
+                        registers.iy.wrapping_add_signed(displacement.into())
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DisassembledInstruction {
     pub opcodes: Vec<u8>,
     pub text: String,
+    pub memory_access: Option<MemoryAccess>,
 }
 
 impl DisassembledInstruction {
     #[must_use]
     pub fn new() -> Self {
-        Self { opcodes: Vec::new(), text: String::new() }
+        Self { opcodes: Vec::new(), text: String::new(), memory_access: None }
+    }
+
+    fn clear(&mut self) {
+        self.opcodes.clear();
+        self.text.clear();
+        self.memory_access = None;
+    }
+
+    #[must_use]
+    fn parse_memory_access(&self, index: Option<IndexRegister>) -> Option<MemoryAccess> {
+        let i = (0..self.opcodes.len())
+            .find(|&i| self.opcodes[i] != 0xDD && self.opcodes[i] != 0xFD)?;
+
+        let opcode = self.opcodes[i];
+        match opcode {
+            0x02 | 0x0A => {
+                // ld (bc), a
+                // ld a, (bc)
+                Some(MemoryAccess::Indirect(IndirectRegister::Bc))
+            }
+            0x12 | 0x1A => {
+                // ld (de), a
+                // ld a, (de)
+                Some(MemoryAccess::Indirect(IndirectRegister::De))
+            }
+            0x22 | 0x2A | 0x32 | 0x3A => {
+                // ld (nn), hl
+                // ld hl, (nn)
+                // ld (nn), a
+                // ld a, (nn)
+                let lsb = self.opcodes.get(i + 1).copied()?;
+                let msb = self.opcodes.get(i + 2).copied()?;
+                Some(MemoryAccess::Absolute(u16::from_le_bytes([lsb, msb])))
+            }
+            0x34..=0x36 | 0x86 | 0x8E | 0x96 | 0x9E | 0xA6 | 0xAE | 0xB6 | 0xBE => {
+                // inc (hl)
+                // dec (hl)
+                // ld (hl), nn
+                // add a, (hl)
+                // adc a, (hl)
+                // sub (hl)
+                // sbc a, (hl)
+                // and (hl)
+                // xor (hl)
+                // or (hl)
+                // cp (hl)
+                let register = index.map_or(IndirectRegister::Hl, |index| {
+                    let displacement = self.opcodes.get(i + 1).copied().unwrap_or(0) as i8;
+                    IndirectRegister::from_index(index, displacement)
+                });
+                Some(MemoryAccess::Indirect(register))
+            }
+            0x40..=0x75 | 0x77..=0x7F => {
+                // ld r, (hl)
+                // ld (hl), r
+                if opcode & 7 != 6 && (opcode >> 3) & 7 != 6 {
+                    return None;
+                }
+                let register = index.map_or(IndirectRegister::Hl, |index| {
+                    let displacement = self.opcodes.get(i + 1).copied().unwrap_or(0) as i8;
+                    IndirectRegister::from_index(index, displacement)
+                });
+                Some(MemoryAccess::Indirect(register))
+            }
+            0xE3 => {
+                // ex (sp), hl
+                Some(MemoryAccess::Indirect(IndirectRegister::Sp))
+            }
+            0xCB => self.parse_memory_access_cb(i + 1, index),
+            0xED => self.parse_memory_access_ed(i + 1),
+            _ => None,
+        }
+    }
+
+    fn parse_memory_access_cb(
+        &self,
+        i: usize,
+        index: Option<IndexRegister>,
+    ) -> Option<MemoryAccess> {
+        if let Some(index) = index {
+            // All index-prefixed CB-prefixed instructions perform the same memory access
+            let displacement = self.opcodes.get(i).copied()? as i8;
+            return Some(MemoryAccess::Indirect(IndirectRegister::from_index(index, displacement)));
+        }
+
+        let opcode = self.opcodes.get(i).copied()?;
+        if opcode & 7 == 6 {
+            return Some(MemoryAccess::Indirect(IndirectRegister::Hl));
+        }
+
+        None
+    }
+
+    fn parse_memory_access_ed(&self, i: usize) -> Option<MemoryAccess> {
+        let opcode = self.opcodes.get(i).copied()?;
+
+        match opcode {
+            0x43 | 0x4B | 0x53 | 0x5B | 0x63 | 0x6B | 0x73 | 0x7B => {
+                // ld (nn), rr
+                // ld rr, (nn)
+                let lsb = self.opcodes.get(i + 1).copied()?;
+                let msb = self.opcodes.get(i + 2).copied()?;
+                Some(MemoryAccess::Absolute(u16::from_le_bytes([lsb, msb])))
+            }
+            0xA0 | 0xA1 | 0xA8 | 0xA9 | 0xB0 | 0xB1 | 0xB8 | 0xB9 => {
+                // ldi[r], cpi[r], ldd[r], cpd[r]
+                Some(MemoryAccess::Indirect(IndirectRegister::Hl))
+            }
+            _ => None,
+        }
     }
 }
 
@@ -100,7 +261,7 @@ impl Default for DisassembledInstruction {
 }
 
 pub fn disassemble_into(out: &mut DisassembledInstruction, pc: u16, reader: impl FnMut() -> u8) {
-    out.opcodes.clear();
+    out.clear();
     let mut reader = ByteReader { pc, reader, opcodes: mem::take(&mut out.opcodes) };
 
     let mut index: Option<IndexRegister> = None;
@@ -186,6 +347,7 @@ pub fn disassemble_into(out: &mut DisassembledInstruction, pc: u16, reader: impl
     };
 
     out.opcodes = mem::take(&mut reader.opcodes);
+    out.memory_access = out.parse_memory_access(index);
 }
 
 fn cb_prefix(index: Option<IndexRegister>, reader: &mut ByteReader<impl FnMut() -> u8>) -> String {

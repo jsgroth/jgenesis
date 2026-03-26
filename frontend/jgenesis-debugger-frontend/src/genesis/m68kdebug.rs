@@ -2,7 +2,7 @@ use crate::genesis::widgets::{BreakpointsWidget, U24};
 use egui::panel::{Side, TopBottomSide};
 use egui::{Align, CentralPanel, Grid, RichText, SidePanel, TextEdit, TopBottomPanel, Ui, Window};
 use egui_extras::{Column, TableBuilder};
-use genesis_core::api::debug::{M68000BreakStatus, M68000Breakpoint};
+use genesis_core::api::debug::{GenesisDebugState, M68000BreakStatus, M68000Breakpoint};
 use genesis_core::cartridge::Cartridge;
 use jgenesis_common::num::{GetBit, U16Ext};
 use m68000_emu::disassemble::{DisassembledInstruction, MemoryAccess, MemoryReadType};
@@ -139,6 +139,16 @@ impl M68kDebugMemoryMap for CartridgeMemoryMap<'_> {
     }
 }
 
+pub fn new_genesis_memory_map(
+    debug_state: &GenesisDebugState,
+) -> Option<Genesis68kMemoryMap<'_, CartridgeMemoryMap<'_>>> {
+    Some(Genesis68kMemoryMap {
+        medium: CartridgeMemoryMap { cartridge: debug_state.cartridge()? },
+        working_ram: debug_state.working_ram(),
+        audio_ram: debug_state.audio_ram(),
+    })
+}
+
 pub struct SegaCdMainMemoryMap<'a> {
     pub bios_rom: &'a [u8],
     pub prg_ram: &'a [u8],
@@ -192,6 +202,16 @@ impl M68kDebugMemoryMap for SegaCdMainMemoryMap<'_> {
                 self.prg_ram_base_addr | 0x1FFFF
             ),
         ))
+    }
+}
+
+pub fn new_scd_main_memory_map(
+    debug_state: &SegaCdDebugState,
+) -> Genesis68kMemoryMap<'_, SegaCdMainMemoryMap<'_>> {
+    Genesis68kMemoryMap {
+        medium: SegaCdMainMemoryMap::new(debug_state),
+        working_ram: debug_state.genesis.working_ram(),
+        audio_ram: debug_state.genesis.audio_ram(),
     }
 }
 
@@ -263,6 +283,16 @@ impl M68kDebugMemoryMap for S32X68kMemoryMap<'_> {
         );
         Some(("32X ROM Bank", banked_rom_range))
     }
+}
+
+pub fn new_32x_memory_map(
+    debug_state: &Sega32XDebugState,
+) -> Option<Genesis68kMemoryMap<'_, S32X68kMemoryMap<'_>>> {
+    Some(Genesis68kMemoryMap {
+        medium: S32X68kMemoryMap::new(debug_state)?,
+        working_ram: debug_state.genesis.working_ram(),
+        audio_ram: debug_state.genesis.audio_ram(),
+    })
 }
 
 pub fn render_disassembly_window(

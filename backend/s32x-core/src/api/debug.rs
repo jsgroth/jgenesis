@@ -14,6 +14,7 @@ use genesis_core::api::debug::{
     Z80BreakpointManager, Z80Breakpoints,
 };
 use genesis_core::cartridge::Cartridge;
+use genesis_core::memory::debug::GenesisMemory;
 use genesis_core::ym2612::Ym2612;
 use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
 use jgenesis_common::frontend::{
@@ -543,10 +544,16 @@ impl Sega32XDebugger {
         &'a mut self,
         m68k: &'a mut M68000,
         z80: &'a mut Z80,
-        working_ram: &'a mut [u16],
-        audio_ram: &'a mut [u8],
+        genesis_memory: GenesisMemory<'a>,
     ) -> Sega32XDebuggerForSh2<'a> {
-        Sega32XDebuggerForSh2 { debugger: self, m68k, z80, working_ram, audio_ram }
+        Sega32XDebuggerForSh2 {
+            debugger: self,
+            m68k,
+            z80,
+            working_ram: genesis_memory.working_ram,
+            audio_ram: genesis_memory.audio_ram,
+            z80_bank_number: genesis_memory.z80_bank_number,
+        }
     }
 
     pub(crate) fn for_68k<'slf, 'z80, 'ret>(
@@ -723,6 +730,7 @@ pub(crate) struct Sega32XDebuggerForSh2<'a> {
     pub z80: &'a mut Z80,
     pub working_ram: &'a mut [u16],
     pub audio_ram: &'a mut [u8],
+    pub z80_bank_number: u32,
 }
 
 impl Sega32XDebuggerForSh2<'_> {
@@ -737,6 +745,7 @@ impl Sega32XDebuggerForSh2<'_> {
             z80: self.z80.into(),
             working_ram: self.working_ram.into(),
             audio_ram: self.audio_ram.into(),
+            z80_bank_number: self.z80_bank_number,
             vdp: components.vdp.into(),
             ym2612: components.ym2612.into(),
             psg: components.psg.into(),
@@ -751,6 +760,7 @@ pub(crate) struct Sega32XDebuggerForSh2Raw {
     pub z80: NonNull<Z80>,
     pub working_ram: NonNull<[u16]>,
     pub audio_ram: NonNull<[u8]>,
+    pub z80_bank_number: u32,
     pub vdp: NonNull<GenesisVdp>,
     pub ym2612: NonNull<Ym2612>,
     pub psg: NonNull<Sn76489>,

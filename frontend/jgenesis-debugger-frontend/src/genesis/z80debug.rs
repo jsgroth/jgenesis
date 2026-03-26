@@ -1,9 +1,10 @@
+use crate::genesis::m68kdebug::M68kDebugMemoryMap;
 use crate::genesis::widgets::BreakpointsWidget;
 use egui::panel::{Side, TopBottomSide};
 use egui::{Align, CentralPanel, Grid, RichText, SidePanel, TextEdit, TopBottomPanel, Ui, Window};
 use egui_extras::{Column, TableBuilder};
-use genesis_core::api::debug::{Z80BreakStatus, Z80Breakpoint};
-use z80_emu::{DisassembledInstruction, Z80};
+use genesis_core::api::debug::{GenesisDebugState, Z80BreakStatus, Z80Breakpoint};
+use z80_emu::{DisassembledInstruction, MemoryAccess, Z80};
 
 const DISASSEMBLY_WINDOW_TITLE: &str = "Z80 Disassembly";
 const BREAKPOINTS_WINDOW_TITLE: &str = "Z80 Breakpoints";
@@ -70,22 +71,41 @@ impl Z80DebugWindowState {
 }
 
 pub trait Z80MemoryMap {
-    fn peek(&self, address: u16) -> u8;
+    fn peek(&self, address: u16) -> Option<u8>;
 }
 
-pub struct GenesisZ80MemoryMap<'a> {
+pub struct GenesisZ80MemoryMap<'a, M68kMap> {
     pub audio_ram: &'a [u8],
+    pub z80_memory_bank: u32,
+    pub m68k_map: &'a M68kMap,
 }
 
-impl<'a> GenesisZ80MemoryMap<'a> {
-    pub fn new(audio_ram: &'a [u8]) -> Self {
-        Self { audio_ram }
+impl<'a, M68kMap> GenesisZ80MemoryMap<'a, M68kMap>
+where
+    M68kMap: M68kDebugMemoryMap,
+{
+    pub fn new(debug_state: &'a GenesisDebugState, m68k_map: &'a M68kMap) -> Self {
+        Self {
+            audio_ram: debug_state.audio_ram(),
+            z80_memory_bank: debug_state.z80_bank_number(),
+            m68k_map,
+        }
     }
 }
 
-impl Z80MemoryMap for GenesisZ80MemoryMap<'_> {
-    fn peek(&self, address: u16) -> u8 {
-        self.audio_ram.get(address as usize).copied().unwrap_or(0xFF)
+impl<M68kMap> Z80MemoryMap for GenesisZ80MemoryMap<'_, M68kMap>
+where
+    M68kMap: M68kDebugMemoryMap,
+{
+    fn peek(&self, address: u16) -> Option<u8> {
+        match address {
+            0x0000..=0x3FFF => Some(self.audio_ram[(address & 0x1FFF) as usize]),
+            0x8000..=0xFFFF => {
+                let m68k_addr = (self.z80_memory_bank << 15) | u32::from(address & 0x7FFF);
+                self.m68k_map.peek(m68k_addr).map(|word| word.to_be_bytes()[(address & 1) as usize])
+            }
+            _ => None,
+        }
     }
 }
 
@@ -258,6 +278,7 @@ fn render_disasm_central_panel(
     CentralPanel::default().show_inside(ui, |ui| {
         let mut table_builder = TableBuilder::new(ui)
             .column(Column::auto().at_least(60.0))
+            .column(Column::auto().at_least(150.0))
             .column(Column::remainder())
             .striped(true);
 
@@ -289,13 +310,34 @@ fn render_disasm_central_panel(
                     });
 
                     z80_emu::disassemble_into(&mut instruction, pc, || {
-                        let byte = memory_map.peek(pc);
+                        let byte = memory_map.peek(pc).unwrap_or(0xFF);
                         pc = pc.wrapping_add(1);
                         byte
                     });
 
                     row.col(|ui| {
                         ui.label(RichText::new(&instruction.text).monospace());
+                    });
+
+                    row.col(|ui| {
+                        if let Some(memory_access) = instruction.memory_access {
+                            let address = memory_access.resolve_address(z80);
+                            let value =
+                                memory_map.peek(address).map(|value| format!("0x{value:02X}"));
+
+                            match (memory_access, value) {
+                                (MemoryAccess::Absolute(..), Some(value)) => {
+                                    ui.label(monospace_text(format!("; = {value}")));
+                                }
+                                (MemoryAccess::Absolute(..), None) => {}
+                                (MemoryAccess::Indirect(..), Some(value)) => {
+                                    ui.label(monospace_text(format!("; ${address:04X} = {value}")));
+                                }
+                                (MemoryAccess::Indirect(..), None) => {
+                                    ui.label(monospace_text(format!("; ${address:04X}")));
+                                }
+                            }
+                        }
                     });
                 });
             }
@@ -334,6 +376,10 @@ pub fn render_breakpoints_window(
             });
         });
     state.breakpoints_open = open;
+}
+
+fn monospace_text(value: impl Into<String>) -> RichText {
+    RichText::new(value).monospace()
 }
 
 fn monospace_bool(value: bool) -> RichText {
