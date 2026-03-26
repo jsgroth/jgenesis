@@ -22,6 +22,7 @@ pub struct Z80DebugWindowState {
     pub disassembly_addr_changed: bool,
     pub jump_to_address: String,
     pub disassembly_table_offset: f32,
+    pub disassembly_table_height: f32,
     pub break_status_last_frame: Z80BreakStatus,
     pub breakpoints_open: bool,
     pub breakpoints: BreakpointsWidget<u16>,
@@ -36,6 +37,7 @@ impl Z80DebugWindowState {
             disassembly_addr_changed: false,
             jump_to_address: String::new(),
             disassembly_table_offset: 0.0,
+            disassembly_table_height: 1.0,
             break_status_last_frame: Z80BreakStatus::default(),
             breakpoints_open: false,
             breakpoints: BreakpointsWidget::new("z80_breakpoints"),
@@ -263,11 +265,10 @@ fn render_disasm_central_panel(
             state.disassembly_addr_changed = false;
             table_builder = table_builder.scroll_to_row(0, Some(Align::Min));
         } else if crate::window_on_top(&ctx, DISASSEMBLY_WINDOW_TITLE) {
-            let up_down = crate::up_down_pressed(&ctx);
-            if up_down.xor() {
-                table_builder = table_builder.vertical_scroll_offset(
-                    state.disassembly_table_offset + up_down.relative_scroll_offset(),
-                );
+            let keys = crate::scroll_keys_pressed(&ctx);
+            if let Some(offset) = keys.relative_scroll_offset(state.disassembly_table_height) {
+                table_builder =
+                    table_builder.vertical_scroll_offset(state.disassembly_table_offset + offset);
             }
         }
 
@@ -302,6 +303,7 @@ fn render_disasm_central_panel(
             state.disassembly_end_address = Some(pc);
         });
         state.disassembly_table_offset = scroll_output.state.offset.y;
+        state.disassembly_table_height = scroll_output.inner_rect.height();
     });
 }
 

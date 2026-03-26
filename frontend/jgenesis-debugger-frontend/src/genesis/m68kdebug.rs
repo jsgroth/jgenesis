@@ -28,6 +28,7 @@ pub struct M68kDebugWindowState {
     pub disassemble_jump_addr: String,
     pub disassemble_reset_table: bool,
     pub disassemble_table_offset: f32,
+    pub disassemble_table_height: f32,
     pub break_status_last_frame: M68000BreakStatus,
     pub breakpoints: BreakpointsWidget<U24>,
 }
@@ -55,6 +56,7 @@ impl M68kDebugWindowState {
             disassemble_jump_addr: String::new(),
             disassemble_reset_table: false,
             disassemble_table_offset: 0.0,
+            disassemble_table_height: 1.0,
             break_status_last_frame: M68000BreakStatus::default(),
             breakpoints,
         }
@@ -436,11 +438,10 @@ fn render_disasm_central_panel(
             state.disassemble_reset_table = false;
             table_builder = table_builder.scroll_to_row(0, Some(Align::Min));
         } else if crate::window_on_top(&ctx, &state.disassembly_window_title) {
-            let up_down = crate::up_down_pressed(&ctx);
-            if up_down.xor() {
-                table_builder = table_builder.vertical_scroll_offset(
-                    state.disassemble_table_offset + up_down.relative_scroll_offset(),
-                );
+            let keys = crate::scroll_keys_pressed(&ctx);
+            if let Some(offset) = keys.relative_scroll_offset(state.disassemble_table_height) {
+                table_builder =
+                    table_builder.vertical_scroll_offset(state.disassemble_table_offset + offset);
             }
         }
 
@@ -479,6 +480,7 @@ fn render_disasm_central_panel(
             state.disassemble_end_addr = Some(pc);
         });
         state.disassemble_table_offset = scroll_output.state.offset.y;
+        state.disassemble_table_height = scroll_output.inner_rect.height();
     });
 }
 

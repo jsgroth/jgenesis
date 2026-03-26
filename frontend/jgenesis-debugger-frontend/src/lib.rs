@@ -521,29 +521,36 @@ fn window_on_top(ctx: &egui::Context, id: impl Hash) -> bool {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct UpDown {
+struct ScrollKeys {
     up: bool,
     down: bool,
+    page_up: bool,
+    page_down: bool,
 }
 
-impl UpDown {
-    fn xor(self) -> bool {
-        self.up ^ self.down
-    }
+impl ScrollKeys {
+    fn relative_scroll_offset(self, visible_height: f32) -> Option<f32> {
+        const ASSUMED_ROW_HEIGHT: f32 = 15.0;
 
-    fn relative_scroll_offset(self) -> f32 {
-        if self.up && !self.down {
-            -15.0
+        if self.page_up && !self.page_down {
+            Some(-visible_height * 0.9)
+        } else if !self.page_up && self.page_down {
+            Some(visible_height * 0.9)
+        } else if self.up && !self.down {
+            Some(-ASSUMED_ROW_HEIGHT)
         } else if !self.up && self.down {
-            15.0
+            Some(ASSUMED_ROW_HEIGHT)
         } else {
-            0.0
+            None
         }
     }
 }
 
-fn up_down_pressed(ctx: &egui::Context) -> UpDown {
-    let (up, down) =
-        ctx.input(|i| (i.key_pressed(egui::Key::ArrowUp), i.key_pressed(egui::Key::ArrowDown)));
-    UpDown { up, down }
+fn scroll_keys_pressed(ctx: &egui::Context) -> ScrollKeys {
+    let [up, down, page_up, page_down] = ctx.input(|i| {
+        [egui::Key::ArrowUp, egui::Key::ArrowDown, egui::Key::PageUp, egui::Key::PageDown]
+            .map(|key| i.key_pressed(key))
+    });
+
+    ScrollKeys { up, down, page_up, page_down }
 }

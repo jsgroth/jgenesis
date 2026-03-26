@@ -74,6 +74,7 @@ pub struct Sh2DebugWindowState {
     pub disassembly_address: String,
     pub disassembly_scroll_row: Option<usize>,
     pub disassembly_table_offset: f32,
+    pub disassembly_table_height: f32,
     pub break_status_last_frame: Sh2BreakStatus,
     pub breakpoints: BreakpointsWidget<u32>,
 }
@@ -88,6 +89,7 @@ impl Sh2DebugWindowState {
             disassembly_address: String::new(),
             disassembly_scroll_row: None,
             disassembly_table_offset: 0.0,
+            disassembly_table_height: 1.0,
             break_status_last_frame: Sh2BreakStatus::default(),
             breakpoints: BreakpointsWidget::new(format!("{which:?}_breakpoints")),
         }
@@ -315,11 +317,11 @@ fn render_disasm_central_panel(
         if let Some(scroll_to_row) = window_state.disassembly_scroll_row.take() {
             table_builder = table_builder.scroll_to_row(scroll_to_row, Some(Align::Center));
         } else if crate::window_on_top(&ctx, window_state.which.disassembly_window_title()) {
-            let up_down = crate::up_down_pressed(&ctx);
-            if up_down.xor() {
-                table_builder = table_builder.vertical_scroll_offset(
-                    window_state.disassembly_table_offset + up_down.relative_scroll_offset(),
-                );
+            let keys = crate::scroll_keys_pressed(&ctx);
+            if let Some(offset) = keys.relative_scroll_offset(window_state.disassembly_table_height)
+            {
+                table_builder = table_builder
+                    .vertical_scroll_offset(window_state.disassembly_table_offset + offset);
             }
         }
 
@@ -357,6 +359,7 @@ fn render_disasm_central_panel(
             });
         });
         window_state.disassembly_table_offset = scroll_output.state.offset.y;
+        window_state.disassembly_table_height = scroll_output.inner_rect.height();
     });
 }
 

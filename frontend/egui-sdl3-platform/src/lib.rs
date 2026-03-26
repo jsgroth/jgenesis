@@ -251,6 +251,8 @@ fn sdl_keycode_to_egui(key: sdl3::keyboard::Keycode) -> Option<egui::Key> {
         Keycode::Space => Some(Key::Space),
         Keycode::Home => Some(Key::Home),
         Keycode::End => Some(Key::End),
+        Keycode::PageUp => Some(Key::PageUp),
+        Keycode::PageDown => Some(Key::PageDown),
         _ => None,
     }
 }
