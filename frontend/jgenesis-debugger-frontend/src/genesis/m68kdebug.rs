@@ -1,5 +1,6 @@
 use crate::genesis::widgets::{BreakpointsWidget, U24};
 use egui::panel::{Side, TopBottomSide};
+use egui::style::ScrollStyle;
 use egui::{Align, CentralPanel, Grid, RichText, SidePanel, TextEdit, TopBottomPanel, Ui, Window};
 use egui_extras::{Column, TableBuilder};
 use genesis_core::api::debug::{GenesisDebugState, M68000BreakStatus, M68000Breakpoint};
@@ -476,6 +477,8 @@ fn render_disasm_central_panel(
     let ctx = ui.ctx().clone();
 
     CentralPanel::default().show_inside(ui, |ui| {
+        ui.spacing_mut().scroll = ScrollStyle { bar_width: 10.0, ..ScrollStyle::solid() };
+
         let mut table_builder = TableBuilder::new(ui)
             .column(Column::auto().at_least(60.0))
             .column(Column::auto().at_least(250.0))

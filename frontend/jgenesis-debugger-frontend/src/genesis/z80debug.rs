@@ -1,6 +1,7 @@
 use crate::genesis::m68kdebug::M68kDebugMemoryMap;
 use crate::genesis::widgets::BreakpointsWidget;
 use egui::panel::{Side, TopBottomSide};
+use egui::style::ScrollStyle;
 use egui::{Align, CentralPanel, Grid, RichText, SidePanel, TextEdit, TopBottomPanel, Ui, Window};
 use egui_extras::{Column, TableBuilder};
 use genesis_core::api::debug::{GenesisDebugState, Z80BreakStatus, Z80Breakpoint};
@@ -138,7 +139,7 @@ pub fn render_disassembly_window(
         .constrain(false)
         .resizable([true, true])
         .default_pos(crate::rand_window_pos())
-        .default_width(650.0)
+        .default_width(700.0)
         .show(ctx, |ui| {
             if let Some(handle_command) = handle_command {
                 render_disasm_top_panel(handle_command, ui);
@@ -276,6 +277,8 @@ fn render_disasm_central_panel(
     let ctx = ui.ctx().clone();
 
     CentralPanel::default().show_inside(ui, |ui| {
+        ui.spacing_mut().scroll = ScrollStyle { bar_width: 10.0, ..ScrollStyle::solid() };
+
         let mut table_builder = TableBuilder::new(ui)
             .column(Column::auto().at_least(60.0))
             .column(Column::auto().at_least(150.0))

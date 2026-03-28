@@ -1,5 +1,6 @@
 use crate::genesis::widgets::BreakpointsWidget;
 use egui::panel::{Side, TopBottomSide};
+use egui::style::ScrollStyle;
 use egui::{Align, Grid, RichText, TextEdit, Ui, Window};
 use egui_extras::{Column, TableBuilder};
 use s32x_core::WhichCpu;
@@ -156,13 +157,15 @@ pub fn render_disassembly_window(
         WhichCpu::Slave => debug_state.sh2_slave.clone(),
     };
 
+    let default_pos = [50.0, crate::rand_window_pos()[1]];
+
     let mut open = window_state.disassembly_open;
     Window::new(window_title)
         .open(&mut open)
         .constrain(false)
         .resizable([true, true])
-        .default_pos(crate::rand_window_pos())
-        .default_size([750.0, 550.0])
+        .default_pos(default_pos)
+        .default_size([800.0, 550.0])
         .show(ctx, |ui| {
             render_disasm_top_panel(window_state, command_sender, window_title, ui);
             render_disasm_right_panel(&sh2, window_state, window_title, ui);
@@ -307,6 +310,8 @@ fn render_disasm_central_panel(
         let disassembly_area = window_state.disassembly_area;
         let address_range = disassembly_area.address_range();
 
+        ui.spacing_mut().scroll = ScrollStyle { bar_width: 10.0, ..ScrollStyle::solid() };
+
         let mut table_builder = TableBuilder::new(ui)
             .striped(true)
             .column(Column::auto().at_least(80.0))
@@ -379,11 +384,11 @@ fn render_disasm_central_panel(
                     match (disassembled.memory_read_type, value) {
                         (ReadType::Load, Some(value)) => {
                             ui.label(
-                                RichText::new(format!("${address:08X} = {value}")).monospace(),
+                                RichText::new(format!("; ${address:08X} = {value}")).monospace(),
                             );
                         }
                         (ReadType::Load, None) | (ReadType::EffectiveAddress, _) => {
-                            ui.label(RichText::new(format!("${address:08X}")).monospace());
+                            ui.label(RichText::new(format!("; ${address:08X}")).monospace());
                         }
                     }
                 });

@@ -1,5 +1,6 @@
 use egui::panel::Side;
 use egui::scroll_area::ScrollBarVisibility;
+use egui::style::ScrollStyle;
 use egui::{
     Align, CentralPanel, Color32, Context, FontId, Id, LayerId, Order, RichText, SidePanel,
     TextEdit, Ui, Window,
@@ -210,6 +211,8 @@ fn render_central_panel(
     let ctx = ui.ctx().clone();
 
     CentralPanel::default().show_inside(ui, |ui| {
+        ui.spacing_mut().scroll = ScrollStyle { bar_width: 10.0, ..ScrollStyle::solid() };
+
         let table_rows = memory_len / 16 + usize::from(!memory_len.is_multiple_of(16));
         let address_len = format!("{:X}", memory_len - 1).len();
 
