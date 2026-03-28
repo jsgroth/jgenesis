@@ -6,7 +6,7 @@ use s32x_core::WhichCpu;
 use s32x_core::api::debug::{
     Sega32XDebugCommand, Sega32XDebugState, Sh2BreakStatus, Sh2Breakpoint,
 };
-use sh2_emu::{BranchDestination, DisassembleOptions, PcRelativeLoad, Sh2};
+use sh2_emu::{DisassembledInstruction, MemoryAccessSize, ReadType, Sh2};
 use std::ops::Range;
 use std::sync::mpsc::Sender;
 
@@ -208,7 +208,7 @@ fn render_disasm_right_panel(
     ui: &mut Ui,
 ) {
     egui::SidePanel::new(Side::Right, format!("{window_title}_left_panel"))
-        .min_width(300.0)
+        .min_width(250.0)
         .show_inside(ui, |ui| {
             ui.heading("Disassembly Area");
 
@@ -246,41 +246,40 @@ fn render_disasm_right_panel(
             ui.separator();
 
             let registers = sh2.registers();
-            Grid::new(format!("{window_title}_reg_grid")).num_columns(4).show(ui, |ui| {
-                for i in 0..8 {
-                    for r in [i, i + 8] {
-                        ui.label(format!("R{r}"));
-                        ui.label(monospace_u32(registers.gpr[r]));
-                        ui.label("");
+            Grid::new(format!("{window_title}_reg_grid")).num_columns(4).spacing([10.0, 3.0]).show(
+                ui,
+                |ui| {
+                    for i in 0..8 {
+                        for r in [i, i + 8] {
+                            ui.label(format!("R{r}"));
+                            ui.label(monospace_u32(registers.gpr[r]));
+                        }
+                        ui.end_row();
                     }
+
+                    ui.label("SR");
+                    ui.label(monospace_u32(registers.sr.into()));
+                    ui.label("VBR");
+                    ui.label(monospace_u32(registers.vbr));
                     ui.end_row();
-                }
 
-                ui.label("SR");
-                ui.label(monospace_u32(registers.sr.into()));
-                ui.label("");
-                ui.label("VBR");
-                ui.label(monospace_u32(registers.vbr));
-                ui.end_row();
+                    ui.label("GBR");
+                    ui.label(monospace_u32(registers.gbr));
+                    ui.label("PR");
+                    ui.label(monospace_u32(registers.pr));
+                    ui.end_row();
 
-                ui.label("GBR");
-                ui.label(monospace_u32(registers.gbr));
-                ui.label("");
-                ui.label("PR");
-                ui.label(monospace_u32(registers.pr));
-                ui.end_row();
+                    ui.label("MACH");
+                    ui.label(monospace_u32(registers.mach));
+                    ui.label("MACL");
+                    ui.label(monospace_u32(registers.macl));
+                    ui.end_row();
 
-                ui.label("MACH");
-                ui.label(monospace_u32(registers.mach));
-                ui.label("");
-                ui.label("MACL");
-                ui.label(monospace_u32(registers.macl));
-                ui.end_row();
-
-                ui.label("PC");
-                ui.label(monospace_u32(registers.pc));
-                ui.end_row();
-            });
+                    ui.label("PC");
+                    ui.label(monospace_u32(registers.pc));
+                    ui.end_row();
+                },
+            );
 
             ui.label(
                 RichText::new(format!(
@@ -312,6 +311,7 @@ fn render_disasm_central_panel(
             .striped(true)
             .column(Column::auto().at_least(80.0))
             .column(Column::auto().at_least(40.0))
+            .column(Column::auto().at_least(150.0))
             .column(Column::remainder());
 
         if let Some(scroll_to_row) = window_state.disassembly_scroll_row.take() {
@@ -329,6 +329,8 @@ fn render_disasm_central_panel(
         let pc_row_index =
             address_range.contains(&sh2_pc).then(|| (sh2_pc - address_range.start) / 2);
 
+        let mut disassembled = DisassembledInstruction::new();
+
         let scroll_output = table_builder.body(|body| {
             body.rows(15.0, (address_range.end - address_range.start) / 2, |mut row| {
                 row.set_selected(pc_row_index == Some(row.index()));
@@ -345,16 +347,45 @@ fn render_disasm_central_panel(
                     ui.label(monospace_u16(opcode));
                 });
 
-                let pc_relative_load = PcRelativeLoad::ValueInComment {
-                    pc: address,
-                    peek: &|address| disassembly_area.read_address(address, sh2, debug_state),
-                };
+                sh2_emu::disassemble_into(address, opcode, &mut disassembled);
+
                 row.col(|ui| {
-                    let options = DisassembleOptions {
-                        branch_displacement: BranchDestination::Absolute { pc: address },
-                        pc_relative_load,
-                    };
-                    ui.label(RichText::new(sh2_emu::disassemble(opcode, options)).monospace());
+                    ui.label(RichText::new(&disassembled.text).monospace());
+                });
+
+                row.col(|ui| {
+                    let memory_access = disassembled.memory_read.or(disassembled.memory_write);
+                    let Some((memory_access, size)) = memory_access else { return };
+
+                    let address = memory_access.resolve_address(size, sh2);
+
+                    let value = DisassemblyArea::from_address(address).map(|area| {
+                        let word = area.read_address(address, sh2, debug_state);
+                        match size {
+                            MemoryAccessSize::Byte => {
+                                let byte = word.to_be_bytes()[(address & 1) as usize];
+                                format!("0x{byte:02X}")
+                            }
+                            MemoryAccessSize::Word => format!("0x{word:04X}"),
+                            MemoryAccessSize::Longword => {
+                                let low =
+                                    area.read_address(address.wrapping_add(2), sh2, debug_state);
+                                let longword = u32::from(low) | (u32::from(word) << 16);
+                                format!("0x{longword:08X}")
+                            }
+                        }
+                    });
+
+                    match (disassembled.memory_read_type, value) {
+                        (ReadType::Load, Some(value)) => {
+                            ui.label(
+                                RichText::new(format!("${address:08X} = {value}")).monospace(),
+                            );
+                        }
+                        (ReadType::Load, None) | (ReadType::EffectiveAddress, _) => {
+                            ui.label(RichText::new(format!("${address:08X}")).monospace());
+                        }
+                    }
                 });
             });
         });

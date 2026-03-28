@@ -26,7 +26,10 @@ use crate::registers::{Sh2Registers, Sh7604Registers};
 use crate::sci::SerialInterface;
 use crate::wdt::WatchdogTimer;
 use bincode::{Decode, Encode};
-pub use disassemble::{BranchDestination, DisassembleOptions, PcRelativeLoad, disassemble};
+pub use disassemble::{
+    DisassembledInstruction, Displacement, MemoryAccess, MemoryAccessSize, ReadType,
+    disassemble_into,
+};
 pub use instructions::OpcodeTable;
 use jgenesis_common::debug::DebugMemoryView;
 use std::env;
@@ -202,10 +205,12 @@ impl Sh2 {
         self.data_ctx = AccessContext::Data { pc, opcode };
 
         if log::log_enabled!(log::Level::Trace) && self.trace_log_enabled {
+            let mut disassembled = DisassembledInstruction::new();
+            disassemble::disassemble_into(pc, opcode, &mut disassembled);
             log::trace!(
                 "[{}] Executing opcode {opcode:04X} at PC {pc:08X}: {}",
                 self.name,
-                disassemble::disassemble(opcode, DisassembleOptions::default())
+                disassembled.text
             );
             log::trace!("  Registers: {:08X?}", self.registers.gpr);
             log::trace!(

@@ -3,7 +3,9 @@
 //! Implementations can assume that all addresses are masked to the lowest 29 bits (`address & 0x1FFFFFFF`)
 //! because the highest 3 bits are only used internally
 
+use crate::debug::Sh2Debugger;
 use crate::disassemble;
+use crate::disassemble::DisassembledInstruction;
 use crate::instructions::OpcodeTable;
 use bincode::{Decode, Encode};
 use std::fmt::{Display, Formatter};
@@ -23,11 +25,9 @@ impl Display for AccessContext {
                 write!(f, "Opcode fetch")
             }
             &Self::Data { pc, opcode } => {
-                write!(
-                    f,
-                    "PC={pc:08X}, opcode={opcode:04X}, instruction='{}'",
-                    disassemble::disassemble(opcode, DisassembleOptions::default())
-                )
+                let mut instruction = DisassembledInstruction::new();
+                disassemble::disassemble_into(pc, opcode, &mut instruction);
+                write!(f, "PC={pc:08X}, opcode={opcode:04X}, instruction='{}'", instruction.text)
             }
             Self::InterruptVector => write!(f, "Interrupt vector fetch"),
             Self::Dma { channel } => write!(f, "DMA channel {channel}"),
@@ -154,6 +154,4 @@ macro_rules! impl_sh2_lookup_table {
     };
 }
 
-use crate::debug::Sh2Debugger;
-use crate::disassemble::DisassembleOptions;
 pub use impl_sh2_lookup_table;

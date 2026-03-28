@@ -1,35 +1,121 @@
-use std::borrow::Cow;
+use crate::Sh2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BranchDestination {
-    Displacement,
-    Absolute { pc: u32 },
+pub enum MemoryAccessSize {
+    Byte,
+    Word,
+    Longword,
 }
 
-#[derive(Clone)]
-pub enum PcRelativeLoad<'a> {
-    NoComment,
-    ValueInComment { pc: u32, peek: &'a dyn Fn(u32) -> u16 },
+#[derive(Debug, Clone, Copy)]
+pub enum Displacement {
+    Immediate(u32),
+    Register(u16),
 }
 
-#[derive(Clone)]
-pub struct DisassembleOptions<'a> {
-    pub branch_displacement: BranchDestination,
-    pub pc_relative_load: PcRelativeLoad<'a>,
-}
-
-impl Default for DisassembleOptions<'_> {
-    fn default() -> Self {
-        Self {
-            branch_displacement: BranchDestination::Displacement,
-            pc_relative_load: PcRelativeLoad::NoComment,
+impl Displacement {
+    #[must_use]
+    pub fn resolve(self, size: MemoryAccessSize, cpu: &Sh2) -> u32 {
+        match self {
+            Self::Immediate(displacement) => match size {
+                MemoryAccessSize::Byte => displacement,
+                MemoryAccessSize::Word => displacement << 1,
+                MemoryAccessSize::Longword => displacement << 2,
+            },
+            Self::Register(r) => cpu.registers.gpr[r as usize],
         }
     }
 }
 
-#[must_use]
-pub fn disassemble(opcode: u16, options: DisassembleOptions<'_>) -> String {
-    match opcode {
+impl Displacement {
+    fn none() -> Self {
+        Self::Immediate(0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadType {
+    Load,
+    EffectiveAddress, // MOVA, JMP, JSR, BRAF, BSRF
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum MemoryAccess {
+    IndirectR { register: u16, displacement: Displacement },
+    IndirectRPredecrement { register: u16 },
+    IndirectGbr { displacement: Displacement },
+    PcRelative { pc: u32, displacement: Displacement },
+}
+
+impl MemoryAccess {
+    #[must_use]
+    pub fn resolve_address(self, size: MemoryAccessSize, cpu: &Sh2) -> u32 {
+        match self {
+            Self::IndirectR { register, displacement } => {
+                cpu.registers().gpr[register as usize].wrapping_add(displacement.resolve(size, cpu))
+            }
+            Self::IndirectRPredecrement { register } => {
+                let address = cpu.registers.gpr[register as usize];
+                match size {
+                    MemoryAccessSize::Byte => address.wrapping_sub(1),
+                    MemoryAccessSize::Word => address.wrapping_sub(2),
+                    MemoryAccessSize::Longword => address.wrapping_sub(4),
+                }
+            }
+            Self::IndirectGbr { displacement } => {
+                cpu.registers().gbr.wrapping_add(displacement.resolve(size, cpu))
+            }
+            Self::PcRelative { mut pc, displacement } => {
+                pc = pc.wrapping_add(4);
+                if size == MemoryAccessSize::Longword {
+                    pc &= !3;
+                }
+                pc.wrapping_add(displacement.resolve(size, cpu))
+            }
+        }
+    }
+}
+
+pub struct DisassembledInstruction {
+    pub pc: u32,
+    pub text: String,
+    pub opcode: u16,
+    pub memory_read: Option<(MemoryAccess, MemoryAccessSize)>,
+    pub memory_read_type: ReadType,
+    pub memory_write: Option<(MemoryAccess, MemoryAccessSize)>,
+}
+
+impl Default for DisassembledInstruction {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DisassembledInstruction {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            pc: 0,
+            text: String::new(),
+            opcode: 0,
+            memory_read: None,
+            memory_read_type: ReadType::Load,
+            memory_write: None,
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.text.clear();
+        self.memory_read = None;
+        self.memory_read_type = ReadType::Load;
+        self.memory_write = None;
+    }
+}
+
+pub fn disassemble_into(pc: u32, opcode: u16, out: &mut DisassembledInstruction) {
+    out.clear();
+
+    out.text = match opcode {
         0b0000_0000_0001_1001 => "div0u".into(),
         0b0000_0000_0000_1011 => "rts".into(),
         0b0000_0000_0000_1000 => "clrt".into(),
@@ -38,69 +124,168 @@ pub fn disassemble(opcode: u16, options: DisassembleOptions<'_>) -> String {
         0b0000_0000_0010_1011 => "rte".into(),
         0b0000_0000_0001_1000 => "sett".into(),
         0b0000_0000_0001_1011 => "sleep".into(),
-        _ => decode_xnnx(opcode, options),
-    }
+        _ => decode_xnnx(pc, opcode, out),
+    };
 }
 
 #[inline]
-fn decode_xnnx(opcode: u16, options: DisassembleOptions<'_>) -> String {
+fn decode_xnnx(pc: u32, opcode: u16, out: &mut DisassembledInstruction) -> String {
     match opcode & 0b1111_0000_0000_1111 {
         0b0110_0000_0000_0011 => {
             format!("mov r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0010_0000_0000_0000 => {
-            format!("mov.b r{}, @r{}", parse_register_low(opcode), parse_register_high(opcode))
+            let dest = parse_register_high(opcode);
+            out.memory_write = Some((
+                MemoryAccess::IndirectR { register: dest, displacement: Displacement::none() },
+                MemoryAccessSize::Byte,
+            ));
+            format!("mov.b r{}, @r{}", parse_register_low(opcode), dest)
         }
         0b0010_0000_0000_0001 => {
-            format!("mov.w r{}, @r{}", parse_register_low(opcode), parse_register_high(opcode))
+            let dest = parse_register_high(opcode);
+            out.memory_write = Some((
+                MemoryAccess::IndirectR { register: dest, displacement: Displacement::none() },
+                MemoryAccessSize::Word,
+            ));
+            format!("mov.w r{}, @r{}", parse_register_low(opcode), dest)
         }
         0b0010_0000_0000_0010 => {
-            format!("mov.l r{}, @r{}", parse_register_low(opcode), parse_register_high(opcode))
+            let dest = parse_register_high(opcode);
+            out.memory_write = Some((
+                MemoryAccess::IndirectR { register: dest, displacement: Displacement::none() },
+                MemoryAccessSize::Longword,
+            ));
+            format!("mov.l r{}, @r{}", parse_register_low(opcode), dest)
         }
         0b0110_0000_0000_0000 => {
-            format!("mov.b @r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
+            let source = parse_register_low(opcode);
+            out.memory_read = Some((
+                MemoryAccess::IndirectR { register: source, displacement: Displacement::none() },
+                MemoryAccessSize::Byte,
+            ));
+            format!("mov.b @r{}, r{}", source, parse_register_high(opcode))
         }
         0b0110_0000_0000_0001 => {
-            format!("mov.w @r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
+            let source = parse_register_low(opcode);
+            out.memory_read = Some((
+                MemoryAccess::IndirectR { register: source, displacement: Displacement::none() },
+                MemoryAccessSize::Word,
+            ));
+            format!("mov.w @r{}, r{}", source, parse_register_high(opcode))
         }
         0b0110_0000_0000_0010 => {
-            format!("mov.l @r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
+            let source = parse_register_low(opcode);
+            out.memory_read = Some((
+                MemoryAccess::IndirectR { register: source, displacement: Displacement::none() },
+                MemoryAccessSize::Longword,
+            ));
+            format!("mov.l @r{}, r{}", source, parse_register_high(opcode))
         }
         0b0010_0000_0000_0100 => {
-            format!("mov.b r{}, @-r{}", parse_register_low(opcode), parse_register_high(opcode))
+            let dest = parse_register_high(opcode);
+            out.memory_write = Some((
+                MemoryAccess::IndirectRPredecrement { register: dest },
+                MemoryAccessSize::Byte,
+            ));
+            format!("mov.b r{}, @-r{}", parse_register_low(opcode), dest)
         }
         0b0010_0000_0000_0101 => {
-            format!("mov.w r{}, @-r{}", parse_register_low(opcode), parse_register_high(opcode))
+            let dest = parse_register_high(opcode);
+            out.memory_write = Some((
+                MemoryAccess::IndirectRPredecrement { register: dest },
+                MemoryAccessSize::Word,
+            ));
+            format!("mov.w r{}, @-r{}", parse_register_low(opcode), dest)
         }
         0b0010_0000_0000_0110 => {
-            format!("mov.l r{}, @-r{}", parse_register_low(opcode), parse_register_high(opcode))
+            let dest = parse_register_high(opcode);
+            out.memory_write = Some((
+                MemoryAccess::IndirectRPredecrement { register: dest },
+                MemoryAccessSize::Longword,
+            ));
+            format!("mov.l r{}, @-r{}", parse_register_low(opcode), dest)
         }
         0b0110_0000_0000_0100 => {
-            format!("mov.b @r{}+, r{}", parse_register_low(opcode), parse_register_high(opcode))
+            let source = parse_register_low(opcode);
+            out.memory_read = Some((
+                MemoryAccess::IndirectR { register: source, displacement: Displacement::none() },
+                MemoryAccessSize::Byte,
+            ));
+            format!("mov.b @r{}+, r{}", source, parse_register_high(opcode))
         }
         0b0110_0000_0000_0101 => {
-            format!("mov.w @r{}+, r{}", parse_register_low(opcode), parse_register_high(opcode))
+            let source = parse_register_low(opcode);
+            out.memory_read = Some((
+                MemoryAccess::IndirectR { register: source, displacement: Displacement::none() },
+                MemoryAccessSize::Word,
+            ));
+            format!("mov.w @r{}+, r{}", source, parse_register_high(opcode))
         }
         0b0110_0000_0000_0110 => {
-            format!("mov.l @r{}+, r{}", parse_register_low(opcode), parse_register_high(opcode))
+            let source = parse_register_low(opcode);
+            out.memory_read = Some((
+                MemoryAccess::IndirectR { register: source, displacement: Displacement::none() },
+                MemoryAccessSize::Longword,
+            ));
+            format!("mov.l @r{}+, r{}", source, parse_register_high(opcode))
         }
         0b0000_0000_0000_0100 => {
-            format!("mov.b r{}, @(r0,r{})", parse_register_low(opcode), parse_register_high(opcode))
+            let dest = parse_register_high(opcode);
+            out.memory_write = Some((
+                MemoryAccess::IndirectR { register: dest, displacement: Displacement::Register(0) },
+                MemoryAccessSize::Byte,
+            ));
+            format!("mov.b r{}, @(r0,r{})", parse_register_low(opcode), dest)
         }
         0b0000_0000_0000_0101 => {
-            format!("mov.w r{}, @(r0,r{})", parse_register_low(opcode), parse_register_high(opcode))
+            let dest = parse_register_high(opcode);
+            out.memory_write = Some((
+                MemoryAccess::IndirectR { register: dest, displacement: Displacement::Register(0) },
+                MemoryAccessSize::Word,
+            ));
+            format!("mov.w r{}, @(r0,r{})", parse_register_low(opcode), dest)
         }
         0b0000_0000_0000_0110 => {
-            format!("mov.l r{}, @(r0,r{})", parse_register_low(opcode), parse_register_high(opcode))
+            let dest = parse_register_high(opcode);
+            out.memory_write = Some((
+                MemoryAccess::IndirectR { register: dest, displacement: Displacement::Register(0) },
+                MemoryAccessSize::Longword,
+            ));
+            format!("mov.l r{}, @(r0,r{})", parse_register_low(opcode), dest)
         }
         0b0000_0000_0000_1100 => {
-            format!("mov.b @(r0,r{}), r{}", parse_register_low(opcode), parse_register_high(opcode))
+            let source = parse_register_low(opcode);
+            out.memory_read = Some((
+                MemoryAccess::IndirectR {
+                    register: source,
+                    displacement: Displacement::Register(0),
+                },
+                MemoryAccessSize::Byte,
+            ));
+            format!("mov.b @(r0,r{}), r{}", source, parse_register_high(opcode))
         }
         0b0000_0000_0000_1101 => {
-            format!("mov.w @(r0,r{}), r{}", parse_register_low(opcode), parse_register_high(opcode))
+            let source = parse_register_low(opcode);
+            out.memory_read = Some((
+                MemoryAccess::IndirectR {
+                    register: source,
+                    displacement: Displacement::Register(0),
+                },
+                MemoryAccessSize::Word,
+            ));
+            format!("mov.w @(r0,r{}), r{}", source, parse_register_high(opcode))
         }
         0b0000_0000_0000_1110 => {
-            format!("mov.l @(r0,r{}), r{}", parse_register_low(opcode), parse_register_high(opcode))
+            let source = parse_register_low(opcode);
+            out.memory_read = Some((
+                MemoryAccess::IndirectR {
+                    register: source,
+                    displacement: Displacement::Register(0),
+                },
+                MemoryAccessSize::Longword,
+            ));
+            format!("mov.l @(r0,r{}), r{}", source, parse_register_high(opcode))
         }
         0b0110_0000_0000_1000 => {
             format!("swap.b r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
@@ -163,10 +348,30 @@ fn decode_xnnx(opcode: u16, options: DisassembleOptions<'_>) -> String {
             format!("extu.w r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0000_0000_0000_1111 => {
-            format!("mac.l @r{}+, @r{}+", parse_register_low(opcode), parse_register_high(opcode))
+            let source = parse_register_low(opcode);
+            let dest = parse_register_high(opcode);
+            out.memory_read = Some((
+                MemoryAccess::IndirectR { register: source, displacement: Displacement::none() },
+                MemoryAccessSize::Longword,
+            ));
+            out.memory_write = Some((
+                MemoryAccess::IndirectR { register: dest, displacement: Displacement::none() },
+                MemoryAccessSize::Longword,
+            ));
+            format!("mac.l @r{source}+, @r{dest}+")
         }
         0b0100_0000_0000_1111 => {
-            format!("mac.w @r{}+, @r{}+", parse_register_low(opcode), parse_register_high(opcode))
+            let source = parse_register_low(opcode);
+            let dest = parse_register_high(opcode);
+            out.memory_read = Some((
+                MemoryAccess::IndirectR { register: source, displacement: Displacement::none() },
+                MemoryAccessSize::Word,
+            ));
+            out.memory_write = Some((
+                MemoryAccess::IndirectR { register: dest, displacement: Displacement::none() },
+                MemoryAccessSize::Word,
+            ));
+            format!("mac.w @r{source}+, @r{dest}+")
         }
         0b0000_0000_0000_0111 => {
             format!("mul.l r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
@@ -207,109 +412,191 @@ fn decode_xnnx(opcode: u16, options: DisassembleOptions<'_>) -> String {
         0b0010_0000_0000_1010 => {
             format!("xor r{}, r{}", parse_register_low(opcode), parse_register_high(opcode))
         }
-        _ => decode_xxnn(opcode, options),
+        _ => decode_xxnn(pc, opcode, out),
     }
 }
 
 #[inline]
-fn decode_xxnn(opcode: u16, options: DisassembleOptions<'_>) -> String {
+fn decode_xxnn(pc: u32, opcode: u16, out: &mut DisassembledInstruction) -> String {
     match opcode & 0b1111_1111_0000_0000 {
-        0b1000_0000_0000_0000 => format!(
-            "mov.b r0, @({},r{})",
-            parse_4bit_displacement(opcode),
-            parse_register_low(opcode)
-        ),
-        0b1000_0001_0000_0000 => format!(
-            "mov.w r0, @({},r{})",
-            parse_4bit_displacement(opcode),
-            parse_register_low(opcode)
-        ),
-        0b1000_0100_0000_0000 => format!(
-            "mov.b @({},r{}), r0",
-            parse_4bit_displacement(opcode),
-            parse_register_low(opcode)
-        ),
-        0b1000_0101_0000_0000 => format!(
-            "mov.w @({},r{}), r0",
-            parse_4bit_displacement(opcode),
-            parse_register_low(opcode)
-        ),
-        0b1100_0000_0000_0000 => format!("mov.b r0, @({},gbr)", parse_8bit_displacement(opcode)),
-        0b1100_0001_0000_0000 => format!("mov.w r0, @({},gbr)", parse_8bit_displacement(opcode)),
-        0b1100_0010_0000_0000 => format!("mov.l r0, @({},gbr)", parse_8bit_displacement(opcode)),
-        0b1100_0100_0000_0000 => format!("mov.b @({},gbr), r0", parse_8bit_displacement(opcode)),
-        0b1100_0101_0000_0000 => format!("mov.w @({},gbr), r0", parse_8bit_displacement(opcode)),
-        0b1100_0110_0000_0000 => format!("mov.l @({},gbr), r0", parse_8bit_displacement(opcode)),
+        0b1000_0000_0000_0000 => {
+            let displacement: u32 = parse_4bit_displacement(opcode).into();
+            let dest = parse_register_low(opcode);
+            out.memory_write = Some((
+                MemoryAccess::IndirectR {
+                    register: dest,
+                    displacement: Displacement::Immediate(displacement),
+                },
+                MemoryAccessSize::Byte,
+            ));
+            format!("mov.b r0, @({displacement},r{dest})")
+        }
+        0b1000_0001_0000_0000 => {
+            let displacement: u32 = parse_4bit_displacement(opcode).into();
+            let dest = parse_register_low(opcode);
+            out.memory_write = Some((
+                MemoryAccess::IndirectR {
+                    register: dest,
+                    displacement: Displacement::Immediate(displacement),
+                },
+                MemoryAccessSize::Word,
+            ));
+            format!("mov.w r0, @({displacement},r{dest})")
+        }
+        0b1000_0100_0000_0000 => {
+            let displacement: u32 = parse_4bit_displacement(opcode).into();
+            let source = parse_register_low(opcode);
+            out.memory_read = Some((
+                MemoryAccess::IndirectR {
+                    register: source,
+                    displacement: Displacement::Immediate(displacement),
+                },
+                MemoryAccessSize::Byte,
+            ));
+            format!("mov.b @({displacement},r{source}), r0")
+        }
+        0b1000_0101_0000_0000 => {
+            let displacement: u32 = parse_4bit_displacement(opcode).into();
+            let source = parse_register_low(opcode);
+            out.memory_read = Some((
+                MemoryAccess::IndirectR {
+                    register: source,
+                    displacement: Displacement::Immediate(displacement),
+                },
+                MemoryAccessSize::Word,
+            ));
+            format!("mov.w @({displacement},r{source}), r0")
+        }
+        0b1100_0000_0000_0000 => {
+            let displacement: u32 = parse_8bit_displacement(opcode).into();
+            out.memory_write = Some((
+                MemoryAccess::IndirectGbr { displacement: Displacement::Immediate(displacement) },
+                MemoryAccessSize::Byte,
+            ));
+            format!("mov.b r0, @({displacement},gbr)")
+        }
+        0b1100_0001_0000_0000 => {
+            let displacement: u32 = parse_8bit_displacement(opcode).into();
+            out.memory_write = Some((
+                MemoryAccess::IndirectGbr { displacement: Displacement::Immediate(displacement) },
+                MemoryAccessSize::Word,
+            ));
+            format!("mov.w r0, @({displacement},gbr)")
+        }
+        0b1100_0010_0000_0000 => {
+            let displacement: u32 = parse_8bit_displacement(opcode).into();
+            out.memory_write = Some((
+                MemoryAccess::IndirectGbr { displacement: Displacement::Immediate(displacement) },
+                MemoryAccessSize::Longword,
+            ));
+            format!("mov.l r0, @({displacement},gbr)")
+        }
+        0b1100_0100_0000_0000 => {
+            let displacement: u32 = parse_8bit_displacement(opcode).into();
+            out.memory_read = Some((
+                MemoryAccess::IndirectGbr { displacement: Displacement::Immediate(displacement) },
+                MemoryAccessSize::Byte,
+            ));
+            format!("mov.b @({displacement},gbr), r0")
+        }
+        0b1100_0101_0000_0000 => {
+            let displacement: u32 = parse_8bit_displacement(opcode).into();
+            out.memory_read = Some((
+                MemoryAccess::IndirectGbr { displacement: Displacement::Immediate(displacement) },
+                MemoryAccessSize::Word,
+            ));
+            format!("mov.w @({displacement},gbr), r0")
+        }
+        0b1100_0110_0000_0000 => {
+            let displacement: u32 = parse_8bit_displacement(opcode).into();
+            out.memory_read = Some((
+                MemoryAccess::IndirectGbr { displacement: Displacement::Immediate(displacement) },
+                MemoryAccessSize::Longword,
+            ));
+            format!("mov.l @({displacement},gbr), r0")
+        }
         0b1100_0111_0000_0000 => {
-            let comment = match options.pc_relative_load {
-                PcRelativeLoad::NoComment => String::new(),
-                PcRelativeLoad::ValueInComment { pc, .. } => {
-                    let displacement = (opcode & 0xFF) << 2;
-                    let address = (pc & !3).wrapping_add(4).wrapping_add(displacement.into());
-                    format!("  ;${address:08X}")
-                }
-            };
-
-            format!("mova @({},pc), r0{comment}", parse_8bit_displacement(opcode))
+            let displacement: u32 = parse_8bit_displacement(opcode).into();
+            out.memory_read = Some((
+                MemoryAccess::PcRelative {
+                    pc,
+                    displacement: Displacement::Immediate(displacement),
+                },
+                MemoryAccessSize::Longword,
+            ));
+            out.memory_read_type = ReadType::EffectiveAddress;
+            format!("mova @({displacement},pc), r0")
         }
         0b1000_1000_0000_0000 => format!("cmp/eq #{}, r0", parse_signed_immediate(opcode)),
         0b1100_1001_0000_0000 => format!("and #{}, r0", parse_unsigned_immediate(opcode)),
-        0b1100_1101_0000_0000 => format!("and.b #{}, @(r0,gbr)", parse_unsigned_immediate(opcode)),
+        0b1100_1101_0000_0000 => {
+            out.memory_read = Some((
+                MemoryAccess::IndirectGbr { displacement: Displacement::Register(0) },
+                MemoryAccessSize::Byte,
+            ));
+            out.memory_write = out.memory_read;
+            format!("and.b #{}, @(r0,gbr)", parse_unsigned_immediate(opcode))
+        }
         0b1100_1011_0000_0000 => format!("or #{}, r0", parse_unsigned_immediate(opcode)),
-        0b1100_1111_0000_0000 => format!("or.b #{}, @(r0,gbr)", parse_unsigned_immediate(opcode)),
+        0b1100_1111_0000_0000 => {
+            out.memory_read = Some((
+                MemoryAccess::IndirectGbr { displacement: Displacement::Register(0) },
+                MemoryAccessSize::Byte,
+            ));
+            out.memory_write = out.memory_read;
+            format!("or.b #{}, @(r0,gbr)", parse_unsigned_immediate(opcode))
+        }
         0b1100_1000_0000_0000 => format!("tst #{}, r0", parse_unsigned_immediate(opcode)),
-        0b1100_1100_0000_0000 => format!("tst.b #{}, @(r0,gbr)", parse_unsigned_immediate(opcode)),
+        0b1100_1100_0000_0000 => {
+            out.memory_read = Some((
+                MemoryAccess::IndirectGbr { displacement: Displacement::Register(0) },
+                MemoryAccessSize::Byte,
+            ));
+            out.memory_write = out.memory_read;
+            format!("tst.b #{}, @(r0,gbr)", parse_unsigned_immediate(opcode))
+        }
         0b1100_1010_0000_0000 => format!("xor #{}, r0", parse_unsigned_immediate(opcode)),
-        0b1100_1110_0000_0000 => format!("xor.b #{}, @(r0,gbr)", parse_unsigned_immediate(opcode)),
+        0b1100_1110_0000_0000 => {
+            out.memory_read = Some((
+                MemoryAccess::IndirectGbr { displacement: Displacement::Register(0) },
+                MemoryAccessSize::Byte,
+            ));
+            out.memory_write = out.memory_read;
+            format!("xor.b #{}, @(r0,gbr)", parse_unsigned_immediate(opcode))
+        }
         0b1000_1011_0000_0000 => {
-            format!(
-                "bf {}",
-                branch_destination(
-                    parse_signed_immediate(opcode).into(),
-                    options.branch_displacement
-                )
-            )
+            format!("bf {}", branch_destination(pc, parse_signed_immediate(opcode) as u32,))
         }
         0b1000_1111_0000_0000 => {
-            format!(
-                "bf/s {}",
-                branch_destination(
-                    parse_signed_immediate(opcode).into(),
-                    options.branch_displacement
-                )
-            )
+            format!("bf/s {}", branch_destination(pc, parse_signed_immediate(opcode) as u32,))
         }
         0b1000_1001_0000_0000 => {
-            format!(
-                "bt {}",
-                branch_destination(
-                    parse_signed_immediate(opcode).into(),
-                    options.branch_displacement
-                )
-            )
+            format!("bt {}", branch_destination(pc, parse_signed_immediate(opcode) as u32,))
         }
         0b1000_1101_0000_0000 => {
-            format!(
-                "bt/s {}",
-                branch_destination(
-                    parse_signed_immediate(opcode).into(),
-                    options.branch_displacement
-                )
-            )
+            format!("bt/s {}", branch_destination(pc, parse_signed_immediate(opcode) as u32,))
         }
         0b1100_0011_0000_0000 => format!("trapa #{}", opcode & 0xFF),
-        _ => decode_xnxx(opcode, options),
+        _ => decode_xnxx(pc, opcode, out),
     }
 }
 
 #[inline]
-fn decode_xnxx(opcode: u16, options: DisassembleOptions<'_>) -> String {
+fn decode_xnxx(pc: u32, opcode: u16, out: &mut DisassembledInstruction) -> String {
     match opcode & 0b1111_0000_1111_1111 {
         0b0000_0000_0010_1001 => format!("movt r{}", parse_register_high(opcode)),
         0b0100_0000_0001_0001 => format!("cmp/pz r{}", parse_register_high(opcode)),
         0b0100_0000_0001_0101 => format!("cmp/pl r{}", parse_register_high(opcode)),
         0b0100_0000_0001_0000 => format!("dt r{}", parse_register_high(opcode)),
-        0b0100_0000_0001_1011 => format!("tas.b @r{}", parse_register_high(opcode)),
+        0b0100_0000_0001_1011 => {
+            let register = parse_register_high(opcode);
+            out.memory_read = Some((
+                MemoryAccess::IndirectR { register, displacement: Displacement::none() },
+                MemoryAccessSize::Byte,
+            ));
+            out.memory_write = out.memory_read;
+            format!("tas.b @r{register}")
+        }
         0b0100_0000_0000_0100 => format!("rotl r{}", parse_register_high(opcode)),
         0b0100_0000_0000_0101 => format!("rotr r{}", parse_register_high(opcode)),
         0b0100_0000_0010_0100 => format!("rotcl r{}", parse_register_high(opcode)),
@@ -324,85 +611,219 @@ fn decode_xnxx(opcode: u16, options: DisassembleOptions<'_>) -> String {
         0b0100_0000_0001_1001 => format!("shlr8 r{}", parse_register_high(opcode)),
         0b0100_0000_0010_1000 => format!("shll16 r{}", parse_register_high(opcode)),
         0b0100_0000_0010_1001 => format!("shlr16 r{}", parse_register_high(opcode)),
-        0b0000_0000_0010_0011 => format!("braf r{}", parse_register_high(opcode)),
-        0b0000_0000_0000_0011 => format!("bsrf r{}", parse_register_high(opcode)),
-        0b0100_0000_0010_1011 => format!("jmp @r{}", parse_register_high(opcode)),
-        0b0100_0000_0000_1011 => format!("jsr @r{}", parse_register_high(opcode)),
+        0b0000_0000_0010_0011 => {
+            let register = parse_register_high(opcode);
+            out.memory_read = Some((
+                MemoryAccess::PcRelative { pc, displacement: Displacement::Register(register) },
+                MemoryAccessSize::Word,
+            ));
+            out.memory_read_type = ReadType::EffectiveAddress;
+            format!("braf r{register}")
+        }
+        0b0000_0000_0000_0011 => {
+            let register = parse_register_high(opcode);
+            out.memory_read = Some((
+                MemoryAccess::PcRelative { pc, displacement: Displacement::Register(register) },
+                MemoryAccessSize::Word,
+            ));
+            out.memory_read_type = ReadType::EffectiveAddress;
+            format!("bsrf r{register}")
+        }
+        0b0100_0000_0010_1011 => {
+            let register = parse_register_high(opcode);
+            out.memory_read = Some((
+                MemoryAccess::IndirectR { register, displacement: Displacement::none() },
+                MemoryAccessSize::Longword,
+            ));
+            out.memory_read_type = ReadType::EffectiveAddress;
+            format!("jmp @r{register}")
+        }
+        0b0100_0000_0000_1011 => {
+            let register = parse_register_high(opcode);
+            out.memory_read = Some((
+                MemoryAccess::IndirectR { register, displacement: Displacement::none() },
+                MemoryAccessSize::Longword,
+            ));
+            out.memory_read_type = ReadType::EffectiveAddress;
+            format!("jsr @r{register}")
+        }
         0b0100_0000_0000_1110 => format!("ldc r{}, sr", parse_register_high(opcode)),
         0b0100_0000_0001_1110 => format!("ldc r{}, gbr", parse_register_high(opcode)),
         0b0100_0000_0010_1110 => format!("ldc r{}, vbr", parse_register_high(opcode)),
-        0b0100_0000_0000_0111 => format!("ldc.l @r{}+, sr", parse_register_high(opcode)),
-        0b0100_0000_0001_0111 => format!("ldc.l @r{}+, gbr", parse_register_high(opcode)),
-        0b0100_0000_0010_0111 => format!("ldc.l @r{}+, vbr", parse_register_high(opcode)),
+        0b0100_0000_0000_0111 => {
+            let source = parse_register_high(opcode);
+            out.memory_read = Some((
+                MemoryAccess::IndirectR { register: source, displacement: Displacement::none() },
+                MemoryAccessSize::Longword,
+            ));
+            format!("ldc.l @r{source}+, sr")
+        }
+        0b0100_0000_0001_0111 => {
+            let source = parse_register_high(opcode);
+            out.memory_read = Some((
+                MemoryAccess::IndirectR { register: source, displacement: Displacement::none() },
+                MemoryAccessSize::Longword,
+            ));
+            format!("ldc.l @r{source}+, gbr")
+        }
+        0b0100_0000_0010_0111 => {
+            let source = parse_register_high(opcode);
+            out.memory_read = Some((
+                MemoryAccess::IndirectR { register: source, displacement: Displacement::none() },
+                MemoryAccessSize::Longword,
+            ));
+            format!("ldc.l @r{source}+, vbr")
+        }
         0b0100_0000_0000_1010 => format!("lds r{}, mach", parse_register_high(opcode)),
         0b0100_0000_0001_1010 => format!("lds r{}, macl", parse_register_high(opcode)),
         0b0100_0000_0010_1010 => format!("lds r{}, pr", parse_register_high(opcode)),
-        0b0100_0000_0000_0110 => format!("lds.l @r{}+, mach", parse_register_high(opcode)),
-        0b0100_0000_0001_0110 => format!("lds.l @r{}+, macl", parse_register_high(opcode)),
-        0b0100_0000_0010_0110 => format!("lds.l @r{}+, pr", parse_register_high(opcode)),
+        0b0100_0000_0000_0110 => {
+            let source = parse_register_high(opcode);
+            out.memory_read = Some((
+                MemoryAccess::IndirectR { register: source, displacement: Displacement::none() },
+                MemoryAccessSize::Longword,
+            ));
+            format!("lds.l @r{source}+, mach")
+        }
+        0b0100_0000_0001_0110 => {
+            let source = parse_register_high(opcode);
+            out.memory_read = Some((
+                MemoryAccess::IndirectR { register: source, displacement: Displacement::none() },
+                MemoryAccessSize::Longword,
+            ));
+            format!("lds.l @r{source}+, macl")
+        }
+        0b0100_0000_0010_0110 => {
+            let source = parse_register_high(opcode);
+            out.memory_read = Some((
+                MemoryAccess::IndirectR { register: source, displacement: Displacement::none() },
+                MemoryAccessSize::Longword,
+            ));
+            format!("lds.l @r{source}+, pr")
+        }
         0b0000_0000_0000_0010 => format!("stc sr, r{}", parse_register_high(opcode)),
         0b0000_0000_0001_0010 => format!("stc gbr, r{}", parse_register_high(opcode)),
         0b0000_0000_0010_0010 => format!("stc vbr, r{}", parse_register_high(opcode)),
-        0b0100_0000_0000_0011 => format!("stc.l sr, @-r{}", parse_register_high(opcode)),
-        0b0100_0000_0001_0011 => format!("stc.l gbr, @-r{}", parse_register_high(opcode)),
-        0b0100_0000_0010_0011 => format!("stc.l vbr, @-r{}", parse_register_high(opcode)),
+        0b0100_0000_0000_0011 => {
+            let dest = parse_register_high(opcode);
+            out.memory_write = Some((
+                MemoryAccess::IndirectRPredecrement { register: dest },
+                MemoryAccessSize::Longword,
+            ));
+            format!("stc.l sr, @-r{dest}")
+        }
+        0b0100_0000_0001_0011 => {
+            let dest = parse_register_high(opcode);
+            out.memory_write = Some((
+                MemoryAccess::IndirectRPredecrement { register: dest },
+                MemoryAccessSize::Longword,
+            ));
+            format!("stc.l gbr, @-r{dest}")
+        }
+        0b0100_0000_0010_0011 => {
+            let dest = parse_register_high(opcode);
+            out.memory_write = Some((
+                MemoryAccess::IndirectRPredecrement { register: dest },
+                MemoryAccessSize::Longword,
+            ));
+            format!("stc.l vbr, @-r{dest}")
+        }
         0b0000_0000_0000_1010 => format!("sts mach, r{}", parse_register_high(opcode)),
         0b0000_0000_0001_1010 => format!("sts macl, r{}", parse_register_high(opcode)),
         0b0000_0000_0010_1010 => format!("sts pr, r{}", parse_register_high(opcode)),
-        0b0100_0000_0000_0010 => format!("sts.l mach, @-r{}", parse_register_high(opcode)),
-        0b0100_0000_0001_0010 => format!("sts.l macl, @-r{}", parse_register_high(opcode)),
-        0b0100_0000_0010_0010 => format!("sts.l pr, @-r{}", parse_register_high(opcode)),
-        _ => decode_xnnn(opcode, options),
+        0b0100_0000_0000_0010 => {
+            let dest = parse_register_high(opcode);
+            out.memory_write = Some((
+                MemoryAccess::IndirectRPredecrement { register: dest },
+                MemoryAccessSize::Longword,
+            ));
+            format!("sts.l mach, @-r{dest}")
+        }
+        0b0100_0000_0001_0010 => {
+            let dest = parse_register_high(opcode);
+            out.memory_write = Some((
+                MemoryAccess::IndirectRPredecrement { register: dest },
+                MemoryAccessSize::Longword,
+            ));
+            format!("sts.l macl, @-r{dest}")
+        }
+        0b0100_0000_0010_0010 => {
+            let dest = parse_register_high(opcode);
+            out.memory_write = Some((
+                MemoryAccess::IndirectRPredecrement { register: dest },
+                MemoryAccessSize::Longword,
+            ));
+            format!("sts.l pr, @-r{dest}")
+        }
+        _ => decode_xnnn(pc, opcode, out),
     }
 }
 
 #[inline]
-fn decode_xnnn(opcode: u16, options: DisassembleOptions<'_>) -> String {
+fn decode_xnnn(pc: u32, opcode: u16, out: &mut DisassembledInstruction) -> String {
     match opcode & 0b1111_0000_0000_0000 {
         0b1110_0000_0000_0000 => {
             format!("mov.b #{}, r{}", parse_signed_immediate(opcode), parse_register_high(opcode))
         }
         0b1001_0000_0000_0000 => {
-            let comment = pc_relative_load_word(opcode, options.pc_relative_load);
-
-            format!(
-                "mov.w @({},pc), r{}{comment}",
-                parse_8bit_displacement(opcode),
-                parse_register_high(opcode)
-            )
+            let displacement: u32 = parse_8bit_displacement(opcode).into();
+            out.memory_read = Some((
+                MemoryAccess::PcRelative {
+                    pc,
+                    displacement: Displacement::Immediate(displacement),
+                },
+                MemoryAccessSize::Word,
+            ));
+            format!("mov.w @({},pc), r{}", displacement, parse_register_high(opcode))
         }
         0b1101_0000_0000_0000 => {
-            let comment = pc_relative_load_longword(opcode, options.pc_relative_load);
-
+            let displacement: u32 = parse_8bit_displacement(opcode).into();
+            out.memory_read = Some((
+                MemoryAccess::PcRelative {
+                    pc,
+                    displacement: Displacement::Immediate(displacement),
+                },
+                MemoryAccessSize::Longword,
+            ));
             format!(
-                "mov.l @({},pc), r{}{comment}",
+                "mov.l @({},pc), r{}",
                 parse_8bit_displacement(opcode),
                 parse_register_high(opcode)
             )
         }
-        0b0001_0000_0000_0000 => format!(
-            "mov.l r{}, @({},r{})",
-            parse_register_low(opcode),
-            parse_4bit_displacement(opcode),
-            parse_register_high(opcode)
-        ),
-        0b0101_0000_0000_0000 => format!(
-            "mov.l @({},r{}), r{}",
-            parse_4bit_displacement(opcode),
-            parse_register_low(opcode),
-            parse_register_high(opcode)
-        ),
+        0b0001_0000_0000_0000 => {
+            let displacement: u32 = parse_4bit_displacement(opcode).into();
+            let dest = parse_register_high(opcode);
+            out.memory_write = Some((
+                MemoryAccess::IndirectR {
+                    register: dest,
+                    displacement: Displacement::Immediate(displacement),
+                },
+                MemoryAccessSize::Longword,
+            ));
+            format!("mov.l r{}, @({},r{})", parse_register_low(opcode), displacement, dest)
+        }
+        0b0101_0000_0000_0000 => {
+            let displacement: u32 = parse_4bit_displacement(opcode).into();
+            let source = parse_register_high(opcode);
+            out.memory_read = Some((
+                MemoryAccess::IndirectR {
+                    register: source,
+                    displacement: Displacement::Immediate(displacement),
+                },
+                MemoryAccessSize::Longword,
+            ));
+            format!("mov.l @({},r{}), r{}", displacement, source, parse_register_high(opcode))
+        }
         0b0111_0000_0000_0000 => {
             format!("add #{}, r{}", parse_signed_immediate(opcode), parse_register_high(opcode))
         }
-        0b1010_0000_0000_0000 => format!(
-            "bra {}",
-            branch_destination(parse_12bit_displacement(opcode), options.branch_displacement)
-        ),
-        0b1011_0000_0000_0000 => format!(
-            "bsr {}",
-            branch_destination(parse_12bit_displacement(opcode), options.branch_displacement)
-        ),
+        0b1010_0000_0000_0000 => {
+            format!("bra {}", branch_destination(pc, parse_12bit_displacement(opcode) as u32))
+        }
+        0b1011_0000_0000_0000 => {
+            format!("bsr {}", branch_destination(pc, parse_12bit_displacement(opcode) as u32))
+        }
         _ => "illegal".into(),
     }
 }
@@ -443,39 +864,7 @@ fn parse_register_high(opcode: u16) -> u16 {
 }
 
 #[inline]
-fn branch_destination(displacement: i32, branch_displacement: BranchDestination) -> String {
-    match branch_displacement {
-        BranchDestination::Displacement => displacement.to_string(),
-        BranchDestination::Absolute { pc } => {
-            let address = pc.wrapping_add(4).wrapping_add_signed(displacement << 1);
-            format!("${address:08X}")
-        }
-    }
-}
-
-#[inline]
-fn pc_relative_load_word(opcode: u16, pc_relative_load: PcRelativeLoad<'_>) -> Cow<'static, str> {
-    let PcRelativeLoad::ValueInComment { pc, peek } = pc_relative_load else { return "".into() };
-
-    let displacement = (opcode & 0xFF) << 1;
-    let address = pc.wrapping_add(4).wrapping_add(displacement.into());
-    let value = peek(address);
-
-    format!("  ;0x{value:04X}").into()
-}
-
-#[inline]
-fn pc_relative_load_longword(
-    opcode: u16,
-    pc_relative_load: PcRelativeLoad<'_>,
-) -> Cow<'static, str> {
-    let PcRelativeLoad::ValueInComment { pc, peek } = pc_relative_load else { return "".into() };
-
-    let displacement = (opcode & 0xFF) << 2;
-    let address = (pc & !3).wrapping_add(4).wrapping_add(displacement.into());
-    let high: u32 = peek(address).into();
-    let low: u32 = peek(address + 2).into();
-    let value = low | (high << 16);
-
-    format!("  ;0x{value:08X}").into()
+fn branch_destination(pc: u32, displacement: u32) -> String {
+    let address = pc.wrapping_add(4).wrapping_add(displacement << 1);
+    format!("${address:08X}")
 }
