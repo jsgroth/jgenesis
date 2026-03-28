@@ -3,7 +3,7 @@ use egui::scroll_area::ScrollBarVisibility;
 use egui::style::ScrollStyle;
 use egui::{
     Align, CentralPanel, Color32, Context, FontId, Id, LayerId, Order, RichText, SidePanel,
-    TextEdit, Ui, Window,
+    TextEdit, Theme, Ui, Window,
 };
 use egui_extras::{Column, TableBuilder};
 use jgenesis_common::debug::{DebugMemoryView, Endian};
@@ -49,6 +49,7 @@ pub struct MemoryViewerState {
     pub open: bool,
     pub goto_text: String,
     pub goto_address: Option<usize>,
+    pub highlight_address: Option<usize>,
     pub set_address_text: String,
     pub table_offset: f32,
     pub table_height: f32,
@@ -67,6 +68,7 @@ impl MemoryViewerState {
             open: false,
             goto_text: String::new(),
             goto_address: None,
+            highlight_address: None,
             set_address_text: String::new(),
             table_offset: 0.0,
             table_height: 1.0,
@@ -210,6 +212,11 @@ fn render_central_panel(
 
     let ctx = ui.ctx().clone();
 
+    let highlight_color = match ctx.theme() {
+        Theme::Dark => Color32::GREEN,
+        Theme::Light => Color32::RED,
+    };
+
     CentralPanel::default().show_inside(ui, |ui| {
         ui.spacing_mut().scroll = ScrollStyle { bar_width: 10.0, ..ScrollStyle::solid() };
 
@@ -228,6 +235,7 @@ fn render_central_panel(
         if let Some(address) = state.goto_address.take() {
             builder =
                 builder.scroll_to_row(cmp::min(table_rows - 1, address / 16), Some(Align::Center));
+            state.highlight_address = Some(address);
         } else if crate::window_on_top(&ctx, &state.window_title) {
             let keys = crate::scroll_keys_pressed(&ctx);
             if let Some(offset) = keys.relative_scroll_offset(state.table_height) {
@@ -241,7 +249,7 @@ fn render_central_panel(
                 let data: [_; 16] = array::from_fn(|i| memory.read(address + i));
 
                 row.col(|ui| {
-                    ui.label(RichText::new(fmt_address(address, address_len)).font(MONOSPACE));
+                    ui.label(RichText::new(fmt_address(address, address_len)).monospace());
                 });
 
                 match state.columns {
@@ -249,7 +257,11 @@ fn render_central_panel(
                         for (i, byte) in data.into_iter().enumerate() {
                             if address + i < memory_len {
                                 row.col(|ui| {
-                                    ui.label(RichText::new(format!("{byte:02X}")).font(MONOSPACE));
+                                    let mut text = RichText::new(format!("{byte:02X}")).monospace();
+                                    if state.highlight_address == Some(address + i) {
+                                        text = text.color(highlight_color);
+                                    }
+                                    ui.label(text.monospace());
                                 });
                             }
                         }
@@ -265,7 +277,14 @@ fn render_central_panel(
                                 let word = to_bytes(chunk.try_into().unwrap());
 
                                 row.col(|ui| {
-                                    ui.label(RichText::new(format!("{word:04X}")).font(MONOSPACE));
+                                    let mut text = RichText::new(format!("{word:04X}")).monospace();
+                                    if state
+                                        .highlight_address
+                                        .is_some_and(|highlight| highlight & !1 == address + 2 * i)
+                                    {
+                                        text = text.color(highlight_color);
+                                    }
+                                    ui.label(text);
                                 });
                             }
                         }
@@ -281,9 +300,15 @@ fn render_central_panel(
                                 let longword = to_bytes(chunk.try_into().unwrap());
 
                                 row.col(|ui| {
-                                    ui.label(
-                                        RichText::new(format!("{longword:08X}")).font(MONOSPACE),
-                                    );
+                                    let mut text =
+                                        RichText::new(format!("{longword:08X}")).monospace();
+                                    if state
+                                        .highlight_address
+                                        .is_some_and(|highlight| highlight & !3 == address + 4 * i)
+                                    {
+                                        text = text.color(highlight_color);
+                                    }
+                                    ui.label(text);
                                 });
                             }
                         }
