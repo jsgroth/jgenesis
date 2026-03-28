@@ -3,7 +3,7 @@ use egui::scroll_area::ScrollBarVisibility;
 use egui::style::ScrollStyle;
 use egui::{
     Align, CentralPanel, Color32, Context, FontId, Id, LayerId, Order, RichText, SidePanel,
-    TextEdit, Theme, Ui, Window,
+    TextEdit, Ui, Window,
 };
 use egui_extras::{Column, TableBuilder};
 use jgenesis_common::debug::{DebugMemoryView, Endian};
@@ -212,10 +212,7 @@ fn render_central_panel(
 
     let ctx = ui.ctx().clone();
 
-    let highlight_color = match ctx.theme() {
-        Theme::Dark => Color32::GREEN,
-        Theme::Light => Color32::RED,
-    };
+    let highlight_color = crate::highlight_color(ctx.theme());
 
     CentralPanel::default().show_inside(ui, |ui| {
         ui.spacing_mut().scroll = ScrollStyle { bar_width: 10.0, ..ScrollStyle::solid() };

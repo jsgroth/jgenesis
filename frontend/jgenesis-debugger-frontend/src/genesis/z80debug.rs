@@ -1,5 +1,6 @@
 use crate::genesis::m68kdebug::M68kDebugMemoryMap;
 use crate::genesis::widgets::BreakpointsWidget;
+use crate::{AddressSet, non_selectable_label};
 use egui::panel::{Side, TopBottomSide};
 use egui::style::ScrollStyle;
 use egui::{Align, CentralPanel, Grid, RichText, SidePanel, TextEdit, TopBottomPanel, Ui, Window};
@@ -25,6 +26,7 @@ pub struct Z80DebugWindowState {
     pub jump_to_address: String,
     pub disassembly_table_offset: f32,
     pub disassembly_table_height: f32,
+    pub disassembly_selected_pcs: AddressSet<u16>,
     pub break_status_last_frame: Z80BreakStatus,
     pub breakpoints_open: bool,
     pub breakpoints: BreakpointsWidget<u16>,
@@ -40,6 +42,7 @@ impl Z80DebugWindowState {
             jump_to_address: String::new(),
             disassembly_table_offset: 0.0,
             disassembly_table_height: 1.0,
+            disassembly_selected_pcs: AddressSet::new(),
             break_status_last_frame: Z80BreakStatus::default(),
             breakpoints_open: false,
             breakpoints: BreakpointsWidget::new("z80_breakpoints"),
@@ -280,10 +283,12 @@ fn render_disasm_central_panel(
         ui.spacing_mut().scroll = ScrollStyle { bar_width: 10.0, ..ScrollStyle::solid() };
 
         let mut table_builder = TableBuilder::new(ui)
+            .column(Column::auto().at_least(10.0))
             .column(Column::auto().at_least(60.0))
             .column(Column::auto().at_least(150.0))
             .column(Column::remainder())
-            .striped(true);
+            .striped(true)
+            .sense(egui::Sense::click());
 
         if state.disassembly_addr_changed {
             state.disassembly_addr_changed = false;
@@ -298,18 +303,34 @@ fn render_disasm_central_panel(
 
         let z80_pc = if break_status.breaking { break_status.pc } else { z80.pc() };
 
+        let highlight_color = crate::highlight_color(ctx.theme());
+
         let scroll_output = table_builder.body(|mut body| {
             let mut pc = state.disassembly_address;
             let mut instruction = DisassembledInstruction::new();
 
             for _ in 0..100 {
                 body.row(15.0, |mut row| {
-                    if pc == z80_pc {
-                        row.set_selected(true);
-                    }
+                    let is_pc_row = pc == z80_pc;
+                    let original_pc = pc;
+
+                    row.set_selected(state.disassembly_selected_pcs.contains(pc));
 
                     row.col(|ui| {
-                        ui.label(monospace_u16(pc));
+                        if is_pc_row {
+                            ui.add(non_selectable_label(
+                                RichText::new("→").monospace().color(highlight_color),
+                            ));
+                        }
+                    });
+
+                    row.col(|ui| {
+                        let mut text = monospace_u16(pc);
+                        if is_pc_row {
+                            text = text.color(highlight_color);
+                        }
+
+                        ui.add(non_selectable_label(text));
                     });
 
                     z80_emu::disassemble_into(&mut instruction, pc, || {
@@ -319,7 +340,12 @@ fn render_disasm_central_panel(
                     });
 
                     row.col(|ui| {
-                        ui.label(RichText::new(&instruction.text).monospace());
+                        let mut text = RichText::new(&instruction.text).monospace();
+                        if is_pc_row {
+                            text = text.color(highlight_color);
+                        }
+
+                        ui.add(non_selectable_label(text));
                     });
 
                     row.col(|ui| {
@@ -328,20 +354,25 @@ fn render_disasm_central_panel(
                             let value =
                                 memory_map.peek(address).map(|value| format!("0x{value:02X}"));
 
-                            match (memory_access, value) {
+                            let text = match (memory_access, value) {
                                 (MemoryAccess::Absolute(..), Some(value)) => {
-                                    ui.label(monospace_text(format!("; = {value}")));
+                                    monospace_text(format!("; = {value}"))
                                 }
-                                (MemoryAccess::Absolute(..), None) => {}
+                                (MemoryAccess::Absolute(..), None) => return,
                                 (MemoryAccess::Indirect(..), Some(value)) => {
-                                    ui.label(monospace_text(format!("; ${address:04X} = {value}")));
+                                    monospace_text(format!("; ${address:04X} = {value}"))
                                 }
                                 (MemoryAccess::Indirect(..), None) => {
-                                    ui.label(monospace_text(format!("; ${address:04X}")));
+                                    monospace_text(format!("; ${address:04X}"))
                                 }
-                            }
+                            };
+                            ui.add(non_selectable_label(text));
                         }
                     });
+
+                    if row.response().clicked() {
+                        state.disassembly_selected_pcs.toggle(original_pc);
+                    }
                 });
             }
 

@@ -21,6 +21,7 @@ use jgenesis_native_config::EguiTheme;
 use jgenesis_renderer::config::RendererConfig;
 use sdl3::VideoSubsystem;
 use sdl3::video::{Window, WindowBuildError};
+use std::collections::HashSet;
 use std::hash::Hash;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -553,4 +554,35 @@ fn scroll_keys_pressed(ctx: &egui::Context) -> ScrollKeys {
     });
 
     ScrollKeys { up, down, page_up, page_down }
+}
+
+fn highlight_color(theme: egui::Theme) -> Color32 {
+    match theme {
+        egui::Theme::Dark => Color32::GREEN,
+        egui::Theme::Light => Color32::RED,
+    }
+}
+
+fn non_selectable_label(text: impl Into<WidgetText>) -> egui::Label {
+    egui::Label::new(text).selectable(false)
+}
+
+struct AddressSet<T>(HashSet<T>);
+
+impl<T: Copy + Eq + Hash> AddressSet<T> {
+    fn new() -> Self {
+        Self(HashSet::new())
+    }
+
+    fn contains(&self, value: T) -> bool {
+        self.0.contains(&value)
+    }
+
+    fn toggle(&mut self, value: T) {
+        if self.0.contains(&value) {
+            self.0.remove(&value);
+        } else {
+            self.0.insert(value);
+        }
+    }
 }

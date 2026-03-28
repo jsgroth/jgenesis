@@ -1,4 +1,5 @@
 use crate::genesis::widgets::{BreakpointsWidget, U24};
+use crate::{AddressSet, non_selectable_label};
 use egui::panel::{Side, TopBottomSide};
 use egui::style::ScrollStyle;
 use egui::{Align, CentralPanel, Grid, RichText, SidePanel, TextEdit, TopBottomPanel, Ui, Window};
@@ -30,6 +31,7 @@ pub struct M68kDebugWindowState {
     pub disassemble_reset_table: bool,
     pub disassemble_table_offset: f32,
     pub disassemble_table_height: f32,
+    pub disassemble_selected_pcs: AddressSet<u32>,
     pub break_status_last_frame: M68000BreakStatus,
     pub breakpoints: BreakpointsWidget<U24>,
 }
@@ -58,6 +60,7 @@ impl M68kDebugWindowState {
             disassemble_reset_table: false,
             disassemble_table_offset: 0.0,
             disassemble_table_height: 1.0,
+            disassemble_selected_pcs: AddressSet::new(),
             break_status_last_frame: M68000BreakStatus::default(),
             breakpoints,
         }
@@ -480,10 +483,12 @@ fn render_disasm_central_panel(
         ui.spacing_mut().scroll = ScrollStyle { bar_width: 10.0, ..ScrollStyle::solid() };
 
         let mut table_builder = TableBuilder::new(ui)
+            .column(Column::auto().at_least(10.0))
             .column(Column::auto().at_least(60.0))
             .column(Column::auto().at_least(250.0))
             .column(Column::remainder())
-            .striped(true);
+            .striped(true)
+            .sense(egui::Sense::click());
 
         if state.disassemble_reset_table {
             state.disassemble_reset_table = false;
@@ -498,18 +503,32 @@ fn render_disasm_central_panel(
 
         let m68k_pc = if break_status.breaking { break_status.pc } else { m68k.pc() };
 
+        let highlight_color = crate::highlight_color(ctx.theme());
+
         let scroll_output = table_builder.body(|mut body| {
             let mut pc = state.disassemble_start;
             let mut instruction = DisassembledInstruction::new();
 
             for _ in 0..100 {
                 body.row(15.0, |mut row| {
-                    if pc == m68k_pc {
-                        row.set_selected(true);
-                    }
+                    let is_pc_row = pc == m68k_pc;
+                    let original_pc = pc;
+
+                    row.set_selected(state.disassemble_selected_pcs.contains(pc));
 
                     row.col(|ui| {
-                        ui.label(monospace_u24(pc));
+                        if is_pc_row {
+                            ui.add(non_selectable_label(monospace_str("→").color(highlight_color)));
+                        }
+                    });
+
+                    row.col(|ui| {
+                        let mut text = monospace_u24(pc);
+                        if is_pc_row {
+                            text = text.color(highlight_color);
+                        }
+
+                        ui.add(non_selectable_label(text));
                     });
 
                     m68000_emu::disassemble::disassemble_into(&mut instruction, pc, || {
@@ -519,7 +538,12 @@ fn render_disasm_central_panel(
                     });
 
                     row.col(|ui| {
-                        ui.label(RichText::new(&instruction.text).monospace());
+                        let mut text = RichText::new(&instruction.text).monospace();
+                        if is_pc_row {
+                            text = text.color(highlight_color);
+                        }
+
+                        ui.add(non_selectable_label(text));
                     });
 
                     row.col(|ui| {
@@ -535,6 +559,10 @@ fn render_disasm_central_panel(
                             );
                         }
                     });
+
+                    if row.response().clicked() {
+                        state.disassemble_selected_pcs.toggle(original_pc);
+                    }
                 });
             }
 
@@ -578,18 +606,20 @@ fn render_memory_access_col(
         OpSize::LongWord => format!("0x{value:08X}"),
     });
 
-    match (memory_read, instruction.memory_read_type, value_str) {
+    let text = match (memory_read, instruction.memory_read_type, value_str) {
         (MemoryAccess::Absolute { .. }, MemoryReadType::Read, Some(value_str)) => {
-            ui.label(monospace_str(format!("; = {value_str}")));
+            monospace_str(format!("; = {value_str}"))
         }
-        (MemoryAccess::Absolute { .. }, ..) => {}
+        (MemoryAccess::Absolute { .. }, ..) => return,
         (_, MemoryReadType::Read, Some(value_str)) => {
-            ui.label(monospace_str(format!("; ${address:06X} = {value_str}")));
+            monospace_str(format!("; ${address:06X} = {value_str}"))
         }
         (_, MemoryReadType::Read, None) | (_, MemoryReadType::EffectiveAddress, _) => {
-            ui.label(monospace_str(format!("; ${address:06X}")));
+            monospace_str(format!("; ${address:06X}"))
         }
-    }
+    };
+
+    ui.add(non_selectable_label(text));
 }
 
 pub fn render_breakpoints_window(

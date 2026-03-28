@@ -1,4 +1,5 @@
 use crate::genesis::widgets::BreakpointsWidget;
+use crate::{AddressSet, non_selectable_label};
 use egui::panel::{Side, TopBottomSide};
 use egui::style::ScrollStyle;
 use egui::{Align, Grid, RichText, TextEdit, Ui, Window};
@@ -76,6 +77,7 @@ pub struct Sh2DebugWindowState {
     pub disassembly_scroll_row: Option<usize>,
     pub disassembly_table_offset: f32,
     pub disassembly_table_height: f32,
+    pub disassembly_selected_pcs: AddressSet<u32>,
     pub break_status_last_frame: Sh2BreakStatus,
     pub breakpoints: BreakpointsWidget<u32>,
 }
@@ -91,6 +93,7 @@ impl Sh2DebugWindowState {
             disassembly_scroll_row: None,
             disassembly_table_offset: 0.0,
             disassembly_table_height: 1.0,
+            disassembly_selected_pcs: AddressSet::new(),
             break_status_last_frame: Sh2BreakStatus::default(),
             breakpoints: BreakpointsWidget::new(format!("{which:?}_breakpoints")),
         }
@@ -300,33 +303,33 @@ fn render_disasm_right_panel(
 fn render_disasm_central_panel(
     sh2: &Sh2,
     debug_state: &mut Sega32XDebugState,
-    window_state: &mut Sh2DebugWindowState,
+    state: &mut Sh2DebugWindowState,
     break_status: Sh2BreakStatus,
     ui: &mut Ui,
 ) {
     let ctx = ui.ctx().clone();
 
     egui::CentralPanel::default().show_inside(ui, |ui| {
-        let disassembly_area = window_state.disassembly_area;
+        let disassembly_area = state.disassembly_area;
         let address_range = disassembly_area.address_range();
 
         ui.spacing_mut().scroll = ScrollStyle { bar_width: 10.0, ..ScrollStyle::solid() };
 
         let mut table_builder = TableBuilder::new(ui)
             .striped(true)
+            .column(Column::auto().at_least(10.0))
             .column(Column::auto().at_least(80.0))
-            .column(Column::auto().at_least(40.0))
             .column(Column::auto().at_least(150.0))
-            .column(Column::remainder());
+            .column(Column::remainder())
+            .sense(egui::Sense::click());
 
-        if let Some(scroll_to_row) = window_state.disassembly_scroll_row.take() {
+        if let Some(scroll_to_row) = state.disassembly_scroll_row.take() {
             table_builder = table_builder.scroll_to_row(scroll_to_row, Some(Align::Center));
-        } else if crate::window_on_top(&ctx, window_state.which.disassembly_window_title()) {
+        } else if crate::window_on_top(&ctx, state.which.disassembly_window_title()) {
             let keys = crate::scroll_keys_pressed(&ctx);
-            if let Some(offset) = keys.relative_scroll_offset(window_state.disassembly_table_height)
-            {
-                table_builder = table_builder
-                    .vertical_scroll_offset(window_state.disassembly_table_offset + offset);
+            if let Some(offset) = keys.relative_scroll_offset(state.disassembly_table_height) {
+                table_builder =
+                    table_builder.vertical_scroll_offset(state.disassembly_table_offset + offset);
             }
         }
 
@@ -336,26 +339,42 @@ fn render_disasm_central_panel(
 
         let mut disassembled = DisassembledInstruction::new();
 
+        let highlight_color = crate::highlight_color(ctx.theme());
+
         let scroll_output = table_builder.body(|body| {
             body.rows(15.0, (address_range.end - address_range.start) / 2, |mut row| {
-                row.set_selected(pc_row_index == Some(row.index()));
-
+                let is_pc_row = pc_row_index == Some(row.index());
                 let address = (address_range.start + 2 * row.index()) as u32;
 
+                row.set_selected(state.disassembly_selected_pcs.contains(address));
+
                 row.col(|ui| {
-                    ui.label(monospace_u32(address));
+                    if is_pc_row {
+                        ui.add(non_selectable_label(
+                            RichText::new("→").monospace().color(highlight_color),
+                        ));
+                    }
+                });
+
+                row.col(|ui| {
+                    let mut text = monospace_u32(address);
+                    if is_pc_row {
+                        text = text.color(highlight_color);
+                    }
+
+                    ui.add(non_selectable_label(text));
                 });
 
                 let opcode = disassembly_area.read_address(address, sh2, debug_state);
-
-                row.col(|ui| {
-                    ui.label(monospace_u16(opcode));
-                });
-
                 sh2_emu::disassemble_into(address, opcode, &mut disassembled);
 
                 row.col(|ui| {
-                    ui.label(RichText::new(&disassembled.text).monospace());
+                    let mut text = RichText::new(&disassembled.text).monospace();
+                    if is_pc_row {
+                        text = text.color(highlight_color);
+                    }
+
+                    ui.add(non_selectable_label(text));
                 });
 
                 row.col(|ui| {
@@ -381,21 +400,24 @@ fn render_disasm_central_panel(
                         }
                     });
 
-                    match (disassembled.memory_read_type, value) {
+                    let text = match (disassembled.memory_read_type, value) {
                         (ReadType::Load, Some(value)) => {
-                            ui.label(
-                                RichText::new(format!("; ${address:08X} = {value}")).monospace(),
-                            );
+                            RichText::new(format!("; ${address:08X} = {value}")).monospace()
                         }
                         (ReadType::Load, None) | (ReadType::EffectiveAddress, _) => {
-                            ui.label(RichText::new(format!("; ${address:08X}")).monospace());
+                            RichText::new(format!("; ${address:08X}")).monospace()
                         }
-                    }
+                    };
+                    ui.add(non_selectable_label(text));
                 });
+
+                if row.response().clicked() {
+                    state.disassembly_selected_pcs.toggle(address);
+                }
             });
         });
-        window_state.disassembly_table_offset = scroll_output.state.offset.y;
-        window_state.disassembly_table_height = scroll_output.inner_rect.height();
+        state.disassembly_table_offset = scroll_output.state.offset.y;
+        state.disassembly_table_height = scroll_output.inner_rect.height();
     });
 }
 
@@ -432,10 +454,6 @@ pub fn render_breakpoints_window(
             });
         });
     window_state.breakpoints_open = open;
-}
-
-fn monospace_u16(value: u16) -> RichText {
-    RichText::new(format!("{value:04X}")).monospace()
 }
 
 fn monospace_u32(value: u32) -> RichText {
