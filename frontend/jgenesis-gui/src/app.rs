@@ -237,6 +237,7 @@ pub struct App {
     emu_thread: EmuThreadHandle,
     rom_list_thread: RomListThreadHandle,
     load_at_startup: Option<LoadAtStartup>,
+    initialized: bool,
 }
 
 fn load_app_config(config_path: &Path) -> AppConfig {
@@ -269,7 +270,15 @@ impl App {
         let rom_list_thread = RomListThreadHandle::spawn(Arc::clone(&state.rom_list), ctx);
         rom_list_thread.request_scan(config.rom_search_dirs.clone());
 
-        Self { config, state, config_path, emu_thread, rom_list_thread, load_at_startup }
+        Self {
+            config,
+            state,
+            config_path,
+            emu_thread,
+            rom_list_thread,
+            load_at_startup,
+            initialized: false,
+        }
     }
 
     fn open_file(&mut self, console: Option<Console>) {
@@ -1238,6 +1247,11 @@ impl eframe::App for App {
         if self.emu_thread.exit_signal() {
             ctx.send_viewport_cmd(ViewportCommand::Close);
             return;
+        }
+
+        if !self.initialized && self.state.rendered_first_frame {
+            ctx.send_viewport_cmd(ViewportCommand::Focus);
+            self.initialized = ctx.input(|input| input.raw.focused);
         }
 
         if self.state.rom_list_refresh_needed && !self.rom_list_thread.any_scans_in_progress() {
