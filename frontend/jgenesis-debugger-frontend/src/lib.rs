@@ -559,7 +559,7 @@ fn scroll_keys_pressed(ctx: &egui::Context) -> ScrollKeys {
 fn highlight_color(theme: egui::Theme) -> Color32 {
     match theme {
         egui::Theme::Dark => Color32::GREEN,
-        egui::Theme::Light => Color32::RED,
+        egui::Theme::Light => Color32::BLUE,
     }
 }
 

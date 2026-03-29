@@ -1,4 +1,4 @@
-use egui::{FontFamily, Grid, RichText, TextEdit, Ui};
+use egui::{FontFamily, Grid, RichText, TextEdit, Ui, Window};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GenericBreakpoint<T> {
@@ -13,6 +13,7 @@ pub struct GenericBreakpoint<T> {
 pub struct BreakpointsWidget<T> {
     id: String,
     breakpoints: Vec<GenericBreakpoint<T>>,
+    breakpoints_changed: bool,
     start_address: String,
     end_address: String,
     read: bool,
@@ -25,9 +26,10 @@ impl<T> BreakpointsWidget<T> {
         Self {
             id: id.into(),
             breakpoints: Vec::new(),
+            breakpoints_changed: false,
             start_address: String::new(),
             end_address: String::new(),
-            read: false,
+            read: true,
             write: false,
             execute: false,
         }
@@ -87,11 +89,29 @@ impl<T> BreakpointsWidget<T>
 where
     T: BreakpointAddress,
 {
-    pub fn render(
+    pub fn show_window_and_update(
         &mut self,
-        ui: &mut Ui,
+        ctx: &egui::Context,
+        window_title: impl Into<egui::WidgetText>,
+        window_open: &mut bool,
         update_breakpoints: impl FnOnce(&[GenericBreakpoint<T>]),
     ) {
+        Window::new(window_title)
+            .open(window_open)
+            .constrain(false)
+            .resizable([true, true])
+            .default_pos(crate::rand_window_pos())
+            .show(ctx, |ui| {
+                self.render(ui);
+            });
+
+        if self.breakpoints_changed {
+            self.breakpoints_changed = false;
+            update_breakpoints(&self.breakpoints);
+        }
+    }
+
+    fn render(&mut self, ui: &mut Ui) {
         let initial_breakpoints = self.breakpoints.clone();
 
         if !self.breakpoints.is_empty() {
@@ -193,8 +213,95 @@ where
             }
         }
 
-        if initial_breakpoints != self.breakpoints {
-            update_breakpoints(&self.breakpoints);
+        self.breakpoints_changed |= initial_breakpoints != self.breakpoints;
+    }
+
+    pub fn has_execute_breakpoint(&self, address: T) -> bool {
+        self.breakpoints.iter().any(|breakpoint| {
+            breakpoint.execute
+                && breakpoint.start_address == address
+                && breakpoint.end_address == address
+        })
+    }
+
+    pub fn toggle_execute_breakpoint(&mut self, address: T) {
+        let mut value: Option<bool> = None;
+        let mut to_remove = Vec::new();
+        for (i, breakpoint) in self.breakpoints.iter_mut().enumerate() {
+            if breakpoint.start_address != address || breakpoint.end_address != address {
+                continue;
+            }
+
+            let value = *value.get_or_insert(!breakpoint.execute);
+            breakpoint.execute = value;
+
+            if !breakpoint.read && !breakpoint.write && !breakpoint.execute {
+                to_remove.push(i);
+            }
+        }
+
+        if value.is_none() {
+            self.breakpoints.push(GenericBreakpoint {
+                start_address: address,
+                end_address: address,
+                read: false,
+                write: false,
+                execute: true,
+            });
+        }
+
+        for remove_idx in to_remove.into_iter().rev() {
+            if remove_idx < self.breakpoints.len() {
+                self.breakpoints.remove(remove_idx);
+            }
+        }
+
+        self.breakpoints_changed = true;
+    }
+
+    // Render a widget that can be clicked on to toggle execute breakpoints at a specific address.
+    //
+    // Draws a red circle if there exists a breakpoint at the specified address, otherwise draws
+    // an empty circle whenever the widget is hovered over.
+    pub fn render_clickable_widget(
+        &mut self,
+        address: T,
+        interact_id: impl Into<egui::Id>,
+        ui: &mut Ui,
+    ) {
+        let max_rect = ui.max_rect();
+
+        let interact_resp = ui.interact(max_rect, interact_id.into(), egui::Sense::click());
+
+        let has_execute_breakpoint = self.has_execute_breakpoint(address);
+        if interact_resp.clicked() {
+            self.toggle_execute_breakpoint(address);
+        } else if interact_resp.hovered() || has_execute_breakpoint {
+            let fill_color = if interact_resp.hovered() && has_execute_breakpoint {
+                egui::Color32::LIGHT_RED
+            } else if has_execute_breakpoint {
+                egui::Color32::RED
+            } else {
+                ui.visuals().panel_fill
+            };
+            let stroke_color = ui.visuals().text_color();
+
+            let radius = if max_rect.width() < max_rect.height() {
+                0.5 * max_rect.width()
+            } else {
+                0.5 * max_rect.height()
+            };
+
+            ui.painter().circle(
+                [
+                    0.5 * max_rect.width() + max_rect.left(),
+                    0.5 * max_rect.height() + max_rect.top(),
+                ]
+                .into(),
+                radius,
+                fill_color,
+                egui::Stroke::new(1.0, stroke_color),
+            );
         }
     }
 }

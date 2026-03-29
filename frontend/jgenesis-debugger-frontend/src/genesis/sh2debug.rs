@@ -349,6 +349,12 @@ fn render_disasm_central_panel(
                 row.set_selected(state.disassembly_selected_pcs.contains(address));
 
                 row.col(|ui| {
+                    state.breakpoints.render_clickable_widget(
+                        address,
+                        format!("{}_break_row_{address}", state.which.disassembly_window_title()),
+                        ui,
+                    );
+
                     if is_pc_row {
                         ui.add(non_selectable_label(
                             RichText::new("→").monospace().color(highlight_color),
@@ -423,37 +429,30 @@ fn render_disasm_central_panel(
 
 pub fn render_breakpoints_window(
     ctx: &egui::Context,
-    window_state: &mut Sh2DebugWindowState,
+    state: &mut Sh2DebugWindowState,
     command_sender: &Sender<Sega32XDebugCommand>,
 ) {
-    let window_title = window_state.which.breakpoints_window_title();
+    let window_title = state.which.breakpoints_window_title();
+    state.breakpoints.show_window_and_update(
+        ctx,
+        window_title,
+        &mut state.breakpoints_open,
+        |breakpoints| {
+            let sh2_breakpoints = breakpoints
+                .iter()
+                .map(|breakpoint| Sh2Breakpoint {
+                    start_address: breakpoint.start_address,
+                    end_address: breakpoint.end_address,
+                    read: breakpoint.read,
+                    write: breakpoint.write,
+                    execute: breakpoint.execute,
+                })
+                .collect();
 
-    let mut open = window_state.breakpoints_open;
-    Window::new(window_title)
-        .open(&mut open)
-        .constrain(false)
-        .resizable([true, true])
-        .default_pos(crate::rand_window_pos())
-        .show(ctx, |ui| {
-            window_state.breakpoints.render(ui, |breakpoints| {
-                let sh2_breakpoints = breakpoints
-                    .iter()
-                    .map(|breakpoint| Sh2Breakpoint {
-                        start_address: breakpoint.start_address,
-                        end_address: breakpoint.end_address,
-                        read: breakpoint.read,
-                        write: breakpoint.write,
-                        execute: breakpoint.execute,
-                    })
-                    .collect();
-
-                let _ = command_sender.send(Sega32XDebugCommand::UpdateSh2Breakpoints(
-                    window_state.which,
-                    sh2_breakpoints,
-                ));
-            });
-        });
-    window_state.breakpoints_open = open;
+            let _ = command_sender
+                .send(Sega32XDebugCommand::UpdateSh2Breakpoints(state.which, sh2_breakpoints));
+        },
+    );
 }
 
 fn monospace_u32(value: u32) -> RichText {

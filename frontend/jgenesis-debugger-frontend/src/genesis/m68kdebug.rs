@@ -517,6 +517,12 @@ fn render_disasm_central_panel(
                     row.set_selected(state.disassemble_selected_pcs.contains(pc));
 
                     row.col(|ui| {
+                        state.breakpoints.render_clickable_widget(
+                            U24::new(pc),
+                            format!("{}_break_row_{pc}", state.breakpoints_window_title),
+                            ui,
+                        );
+
                         if is_pc_row {
                             ui.add(non_selectable_label(monospace_str("→").color(highlight_color)));
                         }
@@ -627,29 +633,25 @@ pub fn render_breakpoints_window(
     state: &mut M68kDebugWindowState,
     mut update_breakpoints: impl FnMut(Vec<M68000Breakpoint>),
 ) {
-    let mut open = state.breakpoints_open;
-    Window::new(&state.breakpoints_window_title)
-        .open(&mut open)
-        .constrain(false)
-        .resizable([true, true])
-        .default_pos(crate::rand_window_pos())
-        .show(ctx, |ui| {
-            state.breakpoints.render(ui, |breakpoints| {
-                let m68k_breakpoints = breakpoints
-                    .iter()
-                    .map(|breakpoint| M68000Breakpoint {
-                        start_address: breakpoint.start_address.get(),
-                        end_address: breakpoint.end_address.get(),
-                        read: breakpoint.read,
-                        write: breakpoint.write,
-                        execute: breakpoint.execute,
-                    })
-                    .collect();
+    state.breakpoints.show_window_and_update(
+        ctx,
+        &state.breakpoints_window_title,
+        &mut state.breakpoints_open,
+        |breakpoints| {
+            let m68k_breakpoints = breakpoints
+                .iter()
+                .map(|breakpoint| M68000Breakpoint {
+                    start_address: breakpoint.start_address.get(),
+                    end_address: breakpoint.end_address.get(),
+                    read: breakpoint.read,
+                    write: breakpoint.write,
+                    execute: breakpoint.execute,
+                })
+                .collect();
 
-                update_breakpoints(m68k_breakpoints);
-            });
-        });
-    state.breakpoints_open = open;
+            update_breakpoints(m68k_breakpoints);
+        },
+    );
 }
 
 fn monospace_u16(value: u16) -> RichText {

@@ -317,6 +317,12 @@ fn render_disasm_central_panel(
                     row.set_selected(state.disassembly_selected_pcs.contains(pc));
 
                     row.col(|ui| {
+                        state.breakpoints.render_clickable_widget(
+                            pc,
+                            format!("z80_break_row_{pc}"),
+                            ui,
+                        );
+
                         if is_pc_row {
                             ui.add(non_selectable_label(
                                 RichText::new("→").monospace().color(highlight_color),
@@ -388,28 +394,24 @@ pub fn render_breakpoints_window(
     state: &mut Z80DebugWindowState,
     update_breakpoints: impl FnOnce(Vec<Z80Breakpoint>),
 ) {
-    let mut open = state.breakpoints_open;
-    Window::new(BREAKPOINTS_WINDOW_TITLE)
-        .open(&mut open)
-        .constrain(false)
-        .resizable([true, true])
-        .default_pos(crate::rand_window_pos())
-        .show(ctx, |ui| {
-            state.breakpoints.render(ui, |breakpoints| {
-                let z80_breakpoints = breakpoints
-                    .iter()
-                    .map(|breakpoint| Z80Breakpoint {
-                        start_address: breakpoint.start_address,
-                        end_address: breakpoint.end_address,
-                        read: breakpoint.read,
-                        write: breakpoint.write,
-                        execute: breakpoint.execute,
-                    })
-                    .collect();
-                update_breakpoints(z80_breakpoints);
-            });
-        });
-    state.breakpoints_open = open;
+    state.breakpoints.show_window_and_update(
+        ctx,
+        BREAKPOINTS_WINDOW_TITLE,
+        &mut state.breakpoints_open,
+        |breakpoints| {
+            let z80_breakpoints = breakpoints
+                .iter()
+                .map(|breakpoint| Z80Breakpoint {
+                    start_address: breakpoint.start_address,
+                    end_address: breakpoint.end_address,
+                    read: breakpoint.read,
+                    write: breakpoint.write,
+                    execute: breakpoint.execute,
+                })
+                .collect();
+            update_breakpoints(z80_breakpoints);
+        },
+    );
 }
 
 fn monospace_text(value: impl Into<String>) -> RichText {
