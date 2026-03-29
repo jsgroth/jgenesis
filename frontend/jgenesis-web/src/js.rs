@@ -32,6 +32,8 @@ extern "C" {
 
     pub fn afterInputConfigure(name: &str, key: &str);
 
+    pub fn showWebGpuUnsupportedMessage();
+
     pub fn localStorageGet(key: &str) -> Option<String>;
 
     pub fn localStorageSet(key: &str, value: &str);

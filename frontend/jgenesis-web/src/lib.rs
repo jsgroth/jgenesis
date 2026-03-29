@@ -428,6 +428,11 @@ const CANVAS_SIZE: WindowSize = WindowSize { width: CANVAS_WIDTH, height: CANVAS
 /// # Panics
 #[wasm_bindgen]
 pub async fn run_emulator(config_ref: WebConfigRef, emulator_channel: EmulatorChannel) {
+    if !is_webgpu_supported().await {
+        js::showWebGpuUnsupportedMessage();
+        return;
+    }
+
     let event_loop = EventLoop::<JgenesisUserEvent>::with_user_event()
         .build()
         .expect("Failed to create winit event loop");
@@ -480,6 +485,21 @@ pub async fn run_emulator(config_ref: WebConfigRef, emulator_channel: EmulatorCh
         event_loop,
         AppState::new(renderer, audio_output, save_writer, config_ref, emulator_channel),
     );
+}
+
+// Attempt to detect if WebGPU is supported by seeing if it's possible to create a wgpu adapter
+// using the WebGPU backend
+//
+// Checking for support using JS browser APIs is unreliable because some browsers lie (e.g. Chrome on Linux)
+async fn is_webgpu_supported() -> bool {
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::BROWSER_WEBGPU,
+        ..wgpu::InstanceDescriptor::default()
+    });
+
+    let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions::default()).await;
+
+    adapter.is_ok()
 }
 
 struct AppState {

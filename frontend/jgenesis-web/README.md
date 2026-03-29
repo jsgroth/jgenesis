@@ -1,6 +1,6 @@
 # jgenesis-web
 
-Minimal web frontend that compiles to WASM and runs in the browser.
+Minimal web frontend that compiles to WASM and runs in the browser. Requires a browser with [WebGPU](https://webgpu.org) support.
 
 ## Dependencies
 

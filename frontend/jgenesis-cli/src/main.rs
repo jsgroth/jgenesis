@@ -939,10 +939,12 @@ fn main() -> anyhow::Result<()> {
         .unwrap_or_else(jgenesis_native_config::default_config_path);
     log::info!("Loading config from '{}'", config_path.display());
 
-    let config_str = fs::read_to_string(&config_path).unwrap_or_else(|err| {
+    let mut config_str = fs::read_to_string(&config_path).unwrap_or_else(|err| {
         log::warn!("Unable to read config file from '{}': {err}", config_path.display());
         "".into()
     });
+
+    jgenesis_native_config::migrate_config_str(&mut config_str);
 
     let mut config = toml::from_str::<AppConfig>(&config_str).unwrap_or_else(|err| {
         log::error!("Unable to deserialize config file at '{}': {err}", config_path.display());

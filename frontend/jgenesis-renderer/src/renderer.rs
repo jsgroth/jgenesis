@@ -1410,11 +1410,7 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             .request_device(&wgpu::DeviceDescriptor {
                 label: "device".into(),
                 required_features: wgpu::Features::empty(),
-                required_limits: if config.use_webgl2_limits {
-                    wgpu::Limits::downlevel_webgl2_defaults()
-                } else {
-                    wgpu::Limits::default()
-                },
+                required_limits: wgpu::Limits::default(),
                 memory_hints: wgpu::MemoryHints::default(),
                 trace: wgpu::Trace::Off,
             })
@@ -1488,6 +1484,8 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
 
 impl<Window> WgpuRenderer<Window> {
     pub fn reload_config(&mut self, mut config: RendererConfig) {
+        let prev_surface_config = self.surface_config.clone();
+
         let present_mode = config.vsync_mode.to_wgpu_present_mode();
         if self.surface_capabilities.present_modes.contains(&present_mode) {
             self.surface_config.present_mode = present_mode;
@@ -1507,7 +1505,11 @@ impl<Window> WgpuRenderer<Window> {
         self.frame_time_tracker.sync_enabled = config.frame_time_sync;
 
         self.renderer_config = config;
-        self.surface.configure(&self.device, &self.surface_config);
+
+        // Firefox Nightly on Linux crashes if Surface::configure() is called with an unchanged config
+        if prev_surface_config != self.surface_config {
+            self.surface.configure(&self.device, &self.surface_config);
+        }
 
         // Force render pipeline to be recreated on the next render_frame() call
         self.pipelines.clear();

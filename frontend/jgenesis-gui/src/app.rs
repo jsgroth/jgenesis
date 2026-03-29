@@ -241,7 +241,10 @@ pub struct App {
 }
 
 fn load_app_config(config_path: &Path) -> AppConfig {
-    let config_str = fs::read_to_string(config_path).unwrap_or_default();
+    let mut config_str = fs::read_to_string(config_path).unwrap_or_default();
+
+    jgenesis_native_config::migrate_config_str(&mut config_str);
+
     let mut config = toml::from_str(&config_str).unwrap_or_else(|err| {
         log::error!("Error deserializing app config at '{}': {err}", config_path.display());
         AppConfig::default()

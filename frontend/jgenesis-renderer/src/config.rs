@@ -24,7 +24,6 @@ pub enum WgpuBackend {
     Auto,
     Vulkan,
     DirectX12,
-    OpenGl,
 }
 
 impl WgpuBackend {
@@ -41,7 +40,6 @@ impl WgpuBackend {
             WgpuBackend::Auto => wgpu::Backends::PRIMARY,
             WgpuBackend::Vulkan => wgpu::Backends::VULKAN,
             WgpuBackend::DirectX12 => wgpu::Backends::DX12,
-            WgpuBackend::OpenGl => wgpu::Backends::GL,
         }
     }
 }
@@ -225,5 +223,4 @@ pub struct RendererConfig {
     pub force_integer_height_scaling: bool,
     pub filter_mode: FilterMode,
     pub preprocess_shader: PreprocessShader,
-    pub use_webgl2_limits: bool,
 }

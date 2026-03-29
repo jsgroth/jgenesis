@@ -48,7 +48,7 @@ impl Default for CommonWebConfig {
 impl CommonWebConfig {
     pub fn to_renderer_config(&self) -> RendererConfig {
         RendererConfig {
-            wgpu_backend: WgpuBackend::OpenGl,
+            wgpu_backend: WgpuBackend::Auto,
             wgpu_power_preference: WgpuPowerPreference::HighPerformance,
             vsync_mode: VSyncMode::Enabled,
             // Frame time sync does not work on web because it blocks until the next frame time
@@ -58,7 +58,6 @@ impl CommonWebConfig {
             force_integer_height_scaling: false,
             filter_mode: self.filter_mode,
             preprocess_shader: self.preprocess_shader,
-            use_webgl2_limits: true,
         }
     }
 }

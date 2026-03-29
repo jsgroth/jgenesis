@@ -162,6 +162,13 @@ export function afterInputConfigure(name, key) {
     document.getElementById("jgenesis-wasm").classList.remove("darken");
 }
 
+export function showWebGpuUnsupportedMessage() {
+    document.getElementById("loading-text").innerHTML = (
+        '<p><a href="https://webgpu.org/">WebGPU</a> browser support is required</p>' +
+        '<p>An older version that uses WebGL is available <a href="https://jsgroth.dev/jgenesis-webgl/">here</a></p>'
+    );
+}
+
 /**
  * @param key {string}
  * @return {string | null}
@@ -177,3 +184,4 @@ export function localStorageGet(key) {
 export function localStorageSet(key, value) {
     localStorage.setItem(key, value);
 }
+

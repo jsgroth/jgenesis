@@ -346,7 +346,6 @@ impl AppConfigExt for AppConfig {
                 force_integer_height_scaling: self.common.force_integer_height_scaling,
                 filter_mode: self.common.filter_mode,
                 preprocess_shader: self.common.preprocess_shader,
-                use_webgl2_limits: false,
             },
             fast_forward_multiplier: self.common.fast_forward_multiplier,
             rewind_buffer_length_seconds: self.common.rewind_buffer_length_seconds,

@@ -8,7 +8,7 @@ pub mod nes;
 pub mod smsgg;
 pub mod snes;
 
-pub use migration::{current_config_version, migrate_config};
+pub use migration::{current_config_version, migrate_config, migrate_config_str};
 
 use crate::common::CommonAppConfig;
 use crate::gb::GameBoyAppConfig;

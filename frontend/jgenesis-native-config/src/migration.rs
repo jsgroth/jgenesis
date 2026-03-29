@@ -9,6 +9,7 @@ use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 use std::str::FromStr;
+use toml_edit::DocumentMut;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SemVer {
@@ -64,6 +65,23 @@ impl FromStr for SemVer {
 #[must_use]
 pub const fn current_config_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
+}
+
+pub fn migrate_config_str(config_str: &mut String) {
+    let Ok(mut document) = config_str.parse::<DocumentMut>() else { return };
+
+    let mut changed = false;
+
+    if document["common"]["wgpu_backend"].as_str() == Some("OpenGl") {
+        log::info!("OpenGL wgpu backend option no longer exists; changing to Auto");
+
+        document["common"]["wgpu_backend"] = toml_edit::value("Auto");
+        changed = true;
+    }
+
+    if changed {
+        *config_str = document.to_string();
+    }
 }
 
 #[must_use]
