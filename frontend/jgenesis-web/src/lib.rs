@@ -622,8 +622,12 @@ impl AppState {
         }
 
         let fps = self.emulator.target_fps();
-        while now >= self.next_frame_time_ms {
-            self.next_frame_time_ms += 1000.0 / fps;
+        let frame_interval_ms = 1000.0 / fps;
+        if self.next_frame_time_ms < now - 5.0 * frame_interval_ms {
+            // Too far behind; catch up
+            self.next_frame_time_ms = now + frame_interval_ms;
+        } else {
+            self.next_frame_time_ms += frame_interval_ms;
         }
 
         self.renderer
