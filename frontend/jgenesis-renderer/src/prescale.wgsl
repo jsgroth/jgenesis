@@ -1,9 +1,6 @@
 struct PrescaleFactor {
     width: u32,
     height: u32,
-    // Uniform structs must be padded to a 16 byte boundary for WebGL
-    _padding1: u32,
-    _padding2: u32,
 }
 
 @group(0) @binding(0)

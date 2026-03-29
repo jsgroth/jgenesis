@@ -1,15 +1,7 @@
-struct TextureWidth {
-    value: u32,
-    // Uniform values must be padded to a multiple of 16 bytes for WebGL
-    _padding0: u32,
-    _padding1: u32,
-    _padding2: u32,
-}
-
 @group(0) @binding(0)
 var texture_in: texture_2d<f32>;
 @group(0) @binding(1)
-var<uniform> texture_width: TextureWidth;
+var<uniform> texture_width: u32;
 
 // If horizontal resolution is 1280 or higher, use a wider range of pixels when applying horizontal blur.
 //
@@ -26,7 +18,7 @@ fn to_texture_position(fragment_position: vec4f) -> vec2u {
 fn hblur_2px(@builtin(position) position: vec4f) -> @location(0) vec4f {
     let t_position = to_texture_position(position);
 
-    if texture_width.value >= S32X_H32_HACK_WIDTH {
+    if texture_width >= S32X_H32_HACK_WIDTH {
         // Blur 9 pixels at H1280px
         let color = compute_hblur_variable(t_position, 4);
         return vec4f(color, 1.0);
@@ -36,7 +28,7 @@ fn hblur_2px(@builtin(position) position: vec4f) -> @location(0) vec4f {
     let right = select(
         left,
         textureLoad(texture_in, t_position + vec2u(1u, 0u), 0).rgb,
-        t_position.x != texture_width.value - 1u,
+        t_position.x != texture_width - 1u,
     );
 
     let color = (left + right) / 2.0;
@@ -47,7 +39,7 @@ fn hblur_2px(@builtin(position) position: vec4f) -> @location(0) vec4f {
 fn hblur_3px(@builtin(position) position: vec4f) -> @location(0) vec4f {
     let t_position = to_texture_position(position);
 
-    if texture_width.value >= S32X_H32_HACK_WIDTH {
+    if texture_width >= S32X_H32_HACK_WIDTH {
         // Blur 13 pixels at H1280px
         let color = compute_hblur_variable(t_position, 6);
         return vec4f(color, 1.0);
@@ -66,7 +58,7 @@ fn compute_hblur_3px(t_position: vec2u) -> vec3f {
         weight_sum += 1.0;
     }
 
-    if t_position.x != texture_width.value - 1u {
+    if t_position.x != texture_width - 1u {
         color_sum += textureLoad(texture_in, t_position + vec2u(1u, 0u), 0).rgb;
         weight_sum += 1.0;
     }
@@ -80,7 +72,7 @@ fn compute_hblur_variable(t_position: vec2u, distance: i32) -> vec3f {
 
     for (var dx = -distance; dx <= distance; dx++) {
         let x = i32(t_position.x) + dx;
-        if x < 0 || x >= i32(texture_width.value) {
+        if x < 0 || x >= i32(texture_width) {
             continue;
         }
 
@@ -97,13 +89,13 @@ fn compute_hblur_variable(t_position: vec2u, distance: i32) -> vec3f {
 fn hblur_snes(@builtin(position) position: vec4f) -> @location(0) vec4f {
     let t_position = to_texture_position(position);
 
-    if texture_width.value >= S32X_H32_HACK_WIDTH {
+    if texture_width >= S32X_H32_HACK_WIDTH {
         // Blur 5 pixels at H1280px
         let color = compute_hblur_variable(t_position, 2);
         return vec4f(color, 1.0);
     }
 
-    if texture_width.value >= 512u {
+    if texture_width >= 512u {
         let color = compute_hblur_3px(t_position);
         return vec4f(color, 1.0);
     }
@@ -126,7 +118,7 @@ fn hblur_snes_256px(out_t_position: vec2u) -> vec3f {
     let right_x = select(
         in_t_position.x,
         in_t_position.x + 1u,
-        out_t_position.x % 2u == 1u && in_t_position.x != texture_width.value - 1u,
+        out_t_position.x % 2u == 1u && in_t_position.x != texture_width - 1u,
     );
 
     let left = textureLoad(texture_in, vec2u(left_x, in_t_position.y), 0).rgb;
@@ -152,7 +144,7 @@ fn shift_right(position: vec2u, shift: u32) -> vec2u {
     return select(
         position - vec2u(shift, 0u),
         position + vec2u(shift, 0u),
-        position.x < texture_width.value - shift,
+        position.x < texture_width - shift,
     );
 }
 

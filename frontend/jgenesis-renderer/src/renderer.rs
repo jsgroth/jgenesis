@@ -2,7 +2,6 @@ use crate::config;
 use crate::config::{PreprocessShader, PrescaleMode, RendererConfig, Scanlines};
 #[cfg(feature = "ttf")]
 use crate::ttf;
-use cfg_if::cfg_if;
 use jgenesis_common::frontend::{
     Color, ColorCorrection, DisplayArea, FiniteF64, FrameSize, RenderFrameOptions, Renderer,
 };
@@ -10,7 +9,6 @@ use jgenesis_common::timeutils;
 use raw_window_handle::{HandleError, HasDisplayHandle, HasWindowHandle};
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::error::Error;
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::{cmp, iter};
@@ -154,7 +152,7 @@ impl ColorCorrectionShader {
         let input_view = input.create_view(&SRGB_TEX_VIEW_DESCRIPTOR);
         let gamma_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: "color_correction_gamma_buffer".into(),
-            contents: bytemuck::cast_slice(&padded_f32(screen_gamma.into())),
+            contents: bytemuck::cast_slice(&[f32::from(screen_gamma)]),
             usage: wgpu::BufferUsages::UNIFORM,
         });
 
@@ -472,7 +470,7 @@ impl BlurShader {
 
         let texture_width_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: "hblur_texture_width_buffer".into(),
-            contents: bytemuck::cast_slice(&padded_u32(input_texture.size().width)),
+            contents: bytemuck::cast_slice(&[input_texture.size().width]),
             usage: wgpu::BufferUsages::UNIFORM,
         });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -633,7 +631,7 @@ impl PrescaleShader {
 
         let prescale_factor_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: "prescale_factor_buffer".into(),
-            contents: bytemuck::cast_slice(&padded_two_u32(prescale_width, prescale_height)),
+            contents: bytemuck::cast_slice(&[prescale_width, prescale_height]),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
         });
 
@@ -756,19 +754,6 @@ impl PreprocessShaderExt for PreprocessShader {
             _ => 1,
         }
     }
-}
-
-// WebGL requires all uniforms to be padded to a multiple of 16 bytes
-fn padded_u32(value: u32) -> [u32; 4] {
-    [value, 0, 0, 0]
-}
-
-fn padded_two_u32(value_0: u32, value_1: u32) -> [u32; 4] {
-    [value_0, value_1, 0, 0]
-}
-
-fn padded_f32(value: f32) -> [f32; 4] {
-    [value, 0.0, 0.0, 0.0]
 }
 
 struct RenderingPipeline {
@@ -1238,7 +1223,7 @@ pub enum RendererError {
     #[error("Error creating wgpu surface: {0}")]
     WgpuCreateSurface(#[from] wgpu::CreateSurfaceError),
     #[error("Error requesting wgpu device: {0}")]
-    WgpuRequestDevice(#[source] Box<dyn Error + Send + Sync + 'static>),
+    WgpuRequestDevice(#[from] wgpu::RequestDeviceError),
     #[error("Error getting handle to wgpu output surface: {0}")]
     WgpuSurface(#[from] wgpu::SurfaceError),
     #[error("Failed to obtain wgpu adapter")]
@@ -1253,35 +1238,6 @@ pub enum RendererError {
     #[cfg(feature = "ttf")]
     #[error("Error rendering text: {0}")]
     GlyphonRender(#[from] glyphon::RenderError),
-}
-
-#[cfg(target_arch = "wasm32")]
-#[derive(Debug, Clone)]
-struct RequestDeviceErrorWrapper(String);
-
-#[cfg(target_arch = "wasm32")]
-impl std::fmt::Display for RequestDeviceErrorWrapper {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-impl std::error::Error for RequestDeviceErrorWrapper {}
-
-impl From<wgpu::RequestDeviceError> for RendererError {
-    fn from(value: wgpu::RequestDeviceError) -> Self {
-        cfg_if! {
-            if #[cfg(target_arch = "wasm32")] {
-                // On web, wgpu::RequestDeviceError contains a JsValue which is not Send+Sync.
-                // Serialize the error to a String, which is not ideal but keeps the error type
-                // Send+Sync
-                Self::WgpuRequestDevice(Box::new(RequestDeviceErrorWrapper(value.to_string())))
-            } else {
-                Self::WgpuRequestDevice(Box::new(value))
-            }
-        }
-    }
 }
 
 struct Shaders {

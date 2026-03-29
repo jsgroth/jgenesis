@@ -1,15 +1,7 @@
-// WebGL requires uniforms to be padded to a multiple of 16 bytes
-struct PaddedF32 {
-    value: f32,
-    _padding0: f32,
-    _padding1: f32,
-    _padding2: f32,
-}
-
 @group(0) @binding(0)
 var texture_in: texture_2d<f32>;
 @group(0) @binding(1)
-var<uniform> gamma: PaddedF32;
+var<uniform> gamma: f32;
 
 fn to_texture_position(fragment_position: vec4f) -> vec2u {
     let texture_position = round(fragment_position.xy - vec2f(0.5));
@@ -22,7 +14,7 @@ fn color_correction(position: vec4f, correction: mat3x3f) -> vec4f {
     var color = textureLoad(texture_in, tex_position, 0).rgb;
 
     // Gamma correct for device's screen before applying color correction matrix
-    color = pow(color, vec3f(gamma.value / 2.2));
+    color = pow(color, vec3f(gamma / 2.2));
 
     color = color * correction;
 
