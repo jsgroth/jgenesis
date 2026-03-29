@@ -44,6 +44,19 @@ const VERTICES: [Vertex; 4] = [
     Vertex { position: [1.0, 1.0], texture_coords: [1.0, 0.0] },
 ];
 
+const SRGB_TEX_VIEW_DESCRIPTOR: wgpu::TextureViewDescriptor<'static> =
+    wgpu::TextureViewDescriptor {
+        label: None,
+        format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+        dimension: None,
+        usage: Some(wgpu::TextureUsages::TEXTURE_BINDING),
+        aspect: wgpu::TextureAspect::All,
+        base_mip_level: 0,
+        mip_level_count: None,
+        base_array_layer: 0,
+        array_layer_count: None,
+    };
+
 trait PipelineShader {
     fn draw(&mut self, encoder: &mut wgpu::CommandEncoder);
 
@@ -55,9 +68,14 @@ trait PipelineShader {
 fn basic_render_pass<'encoder, 'label>(
     encoder: &'encoder mut wgpu::CommandEncoder,
     output: &wgpu::Texture,
+    output_format: wgpu::TextureFormat,
     label: impl Into<wgpu::Label<'label>>,
 ) -> wgpu::RenderPass<'encoder> {
-    let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
+    let output_view = output.create_view(&wgpu::TextureViewDescriptor {
+        format: Some(output_format),
+        usage: Some(wgpu::TextureUsages::RENDER_ATTACHMENT),
+        ..wgpu::TextureViewDescriptor::default()
+    });
 
     encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: label.into(),
@@ -100,11 +118,11 @@ impl ColorCorrectionShader {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: input.format(),
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
+            view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
         });
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -133,7 +151,7 @@ impl ColorCorrectionShader {
             ],
         });
 
-        let input_view = input.create_view(&wgpu::TextureViewDescriptor::default());
+        let input_view = input.create_view(&SRGB_TEX_VIEW_DESCRIPTOR);
         let gamma_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: "color_correction_gamma_buffer".into(),
             contents: bytemuck::cast_slice(&padded_f32(screen_gamma.into())),
@@ -188,7 +206,7 @@ impl ColorCorrectionShader {
                 entry_point: Some(fs_main),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: input.format(),
+                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -203,8 +221,12 @@ impl ColorCorrectionShader {
 
 impl PipelineShader for ColorCorrectionShader {
     fn draw(&mut self, encoder: &mut wgpu::CommandEncoder) {
-        let mut render_pass =
-            basic_render_pass(encoder, &self.output, "color_correction_render_pass");
+        let mut render_pass = basic_render_pass(
+            encoder,
+            &self.output,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            "color_correction_render_pass",
+        );
 
         render_pass.set_bind_group(0, &self.bind_group, &[]);
         render_pass.set_pipeline(&self.pipeline);
@@ -234,9 +256,9 @@ impl FrameBlendShader {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: input.format(),
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
+            view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
         });
 
         let output_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -245,11 +267,11 @@ impl FrameBlendShader {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: input.format(),
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
+            view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
         });
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -285,14 +307,13 @@ impl FrameBlendShader {
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::TextureView(
-                        &input.create_view(&wgpu::TextureViewDescriptor::default()),
+                        &input.create_view(&SRGB_TEX_VIEW_DESCRIPTOR),
                     ),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::TextureView(
-                        &previous_frame_texture
-                            .create_view(&wgpu::TextureViewDescriptor::default()),
+                        &previous_frame_texture.create_view(&SRGB_TEX_VIEW_DESCRIPTOR),
                     ),
                 },
             ],
@@ -329,7 +350,7 @@ impl FrameBlendShader {
                 entry_point: None,
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: output_texture.format(),
+                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -352,7 +373,12 @@ impl FrameBlendShader {
 impl PipelineShader for FrameBlendShader {
     fn draw(&mut self, encoder: &mut wgpu::CommandEncoder) {
         if !self.skip_next_frame {
-            let mut render_pass = basic_render_pass(encoder, &self.output, "blend_render_pass");
+            let mut render_pass = basic_render_pass(
+                encoder,
+                &self.output,
+                wgpu::TextureFormat::Rgba8UnormSrgb,
+                "blend_render_pass",
+            );
 
             render_pass.set_bind_group(0, &self.bind_group, &[]);
             render_pass.set_pipeline(&self.pipeline);
@@ -400,7 +426,7 @@ impl BlurShader {
             return None;
         }
 
-        let input_texture_view = input_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let input_texture_view = input_texture.create_view(&SRGB_TEX_VIEW_DESCRIPTOR);
 
         let width_scale_factor = preprocess_shader.width_scale_factor(input_texture.width());
         let output_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -413,9 +439,9 @@ impl BlurShader {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: input_texture.format(),
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
+            view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
         });
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -509,7 +535,7 @@ impl BlurShader {
                 entry_point: Some(fs_main),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: output_texture.format(),
+                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -524,7 +550,12 @@ impl BlurShader {
 
 impl PipelineShader for BlurShader {
     fn draw(&mut self, encoder: &mut wgpu::CommandEncoder) {
-        let mut render_pass = basic_render_pass(encoder, &self.output, "preprocess_render_pass");
+        let mut render_pass = basic_render_pass(
+            encoder,
+            &self.output,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            "preprocess_render_pass",
+        );
 
         for (i, bind_group) in self.bind_groups.iter().enumerate() {
             render_pass.set_bind_group(i as u32, bind_group, &[]);
@@ -553,7 +584,6 @@ impl PrescaleShader {
         display_area: DisplayArea,
         pixel_aspect_ratio: Option<FiniteF64>,
         input: &wgpu::Texture,
-        texture_format: wgpu::TextureFormat,
         device: &wgpu::Device,
         limits: &wgpu::Limits,
         shaders: &Shaders,
@@ -607,7 +637,7 @@ impl PrescaleShader {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
         });
 
-        let input_view = input.create_view(&wgpu::TextureViewDescriptor::default());
+        let input_view = input.create_view(&SRGB_TEX_VIEW_DESCRIPTOR);
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: "prescale_bind_group".into(),
             layout: &bind_group_layout,
@@ -642,9 +672,9 @@ impl PrescaleShader {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: texture_format,
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
+            view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
         });
 
         let prescale_fs_main = match renderer_config.scanlines {
@@ -681,7 +711,7 @@ impl PrescaleShader {
                 entry_point: Some(prescale_fs_main),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: scaled_texture.format(),
+                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -696,7 +726,12 @@ impl PrescaleShader {
 
 impl PipelineShader for PrescaleShader {
     fn draw(&mut self, encoder: &mut wgpu::CommandEncoder) {
-        let mut prescale_pass = basic_render_pass(encoder, &self.output, "prescale_render_pass");
+        let mut prescale_pass = basic_render_pass(
+            encoder,
+            &self.output,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            "prescale_render_pass",
+        );
 
         prescale_pass.set_bind_group(0, &self.bind_group, &[]);
         prescale_pass.set_pipeline(&self.pipeline);
@@ -761,7 +796,6 @@ impl RenderingPipeline {
         window_size: WindowSize,
         frame_size: FrameSize,
         options: RenderFrameOptions,
-        texture_format: wgpu::TextureFormat,
         surface_config: &wgpu::SurfaceConfiguration,
         renderer_config: RendererConfig,
     ) -> Self {
@@ -782,11 +816,11 @@ impl RenderingPipeline {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: texture_format,
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::COPY_SRC
                 | wgpu::TextureUsages::COPY_DST
                 | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
+            view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
         }));
 
         let display_area = determine_display_area(
@@ -861,7 +895,6 @@ impl RenderingPipeline {
             display_area,
             options.pixel_aspect_ratio,
             &current_output_texture(&shader_pipeline, &input_texture),
-            texture_format,
             device,
             limits,
             shaders,
@@ -893,8 +926,21 @@ impl RenderingPipeline {
                 ],
             });
 
-        let render_input_view = current_output_texture(&shader_pipeline, &input_texture)
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        // Input texture view binding should use same sRGB-awareness as surface.
+        // This can produce slightly inaccurate texture sampling results when rendering to a
+        // non-sRGB-aware surface, but it avoids horribly incorrect colors
+        let render_input_texture = current_output_texture(&shader_pipeline, &input_texture);
+        let render_input_view_format = if surface_config.format.is_srgb() {
+            wgpu::TextureFormat::Rgba8UnormSrgb
+        } else {
+            wgpu::TextureFormat::Rgba8Unorm
+        };
+        let render_input_view = render_input_texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(render_input_view_format),
+            usage: Some(wgpu::TextureUsages::TEXTURE_BINDING),
+            ..wgpu::TextureViewDescriptor::default()
+        });
+
         let render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: "render_bind_group".into(),
             layout: &render_bind_group_layout,
@@ -1011,7 +1057,12 @@ impl RenderingPipeline {
         )?;
 
         {
-            let mut render_pass = basic_render_pass(&mut encoder, &output.texture, "render_pass");
+            let mut render_pass = basic_render_pass(
+                &mut encoder,
+                &output.texture,
+                output.texture.format(),
+                "render_pass",
+            );
 
             render_pass.set_bind_group(0, &self.render_bind_group, &[]);
             render_pass.set_pipeline(&self.render_pipeline);
@@ -1349,7 +1400,6 @@ pub struct WgpuRenderer<Window> {
     device_limits: wgpu::Limits,
     queue: wgpu::Queue,
     shaders: Shaders,
-    texture_format: wgpu::TextureFormat,
     renderer_config: RendererConfig,
     pipelines: RenderingPipelines,
     #[cfg(feature = "ttf")]
@@ -1436,6 +1486,8 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
                 surface_capabilities.formats[0]
             });
 
+        log::info!("Configuring wgpu surface with texture format {surface_format:?}");
+
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
@@ -1447,12 +1499,6 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             view_formats: vec![],
         };
         surface.configure(&device, &surface_config);
-
-        let texture_format = if surface_format.is_srgb() {
-            wgpu::TextureFormat::Rgba8UnormSrgb
-        } else {
-            wgpu::TextureFormat::Rgba8Unorm
-        };
 
         let device_limits = device.limits();
         let shaders = Shaders::create(&device);
@@ -1468,7 +1514,6 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             device_limits,
             queue,
             shaders,
-            texture_format,
             renderer_config: config,
             pipelines: RenderingPipelines::new(),
             #[cfg(feature = "ttf")]
@@ -1640,7 +1685,6 @@ impl<Window> Renderer for WgpuRenderer<Window> {
                 self.window_size,
                 frame_size,
                 options,
-                self.texture_format,
                 &self.surface_config,
                 self.renderer_config,
             )
