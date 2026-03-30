@@ -74,7 +74,7 @@ impl Platform {
                     pos: pointer_pos,
                     button: egui_button,
                     pressed: true,
-                    modifiers: egui::Modifiers::default(),
+                    modifiers: self.raw_input.modifiers,
                 });
             }
             &SdlEvent::MouseButtonUp { window_id, mouse_btn, x, y, .. }
@@ -87,7 +87,7 @@ impl Platform {
                     pos: pointer_pos,
                     button: egui_button,
                     pressed: false,
-                    modifiers: egui::Modifiers::default(),
+                    modifiers: self.raw_input.modifiers,
                 });
             }
             &SdlEvent::MouseWheel { window_id, direction, x, y, .. }
@@ -107,10 +107,10 @@ impl Platform {
             &SdlEvent::KeyDown { window_id, keycode: Some(keycode), keymod, repeat, .. }
                 if window_id == self.window_id =>
             {
-                let Some(egui_key) = sdl_keycode_to_egui(keycode) else { return };
-
                 let modifiers = sdl_mod_to_egui(keymod);
+                self.raw_input.modifiers = modifiers;
 
+                let Some(egui_key) = sdl_keycode_to_egui(keycode) else { return };
                 self.raw_input.events.push(egui::Event::Key {
                     key: egui_key,
                     physical_key: None,
@@ -139,10 +139,10 @@ impl Platform {
             &SdlEvent::KeyUp { window_id, keycode: Some(keycode), keymod, repeat, .. }
                 if window_id == self.window_id =>
             {
-                let Some(egui_key) = sdl_keycode_to_egui(keycode) else { return };
-
                 let modifiers = sdl_mod_to_egui(keymod);
+                self.raw_input.modifiers = modifiers;
 
+                let Some(egui_key) = sdl_keycode_to_egui(keycode) else { return };
                 self.raw_input.events.push(egui::Event::Key {
                     key: egui_key,
                     physical_key: None,

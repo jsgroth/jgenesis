@@ -2,7 +2,7 @@ use crate::genesis::widgets::BreakpointsWidget;
 use crate::{AddressSet, non_selectable_label};
 use egui::panel::{Side, TopBottomSide};
 use egui::style::ScrollStyle;
-use egui::{Align, Grid, RichText, TextEdit, Ui, Window};
+use egui::{Align, Grid, Layout, RichText, TextEdit, Ui, Window};
 use egui_extras::{Column, TableBuilder};
 use s32x_core::WhichCpu;
 use s32x_core::api::debug::{
@@ -178,7 +178,7 @@ pub fn render_disassembly_window(
 }
 
 fn render_disasm_top_panel(
-    window_state: &mut Sh2DebugWindowState,
+    state: &mut Sh2DebugWindowState,
     command_sender: &Sender<Sega32XDebugCommand>,
     window_title: &str,
     ui: &mut Ui,
@@ -188,8 +188,7 @@ fn render_disasm_top_panel(
         |ui| {
             ui.horizontal(|ui| {
                 if ui.button("Pause").clicked() {
-                    let _ =
-                        command_sender.send(Sega32XDebugCommand::BreakPauseSh2(window_state.which));
+                    let _ = command_sender.send(Sega32XDebugCommand::BreakPauseSh2(state.which));
                 }
 
                 if ui.button("Resume").clicked() {
@@ -197,9 +196,14 @@ fn render_disasm_top_panel(
                 }
 
                 if ui.button("Step").clicked() {
-                    let _ =
-                        command_sender.send(Sega32XDebugCommand::BreakStepSh2(window_state.which));
+                    let _ = command_sender.send(Sega32XDebugCommand::BreakStepSh2(state.which));
                 }
+
+                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                    if ui.button("Breakpoints").clicked() {
+                        state.open_breakpoints_window(ui.ctx());
+                    }
+                });
             });
 
             ui.add_space(3.0);
@@ -209,7 +213,7 @@ fn render_disasm_top_panel(
 
 fn render_disasm_right_panel(
     sh2: &Sh2,
-    window_state: &mut Sh2DebugWindowState,
+    state: &mut Sh2DebugWindowState,
     window_title: &str,
     ui: &mut Ui,
 ) {
@@ -225,28 +229,27 @@ fn render_disasm_right_panel(
                 (DisassemblyArea::CartridgeRom { cached: false }, "ROM (Uncached)"),
                 (DisassemblyArea::Cache, "CPU Cache"),
             ] {
-                ui.radio_value(&mut window_state.disassembly_area, value, label);
+                ui.radio_value(&mut state.disassembly_area, value, label);
             }
 
             ui.horizontal(|ui| {
-                let text_resp = ui.add(
-                    TextEdit::singleline(&mut window_state.disassembly_address).desired_width(80.0),
-                );
+                let text_resp = ui
+                    .add(TextEdit::singleline(&mut state.disassembly_address).desired_width(80.0));
                 let button_resp = ui.button("Jump to address");
 
                 let should_jump = button_resp.clicked()
                     || (text_resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
                 if should_jump
-                    && let Ok(address) = u32::from_str_radix(&window_state.disassembly_address, 16)
+                    && let Ok(address) = u32::from_str_radix(&state.disassembly_address, 16)
                 {
-                    window_state.try_jump_to_address(address);
+                    state.try_jump_to_address(address);
                 }
             });
 
             ui.add_space(3.0);
 
             if ui.button("Jump to PC").clicked() {
-                window_state.try_jump_to_address(sh2.pc());
+                state.try_jump_to_address(sh2.pc());
             }
 
             ui.separator();
@@ -418,7 +421,9 @@ fn render_disasm_central_panel(
                 });
 
                 if row.response().clicked() {
-                    state.disassembly_selected_pcs.toggle(address);
+                    state
+                        .disassembly_selected_pcs
+                        .handle_click(address, ctx.input(|i| i.modifiers));
                 }
             });
         });

@@ -3,7 +3,9 @@ use crate::genesis::widgets::BreakpointsWidget;
 use crate::{AddressSet, non_selectable_label};
 use egui::panel::{Side, TopBottomSide};
 use egui::style::ScrollStyle;
-use egui::{Align, CentralPanel, Grid, RichText, SidePanel, TextEdit, TopBottomPanel, Ui, Window};
+use egui::{
+    Align, CentralPanel, Grid, Layout, RichText, SidePanel, TextEdit, TopBottomPanel, Ui, Window,
+};
 use egui_extras::{Column, TableBuilder};
 use genesis_core::api::debug::{GenesisDebugState, Z80BreakStatus, Z80Breakpoint};
 use z80_emu::{DisassembledInstruction, MemoryAccess, Z80};
@@ -145,7 +147,7 @@ pub fn render_disassembly_window(
         .default_width(700.0)
         .show(ctx, |ui| {
             if let Some(handle_command) = handle_command {
-                render_disasm_top_panel(handle_command, ui);
+                render_disasm_top_panel(state, handle_command, ui);
             }
 
             render_disasm_right_panel(z80, state, ui);
@@ -154,7 +156,11 @@ pub fn render_disassembly_window(
     state.disassembly_open = open;
 }
 
-fn render_disasm_top_panel(mut handle_command: impl FnMut(Z80BreakCommand), ui: &mut Ui) {
+fn render_disasm_top_panel(
+    state: &mut Z80DebugWindowState,
+    mut handle_command: impl FnMut(Z80BreakCommand),
+    ui: &mut Ui,
+) {
     TopBottomPanel::new(TopBottomSide::Top, "z80_top_panel").show_inside(ui, |ui| {
         ui.horizontal(|ui| {
             if ui.button("Pause").clicked() {
@@ -168,6 +174,12 @@ fn render_disasm_top_panel(mut handle_command: impl FnMut(Z80BreakCommand), ui: 
             if ui.button("Step").clicked() {
                 handle_command(Z80BreakCommand::Step);
             }
+
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                if ui.button("Breakpoints").clicked() {
+                    state.open_breakpoints_window(ui.ctx());
+                }
+            });
         });
 
         ui.add_space(3.0);
@@ -377,7 +389,9 @@ fn render_disasm_central_panel(
                     });
 
                     if row.response().clicked() {
-                        state.disassembly_selected_pcs.toggle(original_pc);
+                        state
+                            .disassembly_selected_pcs
+                            .handle_click(original_pc, ctx.input(|i| i.modifiers));
                     }
                 });
             }

@@ -578,11 +578,17 @@ impl<T: Copy + Eq + Hash> AddressSet<T> {
         self.0.contains(&value)
     }
 
-    fn toggle(&mut self, value: T) {
-        if self.0.contains(&value) {
-            self.0.remove(&value);
-        } else {
+    fn handle_click(&mut self, value: T, modifiers: egui::Modifiers) {
+        let existed = self.0.contains(&value);
+
+        if !modifiers.ctrl {
+            self.0.clear();
+        }
+
+        if !existed {
             self.0.insert(value);
+        } else {
+            self.0.remove(&value);
         }
     }
 }

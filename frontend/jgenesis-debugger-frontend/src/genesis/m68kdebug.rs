@@ -2,7 +2,9 @@ use crate::genesis::widgets::{BreakpointsWidget, U24};
 use crate::{AddressSet, non_selectable_label};
 use egui::panel::{Side, TopBottomSide};
 use egui::style::ScrollStyle;
-use egui::{Align, CentralPanel, Grid, RichText, SidePanel, TextEdit, TopBottomPanel, Ui, Window};
+use egui::{
+    Align, CentralPanel, Grid, Layout, RichText, SidePanel, TextEdit, TopBottomPanel, Ui, Window,
+};
 use egui_extras::{Column, TableBuilder};
 use genesis_core::api::debug::{GenesisDebugState, M68000BreakStatus, M68000Breakpoint};
 use genesis_core::cartridge::Cartridge;
@@ -365,6 +367,12 @@ fn render_disasm_top_panel(
             if ui.button("Step").clicked() {
                 handle_command(M68kBreakCommand::Step);
             }
+
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                if ui.button("Breakpoints").clicked() {
+                    state.open_breakpoints_window(ui.ctx());
+                }
+            });
         });
 
         ui.add_space(5.0);
@@ -567,7 +575,9 @@ fn render_disasm_central_panel(
                     });
 
                     if row.response().clicked() {
-                        state.disassemble_selected_pcs.toggle(original_pc);
+                        state
+                            .disassemble_selected_pcs
+                            .handle_click(original_pc, ctx.input(|i| i.modifiers));
                     }
                 });
             }
