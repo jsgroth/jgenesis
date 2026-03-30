@@ -1137,7 +1137,11 @@ impl CpuBus<'_> {
                     (data, address)
                 } else {
                     let palette_address = address & PALETTE_RAM_MASK;
-                    let palette_byte = self.0.ppu_palette_ram[palette_address as usize] & 0x3F;
+                    let palette_data_mask =
+                        if self.0.ppu_registers.greyscale() { 0x30 } else { 0x3F };
+
+                    let palette_byte =
+                        self.0.ppu_palette_ram[palette_address as usize] & palette_data_mask;
                     let open_bus_bits = self.read_ppu_open_bus() & 0xC0;
                     self.set_ppu_open_bus(palette_byte, 0x3F);
 
