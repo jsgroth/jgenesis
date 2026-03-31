@@ -36,15 +36,26 @@ pub struct Modal {
     expiry_nanos: u128,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Multisampled {
+    No,
+    Yes,
+}
+
+const MULTISAMPLE_STATE: wgpu::MultisampleState =
+    wgpu::MultisampleState { count: 4, mask: !0, alpha_to_coverage_enabled: false };
+
 pub struct ModalRenderer {
     font_system: FontSystem,
     swash_cache: SwashCache,
     viewport: glyphon::Viewport,
     atlas: TextAtlas,
     text_renderer: TextRenderer,
+    text_renderer_multisample: TextRenderer,
     buffers: Vec<Buffer>,
     modals: Vec<Modal>,
     bg_pipeline: wgpu::RenderPipeline,
+    bg_pipeline_multisample: wgpu::RenderPipeline,
 }
 
 impl ModalRenderer {
@@ -59,9 +70,11 @@ impl ModalRenderer {
         let mut atlas = TextAtlas::new(device, queue, &glyphon_cache, surface_format);
         let text_renderer =
             TextRenderer::new(&mut atlas, device, wgpu::MultisampleState::default(), None);
+        let text_renderer_multisample =
+            TextRenderer::new(&mut atlas, device, MULTISAMPLE_STATE, None);
 
         let shader = device.create_shader_module(wgpu::include_wgsl!("modal.wgsl"));
-        let bg_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let bg_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
             label: "modal_bg_pipeline".into(),
             layout: None,
             vertex: wgpu::VertexState {
@@ -93,7 +106,13 @@ impl ModalRenderer {
             }),
             multiview: None,
             cache: None,
-        });
+        };
+        let bg_pipeline = device.create_render_pipeline(&bg_pipeline_descriptor);
+        let bg_pipeline_multisample =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                multisample: MULTISAMPLE_STATE,
+                ..bg_pipeline_descriptor
+            });
 
         let viewport = glyphon::Viewport::new(device, &glyphon_cache);
 
@@ -103,9 +122,11 @@ impl ModalRenderer {
             viewport,
             atlas,
             text_renderer,
+            text_renderer_multisample,
             buffers: Vec::with_capacity(10),
             modals: Vec::with_capacity(10),
             bg_pipeline,
+            bg_pipeline_multisample,
         }
     }
 
@@ -139,6 +160,7 @@ impl ModalRenderer {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        multisampled: Multisampled,
         width: u32,
         height: u32,
     ) -> Result<Option<wgpu::Buffer>, glyphon::PrepareError> {
@@ -190,7 +212,12 @@ impl ModalRenderer {
 
         self.viewport.update(queue, Resolution { width, height });
 
-        self.text_renderer.prepare(
+        let text_renderer = match multisampled {
+            Multisampled::No => &mut self.text_renderer,
+            Multisampled::Yes => &mut self.text_renderer_multisample,
+        };
+
+        text_renderer.prepare(
             device,
             queue,
             &mut self.font_system,
@@ -211,6 +238,7 @@ impl ModalRenderer {
 
     pub fn render<'rpass>(
         &'rpass self,
+        multisampled: Multisampled,
         vertex_buffer: &'rpass wgpu::Buffer,
         render_pass: &mut wgpu::RenderPass<'rpass>,
     ) -> Result<(), glyphon::RenderError> {
@@ -218,13 +246,20 @@ impl ModalRenderer {
             return Ok(());
         }
 
-        render_pass.set_pipeline(&self.bg_pipeline);
+        render_pass.set_pipeline(match multisampled {
+            Multisampled::No => &self.bg_pipeline,
+            Multisampled::Yes => &self.bg_pipeline_multisample,
+        });
         render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
 
         let vertex_count = 6 * self.modals.len() as u32;
         render_pass.draw(0..vertex_count, 0..1);
 
-        self.text_renderer.render(&self.atlas, &self.viewport, render_pass)
+        let text_renderer = match multisampled {
+            Multisampled::No => &self.text_renderer,
+            Multisampled::Yes => &self.text_renderer_multisample,
+        };
+        text_renderer.render(&self.atlas, &self.viewport, render_pass)
     }
 }
 

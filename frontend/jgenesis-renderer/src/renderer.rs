@@ -764,6 +764,7 @@ struct RenderingPipeline {
     vertex_buffer: wgpu::Buffer,
     render_bind_group: wgpu::BindGroup,
     render_pipeline: wgpu::RenderPipeline,
+    multisample_output: Option<wgpu::Texture>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -948,6 +949,29 @@ impl RenderingPipeline {
                 push_constant_ranges: &[],
             });
 
+        // Use multisampled rendering only when the surface is smaller than the final frame texture
+        // in at least 1 dimension; otherwise it's just a waste of compute
+        let multisample = renderer_config.filter_mode == config::FilterMode::Linear
+            && (render_input_texture.width() > surface_config.width
+                || render_input_texture.height() > surface_config.height);
+
+        let multisample_output = multisample.then(|| {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: "multisample_output_texture".into(),
+                size: wgpu::Extent3d {
+                    width: surface_config.width,
+                    height: surface_config.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 4,
+                dimension: wgpu::TextureDimension::D2,
+                format: surface_config.format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            })
+        });
+
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: "render_pipeline".into(),
             layout: Some(&render_pipeline_layout),
@@ -968,7 +992,7 @@ impl RenderingPipeline {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState {
-                count: 1,
+                count: if multisample { 4 } else { 1 },
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
@@ -994,6 +1018,7 @@ impl RenderingPipeline {
             vertex_buffer,
             render_bind_group,
             render_pipeline,
+            multisample_output,
         }
     }
 
@@ -1034,20 +1059,44 @@ impl RenderingPipeline {
         }
 
         #[cfg(feature = "ttf")]
+        let ttf_multisampled = match self.multisample_output {
+            Some(_) => ttf::Multisampled::Yes,
+            None => ttf::Multisampled::No,
+        };
+
+        #[cfg(feature = "ttf")]
         let modal_vertex_buffer = modal_renderer.prepare_modals(
             device,
             queue,
+            ttf_multisampled,
             surface_config.width,
             surface_config.height,
         )?;
 
+        let surface_output_view =
+            output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let (output_view, resolve_target) = match &self.multisample_output {
+            Some(multisample_output) => (
+                multisample_output.create_view(&wgpu::TextureViewDescriptor::default()),
+                Some(surface_output_view),
+            ),
+            None => (surface_output_view, None),
+        };
+
         {
-            let mut render_pass = basic_render_pass(
-                &mut encoder,
-                &output.texture,
-                output.texture.format(),
-                "render_pass",
-            );
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: "surface_render_pass".into(),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &output_view,
+                    resolve_target: resolve_target.as_ref(),
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                ..wgpu::RenderPassDescriptor::default()
+            });
 
             render_pass.set_bind_group(0, &self.render_bind_group, &[]);
             render_pass.set_pipeline(&self.render_pipeline);
@@ -1057,7 +1106,7 @@ impl RenderingPipeline {
 
             #[cfg(feature = "ttf")]
             if let Some(modal_vertex_buffer) = &modal_vertex_buffer {
-                modal_renderer.render(modal_vertex_buffer, &mut render_pass)?;
+                modal_renderer.render(ttf_multisampled, modal_vertex_buffer, &mut render_pass)?;
             }
         }
 

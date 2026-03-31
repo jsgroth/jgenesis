@@ -5,7 +5,7 @@ struct VertexInput {
 
 struct VertexOutput {
     @builtin(position) position: vec4f,
-    @location(0) texture_coords: vec2f,
+    @location(0) @interpolate(perspective, sample) texture_coords: vec2f,
 }
 
 @group(0) @binding(0)
