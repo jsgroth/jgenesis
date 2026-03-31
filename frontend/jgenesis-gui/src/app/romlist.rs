@@ -131,6 +131,41 @@ pub fn from_recent_opens(recent_opens: &[RecentOpen]) -> Vec<RomMetadata> {
         .collect()
 }
 
+pub fn find_all_disc_paths(path: &Path) -> Vec<(String, PathBuf)> {
+    static DISC_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" \(Disc (\d)\)").unwrap());
+
+    let Some(path_name_str) = path.file_name().and_then(OsStr::to_str) else { return Vec::new() };
+    let name_without_disc = DISC_RE.replace(path_name_str, "");
+    if name_without_disc.as_ref() == path_name_str {
+        return Vec::new();
+    }
+
+    let Some(parent) = path.parent() else { return Vec::new() };
+    let Ok(read_dir) = parent.read_dir() else { return Vec::new() };
+
+    let mut discs = Vec::new();
+
+    for entry in read_dir {
+        let Ok(entry) = entry else { continue };
+        let file_name = entry.file_name();
+        let Some(file_name) = file_name.to_str() else { continue };
+
+        if DISC_RE.replace(file_name, "") != name_without_disc.as_ref() {
+            continue;
+        }
+
+        let Some(captures) = DISC_RE.captures(file_name) else { continue };
+
+        let disc_number = captures.get(1).unwrap();
+        let disc_name = format!("Disc {}", disc_number.as_str());
+        discs.push((disc_name, entry.path()));
+    }
+
+    discs.sort_by(|a, b| a.0.cmp(&b.0));
+
+    discs
+}
+
 #[derive(Debug)]
 pub struct RomListThreadHandle {
     scan_requests_sender: Sender<Vec<String>>,

@@ -4,11 +4,14 @@ use bincode::error::{DecodeError, EncodeError};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::SaveWriter;
 use jgenesis_native_config::common::SavePath;
+use regex::Regex;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 use std::{env, fs, io};
 use thiserror::Error;
 
@@ -172,16 +175,31 @@ impl SaveWriter for FsSaveWriter {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RemoveDiscFromPath {
+    No,
+    Yes,
+}
+
 fn determine_path(
     path: &SavePath,
     rom_path: &Path,
     rom_extension: &str,
     save_extension: &str,
     save_subdir: &str,
+    remove_disc: RemoveDiscFromPath,
 ) -> NativeEmulatorResult<PathBuf> {
     let base_dir = match path {
         SavePath::RomFolder => {
             // Return early because this is a path directly to the save file, not the parent directory
+            if remove_disc == RemoveDiscFromPath::Yes
+                && let Some(file_name) = rom_path.file_name().and_then(OsStr::to_str)
+            {
+                let name_without_disc = strip_disc_from_file_name(file_name);
+                return Ok(rom_path
+                    .with_file_name(name_without_disc.as_ref())
+                    .with_extension(save_extension));
+            }
             return Ok(rom_path.with_extension(save_extension));
         }
         SavePath::EmulatorFolder => {
@@ -212,7 +230,18 @@ fn determine_path(
         return Err(NativeEmulatorError::ParseFileName(rom_path.to_string_lossy().into()));
     };
 
-    Ok(base_dir.join(Path::new(rom_file_name).with_extension(save_extension)))
+    let save_file_name = match remove_disc {
+        RemoveDiscFromPath::No => rom_file_name.into(),
+        RemoveDiscFromPath::Yes => strip_disc_from_file_name(rom_file_name),
+    };
+
+    Ok(base_dir.join(Path::new(save_file_name.as_ref()).with_extension(save_extension)))
+}
+
+fn strip_disc_from_file_name(file_name: &str) -> Cow<'_, str> {
+    static DISC_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" \(Disc \d\)").unwrap());
+
+    DISC_RE.replace(file_name, "")
 }
 
 fn determine_current_exe_parent() -> PathBuf {
@@ -258,10 +287,22 @@ pub fn determine_save_paths(
     rom_path: &Path,
     rom_extension: &str,
 ) -> NativeEmulatorResult<DeterminedPaths> {
-    let save_path =
-        determine_path(base_save_path, rom_path, rom_extension, "sav", SavePath::SAVE_SUBDIR)?;
-    let save_state_path =
-        determine_path(base_state_path, rom_path, rom_extension, "jst", SavePath::STATE_SUBDIR)?;
+    let save_path = determine_path(
+        base_save_path,
+        rom_path,
+        rom_extension,
+        "sav",
+        SavePath::SAVE_SUBDIR,
+        RemoveDiscFromPath::Yes,
+    )?;
+    let save_state_path = determine_path(
+        base_state_path,
+        rom_path,
+        rom_extension,
+        "jst",
+        SavePath::STATE_SUBDIR,
+        RemoveDiscFromPath::No,
+    )?;
 
     log::info!("Save file path: '{}'", save_path.display());
     log::info!("Base save state path: '{}'", save_state_path.display());

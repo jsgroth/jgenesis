@@ -171,6 +171,7 @@ struct AppState {
     filtered_rom_list: Rc<[RomMetadata]>,
     rom_list_refresh_needed: bool,
     recent_open_list: Vec<RomMetadata>,
+    disc_change_options: Vec<(String, PathBuf)>,
     title_match: String,
     title_match_lowercase: Rc<str>,
     rendered_first_frame: bool,
@@ -210,6 +211,7 @@ impl AppState {
             title_match: String::new(),
             title_match_lowercase: Rc::from(String::new()),
             recent_open_list,
+            disc_change_options: Vec::new(),
             rendered_first_frame: false,
             close_on_emulator_exit: false,
         }
@@ -342,6 +344,8 @@ impl App {
             .insert(0, RecentOpen { console: console_str, path: path.clone() });
         self.config.recent_open_list.truncate(10);
         self.state.recent_open_list = romlist::from_recent_opens(&self.config.recent_open_list);
+
+        self.state.disc_change_options = romlist::find_all_disc_paths(&path);
 
         self.emu_thread.stop_emulator_if_running();
         self.emu_thread.send(EmuThreadCommand::Run {
@@ -592,6 +596,7 @@ impl App {
                                 console,
                                 config: Box::new(self.config.clone()),
                             });
+                            self.state.current_file_path.clear();
                             ui.close_kind(UiKind::Menu);
                         }
                     });
@@ -705,18 +710,40 @@ impl App {
                 ui.add_enabled_ui(
                     self.emu_thread.status() == EmuThreadStatus::RunningSegaCd,
                     |ui| {
-                        if ui.button("Remove Disc").clicked() {
-                            self.emu_thread.send(EmuThreadCommand::SegaCdRemoveDisc);
-                            ui.close_kind(UiKind::Menu);
-                        }
+                        ui.menu_button("Change Disc", |ui| {
+                            if !self.state.disc_change_options.is_empty() {
+                                for (name, path) in &self.state.disc_change_options {
+                                    let enabled = path != &self.state.current_file_path;
+                                    ui.add_enabled_ui(enabled, |ui| {
+                                        if ui.button(name).clicked() {
+                                            self.state.current_file_path.clone_from(path);
+                                            self.emu_thread.send(
+                                                EmuThreadCommand::SegaCdChangeDisc(path.clone()),
+                                            );
+                                            ui.close_kind(UiKind::Menu);
+                                        }
+                                    });
+                                }
 
-                        if ui.button("Change Disc").clicked() {
-                            if let Some(path) =
-                                FileDialog::new().add_filter("cue/chd", &["cue", "chd"]).pick_file()
-                            {
-                                self.emu_thread.send(EmuThreadCommand::SegaCdChangeDisc(path));
+                                ui.separator();
                             }
 
+                            if ui.button("Select file...").clicked() {
+                                if let Some(path) = FileDialog::new()
+                                    .add_filter("cue/chd", &["cue", "chd"])
+                                    .pick_file()
+                                {
+                                    self.state.current_file_path.clone_from(&path);
+                                    self.emu_thread.send(EmuThreadCommand::SegaCdChangeDisc(path));
+                                }
+
+                                ui.close_kind(UiKind::Menu);
+                            }
+                        });
+
+                        if ui.button("Remove Disc").clicked() {
+                            self.emu_thread.send(EmuThreadCommand::SegaCdRemoveDisc);
+                            self.state.current_file_path.clear();
                             ui.close_kind(UiKind::Menu);
                         }
                     },

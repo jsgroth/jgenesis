@@ -2681,6 +2681,7 @@ dependencies = [
  "nes-config",
  "nes-core",
  "pollster",
+ "regex",
  "rustc-hash 2.1.1",
  "s32x-core",
  "sdl3",

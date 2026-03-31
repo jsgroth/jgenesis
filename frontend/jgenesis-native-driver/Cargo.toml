@@ -39,6 +39,7 @@ bincode = { workspace = true }
 clap = { workspace = true, optional = true }
 log = { workspace = true }
 pollster = { workspace = true }
+regex = { workspace = true }
 rustc-hash = { workspace = true }
 sdl3 = { workspace = true }
 sevenz-rust = { workspace = true }
