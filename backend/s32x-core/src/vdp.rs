@@ -11,7 +11,8 @@ use bincode::{Decode, Encode};
 use genesis_config::{S32XColorTint, S32XVideoOut, S32XVoidColor};
 use genesis_core::vdp::BorderSize;
 use jgenesis_common::frontend::{
-    Color, FiniteF64, FrameSize, RenderFrameOptions, Renderer, TimingMode,
+    Color, CompositeParams, FiniteF64, FrameSize, RenderFrameOptions, Renderer,
+    SamplesPerColorCycle, TimingMode,
 };
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
@@ -912,7 +913,11 @@ impl Vdp {
                 genesis_vdp.frame_buffer(),
                 genesis_vdp.frame_size(),
                 target_fps,
-                RenderFrameOptions::pixel_aspect_ratio(aspect_ratio),
+                RenderFrameOptions {
+                    pixel_aspect_ratio: aspect_ratio,
+                    composite_params: Some(genesis_vdp.composite_params()),
+                    ..RenderFrameOptions::default()
+                },
             );
         }
 
@@ -944,7 +949,14 @@ impl Vdp {
             self.expanded_frame_buffer.as_ref(),
             frame_size,
             target_fps,
-            RenderFrameOptions::pixel_aspect_ratio(aspect_ratio),
+            RenderFrameOptions {
+                pixel_aspect_ratio: aspect_ratio,
+                composite_params: Some(CompositeParams {
+                    upscale_factor: 2,
+                    samples_per_color_cycle: SamplesPerColorCycle::Fifteen,
+                }),
+                ..RenderFrameOptions::default()
+            },
         )
     }
 

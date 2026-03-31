@@ -9,8 +9,9 @@ use crate::vdp::{Vdp, VdpBuffer, VdpTickEffect, ViewportSize};
 use crate::{VdpVersion, vdp};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FrameSize, InputPoller, PartialClone,
-    RenderFrameOptions, Renderer, SaveWriter, TickEffect, TimingMode,
+    AudioOutput, Color, CompositeParams, EmulatorConfigTrait, EmulatorTrait, FrameSize,
+    InputPoller, PartialClone, RenderFrameOptions, Renderer, SamplesPerColorCycle, SaveWriter,
+    TickEffect, TimingMode,
 };
 use jgenesis_proc_macros::{ConfigDisplay, FakeDecode, FakeEncode};
 use smsgg_config::{
@@ -107,7 +108,14 @@ impl SmsGgEmulatorConfig {
     }
 
     pub(crate) fn sms_render_options(&self) -> RenderFrameOptions {
-        RenderFrameOptions::pixel_aspect_ratio(self.sms_aspect_ratio.to_pixel_aspect_ratio())
+        RenderFrameOptions {
+            pixel_aspect_ratio: self.sms_aspect_ratio.to_pixel_aspect_ratio(),
+            composite_params: Some(CompositeParams {
+                upscale_factor: 10,
+                samples_per_color_cycle: SamplesPerColorCycle::Fifteen,
+            }),
+            ..RenderFrameOptions::default()
+        }
     }
 
     pub(crate) fn gg_render_options(&self) -> RenderFrameOptions {

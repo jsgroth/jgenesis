@@ -9,8 +9,9 @@ use crate::ppu::PpuState;
 use crate::{apu, audio, cpu, graphics, ppu};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FrameSize, InputPoller,
-    RenderFrameOptions, Renderer, SaveWriter, TickEffect, TickResult, TimingMode,
+    AudioOutput, Color, CompositeParams, EmulatorConfigTrait, EmulatorTrait, FrameSize,
+    InputPoller, RenderFrameOptions, Renderer, SamplesPerColorCycle, SaveWriter, TickEffect,
+    TickResult, TimingMode,
 };
 use jgenesis_proc_macros::{ConfigDisplay, PartialClone};
 use std::fmt::{Debug, Display};
@@ -230,7 +231,14 @@ impl NesEmulator {
             &self.rgba_frame_buffer,
             frame_size,
             self.target_fps(),
-            RenderFrameOptions::pixel_aspect_ratio(pixel_aspect_ratio),
+            RenderFrameOptions {
+                pixel_aspect_ratio,
+                composite_params: Some(CompositeParams {
+                    upscale_factor: 8,
+                    samples_per_color_cycle: SamplesPerColorCycle::Twelve,
+                }),
+                ..RenderFrameOptions::default()
+            },
         )
     }
 

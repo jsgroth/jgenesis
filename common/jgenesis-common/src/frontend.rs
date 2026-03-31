@@ -90,12 +90,35 @@ impl Display for ColorCorrection {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SamplesPerColorCycle {
+    Twelve,  // ~42.95 MHz sample rate (NES, SNES)
+    Fifteen, // ~53.69 MHz sample rate (SMS, Genesis)
+}
+
+impl From<SamplesPerColorCycle> for u32 {
+    fn from(value: SamplesPerColorCycle) -> Self {
+        match value {
+            SamplesPerColorCycle::Twelve => 12,
+            SamplesPerColorCycle::Fifteen => 15,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CompositeParams {
+    // How many times to repeat each frame buffer pixel
+    pub upscale_factor: u32,
+    pub samples_per_color_cycle: SamplesPerColorCycle,
+}
+
 /// Rendering options that are not required to be explicitly specified, unlike frame size
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct RenderFrameOptions {
     pub pixel_aspect_ratio: Option<FiniteF64>,
     pub color_correction: ColorCorrection,
     pub frame_blending: bool,
+    pub composite_params: Option<CompositeParams>,
 }
 
 impl RenderFrameOptions {

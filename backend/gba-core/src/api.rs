@@ -85,6 +85,7 @@ impl GbaEmulatorConfig {
             pixel_aspect_ratio: self.aspect_ratio.to_pixel_aspect_ratio(),
             color_correction: self.color_correction,
             frame_blending: self.frame_blending,
+            ..RenderFrameOptions::default()
         }
     }
 }

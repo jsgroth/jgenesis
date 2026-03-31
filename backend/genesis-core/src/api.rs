@@ -426,7 +426,11 @@ pub fn render_frame<R: Renderer>(
         vdp.frame_buffer(),
         frame_size,
         target_fps,
-        RenderFrameOptions::pixel_aspect_ratio(pixel_aspect_ratio),
+        RenderFrameOptions {
+            pixel_aspect_ratio,
+            composite_params: Some(vdp.composite_params()),
+            ..RenderFrameOptions::default()
+        },
     )
 }
 

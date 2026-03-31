@@ -70,6 +70,7 @@ impl GameBoyEmulatorConfig {
                 HardwareMode::Cgb => self.gbc_color_correction,
             },
             frame_blending: self.frame_blending,
+            ..RenderFrameOptions::default()
         }
     }
 }

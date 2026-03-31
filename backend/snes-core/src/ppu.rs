@@ -12,7 +12,9 @@ use crate::ppu::registers::{
 };
 use crate::ppu::sprites::{SpriteProcessor, SpriteState};
 use bincode::{Decode, Encode};
-use jgenesis_common::frontend::{Color, FrameSize, TimingMode};
+use jgenesis_common::frontend::{
+    Color, CompositeParams, FrameSize, SamplesPerColorCycle, TimingMode,
+};
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::array;
@@ -1512,6 +1514,12 @@ impl Ppu {
         }
 
         FrameSize { width: screen_width, height: screen_height.into() }
+    }
+
+    pub fn composite_params(&self) -> CompositeParams {
+        let upscale_factor = if self.state.h_hi_res_frame { 4 } else { 8 };
+
+        CompositeParams { upscale_factor, samples_per_color_cycle: SamplesPerColorCycle::Twelve }
     }
 
     pub fn read_port(&mut self, address: u32) -> Option<u8> {

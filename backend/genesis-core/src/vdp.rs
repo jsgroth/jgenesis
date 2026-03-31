@@ -23,7 +23,9 @@ use crate::vdp::registers::{
 };
 use crate::vdp::sprites::{SpriteBuffers, SpriteState};
 use bincode::{Decode, Encode};
-use jgenesis_common::frontend::{Color, FrameSize, TimingMode};
+use jgenesis_common::frontend::{
+    Color, CompositeParams, FrameSize, SamplesPerColorCycle, TimingMode,
+};
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{EnumAll, FakeDecode, FakeEncode};
 use std::collections::VecDeque;
@@ -1868,6 +1870,17 @@ impl Vdp {
     #[must_use]
     pub fn frame_size(&self) -> FrameSize {
         FrameSize { width: self.screen_width(), height: self.screen_height() }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn composite_params(&self) -> CompositeParams {
+        let upscale_factor = match self.state.frame_h_resolution {
+            HorizontalDisplaySize::ThirtyTwoCell => 10,
+            HorizontalDisplaySize::FortyCell => 8,
+        };
+
+        CompositeParams { upscale_factor, samples_per_color_cycle: SamplesPerColorCycle::Fifteen }
     }
 
     #[inline]
