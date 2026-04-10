@@ -123,65 +123,9 @@ impl ColorCorrectionShader {
             view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
         });
 
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: "color_correction_bind_group_layout".into(),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
-
-        let input_view = input.create_view(&SRGB_TEX_VIEW_DESCRIPTOR);
-        let gamma_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: "color_correction_gamma_buffer".into(),
-            contents: bytemuck::cast_slice(&[f32::from(screen_gamma)]),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: "color_correction_bind_group".into(),
-            layout: &bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&input_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Buffer(
-                        gamma_buffer.as_entire_buffer_binding(),
-                    ),
-                },
-            ],
-        });
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: "color_correction_pipeline_layout".into(),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
-        });
-
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: "color_correction_pipeline".into(),
-            layout: Some(&pipeline_layout),
+            layout: None,
             vertex: wgpu::VertexState {
                 module: &shaders.identity,
                 entry_point: None,
@@ -211,6 +155,30 @@ impl ColorCorrectionShader {
             }),
             multiview: None,
             cache: None,
+        });
+
+        let input_view = input.create_view(&SRGB_TEX_VIEW_DESCRIPTOR);
+        let gamma_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: "color_correction_gamma_buffer".into(),
+            contents: bytemuck::cast_slice(&[f32::from(screen_gamma)]),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: "color_correction_bind_group".into(),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&input_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer(
+                        gamma_buffer.as_entire_buffer_binding(),
+                    ),
+                },
+            ],
         });
 
         Some(Self { output: Arc::new(output), bind_group, pipeline })
@@ -272,60 +240,9 @@ impl FrameBlendShader {
             view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
         });
 
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: "blend_bind_group_layout".into(),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-            ],
-        });
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: "blend_bind_group".into(),
-            layout: &bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(
-                        &input.create_view(&SRGB_TEX_VIEW_DESCRIPTOR),
-                    ),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(
-                        &previous_frame_texture.create_view(&SRGB_TEX_VIEW_DESCRIPTOR),
-                    ),
-                },
-            ],
-        });
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: "blend_pipeline_layout".into(),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
-        });
-
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: "blend_pipeline".into(),
-            layout: Some(&pipeline_layout),
+            layout: None,
             vertex: wgpu::VertexState {
                 module: &shaders.identity,
                 entry_point: None,
@@ -355,6 +272,25 @@ impl FrameBlendShader {
             }),
             multiview: None,
             cache: None,
+        });
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: "blend_bind_group".into(),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(
+                        &input.create_view(&SRGB_TEX_VIEW_DESCRIPTOR),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(
+                        &previous_frame_texture.create_view(&SRGB_TEX_VIEW_DESCRIPTOR),
+                    ),
+                },
+            ],
         });
 
         Self {
@@ -442,60 +378,6 @@ impl BlurShader {
             view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
         });
 
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: "hblur_bind_group_layout".into(),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
-
-        let texture_width_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: "hblur_texture_width_buffer".into(),
-            contents: bytemuck::cast_slice(&[input_texture.size().width]),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: "hblur_bind_group".into(),
-            layout: &bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&input_texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Buffer(
-                        texture_width_buffer.as_entire_buffer_binding(),
-                    ),
-                },
-            ],
-        });
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: "hblur_pipeline_layout".into(),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
-        });
-
         let fs_main = match preprocess_shader {
             PreprocessShader::HorizontalBlurTwoPixels => "hblur_2px",
             PreprocessShader::HorizontalBlurThreePixels => "hblur_3px",
@@ -506,7 +388,7 @@ impl BlurShader {
         };
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: "hblur_pipeline".into(),
-            layout: Some(&pipeline_layout),
+            layout: None,
             vertex: wgpu::VertexState {
                 module: &shaders.identity,
                 entry_point: None,
@@ -540,6 +422,28 @@ impl BlurShader {
             }),
             multiview: None,
             cache: None,
+        });
+
+        let texture_width_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: "hblur_texture_width_buffer".into(),
+            contents: bytemuck::cast_slice(&[input_texture.size().width]),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: "hblur_bind_group".into(),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&input_texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer(
+                        texture_width_buffer.as_entire_buffer_binding(),
+                    ),
+                },
+            ],
         });
 
         Some(Self { output: Arc::new(output_texture), bind_groups: vec![bind_group], pipeline })
@@ -603,63 +507,6 @@ impl PrescaleShader {
             "Creating prescale shader with width factor {prescale_width}x and height factor {prescale_height}x",
         );
 
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: "prescale_bind_group_layout".into(),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
-
-        let prescale_factor_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: "prescale_factor_buffer".into(),
-            contents: bytemuck::cast_slice(&[prescale_width, prescale_height]),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
-        });
-
-        let input_view = input.create_view(&SRGB_TEX_VIEW_DESCRIPTOR);
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: "prescale_bind_group".into(),
-            layout: &bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&input_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Buffer(
-                        prescale_factor_buffer.as_entire_buffer_binding(),
-                    ),
-                },
-            ],
-        });
-
-        let prescale_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: "prescale_pipeline_layout".into(),
-                bind_group_layouts: &[&bind_group_layout],
-                push_constant_ranges: &[],
-            });
-
         let scaled_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: "scaled_texture".into(),
             size: wgpu::Extent3d {
@@ -682,7 +529,7 @@ impl PrescaleShader {
         };
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: "prescale_pipeline".into(),
-            layout: Some(&prescale_pipeline_layout),
+            layout: None,
             vertex: wgpu::VertexState {
                 module: &shaders.identity,
                 entry_point: None,
@@ -716,6 +563,30 @@ impl PrescaleShader {
             }),
             multiview: None,
             cache: None,
+        });
+
+        let prescale_factor_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: "prescale_factor_buffer".into(),
+            contents: bytemuck::cast_slice(&[prescale_width, prescale_height]),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
+        });
+
+        let input_view = input.create_view(&SRGB_TEX_VIEW_DESCRIPTOR);
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: "prescale_bind_group".into(),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&input_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer(
+                        prescale_factor_buffer.as_entire_buffer_binding(),
+                    ),
+                },
+            ],
         });
 
         Some(Self { bind_group, pipeline, output: Arc::new(scaled_texture) })
@@ -889,29 +760,6 @@ impl RenderingPipeline {
             shader_pipeline.push(Box::new(prescale_shader));
         }
 
-        let render_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: "render_bind_group_layout".into(),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-            });
-
         // Input texture view binding should use same sRGB-awareness as surface.
         // This can produce slightly inaccurate texture sampling results when rendering to a
         // non-sRGB-aware surface, but it avoids horribly incorrect colors
@@ -926,28 +774,6 @@ impl RenderingPipeline {
             usage: Some(wgpu::TextureUsages::TEXTURE_BINDING),
             ..wgpu::TextureViewDescriptor::default()
         });
-
-        let render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: "render_bind_group".into(),
-            layout: &render_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&render_input_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
-        });
-
-        let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: "render_pipeline_layout".into(),
-                bind_group_layouts: &[&render_bind_group_layout],
-                push_constant_ranges: &[],
-            });
 
         // Use multisampled rendering only when the surface is smaller than the final frame texture
         // in at least 1 dimension; otherwise it's just a waste of compute
@@ -974,7 +800,7 @@ impl RenderingPipeline {
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: "render_pipeline".into(),
-            layout: Some(&render_pipeline_layout),
+            layout: None,
             vertex: wgpu::VertexState {
                 module: &shaders.render,
                 entry_point: None,
@@ -1008,6 +834,21 @@ impl RenderingPipeline {
             }),
             multiview: None,
             cache: None,
+        });
+
+        let render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: "render_bind_group".into(),
+            layout: &render_pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&render_input_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
         });
 
         Self {
