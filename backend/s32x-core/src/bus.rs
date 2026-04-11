@@ -98,14 +98,14 @@ macro_rules! word_to_byte {
 
 // 68000 memory map
 impl PhysicalMedium for Sega32X {
-    fn read_byte(&mut self, address: u32) -> u8 {
+    fn read_byte(&mut self, address: u32, open_bus: u16) -> u8 {
         match address {
             M68K_VECTORS_START..=M68K_VECTORS_END => {
                 // Hardcoded vectors when 32X is enabled, first 256 bytes of ROM otherwise
                 if self.s32x_bus.registers.adapter_enabled {
                     self.m68k_vectors[address as usize]
                 } else {
-                    self.s32x_bus.cartridge.read_byte(address)
+                    self.s32x_bus.cartridge.read_byte(address, open_bus)
                 }
             }
             M68K_CARTRIDGE_START..=M68K_CARTRIDGE_END => {
@@ -116,7 +116,7 @@ impl PhysicalMedium for Sega32X {
                 {
                     log::warn!("ROM byte read with RV=0: {address:06X}");
                 }
-                self.s32x_bus.cartridge.read_byte(address)
+                self.s32x_bus.cartridge.read_byte(address, open_bus)
             }
             M68K_FRAME_BUFFER_START..=M68K_OVERWRITE_IMAGE_END => {
                 if self.s32x_bus.registers.vdp_access == Access::M68k {
@@ -128,16 +128,16 @@ impl PhysicalMedium for Sega32X {
             }
             M68K_FIRST_CART_BANK_START..=M68K_FIRST_CART_BANK_END => {
                 // First 512KB of ROM
-                self.s32x_bus.cartridge.read_byte(address & 0x7FFFF)
+                self.s32x_bus.cartridge.read_byte(address & 0x7FFFF, open_bus)
             }
             M68K_MAPPABLE_CART_BANK_START..=M68K_MAPPABLE_CART_BANK_END => {
                 // Mappable 1MB ROM bank
                 let rom_addr =
                     (u32::from(self.s32x_bus.registers.m68k_rom_bank) << 20) | (address & 0xFFFFF);
-                self.s32x_bus.cartridge.read_byte(rom_addr)
+                self.s32x_bus.cartridge.read_byte(rom_addr, open_bus)
             }
             M68K_CART_REGISTERS_START..=M68K_CART_REGISTERS_END => {
-                self.s32x_bus.cartridge.read_byte(address)
+                self.s32x_bus.cartridge.read_byte(address, open_bus)
             }
             M68K_SYSTEM_REGISTERS_START..=M68K_SYSTEM_REGISTERS_END => {
                 // System registers
@@ -168,12 +168,12 @@ impl PhysicalMedium for Sega32X {
             }
             _ => {
                 log::warn!("M68K byte read from unexpected address: {address:06X}");
-                0
+                open_bus.to_be_bytes()[(address & 1) as usize]
             }
         }
     }
 
-    fn read_word(&mut self, address: u32) -> u16 {
+    fn read_word(&mut self, address: u32, open_bus: u16) -> u16 {
         match address {
             M68K_VECTORS_START..=M68K_VECTORS_END => {
                 // Hardcoded vectors when 32X is enabled, first 256 bytes of ROM otherwise
@@ -181,7 +181,7 @@ impl PhysicalMedium for Sega32X {
                     let address = (address & !1) as usize;
                     u16::from_be_bytes(self.m68k_vectors[address..address + 2].try_into().unwrap())
                 } else {
-                    self.s32x_bus.cartridge.read_word(address)
+                    self.s32x_bus.cartridge.read_word(address, open_bus)
                 }
             }
             M68K_CARTRIDGE_START..=M68K_CARTRIDGE_END => {
@@ -192,7 +192,7 @@ impl PhysicalMedium for Sega32X {
                 {
                     log::warn!("ROM word read with RV=0: {address:06X}");
                 }
-                self.s32x_bus.cartridge.read_word(address)
+                self.s32x_bus.cartridge.read_word(address, open_bus)
             }
             M68K_FRAME_BUFFER_START..=M68K_OVERWRITE_IMAGE_END => {
                 if self.s32x_bus.registers.vdp_access == Access::M68k {
@@ -204,13 +204,13 @@ impl PhysicalMedium for Sega32X {
             }
             M68K_FIRST_CART_BANK_START..=M68K_FIRST_CART_BANK_END => {
                 // First 512KB of ROM
-                self.s32x_bus.cartridge.read_word(address & 0x7FFFF)
+                self.s32x_bus.cartridge.read_word(address & 0x7FFFF, open_bus)
             }
             M68K_MAPPABLE_CART_BANK_START..=M68K_MAPPABLE_CART_BANK_END => {
                 // Mappable 1MB ROM bank
                 let rom_addr =
                     (u32::from(self.s32x_bus.registers.m68k_rom_bank) << 20) | (address & 0xFFFFF);
-                self.s32x_bus.cartridge.read_word(rom_addr)
+                self.s32x_bus.cartridge.read_word(rom_addr, open_bus)
             }
             M68K_SYSTEM_REGISTERS_START..=M68K_SYSTEM_REGISTERS_END => {
                 // System registers
@@ -254,7 +254,7 @@ impl PhysicalMedium for Sega32X {
             }
             _ => {
                 log::error!("M68K word read from unexpected address {address:06X}");
-                0
+                open_bus
             }
         }
     }
@@ -270,7 +270,7 @@ impl PhysicalMedium for Sega32X {
             return *open_bus;
         }
 
-        *open_bus = self.s32x_bus.cartridge.read_word(address);
+        *open_bus = self.s32x_bus.cartridge.read_word(address, *open_bus);
         *open_bus
     }
 
@@ -776,12 +776,12 @@ impl Sh2Bus {
         if address & 0x400000 == 0 {
             // Cartridge
             match SIZE {
-                OpSize::BYTE => self.s32x_bus().cartridge.read_byte(address & 0x3FFFFF).into(),
-                OpSize::WORD => self.s32x_bus().cartridge.read_word(address & 0x3FFFFF).into(),
+                OpSize::BYTE => self.s32x_bus().cartridge.read_byte(address & 0x3FFFFF, !0).into(),
+                OpSize::WORD => self.s32x_bus().cartridge.read_word(address & 0x3FFFFF, !0).into(),
                 OpSize::LONGWORD => {
                     let rom_addr = address & 0x3FFFFF & !3;
-                    let high: u32 = self.s32x_bus().cartridge.read_word(rom_addr).into();
-                    let low: u32 = self.s32x_bus().cartridge.read_word(rom_addr | 2).into();
+                    let high: u32 = self.s32x_bus().cartridge.read_word(rom_addr, !0).into();
+                    let low: u32 = self.s32x_bus().cartridge.read_word(rom_addr | 2, !0).into();
                     low | (high << 16)
                 }
                 _ => invalid_size!(SIZE),

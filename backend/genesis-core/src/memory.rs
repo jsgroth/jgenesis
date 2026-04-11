@@ -22,9 +22,9 @@ use z80_emu::debug::DummyZ80Debugger;
 use z80_emu::traits::InterruptLine;
 
 pub trait PhysicalMedium {
-    fn read_byte(&mut self, address: u32) -> u8;
+    fn read_byte(&mut self, address: u32, open_bus: u16) -> u8;
 
-    fn read_word(&mut self, address: u32) -> u16;
+    fn read_word(&mut self, address: u32, open_bus: u16) -> u16;
 
     // Needed for DMA reads from SVP cartridge and Sega CD word RAM, where all DMA reads are "delayed"
     // by a cycle
@@ -516,7 +516,7 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterfa
         log::trace!("Main bus byte read, address={address:06X}");
         let byte = match address {
             0x000000..=0x9FFFFF | 0xA12000..=0xA153FF => {
-                self.memory.physical_medium.read_byte(address)
+                self.memory.physical_medium.read_byte(address, self.memory.open_bus)
             }
             0xA00000..=0xA0FFFF => {
                 // Z80 memory map; 68k can only access when the Z80 is running and removed from the bus
@@ -537,7 +537,7 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterfa
                 let word = self.memory.main_ram[((address & 0xFFFF) >> 1) as usize];
                 if !address.bit(0) { word.msb() } else { word.lsb() }
             }
-            _ => 0xFF,
+            _ => self.memory.open_bus.to_be_bytes()[(address & 1) as usize],
         };
 
         // TODO is this right? probably depends on memory region
@@ -552,7 +552,7 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterfa
 
         self.memory.open_bus = match address {
             0x000000..=0x9FFFFF | 0xA12000..=0xA153FF => {
-                self.memory.physical_medium.read_word(address)
+                self.memory.physical_medium.read_word(address, self.memory.open_bus)
             }
             0xA00000..=0xA0FFFF => {
                 // Z80 memory map; 68k can only access when the Z80 is running and removed from the bus
@@ -573,7 +573,7 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterfa
             0xC00004..=0xC00007 => self.read_vdp_status(),
             0xC00008..=0xC0000F => self.read_vdp_hv_counter(),
             0xE00000..=0xFFFFFF => self.memory.main_ram[((address & 0xFFFF) >> 1) as usize],
-            _ => 0xFFFF,
+            _ => self.memory.open_bus,
         };
 
         self.memory.open_bus

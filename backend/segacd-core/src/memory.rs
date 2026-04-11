@@ -668,7 +668,7 @@ pub fn parse_disc_region(disc: &mut CdRom) -> SegaCdLoadResult<GenesisRegion> {
 
 impl PhysicalMedium for SegaCd {
     #[inline]
-    fn read_byte(&mut self, address: u32) -> u8 {
+    fn read_byte(&mut self, address: u32, open_bus: u16) -> u8 {
         match address {
             0x000000..=0x1FFFFF => {
                 // Mirrors of BIOS at $000000-$01FFFF and PRG RAM at $020000-$03FFFF
@@ -697,13 +697,13 @@ impl PhysicalMedium for SegaCd {
             }
             _ => {
                 log::error!("Main read byte: {address:06X}");
-                0xFF
+                open_bus.to_be_bytes()[(address & 1) as usize]
             }
         }
     }
 
     #[inline]
-    fn read_word(&mut self, address: u32) -> u16 {
+    fn read_word(&mut self, address: u32, open_bus: u16) -> u16 {
         match address {
             0x000000..=0x1FFFFF => {
                 // Mirrors of BIOS at $000000-$01FFFF and PRG RAM at $020000-$03FFFF
@@ -746,7 +746,7 @@ impl PhysicalMedium for SegaCd {
             }
             _ => {
                 log::error!("Main read word: {address:06X}");
-                0xFFFF
+                open_bus
             }
         }
     }
@@ -754,9 +754,9 @@ impl PhysicalMedium for SegaCd {
     fn read_word_for_dma(&mut self, address: u32, open_bus: &mut u16) -> u16 {
         // VDP DMA reads from word RAM are delayed by a cycle
         match address & 0xFFFFFF {
-            0x200000..=0x3FFFFF => mem::replace(open_bus, self.read_word(address)),
+            0x200000..=0x3FFFFF => mem::replace(open_bus, self.read_word(address, *open_bus)),
             _ => {
-                *open_bus = self.read_word(address);
+                *open_bus = self.read_word(address, *open_bus);
                 *open_bus
             }
         }

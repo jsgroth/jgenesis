@@ -683,13 +683,15 @@ fn is_virtua_racing(serial_number: &[u8]) -> bool {
 
 impl PhysicalMedium for Cartridge {
     #[inline]
-    fn read_byte(&mut self, address: u32) -> u8 {
-        self.mapper.read_byte(address, &self.rom, &self.external).unwrap_or(!0)
+    fn read_byte(&mut self, address: u32, open_bus: u16) -> u8 {
+        self.mapper
+            .read_byte(address, &self.rom, &self.external)
+            .unwrap_or_else(|| open_bus.to_be_bytes()[(address & 1) as usize])
     }
 
     #[inline]
-    fn read_word(&mut self, address: u32) -> u16 {
-        self.mapper.read_word(address, &self.rom, &self.external).unwrap_or(!0)
+    fn read_word(&mut self, address: u32, open_bus: u16) -> u16 {
+        self.mapper.read_word(address, &self.rom, &self.external).unwrap_or(open_bus)
     }
 
     #[inline]
@@ -699,7 +701,7 @@ impl PhysicalMedium for Cartridge {
         match &mut self.mapper {
             Mapper::Svp(svp) => mem::replace(open_bus, svp.m68k_read(address, &self.rom.0)),
             _ => {
-                *open_bus = self.read_word(address);
+                *open_bus = self.read_word(address, *open_bus);
                 *open_bus
             }
         }
