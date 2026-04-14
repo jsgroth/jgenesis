@@ -49,8 +49,9 @@ pub const FILTER_MODE: HelpText = HelpText {
 pub const PREPROCESS_SHADER: HelpText = HelpText {
     heading: "Preprocess Shader",
     text: &[
-        "Configure an optional blur or anti-dither shader. All preprocess shaders are applied at the console's native resolution except for SNES Adaptive blur.",
-        "The SNES Adaptive option blurs horizontally at 2x native resolution and will also correctly handle SNES games that use 512px high-resolution modes.",
+        "Configure an optional shader to apply to the emulated console's video output.",
+        "The NTSC shader only works with consoles that natively support TV output (i.e. not handhelds).",
+        "The SNES Adaptive blur shader blurs horizontally at 2x native resolution, except in SNES high-res mode where it blurs at 1x native.",
     ],
 };
 

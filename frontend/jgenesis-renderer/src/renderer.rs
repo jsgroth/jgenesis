@@ -1,5 +1,8 @@
+mod ntsc;
+
 use crate::config;
 use crate::config::{PreprocessShader, PrescaleMode, RendererConfig, Scanlines};
+use crate::renderer::ntsc::NtscShader;
 #[cfg(feature = "ttf")]
 use crate::ttf;
 use jgenesis_common::frontend::{
@@ -356,7 +359,7 @@ impl BlurShader {
         input_texture: &wgpu::Texture,
         shaders: &Shaders,
     ) -> Option<Self> {
-        if preprocess_shader == PreprocessShader::None {
+        if matches!(preprocess_shader, PreprocessShader::None | PreprocessShader::NtscComposite) {
             return None;
         }
 
@@ -384,7 +387,9 @@ impl BlurShader {
             PreprocessShader::HorizontalBlurSnesAdaptive => "hblur_snes",
             PreprocessShader::AntiDitherWeak => "anti_dither_weak",
             PreprocessShader::AntiDitherStrong => "anti_dither_strong",
-            PreprocessShader::None => panic!("Not a horizontal blur shader: {preprocess_shader:?}"),
+            PreprocessShader::None | PreprocessShader::NtscComposite => {
+                unreachable!("checked at start of function")
+            }
         };
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: "hblur_pipeline".into(),
@@ -713,7 +718,7 @@ impl RenderingPipeline {
         // Pipeline shaders (all optional):
         //   1. Color correction
         //   2. Frame blending
-        //   3. Horizontal blur
+        //   3. NTSC composite / Horizontal blur
         //   4. Prescale/scanlines
         let mut shader_pipeline: Vec<Box<dyn PipelineShader>> = Vec::new();
 
@@ -733,6 +738,18 @@ impl RenderingPipeline {
                 current_output_texture(&shader_pipeline, &input_texture),
                 device,
                 shaders,
+            )));
+        }
+
+        if renderer_config.preprocess_shader == PreprocessShader::NtscComposite
+            && let Some(params) = options.composite_params
+        {
+            log::debug!("Adding NTSC composite shader");
+            shader_pipeline.push(Box::new(NtscShader::create(
+                device,
+                shaders,
+                &current_output_texture(&shader_pipeline, &input_texture),
+                params,
             )));
         }
 
@@ -1137,6 +1154,7 @@ struct Shaders {
     hblur: wgpu::ShaderModule,
     frame_blend: wgpu::ShaderModule,
     gb_color: wgpu::ShaderModule,
+    ntsc: wgpu::ShaderModule,
 }
 
 impl Shaders {
@@ -1147,8 +1165,9 @@ impl Shaders {
         let hblur = device.create_shader_module(wgpu::include_wgsl!("hblur.wgsl"));
         let frame_blend = device.create_shader_module(wgpu::include_wgsl!("frameblend.wgsl"));
         let gb_color = device.create_shader_module(wgpu::include_wgsl!("gb_color.wgsl"));
+        let ntsc = device.create_shader_module(wgpu::include_wgsl!("ntsc.wgsl"));
 
-        Self { render, prescale, identity, hblur, frame_blend, gb_color }
+        Self { render, prescale, identity, hblur, frame_blend, gb_color, ntsc }
     }
 }
 

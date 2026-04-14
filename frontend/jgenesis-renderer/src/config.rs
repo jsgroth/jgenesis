@@ -210,6 +210,7 @@ pub enum PreprocessShader {
     HorizontalBlurSnesAdaptive,
     AntiDitherWeak,
     AntiDitherStrong,
+    NtscComposite,
 }
 
 #[derive(Debug, Clone, Copy, ConfigDisplay)]

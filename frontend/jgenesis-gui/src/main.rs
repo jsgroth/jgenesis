@@ -115,8 +115,7 @@ fn f32_max(value: f32, max: f32) -> f32 {
 
 fn main() -> eframe::Result<()> {
     env_logger::Builder::from_env(
-        Env::default()
-            .default_filter_or("info,wgpu_core=warn,wgpu_hal=warn,zbus=warn,tracing=warn"),
+        Env::default().default_filter_or(jgenesis_common::DEFAULT_LOG_FILTER),
     )
     .init();
 

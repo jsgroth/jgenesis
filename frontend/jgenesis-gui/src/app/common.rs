@@ -170,6 +170,12 @@ impl App {
                     "None",
                 );
 
+                ui.radio_value(
+                    &mut self.config.common.preprocess_shader,
+                    PreprocessShader::NtscComposite,
+                    "NTSC composite",
+                );
+
                 ui.horizontal(|ui| {
                     ui.radio_value(
                         &mut self.config.common.preprocess_shader,
