@@ -213,6 +213,21 @@ pub enum PreprocessShader {
     NtscComposite,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, ConfigDisplay)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct NtscShaderConfig {
+    pub brightness: f64,
+    pub saturation: f64,
+    pub contrast: f64,
+    pub gamma: f64,
+}
+
+impl Default for NtscShaderConfig {
+    fn default() -> Self {
+        Self { brightness: 1.0, saturation: 1.0, contrast: 1.0, gamma: 2.2 }
+    }
+}
+
 #[derive(Debug, Clone, Copy, ConfigDisplay)]
 pub struct RendererConfig {
     pub wgpu_backend: WgpuBackend,
@@ -224,4 +239,6 @@ pub struct RendererConfig {
     pub force_integer_height_scaling: bool,
     pub filter_mode: FilterMode,
     pub preprocess_shader: PreprocessShader,
+    #[cfg_display(indent_nested)]
+    pub ntsc_config: NtscShaderConfig,
 }

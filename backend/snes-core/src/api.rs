@@ -2,18 +2,18 @@
 
 use crate::apu::{Apu, ApuTickEffect};
 use crate::audio::AudioResampler;
-use crate::bus;
 use crate::bus::Bus;
 use crate::input::SnesInputs;
 use crate::memory::dma::{DmaStatus, DmaUnit};
 use crate::memory::{CpuInternalRegisters, Memory};
 use crate::ppu::{Ppu, PpuTickEffect};
+use crate::{bus, ppu};
 use bincode::error::EncodeError;
 use bincode::{Decode, Encode};
 use crc::Crc;
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, InputPoller, PartialClone,
-    RenderFrameOptions, Renderer, SaveWriter, TickEffect, TimingMode,
+    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, InputPoller, NtscPerFrameParams,
+    PartialClone, RenderFrameOptions, Renderer, SaveWriter, TickEffect, TimingMode,
 };
 use jgenesis_proc_macros::{ConfigDisplay, FakeDecode, FakeEncode};
 use snes_config::{AudioInterpolationMode, SnesAspectRatio, SnesButton};
@@ -252,6 +252,21 @@ impl SnesEmulator {
     pub fn copy_vram_mode7(&self, out: &mut [Color], row_len: usize) {
         self.ppu.copy_vram_mode7(out, row_len);
     }
+
+    fn render_options(&self) -> RenderFrameOptions {
+        let frame_size = self.ppu.frame_size();
+        let aspect_ratio = self.aspect_ratio.to_pixel_aspect_ratio(frame_size);
+
+        RenderFrameOptions {
+            pixel_aspect_ratio: aspect_ratio,
+            composite_params: Some(self.ppu.composite_params()),
+            ntsc_per_frame_params: Some(NtscPerFrameParams {
+                frame_phase_offset: 8 * self.ppu.frame_start_cycles(),
+                per_line_phase_offset: 2 * ppu::MCLKS_PER_NORMAL_SCANLINE,
+            }),
+            ..RenderFrameOptions::default()
+        }
+    }
 }
 
 impl EmulatorTrait for SnesEmulator {
@@ -336,19 +351,12 @@ impl EmulatorTrait for SnesEmulator {
         let prev_scanline_mclk = self.ppu.scanline_master_cycles();
         let mut tick_effect = TickEffect::None;
         if self.ppu.tick(master_cycles_elapsed) == PpuTickEffect::FrameComplete {
-            let frame_size = self.ppu.frame_size();
-            let aspect_ratio = self.aspect_ratio.to_pixel_aspect_ratio(frame_size);
-
             renderer
                 .render_frame(
                     self.ppu.frame_buffer(),
                     self.ppu.frame_size(),
                     self.target_fps(),
-                    RenderFrameOptions {
-                        pixel_aspect_ratio: aspect_ratio,
-                        composite_params: Some(self.ppu.composite_params()),
-                        ..RenderFrameOptions::default()
-                    },
+                    self.render_options(),
                 )
                 .map_err(SnesError::Render)?;
 
@@ -398,16 +406,11 @@ impl EmulatorTrait for SnesEmulator {
         R: Renderer,
     {
         let frame_size = self.ppu.frame_size();
-        let aspect_ratio = self.aspect_ratio.to_pixel_aspect_ratio(frame_size);
         renderer.render_frame(
             self.ppu.frame_buffer(),
             frame_size,
             self.target_fps(),
-            RenderFrameOptions {
-                pixel_aspect_ratio: aspect_ratio,
-                composite_params: Some(self.ppu.composite_params()),
-                ..RenderFrameOptions::default()
-            },
+            self.render_options(),
         )
     }
 

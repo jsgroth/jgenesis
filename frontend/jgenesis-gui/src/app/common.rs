@@ -5,7 +5,8 @@ use crate::app::{App, OpenWindow, widgets};
 use eframe::epaint::Color32;
 use egui::{Context, Slider, Ui, Window};
 use jgenesis_renderer::config::{
-    FilterMode, PreprocessShader, Scanlines, VSyncMode, WgpuBackend, WgpuPowerPreference,
+    FilterMode, NtscShaderConfig, PreprocessShader, Scanlines, VSyncMode, WgpuBackend,
+    WgpuPowerPreference,
 };
 use std::num::{NonZeroU8, NonZeroU32};
 
@@ -162,7 +163,7 @@ impl App {
     fn render_preprocess_shader_setting(&mut self, ui: &mut Ui, window: OpenWindow) {
         let rect = ui
             .group(|ui| {
-                ui.label("Preprocess shader");
+                ui.label("Video shader");
 
                 ui.radio_value(
                     &mut self.config.common.preprocess_shader,
@@ -170,11 +171,53 @@ impl App {
                     "None",
                 );
 
-                ui.radio_value(
-                    &mut self.config.common.preprocess_shader,
-                    PreprocessShader::NtscComposite,
-                    "NTSC composite",
-                );
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.config.common.preprocess_shader,
+                        PreprocessShader::NtscComposite,
+                        "NTSC composite",
+                    );
+
+                    ui.collapsing("NTSC shader settings", |ui| {
+                        ui.vertical(|ui| {
+                            let fmt_2f = |v: f64, _| format!("{v:.2}");
+
+                            ui.style_mut().spacing.slider_width = 225.0;
+
+                            ui.add(
+                                Slider::new(&mut self.config.common.ntsc.brightness, 0.0..=5.0)
+                                    .step_by(0.01)
+                                    .text("Brightness")
+                                    .custom_formatter(fmt_2f),
+                            );
+
+                            ui.add(
+                                Slider::new(&mut self.config.common.ntsc.saturation, 0.0..=5.0)
+                                    .step_by(0.01)
+                                    .text("Saturation")
+                                    .custom_formatter(fmt_2f),
+                            );
+
+                            ui.add(
+                                Slider::new(&mut self.config.common.ntsc.contrast, 0.0..=5.0)
+                                    .step_by(0.01)
+                                    .text("Contrast")
+                                    .custom_formatter(fmt_2f),
+                            );
+
+                            ui.add(
+                                Slider::new(&mut self.config.common.ntsc.gamma, 0.1..=5.0)
+                                    .step_by(0.1)
+                                    .text("Gamma")
+                                    .custom_formatter(|v: f64, _| format!("{v:.1}")),
+                            );
+
+                            if ui.button("Default").clicked() {
+                                self.config.common.ntsc = NtscShaderConfig::default();
+                            }
+                        });
+                    });
+                });
 
                 ui.horizontal(|ui| {
                     ui.radio_value(

@@ -2,11 +2,12 @@ mod ntsc;
 
 use crate::config;
 use crate::config::{PreprocessShader, PrescaleMode, RendererConfig, Scanlines};
-use crate::renderer::ntsc::NtscShader;
+use crate::renderer::ntsc::{NtscShader, NtscShaderVariant};
 #[cfg(feature = "ttf")]
 use crate::ttf;
 use jgenesis_common::frontend::{
-    Color, ColorCorrection, DisplayArea, FiniteF64, FrameSize, RenderFrameOptions, Renderer,
+    Color, ColorCorrection, DisplayArea, FiniteF64, FrameSize, RenderFrameOptions,
+    RenderFrameOptionsHashable, Renderer,
 };
 use jgenesis_common::timeutils;
 use raw_window_handle::{HandleError, HasDisplayHandle, HasWindowHandle};
@@ -59,6 +60,9 @@ const SRGB_TEX_VIEW_DESCRIPTOR: wgpu::TextureViewDescriptor<'static> =
     };
 
 trait PipelineShader {
+    #[allow(unused_variables)]
+    fn prepare(&mut self, device: &wgpu::Device, options: RenderFrameOptions) {}
+
     fn draw(&mut self, encoder: &mut wgpu::CommandEncoder);
 
     fn output_texture(&self) -> &Arc<wgpu::Texture>;
@@ -745,11 +749,19 @@ impl RenderingPipeline {
             && let Some(params) = options.composite_params
         {
             log::debug!("Adding NTSC composite shader");
+
+            let variant = if options.emulate_nes_ntsc_output {
+                NtscShaderVariant::NesPpu
+            } else {
+                NtscShaderVariant::Rgb
+            };
             shader_pipeline.push(Box::new(NtscShader::create(
                 device,
                 shaders,
                 &current_output_texture(&shader_pipeline, &input_texture),
                 params,
+                renderer_config.ntsc_config,
+                variant,
             )));
         }
 
@@ -887,6 +899,7 @@ impl RenderingPipeline {
         queue: &wgpu::Queue,
         surface: &wgpu::Surface<'_>,
         frame_buffer: &[Color],
+        options: RenderFrameOptions,
         #[cfg(feature = "ttf")] surface_config: &wgpu::SurfaceConfiguration,
         #[cfg(feature = "ttf")] modal_renderer: &mut ttf::ModalRenderer,
         frame_time_tracker: &mut FrameTimeTracker,
@@ -908,6 +921,10 @@ impl RenderingPipeline {
             },
             self.input_texture.size(),
         );
+
+        for shader in &mut self.shader_pipeline {
+            shader.prepare(device, options);
+        }
 
         let mut encoder = device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: "encoder".into() });
@@ -1174,12 +1191,12 @@ impl Shaders {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct PipelineKey {
     frame_size: FrameSize,
-    options: RenderFrameOptions,
+    options: RenderFrameOptionsHashable,
 }
 
 impl PipelineKey {
     fn new(frame_size: FrameSize, options: RenderFrameOptions) -> Self {
-        Self { frame_size, options }
+        Self { frame_size, options: options.to_hashable() }
     }
 }
 
@@ -1560,6 +1577,7 @@ impl<Window> Renderer for WgpuRenderer<Window> {
             &self.queue,
             &self.surface,
             frame_buffer,
+            options,
             #[cfg(feature = "ttf")]
             &self.surface_config,
             #[cfg(feature = "ttf")]

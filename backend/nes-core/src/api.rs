@@ -10,8 +10,8 @@ use crate::{apu, audio, cpu, graphics, ppu};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
     AudioOutput, Color, CompositeParams, EmulatorConfigTrait, EmulatorTrait, FrameSize,
-    InputPoller, RenderFrameOptions, Renderer, SamplesPerColorCycle, SaveWriter, TickEffect,
-    TickResult, TimingMode,
+    InputPoller, NtscPerFrameParams, RenderFrameOptions, Renderer, SamplesPerColorCycle,
+    SaveWriter, TickEffect, TickResult, TimingMode,
 };
 use jgenesis_proc_macros::{ConfigDisplay, PartialClone};
 use std::fmt::{Debug, Display};
@@ -42,6 +42,8 @@ pub struct NesEmulatorConfig {
     pub ntsc_crop_vertical_overscan: bool,
     /// Overscan in pixels
     pub overscan: Overscan,
+    /// Whether to send the renderer 6-bit NES colors instead of RGB888 colors
+    pub emulate_ntsc_output: bool,
     /// If true, do not emulate the 8 sprite per scanline limit; this eliminates sprite flickering
     /// but can cause bugs in some games
     pub remove_sprite_limit: bool,
@@ -201,6 +203,7 @@ impl NesEmulator {
             overscan,
             display_mode,
             &self.config.palette,
+            self.config.emulate_ntsc_output,
         );
 
         let visible_screen_height = display_mode.visible_screen_height();
@@ -236,6 +239,11 @@ impl NesEmulator {
                 composite_params: Some(CompositeParams {
                     upscale_factor: 8,
                     samples_per_color_cycle: SamplesPerColorCycle::Twelve,
+                }),
+                emulate_nes_ntsc_output: true,
+                ntsc_per_frame_params: Some(NtscPerFrameParams {
+                    frame_phase_offset: 8 * self.ppu_state.frame_start_cycles(),
+                    per_line_phase_offset: (8 * ppu::DOTS_PER_SCANLINE).into(),
                 }),
                 ..RenderFrameOptions::default()
             },

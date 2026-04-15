@@ -1,7 +1,8 @@
 mod constants;
 
+use crate::config::NtscShaderConfig;
 use crate::renderer::{PipelineShader, Shaders};
-use jgenesis_common::frontend::{CompositeParams, SamplesPerColorCycle};
+use jgenesis_common::frontend::{CompositeParams, RenderFrameOptions, SamplesPerColorCycle};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
@@ -38,9 +39,33 @@ impl NtscFilters {
     }
 }
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct ImmediateParams {
+    frame_phase_offset: i32,
+    per_line_phase_offset: i32,
+}
+
+impl ImmediateParams {
+    const ZERO: Self = Self { frame_phase_offset: 0, per_line_phase_offset: 0 };
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NtscShaderVariant {
+    // Input frame buffer contains RGB888 colors
+    // Encode from RGB to NTSC then decode back to RGB
+    Rgb,
+    // Input frame buffer contains 9-bit NES colors (2-bit luma, 4-bit hue, 3-bit color emphasis)
+    // Emulate the NES PPU's NTSC output, then decode to RGB
+    NesPpu,
+}
+
 pub struct NtscShader {
     output: Arc<wgpu::Texture>,
     ntsc_frame_size: wgpu::Extent3d,
+    samples_per_color_cycle: SamplesPerColorCycle,
+    immediates_bind_group_layout: wgpu::BindGroupLayout,
+    immediates_bind_group: wgpu::BindGroup,
     rgb_to_ntsc_bind_group: wgpu::BindGroup,
     rgb_to_ntsc_pipeline: wgpu::ComputePipeline,
     separate_luma_chroma_bind_group: wgpu::BindGroup,
@@ -55,6 +80,8 @@ impl NtscShader {
         shaders: &Shaders,
         input: &wgpu::Texture,
         params: CompositeParams,
+        config: NtscShaderConfig,
+        variant: NtscShaderVariant,
     ) -> Self {
         let ntsc_texture_descriptor = wgpu::TextureDescriptor {
             label: None,
@@ -110,28 +137,112 @@ impl NtscShader {
             SamplesPerColorCycle::Fifteen => constants::FIR_LEN_15,
             SamplesPerColorCycle::Twelve => constants::FIR_LEN_12,
         };
+        let decode_hue_offset = match variant {
+            NtscShaderVariant::Rgb => 0.0,
+            NtscShaderVariant::NesPpu => 2.9 / 12.0 * 2.0 * std::f64::consts::PI,
+        };
+        let decode_gamma = match variant {
+            NtscShaderVariant::Rgb => config.gamma,
+            NtscShaderVariant::NesPpu => 1.8 / 2.2 * config.gamma, // NES colors look too bright without some gamma correction
+        };
         let pipeline_compilation_options = wgpu::PipelineCompilationOptions {
             constants: &[
                 ("samples_per_color_cycle", u32::from(params.samples_per_color_cycle).into()),
                 ("fir_len", fir_len.into()),
                 ("upscale_factor", params.upscale_factor.into()),
+                ("decode_hue_offset", decode_hue_offset),
+                ("decode_to_yuv", (variant == NtscShaderVariant::NesPpu).into()),
+                ("decode_brightness", config.brightness),
+                ("decode_saturation", config.saturation),
+                ("decode_contrast", config.contrast),
+                ("decode_gamma", decode_gamma),
             ],
             ..wgpu::PipelineCompilationOptions::default()
         };
 
-        let rgb_to_ntsc_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: "rgb_to_ntsc_pipeline".into(),
-                layout: None,
-                module: &shaders.ntsc,
-                entry_point: Some("rgb_to_ntsc"),
-                compilation_options: pipeline_compilation_options.clone(),
-                cache: None,
+        let initial_immediates_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: "ntsc_immediates_buffer".into(),
+            size: size_of::<ImmediateParams>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM,
+            mapped_at_creation: false,
+        });
+
+        let immediates_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: "ntsc_immediates_bind_group_layout".into(),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        let initial_immediates_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: "ntsc_immediates_bind_group".into(),
+            layout: &immediates_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(
+                    initial_immediates_buffer.as_entire_buffer_binding(),
+                ),
+            }],
+        });
+
+        let rgb_to_ntsc_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: "rgb_to_ntsc_bind_group_layout".into(),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::WriteOnly,
+                            format: wgpu::TextureFormat::R32Float,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
+                ],
             });
 
         let rgb_to_ntsc_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: "rgb_to_ntsc_bind_group".into(),
-            layout: &rgb_to_ntsc_pipeline.get_bind_group_layout(0),
+            layout: &rgb_to_ntsc_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -155,6 +266,30 @@ impl NtscShader {
                 },
             ],
         });
+
+        let rgb_to_ntsc_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: "rgb_to_ntsc_pipeline_layout".into(),
+                bind_group_layouts: &[
+                    &rgb_to_ntsc_bind_group_layout,
+                    &immediates_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+
+        let rgb_to_ntsc_shader = match variant {
+            NtscShaderVariant::Rgb => "rgb_to_ntsc",
+            NtscShaderVariant::NesPpu => "nes_to_ntsc",
+        };
+        let rgb_to_ntsc_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: "rgb_to_ntsc_pipeline".into(),
+                layout: Some(&rgb_to_ntsc_pipeline_layout),
+                module: &shaders.ntsc,
+                entry_point: Some(rgb_to_ntsc_shader),
+                compilation_options: pipeline_compilation_options.clone(),
+                cache: None,
+            });
 
         let separate_luma_chroma_pipeline =
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -198,19 +333,66 @@ impl NtscShader {
                 ],
             });
 
-        let luma_chroma_to_rgb_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: "luma_chroma_to_rgb_pipeline".into(),
-                layout: None,
-                module: &shaders.ntsc,
-                entry_point: Some("luma_chroma_to_rgb"),
-                compilation_options: pipeline_compilation_options.clone(),
-                cache: None,
+        let luma_chroma_to_rgb_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: "luma_chroma_to_rgb_bind_group_layout".into(),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 9,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 10,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 11,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 12,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 13,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::WriteOnly,
+                            format: wgpu::TextureFormat::Rgba8Unorm,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
+                ],
             });
 
         let luma_chroma_to_rgb_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: "luma_chroma_to_rgb_bind_group".into(),
-            layout: &luma_chroma_to_rgb_pipeline.get_bind_group_layout(0),
+            layout: &luma_chroma_to_rgb_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 9,
@@ -239,9 +421,32 @@ impl NtscShader {
             ],
         });
 
+        let luma_chroma_to_rgb_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: "luma_chroma_to_rgb_pipeline_layout".into(),
+                bind_group_layouts: &[
+                    &luma_chroma_to_rgb_bind_group_layout,
+                    &immediates_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+
+        let luma_chroma_to_rgb_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: "luma_chroma_to_rgb_pipeline".into(),
+                layout: Some(&luma_chroma_to_rgb_pipeline_layout),
+                module: &shaders.ntsc,
+                entry_point: Some("luma_chroma_to_rgb"),
+                compilation_options: pipeline_compilation_options.clone(),
+                cache: None,
+            });
+
         Self {
             output: Arc::new(output_frame),
             ntsc_frame_size: ntsc_texture_descriptor.size,
+            samples_per_color_cycle: params.samples_per_color_cycle,
+            immediates_bind_group_layout,
+            immediates_bind_group: initial_immediates_bind_group,
             rgb_to_ntsc_bind_group,
             rgb_to_ntsc_pipeline,
             separate_luma_chroma_bind_group,
@@ -253,6 +458,38 @@ impl NtscShader {
 }
 
 impl PipelineShader for NtscShader {
+    fn prepare(&mut self, device: &wgpu::Device, options: RenderFrameOptions) {
+        let immediate_params =
+            options.ntsc_per_frame_params.map_or(ImmediateParams::ZERO, |per_frame_params| {
+                let samples_per_color_cycle: u64 = self.samples_per_color_cycle.into();
+
+                ImmediateParams {
+                    frame_phase_offset: (per_frame_params.frame_phase_offset
+                        % samples_per_color_cycle) as i32,
+                    per_line_phase_offset: (per_frame_params.per_line_phase_offset
+                        % samples_per_color_cycle)
+                        as i32,
+                }
+            });
+
+        let immediates_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: "ntsc_immediates_buffer".into(),
+            contents: bytemuck::cast_slice(&[immediate_params]),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+
+        self.immediates_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: "ntsc_immediates_bind_group".into(),
+            layout: &self.immediates_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(
+                    immediates_buffer.as_entire_buffer_binding(),
+                ),
+            }],
+        });
+    }
+
     fn draw(&mut self, encoder: &mut wgpu::CommandEncoder) {
         let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: "ntsc_compute_pass".into(),
@@ -265,6 +502,8 @@ impl PipelineShader for NtscShader {
             self.output.width() / 16 + u32::from(!self.output.width().is_multiple_of(16));
         let y_workgroups =
             self.output.height() / 16 + u32::from(!self.output.height().is_multiple_of(16));
+
+        compute_pass.set_bind_group(1, &self.immediates_bind_group, &[]);
 
         compute_pass.set_bind_group(0, &self.rgb_to_ntsc_bind_group, &[]);
         compute_pass.set_pipeline(&self.rgb_to_ntsc_pipeline);

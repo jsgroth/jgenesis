@@ -47,7 +47,7 @@ pub const FILTER_MODE: HelpText = HelpText {
 };
 
 pub const PREPROCESS_SHADER: HelpText = HelpText {
-    heading: "Preprocess Shader",
+    heading: "Video Shader",
     text: &[
         "Configure an optional shader to apply to the emulated console's video output.",
         "The NTSC shader only works with consoles that natively support TV output (i.e. not handhelds).",

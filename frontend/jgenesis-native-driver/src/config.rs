@@ -17,7 +17,7 @@ use jgenesis_native_config::input::mappings::{
 };
 use jgenesis_native_config::{AppConfig, EguiTheme};
 use jgenesis_proc_macros::ConfigDisplay;
-use jgenesis_renderer::config::{PrescaleMode, RendererConfig};
+use jgenesis_renderer::config::{PreprocessShader, PrescaleMode, RendererConfig};
 use nes_core::api::NesEmulatorConfig;
 use s32x_core::api::Sega32XEmulatorConfig;
 use segacd_core::api::SegaCdEmulatorConfig;
@@ -346,6 +346,7 @@ impl AppConfigExt for AppConfig {
                 force_integer_height_scaling: self.common.force_integer_height_scaling,
                 filter_mode: self.common.filter_mode,
                 preprocess_shader: self.common.preprocess_shader,
+                ntsc_config: self.common.ntsc,
             },
             fast_forward_multiplier: self.common.fast_forward_multiplier,
             rewind_buffer_length_seconds: self.common.rewind_buffer_length_seconds,
@@ -500,6 +501,8 @@ impl AppConfigExt for AppConfig {
                 palette: self.nes.palette,
                 ntsc_crop_vertical_overscan: self.nes.ntsc_crop_vertical_overscan,
                 overscan: self.nes.overscan,
+                emulate_ntsc_output: self.common.preprocess_shader
+                    == PreprocessShader::NtscComposite,
                 remove_sprite_limit: self.nes.remove_sprite_limit,
                 pal_black_border: self.nes.pal_black_border,
                 silence_ultrasonic_triangle_output: self.nes.silence_ultrasonic_triangle_output,

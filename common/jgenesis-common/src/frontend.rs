@@ -105,6 +105,12 @@ impl From<SamplesPerColorCycle> for u32 {
     }
 }
 
+impl From<SamplesPerColorCycle> for u64 {
+    fn from(value: SamplesPerColorCycle) -> Self {
+        u32::from(value).into()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CompositeParams {
     // How many times to repeat each frame buffer pixel
@@ -112,19 +118,48 @@ pub struct CompositeParams {
     pub samples_per_color_cycle: SamplesPerColorCycle,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NtscPerFrameParams {
+    pub frame_phase_offset: u64,
+    pub per_line_phase_offset: u64,
+}
+
 /// Rendering options that are not required to be explicitly specified, unlike frame size
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RenderFrameOptions {
     pub pixel_aspect_ratio: Option<FiniteF64>,
     pub color_correction: ColorCorrection,
     pub frame_blending: bool,
     pub composite_params: Option<CompositeParams>,
+    pub emulate_nes_ntsc_output: bool,
+    pub ntsc_per_frame_params: Option<NtscPerFrameParams>,
+}
+
+/// [`RenderFrameOptions`] excluding per-frame parameters
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct RenderFrameOptionsHashable {
+    pub pixel_aspect_ratio: Option<FiniteF64>,
+    pub color_correction: ColorCorrection,
+    pub frame_blending: bool,
+    pub composite_params: Option<CompositeParams>,
+    pub emulate_nes_ntsc_output: bool,
 }
 
 impl RenderFrameOptions {
     #[must_use]
     pub fn pixel_aspect_ratio(pixel_aspect_ratio: Option<FiniteF64>) -> Self {
         Self { pixel_aspect_ratio, ..Self::default() }
+    }
+
+    #[must_use]
+    pub fn to_hashable(self) -> RenderFrameOptionsHashable {
+        RenderFrameOptionsHashable {
+            pixel_aspect_ratio: self.pixel_aspect_ratio,
+            color_correction: self.color_correction,
+            frame_blending: self.frame_blending,
+            composite_params: self.composite_params,
+            emulate_nes_ntsc_output: self.emulate_nes_ntsc_output,
+        }
     }
 }
 

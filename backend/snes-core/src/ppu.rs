@@ -38,7 +38,7 @@ const CGRAM_LEN_WORDS: usize = 256;
 const VRAM_ADDRESS_MASK: u16 = (1 << 15) - 1;
 const OAM_ADDRESS_MASK: u16 = (1 << 9) - 1;
 
-const MCLKS_PER_NORMAL_SCANLINE: u64 = 1364;
+pub const MCLKS_PER_NORMAL_SCANLINE: u64 = 1364;
 const MCLKS_PER_SHORT_SCANLINE: u64 = 1360;
 const MCLKS_PER_LONG_SCANLINE: u64 = 1368;
 
@@ -65,6 +65,8 @@ struct State {
     h_hi_res_frame: bool,
     // Tracks if interlacing was enabled at the start of the frame
     v_hi_res_frame: bool,
+    cycle_counter: u64,
+    frame_start_cycles: u64,
 }
 
 impl State {
@@ -84,6 +86,8 @@ impl State {
             last_rendered_scanline: None,
             h_hi_res_frame: false,
             v_hi_res_frame: false,
+            cycle_counter: 0,
+            frame_start_cycles: 0,
         }
     }
 
@@ -430,6 +434,8 @@ impl Ppu {
     pub fn tick(&mut self, master_cycles: u64) -> PpuTickEffect {
         debug_assert!(master_cycles <= MCLKS_PER_SHORT_SCANLINE);
 
+        self.state.cycle_counter += master_cycles;
+
         let new_scanline_mclks = self.state.scanline_master_cycles + master_cycles;
         self.state.scanline_master_cycles = new_scanline_mclks;
 
@@ -472,6 +478,9 @@ impl Ppu {
                     self.registers.sprite_overflow = false;
                     self.registers.sprite_pixel_overflow = false;
                 }
+
+                self.state.frame_start_cycles =
+                    self.state.cycle_counter - self.state.scanline_master_cycles;
             }
 
             self.state.prev_line_length = self.state.current_line_length;
@@ -1441,6 +1450,10 @@ impl Ppu {
 
     pub fn scanline(&self) -> u16 {
         self.state.scanline
+    }
+
+    pub fn frame_start_cycles(&self) -> u64 {
+        self.state.frame_start_cycles
     }
 
     #[cfg(test)]

@@ -20,7 +20,7 @@ use std::ops::RangeInclusive;
 pub const SCREEN_WIDTH: u16 = 256;
 pub const MAX_SCREEN_HEIGHT: u16 = 240;
 
-const DOTS_PER_SCANLINE: u16 = 341;
+pub const DOTS_PER_SCANLINE: u16 = 341;
 // Set/reset flags on dot 2 instead of 1 to resolve some CPU/PPU alignment issues that affect NMI
 // timing
 const VBLANK_FLAG_SET_DOT: u16 = 2;
@@ -73,6 +73,12 @@ impl ColorEmphasis {
 
     pub fn blue(self) -> bool {
         self.0.bit(2)
+    }
+}
+
+impl From<ColorEmphasis> for u8 {
+    fn from(value: ColorEmphasis) -> Self {
+        value.0
     }
 }
 
@@ -310,6 +316,8 @@ pub struct PpuState {
     odd_frame: bool,
     sprite_0_hit_delay: u8,
     first_frame: bool,
+    cycle_counter: u64,
+    frame_start_cycles: u64,
 }
 
 impl PpuState {
@@ -334,6 +342,8 @@ impl PpuState {
             odd_frame: false,
             sprite_0_hit_delay: 0,
             first_frame: true,
+            cycle_counter: 0,
+            frame_start_cycles: 0,
         }
     }
 
@@ -352,6 +362,10 @@ impl PpuState {
     /// colors that are appropriate for display.
     pub fn frame_buffer(&self) -> &FrameBuffer {
         &self.frame_buffer
+    }
+
+    pub fn frame_start_cycles(&self) -> u64 {
+        self.frame_start_cycles
     }
 
     fn set_in_frame_buffer(
@@ -442,6 +456,8 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>, config: &NesEmulatorConf
         bus.set_bus_address(state.registers.vram_address & 0x3FFF);
     }
 
+    state.cycle_counter += 1;
+
     state.dot += 1;
     if state.dot == DOTS_PER_SCANLINE {
         state.scanline += 1;
@@ -455,6 +471,8 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>, config: &NesEmulatorConf
                 state.dot = 1;
             }
             state.odd_frame = !state.odd_frame;
+
+            state.frame_start_cycles = state.cycle_counter;
         }
     }
 }

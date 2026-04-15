@@ -106,7 +106,7 @@ pub fn render(ctx: &Context, memory: &mut dyn DebugMemoryView, state: &mut Memor
         .open(&mut open)
         .constrain(false)
         .default_pos(crate::rand_window_pos())
-        .default_width(600.0)
+        .default_width(650.0)
         .show(ctx, |ui| {
             render_right_panel(memory, state, ui);
             render_central_panel(memory, state, memory_len, ui);

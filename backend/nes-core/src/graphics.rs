@@ -35,6 +35,33 @@ pub fn ppu_frame_buffer_to_rgba(
     overscan: Overscan,
     display_mode: TimingMode,
     palette: &NesPalette,
+    emulate_ntsc_output: bool,
+) {
+    if emulate_ntsc_output {
+        convert_to_rgba::<true>(
+            ppu_frame_buffer,
+            rgba_frame_buffer,
+            overscan,
+            display_mode,
+            palette,
+        );
+    } else {
+        convert_to_rgba::<false>(
+            ppu_frame_buffer,
+            rgba_frame_buffer,
+            overscan,
+            display_mode,
+            palette,
+        );
+    }
+}
+
+fn convert_to_rgba<const NTSC_OUTPUT: bool>(
+    ppu_frame_buffer: &FrameBuffer,
+    rgba_frame_buffer: &mut [Color],
+    overscan: Overscan,
+    display_mode: TimingMode,
+    palette: &NesPalette,
 ) {
     rgba_frame_buffer.fill(Color::BLACK);
 
@@ -55,7 +82,12 @@ pub fn ppu_frame_buffer_to_rgba(
         for (col, &(nes_color, color_emphasis)) in
             scanline.iter().skip(overscan.left as usize).take(num_cols_rendered).enumerate()
         {
-            let rgba_color = nes_color_to_rgba(nes_color, color_emphasis, palette);
+            let rgba_color = if NTSC_OUTPUT {
+                // NTSC shader expects R to contain the 6-bit color and G to contain color emphasis
+                Color::rgb(nes_color, color_emphasis.into(), 0)
+            } else {
+                nes_color_to_rgba(nes_color, color_emphasis, palette)
+            };
             rgba_frame_buffer[row * num_cols_rendered + col] = rgba_color;
         }
     }

@@ -9,8 +9,8 @@ use genesis_core::GenesisEmulatorConfig;
 use jgenesis_common::frontend::{ColorCorrection, FiniteF32, MappableInputs, TimingMode};
 use jgenesis_common::input::Player;
 use jgenesis_renderer::config::{
-    FilterMode, PreprocessShader, PrescaleFactor, PrescaleMode, RendererConfig, Scanlines,
-    VSyncMode, WgpuBackend, WgpuPowerPreference,
+    FilterMode, NtscShaderConfig, PreprocessShader, PrescaleFactor, PrescaleMode, RendererConfig,
+    Scanlines, VSyncMode, WgpuBackend, WgpuPowerPreference,
 };
 use s32x_core::api::Sega32XEmulatorConfig;
 use segacd_core::api::SegaCdEmulatorConfig;
@@ -58,6 +58,7 @@ impl CommonWebConfig {
             force_integer_height_scaling: false,
             filter_mode: self.filter_mode,
             preprocess_shader: self.preprocess_shader,
+            ntsc_config: NtscShaderConfig::default(),
         }
     }
 }
