@@ -381,6 +381,10 @@ impl EmulatorTrait for NesEmulator {
             .expect("Creation during hard reset should never fail");
     }
 
+    fn save_state_version() -> &'static str {
+        "0.12.0-0"
+    }
+
     fn target_fps(&self) -> f64 {
         let timing_mode = self.bus.mapper().timing_mode();
         match (timing_mode, self.config.audio_refresh_rate_adjustment) {
