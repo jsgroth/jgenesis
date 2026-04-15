@@ -492,8 +492,6 @@ impl<Bus: BusInterface> Arm7Tdmi<Bus> {
     }
 
     fn arm_swap(&mut self, opcode: u32, bus: &mut Bus) {
-        println!("swap {opcode:08X}");
-
         let rm = opcode & 0xF;
         let rd = (opcode >> 12) & 0xF;
         let rn = (opcode >> 16) & 0xF;
@@ -978,10 +976,6 @@ impl<Bus: BusInterface> Arm7Tdmi<Bus> {
         opcode: u32,
         bus: &mut Bus,
     ) {
-        if (opcode >> 5) & 3 == 0 {
-            return self.arm_swap(opcode, bus);
-        }
-
         let indexing = LoadIndexing::from_bit(opcode.bit(24));
         let index_op = IndexOp::from_bit(opcode.bit(23));
         let write_back = WriteBack::from_bit(opcode.bit(21));
