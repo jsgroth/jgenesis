@@ -197,12 +197,12 @@ enum HalfwordLoadType {
 }
 
 impl HalfwordLoadType {
-    fn from_bits(bits: u32) -> Self {
+    fn from_bits(bits: u32) -> Option<Self> {
         match bits & 3 {
-            0 => panic!("HalfwordLoadType::from_bits() called for SWP opcode"),
-            1 => Self::UnsignedHalfword,
-            2 => Self::SignedByte,
-            3 => Self::SignedHalfword,
+            0 => None,
+            1 => Some(Self::UnsignedHalfword),
+            2 => Some(Self::SignedByte),
+            3 => Some(Self::SignedHalfword),
             _ => unreachable!("value & 3 is always <= 3"),
         }
     }
@@ -492,6 +492,8 @@ impl<Bus: BusInterface> Arm7Tdmi<Bus> {
     }
 
     fn arm_swap(&mut self, opcode: u32, bus: &mut Bus) {
+        println!("swap {opcode:08X}");
+
         let rm = opcode & 0xF;
         let rd = (opcode >> 12) & 0xF;
         let rn = (opcode >> 16) & 0xF;
@@ -976,6 +978,10 @@ impl<Bus: BusInterface> Arm7Tdmi<Bus> {
         opcode: u32,
         bus: &mut Bus,
     ) {
+        if (opcode >> 5) & 3 == 0 {
+            return self.arm_swap(opcode, bus);
+        }
+
         let indexing = LoadIndexing::from_bit(opcode.bit(24));
         let index_op = IndexOp::from_bit(opcode.bit(23));
         let write_back = WriteBack::from_bit(opcode.bit(21));
@@ -989,7 +995,10 @@ impl<Bus: BusInterface> Arm7Tdmi<Bus> {
             self.read_register(rm)
         };
 
-        let load_type = HalfwordLoadType::from_bits(opcode >> 5);
+        let Some(load_type) = HalfwordLoadType::from_bits(opcode >> 5) else {
+            // TODO this is definitely not correct; how should these opcodes decode?
+            return self.arm_swap(opcode, bus);
+        };
 
         self.load_halfword::<LOAD>(rn, rd, offset, load_type, indexing, index_op, write_back, bus);
     }
