@@ -129,12 +129,10 @@ impl Spc7110 {
                 // SPC7110 internal registers
                 self.write_register(address, value);
             }
-            (0x00..=0x3F | 0x80..=0xBF, 0x6000..=0x7FFF) => {
+            (0x00..=0x3F | 0x80..=0xBF, 0x6000..=0x7FFF) if self.registers.sram_enabled => {
                 // SRAM (always 8KB)
-                if self.registers.sram_enabled {
-                    let sram_addr = address & 0x1FFF;
-                    self.sram[sram_addr as usize] = value;
-                }
+                let sram_addr = address & 0x1FFF;
+                self.sram[sram_addr as usize] = value;
             }
             _ => {}
         }

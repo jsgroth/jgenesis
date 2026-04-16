@@ -306,7 +306,7 @@ impl Sh2 {
             }
             3..=5 => {
                 let ctx = if INSTRUCTION { AccessContext::Fetch } else { self.data_ctx };
-                log::warn!("SH-2 {:?} invalid word read: {address:08X}, ctx: {ctx}", self.name,);
+                log::warn!("SH-2 {:?} invalid word read: {address:08X}, ctx: {ctx}", self.name);
                 0
             }
             6 => self.cache.read_data_array_u16(address),

@@ -913,7 +913,7 @@ where
         let slot = slot.unwrap_or(self.hotkey_state.save_state_slot);
 
         if let Err(err) = self.load_state(slot) {
-            log::error!("Error loading save state from slot {slot}: {err}",);
+            log::error!("Error loading save state from slot {slot}: {err}");
         }
     }
 

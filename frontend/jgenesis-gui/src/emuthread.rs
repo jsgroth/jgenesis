@@ -712,10 +712,10 @@ fn collect_input(
                 Event::Quit { .. } => {
                     return None;
                 }
-                Event::KeyDown { keycode: Some(keycode), .. } => {
-                    if inputs.insert(GenericInput::Keyboard(keycode)) == CollectionDone::Yes {
-                        return Some(inputs.consume());
-                    }
+                Event::KeyDown { keycode: Some(keycode), .. }
+                    if inputs.insert(GenericInput::Keyboard(keycode)) == CollectionDone::Yes =>
+                {
+                    return Some(inputs.consume());
                 }
                 Event::KeyUp { .. } | Event::JoyButtonUp { .. } | Event::MouseButtonUp { .. } => {
                     return Some(inputs.consume());
@@ -799,10 +799,10 @@ fn collect_input(
                         return Some(inputs.consume());
                     }
                 }
-                Event::MouseButtonDown { mouse_btn, .. } => {
-                    if inputs.insert(GenericInput::Mouse(mouse_btn)) == CollectionDone::Yes {
-                        return Some(inputs.consume());
-                    }
+                Event::MouseButtonDown { mouse_btn, .. }
+                    if inputs.insert(GenericInput::Mouse(mouse_btn)) == CollectionDone::Yes =>
+                {
+                    return Some(inputs.consume());
                 }
                 _ => {}
             }

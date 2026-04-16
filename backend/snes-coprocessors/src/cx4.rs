@@ -233,15 +233,14 @@ impl Cx4Registers {
         );
 
         let mut src_addr = self.dma_source_address;
-        let mut dest_addr: u32 = (self.dma_destination_address - 0x6000).into();
-        let dma_len = cmp::min(0x0C00 - dest_addr, self.dma_length.into());
+        let dest_addr: usize = (self.dma_destination_address - 0x6000).into();
+        let dma_len: usize = cmp::min(0x0C00 - dest_addr, self.dma_length.into());
 
-        for _ in 0..dma_len {
+        for ram_value in &mut ram[dest_addr..dest_addr + dma_len] {
             let rom_addr = common::lorom_map_rom_address(src_addr, rom.len() as u32);
-            ram[dest_addr as usize] = rom[rom_addr as usize];
+            *ram_value = rom[rom_addr as usize];
 
             src_addr = (src_addr + 1) & 0xFFFFFF;
-            dest_addr += 1;
         }
     }
 

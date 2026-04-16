@@ -249,10 +249,8 @@ impl MapperImpl<BandaiFcg> {
                     _ => {}
                 }
             }
-            (Variant::Lz93D50(MemoryVariant::RAM), 0x6000..=0x7FFF) => {
-                if self.data.ram_enabled {
-                    self.cartridge.set_prg_ram((address & 0x1FFF).into(), value);
-                }
+            (Variant::Lz93D50(MemoryVariant::RAM), 0x6000..=0x7FFF) if self.data.ram_enabled => {
+                self.cartridge.set_prg_ram((address & 0x1FFF).into(), value);
             }
             _ => {}
         }

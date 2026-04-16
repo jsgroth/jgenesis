@@ -102,17 +102,17 @@ impl SuperFx {
                 // GSU code cache RAM
                 self.gsu.write_code_cache_ram(address, value);
             }
-            (0x00..=0x3F | 0x80..=0xBF, 0x6000..=0x7FFF) => {
+            (0x00..=0x3F | 0x80..=0xBF, 0x6000..=0x7FFF)
+                if !self.gsu.is_running() || self.gsu.ram_access() == BusAccess::Snes =>
+            {
                 // First 8KB of RAM
-                if !self.gsu.is_running() || self.gsu.ram_access() == BusAccess::Snes {
-                    self.ram[(address & 0x1FFF) as usize] = value;
-                }
+                self.ram[(address & 0x1FFF) as usize] = value;
             }
-            (0x70..=0x71 | 0xF0..=0xF1, _) => {
+            (0x70..=0x71 | 0xF0..=0xF1, _)
+                if !self.gsu.is_running() || self.gsu.ram_access() == BusAccess::Snes =>
+            {
                 // RAM
-                if !self.gsu.is_running() || self.gsu.ram_access() == BusAccess::Snes {
-                    self.ram[(address as usize) & (self.ram.len() - 1)] = value;
-                }
+                self.ram[(address as usize) & (self.ram.len() - 1)] = value;
             }
             _ => {}
         }

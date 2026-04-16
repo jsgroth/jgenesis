@@ -399,19 +399,17 @@ impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u32>
             0x000000..=0x9FFFFF | 0xA12000..=0xA153FF => {
                 self.memory.physical_medium.write_byte(address, value);
             }
-            0xA00000..=0xA0FFFF => {
+            0xA00000..=0xA0FFFF if self.memory.signals.z80_busack() => {
                 // Z80 memory map; writable by the 68k only when the Z80 is removed from the bus
                 // and not reset
-                if self.memory.signals.z80_busack() {
-                    self.cycles.record_68k_z80_bus_access();
+                self.cycles.record_68k_z80_bus_access();
 
-                    // For 68k access, $8000-$FFFF mirrors $0000-$7FFF
-                    <Self as z80_emu::BusInterface>::write_memory(
-                        self,
-                        (address & 0x7FFF) as u16,
-                        value,
-                    );
-                }
+                // For 68k access, $8000-$FFFF mirrors $0000-$7FFF
+                <Self as z80_emu::BusInterface>::write_memory(
+                    self,
+                    (address & 0x7FFF) as u16,
+                    value,
+                );
             }
             0xA10000..=0xA1001F => {
                 self.write_io_register(address, value);

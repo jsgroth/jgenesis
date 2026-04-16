@@ -122,10 +122,8 @@ impl MapperImpl<Vrc7> {
                 (Variant::Vrc7a | Variant::Unknown, 0x9010) => {
                     self.data.audio.select_register(value);
                 }
-                (Variant::Vrc7a | Variant::Unknown, 0x9030) => {
-                    if self.data.audio_enabled {
-                        self.data.audio.write_data(value);
-                    }
+                (Variant::Vrc7a | Variant::Unknown, 0x9030) if self.data.audio_enabled => {
+                    self.data.audio.write_data(value);
                 }
                 (_, 0xA000..=0xD010) => {
                     let address_mask = match self.data.variant {

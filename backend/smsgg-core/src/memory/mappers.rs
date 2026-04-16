@@ -70,12 +70,10 @@ impl SegaMapper {
 
     pub fn write(&mut self, address: u16, value: u8, ram: &mut [u8], ram_dirty: &mut bool) {
         match address {
-            0x8000..=0xBFFF => {
+            0x8000..=0xBFFF if self.ram_enabled => {
                 // RAM bank (if mapped)
-                if self.ram_enabled {
-                    write_16kb_banked(ram, address, self.ram_bank, value);
-                    *ram_dirty = true;
-                }
+                write_16kb_banked(ram, address, self.ram_bank, value);
+                *ram_dirty = true;
             }
             0xFFFC => {
                 // Control / RAM banking

@@ -76,10 +76,8 @@ impl MapperImpl<Namco175> {
     pub(crate) fn write_cpu_address(&mut self, address: u16, value: u8) {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: {address:04X}"),
-            0x6000..=0x7FFF => {
-                if self.data.ram_enabled && !self.cartridge.prg_ram.is_empty() {
-                    self.cartridge.set_prg_ram((address & 0x1FFF).into(), value);
-                }
+            0x6000..=0x7FFF if self.data.ram_enabled && !self.cartridge.prg_ram.is_empty() => {
+                self.cartridge.set_prg_ram((address & 0x1FFF).into(), value);
             }
             0x8000..=0xBFFF => {
                 let bank_index = (address & 0x7FFF) / 0x0800;

@@ -320,6 +320,7 @@ impl Mapper {
 
     /// Return whether the board's writable memory (if any) has been written to since the last time
     /// this method was called.
+    #[allow(clippy::collapsible_match)] // lint recommends code changes that don't compile
     pub(crate) fn get_and_clear_ram_dirty_bit(&mut self) -> bool {
         match self {
             Mapper::BandaiFcg(mapper) => {
@@ -327,10 +328,8 @@ impl Mapper {
                     return true;
                 }
             }
-            Mapper::Namco163(mapper) => {
-                if mapper.has_battery_backed_internal_ram()
-                    && mapper.get_and_clear_internal_ram_dirty_bit()
-                {
+            Mapper::Namco163(mapper) if mapper.has_battery_backed_internal_ram() => {
+                if mapper.get_and_clear_internal_ram_dirty_bit() {
                     return true;
                 }
             }
@@ -353,21 +352,15 @@ impl Mapper {
     /// has no PRG RAM or EEPROM.
     pub(crate) fn get_prg_ram(&self) -> &[u8] {
         match self {
-            Mapper::BandaiFcg(mapper) => {
-                if let Some(eeprom) = mapper.eeprom() {
-                    return eeprom;
-                }
+            Mapper::BandaiFcg(mapper) if let Some(eeprom) = mapper.eeprom() => {
+                return eeprom;
             }
-            Mapper::Namco163(mapper) => {
-                if mapper.has_battery_backed_internal_ram() {
-                    return mapper.get_internal_ram();
-                }
+            Mapper::Namco163(mapper) if mapper.has_battery_backed_internal_ram() => {
+                return mapper.get_internal_ram();
             }
-            Mapper::Unrom512(mapper) => {
-                if mapper.is_flashable() {
-                    // Some UNROM 512 cartridges have flashable PRG ROM that is used to store save data
-                    return &mapper.cartridge.prg_rom;
-                }
+            Mapper::Unrom512(mapper) if mapper.is_flashable() => {
+                // Some UNROM 512 cartridges have flashable PRG ROM that is used to store save data
+                return &mapper.cartridge.prg_rom;
             }
             _ => {}
         }
