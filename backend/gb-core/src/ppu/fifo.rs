@@ -212,10 +212,10 @@ impl PixelFifo {
         sprite_palette_ram: &CgbPaletteRam,
         frame_buffer: Option<&mut PpuFrameBuffer>,
     ) {
-        if self.scanned_sprites.front().is_some_and(|sprite| sprite.x == fields.screen_x) {
+        if let Some(sprite) =
+            self.scanned_sprites.pop_front_if(|sprite| sprite.x == fields.screen_x)
+        {
             // A sprite starts on this position. Go ahead and do the actual tile fetch immediately
-            let sprite = self.scanned_sprites.pop_front().unwrap();
-
             // TODO GBC always fetches sprite tiles even when sprites are disabled
             if registers.sprites_enabled {
                 self.fetch_next_sprite_tile(sprite, vram, registers, cgb_registers.obj_priority);

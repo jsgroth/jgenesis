@@ -322,7 +322,7 @@ where
                 .into(),
                 radius,
                 fill_color,
-                egui::Stroke::new(1.0, stroke_color),
+                egui::Stroke::new(1.0_f32, stroke_color),
             );
         }
     }
