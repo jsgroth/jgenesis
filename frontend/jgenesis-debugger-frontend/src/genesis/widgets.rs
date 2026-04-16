@@ -159,6 +159,28 @@ where
                 {
                     self.breakpoints.remove(remove_idx);
                 }
+
+                macro_rules! check_all_button {
+                    ($label:literal, $field:ident = $value:literal) => {
+                        if ui.button($label).clicked() {
+                            for breakpoint in &mut self.breakpoints {
+                                breakpoint.$field = $value;
+                            }
+                        }
+                    };
+                }
+
+                ui.label("");
+                check_all_button!("Check all", read = true);
+                check_all_button!("Check all", write = true);
+                check_all_button!("Check all", execute = true);
+                ui.end_row();
+
+                ui.label("");
+                check_all_button!("Uncheck all", read = false);
+                check_all_button!("Uncheck all", write = false);
+                check_all_button!("Uncheck all", execute = false);
+                ui.end_row();
             });
 
             ui.separator();
