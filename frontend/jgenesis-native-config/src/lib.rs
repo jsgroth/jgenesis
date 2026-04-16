@@ -18,7 +18,6 @@ use crate::input::InputAppConfig;
 use crate::nes::NesAppConfig;
 use crate::smsgg::SmsGgAppConfig;
 use crate::snes::SnesAppConfig;
-use cfg_if::cfg_if;
 use jgenesis_proc_macros::EnumDisplay;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -146,12 +145,9 @@ pub const CONFIG_FILENAME: &str = "jgenesis-config.toml";
 
 #[must_use]
 pub fn default_config_path() -> PathBuf {
-    cfg_if! {
-        if #[cfg(target_os = "linux")] {
-            default_linux_config_path()
-        } else {
-            CONFIG_FILENAME.into()
-        }
+    cfg_select! {
+        target_os = "linux" => default_linux_config_path(),
+        _ => CONFIG_FILENAME.into(),
     }
 }
 

@@ -16,7 +16,6 @@ jgenesis-proc-macros = { workspace = true }
 jgenesis-common = { workspace = true }
 
 bytemuck = { workspace = true }
-cfg-if = { workspace = true }
 clap = { workspace = true, optional = true }
 glyphon = { workspace = true, optional = true }
 log = { workspace = true }

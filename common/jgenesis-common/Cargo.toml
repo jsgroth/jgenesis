@@ -15,7 +15,6 @@ jgenesis-proc-macros = { workspace = true }
 
 bincode = { workspace = true, features = ["derive"] }
 bytemuck = { workspace = true }
-cfg-if = { workspace = true }
 clap = { workspace = true, optional = true }
 log = { workspace = true }
 serde = { workspace = true, optional = true }

@@ -20,7 +20,6 @@ snes-config = { workspace = true, features = ["serde"] }
 
 jgenesis-renderer = { workspace = true, features = ["serde"] }
 
-cfg-if = { workspace = true }
 clap = { workspace = true, optional = true }
 directories = { workspace = true }
 log = { workspace = true }

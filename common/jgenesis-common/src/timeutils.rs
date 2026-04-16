@@ -1,4 +1,3 @@
-use cfg_if::cfg_if;
 use std::thread;
 use std::time::Duration;
 use time::{Date, Month, Weekday};
@@ -9,11 +8,12 @@ use time::{Date, Month, Weekday};
 /// Uses `SystemTime` on native platforms and `Date` in WASM.
 #[must_use]
 pub fn current_time_nanos() -> u128 {
-    cfg_if! {
-        if #[cfg(target_arch = "wasm32")] {
+    cfg_select! {
+        target_arch = "wasm32" => {
             let current_time_ms = js_sys::Date::now();
             (current_time_ms * 1_000_000.0) as u128
-        } else {
+        }
+        _ => {
             use std::time::SystemTime;
 
             SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_nanos()
