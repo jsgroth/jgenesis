@@ -1376,7 +1376,7 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             width: window_size.width,
             height: window_size.height,
             present_mode,
-            desired_maximum_frame_latency: 2,
+            desired_maximum_frame_latency: 1,
             alpha_mode: surface_capabilities.alpha_modes[0],
             view_formats: vec![],
         };
