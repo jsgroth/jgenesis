@@ -141,10 +141,6 @@ impl NtscShader {
             NtscShaderVariant::Rgb => 0.0,
             NtscShaderVariant::NesPpu => 2.9 / 12.0 * 2.0 * std::f64::consts::PI,
         };
-        let decode_gamma = match variant {
-            NtscShaderVariant::Rgb => config.gamma,
-            NtscShaderVariant::NesPpu => 1.8 / 2.2 * config.gamma, // NES colors look too bright without some gamma correction
-        };
         let pipeline_compilation_options = wgpu::PipelineCompilationOptions {
             constants: &[
                 ("samples_per_color_cycle", u32::from(params.samples_per_color_cycle).into()),
@@ -155,7 +151,7 @@ impl NtscShader {
                 ("decode_brightness", config.brightness),
                 ("decode_saturation", config.saturation),
                 ("decode_contrast", config.contrast),
-                ("decode_gamma", decode_gamma),
+                ("decode_gamma", config.gamma),
             ],
             ..wgpu::PipelineCompilationOptions::default()
         };

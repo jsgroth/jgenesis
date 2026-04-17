@@ -2,7 +2,6 @@ mod helptext;
 
 use crate::app::widgets::{BiosErrorStrings, OptionalPathSelector, RenderErrorEffect};
 use crate::app::{App, OpenWindow, widgets};
-use crate::emuthread::EmuThreadStatus;
 use crate::widgets::{ClockModifier, OverclockSlider};
 use egui::{Context, Window};
 use jgenesis_common::frontend::TimingMode;
@@ -301,7 +300,7 @@ impl App {
             }
 
             let rect = ui
-                .add_enabled_ui(self.emu_thread.status() != EmuThreadStatus::RunningSmsGg, |ui| {
+                .add_enabled_ui(!self.emu_thread.status().is_running_smsgg(), |ui| {
                     ui.checkbox(
                         &mut self.config.smsgg.fm_sound_unit_enabled,
                         "Master System FM sound unit enabled",

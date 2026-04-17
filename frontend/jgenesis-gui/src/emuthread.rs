@@ -29,7 +29,7 @@ use std::time::Duration;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmuThreadStatus {
     Idle = 0,
-    RunningSmsGg = 1,
+    RunningSms = 1,
     RunningGenesis = 2,
     RunningSegaCd = 3,
     Running32X = 4,
@@ -39,13 +39,14 @@ pub enum EmuThreadStatus {
     RunningGba = 8,
     WaitingForFirstCommand = 9,
     Terminated = 10,
+    RunningGameGear = 11,
 }
 
 impl EmuThreadStatus {
     fn from_discriminant(discriminant: u8) -> Self {
         match discriminant {
             0 => Self::Idle,
-            1 => Self::RunningSmsGg,
+            1 => Self::RunningSms,
             2 => Self::RunningGenesis,
             3 => Self::RunningSegaCd,
             4 => Self::Running32X,
@@ -55,6 +56,7 @@ impl EmuThreadStatus {
             8 => Self::RunningGba,
             9 => Self::WaitingForFirstCommand,
             10 => Self::Terminated,
+            11 => Self::RunningGameGear,
             _ => panic!("invalid status discriminant: {discriminant}"),
         }
     }
@@ -62,7 +64,7 @@ impl EmuThreadStatus {
     pub fn is_running(self) -> bool {
         matches!(
             self,
-            Self::RunningSmsGg
+            Self::RunningSms
                 | Self::RunningGenesis
                 | Self::RunningSegaCd
                 | Self::Running32X
@@ -70,7 +72,16 @@ impl EmuThreadStatus {
                 | Self::RunningSnes
                 | Self::RunningGameBoy
                 | Self::RunningGba
+                | Self::RunningGameGear
         )
+    }
+
+    pub fn is_running_smsgg(self) -> bool {
+        matches!(self, Self::RunningSms | Self::RunningGameGear)
+    }
+
+    pub fn is_running_handheld(self) -> bool {
+        matches!(self, Self::RunningGameGear | Self::RunningGameBoy | Self::RunningGba)
     }
 }
 
@@ -81,7 +92,8 @@ trait ConsoleExt {
 impl ConsoleExt for Console {
     fn running_status(self) -> EmuThreadStatus {
         match self {
-            Self::MasterSystem | Self::GameGear | Self::Sg1000 => EmuThreadStatus::RunningSmsGg,
+            Self::MasterSystem | Self::Sg1000 => EmuThreadStatus::RunningSms,
+            Self::GameGear => EmuThreadStatus::RunningGameGear,
             Self::Genesis => EmuThreadStatus::RunningGenesis,
             Self::SegaCd => EmuThreadStatus::RunningSegaCd,
             Self::Sega32X => EmuThreadStatus::Running32X,

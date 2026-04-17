@@ -171,12 +171,16 @@ impl App {
                     "None",
                 );
 
+                let composite_enabled = !self.emu_thread.status().is_running_handheld();
+
                 ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.config.common.preprocess_shader,
-                        PreprocessShader::NtscComposite,
-                        "NTSC composite",
-                    );
+                    ui.add_enabled_ui(composite_enabled, |ui| {
+                        ui.radio_value(
+                            &mut self.config.common.preprocess_shader,
+                            PreprocessShader::NtscComposite,
+                            "NTSC composite",
+                        );
+                    });
 
                     ui.collapsing("NTSC shader settings", |ui| {
                         ui.vertical(|ui| {
