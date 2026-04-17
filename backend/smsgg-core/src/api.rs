@@ -327,6 +327,8 @@ impl EmulatorTrait for SmsGgEmulator {
         I: InputPoller<Self::Inputs>,
         S: SaveWriter,
     {
+        self.input.set_inputs(*input_poller.poll());
+
         let z80_t_cycles = self.z80.execute_instruction(&mut Bus::new(
             self.vdp_version,
             &mut self.memory,
@@ -371,7 +373,6 @@ impl EmulatorTrait for SmsGgEmulator {
                 self.render_frame(renderer).map_err(SmsGgError::Render)?;
                 frame_rendered = true;
 
-                self.input.set_inputs(*input_poller.poll());
                 self.input.set_reset(self.reset_frames_remaining != 0);
                 self.reset_frames_remaining = self.reset_frames_remaining.saturating_sub(1);
 
