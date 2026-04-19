@@ -73,7 +73,7 @@ impl ModalRenderer {
         let text_renderer_multisample =
             TextRenderer::new(&mut atlas, device, MULTISAMPLE_STATE, None);
 
-        let shader = device.create_shader_module(wgpu::include_wgsl!("modal.wgsl"));
+        let shader = device.create_shader_module(wgpu::include_wgsl!("wgsl/modal.wgsl"));
         let bg_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
             label: "modal_bg_pipeline".into(),
             layout: None,

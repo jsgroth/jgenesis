@@ -1176,13 +1176,13 @@ struct Shaders {
 
 impl Shaders {
     fn create(device: &wgpu::Device) -> Self {
-        let render = device.create_shader_module(wgpu::include_wgsl!("render.wgsl"));
-        let prescale = device.create_shader_module(wgpu::include_wgsl!("prescale.wgsl"));
-        let identity = device.create_shader_module(wgpu::include_wgsl!("identity.wgsl"));
-        let hblur = device.create_shader_module(wgpu::include_wgsl!("hblur.wgsl"));
-        let frame_blend = device.create_shader_module(wgpu::include_wgsl!("frameblend.wgsl"));
-        let gb_color = device.create_shader_module(wgpu::include_wgsl!("gb_color.wgsl"));
-        let ntsc = device.create_shader_module(wgpu::include_wgsl!("ntsc.wgsl"));
+        let render = device.create_shader_module(wgpu::include_wgsl!("wgsl/render.wgsl"));
+        let prescale = device.create_shader_module(wgpu::include_wgsl!("wgsl/prescale.wgsl"));
+        let identity = device.create_shader_module(wgpu::include_wgsl!("wgsl/identity.wgsl"));
+        let hblur = device.create_shader_module(wgpu::include_wgsl!("wgsl/hblur.wgsl"));
+        let frame_blend = device.create_shader_module(wgpu::include_wgsl!("wgsl/frameblend.wgsl"));
+        let gb_color = device.create_shader_module(wgpu::include_wgsl!("wgsl/gb_color.wgsl"));
+        let ntsc = device.create_shader_module(wgpu::include_wgsl!("wgsl/ntsc.wgsl"));
 
         Self { render, prescale, identity, hblur, frame_blend, gb_color, ntsc }
     }
