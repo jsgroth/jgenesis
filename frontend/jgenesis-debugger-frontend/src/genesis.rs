@@ -12,14 +12,17 @@ use crate::genesis::z80debug::{GenesisZ80MemoryMap, Z80BreakCommand, Z80DebugWin
 use crate::memviewer::MemoryViewerState;
 use crate::process::{DebuggerProcesses, RunTillNextResult};
 use crate::{DebugRenderContext, DebuggerMainProcess, DebuggerRunnerProcess, memviewer};
-use egui::panel::TopBottomSide;
+use egui::panel::{Side, TopBottomSide};
 use egui::scroll_area::ScrollBarVisibility;
-use egui::{TopBottomPanel, UiKind, Vec2, Window};
+use egui::{
+    CentralPanel, Color32, CornerRadius, Grid, Image, Popup, Pos2, Rect, Sense, SidePanel, Stroke,
+    StrokeKind, TopBottomPanel, Ui, UiKind, Vec2, Window,
+};
 use egui_extras::{Column, TableBuilder};
 use genesis_config::GenesisInputs;
 use genesis_core::GenesisEmulator;
 use genesis_core::api::debug::{
-    CopySpriteAttributesResult, GenesisDebugCommand, GenesisDebugState, GenesisDebugger,
+    CopySpriteAttributesResult, CramEntry, GenesisDebugCommand, GenesisDebugState, GenesisDebugger,
     GenesisDebuggerHandle, GenesisMemoryArea, SpriteAttributeEntry,
 };
 use genesis_core::vdp::ColorModifier;
@@ -28,6 +31,7 @@ use jgenesis_common::debug::{DebugMemoryView, DebugViewWithWriteHook, Endian};
 use jgenesis_common::frontend::{
     AudioOutput, Color, InputPoller, Renderer, SaveWriter, TickEffect,
 };
+use jgenesis_common::num::GetBit;
 use jgenesis_common::sync::{SharedVarReceiver, SharedVarSender};
 use s32x_core::WhichCpu;
 use s32x_core::api::Sega32XEmulator;
@@ -42,6 +46,7 @@ use smsgg_core::psg::Sn76489;
 use std::collections::HashMap;
 use std::error::Error;
 use std::hash::Hash;
+use std::iter;
 
 const CRAM_WINDOW_TITLE: &str = "CRAM";
 const VRAM_WINDOW_TITLE: &str = "VRAM";
@@ -53,6 +58,9 @@ const VDP_REGISTERS_WINDOW_TITLE: &str = "VDP Registers";
 const S32X_SYSTEM_REGISTERS_WINDOW_TITLE: &str = "32X System Registers";
 const S32X_VDP_REGISTERS_WINDOW_TITLE: &str = "32X VDP Registers";
 const S32X_PWM_REGISTERS_WINDOW_TITLE: &str = "32X PWM Registers";
+
+const CRAM_ROWS: usize = 4;
+const CRAM_COLS: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum MemoryArea {
@@ -156,7 +164,10 @@ impl MemoryArea {
 struct CramWindowState {
     open: bool,
     modifier: ColorModifier,
-    buffer: Box<[Color; 64]>,
+    selected_color: usize,
+    popup_contains_pointer: bool,
+    entry_buffer: Box<[CramEntry; CRAM_ROWS * CRAM_COLS]>,
+    color_buffer: Box<[Color; CRAM_ROWS * CRAM_COLS]>,
     texture: Option<egui::TextureId>,
 }
 
@@ -165,7 +176,16 @@ impl CramWindowState {
         Self {
             open: true,
             modifier: ColorModifier::None,
-            buffer: vec![Color::default(); 64].into_boxed_slice().try_into().unwrap(),
+            selected_color: 0,
+            popup_contains_pointer: false,
+            entry_buffer: vec![CramEntry::default(); CRAM_ROWS * CRAM_COLS]
+                .into_boxed_slice()
+                .try_into()
+                .unwrap(),
+            color_buffer: vec![Color::default(); CRAM_ROWS * CRAM_COLS]
+                .into_boxed_slice()
+                .try_into()
+                .unwrap(),
             texture: None,
         }
     }
@@ -221,7 +241,10 @@ impl SpriteAttributesWindowState {
 
 struct S32XPaletteRamState {
     open: bool,
-    buffer: Box<[Color; 256]>,
+    selected_color: usize,
+    popup_contains_pointer: bool,
+    entry_buffer: Box<[CramEntry; 256]>,
+    color_buffer: Box<[Color; 256]>,
     texture: Option<egui::TextureId>,
 }
 
@@ -229,7 +252,10 @@ impl S32XPaletteRamState {
     fn new() -> Self {
         Self {
             open: false,
-            buffer: vec![Color::default(); 256].into_boxed_slice().try_into().unwrap(),
+            selected_color: 0,
+            popup_contains_pointer: false,
+            entry_buffer: vec![CramEntry::default(); 256].into_boxed_slice().try_into().unwrap(),
+            color_buffer: vec![Color::default(); 256].into_boxed_slice().try_into().unwrap(),
             texture: None,
         }
     }
@@ -309,7 +335,7 @@ impl GenesisBasedDebugState<'_> {
         match_each_state_variant!(self, state => state.psg())
     }
 
-    fn copy_cram(&mut self, out: &mut [Color], modifier: ColorModifier) {
+    fn copy_cram(&mut self, out: &mut [CramEntry], modifier: ColorModifier) {
         match_each_state_variant!(self, state => state.copy_cram(out, modifier));
     }
 
@@ -816,6 +842,45 @@ fn render_memory_viewer_windows(
     }
 }
 
+fn render_color_info_grid(
+    id: impl Hash,
+    ui: &mut Ui,
+    palette: usize,
+    color_idx: usize,
+    entry: CramEntry,
+) {
+    Grid::new(id).show(ui, |ui| {
+        ui.label("Palette");
+        ui.label(palette.to_string());
+        ui.end_row();
+
+        ui.label("Index");
+        ui.label(color_idx.to_string());
+        ui.end_row();
+
+        ui.label("Color");
+        ui.label(format!("0x{:03X}", entry.value));
+        ui.end_row();
+
+        ui.label("R / G / B");
+        ui.label(format!(
+            "{} / {} / {}",
+            (entry.value >> 1) & 7,
+            (entry.value >> 5) & 7,
+            (entry.value >> 9) & 7
+        ));
+        ui.end_row();
+
+        ui.label("Display");
+        ui.label(format_display_color(entry.color));
+        ui.end_row();
+    });
+}
+
+fn format_display_color(color: Color) -> String {
+    format!("#{:02X}{:02X}{:02X}", color.r, color.g, color.b)
+}
+
 fn render_cram_window(
     ctx: &egui::Context,
     screen_width: f32,
@@ -825,30 +890,120 @@ fn render_cram_window(
     Window::new(CRAM_WINDOW_TITLE)
         .open(&mut state.open)
         .constrain(false)
-        .default_width(screen_width * 0.95)
+        .default_size([screen_width * 0.95, 225.0])
         .show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.radio_value(&mut state.modifier, ColorModifier::None, "Normal");
-                ui.radio_value(&mut state.modifier, ColorModifier::Shadow, "Shadowed");
-                ui.radio_value(&mut state.modifier, ColorModifier::Highlight, "Highlighted");
-            });
-
-            emu_state.copy_cram(state.buffer.as_mut_slice(), state.modifier);
-
-            let mut height = ui.available_width() * 0.25;
-            if height > ui.available_height() {
-                height = ui.available_height();
+            emu_state.copy_cram(state.entry_buffer.as_mut_slice(), state.modifier);
+            for (entry, color) in
+                iter::zip(state.entry_buffer.iter(), state.color_buffer.iter_mut())
+            {
+                *color = entry.color;
             }
-            let width = height * 4.0;
 
-            let texture = crate::update_egui_texture(
-                ctx,
-                [16, 4],
-                state.buffer.as_slice(),
-                &mut state.texture,
-            );
-            ui.image((texture, Vec2::new(width, height)));
+            SidePanel::new(Side::Right, "cram_right_panel")
+                .resizable(false)
+                .min_width(125.0)
+                .show_inside(ui, |ui| {
+                    let cram_entry = state.entry_buffer[state.selected_color];
+
+                    paint_rect_and_advance_cursor(
+                        ui,
+                        ui.max_rect().min,
+                        Vec2::new(50.0, 50.0),
+                        cram_entry.color,
+                    );
+
+                    render_color_info_grid(
+                        "cram_side_panel_grid",
+                        ui,
+                        state.selected_color / 16,
+                        state.selected_color % 16,
+                        cram_entry,
+                    );
+                });
+
+            CentralPanel::default().show_inside(ui, |ui| {
+                let modifier_resp = ui.horizontal(|ui| {
+                    ui.radio_value(&mut state.modifier, ColorModifier::None, "Normal");
+                    ui.radio_value(&mut state.modifier, ColorModifier::Shadow, "Shadowed");
+                    ui.radio_value(&mut state.modifier, ColorModifier::Highlight, "Highlighted");
+                });
+
+                let mut image_size =
+                    ui.max_rect().size() - Vec2::new(0.0, modifier_resp.response.rect.height());
+                if image_size.y > image_size.x * 0.25 {
+                    image_size.y = image_size.x * 0.25;
+                } else {
+                    image_size.x = image_size.y * 4.0;
+                }
+
+                let texture = crate::update_egui_texture(
+                    ctx,
+                    [CRAM_COLS, CRAM_ROWS],
+                    state.color_buffer.as_slice(),
+                    &mut state.texture,
+                );
+                let image_resp = ui.add(Image::new((texture, image_size)).sense(Sense::click()));
+
+                let mut clicked = image_resp.clicked();
+                let contains_pointer =
+                    image_resp.contains_pointer() || state.popup_contains_pointer;
+                if (clicked || contains_pointer)
+                    && let Some(pos) = ui.input(|i| i.pointer.latest_pos())
+                {
+                    let normalized_pos = crate::normalize_position(pos, image_resp.interact_rect);
+                    let row = (normalized_pos.y * (CRAM_ROWS as f32)) as usize;
+                    let col = (normalized_pos.x * (CRAM_COLS as f32)) as usize;
+
+                    if row < CRAM_ROWS && col < CRAM_COLS {
+                        let buffer_idx = CRAM_COLS * row + col;
+
+                        if contains_pointer {
+                            let cram_entry = state.entry_buffer[buffer_idx];
+
+                            let popup_resp = Popup::from_response(&image_resp)
+                                .at_pointer()
+                                .gap(5.0)
+                                .show(|ui| {
+                                    paint_rect_and_advance_cursor(
+                                        ui,
+                                        ui.max_rect().min + Vec2::new(35.0, 0.0),
+                                        Vec2::new(25.0, 25.0),
+                                        cram_entry.color,
+                                    );
+
+                                    render_color_info_grid(
+                                        "cram_popup_grid",
+                                        ui,
+                                        row,
+                                        col,
+                                        cram_entry,
+                                    );
+                                });
+                            clicked |=
+                                popup_resp.as_ref().is_some_and(|resp| resp.response.clicked());
+                            state.popup_contains_pointer =
+                                popup_resp.is_some_and(|resp| resp.response.contains_pointer());
+                        }
+
+                        if clicked {
+                            state.selected_color = buffer_idx;
+                        }
+                    }
+                }
+            });
         });
+}
+
+fn paint_rect_and_advance_cursor(ui: &mut Ui, min: Pos2, size: Vec2, fill_color: Color) {
+    let rect = Rect { min, max: min + size };
+    ui.painter().rect(
+        rect,
+        CornerRadius::ZERO,
+        Color32::from_rgb(fill_color.r, fill_color.g, fill_color.b),
+        Stroke::new(1.0_f32, ui.visuals().text_color()),
+        StrokeKind::Middle,
+    );
+    ui.advance_cursor_after_rect(rect);
 }
 
 fn render_vram_window(
@@ -1016,6 +1171,40 @@ fn render_sprite_attributes_window(
         });
 }
 
+fn render_32x_color_grid(id: impl Hash, ui: &mut Ui, index: usize, entry: CramEntry) {
+    Grid::new(id).show(ui, |ui| {
+        ui.label("Index");
+        ui.label(format!("0x{index:02X} ({index})"));
+        ui.end_row();
+
+        ui.label("Color");
+        ui.label(format!("0x{:04X}", entry.value));
+        ui.end_row();
+
+        let fmt_color = |component: u16| format!("0x{component:02X} ({component})");
+
+        ui.label("Red");
+        ui.label(fmt_color(entry.value & 0x1F));
+        ui.end_row();
+
+        ui.label("Green");
+        ui.label(fmt_color((entry.value >> 5) & 0x1F));
+        ui.end_row();
+
+        ui.label("Blue");
+        ui.label(fmt_color((entry.value >> 10) & 0x1F));
+        ui.end_row();
+
+        ui.label("Priority");
+        ui.label(if entry.value.bit(15) { "1" } else { "0" });
+        ui.end_row();
+
+        ui.label("Display");
+        ui.label(format_display_color(entry.color));
+        ui.end_row();
+    });
+}
+
 fn render_32x_palette_window(
     ctx: &egui::Context,
     emu_state: &mut Sega32XDebugState,
@@ -1025,22 +1214,98 @@ fn render_32x_palette_window(
         .open(&mut state.open)
         .constrain(false)
         .default_pos(crate::rand_window_pos())
-        .default_size([500.0, 550.0])
+        .default_size([700.0, 550.0])
         .show(ctx, |ui| {
-            emu_state.copy_palette(state.buffer.as_mut_slice());
-
-            let mut size = ui.available_width();
-            if ui.available_height() < size {
-                size = ui.available_height();
+            emu_state.copy_palette(state.entry_buffer.as_mut_slice());
+            for (entry, color) in
+                iter::zip(state.entry_buffer.iter(), state.color_buffer.iter_mut())
+            {
+                *color = entry.color;
             }
 
-            let texture = crate::update_egui_texture(
-                ctx,
-                [16, 16],
-                state.buffer.as_slice(),
-                &mut state.texture,
-            );
-            ui.image((texture, Vec2::new(size, size)));
+            SidePanel::new(Side::Right, "32x_palette_side_panel")
+                .resizable(false)
+                .min_width(135.0)
+                .show_inside(ui, |ui| {
+                    let selected_entry = state.entry_buffer[state.selected_color];
+
+                    paint_rect_and_advance_cursor(
+                        ui,
+                        ui.max_rect().min,
+                        Vec2::new(50.0, 50.0),
+                        selected_entry.color,
+                    );
+
+                    render_32x_color_grid(
+                        "32x_palette_side_panel_grid",
+                        ui,
+                        state.selected_color,
+                        selected_entry,
+                    );
+                });
+
+            CentralPanel::default().show_inside(ui, |ui| {
+                let mut image_size = ui.max_rect().size();
+                if image_size.y > image_size.x {
+                    image_size.y = image_size.x;
+                } else {
+                    image_size.x = image_size.y;
+                }
+
+                let texture = crate::update_egui_texture(
+                    ctx,
+                    [16, 16],
+                    state.color_buffer.as_slice(),
+                    &mut state.texture,
+                );
+                let image_resp = ui.add(Image::new((texture, image_size)).sense(Sense::click()));
+
+                let mut clicked = image_resp.clicked();
+                let contains_pointer =
+                    image_resp.contains_pointer() || state.popup_contains_pointer;
+                if (clicked || contains_pointer)
+                    && let Some(pos) = ui.input(|i| i.pointer.latest_pos())
+                {
+                    let normalized_pos = crate::normalize_position(pos, image_resp.interact_rect);
+                    let row = (normalized_pos.y * 16.0) as usize;
+                    let col = (normalized_pos.x * 16.0) as usize;
+
+                    if row < 16 && col < 16 {
+                        let buffer_idx = 16 * row + col;
+
+                        if contains_pointer {
+                            let entry = state.entry_buffer[buffer_idx];
+
+                            let popup_resp = Popup::from_response(&image_resp)
+                                .at_pointer()
+                                .gap(5.0)
+                                .show(|ui| {
+                                    paint_rect_and_advance_cursor(
+                                        ui,
+                                        ui.max_rect().min + Vec2::new(45.0, 0.0),
+                                        Vec2::new(25.0, 25.0),
+                                        entry.color,
+                                    );
+
+                                    render_32x_color_grid(
+                                        "32x_palette_popup_color_grid",
+                                        ui,
+                                        buffer_idx,
+                                        entry,
+                                    );
+                                });
+                            clicked |=
+                                popup_resp.as_ref().is_some_and(|resp| resp.response.clicked());
+                            state.popup_contains_pointer =
+                                popup_resp.is_some_and(|resp| resp.response.contains_pointer());
+                        }
+
+                        if clicked {
+                            state.selected_color = buffer_idx;
+                        }
+                    }
+                }
+            });
         });
 }
 

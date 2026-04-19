@@ -8,7 +8,7 @@ use crate::{GenesisVdp, WhichCpu};
 use bincode::{Decode, Encode};
 use genesis_config::GenesisInputs;
 use genesis_core::api::debug::{
-    BaseGenesisDebugView, GenesisDebugState, GenesisMemoryArea, M68000BreakStatus,
+    BaseGenesisDebugView, CramEntry, GenesisDebugState, GenesisMemoryArea, M68000BreakStatus,
     M68000BreakStatusAtomic, M68000Breakpoint, M68000BreakpointManager, M68000Breakpoints,
     PhysicalMediumDebugView, Z80BreakStatus, Z80BreakStatusAtomic, Z80Breakpoint,
     Z80BreakpointManager, Z80Breakpoints,
@@ -17,9 +17,7 @@ use genesis_core::cartridge::Cartridge;
 use genesis_core::memory::debug::GenesisMemory;
 use genesis_core::ym2612::Ym2612;
 use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
-use jgenesis_common::frontend::{
-    AudioOutput, Color, InputPoller, Renderer, SaveWriter, TickResult,
-};
+use jgenesis_common::frontend::{AudioOutput, InputPoller, Renderer, SaveWriter, TickResult};
 use jgenesis_common::sync::SharedVarSender;
 use jgenesis_proc_macros::EnumAll;
 use m68000_emu::M68000;
@@ -184,7 +182,7 @@ impl Sega32XDebugState {
         self.system_registers.m68k_rom_bank
     }
 
-    pub fn copy_palette(&mut self, out: &mut [Color]) {
+    pub fn copy_palette(&mut self, out: &mut [CramEntry]) {
         self.s32x_vdp.copy_palette(out);
     }
 

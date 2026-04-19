@@ -567,6 +567,10 @@ fn non_selectable_label(text: impl Into<WidgetText>) -> egui::Label {
     egui::Label::new(text).selectable(false)
 }
 
+fn normalize_position(pos: egui::Pos2, interact_rect: egui::Rect) -> egui::Vec2 {
+    (pos - interact_rect.min) / interact_rect.size()
+}
+
 struct AddressSet<T>(HashSet<T>);
 
 impl<T: Copy + Eq + Hash> AddressSet<T> {

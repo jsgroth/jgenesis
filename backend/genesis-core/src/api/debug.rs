@@ -55,6 +55,14 @@ use std::sync::{Arc, mpsc};
 use z80_emu::Z80;
 
 #[derive(Debug, Clone, Copy, Default)]
+pub struct CramEntry {
+    // Raw 16-bit CRAM value
+    pub value: u16,
+    // RGB888 color displayed by emulator
+    pub color: Color,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
 pub struct SpriteAttributeEntry {
     pub tile_number: u16,
     pub x: u16,
@@ -156,7 +164,7 @@ impl GenesisDebugState {
         &self.psg
     }
 
-    pub fn copy_cram(&self, out: &mut [Color], modifier: ColorModifier) {
+    pub fn copy_cram(&self, out: &mut [CramEntry], modifier: ColorModifier) {
         self.vdp.copy_cram(out, modifier);
     }
 

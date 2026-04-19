@@ -1,7 +1,7 @@
 use crate::vdp::registers::Registers;
 use crate::vdp::{ColorTables, Cram, FrameBufferRam, Vdp, VdpConfig, u16_to_rgb};
+use genesis_core::api::debug::CramEntry;
 use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
-use jgenesis_common::frontend::Color;
 
 #[derive(Debug, Clone)]
 pub struct VdpDebugState {
@@ -59,12 +59,12 @@ impl VdpDebugState {
         DebugWordsView(self.cram.as_mut_slice(), Endian::Big)
     }
 
-    pub fn copy_palette(&self, out: &mut [Color]) {
+    pub fn copy_palette(&self, out: &mut [CramEntry]) {
         let color_tables = ColorTables::from_tint(self.config.color_tint);
 
-        for (i, color) in out[..256].iter_mut().enumerate() {
+        for (i, entry) in out[..256].iter_mut().enumerate() {
             let s32x_color = self.cram[i];
-            *color = u16_to_rgb(s32x_color, color_tables);
+            *entry = CramEntry { value: s32x_color, color: u16_to_rgb(s32x_color, color_tables) };
         }
     }
 

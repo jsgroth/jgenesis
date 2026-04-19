@@ -4,7 +4,7 @@ use crate::vdp::{
 };
 use jgenesis_common::debug::{DebugBytesView, DebugMemoryView, DebugWordsView, Endian};
 
-use crate::api::debug::{CopySpriteAttributesResult, SpriteAttributeEntry};
+use crate::api::debug::{CopySpriteAttributesResult, CramEntry, SpriteAttributeEntry};
 use crate::vdp::colors::ColorTables;
 use crate::vdp::registers::{DebugRegister, Registers};
 use crate::vdp::render::PatternGeneratorRowArgs;
@@ -51,9 +51,12 @@ impl Vdp {
 }
 
 impl VdpDebugState {
-    pub fn copy_cram(&self, out: &mut [Color], modifier: ColorModifier) {
-        for (out_color, &cram_color) in out.iter_mut().zip(self.cram.as_ref()) {
-            *out_color = parse_gen_color(cram_color, modifier, &self.color_tables);
+    pub fn copy_cram(&self, out: &mut [CramEntry], modifier: ColorModifier) {
+        for (out_entry, &cram_color) in out.iter_mut().zip(self.cram.as_ref()) {
+            *out_entry = CramEntry {
+                value: cram_color,
+                color: parse_gen_color(cram_color, modifier, &self.color_tables),
+            };
         }
     }
 
