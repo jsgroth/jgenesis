@@ -807,8 +807,8 @@ impl RenderingPipeline {
         // Use multisampled rendering only when the surface is smaller than the final frame texture
         // in at least 1 dimension; otherwise it's just a waste of compute
         let multisample = renderer_config.filter_mode == config::FilterMode::Linear
-            && (render_input_texture.width() > surface_config.width
-                || render_input_texture.height() > surface_config.height);
+            && (render_input_texture.width() > display_area.width
+                || render_input_texture.height() > display_area.height);
 
         let multisample_output = multisample.then(|| {
             device.create_texture(&wgpu::TextureDescriptor {
