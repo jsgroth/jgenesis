@@ -58,8 +58,6 @@ See [BUILD.md](BUILD.md)
 
 ![Screenshot from 2023-08-27 22-45-32](https://github.com/jsgroth/jgenesis/assets/1137683/90d96e18-57a8-4327-8d9d-385f55a718b3)
 
-![Screenshot from 2023-09-18 15-44-28](https://github.com/jsgroth/jgenesis/assets/1137683/d70b708c-c1dc-4a9e-adda-11d2b1b8fa00)
-
 ## Sources
 
 ### Sega Master System / Game Gear
