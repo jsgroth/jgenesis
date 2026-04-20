@@ -344,7 +344,7 @@ pub const Y_DECODE_LPF_15_COEFFICIENTS: &[f32] = &[
 ];
 
 // Kaiser window, stopband attenuation 40 dB, cutoff 1.1 MHz
-pub const IQ_LPF_15_COEFFICIENTS: &[f32] = &[
+pub const UV_LPF_15_COEFFICIENTS: &[f32] = &[
     -0.001052405003002203,
     -0.001302462472830316,
     -0.0015653734381701097,
@@ -713,7 +713,7 @@ pub const Y_DECODE_LPF_12_COEFFICIENTS: &[f32] = &[
 ];
 
 // Kaiser window, stopband attenuation 40 dB, cutoff 1.1 MHz
-pub const IQ_LPF_12_COEFFICIENTS: &[f32] = &[
+pub const UV_LPF_12_COEFFICIENTS: &[f32] = &[
     -0.0011671757222187881,
     -0.0015561923217576367,
     -0.001978977686440651,

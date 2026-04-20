@@ -203,13 +203,6 @@ impl App {
                             );
 
                             ui.add(
-                                Slider::new(&mut self.config.common.ntsc.contrast, 0.0..=5.0)
-                                    .step_by(0.01)
-                                    .text("Contrast")
-                                    .custom_formatter(fmt_2f),
-                            );
-
-                            ui.add(
                                 Slider::new(&mut self.config.common.ntsc.gamma, 0.1..=5.0)
                                     .step_by(0.1)
                                     .text("Gamma")

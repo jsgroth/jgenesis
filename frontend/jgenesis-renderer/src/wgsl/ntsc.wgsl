@@ -7,20 +7,16 @@ override fir_len: i32;
 // Number of NTSC samples to generate per frame buffer pixel (assumed to be at least 1)
 override upscale_factor: i32;
 
-// Phase offset to apply when demodulating I and Q (should only be non-zero for NES NTSC output)
+// Phase offset to apply when demodulating U and V (should only be non-zero for NES NTSC output)
 override decode_hue_offset: f32 = 0.0;
-
-// Whether to assume the decoded NTSC signal is YUV instead of YIQ
-override decode_to_yuv: bool = false;
 
 override decode_brightness: f32 = 1.0;
 override decode_saturation: f32 = 1.0;
-override decode_contrast: f32 = 1.0;
 override decode_gamma: f32 = 2.2;
 
 // Used by rgb_to_ntsc
 @group(0) @binding(0) var<uniform> y_encode_lpf_coefficients: array<vec4f, 21>;
-@group(0) @binding(1) var<uniform> iq_encode_lpf_coefficients: array<vec4f, 21>;
+@group(0) @binding(1) var<uniform> uv_encode_lpf_coefficients: array<vec4f, 21>;
 @group(0) @binding(2) var input_frame: texture_2d<f32>;
 @group(0) @binding(3) var ntsc_frame_w: texture_storage_2d<r32float, write>;
 
@@ -33,7 +29,7 @@ override decode_gamma: f32 = 2.2;
 
 // Used by luma_chroma_to_rgb
 @group(0) @binding(9) var<uniform> y_decode_lpf_coefficients: array<vec4f, 21>;
-@group(0) @binding(10) var<uniform> iq_decode_lpf_coefficients: array<vec4f, 21>;
+@group(0) @binding(10) var<uniform> uv_decode_lpf_coefficients: array<vec4f, 21>;
 @group(0) @binding(11) var ntsc_luma_r: texture_2d<f32>;
 @group(0) @binding(12) var ntsc_chroma_r: texture_2d<f32>;
 @group(0) @binding(13) var output_frame: texture_storage_2d<rgba8unorm, write>;
@@ -45,21 +41,16 @@ struct ImmediateParams {
 
 @group(1) @binding(0) var<uniform> immediate_params: ImmediateParams;
 
-// https://en.wikipedia.org/wiki/YIQ#From_RGB_to_YIQ
-const RGB_TO_YIQ: mat3x3f = mat3x3f(
-    vec3f(0.299, 0.5959, 0.2115),
-    vec3f(0.587, -0.2746, -0.5227),
-    vec3f(0.114, -0.3213, 0.3112),
-);
-
-// https://en.wikipedia.org/wiki/YIQ#From_YIQ_to_RGB
-const YIQ_TO_RGB: mat3x3f = mat3x3f(
-    vec3f(1.0, 1.0, 1.0),
-    vec3f(0.956, -0.272, -1.106),
-    vec3f(0.619, -0.647, 1.703),
-);
-
 // https://www.nesdev.org/wiki/NTSC_video#Converting_YUV_to_signal_RGB
+// Y = 0.299*R + 0.587*G + 0.114*B
+// U = 0.492111 * (B - Y)
+// V = 0.877283 * (R - Y)
+const RGB_TO_YUV: mat3x3f = mat3x3f(
+    vec3f(0.299, 0.492111 *   -0.299,      0.877283 *  (1.0 - 0.229) ),
+    vec3f(0.587, 0.492111 *   -0.587,      0.877283 *    -0.587      ),
+    vec3f(0.114, 0.492111 * (1.0 - 0.114), 0.877283 *    -0.114      ),
+);
+
 const YUV_TO_RGB: mat3x3f = mat3x3f(
     vec3f(1.0, 1.0, 1.0),
     vec3f(0.0, -0.394642, 2.032062),
@@ -71,7 +62,7 @@ const PI: f32 = radians(180.0);
 // Extra pixels to render at the horizontal edges, to avoid the NTSC signal sharply cutting off at the borders
 const BACKDROP_PIXELS: i32 = 6;
 
-// Convert from RGB to YIQ, apply LPF to each YIQ component, encode from YIQ to NTSC
+// Convert from RGB to YUV, apply LPF to each YUV component, encode from YUV to NTSC
 // LPF to Y instead of BSF because I think it looks slightly better, and it's going to get LPFed during decoding anyway
 @compute @workgroup_size(16, 16, 1)
 fn rgb_to_ntsc(@builtin(global_invocation_id) invocation: vec3u) {
@@ -87,8 +78,8 @@ fn rgb_to_ntsc(@builtin(global_invocation_id) invocation: vec3u) {
     let input_divisor = vec2i(upscale_factor, 1);
 
     var filtered_y = vec4f(0.0);
-    var filtered_i = vec4f(0.0);
-    var filtered_q = vec4f(0.0);
+    var filtered_u = vec4f(0.0);
+    var filtered_v = vec4f(0.0);
     for (var i = 0; i < fir_len; i += 4) {
         let rgb_pixels = array(
             load_input_bounds_checked(vec2i(start_x - i, position.y) / input_divisor, input_size, vec3f(0.0)),
@@ -97,44 +88,44 @@ fn rgb_to_ntsc(@builtin(global_invocation_id) invocation: vec3u) {
             load_input_bounds_checked(vec2i(start_x - i - 3, position.y) / input_divisor, input_size, vec3f(0.0)),
         );
 
-        let yiq_pixels = array(
-            RGB_TO_YIQ * rgb_pixels[0],
-            RGB_TO_YIQ * rgb_pixels[1],
-            RGB_TO_YIQ * rgb_pixels[2],
-            RGB_TO_YIQ * rgb_pixels[3],
+        let yuv_pixels = array(
+            RGB_TO_YUV * rgb_pixels[0],
+            RGB_TO_YUV * rgb_pixels[1],
+            RGB_TO_YUV * rgb_pixels[2],
+            RGB_TO_YUV * rgb_pixels[3],
         );
 
         let y_coefficients = y_encode_lpf_coefficients[i / 4];
-        let iq_coefficients = iq_encode_lpf_coefficients[i / 4];
+        let uv_coefficients = uv_encode_lpf_coefficients[i / 4];
 
         filtered_y = fma(
             y_coefficients,
-            vec4f(yiq_pixels[0].r, yiq_pixels[1].r, yiq_pixels[2].r, yiq_pixels[3].r),
+            vec4f(yuv_pixels[0].r, yuv_pixels[1].r, yuv_pixels[2].r, yuv_pixels[3].r),
             filtered_y,
         );
-        filtered_i = fma(
-            iq_coefficients,
-            vec4f(yiq_pixels[0].g, yiq_pixels[1].g, yiq_pixels[2].g, yiq_pixels[3].g),
-            filtered_i,
+        filtered_u = fma(
+            uv_coefficients,
+            vec4f(yuv_pixels[0].g, yuv_pixels[1].g, yuv_pixels[2].g, yuv_pixels[3].g),
+            filtered_u,
         );
-        filtered_q = fma(
-            iq_coefficients,
-            vec4f(yiq_pixels[0].b, yiq_pixels[1].b, yiq_pixels[2].b, yiq_pixels[3].b),
-            filtered_q,
+        filtered_v = fma(
+            uv_coefficients,
+            vec4f(yuv_pixels[0].b, yuv_pixels[1].b, yuv_pixels[2].b, yuv_pixels[3].b),
+            filtered_v,
         );
     }
 
-    let yiq = vec3f(
+    let yuv = vec3f(
         dot(filtered_y, vec4f(1.0)),
-        dot(filtered_i, vec4f(1.0)),
-        dot(filtered_q, vec4f(1.0)),
+        dot(filtered_u, vec4f(1.0)),
+        dot(filtered_v, vec4f(1.0)),
     );
 
     let phase_x = position.x
         + immediate_params.frame_phase_offset
         + position.y * immediate_params.per_line_phase_offset;
     let phase = f32(phase_x) / f32(samples_per_color_cycle) * 2.0 * PI;
-    let ntsc = yiq.r + yiq.g * sin(phase) + yiq.b * cos(phase);
+    let ntsc = yuv.r + yuv.g * sin(phase) + yuv.b * cos(phase);
     textureStore(ntsc_frame_w, position, vec4f(ntsc, vec3f(0.0)));
 }
 
@@ -180,7 +171,7 @@ fn separate_luma_chroma(@builtin(global_invocation_id) invocation: vec3u) {
     textureStore(ntsc_luma_w, position, vec4f(stop_sample, vec3f(0.0)));
 }
 
-// Decode I and Q from chroma, apply LPF to each YIQ component, convert from YIQ to RGB
+// Decode U and V from chroma, apply LPF to each YUV component, convert from YUV to RGB
 @compute @workgroup_size(16, 16, 1)
 fn luma_chroma_to_rgb(@builtin(global_invocation_id) invocation: vec3u) {
     let output_size = vec2i(textureDimensions(output_frame));
@@ -192,8 +183,8 @@ fn luma_chroma_to_rgb(@builtin(global_invocation_id) invocation: vec3u) {
     let start_x = position.x + fir_len / 2 + upscale_factor * BACKDROP_PIXELS;
 
     var filtered_y = vec4f(0.0);
-    var filtered_i = vec4f(0.0);
-    var filtered_q = vec4f(0.0);
+    var filtered_u = vec4f(0.0);
+    var filtered_v = vec4f(0.0);
     for (var i = 0; i < fir_len; i += 4) {
         let luma_samples = vec4f(
             textureLoad(ntsc_luma_r, vec2i(start_x - i, position.y), 0).r,
@@ -210,7 +201,7 @@ fn luma_chroma_to_rgb(@builtin(global_invocation_id) invocation: vec3u) {
         );
 
         let y_coefficients = y_decode_lpf_coefficients[i / 4];
-        let iq_coefficients = iq_decode_lpf_coefficients[i / 4];
+        let uv_coefficients = uv_decode_lpf_coefficients[i / 4];
 
         let base_phases = vec4i(start_x - i, start_x - i - 1, start_x - i - 2, start_x - i - 3)
             + immediate_params.frame_phase_offset
@@ -218,26 +209,22 @@ fn luma_chroma_to_rgb(@builtin(global_invocation_id) invocation: vec3u) {
         let phases = vec4f(base_phases) / f32(samples_per_color_cycle) * 2.0 * PI
             + vec4f(decode_hue_offset);
 
+        // 2.0 multiplier in U/V for chroma saturation correction:
+        //   https://www.nesdev.org/wiki/NTSC_video#Chroma_saturation_correction
         filtered_y = fma(y_coefficients, luma_samples, filtered_y);
-        filtered_i = fma(iq_coefficients, chroma_samples * sin(phases) * 2.0, filtered_i);
-        filtered_q = fma(iq_coefficients, chroma_samples * cos(phases) * 2.0, filtered_q);
+        filtered_u = fma(uv_coefficients, chroma_samples * sin(phases) * 2.0, filtered_u);
+        filtered_v = fma(uv_coefficients, chroma_samples * cos(phases) * 2.0, filtered_v);
     }
 
-    var yiq = vec3f(
+    var yuv = vec3f(
         dot(filtered_y, vec4f(1.0)),
-        dot(filtered_i, vec4f(1.0)),
-        dot(filtered_q, vec4f(1.0)),
+        dot(filtered_u, vec4f(1.0)),
+        dot(filtered_v, vec4f(1.0)),
     );
 
-    yiq.r = (yiq.r - 0.5) * decode_contrast + 0.5;
-    yiq *= vec3f(decode_brightness) * vec3f(1.0, decode_saturation, decode_saturation);
+    yuv *= vec3f(decode_brightness) * vec3f(1.0, decode_saturation, decode_saturation);
 
-    var rgb: vec3f;
-    if decode_to_yuv {
-        rgb = YUV_TO_RGB * yiq;
-    } else {
-        rgb = YIQ_TO_RGB * yiq;
-    }
+    var rgb = YUV_TO_RGB * yuv;
     rgb = clamp(rgb, vec3f(0.0), vec3f(1.0));
     rgb = pow(rgb, vec3f(2.2 / decode_gamma));
 

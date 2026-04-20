@@ -218,13 +218,12 @@ pub enum PreprocessShader {
 pub struct NtscShaderConfig {
     pub brightness: f64,
     pub saturation: f64,
-    pub contrast: f64,
     pub gamma: f64,
 }
 
 impl Default for NtscShaderConfig {
     fn default() -> Self {
-        Self { brightness: 1.0, saturation: 1.0, contrast: 1.0, gamma: 2.2 }
+        Self { brightness: 1.0, saturation: 1.0, gamma: 2.2 }
     }
 }
 

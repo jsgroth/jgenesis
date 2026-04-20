@@ -15,7 +15,7 @@ struct NtscFilters {
     chroma_bpf: &'static [f32],
     y_encode_lpf: &'static [f32],
     y_decode_lpf: &'static [f32],
-    iq_lpf: &'static [f32],
+    uv_lpf: &'static [f32],
 }
 
 impl NtscFilters {
@@ -26,14 +26,14 @@ impl NtscFilters {
                 chroma_bpf: constants::CHROMA_BPF_15_COEFFICIENTS,
                 y_encode_lpf: constants::Y_ENCODE_LPF_15_COEFFICIENTS,
                 y_decode_lpf: constants::Y_DECODE_LPF_15_COEFFICIENTS,
-                iq_lpf: constants::IQ_LPF_15_COEFFICIENTS,
+                uv_lpf: constants::UV_LPF_15_COEFFICIENTS,
             },
             SamplesPerColorCycle::Twelve => Self {
                 luma_bsf: constants::LUMA_BSF_12_COEFFICIENTS,
                 chroma_bpf: constants::CHROMA_BPF_12_COEFFICIENTS,
                 y_encode_lpf: constants::Y_ENCODE_LPF_12_COEFFICIENTS,
                 y_decode_lpf: constants::Y_DECODE_LPF_12_COEFFICIENTS,
-                iq_lpf: constants::IQ_LPF_12_COEFFICIENTS,
+                uv_lpf: constants::UV_LPF_12_COEFFICIENTS,
             },
         }
     }
@@ -131,7 +131,7 @@ impl NtscShader {
         let chroma_bpf_fir_buffer = create_fir_buffer(device, filters.chroma_bpf);
         let y_encode_lpf_fir_buffer = create_fir_buffer(device, filters.y_encode_lpf);
         let y_decode_lpf_fir_buffer = create_fir_buffer(device, filters.y_decode_lpf);
-        let iq_lpf_fir_buffer = create_fir_buffer(device, filters.iq_lpf);
+        let uv_lpf_fir_buffer = create_fir_buffer(device, filters.uv_lpf);
 
         let fir_len = match params.samples_per_color_cycle {
             SamplesPerColorCycle::Fifteen => constants::FIR_LEN_15,
@@ -147,10 +147,8 @@ impl NtscShader {
                 ("fir_len", fir_len.into()),
                 ("upscale_factor", params.upscale_factor.into()),
                 ("decode_hue_offset", decode_hue_offset),
-                ("decode_to_yuv", (variant == NtscShaderVariant::NesPpu).into()),
                 ("decode_brightness", config.brightness),
                 ("decode_saturation", config.saturation),
-                ("decode_contrast", config.contrast),
                 ("decode_gamma", config.gamma),
             ],
             ..wgpu::PipelineCompilationOptions::default()
@@ -249,7 +247,7 @@ impl NtscShader {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Buffer(
-                        iq_lpf_fir_buffer.as_entire_buffer_binding(),
+                        uv_lpf_fir_buffer.as_entire_buffer_binding(),
                     ),
                 },
                 wgpu::BindGroupEntry {
@@ -399,7 +397,7 @@ impl NtscShader {
                 wgpu::BindGroupEntry {
                     binding: 10,
                     resource: wgpu::BindingResource::Buffer(
-                        iq_lpf_fir_buffer.as_entire_buffer_binding(),
+                        uv_lpf_fir_buffer.as_entire_buffer_binding(),
                     ),
                 },
                 wgpu::BindGroupEntry {
