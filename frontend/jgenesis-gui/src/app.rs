@@ -30,7 +30,6 @@ use jgenesis_native_config::common::{HideMouseCursor, PauseEmulator};
 use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen};
 use jgenesis_native_driver::extensions::Console;
 use jgenesis_native_driver::{NativeEmulatorError, extensions};
-use jgenesis_renderer::config::Scanlines;
 use rfd::FileDialog;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -161,7 +160,6 @@ struct AppState {
     audio_hardware_queue_size_invalid: bool,
     audio_gain_text: String,
     audio_gain_invalid: bool,
-    display_scanlines_warning: bool,
     nes_palette: NesPaletteState,
     genesis_volume: GenesisVolumeState,
     s32x_priority: S32XPriorityState,
@@ -203,7 +201,6 @@ impl AppState {
             genesis_volume: GenesisVolumeState::from_config(config),
             s32x_priority: S32XPriorityState::from_config(&config.sega_32x),
             overscan: config.nes.overscan().into(),
-            display_scanlines_warning: should_display_scanlines_warning(config),
             waiting_for_input: None,
             rom_list: Arc::new(Mutex::new(vec![])),
             filtered_rom_list: vec![].into(),
@@ -216,14 +213,6 @@ impl AppState {
             close_on_emulator_exit: false,
         }
     }
-}
-
-fn should_display_scanlines_warning(config: &AppConfig) -> bool {
-    let prescale_odd =
-        !config.common.auto_prescale && !config.common.prescale_factor.get().is_multiple_of(2);
-
-    config.common.scanlines != Scanlines::None
-        && (prescale_odd || !config.common.force_integer_height_scaling)
 }
 
 #[derive(Debug, Clone)]
@@ -1320,8 +1309,6 @@ impl eframe::App for App {
         self.update_window_size_in_config(ctx);
 
         if prev_config != self.config {
-            self.state.display_scanlines_warning = should_display_scanlines_warning(&self.config);
-
             if should_reload_config(&prev_config, &self.config) {
                 self.reload_config();
             }

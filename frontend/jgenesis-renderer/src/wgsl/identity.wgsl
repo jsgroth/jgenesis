@@ -1,4 +1,4 @@
-var<private> VERTICES: array<vec4f, 4> = array<vec4f, 4>(
+const VERTICES: array<vec4f, 4> = array(
     vec4f(-1.0, -1.0, 0.0, 1.0),
     vec4f(1.0, -1.0, 0.0, 1.0),
     vec4f(-1.0, 1.0, 0.0, 1.0),

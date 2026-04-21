@@ -312,9 +312,14 @@ impl BlurShader {
         input_texture: &wgpu::Texture,
         shaders: &Shaders,
     ) -> Option<Self> {
-        if matches!(preprocess_shader, PreprocessShader::None | PreprocessShader::NtscComposite) {
-            return None;
-        }
+        let fs_main = match preprocess_shader {
+            PreprocessShader::HorizontalBlurTwoPixels => "hblur_2px",
+            PreprocessShader::HorizontalBlurThreePixels => "hblur_3px",
+            PreprocessShader::HorizontalBlurSnesAdaptive => "hblur_snes",
+            PreprocessShader::AntiDitherWeak => "anti_dither_weak",
+            PreprocessShader::AntiDitherStrong => "anti_dither_strong",
+            _ => return None,
+        };
 
         let input_texture_view = input_texture.create_view(&SRGB_TEX_VIEW_DESCRIPTOR);
 
@@ -335,20 +340,12 @@ impl BlurShader {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
         });
 
-        let fs_main = match preprocess_shader {
-            PreprocessShader::HorizontalBlurTwoPixels => "hblur_2px",
-            PreprocessShader::HorizontalBlurThreePixels => "hblur_3px",
-            PreprocessShader::HorizontalBlurSnesAdaptive => "hblur_snes",
-            PreprocessShader::AntiDitherWeak => "anti_dither_weak",
-            PreprocessShader::AntiDitherStrong => "anti_dither_strong",
-            PreprocessShader::None | PreprocessShader::NtscComposite => {
-                unreachable!("checked at start of function")
-            }
-        };
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: "hblur_pipeline".into(),
             layout: None,
@@ -462,7 +459,10 @@ impl PrescaleShader {
             limits,
         );
 
-        if prescale_width <= 1 && prescale_height <= 1 {
+        if prescale_width <= 1
+            && prescale_height <= 1
+            && renderer_config.scanlines == Scanlines::None
+        {
             return None;
         }
 
@@ -485,11 +485,14 @@ impl PrescaleShader {
             view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
         });
 
-        let prescale_fs_main = match renderer_config.scanlines {
-            Scanlines::None => "basic_prescale",
-            Scanlines::Dim => "dim_scanlines",
-            Scanlines::Black => "black_scanlines",
+        let (prescale_fs_main, scanline_multiplier) = match renderer_config.scanlines {
+            Scanlines::None => ("basic_prescale", 1.0),
+            Scanlines::SlightDim => ("scanlines", 0.75),
+            Scanlines::Dim => ("scanlines", 0.5),
+            Scanlines::VeryDim => ("scanlines", 0.25),
+            Scanlines::Black => ("scanlines", 0.0),
         };
+
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: "prescale_pipeline".into(),
             layout: None,
@@ -528,9 +531,17 @@ impl PrescaleShader {
             cache: None,
         });
 
+        let prescale_params = [
+            prescale_width,
+            prescale_height,
+            frame_size.height,
+            scaled_texture.height(),
+            (scanline_multiplier as f32).to_bits(),
+        ];
+
         let prescale_factor_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: "prescale_factor_buffer".into(),
-            contents: bytemuck::cast_slice(&[prescale_width, prescale_height]),
+            contents: bytemuck::cast_slice(&prescale_params),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
         });
 
@@ -619,6 +630,116 @@ impl PipelineShader for PrescaleShader {
         prescale_pass.set_pipeline(&self.pipeline);
 
         prescale_pass.draw(0..IDENTITY_VERTICES, 0..1);
+    }
+
+    fn output_texture(&self) -> &Arc<wgpu::Texture> {
+        &self.output
+    }
+}
+
+pub struct UpscaleShader {
+    output: Arc<wgpu::Texture>,
+    bind_group: wgpu::BindGroup,
+    pipeline: wgpu::ComputePipeline,
+    x_workgroups: u32,
+    y_workgroups: u32,
+}
+
+impl UpscaleShader {
+    pub fn create_xbrz(
+        preprocess_shader: PreprocessShader,
+        device: &wgpu::Device,
+        shaders: &Shaders,
+        input: &wgpu::Texture,
+    ) -> Option<Self> {
+        let scale_factor = match preprocess_shader {
+            PreprocessShader::Xbrz2x => 2,
+            PreprocessShader::Xbrz3x => 3,
+            PreprocessShader::Xbrz4x => 4,
+            PreprocessShader::Xbrz5x => 5,
+            PreprocessShader::Xbrz6x => 6,
+            _ => return None,
+        };
+
+        let shader = (&shaders.xbrz, None);
+        let shader_constants = [("scale_factor", scale_factor.into())];
+
+        Some(Self::create(device, shader, &shader_constants, input, scale_factor))
+    }
+
+    pub fn create_mmpx(device: &wgpu::Device, shaders: &Shaders, input: &wgpu::Texture) -> Self {
+        Self::create(device, (&shaders.mmpx, None), &[], input, 2)
+    }
+
+    pub fn create(
+        device: &wgpu::Device,
+        (shader_module, shader_entry_point): (&wgpu::ShaderModule, Option<&str>),
+        shader_constants: &[(&str, f64)],
+        input: &wgpu::Texture,
+        scale_factor: u32,
+    ) -> Self {
+        let output = device.create_texture(&wgpu::TextureDescriptor {
+            label: "xbrz_texture".into(),
+            size: wgpu::Extent3d {
+                width: scale_factor * input.width(),
+                height: scale_factor * input.height(),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
+        });
+
+        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: "xbrz_pipeline".into(),
+            layout: None,
+            module: shader_module,
+            entry_point: shader_entry_point,
+            compilation_options: wgpu::PipelineCompilationOptions {
+                constants: shader_constants,
+                ..wgpu::PipelineCompilationOptions::default()
+            },
+            cache: None,
+        });
+
+        let input_view = input.create_view(&wgpu::TextureViewDescriptor::default());
+        let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: "xbrz_bind_group".into(),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&input_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&output_view),
+                },
+            ],
+        });
+
+        let x_workgroups = input.width().div_ceil(16);
+        let y_workgroups = input.height().div_ceil(16);
+
+        Self { output: Arc::new(output), bind_group, pipeline, x_workgroups, y_workgroups }
+    }
+}
+
+impl PipelineShader for UpscaleShader {
+    fn draw(&mut self, encoder: &mut wgpu::CommandEncoder) {
+        let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+
+        compute_pass.set_bind_group(0, &self.bind_group, &[]);
+        compute_pass.set_pipeline(&self.pipeline);
+
+        compute_pass.dispatch_workgroups(self.x_workgroups, self.y_workgroups, 1);
     }
 
     fn output_texture(&self) -> &Arc<wgpu::Texture> {

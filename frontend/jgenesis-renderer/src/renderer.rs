@@ -5,7 +5,7 @@ use crate::config;
 use crate::config::{PreprocessShader, RendererConfig};
 use crate::renderer::ntsc::{NtscShader, NtscShaderVariant};
 use crate::renderer::shaders::{
-    BlurShader, ColorCorrectionShader, FrameBlendShader, PrescaleShader,
+    BlurShader, ColorCorrectionShader, FrameBlendShader, PrescaleShader, UpscaleShader,
 };
 #[cfg(feature = "ttf")]
 use crate::ttf;
@@ -122,35 +122,14 @@ impl RenderingPipeline {
             renderer_config.force_integer_height_scaling,
         );
 
-        let filter_mode = renderer_config.filter_mode.to_wgpu_filter_mode();
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: "sampler".into(),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: filter_mode,
-            min_filter: filter_mode,
-            mipmap_filter: filter_mode,
-            ..wgpu::SamplerDescriptor::default()
-        });
-
-        let vertices = match options.pixel_aspect_ratio {
-            Some(_) => compute_vertices(window_size.width, window_size.height, display_area),
-            None => VERTICES.into(),
-        };
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: "vertex_buffer".into(),
-            contents: bytemuck::cast_slice(&vertices),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::VERTEX,
-        });
-
         // Pipeline shaders (all optional):
         //   1. Color correction
-        //   2. Frame blending
-        //   3. NTSC composite / Horizontal blur
-        //   4. Prescale/scanlines
+        //   2. NTSC composite / Upscaling / Horizontal blur
+        //   3. Frame blending
+        //   4. Prescale / Scanlines
         let mut shader_pipeline: Vec<Box<dyn PipelineShader>> = Vec::new();
 
+        // GBC/GBA color correction
         if let Some(color_correction_shader) = ColorCorrectionShader::create(
             options.color_correction,
             &current_output_texture(&shader_pipeline, &input_texture),
@@ -161,15 +140,7 @@ impl RenderingPipeline {
             shader_pipeline.push(Box::new(color_correction_shader));
         }
 
-        if options.frame_blending {
-            log::debug!("Adding frame blending shader");
-            shader_pipeline.push(Box::new(FrameBlendShader::create(
-                current_output_texture(&shader_pipeline, &input_texture),
-                device,
-                shaders,
-            )));
-        }
-
+        // NTSC composite
         if renderer_config.preprocess_shader == PreprocessShader::NtscComposite
             && let Some(params) = options.composite_params
         {
@@ -190,6 +161,7 @@ impl RenderingPipeline {
             )));
         }
 
+        // Horizontal blur / Anti-dither
         if let Some(blur_shader) = BlurShader::create(
             renderer_config.preprocess_shader,
             device,
@@ -200,6 +172,38 @@ impl RenderingPipeline {
             shader_pipeline.push(Box::new(blur_shader));
         }
 
+        // xBRZ upscaling
+        if let Some(xbrz_shader) = UpscaleShader::create_xbrz(
+            renderer_config.preprocess_shader,
+            device,
+            shaders,
+            &current_output_texture(&shader_pipeline, &input_texture),
+        ) {
+            log::debug!("Adding xBRZ shader");
+            shader_pipeline.push(Box::new(xbrz_shader));
+        }
+
+        // MMPX upscaling
+        if renderer_config.preprocess_shader == PreprocessShader::Mmpx {
+            log::debug!("Adding MMPX shader");
+            shader_pipeline.push(Box::new(UpscaleShader::create_mmpx(
+                device,
+                shaders,
+                &current_output_texture(&shader_pipeline, &input_texture),
+            )));
+        }
+
+        // Frame blending
+        if options.frame_blending {
+            log::debug!("Adding frame blending shader");
+            shader_pipeline.push(Box::new(FrameBlendShader::create(
+                current_output_texture(&shader_pipeline, &input_texture),
+                device,
+                shaders,
+            )));
+        }
+
+        // Prescaling / Scanlines
         if let Some(prescale_shader) = PrescaleShader::create(
             renderer_config,
             frame_size,
@@ -231,9 +235,8 @@ impl RenderingPipeline {
 
         // Use multisampled rendering only when the surface is smaller than the final frame texture
         // in at least 1 dimension; otherwise it's just a waste of compute
-        let multisample = renderer_config.filter_mode == config::FilterMode::Linear
-            && (render_input_texture.width() > display_area.width
-                || render_input_texture.height() > display_area.height);
+        let multisample = render_input_texture.width() > display_area.width
+            || render_input_texture.height() > display_area.height;
 
         let multisample_output = multisample.then(|| {
             device.create_texture(&wgpu::TextureDescriptor {
@@ -290,6 +293,17 @@ impl RenderingPipeline {
             cache: None,
         });
 
+        let filter_mode = renderer_config.filter_mode.to_wgpu_filter_mode();
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: "sampler".into(),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: filter_mode,
+            min_filter: wgpu::FilterMode::Linear,
+            ..wgpu::SamplerDescriptor::default()
+        });
+
         let render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: "render_bind_group".into(),
             layout: &render_pipeline.get_bind_group_layout(0),
@@ -303,6 +317,16 @@ impl RenderingPipeline {
                     resource: wgpu::BindingResource::Sampler(&sampler),
                 },
             ],
+        });
+
+        let vertices = match options.pixel_aspect_ratio {
+            Some(_) => compute_vertices(window_size.width, window_size.height, display_area),
+            None => VERTICES.into(),
+        };
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: "vertex_buffer".into(),
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::VERTEX,
         });
 
         Self {
@@ -547,6 +571,8 @@ struct Shaders {
     frame_blend: wgpu::ShaderModule,
     gb_color: wgpu::ShaderModule,
     ntsc: wgpu::ShaderModule,
+    xbrz: wgpu::ShaderModule,
+    mmpx: wgpu::ShaderModule,
 }
 
 impl Shaders {
@@ -558,8 +584,10 @@ impl Shaders {
         let frame_blend = device.create_shader_module(wgpu::include_wgsl!("wgsl/frameblend.wgsl"));
         let gb_color = device.create_shader_module(wgpu::include_wgsl!("wgsl/gb_color.wgsl"));
         let ntsc = device.create_shader_module(wgpu::include_wgsl!("wgsl/ntsc.wgsl"));
+        let xbrz = device.create_shader_module(wgpu::include_wgsl!("wgsl/xbrz.wgsl"));
+        let mmpx = device.create_shader_module(wgpu::include_wgsl!("wgsl/mmpx.wgsl"));
 
-        Self { render, prescale, identity, hblur, frame_blend, gb_color, ntsc }
+        Self { render, prescale, identity, hblur, frame_blend, gb_color, ntsc, xbrz, mmpx }
     }
 }
 

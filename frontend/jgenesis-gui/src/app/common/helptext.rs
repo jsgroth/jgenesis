@@ -42,7 +42,7 @@ pub const FILTER_MODE: HelpText = HelpText {
     text: &[
         "Configure texture filtering mode used when rendering frames to the display.",
         "Nearest-neighbor is very sharp but may cause aliasing when using a non-integer resolution scale or non-square pixels.",
-        "Linear is smooth but can be blurry if not combined with prescaling (see below).",
+        "Linear is smooth but can be blurry if not combined with prescaling.",
     ],
 };
 
@@ -58,8 +58,8 @@ pub const PREPROCESS_SHADER: HelpText = HelpText {
 pub const SCANLINES: HelpText = HelpText {
     heading: "Scanlines",
     text: &[
-        "Configure an optional scanlines filter. The dim option renders scanlines at 50% color on a linear scale.",
-        "Note that this filter only works properly when using integer height scaling and an even-numbered prescale factor (e.g. 2x or 4x).",
+        "Configure an optional scanlines filter.",
+        "The 75% / 50% / 25% options reduce the brightness of each scanline.",
     ],
 };
 

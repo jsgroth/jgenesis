@@ -21,30 +21,11 @@ impl App {
                 self.render_window_size_setting(ui, WINDOW);
                 self.render_wgpu_backend_setting(ui, WINDOW);
                 self.render_wgpu_power_preference_setting(ui, WINDOW);
-                self.render_filter_mode_setting(ui, WINDOW);
                 self.render_preprocess_shader_setting(ui, WINDOW);
                 self.render_scanlines_setting(ui, WINDOW);
+                self.render_integer_height_scaling_settings(ui, WINDOW);
                 self.render_prescaling_settings(ui, WINDOW);
-
-                let rect = ui
-                    .checkbox(
-                        &mut self.config.common.force_integer_height_scaling,
-                        "Force integer height scaling",
-                    )
-                    .interact_rect;
-                if ui.rect_contains_pointer(rect) {
-                    self.state.help_text.insert(WINDOW, helptext::INTEGER_HEIGHT_SCALING);
-                }
-
-                if self.state.display_scanlines_warning {
-                    ui.colored_label(
-                        Color32::RED,
-                        concat!(
-                            "Integer height scaling + even-numbered prescale factor",
-                            " strongly recommended when scanlines are enabled"
-                        ),
-                    );
-                }
+                self.render_filter_mode_setting(ui, WINDOW);
             });
 
             self.render_help_text(ui, WINDOW);
@@ -217,6 +198,24 @@ impl App {
                 });
 
                 ui.horizontal(|ui| {
+                    for (shader, label) in [
+                        (PreprocessShader::Xbrz2x, "xBRZ 2x"),
+                        (PreprocessShader::Xbrz3x, "xBRZ 3x"),
+                        (PreprocessShader::Xbrz4x, "xBRZ 4x"),
+                        (PreprocessShader::Xbrz5x, "xBRZ 5x"),
+                        (PreprocessShader::Xbrz6x, "xBRZ 6x"),
+                    ] {
+                        ui.radio_value(&mut self.config.common.preprocess_shader, shader, label);
+                    }
+                });
+
+                ui.radio_value(
+                    &mut self.config.common.preprocess_shader,
+                    PreprocessShader::Mmpx,
+                    "MMPX",
+                );
+
+                ui.horizontal(|ui| {
                     ui.radio_value(
                         &mut self.config.common.preprocess_shader,
                         PreprocessShader::HorizontalBlurTwoPixels,
@@ -265,7 +264,9 @@ impl App {
 
                 ui.horizontal(|ui| {
                     ui.radio_value(&mut self.config.common.scanlines, Scanlines::None, "None");
-                    ui.radio_value(&mut self.config.common.scanlines, Scanlines::Dim, "Dim");
+                    ui.radio_value(&mut self.config.common.scanlines, Scanlines::SlightDim, "75%");
+                    ui.radio_value(&mut self.config.common.scanlines, Scanlines::Dim, "50%");
+                    ui.radio_value(&mut self.config.common.scanlines, Scanlines::VeryDim, "25%");
                     ui.radio_value(&mut self.config.common.scanlines, Scanlines::Black, "Black");
                 });
             })
@@ -302,6 +303,18 @@ impl App {
             .interact_rect;
         if ui.rect_contains_pointer(rect) {
             self.state.help_text.insert(window, helptext::PRESCALING);
+        }
+    }
+
+    fn render_integer_height_scaling_settings(&mut self, ui: &mut Ui, window: OpenWindow) {
+        let rect = ui
+            .checkbox(
+                &mut self.config.common.force_integer_height_scaling,
+                "Force integer height scaling",
+            )
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(window, helptext::INTEGER_HEIGHT_SCALING);
         }
     }
 

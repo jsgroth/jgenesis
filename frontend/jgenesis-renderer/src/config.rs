@@ -177,7 +177,9 @@ impl Display for PrescaleMode {
 pub enum Scanlines {
     #[default]
     None,
+    SlightDim,
     Dim,
+    VeryDim,
     Black,
 }
 
@@ -211,6 +213,12 @@ pub enum PreprocessShader {
     AntiDitherWeak,
     AntiDitherStrong,
     NtscComposite,
+    Xbrz2x,
+    Xbrz3x,
+    Xbrz4x,
+    Xbrz5x,
+    Xbrz6x,
+    Mmpx,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, ConfigDisplay)]

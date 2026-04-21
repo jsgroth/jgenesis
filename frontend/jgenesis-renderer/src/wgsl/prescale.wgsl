@@ -1,37 +1,29 @@
-struct PrescaleFactor {
-    width: u32,
-    height: u32,
+struct PrescaleParams {
+    width_scale: u32,
+    height_scale: u32,
+    original_height: u32,
+    output_height: u32,
+    scanline_multiplier: f32,
 }
 
-@group(0) @binding(0)
-var texture_in: texture_2d<f32>;
-@group(0) @binding(1)
-var<uniform> prescale_factor: PrescaleFactor;
+@group(0) @binding(0) var texture_in: texture_2d<f32>;
+@group(0) @binding(1) var<uniform> params: PrescaleParams;
 
 @fragment
 fn basic_prescale(@builtin(position) position: vec4f) -> @location(0) vec4f {
-    let top_left = vec2u(u32(round(position.x - 0.5)), u32(round(position.y - 0.5)));
-    let input_position = top_left / vec2u(prescale_factor.width, prescale_factor.height);
+    let top_left = vec2u(position.xy);
+    let input_position = top_left / vec2u(params.width_scale, params.height_scale);
     return textureLoad(texture_in, input_position, 0);
 }
 
-fn scanlines_fs(position: vec4f, scanline_multiplier: f32) -> vec4f {
-    let top_left = vec2u(u32(round(position.x - 0.5)), u32(round(position.y - 0.5)));
-    let input_position = top_left / vec2u(prescale_factor.width, prescale_factor.height);
+@fragment
+fn scanlines(@builtin(position) position: vec4f) -> @location(0) vec4f {
+    let top_left = vec2u(position.xy);
+    let input_position = top_left / vec2u(params.width_scale, params.height_scale);
 
     let texture_color = textureLoad(texture_in, input_position, 0).rgb;
 
-    let crt_line = u32(round(position.y - 0.5)) / (prescale_factor.height / 2u);
-    let color = select(texture_color, texture_color * scanline_multiplier, crt_line % 2u == 1u);
+    let crt_line = top_left.y * 2 * params.original_height / params.output_height;
+    let color = select(texture_color, texture_color * params.scanline_multiplier, (crt_line % 2) == 1);
     return vec4f(color, 1.0);
-}
-
-@fragment
-fn dim_scanlines(@builtin(position) position: vec4f) -> @location(0) vec4f {
-    return scanlines_fs(position, 0.5);
-}
-
-@fragment
-fn black_scanlines(@builtin(position) position: vec4f) -> @location(0) vec4f {
-    return scanlines_fs(position, 0.0);
 }
