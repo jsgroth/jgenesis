@@ -49,7 +49,7 @@ pub const FILTER_MODE: HelpText = HelpText {
 pub const SUPERSAMPLE_MINIFICATION: HelpText = HelpText {
     heading: "Supersampled Minification",
     text: &[
-        "Render using supersampling when minifying the image by factor of 2 or larger, i.e. when the display window is less than half the width or height of the emulator frame.",
+        "Render using supersampling when minifying the image by a factor of 2 or larger, i.e. when the display window is less than half the width or height of the emulator frame.",
         "When the frame is a very high resolution either natively or because of shaders, this can reduce aliasing at a moderately low GPU performance cost (depending on resolution).",
     ],
 };
