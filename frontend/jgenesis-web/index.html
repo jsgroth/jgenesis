@@ -124,29 +124,10 @@
 
                         <input type="radio" id="blend-shader-hblur-3px" name="blend-shader" value="HorizontalBlurThreePixels">
                         <label for="blend-shader-hblur-3px">Horizontal blur</label>
-
-                        <input type="radio" id="blend-shader-anti-dither-weak" name="blend-shader" value="AntiDitherWeak">
-                        <label for="blend-shader-anti-dither-weak">Conservative anti-dither</label>
-
-                        <input type="radio" id="blend-shader-anti-dither-strong" name="blend-shader" value="AntiDitherStrong">
-                        <label for="blend-shader-anti-dither-strong">Aggressive anti-dither</label>
                     </fieldset>
 
-                    <fieldset>
-                        <legend>Prescale factor</legend>
-
-                        <input type="radio" id="prescale-factor-one" name="prescale-factor" value="1">
-                        <label for="prescale-factor-one">1x</label>
-
-                        <input type="radio" id="prescale-factor-two" name="prescale-factor" value="2">
-                        <label for="prescale-factor-two">2x</label>
-
-                        <input type="radio" id="prescale-factor-three" name="prescale-factor" value="3" checked>
-                        <label for="prescale-factor-three">3x</label>
-
-                        <input type="radio" id="prescale-factor-four" name="prescale-factor" value="4">
-                        <label for="prescale-factor-four">4x</label>
-                    </fieldset>
+                    <input type="checkbox" id="auto-prescale" name="auto-prescale" checked>
+                    <label for="auto-prescale">Prescaling enabled</label>
                 </div>
                 <div id="smsgg-config" hidden>
                     <fieldset>
@@ -381,9 +362,7 @@
                     setChecked(elem, elem.getAttribute("value") === config.preprocess_shader());
                 });
 
-                document.querySelectorAll("input[name='prescale-factor']").forEach((elem) => {
-                    setChecked(elem, parseInt(elem.getAttribute("value")) === config.prescale_factor());
-                });
+                setChecked(document.getElementById("auto-prescale"), config.auto_prescale());
 
                 // SMS/GG UI
                 document.querySelectorAll("input[name='sms-timing-mode']").forEach((elem) => {
@@ -509,10 +488,8 @@
                 });
             });
 
-            document.querySelectorAll("input[name='prescale-factor']").forEach((element) => {
-                element.addEventListener("click", (event) => {
-                    config.set_prescale_factor(parseInt(event.target.value));
-                });
+            document.getElementById("auto-prescale").addEventListener("click", (event) => {
+                config.set_auto_prescale(event.target.checked);
             });
 
             document.querySelectorAll("input[name='sms-timing-mode']").forEach((element) => {

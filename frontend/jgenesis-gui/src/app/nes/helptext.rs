@@ -69,6 +69,7 @@ pub const PALETTE: HelpText = HelpText {
     text: &[
         "Customize the display palette, either by loading from a file or using the builtin palette generator. Supports loading both 512-color and 64-color palette files, though 512-color is preferred.",
         "The displayed graphic shows 64 colors by default. The 512-color version shows the 64 colors for each of the 8 combinations of color emphasis bits.",
+        "Note this palette is not used when the NTSC video shader is enabled because that shader directly uses the emulated NES NTSC video output.",
     ],
 };
 

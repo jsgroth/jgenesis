@@ -159,14 +159,14 @@ impl Display for PrescaleFactor {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrescaleMode {
     Auto,
-    Manual(PrescaleFactor),
+    Manual { width: PrescaleFactor, height: PrescaleFactor },
 }
 
 impl Display for PrescaleMode {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Auto => write!(f, "Auto"),
-            Self::Manual(factor) => write!(f, "Manual({factor})"),
+            Self::Manual { width, height } => write!(f, "Manual(width={width}, height={height})"),
         }
     }
 }
@@ -204,14 +204,22 @@ impl FilterMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumFromStr, EnumAll)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum AntiDitherShader {
+    #[default]
+    None,
+    Weak,
+    Strong,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumFromStr, EnumAll)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum PreprocessShader {
     #[default]
     None,
     HorizontalBlurTwoPixels,
     HorizontalBlurThreePixels,
     HorizontalBlurSnesAdaptive,
-    AntiDitherWeak,
-    AntiDitherStrong,
     NtscComposite,
     Xbrz2x,
     Xbrz3x,
@@ -219,6 +227,20 @@ pub enum PreprocessShader {
     Xbrz5x,
     Xbrz6x,
     Mmpx,
+}
+
+impl PreprocessShader {
+    // Certain shaders don't make sense to use in combination with an anti-dither filter
+    #[must_use]
+    pub fn exclude_anti_dither(self) -> bool {
+        matches!(
+            self,
+            Self::NtscComposite
+                | Self::HorizontalBlurTwoPixels
+                | Self::HorizontalBlurThreePixels
+                | Self::HorizontalBlurSnesAdaptive
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, ConfigDisplay)]
@@ -245,7 +267,9 @@ pub struct RendererConfig {
     pub scanlines: Scanlines,
     pub force_integer_height_scaling: bool,
     pub filter_mode: FilterMode,
+    pub supersample_minification: bool,
     pub preprocess_shader: PreprocessShader,
+    pub anti_dither_shader: AntiDitherShader,
     #[cfg_display(indent_nested)]
     pub ntsc_config: NtscShaderConfig,
 }

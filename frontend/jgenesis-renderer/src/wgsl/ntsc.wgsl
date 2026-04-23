@@ -39,6 +39,7 @@ struct ImmediateParams {
     per_line_phase_offset: i32,
 }
 
+// This is a uniform instead of an actual immediate because WebGPU does not support immediates (yet)
 @group(1) @binding(0) var<uniform> immediate_params: ImmediateParams;
 
 // https://www.nesdev.org/wiki/NTSC_video#Converting_YUV_to_signal_RGB

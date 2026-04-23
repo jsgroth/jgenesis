@@ -41,8 +41,16 @@ pub const FILTER_MODE: HelpText = HelpText {
     heading: "Filter Mode",
     text: &[
         "Configure texture filtering mode used when rendering frames to the display.",
-        "Nearest-neighbor is very sharp but may cause aliasing when using a non-integer resolution scale or non-square pixels.",
-        "Linear is smooth but can be blurry if not combined with prescaling.",
+        "Nearest neighbor is very sharp but may cause aliasing when using a non-integer resolution scale or non-square pixels.",
+        "Linear interpolation is smooth but can be blurry if not combined with prescaling.",
+    ],
+};
+
+pub const SUPERSAMPLE_MINIFICATION: HelpText = HelpText {
+    heading: "Supersampled Minification",
+    text: &[
+        "Render using supersampling when minifying the image by factor of 2 or larger, i.e. when the display window is less than half the width or height of the emulator frame.",
+        "When the frame is a very high resolution either natively or because of shaders, this can reduce aliasing at a moderately low GPU performance cost (depending on resolution).",
     ],
 };
 
@@ -52,6 +60,15 @@ pub const PREPROCESS_SHADER: HelpText = HelpText {
         "Configure an optional shader to apply to the emulated console's video output.",
         "The NTSC shader only works with consoles that natively support TV output (i.e. not handhelds).",
         "The SNES Adaptive blur shader blurs horizontally at 2x native resolution, except in SNES high-res mode where it blurs at 1x native.",
+    ],
+};
+
+pub const ANTI_DITHER_SHADER: HelpText = HelpText {
+    heading: "Anti-Dither Shader",
+    text: &[
+        "Configure an optional anti-dither filter, applied before the video shader if enabled.",
+        "This attempts to remove dithering by blending horizontally adjacent colors that appear to be part of a dithered pixel pattern. This is based on heuristics and is not 100% reliable.",
+        "This setting does nothing if the video shader is set to NTSC or horizontal blur.",
     ],
 };
 

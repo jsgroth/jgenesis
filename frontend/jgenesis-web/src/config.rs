@@ -9,8 +9,8 @@ use genesis_core::GenesisEmulatorConfig;
 use jgenesis_common::frontend::{ColorCorrection, FiniteF32, MappableInputs, TimingMode};
 use jgenesis_common::input::Player;
 use jgenesis_renderer::config::{
-    FilterMode, NtscShaderConfig, PreprocessShader, PrescaleFactor, PrescaleMode, RendererConfig,
-    Scanlines, VSyncMode, WgpuBackend, WgpuPowerPreference,
+    AntiDitherShader, FilterMode, NtscShaderConfig, PreprocessShader, PrescaleFactor, PrescaleMode,
+    RendererConfig, Scanlines, VSyncMode, WgpuBackend, WgpuPowerPreference,
 };
 use s32x_core::api::Sega32XEmulatorConfig;
 use segacd_core::api::SegaCdEmulatorConfig;
@@ -32,7 +32,7 @@ use winit::keyboard::KeyCode;
 pub struct CommonWebConfig {
     pub filter_mode: FilterMode,
     pub preprocess_shader: PreprocessShader,
-    pub prescale_factor: PrescaleFactor,
+    pub auto_prescale: bool,
 }
 
 impl Default for CommonWebConfig {
@@ -40,7 +40,7 @@ impl Default for CommonWebConfig {
         Self {
             filter_mode: FilterMode::default(),
             preprocess_shader: PreprocessShader::default(),
-            prescale_factor: PrescaleFactor::try_from(3).unwrap(),
+            auto_prescale: true,
         }
     }
 }
@@ -53,11 +53,17 @@ impl CommonWebConfig {
             vsync_mode: VSyncMode::Enabled,
             // Frame time sync does not work on web because it blocks until the next frame time
             frame_time_sync: false,
-            prescale_mode: PrescaleMode::Manual(self.prescale_factor),
+            prescale_mode: if self.auto_prescale {
+                PrescaleMode::Auto
+            } else {
+                PrescaleMode::Manual { width: PrescaleFactor::ONE, height: PrescaleFactor::ONE }
+            },
             scanlines: Scanlines::default(),
             force_integer_height_scaling: false,
             filter_mode: self.filter_mode,
+            supersample_minification: true,
             preprocess_shader: self.preprocess_shader,
+            anti_dither_shader: AntiDitherShader::default(),
             ntsc_config: NtscShaderConfig::default(),
         }
     }
@@ -495,13 +501,12 @@ impl WebConfigRef {
         self.borrow_mut().common.preprocess_shader = preprocess_shader;
     }
 
-    pub fn prescale_factor(&self) -> u32 {
-        self.borrow().common.prescale_factor.get()
+    pub fn auto_prescale(&self) -> bool {
+        self.borrow().common.auto_prescale
     }
 
-    pub fn set_prescale_factor(&self, prescale_factor: u32) {
-        let Ok(prescale_factor) = prescale_factor.try_into() else { return };
-        self.borrow_mut().common.prescale_factor = prescale_factor;
+    pub fn set_auto_prescale(&self, auto_prescale: bool) {
+        self.borrow_mut().common.auto_prescale = auto_prescale;
     }
 
     pub fn sms_timing_mode(&self) -> String {

@@ -505,9 +505,13 @@ struct Args {
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     auto_prescale: Option<bool>,
 
-    /// Manual prescale factor; must be a positive integer
+    /// Manual width prescale factor; must be a positive integer
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
-    prescale_factor: Option<u32>,
+    prescale_width: Option<u32>,
+
+    /// Manual height prescale factor; must be a positive integer
+    #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
+    prescale_height: Option<u32>,
 
     /// Scanlines
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
@@ -864,9 +868,14 @@ impl Args {
             ]
         );
 
-        if let Some(prescale_factor) = self.prescale_factor {
-            config.common.prescale_factor =
-                PrescaleFactor::try_from(prescale_factor).expect("prescale factor is invalid");
+        if let Some(prescale_factor) = self.prescale_width {
+            config.common.prescale_width =
+                PrescaleFactor::try_from(prescale_factor).expect("prescale width is invalid");
+        }
+
+        if let Some(prescale_factor) = self.prescale_height {
+            config.common.prescale_height =
+                PrescaleFactor::try_from(prescale_factor).expect("prescale height is invalid");
         }
     }
 

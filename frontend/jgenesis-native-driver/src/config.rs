@@ -340,12 +340,17 @@ impl AppConfigExt for AppConfig {
                 prescale_mode: if self.common.auto_prescale {
                     PrescaleMode::Auto
                 } else {
-                    PrescaleMode::Manual(self.common.prescale_factor)
+                    PrescaleMode::Manual {
+                        width: self.common.prescale_width,
+                        height: self.common.prescale_height,
+                    }
                 },
                 scanlines: self.common.scanlines,
                 force_integer_height_scaling: self.common.force_integer_height_scaling,
                 filter_mode: self.common.filter_mode,
+                supersample_minification: self.common.supersample_minification,
                 preprocess_shader: self.common.preprocess_shader,
+                anti_dither_shader: self.common.anti_dither_shader,
                 ntsc_config: self.common.ntsc,
             },
             fast_forward_multiplier: self.common.fast_forward_multiplier,

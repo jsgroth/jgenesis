@@ -2,8 +2,8 @@ use genesis_config::{GenParParams, GenesisAspectRatio};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::{EnumAll, EnumDisplay};
 use jgenesis_renderer::config::{
-    FilterMode, NtscShaderConfig, PreprocessShader, PrescaleFactor, Scanlines, VSyncMode,
-    WgpuBackend, WgpuPowerPreference,
+    AntiDitherShader, FilterMode, NtscShaderConfig, PreprocessShader, PrescaleFactor, Scanlines,
+    VSyncMode, WgpuBackend, WgpuPowerPreference,
 };
 use nes_config::NesAspectRatio;
 use serde::{Deserialize, Serialize};
@@ -291,15 +291,21 @@ pub struct CommonAppConfig {
     #[serde(default = "true_fn")]
     pub auto_prescale: bool,
     #[serde(default = "default_prescale_factor")]
-    pub prescale_factor: PrescaleFactor,
+    pub prescale_width: PrescaleFactor,
+    #[serde(default = "default_prescale_factor")]
+    pub prescale_height: PrescaleFactor,
     #[serde(default)]
     pub scanlines: Scanlines,
     #[serde(default)]
     pub force_integer_height_scaling: bool,
     #[serde(default)]
     pub filter_mode: FilterMode,
+    #[serde(default = "true_fn")]
+    pub supersample_minification: bool,
     #[serde(default)]
     pub preprocess_shader: PreprocessShader,
+    #[serde(default)]
+    pub anti_dither_shader: AntiDitherShader,
     #[serde(default)]
     pub ntsc: NtscShaderConfig,
     #[serde(default)]

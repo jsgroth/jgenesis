@@ -124,20 +124,40 @@ impl RenderingPipeline {
 
         // Pipeline shaders (all optional):
         //   1. Color correction
-        //   2. NTSC composite / Upscaling / Horizontal blur
-        //   3. Frame blending
-        //   4. Prescale / Scanlines
+        //   2. Anti-dither
+        //   3. NTSC composite / Upscaling / Horizontal blur
+        //   4. Frame blending
+        //   5. Prescale / Scanlines
         let mut shader_pipeline: Vec<Box<dyn PipelineShader>> = Vec::new();
+
+        macro_rules! current_output_texture {
+            () => {
+                current_output_texture(&shader_pipeline, &input_texture)
+            };
+        }
 
         // GBC/GBA color correction
         if let Some(color_correction_shader) = ColorCorrectionShader::create(
             options.color_correction,
-            &current_output_texture(&shader_pipeline, &input_texture),
+            &current_output_texture!(),
             device,
             shaders,
         ) {
             log::debug!("Adding color correction shader");
             shader_pipeline.push(Box::new(color_correction_shader));
+        }
+
+        // Anti-dither
+        if !renderer_config.preprocess_shader.exclude_anti_dither()
+            && let Some(anti_dither_shader) = BlurShader::create_anti_dither(
+                renderer_config.anti_dither_shader,
+                device,
+                &current_output_texture!(),
+                shaders,
+            )
+        {
+            log::debug!("Adding anti-dither shader");
+            shader_pipeline.push(Box::new(anti_dither_shader));
         }
 
         // NTSC composite
@@ -154,18 +174,18 @@ impl RenderingPipeline {
             shader_pipeline.push(Box::new(NtscShader::create(
                 device,
                 shaders,
-                &current_output_texture(&shader_pipeline, &input_texture),
+                &current_output_texture!(),
                 params,
                 renderer_config.ntsc_config,
                 variant,
             )));
         }
 
-        // Horizontal blur / Anti-dither
-        if let Some(blur_shader) = BlurShader::create(
+        // Horizontal blur
+        if let Some(blur_shader) = BlurShader::create_horizontal_blur(
             renderer_config.preprocess_shader,
             device,
-            &current_output_texture(&shader_pipeline, &input_texture),
+            &current_output_texture!(),
             shaders,
         ) {
             log::debug!("Adding blur shader");
@@ -177,7 +197,7 @@ impl RenderingPipeline {
             renderer_config.preprocess_shader,
             device,
             shaders,
-            &current_output_texture(&shader_pipeline, &input_texture),
+            &current_output_texture!(),
         ) {
             log::debug!("Adding xBRZ shader");
             shader_pipeline.push(Box::new(xbrz_shader));
@@ -189,7 +209,7 @@ impl RenderingPipeline {
             shader_pipeline.push(Box::new(UpscaleShader::create_mmpx(
                 device,
                 shaders,
-                &current_output_texture(&shader_pipeline, &input_texture),
+                &current_output_texture!(),
             )));
         }
 
@@ -197,7 +217,7 @@ impl RenderingPipeline {
         if options.frame_blending {
             log::debug!("Adding frame blending shader");
             shader_pipeline.push(Box::new(FrameBlendShader::create(
-                current_output_texture(&shader_pipeline, &input_texture),
+                current_output_texture!(),
                 device,
                 shaders,
             )));
@@ -209,7 +229,7 @@ impl RenderingPipeline {
             frame_size,
             display_area,
             options.pixel_aspect_ratio,
-            &current_output_texture(&shader_pipeline, &input_texture),
+            &current_output_texture!(),
             device,
             limits,
             shaders,
@@ -221,7 +241,7 @@ impl RenderingPipeline {
         // Input texture view binding should use same sRGB-awareness as surface.
         // This can produce slightly inaccurate texture sampling results when rendering to a
         // non-sRGB-aware surface, but it avoids horribly incorrect colors
-        let render_input_texture = current_output_texture(&shader_pipeline, &input_texture);
+        let render_input_texture = current_output_texture!();
         let render_input_view_format = if surface_config.format.is_srgb() {
             wgpu::TextureFormat::Rgba8UnormSrgb
         } else {
@@ -233,10 +253,11 @@ impl RenderingPipeline {
             ..wgpu::TextureViewDescriptor::default()
         });
 
-        // Use multisampled rendering only when the surface is smaller than the final frame texture
-        // in at least 1 dimension; otherwise it's just a waste of compute
-        let multisample = render_input_texture.width() > display_area.width
-            || render_input_texture.height() > display_area.height;
+        // Use multisampled rendering only when the final frame texture is at least twice as large
+        // as the display area in at least 1 dimension; otherwise it's just a waste of compute
+        let multisample = renderer_config.supersample_minification
+            && (render_input_texture.width() > 2 * display_area.width
+                || render_input_texture.height() > 2 * display_area.height);
 
         let multisample_output = multisample.then(|| {
             device.create_texture(&wgpu::TextureDescriptor {
@@ -300,7 +321,11 @@ impl RenderingPipeline {
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: filter_mode,
-            min_filter: wgpu::FilterMode::Linear,
+            min_filter: if renderer_config.supersample_minification {
+                wgpu::FilterMode::Linear
+            } else {
+                filter_mode
+            },
             ..wgpu::SamplerDescriptor::default()
         });
 

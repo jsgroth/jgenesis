@@ -5,8 +5,8 @@ use crate::app::{App, OpenWindow, widgets};
 use eframe::epaint::Color32;
 use egui::{Context, Slider, Ui, Window};
 use jgenesis_renderer::config::{
-    FilterMode, NtscShaderConfig, PreprocessShader, Scanlines, VSyncMode, WgpuBackend,
-    WgpuPowerPreference,
+    AntiDitherShader, FilterMode, NtscShaderConfig, PreprocessShader, PrescaleFactor, Scanlines,
+    VSyncMode, WgpuBackend, WgpuPowerPreference,
 };
 use std::num::{NonZeroU8, NonZeroU32};
 
@@ -19,11 +19,12 @@ impl App {
             widgets::render_vertical_scroll_area(ui, |ui| {
                 self.render_fullscreen_settings(ui, WINDOW);
                 self.render_window_size_setting(ui, WINDOW);
+                self.render_integer_height_scaling_settings(ui, WINDOW);
                 self.render_wgpu_backend_setting(ui, WINDOW);
                 self.render_wgpu_power_preference_setting(ui, WINDOW);
                 self.render_preprocess_shader_setting(ui, WINDOW);
+                self.render_anti_dither_setting(ui, WINDOW);
                 self.render_scanlines_setting(ui, WINDOW);
-                self.render_integer_height_scaling_settings(ui, WINDOW);
                 self.render_prescaling_settings(ui, WINDOW);
                 self.render_filter_mode_setting(ui, WINDOW);
             });
@@ -118,27 +119,40 @@ impl App {
     }
 
     fn render_filter_mode_setting(&mut self, ui: &mut Ui, window: OpenWindow) {
-        let rect = ui
-            .group(|ui| {
-                ui.label("Filter mode");
-                ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.config.common.filter_mode,
-                        FilterMode::Nearest,
-                        "Nearest neighbor",
-                    );
-                    ui.radio_value(
-                        &mut self.config.common.filter_mode,
-                        FilterMode::Linear,
-                        "Linear interpolation",
-                    );
-                });
-            })
-            .response
-            .interact_rect;
-        if ui.rect_contains_pointer(rect) {
-            self.state.help_text.insert(window, helptext::FILTER_MODE);
-        }
+        ui.group(|ui| {
+            let rect = ui
+                .scope(|ui| {
+                    ui.label("Image filtering");
+                    ui.horizontal(|ui| {
+                        ui.radio_value(
+                            &mut self.config.common.filter_mode,
+                            FilterMode::Nearest,
+                            "Nearest neighbor",
+                        );
+                        ui.radio_value(
+                            &mut self.config.common.filter_mode,
+                            FilterMode::Linear,
+                            "Linear interpolation",
+                        );
+                    });
+                })
+                .response
+                .interact_rect;
+
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(window, helptext::FILTER_MODE);
+            }
+
+            let rect = ui
+                .checkbox(
+                    &mut self.config.common.supersample_minification,
+                    "Supersample when minifying",
+                )
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(window, helptext::SUPERSAMPLE_MINIFICATION);
+            }
+        });
     }
 
     fn render_preprocess_shader_setting(&mut self, ui: &mut Ui, window: OpenWindow) {
@@ -236,25 +250,40 @@ impl App {
                         " 3px horizontally at 512px horizontal resolution"
                     ));
                 });
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.config.common.preprocess_shader,
-                        PreprocessShader::AntiDitherWeak,
-                        "Anti-dither (conservative)",
-                    );
-                    ui.radio_value(
-                        &mut self.config.common.preprocess_shader,
-                        PreprocessShader::AntiDitherStrong,
-                        "Anti-dither (aggressive)",
-                    );
-                });
             })
             .response
             .interact_rect;
         if ui.rect_contains_pointer(rect) {
             self.state.help_text.insert(window, helptext::PREPROCESS_SHADER);
         }
+    }
+
+    fn render_anti_dither_setting(&mut self, ui: &mut Ui, window: OpenWindow) {
+        ui.add_enabled_ui(!self.config.common.preprocess_shader.exclude_anti_dither(), |ui| {
+            let rect = ui
+                .group(|ui| {
+                    ui.label("Anti-dither shader");
+
+                    ui.horizontal(|ui| {
+                        for (value, label) in [
+                            (AntiDitherShader::None, "None"),
+                            (AntiDitherShader::Weak, "Conservative"),
+                            (AntiDitherShader::Strong, "Aggressive"),
+                        ] {
+                            ui.radio_value(
+                                &mut self.config.common.anti_dither_shader,
+                                value,
+                                label,
+                            );
+                        }
+                    });
+                })
+                .response
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(window, helptext::ANTI_DITHER_SHADER);
+            }
+        });
     }
 
     fn render_scanlines_setting(&mut self, ui: &mut Ui, window: OpenWindow) {
@@ -282,21 +311,28 @@ impl App {
             .group(|ui| {
                 ui.label("Prescaling");
 
-                ui.checkbox(&mut self.config.common.auto_prescale, "Enable auto-prescale");
+                ui.checkbox(&mut self.config.common.auto_prescale, "Auto-prescale enabled");
 
-                ui.horizontal(|ui| {
-                    ui.add_enabled_ui(!self.config.common.auto_prescale, |ui| {
-                        ui.label("Prescale factor:");
+                ui.add_enabled_ui(!self.config.common.auto_prescale, |ui| {
+                    let mut add_slider =
+                        |factor: &mut PrescaleFactor, factor_raw: &mut u32, label: &str| {
+                            if ui.add(Slider::new(factor_raw, 1..=16).text(label)).changed()
+                                && let Some(prescale_factor) = NonZeroU32::new(*factor_raw)
+                            {
+                                *factor = prescale_factor.into();
+                            }
+                        };
 
-                        if ui
-                            .add(Slider::new(&mut self.state.prescale_factor_raw, 1..=16))
-                            .changed()
-                            && let Some(prescale_factor) =
-                                NonZeroU32::new(self.state.prescale_factor_raw)
-                        {
-                            self.config.common.prescale_factor = prescale_factor.into();
-                        }
-                    });
+                    add_slider(
+                        &mut self.config.common.prescale_width,
+                        &mut self.state.prescale_width_raw,
+                        "Width scale",
+                    );
+                    add_slider(
+                        &mut self.config.common.prescale_height,
+                        &mut self.state.prescale_height_raw,
+                        "Height scale",
+                    );
                 });
             })
             .response

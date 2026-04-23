@@ -1,4 +1,4 @@
-use crate::config::{PreprocessShader, PrescaleMode, RendererConfig, Scanlines};
+use crate::config::{AntiDitherShader, PreprocessShader, PrescaleMode, RendererConfig, Scanlines};
 use crate::renderer::{PipelineShader, Shaders};
 use jgenesis_common::frontend::{ColorCorrection, DisplayArea, FiniteF64, FrameSize};
 use std::sync::Arc;
@@ -306,7 +306,7 @@ pub struct BlurShader {
 }
 
 impl BlurShader {
-    pub fn create(
+    pub fn create_horizontal_blur(
         preprocess_shader: PreprocessShader,
         device: &wgpu::Device,
         input_texture: &wgpu::Texture,
@@ -316,18 +316,41 @@ impl BlurShader {
             PreprocessShader::HorizontalBlurTwoPixels => "hblur_2px",
             PreprocessShader::HorizontalBlurThreePixels => "hblur_3px",
             PreprocessShader::HorizontalBlurSnesAdaptive => "hblur_snes",
-            PreprocessShader::AntiDitherWeak => "anti_dither_weak",
-            PreprocessShader::AntiDitherStrong => "anti_dither_strong",
             _ => return None,
         };
-
-        let input_texture_view = input_texture.create_view(&SRGB_TEX_VIEW_DESCRIPTOR);
 
         let width_scale_factor = match preprocess_shader {
             PreprocessShader::HorizontalBlurSnesAdaptive if input_texture.width() >= 512 => 1,
             PreprocessShader::HorizontalBlurSnesAdaptive => 2,
             _ => 1,
         };
+
+        Some(Self::create(device, input_texture, shaders, fs_main, width_scale_factor))
+    }
+
+    pub fn create_anti_dither(
+        anti_dither_shader: AntiDitherShader,
+        device: &wgpu::Device,
+        input_texture: &wgpu::Texture,
+        shaders: &Shaders,
+    ) -> Option<Self> {
+        let fs_main = match anti_dither_shader {
+            AntiDitherShader::Weak => "anti_dither_weak",
+            AntiDitherShader::Strong => "anti_dither_strong",
+            AntiDitherShader::None => return None,
+        };
+
+        Some(Self::create(device, input_texture, shaders, fs_main, 1))
+    }
+
+    pub fn create(
+        device: &wgpu::Device,
+        input_texture: &wgpu::Texture,
+        shaders: &Shaders,
+        fragment_entry_point: &str,
+        width_scale_factor: u32,
+    ) -> Self {
+        let input_texture_view = input_texture.create_view(&SRGB_TEX_VIEW_DESCRIPTOR);
 
         let output_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: "preprocess_output_texture".into(),
@@ -372,7 +395,7 @@ impl BlurShader {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shaders.hblur,
-                entry_point: Some(fs_main),
+                entry_point: Some(fragment_entry_point),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: wgpu::TextureFormat::Rgba8UnormSrgb,
@@ -406,7 +429,7 @@ impl BlurShader {
             ],
         });
 
-        Some(Self { output: Arc::new(output_texture), bind_groups: vec![bind_group], pipeline })
+        Self { output: Arc::new(output_texture), bind_groups: vec![bind_group], pipeline }
     }
 }
 
@@ -589,9 +612,9 @@ fn determine_prescale_factors(
             let height = f64::from(display_area.height);
             (width, height)
         }
-        PrescaleMode::Manual(factor) => {
-            let width = f64::from(factor.get() * frame_size.width);
-            let height = f64::from(factor.get() * frame_size.height);
+        PrescaleMode::Manual { width, height } => {
+            let width = f64::from(width.get() * frame_size.width);
+            let height = f64::from(height.get() * frame_size.height);
             (width, height)
         }
     };
@@ -870,8 +893,9 @@ mod tests {
 
     #[test]
     fn manual_prescale_basic() {
+        let factor = PrescaleFactor::try_from(5).unwrap();
         let (width, height) = determine_prescale_factors(
-            PrescaleMode::Manual(PrescaleFactor::try_from(5).unwrap()),
+            PrescaleMode::Manual { width: factor, height: factor },
             FrameSize { width: 320, height: 240 },
             None,
             DisplayArea { width: 320 * 5, height: 240 * 5, x: 0, y: 0 },
@@ -885,8 +909,9 @@ mod tests {
 
     #[test]
     fn manual_prescale_scaled_input() {
+        let factor = PrescaleFactor::try_from(5).unwrap();
         let (width, height) = determine_prescale_factors(
-            PrescaleMode::Manual(PrescaleFactor::try_from(5).unwrap()),
+            PrescaleMode::Manual { width: factor, height: factor },
             FrameSize { width: 320, height: 240 },
             None,
             DisplayArea { width: 320 * 5, height: 240 * 5, x: 0, y: 0 },
