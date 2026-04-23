@@ -18,7 +18,7 @@
 // WGSL shader port of xBRZ v1.9
 // Copyright (C) 2026 James Groth
 
-// Aassumed to be between 2 and 6
+// Assumed to be between 2 and 6
 override scale_factor: i32;
 
 override equal_color_tolerance: f32 = 30.0 / 255.0;
@@ -48,7 +48,7 @@ struct BlendModes {
 }
 
 fn any_blend_mode(blend: BlendModes) -> bool {
-    return blend.tl != BLEND_NONE || blend.tr != BLEND_NONE || blend.bl != BLEND_NONE || blend.br != BLEND_NONE;
+    return any(vec4u(blend.tl, blend.tr, blend.bl, blend.br) != vec4u(BLEND_NONE));
 }
 
 @compute @workgroup_size(16, 16, 1)
@@ -74,13 +74,97 @@ fn xbrz(@builtin(global_invocation_id) invocation: vec3u) {
 
     if any_blend_mode(blend_modes) {
         // Perform blending in each diagonal direction
-        for (var orientation = 0; orientation < 4; orientation++) {
-            blend_pixel(blend_modes);
 
-            rotate_input();
-            rotate_output();
-            blend_modes = rotate_blend_modes(blend_modes);
+        // Bottom-right diagonal
+        if blend_modes.br != BLEND_NONE {
+            // - - - - -
+            // - - B C -
+            // - D E F -
+            // - G H I -
+            // - - - - -
+            blend_pixel(
+                blend_modes,
+                input_pixels[1][2],
+                input_pixels[1][3],
+                input_pixels[2][1],
+                input_pixels[2][2],
+                input_pixels[2][3],
+                input_pixels[3][1],
+                input_pixels[3][2],
+                input_pixels[3][3],
+            );
         }
+
+        rotate_output();
+        blend_modes = rotate_blend_modes(blend_modes);
+
+        // Top-right diagonal
+        if blend_modes.br != BLEND_NONE {
+            // - - - - -
+            // - C F I -
+            // - B E H -
+            // - - D G -
+            // - - - - -
+            blend_pixel(
+                blend_modes,
+                input_pixels[2][1],
+                input_pixels[1][1],
+                input_pixels[3][2],
+                input_pixels[2][2],
+                input_pixels[1][2],
+                input_pixels[3][3],
+                input_pixels[2][3],
+                input_pixels[1][3],
+            );
+        }
+
+        rotate_output();
+        blend_modes = rotate_blend_modes(blend_modes);
+
+        // Top-left diagonal
+        if blend_modes.br != BLEND_NONE {
+            // - - - - -
+            // - I H G -
+            // - F E D -
+            // - C B - -
+            // - - - - -
+            blend_pixel(
+                blend_modes,
+                input_pixels[3][2],
+                input_pixels[3][1],
+                input_pixels[2][3],
+                input_pixels[2][2],
+                input_pixels[2][1],
+                input_pixels[1][3],
+                input_pixels[1][2],
+                input_pixels[1][1],
+            );
+        }
+
+        rotate_output();
+        blend_modes = rotate_blend_modes(blend_modes);
+
+        // Bottom-left diagonal
+        if blend_modes.br != BLEND_NONE {
+            // - - - - -
+            // - G D - -
+            // - H E B -
+            // - I F C -
+            // - - - - -
+            blend_pixel(
+                blend_modes,
+                input_pixels[2][3],
+                input_pixels[3][3],
+                input_pixels[1][2],
+                input_pixels[2][2],
+                input_pixels[3][2],
+                input_pixels[1][1],
+                input_pixels[2][1],
+                input_pixels[3][1],
+            );
+        }
+
+        rotate_output();
     }
 
     // Write output pixels
@@ -112,19 +196,6 @@ fn load_input(position: vec2i, input_size: vec2i) {
             input_pixels[dy + 2][dx + 2] = input_pixel;
         }
     }
-}
-
-// Rotate input matrix 90 degrees clockwise
-fn rotate_input() {
-    var rotated: array<array<vec3f, 5>, 5>;
-
-    for (var i = 0; i < 5; i++) {
-        for (var j = 0; j < 5; j++) {
-            rotated[i][j] = input_pixels[4 - j][i];
-        }
-    }
-
-    input_pixels = rotated;
 }
 
 // Rotate output matrix 90 degrees clockwise
@@ -216,97 +287,94 @@ fn compute_blend_mode(row: i32, col: i32) -> u32 {
         + color_distance(f, n)
         + center_direction_bias * color_distance(e, i);
 
-    if hf < ei {
-        let dominant = dominant_direction_threshold * hf < ei;
-
-        // (1, 1): Bottom-right diagonal from E
-        if row == 1 && col == 1 && any(e != f) && any(e != h) {
-            return select(BLEND_NORMAL, BLEND_DOMINANT, dominant);
+    switch (2 * row + col) {
+        case 0: {
+            // (0, 0): Top-left diagonal from I
+            if hf < ei && any(i != h) && any(i != f) {
+                let dominant = dominant_direction_threshold * hf < ei;
+                return select(BLEND_NORMAL, BLEND_DOMINANT, dominant);
+            }
         }
-
-        // (0, 0): Top-left diagonal from I
-        if row == 0 && col == 0 && any(i != h) && any(i != f) {
-            return select(BLEND_NORMAL, BLEND_DOMINANT, dominant);
+        case 1: {
+            // (0, 1): Top-right diagonal from H
+            if ei < hf && any(h != e) && any(h != i) {
+                let dominant = dominant_direction_threshold * ei < hf;
+                return select(BLEND_NORMAL, BLEND_DOMINANT, dominant);
+            }
         }
-    } else if ei < hf {
-        let dominant = dominant_direction_threshold * ei < hf;
-
-        // (0, 1): Top-right diagonal from H
-        if row == 0 && col == 1 && any(h != e) && any(h != i) {
-            return select(BLEND_NORMAL, BLEND_DOMINANT, dominant);
+        case 2: {
+            // (1, 0): Bottom-left diagonal from F
+            if ei < hf && any(f != e) && any(f != i) {
+                let dominant = dominant_direction_threshold * ei < hf;
+                return select(BLEND_NORMAL, BLEND_DOMINANT, dominant);
+            }
         }
-
-        // (1, 0): Bottom-left diagonal from F
-        if row == 1 && col == 0 && any(f != e) && any(f != i) {
-            return select(BLEND_NORMAL, BLEND_DOMINANT, dominant);
+        case 3: {
+            // (1, 1): Bottom-right diagonal from E
+            if hf < ei && any(e != f) && any(e != h) {
+                let dominant = dominant_direction_threshold * hf < ei;
+                return select(BLEND_NORMAL, BLEND_DOMINANT, dominant);
+            }
         }
+        default: {}
     }
 
     return BLEND_NONE;
 }
 
 // Perform blending in the bottom-right diagonal from the center pixel
-fn blend_pixel(blend: BlendModes) {
-    if blend.br == BLEND_NONE {
-        return;
-    }
-
+fn blend_pixel(
+    blend: BlendModes,
+    b: vec3f,
+    c: vec3f,
+    d: vec3f,
+    e: vec3f,
+    f: vec3f,
+    g: vec3f,
+    h: vec3f,
+    i: vec3f,
+) {
     // - - - - -
     // - - B C -
     // - D E F -
     // - G H I -
     // - - - - -
 
-    let b = input_pixels[1][2];
-    let c = input_pixels[1][3];
-    let d = input_pixels[2][1];
-    let e = input_pixels[2][2];
-    let f = input_pixels[2][3];
-    let g = input_pixels[3][1];
-    let h = input_pixels[3][2];
-    let i = input_pixels[3][3];
+    let do_line_blend = (blend.br == BLEND_DOMINANT) || !(
+        (blend.tr != BLEND_NONE && !equal_within_tolerance(e, g))
+            || (blend.bl != BLEND_NONE && !equal_within_tolerance(e, c))
+            || (!equal_within_tolerance(e, i)
+                && equal_within_tolerance(g, h)
+                && equal_within_tolerance(h, i)
+                && equal_within_tolerance(i, f)
+                && equal_within_tolerance(f, c))
+    );
 
-    var do_line_blend = true;
-    if blend.br != BLEND_DOMINANT {
-        //make sure there is no second blending in an adjacent rotation for this pixel: handles insular pixels, mario eyes
-        if blend.tr != BLEND_NONE && !equal_within_tolerance(e, g) { //but support double-blending for 90° corners
-            do_line_blend = false;
-        }
-        if blend.bl != BLEND_NONE && !equal_within_tolerance(e, c) {
-            do_line_blend = false;
-        }
+    let fg = color_distance(f, g);
+    let hc = color_distance(h, c);
 
-        //no full blending for L-shapes; blend corner only (handles "mario mushroom eyes")
-        if !equal_within_tolerance(e, i)
-            && equal_within_tolerance(g, h)
-            && equal_within_tolerance(h, i)
-            && equal_within_tolerance(i, f)
-            && equal_within_tolerance(f, c)
-        {
-            do_line_blend = false;
-        }
-    }
+    let shallow_line = do_line_blend && steep_direction_threshold * fg <= hc && any(e != g) && any(d != g);
+    let steep_line   = do_line_blend && steep_direction_threshold * hc <= fg && any(e != c) && any(b != c);
 
     let blend_color = select(h, f, color_distance(e, f) <= color_distance(e, h)); //choose most similar color
 
-    if do_line_blend {
-        let fg = color_distance(f, g);
-        let hc = color_distance(h, c);
-
-        let shallow_line = steep_direction_threshold * fg <= hc && any(e != g) && any(d != g);
-        let steep_line   = steep_direction_threshold * hc <= fg && any(e != c) && any(b != c);
-
-        if shallow_line && steep_line {
-            blend_steep_and_shallow_line(blend_color);
-        } else if shallow_line {
-            blend_shallow_line(blend_color);
-        } else if steep_line {
-            blend_steep_line(blend_color);
-        } else {
-            blend_diagonal(blend_color);
+    switch (scale_factor) {
+        case 2: {
+            scale_pixel_2x(blend_color, do_line_blend, shallow_line, steep_line);
         }
-    } else {
-        blend_corner(blend_color);
+        case 3: {
+            scale_pixel_3x(blend_color, do_line_blend, shallow_line, steep_line);
+        }
+        case 4: {
+            scale_pixel_4x(blend_color, do_line_blend, shallow_line, steep_line);
+        }
+        case 5: {
+            scale_pixel_5x(blend_color, do_line_blend, shallow_line, steep_line);
+        }
+        case 6: {
+            scale_pixel_6x(blend_color, do_line_blend, shallow_line, steep_line);
+        }
+        default: {}
     }
 }
 
@@ -318,270 +386,392 @@ fn alpha_blend(i: u32, j: u32, color: vec3f, alpha: f32) {
     output_pixels[i][j] = linear_to_srgb(blended);
 }
 
-// https://en.wikipedia.org/wiki/SRGB#Transfer_function_(%22gamma%22)
 fn srgb_to_linear(c: vec3f) -> vec3f {
-    return select(
-        pow((c + 0.055) / 1.055, vec3f(2.4)),
-        c / 12.92,
-        c <= vec3f(0.04045),
-    );
+    return pow(c, vec3f(2.2));
 }
 
 fn linear_to_srgb(c: vec3f) -> vec3f {
-    return select(
-        1.055 * pow(c, vec3f(1.0 / 2.4)) - 0.055,
-        c * 12.92,
-        c <= vec3f(0.0031308),
-    );
+    return pow(c, vec3f(1.0 / 2.2));
 }
 
-fn blend_shallow_line(c: vec3f) {
-    switch (scale_factor) {
-        case 2: {
-            alpha_blend(1, 0, c, 1.0 / 4.0);
-            alpha_blend(1, 1, c, 3.0 / 4.0);
-        }
-        case 3: {
-            alpha_blend(2, 0, c, 1.0 / 4.0);
-            alpha_blend(1, 2, c, 1.0 / 4.0);
+fn scale_pixel_2x(c: vec3f, do_line_blend: bool, shallow_line: bool, steep_line: bool) {
+    alpha_blend(0, 1, c, select(
+        0.0,
+        1.0 / 4.0,
+        steep_line,
+    ));
 
-            alpha_blend(2, 1, c, 3.0 / 4.0);
-            output_pixels[2][2] = c;
-        }
-        case 4: {
-            alpha_blend(3, 0, c, 1.0 / 4.0);
-            alpha_blend(2, 2, c, 1.0 / 4.0);
+    alpha_blend(1, 0, c, select(
+        0.0,
+        1.0 / 4.0,
+        shallow_line,
+    ));
 
-            alpha_blend(3, 1, c, 3.0 / 4.0);
-            alpha_blend(2, 3, c, 3.0 / 4.0);
-
-            output_pixels[3][2] = c;
-            output_pixels[3][3] = c;
-        }
-        case 5: {
-            alpha_blend(4, 0, c, 1.0 / 4.0);
-            alpha_blend(3, 2, c, 1.0 / 4.0);
-            alpha_blend(2, 4, c, 1.0 / 4.0);
-
-            alpha_blend(4, 1, c, 3.0 / 4.0);
-            alpha_blend(3, 3, c, 3.0 / 4.0);
-
-            output_pixels[4][2] = c;
-            output_pixels[4][3] = c;
-            output_pixels[4][4] = c;
-            output_pixels[3][4] = c;
-        }
-        case 6: {
-            alpha_blend(5, 0, c, 1.0 / 4.0);
-            alpha_blend(4, 2, c, 1.0 / 4.0);
-            alpha_blend(3, 4, c, 1.0 / 4.0);
-
-            alpha_blend(5, 1, c, 3.0 / 4.0);
-            alpha_blend(4, 3, c, 3.0 / 4.0);
-            alpha_blend(3, 5, c, 3.0 / 4.0);
-
-            output_pixels[5][2] = c;
-            output_pixels[5][3] = c;
-            output_pixels[5][4] = c;
-            output_pixels[5][5] = c;
-
-            output_pixels[4][4] = c;
-            output_pixels[4][5] = c;
-        }
-        default: {}
-    }
+    alpha_blend(1, 1, c, select(
+        select(
+            select(
+                0.2146018366,
+                1.0 / 2.0,
+                do_line_blend,
+            ),
+            3.0 / 4.0,
+            steep_line || shallow_line,
+        ),
+        5.0 / 6.0,
+        steep_line && shallow_line,
+    ));
 }
 
-fn blend_steep_line(c: vec3f) {
-    switch (scale_factor) {
-        case 2: {
-            alpha_blend(0, 1, c, 1.0 / 4.0);
-            alpha_blend(1, 1, c, 3.0 / 4.0);
-        }
-        case 3: {
-            alpha_blend(0, 2, c, 1.0 / 4.0);
-            alpha_blend(2, 1, c, 1.0 / 4.0);
+fn scale_pixel_3x(c: vec3f, do_line_blend: bool, shallow_line: bool, steep_line: bool) {
+    alpha_blend(0, 2, c, select(
+        0.0,
+        1.0 / 4.0,
+        steep_line,
+    ));
 
-            alpha_blend(1, 2, c, 3.0 / 4.0);
-            output_pixels[2][2] = c;
-        }
-        case 4: {
-            alpha_blend(0, 3, c, 1.0 / 4.0);
-            alpha_blend(2, 2, c, 1.0 / 4.0);
+    alpha_blend(2, 0, c, select(
+        0.0,
+        1.0 / 4.0,
+        shallow_line,
+    ));
 
-            alpha_blend(1, 3, c, 3.0 / 4.0);
-            alpha_blend(3, 2, c, 3.0 / 4.0);
+    alpha_blend(1, 2, c, select(
+        select(
+            select(
+                0.0,
+                1.0 / 8.0,
+                do_line_blend,
+            ),
+            1.0 / 4.0,
+            shallow_line,
+        ),
+        3.0 / 4.0,
+        steep_line,
+    ));
 
-            output_pixels[2][3] = c;
-            output_pixels[3][3] = c;
-        }
-        case 5: {
-            alpha_blend(0, 4, c, 1.0 / 4.0);
-            alpha_blend(2, 3, c, 1.0 / 4.0);
-            alpha_blend(4, 2, c, 1.0 / 4.0);
+    alpha_blend(2, 1, c, select(
+        select(
+            select(
+                0.0,
+                1.0 / 8.0,
+                do_line_blend,
+            ),
+            1.0 / 4.0,
+            steep_line,
+        ),
+        3.0 / 4.0,
+        shallow_line,
+    ));
 
-            alpha_blend(1, 4, c, 3.0 / 4.0);
-            alpha_blend(3, 3, c, 3.0 / 4.0);
-
-            output_pixels[2][4] = c;
-            output_pixels[3][4] = c;
-            output_pixels[4][4] = c;
-            output_pixels[4][3] = c;
-        }
-        case 6: {
-            alpha_blend(0, 5, c, 1.0 / 4.0);
-            alpha_blend(2, 4, c, 1.0 / 4.0);
-            alpha_blend(4, 3, c, 1.0 / 4.0);
-
-            alpha_blend(1, 5, c, 3.0 / 4.0);
-            alpha_blend(3, 4, c, 3.0 / 4.0);
-            alpha_blend(5, 3, c, 3.0 / 4.0);
-
-            output_pixels[2][5] = c;
-            output_pixels[3][5] = c;
-            output_pixels[4][5] = c;
-            output_pixels[5][5] = c;
-
-            output_pixels[4][4] = c;
-            output_pixels[5][4] = c;
-        }
-        default: {}
-    }
+    alpha_blend(2, 2, c, select(
+        select(
+            0.4545939598,
+            7.0 / 8.0,
+            do_line_blend,
+        ),
+        1.0,
+        shallow_line || steep_line,
+    ));
 }
 
-fn blend_steep_and_shallow_line(c: vec3f) {
-    switch (scale_factor) {
-        case 2: {
-            alpha_blend(1, 0, c, 1.0 / 4.0);
-            alpha_blend(0, 1, c, 1.0 / 4.0);
-            alpha_blend(1, 1, c, 5.0 / 6.0);
-        }
-        case 3: {
-            alpha_blend(2, 0, c, 1.0 / 4.0);
-            alpha_blend(0, 2, c, 1.0 / 4.0);
-            alpha_blend(2, 1, c, 3.0 / 4.0);
-            alpha_blend(1, 2, c, 3.0 / 4.0);
-            output_pixels[2][2] = c;
-        }
-        case 4: {
-            alpha_blend(3, 1, c, 3.0 / 4.0);
-            alpha_blend(1, 3, c, 3.0 / 4.0);
-            alpha_blend(3, 0, c, 1.0 / 4.0);
-            alpha_blend(0, 3, c, 1.0 / 4.0);
+fn scale_pixel_4x(c: vec3f, do_line_blend: bool, shallow_line: bool, steep_line: bool) {
+    alpha_blend(3, 0, c, select(
+        0.0,
+        1.0 / 4.0,
+        shallow_line,
+    ));
 
-            alpha_blend(2, 2, c, 1.0 / 3.0);
+    alpha_blend(0, 3, c, select(
+        0.0,
+        1.0 / 4.0,
+        steep_line,
+    ));
 
-            output_pixels[3][3] = c;
-            output_pixels[3][2] = c;
-            output_pixels[2][3] = c;
-        }
-        case 5: {
-            alpha_blend(0, 4, c, 1.0 / 4.0);
-            alpha_blend(2, 3, c, 1.0 / 4.0);
-            alpha_blend(1, 4, c, 3.0 / 4.0);
+    alpha_blend(3, 1, c, select(
+        0.0,
+        3.0 / 4.0,
+        shallow_line,
+    ));
 
-            alpha_blend(4, 0, c, 1.0 / 4.0);
-            alpha_blend(3, 2, c, 1.0 / 4.0);
-            alpha_blend(4, 1, c, 3.0 / 4.0);
+    alpha_blend(1, 3, c, select(
+        0.0,
+        3.0 / 4.0,
+        steep_line,
+    ));
 
-            alpha_blend(3, 3, c, 2.0 / 3.0);
+    alpha_blend(3, 2, c, select(
+        select(
+            select(
+                0.08677704501,
+                1.0 / 2.0,
+                do_line_blend,
+            ),
+            3.0 / 4.0,
+            steep_line,
+        ),
+        1.0,
+        shallow_line,
+    ));
 
-            output_pixels[2][4] = c;
-            output_pixels[3][4] = c;
-            output_pixels[4][4] = c;
+    alpha_blend(2, 3, c, select(
+        select(
+            select(
+                0.08677704501,
+                1.0 / 2.0,
+                do_line_blend,
+            ),
+            3.0 / 4.0,
+            shallow_line,
+        ),
+        1.0,
+        steep_line,
+    ));
 
-            output_pixels[4][2] = c;
-            output_pixels[4][3] = c;
-        }
-        case 6: {
-            alpha_blend(0, 5, c, 1.0 / 4.0);
-            alpha_blend(2, 4, c, 1.0 / 4.0);
-            alpha_blend(1, 5, c, 3.0 / 4.0);
-            alpha_blend(3, 4, c, 3.0 / 4.0);
+    alpha_blend(2, 2, c, select(
+        select(
+            0.0,
+            1.0 / 4.0,
+            steep_line || shallow_line,
+        ),
+        1.0 / 3.0,
+        steep_line && shallow_line,
+    ));
 
-            alpha_blend(5, 0, c, 1.0 / 4.0);
-            alpha_blend(4, 2, c, 1.0 / 4.0);
-            alpha_blend(5, 1, c, 3.0 / 4.0);
-            alpha_blend(4, 3, c, 3.0 / 4.0);
-
-            output_pixels[2][5] = c;
-            output_pixels[3][5] = c;
-            output_pixels[4][5] = c;
-            output_pixels[5][5] = c;
-
-            output_pixels[4][4] = c;
-            output_pixels[5][4] = c;
-
-            output_pixels[5][2] = c;
-            output_pixels[5][3] = c;
-        }
-        default: {}
-    }
+    alpha_blend(3, 3, c, select(
+        0.6848532563,
+        1.0,
+        do_line_blend,
+    ));
 }
 
-fn blend_diagonal(c: vec3f) {
-    switch (scale_factor) {
-        case 2: {
-            alpha_blend(1, 1, c, 1.0 / 2.0);
-        }
-        case 3: {
-            alpha_blend(1, 2, c, 1.0 / 8.0);
-            alpha_blend(2, 1, c, 1.0 / 8.0);
-            alpha_blend(2, 2, c, 7.0 / 8.0);
-        }
-        case 4: {
-            alpha_blend(3, 2, c, 1.0 / 2.0);
-            alpha_blend(2, 3, c, 1.0 / 2.0);
-            output_pixels[3][3] = c;
-        }
-        case 5: {
-            alpha_blend(4, 2, c, 1.0 / 8.0);
-            alpha_blend(3, 3, c, 1.0 / 8.0);
-            alpha_blend(2, 4, c, 1.0 / 8.0);
+fn scale_pixel_5x(c: vec3f, do_line_blend: bool, shallow_line: bool, steep_line: bool) {
+    alpha_blend(4, 0, c, select(
+        0.0,
+        1.0 / 4.0,
+        shallow_line,
+    ));
 
-            alpha_blend(4, 3, c, 7.0 / 8.0);
-            alpha_blend(3, 4, c, 7.0 / 8.0);
+    alpha_blend(0, 4, c, select(
+        0.0,
+        1.0 / 4.0,
+        steep_line,
+    ));
 
-            output_pixels[4][4] = c;
-        }
-        case 6: {
-            alpha_blend(5, 3, c, 1.0 / 2.0);
-            alpha_blend(4, 4, c, 1.0 / 2.0);
-            alpha_blend(3, 5, c, 1.0 / 2.0);
+    alpha_blend(3, 2, c, select(
+        0.0,
+        1.0 / 4.0,
+        shallow_line,
+    ));
 
-            output_pixels[4][5] = c;
-            output_pixels[5][5] = c;
-            output_pixels[5][4] = c;
-        }
-        default: {}
-    }
+    alpha_blend(2, 3, c, select(
+        0.0,
+        1.0 / 4.0,
+        steep_line,
+    ));
+
+    alpha_blend(4, 1, c, select(
+        0.0,
+        3.0 / 4.0,
+        shallow_line,
+    ));
+
+    alpha_blend(1, 4, c, select(
+        0.0,
+        3.0 / 4.0,
+        steep_line,
+    ));
+
+    alpha_blend(3, 3, c, select(
+        select(
+            select(
+                0.0,
+                1.0 / 8.0,
+                do_line_blend,
+            ),
+            3.0 / 4.0,
+            steep_line || shallow_line,
+        ),
+        2.0 / 3.0,
+        steep_line && shallow_line,
+    ));
+
+    alpha_blend(2, 4, c, select(
+        select(
+            select(
+                0.0,
+                1.0 / 8.0,
+                do_line_blend,
+            ),
+            1.0 / 4.0,
+            shallow_line,
+        ),
+        1.0,
+        steep_line,
+    ));
+
+    alpha_blend(4, 2, c, select(
+        select(
+            select(
+                0.0,
+                1.0 / 8.0,
+                do_line_blend,
+            ),
+            1.0 / 4.0,
+            steep_line,
+        ),
+        1.0,
+        shallow_line,
+    ));
+
+    alpha_blend(4, 3, c, select(
+        select(
+            0.2306749731,
+            7.0 / 8.0,
+            do_line_blend,
+        ),
+        1.0,
+        steep_line || shallow_line,
+    ));
+
+    alpha_blend(3, 4, c, select(
+        select(
+            0.2306749731,
+            7.0 / 8.0,
+            do_line_blend,
+        ),
+        1.0,
+        steep_line || shallow_line,
+    ));
+
+    alpha_blend(4, 4, c, select(
+        0.8631434088,
+        1.0,
+        do_line_blend,
+    ));
 }
 
-fn blend_corner(c: vec3f) {
-    switch (scale_factor) {
-        case 2: {
-            alpha_blend(1, 1, c, 0.2146018366);
-        }
-        case 3: {
-            alpha_blend(2, 2, c, 0.4545939598);
-        }
-        case 4: {
-            alpha_blend(3, 3, c, 0.6848532563);
-            alpha_blend(3, 2, c, 0.08677704501);
-            alpha_blend(2, 3, c, 0.08677704501);
-        }
-        case 5: {
-            alpha_blend(4, 4, c, 0.8631434088);
-            alpha_blend(4, 3, c, 0.2306749731);
-            alpha_blend(3, 4, c, 0.2306749731);
-        }
-        case 6: {
-            alpha_blend(5, 5, c, 0.9711013910);
-            alpha_blend(4, 5, c, 0.4236372243);
-            alpha_blend(5, 4, c, 0.4236372243);
-            alpha_blend(5, 3, c, 0.05652034508);
-            alpha_blend(3, 5, c, 0.05652034508);
-        }
-        default: {}
-    }
+fn scale_pixel_6x(c: vec3f, do_line_blend: bool, shallow_line: bool, steep_line: bool) {
+    alpha_blend(0, 5, c, select(
+        0.0,
+        1.0 / 4.0,
+        steep_line,
+    ));
+
+    alpha_blend(5, 0, c, select(
+        0.0,
+        1.0 / 4.0,
+        shallow_line,
+    ));
+
+    alpha_blend(2, 4, c, select(
+        0.0,
+        1.0 / 4.0,
+        steep_line,
+    ));
+
+    alpha_blend(4, 2, c, select(
+        0.0,
+        1.0 / 4.0,
+        shallow_line,
+    ));
+
+    alpha_blend(1, 5, c, select(
+        0.0,
+        3.0 / 4.0,
+        steep_line,
+    ));
+
+    alpha_blend(5, 1, c, select(
+        0.0,
+        3.0 / 4.0,
+        shallow_line,
+    ));
+
+    alpha_blend(3, 4, c, select(
+        select(
+            0.0,
+            1.0 / 4.0,
+            shallow_line,
+        ),
+        3.0 / 4.0,
+        steep_line,
+    ));
+
+    alpha_blend(4, 3, c, select(
+        select(
+            0.0,
+            1.0 / 4.0,
+            steep_line,
+        ),
+        3.0 / 4.0,
+        shallow_line,
+    ));
+
+    alpha_blend(2, 5, c, select(
+        0.0,
+        1.0,
+        steep_line,
+    ));
+
+    alpha_blend(5, 2, c, select(
+        0.0,
+        1.0,
+        shallow_line,
+    ));
+
+    alpha_blend(3, 5, c, select(
+        select(
+            select(
+                0.05652034508,
+                1.0 / 2.0,
+                do_line_blend,
+            ),
+            3.0 / 4.0,
+            shallow_line,
+        ),
+        1.0,
+        steep_line,
+    ));
+
+    alpha_blend(5, 3, c, select(
+        select(
+            select(
+                0.05652034508,
+                1.0 / 2.0,
+                do_line_blend,
+            ),
+            3.0 / 4.0,
+            steep_line,
+        ),
+        1.0,
+        shallow_line,
+    ));
+
+    alpha_blend(4, 5, c, select(
+        0.4236372243,
+        1.0,
+        do_line_blend,
+    ));
+
+    alpha_blend(5, 4, c, select(
+        0.4236372243,
+        1.0,
+        do_line_blend,
+    ));
+
+    alpha_blend(4, 4, c, select(
+        select(
+            0.0,
+            1.0 / 2.0,
+            do_line_blend,
+        ),
+        1.0,
+        steep_line || shallow_line,
+    ));
+
+    alpha_blend(5, 5, c, select(
+        0.9711013910,
+        1.0,
+        do_line_blend,
+    ));
 }
