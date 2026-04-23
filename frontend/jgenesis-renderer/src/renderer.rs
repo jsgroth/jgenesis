@@ -238,17 +238,9 @@ impl RenderingPipeline {
             shader_pipeline.push(Box::new(prescale_shader));
         }
 
-        // Input texture view binding should use same sRGB-awareness as surface.
-        // This can produce slightly inaccurate texture sampling results when rendering to a
-        // non-sRGB-aware surface, but it avoids horribly incorrect colors
         let render_input_texture = current_output_texture!();
-        let render_input_view_format = if surface_config.format.is_srgb() {
-            wgpu::TextureFormat::Rgba8UnormSrgb
-        } else {
-            wgpu::TextureFormat::Rgba8Unorm
-        };
         let render_input_view = render_input_texture.create_view(&wgpu::TextureViewDescriptor {
-            format: Some(render_input_view_format),
+            format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
             usage: Some(wgpu::TextureUsages::TEXTURE_BINDING),
             ..wgpu::TextureViewDescriptor::default()
         });
@@ -275,6 +267,10 @@ impl RenderingPipeline {
                 view_formats: &[],
             })
         });
+
+        // If surface format is not sRGB-aware, fragment shader needs to perform gamma encoding
+        // since the frame texture view is always sRGB-aware
+        let encode_to_srgb = !surface_config.format.is_srgb();
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: "render_pipeline".into(),
@@ -303,7 +299,10 @@ impl RenderingPipeline {
             fragment: Some(wgpu::FragmentState {
                 module: &shaders.render,
                 entry_point: None,
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    constants: &[("encode_to_srgb", encode_to_srgb.into())],
+                    ..wgpu::PipelineCompilationOptions::default()
+                },
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_config.format,
                     blend: Some(wgpu::BlendState::REPLACE),
@@ -786,13 +785,23 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             });
         }
 
+        // On Windows, using the Vulkan backend with an AMD GPU can seemingly cause incorrect colors
+        // when rendering to a surface with an sRGB-aware texture format; prefer non-sRGB-aware for
+        // Windows+Vulkan
+        //
+        // Possibly related: https://github.com/gfx-rs/wgpu/issues/8354
+        let prefer_srgb_format = cfg_select! {
+            target_os = "windows" => adapter_info.backend != wgpu::Backend::Vulkan,
+            _ => true,
+        };
+
         let surface_format = surface_capabilities
             .formats
             .iter()
             .copied()
-            .find(wgpu::TextureFormat::is_srgb)
+            .find(|format| format.is_srgb() == prefer_srgb_format)
             .unwrap_or_else(|| {
-                log::warn!("wgpu adapter does not support any sRGB texture formats; defaulting to first format in this list: {:?}", surface_capabilities.formats);
+                log::warn!("wgpu adapter does not support any surface formats with is_srgb={prefer_srgb_format}; defaulting to first format in this list: {:?}", surface_capabilities.formats);
                 surface_capabilities.formats[0]
             });
 

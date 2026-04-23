@@ -1,3 +1,5 @@
+override encode_to_srgb: bool = false;
+
 struct VertexInput {
     @location(0) position: vec2f,
     @location(1) texture_coords: vec2f,
@@ -24,5 +26,17 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4f {
-    return textureSample(texture_in, sampler_in, input.texture_coords);
+    var pixel = textureSample(texture_in, sampler_in, input.texture_coords);
+
+    if encode_to_srgb {
+        // https://en.wikipedia.org/wiki/SRGB#Transfer_function_(%22gamma%22)
+        let srgb = select(
+            1.055 * pow(pixel.rgb, vec3f(1.0 / 2.4)) - 0.055,
+            12.92 * pixel.rgb,
+            pixel.rgb <= vec3f(0.0031308),
+        );
+        pixel = vec4f(srgb, pixel.a);
+    }
+
+    return pixel;
 }
