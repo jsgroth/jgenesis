@@ -459,7 +459,6 @@ impl WebConfig {
             show_high_priority: true,
             show_low_priority: true,
             void_color: S32XVoidColor::default(),
-            emulate_pixel_switch_delay: false,
             apply_genesis_lpf_to_pwm: true,
             pwm_resampling: S32XPwmResampling::CubicHermite,
             pwm_enabled: true,

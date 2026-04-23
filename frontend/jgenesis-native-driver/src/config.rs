@@ -459,7 +459,6 @@ impl AppConfigExt for AppConfig {
                         S32XVoidColor::Direct { r, g, b, a: self.sega_32x.void_direct_priority }
                     }
                 },
-                emulate_pixel_switch_delay: false,
                 apply_genesis_lpf_to_pwm: self.sega_32x.apply_genesis_lpf_to_pwm,
                 pwm_resampling: self.sega_32x.pwm_resampling,
                 pwm_enabled: self.sega_32x.pwm_enabled,

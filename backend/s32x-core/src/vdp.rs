@@ -143,7 +143,6 @@ struct VdpConfig {
     show_high_priority: bool,
     show_low_priority: bool,
     void_color: S32XVoidColor,
-    emulate_pixel_switch_delay: bool,
 }
 
 impl VdpConfig {
@@ -154,7 +153,6 @@ impl VdpConfig {
             show_high_priority: config.show_high_priority,
             show_low_priority: config.show_low_priority,
             void_color: config.void_color,
-            emulate_pixel_switch_delay: config.emulate_pixel_switch_delay,
         }
     }
 }
@@ -714,12 +712,6 @@ impl Vdp {
             return;
         }
 
-        if self.config.emulate_pixel_switch_delay {
-            // In H40 mode, but need to render at sub-pixel resolution to emulate pixel switch delay
-            self.composite_frame_expanded::<false>(genesis_frame_size, border_size, genesis_vdp);
-            return;
-        }
-
         // Otherwise, composite in H40 into the Genesis VDP frame buffer
         self.composite_frame_inner::<false, false>(genesis_frame_size, border_size, genesis_vdp);
     }
@@ -768,10 +760,6 @@ impl Vdp {
             !H32 || EXPAND_H,
             "Does not make sense to not expand if Genesis VDP is in H32 mode"
         );
-        assert!(
-            !self.config.emulate_pixel_switch_delay || EXPAND_H,
-            "Does not make sense to not expand if emulating pixel switch delay"
-        );
 
         let interlaced_frame: u32 = genesis_vdp.is_interlaced_frame().into();
         let interlaced_odd: u32 = genesis_vdp.is_interlaced_odd().into();
@@ -807,25 +795,7 @@ impl Vdp {
             let effective_line = (line << interlaced_frame) + interlaced_odd;
             let fb_row_addr = ((effective_line + top_offset) * frame_width + left_offset) as usize;
 
-            if EXPAND_H && self.config.emulate_pixel_switch_delay {
-                let mut last_pixel_was_32x = false;
-
-                for pixel in 0..FRAME_WIDTH {
-                    let s32x_pixel = self.rendered_frame[line as usize][pixel as usize];
-                    let fb_addr = fb_row_addr + 4 * pixel as usize;
-
-                    for i in 0..4 {
-                        // Quarter-pixel delay when switching from 32X output to Genesis output
-                        let s32x_has_priority =
-                            should_use_32x_pixel(s32x_only, s32x_pixel, frame_buffer[fb_addr + i]);
-                        if last_pixel_was_32x || s32x_has_priority {
-                            frame_buffer[fb_addr + i] = u16_to_rgb(s32x_pixel, color_tables);
-                        }
-                        last_pixel_was_32x = s32x_has_priority;
-                    }
-                }
-            } else if EXPAND_H {
-                // Horizontal resolution expansion w/o pixel switch delay emulation
+            if EXPAND_H {
                 for pixel in 0..FRAME_WIDTH {
                     let s32x_pixel = self.rendered_frame[line as usize][pixel as usize];
                     let fb_addr = fb_row_addr + 4 * pixel as usize;
@@ -837,7 +807,6 @@ impl Vdp {
                     }
                 }
             } else {
-                // No horizontal resolution expansion
                 for pixel in 0..FRAME_WIDTH {
                     let s32x_pixel = self.rendered_frame[line as usize][pixel as usize];
                     let fb_addr = fb_row_addr + pixel as usize;
