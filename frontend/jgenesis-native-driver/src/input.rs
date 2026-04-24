@@ -1,5 +1,5 @@
 use arrayvec::ArrayVec;
-use jgenesis_common::frontend::{DisplayArea, FrameSize};
+use jgenesis_common::frontend::DisplayInfo;
 use jgenesis_common::input::Player;
 use jgenesis_native_config::input::{
     AxisDirection, GamepadAction, GenericInput, HatDirection, Hotkey,
@@ -70,7 +70,7 @@ pub enum GenericButton<Button> {
 #[derive(Debug, Clone, Copy)]
 pub enum InputEvent<Button> {
     Button { button: Button, player: Player, pressed: bool },
-    MouseMotion { x: f32, y: f32, frame_size: FrameSize, display_area: DisplayArea },
+    MouseMotion { x: f32, y: f32, display_info: DisplayInfo },
     MouseLeave,
     Hotkey { hotkey: Hotkey, pressed: bool },
 }
@@ -445,7 +445,7 @@ where
         &mut self,
         event: &Event,
         emulator_window_id: u32,
-        display_info: Option<(FrameSize, DisplayArea)>,
+        display_info: Option<DisplayInfo>,
     ) {
         log::debug!("SDL event: {event:?}");
 
@@ -471,12 +471,11 @@ where
                 self.state.handle_input(GenericInput::Mouse(mouse_btn), false);
             }
             Event::MouseMotion { x, y, window_id, .. } if window_id == emulator_window_id => {
-                if let Some((frame_size, display_area)) = display_info {
+                if let Some(display_info) = display_info {
                     self.state.input_events.borrow_mut().push(InputEvent::MouseMotion {
                         x,
                         y,
-                        frame_size,
-                        display_area,
+                        display_info,
                     });
                 }
             }

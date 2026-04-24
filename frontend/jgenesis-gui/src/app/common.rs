@@ -5,8 +5,8 @@ use crate::app::{App, OpenWindow, widgets};
 use eframe::epaint::Color32;
 use egui::{Context, Slider, Ui, Window};
 use jgenesis_renderer::config::{
-    AntiDitherShader, FilterMode, NtscShaderConfig, PreprocessShader, PrescaleFactor, Scanlines,
-    VSyncMode, WgpuBackend, WgpuPowerPreference,
+    AntiDitherShader, FilterMode, FrameRotation, NtscShaderConfig, PreprocessShader,
+    PrescaleFactor, Scanlines, VSyncMode, WgpuBackend, WgpuPowerPreference,
 };
 use std::num::{NonZeroU8, NonZeroU32};
 
@@ -27,6 +27,7 @@ impl App {
                 self.render_scanlines_setting(ui, WINDOW);
                 self.render_prescaling_settings(ui, WINDOW);
                 self.render_filter_mode_setting(ui, WINDOW);
+                self.render_frame_rotation_setting(ui, WINDOW);
             });
 
             self.render_help_text(ui, WINDOW);
@@ -153,6 +154,29 @@ impl App {
                 self.state.help_text.insert(window, helptext::SUPERSAMPLE_MINIFICATION);
             }
         });
+    }
+
+    fn render_frame_rotation_setting(&mut self, ui: &mut Ui, window: OpenWindow) {
+        let rect = ui
+            .group(|ui| {
+                ui.label("Rotation");
+
+                ui.horizontal(|ui| {
+                    for (value, label) in [
+                        (FrameRotation::None, "None"),
+                        (FrameRotation::Clockwise, "90° clockwise"),
+                        (FrameRotation::OneEighty, "180°"),
+                        (FrameRotation::Counterclockwise, "90° counterclockwise"),
+                    ] {
+                        ui.radio_value(&mut self.config.common.frame_rotation, value, label);
+                    }
+                });
+            })
+            .response
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(window, helptext::FRAME_ROTATION);
+        }
     }
 
     fn render_preprocess_shader_setting(&mut self, ui: &mut Ui, window: OpenWindow) {

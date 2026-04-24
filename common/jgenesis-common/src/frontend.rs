@@ -64,6 +64,21 @@ pub struct DisplayArea {
     pub y: u32,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum Rotation {
+    None,
+    Clockwise,
+    OneEighty,
+    Counterclockwise,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DisplayInfo {
+    pub frame_size: FrameSize,
+    pub display_area: DisplayArea,
+    pub rotation: Rotation,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Encode, Decode)]
 pub enum ColorCorrection {
     #[default]
@@ -275,14 +290,7 @@ pub trait MappableInputs<Button> {
     fn set_field(&mut self, button: Button, player: Player, pressed: bool);
 
     #[allow(unused_variables)]
-    fn handle_mouse_motion(
-        &mut self,
-        x: f32,
-        y: f32,
-        frame_size: FrameSize,
-        display_area: DisplayArea,
-    ) {
-    }
+    fn handle_mouse_motion(&mut self, x: f32, y: f32, display_info: DisplayInfo) {}
 
     fn handle_mouse_leave(&mut self) {}
 

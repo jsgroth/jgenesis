@@ -1,4 +1,6 @@
-use crate::config::{AntiDitherShader, PreprocessShader, PrescaleMode, RendererConfig, Scanlines};
+use crate::config::{
+    AntiDitherShader, FrameRotation, PreprocessShader, PrescaleMode, RendererConfig, Scanlines,
+};
 use crate::renderer::{PipelineShader, Shaders};
 use jgenesis_common::frontend::{ColorCorrection, DisplayArea, FiniteF64, FrameSize};
 use std::sync::Arc;
@@ -478,6 +480,7 @@ impl PrescaleShader {
             frame_size,
             pixel_aspect_ratio,
             display_area,
+            renderer_config.frame_rotation,
             input.size(),
             limits,
         );
@@ -595,21 +598,26 @@ fn determine_prescale_factors(
     frame_size: FrameSize,
     pixel_aspect_ratio: Option<FiniteF64>,
     display_area: DisplayArea,
+    rotation: FrameRotation,
     input_size: wgpu::Extent3d,
     limits: &wgpu::Limits,
 ) -> (u32, u32) {
     let (target_width, target_height) = match mode {
         PrescaleMode::Auto => {
+            // For 90/270 degree rotations, display area is based on rotated frame size and aspect
+            // ratio, so rotate the display size back when computing auto-prescale factors
+            let (display_width, display_height) = rotation.rotate_display_area_size(display_area);
+
             let width = match pixel_aspect_ratio {
                 Some(par) => {
                     let frame_aspect_ratio =
                         f64::from(frame_size.width) / f64::from(frame_size.height);
                     let screen_aspect_ratio = f64::from(par) * frame_aspect_ratio;
-                    f64::from(display_area.height) * screen_aspect_ratio
+                    f64::from(display_height) * screen_aspect_ratio
                 }
-                None => f64::from(display_area.width),
+                None => f64::from(display_width),
             };
-            let height = f64::from(display_area.height);
+            let height = f64::from(display_height);
             (width, height)
         }
         PrescaleMode::Manual { width, height } => {
@@ -786,6 +794,7 @@ mod tests {
             FrameSize { width, height },
             None,
             DisplayArea { width: width * width_scale, height: height * height_scale, x: 0, y: 0 },
+            FrameRotation::None,
             wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
             &wgpu::Limits::default(),
         )
@@ -822,6 +831,7 @@ mod tests {
             FrameSize { width: 320, height: 480 },
             Some(FiniteF64::try_from(2.0).unwrap()),
             DisplayArea { width: 320 * 4, height: 240 * 4, x: 0, y: 0 },
+            FrameRotation::None,
             wgpu::Extent3d { width: 320, height: 480, depth_or_array_layers: 1 },
             &wgpu::Limits::default(),
         );
@@ -837,6 +847,7 @@ mod tests {
             FrameSize { width: 512, height: 240 },
             Some(FiniteF64::try_from(0.5).unwrap()),
             DisplayArea { width: 256 * 4, height: 240 * 4, x: 0, y: 0 },
+            FrameRotation::None,
             wgpu::Extent3d { width: 512, height: 240, depth_or_array_layers: 1 },
             &wgpu::Limits::default(),
         );
@@ -852,6 +863,7 @@ mod tests {
             FrameSize { width: 320, height: 240 },
             None,
             DisplayArea { width: 320 * 4, height: 240 * 4, x: 0, y: 0 },
+            FrameRotation::None,
             wgpu::Extent3d { width: 320 * 2, height: 240, depth_or_array_layers: 1 },
             &wgpu::Limits::default(),
         );
@@ -867,6 +879,7 @@ mod tests {
             FrameSize { width: 320, height: 240 },
             None,
             DisplayArea { width: 320 * 11 / 4, height: 240 * 7 / 4, x: 0, y: 0 },
+            FrameRotation::None,
             wgpu::Extent3d { width: 320, height: 240, depth_or_array_layers: 1 },
             &wgpu::Limits::default(),
         );
@@ -882,6 +895,7 @@ mod tests {
             FrameSize { width: 320, height: 240 },
             Some(FiniteF64::try_from(0.9).unwrap()),
             DisplayArea { width: 320 * 2 * 9 / 10, height: 240 * 2, x: 0, y: 0 },
+            FrameRotation::None,
             wgpu::Extent3d { width: 320, height: 240, depth_or_array_layers: 1 },
             &wgpu::Limits::default(),
         );
@@ -899,6 +913,7 @@ mod tests {
             FrameSize { width: 320, height: 240 },
             None,
             DisplayArea { width: 320 * 5, height: 240 * 5, x: 0, y: 0 },
+            FrameRotation::None,
             wgpu::Extent3d { width: 320, height: 240, depth_or_array_layers: 1 },
             &wgpu::Limits::default(),
         );
@@ -915,11 +930,28 @@ mod tests {
             FrameSize { width: 320, height: 240 },
             None,
             DisplayArea { width: 320 * 5, height: 240 * 5, x: 0, y: 0 },
+            FrameRotation::None,
             wgpu::Extent3d { width: 320 * 2, height: 240, depth_or_array_layers: 1 },
             &wgpu::Limits::default(),
         );
 
         assert_eq!(width, 2);
         assert_eq!(height, 5);
+    }
+
+    #[test]
+    fn auto_prescale_rotated() {
+        let (width, height) = determine_prescale_factors(
+            PrescaleMode::Auto,
+            FrameSize { width: 200, height: 400 },
+            None,
+            DisplayArea { width: 1000, height: 600, x: 0, y: 0 },
+            FrameRotation::Clockwise,
+            wgpu::Extent3d { width: 200, height: 400, depth_or_array_layers: 1 },
+            &wgpu::Limits::default(),
+        );
+
+        assert_eq!(width, 3);
+        assert_eq!(height, 2);
     }
 }

@@ -1,3 +1,4 @@
+use jgenesis_common::frontend::Rotation;
 use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, EnumFromStr};
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU32;
@@ -243,6 +244,28 @@ impl PreprocessShader {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumFromStr, EnumAll)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum FrameRotation {
+    #[default]
+    None,
+    Clockwise,
+    OneEighty,
+    Counterclockwise,
+}
+
+impl From<FrameRotation> for Rotation {
+    fn from(value: FrameRotation) -> Self {
+        match value {
+            FrameRotation::None => Self::None,
+            FrameRotation::Clockwise => Self::Clockwise,
+            FrameRotation::OneEighty => Self::OneEighty,
+            FrameRotation::Counterclockwise => Self::Counterclockwise,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, ConfigDisplay)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct NtscShaderConfig {
@@ -270,6 +293,7 @@ pub struct RendererConfig {
     pub supersample_minification: bool,
     pub preprocess_shader: PreprocessShader,
     pub anti_dither_shader: AntiDitherShader,
+    pub frame_rotation: FrameRotation,
     #[cfg_display(indent_nested)]
     pub ntsc_config: NtscShaderConfig,
 }

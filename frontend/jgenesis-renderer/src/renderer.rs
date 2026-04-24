@@ -2,7 +2,7 @@ mod ntsc;
 mod shaders;
 
 use crate::config;
-use crate::config::{PreprocessShader, RendererConfig};
+use crate::config::{FrameRotation, PreprocessShader, RendererConfig};
 use crate::renderer::ntsc::{NtscShader, NtscShaderVariant};
 use crate::renderer::shaders::{
     BlurShader, ColorCorrectionShader, FrameBlendShader, PrescaleShader, UpscaleShader,
@@ -10,8 +10,8 @@ use crate::renderer::shaders::{
 #[cfg(feature = "ttf")]
 use crate::ttf;
 use jgenesis_common::frontend::{
-    Color, DisplayArea, FiniteF64, FrameSize, RenderFrameOptions, RenderFrameOptionsHashable,
-    Renderer,
+    Color, DisplayArea, DisplayInfo, FiniteF64, FrameSize, RenderFrameOptions,
+    RenderFrameOptionsHashable, Renderer,
 };
 use jgenesis_common::timeutils;
 use raw_window_handle::{HandleError, HasDisplayHandle, HasWindowHandle};
@@ -61,9 +61,47 @@ trait PipelineShader {
     fn reset_interframe_state(&mut self) {}
 }
 
+impl FrameRotation {
+    fn rotate_frame_size_and_aspect_ratio(
+        self,
+        size: FrameSize,
+        pixel_aspect_ratio: Option<FiniteF64>,
+    ) -> (FrameSize, Option<FiniteF64>) {
+        match self {
+            Self::None | Self::OneEighty => (size, pixel_aspect_ratio),
+            Self::Clockwise | Self::Counterclockwise => {
+                let rotated_size = FrameSize { width: size.height, height: size.width };
+                let rotated_par =
+                    pixel_aspect_ratio.and_then(|par| FiniteF64::try_from(1.0 / par.get()).ok());
+
+                (rotated_size, rotated_par)
+            }
+        }
+    }
+
+    fn rotate_display_area_size(self, area: DisplayArea) -> (u32, u32) {
+        match self {
+            Self::None | Self::OneEighty => (area.width, area.height),
+            Self::Clockwise | Self::Counterclockwise => (area.height, area.width),
+        }
+    }
+
+    fn rotate_texture_coords(self, [x, y]: [f32; 2]) -> [f32; 2] {
+        // Rotation is reversed because input coordinates are position in the rotated frame, and
+        // return value should be position in the original frame
+        match self {
+            Self::None => [x, y],
+            Self::Clockwise => [y, 1.0 - x],
+            Self::OneEighty => [1.0 - x, 1.0 - y],
+            Self::Counterclockwise => [1.0 - y, x],
+        }
+    }
+}
+
 struct RenderingPipeline {
     frame_size: FrameSize,
     display_area: DisplayArea,
+    rotation: FrameRotation,
     input_texture: Arc<wgpu::Texture>,
     shader_pipeline: Vec<Box<dyn PipelineShader>>,
     vertex_buffer: wgpu::Buffer,
@@ -114,11 +152,16 @@ impl RenderingPipeline {
             view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
         }));
 
+        // For 90/270 degree rotations, compute display area based on swapped frame width/height and
+        // inverted aspect ratio
+        let (rotated_frame_size, rotated_aspect_ratio) = renderer_config
+            .frame_rotation
+            .rotate_frame_size_and_aspect_ratio(frame_size, options.pixel_aspect_ratio);
         let display_area = determine_display_area(
             window_size.width,
             window_size.height,
-            frame_size,
-            options.pixel_aspect_ratio,
+            rotated_frame_size,
+            rotated_aspect_ratio,
             renderer_config.force_integer_height_scaling,
         );
 
@@ -343,10 +386,13 @@ impl RenderingPipeline {
             ],
         });
 
-        let vertices = match options.pixel_aspect_ratio {
+        let mut vertices = match options.pixel_aspect_ratio {
             Some(_) => compute_vertices(window_size.width, window_size.height, display_area),
             None => VERTICES.into(),
         };
+
+        apply_frame_rotation(&mut vertices, renderer_config.frame_rotation);
+
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: "vertex_buffer".into(),
             contents: bytemuck::cast_slice(&vertices),
@@ -356,6 +402,7 @@ impl RenderingPipeline {
         Self {
             frame_size,
             display_area,
+            rotation: renderer_config.frame_rotation,
             input_texture,
             shader_pipeline,
             vertex_buffer,
@@ -557,6 +604,13 @@ fn scale_vertex_position(
     position as f32
 }
 
+fn apply_frame_rotation(vertices: &mut Vec<Vertex>, rotation: FrameRotation) {
+    // Rotate frame by rotating the texture coordinates of each vertex
+    for vertex in vertices {
+        vertex.texture_coords = rotation.rotate_texture_coords(vertex.texture_coords);
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum RendererError {
     #[error(
@@ -629,7 +683,7 @@ impl PipelineKey {
 
 struct RenderingPipelines {
     pipelines: HashMap<PipelineKey, RenderingPipeline>,
-    last_display_info: Option<(FrameSize, DisplayArea)>,
+    last_display_info: Option<DisplayInfo>,
 }
 
 impl RenderingPipelines {
@@ -651,7 +705,11 @@ impl RenderingPipelines {
         let pipeline =
             self.pipelines.entry(PipelineKey::new(frame_size, options)).or_insert_with(create_fn);
 
-        self.last_display_info = Some((frame_size, pipeline.display_area));
+        self.last_display_info = Some(DisplayInfo {
+            frame_size,
+            display_area: pipeline.display_area,
+            rotation: pipeline.rotation.into(),
+        });
 
         pipeline
     }
@@ -930,7 +988,7 @@ impl<Window> WgpuRenderer<Window> {
     /// May return None if rendering config was just changed or initialized and a frame has not yet been rendered with
     /// the new config.
     #[must_use]
-    pub fn current_display_info(&self) -> Option<(FrameSize, DisplayArea)> {
+    pub fn current_display_info(&self) -> Option<DisplayInfo> {
         self.pipelines.last_display_info
     }
 

@@ -1,5 +1,5 @@
 use bincode::{Decode, Encode};
-use jgenesis_common::frontend::{DisplayArea, FrameSize, MappableInputs};
+use jgenesis_common::frontend::{DisplayInfo, MappableInputs};
 use jgenesis_common::input::Player;
 use nes_config::{NesButton, NesJoypadState};
 
@@ -102,20 +102,10 @@ impl MappableInputs<NesButton> for NesInputs {
     }
 
     #[inline]
-    fn handle_mouse_motion(
-        &mut self,
-        x: f32,
-        y: f32,
-        frame_size: FrameSize,
-        display_area: DisplayArea,
-    ) {
+    fn handle_mouse_motion(&mut self, x: f32, y: f32, display_info: DisplayInfo) {
         if let NesInputDevice::Zapper(zapper_state) = &mut self.p2 {
-            zapper_state.position = jgenesis_common::input::viewport_position_to_frame_position(
-                x,
-                y,
-                frame_size,
-                display_area,
-            );
+            zapper_state.position =
+                jgenesis_common::input::viewport_position_to_frame_position(x, y, display_info);
             log::debug!("Set Zapper position to {:?}", zapper_state.position);
         }
     }

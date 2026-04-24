@@ -1,3 +1,5 @@
+use crate::frontend::{DisplayInfo, Rotation};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Player {
     One,
@@ -9,8 +11,7 @@ pub enum Player {
 pub fn viewport_position_to_frame_position(
     x: f32,
     y: f32,
-    frame_size: FrameSize,
-    display_area: DisplayArea,
+    DisplayInfo { frame_size, display_area, rotation }: DisplayInfo,
 ) -> Option<(u16, u16)> {
     let display_left = display_area.x as f32;
     let display_right = display_left + display_area.width as f32;
@@ -30,8 +31,18 @@ pub fn viewport_position_to_frame_position(
     let display_height: f64 = display_area.height.into();
     let frame_height: f64 = frame_size.height.into();
 
-    let frame_x = ((x - display_left) * frame_width / display_width).round() as u16;
-    let frame_y = ((y - display_top) * frame_height / display_height).round() as u16;
+    let normalized_x = (x - display_left) / display_width;
+    let normalized_y = (y - display_top) / display_height;
+
+    let (rotated_x, rotated_y) = match rotation {
+        Rotation::None => (normalized_x, normalized_y),
+        Rotation::Clockwise => (normalized_y, 1.0 - normalized_x),
+        Rotation::OneEighty => (1.0 - normalized_x, 1.0 - normalized_y),
+        Rotation::Counterclockwise => (1.0 - normalized_y, normalized_x),
+    };
+
+    let frame_x = (rotated_x * frame_width).round() as u16;
+    let frame_y = (rotated_y * frame_height).round() as u16;
 
     log::trace!(
         "Mapped mouse position ({x}, {y}) to ({frame_x}, {frame_y}) (frame size {frame_size:?}, display_area {display_area:?})"
@@ -167,5 +178,4 @@ macro_rules! define_controller_inputs {
     }
 }
 
-use crate::frontend::{DisplayArea, FrameSize};
 pub use define_controller_inputs;

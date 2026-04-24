@@ -1,5 +1,5 @@
 use bincode::{Decode, Encode};
-use jgenesis_common::frontend::{DisplayArea, FrameSize, InputModal, MappableInputs};
+use jgenesis_common::frontend::{DisplayInfo, InputModal, MappableInputs};
 use jgenesis_common::input::Player;
 use snes_config::{SnesButton, SnesJoypadState, SuperScopeButton};
 
@@ -107,21 +107,10 @@ impl MappableInputs<SnesButton> for SnesInputs {
     }
 
     #[inline]
-    fn handle_mouse_motion(
-        &mut self,
-        x: f32,
-        y: f32,
-        frame_size: FrameSize,
-        display_area: DisplayArea,
-    ) {
+    fn handle_mouse_motion(&mut self, x: f32, y: f32, display_info: DisplayInfo) {
         if let SnesInputDevice::SuperScope(super_scope_state) = &mut self.p2 {
             super_scope_state.position =
-                jgenesis_common::input::viewport_position_to_frame_position(
-                    x,
-                    y,
-                    frame_size,
-                    display_area,
-                );
+                jgenesis_common::input::viewport_position_to_frame_position(x, y, display_info);
             log::debug!("Set Super Scope position to {:?}", super_scope_state.position);
         }
     }

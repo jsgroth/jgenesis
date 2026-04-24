@@ -72,6 +72,14 @@ pub const ANTI_DITHER_SHADER: HelpText = HelpText {
     ],
 };
 
+pub const FRAME_ROTATION: HelpText = HelpText {
+    heading: "Rotation",
+    text: &[
+        "Optionally rotate the entire image.",
+        "Useful for handheld games or demos that are designed around rotating the console.",
+    ],
+};
+
 pub const SCANLINES: HelpText = HelpText {
     heading: "Scanlines",
     text: &[

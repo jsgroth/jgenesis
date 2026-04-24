@@ -12,6 +12,11 @@ macro_rules! define_finite_float {
         impl $name {
             pub const ZERO: Self = Self((0 as $ft).to_bits());
             pub const ONE: Self = Self((1 as $ft).to_bits());
+
+            #[must_use]
+            pub fn get(self) -> $ft {
+                <$ft>::from_bits(self.0)
+            }
         }
 
         impl Display for $name {

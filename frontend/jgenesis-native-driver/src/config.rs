@@ -351,6 +351,7 @@ impl AppConfigExt for AppConfig {
                 supersample_minification: self.common.supersample_minification,
                 preprocess_shader: self.common.preprocess_shader,
                 anti_dither_shader: self.common.anti_dither_shader,
+                frame_rotation: self.common.frame_rotation,
                 ntsc_config: self.common.ntsc,
             },
             fast_forward_multiplier: self.common.fast_forward_multiplier,

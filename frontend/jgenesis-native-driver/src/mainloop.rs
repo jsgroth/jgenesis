@@ -679,8 +679,8 @@ where
                         self.renderer.add_or_update_modal(modal.id, modal.text, MODAL_DURATION);
                     }
                 }
-                InputEvent::MouseMotion { x, y, frame_size, display_area } => {
-                    self.inputs.handle_mouse_motion(x, y, frame_size, display_area);
+                InputEvent::MouseMotion { x, y, display_info } => {
+                    self.inputs.handle_mouse_motion(x, y, display_info);
                 }
                 InputEvent::MouseLeave => {
                     self.inputs.handle_mouse_leave();
