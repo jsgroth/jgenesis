@@ -103,6 +103,27 @@ pub fn migrate_config_str(config_str: &mut String) {
                 _ => {}
             }
         }
+
+        // v0.12.0: Changed scanlines from an enum to a bool+f64 pair
+        if let Some((_, scanlines)) = common.get_key_value_mut("scanlines") {
+            match scanlines.as_str() {
+                Some("Dim") => {
+                    *scanlines = toml_edit::Item::None;
+                    common.insert("scanlines_enabled", toml_edit::value(true));
+                    common.insert("scanlines_brightness", toml_edit::value(0.5));
+
+                    changed = true;
+                }
+                Some("Black") => {
+                    *scanlines = toml_edit::Item::None;
+                    common.insert("scanlines_enabled", toml_edit::value(true));
+                    common.insert("scanlines_brightness", toml_edit::value(0.0));
+
+                    changed = true;
+                }
+                _ => {}
+            }
+        }
     }
 
     if changed {
@@ -322,5 +343,30 @@ preprocess_shader = \"{preprocess_str}\"
     #[test]
     fn v0_12_0_anti_dither_strong() {
         v0_12_0_anti_dither("AntiDitherStrong", AntiDitherShader::Strong);
+    }
+
+    fn v0_12_0_scanlines(prev_enum_value: &str, expected_brightness: f64) {
+        let mut config_str = format!(
+            "
+[common]
+scanlines = \"{prev_enum_value}\"
+        "
+        );
+
+        migrate_config_str(&mut config_str);
+
+        let config: AppConfig = toml::from_str(&config_str).expect("Failed to parse config");
+        assert!(config.common.scanlines_enabled);
+        assert_eq!(config.common.scanlines_brightness, expected_brightness);
+    }
+
+    #[test]
+    fn v0_12_0_scanlines_dim() {
+        v0_12_0_scanlines("Dim", 0.5);
+    }
+
+    #[test]
+    fn v0_12_0_scanlines_black() {
+        v0_12_0_scanlines("Black", 0.0);
     }
 }

@@ -3,7 +3,7 @@ use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::{EnumAll, EnumDisplay};
 use jgenesis_renderer::config::{
     AntiDitherShader, FilterMode, FrameRotation, NtscShaderConfig, PreprocessShader,
-    PrescaleFactor, Scanlines, VSyncMode, WgpuBackend, WgpuPowerPreference,
+    PrescaleFactor, VSyncMode, WgpuBackend, WgpuPowerPreference,
 };
 use nes_config::NesAspectRatio;
 use serde::{Deserialize, Serialize};
@@ -295,7 +295,9 @@ pub struct CommonAppConfig {
     #[serde(default = "default_prescale_factor")]
     pub prescale_height: PrescaleFactor,
     #[serde(default)]
-    pub scanlines: Scanlines,
+    pub scanlines_enabled: bool,
+    #[serde(default = "default_scanlines_brightness")]
+    pub scanlines_brightness: f64,
     #[serde(default)]
     pub force_integer_height_scaling: bool,
     #[serde(default)]
@@ -341,6 +343,10 @@ impl Default for CommonAppConfig {
 
 const fn true_fn() -> bool {
     true
+}
+
+const fn default_scanlines_brightness() -> f64 {
+    0.5
 }
 
 const fn default_audio_output_frequency() -> u64 {

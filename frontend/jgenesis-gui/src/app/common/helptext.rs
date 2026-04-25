@@ -80,13 +80,8 @@ pub const FRAME_ROTATION: HelpText = HelpText {
     ],
 };
 
-pub const SCANLINES: HelpText = HelpText {
-    heading: "Scanlines",
-    text: &[
-        "Configure an optional scanlines filter.",
-        "The 75% / 50% / 25% options reduce the brightness of each scanline.",
-    ],
-};
+pub const SCANLINES: HelpText =
+    HelpText { heading: "Scanlines", text: &["Configure an optional scanlines filter."] };
 
 pub const PRESCALING: HelpText = HelpText {
     heading: "Prescaling",

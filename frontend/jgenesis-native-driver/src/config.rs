@@ -345,7 +345,8 @@ impl AppConfigExt for AppConfig {
                         height: self.common.prescale_height,
                     }
                 },
-                scanlines: self.common.scanlines,
+                scanlines_enabled: self.common.scanlines_enabled,
+                scanlines_brightness: self.common.scanlines_brightness,
                 force_integer_height_scaling: self.common.force_integer_height_scaling,
                 filter_mode: self.common.filter_mode,
                 supersample_minification: self.common.supersample_minification,

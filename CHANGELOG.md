@@ -7,7 +7,7 @@
 * Added some other video shader/filter options (#496)
   * xBRZ image upscaling filter by Zenju, with 2x through 6x upscaling options
   * MMPX pixel art magnification filter by Morgan McGuire & Mara Gagiu
-  * Added 75% brightness and 25% brightness options to the scanlines filter, in addition to the existing 50% and 0% options
+  * The scanlines filter now supports multiple different brightness levels instead of only 50% (previously "Dim") and 0% (previously "Black")
   * Added a new option to render using supersampling when the display window is significantly smaller than the frame size (either natively or because of shaders), which reduces aliasing in some cases
   * The anti-dither heuristic filter is now a separate setting from the video shader, so you can enable it in combination with the xBRZ or MMPX upscaling filters
 * Added a new video option to rotate the frame in increments of 90°, meant for handheld games/demos that are designed around rotating the console (#169)

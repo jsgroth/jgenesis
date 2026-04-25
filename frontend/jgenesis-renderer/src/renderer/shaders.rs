@@ -1,5 +1,5 @@
 use crate::config::{
-    AntiDitherShader, FrameRotation, PreprocessShader, PrescaleMode, RendererConfig, Scanlines,
+    AntiDitherShader, FrameRotation, PreprocessShader, PrescaleMode, RendererConfig,
 };
 use crate::renderer::{PipelineShader, Shaders};
 use jgenesis_common::frontend::{ColorCorrection, DisplayArea, FiniteF64, FrameSize};
@@ -488,10 +488,7 @@ impl PrescaleShader {
             limits,
         );
 
-        if prescale_width <= 1
-            && prescale_height <= 1
-            && renderer_config.scanlines == Scanlines::None
-        {
+        if prescale_width <= 1 && prescale_height <= 1 && !renderer_config.scanlines_enabled {
             return None;
         }
 
@@ -514,13 +511,9 @@ impl PrescaleShader {
             view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
         });
 
-        let (prescale_fs_main, scanline_multiplier) = match renderer_config.scanlines {
-            Scanlines::None => ("basic_prescale", 1.0),
-            Scanlines::SlightDim => ("scanlines", 0.75),
-            Scanlines::Dim => ("scanlines", 0.5),
-            Scanlines::VeryDim => ("scanlines", 0.25),
-            Scanlines::Black => ("scanlines", 0.0),
-        };
+        let fs_main =
+            if renderer_config.scanlines_enabled { "scanlines" } else { "basic_prescale" };
+        let scanline_multiplier = renderer_config.scanlines_brightness.clamp(0.0, 1.0);
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: "prescale_pipeline".into(),
@@ -548,7 +541,7 @@ impl PrescaleShader {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shaders.prescale,
-                entry_point: Some(prescale_fs_main),
+                entry_point: Some(fs_main),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: wgpu::TextureFormat::Rgba8UnormSrgb,

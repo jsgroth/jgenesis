@@ -172,18 +172,6 @@ impl Display for PrescaleMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumAll)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum Scanlines {
-    #[default]
-    None,
-    SlightDim,
-    Dim,
-    VeryDim,
-    Black,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumFromStr, EnumAll)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
@@ -287,7 +275,8 @@ pub struct RendererConfig {
     pub vsync_mode: VSyncMode,
     pub frame_time_sync: bool,
     pub prescale_mode: PrescaleMode,
-    pub scanlines: Scanlines,
+    pub scanlines_enabled: bool,
+    pub scanlines_brightness: f64,
     pub force_integer_height_scaling: bool,
     pub filter_mode: FilterMode,
     pub supersample_minification: bool,

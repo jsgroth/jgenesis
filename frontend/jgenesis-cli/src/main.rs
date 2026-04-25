@@ -17,7 +17,7 @@ use jgenesis_native_driver::extensions::{Console, ConsoleWithSize};
 use jgenesis_native_driver::{NativeEmulator, NativeTickEffect};
 use jgenesis_proc_macros::{CustomValueEnum, EnumAll, EnumDisplay};
 use jgenesis_renderer::config::{
-    FilterMode, PreprocessShader, PrescaleFactor, Scanlines, VSyncMode, WgpuBackend,
+    FilterMode, PreprocessShader, PrescaleFactor, VSyncMode, WgpuBackend,
 };
 use nes_config::{NesAspectRatio, NesAudioResampler, NesPalette};
 use smsgg_config::{GgAspectRatio, SmsAspectRatio, SmsGgRegion, SmsModel, Sn76489Version};
@@ -513,9 +513,13 @@ struct Args {
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     prescale_height: Option<u32>,
 
-    /// Scanlines
+    /// Scanlines enabled
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
-    scanlines: Option<Scanlines>,
+    scanlines_enabled: Option<bool>,
+
+    /// Scanlines brightness level, from 0 to 1
+    #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
+    scanlines_brightness: Option<f64>,
 
     /// Force display area height to be an integer multiple of native console resolution
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
@@ -861,7 +865,8 @@ impl Args {
                 vsync_mode,
                 frame_time_sync,
                 auto_prescale,
-                scanlines,
+                scanlines_enabled,
+                scanlines_brightness,
                 force_integer_height_scaling,
                 filter_mode,
                 preprocess_shader,

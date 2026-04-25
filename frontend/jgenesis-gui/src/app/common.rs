@@ -6,7 +6,7 @@ use eframe::epaint::Color32;
 use egui::{Context, Slider, Ui, Window};
 use jgenesis_renderer::config::{
     AntiDitherShader, FilterMode, FrameRotation, NtscShaderConfig, PreprocessShader,
-    PrescaleFactor, Scanlines, VSyncMode, WgpuBackend, WgpuPowerPreference,
+    PrescaleFactor, VSyncMode, WgpuBackend, WgpuPowerPreference,
 };
 use std::num::{NonZeroU8, NonZeroU32};
 
@@ -331,11 +331,18 @@ impl App {
                 ui.label("Scanlines");
 
                 ui.horizontal(|ui| {
-                    ui.radio_value(&mut self.config.common.scanlines, Scanlines::None, "None");
-                    ui.radio_value(&mut self.config.common.scanlines, Scanlines::SlightDim, "75%");
-                    ui.radio_value(&mut self.config.common.scanlines, Scanlines::Dim, "50%");
-                    ui.radio_value(&mut self.config.common.scanlines, Scanlines::VeryDim, "25%");
-                    ui.radio_value(&mut self.config.common.scanlines, Scanlines::Black, "Black");
+                    ui.checkbox(&mut self.config.common.scanlines_enabled, "Enabled");
+
+                    ui.add_enabled_ui(self.config.common.scanlines_enabled, |ui| {
+                        ui.add(
+                            Slider::new(&mut self.config.common.scanlines_brightness, 0.0..=1.0)
+                                .text("Brightness")
+                                .step_by(0.1)
+                                .custom_formatter(|value, _| {
+                                    format!("{:.0}%", (value * 100.0).round())
+                                }),
+                        );
+                    });
                 });
             })
             .response
