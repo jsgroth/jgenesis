@@ -22,12 +22,27 @@ impl App {
                 self.render_integer_height_scaling_settings(ui, WINDOW);
                 self.render_wgpu_backend_setting(ui, WINDOW);
                 self.render_wgpu_power_preference_setting(ui, WINDOW);
+                self.render_frame_rotation_setting(ui, WINDOW);
+            });
+
+            self.render_help_text(ui, WINDOW);
+        });
+        if !open {
+            self.state.open_windows.remove(&WINDOW);
+        }
+    }
+
+    pub(super) fn render_video_filtering_settings(&mut self, ctx: &Context) {
+        const WINDOW: OpenWindow = OpenWindow::CommonFilter;
+
+        let mut open = true;
+        Window::new("Video Filtering Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            widgets::render_vertical_scroll_area(ui, |ui| {
                 self.render_preprocess_shader_setting(ui, WINDOW);
                 self.render_anti_dither_setting(ui, WINDOW);
                 self.render_scanlines_setting(ui, WINDOW);
                 self.render_prescaling_settings(ui, WINDOW);
                 self.render_filter_mode_setting(ui, WINDOW);
-                self.render_frame_rotation_setting(ui, WINDOW);
             });
 
             self.render_help_text(ui, WINDOW);
@@ -159,7 +174,7 @@ impl App {
     fn render_frame_rotation_setting(&mut self, ui: &mut Ui, window: OpenWindow) {
         let rect = ui
             .group(|ui| {
-                ui.label("Rotation");
+                ui.label("Frame rotation");
 
                 ui.horizontal(|ui| {
                     for (value, label) in [

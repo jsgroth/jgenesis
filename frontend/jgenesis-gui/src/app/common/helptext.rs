@@ -17,7 +17,7 @@ pub const WGPU_BACKEND: HelpText = HelpText {
     heading: "wgpu Backend",
     text: &[
         "Specify which graphics API wgpu will use.",
-        "Auto is generally Vulkan if supported but may use DirectX 12 on Windows.",
+        "Auto is generally DirectX 12 on Windows and Vulkan on other platforms.",
     ],
 };
 
@@ -38,7 +38,7 @@ pub const VSYNC_MODE: HelpText = HelpText {
 };
 
 pub const FILTER_MODE: HelpText = HelpText {
-    heading: "Filter Mode",
+    heading: "Image Filtering",
     text: &[
         "Configure texture filtering mode used when rendering frames to the display.",
         "Nearest neighbor is very sharp but may cause aliasing when using a non-integer resolution scale or non-square pixels.",
@@ -73,7 +73,7 @@ pub const ANTI_DITHER_SHADER: HelpText = HelpText {
 };
 
 pub const FRAME_ROTATION: HelpText = HelpText {
-    heading: "Rotation",
+    heading: "Frame Rotation",
     text: &[
         "Optionally rotate the entire image.",
         "Useful for handheld games or demos that are designed around rotating the console.",

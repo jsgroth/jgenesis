@@ -15,6 +15,7 @@ rustflags = [
 lto = true
 codegen-units = 1
 panic = "abort"
+opt-level = 's'
 
 [profile.dev]
 opt-level = 3

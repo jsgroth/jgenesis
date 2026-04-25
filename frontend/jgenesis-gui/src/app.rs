@@ -101,6 +101,7 @@ enum OpenWindow {
     Paths,
     Interface,
     CommonVideo,
+    CommonFilter,
     SmsGgVideo,
     GenesisVideo,
     NesVideo,
@@ -785,6 +786,11 @@ impl App {
                 ui.close_kind(UiKind::Menu);
             }
 
+            if ui.button("Filtering").clicked() {
+                self.state.open_windows.insert(OpenWindow::CommonFilter);
+                ui.close_kind(UiKind::Menu);
+            }
+
             ui.separator();
 
             for (label, window) in [
@@ -1068,6 +1074,7 @@ impl App {
                 OpenWindow::Paths => self.render_path_settings(ctx),
                 OpenWindow::Interface => self.render_interface_settings(ctx),
                 OpenWindow::CommonVideo => self.render_common_video_settings(ctx),
+                OpenWindow::CommonFilter => self.render_video_filtering_settings(ctx),
                 OpenWindow::SmsGgVideo => self.render_smsgg_video_settings(ctx),
                 OpenWindow::GenesisVideo => self.render_genesis_video_settings(ctx),
                 OpenWindow::NesVideo => self.render_nes_video_settings(ctx),
