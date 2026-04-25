@@ -1,31 +1,41 @@
-# Next
+# 0.12.0
 
 ## New Features
-* Added an NTSC composite video shader (in Video > General)
+* Added an NTSC composite video shader (in Video > Filtering)
   * For video filtering reasons, this only works with the emulated systems that directly support TV video output and use 1 of 2 supported video clock rates (Genesis, SMS, SG-1000, NES, SNES)
-  * For NES specifically, enabling this shader also makes the emulated NES PPU output an NTSC signal instead of RGB pixels, which is much more accurate to how actual hardware generates and outputs video
-* (**Genesis**) Added CPU debugging functionality within the Memory Viewer window. This includes:
-  * Disassembly views for each emulated CPU, including the Sega CD 68000 and 32X SH-2s when they are present
+  * For NES specifically, enabling this shader also makes the emulated NES PPU directly output an NTSC video signal instead of generating RGB pixels, which is much more accurate to how actual hardware generates video
+* Added some other video shader/filter options (#496)
+  * xBRZ image upscaling filter by Zenju, with 2x through 6x upscaling options
+  * MMPX pixel art magnification filter by Morgan McGuire & Mara Gagiu
+  * Added 75% brightness and 25% brightness options to the scanlines filter, in addition to the existing 50% and 0% options
+  * Added a new option to render using supersampling when the display window is significantly smaller than the frame size (either natively or because of shaders), which reduces aliasing in some cases
+  * The anti-dither heuristic filter is now a separate setting from the video shader, so you can enable it in combination with the xBRZ or MMPX upscaling filters
+* Added a new video option to rotate the frame in increments of 90°, meant for handheld games/demos that are designed around rotating the console (#169)
+* (**Genesis**) Lots of new debugging functionality within the Memory Viewer window:
+  * Disassembly views for each emulated CPU, including the Sega CD sub CPU and 32X SH-2s when they are present
   * Current register values for each emulated CPU
   * Read/write/execute breakpoints for specific memory addresses and for address ranges; emulator execution halts mid-instruction when a breakpoint is hit
   * Interactive step-by-instruction for each emulated CPU
-* (**Genesis**) Added register/state viewers for the YM2612 and SN76489 sound chips in the Memory Viewer window
-
-## Improvements
+  * Added register/state viewers for the YM2612 and SN76489 sound chips
+  * CRAM and 32X palette RAM viewers now show detailed information for colors by hovering over them, and you can click on a color to pin its state to a new side panel
 * (**Sega CD**) When running a multi-disc game, the GUI now attempts to auto-detect other discs and supports changing to any found disc in the Emulation > Change Disc menu
   * Note this is based purely on the filename containing "(Disc N)", and it will only search in the same directory as the loaded disc's CUE/CHD file
   * There is still a "Select file..." option if auto-detection fails to locate the other discs or if you want to change to a non-auto-detected disc
-* When the emulator's internal resolution is higher than the display window's resolution in either dimension (either natively or because of shaders) and the image filtering option is set to linear interpolation, rendering to display now uses 4x multisampling, which reduces visible aliasing
+
+## Improvements
+* Emulator backends can now see inputs updates at any time rather than only once per frame, which may slightly reduce input latency in some games depending on when they read inputs
+  * Note this behavior is heavily affected by sync settings; VSync enabled and frame time sync enabled both cause most inputs updates to occur near the start of the vertical blanking period (fairly similar to previous behavior)
 
 ## Fixes
-* (**Genesis**) Many invalid address reads now return open bus instead of a hardcoded 0xFFFF value; this fixes _Sonic 3D Blast: Director's Cut_ freezing when you enter a password that has the final stage unlocked (#630)
+* (**Genesis**) Many invalid memory address reads now return open bus instead of a hardcoded 0xFFFF value; this fixes _Sonic 3D Blast: Director's Cut_ freezing when you enter a password that has the final stage unlocked (#630)
 * (**Genesis** / **SMS** / **Game Gear**) More accurate emulation of how the Z80's R register is updated during/after each instruction (some games read the R register as a source of pseudo-randomness)
 * (**Sega CD**) Fixed _The Smurfs_ incorrectly being auto-detected as US/NTSC instead of EU/PAL (#624)
-* (**NES**) When the PPU is in greyscale mode, palette RAM reads through PPUDATA now always have the lowest 4 bits masked out (#551)
+* (**NES**) When the PPU is in greyscale mode, palette RAM reads through PPUDATA now always have the 4 hue bits masked out (#551)
 * (**GBA**) Fixed certain (officially) undefined ARM opcodes from crashing the emulator (#629)
+* On Windows, implemented a workaround for a color space bug that sometimes caused colors to be way too dark when using the Vulkan backend with an AMD GPU
 
 ## Removed Features
-* The OpenGL wgpu backend option has been removed. The OpenGL backend lacks features compared to the Vulkan/DX12/WebGPU backends, and this started to cause problems while implementing the NTSC shader, so I removed it as an option
+* The OpenGL wgpu backend option has been removed. The OpenGL backend lacks features compared to the Vulkan/DX12/WebGPU backends, and this started to cause problems while implementing the new shaders, so I removed it as an option
 
 # 0.11.4
 

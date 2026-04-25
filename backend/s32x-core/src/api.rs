@@ -383,6 +383,10 @@ impl EmulatorTrait for Sega32XEmulator {
         *self = Self::create(rom, self.config, save_writer);
     }
 
+    fn save_state_version() -> &'static str {
+        "0.12.0-0"
+    }
+
     fn target_fps(&self) -> f64 {
         genesis_core::target_framerate(&self.vdp, self.timing_mode)
     }
