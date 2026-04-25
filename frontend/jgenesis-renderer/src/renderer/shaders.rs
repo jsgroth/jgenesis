@@ -352,7 +352,10 @@ impl BlurShader {
         fragment_entry_point: &str,
         width_scale_factor: u32,
     ) -> Self {
-        let input_texture_view = input_texture.create_view(&SRGB_TEX_VIEW_DESCRIPTOR);
+        let input_texture_view = input_texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(wgpu::TextureFormat::Rgba8Unorm),
+            ..wgpu::TextureViewDescriptor::default()
+        });
 
         let output_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: "preprocess_output_texture".into(),
@@ -400,7 +403,7 @@ impl BlurShader {
                 entry_point: Some(fragment_entry_point),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                    format: wgpu::TextureFormat::Rgba8Unorm,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -440,7 +443,7 @@ impl PipelineShader for BlurShader {
         let mut render_pass = basic_render_pass(
             encoder,
             &self.output,
-            wgpu::TextureFormat::Rgba8UnormSrgb,
+            wgpu::TextureFormat::Rgba8Unorm,
             "preprocess_render_pass",
         );
 

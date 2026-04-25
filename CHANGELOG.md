@@ -25,6 +25,8 @@
 ## Improvements
 * Emulator backends can now see inputs updates at any time rather than only once per frame, which may slightly reduce input latency in some games depending on when they read inputs
   * Note this behavior is heavily affected by sync settings; VSync enabled and frame time sync enabled both cause most inputs updates to occur near the start of the vertical blanking period (fairly similar to previous behavior)
+* Horizontal blur shaders now blend colors in sRGB color space instead of linear color space
+  * This is very wrong from an ideal image processing perspective, but it produces colors much closer to what show up on a TV over contemporary video cables (e.g. RF or composite)
 
 ## Fixes
 * (**Genesis**) Many invalid memory address reads now return open bus instead of a hardcoded 0xFFFF value; this fixes _Sonic 3D Blast: Director's Cut_ freezing when you enter a password that has the final stage unlocked (#630)
