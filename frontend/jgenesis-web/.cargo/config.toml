@@ -15,9 +15,9 @@ rustflags = [
 lto = true
 codegen-units = 1
 panic = "abort"
-opt-level = 's'
 
 [profile.dev]
 opt-level = 3
+lto = "thin"
 # Debug assertions cause wasm-bindgen-cli to fail with unknown instruction errors for some reason
 debug-assertions = false
