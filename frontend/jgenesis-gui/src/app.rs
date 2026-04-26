@@ -283,7 +283,7 @@ pub struct App {
     emu_thread: EmuThreadHandle,
     rom_list_thread: RomListThreadHandle,
     load_at_startup: Option<LoadAtStartup>,
-    initialized: bool,
+    initial_focused: bool,
 }
 
 fn load_app_config(config_path: &Path) -> AppConfig {
@@ -326,7 +326,7 @@ impl App {
             emu_thread,
             rom_list_thread,
             load_at_startup,
-            initialized: false,
+            initial_focused: false,
         }
     }
 
@@ -1335,26 +1335,27 @@ impl eframe::App for App {
             return;
         }
 
-        if !self.initialized && self.state.rendered_first_frame {
-            ctx.send_viewport_cmd(ViewportCommand::Focus);
-            self.initialized = ctx.input(|input| input.raw.focused);
-        }
-
         if self.state.rom_list_refresh_needed && !self.rom_list_thread.any_scans_in_progress() {
             self.state.rom_list_refresh_needed = false;
             self.refresh_filtered_rom_list();
         }
 
-        if self.state.rendered_first_frame
-            && let Some(load_at_startup) = self.load_at_startup.take()
-        {
-            self.launch_emulator(load_at_startup.file_path, None);
+        if self.state.rendered_first_frame {
+            if let Some(load_at_startup) = self.load_at_startup.take() {
+                self.launch_emulator(load_at_startup.file_path, None);
 
-            if let Some(load_state_slot) = load_at_startup.load_state_slot {
-                self.emu_thread.send(EmuThreadCommand::LoadState { slot: load_state_slot });
+                if let Some(load_state_slot) = load_at_startup.load_state_slot {
+                    self.emu_thread.send(EmuThreadCommand::LoadState { slot: load_state_slot });
+                }
+
+                self.state.close_on_emulator_exit = true;
             }
 
-            self.state.close_on_emulator_exit = true;
+            // Don't auto-focus the GUI window if -f/--file-path arg was set
+            if !self.initial_focused && !self.state.close_on_emulator_exit {
+                ctx.send_viewport_cmd(ViewportCommand::Focus);
+                self.initial_focused = ctx.input(|input| input.raw.focused);
+            }
         }
 
         let gui_focused = ctx.input(|input| input.raw.focused);
