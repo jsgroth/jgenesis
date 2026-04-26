@@ -102,32 +102,46 @@ impl Cartridge {
     }
 
     fn get_prg_ram(&self, address: u32) -> u8 {
-        if !self.prg_ram.is_empty() {
-            self.prg_ram[(address as usize) & (self.prg_ram.len() - 1)]
-        } else {
-            0xFF
+        if self.prg_ram.is_empty() {
+            return 0xFF;
         }
+
+        self.prg_ram[(address as usize) & (self.prg_ram.len() - 1)]
     }
 
     fn set_prg_ram(&mut self, address: u32, value: u8) {
-        if !self.prg_ram.is_empty() {
-            let prg_ram_len = self.prg_ram.len();
-            self.prg_ram[(address as usize) & (prg_ram_len - 1)] = value;
-            if self.has_ram_battery {
-                self.prg_ram_dirty_bit = true;
-            }
+        if self.prg_ram.is_empty() {
+            return;
+        }
+
+        let prg_ram_len = self.prg_ram.len();
+        self.prg_ram[(address as usize) & (prg_ram_len - 1)] = value;
+        if self.has_ram_battery {
+            self.prg_ram_dirty_bit = true;
         }
     }
 
     fn get_chr_rom(&self, address: u32) -> u8 {
+        if self.chr_rom.is_empty() {
+            return 0xFF;
+        }
+
         self.chr_rom[(address as usize) & (self.chr_rom.len() - 1)]
     }
 
     fn get_chr_ram(&self, address: u32) -> u8 {
+        if self.chr_ram.is_empty() {
+            return 0xFF;
+        }
+
         self.chr_ram[(address as usize) & (self.chr_ram.len() - 1)]
     }
 
     fn set_chr_ram(&mut self, address: u32, value: u8) {
+        if self.chr_ram.is_empty() {
+            return;
+        }
+
         let chr_ram_len = self.chr_ram.len();
         self.chr_ram[(address as usize) & (chr_ram_len - 1)] = value;
     }

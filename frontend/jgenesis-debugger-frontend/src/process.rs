@@ -132,14 +132,37 @@ where
     }
 }
 
+pub struct CloneRunnerProcess<Emulator> {
+    emulator_sender: SharedVarSender<Emulator>,
+}
+
+impl<Emulator, R, A, I, S> DebuggerRunnerProcess<Emulator, R, A, I, S>
+    for CloneRunnerProcess<Emulator>
+where
+    Emulator: EmulatorTrait + Clone + Send + Sync + 'static,
+    R: Renderer,
+    A: AudioOutput,
+    I: InputPoller<Emulator::Inputs>,
+    S: SaveWriter,
+{
+    fn run(
+        &mut self,
+        emulator: &mut Emulator,
+    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+        self.emulator_sender.update(emulator.clone());
+
+        Ok(())
+    }
+}
+
 pub type DebugRenderFn<Emulator> = dyn FnMut(DebugRenderContext<'_>, &mut Emulator);
 
-pub struct PartialCloneMainProcess<Emulator> {
+pub struct CloneMainProcess<Emulator> {
     emulator_receiver: SharedVarReceiver<Emulator>,
     render_fn: Box<DebugRenderFn<Emulator>>,
 }
 
-impl<Emulator: Send + Sync + 'static> DebuggerMainProcess for PartialCloneMainProcess<Emulator> {
+impl<Emulator: Send + Sync + 'static> DebuggerMainProcess for CloneMainProcess<Emulator> {
     fn run(
         &mut self,
         ctx: DebugRenderContext<'_>,
@@ -171,7 +194,31 @@ where
     let (emulator_sender, emulator_receiver) = jgenesis_common::sync::new_shared_var();
 
     let runner_process = PartialCloneRunnerProcess { emulator_sender };
-    let main_process = PartialCloneMainProcess { emulator_receiver, render_fn };
+    let main_process = CloneMainProcess { emulator_receiver, render_fn };
+
+    (Box::new(runner_process), Box::new(main_process))
+}
+
+/// Similar to [`partial_clone_debug_fn`] but invokes [`Clone::clone`] instead of
+/// [`jgenesis_common::frontend::PartialClone::partial_clone`].
+///
+/// Useful when the debug view needs information that is not included in a partial clone, e.g.
+/// cartridge ROM.
+#[must_use]
+pub fn clone_debug_fn<Emulator, R, A, I, S>(
+    render_fn: Box<DebugRenderFn<Emulator>>,
+) -> DebuggerProcesses<Emulator, R, A, I, S>
+where
+    Emulator: EmulatorTrait + Clone + Send + Sync + 'static,
+    R: Renderer,
+    A: AudioOutput,
+    I: InputPoller<Emulator::Inputs>,
+    S: SaveWriter,
+{
+    let (emulator_sender, emulator_receiver) = jgenesis_common::sync::new_shared_var();
+
+    let runner_process = CloneRunnerProcess { emulator_sender };
+    let main_process = CloneMainProcess { emulator_receiver, render_fn };
 
     (Box::new(runner_process), Box::new(main_process))
 }

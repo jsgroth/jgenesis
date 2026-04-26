@@ -29,8 +29,8 @@ use std::{array, iter};
 use thiserror::Error;
 
 pub use process::{
-    DebugFn, DebugRenderFn, DebuggerMainProcess, DebuggerRunnerProcess, null_debug_fn,
-    partial_clone_debug_fn,
+    DebugFn, DebugRenderFn, DebuggerMainProcess, DebuggerRunnerProcess, clone_debug_fn,
+    null_debug_fn, partial_clone_debug_fn,
 };
 
 #[derive(Debug, Error)]
