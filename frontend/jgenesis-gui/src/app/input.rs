@@ -567,7 +567,7 @@ fn access_hotkey(
 impl App {
     pub(super) fn render_general_input_settings(&mut self, ctx: &Context) {
         let mut open = true;
-        Window::new("General Input Settings").open(&mut open).show(ctx, |ui| {
+        Window::new(OpenWindow::GeneralInput.title()).open(&mut open).show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Gamepad joystick axis deadzone:");
                 ui.add(Slider::new(&mut self.config.input.axis_deadzone, 0..=i16::MAX));
@@ -599,7 +599,7 @@ impl App {
         });
 
         let mut open = true;
-        Window::new("SMS/GG Input Settings").open(&mut open).show(ctx, |ui| {
+        Window::new(OpenWindow::SmsGgInput.title()).open(&mut open).show(ctx, |ui| {
             self.disable_if_waiting_for_input(ui);
 
             let mapping = self.render_mapping_set_selector(OpenWindow::SmsGgInput, ui);
@@ -676,7 +676,7 @@ impl App {
         });
 
         let mut open = true;
-        Window::new("Genesis Input Settings").open(&mut open).show(ctx, |ui| {
+        Window::new(OpenWindow::GenesisInput.title()).open(&mut open).show(ctx, |ui| {
             self.disable_if_waiting_for_input(ui);
 
             let mapping = self.render_mapping_set_selector(OpenWindow::GenesisInput, ui);
@@ -777,7 +777,7 @@ impl App {
         });
 
         let mut open = true;
-        Window::new("NES Input Settings").open(&mut open).show(ctx, |ui| {
+        Window::new(OpenWindow::NesInput.title()).open(&mut open).show(ctx, |ui| {
             self.disable_if_waiting_for_input(ui);
 
             let mapping = self.render_mapping_set_selector(OpenWindow::NesInput, ui);
@@ -839,7 +839,7 @@ impl App {
         });
 
         let mut open = true;
-        Window::new("NES Peripheral Settings").open(&mut open).show(ctx, |ui| {
+        Window::new(OpenWindow::NesPeripherals.title()).open(&mut open).show(ctx, |ui| {
             self.disable_if_waiting_for_input(ui);
 
             ui.group(|ui| {
@@ -912,7 +912,7 @@ impl App {
         });
 
         let mut open = true;
-        Window::new("SNES Input Settings").open(&mut open).show(ctx, |ui| {
+        Window::new(OpenWindow::SnesInput.title()).open(&mut open).show(ctx, |ui| {
             self.disable_if_waiting_for_input(ui);
 
             let mapping = self.render_mapping_set_selector(OpenWindow::SnesInput, ui);
@@ -974,7 +974,7 @@ impl App {
         });
 
         let mut open = true;
-        Window::new("SNES Peripheral Settings").open(&mut open).show(ctx, |ui| {
+        Window::new(OpenWindow::SnesPeripherals.title()).open(&mut open).show(ctx, |ui| {
             self.disable_if_waiting_for_input(ui);
 
             ui.group(|ui| {
@@ -1027,7 +1027,7 @@ impl App {
             LazyLock::new(|| GameBoyButton::ALL.into_iter().map(GenericButton::GameBoy).collect());
 
         let mut open = true;
-        Window::new("Game Boy Input Settings").open(&mut open).show(ctx, |ui| {
+        Window::new(OpenWindow::GameBoyInput.title()).open(&mut open).show(ctx, |ui| {
             self.disable_if_waiting_for_input(ui);
 
             let mapping = self.render_mapping_set_selector(OpenWindow::GameBoyInput, ui);
@@ -1077,7 +1077,7 @@ impl App {
         });
 
         let mut open = true;
-        Window::new("GBA Input Settings").open(&mut open).show(ctx, |ui| {
+        Window::new(OpenWindow::GbaInput.title()).open(&mut open).show(ctx, |ui| {
             self.disable_if_waiting_for_input(ui);
 
             let mapping = self.render_mapping_set_selector(OpenWindow::GbaInput, ui);
@@ -1129,7 +1129,7 @@ impl App {
         });
 
         let mut open = true;
-        Window::new("GBA Peripheral Settings").open(&mut open).show(ctx, |ui| {
+        Window::new(OpenWindow::GbaPeripherals.title()).open(&mut open).show(ctx, |ui| {
             self.disable_if_waiting_for_input(ui);
 
             let mapping = self.render_mapping_set_selector(WINDOW, ui);
@@ -1209,7 +1209,7 @@ impl App {
             LazyLock::new(|| hotkey_vec(HotkeyCategory::SaveState));
 
         let mut open = true;
-        Window::new("Hotkey Settings").open(&mut open).show(ctx, |ui| {
+        Window::new(OpenWindow::Hotkeys.title()).open(&mut open).show(ctx, |ui| {
             self.disable_if_waiting_for_input(ui);
 
             let mapping = self.render_mapping_set_selector(OpenWindow::Hotkeys, ui);

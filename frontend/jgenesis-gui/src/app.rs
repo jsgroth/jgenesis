@@ -21,8 +21,9 @@ use crate::widgets::SavePathSelect;
 use eframe::Frame;
 use egui::panel::TopBottomSide;
 use egui::{
-    Align, Button, CentralPanel, Color32, Context, Grid, Key, KeyboardShortcut, Layout, Modifiers,
-    TextEdit, ThemePreference, TopBottomPanel, Ui, UiKind, Vec2, ViewportCommand, Widget, Window,
+    Align, Button, CentralPanel, Color32, Context, Grid, Key, KeyboardShortcut, LayerId, Layout,
+    Modifiers, Order, TextEdit, ThemePreference, TopBottomPanel, Ui, UiKind, Vec2, ViewportCommand,
+    Widget, Window,
 };
 use egui_extras::{Column, TableBuilder};
 use emath::Pos2;
@@ -132,6 +133,52 @@ enum OpenWindow {
     About,
 }
 
+impl OpenWindow {
+    fn title(self) -> &'static str {
+        match self {
+            OpenWindow::SmsGgGeneral => "SMS/GG General Settings",
+            OpenWindow::GenesisGeneral => "Genesis General Settings",
+            OpenWindow::NesGeneral => "NES General Settings",
+            OpenWindow::SnesGeneral => "SNES General Settings",
+            OpenWindow::GameBoyGeneral => "Game Boy General Settings",
+            OpenWindow::GbaGeneral => "GBA General Settings",
+            OpenWindow::Synchronization => "Synchronization Settings",
+            OpenWindow::Paths => "Path Settings",
+            OpenWindow::Interface => "Interface Settings",
+            OpenWindow::CommonVideo => "General Video Settings",
+            OpenWindow::CommonFilter => "Video Filtering Settings",
+            OpenWindow::SmsGgVideo => "SMS/GG Video Settings",
+            OpenWindow::GenesisVideo => "Genesis Video Settings",
+            OpenWindow::NesVideo => "NES Video Settings",
+            OpenWindow::SnesVideo => "SNES Video Settings",
+            OpenWindow::GameBoyVideo => "Game Boy Video Settings",
+            OpenWindow::GbaVideo => "GBA Video Settings",
+            OpenWindow::CommonAudio => "General Audio Settings",
+            OpenWindow::SmsGgAudio => "SMS/GG Audio Settings",
+            OpenWindow::GenesisAudio => "Genesis Audio Settings",
+            OpenWindow::NesAudio => "NES Audio Settings",
+            OpenWindow::SnesAudio => "SNES Audio Settings",
+            OpenWindow::GameBoyAudio => "Game Boy Audio Settings",
+            OpenWindow::GbaAudio => "GBA Audio Settings",
+            OpenWindow::GeneralInput => "General Input Settings",
+            OpenWindow::SmsGgInput => "SMS/GG Input Settings",
+            OpenWindow::GenesisInput => "Genesis Input Settings",
+            OpenWindow::NesInput => "NES Input Settings",
+            OpenWindow::NesPeripherals => "NES Peripheral Settings",
+            OpenWindow::SnesInput => "SNES Input Settings",
+            OpenWindow::SnesPeripherals => "SNES Peripheral Settings",
+            OpenWindow::GameBoyInput => "Game Boy Input Settings",
+            OpenWindow::GbaInput => "GBA Input Settings",
+            OpenWindow::GbaPeripherals => "GBA Peripheral Settings",
+            OpenWindow::Hotkeys => "Hotkey Settings",
+            OpenWindow::SmsGgOverclock => "SMS/GG Overclocking Settings",
+            OpenWindow::GenesisOverclock => "Genesis Overclocking Settings",
+            OpenWindow::SnesOverclock => "SNES Overclocking Settings",
+            OpenWindow::About => "About",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct HelpText {
     heading: &'static str,
@@ -215,6 +262,11 @@ impl AppState {
             rendered_first_frame: false,
             close_on_emulator_exit: false,
         }
+    }
+
+    fn open_window(&mut self, ctx: &Context, window: OpenWindow) {
+        self.open_windows.insert(window);
+        ctx.move_to_top(LayerId::new(Order::Middle, window.title().into()));
     }
 }
 
@@ -358,7 +410,7 @@ impl App {
 
     fn render_path_settings(&mut self, ctx: &Context) {
         let mut open = true;
-        Window::new("Path Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+        Window::new(OpenWindow::Paths.title()).open(&mut open).resizable(false).show(ctx, |ui| {
             ui.add(SavePathSelect::new(
                 "Game save file path",
                 &mut self.config.common.save_path,
@@ -406,60 +458,66 @@ impl App {
 
     fn render_interface_settings(&mut self, ctx: &Context) {
         let mut open = true;
-        Window::new("UI Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.group(|ui| {
-                ui.label("Pause emulator automatically");
+        Window::new(OpenWindow::Interface.title()).open(&mut open).resizable(false).show(
+            ctx,
+            |ui| {
+                ui.group(|ui| {
+                    ui.label("Pause emulator automatically");
 
-                for (option, label) in [
-                    (PauseEmulator::Never, "Never"),
-                    (PauseEmulator::EmulatorLosesFocus, "When emulator window is in background"),
-                    (
-                        PauseEmulator::ApplicationLosesFocus,
-                        "When entire application is in background",
-                    ),
-                ] {
-                    ui.radio_value(&mut self.config.common.pause_emulator, option, label);
-                }
-            });
-
-            ui.add_space(5.0);
-
-            ui.group(|ui| {
-                ui.label("Hide mouse cursor over emulator window");
-
-                ui.radio_value(
-                    &mut self.config.common.hide_mouse_cursor,
-                    HideMouseCursor::Fullscreen,
-                    "Only when fullscreen",
-                );
-                ui.radio_value(
-                    &mut self.config.common.hide_mouse_cursor,
-                    HideMouseCursor::Always,
-                    "Always",
-                );
-                ui.radio_value(
-                    &mut self.config.common.hide_mouse_cursor,
-                    HideMouseCursor::Never,
-                    "Never",
-                );
-            });
-
-            ui.add_space(5.0);
-
-            ui.group(|ui| {
-                ui.label("UI theme");
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.config.egui_theme,
-                        EguiTheme::SystemDefault,
-                        "System default",
-                    );
-                    ui.radio_value(&mut self.config.egui_theme, EguiTheme::Dark, "Dark");
-                    ui.radio_value(&mut self.config.egui_theme, EguiTheme::Light, "Light");
+                    for (option, label) in [
+                        (PauseEmulator::Never, "Never"),
+                        (
+                            PauseEmulator::EmulatorLosesFocus,
+                            "When emulator window is in background",
+                        ),
+                        (
+                            PauseEmulator::ApplicationLosesFocus,
+                            "When entire application is in background",
+                        ),
+                    ] {
+                        ui.radio_value(&mut self.config.common.pause_emulator, option, label);
+                    }
                 });
-            });
-        });
+
+                ui.add_space(5.0);
+
+                ui.group(|ui| {
+                    ui.label("Hide mouse cursor over emulator window");
+
+                    ui.radio_value(
+                        &mut self.config.common.hide_mouse_cursor,
+                        HideMouseCursor::Fullscreen,
+                        "Only when fullscreen",
+                    );
+                    ui.radio_value(
+                        &mut self.config.common.hide_mouse_cursor,
+                        HideMouseCursor::Always,
+                        "Always",
+                    );
+                    ui.radio_value(
+                        &mut self.config.common.hide_mouse_cursor,
+                        HideMouseCursor::Never,
+                        "Never",
+                    );
+                });
+
+                ui.add_space(5.0);
+
+                ui.group(|ui| {
+                    ui.label("UI theme");
+
+                    ui.horizontal(|ui| {
+                        ui.radio_value(
+                            &mut self.config.egui_theme,
+                            EguiTheme::SystemDefault,
+                            "System default",
+                        );
+                        ui.radio_value(&mut self.config.egui_theme, EguiTheme::Dark, "Dark");
+                        ui.radio_value(&mut self.config.egui_theme, EguiTheme::Light, "Light");
+                    });
+                });
+            },
+        );
         if !open {
             self.state.open_windows.remove(&OpenWindow::Interface);
         }
@@ -467,7 +525,7 @@ impl App {
 
     fn render_about(&mut self, ctx: &Context) {
         let mut open = true;
-        Window::new("About").open(&mut open).resizable(false).show(ctx, |ui| {
+        Window::new(OpenWindow::About.title()).open(&mut open).resizable(false).show(ctx, |ui| {
             ui.heading("jgenesis");
 
             ui.add_space(10.0);
@@ -755,7 +813,7 @@ impl App {
                 ("Game Boy Advance", OpenWindow::GbaGeneral),
             ] {
                 if ui.button(label).clicked() {
-                    self.state.open_windows.insert(window);
+                    self.state.open_window(ui.ctx(), window);
                     ui.close_kind(UiKind::Menu);
                 }
             }
@@ -763,17 +821,17 @@ impl App {
             ui.separator();
 
             if ui.button("Synchronization").clicked() {
-                self.state.open_windows.insert(OpenWindow::Synchronization);
+                self.state.open_window(ui.ctx(), OpenWindow::Synchronization);
                 ui.close_kind(UiKind::Menu);
             }
 
             if ui.button("Paths").clicked() {
-                self.state.open_windows.insert(OpenWindow::Paths);
+                self.state.open_window(ui.ctx(), OpenWindow::Paths);
                 ui.close_kind(UiKind::Menu);
             }
 
             if ui.button("Interface").clicked() {
-                self.state.open_windows.insert(OpenWindow::Interface);
+                self.state.open_window(ui.ctx(), OpenWindow::Interface);
                 ui.close_kind(UiKind::Menu);
             }
         });
@@ -782,12 +840,12 @@ impl App {
     fn render_video_menu(&mut self, ui: &mut Ui) {
         ui.menu_button("Video", |ui| {
             if ui.button("General").clicked() {
-                self.state.open_windows.insert(OpenWindow::CommonVideo);
+                self.state.open_window(ui.ctx(), OpenWindow::CommonVideo);
                 ui.close_kind(UiKind::Menu);
             }
 
             if ui.button("Filtering").clicked() {
-                self.state.open_windows.insert(OpenWindow::CommonFilter);
+                self.state.open_window(ui.ctx(), OpenWindow::CommonFilter);
                 ui.close_kind(UiKind::Menu);
             }
 
@@ -802,7 +860,7 @@ impl App {
                 ("Game Boy Advance", OpenWindow::GbaVideo),
             ] {
                 if ui.button(label).clicked() {
-                    self.state.open_windows.insert(window);
+                    self.state.open_window(ui.ctx(), window);
                     ui.close_kind(UiKind::Menu);
                 }
             }
@@ -812,7 +870,7 @@ impl App {
     fn render_audio_menu(&mut self, ui: &mut Ui) {
         ui.menu_button("Audio", |ui| {
             if ui.button("General").clicked() {
-                self.state.open_windows.insert(OpenWindow::CommonAudio);
+                self.state.open_window(ui.ctx(), OpenWindow::CommonAudio);
                 ui.close_kind(UiKind::Menu);
             }
 
@@ -827,7 +885,7 @@ impl App {
                 ("Game Boy Advance", OpenWindow::GbaAudio),
             ] {
                 if ui.button(label).clicked() {
-                    self.state.open_windows.insert(window);
+                    self.state.open_window(ui.ctx(), window);
                     ui.close_kind(UiKind::Menu);
                 }
             }
@@ -837,59 +895,59 @@ impl App {
     fn render_input_menu(&mut self, ui: &mut Ui) {
         ui.menu_button("Input", |ui| {
             if ui.button("General").clicked() {
-                self.state.open_windows.insert(OpenWindow::GeneralInput);
+                self.state.open_window(ui.ctx(), OpenWindow::GeneralInput);
                 ui.close_kind(UiKind::Menu);
             }
 
             ui.separator();
 
             if ui.button("SMS / Game Gear / SG").clicked() {
-                self.state.open_windows.insert(OpenWindow::SmsGgInput);
+                self.state.open_window(ui.ctx(), OpenWindow::SmsGgInput);
                 ui.close_kind(UiKind::Menu);
             }
 
             if ui.button("Genesis / Sega CD / 32X").clicked() {
-                self.state.open_windows.insert(OpenWindow::GenesisInput);
+                self.state.open_window(ui.ctx(), OpenWindow::GenesisInput);
                 ui.close_kind(UiKind::Menu);
             }
 
             ui.menu_button("NES", |ui| {
                 if ui.button("Gamepads").clicked() {
-                    self.state.open_windows.insert(OpenWindow::NesInput);
+                    self.state.open_window(ui.ctx(), OpenWindow::NesInput);
                     ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("Peripherals").clicked() {
-                    self.state.open_windows.insert(OpenWindow::NesPeripherals);
+                    self.state.open_window(ui.ctx(), OpenWindow::NesPeripherals);
                     ui.close_kind(UiKind::Menu);
                 }
             });
 
             ui.menu_button("SNES", |ui| {
                 if ui.button("Gamepads").clicked() {
-                    self.state.open_windows.insert(OpenWindow::SnesInput);
+                    self.state.open_window(ui.ctx(), OpenWindow::SnesInput);
                     ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("Peripherals").clicked() {
-                    self.state.open_windows.insert(OpenWindow::SnesPeripherals);
+                    self.state.open_window(ui.ctx(), OpenWindow::SnesPeripherals);
                     ui.close_kind(UiKind::Menu);
                 }
             });
 
             if ui.button("Game Boy").clicked() {
-                self.state.open_windows.insert(OpenWindow::GameBoyInput);
+                self.state.open_window(ui.ctx(), OpenWindow::GameBoyInput);
                 ui.close_kind(UiKind::Menu);
             }
 
             ui.menu_button("Game Boy Advance", |ui| {
                 if ui.button("Gamepad").clicked() {
-                    self.state.open_windows.insert(OpenWindow::GbaInput);
+                    self.state.open_window(ui.ctx(), OpenWindow::GbaInput);
                     ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("Peripherals").clicked() {
-                    self.state.open_windows.insert(OpenWindow::GbaPeripherals);
+                    self.state.open_window(ui.ctx(), OpenWindow::GbaPeripherals);
                     ui.close_kind(UiKind::Menu);
                 }
             });
@@ -897,7 +955,7 @@ impl App {
             ui.separator();
 
             if ui.button("Hotkeys").clicked() {
-                self.state.open_windows.insert(OpenWindow::Hotkeys);
+                self.state.open_window(ui.ctx(), OpenWindow::Hotkeys);
                 ui.close_kind(UiKind::Menu);
             }
         });
@@ -911,7 +969,7 @@ impl App {
                 ("SNES", OpenWindow::SnesOverclock),
             ] {
                 if ui.button(label).clicked() {
-                    self.state.open_windows.insert(window);
+                    self.state.open_window(ui.ctx(), window);
                     ui.close_kind(UiKind::Menu);
                 }
             }
@@ -921,7 +979,7 @@ impl App {
     fn render_help_menu(&mut self, ui: &mut Ui) {
         ui.menu_button("Help", |ui| {
             if ui.button("About").clicked() {
-                self.state.open_windows.insert(OpenWindow::About);
+                self.state.open_window(ui.ctx(), OpenWindow::About);
                 ui.close_kind(UiKind::Menu);
             }
         });
@@ -1201,7 +1259,7 @@ impl App {
                 }
             } else if self.emu_thread.status().is_running() {
                 Window::new("Input Configuration").resizable(false).show(ctx, |ui| {
-                    ui.colored_label(Color32::BLUE, "Use the emulator window to configure input");
+                    ui.colored_label(Color32::GREEN, "Use the emulator window to configure input");
                 });
             }
         }

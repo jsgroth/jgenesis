@@ -16,7 +16,7 @@ impl App {
         const WINDOW: OpenWindow = OpenWindow::SmsGgGeneral;
 
         let mut open = true;
-        Window::new("SMS/GG General Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+        Window::new(WINDOW.title()).open(&mut open).resizable(false).show(ctx, |ui| {
             let rect = ui
                 .group(|ui| {
                     ui.label("Master System timing / display mode");
@@ -136,7 +136,7 @@ impl App {
         const WINDOW: OpenWindow = OpenWindow::SmsGgVideo;
 
         let mut open = true;
-        Window::new("SMS/GG Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+        Window::new(WINDOW.title()).open(&mut open).resizable(false).show(ctx, |ui| {
             let rect = ui
                 .group(|ui| {
                     ui.label("Master System / SG-1000 aspect ratio");
@@ -263,7 +263,7 @@ impl App {
         const WINDOW: OpenWindow = OpenWindow::SmsGgAudio;
 
         let mut open = true;
-        Window::new("SMS/GG Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+        Window::new(WINDOW.title()).open(&mut open).resizable(false).show(ctx, |ui| {
             let rect = ui
                 .group(|ui| {
                     ui.label("PSG version");
@@ -323,22 +323,19 @@ impl App {
         const WINDOW: OpenWindow = OpenWindow::SmsGgOverclock;
 
         let mut open = true;
-        Window::new("SMS/GG Overclocking Settings").open(&mut open).resizable(false).show(
-            ctx,
-            |ui| {
-                ui.add(OverclockSlider {
-                    label: "Z80 clock divider",
-                    current_value: &mut self.config.smsgg.z80_divider,
-                    range: NonZeroU32::new(1).unwrap()..=NonZeroU32::new(15).unwrap(),
-                    master_clock: smsgg_core::audio::NTSC_MCLK_FREQUENCY,
-                    default_divider: smsgg_core::NATIVE_Z80_DIVIDER.into(),
-                    modifier: ClockModifier::Divider,
-                });
+        Window::new(WINDOW.title()).open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.add(OverclockSlider {
+                label: "Z80 clock divider",
+                current_value: &mut self.config.smsgg.z80_divider,
+                range: NonZeroU32::new(1).unwrap()..=NonZeroU32::new(15).unwrap(),
+                master_clock: smsgg_core::audio::NTSC_MCLK_FREQUENCY,
+                default_divider: smsgg_core::NATIVE_Z80_DIVIDER.into(),
+                modifier: ClockModifier::Divider,
+            });
 
-                self.state.help_text.insert(WINDOW, helptext::Z80_OVERCLOCK);
-                self.render_help_text(ui, WINDOW);
-            },
-        );
+            self.state.help_text.insert(WINDOW, helptext::Z80_OVERCLOCK);
+            self.render_help_text(ui, WINDOW);
+        });
         if !open {
             self.state.open_windows.remove(&WINDOW);
         }

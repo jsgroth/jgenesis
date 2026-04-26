@@ -15,7 +15,7 @@ impl App {
         const WINDOW: OpenWindow = OpenWindow::CommonVideo;
 
         let mut open = true;
-        Window::new("General Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+        Window::new(WINDOW.title()).open(&mut open).resizable(false).show(ctx, |ui| {
             widgets::render_vertical_scroll_area(ui, |ui| {
                 self.render_fullscreen_settings(ui, WINDOW);
                 self.render_window_size_setting(ui, WINDOW);
@@ -36,7 +36,7 @@ impl App {
         const WINDOW: OpenWindow = OpenWindow::CommonFilter;
 
         let mut open = true;
-        Window::new("Video Filtering Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+        Window::new(WINDOW.title()).open(&mut open).resizable(false).show(ctx, |ui| {
             widgets::render_vertical_scroll_area(ui, |ui| {
                 self.render_preprocess_shader_setting(ui, WINDOW);
                 self.render_anti_dither_setting(ui, WINDOW);
@@ -406,7 +406,7 @@ impl App {
         const TEXT_EDIT_WIDTH: f32 = 50.0;
 
         let mut open = true;
-        Window::new("General Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+        Window::new(WINDOW.title()).open(&mut open).resizable(false).show(ctx, |ui| {
             let rect = ui.checkbox(&mut self.config.common.mute_audio, "Mute audio").interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::MUTE_AUDIO);
@@ -475,7 +475,7 @@ impl App {
         const MIN_AUDIO_SYNC_THRESHOLD: u32 = 8;
 
         let mut open = true;
-        Window::new("Synchronization Settings").open(&mut open).show(ctx, |ui| {
+        Window::new(WINDOW.title()).open(&mut open).show(ctx, |ui| {
             let rect = ui
                 .group(|ui| {
                     ui.label("VSync mode");

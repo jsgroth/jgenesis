@@ -15,11 +15,9 @@ impl App {
         const WINDOW: OpenWindow = OpenWindow::GameBoyGeneral;
 
         let mut open = true;
-        Window::new("Game Boy General Settings")
-            .default_width(400.0)
-            .open(&mut open)
-            .resizable(false)
-            .show(ctx, |ui| {
+        Window::new(WINDOW.title()).default_width(400.0).open(&mut open).resizable(false).show(
+            ctx,
+            |ui| {
                 let rect = ui
                     .checkbox(
                         &mut self.config.game_boy.pretend_to_be_gba,
@@ -107,7 +105,8 @@ impl App {
                 });
 
                 self.render_help_text(ui, WINDOW);
-            });
+            },
+        );
         if !open {
             self.state.open_windows.remove(&WINDOW);
         }
@@ -117,7 +116,7 @@ impl App {
         const WINDOW: OpenWindow = OpenWindow::GameBoyVideo;
 
         let mut open = true;
-        Window::new("Game Boy Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+        Window::new(WINDOW.title()).open(&mut open).resizable(false).show(ctx, |ui| {
             let rect = ui
                 .group(|ui| {
                     ui.label("Aspect ratio");
@@ -261,7 +260,7 @@ impl App {
     pub(super) fn render_gb_audio_settings(&mut self, ctx: &Context) {
         const WINDOW: OpenWindow = OpenWindow::GameBoyAudio;
         let mut open = true;
-        Window::new("Game Boy Audio Settings").open(&mut open).show(ctx, |ui| {
+        Window::new(WINDOW.title()).open(&mut open).show(ctx, |ui| {
             let rect = ui
                 .group(|ui| {
                     ui.label("Audio resampling algorithm");

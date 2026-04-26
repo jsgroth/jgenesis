@@ -61,7 +61,7 @@ impl App {
         const WINDOW: OpenWindow = OpenWindow::SnesGeneral;
 
         let mut open = true;
-        Window::new("SNES General Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+        Window::new(WINDOW.title()).open(&mut open).resizable(false).show(ctx, |ui| {
             let rect = ui
                 .group(|ui| {
                     ui.add_enabled_ui(
@@ -123,7 +123,7 @@ impl App {
         const WINDOW: OpenWindow = OpenWindow::SnesVideo;
 
         let mut open = true;
-        Window::new("SNES Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+        Window::new(WINDOW.title()).open(&mut open).resizable(false).show(ctx, |ui| {
             let rect = ui
                 .group(|ui| {
                     ui.label("Aspect ratio");
@@ -181,7 +181,7 @@ impl App {
         const WINDOW: OpenWindow = OpenWindow::SnesAudio;
 
         let mut open = true;
-        Window::new("SNES Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+        Window::new(WINDOW.title()).open(&mut open).resizable(false).show(ctx, |ui| {
             let rect = ui
                 .group(|ui| {
                     ui.label("ADPCM sample interpolation");
@@ -226,41 +226,38 @@ impl App {
 
         let mut open = true;
 
-        Window::new("SNES Overclocking Settings").open(&mut open).resizable(false).show(
-            ctx,
-            |ui| {
-                self.state.help_text.insert(WINDOW, helptext::SUPER_FX_OVERCLOCK);
+        Window::new(WINDOW.title()).open(&mut open).resizable(false).show(ctx, |ui| {
+            self.state.help_text.insert(WINDOW, helptext::SUPER_FX_OVERCLOCK);
 
-                ui.group(|ui| {
-                    ui.label("Super FX GSU overclock factor");
+            ui.group(|ui| {
+                ui.label("Super FX GSU overclock factor");
 
-                    ui.horizontal(|ui| {
-                        ui.radio_value(
-                            &mut self.config.snes.gsu_overclock_factor,
-                            NonZeroU64::new(1).unwrap(),
-                            "None",
-                        );
-                        ui.radio_value(
-                            &mut self.config.snes.gsu_overclock_factor,
-                            NonZeroU64::new(2).unwrap(),
-                            "2x",
-                        );
-                        ui.radio_value(
-                            &mut self.config.snes.gsu_overclock_factor,
-                            NonZeroU64::new(3).unwrap(),
-                            "3x",
-                        );
-                        ui.radio_value(
-                            &mut self.config.snes.gsu_overclock_factor,
-                            NonZeroU64::new(4).unwrap(),
-                            "4x",
-                        );
-                    });
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.config.snes.gsu_overclock_factor,
+                        NonZeroU64::new(1).unwrap(),
+                        "None",
+                    );
+                    ui.radio_value(
+                        &mut self.config.snes.gsu_overclock_factor,
+                        NonZeroU64::new(2).unwrap(),
+                        "2x",
+                    );
+                    ui.radio_value(
+                        &mut self.config.snes.gsu_overclock_factor,
+                        NonZeroU64::new(3).unwrap(),
+                        "3x",
+                    );
+                    ui.radio_value(
+                        &mut self.config.snes.gsu_overclock_factor,
+                        NonZeroU64::new(4).unwrap(),
+                        "4x",
+                    );
                 });
+            });
 
-                self.render_help_text(ui, WINDOW);
-            },
-        );
+            self.render_help_text(ui, WINDOW);
+        });
 
         if !open {
             self.state.open_windows.remove(&WINDOW);

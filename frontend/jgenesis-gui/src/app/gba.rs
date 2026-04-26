@@ -15,7 +15,7 @@ impl App {
 
         let mut open = true;
 
-        Window::new("GBA General Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+        Window::new(WINDOW.title()).open(&mut open).resizable(false).show(ctx, |ui| {
             let rect = ui
                 .add(OptionalPathSelector::new(
                     "BIOS path",
@@ -81,7 +81,7 @@ impl App {
 
         let mut open = true;
 
-        Window::new("GBA Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+        Window::new(WINDOW.title()).open(&mut open).resizable(false).show(ctx, |ui| {
             let rect = ui
                 .group(|ui| {
                     ui.label("Aspect ratio");
@@ -174,7 +174,7 @@ impl App {
         const WINDOW: OpenWindow = OpenWindow::GbaAudio;
 
         let mut open = true;
-        Window::new("GBA Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+        Window::new(WINDOW.title()).open(&mut open).resizable(false).show(ctx, |ui| {
             ui.group(|ui| {
                 let rect = ui
                     .scope(|ui| {

@@ -73,7 +73,7 @@ impl App {
         const WINDOW: OpenWindow = OpenWindow::NesGeneral;
 
         let mut open = true;
-        Window::new("NES General Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+        Window::new(WINDOW.title()).open(&mut open).resizable(false).show(ctx, |ui| {
             let rect = ui
                 .group(|ui| {
                     ui.add_enabled_ui(
@@ -138,7 +138,7 @@ impl App {
         const WINDOW: OpenWindow = OpenWindow::NesVideo;
 
         let mut open = true;
-        Window::new("NES Video Settings").open(&mut open).min_width(600.0).show(ctx, |ui| {
+        Window::new(WINDOW.title()).open(&mut open).min_width(600.0).show(ctx, |ui| {
             widgets::render_vertical_scroll_area(ui, |ui| {
                 self.render_aspect_ratio_setting(ui, WINDOW);
 
@@ -436,7 +436,7 @@ impl App {
         const WINDOW: OpenWindow = OpenWindow::NesAudio;
 
         let mut open = true;
-        Window::new("NES Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+        Window::new(WINDOW.title()).open(&mut open).resizable(false).show(ctx, |ui| {
             let rect = ui
                 .checkbox(
                     &mut self.config.nes.silence_ultrasonic_triangle_output,
