@@ -134,7 +134,6 @@ macro_rules! impl_set_flag {
     ($name:ident, $flag:ident = $value:literal) => {
         fn $name(&mut self) {
             self.bus_idle();
-
             self.cpu.registers.p.$flag = $value;
         }
     };
@@ -848,7 +847,7 @@ where
     impl_read_fn!(and_absolute, read_absolute(and));
     impl_read_fn!(and_absolute_x, read_absolute_x(and));
     impl_read_fn!(and_absolute_y, read_absolute_y(and));
-    impl_read_fn!(and_zero_page_indirect, read_zero_page_indirect_x(and));
+    impl_read_fn!(and_zero_page_indirect, read_zero_page_indirect(and));
     impl_read_fn!(and_zero_page_indirect_x, read_zero_page_indirect_x(and));
     impl_read_fn!(and_zero_page_indirect_y, read_zero_page_indirect_y(and));
 
@@ -858,7 +857,7 @@ where
     impl_read_fn!(eor_absolute, read_absolute(eor));
     impl_read_fn!(eor_absolute_x, read_absolute_x(eor));
     impl_read_fn!(eor_absolute_y, read_absolute_y(eor));
-    impl_read_fn!(eor_zero_page_indirect, read_zero_page_indirect_x(eor));
+    impl_read_fn!(eor_zero_page_indirect, read_zero_page_indirect(eor));
     impl_read_fn!(eor_zero_page_indirect_x, read_zero_page_indirect_x(eor));
     impl_read_fn!(eor_zero_page_indirect_y, read_zero_page_indirect_y(eor));
 
@@ -868,7 +867,7 @@ where
     impl_read_fn!(ora_absolute, read_absolute(ora));
     impl_read_fn!(ora_absolute_x, read_absolute_x(ora));
     impl_read_fn!(ora_absolute_y, read_absolute_y(ora));
-    impl_read_fn!(ora_zero_page_indirect, read_zero_page_indirect_x(ora));
+    impl_read_fn!(ora_zero_page_indirect, read_zero_page_indirect(ora));
     impl_read_fn!(ora_zero_page_indirect_x, read_zero_page_indirect_x(ora));
     impl_read_fn!(ora_zero_page_indirect_y, read_zero_page_indirect_y(ora));
 
@@ -1195,6 +1194,8 @@ where
 
     #[inline(always)]
     fn inc_dec_register<const INCREMENT: bool>(&mut self, register: RwRegister) {
+        self.bus_idle();
+
         let operand = register.get(&self.cpu.registers);
         let result = if INCREMENT { operand.wrapping_add(1) } else { operand.wrapping_sub(1) };
         register.set(&mut self.cpu.registers, result);
@@ -1373,6 +1374,8 @@ where
 
         let value = self.pull_stack();
         register.set(&mut self.cpu.registers, value);
+
+        self.cpu.registers.p.set_zero_negative(value);
     }
 
     // PLA: Pull A
@@ -1566,12 +1569,11 @@ where
 
     // TRB: Test and reset bits
     fn trb(&mut self, operand: u8) -> u8 {
-        let result = operand & !self.cpu.registers.a;
-        self.cpu.registers.p.zero = result == 0;
+        self.cpu.registers.p.zero = operand & self.cpu.registers.a == 0;
         self.cpu.registers.p.overflow = operand.bit(6);
         self.cpu.registers.p.negative = operand.bit(7);
 
-        result
+        operand & !self.cpu.registers.a
     }
 
     impl_modify_fn!(trb_zero_page, modify_zero_page(trb));
@@ -1579,12 +1581,11 @@ where
 
     // TSB: Test and set bits
     fn tsb(&mut self, operand: u8) -> u8 {
-        let result = operand | self.cpu.registers.a;
-        self.cpu.registers.p.zero = result == 0;
+        self.cpu.registers.p.zero = operand & self.cpu.registers.a == 0;
         self.cpu.registers.p.overflow = operand.bit(6);
         self.cpu.registers.p.negative = operand.bit(7);
 
-        result
+        operand | self.cpu.registers.a
     }
 
     impl_modify_fn!(tsb_zero_page, modify_zero_page(tsb));
@@ -1771,7 +1772,11 @@ where
 
         let source_addr = self.cpu.registers.map_address(state.source);
         let value = match source_addr {
-            0x1FE800..=0x1FF7FF => 0, // Block transfer cannot read from non-VDC I/O addresses
+            0x1FE800..=0x1FF7FF => {
+                // Block transfer cannot read from non-VDC I/O addresses
+                self.bus.idle();
+                0
+            }
             _ => self.bus.read(source_addr),
         };
 
@@ -1786,11 +1791,9 @@ where
         state.source = state.source_step.apply(state.source, state.count);
         state.destination = state.destination_step.apply(state.destination, state.count);
         state.count = state.count.wrapping_add(1);
+        state.length = state.length.wrapping_sub(1);
 
-        let length_overflow;
-        (state.length, length_overflow) = state.length.overflowing_sub(1);
-
-        if length_overflow {
+        if state.length == 0 {
             self.bus.idle();
 
             self.cpu.registers.x = self.pull_stack();

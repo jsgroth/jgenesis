@@ -33,6 +33,7 @@ num = "0.4"
 pollster = "0.4"
 rand = "0.10"
 raw-window-handle = "0.6"
+rayon = "1"
 regex = "1"
 rfd = "0.17"
 rustc-hash = "2"
@@ -68,6 +69,7 @@ jgenesis-proc-macros = { path = "common/jgenesis-proc-macros" }
 
 # Workspace CPU libraries
 arm7tdmi-emu = { path = "cpu/arm7tdmi-emu" }
+huc6280-emu = { path = "cpu/huc6280-emu" }
 m68000-emu = { path = "cpu/m68000-emu" }
 mos6502-emu = { path = "cpu/mos6502-emu" }
 sh2-emu = { path = "cpu/sh2-emu" }

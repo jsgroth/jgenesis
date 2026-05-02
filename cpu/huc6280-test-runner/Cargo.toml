@@ -1,0 +1,17 @@
+[package]
+name = "huc6280-test-runner"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+huc6280-emu = { workspace = true, features = ["test-apis"] }
+
+clap = { workspace = true }
+env_logger = { workspace = true }
+rayon = { workspace = true }
+rustc-hash = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

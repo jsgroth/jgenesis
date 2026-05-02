@@ -7,7 +7,7 @@ use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use std::array;
 
-#[derive(Debug, Clone, Copy, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub struct Flags {
     pub negative: bool,
     pub overflow: bool,
@@ -67,7 +67,7 @@ impl From<u8> for Flags {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct Registers {
     pub a: u8,
     pub x: u8,
@@ -190,6 +190,23 @@ impl Huc6280 {
     /// will progress the transfer by one byte.
     pub fn execute_instruction(&mut self, bus: &mut impl BusInterface) {
         InstructionExecutor::new(self, bus).execute_instruction();
+    }
+
+    #[cfg(feature = "test-apis")]
+    #[must_use]
+    pub fn registers(&self) -> &Registers {
+        &self.registers
+    }
+
+    #[cfg(feature = "test-apis")]
+    pub fn set_registers(&mut self, registers: Registers) {
+        self.registers = registers;
+    }
+
+    #[cfg(feature = "test-apis")]
+    #[must_use]
+    pub fn is_mid_block_transfer(&self) -> bool {
+        self.state.block_transfer.is_some()
     }
 }
 
