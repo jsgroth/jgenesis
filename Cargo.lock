@@ -2309,6 +2309,7 @@ dependencies = [
  "bincode",
  "jgenesis-common",
  "log",
+ "rand 0.10.0",
 ]
 
 [[package]]

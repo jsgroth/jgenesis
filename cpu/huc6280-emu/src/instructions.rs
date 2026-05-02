@@ -1,3 +1,5 @@
+mod disassemble;
+
 use crate::bus::{BusInterface, ClockSpeed};
 use crate::{BlockTransferState, BlockTransferStep, Flags, Huc6280, Registers};
 use jgenesis_common::num::GetBit;
@@ -58,6 +60,15 @@ enum RwRegister {
 }
 
 impl RwRegister {
+    fn get(self, registers: &Registers) -> u8 {
+        match self {
+            Self::A => registers.a,
+            Self::X => registers.x,
+            Self::Y => registers.y,
+            Self::S => registers.s,
+        }
+    }
+
     fn set(self, registers: &mut Registers, value: u8) {
         match self {
             Self::A => registers.a = value,
@@ -172,6 +183,11 @@ where
         self.cpu.registers.p.memory_op = false;
 
         let opcode = self.fetch_operand();
+
+        if log::log_enabled!(log::Level::Trace) {
+            self.instruction_trace_log(opcode);
+        }
+
         match opcode {
             0x00 => self.handle_interrupt(InterruptType::Brk), // BRK
             0x01 => self.ora_zero_page_indirect_x(),
@@ -388,6 +404,28 @@ where
         }
     }
 
+    fn instruction_trace_log(&self, opcode: u8) {
+        log::trace!(
+            "Executing opcode {opcode:02X} at PC={:04X} ({}); A={:02X} X={:02X} Y={:02X} P={:02X} S={:02X} T={} MPR=[{:02X},{:02X},{:02X},{:02X},{:02X},{:02X},{:02X},{:02X}]",
+            self.cpu.registers.pc.wrapping_sub(1),
+            disassemble::disassemble(opcode),
+            self.cpu.registers.a,
+            self.cpu.registers.x,
+            self.cpu.registers.y,
+            self.cpu.registers.p.to_u8_brk(),
+            self.cpu.registers.s,
+            self.cpu.state.memory_op_at_fetch,
+            self.cpu.registers.mpr[0],
+            self.cpu.registers.mpr[1],
+            self.cpu.registers.mpr[2],
+            self.cpu.registers.mpr[3],
+            self.cpu.registers.mpr[4],
+            self.cpu.registers.mpr[5],
+            self.cpu.registers.mpr[6],
+            self.cpu.registers.mpr[7],
+        );
+    }
+
     // Interrupt lines and the I flag are latched/polled at the beginning of the final cycle of each instruction
     // For simplicity, latch them at the beginning of every cycle
     fn poll_interrupt_lines(&mut self) {
@@ -418,6 +456,8 @@ where
     }
 
     fn handle_interrupt(&mut self, interrupt: InterruptType) {
+        log::trace!("Handling interrupt of type {interrupt:?}");
+
         // Dummy read; BRK advances PC
         match interrupt {
             InterruptType::Brk => {
@@ -451,6 +491,9 @@ where
     fn fetch_operand(&mut self) -> u8 {
         let operand = self.bus_read(self.map_address(self.cpu.registers.pc));
         self.cpu.registers.pc = self.cpu.registers.pc.wrapping_add(1);
+
+        log::trace!("Fetched {operand:02X}");
+
         operand
     }
 
@@ -596,9 +639,7 @@ where
     #[inline(always)]
     fn load(&mut self, register: RwRegister, operand: u8) {
         register.set(&mut self.cpu.registers, operand);
-
-        self.cpu.registers.p.zero = operand == 0;
-        self.cpu.registers.p.negative = operand.bit(7);
+        self.cpu.registers.p.set_zero_negative(operand);
     }
 
     // LDA: Load A
@@ -648,9 +689,8 @@ where
         let bit_6_carry = (accumulator & 0x7F) + (operand & 0x7F) + existing_carry >= 0x80;
         let overflow = new_carry ^ bit_6_carry;
 
-        flags.negative = result.bit(7);
+        flags.set_zero_negative(result);
         flags.overflow = overflow;
-        flags.zero = result == 0;
         flags.carry = new_carry;
 
         result
@@ -673,9 +713,8 @@ where
 
         let result = a as u8;
 
-        flags.zero = result == 0;
+        flags.set_zero_negative(result);
         flags.carry = a >= 0x0100;
-        flags.negative = result.bit(7);
         // HuC6280 does not set V in decimal ADC/SBC
 
         result
@@ -707,8 +746,7 @@ where
 
         let result = a as u8;
 
-        flags.zero = result == 0;
-        flags.negative = result.bit(7);
+        flags.set_zero_negative(result);
         flags.carry = !binary_borrow;
         // HuC6280 does not set V in decimal ADC/SBC
 
@@ -780,8 +818,7 @@ where
         };
 
         let result = op(accumulator, operand);
-        self.cpu.registers.p.zero = result == 0;
-        self.cpu.registers.p.negative = result.bit(7);
+        self.cpu.registers.p.set_zero_negative(result);
 
         if self.cpu.state.memory_op_at_fetch {
             self.bus_write(self.map_zero_page(self.cpu.registers.x), result);
@@ -1070,8 +1107,7 @@ where
     // ASL: Shift left
     fn asl(&mut self, operand: u8) -> u8 {
         let result = operand << 1;
-        self.cpu.registers.p.zero = result == 0;
-        self.cpu.registers.p.negative = result.bit(7);
+        self.cpu.registers.p.set_zero_negative(result);
         self.cpu.registers.p.carry = operand.bit(7);
 
         result
@@ -1102,8 +1138,7 @@ where
     // ROL: Rotate left
     fn rol(&mut self, operand: u8) -> u8 {
         let result = (operand << 1) | u8::from(self.cpu.registers.p.carry);
-        self.cpu.registers.p.zero = result == 0;
-        self.cpu.registers.p.negative = result.bit(7);
+        self.cpu.registers.p.set_zero_negative(result);
         self.cpu.registers.p.carry = operand.bit(7);
 
         result
@@ -1118,8 +1153,7 @@ where
     // ROR: Rotate right
     fn ror(&mut self, operand: u8) -> u8 {
         let result = (operand >> 1) | (u8::from(self.cpu.registers.p.carry) << 7);
-        self.cpu.registers.p.zero = result == 0;
-        self.cpu.registers.p.negative = result.bit(7);
+        self.cpu.registers.p.set_zero_negative(result);
         self.cpu.registers.p.carry = operand.bit(0);
 
         result
@@ -1134,8 +1168,7 @@ where
     // INC: Increment
     fn inc(&mut self, operand: u8) -> u8 {
         let result = operand.wrapping_add(1);
-        self.cpu.registers.p.zero = result == 0;
-        self.cpu.registers.p.negative = result.bit(7);
+        self.cpu.registers.p.set_zero_negative(result);
 
         result
     }
@@ -1149,8 +1182,7 @@ where
     // DEC: Decrement
     fn dec(&mut self, operand: u8) -> u8 {
         let result = operand.wrapping_sub(1);
-        self.cpu.registers.p.zero = result == 0;
-        self.cpu.registers.p.negative = result.bit(7);
+        self.cpu.registers.p.set_zero_negative(result);
 
         result
     }
@@ -1161,45 +1193,43 @@ where
     impl_modify_fn!(dec_absolute, modify_absolute(dec));
     impl_modify_fn!(dec_absolute_x, modify_absolute_x(dec));
 
+    #[inline(always)]
+    fn inc_dec_register<const INCREMENT: bool>(&mut self, register: RwRegister) {
+        let operand = register.get(&self.cpu.registers);
+        let result = if INCREMENT { operand.wrapping_add(1) } else { operand.wrapping_sub(1) };
+        register.set(&mut self.cpu.registers, result);
+
+        self.cpu.registers.p.set_zero_negative(result);
+    }
+
     // INX: Increment X
     fn inx(&mut self) {
-        let result = self.cpu.registers.x.wrapping_add(1);
-        self.cpu.registers.x = result;
-
-        self.cpu.registers.p.zero = result == 0;
-        self.cpu.registers.p.negative = result.bit(7);
+        self.inc_dec_register::<true>(RwRegister::X);
     }
 
     // INY: Increment Y
     fn iny(&mut self) {
-        let result = self.cpu.registers.y.wrapping_add(1);
-        self.cpu.registers.y = result;
-
-        self.cpu.registers.p.zero = result == 0;
-        self.cpu.registers.p.negative = result.bit(7);
+        self.inc_dec_register::<true>(RwRegister::Y);
     }
 
     // DEX: Decrement X
     fn dex(&mut self) {
-        let result = self.cpu.registers.x.wrapping_sub(1);
-        self.cpu.registers.x = result;
-
-        self.cpu.registers.p.zero = result == 0;
-        self.cpu.registers.p.negative = result.bit(7);
+        self.inc_dec_register::<false>(RwRegister::X);
     }
 
     // DEY: Decrement Y
     fn dey(&mut self) {
-        let result = self.cpu.registers.y.wrapping_sub(1);
-        self.cpu.registers.y = result;
-
-        self.cpu.registers.p.zero = result == 0;
-        self.cpu.registers.p.negative = result.bit(7);
+        self.inc_dec_register::<false>(RwRegister::Y);
     }
 
     #[inline(always)]
     fn conditional_branch(&mut self, condition: bool) {
         let displacement = self.fetch_operand() as i8;
+
+        log::trace!(
+            "  Displacement {displacement} ({:04X})",
+            self.cpu.registers.pc.wrapping_add_signed(displacement.into())
+        );
 
         if !condition {
             return;
@@ -1313,8 +1343,19 @@ where
     // PHA: Push A
     fn pha(&mut self) {
         self.bus_idle();
-
         self.push_stack(self.cpu.registers.a);
+    }
+
+    // PHX: Push X
+    fn phx(&mut self) {
+        self.bus_idle();
+        self.push_stack(self.cpu.registers.x);
+    }
+
+    // PHY: Push Y
+    fn phy(&mut self) {
+        self.bus_idle();
+        self.push_stack(self.cpu.registers.y);
     }
 
     // PHP: Push P
@@ -1325,26 +1366,28 @@ where
         self.push_stack(self.cpu.registers.p.to_u8_brk());
     }
 
-    // PHX: Push X
-    fn phx(&mut self) {
+    #[inline(always)]
+    fn pull_register(&mut self, register: RwRegister) {
+        self.bus_idle();
         self.bus_idle();
 
-        self.push_stack(self.cpu.registers.x);
-    }
-
-    // PHY: Push Y
-    fn phy(&mut self) {
-        self.bus_idle();
-
-        self.push_stack(self.cpu.registers.y);
+        let value = self.pull_stack();
+        register.set(&mut self.cpu.registers, value);
     }
 
     // PLA: Pull A
     fn pla(&mut self) {
-        self.bus_idle();
-        self.bus_idle();
+        self.pull_register(RwRegister::A);
+    }
 
-        self.cpu.registers.a = self.pull_stack();
+    // PLX: Pull X
+    fn plx(&mut self) {
+        self.pull_register(RwRegister::X);
+    }
+
+    // PLY: Pull Y
+    fn ply(&mut self) {
+        self.pull_register(RwRegister::Y);
     }
 
     // PLP: Pull P
@@ -1353,22 +1396,6 @@ where
         self.bus_idle();
 
         self.cpu.registers.p = self.pull_stack().into();
-    }
-
-    // PLX: Pull X
-    fn plx(&mut self) {
-        self.bus_idle();
-        self.bus_idle();
-
-        self.cpu.registers.x = self.pull_stack();
-    }
-
-    // PLY: Pull Y
-    fn ply(&mut self) {
-        self.bus_idle();
-        self.bus_idle();
-
-        self.cpu.registers.y = self.pull_stack();
     }
 
     #[inline(always)]
@@ -1403,6 +1430,11 @@ where
         let displacement = self.fetch_operand() as i8;
         self.bus_idle();
 
+        log::trace!(
+            "  Displacement {displacement} ({:04X})",
+            self.cpu.registers.pc.wrapping_add_signed(displacement.into())
+        );
+
         let mapped_addr = self.map_zero_page(zero_page_addr);
         let value = self.bus_read(mapped_addr);
 
@@ -1433,31 +1465,28 @@ where
     // CLA: Clear A
     fn cla(&mut self) {
         self.bus_idle();
-
         self.cpu.registers.a = 0;
     }
 
     // CLX: Clear X
     fn clx(&mut self) {
         self.bus_idle();
-
         self.cpu.registers.x = 0;
     }
 
     // CLY: Clear Y
     fn cly(&mut self) {
         self.bus_idle();
-
         self.cpu.registers.y = 0;
     }
 
-    // CLC: Clear C
-    // CLD: Clear D
-    // CLI: Clear I
-    // CLV: Clear V
-    // SEC: Set C
-    // SED: Set D
-    // SEI: Set I
+    // CLC: Clear carry
+    // CLD: Clear decimal
+    // CLI: Clear IRQ disable
+    // CLV: Clear overflow
+    // SEC: Set carry
+    // SED: Set deciaml
+    // SEI: Set IRQ disable
     // SET: Set T
     impl_set_flag!(clc, carry = false);
     impl_set_flag!(cld, decimal = false);
@@ -1501,8 +1530,7 @@ where
 
         // TXS does not set flags
         if to != RwRegister::S {
-            self.cpu.registers.p.zero = value == 0;
-            self.cpu.registers.p.negative = value.bit(7);
+            self.cpu.registers.p.set_zero_negative(value);
         }
     }
 
@@ -1616,7 +1644,7 @@ where
     }
 
     // ST0/ST1/ST2: Store HuC6270 (VDC)
-    fn sti<const I: usize>(&mut self) {
+    fn sti<const I: u8>(&mut self) {
         assert!(I < 3);
 
         // ST0/ST1/ST2 always write to VDC physical addresses; MPRs are not used
@@ -1720,6 +1748,10 @@ where
 
         self.bus_idle();
 
+        log::trace!(
+            "Starting block transfer; source={source:04X}, destination={destination:04X}, length={length:04X}"
+        );
+
         self.cpu.state.block_transfer = Some(BlockTransferState {
             source,
             destination,
@@ -1766,6 +1798,8 @@ where
             self.cpu.registers.y = self.pull_stack();
 
             self.cpu.state.block_transfer = None;
+
+            log::trace!("Block transfer complete");
         }
     }
 

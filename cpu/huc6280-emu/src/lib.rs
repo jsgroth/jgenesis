@@ -5,6 +5,7 @@ use crate::bus::{BusInterface, InterruptLines};
 use crate::instructions::InstructionExecutor;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
+use std::array;
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct Flags {
@@ -18,6 +19,18 @@ pub struct Flags {
 }
 
 impl Flags {
+    fn random() -> Self {
+        Self {
+            negative: rand::random(),
+            overflow: rand::random(),
+            memory_op: rand::random(),
+            decimal: rand::random(),
+            irq_disable: rand::random(),
+            zero: rand::random(),
+            carry: rand::random(),
+        }
+    }
+
     #[must_use]
     pub fn to_u8_interrupt(self) -> u8 {
         (u8::from(self.negative) << 7)
@@ -32,6 +45,11 @@ impl Flags {
     #[must_use]
     pub fn to_u8_brk(self) -> u8 {
         self.to_u8_interrupt() | (1 << 4)
+    }
+
+    fn set_zero_negative(&mut self, value: u8) {
+        self.zero = value == 0;
+        self.negative = value.bit(7);
     }
 }
 
@@ -49,20 +67,6 @@ impl From<u8> for Flags {
     }
 }
 
-impl Default for Flags {
-    fn default() -> Self {
-        Self {
-            negative: false,
-            overflow: false,
-            memory_op: false,
-            decimal: false,
-            irq_disable: true,
-            zero: false,
-            carry: false,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Registers {
     pub a: u8,
@@ -75,9 +79,16 @@ pub struct Registers {
 }
 
 impl Registers {
-    fn new() -> Self {
-        // TODO register contents should be randomized at power-on
-        Self { a: 0xFF, x: 0xFF, y: 0xFF, pc: 0xFFFF, s: 0xFF, p: Flags::default(), mpr: [0xFF; 8] }
+    fn random() -> Self {
+        Self {
+            a: rand::random(),
+            x: rand::random(),
+            y: rand::random(),
+            pc: rand::random(),
+            s: rand::random(),
+            p: Flags::random(),
+            mpr: array::from_fn(|_| rand::random()),
+        }
     }
 
     fn map_address(&self, logical_addr: u16) -> u32 {
@@ -152,17 +163,19 @@ pub struct Huc6280 {
 impl Huc6280 {
     #[must_use]
     pub fn new() -> Self {
-        Self { registers: Registers::new(), state: State::new() }
+        Self { registers: Registers::random(), state: State::new() }
     }
 
     pub fn reset(&mut self, bus: &mut impl BusInterface) {
+        // Most register contents are randomized at power-on but MPR7 is always $00, T and D are
+        // always clear, and I is always set
         self.registers.mpr[7] = 0x00;
 
         self.registers.p.memory_op = false;
         self.registers.p.decimal = false;
         self.registers.p.irq_disable = true;
 
-        // RESET vector always read from physical address $001FFE ($FFFE with MPR7=$00)
+        // RESET vector is always read from physical address $001FFE ($FFFE with MPR7=$00)
         let pc_lsb = bus.read(0x001FFE);
         let pc_msb = bus.read(0x001FFF);
         self.registers.pc = u16::from_le_bytes([pc_lsb, pc_msb]);
