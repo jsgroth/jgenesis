@@ -137,20 +137,13 @@ pub const CONFIG_FILENAME: &str = "jgenesis-config.toml";
 
 #[must_use]
 pub fn default_config_path() -> PathBuf {
-    cfg_select! {
-        target_os = "linux" => default_linux_config_path(),
-        _ => CONFIG_FILENAME.into(),
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn default_linux_config_path() -> PathBuf {
     let Some(base_dirs) = directories::BaseDirs::new() else {
         log::error!("Unable to determine config dir; app config will probably not save");
         return CONFIG_FILENAME.into();
     };
 
-    let jgenesis_dir = base_dirs.config_dir().join("jgenesis");
+    // Config local dir is generally `$HOME/.config/` on Linux and `%LocalAppData%\` on Windows
+    let jgenesis_dir = base_dirs.config_local_dir().join("jgenesis");
     if !jgenesis_dir.exists()
         && let Err(err) = fs::create_dir_all(&jgenesis_dir)
     {
@@ -161,7 +154,21 @@ fn default_linux_config_path() -> PathBuf {
         return CONFIG_FILENAME.into();
     }
 
-    jgenesis_dir.join(CONFIG_FILENAME)
+    let config_path = jgenesis_dir.join(CONFIG_FILENAME);
+
+    // Config file wasn't always stored in local config dir; if a config doesn't exist there but
+    // does exist in the CWD, copy it to the local config dir
+    if !config_path.exists() && Path::new(CONFIG_FILENAME).exists() {
+        log::info!(
+            "Detected config file in emulator directory; copying to '{}'",
+            config_path.display()
+        );
+        if let Err(err) = fs::copy(Path::new(CONFIG_FILENAME), &config_path) {
+            log::error!("Error copying to '{}': {err}", config_path.display());
+        }
+    }
+
+    config_path
 }
 
 #[cfg(test)]
