@@ -3,12 +3,14 @@ use genesis_config::{
     S32XPwmResampling, S32XVideoOut, S32XVoidColorType,
 };
 use jgenesis_common::frontend::TimingMode;
+use jgenesis_proc_macros::deserialize_default_on_error;
 use serde::{Deserialize, Serialize};
 use std::num::{NonZeroU16, NonZeroU64};
 use std::path::PathBuf;
 
 const DEFAULT_DRIVE_SPEED: NonZeroU16 = NonZeroU16::new(1).unwrap();
 
+#[deserialize_default_on_error]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GenesisAppConfig {
@@ -79,6 +81,7 @@ impl Default for GenesisAppConfig {
     }
 }
 
+#[deserialize_default_on_error]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SegaCdAppConfig {
@@ -125,6 +128,7 @@ impl Default for SegaCdAppConfig {
     }
 }
 
+#[deserialize_default_on_error]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Sega32XAppConfig {

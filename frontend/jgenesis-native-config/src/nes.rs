@@ -1,7 +1,9 @@
 use jgenesis_common::frontend::TimingMode;
+use jgenesis_proc_macros::deserialize_default_on_error;
 use nes_config::{NesAspectRatio, NesAudioResampler, NesPalette, Overscan};
 use serde::{Deserialize, Serialize};
 
+#[deserialize_default_on_error]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct NesAppConfig {

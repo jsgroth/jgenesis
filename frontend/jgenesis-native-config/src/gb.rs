@@ -1,4 +1,5 @@
 use gb_config::{GbAspectRatio, GbAudioResampler, GbPalette, GbcColorCorrection};
+use jgenesis_proc_macros::deserialize_default_on_error;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -12,6 +13,7 @@ const DEFAULT_GBC_GAMMA: f64 = 2.0;
 // Significantly darken
 const DEFAULT_GBA_GAMMA: f64 = 3.2;
 
+#[deserialize_default_on_error]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GameBoyAppConfig {

@@ -2,6 +2,7 @@ mod config;
 mod encode;
 mod enums;
 mod partialclone;
+mod serialization;
 
 use proc_macro::TokenStream;
 
@@ -313,4 +314,50 @@ pub fn partial_clone(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(MatchEachVariantMacro)]
 pub fn match_each_variant_macro(input: TokenStream) -> TokenStream {
     enums::match_each_variant_macro(input)
+}
+
+/// Augment a struct definition such that when deserializing a struct value using serde, if any
+/// errors are encountered while deserializing a field, the deserializer will set that field based
+/// on the struct's [`Default::default()`] implementation instead of propagating the error.
+///
+/// This macro can only be applied to struct definitions, not enums or unions. It also only supports
+/// structs with named fields, not tuple structs. The struct cannot have any generic parameters.
+///
+/// The struct must implement the [`Default`] trait and it must use the [`serde::Deserialize`] derive
+/// macro.
+///
+/// The macro adds a `#[serde(deserialize_with = ...)]` attribute to each field, so no fields can
+/// already have that attribute or else the generated code will not compile.
+///
+/// At runtime, all deserialization errors encountered will be logged at ERROR level.
+///
+/// Example usage:
+/// ```
+/// use jgenesis_proc_macros::deserialize_default_on_error;
+///
+/// #[deserialize_default_on_error]
+/// #[derive(Debug, PartialEq, Eq, serde::Deserialize)]
+/// #[serde(default)]
+/// struct Foo {
+///     a: u32,
+///     b: String,
+/// }
+///
+/// impl Default for Foo {
+///     fn default() -> Self {
+///         Self { a: 5, b: "hello".into() }
+///     }
+/// }
+///
+/// const TOML_INVALID_A: &str = r#"
+/// a = "not a number"
+/// b = "world"
+/// "#;
+///
+/// let foo: Foo = toml::from_str(TOML_INVALID_A).unwrap();
+/// assert_eq!(foo, Foo { a: 5, b: "world".into() });
+/// ```
+#[proc_macro_attribute]
+pub fn deserialize_default_on_error(_attrs: TokenStream, input: TokenStream) -> TokenStream {
+    serialization::deserialize_default_on_error(input)
 }

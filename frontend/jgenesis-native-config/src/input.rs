@@ -5,7 +5,7 @@ use crate::input::mappings::{
     GameBoyInputConfig, GbaInputConfig, GenesisInputConfig, HotkeyConfig, NesInputConfig,
     SmsGgInputConfig, SnesInputConfig,
 };
-use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
+use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr, deserialize_default_on_error};
 use sdl3::keyboard::Keycode;
 use sdl3::mouse::MouseButton;
 use serde::{Deserialize, Serialize};
@@ -276,6 +276,7 @@ impl Hotkey {
     }
 }
 
+#[deserialize_default_on_error]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct InputAppConfig {
@@ -284,7 +285,7 @@ pub struct InputAppConfig {
     pub nes: NesInputConfig,
     pub snes: SnesInputConfig,
     pub game_boy: GameBoyInputConfig,
-    pub game_boy_advance: mappings::GbaInputConfig,
+    pub game_boy_advance: GbaInputConfig,
     pub hotkeys: HotkeyConfig,
     pub axis_deadzone: i16,
 }

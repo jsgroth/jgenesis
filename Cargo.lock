@@ -2700,9 +2700,13 @@ version = "0.7.1"
 dependencies = [
  "bincode",
  "jgenesis-common",
+ "log",
  "proc-macro2",
  "quote",
+ "serde",
  "syn 2.0.117",
+ "test-log",
+ "toml",
 ]
 
 [[package]]

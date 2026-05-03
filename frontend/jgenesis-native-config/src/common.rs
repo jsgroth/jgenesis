@@ -1,6 +1,6 @@
 use genesis_config::{GenParParams, GenesisAspectRatio};
 use jgenesis_common::frontend::TimingMode;
-use jgenesis_proc_macros::{EnumAll, EnumDisplay};
+use jgenesis_proc_macros::{EnumAll, EnumDisplay, deserialize_default_on_error};
 use jgenesis_renderer::config::{
     AntiDitherShader, FilterMode, FrameRotation, NtscShaderConfig, PreprocessShader,
     PrescaleFactor, VSyncMode, WgpuBackend, WgpuPowerPreference,
@@ -257,6 +257,7 @@ pub enum ConfigSavePath {
     Custom,
 }
 
+#[deserialize_default_on_error]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CommonAppConfig {

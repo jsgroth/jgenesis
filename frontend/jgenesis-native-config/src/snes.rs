@@ -1,4 +1,5 @@
 use jgenesis_common::frontend::TimingMode;
+use jgenesis_proc_macros::deserialize_default_on_error;
 use serde::{Deserialize, Serialize};
 use snes_config::{AudioInterpolationMode, SnesAspectRatio};
 use std::num::NonZeroU64;
@@ -6,6 +7,7 @@ use std::path::PathBuf;
 
 const DEFAULT_GSU_OVERCLOCK: NonZeroU64 = NonZeroU64::new(1).unwrap();
 
+#[deserialize_default_on_error]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SnesAppConfig {

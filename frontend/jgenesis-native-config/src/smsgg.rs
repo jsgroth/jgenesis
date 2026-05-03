@@ -1,9 +1,11 @@
 use jgenesis_common::frontend::TimingMode;
+use jgenesis_proc_macros::deserialize_default_on_error;
 use serde::{Deserialize, Serialize};
 use smsgg_config::{GgAspectRatio, SmsAspectRatio, SmsGgRegion, SmsModel, Sn76489Version};
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 
+#[deserialize_default_on_error]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SmsGgAppConfig {

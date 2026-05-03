@@ -18,7 +18,7 @@ use crate::input::InputAppConfig;
 use crate::nes::NesAppConfig;
 use crate::smsgg::SmsGgAppConfig;
 use crate::snes::SnesAppConfig;
-use jgenesis_proc_macros::EnumDisplay;
+use jgenesis_proc_macros::{EnumDisplay, deserialize_default_on_error};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -26,6 +26,7 @@ use std::path::{Path, PathBuf};
 pub const DEFAULT_GUI_WIDTH: f32 = 900.0;
 pub const DEFAULT_GUI_HEIGHT: f32 = 675.0;
 
+#[deserialize_default_on_error]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ListFilters {
@@ -74,6 +75,7 @@ pub enum EguiTheme {
     Light,
 }
 
+#[deserialize_default_on_error]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {

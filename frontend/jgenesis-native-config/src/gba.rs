@@ -1,10 +1,12 @@
 use gba_config::{GbaAspectRatio, GbaAudioInterpolation, GbaColorCorrection, GbaSaveMemory};
+use jgenesis_proc_macros::deserialize_default_on_error;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 // Significantly darken
 const DEFAULT_CORRECTION_GAMMA: f64 = 3.2;
 
+#[deserialize_default_on_error]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GameBoyAdvanceAppConfig {
