@@ -268,8 +268,13 @@ impl Cartridge {
             upd77c25::ST01X_RAM_LEN_BYTES
         } else if cartridge_type == CartridgeType::SuperFx {
             superfx::guess_ram_len(&rom)
-        } else if sram_header_byte == 0 || sram_header_byte > 21 {
+        } else if sram_header_byte == 0 {
             0
+        } else if sram_header_byte > 21 {
+            log::warn!(
+                "Invalid SRAM header byte ${sram_header_byte:02X}, giving 256KB of SRAM; game may not work properly"
+            );
+            256 * 1024
         } else {
             1 << (10 + sram_header_byte)
         };
@@ -759,6 +764,12 @@ fn new_exhirom_cartridge<S: SaveWriter>(
 }
 
 fn region_to_timing_mode(region_byte: u8, rom: &[u8]) -> TimingMode {
+    // Games with invalid region bytes that require PAL timings
+    const FORCE_PAL_CHECKSUMS: &[u32] = &[
+        0x39E5E4A3, // Tintin in Tibet (Europe) (En,Es,Sv)
+        0x9F279963, // Total Football (Europe) (Proto)
+    ];
+
     match region_byte {
         // Japan / USA / South Korea / Canada / Brazil
         0x00 | 0x01 | 0x0D | 0x0F | 0x10 => TimingMode::Ntsc,
@@ -766,15 +777,13 @@ fn region_to_timing_mode(region_byte: u8, rom: &[u8]) -> TimingMode {
         0x02..=0x0C | 0x11 => TimingMode::Pal,
         _ => {
             let checksum = CRC.checksum(rom);
-            match checksum {
-                // Tintin in Tibet (Europe) (En,Es,Sv)
-                0x39E5E4A3 => TimingMode::Pal,
-                _ => {
-                    log::warn!(
-                        "Unrecognized region byte in ROM header, defaulting to NTSC: {region_byte:02X}"
-                    );
-                    TimingMode::Ntsc
-                }
+            if FORCE_PAL_CHECKSUMS.contains(&checksum) {
+                TimingMode::Pal
+            } else {
+                log::warn!(
+                    "Unrecognized region byte in ROM header, defaulting to NTSC: {region_byte:02X}"
+                );
+                TimingMode::Ntsc
             }
         }
     }
