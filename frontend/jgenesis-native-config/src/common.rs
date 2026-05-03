@@ -13,6 +13,14 @@ use std::fmt::{Display, Formatter};
 use std::num::{NonZeroU8, NonZeroU32};
 use std::path::PathBuf;
 
+const DEFAULT_OUTPUT_FREQUENCY: u64 = jgenesis_common::audio::DEFAULT_OUTPUT_FREQUENCY;
+const DEFAULT_AUDIO_BUFFER_SIZE: u32 = 2048;
+const DEFAULT_AUDIO_HW_QUEUE_SIZE: u32 = 256;
+const DEFAULT_INITIAL_WINDOW_SIZE: NonZeroU8 = NonZeroU8::new(3).unwrap();
+const DEFAULT_SCANLINES_BRIGHTNESS: f64 = 0.5;
+const DEFAULT_FAST_FORWARD_MULTIPLIER: u64 = 2;
+const DEFAULT_REWIND_BUFFER_LENGTH: u64 = 10;
+
 #[derive(Debug, Clone, Copy)]
 pub struct WindowSize {
     pub width: u32,
@@ -250,77 +258,44 @@ pub enum ConfigSavePath {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct CommonAppConfig {
-    #[serde(default = "default_audio_output_frequency")]
     pub audio_output_frequency: u64,
-    #[serde(default)]
     pub mute_audio: bool,
-    #[serde(default = "true_fn")]
     pub audio_sync: bool,
-    #[serde(default = "true_fn")]
     pub audio_dynamic_resampling_ratio: bool,
-    #[serde(default = "default_audio_buffer_size")]
     pub audio_buffer_size: u32,
-    #[serde(default = "default_audio_hardware_queue_size")]
     pub audio_hardware_queue_size: u32,
-    #[serde(default)]
     pub audio_gain_db: f64,
-    #[serde(default)]
     pub save_path: ConfigSavePath,
-    #[serde(default = "default_custom_save_path")]
     pub custom_save_path: PathBuf,
-    #[serde(default)]
     pub state_path: ConfigSavePath,
-    #[serde(default = "default_custom_state_path")]
     pub custom_state_path: PathBuf,
     pub window_width: Option<u32>,
     pub window_height: Option<u32>,
     pub window_scale_factor: Option<f32>,
-    #[serde(default)]
     pub launch_in_fullscreen: bool,
-    #[serde(default = "default_initial_window_size")]
     pub initial_window_size: NonZeroU8,
-    #[serde(default)]
     pub wgpu_backend: WgpuBackend,
-    #[serde(default)]
     pub wgpu_power_preference: WgpuPowerPreference,
-    #[serde(default)]
     pub vsync_mode: VSyncMode,
-    #[serde(default = "true_fn")]
     pub frame_time_sync: bool,
-    #[serde(default = "true_fn")]
     pub auto_prescale: bool,
-    #[serde(default = "default_prescale_factor")]
     pub prescale_width: PrescaleFactor,
-    #[serde(default = "default_prescale_factor")]
     pub prescale_height: PrescaleFactor,
-    #[serde(default)]
     pub scanlines_enabled: bool,
-    #[serde(default = "default_scanlines_brightness")]
     pub scanlines_brightness: f64,
-    #[serde(default)]
     pub force_integer_height_scaling: bool,
-    #[serde(default)]
     pub filter_mode: FilterMode,
-    #[serde(default = "true_fn")]
     pub supersample_minification: bool,
-    #[serde(default)]
     pub preprocess_shader: PreprocessShader,
-    #[serde(default)]
     pub anti_dither_shader: AntiDitherShader,
-    #[serde(default)]
     pub frame_rotation: FrameRotation,
-    #[serde(default)]
     pub ntsc: NtscShaderConfig,
-    #[serde(default)]
     pub load_recent_state_at_launch: bool,
-    #[serde(default = "default_fast_forward_multiplier")]
     pub fast_forward_multiplier: u64,
-    #[serde(default = "default_rewind_buffer_length")]
     pub rewind_buffer_length_seconds: u64,
-    #[serde(default)]
     pub pause_emulator: PauseEmulator,
-    #[serde(default)]
     pub hide_mouse_cursor: HideMouseCursor,
 }
 
@@ -337,28 +312,46 @@ impl CommonAppConfig {
 
 impl Default for CommonAppConfig {
     fn default() -> Self {
-        toml::from_str("").unwrap()
+        Self {
+            audio_output_frequency: DEFAULT_OUTPUT_FREQUENCY,
+            mute_audio: false,
+            audio_sync: true,
+            audio_dynamic_resampling_ratio: true,
+            audio_buffer_size: DEFAULT_AUDIO_BUFFER_SIZE,
+            audio_hardware_queue_size: DEFAULT_AUDIO_HW_QUEUE_SIZE,
+            audio_gain_db: 0.0,
+            save_path: ConfigSavePath::default(),
+            custom_save_path: default_custom_save_path(),
+            state_path: ConfigSavePath::default(),
+            custom_state_path: default_custom_state_path(),
+            window_width: None,
+            window_height: None,
+            window_scale_factor: None,
+            launch_in_fullscreen: false,
+            initial_window_size: DEFAULT_INITIAL_WINDOW_SIZE,
+            wgpu_backend: WgpuBackend::default(),
+            wgpu_power_preference: WgpuPowerPreference::default(),
+            vsync_mode: VSyncMode::default(),
+            frame_time_sync: true,
+            auto_prescale: true,
+            prescale_width: default_prescale_factor(),
+            prescale_height: default_prescale_factor(),
+            scanlines_enabled: false,
+            scanlines_brightness: DEFAULT_SCANLINES_BRIGHTNESS,
+            force_integer_height_scaling: false,
+            filter_mode: FilterMode::default(),
+            supersample_minification: true,
+            preprocess_shader: PreprocessShader::default(),
+            anti_dither_shader: AntiDitherShader::default(),
+            frame_rotation: FrameRotation::default(),
+            ntsc: NtscShaderConfig::default(),
+            load_recent_state_at_launch: false,
+            fast_forward_multiplier: DEFAULT_FAST_FORWARD_MULTIPLIER,
+            rewind_buffer_length_seconds: DEFAULT_REWIND_BUFFER_LENGTH,
+            pause_emulator: PauseEmulator::default(),
+            hide_mouse_cursor: HideMouseCursor::default(),
+        }
     }
-}
-
-const fn true_fn() -> bool {
-    true
-}
-
-const fn default_scanlines_brightness() -> f64 {
-    0.5
-}
-
-const fn default_audio_output_frequency() -> u64 {
-    jgenesis_common::audio::DEFAULT_OUTPUT_FREQUENCY
-}
-
-const fn default_audio_buffer_size() -> u32 {
-    2048
-}
-
-const fn default_audio_hardware_queue_size() -> u32 {
-    256
 }
 
 fn default_custom_path(subdir: &str) -> PathBuf {
@@ -380,16 +373,4 @@ fn default_custom_state_path() -> PathBuf {
 
 fn default_prescale_factor() -> PrescaleFactor {
     PrescaleFactor::from(NonZeroU32::new(3).unwrap())
-}
-
-fn default_initial_window_size() -> NonZeroU8 {
-    NonZeroU8::new(3).unwrap()
-}
-
-fn default_fast_forward_multiplier() -> u64 {
-    2
-}
-
-fn default_rewind_buffer_length() -> u64 {
-    10
 }

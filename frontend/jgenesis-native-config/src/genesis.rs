@@ -7,193 +7,160 @@ use serde::{Deserialize, Serialize};
 use std::num::{NonZeroU16, NonZeroU64};
 use std::path::PathBuf;
 
+const DEFAULT_DRIVE_SPEED: NonZeroU16 = NonZeroU16::new(1).unwrap();
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct GenesisAppConfig {
-    #[serde(default)]
     pub forced_timing_mode: Option<TimingMode>,
-    #[serde(default)]
     pub forced_region: Option<GenesisRegion>,
-    #[serde(default)]
     pub aspect_ratio: GenesisAspectRatio,
-    #[serde(default)]
     pub force_square_pixels_in_h40: bool,
-    #[serde(default = "true_fn")]
     pub adjust_aspect_ratio_in_2x_resolution: bool,
-    #[serde(default)]
     pub anamorphic_widescreen: bool,
-    #[serde(default)]
     pub remove_sprite_limits: bool,
-    #[serde(default = "default_68k_divider")]
     pub m68k_clock_divider: u64,
-    #[serde(default = "true_fn")]
     pub non_linear_color_scale: bool,
-    #[serde(default = "true_fn")]
     pub deinterlace: bool,
-    #[serde(default)]
     pub render_vertical_border: bool,
-    #[serde(default)]
     pub render_horizontal_border: bool,
-    #[serde(default = "true_fn")]
     pub plane_a_enabled: bool,
-    #[serde(default = "true_fn")]
     pub plane_b_enabled: bool,
-    #[serde(default = "true_fn")]
     pub window_enabled: bool,
-    #[serde(default = "true_fn")]
     pub backdrop_enabled: bool,
-    #[serde(default = "true_fn")]
     pub sprites_enabled: bool,
-    #[serde(default = "true_fn")]
     pub quantize_ym2612_output: bool,
-    #[serde(default)]
     pub opn2_busy_behavior: Opn2BusyBehavior,
-    #[serde(default = "true_fn")]
     pub emulate_ym2612_ladder_effect: bool,
-    #[serde(default = "true_fn")]
     pub genesis_lpf_enabled: bool,
-    #[serde(default = "default_genesis_lpf_cutoff")]
     pub genesis_lpf_cutoff: u32,
-    #[serde(default)]
     pub ym2612_2nd_lpf_enabled: bool,
-    #[serde(default = "default_ym2612_2nd_lpf_cutoff")]
     pub ym2612_2nd_lpf_cutoff: u32,
-    #[serde(default = "true_array_fn")]
     pub ym2612_channels_enabled: [bool; 6],
-    #[serde(default = "true_fn")]
     pub ym2612_enabled: bool,
-    #[serde(default = "true_fn")]
     pub psg_enabled: bool,
-    #[serde(default)]
     pub ym2612_volume_adjustment_db: f64,
-    #[serde(default)]
     pub psg_volume_adjustment_db: f64,
-}
-
-const fn true_fn() -> bool {
-    true
-}
-
-const fn true_array_fn<const N: usize>() -> [bool; N] {
-    [true; N]
-}
-
-const fn default_68k_divider() -> u64 {
-    7
-}
-
-const fn default_genesis_lpf_cutoff() -> u32 {
-    3390
-}
-
-const fn default_ym2612_2nd_lpf_cutoff() -> u32 {
-    7973
 }
 
 impl Default for GenesisAppConfig {
     fn default() -> Self {
-        toml::from_str("").unwrap()
+        Self {
+            forced_timing_mode: None,
+            forced_region: None,
+            aspect_ratio: GenesisAspectRatio::default(),
+            force_square_pixels_in_h40: false,
+            adjust_aspect_ratio_in_2x_resolution: true,
+            anamorphic_widescreen: false,
+            remove_sprite_limits: false,
+            m68k_clock_divider: genesis_config::NATIVE_M68K_DIVIDER,
+            non_linear_color_scale: true,
+            deinterlace: true,
+            render_vertical_border: false,
+            render_horizontal_border: false,
+            plane_a_enabled: true,
+            plane_b_enabled: true,
+            window_enabled: true,
+            backdrop_enabled: true,
+            sprites_enabled: true,
+            quantize_ym2612_output: true,
+            opn2_busy_behavior: Opn2BusyBehavior::default(),
+            emulate_ym2612_ladder_effect: true,
+            genesis_lpf_enabled: true,
+            genesis_lpf_cutoff: genesis_config::MODEL_1_VA2_LPF_CUTOFF,
+            ym2612_2nd_lpf_enabled: false,
+            ym2612_2nd_lpf_cutoff: genesis_config::MODEL_2_2ND_LPF_CUTOFF,
+            ym2612_channels_enabled: [true; 6],
+            ym2612_enabled: true,
+            psg_enabled: true,
+            ym2612_volume_adjustment_db: 0.0,
+            psg_volume_adjustment_db: 0.0,
+        }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SegaCdAppConfig {
     pub bios_path: Option<PathBuf>,
     pub eu_bios_path: Option<PathBuf>,
     pub jp_bios_path: Option<PathBuf>,
-    #[serde(default = "true_fn")]
     pub per_region_bios: bool,
-    #[serde(default)]
     pub pcm_interpolation: PcmInterpolation,
-    #[serde(default = "true_fn")]
     pub enable_ram_cartridge: bool,
-    #[serde(default)]
     pub load_disc_into_ram: bool,
-    #[serde(default = "default_drive_speed")]
     pub disc_drive_speed: NonZeroU16,
-    #[serde(default = "default_sub_divider")]
     pub sub_cpu_divider: NonZeroU64,
-    #[serde(default = "true_fn")]
     pub pcm_lpf_enabled: bool,
-    #[serde(default = "default_pcm_lpf_cutoff")]
     pub pcm_lpf_cutoff: u32,
-    #[serde(default)]
     pub apply_genesis_lpf_to_pcm: bool,
-    #[serde(default)]
     pub apply_genesis_lpf_to_cd_da: bool,
-    #[serde(default = "true_fn")]
     pub pcm_enabled: bool,
-    #[serde(default = "true_fn")]
     pub cd_audio_enabled: bool,
-    #[serde(default)]
     pub pcm_volume_adjustment_db: f64,
-    #[serde(default)]
     pub cd_volume_adjustment_db: f64,
-}
-
-fn default_drive_speed() -> NonZeroU16 {
-    NonZeroU16::new(1).unwrap()
-}
-
-fn default_sub_divider() -> NonZeroU64 {
-    NonZeroU64::new(genesis_config::NATIVE_SUB_CPU_DIVIDER).unwrap()
-}
-
-const fn default_pcm_lpf_cutoff() -> u32 {
-    genesis_config::DEFAULT_PCM_LPF_CUTOFF
 }
 
 impl Default for SegaCdAppConfig {
     fn default() -> Self {
-        toml::from_str("").unwrap()
+        Self {
+            bios_path: None,
+            eu_bios_path: None,
+            jp_bios_path: None,
+            per_region_bios: true,
+            pcm_interpolation: PcmInterpolation::default(),
+            enable_ram_cartridge: true,
+            load_disc_into_ram: false,
+            disc_drive_speed: DEFAULT_DRIVE_SPEED,
+            sub_cpu_divider: NonZeroU64::new(genesis_config::NATIVE_SUB_CPU_DIVIDER).unwrap(),
+            pcm_lpf_enabled: true,
+            pcm_lpf_cutoff: genesis_config::DEFAULT_PCM_LPF_CUTOFF,
+            apply_genesis_lpf_to_pcm: false,
+            apply_genesis_lpf_to_cd_da: false,
+            pcm_enabled: true,
+            cd_audio_enabled: true,
+            pcm_volume_adjustment_db: 0.0,
+            cd_volume_adjustment_db: 0.0,
+        }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Sega32XAppConfig {
-    #[serde(default = "default_sh2_multiplier")]
     pub sh2_clock_multiplier: NonZeroU64,
-    #[serde(default)]
     pub video_out: S32XVideoOut,
-    #[serde(default = "true_fn")]
     pub apply_genesis_lpf_to_pwm: bool,
-    #[serde(default = "true_fn")]
     pub darken_genesis_colors: bool,
-    #[serde(default)]
     pub color_tint: S32XColorTint,
-    #[serde(default = "true_fn")]
     pub show_high_priority: bool,
-    #[serde(default = "true_fn")]
     pub show_low_priority: bool,
-    #[serde(default)]
     pub void_color_type: S32XVoidColorType,
-    #[serde(default = "default_void_palette_index")]
     pub void_palette_index: u8,
-    #[serde(default = "default_void_direct")]
     pub void_direct: [u8; 3],
-    #[serde(default)]
     pub void_direct_priority: bool,
-    #[serde(default)]
     pub pwm_resampling: S32XPwmResampling,
-    #[serde(default = "true_fn")]
     pub pwm_enabled: bool,
-    #[serde(default)]
     pub pwm_volume_adjustment_db: f64,
-}
-
-fn default_sh2_multiplier() -> NonZeroU64 {
-    NonZeroU64::new(genesis_config::NATIVE_SH2_MULTIPLIER).unwrap()
-}
-
-fn default_void_palette_index() -> u8 {
-    0
-}
-
-fn default_void_direct() -> [u8; 3] {
-    [0; 3]
 }
 
 impl Default for Sega32XAppConfig {
     fn default() -> Self {
-        toml::from_str("").unwrap()
+        Self {
+            sh2_clock_multiplier: NonZeroU64::new(genesis_config::NATIVE_SH2_MULTIPLIER).unwrap(),
+            video_out: S32XVideoOut::default(),
+            apply_genesis_lpf_to_pwm: true,
+            darken_genesis_colors: true,
+            color_tint: S32XColorTint::default(),
+            show_high_priority: true,
+            show_low_priority: true,
+            void_color_type: S32XVoidColorType::default(),
+            void_palette_index: 0,
+            void_direct: [0; 3],
+            void_direct_priority: false,
+            pwm_resampling: S32XPwmResampling::default(),
+            pwm_enabled: true,
+            pwm_volume_adjustment_db: 0.0,
+        }
     }
 }

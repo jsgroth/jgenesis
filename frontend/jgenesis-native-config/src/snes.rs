@@ -4,18 +4,16 @@ use snes_config::{AudioInterpolationMode, SnesAspectRatio};
 use std::num::NonZeroU64;
 use std::path::PathBuf;
 
+const DEFAULT_GSU_OVERCLOCK: NonZeroU64 = NonZeroU64::new(1).unwrap();
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SnesAppConfig {
     pub forced_timing_mode: Option<TimingMode>,
-    #[serde(default)]
     pub aspect_ratio: SnesAspectRatio,
-    #[serde(default = "true_fn")]
     pub deinterlace: bool,
-    #[serde(default)]
     pub audio_interpolation: AudioInterpolationMode,
-    #[serde(default)]
     pub audio_60hz_hack: bool,
-    #[serde(default = "default_gsu_overclock")]
     pub gsu_overclock_factor: NonZeroU64,
     pub dsp1_rom_path: Option<PathBuf>,
     pub dsp2_rom_path: Option<PathBuf>,
@@ -26,16 +24,22 @@ pub struct SnesAppConfig {
     pub st018_rom_path: Option<PathBuf>,
 }
 
-const fn true_fn() -> bool {
-    true
-}
-
-fn default_gsu_overclock() -> NonZeroU64 {
-    NonZeroU64::new(1).unwrap()
-}
-
 impl Default for SnesAppConfig {
     fn default() -> Self {
-        toml::from_str("").unwrap()
+        Self {
+            forced_timing_mode: None,
+            aspect_ratio: SnesAspectRatio::default(),
+            deinterlace: true,
+            audio_interpolation: AudioInterpolationMode::default(),
+            audio_60hz_hack: false,
+            gsu_overclock_factor: DEFAULT_GSU_OVERCLOCK,
+            dsp1_rom_path: None,
+            dsp2_rom_path: None,
+            dsp3_rom_path: None,
+            dsp4_rom_path: None,
+            st010_rom_path: None,
+            st011_rom_path: None,
+            st018_rom_path: None,
+        }
     }
 }

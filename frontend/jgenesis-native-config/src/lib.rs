@@ -27,38 +27,36 @@ pub const DEFAULT_GUI_WIDTH: f32 = 900.0;
 pub const DEFAULT_GUI_HEIGHT: f32 = 675.0;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ListFilters {
-    #[serde(default = "true_fn")]
     pub master_system: bool,
-    #[serde(default = "true_fn")]
     pub game_gear: bool,
-    #[serde(default = "true_fn")]
     pub sg_1000: bool,
-    #[serde(default = "true_fn")]
     pub genesis: bool,
-    #[serde(default = "true_fn")]
     pub sega_cd: bool,
-    #[serde(default = "true_fn")]
     pub sega_32x: bool,
-    #[serde(default = "true_fn")]
     pub nes: bool,
-    #[serde(default = "true_fn")]
     pub snes: bool,
-    #[serde(default = "true_fn")]
     pub game_boy: bool,
-    #[serde(default = "true_fn")]
     pub game_boy_color: bool,
-    #[serde(default = "true_fn")]
     pub game_boy_advance: bool,
-}
-
-fn true_fn() -> bool {
-    true
 }
 
 impl Default for ListFilters {
     fn default() -> Self {
-        toml::from_str("").unwrap()
+        Self {
+            master_system: true,
+            game_gear: true,
+            sg_1000: true,
+            genesis: true,
+            sega_cd: true,
+            sega_32x: true,
+            nes: true,
+            snes: true,
+            game_boy: true,
+            game_boy_color: true,
+            game_boy_advance: true,
+        }
     }
 }
 
@@ -77,50 +75,26 @@ pub enum EguiTheme {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AppConfig {
-    #[serde(default)]
     pub config_version: Option<String>,
-    #[serde(default)]
     pub common: CommonAppConfig,
-    #[serde(default)]
     pub smsgg: SmsGgAppConfig,
-    #[serde(default)]
     pub genesis: GenesisAppConfig,
-    #[serde(default)]
     pub sega_cd: SegaCdAppConfig,
-    #[serde(default)]
     pub sega_32x: Sega32XAppConfig,
-    #[serde(default)]
     pub nes: NesAppConfig,
-    #[serde(default)]
     pub snes: SnesAppConfig,
-    #[serde(default)]
     pub game_boy: GameBoyAppConfig,
-    #[serde(default)]
     pub game_boy_advance: GameBoyAdvanceAppConfig,
-    #[serde(default)]
     pub input: InputAppConfig,
     // TODO move GUI-specific config/state somewhere else - separate file?
-    #[serde(default)]
     pub list_filters: ListFilters,
-    #[serde(default)]
     pub rom_search_dirs: Vec<String>,
-    #[serde(default)]
     pub recent_open_list: Vec<RecentOpen>,
-    #[serde(default)]
     pub egui_theme: EguiTheme,
-    #[serde(default = "default_gui_width")]
     pub gui_window_width: f32,
-    #[serde(default = "default_gui_height")]
     pub gui_window_height: f32,
-}
-
-fn default_gui_width() -> f32 {
-    DEFAULT_GUI_WIDTH
-}
-
-fn default_gui_height() -> f32 {
-    DEFAULT_GUI_HEIGHT
 }
 
 impl AppConfig {
@@ -135,9 +109,25 @@ impl AppConfig {
 
 impl Default for AppConfig {
     fn default() -> Self {
-        let mut config: AppConfig = toml::from_str("").unwrap();
-        config.config_version = Some(current_config_version().into());
-        config
+        Self {
+            config_version: Some(current_config_version().into()),
+            common: CommonAppConfig::default(),
+            smsgg: SmsGgAppConfig::default(),
+            genesis: GenesisAppConfig::default(),
+            sega_cd: SegaCdAppConfig::default(),
+            sega_32x: Sega32XAppConfig::default(),
+            nes: NesAppConfig::default(),
+            snes: SnesAppConfig::default(),
+            game_boy: GameBoyAppConfig::default(),
+            game_boy_advance: GameBoyAdvanceAppConfig::default(),
+            input: InputAppConfig::default(),
+            list_filters: ListFilters::default(),
+            rom_search_dirs: vec![],
+            recent_open_list: vec![],
+            egui_theme: EguiTheme::default(),
+            gui_window_width: DEFAULT_GUI_WIDTH,
+            gui_window_height: DEFAULT_GUI_HEIGHT,
+        }
     }
 }
 

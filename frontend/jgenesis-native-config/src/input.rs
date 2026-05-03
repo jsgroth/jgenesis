@@ -2,8 +2,8 @@ pub mod mappings;
 mod serialize;
 
 use crate::input::mappings::{
-    GameBoyInputConfig, GenesisInputConfig, HotkeyConfig, NesInputConfig, SmsGgInputConfig,
-    SnesInputConfig,
+    GameBoyInputConfig, GbaInputConfig, GenesisInputConfig, HotkeyConfig, NesInputConfig,
+    SmsGgInputConfig, SnesInputConfig,
 };
 use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 use sdl3::keyboard::Keycode;
@@ -277,31 +277,31 @@ impl Hotkey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct InputAppConfig {
-    #[serde(default)]
     pub smsgg: SmsGgInputConfig,
-    #[serde(default)]
     pub genesis: GenesisInputConfig,
-    #[serde(default)]
     pub nes: NesInputConfig,
-    #[serde(default)]
     pub snes: SnesInputConfig,
-    #[serde(default)]
     pub game_boy: GameBoyInputConfig,
-    #[serde(default)]
     pub game_boy_advance: mappings::GbaInputConfig,
-    #[serde(default)]
     pub hotkeys: HotkeyConfig,
-    #[serde(default = "default_axis_deadzone")]
     pub axis_deadzone: i16,
 }
 
-fn default_axis_deadzone() -> i16 {
-    8000
-}
+const DEFAULT_AXIS_DEADZONE: i16 = 8000;
 
 impl Default for InputAppConfig {
     fn default() -> Self {
-        toml::from_str("").unwrap()
+        Self {
+            smsgg: SmsGgInputConfig::default(),
+            genesis: GenesisInputConfig::default(),
+            nes: NesInputConfig::default(),
+            snes: SnesInputConfig::default(),
+            game_boy: GameBoyInputConfig::default(),
+            game_boy_advance: GbaInputConfig::default(),
+            hotkeys: HotkeyConfig::default(),
+            axis_deadzone: DEFAULT_AXIS_DEADZONE,
+        }
     }
 }

@@ -173,14 +173,11 @@ impl SmsGgControllerMapping {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ConfigDisplay)]
+#[serde(default)]
 pub struct SmsGgInputMapping {
-    #[serde(default)]
     pub p1: SmsGgControllerMapping,
-    #[serde(default)]
     pub p2: SmsGgControllerMapping,
-    #[serde(default)]
     pub p1_turbo: SmsGgControllerMapping,
-    #[serde(default)]
     pub p2_turbo: SmsGgControllerMapping,
     #[cfg_display(debug_fmt)]
     pub pause: Option<Vec<GenericInput>>,
@@ -198,11 +195,10 @@ impl SmsGgInputMapping {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
+#[serde(default)]
 pub struct SmsGgInputConfig {
-    #[serde(default = "default_smsgg_mapping_1")]
     #[cfg_display(indent_nested)]
     pub mapping_1: SmsGgInputMapping,
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub mapping_2: SmsGgInputMapping,
 }
@@ -283,17 +279,14 @@ impl GenesisControllerMapping {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ConfigDisplay)]
+#[serde(default)]
 pub struct GenesisInputMapping {
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub p1: GenesisControllerMapping,
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub p2: GenesisControllerMapping,
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub p1_turbo: GenesisControllerMapping,
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub p2_turbo: GenesisControllerMapping,
 }
@@ -306,15 +299,12 @@ impl GenesisInputMapping {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
+#[serde(default)]
 pub struct GenesisInputConfig {
-    #[serde(default)]
     pub p1_type: GenesisControllerType,
-    #[serde(default)]
     pub p2_type: GenesisControllerType,
-    #[serde(default = "default_genesis_mapping_1")]
     #[cfg_display(indent_nested)]
     pub mapping_1: GenesisInputMapping,
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub mapping_2: GenesisInputMapping,
 }
@@ -402,20 +392,16 @@ impl NesZapperMapping {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ConfigDisplay)]
+#[serde(default)]
 pub struct NesInputMapping {
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub p1: NesControllerMapping,
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub p2: NesControllerMapping,
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub p1_turbo: NesControllerMapping,
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub p2_turbo: NesControllerMapping,
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub zapper: NesZapperMapping,
 }
@@ -439,13 +425,11 @@ pub enum NesControllerType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
+#[serde(default)]
 pub struct NesInputConfig {
-    #[serde(default)]
     pub p2_type: NesControllerType,
-    #[serde(default = "default_nes_mapping_1")]
     #[cfg_display(indent_nested)]
     pub mapping_1: NesInputMapping,
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub mapping_2: NesInputMapping,
 }
@@ -549,20 +533,16 @@ impl SnesSuperScopeMapping {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ConfigDisplay)]
+#[serde(default)]
 pub struct SnesInputMapping {
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub p1: SnesControllerMapping,
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub p2: SnesControllerMapping,
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub p1_turbo: SnesControllerMapping,
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub p2_turbo: SnesControllerMapping,
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub super_scope: SnesSuperScopeMapping,
 }
@@ -586,13 +566,11 @@ pub enum SnesControllerType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
+#[serde(default)]
 pub struct SnesInputConfig {
-    #[serde(default)]
     pub p2_type: SnesControllerType,
-    #[serde(default = "default_snes_mapping_1")]
     #[cfg_display(indent_nested)]
     pub mapping_1: SnesInputMapping,
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub mapping_2: SnesInputMapping,
 }
@@ -665,17 +643,14 @@ impl GameBoyInputMapping {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
+#[serde(default)]
 pub struct GameBoyInputConfig {
-    #[serde(default = "default_gb_mapping_1")]
     #[cfg_display(indent_nested)]
     pub mapping_1: GameBoyInputMapping,
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub mapping_2: GameBoyInputMapping,
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub mapping_1_turbo: GameBoyInputMapping,
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub mapping_2_turbo: GameBoyInputMapping,
 }
@@ -772,11 +747,10 @@ define_controller_mapping!(GbaSolarMapping, GbaButton, [
 ]);
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ConfigDisplay)]
+#[serde(default)]
 pub struct GbaInputMapping {
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub joypad: GbaJoypadMapping,
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub solar: GbaSolarMapping,
 }
@@ -789,17 +763,14 @@ impl GbaInputMapping {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
+#[serde(default)]
 pub struct GbaInputConfig {
-    #[serde(default = "default_gba_mapping_1")]
     #[cfg_display(indent_nested)]
     pub mapping_1: GbaInputMapping,
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub mapping_2: GbaInputMapping,
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub mapping_1_turbo: GbaInputMapping,
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub mapping_2_turbo: GbaInputMapping,
 }
@@ -936,11 +907,10 @@ define_hotkey_mapping!(
 );
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
+#[serde(default)]
 pub struct HotkeyConfig {
-    #[serde(default = "default_hotkey_mapping_1")]
     #[cfg_display(indent_nested)]
     pub mapping_1: HotkeyMapping,
-    #[serde(default)]
     #[cfg_display(indent_nested)]
     pub mapping_2: HotkeyMapping,
 }
@@ -955,10 +925,6 @@ impl HotkeyConfig {
 
         out
     }
-}
-
-fn default_hotkey_mapping_1() -> HotkeyMapping {
-    HotkeyMapping::default_keyboard()
 }
 
 impl Default for HotkeyConfig {
