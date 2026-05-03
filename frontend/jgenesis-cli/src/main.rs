@@ -40,6 +40,8 @@ enum Hardware {
     Snes,
     GameBoy,
     GameBoyAdvance,
+    #[cfg(feature = "unstable-cores")]
+    PcEngine,
 }
 
 const SMSGG_OPTIONS_HEADING: &str = "Master System / Game Gear Options";
@@ -981,6 +983,8 @@ fn main() -> anyhow::Result<()> {
         Hardware::Snes => run_snes(args, config),
         Hardware::GameBoy => run_gb(args, config),
         Hardware::GameBoyAdvance => run_gba(args, config),
+        #[cfg(feature = "unstable-cores")]
+        Hardware::PcEngine => run_pce(args, config),
     }
 }
 
@@ -1008,6 +1012,8 @@ fn guess_hardware(args: &Args) -> Hardware {
         Console::Snes => Hardware::Snes,
         Console::GameBoy | Console::GameBoyColor => Hardware::GameBoy,
         Console::GameBoyAdvance => Hardware::GameBoyAdvance,
+        #[cfg(feature = "unstable-cores")]
+        Console::PcEngine => Hardware::PcEngine,
     }
 }
 
@@ -1059,6 +1065,13 @@ fn run_gb(args: Args, config: AppConfig) -> anyhow::Result<()> {
 fn run_gba(args: Args, config: AppConfig) -> anyhow::Result<()> {
     let mut emulator =
         jgenesis_native_driver::create_gba(config.gba_config(args.file_path.clone()))?;
+    run_emulator(&mut emulator, &args)
+}
+
+#[cfg(feature = "unstable-cores")]
+fn run_pce(args: Args, config: AppConfig) -> anyhow::Result<()> {
+    let mut emulator =
+        jgenesis_native_driver::create_pce(config.pce_config(args.file_path.clone()))?;
     run_emulator(&mut emulator, &args)
 }
 

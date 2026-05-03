@@ -12,6 +12,8 @@ pub use mainloop::{
     SAVE_STATE_SLOTS, SaveStateMetadata, SaveWriteError, create_32x, create_gb, create_gba,
     create_genesis, create_nes, create_sega_cd, create_smsgg, create_snes,
 };
+#[cfg(feature = "pce")]
+pub use mainloop::{NativePcEngineEmulator, create_pce};
 use sdl3::VideoSubsystem;
 
 #[must_use]

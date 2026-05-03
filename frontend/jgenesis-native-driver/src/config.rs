@@ -11,6 +11,8 @@ use jgenesis_common::frontend::{ColorCorrection, FiniteF32};
 use jgenesis_native_config::common::{
     ConfigSavePath, HideMouseCursor, PauseEmulator, SavePath, WindowSize,
 };
+#[cfg(feature = "pce")]
+use jgenesis_native_config::input::mappings::PceInputConfig;
 use jgenesis_native_config::input::mappings::{
     GameBoyInputConfig, GenesisInputConfig, HotkeyConfig, NesInputConfig, SmsGgInputConfig,
     SnesInputConfig,
@@ -19,6 +21,8 @@ use jgenesis_native_config::{AppConfig, EguiTheme};
 use jgenesis_proc_macros::ConfigDisplay;
 use jgenesis_renderer::config::{PreprocessShader, PrescaleMode, RendererConfig};
 use nes_core::api::NesEmulatorConfig;
+#[cfg(feature = "pce")]
+use pce_core::api::PceEmulatorConfig;
 use s32x_core::api::Sega32XEmulatorConfig;
 use segacd_core::api::SegaCdEmulatorConfig;
 use smsgg_core::{SmsGgEmulatorConfig, SmsGgHardware};
@@ -280,6 +284,17 @@ pub struct GameBoyAdvanceConfig {
     pub solar_max_brightness: u8,
 }
 
+#[cfg(feature = "pce")]
+#[derive(Debug, Clone, ConfigDisplay)]
+pub struct PcEngineConfig {
+    #[cfg_display(indent_nested)]
+    pub common: CommonConfig,
+    #[cfg_display(indent_nested)]
+    pub inputs: PceInputConfig,
+    #[cfg_display(indent_nested)]
+    pub emulator_config: PceEmulatorConfig,
+}
+
 pub trait AppConfigExt {
     #[must_use]
     fn common_config(&self, path: PathBuf) -> CommonConfig;
@@ -307,6 +322,9 @@ pub trait AppConfigExt {
 
     #[must_use]
     fn gba_config(&self, path: PathBuf) -> Box<GameBoyAdvanceConfig>;
+
+    #[cfg(feature = "pce")]
+    fn pce_config(&self, path: PathBuf) -> Box<PcEngineConfig>;
 }
 
 impl AppConfigExt for AppConfig {
@@ -609,6 +627,15 @@ impl AppConfigExt for AppConfig {
             solar_brightness_step: self.game_boy_advance.solar_brightness_step,
             solar_min_brightness: self.game_boy_advance.solar_min_brightness,
             solar_max_brightness: self.game_boy_advance.solar_max_brightness,
+        })
+    }
+
+    #[cfg(feature = "pce")]
+    fn pce_config(&self, path: PathBuf) -> Box<PcEngineConfig> {
+        Box::new(PcEngineConfig {
+            common: self.common_config(path),
+            inputs: self.input.pc_engine.clone(),
+            emulator_config: PceEmulatorConfig { placeholder: 0 },
         })
     }
 }

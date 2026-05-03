@@ -1,0 +1,19 @@
+[package]
+name = "pce-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+jgenesis-common = { workspace = true }
+jgenesis-proc-macros = { workspace = true }
+
+huc6280-emu = { workspace = true }
+
+pce-config = { workspace = true }
+
+bincode = { workspace = true }
+log = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

@@ -50,6 +50,9 @@ impl WindowSize {
     const GBA_HEIGHT: f64 = 160.0;
     const GBA_WIDTH: f64 = 240.0;
 
+    const PCE_WIDTH: f64 = 256.0;
+    const PCE_HEIGHT: f64 = 224.0;
+
     #[must_use]
     pub fn new(native_width: f64, native_height: f64, size: NonZeroU8) -> Self {
         let size: f64 = size.get().into();
@@ -171,6 +174,12 @@ impl WindowSize {
     #[must_use]
     pub fn new_gba(size: NonZeroU8) -> Self {
         Self::new(Self::GBA_WIDTH, Self::GBA_HEIGHT, size)
+    }
+
+    #[must_use]
+    pub fn new_pce(size: NonZeroU8) -> Self {
+        // TODO aspect ratio
+        Self::new(Self::PCE_WIDTH, Self::PCE_HEIGHT, size)
     }
 
     #[must_use]

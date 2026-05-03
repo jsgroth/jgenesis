@@ -82,6 +82,7 @@ gba-config = { path = "config/gba-config" }
 gb-config = { path = "config/gb-config" }
 genesis-config = { path = "config/genesis-config" }
 nes-config = { path = "config/nes-config" }
+pce-config = { path = "config/pce-config" }
 smsgg-config = { path = "config/smsgg-config" }
 snes-config = { path = "config/snes-config" }
 
@@ -90,6 +91,7 @@ gba-core = { path = "backend/gba-core" }
 gb-core = { path = "backend/gb-core" }
 genesis-core = { path = "backend/genesis-core" }
 nes-core = { path = "backend/nes-core" }
+pce-core = { path = "backend/pce-core" }
 s32x-core = { path = "backend/s32x-core" }
 segacd-core = { path = "backend/segacd-core" }
 smsgg-core = { path = "backend/smsgg-core" }

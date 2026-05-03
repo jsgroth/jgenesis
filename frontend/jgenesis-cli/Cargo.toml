@@ -7,7 +7,7 @@ edition = "2024"
 
 [features]
 default = ["sdl3-build-from-source"]
-unstable-cores = []
+unstable-cores = ["jgenesis-native-driver/pce"]
 
 sdl3-build-from-source = ["sdl3/build-from-source"]
 sdl3-static-link = ["sdl3/static-link"]

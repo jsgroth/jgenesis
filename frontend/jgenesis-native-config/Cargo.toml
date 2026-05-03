@@ -6,6 +6,7 @@ edition = "2024"
 [features]
 default = []
 clap = ["dep:clap"]
+pce = ["dep:pce-config"]
 
 [dependencies]
 jgenesis-common = { workspace = true, features = ["serde"] }
@@ -15,6 +16,7 @@ gb-config = { workspace = true, features = ["serde"] }
 gba-config = { workspace = true, features = ["serde"] }
 genesis-config = { workspace = true, features = ["serde"] }
 nes-config = { workspace = true, features = ["serde"] }
+pce-config = { workspace = true, optional = true }
 smsgg-config = { workspace = true, features = ["serde"] }
 snes-config = { workspace = true, features = ["serde"] }
 
