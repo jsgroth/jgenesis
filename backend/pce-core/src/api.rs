@@ -5,7 +5,7 @@ use crate::video::VideoSubsystem;
 use bincode::{Decode, Encode};
 use huc6280_emu::Huc6280;
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorConfigTrait, EmulatorTrait, FiniteF64, InputPoller, PartialClone,
+    AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FiniteF64, InputPoller, PartialClone,
     RenderFrameOptions, Renderer, SaveWriter, TickEffect, TickResult,
 };
 use jgenesis_proc_macros::ConfigDisplay;
@@ -77,6 +77,14 @@ impl PcEngineEmulator {
                 ..RenderFrameOptions::default()
             },
         )
+    }
+
+    pub fn dump_vram(&self, palette: u16, out: &mut [[Color; 64]]) {
+        self.video.dump_vram(palette, out);
+    }
+
+    pub fn dump_palettes(&self, out: &mut [Color]) {
+        self.video.dump_palettes(out);
     }
 }
 

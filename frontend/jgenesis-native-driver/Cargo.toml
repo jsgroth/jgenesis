@@ -8,7 +8,7 @@ edition = "2024"
 [features]
 default = []
 clap = ["dep:clap"]
-pce = ["jgenesis-native-config/pce", "dep:pce-core", "dep:pce-config"]
+pce = ["jgenesis-native-config/pce", "jgenesis-debugger-frontend/pce", "dep:pce-core", "dep:pce-config"]
 
 [dependencies]
 cdrom = { workspace = true }

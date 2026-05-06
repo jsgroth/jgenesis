@@ -1,9 +1,11 @@
 //! HuC6260 VCE (video color encoder)
 
-use crate::video::WordByte;
+use crate::video::{WordByte, palette};
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::BoxedWordArray;
+use jgenesis_common::frontend::Color;
 use jgenesis_common::num::{GetBit, U16Ext};
+use std::iter;
 
 pub const CRAM_LEN_WORDS: usize = 512;
 
@@ -128,6 +130,15 @@ impl Vce {
 
         if byte == WordByte::High {
             self.color_table_address = (self.color_table_address + 1) & (CRAM_LEN_WORDS - 1) as u16;
+        }
+    }
+
+    pub fn dump_palettes(&self, out: &mut [Color]) {
+        for (cram_color, out_color) in
+            iter::zip(self.cram.iter().copied(), &mut out[..CRAM_LEN_WORDS])
+        {
+            let (r, g, b) = palette::read(cram_color);
+            *out_color = Color::rgb(r, g, b);
         }
     }
 }

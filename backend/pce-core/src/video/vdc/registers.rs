@@ -250,7 +250,16 @@ impl Vdc {
     }
 
     pub fn read_data(&mut self, byte: WordByte) -> u8 {
-        todo!("VDC read {byte:?}")
+        let value = byte.get(self.registers.vram_read_buffer);
+
+        // MARR only increments when selected register is VRR/VWR
+        if self.selected_register == 0x02 && byte == WordByte::High {
+            // TODO timing
+            self.registers.vram_read_buffer = self.read_vram(self.registers.vram_read_address);
+            self.increment_vram_read_address();
+        }
+
+        value
     }
 
     pub fn write_data(&mut self, value: u8, byte: WordByte) {

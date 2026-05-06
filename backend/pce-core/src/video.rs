@@ -21,6 +21,13 @@ enum WordByte {
 }
 
 impl WordByte {
+    fn get(self, word: u16) -> u8 {
+        match self {
+            Self::Low => word.lsb(),
+            Self::High => word.msb(),
+        }
+    }
+
     fn set(self, word: &mut u16, byte: u8) {
         match self {
             Self::Low => word.set_lsb(byte),
@@ -124,7 +131,7 @@ impl VideoSubsystem {
         for row in 0..vdc::FRAME_BUFFER_HEIGHT {
             for col in 0..vdc::FRAME_BUFFER_WIDTH {
                 let vdc_color = vdc_frame_buffer.colors[row][col];
-                let (r, g, b) = palette::PALETTE[vdc_color as usize];
+                let (r, g, b) = palette::read(vdc_color);
                 self.frame_buffer.0[row * vdc::FRAME_BUFFER_WIDTH + col] = Color::rgb(r, g, b);
             }
         }
@@ -181,5 +188,13 @@ impl VideoSubsystem {
             6 | 7 => {} // Unused
             _ => unreachable!("value & 7 is always <= 7"),
         }
+    }
+
+    pub fn dump_vram(&self, palette: u16, out: &mut [[Color; 64]]) {
+        self.vdc.dump_vram(palette, out, &self.vce);
+    }
+
+    pub fn dump_palettes(&self, out: &mut [Color]) {
+        self.vce.dump_palettes(out);
     }
 }

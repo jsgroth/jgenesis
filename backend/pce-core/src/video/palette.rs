@@ -513,3 +513,7 @@ pub const PALETTE: &[(u8, u8, u8); 512] = &[
     (255, 255, 233),
     (255, 255, 255),
 ];
+
+pub fn read(vce_color: u16) -> (u8, u8, u8) {
+    PALETTE[(vce_color & 0x1FF) as usize]
+}

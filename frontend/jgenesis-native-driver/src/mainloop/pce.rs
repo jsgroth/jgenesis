@@ -68,6 +68,11 @@ pub fn create_pce(config: Box<PcEngineConfig>) -> NativeEmulatorResult<NativePcE
             save_state_path,
             config.inputs.to_mapping_vec(),
         )
-        .with_turbo_mappings(config.inputs.to_turbo_mapping_vec()),
+        .with_turbo_mappings(config.inputs.to_turbo_mapping_vec())
+        .with_debug_fn(|| {
+            jgenesis_debugger_frontend::partial_clone_debug_fn(
+                jgenesis_debugger_frontend::pce::render_fn(),
+            )
+        }),
     )
 }

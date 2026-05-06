@@ -2603,6 +2603,7 @@ dependencies = [
  "log",
  "m68000-emu",
  "nes-core",
+ "pce-core",
  "pollster",
  "rand 0.10.0",
  "rfd",

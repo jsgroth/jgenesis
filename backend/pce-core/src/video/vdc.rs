@@ -1,5 +1,6 @@
 //! HuC6270 VDC (video display controller)
 
+mod debug;
 mod registers;
 
 use crate::video::MCLK_CYCLES_PER_SCANLINE;
