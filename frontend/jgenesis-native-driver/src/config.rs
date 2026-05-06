@@ -14,8 +14,8 @@ use jgenesis_native_config::common::{
 #[cfg(feature = "pce")]
 use jgenesis_native_config::input::mappings::PceInputConfig;
 use jgenesis_native_config::input::mappings::{
-    GameBoyInputConfig, GenesisInputConfig, HotkeyConfig, NesInputConfig, SmsGgInputConfig,
-    SnesInputConfig,
+    GameBoyInputConfig, GbaInputConfig, GenesisInputConfig, HotkeyConfig, NesInputConfig,
+    SmsGgInputConfig, SnesInputConfig,
 };
 use jgenesis_native_config::{AppConfig, EguiTheme};
 use jgenesis_proc_macros::ConfigDisplay;
@@ -274,7 +274,7 @@ pub struct GameBoyAdvanceConfig {
     #[cfg_display(indent_nested)]
     pub common: CommonConfig,
     #[cfg_display(indent_nested)]
-    pub inputs: jgenesis_native_config::input::mappings::GbaInputConfig,
+    pub inputs: GbaInputConfig,
     #[cfg_display(indent_nested)]
     pub emulator_config: GbaEmulatorConfig,
     #[cfg_display(path)]

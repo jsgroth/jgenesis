@@ -1,8 +1,12 @@
+use crate::bus::Bus;
+use crate::input::InputState;
+use crate::memory::{HuCard, Memory};
+use crate::video::VideoSubsystem;
 use bincode::{Decode, Encode};
 use huc6280_emu::Huc6280;
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorConfigTrait, EmulatorTrait, InputPoller, PartialClone, Renderer,
-    SaveWriter, TickResult,
+    AudioOutput, EmulatorConfigTrait, EmulatorTrait, FiniteF64, InputPoller, PartialClone,
+    RenderFrameOptions, Renderer, SaveWriter, TickEffect, TickResult,
 };
 use jgenesis_proc_macros::ConfigDisplay;
 use pce_config::{PceButton, PceInputs};
@@ -29,13 +33,50 @@ pub enum PceError<RErr, AErr, SErr> {
 #[derive(Debug, Clone, PartialClone, Encode, Decode)]
 pub struct PcEngineEmulator {
     cpu: Huc6280,
-    rom: Vec<u8>,
+    video: VideoSubsystem,
+    memory: Memory,
+    cartridge: HuCard,
+    input_state: InputState,
     config: PceEmulatorConfig,
+    cycle_counter: u64,
 }
 
 impl PcEngineEmulator {
+    #[must_use]
     pub fn create(rom: Vec<u8>, config: PceEmulatorConfig) -> Self {
-        Self { cpu: Huc6280::new(), rom, config }
+        let mut emulator = Self {
+            cpu: Huc6280::new(),
+            video: VideoSubsystem::new(),
+            memory: Memory::new(),
+            cartridge: HuCard::new(rom),
+            input_state: InputState::new(),
+            config,
+            cycle_counter: 0,
+        };
+
+        emulator.cpu.reset(&mut Bus {
+            memory: &mut emulator.memory,
+            video: &mut emulator.video,
+            cartridge: &emulator.cartridge,
+            input: &mut emulator.input_state,
+            cycle_counter: &mut emulator.cycle_counter,
+        });
+
+        emulator
+    }
+
+    fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
+        self.video.render_rgba8_frame_buffer();
+
+        renderer.render_frame(
+            self.video.frame_buffer(),
+            self.video.frame_size(),
+            60.0, // TODO
+            RenderFrameOptions {
+                pixel_aspect_ratio: Some(FiniteF64::try_from(8.0 / 7.0 / 4.0).unwrap()),
+                ..RenderFrameOptions::default()
+            },
+        )
     }
 }
 
@@ -64,7 +105,25 @@ impl EmulatorTrait for PcEngineEmulator {
         I: InputPoller<Self::Inputs>,
         S: SaveWriter,
     {
-        todo!("tick")
+        self.input_state.update_inputs(*input_poller.poll());
+
+        self.cpu.execute_instruction(&mut Bus {
+            memory: &mut self.memory,
+            video: &mut self.video,
+            cartridge: &self.cartridge,
+            input: &mut self.input_state,
+            cycle_counter: &mut self.cycle_counter,
+        });
+
+        if self.video.frame_complete() {
+            self.video.clear_frame_complete();
+
+            self.render_frame(renderer).map_err(PceError::Render)?;
+
+            return Ok(TickEffect::FrameRendered);
+        }
+
+        Ok(TickEffect::None)
     }
 
     fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>
