@@ -119,6 +119,20 @@ impl Vce {
         log::trace!("  Color table address: {:03X}", self.color_table_address);
     }
 
+    // $1FE404-$1FE405: CTR (Color table data read register)
+    pub fn read_color_data(&mut self, byte: WordByte) -> u8 {
+        log::trace!("CTR {byte:?} read (current address {:03X})", self.color_table_address);
+
+        // Highest 7 bits always read 1
+        let color = self.cram[self.color_table_address as usize] | !0x1FF;
+
+        if byte == WordByte::High {
+            self.increment_color_table_address();
+        }
+
+        byte.get(color)
+    }
+
     // $1FE404-$1FE405: CTW (Color table data write register)
     pub fn write_color_data(&mut self, value: u8, byte: WordByte) {
         log::trace!(
@@ -126,11 +140,19 @@ impl Vce {
             self.color_table_address
         );
 
-        byte.set(&mut self.cram[self.color_table_address as usize], value);
+        let color = &mut self.cram[self.color_table_address as usize];
+        match byte {
+            WordByte::Low => color.set_lsb(value),
+            WordByte::High => color.set_msb(value & 1),
+        }
 
         if byte == WordByte::High {
-            self.color_table_address = (self.color_table_address + 1) & (CRAM_LEN_WORDS - 1) as u16;
+            self.increment_color_table_address();
         }
+    }
+
+    fn increment_color_table_address(&mut self) {
+        self.color_table_address = (self.color_table_address + 1) & (CRAM_LEN_WORDS - 1) as u16;
     }
 
     pub fn dump_palettes(&self, out: &mut [Color]) {

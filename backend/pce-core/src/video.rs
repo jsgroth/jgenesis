@@ -175,6 +175,20 @@ impl VideoSubsystem {
 
     // $1FE400-$1FE407: VCE ports
     #[allow(clippy::match_same_arms)]
+    pub fn read_vce(&mut self, address: u32) -> u8 {
+        log::trace!("VCE register read {address:06X}");
+
+        match address & 7 {
+            0..=3 => 0xFF, // Write-only / unused
+            4 => self.vce.read_color_data(WordByte::Low),
+            5 => self.vce.read_color_data(WordByte::High),
+            6 | 7 => 0xFF, // Unused
+            _ => unreachable!("value & 7 is always <= 7"),
+        }
+    }
+
+    // $1FE400-$1FE407: VCE ports
+    #[allow(clippy::match_same_arms)]
     pub fn write_vce(&mut self, address: u32, value: u8) {
         log::trace!("VCE register write {address:06X} {value:02X}");
 

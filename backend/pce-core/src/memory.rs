@@ -32,7 +32,7 @@ pub struct HuCard {
 
 impl HuCard {
     pub fn new(mut rom: Vec<u8>) -> Self {
-        jgenesis_common::rom::mirror_to_next_power_of_two(&mut rom);
+        rom = mirror_hucard_rom(rom);
 
         Self { rom: Rom(rom.into_boxed_slice()) }
     }
@@ -40,6 +40,52 @@ impl HuCard {
     pub fn read_rom(&self, address: u32) -> u8 {
         self.rom[(address as usize) & (self.rom.len() - 1)]
     }
+}
+
+fn mirror_hucard_rom(mut rom: Vec<u8>) -> Vec<u8> {
+    let mut new_rom = if rom.len() == 384 * 1024 {
+        // 384KB HuCards contain two ROM chips, a 256KB chip and a 128KB chip, mapped like so:
+        //   $000000-$07FFFF (banks $00-$3F): First 256KB of ROM, mirrored 2x
+        //   $080000-$0FFFFF (banks $40-$7F): Last 128KB of ROM, mirrored 4x
+        let mut new_rom = Vec::with_capacity(1024 * 1024);
+
+        for _ in 0..2 {
+            new_rom.extend(&rom[..256 * 1024]);
+        }
+        new_rom.extend(&rom[256 * 1024..]);
+
+        new_rom
+    } else if rom.len() == 512 * 1024 {
+        // 512KB HuCards can apparently be one of two mappings.
+        // Mapping A (2x 256KB chips):
+        //   $000000-$07FFFF (banks $00-$3F): First 256KB of ROM, mirrored 2x
+        //   $080000-$0FFFFF (banks $40-$7F): Last 256KB of ROM, mirrored 2x
+        // Mapping B (1x 512KB chip):
+        //   $000000-$0FFFFF (banks $00-$7F): Full 512KB of ROM, mirrored 2x
+        // It's virtually impossible to detect which mapping a game expects, so for highest
+        // compatibility, mirror the last 256KB of ROM 3x (inspired by what Mednafen does).
+        // Explicitly:
+        //   $00-$1F: First 256KB
+        //   $20-$3F: Second 256KB (important for games with 1x 512KB chip)
+        //   $40-$5F: Second 256KB (important for games with 2x 256KB chips)
+        //   $60-$7F: Second 256KB (probably never used?)
+        if rom.capacity() < 1024 * 1024 {
+            rom.reserve(1024 * 1024 - rom.capacity());
+        }
+
+        for i in 0..256 * 1024 {
+            rom.push(rom[i]);
+        }
+
+        rom
+    } else {
+        // For other sizes (e.g. 768KB or 1MB), normal mirroring up to the next power of two works
+        rom
+    };
+
+    jgenesis_common::rom::mirror_to_next_power_of_two(&mut new_rom);
+
+    new_rom
 }
 
 trait ClockSpeedExt {

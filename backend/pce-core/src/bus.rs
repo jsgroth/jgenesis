@@ -20,18 +20,25 @@ impl Bus<'_> {
         self.memory.cpu_registers().set_irq1(self.video.vdc_irq());
     }
 
+    #[allow(clippy::match_same_arms)]
     fn read_io(&mut self, address: u32) -> u8 {
         match address {
             0x1FE000..=0x1FE3FF => self.video.read_vdc(address),
+            0x1FE400..=0x1FE7FF => self.video.read_vce(address),
+            0x1FE800..=0x1FEBFF => todo!("PSG read {address:06X}"),
+            0x1FEC00..=0x1FEFFF => todo!("timer read {address:06X}"),
             0x1FF000..=0x1FF3FF => {
                 let value = self.input.read_port();
                 self.memory.cpu_registers().update_io_buffer(value, !0)
             }
             0x1FF400..=0x1FF7FF => self.memory.cpu_registers().read_interrupt_register(address),
+            0x1FF800..=0x1FFBFF => 0xFF, // CD-ROM
+            0x1FFC00..=0x1FFFFF => 0xFF, // Unused
             _ => todo!("read IO {address:06X}"),
         }
     }
 
+    #[allow(clippy::match_same_arms)]
     fn write_io(&mut self, address: u32, value: u8) {
         match address {
             0x1FE000..=0x1FE3FF => self.video.write_vdc(address, value),
@@ -49,6 +56,8 @@ impl Bus<'_> {
             0x1FF400..=0x1FF7FF => {
                 self.memory.cpu_registers().write_interrupt_register(address, value);
             }
+            0x1FF800..=0x1FFBFF => {} // CD-ROM
+            0x1FFC00..=0x1FFFFF => {} // Unused
             _ => todo!("write IO {address:06X} {value:02X}"),
         }
     }
