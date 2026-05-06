@@ -24,7 +24,7 @@ impl InputState {
                 [self.inputs.button1, self.inputs.button2, self.inputs.select, self.inputs.run]
             }
             (true, false) => {
-                [self.inputs.up, self.inputs.down, self.inputs.right, self.inputs.left]
+                [self.inputs.up, self.inputs.right, self.inputs.down, self.inputs.left]
             }
             (_, true) => [true; 4],
         };

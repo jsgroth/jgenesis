@@ -97,13 +97,15 @@ impl VideoSubsystem {
             prev_scanline_mclk = 0;
             self.state.scanline_mclk -= MCLK_CYCLES_PER_SCANLINE;
 
+            let lines_per_frame = self.vce.lines_per_frame();
+
             self.state.scanline += 1;
-            if self.state.scanline >= self.vce.lines_per_frame() {
+            if self.state.scanline >= lines_per_frame {
                 self.state.scanline = 0;
                 self.vdc.start_new_frame();
             }
 
-            self.vdc.start_new_line(self.state.scanline, dot_clock_divider);
+            self.vdc.start_new_line(self.state.scanline, dot_clock_divider, lines_per_frame);
         }
 
         let elapsed_vdc_dots = self

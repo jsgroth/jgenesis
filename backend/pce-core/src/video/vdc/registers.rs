@@ -547,7 +547,7 @@ impl Vdc {
                 byte.set(&mut self.registers.sat_dma_source_address, value);
 
                 if byte == WordByte::High {
-                    // TODO start VRAM-to-SAT DMA
+                    self.state.dma.sat_enabled = true;
                 }
 
                 log::trace!(

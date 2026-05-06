@@ -58,6 +58,10 @@ pub const FRAME_BUFFER_WIDTH: usize = (2 * MAX_WIDTH_DIV_2) as usize;
 // Some of these lines are usually overscan, where the VDC constantly outputs sprite color 0
 pub const FRAME_BUFFER_HEIGHT: usize = 242;
 
+pub const DMA_DOTS_PER_WORD: u8 = 4;
+
+pub const MAX_SPRITES_PER_LINE: usize = 16;
+
 impl DotClockDivider {
     pub fn dots_per_line(self) -> u64 {
         match self {
@@ -123,6 +127,30 @@ define_bit_enum!(CgMode, [ZeroOne, TwoThree]);
 // Single = 16px, Double = 32px
 define_bit_enum!(SpriteWidth, [Single, Double]);
 
+impl SpriteWidth {
+    pub fn to_pixels(self) -> u16 {
+        match self {
+            Self::Single => 16,
+            Self::Double => 32,
+        }
+    }
+
+    // 16px tiles
+    pub fn to_sprite_tiles(self) -> u16 {
+        match self {
+            Self::Single => 1,
+            Self::Double => 2,
+        }
+    }
+
+    pub fn tile_number_mask(self) -> u16 {
+        match self {
+            Self::Single => !0,
+            Self::Double => !1,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum SpriteHeight {
     #[default]
@@ -138,6 +166,22 @@ impl SpriteHeight {
             1 => Self::Double,
             2 | 3 => Self::Quad,
             _ => unreachable!("value & 3 is always <= 3"),
+        }
+    }
+
+    pub fn to_pixels(self) -> u16 {
+        match self {
+            Self::Single => 16,
+            Self::Double => 32,
+            Self::Quad => 64,
+        }
+    }
+
+    pub fn tile_number_mask(self) -> u16 {
+        match self {
+            Self::Single => !0,
+            Self::Double => !0b010,
+            Self::Quad => !0b110,
         }
     }
 }
@@ -157,6 +201,16 @@ pub struct SpriteTableEntry {
 }
 
 impl SpriteTableEntry {
+    pub fn write_word(&mut self, i: u16, word: u16) {
+        match i & 3 {
+            0 => self.write_first_word(word),
+            1 => self.write_second_word(word),
+            2 => self.write_third_word(word),
+            3 => self.write_fourth_word(word),
+            _ => unreachable!("value & 3 is always <= 3"),
+        }
+    }
+
     pub fn write_first_word(&mut self, word: u16) {
         self.y = word & 0x3FF;
     }
@@ -177,6 +231,41 @@ impl SpriteTableEntry {
         self.h_flip = word.bit(11);
         self.height = SpriteHeight::from_bits(word >> 12);
         self.v_flip = word.bit(15);
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct EvaluatedSpriteEntry {
+    pub sprite_idx: u8,
+    pub x: u16,
+    pub tile_number: u16,
+    pub tile_row: u16,
+    pub h_flip: bool,
+    pub priority: bool,
+    pub palette: u16,
+    pub cg_mode: CgMode,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BgTileRow {
+    pub cg0: u16,
+    pub cg1: u16,
+    pub palette: u16,
+}
+
+#[derive(Debug, Clone, Copy, Encode, Decode)]
+pub struct SpritePixel {
+    pub sprite_idx: u8,
+    pub priority: bool,
+    pub palette: u16,
+    pub color_idx: u16,
+}
+
+impl SpritePixel {
+    pub const TRANSPARENT: Self = Self { sprite_idx: 0, priority: false, palette: 0, color_idx: 0 };
+
+    pub fn transparent(self) -> bool {
+        self.color_idx == 0
     }
 }
 
@@ -286,6 +375,31 @@ impl HorizontalMode {
     }
 }
 
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct DmaState {
+    pub sat_enabled: bool,
+    pub sat_active: bool,
+    pub sat_address: u16,
+    pub dots_till_next_word: u8,
+}
+
+impl DmaState {
+    fn new() -> Self {
+        Self {
+            sat_enabled: false,
+            sat_active: false,
+            sat_address: 0,
+            dots_till_next_word: DMA_DOTS_PER_WORD,
+        }
+    }
+
+    fn start_sat(&mut self) {
+        self.sat_active = true;
+        self.sat_address = 0;
+        self.dots_till_next_word = DMA_DOTS_PER_WORD;
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VdcIrq {
     VBlank,
@@ -310,6 +424,7 @@ pub struct VdcState {
     pub v_mode_start_line: u16,
     pub bg_y_counter: u16,
     pub bg_y_scroll_written: bool,
+    pub dma: DmaState,
     // Dot clock divider is not _really_ latched per line, but pretending that it is
     // simplifies a lot of things
     pub line_divider: DotClockDivider,
@@ -340,6 +455,7 @@ impl VdcState {
             v_mode_start_line: 0,
             bg_y_counter: 0,
             bg_y_scroll_written: false,
+            dma: DmaState::new(),
             line_divider: DotClockDivider::default(),
             vblank_irq_pending: false,
             raster_compare_irq_pending: false,
@@ -361,6 +477,8 @@ pub struct Vdc {
     sprite_table: Box<[SpriteTableEntry; SPRITE_TABLE_LEN]>,
     registers: VdcRegisters,
     state: VdcState,
+    sprite_evaluation_buffer: Vec<EvaluatedSpriteEntry>,
+    sprite_line_buffer: Box<[SpritePixel; LINE_BUFFER_LEN]>,
     frame_buffer: VdcFrameBuffer,
     // Contains 9-bit color indices (0-255 for BG colors, 256-511 for sprite colors)
     line_buffer: Box<[u16; LINE_BUFFER_LEN]>,
@@ -380,6 +498,11 @@ impl Vdc {
                 .unwrap(),
             registers,
             state,
+            sprite_evaluation_buffer: Vec::with_capacity(MAX_SPRITES_PER_LINE),
+            sprite_line_buffer: vec![SpritePixel::TRANSPARENT; LINE_BUFFER_LEN]
+                .into_boxed_slice()
+                .try_into()
+                .unwrap(),
             frame_buffer: VdcFrameBuffer::new(),
             line_buffer: Box::new(array::from_fn(|_| 0)),
             selected_register: 0x1F,
@@ -401,6 +524,10 @@ impl Vdc {
 
         // TODO this is very inefficient
         for _ in 0..dots {
+            if self.state.dma.sat_active {
+                self.progress_sat_dma();
+            }
+
             // Render color to frame buffer if inside VCE active display
             if active_line && active_display_dots.contains(&self.state.scanline_dot) {
                 let color = if !burst_mode
@@ -452,37 +579,35 @@ impl Vdc {
 
                 h_mode_length = self.state.h_mode.length(self.state.h_latch);
 
-                if !burst_mode {
-                    match self.state.h_mode {
-                        HorizontalMode::ActiveDisplay => {
-                            if self.state.v_mode == VerticalMode::ActiveDisplay {
-                                self.render_line();
-                            }
+                let is_sprite_line = self.state.v_mode == VerticalMode::ActiveDisplay
+                    || (self.state.v_mode == VerticalMode::TopBorder
+                        && self.state.v_counter == self.state.v_latch.v_display_start - 1);
 
-                            if self.state.v_mode == VerticalMode::ActiveDisplay
-                                || (self.state.v_mode == VerticalMode::TopBorder
-                                    && self.state.v_counter
-                                        == self.state.v_latch.v_display_start - 1)
-                            {
-                                // TODO sprite evaluation
-                            }
+                match self.state.h_mode {
+                    HorizontalMode::ActiveDisplay => {
+                        if self.state.v_mode == VerticalMode::ActiveDisplay {
+                            self.render_line();
                         }
-                        HorizontalMode::RightBorder
-                            if self.state.v_mode == VerticalMode::ActiveDisplay
-                                || (self.state.v_mode == VerticalMode::TopBorder
-                                    && self.state.v_counter
-                                        == self.state.v_latch.v_display_start - 1) =>
-                        {
-                            // TODO sprite tile fetching
+
+                        if is_sprite_line && !burst_mode {
+                            self.run_sprite_evaluation();
                         }
-                        _ => {}
                     }
+                    HorizontalMode::RightBorder if is_sprite_line && !burst_mode => {
+                        self.fetch_sprite_tiles();
+                    }
+                    _ => {}
                 }
             }
         }
     }
 
-    pub fn start_new_line(&mut self, scanline: u16, dot_clock_divider: DotClockDivider) {
+    pub fn start_new_line(
+        &mut self,
+        scanline: u16,
+        dot_clock_divider: DotClockDivider,
+        lines_per_frame: u16,
+    ) {
         self.state.h_latch = LatchedHorizontalState::latch(&self.registers);
         self.state.h_mode = HorizontalMode::LeftBorder;
         self.state.h_counter = 0;
@@ -515,12 +640,16 @@ impl Vdc {
 
                 match self.state.v_mode {
                     VerticalMode::ActiveDisplay => {
-                        // TODO end any in-progress DMAs if not in burst mode
-
                         self.state.bg_y_counter = self.registers.bg_y_scroll;
                     }
                     VerticalMode::BottomBorder => {
-                        // TODO start any active DMAs
+                        // TODO VRAM-to-VRAM DMA
+                        if self.state.dma.sat_enabled {
+                            self.state.dma.start_sat();
+                            self.state.dma.sat_enabled = self.registers.sat_dma_repeat;
+
+                            log::trace!("Starting VRAM-to-SAT DMA on line {scanline}");
+                        }
 
                         self.set_irq(VdcIrq::VBlank);
 
@@ -531,7 +660,19 @@ impl Vdc {
             }
         }
 
-        // TODO VBlank IRQ 2 lines before end of frame if display is too large
+        if !self.state.v_latch.burst_mode
+            && self.state.v_mode == VerticalMode::TopBorder
+            && self.state.v_counter == self.state.v_latch.v_display_start - 1
+        {
+            // TODO end any in-progress VRAM-to-VRAM DMA if not in burst mode
+            self.state.dma.sat_active = false;
+        }
+
+        if !self.state.vblank_irq_this_frame && scanline == lines_per_frame - 2 {
+            // VDC supposedly always generates a VBlank IRQ when the VCE asserts VSYNC if it didn't
+            // already generate one earlier in the frame
+            self.set_irq(VdcIrq::VBlank);
+        }
     }
 
     pub fn start_new_frame(&mut self) {
@@ -561,11 +702,11 @@ impl Vdc {
     fn render_line(&mut self) {
         const BACKDROP_COLOR: u16 = 0x000;
 
-        // TODO sprites
-
         self.line_buffer.fill(BACKDROP_COLOR);
 
-        if !self.state.h_latch.bg_enabled {
+        if self.state.v_latch.burst_mode
+            || (!self.state.h_latch.bg_enabled && !self.state.h_latch.sprites_enabled)
+        {
             return;
         }
 
@@ -588,19 +729,11 @@ impl Vdc {
         for x in (start_x..end_x).step_by(8) {
             // BAT (BG attribute table) always starts at $0000 in VRAM and has 1 word per tile
             let bat_addr = bg_tile_y * screen_width_tiles + bg_tile_x;
-            let bg_attributes = self.vram[bat_addr as usize];
-            let tile_number = bg_attributes & 0xFFF;
-            let palette = bg_attributes >> 12;
 
-            let tile_addr = (16 * tile_number) as usize;
-
-            // TODO CG mode bit if VRAM access width is 4
-
-            let (cg0, cg1) = if tile_addr < VRAM_LEN_WORDS {
-                (self.vram[tile_addr + tile_row], self.vram[tile_addr + tile_row + 8])
+            let BgTileRow { cg0, cg1, palette: bg_palette } = if self.state.h_latch.bg_enabled {
+                self.read_bg_tile_row(bat_addr, tile_row)
             } else {
-                // Tiles 2048-4095 are supposedly filled with "garbage"
-                (0xFFFF, 0xFFFF)
+                BgTileRow { cg0: 0, cg1: 0, palette: 0 }
             };
 
             for tile_col in 0..8 {
@@ -610,17 +743,200 @@ impl Vdc {
                 }
 
                 let bitplane_shift = 7 - tile_col;
-                let color_idx = ((cg0 >> bitplane_shift) & 1)
+                let bg_color_idx = ((cg0 >> bitplane_shift) & 1)
                     | (((cg0 >> (8 + bitplane_shift)) & 1) << 1)
                     | (((cg1 >> bitplane_shift) & 1) << 2)
                     | (((cg1 >> (8 + bitplane_shift)) & 1) << 3);
 
-                if color_idx != 0 {
-                    self.line_buffer[pixel as usize] = (palette << 4) | color_idx;
-                }
+                let sprite_pixel = if self.state.h_latch.sprites_enabled {
+                    self.sprite_line_buffer[pixel as usize]
+                } else {
+                    SpritePixel::TRANSPARENT
+                };
+
+                let rendered_color = if !sprite_pixel.transparent()
+                    && (sprite_pixel.priority || bg_color_idx == 0)
+                {
+                    0x100 | (sprite_pixel.palette << 4) | sprite_pixel.color_idx
+                } else if bg_color_idx != 0 {
+                    (bg_palette << 4) | bg_color_idx
+                } else {
+                    BACKDROP_COLOR
+                };
+
+                self.line_buffer[pixel as usize] = rendered_color;
             }
 
             bg_tile_x = (bg_tile_x + 1) & (screen_width_tiles - 1);
+        }
+    }
+
+    fn read_bg_tile_row(&self, bat_addr: u16, tile_row: usize) -> BgTileRow {
+        let bg_attributes = self.vram[bat_addr as usize];
+        let tile_number = bg_attributes & 0xFFF;
+        let palette = bg_attributes >> 12;
+
+        let tile_addr = (16 * tile_number) as usize;
+
+        // TODO CG mode bit if VRAM access width is 4
+
+        let (cg0, cg1) = if tile_addr < VRAM_LEN_WORDS {
+            (self.vram[tile_addr + tile_row], self.vram[tile_addr + tile_row + 8])
+        } else {
+            // Tiles 2048-4095 are supposedly filled with "garbage"
+            (0xFFFF, 0xFFFF)
+        };
+
+        BgTileRow { cg0, cg1, palette }
+    }
+
+    fn progress_sat_dma(&mut self) {
+        self.state.dma.dots_till_next_word -= 1;
+        if self.state.dma.dots_till_next_word != 0 {
+            return;
+        }
+
+        self.state.dma.dots_till_next_word = DMA_DOTS_PER_WORD;
+
+        let sat_address = self.state.dma.sat_address;
+        let word = self.read_vram(self.registers.sat_dma_source_address.wrapping_add(sat_address));
+
+        let sprite_idx = sat_address / 4;
+        self.sprite_table[sprite_idx as usize].write_word(sat_address % 4, word);
+
+        self.state.dma.sat_address = sat_address.wrapping_add(1);
+        if self.state.dma.sat_address == (4 * SPRITE_TABLE_LEN) as u16 {
+            self.state.dma.sat_active = false;
+            self.set_irq(VdcIrq::SatDma);
+
+            log::trace!("Finished SAT DMA on line {}", self.state.scanline);
+        }
+    }
+
+    fn run_sprite_evaluation(&mut self) {
+        // In sprite coordinates, Y=64 is the first line of active display
+        const SCREEN_TOP: u16 = 64;
+
+        // TODO sprite limits if display width is less than 256px (or 248px?)
+
+        self.sprite_evaluation_buffer.clear();
+
+        let sprite_line = match self.state.v_mode {
+            VerticalMode::ActiveDisplay => SCREEN_TOP + self.state.v_counter + 1,
+            _ => SCREEN_TOP, // Last line of top border; evaluate for first line of active display
+        };
+
+        for (sprite_idx, sprite) in self.sprite_table.iter().enumerate() {
+            let sprite_height_pixels = sprite.height.to_pixels();
+            let sprite_y_range = sprite.y..sprite.y + sprite_height_pixels;
+            if !sprite_y_range.contains(&sprite_line) {
+                continue;
+            }
+
+            let mut sprite_row = sprite_line - sprite.y;
+            if sprite.v_flip {
+                sprite_row = sprite_height_pixels - 1 - sprite_row;
+            }
+
+            let mut base_tile_number = sprite.tile_number
+                & sprite.width.tile_number_mask()
+                & sprite.height.tile_number_mask();
+            base_tile_number += 2 * (sprite_row / 16);
+            sprite_row %= 16;
+
+            let width_tiles = sprite.width.to_sprite_tiles();
+            for i in 0..width_tiles {
+                let x_tile = match sprite.width {
+                    SpriteWidth::Single => 0,
+                    SpriteWidth::Double => i ^ u16::from(sprite.h_flip),
+                };
+
+                let x = sprite.x + 16 * i;
+                let tile_number = base_tile_number + x_tile;
+
+                if self.sprite_evaluation_buffer.len() == MAX_SPRITES_PER_LINE {
+                    // TODO sprite overflow IRQ; should get set around the same time as raster compare IRQ?
+                    return;
+                }
+
+                self.sprite_evaluation_buffer.push(EvaluatedSpriteEntry {
+                    sprite_idx: sprite_idx as u8,
+                    x,
+                    tile_number,
+                    tile_row: sprite_row,
+                    h_flip: sprite.h_flip,
+                    priority: sprite.priority,
+                    palette: sprite.palette,
+                    cg_mode: sprite.cg_mode,
+                });
+            }
+        }
+    }
+
+    fn fetch_sprite_tiles(&mut self) {
+        // In sprite coordinates, X=32 is the leftmost column of active display
+        const SCREEN_LEFT: u16 = 32;
+
+        // TODO check for sprite 0 collision
+        // TODO sprite limits if not enough dots to fetch 16 tiles
+
+        self.sprite_line_buffer.fill(SpritePixel::TRANSPARENT);
+
+        if !self.state.h_latch.sprites_enabled {
+            return;
+        }
+
+        for sprite in &self.sprite_evaluation_buffer {
+            let tile_addr = (64 * sprite.tile_number) as usize;
+            let tile_data = if tile_addr < VRAM_LEN_WORDS {
+                &self.vram[tile_addr..tile_addr + 64]
+            } else {
+                // Tiles 512-1023 supposedly contain "garbage"
+                &[0xFFFF; 64]
+            };
+
+            let tile_row = sprite.tile_row as usize;
+            let cg0 = tile_data[tile_row];
+            let cg1 = tile_data[tile_row + 16];
+            let cg2 = tile_data[tile_row + 32];
+            let cg3 = tile_data[tile_row + 48];
+
+            let mut color_indices: [u16; 16] = array::from_fn(|i| {
+                ((cg0 >> (15 - i)) & 1)
+                    | (((cg1 >> (15 - i)) & 1) << 1)
+                    | (((cg2 >> (15 - i)) & 1) << 2)
+                    | (((cg3 >> (15 - i)) & 1) << 3)
+            });
+            if sprite.h_flip {
+                color_indices.reverse();
+            }
+
+            for (i, color_idx) in color_indices.into_iter().enumerate() {
+                if color_idx == 0 {
+                    // Transparent
+                    continue;
+                }
+
+                let x = sprite.x + i as u16;
+                if x.wrapping_sub(SCREEN_LEFT) >= LINE_BUFFER_LEN as u16 {
+                    // Horizontally out of bounds
+                    continue;
+                }
+
+                let line_buffer_idx = (x - SCREEN_LEFT) as usize;
+                if !self.sprite_line_buffer[line_buffer_idx].transparent() {
+                    // Already an opaque sprite pixel in this position
+                    // TODO check for sprite 0 collision
+                    continue;
+                }
+
+                self.sprite_line_buffer[line_buffer_idx] = SpritePixel {
+                    sprite_idx: sprite.sprite_idx,
+                    priority: sprite.priority,
+                    palette: sprite.palette,
+                    color_idx,
+                };
+            }
         }
     }
 
