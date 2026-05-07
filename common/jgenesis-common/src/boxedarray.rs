@@ -17,6 +17,8 @@ use bincode::enc::write::Writer;
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{BorrowDecode, Decode, Encode};
 use bytemuck::Pod;
+use rand::distr::StandardUniform;
+use rand::prelude::Distribution;
 use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
 
@@ -34,6 +36,18 @@ impl<T: Debug + Default + Copy, const LEN: usize> BoxedArray<T, LEN> {
     #[allow(clippy::missing_panics_doc)]
     pub fn new() -> Self {
         Self(vec![T::default(); LEN].into_boxed_slice().try_into().unwrap())
+    }
+}
+
+impl<T: Debug + Default + Copy, const LEN: usize> BoxedArray<T, LEN>
+where
+    StandardUniform: Distribution<T>,
+{
+    #[must_use]
+    pub fn new_random() -> Self {
+        let mut array = Self::new();
+        array.fill_with(rand::random);
+        array
     }
 }
 
@@ -110,7 +124,7 @@ impl<T: Debug + Default + Copy, const ROWS: usize, const COLS: usize> Boxed2DArr
         // a *mut T with offset strictly less than (ROWS * COLS)
         unsafe {
             let mut array = Box::<[[T; COLS]; ROWS]>::new_uninit();
-            let ptr = array.as_mut_ptr() as *mut T;
+            let ptr = array.as_mut_ptr().cast::<T>();
             for i in 0..ROWS * COLS {
                 ptr.add(i).write(T::default());
             }

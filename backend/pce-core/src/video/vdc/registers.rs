@@ -534,11 +534,13 @@ impl Vdc {
                 byte.set(&mut self.registers.vram_dma_length, value);
 
                 if byte == WordByte::High {
-                    self.state.dma.vram_enabled = true;
+                    self.state.dma.vram_triggered = true;
 
                     // VRAM-to-VRAM DMA can start immediately in burst mode or VBlank
                     if self.state.can_start_vram_dma() {
                         self.state.dma.start_vram();
+
+                        log::trace!("Starting VRAM-to-VRAM DMA on line {}", self.state.scanline);
                     }
                 }
 
@@ -552,7 +554,7 @@ impl Vdc {
                 byte.set(&mut self.registers.sat_dma_source_address, value);
 
                 if byte == WordByte::High {
-                    self.state.dma.sat_enabled = true;
+                    self.state.dma.sat_triggered = true;
                 }
 
                 log::trace!(

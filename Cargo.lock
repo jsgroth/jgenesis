@@ -2579,6 +2579,7 @@ dependencies = [
  "jgenesis-proc-macros",
  "js-sys",
  "log",
+ "rand 0.10.0",
  "serde",
  "time",
 ]

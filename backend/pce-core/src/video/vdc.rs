@@ -388,9 +388,9 @@ impl HorizontalMode {
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct DmaState {
-    pub vram_enabled: bool,
+    pub vram_triggered: bool,
     pub vram_active: bool,
-    pub sat_enabled: bool,
+    pub sat_triggered: bool,
     pub sat_active: bool,
     pub sat_address: u16,
     pub dots_till_next_word: u8,
@@ -399,9 +399,9 @@ pub struct DmaState {
 impl DmaState {
     fn new() -> Self {
         Self {
-            vram_enabled: false,
+            vram_triggered: false,
             vram_active: false,
-            sat_enabled: false,
+            sat_triggered: false,
             sat_active: false,
             sat_address: 0,
             dots_till_next_word: DMA_DOTS_PER_WORD,
@@ -542,7 +542,7 @@ impl Vdc {
         let state = VdcState::new(&registers);
 
         Self {
-            vram: BoxedWordArray::new(),
+            vram: BoxedWordArray::new_random(),
             sprite_table: vec![SpriteTableEntry::default(); SPRITE_TABLE_LEN]
                 .into_boxed_slice()
                 .try_into()
@@ -710,14 +710,14 @@ impl Vdc {
                         }
                     }
                     VerticalMode::BottomBorder => {
-                        if self.state.dma.sat_enabled {
+                        if self.state.dma.sat_triggered || self.registers.sat_dma_repeat {
                             self.state.dma.start_sat();
-                            self.state.dma.sat_enabled = self.registers.sat_dma_repeat;
+                            self.state.dma.sat_triggered = false;
 
                             log::trace!("Starting VRAM-to-SAT DMA on line {scanline}");
                         }
 
-                        if self.state.dma.vram_enabled {
+                        if self.state.dma.vram_triggered {
                             self.state.dma.start_vram();
 
                             log::trace!("Starting VRAM-to-VRAM DMA on line {scanline}");
@@ -888,7 +888,7 @@ impl Vdc {
         let word = self.read_vram(self.registers.vram_dma_source_address);
         self.registers.vram_dma_source_step.apply(&mut self.registers.vram_dma_source_address);
 
-        self.write_vram(word, self.registers.vram_dma_destination_address);
+        self.write_vram(self.registers.vram_dma_destination_address, word);
         self.registers
             .vram_dma_destination_step
             .apply(&mut self.registers.vram_dma_destination_address);
@@ -898,7 +898,7 @@ impl Vdc {
             self.registers.vram_dma_length.overflowing_sub(1);
 
         if overflowed {
-            self.state.dma.vram_enabled = false;
+            self.state.dma.vram_triggered = false;
             self.state.dma.vram_active = false;
             self.set_irq(VdcIrq::VramDma);
 
@@ -1042,6 +1042,7 @@ impl Vdc {
         let address = address as usize;
         if address < VRAM_LEN_WORDS {
             self.vram[address] = value;
+            log::trace!("  VRAM WRITE: {address:04X} = {value:04X}");
         }
     }
 

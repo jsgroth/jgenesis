@@ -309,7 +309,7 @@ pub struct Memory {
 
 impl Memory {
     pub fn new() -> Self {
-        Self { working_ram: BoxedByteArray::new(), cpu_registers: CpuRegisters::new() }
+        Self { working_ram: BoxedByteArray::new_random(), cpu_registers: CpuRegisters::new() }
     }
 
     pub fn read_working_ram(&self, address: u32) -> u8 {
