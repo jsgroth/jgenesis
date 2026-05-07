@@ -15,5 +15,6 @@ doc-valid-idents = [
     "ARMv4T",
     "HuC6260",
     "HuC6270",
+    "HuC6280",
     "..",
 ]

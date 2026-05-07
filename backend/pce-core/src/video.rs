@@ -2,6 +2,7 @@ mod palette;
 mod vce;
 mod vdc;
 
+use crate::api;
 use crate::video::vce::Vce;
 use crate::video::vdc::Vdc;
 use bincode::{Decode, Encode};
@@ -147,6 +148,13 @@ impl VideoSubsystem {
     pub fn frame_size(&self) -> FrameSize {
         // TODO handle overscan and downsampling
         FrameSize { width: vdc::FRAME_BUFFER_WIDTH as u32, height: vdc::FRAME_BUFFER_HEIGHT as u32 }
+    }
+
+    pub fn target_fps(&self) -> f64 {
+        // ~60.05 Hz in 262-line mode, ~59.83 Hz in 263-line mode
+        api::MASTER_CLOCK_FREQUENCY
+            / (MCLK_CYCLES_PER_SCANLINE as f64)
+            / f64::from(self.vce.lines_per_frame())
     }
 
     // $1FE000-$1FE003: VDC ports

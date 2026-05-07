@@ -3,9 +3,13 @@ use huc6280_emu::bus::{ClockSpeed, InterruptLines};
 use jgenesis_common::boxedarray::BoxedByteArray;
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
+use std::cmp;
 use std::ops::Deref;
 
 const WORKING_RAM_LEN: usize = 8 * 1024;
+
+// Timer ticks every 1024 cycles at ~7.16 MHz regardless of current CPU clock speed
+const TIMER_PRESCALER_DIVIDER: u64 = 3 * 1024;
 
 #[derive(Debug, Clone, FakeEncode, FakeDecode)]
 pub struct Rom(pub Box<[u8]>);
@@ -88,6 +92,54 @@ fn mirror_hucard_rom(mut rom: Vec<u8>) -> Vec<u8> {
     new_rom
 }
 
+#[derive(Debug, Clone, Encode, Decode)]
+struct Timer {
+    counter: u8,
+    reload: u8,
+    prescaler: u64,
+    enabled: bool,
+    cycles: u64,
+}
+
+impl Timer {
+    fn new() -> Self {
+        Self {
+            reload: 0,
+            counter: 0,
+            prescaler: TIMER_PRESCALER_DIVIDER,
+            enabled: false,
+            cycles: 0,
+        }
+    }
+
+    fn step_to(&mut self, cycles: u64, tiq_pending: &mut bool) {
+        if !self.enabled {
+            self.cycles = cycles;
+            return;
+        }
+
+        let mut elapsed_cycles = cycles.saturating_sub(self.cycles);
+        self.cycles = cycles;
+
+        while elapsed_cycles != 0 {
+            let timer_elapsed = cmp::min(elapsed_cycles, self.prescaler);
+            self.prescaler -= timer_elapsed;
+            elapsed_cycles -= timer_elapsed;
+
+            if self.prescaler == 0 {
+                self.prescaler = TIMER_PRESCALER_DIVIDER;
+
+                if self.counter == 0 {
+                    *tiq_pending = true;
+                    self.counter = self.reload;
+                } else {
+                    self.counter -= 1;
+                }
+            }
+        }
+    }
+}
+
 trait ClockSpeedExt {
     fn mclk_divider(self) -> u64;
 }
@@ -116,6 +168,7 @@ pub struct CpuRegisters {
     irq1_pending: bool,
     irq2_disabled: bool,
     irq2_pending: bool,
+    timer: Timer,
     io_buffer: u8,
 }
 
@@ -129,6 +182,7 @@ impl CpuRegisters {
             irq1_pending: false,
             irq2_disabled: false,
             irq2_pending: false,
+            timer: Timer::new(),
             io_buffer: 0xFF,
         }
     }
@@ -144,6 +198,10 @@ impl CpuRegisters {
 
     pub fn set_irq1(&mut self, irq1_pending: bool) {
         self.irq1_pending = irq1_pending;
+    }
+
+    pub fn step_to(&mut self, cycles: u64) {
+        self.timer.step_to(cycles, &mut self.tiq_pending);
     }
 
     // $1FF400-$1FF403: Interrupt registers
@@ -192,6 +250,37 @@ impl CpuRegisters {
                 log::trace!("TIQ acknowledged");
             }
             _ => unreachable!("value & 3 is always <= 3"),
+        }
+    }
+
+    // $1FEC00-$1FEC01: Timer registers
+    pub fn read_timer_register(&mut self) -> u8 {
+        self.io_buffer = (self.io_buffer & !0x7F) | (self.timer.counter & 0x7F);
+        self.io_buffer
+    }
+
+    // $1FEC00-$1FEC01: Timer registers
+    pub fn write_timer_register(&mut self, address: u32, value: u8) {
+        self.io_buffer = value;
+
+        match address & 1 {
+            0 => {
+                self.timer.reload = value & 0x7F;
+
+                log::trace!("Timer reload: {}", self.timer.reload);
+            }
+            1 => {
+                let prev_enabled = self.timer.enabled;
+                self.timer.enabled = value.bit(0);
+
+                if !prev_enabled && self.timer.enabled {
+                    self.timer.counter = self.timer.reload;
+                    self.timer.prescaler = TIMER_PRESCALER_DIVIDER;
+                }
+
+                log::trace!("Timer enabled: {}", self.timer.enabled);
+            }
+            _ => unreachable!("value & 1 is always <= 1"),
         }
     }
 

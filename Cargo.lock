@@ -3938,6 +3938,7 @@ name = "pce-core"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "dsp",
  "huc6280-emu",
  "jgenesis-common",
  "jgenesis-proc-macros",

@@ -1,11 +1,13 @@
 use crate::input::InputState;
 use crate::memory::{HuCard, Memory};
+use crate::psg::Huc6280Psg;
 use crate::video::VideoSubsystem;
 use huc6280_emu::bus::{BusInterface, ClockSpeed, InterruptLines};
 
 pub struct Bus<'a> {
     pub memory: &'a mut Memory,
     pub video: &'a mut VideoSubsystem,
+    pub psg: &'a mut Huc6280Psg,
     pub cartridge: &'a HuCard,
     pub input: &'a mut InputState,
     pub cycle_counter: &'a mut u64,
@@ -15,18 +17,26 @@ impl Bus<'_> {
     fn cpu_cycle(&mut self) {
         *self.cycle_counter += self.memory.cpu_clock_divider();
 
+        // TODO it's really not necessary to sync everything at every CPU cycle
         self.video.step_to(*self.cycle_counter);
+        self.psg.step_to(*self.cycle_counter);
+        self.memory.cpu_registers().step_to(*self.cycle_counter);
 
         self.memory.cpu_registers().set_irq1(self.video.vdc_irq());
     }
 
     #[allow(clippy::match_same_arms)]
     fn read_io(&mut self, address: u32) -> u8 {
+        if address < 0x1FE800 {
+            // Wait cycle on VDC/VCE access
+            self.cpu_cycle();
+        }
+
         match address {
             0x1FE000..=0x1FE3FF => self.video.read_vdc(address),
             0x1FE400..=0x1FE7FF => self.video.read_vce(address),
-            0x1FE800..=0x1FEBFF => todo!("PSG read {address:06X}"),
-            0x1FEC00..=0x1FEFFF => todo!("timer read {address:06X}"),
+            0x1FE800..=0x1FEBFF => self.memory.cpu_registers().io_buffer(), // PSG, write-only
+            0x1FEC00..=0x1FEFFF => self.memory.cpu_registers().read_timer_register(),
             0x1FF000..=0x1FF3FF => {
                 let value = self.input.read_port();
                 self.memory.cpu_registers().update_io_buffer(value, !0)
@@ -40,14 +50,20 @@ impl Bus<'_> {
 
     #[allow(clippy::match_same_arms)]
     fn write_io(&mut self, address: u32, value: u8) {
+        if address < 0x1FE800 {
+            // Wait cycle on VDC/VCE access
+            self.cpu_cycle();
+        }
+
         match address {
             0x1FE000..=0x1FE3FF => self.video.write_vdc(address, value),
             0x1FE400..=0x1FE7FF => self.video.write_vce(address, value),
             0x1FE800..=0x1FEBFF => {
-                log::debug!("PSG write {address:06X} {value:02X}");
+                self.psg.write(address, value);
+                self.memory.cpu_registers().update_io_buffer(value, !0);
             }
             0x1FEC00..=0x1FEFFF => {
-                log::debug!("Timer write {address:06X} {value:02X}");
+                self.memory.cpu_registers().write_timer_register(address, value);
             }
             0x1FF000..=0x1FF3FF => {
                 self.input.write_port(value);

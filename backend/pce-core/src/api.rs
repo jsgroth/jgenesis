@@ -1,6 +1,7 @@
 use crate::bus::Bus;
 use crate::input::InputState;
 use crate::memory::{HuCard, Memory};
+use crate::psg::Huc6280Psg;
 use crate::video::VideoSubsystem;
 use bincode::{Decode, Encode};
 use huc6280_emu::Huc6280;
@@ -12,6 +13,9 @@ use jgenesis_proc_macros::ConfigDisplay;
 use pce_config::{PceButton, PceInputs};
 use std::fmt::{Debug, Display};
 use thiserror::Error;
+
+// Roughly 21.47 MHz
+pub const MASTER_CLOCK_FREQUENCY: f64 = 236.25e6 / 11.0;
 
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct PceEmulatorConfig {
@@ -34,6 +38,7 @@ pub enum PceError<RErr, AErr, SErr> {
 pub struct PcEngineEmulator {
     cpu: Huc6280,
     video: VideoSubsystem,
+    psg: Huc6280Psg,
     memory: Memory,
     cartridge: HuCard,
     input_state: InputState,
@@ -47,6 +52,7 @@ impl PcEngineEmulator {
         let mut emulator = Self {
             cpu: Huc6280::new(),
             video: VideoSubsystem::new(),
+            psg: Huc6280Psg::new(),
             memory: Memory::new(),
             cartridge: HuCard::new(rom),
             input_state: InputState::new(),
@@ -57,6 +63,7 @@ impl PcEngineEmulator {
         emulator.cpu.reset(&mut Bus {
             memory: &mut emulator.memory,
             video: &mut emulator.video,
+            psg: &mut emulator.psg,
             cartridge: &emulator.cartridge,
             input: &mut emulator.input_state,
             cycle_counter: &mut emulator.cycle_counter,
@@ -71,7 +78,7 @@ impl PcEngineEmulator {
         renderer.render_frame(
             self.video.frame_buffer(),
             self.video.frame_size(),
-            60.0, // TODO
+            self.video.target_fps(),
             RenderFrameOptions {
                 pixel_aspect_ratio: Some(FiniteF64::try_from(8.0 / 7.0 / 4.0).unwrap()),
                 ..RenderFrameOptions::default()
@@ -118,10 +125,13 @@ impl EmulatorTrait for PcEngineEmulator {
         self.cpu.execute_instruction(&mut Bus {
             memory: &mut self.memory,
             video: &mut self.video,
+            psg: &mut self.psg,
             cartridge: &self.cartridge,
             input: &mut self.input_state,
             cycle_counter: &mut self.cycle_counter,
         });
+
+        self.psg.drain_output_buffer(audio_output).map_err(PceError::Audio)?;
 
         if self.video.frame_complete() {
             self.video.clear_frame_complete();
@@ -162,11 +172,10 @@ impl EmulatorTrait for PcEngineEmulator {
     }
 
     fn target_fps(&self) -> f64 {
-        // TODO put actual value here
-        60.0
+        self.video.target_fps()
     }
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
-        // TODO once audio is implemented
+        self.psg.update_output_frequency(output_frequency);
     }
 }
