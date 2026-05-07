@@ -6,7 +6,7 @@ mod registers;
 use crate::video::MCLK_CYCLES_PER_SCANLINE;
 use crate::video::vce::{DotClockDivider, Vce};
 use bincode::{Decode, Encode};
-use jgenesis_common::boxedarray::BoxedWordArray;
+use jgenesis_common::boxedarray::{Boxed2DWordArray, BoxedWordArray};
 use jgenesis_common::define_bit_enum;
 use jgenesis_common::num::GetBit;
 use registers::VdcRegisters;
@@ -104,19 +104,17 @@ impl DotClockDivider {
     }
 }
 
-type VdcColorBuffer = [[u16; FRAME_BUFFER_WIDTH]; FRAME_BUFFER_HEIGHT];
-
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct VdcFrameBuffer {
     // Contains GRB333 VCE colors
-    pub colors: Box<VdcColorBuffer>,
+    pub colors: Boxed2DWordArray<FRAME_BUFFER_HEIGHT, FRAME_BUFFER_WIDTH>,
     pub line_dividers: Box<[DotClockDivider; FRAME_BUFFER_HEIGHT]>,
 }
 
 impl VdcFrameBuffer {
     fn new() -> Self {
         Self {
-            colors: Box::new(array::from_fn(|_| array::from_fn(|_| 0))),
+            colors: Boxed2DWordArray::new(),
             line_dividers: Box::new(array::from_fn(|_| DotClockDivider::default())),
         }
     }

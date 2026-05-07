@@ -90,3 +90,108 @@ impl<'de, T: Debug + Default + Copy + Pod, Context, const LEN: usize> BorrowDeco
 pub type BoxedByteArray<const LEN: usize> = BoxedArray<u8, LEN>;
 pub type BoxedWordArray<const LEN: usize> = BoxedArray<u16, LEN>;
 pub type BoxedColorArray<const LEN: usize> = BoxedArray<Color, LEN>;
+
+#[derive(Debug, Clone)]
+pub struct Boxed2DArray<T, const ROWS: usize, const COLS: usize>(Box<[[T; COLS]; ROWS]>);
+
+impl<T: Debug + Default + Copy, const ROWS: usize, const COLS: usize> Default
+    for Boxed2DArray<T, ROWS, COLS>
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T: Debug + Default + Copy, const ROWS: usize, const COLS: usize> Boxed2DArray<T, ROWS, COLS> {
+    #[must_use]
+    pub fn new() -> Self {
+        // SAFETY: Memory is fully filled with T::default() before calling assume_init()
+        // Total allocation length is (ROWS * COLS * size_of::<T>()), and it is only accessed through
+        // a *mut T with offset strictly less than (ROWS * COLS)
+        unsafe {
+            let mut array = Box::<[[T; COLS]; ROWS]>::new_uninit();
+            let ptr = array.as_mut_ptr() as *mut T;
+            for i in 0..ROWS * COLS {
+                ptr.add(i).write(T::default());
+            }
+            Self(array.assume_init())
+        }
+    }
+}
+
+impl<T, const ROWS: usize, const COLS: usize> From<Box<[[T; COLS]; ROWS]>>
+    for Boxed2DArray<T, ROWS, COLS>
+{
+    fn from(value: Box<[[T; COLS]; ROWS]>) -> Self {
+        Self(value)
+    }
+}
+
+impl<T, const ROWS: usize, const COLS: usize> Deref for Boxed2DArray<T, ROWS, COLS> {
+    type Target = Box<[[T; COLS]; ROWS]>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T, const ROWS: usize, const COLS: usize> DerefMut for Boxed2DArray<T, ROWS, COLS> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<T: Pod, const ROWS: usize, const COLS: usize> Encode for Boxed2DArray<T, ROWS, COLS> {
+    fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
+        let writer = encoder.writer();
+        for row in self.as_slice() {
+            writer.write(bytemuck::cast_slice(row))?;
+        }
+
+        Ok(())
+    }
+}
+
+impl<T: Debug + Default + Copy + Pod, Context, const ROWS: usize, const COLS: usize> Decode<Context>
+    for Boxed2DArray<T, ROWS, COLS>
+{
+    fn decode<D: Decoder<Context = Context>>(decoder: &mut D) -> Result<Self, DecodeError> {
+        let mut array = Self::new();
+        let reader = decoder.reader();
+        for row in array.as_mut_slice() {
+            reader.read(bytemuck::cast_slice_mut(row))?;
+        }
+
+        Ok(array)
+    }
+}
+
+impl<'de, T: Debug + Default + Copy + Pod, Context, const ROWS: usize, const COLS: usize>
+    BorrowDecode<'de, Context> for Boxed2DArray<T, ROWS, COLS>
+{
+    fn borrow_decode<D: BorrowDecoder<'de, Context = Context>>(
+        decoder: &mut D,
+    ) -> Result<Self, DecodeError> {
+        Self::decode(decoder)
+    }
+}
+
+pub type Boxed2DWordArray<const ROWS: usize, const COLS: usize> = Boxed2DArray<u16, ROWS, COLS>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Test should be run with miri:
+    //   $ cargo +nightly miri test -p jgenesis-common
+    #[test]
+    fn new_boxed_2d_array() {
+        let array: Boxed2DArray<Color, 10, 10> = Boxed2DArray::new();
+
+        for row in array.as_slice() {
+            for &color in row {
+                assert_eq!(color, Color::default());
+            }
+        }
+    }
+}

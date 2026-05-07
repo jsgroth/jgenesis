@@ -148,23 +148,25 @@ impl EmulatorTrait for PcEngineEmulator {
     where
         R: Renderer,
     {
-        todo!("force render")
+        self.render_frame(renderer)
     }
 
     fn reload_config(&mut self, config: &Self::Config) {
-        todo!("reload config")
+        self.config = *config;
     }
 
     fn soft_reset(&mut self) {
-        todo!("soft reset")
+        log::warn!("PC Engine does not support soft reset except in software");
     }
 
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
-        todo!("hard reset")
+        let rom = self.cartridge.clone_rom();
+        *self = Self::create(rom, self.config);
     }
 
-    fn load_state(&mut self, state: Self::SaveState) {
-        todo!("load state")
+    fn load_state(&mut self, mut state: Self::SaveState) {
+        state.cartridge.take_rom_from(&mut self.cartridge);
+        *self = state;
     }
 
     fn to_save_state(&self) -> Self::SaveState {

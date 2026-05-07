@@ -3,8 +3,8 @@ use huc6280_emu::bus::{ClockSpeed, InterruptLines};
 use jgenesis_common::boxedarray::BoxedByteArray;
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
-use std::cmp;
 use std::ops::Deref;
+use std::{cmp, mem};
 
 const WORKING_RAM_LEN: usize = 8 * 1024;
 
@@ -43,6 +43,14 @@ impl HuCard {
 
     pub fn read_rom(&self, address: u32) -> u8 {
         self.rom[(address as usize) & (self.rom.len() - 1)]
+    }
+
+    pub fn clone_rom(&self) -> Vec<u8> {
+        self.rom.0.to_vec()
+    }
+
+    pub fn take_rom_from(&mut self, other: &mut Self) {
+        self.rom.0 = mem::take(&mut other.rom.0);
     }
 }
 
