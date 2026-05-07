@@ -534,7 +534,12 @@ impl Vdc {
                 byte.set(&mut self.registers.vram_dma_length, value);
 
                 if byte == WordByte::High {
-                    todo!("start VRAM-to-VRAM DMA");
+                    self.state.dma.vram_enabled = true;
+
+                    // VRAM-to-VRAM DMA can start immediately in burst mode or VBlank
+                    if self.state.can_start_vram_dma() {
+                        self.state.dma.start_vram();
+                    }
                 }
 
                 log::trace!(

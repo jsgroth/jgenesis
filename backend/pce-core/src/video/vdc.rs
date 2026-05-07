@@ -271,6 +271,19 @@ impl SpritePixel {
 
 define_bit_enum!(DmaStep, [Increment, Decrement]);
 
+impl DmaStep {
+    fn apply(self, address: &mut u16) {
+        match self {
+            Self::Increment => {
+                *address = address.wrapping_add(1);
+            }
+            Self::Decrement => {
+                *address = address.wrapping_sub(1);
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct LatchedVerticalState {
     pub v_sync_width: u16,
@@ -377,6 +390,8 @@ impl HorizontalMode {
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct DmaState {
+    pub vram_enabled: bool,
+    pub vram_active: bool,
     pub sat_enabled: bool,
     pub sat_active: bool,
     pub sat_address: u16,
@@ -386,6 +401,8 @@ pub struct DmaState {
 impl DmaState {
     fn new() -> Self {
         Self {
+            vram_enabled: false,
+            vram_active: false,
             sat_enabled: false,
             sat_active: false,
             sat_address: 0,
@@ -393,10 +410,24 @@ impl DmaState {
         }
     }
 
+    fn start_vram(&mut self) {
+        self.vram_active = true;
+
+        // Don't interrupt an in-progress VRAM-to-SAT DMA read
+        if !self.sat_active {
+            self.dots_till_next_word = DMA_DOTS_PER_WORD;
+        }
+    }
+
     fn start_sat(&mut self) {
         self.sat_active = true;
         self.sat_address = 0;
         self.dots_till_next_word = DMA_DOTS_PER_WORD;
+    }
+
+    fn halt(&mut self) {
+        self.vram_active = false;
+        self.sat_active = false;
     }
 }
 
@@ -469,6 +500,28 @@ impl VdcState {
             frame_complete: false,
         }
     }
+
+    fn can_start_vram_dma(&self) -> bool {
+        if self.v_latch.burst_mode {
+            // Can always run during burst mode
+            return true;
+        }
+
+        if self.v_mode == VerticalMode::ActiveDisplay {
+            // Can never run during active display
+            return false;
+        }
+
+        if self.v_mode == VerticalMode::TopBorder
+            && self.v_counter == self.v_latch.v_display_start - 1
+            && matches!(self.h_mode, HorizontalMode::RightBorder | HorizontalMode::HSync)
+        {
+            // Can't run during HBlank on the last line before active display
+            return false;
+        }
+
+        true
+    }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -526,6 +579,8 @@ impl Vdc {
         for _ in 0..dots {
             if self.state.dma.sat_active {
                 self.progress_sat_dma();
+            } else if self.state.dma.vram_active {
+                self.progress_vram_dma();
             }
 
             // Render color to frame buffer if inside VCE active display
@@ -593,8 +648,17 @@ impl Vdc {
                             self.run_sprite_evaluation();
                         }
                     }
-                    HorizontalMode::RightBorder if is_sprite_line && !burst_mode => {
-                        self.fetch_sprite_tiles();
+                    HorizontalMode::RightBorder => {
+                        if self.state.v_mode == VerticalMode::TopBorder
+                            && self.state.v_counter == self.state.v_latch.v_display_start - 1
+                        {
+                            // DMAs cannot run once sprite tile fetching for the first line of active display begins
+                            self.state.dma.halt();
+                        }
+
+                        if is_sprite_line && !burst_mode {
+                            self.fetch_sprite_tiles();
+                        }
                     }
                     _ => {}
                 }
@@ -641,14 +705,24 @@ impl Vdc {
                 match self.state.v_mode {
                     VerticalMode::ActiveDisplay => {
                         self.state.bg_y_counter = self.registers.bg_y_scroll;
+
+                        if !self.state.v_latch.burst_mode {
+                            // DMAs cannot run during active display when not in burst mode
+                            self.state.dma.halt();
+                        }
                     }
                     VerticalMode::BottomBorder => {
-                        // TODO VRAM-to-VRAM DMA
                         if self.state.dma.sat_enabled {
                             self.state.dma.start_sat();
                             self.state.dma.sat_enabled = self.registers.sat_dma_repeat;
 
                             log::trace!("Starting VRAM-to-SAT DMA on line {scanline}");
+                        }
+
+                        if self.state.dma.vram_enabled {
+                            self.state.dma.start_vram();
+
+                            log::trace!("Starting VRAM-to-VRAM DMA on line {scanline}");
                         }
 
                         self.set_irq(VdcIrq::VBlank);
@@ -658,14 +732,6 @@ impl Vdc {
                     _ => {}
                 }
             }
-        }
-
-        if !self.state.v_latch.burst_mode
-            && self.state.v_mode == VerticalMode::TopBorder
-            && self.state.v_counter == self.state.v_latch.v_display_start - 1
-        {
-            // TODO end any in-progress VRAM-to-VRAM DMA if not in burst mode
-            self.state.dma.sat_active = false;
         }
 
         if !self.state.vblank_irq_this_frame && scanline == lines_per_frame - 2 {
@@ -810,6 +876,35 @@ impl Vdc {
             self.set_irq(VdcIrq::SatDma);
 
             log::trace!("Finished SAT DMA on line {}", self.state.scanline);
+        }
+    }
+
+    fn progress_vram_dma(&mut self) {
+        self.state.dma.dots_till_next_word -= 1;
+        if self.state.dma.dots_till_next_word != 0 {
+            return;
+        }
+
+        self.state.dma.dots_till_next_word = DMA_DOTS_PER_WORD;
+
+        let word = self.read_vram(self.registers.vram_dma_source_address);
+        self.registers.vram_dma_source_step.apply(&mut self.registers.vram_dma_source_address);
+
+        self.write_vram(word, self.registers.vram_dma_destination_address);
+        self.registers
+            .vram_dma_destination_step
+            .apply(&mut self.registers.vram_dma_destination_address);
+
+        let overflowed;
+        (self.registers.vram_dma_length, overflowed) =
+            self.registers.vram_dma_length.overflowing_sub(1);
+
+        if overflowed {
+            self.state.dma.vram_enabled = false;
+            self.state.dma.vram_active = false;
+            self.set_irq(VdcIrq::VramDma);
+
+            log::trace!("Finished VRAM DMA on line {}", self.state.scanline);
         }
     }
 
