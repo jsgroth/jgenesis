@@ -34,6 +34,55 @@ fn generate_amplitude_table<const LEN: usize>(step_db: f64) -> [f64; LEN] {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
+struct NoiseGenerator {
+    enabled: bool,
+    lfsr: u32,
+    counter: u16,
+    counter_reload: u16,
+    current_sample: u8,
+}
+
+impl NoiseGenerator {
+    // https://web.archive.org/web/20080311065543/http://cgfm2.emuviews.com:80/blog/index.php
+    // Noise generator contains an 18-bit LFSR, initialized with only bit 0 set, taps bits 0 + 1 + 11 + 12 + 17
+
+    fn new() -> Self {
+        Self {
+            enabled: false,
+            lfsr: 1,
+            counter: 0,
+            counter_reload: 0x1F * 64,
+            current_sample: 0x1F,
+        }
+    }
+
+    fn write_r7(&mut self, value: u8) {
+        self.enabled = value.bit(7);
+
+        // Given a frequency value F, LFSR clocks every 64 * !F PSG cycles
+        // TODO what happens when F is 0x1F, i.e. !F is 0? manual says undefined
+        self.counter_reload = 64 * u16::from(!value & 0x1F);
+    }
+
+    fn clock(&mut self) {
+        self.counter = self.counter.saturating_sub(1);
+        if self.counter == 0 {
+            self.counter = self.counter_reload;
+
+            // Noise generator always outputs either max sample or min sample based on the shifted-out bit
+            self.current_sample = if self.lfsr.bit(0) { 0x1F } else { 0x00 };
+
+            let new_bit = self.lfsr.bit(0)
+                ^ self.lfsr.bit(1)
+                ^ self.lfsr.bit(11)
+                ^ self.lfsr.bit(12)
+                ^ self.lfsr.bit(17);
+            self.lfsr = (self.lfsr >> 1) | (u32::from(new_bit) << 17);
+        }
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
 struct PsgChannel {
     on: bool,
     direct_da: bool,
@@ -44,9 +93,8 @@ struct PsgChannel {
     amplitude: u8,
     l_amplitude: u8,
     r_amplitude: u8,
-    noise_enabled: bool,
-    noise_frequency: u8,
     current_sample: u8,
+    noise: NoiseGenerator,
 }
 
 impl PsgChannel {
@@ -61,15 +109,18 @@ impl PsgChannel {
             amplitude: 0,
             l_amplitude: 0,
             r_amplitude: 0,
-            noise_enabled: false,
-            noise_frequency: 1,
             current_sample: 0,
+            noise: NoiseGenerator::new(),
         }
     }
 
     fn clock(&mut self) {
         if self.direct_da {
             return;
+        }
+
+        if self.noise.enabled {
+            self.noise.clock();
         }
 
         self.counter = self.counter.saturating_sub(1);
@@ -79,6 +130,14 @@ impl PsgChannel {
         }
 
         self.current_sample = self.wave_ram[self.wave_address as usize];
+    }
+
+    fn current_output(&self) -> u8 {
+        if self.noise.enabled && !self.direct_da {
+            self.noise.current_sample
+        } else {
+            self.current_sample
+        }
     }
 }
 
@@ -139,7 +198,8 @@ impl Huc6280Psg {
             }
 
             // Center waveform at 0 for less poppy audio, and divide by 6 for number of channels
-            let channel_sample = (f64::from(channel.current_sample) - 15.5) / 15.5
+            let channel_sample = channel.current_output();
+            let channel_sample = (f64::from(channel_sample) - 15.5) / 15.5
                 * AMPLITUDE_1_5_DB_LOOKUP_TABLE[channel.amplitude as usize]
                 / 6.0;
 
@@ -224,9 +284,14 @@ impl Huc6280Psg {
                 // R4: Channel on, DDA, channel amplitude
                 let channel = &mut self.channels[self.selected_channel as usize];
 
+                let prev_on = channel.on;
                 channel.on = value.bit(7);
                 channel.direct_da = value.bit(6);
                 channel.amplitude = value & 0x1F;
+
+                if !prev_on && channel.on {
+                    channel.counter = channel.frequency;
+                }
 
                 if channel.direct_da {
                     channel.wave_address = 0;
@@ -265,15 +330,10 @@ impl Huc6280Psg {
             7 => {
                 // R7: Noise enable and frequency
                 let channel = &mut self.channels[self.selected_channel as usize];
-                channel.noise_enabled = value.bit(7);
-                channel.noise_frequency = value & 0x1F;
+                channel.noise.write_r7(value);
 
-                if channel.noise_enabled {
-                    log::warn!("Noise enabled on channel {}", self.selected_channel);
-                }
-
-                log::trace!("Noise enabled: {}", channel.noise_enabled);
-                log::trace!("Noise frequency: {}", channel.noise_frequency);
+                log::trace!("Noise enabled: {}", channel.noise.enabled);
+                log::trace!("Noise frequency: {}", value & 0x1F);
             }
             8 => {
                 // LFO frequency
