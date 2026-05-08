@@ -1,10 +1,11 @@
+use crate::vdp;
 use crate::vdp::colors::{ColorModifier, ColorTables};
 use crate::vdp::registers::{
     DebugRegister, HorizontalDisplaySize, HorizontalScrollMode, InterlacingMode, Plane,
     RIGHT_BORDER, Registers, ScrollSize, VerticalDisplaySize, VerticalScrollMode,
 };
-use crate::vdp::{Cram, FrameBuffer, TilePixel, TimingModeExt, Vdp, Vram, Vsram, colors};
-use jgenesis_common::frontend::TimingMode;
+use crate::vdp::{Cram, TilePixel, TimingModeExt, Vdp, Vram, Vsram, colors};
+use jgenesis_common::frontend::{Color, TimingMode};
 use jgenesis_common::num::GetBit;
 use std::{array, cmp};
 
@@ -891,7 +892,7 @@ impl Vdp {
 }
 
 pub(super) fn set_in_frame_buffer(
-    frame_buffer: &mut FrameBuffer,
+    frame_buffer: &mut [Color; vdp::FRAME_BUFFER_LEN],
     row: u32,
     col: u32,
     color: u16,

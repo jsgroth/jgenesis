@@ -1,9 +1,10 @@
 use crate::api::GameBoyEmulatorConfig;
 use crate::ppu::PpuFrameBuffer;
 use crate::{HardwareMode, ppu};
+use bincode::{Decode, Encode};
 use gb_config::GbPalette;
+use jgenesis_common::boxedarray::BoxedColorArray;
 use jgenesis_common::frontend::Color;
-use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::iter;
 use std::ops::{Deref, DerefMut};
 
@@ -25,8 +26,8 @@ pub(crate) const RGB_5_TO_8: &[u8; 32] = &[
     181, 189, 197, 206, 214, 222, 230, 239, 247, 255,
 ];
 
-#[derive(Debug, Clone, FakeEncode, FakeDecode)]
-pub(crate) struct RgbaFrameBuffer(Box<[Color; ppu::FRAME_BUFFER_LEN]>);
+#[derive(Debug, Clone, Encode, Decode)]
+pub(crate) struct RgbaFrameBuffer(BoxedColorArray<{ ppu::FRAME_BUFFER_LEN }>);
 
 impl RgbaFrameBuffer {
     pub(crate) fn copy_from(
@@ -46,7 +47,7 @@ impl RgbaFrameBuffer {
     }
 
     fn do_copy(&mut self, ppu_frame_buffer: &PpuFrameBuffer, map_color: impl Fn(u16) -> Color) {
-        for (ppu_color, rgba_color) in iter::zip(ppu_frame_buffer.iter(), self.iter_mut()) {
+        for (&ppu_color, rgba_color) in iter::zip(ppu_frame_buffer.iter(), self.iter_mut()) {
             *rgba_color = map_color(ppu_color);
         }
     }
@@ -81,7 +82,7 @@ pub(crate) fn parse_cgb_color(ppu_color: u16) -> (u8, u8, u8) {
 
 impl Default for RgbaFrameBuffer {
     fn default() -> Self {
-        Self(vec![Color::default(); ppu::FRAME_BUFFER_LEN].into_boxed_slice().try_into().unwrap())
+        Self(BoxedColorArray::new())
     }
 }
 

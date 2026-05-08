@@ -19,6 +19,7 @@ use std::mem;
 use thiserror::Error;
 
 pub use graphics::PatternTable;
+use jgenesis_common::boxedarray::BoxedColorArray;
 use mos6502_emu::bus::BusInterface;
 use nes_config::{NesAspectRatio, NesAudioResampler, NesButton, NesPalette, Overscan};
 
@@ -27,6 +28,8 @@ const PAL_MASTER_CLOCK_TICKS: u32 = 80;
 
 const PAL_CPU_DIVIDER: u32 = 16;
 const PAL_PPU_DIVIDER: u32 = 5;
+
+const FRAME_BUFFER_LEN: usize = (ppu::SCREEN_WIDTH as usize) * (ppu::MAX_SCREEN_HEIGHT as usize);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, ConfigDisplay)]
 pub struct NesEmulatorConfig {
@@ -89,7 +92,7 @@ pub struct NesEmulator {
     ppu_state: PpuState,
     apu_state: ApuState,
     config: NesEmulatorConfig,
-    rgba_frame_buffer: Vec<Color>,
+    rgba_frame_buffer: BoxedColorArray<FRAME_BUFFER_LEN>,
     audio_resampler: AudioResampler,
     // Kept around to enable hard reset
     #[partial_clone(default)]
@@ -126,7 +129,7 @@ impl NesEmulator {
             ppu_state,
             apu_state,
             config,
-            rgba_frame_buffer: new_rgba_frame_buffer(),
+            rgba_frame_buffer: BoxedColorArray::new(),
             audio_resampler: AudioResampler::new(timing_mode, &config),
             raw_rom_bytes: rom_bytes,
         })
@@ -199,7 +202,7 @@ impl NesEmulator {
         };
         graphics::ppu_frame_buffer_to_rgba(
             self.ppu_state.frame_buffer(),
-            &mut self.rgba_frame_buffer,
+            self.rgba_frame_buffer.as_mut_slice(),
             overscan,
             display_mode,
             &self.config.palette,
@@ -231,7 +234,7 @@ impl NesEmulator {
         let pixel_aspect_ratio = self.config.aspect_ratio.to_pixel_aspect_ratio();
 
         renderer.render_frame(
-            &self.rgba_frame_buffer,
+            self.rgba_frame_buffer.as_slice(),
             frame_size,
             self.target_fps(),
             RenderFrameOptions {
@@ -275,10 +278,6 @@ impl NesEmulator {
     pub fn using_double_height_sprites(&mut self) -> bool {
         self.bus.ppu().get_ppu_registers().double_height_sprites()
     }
-}
-
-fn new_rgba_frame_buffer() -> Vec<Color> {
-    vec![Color::default(); ppu::SCREEN_WIDTH as usize * ppu::MAX_SCREEN_HEIGHT as usize]
 }
 
 impl EmulatorTrait for NesEmulator {
@@ -386,10 +385,6 @@ impl EmulatorTrait for NesEmulator {
 
     fn to_save_state(&self) -> Self::SaveState {
         self.partial_clone()
-    }
-
-    fn save_state_version() -> &'static str {
-        "0.12.0-0"
     }
 
     fn target_fps(&self) -> f64 {

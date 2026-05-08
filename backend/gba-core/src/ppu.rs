@@ -11,7 +11,7 @@ use crate::ppu::registers::{
 };
 use crate::scheduler::{Scheduler, SchedulerEvent};
 use bincode::{Decode, Encode};
-use jgenesis_common::boxedarray::{BoxedByteArray, BoxedWordArray};
+use jgenesis_common::boxedarray::{BoxedByteArray, BoxedColorArray, BoxedWordArray};
 use jgenesis_common::frontend::{Color, FrameSize};
 use jgenesis_common::num::{GetBit, U16Ext};
 use std::ops::Range;
@@ -42,11 +42,11 @@ const HBLANK_START_DOT: u32 = 1006;
 const HBLANK_IRQ_DOT: u32 = 1008;
 
 #[derive(Debug, Clone, Encode, Decode)]
-struct GbaFrameBuffer(Box<[u16]>);
+struct GbaFrameBuffer(BoxedWordArray<FRAME_BUFFER_LEN>);
 
 impl GbaFrameBuffer {
     fn new() -> Self {
-        Self(vec![0; FRAME_BUFFER_LEN].into_boxed_slice())
+        Self(BoxedWordArray::new())
     }
 
     fn set(&mut self, line: u32, pixel: u32, color: u16) {
@@ -56,11 +56,11 @@ impl GbaFrameBuffer {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
-struct RgbaFrameBuffer(Box<[Color]>);
+struct RgbaFrameBuffer(BoxedColorArray<FRAME_BUFFER_LEN>);
 
 impl RgbaFrameBuffer {
     fn new() -> Self {
-        Self(vec![Color::default(); FRAME_BUFFER_LEN].into_boxed_slice())
+        Self(BoxedColorArray::new())
     }
 
     fn copy_from(&mut self, frame_buffer: &GbaFrameBuffer) {
@@ -1430,7 +1430,7 @@ impl Ppu {
     }
 
     pub fn frame_buffer(&self) -> &[Color] {
-        &self.ready_frame_buffer.0
+        self.ready_frame_buffer.0.as_slice()
     }
 
     fn mask_vram_address(address: u32) -> usize {

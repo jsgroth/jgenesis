@@ -12,10 +12,10 @@ use crate::ppu::fifo::PixelFifo;
 use crate::ppu::registers::{CgbPaletteRam, Registers};
 use crate::sm83::InterruptType;
 use bincode::{Decode, Encode};
+use jgenesis_common::boxedarray::BoxedWordArray;
 use jgenesis_common::frontend::FrameSize;
 use jgenesis_common::num::GetBit;
-use jgenesis_proc_macros::{FakeDecode, FakeEncode};
-use std::ops::{Deref, DerefMut, Range};
+use std::ops::Range;
 
 const SCREEN_WIDTH: usize = 160;
 const SCREEN_HEIGHT: usize = 144;
@@ -38,38 +38,7 @@ const OAM_LEN: usize = 160;
 type Vram = [u8; VRAM_LEN];
 type Oam = [u8; OAM_LEN];
 
-#[derive(Debug, Clone, FakeEncode, FakeDecode)]
-pub struct PpuFrameBuffer(Box<[u16; FRAME_BUFFER_LEN]>);
-
-impl PpuFrameBuffer {
-    pub fn iter(&self) -> impl Iterator<Item = u16> + '_ {
-        self.0.iter().copied()
-    }
-
-    fn set(&mut self, line: u8, pixel: u8, color: u16) {
-        self[(line as usize) * SCREEN_WIDTH + (pixel as usize)] = color;
-    }
-}
-
-impl Default for PpuFrameBuffer {
-    fn default() -> Self {
-        Self(vec![0; FRAME_BUFFER_LEN].into_boxed_slice().try_into().unwrap())
-    }
-}
-
-impl Deref for PpuFrameBuffer {
-    type Target = [u16; FRAME_BUFFER_LEN];
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for PpuFrameBuffer {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
+pub type PpuFrameBuffer = [u16; FRAME_BUFFER_LEN];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum PpuMode {
@@ -186,7 +155,7 @@ struct SpriteData {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Ppu {
     hardware_mode: HardwareMode,
-    frame_buffer: PpuFrameBuffer,
+    frame_buffer: BoxedWordArray<FRAME_BUFFER_LEN>,
     vram: Box<Vram>,
     oam: Box<Oam>,
     registers: Registers,
@@ -207,7 +176,7 @@ impl Ppu {
 
         Self {
             hardware_mode,
-            frame_buffer: PpuFrameBuffer::default(),
+            frame_buffer: BoxedWordArray::new(),
             vram: vram.into_boxed_slice().try_into().unwrap(),
             oam: vec![0; OAM_LEN].into_boxed_slice().try_into().unwrap(),
             registers: Registers::new(boot_rom_present),
@@ -283,7 +252,7 @@ impl Ppu {
         }
 
         if self.state.mode == PpuMode::Rendering {
-            let frame_buffer = (!self.state.skip_next_frame).then_some(&mut self.frame_buffer);
+            let frame_buffer = (!self.state.skip_next_frame).then_some(self.frame_buffer.as_mut());
             self.fifo.tick(
                 &self.vram,
                 &self.registers,

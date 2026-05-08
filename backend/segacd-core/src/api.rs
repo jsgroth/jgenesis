@@ -608,10 +608,6 @@ impl EmulatorTrait for SegaCdEmulator {
         self.partial_clone()
     }
 
-    fn save_state_version() -> &'static str {
-        "0.11.4-0"
-    }
-
     fn target_fps(&self) -> f64 {
         genesis_core::target_framerate(&self.vdp, self.timing_mode)
     }

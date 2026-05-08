@@ -23,13 +23,14 @@ use crate::vdp::registers::{
 };
 use crate::vdp::sprites::{SpriteBuffers, SpriteState};
 use bincode::{Decode, Encode};
+use jgenesis_common::boxedarray::BoxedColorArray;
 use jgenesis_common::frontend::{
     Color, CompositeParams, FrameSize, SamplesPerColorCycle, TimingMode,
 };
 use jgenesis_common::num::{GetBit, U16Ext};
-use jgenesis_proc_macros::{EnumAll, FakeDecode, FakeEncode};
+use jgenesis_proc_macros::EnumAll;
 use std::collections::VecDeque;
-use std::ops::{Deref, DerefMut, Range};
+use std::ops::Range;
 use std::{array, cmp};
 use z80_emu::traits::InterruptLine;
 
@@ -438,35 +439,6 @@ pub enum VdpTickEffect {
     FrameComplete,
 }
 
-#[derive(Debug, Clone, FakeEncode, FakeDecode)]
-struct FrameBuffer(Box<[Color; FRAME_BUFFER_LEN]>);
-
-impl FrameBuffer {
-    fn new() -> Self {
-        Self(vec![Color::default(); FRAME_BUFFER_LEN].into_boxed_slice().try_into().unwrap())
-    }
-}
-
-impl Default for FrameBuffer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Deref for FrameBuffer {
-    type Target = Box<[Color; FRAME_BUFFER_LEN]>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for FrameBuffer {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
 pub(crate) trait TimingModeExt: Copy {
     fn scanlines_per_frame(self, interlaced: bool, interlaced_odd: bool) -> u16;
 
@@ -566,7 +538,7 @@ type Vsram = [u8; VSRAM_LEN];
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Vdp {
-    frame_buffer: FrameBuffer,
+    frame_buffer: BoxedColorArray<FRAME_BUFFER_LEN>,
     cram_dots: CramDotBuffer,
     vram: Box<Vram>,
     cram: Box<Cram>,
@@ -599,7 +571,7 @@ impl Vdp {
     #[must_use]
     pub fn new(timing_mode: TimingMode, config: VdpConfig) -> Self {
         Self {
-            frame_buffer: FrameBuffer::new(),
+            frame_buffer: BoxedColorArray::new(),
             cram_dots: CramDotBuffer::new(),
             vram: vec![0; VRAM_LEN].into_boxed_slice().try_into().unwrap(),
             cram: vec![0; CRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),

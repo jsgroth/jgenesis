@@ -10,15 +10,15 @@ use crate::vdp::registers::{FrameBufferMode, Registers, SelectedFrameBuffer};
 use bincode::{Decode, Encode};
 use genesis_config::{S32XColorTint, S32XVideoOut, S32XVoidColor};
 use genesis_core::vdp::BorderSize;
+use jgenesis_common::boxedarray::BoxedColorArray;
 use jgenesis_common::frontend::{
     Color, CompositeParams, FiniteF64, FrameSize, RenderFrameOptions, Renderer,
     SamplesPerColorCycle, TimingMode,
 };
 use jgenesis_common::num::{GetBit, U16Ext};
-use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::cmp;
 use std::collections::VecDeque;
-use std::ops::{Deref, DerefMut, Range};
+use std::ops::Range;
 
 const MCLK_CYCLES_PER_SCANLINE: u64 = genesis_core::vdp::MCLK_CYCLES_PER_SCANLINE;
 
@@ -50,34 +50,6 @@ const EXPANDED_FRAME_BUFFER_LEN: usize = genesis_core::vdp::FRAME_BUFFER_LEN * 4
 // to the 32X VDP always assuming H40 mode, the Genesis and 32X frames are slightly offset when the
 // Genesis VDP is in H32 mode.
 const H32_H_OFFSET: u32 = 13;
-
-#[derive(Debug, Clone, FakeEncode, FakeDecode)]
-struct ExpandedFrameBuffer(Box<[Color; EXPANDED_FRAME_BUFFER_LEN]>);
-
-impl Default for ExpandedFrameBuffer {
-    fn default() -> Self {
-        Self(
-            vec![Color::default(); EXPANDED_FRAME_BUFFER_LEN]
-                .into_boxed_slice()
-                .try_into()
-                .unwrap(),
-        )
-    }
-}
-
-impl Deref for ExpandedFrameBuffer {
-    type Target = [Color; EXPANDED_FRAME_BUFFER_LEN];
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for ExpandedFrameBuffer {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
 
 type FrameBufferRam = [u16; FRAME_BUFFER_LEN_WORDS];
 type Cram = [u16; CRAM_LEN_WORDS];
@@ -164,7 +136,7 @@ pub struct Vdp {
     rendered_frame: Box<RenderedFrame>,
     // 1280x224 or 1280x240 (not including borders)
     // Needed for when a game enables H32 mode on the Genesis side (NFL Quarterback Club does this)
-    expanded_frame_buffer: ExpandedFrameBuffer,
+    expanded_frame_buffer: BoxedColorArray<EXPANDED_FRAME_BUFFER_LEN>,
     cram: Box<Cram>,
     registers: Registers,
     // Per documentation, the VDP latches registers for rendering once per line beginning shortly
@@ -208,7 +180,7 @@ impl Vdp {
             frame_buffer_0: new_frame_buffer(),
             frame_buffer_1: new_frame_buffer(),
             rendered_frame: new_rendered_frame(),
-            expanded_frame_buffer: ExpandedFrameBuffer::default(),
+            expanded_frame_buffer: BoxedColorArray::new(),
             cram: vec![0; CRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             registers: Registers::default(),
             latched: Registers::default(),
@@ -765,7 +737,7 @@ impl Vdp {
         let interlaced_odd: u32 = genesis_vdp.is_interlaced_odd().into();
 
         let frame_buffer = if EXPAND_H {
-            self.expanded_frame_buffer.as_mut()
+            self.expanded_frame_buffer.as_mut_slice()
         } else {
             genesis_vdp.frame_buffer_mut()
         };

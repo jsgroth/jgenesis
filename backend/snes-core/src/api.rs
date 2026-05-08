@@ -457,10 +457,6 @@ impl EmulatorTrait for SnesEmulator {
         self.partial_clone()
     }
 
-    fn save_state_version() -> &'static str {
-        "0.12.0-0"
-    }
-
     fn target_fps(&self) -> f64 {
         match (self.timing_mode, self.emulator_config.audio_60hz_hack) {
             (TimingMode::Ntsc, true) => 60.0,

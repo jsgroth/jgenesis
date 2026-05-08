@@ -12,13 +12,12 @@ use crate::ppu::registers::{
 };
 use crate::ppu::sprites::{SpriteProcessor, SpriteState};
 use bincode::{Decode, Encode};
+use jgenesis_common::boxedarray::BoxedColorArray;
 use jgenesis_common::frontend::{
     Color, CompositeParams, FrameSize, SamplesPerColorCycle, TimingMode,
 };
 use jgenesis_common::num::{GetBit, U16Ext};
-use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::array;
-use std::ops::{Deref, DerefMut};
 
 const MAX_BRIGHTNESS: u8 = 15;
 
@@ -193,35 +192,6 @@ impl Buffers {
     }
 }
 
-#[derive(Debug, Clone, FakeEncode, FakeDecode)]
-struct FrameBuffer(Box<[Color; FRAME_BUFFER_LEN]>);
-
-impl FrameBuffer {
-    fn new() -> Self {
-        Self::default()
-    }
-}
-
-impl Default for FrameBuffer {
-    fn default() -> Self {
-        Self(vec![Color::default(); FRAME_BUFFER_LEN].into_boxed_slice().try_into().unwrap())
-    }
-}
-
-impl Deref for FrameBuffer {
-    type Target = Box<[Color; FRAME_BUFFER_LEN]>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for FrameBuffer {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PpuTickEffect {
     None,
@@ -375,7 +345,7 @@ pub struct Ppu {
     oam_low: Box<OamLow>,
     oam_high: Box<OamHigh>,
     cgram: Box<Cgram>,
-    frame_buffer: FrameBuffer,
+    frame_buffer: BoxedColorArray<FRAME_BUFFER_LEN>,
     sprites: SpriteProcessor,
     deinterlace: bool,
 }
@@ -424,7 +394,7 @@ impl Ppu {
             oam_low: vec![0; OAM_LOW_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             oam_high: vec![0; OAM_HIGH_LEN_BYTES].into_boxed_slice().try_into().unwrap(),
             cgram: vec![0; CGRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
-            frame_buffer: FrameBuffer::new(),
+            frame_buffer: BoxedColorArray::new(),
             sprites: SpriteProcessor::new(),
             deinterlace: config.deinterlace,
         }

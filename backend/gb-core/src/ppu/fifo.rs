@@ -367,7 +367,9 @@ impl PixelFifo {
             };
 
             if let Some(frame_buffer) = frame_buffer {
-                frame_buffer.set(self.y, fields.screen_x - 8, color);
+                let frame_buffer_idx =
+                    (self.y as usize) * SCREEN_WIDTH + (fields.screen_x - 8) as usize;
+                frame_buffer[frame_buffer_idx] = color;
             }
         }
         fields.screen_x = fields.screen_x.wrapping_add(1);

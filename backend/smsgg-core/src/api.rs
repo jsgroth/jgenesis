@@ -8,18 +8,18 @@ use crate::psg::{Sn76489, Sn76489TickEffect};
 use crate::vdp::{Vdp, VdpBuffer, VdpTickEffect, ViewportSize};
 use crate::{VdpVersion, vdp};
 use bincode::{Decode, Encode};
+use jgenesis_common::boxedarray::BoxedColorArray;
 use jgenesis_common::frontend::{
     AudioOutput, Color, CompositeParams, EmulatorConfigTrait, EmulatorTrait, FrameSize,
     InputPoller, PartialClone, RenderFrameOptions, Renderer, SamplesPerColorCycle, SaveWriter,
     TickEffect, TimingMode,
 };
-use jgenesis_proc_macros::{ConfigDisplay, FakeDecode, FakeEncode};
+use jgenesis_proc_macros::ConfigDisplay;
 use smsgg_config::{
     GgAspectRatio, SmsAspectRatio, SmsGgButton, SmsGgInputs, SmsGgRegion, SmsModel, Sn76489Version,
 };
 use std::fmt::{Debug, Display};
 use std::num::NonZeroU32;
-use std::ops::{Deref, DerefMut};
 use thiserror::Error;
 use ym_opll::Ym2413;
 use z80_emu::{InterruptMode, Z80};
@@ -35,35 +35,6 @@ pub enum SmsGgError<RErr, AErr, SErr> {
 }
 
 pub type SmsGgResult<RErr, AErr, SErr> = Result<TickEffect, SmsGgError<RErr, AErr, SErr>>;
-
-#[derive(Debug, Clone, FakeEncode, FakeDecode)]
-struct FrameBuffer(Vec<Color>);
-
-impl FrameBuffer {
-    fn new() -> Self {
-        Self(vec![Color::default(); vdp::FRAME_BUFFER_LEN])
-    }
-}
-
-impl Default for FrameBuffer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Deref for FrameBuffer {
-    type Target = Vec<Color>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for FrameBuffer {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum SmsGgHardware {
@@ -138,7 +109,7 @@ pub struct SmsGgEmulator {
     ym2413: Option<Ym2413>,
     input: InputState,
     audio_resampler: AudioResampler,
-    frame_buffer: FrameBuffer,
+    frame_buffer: BoxedColorArray<{ vdp::FRAME_BUFFER_LEN }>,
     config: SmsGgEmulatorConfig,
     vdp_mclk_counter: u32,
     psg_mclk_counter: u32,
@@ -192,7 +163,7 @@ impl SmsGgEmulator {
             ym2413,
             input,
             audio_resampler: AudioResampler::new(timing_mode),
-            frame_buffer: FrameBuffer::new(),
+            frame_buffer: BoxedColorArray::new(),
             config,
             vdp_mclk_counter: 0,
             psg_mclk_counter: 0,
@@ -224,7 +195,7 @@ impl SmsGgEmulator {
             self.vdp_version,
             self.config.sms_crop_vertical_border,
             self.config.sms_crop_left_border,
-            &mut self.frame_buffer,
+            self.frame_buffer.as_mut_slice(),
         );
 
         let viewport = self.vdp.viewport();
@@ -241,7 +212,7 @@ impl SmsGgEmulator {
 
         let frame_size = FrameSize { width: frame_width, height: frame_height };
         renderer.render_frame(
-            &self.frame_buffer,
+            self.frame_buffer.as_slice(),
             frame_size,
             self.target_fps(),
             self.config.render_options(self.vdp_version.hardware()),
@@ -436,7 +407,7 @@ impl EmulatorTrait for SmsGgEmulator {
         self.ym2413 =
             self.config.fm_sound_unit_enabled.then(|| ym_opll::new_ym2413(YM2413_CLOCK_INTERVAL));
 
-        self.frame_buffer = FrameBuffer::new();
+        self.frame_buffer = BoxedColorArray::new();
 
         self.vdp_mclk_counter = 0;
         self.psg_mclk_counter = 0;
@@ -451,10 +422,6 @@ impl EmulatorTrait for SmsGgEmulator {
 
     fn to_save_state(&self) -> Self::SaveState {
         self.partial_clone()
-    }
-
-    fn save_state_version() -> &'static str {
-        "0.11.4-0"
     }
 
     fn target_fps(&self) -> f64 {
