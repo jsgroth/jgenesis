@@ -4,7 +4,7 @@ use crate::mainloop::input::{ThreadedInputPoller, ThreadedInputPollerHandle};
 use crate::mainloop::render::{RecvFrameError, ThreadedRenderer, ThreadedRendererHandle};
 use crate::mainloop::rewind::Rewinder;
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
-use crate::mainloop::state::SaveStatePaths;
+use crate::mainloop::state::{SaveStatePaths, StateSaverThreadHandle};
 use crate::mainloop::{CreateEmulatorFn, CreatedEmulator, save, state};
 use crate::{NativeEmulatorError, NativeEmulatorResult, SaveStateMetadata};
 use jgenesis_common::frontend::{AudioOutput, EmulatorTrait, Renderer, SaveWriter, TickEffect};
@@ -75,6 +75,7 @@ struct RunnerThreadState<Emulator: EmulatorTrait> {
     base_save_state_path: PathBuf,
     save_state_paths: SaveStatePaths,
     save_state_metadata: Arc<Mutex<SaveStateMetadata>>,
+    state_saver_thread: StateSaverThreadHandle<Emulator>,
     paused: Arc<AtomicBool>,
     step_frame: bool,
     rewinder: Rewinder<Emulator>,
@@ -204,6 +205,8 @@ pub fn spawn<Emulator: EmulatorTrait>(
             Ok(CreatedEmulator { emulator, window_title, default_window_size }) => {
                 init_sender.send(Ok((window_title, default_window_size))).unwrap();
 
+                let state_saver_thread = state::spawn_state_saver_thread();
+
                 let rewinder =
                     Rewinder::new(Duration::from_secs(common_config.rewind_buffer_length_seconds));
 
@@ -224,6 +227,7 @@ pub fn spawn<Emulator: EmulatorTrait>(
                     base_save_state_path: save_state_path,
                     save_state_paths,
                     save_state_metadata,
+                    state_saver_thread,
                     paused,
                     step_frame: false,
                     rewinder,
@@ -406,10 +410,14 @@ fn handle_commands<Emulator: EmulatorTrait>(
                 Ok(CommandEffect::None) => {}
                 other => return other,
             },
-            Err(TryRecvError::Empty) => return Ok(CommandEffect::None),
+            Err(TryRecvError::Empty) => break,
             Err(TryRecvError::Disconnected) => return Err(CommandError::LostConnection),
         }
     }
+
+    try_recv_save_state_responses(state)?;
+
+    Ok(CommandEffect::None)
 }
 
 fn handle_command<Emulator: EmulatorTrait>(
@@ -502,17 +510,50 @@ fn save_state<Emulator: EmulatorTrait>(
     state: &mut RunnerThreadState<Emulator>,
     slot: usize,
 ) -> Result<(), CommandError> {
-    let result = {
-        let mut save_state_metadata = state.save_state_metadata.lock().unwrap();
-        state::save(&state.emulator, &state.save_state_paths, slot, &mut save_state_metadata)
-    };
+    if state
+        .state_saver_thread
+        .send_save_request(
+            &state.emulator,
+            &state.save_state_paths,
+            slot,
+            Arc::clone(&state.save_state_metadata),
+        )
+        .is_err()
+    {
+        log::error!("Lost connection to state saver thread; this is probably a bug");
+        return state
+            .response_sender
+            .send(RunnerCommandResponse::SaveStateFailed {
+                slot,
+                err: NativeEmulatorError::LostRunnerConnection,
+            })
+            .map_err(|_| CommandError::LostConnection);
+    }
 
-    let message = match result {
-        Ok(()) => RunnerCommandResponse::SaveStateSucceeded { slot },
-        Err(err) => RunnerCommandResponse::SaveStateFailed { slot, err },
-    };
+    Ok(())
+}
 
-    state.response_sender.send(message).map_err(|_| CommandError::LostConnection)
+fn try_recv_save_state_responses<Emulator: EmulatorTrait>(
+    state: &mut RunnerThreadState<Emulator>,
+) -> Result<(), CommandError> {
+    while let Some(result) = state.state_saver_thread.try_recv_save_response() {
+        match result {
+            Ok(response) => {
+                state
+                    .response_sender
+                    .send(RunnerCommandResponse::SaveStateSucceeded { slot: response.slot })
+                    .map_err(|_| CommandError::LostConnection)?;
+            }
+            Err((err, response)) => {
+                state
+                    .response_sender
+                    .send(RunnerCommandResponse::SaveStateFailed { slot: response.slot, err })
+                    .map_err(|_| CommandError::LostConnection)?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn load_state<Emulator: EmulatorTrait>(
