@@ -273,6 +273,7 @@ impl EmulatorTrait for SnesEmulator {
     type Button = SnesButton;
     type Inputs = SnesInputs;
     type Config = SnesEmulatorConfig;
+    type SaveState = Self;
 
     type Err<
         RErr: Debug + Display + Send + Sync + 'static,
@@ -423,11 +424,6 @@ impl EmulatorTrait for SnesEmulator {
         self.emulator_config = *config;
     }
 
-    fn take_rom_from(&mut self, other: &mut Self) {
-        self.memory.take_rom_from(&mut other.memory);
-        self.coprocessor_roms = mem::take(&mut other.coprocessor_roms);
-    }
-
     fn soft_reset(&mut self) {
         log::info!("Soft resetting");
 
@@ -449,6 +445,16 @@ impl EmulatorTrait for SnesEmulator {
         let coprocessor_roms = mem::take(&mut self.coprocessor_roms);
         *self = Self::create(rom, self.emulator_config, coprocessor_roms, save_writer)
             .expect("Hard resetting should never fail to load");
+    }
+
+    fn load_state(&mut self, mut state: Self::SaveState) {
+        state.memory.take_rom_from(&mut self.memory);
+        state.coprocessor_roms = mem::take(&mut self.coprocessor_roms);
+        *self = state;
+    }
+
+    fn to_save_state(&self) -> Self::SaveState {
+        self.partial_clone()
     }
 
     fn save_state_version() -> &'static str {

@@ -10,10 +10,10 @@ use crate::{apu, audio, cpu, graphics, ppu};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
     AudioOutput, Color, CompositeParams, EmulatorConfigTrait, EmulatorTrait, FrameSize,
-    InputPoller, NtscPerFrameParams, RenderFrameOptions, Renderer, SamplesPerColorCycle,
-    SaveWriter, TickEffect, TickResult, TimingMode,
+    InputPoller, NtscPerFrameParams, PartialClone, RenderFrameOptions, Renderer,
+    SamplesPerColorCycle, SaveWriter, TickEffect, TickResult, TimingMode,
 };
-use jgenesis_proc_macros::{ConfigDisplay, PartialClone};
+use jgenesis_proc_macros::ConfigDisplay;
 use std::fmt::{Debug, Display};
 use std::mem;
 use thiserror::Error;
@@ -285,6 +285,8 @@ impl EmulatorTrait for NesEmulator {
     type Button = NesButton;
     type Inputs = NesInputs;
     type Config = NesEmulatorConfig;
+    type SaveState = Self;
+
     type Err<
         RErr: Debug + Display + Send + Sync + 'static,
         AErr: Debug + Display + Send + Sync + 'static,
@@ -358,11 +360,6 @@ impl EmulatorTrait for NesEmulator {
         self.ppu_state.ntsc_crop_vertical_overscan = config.ntsc_crop_vertical_overscan;
     }
 
-    fn take_rom_from(&mut self, other: &mut Self) {
-        self.bus.move_rom_from(&mut other.bus);
-        self.raw_rom_bytes = mem::take(&mut other.raw_rom_bytes);
-    }
-
     fn soft_reset(&mut self) {
         cpu::reset(&mut self.cpu_state, &mut self.bus.cpu());
         apu::reset(&mut self.apu_state);
@@ -379,6 +376,16 @@ impl EmulatorTrait for NesEmulator {
 
         *self = Self::create(rom_bytes, self.config, save_writer)
             .expect("Creation during hard reset should never fail");
+    }
+
+    fn load_state(&mut self, mut state: Self::SaveState) {
+        state.bus.move_rom_from(&mut self.bus);
+        state.raw_rom_bytes = mem::take(&mut self.raw_rom_bytes);
+        *self = state;
+    }
+
+    fn to_save_state(&self) -> Self::SaveState {
+        self.partial_clone()
     }
 
     fn save_state_version() -> &'static str {

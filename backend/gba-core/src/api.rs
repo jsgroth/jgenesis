@@ -21,9 +21,9 @@ use bincode::{Decode, Encode};
 use gba_config::{GbaAspectRatio, GbaAudioInterpolation, GbaButton, GbaInputs, GbaSaveMemory};
 use jgenesis_common::frontend::{
     AudioOutput, Color, ColorCorrection, EmulatorConfigTrait, EmulatorTrait, InputPoller,
-    RenderFrameOptions, Renderer, SaveWriter, TickEffect, TickResult,
+    PartialClone, RenderFrameOptions, Renderer, SaveWriter, TickEffect, TickResult,
 };
-use jgenesis_proc_macros::{ConfigDisplay, PartialClone};
+use jgenesis_proc_macros::ConfigDisplay;
 use std::fmt::{Debug, Display};
 use thiserror::Error;
 
@@ -275,6 +275,8 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
     type Button = GbaButton;
     type Inputs = GbaInputs;
     type Config = GbaEmulatorConfig;
+    type SaveState = Self;
+
     type Err<
         RErr: Debug + Display + Send + Sync + 'static,
         AErr: Debug + Display + Send + Sync + 'static,
@@ -383,10 +385,6 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
         self.bus.apu.reload_config(config.audio);
     }
 
-    fn take_rom_from(&mut self, other: &mut Self) {
-        self.bus.cartridge.take_rom_from(&mut other.bus.cartridge);
-    }
-
     fn soft_reset(&mut self) {
         log::warn!("GBA does not support soft reset except in software");
     }
@@ -397,6 +395,15 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
 
         *self = Self::create(rom, bios_rom, self.config, save_writer)
             .expect("Emulator creation should never fail during hard reset");
+    }
+
+    fn load_state(&mut self, mut state: Self::SaveState) {
+        state.bus.cartridge.take_rom_from(&mut self.bus.cartridge);
+        *self = state;
+    }
+
+    fn to_save_state(&self) -> Self::SaveState {
+        self.partial_clone()
     }
 
     #[inline]

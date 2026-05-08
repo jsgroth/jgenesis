@@ -319,10 +319,11 @@ pub trait EmulatorConfigTrait: Clone + Send + Sync + 'static {
     }
 }
 
-pub trait EmulatorTrait: Encode + Decode<()> + PartialClone + 'static {
+pub trait EmulatorTrait: 'static {
     type Button: Debug + Copy + Eq + Hash;
     type Inputs: Clone + Eq + Default + MappableInputs<Self::Button> + Send + Sync + 'static;
     type Config: EmulatorConfigTrait;
+    type SaveState: Encode + Decode<()> + Send + Sync + 'static;
 
     type Err<RErr: Debug + Display + Send + Sync + 'static, AErr: Debug + Display + Send + Sync + 'static, SErr: Debug + Display + Send + Sync + 'static>: Error + Send + Sync + 'static;
 
@@ -357,11 +358,13 @@ pub trait EmulatorTrait: Encode + Decode<()> + PartialClone + 'static {
 
     fn reload_config(&mut self, config: &Self::Config);
 
-    fn take_rom_from(&mut self, other: &mut Self);
-
     fn soft_reset(&mut self);
 
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S);
+
+    fn load_state(&mut self, state: Self::SaveState);
+
+    fn to_save_state(&self) -> Self::SaveState;
 
     #[must_use]
     fn save_state_version() -> &'static str {

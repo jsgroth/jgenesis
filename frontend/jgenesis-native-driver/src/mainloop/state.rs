@@ -107,7 +107,7 @@ pub fn save<Emulator: EmulatorTrait>(
 
     let mut encoder =
         zstd::stream::Encoder::new(writer, 0).map_err(NativeEmulatorError::SaveStateIo)?;
-    bincode::encode_into_std_write(emulator, &mut encoder, bincode_config!())?;
+    bincode::encode_into_std_write(emulator.to_save_state(), &mut encoder, bincode_config!())?;
     encoder.finish().map_err(NativeEmulatorError::SaveStateIo)?;
 
     let now_nanos = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
@@ -151,11 +151,10 @@ pub fn load<Emulator: EmulatorTrait>(
     reader.seek(SeekFrom::Start(total_header_len)).map_err(NativeEmulatorError::SaveStateIo)?;
     let mut decoder =
         zstd::stream::Decoder::new(reader).map_err(NativeEmulatorError::LoadStateIo)?;
-    let mut loaded_emulator: Emulator =
+    let loaded_state: Emulator::SaveState =
         bincode::decode_from_std_read(&mut decoder, bincode_config!())?;
 
-    loaded_emulator.take_rom_from(emulator);
-    *emulator = loaded_emulator;
+    emulator.load_state(loaded_state);
     emulator.reload_config(config);
 
     Ok(())

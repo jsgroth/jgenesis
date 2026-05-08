@@ -438,6 +438,7 @@ impl EmulatorTrait for GenesisEmulator {
     type Button = GenesisButton;
     type Inputs = GenesisInputs;
     type Config = GenesisEmulatorConfig;
+    type SaveState = Self;
 
     type Err<
         RErr: Debug + Display + Send + Sync + 'static,
@@ -492,10 +493,6 @@ impl EmulatorTrait for GenesisEmulator {
         self.config = *config;
     }
 
-    fn take_rom_from(&mut self, other: &mut Self) {
-        self.memory.take_rom_from(&mut other.memory);
-    }
-
     fn soft_reset(&mut self) {
         log::info!("Soft resetting console");
 
@@ -509,6 +506,15 @@ impl EmulatorTrait for GenesisEmulator {
 
         let rom = self.memory.take_rom();
         *self = GenesisEmulator::create(rom, self.config, save_writer);
+    }
+
+    fn load_state(&mut self, mut state: Self::SaveState) {
+        state.memory.take_rom_from(&mut self.memory);
+        *self = state;
+    }
+
+    fn to_save_state(&self) -> Self::SaveState {
+        self.partial_clone()
     }
 
     fn target_fps(&self) -> f64 {

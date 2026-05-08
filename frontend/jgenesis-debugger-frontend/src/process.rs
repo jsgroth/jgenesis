@@ -1,6 +1,6 @@
 use crate::DebugRenderContext;
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorTrait, InputPoller, Renderer, SaveWriter, TickEffect,
+    AudioOutput, EmulatorTrait, InputPoller, PartialClone, Renderer, SaveWriter, TickEffect,
 };
 use jgenesis_common::sync::{SharedVarReceiver, SharedVarSender};
 use std::error::Error;
@@ -116,7 +116,7 @@ pub struct PartialCloneRunnerProcess<Emulator> {
 impl<Emulator, R, A, I, S> DebuggerRunnerProcess<Emulator, R, A, I, S>
     for PartialCloneRunnerProcess<Emulator>
 where
-    Emulator: EmulatorTrait + Send + Sync + 'static,
+    Emulator: EmulatorTrait + PartialClone + Send + Sync + 'static,
     R: Renderer,
     A: AudioOutput,
     I: InputPoller<Emulator::Inputs>,
@@ -185,7 +185,7 @@ pub fn partial_clone_debug_fn<Emulator, R, A, I, S>(
     render_fn: Box<DebugRenderFn<Emulator>>,
 ) -> DebuggerProcesses<Emulator, R, A, I, S>
 where
-    Emulator: EmulatorTrait + Send + Sync + 'static,
+    Emulator: EmulatorTrait + PartialClone + Send + Sync + 'static,
     R: Renderer,
     A: AudioOutput,
     I: InputPoller<Emulator::Inputs>,

@@ -1,18 +1,18 @@
-use jgenesis_common::frontend::{EmulatorTrait, PartialClone, Renderer};
+use jgenesis_common::frontend::{EmulatorTrait, Renderer};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 const FRAME_DIVIDER: u64 = 10;
 const REWIND_SPEED: u64 = 2;
 
-pub struct Rewinder<Emulator> {
-    previous_states: VecDeque<Emulator>,
+pub struct Rewinder<Emulator: EmulatorTrait> {
+    previous_states: VecDeque<Emulator::SaveState>,
     buffer_len: usize,
     frame_count: u64,
     last_rewind_time: Option<Instant>,
 }
 
-impl<Emulator: PartialClone> Rewinder<Emulator> {
+impl<Emulator: EmulatorTrait> Rewinder<Emulator> {
     pub fn new(buffer_duration: Duration) -> Self {
         let buffer_len = duration_to_buffer_len(buffer_duration);
         Self {
@@ -31,7 +31,7 @@ impl<Emulator: PartialClone> Rewinder<Emulator> {
         self.frame_count += 1;
 
         if self.frame_count.is_multiple_of(FRAME_DIVIDER) {
-            self.previous_states.push_back(emulator.partial_clone());
+            self.previous_states.push_back(emulator.to_save_state());
 
             while self.previous_states.len() > self.buffer_len {
                 self.previous_states.pop_front();
@@ -69,9 +69,8 @@ impl<Emulator: PartialClone> Rewinder<Emulator> {
 
         let now = Instant::now();
         if now.duration_since(last_rewind_time) >= Duration::from_secs_f64(rewind_interval_secs) {
-            let Some(mut clone) = self.previous_states.pop_back() else { return Ok(()) };
-            clone.take_rom_from(emulator);
-            *emulator = clone;
+            let Some(state) = self.previous_states.pop_back() else { return Ok(()) };
+            emulator.load_state(state);
 
             emulator.reload_config(config);
             emulator.force_render(renderer)?;

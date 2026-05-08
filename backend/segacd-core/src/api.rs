@@ -527,6 +527,7 @@ impl EmulatorTrait for SegaCdEmulator {
     type Button = GenesisButton;
     type Inputs = GenesisInputs;
     type Config = SegaCdEmulatorConfig;
+    type SaveState = Self;
 
     type Err<
         RErr: Debug + Display + Send + Sync + 'static,
@@ -578,10 +579,6 @@ impl EmulatorTrait for SegaCdEmulator {
         self.config = *config;
     }
 
-    fn take_rom_from(&mut self, other: &mut Self) {
-        self.memory.medium_mut().take_rom_from(other.memory.medium_mut());
-    }
-
     fn soft_reset(&mut self) {
         // Reset main CPU
         self.main_cpu.execute_instruction(&mut new_main_bus!(self, m68k_reset: true));
@@ -600,6 +597,15 @@ impl EmulatorTrait for SegaCdEmulator {
 
         *self = Self::create_from_disc(bios, disc, self.config, save_writer)
             .expect("Hard reset should not cause an I/O error");
+    }
+
+    fn load_state(&mut self, mut state: Self::SaveState) {
+        state.memory.medium_mut().take_rom_from(self.memory.medium_mut());
+        *self = state;
+    }
+
+    fn to_save_state(&self) -> Self::SaveState {
+        self.partial_clone()
     }
 
     fn save_state_version() -> &'static str {

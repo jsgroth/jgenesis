@@ -19,10 +19,10 @@ use genesis_core::vdp::{DarkenColors, Vdp, VdpTickEffect};
 use genesis_core::ym2612::Ym2612;
 use genesis_core::{GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorConfigTrait, EmulatorTrait, InputPoller, Renderer, SaveWriter, TickEffect,
-    TickResult, TimingMode,
+    AudioOutput, EmulatorConfigTrait, EmulatorTrait, InputPoller, PartialClone, Renderer,
+    SaveWriter, TickEffect, TickResult, TimingMode,
 };
-use jgenesis_proc_macros::{ConfigDisplay, PartialClone};
+use jgenesis_proc_macros::ConfigDisplay;
 use m68000_emu::M68000;
 use smsgg_config::Sn76489Version;
 use smsgg_core::psg::{Sn76489, Sn76489TickEffect};
@@ -317,6 +317,8 @@ impl EmulatorTrait for Sega32XEmulator {
     type Button = GenesisButton;
     type Inputs = GenesisInputs;
     type Config = Sega32XEmulatorConfig;
+    type SaveState = Self;
+
     type Err<
         RErr: Debug + Display + Send + Sync + 'static,
         AErr: Debug + Display + Send + Sync + 'static,
@@ -363,10 +365,6 @@ impl EmulatorTrait for Sega32XEmulator {
         self.config = *config;
     }
 
-    fn take_rom_from(&mut self, other: &mut Self) {
-        self.memory.medium_mut().take_rom_from(other.memory.medium_mut());
-    }
-
     fn soft_reset(&mut self) {
         log::info!("Soft resetting console");
 
@@ -381,6 +379,15 @@ impl EmulatorTrait for Sega32XEmulator {
         let rom = self.memory.medium_mut().cartridge_mut().take_rom();
 
         *self = Self::create(rom, self.config, save_writer);
+    }
+
+    fn load_state(&mut self, mut state: Self::SaveState) {
+        state.memory.medium_mut().take_rom_from(self.memory.medium_mut());
+        *self = state;
+    }
+
+    fn to_save_state(&self) -> Self::SaveState {
+        self.partial_clone()
     }
 
     fn save_state_version() -> &'static str {

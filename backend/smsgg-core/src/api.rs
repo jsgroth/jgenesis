@@ -299,6 +299,7 @@ impl EmulatorTrait for SmsGgEmulator {
     type Button = SmsGgButton;
     type Inputs = SmsGgInputs;
     type Config = SmsGgEmulatorConfig;
+    type SaveState = Self;
 
     type Err<
         RErr: Debug + Display + Send + Sync + 'static,
@@ -412,10 +413,6 @@ impl EmulatorTrait for SmsGgEmulator {
         self.audio_resampler.update_timing_mode(self.vdp.timing_mode());
     }
 
-    fn take_rom_from(&mut self, other: &mut Self) {
-        self.memory.take_rom_from(&mut other.memory);
-    }
-
     fn soft_reset(&mut self) {
         log::info!("Soft resetting console");
 
@@ -445,6 +442,15 @@ impl EmulatorTrait for SmsGgEmulator {
         self.psg_mclk_counter = 0;
         self.frame_count = 0;
         self.reset_frames_remaining = 0;
+    }
+
+    fn load_state(&mut self, mut state: Self::SaveState) {
+        state.memory.take_rom_from(&mut self.memory);
+        *self = state;
+    }
+
+    fn to_save_state(&self) -> Self::SaveState {
+        self.partial_clone()
     }
 
     fn save_state_version() -> &'static str {

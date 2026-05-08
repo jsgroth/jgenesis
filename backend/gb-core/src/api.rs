@@ -18,9 +18,9 @@ use bincode::{Decode, Encode};
 use gb_config::{GameBoyButton, GameBoyInputs, GbAspectRatio, GbAudioResampler, GbPalette};
 use jgenesis_common::frontend::{
     AudioOutput, Color, ColorCorrection, EmulatorConfigTrait, EmulatorTrait, InputPoller,
-    RenderFrameOptions, Renderer, SaveWriter, TickEffect, TickResult,
+    PartialClone, RenderFrameOptions, Renderer, SaveWriter, TickEffect, TickResult,
 };
-use jgenesis_proc_macros::{ConfigDisplay, PartialClone};
+use jgenesis_proc_macros::ConfigDisplay;
 use std::fmt::{Debug, Display};
 use thiserror::Error;
 
@@ -199,6 +199,8 @@ impl EmulatorTrait for GameBoyEmulator {
     type Button = GameBoyButton;
     type Inputs = GameBoyInputs;
     type Config = GameBoyEmulatorConfig;
+    type SaveState = Self;
+
     type Err<
         RErr: Debug + Display + Send + Sync + 'static,
         AErr: Debug + Display + Send + Sync + 'static,
@@ -288,10 +290,6 @@ impl EmulatorTrait for GameBoyEmulator {
         self.apu.reload_config(*config);
     }
 
-    fn take_rom_from(&mut self, other: &mut Self) {
-        self.cartridge.take_rom_from(&mut other.cartridge);
-    }
-
     fn soft_reset(&mut self) {
         log::warn!("The Game Boy does not support soft reset except in software");
     }
@@ -307,6 +305,15 @@ impl EmulatorTrait for GameBoyEmulator {
 
         *self = Self::create(rom, boot_roms, self.config, save_writer)
             .expect("Hard reset should never fail to load cartridge");
+    }
+
+    fn load_state(&mut self, mut state: Self::SaveState) {
+        state.cartridge.take_rom_from(&mut self.cartridge);
+        *self = state;
+    }
+
+    fn to_save_state(&self) -> Self::SaveState {
+        self.partial_clone()
     }
 
     fn target_fps(&self) -> f64 {
