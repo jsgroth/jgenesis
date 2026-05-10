@@ -8,10 +8,8 @@ mod debug;
 mod tms9918;
 
 use crate::{SmsGgEmulatorConfig, SmsGgHardware};
-use bincode::de::{BorrowDecoder, Decoder};
-use bincode::enc::Encoder;
-use bincode::error::{DecodeError, EncodeError};
-use bincode::{BorrowDecode, Decode, Encode};
+use bincode::{Decode, Encode};
+use jgenesis_common::boxedarray::BoxedWordArray;
 use jgenesis_common::frontend::{Color, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::EnumDisplay;
@@ -836,16 +834,16 @@ fn render_sprite_pixels(
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct VdpBuffer {
-    buffer: Vec<u16>,
+    buffer: BoxedWordArray<FRAME_BUFFER_LEN>,
     viewport: ViewportSize,
 }
 
 impl VdpBuffer {
     fn new(version: VdpVersion, gg_use_sms_resolution: bool) -> Self {
         Self {
-            buffer: vec![0; FRAME_BUFFER_LEN],
+            buffer: BoxedWordArray::new(),
             viewport: version.viewport_size(gg_use_sms_resolution, Mode::default()),
         }
     }
@@ -869,29 +867,6 @@ impl VdpBuffer {
 
     pub fn iter(&self) -> FrameBufferRowIter<'_> {
         FrameBufferRowIter { buffer: self, row: 0 }
-    }
-}
-
-impl Encode for VdpBuffer {
-    fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
-        self.viewport.encode(encoder)?;
-        Ok(())
-    }
-}
-
-impl<Context> Decode<Context> for VdpBuffer {
-    fn decode<D: Decoder<Context = Context>>(decoder: &mut D) -> Result<Self, DecodeError> {
-        let viewport = ViewportSize::decode(decoder)?;
-        Ok(Self { buffer: vec![0; FRAME_BUFFER_LEN], viewport })
-    }
-}
-
-impl<'de, Context> BorrowDecode<'de, Context> for VdpBuffer {
-    fn borrow_decode<D: BorrowDecoder<'de, Context = Context>>(
-        decoder: &mut D,
-    ) -> Result<Self, DecodeError> {
-        let viewport = ViewportSize::borrow_decode(decoder)?;
-        Ok(Self { buffer: vec![0; FRAME_BUFFER_LEN], viewport })
     }
 }
 

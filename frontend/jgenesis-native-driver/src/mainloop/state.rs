@@ -180,8 +180,7 @@ pub fn save<Emulator: EmulatorTrait>(
     writer.write_all(&[version_len]).map_err(NativeEmulatorError::SaveStateIo)?;
     writer.write_all(current_version.as_bytes()).map_err(NativeEmulatorError::SaveStateIo)?;
 
-    let mut encoder =
-        zstd::stream::Encoder::new(writer, 0).map_err(NativeEmulatorError::SaveStateIo)?;
+    let mut encoder = zstd::Encoder::new(writer, 0).map_err(NativeEmulatorError::SaveStateIo)?;
     bincode::encode_into_std_write(state, &mut encoder, bincode_config!())?;
     encoder.finish().map_err(NativeEmulatorError::SaveStateIo)?;
 
@@ -228,8 +227,7 @@ pub fn load<Emulator: EmulatorTrait>(
 
     let total_header_len = (FILE_PREFIX.len() + 1 + current_version.len()) as u64;
     reader.seek(SeekFrom::Start(total_header_len)).map_err(NativeEmulatorError::SaveStateIo)?;
-    let mut decoder =
-        zstd::stream::Decoder::new(reader).map_err(NativeEmulatorError::LoadStateIo)?;
+    let mut decoder = zstd::Decoder::new(reader).map_err(NativeEmulatorError::LoadStateIo)?;
     let loaded_state: Emulator::SaveState =
         bincode::decode_from_std_read(&mut decoder, bincode_config!())?;
 
