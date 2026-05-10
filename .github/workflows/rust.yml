@@ -63,6 +63,9 @@ jobs:
   build-web:
     runs-on: ubuntu-latest
 
+    env:
+      JGENESIS_TOOLCHAIN: nightly-2026-05-01
+
     steps:
       - uses: actions/checkout@v6
 
@@ -72,7 +75,7 @@ jobs:
 
       - name: Install latest nightly Rust toolchain
         run: |
-          rustup toolchain add nightly --component rust-src --component clippy
+          rustup toolchain add $JGENESIS_TOOLCHAIN --component rust-src --component clippy
 
       - name: Install wasm-pack
         run: |
