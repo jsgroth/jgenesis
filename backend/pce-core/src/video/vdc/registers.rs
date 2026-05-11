@@ -36,8 +36,8 @@ impl VramAccessWidth {
 pub enum SpriteAccessWidth {
     #[default]
     One,       // Fetch 1 sprite per 4 dots
-    TwoDouble, // Fetch 2 sprites per 16 dots
-    TwoSingle, // Fetch 1 sprite per 8 dots
+    TwoHalfBpp, // Fetch 1 sprite per 4 dots but only half of the bitplanes
+    TwoFullBpp, // Fetch 1 sprite per 8 dots
     Four,      // Fetch 1 sprite per 8 dots but only half of the bitplanes
 }
 
@@ -45,8 +45,8 @@ impl SpriteAccessWidth {
     fn from_bits(bits: u8) -> Self {
         match bits & 3 {
             0 => Self::One,
-            1 => Self::TwoDouble,
-            2 => Self::TwoSingle,
+            1 => Self::TwoHalfBpp,
+            2 => Self::TwoFullBpp,
             3 => Self::Four,
             _ => unreachable!("value & 3 is always <= 3"),
         }
@@ -55,10 +55,14 @@ impl SpriteAccessWidth {
     fn display(self) -> &'static str {
         match self {
             Self::One => "1",
-            Self::TwoDouble => "2 (2 sprites per 16 dots)",
-            Self::TwoSingle => "2 (1 sprite per 8 dots)",
+            Self::TwoHalfBpp => "2 (2bpp sprites)",
+            Self::TwoFullBpp => "2 (4bpp sprites)",
             Self::Four => "4",
         }
+    }
+
+    pub fn is_half_bpp(self) -> bool {
+        matches!(self, Self::TwoHalfBpp | Self::Four)
     }
 }
 

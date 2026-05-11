@@ -5,13 +5,14 @@ mod registers;
 
 use crate::video::MCLK_CYCLES_PER_SCANLINE;
 use crate::video::vce::{DotClockDivider, Vce};
+use crate::video::vdc::registers::SpriteAccessWidth;
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::{Boxed2DWordArray, BoxedWordArray};
 use jgenesis_common::define_bit_enum;
 use jgenesis_common::num::GetBit;
 use registers::VdcRegisters;
 use std::ops::Range;
-use std::{array, cmp};
+use std::{array, cmp, hint, mem};
 
 pub const VRAM_LEN_WORDS: usize = 64 * 1024 / 2;
 pub const SPRITE_TABLE_LEN: usize = 64;
@@ -314,6 +315,7 @@ pub struct LatchedHorizontalState {
     pub bg_x_scroll: u16,
     pub bg_enabled: bool,
     pub sprites_enabled: bool,
+    pub sprite_access_width: SpriteAccessWidth,
 }
 
 impl LatchedHorizontalState {
@@ -326,6 +328,7 @@ impl LatchedHorizontalState {
             bg_x_scroll: registers.bg_x_scroll,
             bg_enabled: registers.bg_enabled,
             sprites_enabled: registers.sprites_enabled,
+            sprite_access_width: registers.sprite_access_width,
         }
     }
 }
@@ -910,7 +913,13 @@ impl Vdc {
         // In sprite coordinates, Y=64 is the first line of active display
         const SCREEN_TOP: u16 = 64;
 
-        // TODO sprite limits if display width is less than 256px (or 248px?)
+        // The official HuC6270 manual suggests that sprite evaluation runs for 1 tile longer than
+        // active display width, and that eval takes 4 dots per sprite.
+        // It also says that VRAM access width can affect sprite eval, but I don't think this makes
+        // sense? Sprite eval doesn't need to access VRAM
+        let sprite_eval_cycles = self.state.h_latch.h_display_width + 8;
+        let sprites_evaluated_this_line =
+            cmp::min((sprite_eval_cycles / 4) as usize, self.sprite_table.len());
 
         self.sprite_evaluation_buffer.clear();
 
@@ -919,7 +928,9 @@ impl Vdc {
             _ => SCREEN_TOP, // Last line of top border; evaluate for first line of active display
         };
 
-        for (sprite_idx, sprite) in self.sprite_table.iter().enumerate() {
+        for (sprite_idx, sprite) in
+            self.sprite_table[..sprites_evaluated_this_line].iter().enumerate()
+        {
             let sprite_height_pixels = sprite.height.to_pixels();
             let sprite_y_range = sprite.y..sprite.y + sprite_height_pixels;
             if !sprite_y_range.contains(&sprite_line) {
@@ -971,7 +982,6 @@ impl Vdc {
         const SCREEN_LEFT: u16 = 32;
 
         // TODO check for sprite 0 collision
-        // TODO sprite limits if not enough dots to fetch 16 tiles
 
         self.sprite_line_buffer.fill(SpritePixel::TRANSPARENT);
 
@@ -979,7 +989,29 @@ impl Vdc {
             return;
         }
 
-        for sprite in &self.sprite_evaluation_buffer {
+        // TODO this is not quite right if the game changes HDS or the dot clock divider during the right border or HSync
+        let sprite_fetch_cycles = {
+            let dots_per_line = MCLK_CYCLES_PER_SCANLINE / u64::from(self.state.line_divider);
+
+            // Based on https://pcengine.proboards.com/thread/84/why-pce-games-horizontal-rare?page=2
+            // Games that use sprite access width other than 1 (e.g. R-Type) have too many sprites
+            // per line without the extra 16
+            let hdw = self.state.h_latch.h_display_width;
+            dots_per_line.saturating_sub((hdw + 16).into())
+        };
+
+        let max_sprites_this_line = match self.state.h_latch.sprite_access_width {
+            SpriteAccessWidth::One | SpriteAccessWidth::TwoHalfBpp => sprite_fetch_cycles / 4,
+            SpriteAccessWidth::TwoFullBpp | SpriteAccessWidth::Four => sprite_fetch_cycles / 8,
+        };
+        let max_sprites_this_line = cmp::min(
+            max_sprites_this_line as usize,
+            cmp::min(MAX_SPRITES_PER_LINE, self.sprite_evaluation_buffer.len()),
+        );
+
+        let half_bpp = self.state.h_latch.sprite_access_width.is_half_bpp();
+
+        for sprite in &self.sprite_evaluation_buffer[..max_sprites_this_line] {
             let tile_addr = (64 * sprite.tile_number) as usize;
             let tile_data = if tile_addr < VRAM_LEN_WORDS {
                 &self.vram[tile_addr..tile_addr + 64]
@@ -989,10 +1021,25 @@ impl Vdc {
             };
 
             let tile_row = sprite.tile_row as usize;
-            let cg0 = tile_data[tile_row];
-            let cg1 = tile_data[tile_row + 16];
-            let cg2 = tile_data[tile_row + 32];
-            let cg3 = tile_data[tile_row + 48];
+            let mut cg0 = tile_data[tile_row];
+            let mut cg1 = tile_data[tile_row + 16];
+            let mut cg2 = tile_data[tile_row + 32];
+            let mut cg3 = tile_data[tile_row + 48];
+
+            if half_bpp {
+                hint::cold_path();
+
+                match sprite.cg_mode {
+                    CgMode::ZeroOne => {
+                        cg2 = 0;
+                        cg3 = 0;
+                    }
+                    CgMode::TwoThree => {
+                        cg0 = mem::take(&mut cg2);
+                        cg1 = mem::take(&mut cg3);
+                    }
+                }
+            }
 
             let mut color_indices: [u16; 16] = array::from_fn(|i| {
                 ((cg0 >> (15 - i)) & 1)
