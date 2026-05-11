@@ -468,6 +468,10 @@ pub struct VdcState {
     pub sat_dma_irq_pending: bool,
     pub any_irq_pending: bool,
     pub vblank_irq_this_frame: bool,
+    // If true, generate sprite overflow IRQ the next time active display begins
+    pub sprite_overflow_irq_at_display: bool,
+    // If Some, generate sprite collision IRQ at this dot
+    pub sprite_collision_irq_dot: Option<u16>,
     pub raster_compare_counter: u16,
     pub frame_complete: bool,
 }
@@ -497,6 +501,8 @@ impl VdcState {
             sat_dma_irq_pending: false,
             any_irq_pending: false,
             vblank_irq_this_frame: false,
+            sprite_overflow_irq_at_display: false,
+            sprite_collision_irq_dot: None,
             raster_compare_counter: RASTER_COMPARE_DISPLAY_START,
             frame_complete: false,
         }
@@ -622,10 +628,18 @@ impl Vdc {
                     self.set_irq(VdcIrq::RasterCompare);
                 }
 
-                // TODO sprite overflow IRQ should trigger here
+                if self.state.sprite_overflow_irq_at_display {
+                    self.set_irq(VdcIrq::SpriteOverflow);
+                    self.state.sprite_overflow_irq_at_display = false;
+                }
             }
 
             self.state.scanline_dot += 1;
+            if self.state.sprite_collision_irq_dot.is_some_and(|dot| dot == self.state.scanline_dot)
+            {
+                self.set_irq(VdcIrq::SpriteCollision);
+                self.state.sprite_collision_irq_dot = None;
+            }
 
             self.state.h_counter += 1;
             if self.state.h_counter >= h_mode_length {
@@ -729,6 +743,8 @@ impl Vdc {
                         self.set_irq(VdcIrq::VBlank);
 
                         self.state.vblank_irq_this_frame = true;
+
+                        self.state.sprite_collision_irq_dot = None;
                     }
                     _ => {}
                 }
@@ -959,7 +975,7 @@ impl Vdc {
                 let tile_number = base_tile_number + x_tile;
 
                 if self.sprite_evaluation_buffer.len() == MAX_SPRITES_PER_LINE {
-                    // TODO sprite overflow IRQ; should get set around the same time as raster compare IRQ?
+                    self.state.sprite_overflow_irq_at_display = true;
                     return;
                 }
 
@@ -980,8 +996,6 @@ impl Vdc {
     fn fetch_sprite_tiles(&mut self) {
         // In sprite coordinates, X=32 is the leftmost column of active display
         const SCREEN_LEFT: u16 = 32;
-
-        // TODO check for sprite 0 collision
 
         self.sprite_line_buffer.fill(SpritePixel::TRANSPARENT);
 
@@ -1066,7 +1080,16 @@ impl Vdc {
                 let line_buffer_idx = (x - SCREEN_LEFT) as usize;
                 if !self.sprite_line_buffer[line_buffer_idx].transparent() {
                     // Already an opaque sprite pixel in this position
-                    // TODO check for sprite 0 collision
+                    if self.sprite_line_buffer[line_buffer_idx].sprite_idx == 0 {
+                        // Sprite 0 collision
+                        // TODO timing probably not accurate
+                        let collision_dot =
+                            self.state.h_latch.h_display_start + line_buffer_idx as u16;
+                        self.state.sprite_collision_irq_dot = Some(cmp::min(
+                            collision_dot,
+                            self.state.sprite_collision_irq_dot.unwrap_or(u16::MAX),
+                        ));
+                    }
                     continue;
                 }
 
