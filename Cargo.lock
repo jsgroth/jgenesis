@@ -2652,6 +2652,7 @@ dependencies = [
  "serde",
  "smsgg-config",
  "snes-config",
+ "thiserror 2.0.18",
  "toml",
  "toml_edit",
 ]

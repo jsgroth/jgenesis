@@ -30,6 +30,23 @@ pub struct OverscanState {
     right_invalid: bool,
 }
 
+impl Default for OverscanState {
+    fn default() -> Self {
+        let zero_str = "0".to_string();
+
+        Self {
+            top_text: zero_str.clone(),
+            top_invalid: false,
+            bottom_text: zero_str.clone(),
+            bottom_invalid: false,
+            left_text: zero_str.clone(),
+            left_invalid: false,
+            right_text: zero_str,
+            right_invalid: false,
+        }
+    }
+}
+
 impl From<Overscan> for OverscanState {
     fn from(value: Overscan) -> Self {
         Self {

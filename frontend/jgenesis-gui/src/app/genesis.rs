@@ -18,6 +18,7 @@ use rfd::FileDialog;
 use std::num::{NonZeroU16, NonZeroU64};
 use std::path::PathBuf;
 
+#[derive(Debug, Clone, Default)]
 pub struct S32XPriorityState {
     pub void_palette: String,
     pub void_direct_r: String,
@@ -47,6 +48,25 @@ pub struct GenesisVolumeState {
     pub cd_invalid: bool,
     pub pwm_text: String,
     pub pwm_invalid: bool,
+}
+
+impl Default for GenesisVolumeState {
+    fn default() -> Self {
+        let zero_str = "0.0".to_string();
+
+        Self {
+            ym2612_text: zero_str.clone(),
+            ym2612_invalid: false,
+            psg_text: zero_str.clone(),
+            psg_invalid: false,
+            pcm_text: zero_str.clone(),
+            pcm_invalid: false,
+            cd_text: zero_str.clone(),
+            cd_invalid: false,
+            pwm_text: zero_str,
+            pwm_invalid: false,
+        }
+    }
 }
 
 impl GenesisVolumeState {

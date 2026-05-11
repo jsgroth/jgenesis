@@ -5,6 +5,7 @@ pub mod genesis;
 pub mod input;
 mod migration;
 pub mod nes;
+pub mod paths;
 pub mod smsgg;
 pub mod snes;
 
@@ -133,44 +134,6 @@ impl Default for AppConfig {
     }
 }
 
-pub const CONFIG_FILENAME: &str = "jgenesis-config.toml";
-
-#[must_use]
-pub fn default_config_path() -> PathBuf {
-    let Some(base_dirs) = directories::BaseDirs::new() else {
-        log::error!("Unable to determine config dir; app config will probably not save");
-        return CONFIG_FILENAME.into();
-    };
-
-    // Config local dir is generally `$HOME/.config/` on Linux and `%LocalAppData%\` on Windows
-    let jgenesis_dir = base_dirs.config_local_dir().join("jgenesis");
-    if !jgenesis_dir.exists()
-        && let Err(err) = fs::create_dir_all(&jgenesis_dir)
-    {
-        log::error!(
-            "Unable to create config directory '{}', app config will probably not save: {err}",
-            jgenesis_dir.display()
-        );
-        return CONFIG_FILENAME.into();
-    }
-
-    let config_path = jgenesis_dir.join(CONFIG_FILENAME);
-
-    // Config file wasn't always stored in local config dir; if a config doesn't exist there but
-    // does exist in the CWD, copy it to the local config dir
-    if !config_path.exists() && Path::new(CONFIG_FILENAME).exists() {
-        log::info!(
-            "Detected config file in emulator directory; copying to '{}'",
-            config_path.display()
-        );
-        if let Err(err) = fs::copy(Path::new(CONFIG_FILENAME), &config_path) {
-            log::error!("Error copying to '{}': {err}", config_path.display());
-        }
-    }
-
-    config_path
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,5 +141,12 @@ mod tests {
     #[test]
     fn config_default_does_not_panic() {
         let _ = AppConfig::default();
+    }
+
+    #[test]
+    fn can_deserialize_empty_string() {
+        let config: AppConfig =
+            toml::from_str("").expect("Failed to deserialize empty string into AppConfig");
+        assert_eq!(config, AppConfig::default());
     }
 }

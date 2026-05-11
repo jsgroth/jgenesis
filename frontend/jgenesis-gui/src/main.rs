@@ -2,10 +2,10 @@ use clap::Parser;
 use eframe::NativeOptions;
 use egui::{Vec2, ViewportBuilder};
 use env_logger::Env;
-use jgenesis_gui::app::{App, LoadAtStartup};
+use jgenesis_gui::app::{App, ConfigInfo, LoadAtStartup};
 use jgenesis_native_config::AppConfig;
-use std::fs;
-use std::path::{Path, PathBuf};
+use jgenesis_native_config::paths::{ConfigDirs, ConfigWithPath};
+use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -94,19 +94,11 @@ fn steam_deck_dpi_hack() {
     }
 }
 
-fn initial_gui_size(config_path: &Path) -> (f32, f32) {
-    let mut gui_width = jgenesis_native_config::DEFAULT_GUI_WIDTH;
-    let mut gui_height = jgenesis_native_config::DEFAULT_GUI_HEIGHT;
-
-    if let Some(config) = fs::read_to_string(config_path)
-        .ok()
-        .and_then(|config_str| toml::from_str::<AppConfig>(&config_str).ok())
-    {
-        gui_width = f32_max(jgenesis_native_config::DEFAULT_GUI_WIDTH, config.gui_window_width);
-        gui_height = f32_max(jgenesis_native_config::DEFAULT_GUI_HEIGHT, config.gui_window_height);
-    }
-
-    (gui_width, gui_height)
+fn initial_gui_size(config: &AppConfig) -> (f32, f32) {
+    (
+        f32_max(jgenesis_native_config::DEFAULT_GUI_WIDTH, config.gui_window_width),
+        f32_max(jgenesis_native_config::DEFAULT_GUI_HEIGHT, config.gui_window_height),
+    )
 }
 
 fn f32_max(value: f32, max: f32) -> f32 {
@@ -129,25 +121,36 @@ fn main() -> eframe::Result<()> {
     #[cfg(all(unix, not(target_os = "macos")))]
     steam_deck_dpi_hack();
 
-    let config_path =
-        args.config_path.clone().unwrap_or_else(jgenesis_native_config::default_config_path);
-    log::info!("Using config path '{}'", config_path.display());
+    let config_dirs = ConfigDirs::new();
+    let config_dir_type = config_dirs.default_dir_type(args.config_path.clone());
+    let config_with_path = ConfigWithPath::load_from_dir_or_default(
+        &config_dirs,
+        &config_dir_type,
+        AppConfig::default,
+    );
 
     if let Some(file_path) = &args.startup_file_path {
         log::info!("Will open file '{}' after starting", file_path.display());
     }
 
-    let (gui_width, gui_height) = initial_gui_size(&config_path);
+    let (gui_width, gui_height) = initial_gui_size(&config_with_path.config);
 
     let options = NativeOptions {
         viewport: ViewportBuilder::default().with_inner_size(Vec2::new(gui_width, gui_height)),
         ..NativeOptions::default()
     };
 
+    let config_info = ConfigInfo {
+        initial_config: config_with_path.config,
+        config_path: config_with_path.path,
+        config_dirs,
+        config_dir_type,
+    };
     let load_at_startup = args.load_at_startup();
+
     eframe::run_native(
         "jgenesis",
         options,
-        Box::new(|cc| Ok(Box::new(App::new(config_path, load_at_startup, cc.egui_ctx.clone())))),
+        Box::new(|cc| Ok(Box::new(App::new(config_info, load_at_startup, cc.egui_ctx.clone())))),
     )
 }

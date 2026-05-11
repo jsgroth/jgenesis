@@ -28,9 +28,11 @@ use egui::{
 use egui_extras::{Column, TableBuilder};
 use emath::Pos2;
 use jgenesis_native_config::common::{HideMouseCursor, PauseEmulator};
+use jgenesis_native_config::paths::{ConfigDirType, ConfigDirs, ConfigWithPath};
 use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen};
 use jgenesis_native_driver::extensions::Console;
 use jgenesis_native_driver::{NativeEmulatorError, extensions};
+use nes_config::NesPalette;
 use rfd::FileDialog;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -226,42 +228,67 @@ struct AppState {
 }
 
 impl AppState {
-    fn from_config(config: &AppConfig, ctx: &Context) -> Self {
-        let recent_open_list = romlist::from_recent_opens(&config.recent_open_list);
-
+    fn new(ctx: &Context) -> Self {
         Self {
             current_file_path: PathBuf::new(),
             open_windows: HashSet::new(),
             help_text: HashMap::new(),
             input_mapping_sets: HashMap::new(),
             error_window_open: false,
-            prescale_width_raw: config.common.prescale_width.get(),
-            prescale_height_raw: config.common.prescale_height.get(),
-            ff_multiplier_text: config.common.fast_forward_multiplier.to_string(),
+            prescale_width_raw: 1,
+            prescale_height_raw: 1,
+            ff_multiplier_text: String::new(),
             ff_multiplier_invalid: false,
-            rewind_buffer_len_text: config.common.rewind_buffer_length_seconds.to_string(),
+            rewind_buffer_len_text: String::new(),
             rewind_buffer_len_invalid: false,
-            audio_buffer_size_text: config.common.audio_buffer_size.to_string(),
+            audio_buffer_size_text: String::new(),
             audio_buffer_size_invalid: false,
-            audio_hardware_queue_size_text: config.common.audio_hardware_queue_size.to_string(),
+            audio_hardware_queue_size_text: String::new(),
             audio_hardware_queue_size_invalid: false,
-            audio_gain_text: format!("{:.1}", config.common.audio_gain_db),
+            audio_gain_text: String::new(),
             audio_gain_invalid: false,
-            nes_palette: NesPaletteState::create(ctx, &config.nes.palette),
-            genesis_volume: GenesisVolumeState::from_config(config),
-            s32x_priority: S32XPriorityState::from_config(&config.sega_32x),
-            overscan: config.nes.overscan().into(),
+            nes_palette: NesPaletteState::create(ctx, &NesPalette::default()),
+            genesis_volume: GenesisVolumeState::default(),
+            s32x_priority: S32XPriorityState::default(),
+            overscan: OverscanState::default(),
             waiting_for_input: None,
             rom_list: Arc::new(Mutex::new(vec![])),
             filtered_rom_list: vec![].into(),
             rom_list_refresh_needed: true,
             title_match: String::new(),
             title_match_lowercase: Rc::from(String::new()),
-            recent_open_list,
+            recent_open_list: vec![],
             disc_change_options: Vec::new(),
             rendered_first_frame: false,
             close_on_emulator_exit: false,
         }
+    }
+
+    fn from_config(config: &AppConfig, ctx: &Context) -> Self {
+        let mut state = Self::new(ctx);
+        state.update_config_derived_fields(config, ctx);
+
+        state
+    }
+
+    fn update_config_derived_fields(&mut self, config: &AppConfig, ctx: &Context) {
+        self.prescale_width_raw = config.common.prescale_width.get();
+        self.prescale_height_raw = config.common.prescale_height.get();
+        self.ff_multiplier_text = config.common.fast_forward_multiplier.to_string();
+        self.ff_multiplier_invalid = false;
+        self.rewind_buffer_len_text = config.common.rewind_buffer_length_seconds.to_string();
+        self.rewind_buffer_len_invalid = false;
+        self.audio_buffer_size_text = config.common.audio_buffer_size.to_string();
+        self.audio_buffer_size_invalid = false;
+        self.audio_hardware_queue_size_text = config.common.audio_hardware_queue_size.to_string();
+        self.audio_hardware_queue_size_invalid = false;
+        self.audio_gain_text = format!("{:.1}", config.common.audio_gain_db);
+        self.audio_gain_invalid = false;
+        self.nes_palette = NesPaletteState::create(ctx, &config.nes.palette);
+        self.genesis_volume = GenesisVolumeState::from_config(config);
+        self.s32x_priority = S32XPriorityState::from_config(&config.sega_32x);
+        self.overscan = config.nes.overscan().into();
+        self.recent_open_list = romlist::from_recent_opens(&config.recent_open_list);
     }
 
     fn open_window(&mut self, ctx: &Context, window: OpenWindow) {
@@ -276,42 +303,34 @@ pub struct LoadAtStartup {
     pub load_state_slot: Option<usize>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ConfigInfo {
+    pub initial_config: AppConfig,
+    pub config_path: PathBuf,
+    pub config_dirs: ConfigDirs,
+    pub config_dir_type: ConfigDirType,
+}
+
 pub struct App {
     config: AppConfig,
     state: AppState,
     config_path: PathBuf,
+    config_dirs: ConfigDirs,
+    config_dir_type: ConfigDirType,
     emu_thread: EmuThreadHandle,
     rom_list_thread: RomListThreadHandle,
     load_at_startup: Option<LoadAtStartup>,
     initial_focused: bool,
 }
 
-fn load_app_config(config_path: &Path) -> AppConfig {
-    let mut config_str = fs::read_to_string(config_path).unwrap_or_default();
-
-    jgenesis_native_config::migrate_config_str(&mut config_str);
-
-    let mut config = toml::from_str(&config_str).unwrap_or_else(|err| {
-        log::error!("Error deserializing app config at '{}': {err}", config_path.display());
-        AppConfig::default()
-    });
-
-    if let Some(migrated_config) = jgenesis_native_config::migrate_config(&config, &config_str)
-        && config != migrated_config
-    {
-        config = migrated_config;
-        if let Err(err) = fs::write(config_path, toml::to_string_pretty(&config).unwrap()) {
-            log::error!("Error serializing app config: {err}");
-        }
-    }
-
-    config
-}
-
 impl App {
     #[must_use]
-    pub fn new(config_path: PathBuf, load_at_startup: Option<LoadAtStartup>, ctx: Context) -> Self {
-        let config = load_app_config(&config_path);
+    pub fn new(
+        config_info: ConfigInfo,
+        load_at_startup: Option<LoadAtStartup>,
+        ctx: Context,
+    ) -> Self {
+        let config = config_info.initial_config;
 
         let state = AppState::from_config(&config, &ctx);
         let emu_thread = emuthread::spawn(ctx.clone());
@@ -322,7 +341,9 @@ impl App {
         Self {
             config,
             state,
-            config_path,
+            config_path: config_info.config_path,
+            config_dirs: config_info.config_dirs,
+            config_dir_type: config_info.config_dir_type,
             emu_thread,
             rom_list_thread,
             load_at_startup,
@@ -404,55 +425,143 @@ impl App {
         let Some(dir) = dir.to_str() else { return };
 
         self.config.rom_search_dirs.push(dir.into());
+        self.request_rom_list_scan();
+    }
+
+    fn request_rom_list_scan(&mut self) {
         self.rom_list_thread.request_scan(self.config.rom_search_dirs.clone());
         self.state.rom_list_refresh_needed = true;
     }
 
     fn render_path_settings(&mut self, ctx: &Context) {
         let mut open = true;
-        Window::new(OpenWindow::Paths.title()).open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.add(SavePathSelect::new(
-                "Game save file path",
-                &mut self.config.common.save_path,
-                &mut self.config.common.custom_save_path,
-            ));
+        Window::new(OpenWindow::Paths.title()).open(&mut open).default_width(500.0).show(
+            ctx,
+            |ui| {
+                let using_override = matches!(self.config_dir_type, ConfigDirType::Override { .. });
+                ui.add_enabled_ui(!using_override, |ui| {
+                    let prev_config_dir_type = self.config_dir_type.clone();
 
-            ui.add(SavePathSelect::new(
-                "Save state path",
-                &mut self.config.common.state_path,
-                &mut self.config.common.custom_state_path,
-            ));
+                    ui.group(|ui| {
+                        ui.label("Settings path");
 
-            ui.add_space(10.0);
+                        ui.add_enabled_ui(self.config_dirs.user_profile_dir.is_some(), |ui| {
+                            ui.radio_value(
+                                &mut self.config_dir_type,
+                                ConfigDirType::UserProfile,
+                                "User profile directory",
+                            );
+                        });
 
-            ui.group(|ui| {
-                ui.heading("ROM search directories");
+                        ui.add_enabled_ui(self.config_dirs.emulator_dir.is_some(), |ui| {
+                            ui.radio_value(
+                                &mut self.config_dir_type,
+                                ConfigDirType::EmulatorDirectory,
+                                "Emulator directory (Portable)",
+                            );
+                        });
 
-                ui.add_space(5.0);
+                        ui.label(format!("  {}", self.config_path.display()));
+                    });
 
-                Grid::new("rom_search_dirs").show(ui, |ui| {
-                    for (i, rom_search_dir) in
-                        self.config.rom_search_dirs.clone().into_iter().enumerate()
-                    {
-                        ui.label(&rom_search_dir);
-
-                        if ui.button("Remove").clicked() {
-                            self.config.rom_search_dirs.remove(i);
-                            self.rom_list_thread.request_scan(self.config.rom_search_dirs.clone());
-                            self.state.rom_list_refresh_needed = true;
-                        }
-
-                        ui.end_row();
+                    if self.config_dir_type != prev_config_dir_type {
+                        self.handle_config_dir_type_change(ctx);
                     }
                 });
 
-                if ui.button("Add").clicked() {
-                    self.add_rom_search_directory();
-                }
-            });
-        });
+                ui.add(SavePathSelect::new(
+                    "Game save file path",
+                    &mut self.config.common.save_path,
+                    &mut self.config.common.custom_save_path,
+                ));
+
+                ui.add(SavePathSelect::new(
+                    "Save state path",
+                    &mut self.config.common.state_path,
+                    &mut self.config.common.custom_state_path,
+                ));
+
+                ui.add_space(10.0);
+
+                ui.group(|ui| {
+                    ui.heading("ROM search directories");
+
+                    ui.add_space(5.0);
+
+                    Grid::new("rom_search_dirs").show(ui, |ui| {
+                        for (i, rom_search_dir) in
+                            self.config.rom_search_dirs.clone().into_iter().enumerate()
+                        {
+                            ui.label(&rom_search_dir);
+
+                            if ui.button("Remove").clicked() {
+                                self.config.rom_search_dirs.remove(i);
+                                self.request_rom_list_scan();
+                            }
+
+                            ui.end_row();
+                        }
+                    });
+
+                    if ui.button("Add").clicked() {
+                        self.add_rom_search_directory();
+                    }
+                });
+            },
+        );
         if !open {
             self.state.open_windows.remove(&OpenWindow::Paths);
+        }
+    }
+
+    fn handle_config_dir_type_change(&mut self, ctx: &Context) {
+        match &self.config_dir_type {
+            ConfigDirType::EmulatorDirectory => {
+                if let Err(err) = self.config_dirs.create_portable_txt() {
+                    log::error!("Error creating portable.txt file: {err}");
+                }
+            }
+            _ => {
+                if let Err(err) = self.config_dirs.delete_portable_txt() {
+                    log::error!("Error deleting portable.txt file: {err}");
+                }
+            }
+        }
+
+        let prev_rom_search_dirs = self.config.rom_search_dirs.clone();
+        let prev_list_filters = self.config.list_filters.clone();
+
+        // Try to load config from new path, but keep config unchanged if unable to load (e.g. file does not exist)
+        let new_config = ConfigWithPath::load_from_dir_or_default(
+            &self.config_dirs,
+            &self.config_dir_type,
+            || self.config.clone(),
+        );
+
+        log::info!("Config path changed to '{}'", new_config.path.display());
+
+        if !new_config.path.exists() {
+            log::info!(
+                "Saving current settings to new config path '{}'",
+                new_config.path.display()
+            );
+            if let Err(err) = new_config.save_config() {
+                log::error!(
+                    "Error saving current settings to '{}': {err}",
+                    new_config.path.display()
+                );
+            }
+        }
+
+        self.config = new_config.config;
+        self.config_path = new_config.path;
+
+        self.state.update_config_derived_fields(&self.config, ctx);
+
+        if prev_rom_search_dirs != self.config.rom_search_dirs
+            || prev_list_filters != self.config.list_filters
+        {
+            self.request_rom_list_scan();
         }
     }
 
@@ -1437,11 +1546,6 @@ fn format_time_nanos(time_nanos: u128) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn config_default_does_not_panic() {
-        let _ = AppConfig::default();
-    }
 
     #[test]
     fn time_nanos_format_is_valid() {

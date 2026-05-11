@@ -12,6 +12,7 @@ use jgenesis_common::frontend::{EmulatorTrait, TimingMode};
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::common::{ConfigSavePath, HideMouseCursor};
 use jgenesis_native_config::input::mappings::{NesControllerType, SnesControllerType};
+use jgenesis_native_config::paths::{ConfigDirs, ConfigWithPath};
 use jgenesis_native_driver::config::AppConfigExt;
 use jgenesis_native_driver::extensions::{Console, ConsoleWithSize};
 use jgenesis_native_driver::{NativeEmulator, NativeTickEffect};
@@ -24,7 +25,6 @@ use smsgg_config::{GgAspectRatio, SmsAspectRatio, SmsGgRegion, SmsModel, Sn76489
 use smsgg_core::SmsGgHardware;
 use snes_config::{AudioInterpolationMode, SnesAspectRatio};
 use std::fmt::Debug;
-use std::fs;
 use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 use std::path::{Path, PathBuf};
 
@@ -947,41 +947,26 @@ fn main() -> anyhow::Result<()> {
 
     log::info!("Running with hardware {hardware}");
 
-    let config_path = args
-        .config_path_override
-        .clone()
-        .unwrap_or_else(jgenesis_native_config::default_config_path);
-    log::info!("Loading config from '{}'", config_path.display());
-
-    let mut config_str = fs::read_to_string(&config_path).unwrap_or_else(|err| {
-        log::warn!("Unable to read config file from '{}': {err}", config_path.display());
-        "".into()
-    });
-
-    jgenesis_native_config::migrate_config_str(&mut config_str);
-
-    let mut config = toml::from_str::<AppConfig>(&config_str).unwrap_or_else(|err| {
-        log::error!("Unable to deserialize config file at '{}': {err}", config_path.display());
-        AppConfig::default()
-    });
+    let config_dirs = ConfigDirs::new();
+    let config_dir_type = config_dirs.default_dir_type(args.config_path_override.clone());
+    let config_with_path = ConfigWithPath::load_from_dir_or_default(
+        &config_dirs,
+        &config_dir_type,
+        AppConfig::default,
+    );
 
     // Persist default config if the file doesn't exist
-    if let Ok(config_file_exists) = fs::exists(&config_path)
-        && !config_file_exists
-    {
-        let config_str = toml::to_string_pretty(&config)?;
-        log::info!("Persisting default config to '{}'", config_path.display());
-        if let Err(err) = fs::write(&config_path, &config_str) {
+    if !config_with_path.path.exists() {
+        log::info!("Persisting default config to '{}'", config_with_path.path.display());
+        if let Err(err) = config_with_path.save_config() {
             log::error!(
                 "Error serializing default config file to '{}': {err}",
-                config_path.display()
+                config_with_path.path.display()
             );
         }
     }
 
-    if let Some(migrated_config) = jgenesis_native_config::migrate_config(&config, &config_str) {
-        config = migrated_config;
-    }
+    let mut config = config_with_path.config;
 
     args.apply_overrides(&mut config)?;
 
