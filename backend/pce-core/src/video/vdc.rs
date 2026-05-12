@@ -939,14 +939,26 @@ impl Vdc {
 
         let tile_addr = (16 * tile_number) as usize;
 
-        // TODO CG mode bit if VRAM access width is 4
-
-        let (cg0, cg1) = if tile_addr < VRAM_LEN_WORDS {
+        let (mut cg0, mut cg1) = if tile_addr < VRAM_LEN_WORDS {
             (self.vram[tile_addr + tile_row], self.vram[tile_addr + tile_row + 8])
         } else {
             // Tiles 2048-4095 are supposedly filled with "garbage"
             (0xFFFF, 0xFFFF)
         };
+
+        if self.state.h_latch.vram_access_width == VramAccessWidth::Four {
+            hint::cold_path();
+
+            // VDC only fetches half of the bitplanes in width 4
+            match self.registers.bg_cg_mode {
+                CgMode::ZeroOne => {
+                    cg1 = 0;
+                }
+                CgMode::TwoThree => {
+                    cg0 = mem::take(&mut cg1);
+                }
+            }
+        }
 
         BgTileRow { cg0, cg1, palette }
     }
