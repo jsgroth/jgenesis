@@ -16,7 +16,7 @@ gb-config = { workspace = true, features = ["serde"] }
 gba-config = { workspace = true, features = ["serde"] }
 genesis-config = { workspace = true, features = ["serde"] }
 nes-config = { workspace = true, features = ["serde"] }
-pce-config = { workspace = true, optional = true }
+pce-config = { workspace = true, optional = true, features = ["serde"] }
 smsgg-config = { workspace = true, features = ["serde"] }
 snes-config = { workspace = true, features = ["serde"] }
 

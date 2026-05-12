@@ -11,7 +11,7 @@ use jgenesis_common::frontend::{
     RenderFrameOptions, Renderer, SaveWriter, TickEffect, TickResult,
 };
 use jgenesis_proc_macros::ConfigDisplay;
-use pce_config::{PceButton, PceInputs};
+use pce_config::{PceAspectRatio, PceButton, PceInputs, PceRegion};
 use std::fmt::{Debug, Display};
 use thiserror::Error;
 
@@ -20,7 +20,10 @@ pub const MASTER_CLOCK_FREQUENCY: f64 = 236.25e6 / 11.0;
 
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct PceEmulatorConfig {
-    pub placeholder: u8,
+    pub region: PceRegion,
+    pub aspect_ratio: PceAspectRatio,
+    pub crop_overscan: bool,
+    pub remove_sprite_limits: bool,
 }
 
 impl EmulatorConfigTrait for PceEmulatorConfig {}
@@ -53,11 +56,11 @@ impl PcEngineEmulator {
     pub fn create(rom: Vec<u8>, config: PceEmulatorConfig) -> Self {
         let mut emulator = Self {
             cpu: Huc6280::new(),
-            video: VideoSubsystem::new(),
+            video: VideoSubsystem::new(config),
             psg: Huc6280Psg::new(),
             memory: Memory::new(),
             cartridge: HuCard::new(rom),
-            input_state: InputState::new(),
+            input_state: InputState::new(config),
             config,
             cycle_counter: 0,
             last_psg_sync_cycles: 0,
@@ -78,12 +81,19 @@ impl PcEngineEmulator {
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
         self.video.render_rgba8_frame_buffer();
 
+        let aspect_ratio = match self.config.aspect_ratio {
+            // TODO vary based on H resolution
+            PceAspectRatio::Ntsc => Some(FiniteF64::try_from(8.0 / 7.0 / 4.0).unwrap()),
+            PceAspectRatio::SquarePixels => Some(FiniteF64::try_from(1.0 / 4.0).unwrap()),
+            PceAspectRatio::Stretched => None,
+        };
+
         renderer.render_frame(
             self.video.frame_buffer(),
             self.video.frame_size(),
             self.video.target_fps(),
             RenderFrameOptions {
-                pixel_aspect_ratio: Some(FiniteF64::try_from(8.0 / 7.0 / 4.0).unwrap()),
+                pixel_aspect_ratio: aspect_ratio,
                 ..RenderFrameOptions::default()
             },
         )
@@ -163,6 +173,9 @@ impl EmulatorTrait for PcEngineEmulator {
 
     fn reload_config(&mut self, config: &Self::Config) {
         self.config = *config;
+
+        self.video.reload_config(*config);
+        self.input_state.reload_config(*config);
     }
 
     fn soft_reset(&mut self) {

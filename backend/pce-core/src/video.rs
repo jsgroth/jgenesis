@@ -3,6 +3,7 @@ mod vce;
 mod vdc;
 
 use crate::api;
+use crate::api::PceEmulatorConfig;
 use crate::video::vce::Vce;
 use crate::video::vdc::Vdc;
 use bincode::{Decode, Encode};
@@ -58,6 +59,29 @@ impl Default for Rgba8FrameBuffer {
     }
 }
 
+struct FrameRenderParams {
+    left_offset: usize,
+    top_offset: usize,
+    width: usize,
+    height: usize,
+}
+
+impl FrameRenderParams {
+    const DEFAULT: Self = Self {
+        left_offset: 0,
+        top_offset: 0,
+        width: vdc::FRAME_BUFFER_WIDTH,
+        height: vdc::FRAME_BUFFER_HEIGHT,
+    };
+
+    const CROP_OVERSCAN: Self = Self {
+        left_offset: 4 * vdc::OVERSCAN_DOTS_DIV_4 as usize,
+        top_offset: 9,
+        width: vdc::FRAME_BUFFER_WIDTH - 2 * 4 * vdc::OVERSCAN_DOTS_DIV_4 as usize,
+        height: vdc::FRAME_BUFFER_HEIGHT - 2 * 9,
+    };
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct VideoSubsystem {
     vdc: Vdc,
@@ -65,16 +89,18 @@ pub struct VideoSubsystem {
     state: VideoState,
     cycles: u64,
     frame_buffer: Rgba8FrameBuffer,
+    crop_overscan: bool,
 }
 
 impl VideoSubsystem {
-    pub fn new() -> Self {
+    pub fn new(config: PceEmulatorConfig) -> Self {
         Self {
-            vdc: Vdc::new(),
+            vdc: Vdc::new(config),
             vce: Vce::new(),
             state: VideoState::new(),
             cycles: 0,
             frame_buffer: Rgba8FrameBuffer::default(),
+            crop_overscan: config.crop_overscan,
         }
     }
 
@@ -129,11 +155,18 @@ impl VideoSubsystem {
     pub fn render_rgba8_frame_buffer(&mut self) {
         let vdc_frame_buffer = self.vdc.frame_buffer();
 
-        for row in 0..vdc::FRAME_BUFFER_HEIGHT {
-            for col in 0..vdc::FRAME_BUFFER_WIDTH {
-                let vdc_color = vdc_frame_buffer.colors[row][col];
+        let params = if self.crop_overscan {
+            FrameRenderParams::CROP_OVERSCAN
+        } else {
+            FrameRenderParams::DEFAULT
+        };
+
+        for row in 0..params.height {
+            for col in 0..params.width {
+                let vdc_color =
+                    vdc_frame_buffer.colors[row + params.top_offset][col + params.left_offset];
                 let (r, g, b) = palette::read(vdc_color);
-                self.frame_buffer.0[row * vdc::FRAME_BUFFER_WIDTH + col] = Color::rgb(r, g, b);
+                self.frame_buffer.0[row * params.width + col] = Color::rgb(r, g, b);
             }
         }
     }
@@ -142,10 +175,19 @@ impl VideoSubsystem {
         self.frame_buffer.0.as_slice()
     }
 
-    #[allow(clippy::unused_self)]
     pub fn frame_size(&self) -> FrameSize {
-        // TODO handle overscan and downsampling
-        FrameSize { width: vdc::FRAME_BUFFER_WIDTH as u32, height: vdc::FRAME_BUFFER_HEIGHT as u32 }
+        // TODO handle downsampling
+        if self.crop_overscan {
+            FrameSize {
+                width: FrameRenderParams::CROP_OVERSCAN.width as u32,
+                height: FrameRenderParams::CROP_OVERSCAN.height as u32,
+            }
+        } else {
+            FrameSize {
+                width: vdc::FRAME_BUFFER_WIDTH as u32,
+                height: vdc::FRAME_BUFFER_HEIGHT as u32,
+            }
+        }
     }
 
     pub fn target_fps(&self) -> f64 {
@@ -262,6 +304,11 @@ impl VideoSubsystem {
             6 | 7 => {} // Unused
             _ => unreachable!("value & 7 is always <= 7"),
         }
+    }
+
+    pub fn reload_config(&mut self, config: PceEmulatorConfig) {
+        self.crop_overscan = config.crop_overscan;
+        self.vdc.reload_config(config);
     }
 
     pub fn dump_vram(&self, palette: u16, out: &mut [[Color; 64]]) {

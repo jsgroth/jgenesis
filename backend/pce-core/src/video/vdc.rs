@@ -3,6 +3,7 @@
 mod debug;
 mod registers;
 
+use crate::api::PceEmulatorConfig;
 use crate::video::MCLK_CYCLES_PER_SCANLINE;
 use crate::video::vce::{DotClockDivider, Vce};
 use crate::video::vdc::registers::{SpriteAccessWidth, VramAccessWidth};
@@ -552,6 +553,7 @@ pub struct Vdc {
     state: VdcState,
     sprite_evaluation_buffer: Vec<EvaluatedSpriteEntry>,
     sprite_line_buffer: Box<[SpritePixel; LINE_BUFFER_LEN]>,
+    enforce_sprite_limits: bool,
     frame_buffer: VdcFrameBuffer,
     // Contains 9-bit color indices (0-255 for BG colors, 256-511 for sprite colors)
     line_buffer: Box<[u16; LINE_BUFFER_LEN]>,
@@ -559,7 +561,7 @@ pub struct Vdc {
 }
 
 impl Vdc {
-    pub fn new() -> Self {
+    pub fn new(config: PceEmulatorConfig) -> Self {
         let registers = VdcRegisters::new();
         let state = VdcState::new(&registers);
 
@@ -576,6 +578,7 @@ impl Vdc {
                 .into_boxed_slice()
                 .try_into()
                 .unwrap(),
+            enforce_sprite_limits: !config.remove_sprite_limits,
             frame_buffer: VdcFrameBuffer::new(),
             line_buffer: Box::new(array::from_fn(|_| 0)),
             selected_register: 0x1F,
@@ -860,6 +863,10 @@ impl Vdc {
         }
     }
 
+    pub fn reload_config(&mut self, config: PceEmulatorConfig) {
+        self.enforce_sprite_limits = !config.remove_sprite_limits;
+    }
+
     fn render_line(&mut self) {
         const BACKDROP_COLOR: u16 = 0x000;
 
@@ -1108,9 +1115,13 @@ impl Vdc {
         // active display width, and that eval takes 4 dots per sprite.
         // It also says that VRAM access width can affect sprite eval, but I don't think this makes
         // sense? Sprite eval doesn't need to access VRAM
-        let sprite_eval_cycles = self.state.h_latch.h_display_width + 8;
-        let sprites_evaluated_this_line =
-            cmp::min((sprite_eval_cycles / 4) as usize, self.sprite_table.len());
+        let sprites_evaluated_this_line = if self.enforce_sprite_limits {
+            let sprite_eval_cycles = self.state.h_latch.h_display_width + 8;
+
+            cmp::min((sprite_eval_cycles / 4) as usize, self.sprite_table.len())
+        } else {
+            self.sprite_table.len()
+        };
 
         self.sprite_evaluation_buffer.clear();
 
@@ -1151,7 +1162,9 @@ impl Vdc {
 
                 if self.sprite_evaluation_buffer.len() == MAX_SPRITES_PER_LINE {
                     self.state.sprite_overflow_irq_at_display = true;
-                    return;
+                    if self.enforce_sprite_limits {
+                        return;
+                    }
                 }
 
                 self.sprite_evaluation_buffer.push(EvaluatedSpriteEntry {
@@ -1204,7 +1217,12 @@ impl Vdc {
 
         let half_bpp = self.state.h_latch.sprite_access_width.is_half_bpp();
 
-        for sprite in &self.sprite_evaluation_buffer[..num_sprite_tiles] {
+        for (i, sprite) in self.sprite_evaluation_buffer.iter().enumerate() {
+            let within_sprite_limits = i < num_sprite_tiles;
+            if self.enforce_sprite_limits && !within_sprite_limits {
+                break;
+            }
+
             let tile_addr = (64 * sprite.tile_number) as usize;
             let tile_data = if tile_addr < VRAM_LEN_WORDS {
                 &self.vram[tile_addr..tile_addr + 64]
@@ -1259,8 +1277,11 @@ impl Vdc {
                 let line_buffer_idx = (x - SCREEN_LEFT) as usize;
                 if !self.sprite_line_buffer[line_buffer_idx].transparent() {
                     // Already an opaque sprite pixel in this position
-                    if self.sprite_line_buffer[line_buffer_idx].sprite_idx == 0 {
-                        // Sprite 0 collision
+
+                    // Check for sprite 0 collision, only if sprite is within hardware sprite limits
+                    if within_sprite_limits
+                        && self.sprite_line_buffer[line_buffer_idx].sprite_idx == 0
+                    {
                         // TODO timing probably not accurate
                         let collision_dot =
                             self.state.h_latch.h_display_start + line_buffer_idx as u16;

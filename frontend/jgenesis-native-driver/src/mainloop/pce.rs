@@ -30,11 +30,16 @@ impl NativePcEngineEmulator {
     }
 }
 
+/// Create an emulator with the PC Engine core with the given config.
+///
+/// # Errors
+///
+/// Propagates any errors encountered during initialization.
 pub fn create_pce(config: Box<PcEngineConfig>) -> NativeEmulatorResult<NativePcEngineEmulator> {
     log::info!("Running with config: {config}");
 
     let rom_path = Path::new(&config.common.rom_file_path);
-    let RomReadResult { rom, extension } = config.common.read_rom_file(&extensions::PC_ENGINE)?;
+    let RomReadResult { rom, extension } = config.common.read_rom_file(extensions::PC_ENGINE)?;
 
     let DeterminedPaths { save_path, save_state_path } = save::determine_save_paths(
         &config.common.save_path,
@@ -53,7 +58,11 @@ pub fn create_pce(config: Box<PcEngineConfig>) -> NativeEmulatorResult<NativePcE
         let rom_title = file_name_no_ext(rom_file_path)?;
         let window_title = format!("pce - {rom_title}");
 
-        let default_window_size = WindowSize::new_pce(initial_window_size);
+        let default_window_size = WindowSize::new_pce(
+            initial_window_size,
+            emulator_config.aspect_ratio,
+            emulator_config.crop_overscan,
+        );
 
         Ok(CreatedEmulator { emulator, window_title, default_window_size })
     };

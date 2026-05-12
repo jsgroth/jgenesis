@@ -3,11 +3,18 @@ name = "pce-config"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+clap = ["dep:clap"]
+serde = ["dep:serde"]
+
 [dependencies]
 jgenesis-common = { workspace = true }
 jgenesis-proc-macros = { workspace = true }
 
 bincode = { workspace = true }
+clap = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
 
 [lints]
 workspace = true

@@ -2644,6 +2644,7 @@ dependencies = [
  "log",
  "nes-config",
  "nes-core",
+ "pce-config",
  "pollster",
  "regex",
  "rfd",
@@ -3930,8 +3931,10 @@ name = "pce-config"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "clap",
  "jgenesis-common",
  "jgenesis-proc-macros",
+ "serde",
 ]
 
 [[package]]

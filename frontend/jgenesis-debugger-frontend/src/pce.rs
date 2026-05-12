@@ -33,6 +33,7 @@ impl State {
     }
 }
 
+#[must_use]
 pub fn render_fn() -> Box<DebugRenderFn<PcEngineEmulator>> {
     let mut state = State::new();
     Box::new(move |ctx, emulator| render(ctx, emulator, &mut state))

@@ -635,7 +635,12 @@ impl AppConfigExt for AppConfig {
         Box::new(PcEngineConfig {
             common: self.common_config(path),
             inputs: self.input.pc_engine.clone(),
-            emulator_config: PceEmulatorConfig { placeholder: 0 },
+            emulator_config: PceEmulatorConfig {
+                region: self.pc_engine.region,
+                aspect_ratio: self.pc_engine.aspect_ratio,
+                crop_overscan: self.pc_engine.crop_overscan,
+                remove_sprite_limits: self.pc_engine.remove_sprite_limits,
+            },
         })
     }
 }
