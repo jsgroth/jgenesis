@@ -70,14 +70,8 @@ pub struct Vce {
 
 impl Vce {
     pub fn new() -> Self {
-        let mut cram = BoxedWordArray::<CRAM_LEN_WORDS>::new_random();
-
-        // Make overscan color black at power-on
-        // Likely not accurate to actual hardware, but prevents flickering at game load
-        cram[0x100] = 0;
-
         Self {
-            cram,
+            cram: BoxedWordArray::new(),
             dot_clock_divider: DotClockDivider::default(),
             extra_line_per_frame: false,
             monochrome: false,
