@@ -13,7 +13,7 @@ use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 pub const FRAME_BUFFER_LEN: usize = vdc::FRAME_BUFFER_WIDTH * vdc::FRAME_BUFFER_HEIGHT;
 
 // Number of mclk cycles per scanline is fixed, unaffected by dot clock divider
-const MCLK_CYCLES_PER_SCANLINE: u64 = 1365;
+pub const MCLK_CYCLES_PER_SCANLINE: u64 = 1365;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WordByte {

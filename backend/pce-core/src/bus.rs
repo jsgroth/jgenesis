@@ -19,7 +19,6 @@ impl Bus<'_> {
 
         // TODO it's really not necessary to sync everything at every CPU cycle
         self.video.step_to(*self.cycle_counter, self.memory.cpu_registers().irq1_pending_mut());
-        self.psg.step_to(*self.cycle_counter);
         self.memory.cpu_registers().step_to(*self.cycle_counter);
     }
 
@@ -66,6 +65,7 @@ impl Bus<'_> {
             ),
             0x1FE400..=0x1FE7FF => self.video.write_vce(address, value),
             0x1FE800..=0x1FEBFF => {
+                self.psg.step_to(*self.cycle_counter);
                 self.psg.write(address, value);
                 self.memory.cpu_registers().update_io_buffer(value, !0);
             }

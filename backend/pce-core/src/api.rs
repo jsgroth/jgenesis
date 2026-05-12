@@ -2,6 +2,7 @@ use crate::bus::Bus;
 use crate::input::InputState;
 use crate::memory::{HuCard, Memory};
 use crate::psg::Huc6280Psg;
+use crate::video;
 use crate::video::VideoSubsystem;
 use bincode::{Decode, Encode};
 use huc6280_emu::Huc6280;
@@ -44,6 +45,7 @@ pub struct PcEngineEmulator {
     input_state: InputState,
     config: PceEmulatorConfig,
     cycle_counter: u64,
+    last_psg_sync_cycles: u64,
 }
 
 impl PcEngineEmulator {
@@ -58,6 +60,7 @@ impl PcEngineEmulator {
             input_state: InputState::new(),
             config,
             cycle_counter: 0,
+            last_psg_sync_cycles: 0,
         };
 
         emulator.cpu.reset(&mut Bus {
@@ -133,8 +136,12 @@ impl EmulatorTrait for PcEngineEmulator {
 
         // Sync PSG here in case the VDC blocked a CPU VRAM access for a long amount of time across
         // a frame boundary
-        self.psg.step_to(self.cycle_counter);
-        self.psg.drain_output_buffer(audio_output).map_err(PceError::Audio)?;
+        if self.cycle_counter - self.last_psg_sync_cycles >= video::MCLK_CYCLES_PER_SCANLINE {
+            self.psg.step_to(self.cycle_counter);
+            self.psg.drain_output_buffer(audio_output).map_err(PceError::Audio)?;
+
+            self.last_psg_sync_cycles = self.cycle_counter;
+        }
 
         if self.video.frame_complete() {
             self.video.clear_frame_complete();
