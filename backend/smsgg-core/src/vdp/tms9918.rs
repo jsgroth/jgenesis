@@ -1,8 +1,8 @@
 use crate::vdp::{Mode, Vdp};
 use crate::{SmsGgHardware, vdp};
-use arrayvec::ArrayVec;
 use jgenesis_common::frontend::Color;
 use jgenesis_common::num::GetBit;
+use tinyvec::ArrayVec;
 
 const MAX_SPRITES_PER_LINE: usize = 4;
 
@@ -57,7 +57,7 @@ pub fn color_table(hardware: SmsGgHardware) -> &'static [u8; 16] {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 struct Graphics2SpriteData {
     y: u8,
     x: u8,
@@ -230,14 +230,14 @@ impl Vdp {
     fn find_sprites_on_line(
         &mut self,
         scanline: u8,
-    ) -> ArrayVec<Graphics2SpriteData, MAX_SPRITES_PER_LINE> {
+    ) -> ArrayVec<[Graphics2SpriteData; MAX_SPRITES_PER_LINE]> {
         let base_sprite_table_addr = self.registers.latched_sprite.base_sprite_table_address;
 
         let large_sprites = self.registers.latched_sprite.double_sprite_height;
         let magnify_sprites = self.registers.latched_sprite.double_sprite_size;
         let sprite_size = 8 << (u8::from(large_sprites) + u8::from(magnify_sprites));
 
-        let mut sprite_buffer = ArrayVec::<Graphics2SpriteData, 4>::new();
+        let mut sprite_buffer = ArrayVec::new();
         for sprite_idx in 0..32 {
             let sprite_table_addr = base_sprite_table_addr + 4 * sprite_idx;
             let y = self.vram[sprite_table_addr as usize];

@@ -11,7 +11,6 @@ resolver = "2"
 [workspace.dependencies]
 # Third-party dependencies
 anyhow = "1"
-arrayvec = "0.7"
 base64 = "0.22"
 bincode = "2"
 bytemuck = { version = "1", features = ["derive"] }
@@ -44,6 +43,7 @@ sevenz-rust = "0.6"
 test-log = "0.2"
 thiserror = "2"
 time = "0.3"
+tinyvec = "1"
 toml = "1"
 toml_edit = "0.25"
 winit = "0.30"

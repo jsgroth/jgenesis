@@ -2661,7 +2661,6 @@ dependencies = [
 name = "jgenesis-native-driver"
 version = "0.7.1"
 dependencies = [
- "arrayvec",
  "bincode",
  "cdrom",
  "clap",
@@ -4998,7 +4997,6 @@ dependencies = [
 name = "smsgg-core"
 version = "0.7.1"
 dependencies = [
- "arrayvec",
  "bincode",
  "crc",
  "dsp",
@@ -5007,6 +5005,7 @@ dependencies = [
  "log",
  "smsgg-config",
  "thiserror 2.0.18",
+ "tinyvec",
  "ym-opll",
  "z80-emu",
 ]

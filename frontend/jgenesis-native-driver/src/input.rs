@@ -1,4 +1,3 @@
-use arrayvec::ArrayVec;
 use jgenesis_common::frontend::DisplayInfo;
 use jgenesis_common::input::Player;
 use jgenesis_native_config::input::{
@@ -58,7 +57,6 @@ impl CanonicalInput {
 }
 
 pub const MAX_MAPPING_LEN: usize = 3;
-type MappingArrayVec = ArrayVec<CanonicalInput, MAX_MAPPING_LEN>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GenericButton<Button> {
@@ -167,7 +165,7 @@ impl Joysticks {
 
 struct InputMapperState<Button> {
     input_events: Rc<RefCell<Vec<InputEvent<Button>>>>,
-    mappings: FxHashMap<GenericButton<Button>, Vec<MappingArrayVec>>,
+    mappings: FxHashMap<GenericButton<Button>, Vec<Vec<CanonicalInput>>>,
     inputs_to_buttons: FxHashMap<CanonicalInput, Vec<GenericButton<Button>>>,
     active_inputs: FxHashSet<GenericInput>,
     active_canonical_inputs: FxHashSet<CanonicalInput>,
