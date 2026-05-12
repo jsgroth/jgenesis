@@ -18,11 +18,9 @@ impl Bus<'_> {
         *self.cycle_counter += self.memory.cpu_clock_divider();
 
         // TODO it's really not necessary to sync everything at every CPU cycle
-        self.video.step_to(*self.cycle_counter);
+        self.video.step_to(*self.cycle_counter, self.memory.cpu_registers().irq1_pending_mut());
         self.psg.step_to(*self.cycle_counter);
         self.memory.cpu_registers().step_to(*self.cycle_counter);
-
-        self.memory.cpu_registers().set_irq1(self.video.vdc_irq());
     }
 
     #[allow(clippy::match_same_arms)]
@@ -33,7 +31,11 @@ impl Bus<'_> {
         }
 
         match address {
-            0x1FE000..=0x1FE3FF => self.video.read_vdc(address),
+            0x1FE000..=0x1FE3FF => self.video.read_vdc(
+                address,
+                self.cycle_counter,
+                self.memory.cpu_registers().irq1_pending_mut(),
+            ),
             0x1FE400..=0x1FE7FF => self.video.read_vce(address),
             0x1FE800..=0x1FEBFF => self.memory.cpu_registers().io_buffer(), // PSG, write-only
             0x1FEC00..=0x1FEFFF => self.memory.cpu_registers().read_timer_register(),
@@ -56,7 +58,12 @@ impl Bus<'_> {
         }
 
         match address {
-            0x1FE000..=0x1FE3FF => self.video.write_vdc(address, value),
+            0x1FE000..=0x1FE3FF => self.video.write_vdc(
+                address,
+                value,
+                self.cycle_counter,
+                self.memory.cpu_registers().irq1_pending_mut(),
+            ),
             0x1FE400..=0x1FE7FF => self.video.write_vce(address, value),
             0x1FE800..=0x1FEBFF => {
                 self.psg.write(address, value);

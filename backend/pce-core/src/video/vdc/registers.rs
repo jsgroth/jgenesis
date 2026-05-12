@@ -1,5 +1,5 @@
 use crate::video::WordByte;
-use crate::video::vdc::{CgMode, DmaStep, Vdc};
+use crate::video::vdc::{CgMode, DmaStep, PendingCpuAccess, Vdc};
 use bincode::{Decode, Encode};
 use jgenesis_common::define_bit_enum;
 use jgenesis_common::num::{GetBit, U16Ext};
@@ -226,8 +226,11 @@ impl VdcRegisters {
 
 impl Vdc {
     pub fn read_status(&mut self) -> u8 {
-        // TODO busy flag
-        let status = (u8::from(self.state.vblank_irq_pending) << 5)
+        // TODO should DMA accesses set the busy flag?
+        let busy = self.state.pending_cpu_access.is_some();
+
+        let status = (u8::from(busy) << 6)
+            | (u8::from(self.state.vblank_irq_pending) << 5)
             | (u8::from(self.state.vram_dma_irq_pending) << 4)
             | (u8::from(self.state.sat_dma_irq_pending) << 3)
             | (u8::from(self.state.raster_compare_irq_pending) << 2)
@@ -258,8 +261,10 @@ impl Vdc {
 
         // MARR only increments when selected register is VRR/VWR
         if self.selected_register == 0x02 && byte == WordByte::High {
-            // TODO timing
-            self.registers.vram_read_buffer = self.read_vram(self.registers.vram_read_address);
+            debug_assert!(self.state.pending_cpu_access.is_none());
+
+            self.state.pending_cpu_access =
+                Some(PendingCpuAccess::Read { address: self.registers.vram_read_address });
             self.increment_vram_read_address();
         }
 
@@ -288,9 +293,10 @@ impl Vdc {
 
                 // Writing to MSB initiates VRAM read
                 if byte == WordByte::High {
-                    // TODO timing
-                    self.registers.vram_read_buffer =
-                        self.read_vram(self.registers.vram_read_address);
+                    debug_assert!(self.state.pending_cpu_access.is_none());
+
+                    self.state.pending_cpu_access =
+                        Some(PendingCpuAccess::Read { address: self.registers.vram_read_address });
                     self.increment_vram_read_address();
                 }
             }
@@ -303,8 +309,13 @@ impl Vdc {
                     }
                     WordByte::High => {
                         // MSB writes persist to VRAM along with latched byte
+                        debug_assert!(self.state.pending_cpu_access.is_none());
+
                         let word = u16::from_le_bytes([self.registers.vram_write_latch, value]);
-                        self.write_vram(self.registers.vram_write_address, word);
+                        self.state.pending_cpu_access = Some(PendingCpuAccess::Write {
+                            address: self.registers.vram_write_address,
+                            value: word,
+                        });
                         self.increment_vram_write_address();
                     }
                 }

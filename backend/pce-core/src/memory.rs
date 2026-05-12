@@ -204,8 +204,8 @@ impl CpuRegisters {
         self.io_buffer
     }
 
-    pub fn set_irq1(&mut self, irq1_pending: bool) {
-        self.irq1_pending = irq1_pending;
+    pub fn irq1_pending_mut(&mut self) -> &mut bool {
+        &mut self.irq1_pending
     }
 
     pub fn step_to(&mut self, cycles: u64) {

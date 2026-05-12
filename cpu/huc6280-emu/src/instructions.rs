@@ -162,7 +162,15 @@ where
             self.cpu.state.pending_interrupt = false;
 
             // TIQ > IRQ1 > IRQ2 in priority
-            if self.cpu.state.latched_interrupt_lines.tiq {
+
+            // TIQ line doesn't seem to get latched in the same way as the others; CPU does not
+            // handle TIQ if it got cleared during the previous CPU cycle
+            //
+            // Without this, D&D: Order of the Griffon's music plays too fast and it has various
+            // graphical glitches. It expects to _not_ handle a TIQ after doing the following:
+            //   cli
+            //   sta $1403  ; acks TIQ during final cycle
+            if self.cpu.state.latched_interrupt_lines.tiq && self.bus.interrupt_lines().tiq {
                 return self.handle_interrupt(InterruptType::Tiq);
             }
 

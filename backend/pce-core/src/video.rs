@@ -78,7 +78,7 @@ impl VideoSubsystem {
         }
     }
 
-    pub fn step_to(&mut self, cycles: u64) {
+    pub fn step_to(&mut self, cycles: u64, irq1_pending: &mut bool) {
         let elapsed_cycles = cycles.saturating_sub(self.cycles);
         if elapsed_cycles == 0 {
             return;
@@ -106,7 +106,7 @@ impl VideoSubsystem {
                 self.vdc.start_new_frame();
             }
 
-            self.vdc.start_new_line(self.state.scanline, dot_clock_divider, lines_per_frame);
+            self.vdc.start_new_line(self.state.scanline, &self.vce);
         }
 
         let elapsed_vdc_dots = self
@@ -114,6 +114,8 @@ impl VideoSubsystem {
             .dot_clock_divider()
             .divide_difference(self.state.scanline_mclk, prev_scanline_mclk);
         self.vdc.tick_dots(elapsed_vdc_dots, &self.vce);
+
+        *irq1_pending = self.vdc.irq();
     }
 
     pub fn frame_complete(&self) -> bool {
@@ -122,10 +124,6 @@ impl VideoSubsystem {
 
     pub fn clear_frame_complete(&mut self) {
         self.vdc.clear_frame_complete();
-    }
-
-    pub fn vdc_irq(&self) -> bool {
-        self.vdc.irq()
     }
 
     pub fn render_rgba8_frame_buffer(&mut self) {
@@ -158,10 +156,29 @@ impl VideoSubsystem {
     }
 
     // $1FE000-$1FE003: VDC ports
-    pub fn read_vdc(&mut self, address: u32) -> u8 {
-        log::trace!("VDC register read {address:06X}");
+    pub fn read_vdc(&mut self, address: u32, bus_cycles: &mut u64, irq1_pending: &mut bool) -> u8 {
+        log::trace!(
+            "VDC register read {address:06X}, line {} mclk {}",
+            self.state.scanline,
+            self.state.scanline_mclk
+        );
 
-        match address & 3 {
+        let address = address & 3;
+
+        if matches!(address, 2 | 3) {
+            while self.vdc.is_cpu_read_blocked() {
+                log::trace!(
+                    "CPU read {address} stalling! Line {} cycles {}",
+                    self.state.scanline,
+                    self.state.scanline_mclk
+                );
+
+                *bus_cycles += u64::from(self.vce.dot_clock_divider());
+                self.step_to(*bus_cycles, irq1_pending);
+            }
+        }
+
+        match address {
             0 => self.vdc.read_status(),
             1 => 0x00, // Unused
             2 => self.vdc.read_data(WordByte::Low),
@@ -171,10 +188,35 @@ impl VideoSubsystem {
     }
 
     // $1FE000-$1FE003: VDC ports
-    pub fn write_vdc(&mut self, address: u32, value: u8) {
-        log::trace!("VDC register write {address:06X} {value:02X}");
+    pub fn write_vdc(
+        &mut self,
+        address: u32,
+        value: u8,
+        bus_cycles: &mut u64,
+        irq1_pending: &mut bool,
+    ) {
+        log::trace!(
+            "VDC register write {address:06X} {value:02X}, line {} mclk {}",
+            self.state.scanline,
+            self.state.scanline_mclk
+        );
 
-        match address & 3 {
+        let address = address & 3;
+
+        if matches!(address, 2 | 3) {
+            while self.vdc.is_cpu_write_blocked() {
+                log::trace!(
+                    "CPU write {address} {value:02X} stalling! Line {} cycles {}",
+                    self.state.scanline,
+                    self.state.scanline_mclk
+                );
+
+                *bus_cycles += u64::from(self.vce.dot_clock_divider());
+                self.step_to(*bus_cycles, irq1_pending);
+            }
+        }
+
+        match address {
             0 => self.vdc.write_register_select(value),
             1 => {} // Unused
             2 => self.vdc.write_data(value, WordByte::Low),
@@ -186,7 +228,11 @@ impl VideoSubsystem {
     // $1FE400-$1FE407: VCE ports
     #[allow(clippy::match_same_arms)]
     pub fn read_vce(&mut self, address: u32) -> u8 {
-        log::trace!("VCE register read {address:06X}");
+        log::trace!(
+            "VCE register read {address:06X}, line {} mclk {}",
+            self.state.scanline,
+            self.state.scanline_mclk
+        );
 
         match address & 7 {
             0..=3 => 0xFF, // Write-only / unused
@@ -200,7 +246,11 @@ impl VideoSubsystem {
     // $1FE400-$1FE407: VCE ports
     #[allow(clippy::match_same_arms)]
     pub fn write_vce(&mut self, address: u32, value: u8) {
-        log::trace!("VCE register write {address:06X} {value:02X}");
+        log::trace!(
+            "VCE register write {address:06X} {value:02X}, line {} mclk {}",
+            self.state.scanline,
+            self.state.scanline_mclk
+        );
 
         match address & 7 {
             0 => self.vce.write_control(value),

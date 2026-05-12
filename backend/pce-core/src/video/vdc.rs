@@ -5,7 +5,7 @@ mod registers;
 
 use crate::video::MCLK_CYCLES_PER_SCANLINE;
 use crate::video::vce::{DotClockDivider, Vce};
-use crate::video::vdc::registers::SpriteAccessWidth;
+use crate::video::vdc::registers::{SpriteAccessWidth, VramAccessWidth};
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::{Boxed2DWordArray, BoxedWordArray};
 use jgenesis_common::define_bit_enum;
@@ -26,9 +26,11 @@ pub const OVERSCAN_DOTS_DIV_4: u16 = 13;
 pub const OVERSCAN_DOTS_DIV_3: u16 = 13 * 4 / 3; // ~17
 pub const OVERSCAN_DOTS_DIV_2: u16 = 13 * 4 / 2; // 26
 
+// Numbers derived from Mednafen's frame X offsets
+// Dot clock divider 3 and 2 seem to have more left padding than just 11*ratio
 pub const LEFT_BORDER_DIV_4: u16 = 11;
-pub const LEFT_BORDER_DIV_3: u16 = 11 * 4 / 3; // ~14
-pub const LEFT_BORDER_DIV_2: u16 = 11 * 4 / 2; // 22
+pub const LEFT_BORDER_DIV_3: u16 = 21;
+pub const LEFT_BORDER_DIV_2: u16 = 70;
 
 pub const STANDARD_WIDTH_DIV_4: u16 = 256;
 pub const STANDARD_WIDTH_DIV_3: u16 = 256 * 4 / 3; // ~341
@@ -49,6 +51,9 @@ pub const ACTIVE_DISPLAY_DOTS_DIV_2: Range<u16> =
 
 // Raster compare counter always resets to 64 (0x40) at the beginning of HBlank before the first line of active display
 pub const RASTER_COMPARE_DISPLAY_START: u16 = 64;
+
+// Raster compare IRQ seems to trigger a bit before the end of active display
+pub const RASTER_COMPARE_INCREMENT_OFFSET: u16 = 8;
 
 // 14 lines of top blanking before active display, 4 lines of bottom blanking + 3 lines of VSYNC after
 pub const ACTIVE_DISPLAY_LINES: Range<u16> = 14..256;
@@ -313,8 +318,7 @@ pub struct LatchedHorizontalState {
     pub h_display_width: u16,
     pub h_display_end: u16,
     pub bg_x_scroll: u16,
-    pub bg_enabled: bool,
-    pub sprites_enabled: bool,
+    pub vram_access_width: VramAccessWidth,
     pub sprite_access_width: SpriteAccessWidth,
 }
 
@@ -326,8 +330,7 @@ impl LatchedHorizontalState {
             h_display_width: registers.h_display_width,
             h_display_end: registers.h_display_end,
             bg_x_scroll: registers.bg_x_scroll,
-            bg_enabled: registers.bg_enabled,
-            sprites_enabled: registers.sprites_enabled,
+            vram_access_width: registers.vram_access_width,
             sprite_access_width: registers.sprite_access_width,
         }
     }
@@ -420,7 +423,7 @@ impl DmaState {
         }
     }
 
-    fn start_sat(&mut self) {
+    fn start_sat(&mut self, registers: &VdcRegisters) {
         self.sat_active = true;
         self.sat_address = 0;
         self.dots_till_next_word = DMA_DOTS_PER_WORD;
@@ -440,6 +443,12 @@ pub enum VdcIrq {
     SpriteCollision,
     VramDma,
     SatDma,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+pub enum PendingCpuAccess {
+    Read { address: u16 },
+    Write { address: u16, value: u16 },
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -474,6 +483,8 @@ pub struct VdcState {
     pub sprite_collision_irq_dot: Option<u16>,
     pub raster_compare_counter: u16,
     pub frame_complete: bool,
+    pub pending_cpu_access: Option<PendingCpuAccess>,
+    pub sprite_fetch_dots_this_line: u64,
 }
 
 impl VdcState {
@@ -505,6 +516,8 @@ impl VdcState {
             sprite_collision_irq_dot: None,
             raster_compare_counter: RASTER_COMPARE_DISPLAY_START,
             frame_complete: false,
+            pending_cpu_access: None,
+            sprite_fetch_dots_this_line: 0,
         }
     }
 
@@ -584,10 +597,14 @@ impl Vdc {
 
         // TODO this is very inefficient
         for _ in 0..dots {
+            // DMA always takes priority over CPU VRAM access
+            // SAT DMA probably takes priority over VRAM copy DMA?
             if self.state.dma.sat_active {
                 self.progress_sat_dma();
             } else if self.state.dma.vram_active {
                 self.progress_vram_dma();
+            } else if self.state.pending_cpu_access.is_some() {
+                self.progress_cpu_access();
             }
 
             // Render color to frame buffer if inside VCE active display
@@ -614,7 +631,12 @@ impl Vdc {
             // Increment raster compare counter shortly before the end of horizontal display
             // (Timing is probably not accurate)
             if self.state.h_mode == HorizontalMode::ActiveDisplay
-                && self.state.h_counter == self.state.h_latch.h_display_width.wrapping_sub(8)
+                && self.state.h_counter
+                    == self
+                        .state
+                        .h_latch
+                        .h_display_width
+                        .wrapping_sub(RASTER_COMPARE_INCREMENT_OFFSET)
             {
                 if self.state.v_mode == VerticalMode::TopBorder
                     && self.state.v_counter == self.state.v_latch.v_display_start - 1
@@ -668,7 +690,9 @@ impl Vdc {
                             && self.state.v_counter == self.state.v_latch.v_display_start - 1
                         {
                             // DMAs cannot run once sprite tile fetching for the first line of active display begins
-                            self.state.dma.halt();
+                            if !burst_mode {
+                                self.state.dma.halt();
+                            }
                         }
 
                         if is_sprite_line && !burst_mode {
@@ -681,12 +705,44 @@ impl Vdc {
         }
     }
 
-    pub fn start_new_line(
-        &mut self,
-        scanline: u16,
-        dot_clock_divider: DotClockDivider,
-        lines_per_frame: u16,
-    ) {
+    pub fn start_new_line(&mut self, scanline: u16, vce: &Vce) {
+        if self.state.h_mode == HorizontalMode::ActiveDisplay {
+            if self.state.h_counter
+                < self.state.h_latch.h_display_width.saturating_sub(RASTER_COMPARE_INCREMENT_OFFSET)
+            {
+                // If active display began but the raster compare increment didn't happen, do it at the
+                // line change
+                //
+                // D&D: Order of the Griffon depends on this else there will be a glitchy line under
+                // the character portraits; it depends on the increment happening twice in one line
+                // when it changes the dot clock divider from 4 to 3
+                self.state.raster_compare_counter += 1;
+                if self.state.raster_compare_counter == self.registers.raster_compare {
+                    self.set_irq(VdcIrq::RasterCompare);
+                }
+            }
+
+            if ACTIVE_DISPLAY_LINES.contains(&self.state.scanline) {
+                let active_display_dots = self.state.line_divider.active_display_dots();
+                if active_display_dots.contains(&self.state.scanline_dot) {
+                    // Fill remainder of frame buffer row with overscan color
+                    // Prevents some visual glitches in D&D: Order of the Griffon due to mid-frame
+                    // dot clock divider changes
+                    let frame_buffer_row =
+                        (self.state.scanline - ACTIVE_DISPLAY_LINES.start) as usize;
+                    let frame_buffer_col = (self.state.scanline_dot - active_display_dots.start)
+                        as usize
+                        * self.state.line_divider as usize;
+                    self.frame_buffer.colors[frame_buffer_row][frame_buffer_col..]
+                        .fill(vce.overscan_color());
+                }
+            }
+        }
+
+        let dot_clock_divider = vce.dot_clock_divider();
+        let lines_per_frame = vce.lines_per_frame();
+
+        // TODO latch timing is probably not accurate for everything in here
         self.state.h_latch = LatchedHorizontalState::latch(&self.registers);
         self.state.h_mode = HorizontalMode::LeftBorder;
         self.state.h_counter = 0;
@@ -728,7 +784,7 @@ impl Vdc {
                     }
                     VerticalMode::BottomBorder => {
                         if self.state.dma.sat_triggered || self.registers.sat_dma_repeat {
-                            self.state.dma.start_sat();
+                            self.state.dma.start_sat(&self.registers);
                             self.state.dma.sat_triggered = false;
 
                             log::trace!("Starting VRAM-to-SAT DMA on line {scanline}");
@@ -782,13 +838,35 @@ impl Vdc {
         self.state.any_irq_pending
     }
 
+    pub fn is_cpu_read_blocked(&self) -> bool {
+        // VRR (VRAM read register)
+        // Block if any CPU access is in progress
+        self.state.pending_cpu_access.is_some()
+    }
+
+    #[allow(clippy::match_same_arms)]
+    pub fn is_cpu_write_blocked(&self) -> bool {
+        match self.selected_register {
+            // MAWR (Memory address write register)
+            // Block if a CPU write is in progress
+            0x00 => matches!(self.state.pending_cpu_access, Some(PendingCpuAccess::Write { .. })),
+            // MARR (Memory address read register)
+            // Block if any CPU access is in progress (since MSB write can initiate a read)
+            0x01 => self.state.pending_cpu_access.is_some(),
+            // VWR (VRAM write register)
+            // Block if any CPU access is in progress
+            0x02 => self.state.pending_cpu_access.is_some(),
+            _ => false,
+        }
+    }
+
     fn render_line(&mut self) {
         const BACKDROP_COLOR: u16 = 0x000;
 
         self.line_buffer.fill(BACKDROP_COLOR);
 
         if self.state.v_latch.burst_mode
-            || (!self.state.h_latch.bg_enabled && !self.state.h_latch.sprites_enabled)
+            || (!self.registers.bg_enabled && !self.registers.sprites_enabled)
         {
             return;
         }
@@ -813,7 +891,7 @@ impl Vdc {
             // BAT (BG attribute table) always starts at $0000 in VRAM and has 1 word per tile
             let bat_addr = bg_tile_y * screen_width_tiles + bg_tile_x;
 
-            let BgTileRow { cg0, cg1, palette: bg_palette } = if self.state.h_latch.bg_enabled {
+            let BgTileRow { cg0, cg1, palette: bg_palette } = if self.registers.bg_enabled {
                 self.read_bg_tile_row(bat_addr, tile_row)
             } else {
                 BgTileRow { cg0: 0, cg1: 0, palette: 0 }
@@ -831,7 +909,7 @@ impl Vdc {
                     | (((cg1 >> bitplane_shift) & 1) << 2)
                     | (((cg1 >> (8 + bitplane_shift)) & 1) << 3);
 
-                let sprite_pixel = if self.state.h_latch.sprites_enabled {
+                let sprite_pixel = if self.registers.sprites_enabled {
                     self.sprite_line_buffer[pixel as usize]
                 } else {
                     SpritePixel::TRANSPARENT
@@ -925,6 +1003,91 @@ impl Vdc {
         }
     }
 
+    fn progress_cpu_access(&mut self) {
+        if !self.can_perform_cpu_access() {
+            return;
+        }
+
+        match self.state.pending_cpu_access.take() {
+            Some(PendingCpuAccess::Read { address }) => {
+                self.registers.vram_read_buffer = self.read_vram(address);
+            }
+            Some(PendingCpuAccess::Write { address, value }) => {
+                self.write_vram(address, value);
+            }
+            None => {}
+        }
+    }
+
+    fn can_perform_cpu_access(&self) -> bool {
+        if self.state.dma.vram_active || self.state.dma.sat_active {
+            // CPU cannot access VRAM during DMA
+            return false;
+        }
+
+        if self.state.v_latch.burst_mode {
+            // CPU can always access during burst mode (when DMA is not running)
+            return true;
+        }
+
+        if self.state.v_mode == VerticalMode::ActiveDisplay
+            && self.state.h_mode == HorizontalMode::ActiveDisplay
+        {
+            // BG tile fetching + sprite evaluation + rendering
+            // CPU access slots depend on VRAM access width:
+            // Width 1:  CPU BAT CPU ??? CPU CG0 CPU CG1 (8 slots, 4 accesses)
+            // Width 2:    BAT     CPU     CG0     CG1   (4 slots, 1 access)
+            // Width 4:        BAT           CG0/CG1     (2 slots, 0 accesses)
+
+            // TODO what happens if BG is disabled?
+            if !self.registers.bg_enabled {
+                return true;
+            }
+
+            return match self.state.h_latch.vram_access_width {
+                VramAccessWidth::One => self.state.h_counter & 1 == 0,
+                VramAccessWidth::Two => self.state.h_counter & 7 == 2,
+                VramAccessWidth::Four => false,
+            };
+        }
+
+        let is_fetching_sprite_tiles = match self.state.v_mode {
+            VerticalMode::ActiveDisplay => self.state.h_mode != HorizontalMode::ActiveDisplay,
+            VerticalMode::TopBorder => {
+                matches!(self.state.h_mode, HorizontalMode::RightBorder | HorizontalMode::HSync)
+                    && self.state.v_counter == self.state.v_latch.v_display_start - 1
+            }
+            VerticalMode::BottomBorder | VerticalMode::VSync => false,
+        };
+
+        if self.registers.sprites_enabled && is_fetching_sprite_tiles {
+            // CPU cannot access VRAM during sprite tile fetching, regardless of sprite access width
+            // Check if tile fetching is done for this line
+            // TODO this doesn't handle horizontal timings or dot clock divider changing between lines
+            let sprite_dot: u64 = match self.state.h_mode {
+                HorizontalMode::RightBorder => self.state.h_counter.into(),
+                HorizontalMode::HSync => {
+                    (self.state.h_latch.h_display_end + self.state.h_counter).into()
+                }
+                HorizontalMode::LeftBorder => {
+                    let hds: u64 = self.state.h_latch.h_display_start.into();
+                    let hdw: u64 = self.state.h_latch.h_display_width.into();
+                    let sprite_dots_per_line = (MCLK_CYCLES_PER_SCANLINE
+                        / u64::from(self.state.line_divider))
+                    .saturating_sub(hdw);
+                    sprite_dots_per_line.saturating_sub(hds) + u64::from(self.state.h_counter)
+                }
+                HorizontalMode::ActiveDisplay => unreachable!(
+                    "is_fetching_sprite_tiles is never true when h_mode is ActiveDisplay"
+                ),
+            };
+
+            return sprite_dot >= self.state.sprite_fetch_dots_this_line;
+        }
+
+        true
+    }
+
     fn run_sprite_evaluation(&mut self) {
         // In sprite coordinates, Y=64 is the first line of active display
         const SCREEN_TOP: u16 = 64;
@@ -998,8 +1161,9 @@ impl Vdc {
         const SCREEN_LEFT: u16 = 32;
 
         self.sprite_line_buffer.fill(SpritePixel::TRANSPARENT);
+        self.state.sprite_fetch_dots_this_line = 0;
 
-        if !self.state.h_latch.sprites_enabled {
+        if !self.registers.sprites_enabled {
             return;
         }
 
@@ -1014,18 +1178,21 @@ impl Vdc {
             dots_per_line.saturating_sub((hdw + 16).into())
         };
 
-        let max_sprites_this_line = match self.state.h_latch.sprite_access_width {
-            SpriteAccessWidth::One | SpriteAccessWidth::TwoHalfBpp => sprite_fetch_cycles / 4,
-            SpriteAccessWidth::TwoFullBpp | SpriteAccessWidth::Four => sprite_fetch_cycles / 8,
+        let cycles_per_sprite = match self.state.h_latch.sprite_access_width {
+            SpriteAccessWidth::One | SpriteAccessWidth::TwoHalfBpp => 4,
+            SpriteAccessWidth::TwoFullBpp | SpriteAccessWidth::Four => 8,
         };
-        let max_sprites_this_line = cmp::min(
-            max_sprites_this_line as usize,
+
+        let num_sprite_tiles = cmp::min(
+            (sprite_fetch_cycles / cycles_per_sprite) as usize,
             cmp::min(MAX_SPRITES_PER_LINE, self.sprite_evaluation_buffer.len()),
         );
 
+        self.state.sprite_fetch_dots_this_line = (num_sprite_tiles as u64) * cycles_per_sprite;
+
         let half_bpp = self.state.h_latch.sprite_access_width.is_half_bpp();
 
-        for sprite in &self.sprite_evaluation_buffer[..max_sprites_this_line] {
+        for sprite in &self.sprite_evaluation_buffer[..num_sprite_tiles] {
             let tile_addr = (64 * sprite.tile_number) as usize;
             let tile_data = if tile_addr < VRAM_LEN_WORDS {
                 &self.vram[tile_addr..tile_addr + 64]
@@ -1127,6 +1294,12 @@ impl Vdc {
     }
 
     fn set_irq(&mut self, irq: VdcIrq) {
+        log::trace!(
+            "Triggering IRQ {irq:?} (if enabled), line {} dot {}",
+            self.state.scanline,
+            self.state.scanline_dot
+        );
+
         match irq {
             VdcIrq::VBlank => {
                 self.state.vblank_irq_pending |= self.registers.vblank_irq_enabled;

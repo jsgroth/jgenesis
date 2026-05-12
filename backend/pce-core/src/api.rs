@@ -131,6 +131,9 @@ impl EmulatorTrait for PcEngineEmulator {
             cycle_counter: &mut self.cycle_counter,
         });
 
+        // Sync PSG here in case the VDC blocked a CPU VRAM access for a long amount of time across
+        // a frame boundary
+        self.psg.step_to(self.cycle_counter);
         self.psg.drain_output_buffer(audio_output).map_err(PceError::Audio)?;
 
         if self.video.frame_complete() {
@@ -138,10 +141,10 @@ impl EmulatorTrait for PcEngineEmulator {
 
             self.render_frame(renderer).map_err(PceError::Render)?;
 
-            return Ok(TickEffect::FrameRendered);
+            Ok(TickEffect::FrameRendered)
+        } else {
+            Ok(TickEffect::None)
         }
-
-        Ok(TickEffect::None)
     }
 
     fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>
