@@ -107,6 +107,7 @@ struct Timer {
     prescaler: u64,
     enabled: bool,
     cycles: u64,
+    next_overflow_cycles: u64,
 }
 
 impl Timer {
@@ -117,10 +118,19 @@ impl Timer {
             prescaler: TIMER_PRESCALER_DIVIDER,
             enabled: false,
             cycles: 0,
+            next_overflow_cycles: u64::MAX,
         }
     }
 
     fn step_to(&mut self, cycles: u64, tiq_pending: &mut bool) {
+        if cycles < self.next_overflow_cycles {
+            return;
+        }
+
+        self.force_step_to(cycles, tiq_pending);
+    }
+
+    fn force_step_to(&mut self, cycles: u64, tiq_pending: &mut bool) {
         if !self.enabled {
             self.cycles = cycles;
             return;
@@ -145,6 +155,43 @@ impl Timer {
                 }
             }
         }
+
+        self.next_overflow_cycles =
+            cycles + self.prescaler + u64::from(self.counter) * TIMER_PRESCALER_DIVIDER;
+    }
+
+    // $1FEC00: Timer reload value
+    fn write_reload(&mut self, value: u8) {
+        self.reload = value & 0x7F;
+
+        log::trace!("Timer reload: {}", self.reload);
+    }
+
+    // $1FEC01: Timer enabled
+    fn write_enabled(&mut self, value: u8, cycles: u64) {
+        let prev_enabled = self.enabled;
+        self.enabled = value.bit(0);
+
+        if !prev_enabled && self.enabled {
+            self.counter = self.reload;
+            self.prescaler = TIMER_PRESCALER_DIVIDER;
+
+            self.cycles = cycles;
+            self.next_overflow_cycles =
+                cycles + TIMER_PRESCALER_DIVIDER * u64::from(self.counter + 1);
+
+            log::trace!(
+                "Timer newly enabled at cycles {cycles}; next overflow at {}",
+                self.next_overflow_cycles
+            );
+        }
+
+        if !self.enabled {
+            // Timer will never overflow until it's enabled again
+            self.next_overflow_cycles = u64::MAX;
+        }
+
+        log::trace!("Timer enabled: {} (cycles {cycles})", self.enabled);
     }
 }
 
@@ -208,7 +255,7 @@ impl CpuRegisters {
         &mut self.irq1_pending
     }
 
-    pub fn step_to(&mut self, cycles: u64) {
+    pub fn step_timer_to(&mut self, cycles: u64) {
         self.timer.step_to(cycles, &mut self.tiq_pending);
     }
 
@@ -262,32 +309,22 @@ impl CpuRegisters {
     }
 
     // $1FEC00-$1FEC01: Timer registers
-    pub fn read_timer_register(&mut self) -> u8 {
+    pub fn read_timer_register(&mut self, cycles: u64) -> u8 {
+        self.timer.force_step_to(cycles, &mut self.tiq_pending);
+
         self.io_buffer = (self.io_buffer & !0x7F) | (self.timer.counter & 0x7F);
         self.io_buffer
     }
 
     // $1FEC00-$1FEC01: Timer registers
-    pub fn write_timer_register(&mut self, address: u32, value: u8) {
+    pub fn write_timer_register(&mut self, address: u32, value: u8, cycles: u64) {
+        self.timer.force_step_to(cycles, &mut self.tiq_pending);
+
         self.io_buffer = value;
 
         match address & 1 {
-            0 => {
-                self.timer.reload = value & 0x7F;
-
-                log::trace!("Timer reload: {}", self.timer.reload);
-            }
-            1 => {
-                let prev_enabled = self.timer.enabled;
-                self.timer.enabled = value.bit(0);
-
-                if !prev_enabled && self.timer.enabled {
-                    self.timer.counter = self.timer.reload;
-                    self.timer.prescaler = TIMER_PRESCALER_DIVIDER;
-                }
-
-                log::trace!("Timer enabled: {}", self.timer.enabled);
-            }
+            0 => self.timer.write_reload(value),
+            1 => self.timer.write_enabled(value, cycles),
             _ => unreachable!("value & 1 is always <= 1"),
         }
     }

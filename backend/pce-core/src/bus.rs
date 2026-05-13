@@ -19,7 +19,7 @@ impl Bus<'_> {
 
         // TODO it's really not necessary to sync everything at every CPU cycle
         self.video.step_to(*self.cycle_counter, self.memory.cpu_registers().irq1_pending_mut());
-        self.memory.cpu_registers().step_to(*self.cycle_counter);
+        self.memory.cpu_registers().step_timer_to(*self.cycle_counter);
     }
 
     #[allow(clippy::match_same_arms)]
@@ -37,7 +37,9 @@ impl Bus<'_> {
             ),
             0x1FE400..=0x1FE7FF => self.video.read_vce(address),
             0x1FE800..=0x1FEBFF => self.memory.cpu_registers().io_buffer(), // PSG, write-only
-            0x1FEC00..=0x1FEFFF => self.memory.cpu_registers().read_timer_register(),
+            0x1FEC00..=0x1FEFFF => {
+                self.memory.cpu_registers().read_timer_register(*self.cycle_counter)
+            }
             0x1FF000..=0x1FF3FF => {
                 let value = self.input.read_port();
                 self.memory.cpu_registers().update_io_buffer(value, !0)
@@ -70,7 +72,11 @@ impl Bus<'_> {
                 self.memory.cpu_registers().update_io_buffer(value, !0);
             }
             0x1FEC00..=0x1FEFFF => {
-                self.memory.cpu_registers().write_timer_register(address, value);
+                self.memory.cpu_registers().write_timer_register(
+                    address,
+                    value,
+                    *self.cycle_counter,
+                );
             }
             0x1FF000..=0x1FF3FF => {
                 self.input.write_port(value);
