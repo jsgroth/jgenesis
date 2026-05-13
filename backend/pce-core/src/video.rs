@@ -7,7 +7,9 @@ use crate::api::PceEmulatorConfig;
 use crate::video::vce::Vce;
 use crate::video::vdc::Vdc;
 use bincode::{Decode, Encode};
-use jgenesis_common::frontend::{Color, FrameSize};
+use jgenesis_common::frontend::{
+    Color, CompositeParams, FiniteF64, FrameSize, NtscPerFrameParams, SamplesPerColorCycle,
+};
 use jgenesis_common::num::U16Ext;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 
@@ -88,7 +90,9 @@ pub struct VideoSubsystem {
     vce: Vce,
     state: VideoState,
     cycles: u64,
+    frame_start_cycles: u64,
     frame_buffer: Rgba8FrameBuffer,
+    frame_x_divider: u32,
     crop_overscan: bool,
 }
 
@@ -99,7 +103,9 @@ impl VideoSubsystem {
             vce: Vce::new(),
             state: VideoState::new(),
             cycles: 0,
+            frame_start_cycles: 0,
             frame_buffer: Rgba8FrameBuffer::default(),
+            frame_x_divider: 1,
             crop_overscan: config.crop_overscan,
         }
     }
@@ -130,6 +136,7 @@ impl VideoSubsystem {
             if self.state.scanline >= lines_per_frame {
                 self.state.scanline = 0;
                 self.vdc.start_new_frame();
+                self.frame_start_cycles = self.cycles - self.state.scanline_mclk;
             }
 
             self.vdc.start_new_line(self.state.scanline, &self.vce);
@@ -155,16 +162,31 @@ impl VideoSubsystem {
     pub fn render_rgba8_frame_buffer(&mut self) {
         let vdc_frame_buffer = self.vdc.frame_buffer();
 
-        let params = if self.crop_overscan {
+        let mut params = if self.crop_overscan {
             FrameRenderParams::CROP_OVERSCAN
         } else {
             FrameRenderParams::DEFAULT
         };
 
+        let x_stride = if vdc_frame_buffer
+            .line_dividers
+            .iter()
+            .all(|&divider| divider == vdc_frame_buffer.line_dividers[0])
+        {
+            // If dot clock divider remained unchanged for the entire frame, downsample for more
+            // reasonable behavior with shaders
+            vdc_frame_buffer.line_dividers[0] as usize
+        } else {
+            1
+        };
+        self.frame_x_divider = x_stride as u32;
+
+        params.width /= x_stride;
+
         for row in 0..params.height {
             for col in 0..params.width {
-                let vdc_color =
-                    vdc_frame_buffer.colors[row + params.top_offset][col + params.left_offset];
+                let vdc_color = vdc_frame_buffer.colors[row + params.top_offset]
+                    [col * x_stride + params.left_offset];
                 let (r, g, b) = palette::read(vdc_color);
                 self.frame_buffer.0[row * params.width + col] = Color::rgb(r, g, b);
             }
@@ -176,8 +198,7 @@ impl VideoSubsystem {
     }
 
     pub fn frame_size(&self) -> FrameSize {
-        // TODO handle downsampling
-        if self.crop_overscan {
+        let mut frame_size = if self.crop_overscan {
             FrameSize {
                 width: FrameRenderParams::CROP_OVERSCAN.width as u32,
                 height: FrameRenderParams::CROP_OVERSCAN.height as u32,
@@ -187,6 +208,31 @@ impl VideoSubsystem {
                 width: vdc::FRAME_BUFFER_WIDTH as u32,
                 height: vdc::FRAME_BUFFER_HEIGHT as u32,
             }
+        };
+
+        frame_size.width /= self.frame_x_divider;
+
+        frame_size
+    }
+
+    pub fn ntsc_aspect_ratio(&self) -> FiniteF64 {
+        // NTSC aspect ratio should be 8:7 for 5 MHz dot clock (H256px); compute others based on that
+        debug_assert_ne!(self.frame_x_divider, 0);
+        let multiplier = f64::from(self.frame_x_divider) / 4.0;
+        FiniteF64::try_from(multiplier * 8.0 / 7.0).unwrap()
+    }
+
+    pub fn composite_params(&self) -> CompositeParams {
+        CompositeParams {
+            upscale_factor: 2 * self.frame_x_divider,
+            samples_per_color_cycle: SamplesPerColorCycle::Twelve,
+        }
+    }
+
+    pub fn ntsc_per_frame_params(&self) -> NtscPerFrameParams {
+        NtscPerFrameParams {
+            frame_phase_offset: 2 * self.frame_start_cycles,
+            per_line_phase_offset: 2 * MCLK_CYCLES_PER_SCANLINE,
         }
     }
 

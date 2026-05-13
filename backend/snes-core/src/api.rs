@@ -261,7 +261,7 @@ impl SnesEmulator {
             pixel_aspect_ratio: aspect_ratio,
             composite_params: Some(self.ppu.composite_params()),
             ntsc_per_frame_params: Some(NtscPerFrameParams {
-                frame_phase_offset: 8 * self.ppu.frame_start_cycles(),
+                frame_phase_offset: 2 * self.ppu.frame_start_cycles(),
                 per_line_phase_offset: 2 * ppu::MCLKS_PER_NORMAL_SCANLINE,
             }),
             ..RenderFrameOptions::default()

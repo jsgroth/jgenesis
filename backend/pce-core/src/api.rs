@@ -82,9 +82,8 @@ impl PcEngineEmulator {
         self.video.render_rgba8_frame_buffer();
 
         let aspect_ratio = match self.config.aspect_ratio {
-            // TODO vary based on H resolution
-            PceAspectRatio::Ntsc => Some(FiniteF64::try_from(8.0 / 7.0 / 4.0).unwrap()),
-            PceAspectRatio::SquarePixels => Some(FiniteF64::try_from(1.0 / 4.0).unwrap()),
+            PceAspectRatio::Ntsc => Some(self.video.ntsc_aspect_ratio()),
+            PceAspectRatio::SquarePixels => Some(FiniteF64::ONE),
             PceAspectRatio::Stretched => None,
         };
 
@@ -94,6 +93,8 @@ impl PcEngineEmulator {
             self.video.target_fps(),
             RenderFrameOptions {
                 pixel_aspect_ratio: aspect_ratio,
+                composite_params: Some(self.video.composite_params()),
+                ntsc_per_frame_params: Some(self.video.ntsc_per_frame_params()),
                 ..RenderFrameOptions::default()
             },
         )
