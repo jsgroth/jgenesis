@@ -2,7 +2,7 @@ mod helptext;
 
 use crate::app::{App, OpenWindow};
 use egui::{Context, Window};
-use pce_config::{PceAspectRatio, PceRegion};
+use pce_config::{PceAspectRatio, PcePaletteType, PceRegion};
 
 impl App {
     pub(super) fn render_pce_general_settings(&mut self, ctx: &Context) {
@@ -58,6 +58,30 @@ impl App {
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::ASPECT_RATIO);
+            }
+
+            let rect = ui
+                .group(|ui| {
+                    ui.label("Palette");
+
+                    ui.horizontal(|ui| {
+                        ui.radio_value(
+                            &mut self.config.pc_engine.palette,
+                            PcePaletteType::PceComposite,
+                            "PC Engine Composite",
+                        );
+
+                        ui.radio_value(
+                            &mut self.config.pc_engine.palette,
+                            PcePaletteType::Linear,
+                            "Linear",
+                        );
+                    });
+                })
+                .response
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::PALETTE);
             }
 
             ui.add_space(3.0);

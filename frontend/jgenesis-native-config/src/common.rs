@@ -57,7 +57,7 @@ impl WindowSize {
     #[cfg(feature = "pce")]
     const PCE_WIDTH_WITHOUT_OVERSCAN: f64 = 256.0;
     #[cfg(feature = "pce")]
-    const PCE_HEIGHT_WITH_OVERSCAN: f64 = 240.0;
+    const PCE_HEIGHT_WITH_OVERSCAN: f64 = 242.0;
     #[cfg(feature = "pce")]
     const PCE_HEIGHT_WITHOUT_OVERSCAN: f64 = 224.0;
 

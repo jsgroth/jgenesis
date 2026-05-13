@@ -16,6 +16,14 @@ pub const ASPECT_RATIO: HelpText = HelpText {
     ],
 };
 
+pub const PALETTE: HelpText = HelpText {
+    heading: "Palette",
+    text: &[
+        "Choose the palette used to map the PC Engine's GRB333 colors to RGB888 colors for emulator display.",
+        "The PCE composite palette (by Kitrinx) is more accurate to actual hardware's colors over composite video output.",
+    ],
+};
+
 pub const CROP_OVERSCAN: HelpText = HelpText {
     heading: "Crop Overscan",
     text: &[

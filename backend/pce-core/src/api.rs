@@ -11,7 +11,7 @@ use jgenesis_common::frontend::{
     RenderFrameOptions, Renderer, SaveWriter, TickEffect, TickResult,
 };
 use jgenesis_proc_macros::ConfigDisplay;
-use pce_config::{PceAspectRatio, PceButton, PceInputs, PceRegion};
+use pce_config::{PceAspectRatio, PceButton, PceInputs, PcePaletteType, PceRegion};
 use std::fmt::{Debug, Display};
 use thiserror::Error;
 
@@ -22,6 +22,7 @@ pub const MASTER_CLOCK_FREQUENCY: f64 = 236.25e6 / 11.0;
 pub struct PceEmulatorConfig {
     pub region: PceRegion,
     pub aspect_ratio: PceAspectRatio,
+    pub palette: PcePaletteType,
     pub crop_overscan: bool,
     pub remove_sprite_limits: bool,
     pub allow_simultaneous_run_select: bool,

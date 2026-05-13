@@ -638,6 +638,7 @@ impl AppConfigExt for AppConfig {
             emulator_config: PceEmulatorConfig {
                 region: self.pc_engine.region,
                 aspect_ratio: self.pc_engine.aspect_ratio,
+                palette: self.pc_engine.palette,
                 crop_overscan: self.pc_engine.crop_overscan,
                 remove_sprite_limits: self.pc_engine.remove_sprite_limits,
                 allow_simultaneous_run_select: self.pc_engine.allow_simultaneous_run_select,

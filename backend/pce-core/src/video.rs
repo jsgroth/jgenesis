@@ -4,6 +4,7 @@ mod vdc;
 
 use crate::api;
 use crate::api::PceEmulatorConfig;
+use crate::video::palette::PcePalette;
 use crate::video::vce::Vce;
 use crate::video::vdc::Vdc;
 use bincode::{Decode, Encode};
@@ -44,11 +45,14 @@ impl WordByte {
 struct VideoState {
     scanline: u16,
     scanline_mclk: u64,
+    cycles: u64,
+    frame_start_cycles: u64,
+    frame_x_divider: u32,
 }
 
 impl VideoState {
     fn new() -> Self {
-        Self { scanline: 0, scanline_mclk: 0 }
+        Self { scanline: 0, scanline_mclk: 0, cycles: 0, frame_start_cycles: 0, frame_x_divider: 1 }
     }
 }
 
@@ -89,33 +93,41 @@ pub struct VideoSubsystem {
     vdc: Vdc,
     vce: Vce,
     state: VideoState,
-    cycles: u64,
-    frame_start_cycles: u64,
     frame_buffer: Rgba8FrameBuffer,
-    frame_x_divider: u32,
+    // Greyscale bit appears to work by suppressing the NTSC color burst, so it's effectively latched
+    // per-line even though it doesn't really work that way in hardware
+    greyscale_per_line: Box<[bool; vce::MAX_LINES_PER_FRAME]>,
+    palette: Box<PcePalette>,
+    greyscale_palette: Box<PcePalette>,
     crop_overscan: bool,
 }
 
 impl VideoSubsystem {
     pub fn new(config: PceEmulatorConfig) -> Self {
+        let palette = palette::for_type(config.palette);
+        let greyscale_palette = palette::make_greyscale(palette);
+
         Self {
             vdc: Vdc::new(config),
             vce: Vce::new(),
             state: VideoState::new(),
-            cycles: 0,
-            frame_start_cycles: 0,
             frame_buffer: Rgba8FrameBuffer::default(),
-            frame_x_divider: 1,
+            greyscale_per_line: vec![false; vce::MAX_LINES_PER_FRAME]
+                .into_boxed_slice()
+                .try_into()
+                .unwrap(),
+            palette: Box::new(*palette),
+            greyscale_palette: Box::new(greyscale_palette),
             crop_overscan: config.crop_overscan,
         }
     }
 
     pub fn step_to(&mut self, cycles: u64, irq1_pending: &mut bool) {
-        let elapsed_cycles = cycles.saturating_sub(self.cycles);
+        let elapsed_cycles = cycles.saturating_sub(self.state.cycles);
         if elapsed_cycles == 0 {
             return;
         }
-        self.cycles = cycles;
+        self.state.cycles = cycles;
 
         let mut prev_scanline_mclk = self.state.scanline_mclk;
         self.state.scanline_mclk += elapsed_cycles;
@@ -136,10 +148,12 @@ impl VideoSubsystem {
             if self.state.scanline >= lines_per_frame {
                 self.state.scanline = 0;
                 self.vdc.start_new_frame();
-                self.frame_start_cycles = self.cycles - self.state.scanline_mclk;
+                self.state.frame_start_cycles = self.state.cycles - self.state.scanline_mclk;
             }
 
             self.vdc.start_new_line(self.state.scanline, &self.vce);
+
+            self.greyscale_per_line[self.state.scanline as usize] = self.vce.greyscale();
         }
 
         let elapsed_vdc_dots = self
@@ -179,15 +193,23 @@ impl VideoSubsystem {
         } else {
             1
         };
-        self.frame_x_divider = x_stride as u32;
+        self.state.frame_x_divider = x_stride as u32;
 
         params.width /= x_stride;
 
         for row in 0..params.height {
+            let active_display_row = row + params.top_offset;
+            let scanline = active_display_row + (vdc::ACTIVE_DISPLAY_LINES.start as usize);
+            let palette = if self.greyscale_per_line[scanline] {
+                &self.greyscale_palette
+            } else {
+                &self.palette
+            };
+
             for col in 0..params.width {
-                let vdc_color = vdc_frame_buffer.colors[row + params.top_offset]
-                    [col * x_stride + params.left_offset];
-                let (r, g, b) = palette::read(vdc_color);
+                let active_display_col = col * x_stride + params.left_offset;
+                let vdc_color = vdc_frame_buffer.colors[active_display_row][active_display_col];
+                let (r, g, b) = palette[(vdc_color & 0x1FF) as usize];
                 self.frame_buffer.0[row * params.width + col] = Color::rgb(r, g, b);
             }
         }
@@ -210,28 +232,28 @@ impl VideoSubsystem {
             }
         };
 
-        frame_size.width /= self.frame_x_divider;
+        frame_size.width /= self.state.frame_x_divider;
 
         frame_size
     }
 
     pub fn ntsc_aspect_ratio(&self) -> FiniteF64 {
         // NTSC aspect ratio should be 8:7 for 5 MHz dot clock (H256px); compute others based on that
-        debug_assert_ne!(self.frame_x_divider, 0);
-        let multiplier = f64::from(self.frame_x_divider) / 4.0;
+        debug_assert_ne!(self.state.frame_x_divider, 0);
+        let multiplier = f64::from(self.state.frame_x_divider) / 4.0;
         FiniteF64::try_from(multiplier * 8.0 / 7.0).unwrap()
     }
 
     pub fn composite_params(&self) -> CompositeParams {
         CompositeParams {
-            upscale_factor: 2 * self.frame_x_divider,
+            upscale_factor: 2 * self.state.frame_x_divider,
             samples_per_color_cycle: SamplesPerColorCycle::Twelve,
         }
     }
 
     pub fn ntsc_per_frame_params(&self) -> NtscPerFrameParams {
         NtscPerFrameParams {
-            frame_phase_offset: 2 * self.frame_start_cycles,
+            frame_phase_offset: 2 * self.state.frame_start_cycles,
             per_line_phase_offset: 2 * MCLK_CYCLES_PER_SCANLINE,
         }
     }
@@ -353,15 +375,19 @@ impl VideoSubsystem {
     }
 
     pub fn reload_config(&mut self, config: PceEmulatorConfig) {
+        *self.palette = *palette::for_type(config.palette);
+        *self.greyscale_palette = palette::make_greyscale(&self.palette);
+
         self.crop_overscan = config.crop_overscan;
+
         self.vdc.reload_config(config);
     }
 
     pub fn dump_vram(&self, palette: u16, out: &mut [[Color; 64]]) {
-        self.vdc.dump_vram(palette, out, &self.vce);
+        self.vdc.dump_vram(palette, out, &self.vce, &self.palette);
     }
 
     pub fn dump_palettes(&self, out: &mut [Color]) {
-        self.vce.dump_palettes(out);
+        self.vce.dump_palettes(out, &self.palette);
     }
 }
