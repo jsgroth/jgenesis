@@ -10,6 +10,7 @@ pub struct PcEngineAppConfig {
     pub aspect_ratio: PceAspectRatio,
     pub crop_overscan: bool,
     pub remove_sprite_limits: bool,
+    pub allow_simultaneous_run_select: bool,
 }
 
 impl Default for PcEngineAppConfig {
@@ -19,6 +20,7 @@ impl Default for PcEngineAppConfig {
             aspect_ratio: PceAspectRatio::default(),
             crop_overscan: true,
             remove_sprite_limits: false,
+            allow_simultaneous_run_select: false,
         }
     }
 }

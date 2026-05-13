@@ -9,6 +9,7 @@ pub struct InputState {
     inputs: PceInputs,
     select_pin: bool,
     clear_pin: bool,
+    allow_simultaneous_run_select: bool,
 }
 
 impl InputState {
@@ -18,11 +19,13 @@ impl InputState {
             inputs: PceInputs::default(),
             select_pin: false,
             clear_pin: false,
+            allow_simultaneous_run_select: config.allow_simultaneous_run_select,
         }
     }
 
     pub fn reload_config(&mut self, config: PceEmulatorConfig) {
         self.region = config.region;
+        self.allow_simultaneous_run_select = config.allow_simultaneous_run_select;
     }
 
     pub fn update_inputs(&mut self, inputs: PceInputs) {
@@ -30,13 +33,16 @@ impl InputState {
     }
 
     pub fn read_port(&mut self) -> u8 {
+        let mut inputs = self.inputs.p1;
+
+        if !self.allow_simultaneous_run_select && inputs.run && inputs.select {
+            inputs.run = false;
+            inputs.select = false;
+        }
+
         let data = match (self.select_pin, self.clear_pin) {
-            (false, false) => {
-                [self.inputs.button1, self.inputs.button2, self.inputs.select, self.inputs.run]
-            }
-            (true, false) => {
-                [self.inputs.up, self.inputs.right, self.inputs.down, self.inputs.left]
-            }
+            (false, false) => [inputs.button1, inputs.button2, inputs.select, inputs.run],
+            (true, false) => [inputs.up, inputs.right, inputs.down, inputs.left],
             (_, true) => [true; 4],
         };
 

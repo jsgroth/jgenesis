@@ -832,17 +832,53 @@ define_controller_mapping!(PceJoypadMapping, PceButton, [
 #[cfg(feature = "pce")]
 impl PceJoypadMapping {
     #[must_use]
-    pub fn keyboard_wasd() -> Self {
+    pub fn keyboard_arrows() -> Self {
         Self {
             up: key_input!(Up),
             left: key_input!(Left),
             right: key_input!(Right),
             down: key_input!(Down),
-            button1: key_input!(S),
-            button2: key_input!(A),
+            button1: key_input!(A),
+            button2: key_input!(S),
             run: key_input!(Return),
             select: key_input!(RShift),
         }
+    }
+
+    #[must_use]
+    pub fn keyboard_wasd() -> Self {
+        Self {
+            up: key_input!(W),
+            left: key_input!(A),
+            right: key_input!(S),
+            down: key_input!(D),
+            button1: key_input!(L),
+            button2: key_input!(K),
+            run: key_input!(Return),
+            select: key_input!(RShift),
+        }
+    }
+}
+
+#[cfg(feature = "pce")]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ConfigDisplay)]
+#[serde(default)]
+pub struct PceInputMapping {
+    #[cfg_display(indent_nested)]
+    pub p1: PceJoypadMapping,
+    #[cfg_display(indent_nested)]
+    pub p2: PceJoypadMapping,
+    #[cfg_display(indent_nested)]
+    pub p1_turbo: PceJoypadMapping,
+    #[cfg_display(indent_nested)]
+    pub p2_turbo: PceJoypadMapping,
+}
+
+#[cfg(feature = "pce")]
+impl PceInputMapping {
+    pub fn to_mapping_vec<'a>(&'a self, out: &mut ButtonMappingVec<'a, PceButton>) {
+        self.p1.to_mapping_vec(Player::One, out);
+        self.p2.to_mapping_vec(Player::Two, out);
     }
 }
 
@@ -851,46 +887,29 @@ impl PceJoypadMapping {
 #[serde(default)]
 pub struct PceInputConfig {
     #[cfg_display(indent_nested)]
-    pub mapping_1: PceJoypadMapping,
+    pub mapping_1: PceInputMapping,
     #[cfg_display(indent_nested)]
-    pub mapping_2: PceJoypadMapping,
-    #[cfg_display(indent_nested)]
-    pub mapping_1_turbo: PceJoypadMapping,
-    #[cfg_display(indent_nested)]
-    pub mapping_2_turbo: PceJoypadMapping,
+    pub mapping_2: PceInputMapping,
 }
 
 #[cfg(feature = "pce")]
 impl PceInputConfig {
-    #[must_use]
-    pub fn to_mapping_vec(&self) -> ButtonMappingVec<'_, PceButton> {
-        let mut out = Vec::new();
+    impl_to_mapping_vec!(PceButton);
 
-        self.mapping_1.to_mapping_vec(Player::One, &mut out);
-        self.mapping_2.to_mapping_vec(Player::One, &mut out);
-
-        out
-    }
-
-    #[must_use]
-    pub fn to_turbo_mapping_vec(&self) -> ButtonMappingVec<'_, PceButton> {
-        let mut out = Vec::new();
-
-        self.mapping_1_turbo.to_mapping_vec(Player::One, &mut out);
-        self.mapping_2_turbo.to_mapping_vec(Player::One, &mut out);
-
-        out
-    }
+    impl_to_turbo_mapping_vec!(PceButton);
 }
 
 #[cfg(feature = "pce")]
 impl Default for PceInputConfig {
     fn default() -> Self {
         Self {
-            mapping_1: PceJoypadMapping::keyboard_wasd(),
-            mapping_2: PceJoypadMapping::default(),
-            mapping_1_turbo: PceJoypadMapping::default(),
-            mapping_2_turbo: PceJoypadMapping::default(),
+            mapping_1: PceInputMapping {
+                p1: PceJoypadMapping::keyboard_arrows(),
+                p2: PceJoypadMapping::default(),
+                p1_turbo: PceJoypadMapping::default(),
+                p2_turbo: PceJoypadMapping::default(),
+            },
+            mapping_2: PceInputMapping::default(),
         }
     }
 }

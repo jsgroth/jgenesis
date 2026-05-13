@@ -136,6 +136,8 @@ enum OpenWindow {
     GameBoyInput,
     GbaInput,
     GbaPeripherals,
+    #[cfg(feature = "unstable-cores")]
+    PceInput,
     Hotkeys,
     SmsGgOverclock,
     GenesisOverclock,
@@ -184,6 +186,8 @@ impl OpenWindow {
             OpenWindow::GameBoyInput => "Game Boy Input Settings",
             OpenWindow::GbaInput => "GBA Input Settings",
             OpenWindow::GbaPeripherals => "GBA Peripheral Settings",
+            #[cfg(feature = "unstable-cores")]
+            OpenWindow::PceInput => "PC Engine Input Settings",
             OpenWindow::Hotkeys => "Hotkey Settings",
             OpenWindow::SmsGgOverclock => "SMS/GG Overclocking Settings",
             OpenWindow::GenesisOverclock => "Genesis Overclocking Settings",
@@ -1077,6 +1081,12 @@ impl App {
                 }
             });
 
+            #[cfg(feature = "unstable-cores")]
+            if ui.button("PC Engine").clicked() {
+                self.state.open_window(ui.ctx(), OpenWindow::PceInput);
+                ui.close_kind(UiKind::Menu);
+            }
+
             ui.separator();
 
             if ui.button("Hotkeys").clicked() {
@@ -1287,6 +1297,8 @@ impl App {
                 OpenWindow::GameBoyInput => self.render_gb_input_settings(ctx),
                 OpenWindow::GbaInput => self.render_gba_input_settings(ctx),
                 OpenWindow::GbaPeripherals => self.render_gba_peripheral_settings(ctx),
+                #[cfg(feature = "unstable-cores")]
+                OpenWindow::PceInput => self.render_pce_input_settings(ctx),
                 OpenWindow::Hotkeys => self.render_hotkey_settings(ctx),
                 OpenWindow::SmsGgOverclock => self.render_smsgg_overclock_settings(ctx),
                 OpenWindow::GenesisOverclock => self.render_genesis_overclock_settings(ctx),

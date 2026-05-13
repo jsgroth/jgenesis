@@ -1,7 +1,5 @@
 use bincode::{Decode, Encode};
 use jgenesis_common::define_controller_inputs;
-use jgenesis_common::frontend::MappableInputs;
-use jgenesis_common::input::Player;
 use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 
 define_controller_inputs! {
@@ -15,12 +13,12 @@ define_controller_inputs! {
         Run -> run,
         Select -> select,
     },
-    joypad: PceInputs,
-}
-
-impl MappableInputs<PceButton> for PceInputs {
-    fn set_field(&mut self, button: PceButton, _player: Player, pressed: bool) {
-        self.set_button(button, pressed);
+    joypad: PceJoypadState,
+    inputs: PceInputs {
+        players: {
+            p1: Player::One,
+            p2: Player::Two,
+        }
     }
 }
 

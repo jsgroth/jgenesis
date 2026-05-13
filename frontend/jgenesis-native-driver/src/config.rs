@@ -640,6 +640,7 @@ impl AppConfigExt for AppConfig {
                 aspect_ratio: self.pc_engine.aspect_ratio,
                 crop_overscan: self.pc_engine.crop_overscan,
                 remove_sprite_limits: self.pc_engine.remove_sprite_limits,
+                allow_simultaneous_run_select: self.pc_engine.allow_simultaneous_run_select,
             },
         })
     }

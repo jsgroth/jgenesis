@@ -1,3 +1,5 @@
+mod helptext;
+
 use crate::app::widgets::NumericTextEdit;
 use crate::app::{App, OpenWindow, WaitingForInput};
 use crate::emuthread::EmuThreadCommand;
@@ -14,8 +16,12 @@ use jgenesis_native_config::input::mappings::{
     SmsGgInputMapping, SnesControllerMapping, SnesControllerType, SnesInputMapping,
     SnesSuperScopeMapping,
 };
+#[cfg(feature = "unstable-cores")]
+use jgenesis_native_config::input::mappings::{PceInputMapping, PceJoypadMapping};
 use jgenesis_native_config::input::{GenericInput, Hotkey};
 use nes_config::NesButton;
+#[cfg(feature = "unstable-cores")]
+use pce_config::PceButton;
 use smsgg_config::SmsGgButton;
 use snes_config::SnesButton;
 use std::mem;
@@ -82,6 +88,14 @@ impl InputMappingSet {
         }
     }
 
+    #[cfg(feature = "unstable-cores")]
+    fn pce(self, config: &mut InputAppConfig) -> &mut PceInputMapping {
+        match self {
+            Self::One => &mut config.pc_engine.mapping_1,
+            Self::Two => &mut config.pc_engine.mapping_2,
+        }
+    }
+
     fn hotkey(self, config: &mut InputAppConfig) -> &mut HotkeyMapping {
         match self {
             Self::One => &mut config.hotkeys.mapping_1,
@@ -98,6 +112,8 @@ pub enum GenericButton {
     Snes(SnesButton, Player),
     GameBoy(GameBoyButton),
     Gba(GbaButton),
+    #[cfg(feature = "unstable-cores")]
+    Pce(PceButton, Player),
     Hotkey(Hotkey),
 }
 
@@ -110,6 +126,8 @@ impl GenericButton {
             Self::Snes(button, _) => snes_label(button),
             Self::GameBoy(button) => gb_label(button),
             Self::Gba(button) => gba_label(button),
+            #[cfg(feature = "unstable-cores")]
+            Self::Pce(button, _) => pce_label(button),
             Self::Hotkey(hotkey) => hotkey_label(hotkey),
         }
     }
@@ -130,6 +148,8 @@ impl GenericButton {
             Self::Snes(button, player) => access_snes_value(mapping, button, player, false, config),
             Self::GameBoy(button) => access_gb_value(mapping, button, false, config),
             Self::Gba(button) => access_gba_value(mapping, button, false, config),
+            #[cfg(feature = "unstable-cores")]
+            Self::Pce(button, player) => access_pce_value(mapping, button, player, false, config),
             Self::Hotkey(hotkey) => access_hotkey(mapping, hotkey, config),
         }
     }
@@ -169,6 +189,10 @@ impl GenericButton {
             }
             Self::Gba(button @ (GbaButton::A | GbaButton::B | GbaButton::L | GbaButton::R)) => {
                 Some(access_gba_value(mapping, button, true, config))
+            }
+            #[cfg(feature = "unstable-cores")]
+            Self::Pce(button @ (PceButton::Button1 | PceButton::Button2), player) => {
+                Some(access_pce_value(mapping, button, player, true, config))
             }
             _ => None,
         }
@@ -281,6 +305,22 @@ fn gba_label(button: GbaButton) -> &'static str {
         SolarDecreaseBrightness => "Decrease brightness:",
         SolarMinBrightness => "Set brightness to minimum:",
         SolarMaxBrightness => "Set brightness to maximum:",
+    }
+}
+
+#[cfg(feature = "unstable-cores")]
+fn pce_label(button: PceButton) -> &'static str {
+    use PceButton::*;
+
+    match button {
+        Up => "Up:",
+        Left => "Left:",
+        Right => "Right:",
+        Down => "Down:",
+        Button1 => "Button I:",
+        Button2 => "Button II:",
+        Run => "Run:",
+        Select => "Select:",
     }
 }
 
@@ -513,6 +553,35 @@ fn access_gba_value(
         GbaButton::SolarDecreaseBrightness => &mut mapping_config.solar.decrease_brightness,
         GbaButton::SolarMinBrightness => &mut mapping_config.solar.min_brightness,
         GbaButton::SolarMaxBrightness => &mut mapping_config.solar.max_brightness,
+    }
+}
+
+#[cfg(feature = "unstable-cores")]
+fn access_pce_value(
+    mapping: InputMappingSet,
+    button: PceButton,
+    player: Player,
+    turbo: bool,
+    config: &mut InputAppConfig,
+) -> &mut Option<Vec<GenericInput>> {
+    let mapping_config = mapping.pce(config);
+
+    let player_config = match (player, turbo) {
+        (Player::One, false) => &mut mapping_config.p1,
+        (Player::One, true) => &mut mapping_config.p1_turbo,
+        (Player::Two, false) => &mut mapping_config.p2,
+        (Player::Two, true) => &mut mapping_config.p2_turbo,
+    };
+
+    match button {
+        PceButton::Up => &mut player_config.up,
+        PceButton::Left => &mut player_config.left,
+        PceButton::Right => &mut player_config.right,
+        PceButton::Down => &mut player_config.down,
+        PceButton::Button1 => &mut player_config.button1,
+        PceButton::Button2 => &mut player_config.button2,
+        PceButton::Run => &mut player_config.run,
+        PceButton::Select => &mut player_config.select,
     }
 }
 
@@ -1199,6 +1268,73 @@ impl App {
 
         if !open {
             self.state.open_windows.remove(&OpenWindow::GbaPeripherals);
+        }
+    }
+
+    #[cfg(feature = "unstable-cores")]
+    pub(super) fn render_pce_input_settings(&mut self, ctx: &Context) {
+        static P1_BUTTONS: LazyLock<Vec<GenericButton>> = LazyLock::new(|| {
+            PceButton::ALL
+                .into_iter()
+                .map(|button| GenericButton::Pce(button, Player::One))
+                .collect()
+        });
+
+        let mut open = true;
+        Window::new(OpenWindow::PceInput.title()).open(&mut open).show(ctx, |ui| {
+            self.disable_if_waiting_for_input(ui);
+
+            let mapping = self.render_mapping_set_selector(OpenWindow::PceInput, ui);
+            ui.separator();
+
+            Grid::new("pce_inputs").spacing([50.0, 5.0]).show(ui, |ui| {
+                self.render_input_buttons("pce_p1_inputs", mapping, &P1_BUTTONS, ui);
+                ui.end_row();
+            });
+
+            ui.add_space(15.0);
+
+            let mapping_config = mapping.pce(&mut self.config.input);
+            ui.horizontal(|ui| {
+                ComboBox::new("pce_presets", "").selected_text("Apply preset...").show_ui(
+                    ui,
+                    |ui| {
+                        if ui.selectable_label(false, "Keyboard - Arrow movement").clicked() {
+                            mapping_config.p1 = PceJoypadMapping::keyboard_arrows();
+                            mapping_config.p1_turbo = PceJoypadMapping::default();
+                        }
+
+                        if ui.selectable_label(false, "Keyboard - WASD movement").clicked() {
+                            mapping_config.p1 = PceJoypadMapping::keyboard_wasd();
+                            mapping_config.p1_turbo = PceJoypadMapping::default();
+                        }
+                    },
+                );
+
+                if ui.button("Clear All").clicked() {
+                    mapping_config.p1 = PceJoypadMapping::default();
+                    mapping_config.p1_turbo = PceJoypadMapping::default();
+                }
+            });
+
+            ui.add_space(15.0);
+
+            let rect = ui
+                .checkbox(
+                    &mut self.config.pc_engine.allow_simultaneous_run_select,
+                    "Allow pressing Run+Select simultaneously",
+                )
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state
+                    .help_text
+                    .insert(OpenWindow::PceInput, helptext::PCE_SIMULTANEOUS_RUN_SELECT);
+            }
+
+            self.render_help_text(ui, OpenWindow::PceInput);
+        });
+        if !open {
+            self.state.open_windows.remove(&OpenWindow::PceInput);
         }
     }
 

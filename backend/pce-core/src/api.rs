@@ -24,6 +24,7 @@ pub struct PceEmulatorConfig {
     pub aspect_ratio: PceAspectRatio,
     pub crop_overscan: bool,
     pub remove_sprite_limits: bool,
+    pub allow_simultaneous_run_select: bool,
 }
 
 impl EmulatorConfigTrait for PceEmulatorConfig {}
