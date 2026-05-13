@@ -634,17 +634,7 @@ impl Vdc {
                         .h_display_width
                         .wrapping_sub(RASTER_COMPARE_INCREMENT_OFFSET)
             {
-                if self.state.v_mode == VerticalMode::TopBorder
-                    && self.state.v_counter == self.state.v_latch.v_display_start - 1
-                {
-                    self.state.raster_compare_counter = RASTER_COMPARE_DISPLAY_START;
-                } else {
-                    self.state.raster_compare_counter += 1;
-                }
-
-                if self.state.raster_compare_counter == self.registers.raster_compare {
-                    self.set_irq(VdcIrq::RasterCompare);
-                }
+                self.increment_raster_compare_counter();
 
                 if self.state.sprite_overflow_irq_at_display {
                     self.set_irq(VdcIrq::SpriteOverflow);
@@ -701,6 +691,20 @@ impl Vdc {
         }
     }
 
+    fn increment_raster_compare_counter(&mut self) {
+        if self.state.v_mode == VerticalMode::TopBorder
+            && self.state.v_counter == self.state.v_latch.v_display_start - 1
+        {
+            self.state.raster_compare_counter = RASTER_COMPARE_DISPLAY_START;
+        } else {
+            self.state.raster_compare_counter += 1;
+        }
+
+        if self.state.raster_compare_counter == self.registers.raster_compare {
+            self.set_irq(VdcIrq::RasterCompare);
+        }
+    }
+
     pub fn start_new_line(&mut self, scanline: u16, vce: &Vce) {
         if self.state.h_mode == HorizontalMode::ActiveDisplay {
             if self.state.h_counter
@@ -712,10 +716,7 @@ impl Vdc {
                 // D&D: Order of the Griffon depends on this else there will be a glitchy line under
                 // the character portraits; it depends on the increment happening twice in one line
                 // when it changes the dot clock divider from 4 to 3
-                self.state.raster_compare_counter += 1;
-                if self.state.raster_compare_counter == self.registers.raster_compare {
-                    self.set_irq(VdcIrq::RasterCompare);
-                }
+                self.increment_raster_compare_counter();
             }
 
             if ACTIVE_DISPLAY_LINES.contains(&self.state.scanline) {
