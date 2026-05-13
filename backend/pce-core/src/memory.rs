@@ -83,7 +83,7 @@ impl Mapper {
         match self {
             Self::None => read_rom_safely(rom, address),
             Self::Populous { sram, .. } => match address >> 13 {
-                bank @ 0x40..=0x43 => sram[(address & 0x7FFF) as usize],
+                0x40..=0x43 => sram[(address & 0x7FFF) as usize],
                 _ => read_rom_safely(rom, address),
             },
             &Self::StreetFighter2 { rom_bank } => match address {
@@ -340,12 +340,6 @@ impl ClockSpeedExt for ClockSpeed {
             Self::High => 3, // ~7.16 MHz
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InterruptType {
-    Tiq,
-    Irq1,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]

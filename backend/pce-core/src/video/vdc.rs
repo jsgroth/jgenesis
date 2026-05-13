@@ -133,13 +133,6 @@ define_bit_enum!(CgMode, [ZeroOne, TwoThree]);
 define_bit_enum!(SpriteWidth, [Single, Double]);
 
 impl SpriteWidth {
-    pub fn to_pixels(self) -> u16 {
-        match self {
-            Self::Single => 16,
-            Self::Double => 32,
-        }
-    }
-
     // 16px tiles
     pub fn to_sprite_tiles(self) -> u16 {
         match self {
@@ -424,7 +417,7 @@ impl DmaState {
         }
     }
 
-    fn start_sat(&mut self, registers: &VdcRegisters) {
+    fn start_sat(&mut self) {
         self.sat_active = true;
         self.sat_address = 0;
         self.dots_till_next_word = DMA_DOTS_PER_WORD;
@@ -787,7 +780,7 @@ impl Vdc {
                     }
                     VerticalMode::BottomBorder => {
                         if self.state.dma.sat_triggered || self.registers.sat_dma_repeat {
-                            self.state.dma.start_sat(&self.registers);
+                            self.state.dma.start_sat();
                             self.state.dma.sat_triggered = false;
 
                             log::trace!("Starting VRAM-to-SAT DMA on line {scanline}");
