@@ -1,4 +1,5 @@
 use bincode::{Decode, Encode};
+use crc::Crc;
 use huc6280_emu::bus::{ClockSpeed, InterruptLines};
 use jgenesis_common::boxedarray::BoxedByteArray;
 use jgenesis_common::num::GetBit;
@@ -7,6 +8,8 @@ use std::ops::Deref;
 use std::{cmp, mem};
 
 const WORKING_RAM_LEN: usize = 8 * 1024;
+
+const POPULOUS_SRAM_LEN: usize = 32 * 1024;
 
 // Timer ticks every 1024 cycles at ~7.16 MHz regardless of current CPU clock speed
 const TIMER_PRESCALER_DIVIDER: u64 = 3 * 1024;
@@ -28,21 +31,120 @@ impl Deref for Rom {
     }
 }
 
+#[derive(Debug, Clone, Encode, Decode)]
+enum Mapper {
+    // Standard linear ROM mapping in all banks
+    None,
+    // Standard linear ROM mapping in banks $00-$3F, 32KB of SRAM mapped to $40-$43
+    Populous { sram: BoxedByteArray<POPULOUS_SRAM_LEN>, sram_dirty: bool },
+    // First 512KB of ROM in banks $00-$3F, mappable 512KB ROM bank in banks $40-$7F
+    StreetFighter2 { rom_bank: u32 },
+}
+
+impl Mapper {
+    fn guess_from_rom(rom: &[u8], initial_sram: Option<Vec<u8>>) -> Self {
+        const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
+
+        let checksum = CRC.checksum(rom);
+
+        // TODO is there a better way to do this than checksum matching? PCE games don't seem to
+        // have anything resembling a cartridge header
+        match checksum {
+            // Populous (Japan) (En)
+            0xDB5F97B3 => {
+                log::info!("Enabling Populous SRAM mapper (ROM checksum {checksum:08X})");
+
+                let mut sram = BoxedByteArray::new();
+                if let Some(initial_sram) = initial_sram
+                    && initial_sram.len() >= POPULOUS_SRAM_LEN
+                {
+                    sram.copy_from_slice(&initial_sram[..POPULOUS_SRAM_LEN]);
+                }
+
+                Self::Populous { sram, sram_dirty: false }
+            }
+            // Street Fighter II' - Champion Edition (Japan)
+            0x33DEB700 => {
+                log::info!(
+                    "Enabling Street Fighter II bank-switching mapper (ROM checksum {checksum:08X})"
+                );
+                Self::StreetFighter2 { rom_bank: 1 }
+            }
+            _ => {
+                log::info!("Using standard mapper");
+                Self::None
+            }
+        }
+    }
+
+    fn read(&self, address: u32, rom: &[u8]) -> u8 {
+        debug_assert!(address <= 0x0FFFFF);
+
+        match self {
+            Self::None => read_rom_safely(rom, address),
+            Self::Populous { sram, .. } => match address >> 13 {
+                bank @ 0x40..=0x43 => sram[(address & 0x7FFF) as usize],
+                _ => read_rom_safely(rom, address),
+            },
+            &Self::StreetFighter2 { rom_bank } => match address {
+                0x000000..=0x07FFFF => read_rom_safely(rom, address),
+                0x080000..=0x0FFFFF => {
+                    let banked_addr = (rom_bank << 19) | (address & 0x7FFFF);
+                    read_rom_safely(rom, banked_addr)
+                }
+                _ => panic!("Invalid ROM address {address:06X}"),
+            },
+        }
+    }
+
+    fn write(&mut self, address: u32, value: u8) {
+        match self {
+            Self::None => {}
+            Self::Populous { sram, sram_dirty } => {
+                let bank = address >> 13;
+                if (0x40..=0x43).contains(&bank) {
+                    sram[(address & 0x7FFF) as usize] = value;
+                    *sram_dirty = true;
+                }
+            }
+            Self::StreetFighter2 { rom_bank } => {
+                // Writing to $1FF0-$1FF3 changes the ROM bank based on the address written to
+                // Value does not matter
+                if (0x001FF0..=0x001FF3).contains(&address) {
+                    *rom_bank = (address & 3) + 1;
+                }
+            }
+        }
+    }
+}
+
+#[inline(always)]
+fn read_rom_safely(rom: &[u8], address: u32) -> u8 {
+    rom[(address as usize) & (rom.len() - 1)]
+}
+
 #[derive(Debug, Clone, PartialClone, Encode, Decode)]
 pub struct HuCard {
     #[partial_clone(default)]
     rom: Rom,
+    mapper: Mapper,
 }
 
 impl HuCard {
-    pub fn new(mut rom: Vec<u8>) -> Self {
+    pub fn new(mut rom: Vec<u8>, initial_sram: Option<Vec<u8>>) -> Self {
         rom = mirror_hucard_rom(rom);
 
-        Self { rom: Rom(rom.into_boxed_slice()) }
+        let mapper = Mapper::guess_from_rom(&rom, initial_sram);
+
+        Self { rom: Rom(rom.into_boxed_slice()), mapper }
     }
 
-    pub fn read_rom(&self, address: u32) -> u8 {
-        self.rom[(address as usize) & (self.rom.len() - 1)]
+    pub fn read(&self, address: u32) -> u8 {
+        self.mapper.read(address, &self.rom)
+    }
+
+    pub fn write(&mut self, address: u32, value: u8) {
+        self.mapper.write(address, value);
     }
 
     pub fn clone_rom(&self) -> Vec<u8> {
@@ -51,6 +153,26 @@ impl HuCard {
 
     pub fn take_rom_from(&mut self, other: &mut Self) {
         self.rom.0 = mem::take(&mut other.rom.0);
+    }
+
+    pub fn sram(&self) -> Option<&[u8]> {
+        match &self.mapper {
+            Mapper::Populous { sram, .. } => Some(sram.as_slice()),
+            _ => None,
+        }
+    }
+
+    pub fn is_sram_dirty(&self) -> bool {
+        match self.mapper {
+            Mapper::Populous { sram_dirty, .. } => sram_dirty,
+            _ => false,
+        }
+    }
+
+    pub fn clear_sram_dirty(&mut self) {
+        if let Mapper::Populous { sram_dirty, .. } = &mut self.mapper {
+            *sram_dirty = false;
+        }
     }
 }
 

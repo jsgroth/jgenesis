@@ -55,13 +55,19 @@ pub struct PcEngineEmulator {
 
 impl PcEngineEmulator {
     #[must_use]
-    pub fn create(rom: Vec<u8>, config: PceEmulatorConfig) -> Self {
+    pub fn create<S: SaveWriter>(
+        rom: Vec<u8>,
+        config: PceEmulatorConfig,
+        save_writer: &mut S,
+    ) -> Self {
+        let initial_sram = save_writer.load_bytes("sav").ok();
+
         let mut emulator = Self {
             cpu: Huc6280::new(),
             video: VideoSubsystem::new(config),
             psg: Huc6280Psg::new(),
             memory: Memory::new(),
-            cartridge: HuCard::new(rom),
+            cartridge: HuCard::new(rom, initial_sram),
             input_state: InputState::new(config),
             config,
             cycle_counter: 0,
@@ -72,7 +78,7 @@ impl PcEngineEmulator {
             memory: &mut emulator.memory,
             video: &mut emulator.video,
             psg: &mut emulator.psg,
-            cartridge: &emulator.cartridge,
+            cartridge: &mut emulator.cartridge,
             input: &mut emulator.input_state,
             cycle_counter: &mut emulator.cycle_counter,
         });
@@ -142,7 +148,7 @@ impl EmulatorTrait for PcEngineEmulator {
             memory: &mut self.memory,
             video: &mut self.video,
             psg: &mut self.psg,
-            cartridge: &self.cartridge,
+            cartridge: &mut self.cartridge,
             input: &mut self.input_state,
             cycle_counter: &mut self.cycle_counter,
         });
@@ -160,6 +166,14 @@ impl EmulatorTrait for PcEngineEmulator {
             self.video.clear_frame_complete();
 
             self.render_frame(renderer).map_err(PceError::Render)?;
+
+            if self.cartridge.is_sram_dirty() {
+                self.cartridge.clear_sram_dirty();
+
+                if let Some(sram) = self.cartridge.sram() {
+                    save_writer.persist_bytes("sav", sram).map_err(PceError::SaveWrite)?;
+                }
+            }
 
             Ok(TickEffect::FrameRendered)
         } else {
@@ -187,7 +201,7 @@ impl EmulatorTrait for PcEngineEmulator {
 
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
         let rom = self.cartridge.clone_rom();
-        *self = Self::create(rom, self.config);
+        *self = Self::create(rom, self.config, save_writer);
     }
 
     fn load_state(&mut self, mut state: Self::SaveState) {

@@ -8,7 +8,7 @@ pub struct Bus<'a> {
     pub memory: &'a mut Memory,
     pub video: &'a mut VideoSubsystem,
     pub psg: &'a mut Huc6280Psg,
-    pub cartridge: &'a HuCard,
+    pub cartridge: &'a mut HuCard,
     pub input: &'a mut InputState,
     pub cycle_counter: &'a mut u64,
 }
@@ -101,7 +101,7 @@ impl BusInterface for Bus<'_> {
         self.cpu_cycle();
 
         match address {
-            0x000000..=0x0FFFFF => self.cartridge.read_rom(address),
+            0x000000..=0x0FFFFF => self.cartridge.read(address),
             0x100000..=0x1EFFFF => 0xFF, // CD-ROM
             0x1F0000..=0x1F7FFF => self.memory.read_working_ram(address),
             0x1F8000..=0x1FDFFF => 0xFF, // Unused memory
@@ -118,7 +118,7 @@ impl BusInterface for Bus<'_> {
         self.cpu_cycle();
 
         match address {
-            0x000000..=0x0FFFFF => {} // Cartridge
+            0x000000..=0x0FFFFF => self.cartridge.write(address, value),
             0x100000..=0x1EFFFF => {} // CD-ROM
             0x1F0000..=0x1F7FFF => self.memory.write_working_ram(address, value),
             0x1F8000..=0x1FDFFF => {} // Unused memory

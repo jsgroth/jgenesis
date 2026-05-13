@@ -52,8 +52,8 @@ pub fn create_pce(config: Box<PcEngineConfig>) -> NativeEmulatorResult<NativePcE
     let initial_window_size = config.common.initial_window_size;
     let rom_file_path = config.common.rom_file_path.clone();
 
-    let create_emulator_fn = move |_save_writer: &mut FsSaveWriter| {
-        let emulator = PcEngineEmulator::create(rom, emulator_config);
+    let create_emulator_fn = move |save_writer: &mut FsSaveWriter| {
+        let emulator = PcEngineEmulator::create(rom, emulator_config, save_writer);
 
         let rom_title = file_name_no_ext(rom_file_path)?;
         let window_title = format!("pce - {rom_title}");
