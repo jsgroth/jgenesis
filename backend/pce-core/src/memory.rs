@@ -108,6 +108,7 @@ struct Timer {
     enabled: bool,
     cycles: u64,
     next_overflow_cycles: u64,
+    just_overflowed: bool,
 }
 
 impl Timer {
@@ -119,6 +120,7 @@ impl Timer {
             enabled: false,
             cycles: 0,
             next_overflow_cycles: u64::MAX,
+            just_overflowed: false,
         }
     }
 
@@ -140,6 +142,11 @@ impl Timer {
         self.cycles = cycles;
 
         while elapsed_cycles != 0 {
+            if self.just_overflowed {
+                self.counter = self.reload;
+                self.just_overflowed = false;
+            }
+
             let timer_elapsed = cmp::min(elapsed_cycles, self.prescaler);
             self.prescaler -= timer_elapsed;
             elapsed_cycles -= timer_elapsed;
@@ -149,15 +156,19 @@ impl Timer {
 
                 if self.counter == 0 {
                     *tiq_pending = true;
-                    self.counter = self.reload;
-                } else {
-                    self.counter -= 1;
+                    self.just_overflowed = true;
+
+                    // On overflow, allow the counter to read 0x7F for a single cycle afterwards.
+                    // This fixes Battle Royale failing to boot; it depends on being able to eventually
+                    // read a non-zero timer counter value while the timer reload is zero
                 }
+                self.counter = self.counter.wrapping_sub(1) & 0x7F;
             }
         }
 
+        let effective_counter = if self.just_overflowed { self.reload } else { self.counter };
         self.next_overflow_cycles =
-            cycles + self.prescaler + u64::from(self.counter) * TIMER_PRESCALER_DIVIDER;
+            cycles + self.prescaler + u64::from(effective_counter) * TIMER_PRESCALER_DIVIDER;
     }
 
     // $1FEC00: Timer reload value
@@ -179,6 +190,7 @@ impl Timer {
             self.cycles = cycles;
             self.next_overflow_cycles =
                 cycles + TIMER_PRESCALER_DIVIDER * u64::from(self.counter + 1);
+            self.just_overflowed = false;
 
             log::trace!(
                 "Timer newly enabled at cycles {cycles}; next overflow at {}",
