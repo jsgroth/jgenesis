@@ -403,7 +403,7 @@ where
     }
 }
 
-pub struct InputMapper<Button> {
+pub(crate) struct InputMapper<Button> {
     joysticks: Joysticks,
     axis_deadzone: i16,
     state: InputMapperState<Button>,

@@ -591,8 +591,6 @@ where
             return Ok(Some(effect));
         }
 
-        self.runner.update_inputs(&self.inputs);
-
         if self.hotkey_state.rewinding {
             self.renderer.reset_interframe_state();
         }
@@ -603,6 +601,11 @@ where
 
         match self.runner.try_recv_frame(&mut self.renderer, Duration::from_millis(5)) {
             Ok(()) => {
+                self.input_mapper.frame_complete();
+                if let Some(effect) = self.process_input_events()? {
+                    return Ok(Some(effect));
+                }
+
                 self.fps_tracker.record_frame();
             }
             Err(RecvFrameError::Render(err)) => return Err(NativeEmulatorError::Render(err)),
@@ -699,6 +702,8 @@ where
                 }
             }
         }
+
+        self.runner.update_inputs(&self.inputs);
 
         Ok(None)
     }
