@@ -5,34 +5,27 @@ use bincode::{Decode, Encode};
 use dsp::sinc::PerformanceSincResampler;
 use jgenesis_common::frontend::AudioOutput;
 use jgenesis_common::num::{GetBit, U16Ext};
-use std::array;
 use std::sync::LazyLock;
+use std::{array, mem};
 
 // Roughly 3.58 MHz
 pub const PSG_CLOCK_DIVIDER: u64 = 6;
 pub const PSG_FREQUENCY: f64 = api::MASTER_CLOCK_FREQUENCY / (PSG_CLOCK_DIVIDER as f64);
 
-// 15 is max amplitude, 0 is silence, each step down is -3 dB
-static AMPLITUDE_3_DB_LOOKUP_TABLE: LazyLock<[f64; 16]> =
-    LazyLock::new(|| generate_amplitude_table(3.0));
+const VOLUME_UPDATE_PERIOD_CYCLES: u16 = 256;
 
-// 31 is max amplitude, 0 is silence, each step down is -1.5 dB
-static AMPLITUDE_1_5_DB_LOOKUP_TABLE: LazyLock<[f64; 32]> =
-    LazyLock::new(|| generate_amplitude_table(1.5));
+// Inverted amplitude lookup table
+// 0 is max volume, 30-31 is silence, each step increases attenuation by 1.5 dB
+static ATTENUATION_LOOKUP_TABLE: LazyLock<[f64; 32]> = LazyLock::new(|| {
+    let mut table = [0.0; 32];
+    table[0] = 1.0;
 
-fn generate_amplitude_table<const LEN: usize>(step_db: f64) -> [f64; LEN] {
-    let mut table = [0.0; LEN];
-    table[LEN - 1] = 1.0;
-
-    // A decrease of N dB is equal to multiplying by 10^(-N/20)
-    let multiplier = 10.0_f64.powf(-step_db / 20.0);
-
-    for i in (1..=LEN - 2).rev() {
-        table[i] = table[i + 1] * multiplier;
+    for i in 1..=29 {
+        table[i] = table[i - 1] * 10.0_f64.powf(-1.5 / 20.0);
     }
 
     table
-}
+});
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct NoiseGenerator {
@@ -98,6 +91,8 @@ struct PsgChannel {
     r_amplitude: u8,
     current_sample: u8,
     noise: NoiseGenerator,
+    latched_attenuation_l: u8,
+    latched_attenuation_r: u8,
 }
 
 impl PsgChannel {
@@ -115,6 +110,8 @@ impl PsgChannel {
             r_amplitude: 0,
             current_sample: 0,
             noise: NoiseGenerator::new(),
+            latched_attenuation_l: 31,
+            latched_attenuation_r: 31,
         }
     }
 
@@ -218,6 +215,44 @@ impl LowFrequencyOscillator {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+enum OutputChannel {
+    Right,
+    Left,
+}
+
+impl OutputChannel {
+    fn other(self) -> Self {
+        match self {
+            Self::Right => Self::Left,
+            Self::Left => Self::Right,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+struct VolumeUpdateState {
+    update_needed: bool,
+    active: bool,
+    channel: u8,
+    output: OutputChannel,
+    cycles_till_next_update: u16,
+    latched_attenuation: u8,
+}
+
+impl VolumeUpdateState {
+    fn new() -> Self {
+        Self {
+            update_needed: false,
+            active: false,
+            channel: 0,
+            output: OutputChannel::Right,
+            cycles_till_next_update: VOLUME_UPDATE_PERIOD_CYCLES,
+            latched_attenuation: 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Huc6280Psg {
     channels: [PsgChannel; 6],
@@ -227,6 +262,7 @@ pub struct Huc6280Psg {
     lfo: LowFrequencyOscillator,
     resampler: PerformanceSincResampler<2>,
     cycles: u64,
+    volume: VolumeUpdateState,
 }
 
 impl Huc6280Psg {
@@ -239,6 +275,7 @@ impl Huc6280Psg {
             lfo: LowFrequencyOscillator::new(),
             resampler: PerformanceSincResampler::new(PSG_FREQUENCY, 48000.0),
             cycles: 0,
+            volume: VolumeUpdateState::new(),
         }
     }
 
@@ -263,38 +300,32 @@ impl Huc6280Psg {
             channel.clock(&mut self.lfo, channel_2_sample);
 
             // Per the official manual, total attenuation of 45 dB or higher results in silence
-            // Calculate in units of 3 dB (so 15 = 45 dB)
-            let total_attenuation_l =
-                45 - (channel.amplitude >> 1) - channel.l_amplitude - self.l_main_amplitude;
-            let total_attenuation_r =
-                45 - (channel.amplitude >> 1) - channel.r_amplitude - self.r_main_amplitude;
-
-            if total_attenuation_l >= 15 && total_attenuation_r >= 15 {
+            // Attenuation is in steps of 1.5 dB, so 30 = 45 dB
+            if channel.latched_attenuation_l >= 30 && channel.latched_attenuation_r >= 30 {
                 // Both of this channel's outputs are silent, skip sample calculations
                 continue;
             }
 
             // Center waveform at 0 for less poppy audio, and divide by 6 for number of channels
             let channel_sample = channel.current_output();
-            let channel_sample = (f64::from(channel_sample) - 15.5) / 15.5
-                * AMPLITUDE_1_5_DB_LOOKUP_TABLE[channel.amplitude as usize]
-                / 6.0;
+            let channel_sample = (f64::from(channel_sample) - 15.5) / 15.5 / 6.0;
 
-            if total_attenuation_l < 15 {
-                sample_l +=
-                    channel_sample * AMPLITUDE_3_DB_LOOKUP_TABLE[channel.l_amplitude as usize];
+            if channel.latched_attenuation_l < 30 {
+                sample_l += channel_sample
+                    * ATTENUATION_LOOKUP_TABLE[channel.latched_attenuation_l as usize];
             }
 
-            if total_attenuation_r < 15 {
-                sample_r +=
-                    channel_sample * AMPLITUDE_3_DB_LOOKUP_TABLE[channel.r_amplitude as usize];
+            if channel.latched_attenuation_r < 30 {
+                sample_r += channel_sample
+                    * ATTENUATION_LOOKUP_TABLE[channel.latched_attenuation_r as usize];
             }
         }
 
-        sample_l *= AMPLITUDE_3_DB_LOOKUP_TABLE[self.l_main_amplitude as usize];
-        sample_r *= AMPLITUDE_3_DB_LOOKUP_TABLE[self.r_main_amplitude as usize];
-
         self.resampler.collect([sample_l, sample_r]);
+
+        if self.volume.active {
+            self.progress_volume_update();
+        }
     }
 
     pub fn drain_output_buffer<A: AudioOutput>(
@@ -310,6 +341,71 @@ impl Huc6280Psg {
 
     pub fn update_output_frequency(&mut self, output_frequency: u64) {
         self.resampler.update_output_frequency(output_frequency as f64);
+    }
+
+    fn trigger_volume_update(&mut self) {
+        if !self.volume.active {
+            // Volume update is not running; start one now
+            self.volume.active = true;
+        } else {
+            // A volume update is already running, but another one is needed after it finishes
+            self.volume.update_needed = true;
+        }
+    }
+
+    fn progress_volume_update(&mut self) {
+        // Based on Mednafen's PSG volume update implementation; I don't think this behavior is
+        // documented anywhere else, but volume/amplitude updates apparently don't apply immediately
+        // Honey in the Sky depends on this to avoid static/buzzing noises caused by rapid volume changes
+
+        self.volume.cycles_till_next_update -= 1;
+        if self.volume.cycles_till_next_update == VOLUME_UPDATE_PERIOD_CYCLES - 1 {
+            // Latch attenuation on the first cycle of the 256-cycle update period
+            if let Some(channel) = self.channels.get(self.volume.channel as usize) {
+                // Channel amplitude is 0-31, -1 is 1.5 dB attenuation
+                // L/R amplitudes are 0-15, -1 is 3 dB attenuation
+                self.volume.latched_attenuation = match self.volume.output {
+                    OutputChannel::Right => {
+                        (31 - channel.amplitude)
+                            + 2 * (15 - channel.r_amplitude)
+                            + 2 * (15 - self.r_main_amplitude)
+                    }
+                    OutputChannel::Left => {
+                        (31 - channel.amplitude)
+                            + 2 * (15 - channel.l_amplitude)
+                            + 2 * (15 - self.l_main_amplitude)
+                    }
+                };
+            }
+        }
+
+        if self.volume.cycles_till_next_update != 0 {
+            return;
+        }
+        self.volume.cycles_till_next_update = VOLUME_UPDATE_PERIOD_CYCLES;
+
+        if let Some(channel) = self.channels.get_mut(self.volume.channel as usize) {
+            // Apply latched attenuation to channel at the end of the 256-cycle period
+            match self.volume.output {
+                OutputChannel::Right => {
+                    channel.latched_attenuation_r = self.volume.latched_attenuation;
+                }
+                OutputChannel::Left => {
+                    channel.latched_attenuation_l = self.volume.latched_attenuation;
+                }
+            }
+        }
+
+        self.volume.output = self.volume.output.other();
+        if self.volume.output == OutputChannel::Right {
+            // Per Mednafen the volume update goes through an 8-channel loop, even though there are
+            // only 6 channels; the last two iterations do nothing
+            self.volume.channel = (self.volume.channel + 1) & 7;
+            if self.volume.channel == 0 {
+                // End of update loop; start again if an amplitude register was written mid-update
+                self.volume.active = mem::take(&mut self.volume.update_needed);
+            }
+        }
     }
 
     // $1FE800-$1FE80F: PSG registers
@@ -342,6 +438,8 @@ impl Huc6280Psg {
 
                 log::trace!("L main amplitude: {}", self.l_main_amplitude);
                 log::trace!("R main amplitude: {}", self.r_main_amplitude);
+
+                self.trigger_volume_update();
             }
             2 => {
                 // R2: Frequency, low bits
@@ -377,6 +475,8 @@ impl Huc6280Psg {
                 log::trace!("Channel on: {}", channel.on);
                 log::trace!("Direct D/A: {}", channel.direct_da);
                 log::trace!("Channel amplitude: {}", channel.amplitude);
+
+                self.trigger_volume_update();
             }
             5 => {
                 // R5: L/R amplitude
@@ -386,6 +486,8 @@ impl Huc6280Psg {
 
                 log::trace!("Channel L amplitude: {}", channel.l_amplitude);
                 log::trace!("Channel R amplitude: {}", channel.r_amplitude);
+
+                self.trigger_volume_update();
             }
             6 => {
                 // R6: Waveform data
