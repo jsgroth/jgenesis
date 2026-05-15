@@ -2,7 +2,7 @@ mod helptext;
 
 use crate::app::{App, OpenWindow};
 use egui::{Context, Window};
-use pce_config::{PceAspectRatio, PcePaletteType, PceRegion};
+use pce_config::{PceAspectRatio, PceAudioResampler, PcePaletteType, PceRegion};
 
 impl App {
     pub(super) fn render_pce_general_settings(&mut self, ctx: &Context) {
@@ -103,6 +103,34 @@ impl App {
                 self.state.help_text.insert(WINDOW, helptext::REMOVE_SPRITE_LIMITS);
             }
 
+            self.render_help_text(ui, WINDOW);
+        });
+        if !open {
+            self.state.open_windows.remove(&WINDOW);
+        }
+    }
+
+    pub(super) fn render_pce_audio_settings(&mut self, ctx: &Context) {
+        const WINDOW: OpenWindow = OpenWindow::PceAudio;
+
+        let mut open = true;
+        Window::new(WINDOW.title()).open(&mut open).show(ctx, |ui| {
+            ui.group(|ui| {
+                ui.label("Audio resampling algorithm");
+
+                ui.radio_value(
+                    &mut self.config.pc_engine.audio_resampler,
+                    PceAudioResampler::WindowedSinc,
+                    "Windowed sinc interpolation (Higher quality)",
+                );
+                ui.radio_value(
+                    &mut self.config.pc_engine.audio_resampler,
+                    PceAudioResampler::LowPassNearestNeighbor,
+                    "Low-pass filter + nearest neighbor (Faster)",
+                );
+            });
+
+            self.state.help_text.insert(WINDOW, helptext::AUDIO_RESAMPLER);
             self.render_help_text(ui, WINDOW);
         });
         if !open {

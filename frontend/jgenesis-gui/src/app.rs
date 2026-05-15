@@ -126,6 +126,8 @@ enum OpenWindow {
     SnesAudio,
     GameBoyAudio,
     GbaAudio,
+    #[cfg(feature = "unstable-cores")]
+    PceAudio,
     GeneralInput,
     SmsGgInput,
     GenesisInput,
@@ -176,6 +178,8 @@ impl OpenWindow {
             OpenWindow::SnesAudio => "SNES Audio Settings",
             OpenWindow::GameBoyAudio => "Game Boy Audio Settings",
             OpenWindow::GbaAudio => "GBA Audio Settings",
+            #[cfg(feature = "unstable-cores")]
+            OpenWindow::PceAudio => "PC Engine Audio Settings",
             OpenWindow::GeneralInput => "General Input Settings",
             OpenWindow::SmsGgInput => "SMS/GG Input Settings",
             OpenWindow::GenesisInput => "Genesis Input Settings",
@@ -1012,6 +1016,8 @@ impl App {
                 ("SNES", OpenWindow::SnesAudio),
                 ("Game Boy", OpenWindow::GameBoyAudio),
                 ("Game Boy Advance", OpenWindow::GbaAudio),
+                #[cfg(feature = "unstable-cores")]
+                ("PC Engine", OpenWindow::PceAudio),
             ] {
                 if ui.button(label).clicked() {
                     self.state.open_window(ui.ctx(), window);
@@ -1287,6 +1293,8 @@ impl App {
                 OpenWindow::SnesAudio => self.render_snes_audio_settings(ctx),
                 OpenWindow::GameBoyAudio => self.render_gb_audio_settings(ctx),
                 OpenWindow::GbaAudio => self.render_gba_audio_settings(ctx),
+                #[cfg(feature = "unstable-cores")]
+                OpenWindow::PceAudio => self.render_pce_audio_settings(ctx),
                 OpenWindow::GeneralInput => self.render_general_input_settings(ctx),
                 OpenWindow::SmsGgInput => self.render_smsgg_input_settings(ctx),
                 OpenWindow::GenesisInput => self.render_genesis_input_settings(ctx),

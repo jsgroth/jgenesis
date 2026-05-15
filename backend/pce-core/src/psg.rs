@@ -1,8 +1,11 @@
 //! The wavetable PSG built into the HuC6280
 
+mod resampler;
+
 use crate::api;
+use crate::api::PceEmulatorConfig;
+use crate::psg::resampler::PsgResampler;
 use bincode::{Decode, Encode};
-use dsp::sinc::PerformanceSincResampler;
 use jgenesis_common::frontend::AudioOutput;
 use jgenesis_common::num::{GetBit, U16Ext};
 use std::sync::LazyLock;
@@ -260,20 +263,24 @@ pub struct Huc6280Psg {
     l_main_amplitude: u8,
     r_main_amplitude: u8,
     lfo: LowFrequencyOscillator,
-    resampler: PerformanceSincResampler<2>,
+    resampler: PsgResampler,
+    output_frequency: u64,
     cycles: u64,
     volume: VolumeUpdateState,
 }
 
 impl Huc6280Psg {
-    pub fn new() -> Self {
+    pub fn new(config: PceEmulatorConfig) -> Self {
+        let output_frequency = 48000;
+
         Self {
             channels: array::from_fn(|idx| PsgChannel::new(idx as u8)),
             selected_channel: 0,
             l_main_amplitude: 0,
             r_main_amplitude: 0,
             lfo: LowFrequencyOscillator::new(),
-            resampler: PerformanceSincResampler::new(PSG_FREQUENCY, 48000.0),
+            resampler: PsgResampler::new(config.audio_resampler, output_frequency),
+            output_frequency,
             cycles: 0,
             volume: VolumeUpdateState::new(),
         }
@@ -341,6 +348,13 @@ impl Huc6280Psg {
 
     pub fn update_output_frequency(&mut self, output_frequency: u64) {
         self.resampler.update_output_frequency(output_frequency as f64);
+        self.output_frequency = output_frequency;
+    }
+
+    pub fn reload_config(&mut self, config: PceEmulatorConfig) {
+        if config.audio_resampler != self.resampler.resampler_impl() {
+            self.resampler = PsgResampler::new(config.audio_resampler, self.output_frequency);
+        }
     }
 
     fn trigger_volume_update(&mut self) {

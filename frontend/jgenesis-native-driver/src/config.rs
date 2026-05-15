@@ -641,6 +641,7 @@ impl AppConfigExt for AppConfig {
                 palette: self.pc_engine.palette,
                 crop_overscan: self.pc_engine.crop_overscan,
                 remove_sprite_limits: self.pc_engine.remove_sprite_limits,
+                audio_resampler: self.pc_engine.audio_resampler,
                 allow_simultaneous_run_select: self.pc_engine.allow_simultaneous_run_select,
             },
         })

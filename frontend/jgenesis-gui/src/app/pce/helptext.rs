@@ -38,3 +38,11 @@ pub const REMOVE_SPRITE_LIMITS: HelpText = HelpText {
         "This typically reduces sprite flickering, but may cause visual glitches in games that use the limits to intentionally hide sprites.",
     ],
 };
+
+pub const AUDIO_RESAMPLER: HelpText = HelpText {
+    heading: "Audio Resampling Algorithm",
+    text: &[
+        "Choose the algorithm used to resample PSG audio output to the emulator's output sample rate.",
+        "Windowed sinc interpolation is much higher quality but is fairly CPU-intensive.",
+    ],
+};

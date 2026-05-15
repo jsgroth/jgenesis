@@ -1,5 +1,5 @@
 use jgenesis_proc_macros::deserialize_default_on_error;
-use pce_config::{PceAspectRatio, PcePaletteType, PceRegion};
+use pce_config::{PceAspectRatio, PceAudioResampler, PcePaletteType, PceRegion};
 use serde::{Deserialize, Serialize};
 
 #[deserialize_default_on_error]
@@ -11,6 +11,7 @@ pub struct PcEngineAppConfig {
     pub palette: PcePaletteType,
     pub crop_overscan: bool,
     pub remove_sprite_limits: bool,
+    pub audio_resampler: PceAudioResampler,
     pub allow_simultaneous_run_select: bool,
 }
 
@@ -22,6 +23,7 @@ impl Default for PcEngineAppConfig {
             palette: PcePaletteType::default(),
             crop_overscan: true,
             remove_sprite_limits: false,
+            audio_resampler: PceAudioResampler::default(),
             allow_simultaneous_run_select: false,
         }
     }

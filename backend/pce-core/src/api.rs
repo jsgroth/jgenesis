@@ -11,7 +11,9 @@ use jgenesis_common::frontend::{
     RenderFrameOptions, Renderer, SaveWriter, TickEffect, TickResult,
 };
 use jgenesis_proc_macros::ConfigDisplay;
-use pce_config::{PceAspectRatio, PceButton, PceInputs, PcePaletteType, PceRegion};
+use pce_config::{
+    PceAspectRatio, PceAudioResampler, PceButton, PceInputs, PcePaletteType, PceRegion,
+};
 use std::fmt::{Debug, Display};
 use thiserror::Error;
 
@@ -25,6 +27,7 @@ pub struct PceEmulatorConfig {
     pub palette: PcePaletteType,
     pub crop_overscan: bool,
     pub remove_sprite_limits: bool,
+    pub audio_resampler: PceAudioResampler,
     pub allow_simultaneous_run_select: bool,
 }
 
@@ -65,7 +68,7 @@ impl PcEngineEmulator {
         let mut emulator = Self {
             cpu: Huc6280::new(),
             video: VideoSubsystem::new(config),
-            psg: Huc6280Psg::new(),
+            psg: Huc6280Psg::new(config),
             memory: Memory::new(),
             cartridge: HuCard::new(rom, initial_sram),
             input_state: InputState::new(config),
@@ -192,6 +195,7 @@ impl EmulatorTrait for PcEngineEmulator {
         self.config = *config;
 
         self.video.reload_config(*config);
+        self.psg.reload_config(*config);
         self.input_state.reload_config(*config);
     }
 
