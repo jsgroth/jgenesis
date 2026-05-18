@@ -11,8 +11,8 @@ use jgenesis_common::num::GetBit;
 
 // Base serial transfer rate is 8192 bits/second == 1024 bytes/second
 // The normal-speed CPU M-cycle clock is 1.048576 MHz
-// (1048576 cycles/second) / (1024 bytes/second) == 1024 cycles/byte
-const BASE_CYCLES_PER_BYTE: u32 = 1024;
+// (1048576 cycles/second) / (1024 bytes/second) == 1024 cycles/byte == 128 cycles/bit
+const BASE_CYCLES_PER_BIT: u32 = 128;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct SerialPort {
@@ -21,6 +21,7 @@ pub struct SerialPort {
     gbc_high_speed: bool,
     internal_clock: bool,
     transfer_cycles_remaining: u32,
+    transfer_bits_remaining: u8,
     transfer_data: u8,
 }
 
@@ -32,19 +33,28 @@ impl SerialPort {
             gbc_high_speed: false,
             internal_clock: false,
             transfer_cycles_remaining: 0,
+            transfer_bits_remaining: 0,
             transfer_data: 0,
         }
     }
 
     pub fn tick(&mut self, interrupt_registers: &mut InterruptRegisters) {
-        if !self.transfer_enabled || !self.internal_clock || self.transfer_cycles_remaining == 0 {
+        if !self.transfer_enabled || !self.internal_clock || self.transfer_bits_remaining == 0 {
             return;
         }
 
         self.transfer_cycles_remaining -= 1;
         if self.transfer_cycles_remaining == 0 {
-            self.transfer_enabled = false;
-            interrupt_registers.set_flag(InterruptType::Serial);
+            self.transfer_cycles_remaining = self.cycles_per_bit();
+
+            // Shift in 1s to emulate nothing being connected
+            self.transfer_data = (self.transfer_data << 1) | 1;
+
+            self.transfer_bits_remaining -= 1;
+            if self.transfer_bits_remaining == 0 {
+                self.transfer_enabled = false;
+                interrupt_registers.set_flag(InterruptType::Serial);
+            }
         }
     }
 
@@ -74,12 +84,17 @@ impl SerialPort {
         self.internal_clock = value.bit(0);
 
         if self.transfer_enabled && self.internal_clock {
-            self.transfer_cycles_remaining = BASE_CYCLES_PER_BYTE >> u8::from(self.gbc_high_speed);
+            self.transfer_cycles_remaining = self.cycles_per_bit();
+            self.transfer_bits_remaining = 8;
         }
 
         log::trace!("SC write: {value:02X}");
         log::trace!("  Transfer enabled: {}", self.transfer_enabled);
         log::trace!("  GBC high speed: {}", self.gbc_high_speed);
         log::trace!("  Internal clock: {}", self.internal_clock);
+    }
+
+    fn cycles_per_bit(&self) -> u32 {
+        BASE_CYCLES_PER_BIT >> u8::from(self.gbc_high_speed)
     }
 }
