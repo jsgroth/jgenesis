@@ -1344,6 +1344,7 @@ dependencies = [
  "bincode",
  "log",
  "num",
+ "rand 0.10.0",
 ]
 
 [[package]]

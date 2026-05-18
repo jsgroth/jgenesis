@@ -8,5 +8,8 @@ bincode = { workspace = true }
 log = { workspace = true }
 num = { workspace = true }
 
+[dev-dependencies]
+rand = { workspace = true }
+
 [lints]
 workspace = true

@@ -51,7 +51,7 @@ impl PsgResampler {
     pub fn update_output_frequency(&mut self, output_frequency: f64) {
         match self {
             Self::LowPassNearestNeighbor(resampler) => {
-                resampler.update_output_frequency(output_frequency)
+                resampler.update_output_frequency(output_frequency);
             }
             Self::WindowedSinc(resampler) => resampler.update_output_frequency(output_frequency),
         }
