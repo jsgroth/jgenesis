@@ -368,13 +368,14 @@ unsafe fn sum_wing_avx2<const REVERSE: bool, const CHANNELS: usize>(
     unsafe {
         let mut sums = [_mm256_setzero_pd(); CHANNELS];
 
-        let initial_step_multipliers =
-            if REVERSE { _mm256_set_epi64x(0, 1, 2, 3) } else { _mm256_setr_epi64x(0, 1, 2, 3) };
+        let initial_steps = if REVERSE {
+            _mm256_set_epi64x(0, step as i64, (2 * step) as i64, (3 * step) as i64)
+        } else {
+            _mm256_setr_epi64x(0, step as i64, (2 * step) as i64, (3 * step) as i64)
+        };
 
-        let mut interpolation_idxs = _mm256_add_epi64(
-            _mm256_set1_epi64x(interpolation_idx as i64),
-            _mm256_mullo_epi64(_mm256_set1_epi64x(step as i64), initial_step_multipliers),
-        );
+        let mut interpolation_idxs =
+            _mm256_add_epi64(_mm256_set1_epi64x(interpolation_idx as i64), initial_steps);
 
         for i in (0..).step_by(4) {
             let fir_idxs =
