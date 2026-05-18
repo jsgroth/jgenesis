@@ -344,7 +344,7 @@ fn sum_wing_no_avx<const REVERSE: bool, const CHANNELS: usize>(
 // SAFETY: Can only be called on a CPU that supports AVX2 and FMA instructions
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2,fma")]
-unsafe fn sum_wing_avx2<const REVERSE: bool, const CHANNELS: usize>(
+fn sum_wing_avx2<const REVERSE: bool, const CHANNELS: usize>(
     fir: &[f32],
     interpolation_idx: u64,
     step: u64,
@@ -365,124 +365,119 @@ unsafe fn sum_wing_avx2<const REVERSE: bool, const CHANNELS: usize>(
         assert!(input[1..].iter().all(|channel_input| channel_input.len() == input[0].len()));
     }
 
-    unsafe {
-        let mut sums = [_mm256_setzero_pd(); CHANNELS];
+    let mut sums = [_mm256_setzero_pd(); CHANNELS];
 
-        let initial_steps = if REVERSE {
-            _mm256_set_epi64x(0, step as i64, (2 * step) as i64, (3 * step) as i64)
-        } else {
-            _mm256_setr_epi64x(0, step as i64, (2 * step) as i64, (3 * step) as i64)
-        };
+    let initial_steps = if REVERSE {
+        _mm256_set_epi64x(0, step as i64, (2 * step) as i64, (3 * step) as i64)
+    } else {
+        _mm256_setr_epi64x(0, step as i64, (2 * step) as i64, (3 * step) as i64)
+    };
 
-        let mut interpolation_idxs =
-            _mm256_add_epi64(_mm256_set1_epi64x(interpolation_idx as i64), initial_steps);
+    let mut interpolation_idxs =
+        _mm256_add_epi64(_mm256_set1_epi64x(interpolation_idx as i64), initial_steps);
 
-        for i in (0..).step_by(4) {
-            let fir_idxs =
-                _mm256_srli_epi64::<{ LINEAR_INTERPOLATION_BITS as i32 }>(interpolation_idxs);
+    for i in (0..).step_by(4) {
+        let fir_idxs =
+            _mm256_srli_epi64::<{ LINEAR_INTERPOLATION_BITS as i32 }>(interpolation_idxs);
 
-            // SAFETY: Compare to len-1 instead of len because FIR is read using 64-bit loads
-            let in_bounds = _mm256_xor_si256(
-                _mm256_set1_epi32(!0),
-                _mm256_cmpgt_epi64(fir_idxs, _mm256_set1_epi64x((fir.len() - 2) as i64)),
-            );
-            if _mm256_testz_si256(in_bounds, _mm256_set1_epi32(!0)) != 0 {
-                break;
-            }
+        // SAFETY: Compare to len-1 instead of len because FIR is read using 64-bit loads
+        let in_bounds = _mm256_xor_si256(
+            _mm256_set1_epi32(!0),
+            _mm256_cmpgt_epi64(fir_idxs, _mm256_set1_epi64x((fir.len() - 2) as i64)),
+        );
+        if _mm256_testz_si256(in_bounds, _mm256_set1_epi32(!0)) != 0 {
+            break;
+        }
 
-            let mut linear_factor_numerators =
-                _mm256_and_si256(interpolation_idxs, _mm256_set1_epi64x(LINEAR_FACTOR_MASK));
+        let mut linear_factor_numerators =
+            _mm256_and_si256(interpolation_idxs, _mm256_set1_epi64x(LINEAR_FACTOR_MASK));
 
-            // _mm256_cvtepi64_* intrinsics are AVX512-only :(
-            // Shuffle/permute to an i32x4 vector then convert to f64x4
+        // _mm256_cvtepi64_* intrinsics are AVX512-only :(
+        // Shuffle/permute to an i32x4 vector then convert to f64x4
 
-            // 0 x 1 x  2 x 3 x  ->  0 1 0 1  2 3 2 3
-            linear_factor_numerators =
-                _mm256_shuffle_epi32::<0b10_00_10_00>(linear_factor_numerators);
+        // 0 x 1 x  2 x 3 x  ->  0 1 0 1  2 3 2 3
+        linear_factor_numerators = _mm256_shuffle_epi32::<0b10_00_10_00>(linear_factor_numerators);
 
-            // 0 1 0 1  2 3 2 3  ->  0 1 2 3  0 1 2 3
-            linear_factor_numerators =
-                _mm256_permute4x64_epi64::<0b10_00_10_00>(linear_factor_numerators);
+        // 0 1 0 1  2 3 2 3  ->  0 1 2 3  0 1 2 3
+        linear_factor_numerators =
+            _mm256_permute4x64_epi64::<0b10_00_10_00>(linear_factor_numerators);
 
-            let linear_factor_numerators =
-                _mm256_cvtepi32_pd(_mm256_castsi256_si128(linear_factor_numerators));
+        let linear_factor_numerators =
+            _mm256_cvtepi32_pd(_mm256_castsi256_si128(linear_factor_numerators));
 
-            let linear_factors =
-                _mm256_mul_pd(linear_factor_numerators, _mm256_set1_pd(LINEAR_FACTOR_MULTIPLIER));
+        let linear_factors =
+            _mm256_mul_pd(linear_factor_numerators, _mm256_set1_pd(LINEAR_FACTOR_MULTIPLIER));
 
-            // SAFETY: Mask is used to prevent out-of-bounds loads
-            // Load as f64s to pull in each coefficient followed by the next coefficient
-            // Pointer cast is fine because gather instructions don't require an aligned pointer
-            #[allow(clippy::cast_ptr_alignment)]
-            let all_coefficients = _mm256_mask_i64gather_pd::<4>(
+        // SAFETY: Mask is used to prevent out-of-bounds loads
+        // Load as f64s to pull in each coefficient followed by the next coefficient
+        // Pointer cast is fine because gather instructions don't require an aligned pointer
+        #[allow(clippy::cast_ptr_alignment)]
+        let all_coefficients = unsafe {
+            _mm256_mask_i64gather_pd::<4>(
                 _mm256_setzero_pd(),
                 fir.as_ptr().cast::<f64>(),
                 fir_idxs,
                 _mm256_castsi256_pd(in_bounds),
-            );
+            )
+        };
 
-            // 0 n0 1 n1  2 n2 3 n3 -> 0 1 n0 n1  2 3 n2 n3
-            let all_coefficients =
-                _mm256_permute_ps::<0b11_01_10_00>(_mm256_castpd_ps(all_coefficients));
+        // 0 n0 1 n1  2 n2 3 n3 -> 0 1 n0 n1  2 3 n2 n3
+        let all_coefficients =
+            _mm256_permute_ps::<0b11_01_10_00>(_mm256_castpd_ps(all_coefficients));
 
-            // 0 1 n0 n1  2 3 n2 n3 -> 0 1 2 3  n0 n1 n2 n3
-            let all_coefficients = _mm256_castpd_ps(_mm256_permute4x64_pd::<0b11_01_10_00>(
-                _mm256_castps_pd(all_coefficients),
-            ));
+        // 0 1 n0 n1  2 3 n2 n3 -> 0 1 2 3  n0 n1 n2 n3
+        let all_coefficients = _mm256_castpd_ps(_mm256_permute4x64_pd::<0b11_01_10_00>(
+            _mm256_castps_pd(all_coefficients),
+        ));
 
-            let coefficients = _mm256_cvtps_pd(_mm256_castps256_ps128(all_coefficients));
-            let next_coefficients = _mm256_cvtps_pd(_mm256_extractf128_ps::<1>(all_coefficients));
+        let coefficients = _mm256_cvtps_pd(_mm256_castps256_ps128(all_coefficients));
+        let next_coefficients = _mm256_cvtps_pd(_mm256_extractf128_ps::<1>(all_coefficients));
 
-            let multipliers = _mm256_fmadd_pd(
-                linear_factors,
-                _mm256_sub_pd(next_coefficients, coefficients),
-                coefficients,
-            );
+        let multipliers = _mm256_fmadd_pd(
+            linear_factors,
+            _mm256_sub_pd(next_coefficients, coefficients),
+            coefficients,
+        );
 
-            let input_idx = if REVERSE {
-                let (idx, overflowed) = n.overflowing_sub(i + 3);
-                if overflowed {
-                    // Should never happen, but don't go out of bounds if it does
-                    cold_path();
-                    panic!("input array index out of bounds; idx={idx}, len={}", input[0].len());
-                }
-                idx
-            } else {
-                let idx = n + i + 1;
-                if idx + 3 >= input[0].len() {
-                    // Should never happen, but don't go out of bounds if it does
-                    cold_path();
-                    panic!(
-                        "input array index out of bounds; idx={}, len={}",
-                        idx + 3,
-                        input[0].len()
-                    );
-                }
-                idx
-            };
-
-            for ch in 0..CHANNELS {
-                // SAFETY: Checked that idx >= 0 and idx + 3 < input.len()
-                let in_samples = _mm256_loadu_pd(input[ch].as_ptr().add(input_idx));
-                sums[ch] = _mm256_fmadd_pd(multipliers, in_samples, sums[ch]);
+        let input_idx = if REVERSE {
+            let (idx, overflowed) = n.overflowing_sub(i + 3);
+            if overflowed {
+                // Should never happen, but don't go out of bounds if it does
+                cold_path();
+                panic!("input array index out of bounds; idx={idx}, len={}", input[0].len());
             }
+            idx
+        } else {
+            let idx = n + i + 1;
+            if idx + 3 >= input[0].len() {
+                // Should never happen, but don't go out of bounds if it does
+                cold_path();
+                panic!("input array index out of bounds; idx={}, len={}", idx + 3, input[0].len());
+            }
+            idx
+        };
 
-            interpolation_idxs =
-                _mm256_add_epi64(interpolation_idxs, _mm256_set1_epi64x((4 * step) as i64));
+        for ch in 0..CHANNELS {
+            // SAFETY: Checked that idx >= 0 and idx + 3 < input.len()
+            let in_samples = unsafe { _mm256_loadu_pd(input[ch].as_ptr().add(input_idx)) };
+            sums[ch] = _mm256_fmadd_pd(multipliers, in_samples, sums[ch]);
         }
 
-        array::from_fn(|ch| {
-            let hsum = _mm256_hadd_pd(sums[ch], sums[ch]);
-            let components: [f64; 4] = transmute(hsum);
-            components[0] + components[2]
-        })
+        interpolation_idxs =
+            _mm256_add_epi64(interpolation_idxs, _mm256_set1_epi64x((4 * step) as i64));
     }
+
+    array::from_fn(|ch| {
+        let hsum = _mm256_hadd_pd(sums[ch], sums[ch]);
+        let components: [f64; 4] = unsafe { transmute(hsum) };
+        components[0] + components[2]
+    })
 }
 
 // SAFETY: Can only be called on a CPU that supports AVX512 (F + VL + DQ)
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f,avx512vl,avx512dq")]
-unsafe fn sum_wing_avx512<const REVERSE: bool, const CHANNELS: usize>(
+fn sum_wing_avx512<const REVERSE: bool, const CHANNELS: usize>(
     fir: &[f32],
     interpolation_idx: u64,
     step: u64,
@@ -502,97 +497,93 @@ unsafe fn sum_wing_avx512<const REVERSE: bool, const CHANNELS: usize>(
         assert!(input[1..].iter().all(|channel_input| channel_input.len() == input[0].len()));
     }
 
-    unsafe {
-        let mut sums = [_mm512_setzero_pd(); CHANNELS];
+    let mut sums = [_mm512_setzero_pd(); CHANNELS];
 
-        let initial_step_multipliers = if REVERSE {
-            _mm512_set_epi64(0, 1, 2, 3, 4, 5, 6, 7)
-        } else {
-            _mm512_setr_epi64(0, 1, 2, 3, 4, 5, 6, 7)
-        };
+    let initial_step_multipliers = if REVERSE {
+        _mm512_set_epi64(0, 1, 2, 3, 4, 5, 6, 7)
+    } else {
+        _mm512_setr_epi64(0, 1, 2, 3, 4, 5, 6, 7)
+    };
 
-        let mut interpolation_idxs = _mm512_add_epi64(
-            _mm512_set1_epi64(interpolation_idx as i64),
-            _mm512_mullo_epi64(_mm512_set1_epi64(step as i64), initial_step_multipliers),
+    let mut interpolation_idxs = _mm512_add_epi64(
+        _mm512_set1_epi64(interpolation_idx as i64),
+        _mm512_mullo_epi64(_mm512_set1_epi64(step as i64), initial_step_multipliers),
+    );
+
+    for i in (0..).step_by(8) {
+        let fir_idxs = _mm512_srli_epi64::<{ LINEAR_INTERPOLATION_BITS }>(interpolation_idxs);
+
+        // SAFETY: Compare to len-1 instead of len because FIR is read using 64-bit loads
+        let in_bounds =
+            _mm512_cmplt_epi64_mask(fir_idxs, _mm512_set1_epi64((fir.len() - 1) as i64));
+        if in_bounds == 0 {
+            break;
+        }
+
+        let linear_factor_numerators =
+            _mm512_and_si512(interpolation_idxs, _mm512_set1_epi64(LINEAR_FACTOR_MASK));
+        let linear_factors = _mm512_mul_pd(
+            _mm512_cvtepi64_pd(linear_factor_numerators),
+            _mm512_set1_pd(LINEAR_FACTOR_MULTIPLIER),
         );
 
-        for i in (0..).step_by(8) {
-            let fir_idxs = _mm512_srli_epi64::<{ LINEAR_INTERPOLATION_BITS }>(interpolation_idxs);
-
-            // SAFETY: Compare to len-1 instead of len because FIR is read using 64-bit loads
-            let in_bounds =
-                _mm512_cmplt_epi64_mask(fir_idxs, _mm512_set1_epi64((fir.len() - 1) as i64));
-            if in_bounds == 0 {
-                break;
-            }
-
-            let linear_factor_numerators =
-                _mm512_and_si512(interpolation_idxs, _mm512_set1_epi64(LINEAR_FACTOR_MASK));
-            let linear_factors = _mm512_mul_pd(
-                _mm512_cvtepi64_pd(linear_factor_numerators),
-                _mm512_set1_pd(LINEAR_FACTOR_MULTIPLIER),
-            );
-
-            // SAFETY: Mask is used to prevent out-of-bounds loads
-            // Load as f64s to pull in each coefficient followed by the next coefficient
-            // Pointer cast is fine because gather instructions don't require an aligned pointer
-            #[allow(clippy::cast_ptr_alignment)]
-            let all_coefficients = _mm512_mask_i64gather_pd::<4>(
+        // SAFETY: Mask is used to prevent out-of-bounds loads
+        // Load as f64s to pull in each coefficient followed by the next coefficient
+        // Pointer cast is fine because gather instructions don't require an aligned pointer
+        #[allow(clippy::cast_ptr_alignment)]
+        let all_coefficients = unsafe {
+            _mm512_mask_i64gather_pd::<4>(
                 _mm512_setzero_pd(),
                 in_bounds,
                 fir_idxs,
                 fir.as_ptr().cast::<f64>(),
-            );
+            )
+        };
 
-            // 0 n0 1 n1 2 n2 3 n3 4 n4 5 n5 6 n6 7 n7 -> 0 1 2 3 4 5 6 7 n0 n1 n2 n3 n4 n5 n6 n7
-            let all_coefficients = _mm512_permutexvar_ps(
-                _mm512_setr_epi32(0, 2, 4, 6, 8, 10, 12, 14, 1, 3, 5, 7, 9, 11, 13, 15),
-                _mm512_castpd_ps(all_coefficients),
-            );
+        // 0 n0 1 n1 2 n2 3 n3 4 n4 5 n5 6 n6 7 n7 -> 0 1 2 3 4 5 6 7 n0 n1 n2 n3 n4 n5 n6 n7
+        let all_coefficients = _mm512_permutexvar_ps(
+            _mm512_setr_epi32(0, 2, 4, 6, 8, 10, 12, 14, 1, 3, 5, 7, 9, 11, 13, 15),
+            _mm512_castpd_ps(all_coefficients),
+        );
 
-            let coefficients = _mm512_cvtps_pd(_mm512_castps512_ps256(all_coefficients));
-            let next_coefficients = _mm512_cvtps_pd(_mm512_extractf32x8_ps::<1>(all_coefficients));
+        let coefficients = _mm512_cvtps_pd(_mm512_castps512_ps256(all_coefficients));
+        let next_coefficients = _mm512_cvtps_pd(_mm512_extractf32x8_ps::<1>(all_coefficients));
 
-            let multipliers = _mm512_fmadd_pd(
-                linear_factors,
-                _mm512_sub_pd(next_coefficients, coefficients),
-                coefficients,
-            );
+        let multipliers = _mm512_fmadd_pd(
+            linear_factors,
+            _mm512_sub_pd(next_coefficients, coefficients),
+            coefficients,
+        );
 
-            let input_idx = if REVERSE {
-                let (idx, overflowed) = n.overflowing_sub(i + 7);
-                if overflowed {
-                    // Should never happen, but don't go out of bounds if it does
-                    cold_path();
-                    panic!("input array index out of bounds; idx={idx}, len={}", input[0].len());
-                }
-                idx
-            } else {
-                let idx = n + i + 1;
-                if idx + 7 >= input[0].len() {
-                    // Should never happen, but don't go out of bounds if it does
-                    cold_path();
-                    panic!(
-                        "input array index out of bounds; idx={}, len={}",
-                        idx + 7,
-                        input[0].len()
-                    );
-                }
-                idx
-            };
-
-            for ch in 0..CHANNELS {
-                // SAFETY: Checked that idx >= 0 and idx + 7 < input.len()
-                let in_samples = _mm512_loadu_pd(input[ch].as_ptr().add(input_idx));
-                sums[ch] = _mm512_fmadd_pd(multipliers, in_samples, sums[ch]);
+        let input_idx = if REVERSE {
+            let (idx, overflowed) = n.overflowing_sub(i + 7);
+            if overflowed {
+                // Should never happen, but don't go out of bounds if it does
+                cold_path();
+                panic!("input array index out of bounds; idx={idx}, len={}", input[0].len());
             }
+            idx
+        } else {
+            let idx = n + i + 1;
+            if idx + 7 >= input[0].len() {
+                // Should never happen, but don't go out of bounds if it does
+                cold_path();
+                panic!("input array index out of bounds; idx={}, len={}", idx + 7, input[0].len());
+            }
+            idx
+        };
 
-            interpolation_idxs =
-                _mm512_add_epi64(interpolation_idxs, _mm512_set1_epi64((8 * step) as i64));
+        for ch in 0..CHANNELS {
+            // SAFETY: Checked that idx >= 0 and idx + 7 < input.len()
+            let in_samples = unsafe { _mm512_loadu_pd(input[ch].as_ptr().add(input_idx)) };
+            sums[ch] = _mm512_fmadd_pd(multipliers, in_samples, sums[ch]);
         }
 
-        array::from_fn(|ch| _mm512_reduce_add_pd(sums[ch]))
+        interpolation_idxs =
+            _mm512_add_epi64(interpolation_idxs, _mm512_set1_epi64((8 * step) as i64));
     }
+
+    array::from_fn(|ch| _mm512_reduce_add_pd(sums[ch]))
 }
 
 pub type QualitySincResampler<const CHANNELS: usize> = SincResampler<CHANNELS, Quality>;
