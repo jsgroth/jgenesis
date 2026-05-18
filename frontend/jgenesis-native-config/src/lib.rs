@@ -50,23 +50,43 @@ pub struct ListFilters {
     pub pc_engine: bool,
 }
 
+impl ListFilters {
+    pub const ALL: Self = Self {
+        master_system: true,
+        game_gear: true,
+        sg_1000: true,
+        genesis: true,
+        sega_cd: true,
+        sega_32x: true,
+        nes: true,
+        snes: true,
+        game_boy: true,
+        game_boy_color: true,
+        game_boy_advance: true,
+        #[cfg(feature = "pce")]
+        pc_engine: true,
+    };
+
+    pub const NONE: Self = Self {
+        master_system: false,
+        game_gear: false,
+        sg_1000: false,
+        genesis: false,
+        sega_cd: false,
+        sega_32x: false,
+        nes: false,
+        snes: false,
+        game_boy: false,
+        game_boy_color: false,
+        game_boy_advance: false,
+        #[cfg(feature = "pce")]
+        pc_engine: false,
+    };
+}
+
 impl Default for ListFilters {
     fn default() -> Self {
-        Self {
-            master_system: true,
-            game_gear: true,
-            sg_1000: true,
-            genesis: true,
-            sega_cd: true,
-            sega_32x: true,
-            nes: true,
-            snes: true,
-            game_boy: true,
-            game_boy_color: true,
-            game_boy_advance: true,
-            #[cfg(feature = "pce")]
-            pc_engine: true,
-        }
+        Self::ALL
     }
 }
 

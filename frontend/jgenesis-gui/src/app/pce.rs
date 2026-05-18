@@ -68,7 +68,7 @@ impl App {
                         ui.radio_value(
                             &mut self.config.pc_engine.palette,
                             PcePaletteType::PceComposite,
-                            "PC Engine Composite",
+                            "PC Engine composite",
                         );
 
                         ui.radio_value(

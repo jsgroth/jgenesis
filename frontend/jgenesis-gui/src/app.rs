@@ -1223,30 +1223,14 @@ impl App {
 
     fn render_central_panel_filters(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
-            let textedit = TextEdit::singleline(&mut self.state.title_match)
-                .hint_text("Filter by name")
-                .desired_width(225.0);
-            if ui.add(textedit).changed() {
-                self.state.title_match_lowercase = Rc::from(self.state.title_match.to_lowercase());
-                self.refresh_filtered_rom_list();
-            }
-
-            if ui.button("Clear").clicked() {
-                self.state.title_match.clear();
-                self.state.title_match_lowercase = Rc::from(String::new());
-                self.refresh_filtered_rom_list();
-            }
-
-            ui.add_space(15.0);
-
             let prev_list_filters = self.config.list_filters.clone();
 
-            ui.checkbox(&mut self.config.list_filters.master_system, "SMS");
-            ui.checkbox(&mut self.config.list_filters.game_gear, "GG");
-            ui.checkbox(&mut self.config.list_filters.sg_1000, "SG");
-            ui.checkbox(&mut self.config.list_filters.genesis, "GEN");
-            ui.checkbox(&mut self.config.list_filters.sega_cd, "SCD");
+            ui.checkbox(&mut self.config.list_filters.genesis, "Genesis");
+            ui.checkbox(&mut self.config.list_filters.sega_cd, "Sega CD");
             ui.checkbox(&mut self.config.list_filters.sega_32x, "32X");
+            ui.checkbox(&mut self.config.list_filters.master_system, "SMS");
+            ui.checkbox(&mut self.config.list_filters.game_gear, "Game Gear");
+            ui.checkbox(&mut self.config.list_filters.sg_1000, "SG-1000");
             ui.checkbox(&mut self.config.list_filters.nes, "NES");
             ui.checkbox(&mut self.config.list_filters.snes, "SNES");
             ui.checkbox(&mut self.config.list_filters.game_boy, "GB");
@@ -1255,7 +1239,35 @@ impl App {
             #[cfg(feature = "unstable-cores")]
             ui.checkbox(&mut self.config.list_filters.pc_engine, "PCE");
 
+            ui.add_space(10.0);
+
+            if ui.button("All").clicked() {
+                self.config.list_filters = ListFilters::ALL;
+            }
+
+            if ui.button("None").clicked() {
+                self.config.list_filters = ListFilters::NONE;
+            }
+
             if prev_list_filters != self.config.list_filters {
+                self.refresh_filtered_rom_list();
+            }
+        });
+
+        ui.add_space(5.0);
+
+        ui.horizontal(|ui| {
+            let textedit = TextEdit::singleline(&mut self.state.title_match)
+                .hint_text("Filter by name")
+                .desired_width(350.0);
+            if ui.add(textedit).changed() {
+                self.state.title_match_lowercase = Rc::from(self.state.title_match.to_lowercase());
+                self.refresh_filtered_rom_list();
+            }
+
+            if ui.button("Clear").clicked() {
+                self.state.title_match.clear();
+                self.state.title_match_lowercase = Rc::from(String::new());
                 self.refresh_filtered_rom_list();
             }
         });
