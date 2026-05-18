@@ -96,6 +96,7 @@ impl DebugSubBusView<'_, '_, '_, '_> {
                 m68k: self.0.debugger.main_cpu,
                 z80: self.0.debugger.z80,
                 memory: self.0.bus.memory.as_debug_view(SegaCd::as_debug_view),
+                pending_writes: self.0.bus.main_pending_writes,
                 vdp: self.0.debugger.vdp,
                 ym2612: self.0.debugger.ym2612,
                 psg: self.0.debugger.psg,

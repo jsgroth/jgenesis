@@ -18,7 +18,7 @@ use cdrom::cdtime::CdTime;
 use cdrom::reader::{CdRom, CdRomFileFormat};
 use genesis_config::GenesisRegion;
 use genesis_core::GenesisRegionExt;
-use genesis_core::memory::{Memory, PhysicalMedium};
+use genesis_core::memory::{MainBusWrites, Memory, PhysicalMedium};
 use jgenesis_common::boxedarray::BoxedByteArray;
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
@@ -830,6 +830,7 @@ pub struct SubBus<'a> {
     pub memory: &'a mut Memory<SegaCd>,
     pub graphics_coprocessor: &'a mut GraphicsCoprocessor,
     pub pcm: &'a mut Rf5c164,
+    pub main_pending_writes: &'a MainBusWrites,
 }
 
 impl<'a> SubBus<'a> {
@@ -838,8 +839,9 @@ impl<'a> SubBus<'a> {
         memory: &'a mut Memory<SegaCd>,
         graphics_coprocessor: &'a mut GraphicsCoprocessor,
         pcm: &'a mut Rf5c164,
+        main_pending_writes: &'a MainBusWrites,
     ) -> Self {
-        Self { memory, graphics_coprocessor, pcm }
+        Self { memory, graphics_coprocessor, pcm, main_pending_writes }
     }
 
     pub fn flush_buffered_writes(&mut self) {

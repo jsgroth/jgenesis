@@ -136,6 +136,7 @@ impl<'a> Sh2BusDebugView<'a> {
                         audio_ram: self.0.debugger.audio_ram.as_mut(),
                         z80_bank_number: self.0.debugger.z80_bank_number,
                     },
+                    self.0.debugger.main_pending_writes.as_mut(),
                     self.0.debugger.vdp.as_mut(),
                     self.0.debugger.ym2612.as_mut(),
                     self.0.debugger.psg.as_mut(),
@@ -327,6 +328,7 @@ impl MainBus68kDebugger<Sega32X> for Sega32XDebuggerFor68k<'_> {
                 m68k: cpu,
                 z80: self.z80,
                 memory: bus.memory.as_debug_view(Sega32X::as_debug_view),
+                pending_writes: &bus.pending_writes,
                 vdp: bus.vdp,
                 ym2612: bus.ym2612,
                 psg: bus.psg,
@@ -363,6 +365,7 @@ impl MainBusZ80Debugger<Sega32X> for Sega32XDebuggerForZ80<'_> {
                 m68k: self.m68k,
                 z80: cpu,
                 memory: bus.memory.as_debug_view(Sega32X::as_debug_view),
+                pending_writes: &bus.pending_writes,
                 vdp: bus.vdp,
                 ym2612: bus.ym2612,
                 psg: bus.psg,
@@ -385,6 +388,7 @@ mod tests {
     use genesis_core::GenesisEmulatorConfig;
     use genesis_core::api::debug::GenesisMemoryArea;
     use genesis_core::cartridge::Cartridge;
+    use genesis_core::memory::MainBusWrites;
     use genesis_core::memory::debug::GenesisMemory;
     use genesis_core::vdp::DarkenColors;
     use genesis_core::ym2612::Ym2612;
@@ -454,6 +458,7 @@ mod tests {
         let mut psg = Sn76489::new(Sn76489Version::default());
         let mut working_ram = vec![0; 64 * 1024];
         let mut audio_ram = vec![0; 8 * 1024];
+        let main_pending_writes = MainBusWrites::new();
 
         let mut debugger_for_sh2 = debugger.for_sh2(
             &mut m68k,
@@ -470,7 +475,12 @@ mod tests {
             0,
             1024,
             Some((&mut sh2_slave, &mut sh2_slave_cycles)),
-            GenesisComponents { vdp: &mut genesis_vdp, ym2612: &mut ym2612, psg: &mut psg },
+            GenesisComponents {
+                vdp: &mut genesis_vdp,
+                ym2612: &mut ym2612,
+                psg: &mut psg,
+                main_pending_writes: &main_pending_writes,
+            },
             &mut debugger_for_sh2,
         );
 

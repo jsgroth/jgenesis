@@ -14,6 +14,7 @@ use genesis_core::api::debug::{
     Z80BreakpointManager, Z80Breakpoints,
 };
 use genesis_core::cartridge::Cartridge;
+use genesis_core::memory::MainBusWrites;
 use genesis_core::memory::debug::GenesisMemory;
 use genesis_core::ym2612::Ym2612;
 use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
@@ -304,6 +305,7 @@ impl Sega32XEmulator {
                 &mut self.m68k,
                 &mut self.z80,
                 self.memory.as_debug_view(Sega32X::as_debug_view),
+                &self.main_bus_writes,
                 &mut self.vdp,
                 &mut self.ym2612,
                 &mut self.psg,
@@ -706,11 +708,17 @@ pub(crate) struct GenesisComponents<'a> {
     pub(crate) vdp: &'a mut GenesisVdp,
     pub(crate) ym2612: &'a mut Ym2612,
     pub(crate) psg: &'a mut Sn76489,
+    pub(crate) main_pending_writes: &'a MainBusWrites,
 }
 
 impl<'a> GenesisComponents<'a> {
-    pub fn new(vdp: &'a mut GenesisVdp, ym2612: &'a mut Ym2612, psg: &'a mut Sn76489) -> Self {
-        Self { vdp, ym2612, psg }
+    pub fn new(
+        vdp: &'a mut GenesisVdp,
+        ym2612: &'a mut Ym2612,
+        psg: &'a mut Sn76489,
+        main_pending_writes: &'a MainBusWrites,
+    ) -> Self {
+        Self { vdp, ym2612, psg, main_pending_writes }
     }
 
     pub fn reborrow<'slf, 'ret>(&'slf mut self) -> GenesisComponents<'ret>
@@ -718,7 +726,12 @@ impl<'a> GenesisComponents<'a> {
         'slf: 'ret,
         'a: 'ret,
     {
-        GenesisComponents { vdp: self.vdp, ym2612: self.ym2612, psg: self.psg }
+        GenesisComponents {
+            vdp: self.vdp,
+            ym2612: self.ym2612,
+            psg: self.psg,
+            main_pending_writes: self.main_pending_writes,
+        }
     }
 }
 
@@ -744,6 +757,7 @@ impl Sega32XDebuggerForSh2<'_> {
             working_ram: self.working_ram.into(),
             audio_ram: self.audio_ram.into(),
             z80_bank_number: self.z80_bank_number,
+            main_pending_writes: components.main_pending_writes.into(),
             vdp: components.vdp.into(),
             ym2612: components.ym2612.into(),
             psg: components.psg.into(),
@@ -759,6 +773,7 @@ pub(crate) struct Sega32XDebuggerForSh2Raw {
     pub working_ram: NonNull<[u16]>,
     pub audio_ram: NonNull<[u8]>,
     pub z80_bank_number: u32,
+    pub main_pending_writes: NonNull<MainBusWrites>,
     pub vdp: NonNull<GenesisVdp>,
     pub ym2612: NonNull<Ym2612>,
     pub psg: NonNull<Sn76489>,

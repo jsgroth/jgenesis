@@ -37,6 +37,7 @@
 
 use crate::GenesisEmulator;
 use crate::cartridge::Cartridge;
+use crate::memory::MainBusWrites;
 use crate::vdp::debug::VdpDebugState;
 use crate::vdp::{ColorModifier, Vdp};
 use crate::ym2612::Ym2612;
@@ -105,6 +106,12 @@ pub enum GenesisDebugCommand {
     BreakStepZ80,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum DebugPendingWrite {
+    Word { address: u32, value: u16 },
+    Byte { address: u32, value: u8 },
+}
+
 #[derive(Debug, Clone)]
 pub struct GenesisDebugState {
     m68k: M68000,
@@ -113,6 +120,7 @@ pub struct GenesisDebugState {
     working_ram: Box<[u16]>,
     audio_ram: Box<[u8]>,
     z80_bank_number: u32,
+    pending_writes: Vec<DebugPendingWrite>,
     vdp: VdpDebugState,
     ym2612: Ym2612,
     psg: Sn76489,
@@ -152,6 +160,11 @@ impl GenesisDebugState {
     #[must_use]
     pub fn z80_bank_number(&self) -> u32 {
         self.z80_bank_number
+    }
+
+    #[must_use]
+    pub fn pending_writes(&self) -> &[DebugPendingWrite] {
+        &self.pending_writes
     }
 
     #[must_use]
@@ -230,6 +243,7 @@ pub struct BaseGenesisDebugView<'a, MediumView> {
     pub m68k: &'a mut M68000,
     pub z80: &'a mut Z80,
     pub memory: GenesisMemoryDebugView<'a, MediumView>,
+    pub pending_writes: &'a MainBusWrites,
     pub vdp: &'a mut Vdp,
     pub ym2612: &'a mut Ym2612,
     pub psg: &'a mut Sn76489,
@@ -240,11 +254,12 @@ impl<'a, MediumView: PhysicalMediumDebugView> BaseGenesisDebugView<'a, MediumVie
         m68k: &'a mut M68000,
         z80: &'a mut Z80,
         memory: GenesisMemoryDebugView<'a, MediumView>,
+        main_bus_writes: &'a MainBusWrites,
         vdp: &'a mut Vdp,
         ym2612: &'a mut Ym2612,
         psg: &'a mut Sn76489,
     ) -> Self {
-        Self { m68k, z80, memory, vdp, ym2612, psg }
+        Self { m68k, z80, memory, pending_writes: main_bus_writes, vdp, ym2612, psg }
     }
 
     pub fn memory(&mut self) -> &mut GenesisMemoryDebugView<'a, MediumView> {
@@ -282,11 +297,24 @@ impl<'a, MediumView: PhysicalMediumDebugView> BaseGenesisDebugView<'a, MediumVie
             working_ram: self.memory.working_ram.to_vec().into_boxed_slice(),
             audio_ram: self.memory.audio_ram.to_vec().into_boxed_slice(),
             z80_bank_number: self.memory.z80_bank_number,
+            pending_writes: main_bus_writes_to_debug(self.pending_writes),
             vdp: self.vdp.to_debug_state(),
             ym2612: self.ym2612.clone(),
             psg: self.psg.clone(),
         }
     }
+}
+
+fn main_bus_writes_to_debug(main_bus_writes: &MainBusWrites) -> Vec<DebugPendingWrite> {
+    main_bus_writes
+        .word_writes()
+        .map(|(address, value)| DebugPendingWrite::Word { address, value })
+        .chain(
+            main_bus_writes
+                .byte_writes()
+                .map(|(address, value)| DebugPendingWrite::Byte { address, value }),
+        )
+        .collect()
 }
 
 pub struct CartridgeDebugView<'a> {
@@ -308,6 +336,7 @@ impl GenesisEmulator {
             m68k: &mut self.m68k,
             z80: &mut self.z80,
             memory: self.memory.as_debug_view(|cartridge| CartridgeDebugView { cartridge }),
+            pending_writes: &self.main_bus_writes,
             vdp: &mut self.vdp,
             ym2612: &mut self.ym2612,
             psg: &mut self.psg,

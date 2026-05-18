@@ -278,7 +278,12 @@ impl SegaCdEmulator {
             return;
         }
 
-        let mut bus = SubBus::new(&mut self.memory, &mut self.graphics_coprocessor, &mut self.pcm);
+        let mut bus = SubBus::new(
+            &mut self.memory,
+            &mut self.graphics_coprocessor,
+            &mut self.pcm,
+            &self.main_bus_writes,
+        );
 
         while sub_cpu_cycles >= self.sub_cpu_wait_cycles {
             bus.flush_buffered_writes();

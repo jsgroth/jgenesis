@@ -228,14 +228,24 @@ impl Sega32XEmulator {
             sega_32x.tick_debug(
                 mclk_cycles,
                 pwm_resampler,
-                GenesisComponents::new(&mut self.vdp, &mut self.ym2612, &mut self.psg),
+                GenesisComponents::new(
+                    &mut self.vdp,
+                    &mut self.ym2612,
+                    &mut self.psg,
+                    &self.main_bus_writes,
+                ),
                 debugger.for_sh2(&mut self.m68k, &mut self.z80, genesis_memory),
             );
         } else {
             self.memory.medium_mut().tick(
                 mclk_cycles,
                 pwm_resampler,
-                GenesisComponents::new(&mut self.vdp, &mut self.ym2612, &mut self.psg),
+                GenesisComponents::new(
+                    &mut self.vdp,
+                    &mut self.ym2612,
+                    &mut self.psg,
+                    &self.main_bus_writes,
+                ),
             );
         }
 

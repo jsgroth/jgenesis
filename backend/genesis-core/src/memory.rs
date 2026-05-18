@@ -240,6 +240,14 @@ impl MainBusWrites {
         self.byte.clear();
         self.word.clear();
     }
+
+    pub fn word_writes(&self) -> impl Iterator<Item = (u32, u16)> {
+        self.word.iter().copied()
+    }
+
+    pub fn byte_writes(&self) -> impl Iterator<Item = (u32, u8)> {
+        self.byte.iter().copied()
+    }
 }
 
 pub struct MainBus<'a, Medium, const REFRESH_INTERVAL: u32> {
@@ -627,7 +635,6 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> z80_emu::BusInterface
         Self: 'a;
 
     #[inline]
-    // TODO remove
     #[allow(clippy::match_same_arms)]
     fn read_memory(&mut self, address: u16) -> u8 {
         log::trace!("Z80 bus read from {address:04X}");

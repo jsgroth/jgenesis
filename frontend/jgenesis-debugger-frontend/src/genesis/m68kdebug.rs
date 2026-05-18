@@ -6,7 +6,9 @@ use egui::{
     Align, CentralPanel, Grid, Layout, RichText, SidePanel, TextEdit, TopBottomPanel, Ui, Window,
 };
 use egui_extras::{Column, TableBuilder};
-use genesis_core::api::debug::{GenesisDebugState, M68000BreakStatus, M68000Breakpoint};
+use genesis_core::api::debug::{
+    DebugPendingWrite, GenesisDebugState, M68000BreakStatus, M68000Breakpoint,
+};
 use genesis_core::cartridge::Cartridge;
 use jgenesis_common::num::{GetBit, U16Ext};
 use m68000_emu::disassemble::{DisassembledInstruction, MemoryAccess, MemoryReadType};
@@ -96,8 +98,8 @@ impl M68kDebugWindowState {
 pub trait M68kDebugMemoryMap {
     fn peek(&self, address: u32) -> Option<u16>;
 
-    fn extra_info(&self) -> Option<(&'static str, String)> {
-        None
+    fn extra_info(&self) -> Vec<(&'static str, String)> {
+        vec![]
     }
 }
 
@@ -109,6 +111,7 @@ pub struct Genesis68kMemoryMap<'a, Medium> {
     pub medium: Medium,
     pub working_ram: &'a [u16],
     pub audio_ram: &'a [u8],
+    pub main_pending_writes: &'a [DebugPendingWrite],
 }
 
 impl<Medium: M68kDebugMemoryMap> M68kDebugMemoryMap for Genesis68kMemoryMap<'_, Medium> {
@@ -125,8 +128,25 @@ impl<Medium: M68kDebugMemoryMap> M68kDebugMemoryMap for Genesis68kMemoryMap<'_, 
         }
     }
 
-    fn extra_info(&self) -> Option<(&'static str, String)> {
-        self.medium.extra_info()
+    fn extra_info(&self) -> Vec<(&'static str, String)> {
+        let mut extra_info = self.medium.extra_info();
+
+        if !self.main_pending_writes.is_empty() {
+            extra_info.push(("Buffered writes", String::new()));
+
+            for &write in self.main_pending_writes {
+                match write {
+                    DebugPendingWrite::Word { address, value } => {
+                        extra_info.push(("", format!("{address:06X} {value:04X}")));
+                    }
+                    DebugPendingWrite::Byte { address, value } => {
+                        extra_info.push(("", format!("{address:06X} {value:02X}")));
+                    }
+                }
+            }
+        }
+
+        extra_info
     }
 }
 
@@ -152,6 +172,7 @@ pub fn new_genesis_memory_map(
         medium: CartridgeMemoryMap { cartridge: debug_state.cartridge()? },
         working_ram: debug_state.working_ram(),
         audio_ram: debug_state.audio_ram(),
+        main_pending_writes: debug_state.pending_writes(),
     })
 }
 
@@ -198,8 +219,8 @@ impl M68kDebugMemoryMap for SegaCdMainMemoryMap<'_> {
         Some(word)
     }
 
-    fn extra_info(&self) -> Option<(&'static str, String)> {
-        Some((
+    fn extra_info(&self) -> Vec<(&'static str, String)> {
+        vec![(
             "PRG RAM Bank",
             format!(
                 "{} ({:05X}-{:05X})",
@@ -207,7 +228,7 @@ impl M68kDebugMemoryMap for SegaCdMainMemoryMap<'_> {
                 self.prg_ram_base_addr,
                 self.prg_ram_base_addr | 0x1FFFF
             ),
-        ))
+        )]
     }
 }
 
@@ -218,6 +239,7 @@ pub fn new_scd_main_memory_map(
         medium: SegaCdMainMemoryMap::new(debug_state),
         working_ram: debug_state.genesis.working_ram(),
         audio_ram: debug_state.genesis.audio_ram(),
+        main_pending_writes: debug_state.genesis.pending_writes(),
     }
 }
 
@@ -280,14 +302,14 @@ impl M68kDebugMemoryMap for S32X68kMemoryMap<'_> {
         Some(word)
     }
 
-    fn extra_info(&self) -> Option<(&'static str, String)> {
+    fn extra_info(&self) -> Vec<(&'static str, String)> {
         let banked_rom_range = format!(
             "{} ({:06X}-{:06X})",
             self.banked_rom_base_addr >> 20,
             self.banked_rom_base_addr,
             self.banked_rom_base_addr | 0xFFFFF
         );
-        Some(("32X ROM Bank", banked_rom_range))
+        vec![("32X ROM Bank", banked_rom_range)]
     }
 }
 
@@ -298,6 +320,7 @@ pub fn new_32x_memory_map(
         medium: S32X68kMemoryMap::new(debug_state)?,
         working_ram: debug_state.genesis.working_ram(),
         audio_ram: debug_state.genesis.audio_ram(),
+        main_pending_writes: debug_state.genesis.pending_writes(),
     })
 }
 
@@ -468,7 +491,7 @@ fn render_disasm_right_panel(
                 );
             });
 
-            if let Some((label, text)) = memory_map.extra_info() {
+            for (label, text) in memory_map.extra_info() {
                 ui.horizontal(|ui| {
                     ui.label(label);
                     ui.add_space(5.0);
