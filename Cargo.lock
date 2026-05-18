@@ -1344,6 +1344,7 @@ dependencies = [
  "bincode",
  "log",
  "num",
+ "rand 0.10.0",
 ]
 
 [[package]]
@@ -2303,6 +2304,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "huc6280-emu"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "jgenesis-common",
+ "log",
+ "rand 0.10.0",
+]
+
+[[package]]
+name = "huc6280-test-runner"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "env_logger",
+ "huc6280-emu",
+ "rayon",
+ "rustc-hash 2.1.1",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "icu_collections"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2556,6 +2580,7 @@ dependencies = [
  "jgenesis-proc-macros",
  "js-sys",
  "log",
+ "rand 0.10.0",
  "serde",
  "time",
 ]
@@ -2580,6 +2605,7 @@ dependencies = [
  "log",
  "m68000-emu",
  "nes-core",
+ "pce-core",
  "pollster",
  "rand 0.10.0",
  "rfd",
@@ -2619,6 +2645,7 @@ dependencies = [
  "log",
  "nes-config",
  "nes-core",
+ "pce-config",
  "pollster",
  "regex",
  "rfd",
@@ -2648,6 +2675,7 @@ dependencies = [
  "jgenesis-renderer",
  "log",
  "nes-config",
+ "pce-config",
  "sdl3",
  "serde",
  "smsgg-config",
@@ -2678,6 +2706,8 @@ dependencies = [
  "log",
  "nes-config",
  "nes-core",
+ "pce-config",
+ "pce-core",
  "pollster",
  "regex",
  "rustc-hash 2.1.1",
@@ -3895,6 +3925,32 @@ checksum = "f8ed6a7761f76e3b9f92dfb0a60a6a6477c61024b775147ff0973a02653abaf2"
 dependencies = [
  "digest",
  "hmac",
+]
+
+[[package]]
+name = "pce-config"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "clap",
+ "jgenesis-common",
+ "jgenesis-proc-macros",
+ "serde",
+]
+
+[[package]]
+name = "pce-core"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "crc",
+ "dsp",
+ "huc6280-emu",
+ "jgenesis-common",
+ "jgenesis-proc-macros",
+ "log",
+ "pce-config",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

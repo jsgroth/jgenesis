@@ -28,7 +28,10 @@ pub fn deserialize_default_on_error(input: TokenStream) -> TokenStream {
         let deserialize_fn_ident =
             format_ident!("__deserialize_{struct_ident}_{field_ident}_default_on_error");
 
+        let cfg_attrs: Vec<_> =
+            field_attrs.iter().filter(|attr| attr.path().is_ident("cfg")).collect();
         deserialize_fn_definitions.push(quote! {
+            #(#cfg_attrs)*
             fn #deserialize_fn_ident<'de, D>(deserializer: D) -> ::std::result::Result<#field_ty, D::Error>
             where
                 D: ::serde::Deserializer<'de>,

@@ -4,6 +4,8 @@ mod gba;
 mod genesis;
 mod input;
 mod nes;
+#[cfg(feature = "pce")]
+mod pce;
 mod render;
 mod rewind;
 mod runner;
@@ -22,6 +24,9 @@ pub use nes::{NativeNesEmulator, create_nes};
 pub use smsgg::{NativeSmsGgEmulator, create_smsgg};
 pub use snes::{NativeSnesEmulator, create_snes};
 pub use state::{SAVE_STATE_SLOTS, SaveStateMetadata};
+
+#[cfg(feature = "pce")]
+pub use pce::{NativePcEngineEmulator, create_pce};
 
 use crate::archive::ArchiveError;
 use crate::config::CommonConfig;

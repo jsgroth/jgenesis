@@ -6,6 +6,8 @@ pub mod input;
 mod migration;
 pub mod nes;
 pub mod paths;
+#[cfg(feature = "pce")]
+pub mod pce;
 pub mod smsgg;
 pub mod snes;
 
@@ -17,6 +19,8 @@ use crate::gba::GameBoyAdvanceAppConfig;
 use crate::genesis::{GenesisAppConfig, Sega32XAppConfig, SegaCdAppConfig};
 use crate::input::InputAppConfig;
 use crate::nes::NesAppConfig;
+#[cfg(feature = "pce")]
+use crate::pce::PcEngineAppConfig;
 use crate::smsgg::SmsGgAppConfig;
 use crate::snes::SnesAppConfig;
 use jgenesis_proc_macros::{EnumDisplay, deserialize_default_on_error};
@@ -42,6 +46,8 @@ pub struct ListFilters {
     pub game_boy: bool,
     pub game_boy_color: bool,
     pub game_boy_advance: bool,
+    #[cfg(feature = "pce")]
+    pub pc_engine: bool,
 }
 
 impl Default for ListFilters {
@@ -58,6 +64,8 @@ impl Default for ListFilters {
             game_boy: true,
             game_boy_color: true,
             game_boy_advance: true,
+            #[cfg(feature = "pce")]
+            pc_engine: true,
         }
     }
 }
@@ -90,6 +98,8 @@ pub struct AppConfig {
     pub snes: SnesAppConfig,
     pub game_boy: GameBoyAppConfig,
     pub game_boy_advance: GameBoyAdvanceAppConfig,
+    #[cfg(feature = "pce")]
+    pub pc_engine: PcEngineAppConfig,
     pub input: InputAppConfig,
     // TODO move GUI-specific config/state somewhere else - separate file?
     pub list_filters: ListFilters,
@@ -123,6 +133,8 @@ impl Default for AppConfig {
             snes: SnesAppConfig::default(),
             game_boy: GameBoyAppConfig::default(),
             game_boy_advance: GameBoyAdvanceAppConfig::default(),
+            #[cfg(feature = "pce")]
+            pc_engine: PcEngineAppConfig::default(),
             input: InputAppConfig::default(),
             list_filters: ListFilters::default(),
             rom_search_dirs: vec![],

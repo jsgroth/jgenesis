@@ -45,9 +45,9 @@ impl<const N: usize> RingBuffer<N> {
     }
 }
 
-// Force coefficients to be aligned to a 32-byte boundary in order to support AVX aligned loads
+// Force coefficients to be aligned to a 64-byte boundary in order to support AVX512 aligned loads
 #[derive(Debug, Clone)]
-#[repr(C, align(32))]
+#[repr(C, align(64))]
 pub struct LpfCoefficients<const LPF_TAPS: usize>(pub [f64; LPF_TAPS]);
 
 impl<const LPF_TAPS: usize> Deref for LpfCoefficients<LPF_TAPS> {
@@ -141,10 +141,15 @@ fn apply_fir_filter<const N: usize>(
     if samples.len >= N {
         #[cfg(target_arch = "x86_64")]
         {
-            use std::arch::is_x86_feature_detected;
+            if is_x86_feature_detected!("avx512f") {
+                // SAFETY: This CPU supports AVX512F instructions
+                unsafe {
+                    return apply_fir_filter_avx512(samples, coefficients);
+                }
+            }
+
             if is_x86_feature_detected!("avx") && is_x86_feature_detected!("fma") {
-                // SAFETY: This function can only be safely called when running on a CPU that supports
-                // AVX and FMA instructions, and we just verified that is the case
+                // SAFETY: This CPU supports AVX and FMA instructions
                 unsafe {
                     return apply_fir_filter_avxfma(samples, coefficients);
                 }
@@ -215,8 +220,50 @@ unsafe fn apply_fir_filter_avxfma<const N: usize>(
             _ => unreachable!("value & 3 is always <= 3"),
         }
 
-        let components: [f64; 4] = transmute(sumvec);
-        components.into_iter().sum()
+        let hsum = _mm256_hadd_pd(sumvec, sumvec);
+        let components: [f64; 4] = transmute(hsum);
+        components[0] + components[2]
+    }
+}
+
+// SAFETY: This function must only be called when running on a CPU that supports AVX512F instructions
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f")]
+unsafe fn apply_fir_filter_avx512<const N: usize>(
+    samples: &RingBuffer<N>,
+    coefficients: &LpfCoefficients<N>,
+) -> f64 {
+    #[allow(clippy::wildcard_imports)]
+    use std::arch::x86_64::*;
+
+    unsafe {
+        debug_assert!(samples.len == N);
+        let samples = &samples.buffer[samples.idx..samples.idx + N];
+
+        let mut sum = _mm512_setzero_pd();
+
+        for i in (0..N & !7).step_by(8) {
+            let a = _mm512_loadu_pd(samples.as_ptr().add(i));
+            let b = _mm512_load_pd(coefficients.as_ptr().add(i));
+            sum = _mm512_fmadd_pd(a, b, sum);
+        }
+
+        if N & 7 != 0 {
+            let final_load_mask = (1 << (N & 7)) - 1;
+            let a = _mm512_mask_loadu_pd(
+                _mm512_setzero_pd(),
+                final_load_mask,
+                samples.as_ptr().add(N & !7),
+            );
+            let b = _mm512_mask_load_pd(
+                _mm512_setzero_pd(),
+                final_load_mask,
+                coefficients.as_ptr().add(N & !7),
+            );
+            sum = _mm512_fmadd_pd(a, b, sum);
+        }
+
+        _mm512_reduce_add_pd(sum)
     }
 }
 

@@ -398,7 +398,7 @@ mod tests {
     const COMM_PORT_0: u32 = 0x20004020;
 
     // Meant to be run through miri:
-    //   $ cargo +nightly miri test -p s32x_core memory_model
+    //   $ cargo +nightly miri test -p s32x-core memory_model
     //
     // This test is not exhaustive but should hit most of the major code paths that use unsafe blocks.
     #[test]

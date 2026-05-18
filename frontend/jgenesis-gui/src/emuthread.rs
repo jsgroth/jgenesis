@@ -4,6 +4,8 @@ use crate::emuthread::inputwindow::InputWindow;
 use anyhow::anyhow;
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::input::{AxisDirection, GamepadAction, GenericInput, HatDirection};
+#[cfg(feature = "unstable-cores")]
+use jgenesis_native_driver::NativePcEngineEmulator;
 use jgenesis_native_driver::config::AppConfigExt;
 use jgenesis_native_driver::extensions::Console;
 use jgenesis_native_driver::input::Joysticks;
@@ -40,6 +42,7 @@ pub enum EmuThreadStatus {
     WaitingForFirstCommand = 9,
     Terminated = 10,
     RunningGameGear = 11,
+    RunningPcEngine = 12,
 }
 
 impl EmuThreadStatus {
@@ -57,6 +60,7 @@ impl EmuThreadStatus {
             9 => Self::WaitingForFirstCommand,
             10 => Self::Terminated,
             11 => Self::RunningGameGear,
+            12 => Self::RunningPcEngine,
             _ => panic!("invalid status discriminant: {discriminant}"),
         }
     }
@@ -73,6 +77,7 @@ impl EmuThreadStatus {
                 | Self::RunningGameBoy
                 | Self::RunningGba
                 | Self::RunningGameGear
+                | Self::RunningPcEngine
         )
     }
 
@@ -101,6 +106,8 @@ impl ConsoleExt for Console {
             Self::Snes => EmuThreadStatus::RunningSnes,
             Self::GameBoy | Self::GameBoyColor => EmuThreadStatus::RunningGameBoy,
             Self::GameBoyAdvance => EmuThreadStatus::RunningGba,
+            #[cfg(feature = "unstable-cores")]
+            Self::PcEngine => EmuThreadStatus::RunningPcEngine,
         }
     }
 }
@@ -342,6 +349,8 @@ enum GenericEmulator {
     Snes(Box<NativeSnesEmulator>),
     GameBoy(Box<NativeGameBoyEmulator>),
     GameBoyAdvance(Box<NativeGbaEmulator>),
+    #[cfg(feature = "unstable-cores")]
+    PcEngine(Box<NativePcEngineEmulator>),
 }
 
 impl GenericEmulator {
@@ -381,6 +390,10 @@ impl GenericEmulator {
             Console::GameBoyAdvance => Self::GameBoyAdvance(Box::new(
                 jgenesis_native_driver::create_gba(config.gba_config(path))?,
             )),
+            #[cfg(feature = "unstable-cores")]
+            Console::PcEngine => Self::PcEngine(Box::new(jgenesis_native_driver::create_pce(
+                config.pce_config(path),
+            )?)),
         };
 
         Ok(emulator)
@@ -429,6 +442,8 @@ impl GenericEmulator {
             Self::Snes(emulator) => emulator.reload_snes_config(config.snes_config(path)),
             Self::GameBoy(emulator) => emulator.reload_gb_config(config.gb_config(path)),
             Self::GameBoyAdvance(emulator) => emulator.reload_gba_config(config.gba_config(path)),
+            #[cfg(feature = "unstable-cores")]
+            Self::PcEngine(emulator) => emulator.reload_pce_config(config.pce_config(path)),
         }
     }
 

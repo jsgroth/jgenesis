@@ -3,6 +3,8 @@ pub mod gba;
 pub mod genesis;
 mod memviewer;
 pub mod nes;
+#[cfg(feature = "pce")]
+pub mod pce;
 mod process;
 pub mod smsgg;
 pub mod snes;

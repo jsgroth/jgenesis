@@ -5,6 +5,8 @@ use genesis_config::{GenesisButton, GenesisControllerType};
 use jgenesis_common::input::Player;
 use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay};
 use nes_config::NesButton;
+#[cfg(feature = "pce")]
+use pce_config::PceButton;
 use sdl3::keyboard::Keycode;
 use sdl3::mouse::MouseButton;
 use serde::{Deserialize, Serialize};
@@ -811,6 +813,103 @@ impl Default for GbaInputConfig {
             mapping_2: GbaInputMapping::default(),
             mapping_1_turbo: GbaInputMapping::default(),
             mapping_2_turbo: GbaInputMapping::default(),
+        }
+    }
+}
+
+#[cfg(feature = "pce")]
+define_controller_mapping!(PceJoypadMapping, PceButton, [
+    up: Up,
+    left: Left,
+    right: Right,
+    down: Down,
+    button1: Button1,
+    button2: Button2,
+    run: Run,
+    select: Select,
+]);
+
+#[cfg(feature = "pce")]
+impl PceJoypadMapping {
+    #[must_use]
+    pub fn keyboard_arrows() -> Self {
+        Self {
+            up: key_input!(Up),
+            left: key_input!(Left),
+            right: key_input!(Right),
+            down: key_input!(Down),
+            button1: key_input!(A),
+            button2: key_input!(S),
+            run: key_input!(Return),
+            select: key_input!(RShift),
+        }
+    }
+
+    #[must_use]
+    pub fn keyboard_wasd() -> Self {
+        Self {
+            up: key_input!(W),
+            left: key_input!(A),
+            right: key_input!(S),
+            down: key_input!(D),
+            button1: key_input!(L),
+            button2: key_input!(K),
+            run: key_input!(Return),
+            select: key_input!(RShift),
+        }
+    }
+}
+
+#[cfg(feature = "pce")]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ConfigDisplay)]
+#[serde(default)]
+pub struct PceInputMapping {
+    #[cfg_display(indent_nested)]
+    pub p1: PceJoypadMapping,
+    #[cfg_display(indent_nested)]
+    pub p2: PceJoypadMapping,
+    #[cfg_display(indent_nested)]
+    pub p1_turbo: PceJoypadMapping,
+    #[cfg_display(indent_nested)]
+    pub p2_turbo: PceJoypadMapping,
+}
+
+#[cfg(feature = "pce")]
+impl PceInputMapping {
+    pub fn to_mapping_vec<'a>(&'a self, out: &mut ButtonMappingVec<'a, PceButton>) {
+        self.p1.to_mapping_vec(Player::One, out);
+        self.p2.to_mapping_vec(Player::Two, out);
+    }
+}
+
+#[cfg(feature = "pce")]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
+#[serde(default)]
+pub struct PceInputConfig {
+    #[cfg_display(indent_nested)]
+    pub mapping_1: PceInputMapping,
+    #[cfg_display(indent_nested)]
+    pub mapping_2: PceInputMapping,
+}
+
+#[cfg(feature = "pce")]
+impl PceInputConfig {
+    impl_to_mapping_vec!(PceButton);
+
+    impl_to_turbo_mapping_vec!(PceButton);
+}
+
+#[cfg(feature = "pce")]
+impl Default for PceInputConfig {
+    fn default() -> Self {
+        Self {
+            mapping_1: PceInputMapping {
+                p1: PceJoypadMapping::keyboard_arrows(),
+                p2: PceJoypadMapping::default(),
+                p1_turbo: PceJoypadMapping::default(),
+                p2_turbo: PceJoypadMapping::default(),
+            },
+            mapping_2: PceInputMapping::default(),
         }
     }
 }
