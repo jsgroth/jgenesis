@@ -1,5 +1,5 @@
 use crate::genesis::m68kdebug::M68kDebugMemoryMap;
-use crate::genesis::widgets::BreakpointsWidget;
+use crate::genesis::widgets::{BreakpointWindowResponse, BreakpointsWidget};
 use crate::{AddressSet, non_selectable_label};
 use egui::panel::{Side, TopBottomSide};
 use egui::style::ScrollStyle;
@@ -408,24 +408,28 @@ pub fn render_breakpoints_window(
     state: &mut Z80DebugWindowState,
     update_breakpoints: impl FnOnce(Vec<Z80Breakpoint>),
 ) {
-    state.breakpoints.show_window_and_update(
+    let response = state.breakpoints.show_window(
         ctx,
         BREAKPOINTS_WINDOW_TITLE,
         &mut state.breakpoints_open,
-        |breakpoints| {
-            let z80_breakpoints = breakpoints
-                .iter()
-                .map(|breakpoint| Z80Breakpoint {
-                    start_address: breakpoint.start_address,
-                    end_address: breakpoint.end_address,
-                    read: breakpoint.read,
-                    write: breakpoint.write,
-                    execute: breakpoint.execute,
-                })
-                .collect();
-            update_breakpoints(z80_breakpoints);
-        },
+        |_| BreakpointWindowResponse::NotChanged,
     );
+    if response == BreakpointWindowResponse::Changed {
+        let breakpoints = state
+            .breakpoints
+            .breakpoints()
+            .iter()
+            .map(|breakpoint| Z80Breakpoint {
+                start_address: breakpoint.start_address,
+                end_address: breakpoint.end_address,
+                read: breakpoint.read,
+                write: breakpoint.write,
+                execute: breakpoint.execute,
+            })
+            .collect();
+
+        update_breakpoints(breakpoints);
+    }
 }
 
 fn monospace_text(value: impl Into<String>) -> RichText {

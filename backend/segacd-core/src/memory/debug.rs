@@ -87,6 +87,13 @@ impl M68000Debugger for DebugSubBusView<'_, '_, '_, '_> {
             self.handle_breakpoint(cpu);
         }
     }
+
+    fn check_interrupt(&mut self, interrupt_level: u8, cpu: &mut M68000) {
+        if self.0.debugger.debugger.m68k_breakpoints(ScdCpu::Sub).check_interrupt(interrupt_level) {
+            log::info!("Sub CPU triggered interrupt breakpoint on INT{interrupt_level}");
+            self.handle_breakpoint(cpu);
+        }
+    }
 }
 
 impl DebugSubBusView<'_, '_, '_, '_> {

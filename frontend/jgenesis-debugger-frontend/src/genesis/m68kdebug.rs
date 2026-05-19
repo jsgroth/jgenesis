@@ -1,4 +1,4 @@
-use crate::genesis::widgets::{BreakpointsWidget, U24};
+use crate::genesis::widgets::{BreakpointWindowResponse, BreakpointsWidget, U24};
 use crate::{AddressSet, non_selectable_label};
 use egui::panel::{Side, TopBottomSide};
 use egui::style::ScrollStyle;
@@ -7,7 +7,7 @@ use egui::{
 };
 use egui_extras::{Column, TableBuilder};
 use genesis_core::api::debug::{
-    DebugPendingWrite, GenesisDebugState, M68000BreakStatus, M68000Breakpoint,
+    DebugPendingWrite, GenesisDebugState, M68000BreakStatus, M68000Breakpoint, M68000Breakpoints,
 };
 use genesis_core::cartridge::Cartridge;
 use jgenesis_common::num::{GetBit, U16Ext};
@@ -16,6 +16,94 @@ use m68000_emu::{M68000, OpSize};
 use s32x_core::api::debug::Sega32XDebugState;
 use segacd_core::WordRam;
 use segacd_core::api::debug::SegaCdDebugState;
+
+pub trait M68kInterruptBreakpoints {
+    fn render(&mut self, ui: &mut Ui) -> BreakpointWindowResponse;
+
+    fn levels(&self) -> Vec<u8>;
+}
+
+pub struct DummyM68kInterruptBreakpoints;
+
+impl M68kInterruptBreakpoints for DummyM68kInterruptBreakpoints {
+    fn render(&mut self, _ui: &mut Ui) -> BreakpointWindowResponse {
+        BreakpointWindowResponse::NotChanged
+    }
+
+    fn levels(&self) -> Vec<u8> {
+        vec![]
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Main68kInterruptBreakpoints {
+    vertical: bool,
+    horizontal: bool,
+}
+
+impl M68kInterruptBreakpoints for Main68kInterruptBreakpoints {
+    fn render(&mut self, ui: &mut Ui) -> BreakpointWindowResponse {
+        ui.separator();
+
+        let mut changed = false;
+
+        changed |= ui.checkbox(&mut self.vertical, "Break on vertical interrupt (INT6)").changed();
+        changed |=
+            ui.checkbox(&mut self.horizontal, "Break on horizontal interrupt (INT4)").changed();
+
+        BreakpointWindowResponse::from_changed(changed)
+    }
+
+    fn levels(&self) -> Vec<u8> {
+        let mut levels = vec![];
+
+        if self.vertical {
+            levels.push(6);
+        }
+
+        if self.horizontal {
+            levels.push(4);
+        }
+
+        levels
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Sub68kInterruptBreakpoints {
+    cdc: bool,
+    cdd: bool,
+    timer: bool,
+    software: bool,
+    graphics: bool,
+}
+
+impl M68kInterruptBreakpoints for Sub68kInterruptBreakpoints {
+    fn render(&mut self, ui: &mut Ui) -> BreakpointWindowResponse {
+        ui.separator();
+
+        let mut changed = false;
+
+        for (field, label) in [
+            (&mut self.cdc, "Break on CDC interrupt (INT5)"),
+            (&mut self.cdd, "Break on CDD interrupt (INT4)"),
+            (&mut self.timer, "Break on timer interrupt (INT3)"),
+            (&mut self.software, "Break on software interrupt (INT2)"),
+            (&mut self.graphics, "Break on graphics interrupt (INT1)"),
+        ] {
+            changed |= ui.checkbox(field, label).changed();
+        }
+
+        BreakpointWindowResponse::from_changed(changed)
+    }
+
+    fn levels(&self) -> Vec<u8> {
+        [(self.cdc, 5), (self.cdd, 4), (self.timer, 3), (self.software, 2), (self.graphics, 1)]
+            .into_iter()
+            .filter_map(|(field, level)| field.then_some(level))
+            .collect()
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum M68kBreakCommand {
@@ -38,6 +126,7 @@ pub struct M68kDebugWindowState {
     pub disassemble_selected_pcs: AddressSet<u32>,
     pub break_status_last_frame: M68000BreakStatus,
     pub breakpoints: BreakpointsWidget<U24>,
+    pub interrupt_breakpoints: Box<dyn M68kInterruptBreakpoints>,
 }
 
 impl M68kDebugWindowState {
@@ -67,7 +156,16 @@ impl M68kDebugWindowState {
             disassemble_selected_pcs: AddressSet::new(),
             break_status_last_frame: M68000BreakStatus::default(),
             breakpoints,
+            interrupt_breakpoints: Box::new(DummyM68kInterruptBreakpoints),
         }
+    }
+
+    pub fn with_interrupt_breakpoints(
+        mut self,
+        interrupt_breakpoints: Box<dyn M68kInterruptBreakpoints>,
+    ) -> Self {
+        self.interrupt_breakpoints = interrupt_breakpoints;
+        self
     }
 
     pub fn open_disassembly_window(&mut self, ctx: &egui::Context) {
@@ -664,27 +762,33 @@ fn render_memory_access_col(
 pub fn render_breakpoints_window(
     ctx: &egui::Context,
     state: &mut M68kDebugWindowState,
-    mut update_breakpoints: impl FnMut(Vec<M68000Breakpoint>),
+    mut update_breakpoints: impl FnMut(M68000Breakpoints),
 ) {
-    state.breakpoints.show_window_and_update(
+    let response = state.breakpoints.show_window(
         ctx,
         &state.breakpoints_window_title,
         &mut state.breakpoints_open,
-        |breakpoints| {
-            let m68k_breakpoints = breakpoints
-                .iter()
-                .map(|breakpoint| M68000Breakpoint {
-                    start_address: breakpoint.start_address.get(),
-                    end_address: breakpoint.end_address.get(),
-                    read: breakpoint.read,
-                    write: breakpoint.write,
-                    execute: breakpoint.execute,
-                })
-                .collect();
-
-            update_breakpoints(m68k_breakpoints);
-        },
+        |ui| state.interrupt_breakpoints.render(ui),
     );
+    if response == BreakpointWindowResponse::Changed {
+        let memory_breakpoints = state
+            .breakpoints
+            .breakpoints()
+            .iter()
+            .map(|breakpoint| M68000Breakpoint {
+                start_address: breakpoint.start_address.get(),
+                end_address: breakpoint.end_address.get(),
+                read: breakpoint.read,
+                write: breakpoint.write,
+                execute: breakpoint.execute,
+            })
+            .collect();
+
+        update_breakpoints(M68000Breakpoints {
+            memory: memory_breakpoints,
+            interrupt: state.interrupt_breakpoints.levels(),
+        });
+    }
 }
 
 fn monospace_u16(value: u16) -> RichText {

@@ -314,6 +314,10 @@ impl MainBus68kDebugger<Sega32X> for Sega32XDebuggerFor68k<'_> {
         self.debugger.m68k_breakpoints().update_pc_and_check_execute(pc)
     }
 
+    fn check_interrupt_breakpoint(&mut self, interrupt_level: u8) -> bool {
+        self.debugger.m68k_breakpoints().check_interrupt(interrupt_level)
+    }
+
     fn check_break_step(&mut self) -> bool {
         self.debugger.check_68k_break_step()
     }

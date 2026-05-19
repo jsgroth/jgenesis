@@ -6,6 +6,8 @@ pub trait M68000Debugger {
     fn check_write<const WORD: bool>(&mut self, address: u32, value: u16, cpu: &mut M68000);
 
     fn check_execute(&mut self, pc: u32, cpu: &mut M68000);
+
+    fn check_interrupt(&mut self, interrupt_level: u8, cpu: &mut M68000);
 }
 
 pub struct DummyM68000Debugger;
@@ -16,6 +18,8 @@ impl M68000Debugger for DummyM68000Debugger {
     fn check_write<const WORD: bool>(&mut self, _address: u32, _value: u16, _cpu: &mut M68000) {}
 
     fn check_execute(&mut self, _pc: u32, _cpu: &mut M68000) {}
+
+    fn check_interrupt(&mut self, _interrupt_level: u8, _cpu: &mut M68000) {}
 }
 
 pub(crate) trait BusDebugExt {

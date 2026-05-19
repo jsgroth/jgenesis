@@ -1,4 +1,4 @@
-use crate::genesis::widgets::BreakpointsWidget;
+use crate::genesis::widgets::{BreakpointWindowResponse, BreakpointsWidget};
 use crate::{AddressSet, non_selectable_label};
 use egui::panel::{Side, TopBottomSide};
 use egui::style::ScrollStyle;
@@ -438,26 +438,27 @@ pub fn render_breakpoints_window(
     command_sender: &Sender<Sega32XDebugCommand>,
 ) {
     let window_title = state.which.breakpoints_window_title();
-    state.breakpoints.show_window_and_update(
-        ctx,
-        window_title,
-        &mut state.breakpoints_open,
-        |breakpoints| {
-            let sh2_breakpoints = breakpoints
-                .iter()
-                .map(|breakpoint| Sh2Breakpoint {
-                    start_address: breakpoint.start_address,
-                    end_address: breakpoint.end_address,
-                    read: breakpoint.read,
-                    write: breakpoint.write,
-                    execute: breakpoint.execute,
-                })
-                .collect();
+    let response =
+        state.breakpoints.show_window(ctx, window_title, &mut state.breakpoints_open, |_| {
+            BreakpointWindowResponse::NotChanged
+        });
+    if response == BreakpointWindowResponse::Changed {
+        let breakpoints = state
+            .breakpoints
+            .breakpoints()
+            .iter()
+            .map(|breakpoint| Sh2Breakpoint {
+                start_address: breakpoint.start_address,
+                end_address: breakpoint.end_address,
+                read: breakpoint.read,
+                write: breakpoint.write,
+                execute: breakpoint.execute,
+            })
+            .collect();
 
-            let _ = command_sender
-                .send(Sega32XDebugCommand::UpdateSh2Breakpoints(state.which, sh2_breakpoints));
-        },
-    );
+        let _ = command_sender
+            .send(Sega32XDebugCommand::UpdateSh2Breakpoints(state.which, breakpoints));
+    }
 }
 
 fn monospace_u32(value: u32) -> RichText {

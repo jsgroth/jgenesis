@@ -6,7 +6,7 @@ use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::EnumAll;
 use std::fmt::{Display, Formatter};
 
-use crate::debug::BusDebugExt;
+use crate::debug::{BusDebugExt, M68000Debugger};
 pub use instructions::cycles_if_move_btst_cmp;
 
 #[derive(Debug, Clone, Copy)]
@@ -925,6 +925,10 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
         if interrupt_level > self.cpu.registers.interrupt_priority_mask {
             log::trace!("[{}] Handling interrupt of level {interrupt_level}", self.cpu.name);
             self.cpu.registers.pending_interrupt_level = Some(interrupt_level);
+
+            if let Some(mut debug_view) = self.bus.debug_view() {
+                debug_view.check_interrupt(interrupt_level, self.cpu);
+            }
 
             // The 68000 takes about 10 cycles before it begins to acknowledge a received interrupt:
             //   https://gendev.spritesmind.net/forum/viewtopic.php?t=2202

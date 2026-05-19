@@ -28,6 +28,8 @@ pub trait MainBus68kDebugger<Medium> {
 
     fn check_execute_breakpoint(&mut self, pc: u32) -> bool;
 
+    fn check_interrupt_breakpoint(&mut self, interrupt_level: u8) -> bool;
+
     fn check_break_step(&mut self) -> bool;
 
     fn handle_breakpoint<const REFRESH_INTERVAL: u32>(
@@ -100,6 +102,13 @@ where
                 log::info!("68000 PC={pc:06X} triggered execute breakpoint");
             }
 
+            self.0.debugger.handle_breakpoint(cpu, self.0.bus);
+        }
+    }
+
+    fn check_interrupt(&mut self, interrupt_level: u8, cpu: &mut M68000) {
+        if self.0.debugger.check_interrupt_breakpoint(interrupt_level) {
+            log::info!("68000 triggered interrupt breakpoint on INT{interrupt_level}");
             self.0.debugger.handle_breakpoint(cpu, self.0.bus);
         }
     }
@@ -254,6 +263,10 @@ impl MainBus68kDebugger<Cartridge> for GenesisDebuggerFor68k<'_> {
 
     fn check_execute_breakpoint(&mut self, pc: u32) -> bool {
         self.debugger.m68k_breakpoints().update_pc_and_check_execute(pc)
+    }
+
+    fn check_interrupt_breakpoint(&mut self, interrupt_level: u8) -> bool {
+        self.debugger.m68k_breakpoints().check_interrupt(interrupt_level)
     }
 
     fn check_break_step(&mut self) -> bool {

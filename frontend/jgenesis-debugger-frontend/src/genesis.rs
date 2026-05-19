@@ -5,7 +5,10 @@ mod widgets;
 mod ym2612debug;
 mod z80debug;
 
-use crate::genesis::m68kdebug::{M68kBreakCommand, M68kDebugWindowState, SegaCdSubMemoryMap};
+use crate::genesis::m68kdebug::{
+    M68kBreakCommand, M68kDebugWindowState, Main68kInterruptBreakpoints, SegaCdSubMemoryMap,
+    Sub68kInterruptBreakpoints,
+};
 use crate::genesis::sh2debug::Sh2DebugWindowState;
 use crate::genesis::ym2612debug::Ym2612DebugWindowState;
 use crate::genesis::z80debug::{GenesisZ80MemoryMap, Z80BreakCommand, Z80DebugWindowState};
@@ -293,11 +296,13 @@ impl State {
             sprite_attributes: SpriteAttributesWindowState::new(),
             s32x_palette: S32XPaletteRamState::new(),
             z80: Z80DebugWindowState::new(),
-            m68k: M68kDebugWindowState::new_default_titles(),
+            m68k: M68kDebugWindowState::new_default_titles()
+                .with_interrupt_breakpoints(Box::new(Main68kInterruptBreakpoints::default())),
             m68k_sub: M68kDebugWindowState::new_with_titles(
                 "Sub 68000 Disassembly",
                 "Sub 68000 Breakpoints",
-            ),
+            )
+            .with_interrupt_breakpoints(Box::new(Sub68kInterruptBreakpoints::default())),
             sh2_master: Sh2DebugWindowState::new(WhichCpu::Master),
             sh2_slave: Sh2DebugWindowState::new(WhichCpu::Slave),
             vdp_registers_open: false,

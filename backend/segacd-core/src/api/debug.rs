@@ -6,7 +6,7 @@ use crate::rf5c164::Rf5c164;
 use genesis_config::GenesisInputs;
 use genesis_core::api::debug::{
     BaseGenesisDebugView, GenesisDebugState, GenesisMemoryArea, M68000BreakStatus,
-    M68000BreakStatusAtomic, M68000Breakpoint, M68000BreakpointManager, M68000Breakpoints,
+    M68000BreakStatusAtomic, M68000BreakpointManager, M68000Breakpoints, M68000BreakpointsParsed,
     PhysicalMediumDebugView, Z80BreakStatus, Z80BreakStatusAtomic, Z80Breakpoint,
     Z80BreakpointManager, Z80Breakpoints,
 };
@@ -36,8 +36,8 @@ pub enum SegaCdMemoryArea {
 pub enum SegaCdDebugCommand {
     EditGenesisMemory(GenesisMemoryArea, usize, u8),
     EditSegaCdMemory(SegaCdMemoryArea, usize, u8),
-    UpdateMain68kBreakpoints(Vec<M68000Breakpoint>),
-    UpdateSub68kBreakpoints(Vec<M68000Breakpoint>),
+    UpdateMain68kBreakpoints(M68000Breakpoints),
+    UpdateSub68kBreakpoints(M68000Breakpoints),
     UpdateZ80Breakpoints(Vec<Z80Breakpoint>),
     BreakResume,
     BreakPauseMain68k,
@@ -261,10 +261,10 @@ impl SegaCdDebugger {
                 debug_view.apply_scd_memory_edit(memory_area, address, value);
             }
             SegaCdDebugCommand::UpdateMain68kBreakpoints(breakpoints) => {
-                self.main_cpu_breakpoints.breakpoints = M68000Breakpoints::new(&breakpoints);
+                self.main_cpu_breakpoints.breakpoints = M68000BreakpointsParsed::new(&breakpoints);
             }
             SegaCdDebugCommand::UpdateSub68kBreakpoints(breakpoints) => {
-                self.sub_cpu_breakpoints.breakpoints = M68000Breakpoints::new(&breakpoints);
+                self.sub_cpu_breakpoints.breakpoints = M68000BreakpointsParsed::new(&breakpoints);
             }
             SegaCdDebugCommand::UpdateZ80Breakpoints(breakpoints) => {
                 self.z80_breakpoints.breakpoints = Z80Breakpoints::new(&breakpoints);
@@ -463,6 +463,10 @@ impl MainBus68kDebugger<SegaCd> for SegaCdDebuggerForMainCpu<'_> {
 
     fn check_execute_breakpoint(&mut self, pc: u32) -> bool {
         self.debugger.main_cpu_breakpoints.update_pc_and_check_execute(pc)
+    }
+
+    fn check_interrupt_breakpoint(&mut self, interrupt_level: u8) -> bool {
+        self.debugger.main_cpu_breakpoints.check_interrupt(interrupt_level)
     }
 
     fn check_break_step(&mut self) -> bool {

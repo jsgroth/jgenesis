@@ -45,6 +45,7 @@ use jgenesis_common::debug::{
     DebugBytesView, DebugMemoryView, DebugWordsView, EmptyDebugView, Endian,
 };
 use jgenesis_common::frontend::Color;
+use jgenesis_common::num::GetBit;
 use jgenesis_common::sync::SharedVarSender;
 use jgenesis_proc_macros::EnumAll;
 use m68000_emu::M68000;
@@ -97,7 +98,7 @@ pub enum GenesisMemoryArea {
 #[derive(Debug, Clone)]
 pub enum GenesisDebugCommand {
     EditMemory(GenesisMemoryArea, usize, u8),
-    Update68kBreakpoints(Vec<M68000Breakpoint>),
+    Update68kBreakpoints(M68000Breakpoints),
     UpdateZ80Breakpoints(Vec<Z80Breakpoint>),
     BreakPause68k,
     BreakPauseZ80,
@@ -353,25 +354,45 @@ pub struct M68000Breakpoint {
     pub execute: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct M68000Breakpoints {
+    pub memory: Vec<M68000Breakpoint>,
+    pub interrupt: Vec<u8>,
+}
+
+impl M68000Breakpoints {
+    #[must_use]
+    pub fn new() -> Self {
+        Self { memory: vec![], interrupt: vec![] }
+    }
+}
+
+impl Default for M68000Breakpoints {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct M68000BreakpointsParsed {
     read_byte: Vec<(u32, u32)>,
     read_word: Vec<(u32, u32)>,
     write_byte: Vec<(u32, u32)>,
     write_word: Vec<(u32, u32)>,
     execute: Vec<(u32, u32)>,
+    interrupt_bitset: u8,
 }
 
-impl M68000Breakpoints {
+impl M68000BreakpointsParsed {
     #[must_use]
-    pub fn new(breakpoints: &[M68000Breakpoint]) -> Self {
+    pub fn new(breakpoints: &M68000Breakpoints) -> Self {
         let mut read_byte = Vec::new();
         let mut read_word = Vec::new();
         let mut write_byte = Vec::new();
         let mut write_word = Vec::new();
         let mut execute = Vec::new();
 
-        for &breakpoint in breakpoints {
+        for &breakpoint in &breakpoints.memory {
             if breakpoint.read {
                 read_byte.push((breakpoint.start_address, breakpoint.end_address));
                 read_word.push((breakpoint.start_address & !1, breakpoint.end_address & !1));
@@ -387,12 +408,18 @@ impl M68000Breakpoints {
             }
         }
 
-        Self { read_byte, read_word, write_byte, write_word, execute }
+        let interrupt_bitset = breakpoints
+            .interrupt
+            .iter()
+            .map(|&interrupt_level| 1 << (interrupt_level & 7))
+            .fold(0, |a, b| a | b);
+
+        Self { read_byte, read_word, write_byte, write_word, execute, interrupt_bitset }
     }
 
     #[must_use]
     pub fn none() -> Self {
-        Self::new(&[])
+        Self::new(&M68000Breakpoints::new())
     }
 
     #[must_use]
@@ -405,6 +432,11 @@ impl M68000Breakpoints {
     pub fn check_write<const WORD: bool>(&self, address: u32) -> bool {
         let ranges = if WORD { &self.write_word } else { &self.write_byte };
         ranges.iter().any(|&(start, end)| (start..=end).contains(&address))
+    }
+
+    #[must_use]
+    pub fn check_interrupt(&self, interrupt_level: u8) -> bool {
+        self.interrupt_bitset.bit(interrupt_level & 7)
     }
 
     #[must_use]
@@ -532,7 +564,7 @@ impl<T: Copy + Default, const N: usize> Iterator for RingBufferIter<'_, T, N> {
 }
 
 pub struct M68000BreakpointManager {
-    pub breakpoints: M68000Breakpoints,
+    pub breakpoints: M68000BreakpointsParsed,
     pub last_pcs: RingBuffer<u32, PREV_PC_COUNT>,
     pub status: Arc<M68000BreakStatusAtomic>,
     pub step: Option<u32>,
@@ -542,7 +574,7 @@ impl M68000BreakpointManager {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            breakpoints: M68000Breakpoints::none(),
+            breakpoints: M68000BreakpointsParsed::none(),
             last_pcs: RingBuffer::new(),
             status: Arc::new(M68000BreakStatusAtomic::new()),
             step: None,
@@ -558,7 +590,7 @@ impl M68000BreakpointManager {
     }
 
     pub fn clear(&mut self) {
-        self.breakpoints = M68000Breakpoints::none();
+        self.breakpoints = M68000BreakpointsParsed::none();
         self.step = None;
     }
 
@@ -570,6 +602,11 @@ impl M68000BreakpointManager {
     #[must_use]
     pub fn check_write<const WORD: bool>(&self, address: u32) -> bool {
         self.breakpoints.check_write::<WORD>(address)
+    }
+
+    #[must_use]
+    pub fn check_interrupt(&self, interrupt_level: u8) -> bool {
+        self.breakpoints.check_interrupt(interrupt_level)
     }
 
     #[must_use]
@@ -844,7 +881,7 @@ impl GenesisDebugger {
                 debug_view.apply_memory_edit(memory_area, address, value);
             }
             GenesisDebugCommand::Update68kBreakpoints(breakpoints) => {
-                self.m68k_breakpoints.breakpoints = M68000Breakpoints::new(&breakpoints);
+                self.m68k_breakpoints.breakpoints = M68000BreakpointsParsed::new(&breakpoints);
             }
             GenesisDebugCommand::UpdateZ80Breakpoints(breakpoints) => {
                 self.z80_breakpoints.breakpoints = Z80Breakpoints::new(&breakpoints);

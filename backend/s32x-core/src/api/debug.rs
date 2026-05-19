@@ -9,7 +9,7 @@ use bincode::{Decode, Encode};
 use genesis_config::GenesisInputs;
 use genesis_core::api::debug::{
     BaseGenesisDebugView, CramEntry, GenesisDebugState, GenesisMemoryArea, M68000BreakStatus,
-    M68000BreakStatusAtomic, M68000Breakpoint, M68000BreakpointManager, M68000Breakpoints,
+    M68000BreakStatusAtomic, M68000BreakpointManager, M68000Breakpoints, M68000BreakpointsParsed,
     PhysicalMediumDebugView, Z80BreakStatus, Z80BreakStatusAtomic, Z80Breakpoint,
     Z80BreakpointManager, Z80Breakpoints,
 };
@@ -142,7 +142,7 @@ pub enum Sega32XDebugCommand {
     EditGenesisMemory(GenesisMemoryArea, usize, u8),
     Edit32XMemory(S32XMemoryArea, usize, u8),
     UpdateSh2Breakpoints(WhichCpu, Vec<Sh2Breakpoint>),
-    Update68kBreakpoints(Vec<M68000Breakpoint>),
+    Update68kBreakpoints(M68000Breakpoints),
     UpdateZ80Breakpoints(Vec<Z80Breakpoint>),
     BreakResume,
     BreakPauseSh2(WhichCpu),
@@ -504,7 +504,7 @@ impl Sega32XDebugger {
                 self.sh2_breakpoints[which as usize] = Sh2Breakpoints::new(&breakpoints);
             }
             Sega32XDebugCommand::Update68kBreakpoints(breakpoints) => {
-                self.m68k_breakpoints.breakpoints = M68000Breakpoints::new(&breakpoints);
+                self.m68k_breakpoints.breakpoints = M68000BreakpointsParsed::new(&breakpoints);
             }
             Sega32XDebugCommand::UpdateZ80Breakpoints(breakpoints) => {
                 self.z80_breakpoints.breakpoints = Z80Breakpoints::new(&breakpoints);

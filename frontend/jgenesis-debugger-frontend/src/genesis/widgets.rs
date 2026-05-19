@@ -1,4 +1,5 @@
 use egui::{FontFamily, Grid, RichText, TextEdit, Ui, Window};
+use std::ops::{BitOr, BitOrAssign};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GenericBreakpoint<T> {
@@ -85,33 +86,69 @@ impl BreakpointAddress for U24 {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BreakpointWindowResponse {
+    NotChanged,
+    Changed,
+}
+
+impl BreakpointWindowResponse {
+    pub fn from_changed(changed: bool) -> Self {
+        if changed { Self::Changed } else { Self::NotChanged }
+    }
+}
+
+impl BitOr for BreakpointWindowResponse {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Self::Changed, _) | (_, Self::Changed) => Self::Changed,
+            (Self::NotChanged, Self::NotChanged) => Self::NotChanged,
+        }
+    }
+}
+
+impl BitOrAssign for BreakpointWindowResponse {
+    fn bitor_assign(&mut self, rhs: Self) {
+        *self = *self | rhs;
+    }
+}
+
 impl<T> BreakpointsWidget<T>
 where
     T: BreakpointAddress,
 {
-    pub fn show_window_and_update(
+    #[must_use]
+    pub fn show_window(
         &mut self,
         ctx: &egui::Context,
         window_title: impl Into<egui::WidgetText>,
         window_open: &mut bool,
-        update_breakpoints: impl FnOnce(&[GenericBreakpoint<T>]),
-    ) {
+        additional_breakpoints: impl FnOnce(&mut Ui) -> BreakpointWindowResponse,
+    ) -> BreakpointWindowResponse {
+        let mut response = BreakpointWindowResponse::NotChanged;
+
         Window::new(window_title)
             .open(window_open)
             .constrain(false)
             .resizable([true, true])
             .default_pos(crate::rand_window_pos())
             .show(ctx, |ui| {
-                self.render(ui);
+                response |= self.render(ui);
+
+                response |= additional_breakpoints(ui);
             });
 
-        if self.breakpoints_changed {
-            self.breakpoints_changed = false;
-            update_breakpoints(&self.breakpoints);
-        }
+        response
     }
 
-    fn render(&mut self, ui: &mut Ui) {
+    #[must_use]
+    pub fn breakpoints(&self) -> &[GenericBreakpoint<T>] {
+        &self.breakpoints
+    }
+
+    fn render(&mut self, ui: &mut Ui) -> BreakpointWindowResponse {
         let initial_breakpoints = self.breakpoints.clone();
 
         if !self.breakpoints.is_empty() {
@@ -235,7 +272,12 @@ where
             }
         }
 
-        self.breakpoints_changed |= initial_breakpoints != self.breakpoints;
+        if initial_breakpoints != self.breakpoints || self.breakpoints_changed {
+            self.breakpoints_changed = false;
+            BreakpointWindowResponse::Changed
+        } else {
+            BreakpointWindowResponse::NotChanged
+        }
     }
 
     pub fn has_execute_breakpoint(&self, address: T) -> bool {
