@@ -6,7 +6,7 @@ use egui::{Align, Grid, Layout, RichText, TextEdit, Ui, Window};
 use egui_extras::{Column, TableBuilder};
 use s32x_core::WhichCpu;
 use s32x_core::api::debug::{
-    Sega32XDebugCommand, Sega32XDebugState, Sh2BreakStatus, Sh2Breakpoint,
+    Sega32XDebugCommand, Sega32XDebugState, Sh2BreakStatus, Sh2Breakpoint, Sh2Breakpoints,
 };
 use sh2_emu::{DisassembledInstruction, MemoryAccessSize, ReadType, Sh2};
 use std::ops::Range;
@@ -68,6 +68,57 @@ impl DisassemblyArea {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct S32XInterruptBreakpoints {
+    vertical: bool,
+    horizontal: bool,
+    command: bool,
+    pwm: bool,
+    level_5: bool,
+    level_4: bool,
+    level_3: bool,
+    level_2: bool,
+}
+
+impl S32XInterruptBreakpoints {
+    fn render(&mut self, ui: &mut Ui) -> BreakpointWindowResponse {
+        ui.separator();
+
+        let mut changed = false;
+
+        for (field, label) in [
+            (&mut self.vertical, "Break on vertical interrupt (Level 12)"),
+            (&mut self.horizontal, "Break on horizontal interrupt (Level 10)"),
+            (&mut self.command, "Break on command interrupt (Level 8)"),
+            (&mut self.pwm, "Break on PWM interrupt (Level 6)"),
+            (&mut self.level_5, "Break on level 5 interrupt"),
+            (&mut self.level_4, "Break on level 4 interrupt"),
+            (&mut self.level_3, "Break on level 3 interrupt"),
+            (&mut self.level_2, "Break on level 2 interrupt"),
+        ] {
+            changed |= ui.checkbox(field, label).changed();
+        }
+
+        BreakpointWindowResponse::from_changed(changed)
+    }
+
+    fn levels(&self) -> Vec<u8> {
+        [
+            (self.vertical, 12),
+            (self.horizontal, 10),
+            (self.command, 8),
+            (self.pwm, 6),
+            (self.level_5, 5),
+            (self.level_4, 4),
+            (self.level_3, 3),
+            (self.level_2, 2),
+        ]
+        .into_iter()
+        .filter_map(|(field, level)| field.then_some(level))
+        .collect()
+    }
+}
+
 pub struct Sh2DebugWindowState {
     pub which: WhichCpu,
     pub disassembly_open: bool,
@@ -80,6 +131,7 @@ pub struct Sh2DebugWindowState {
     pub disassembly_selected_pcs: AddressSet<u32>,
     pub break_status_last_frame: Sh2BreakStatus,
     pub breakpoints: BreakpointsWidget<u32>,
+    pub interrupt_breakpoints: S32XInterruptBreakpoints,
 }
 
 impl Sh2DebugWindowState {
@@ -96,6 +148,7 @@ impl Sh2DebugWindowState {
             disassembly_selected_pcs: AddressSet::new(),
             break_status_last_frame: Sh2BreakStatus::default(),
             breakpoints: BreakpointsWidget::new(format!("{which:?}_breakpoints")),
+            interrupt_breakpoints: S32XInterruptBreakpoints::default(),
         }
     }
 
@@ -439,11 +492,11 @@ pub fn render_breakpoints_window(
 ) {
     let window_title = state.which.breakpoints_window_title();
     let response =
-        state.breakpoints.show_window(ctx, window_title, &mut state.breakpoints_open, |_| {
-            BreakpointWindowResponse::NotChanged
+        state.breakpoints.show_window(ctx, window_title, &mut state.breakpoints_open, |ui| {
+            state.interrupt_breakpoints.render(ui)
         });
     if response == BreakpointWindowResponse::Changed {
-        let breakpoints = state
+        let memory_breakpoints = state
             .breakpoints
             .breakpoints()
             .iter()
@@ -456,8 +509,13 @@ pub fn render_breakpoints_window(
             })
             .collect();
 
-        let _ = command_sender
-            .send(Sega32XDebugCommand::UpdateSh2Breakpoints(state.which, breakpoints));
+        let _ = command_sender.send(Sega32XDebugCommand::UpdateSh2Breakpoints(
+            state.which,
+            Sh2Breakpoints {
+                memory: memory_breakpoints,
+                interrupt: state.interrupt_breakpoints.levels(),
+            },
+        ));
     }
 }
 

@@ -19,6 +19,7 @@ use genesis_core::memory::debug::GenesisMemory;
 use genesis_core::ym2612::Ym2612;
 use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
 use jgenesis_common::frontend::{AudioOutput, InputPoller, Renderer, SaveWriter, TickResult};
+use jgenesis_common::num::GetBit;
 use jgenesis_common::sync::SharedVarSender;
 use jgenesis_proc_macros::EnumAll;
 use m68000_emu::M68000;
@@ -52,8 +53,14 @@ pub struct Sh2Breakpoint {
     pub execute: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Sh2Breakpoints {
+    pub memory: Vec<Sh2Breakpoint>,
+    pub interrupt: Vec<u8>,
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
-pub(crate) struct Sh2Breakpoints {
+pub(crate) struct Sh2BreakpointsParsed {
     read_byte: Vec<(u32, u32)>,
     read_word: Vec<(u32, u32)>,
     read_longword: Vec<(u32, u32)>,
@@ -61,11 +68,12 @@ pub(crate) struct Sh2Breakpoints {
     write_word: Vec<(u32, u32)>,
     write_longword: Vec<(u32, u32)>,
     execute: Vec<(u32, u32)>,
+    interrupt_bitset: u16,
 }
 
-impl Sh2Breakpoints {
+impl Sh2BreakpointsParsed {
     #[must_use]
-    pub fn new(breakpoints: &[Sh2Breakpoint]) -> Self {
+    pub fn new(breakpoints: &Sh2Breakpoints) -> Self {
         let mut read_byte = Vec::new();
         let mut read_word = Vec::new();
         let mut read_longword = Vec::new();
@@ -74,7 +82,7 @@ impl Sh2Breakpoints {
         let mut write_longword = Vec::new();
         let mut execute = Vec::new();
 
-        for &breakpoint in breakpoints {
+        for &breakpoint in &breakpoints.memory {
             if breakpoint.read {
                 read_byte.push((breakpoint.start_address, breakpoint.end_address));
                 read_word.push((breakpoint.start_address & !1, breakpoint.end_address & !1));
@@ -92,6 +100,9 @@ impl Sh2Breakpoints {
             }
         }
 
+        let interrupt_bitset =
+            breakpoints.interrupt.iter().map(|&level| 1 << (level & 15)).fold(0, |a, b| a | b);
+
         Self {
             read_byte,
             read_word,
@@ -100,12 +111,13 @@ impl Sh2Breakpoints {
             write_word,
             write_longword,
             execute,
+            interrupt_bitset,
         }
     }
 
     #[must_use]
     pub fn none() -> Self {
-        Self::new(&[])
+        Self::new(&Sh2Breakpoints::default())
     }
 
     #[must_use]
@@ -132,8 +144,14 @@ impl Sh2Breakpoints {
         addresses.iter().any(|&(start, end)| (start..=end).contains(&address))
     }
 
+    #[must_use]
     pub fn should_break_execute(&self, address: u32) -> bool {
         self.execute.iter().any(|&(start, end)| (start..=end).contains(&address))
+    }
+
+    #[must_use]
+    pub fn should_break_interrupt(&self, interrupt_level: u8) -> bool {
+        self.interrupt_bitset.bit(interrupt_level & 15)
     }
 }
 
@@ -141,7 +159,7 @@ impl Sh2Breakpoints {
 pub enum Sega32XDebugCommand {
     EditGenesisMemory(GenesisMemoryArea, usize, u8),
     Edit32XMemory(S32XMemoryArea, usize, u8),
-    UpdateSh2Breakpoints(WhichCpu, Vec<Sh2Breakpoint>),
+    UpdateSh2Breakpoints(WhichCpu, Sh2Breakpoints),
     Update68kBreakpoints(M68000Breakpoints),
     UpdateZ80Breakpoints(Vec<Z80Breakpoint>),
     BreakResume,
@@ -396,7 +414,7 @@ pub struct Sega32XDebugger {
     command_receiver: Receiver<Sega32XDebugCommand>,
     state_sender: SharedVarSender<Sega32XDebugState>,
     last_sh2_pc: [u32; 2],
-    sh2_breakpoints: [Sh2Breakpoints; 2],
+    sh2_breakpoints: [Sh2BreakpointsParsed; 2],
     sh2_break_status: Arc<Sh2BreakStatusAtomic>,
     sh2_break_step: Option<(WhichCpu, u32)>,
     m68k_breakpoints: M68000BreakpointManager,
@@ -456,7 +474,7 @@ impl Sega32XDebugger {
             command_receiver,
             state_sender,
             last_sh2_pc: array::from_fn(|_| 0),
-            sh2_breakpoints: array::from_fn(|_| Sh2Breakpoints::none()),
+            sh2_breakpoints: array::from_fn(|_| Sh2BreakpointsParsed::none()),
             sh2_break_status: Arc::new(Sh2BreakStatusAtomic::new()),
             sh2_break_step: None,
             m68k_breakpoints: M68000BreakpointManager::new(),
@@ -501,7 +519,7 @@ impl Sega32XDebugger {
                 debug_view.apply_32x_memory_edit(memory_area, address, value);
             }
             Sega32XDebugCommand::UpdateSh2Breakpoints(which, breakpoints) => {
-                self.sh2_breakpoints[which as usize] = Sh2Breakpoints::new(&breakpoints);
+                self.sh2_breakpoints[which as usize] = Sh2BreakpointsParsed::new(&breakpoints);
             }
             Sega32XDebugCommand::Update68kBreakpoints(breakpoints) => {
                 self.m68k_breakpoints.breakpoints = M68000BreakpointsParsed::new(&breakpoints);
@@ -528,7 +546,7 @@ impl Sega32XDebugger {
         }
     }
 
-    pub(crate) fn sh2_breakpoints(&self, which: WhichCpu) -> &Sh2Breakpoints {
+    pub(crate) fn sh2_breakpoints(&self, which: WhichCpu) -> &Sh2BreakpointsParsed {
         &self.sh2_breakpoints[which as usize]
     }
 
@@ -639,7 +657,7 @@ impl Sega32XDebugger {
                 Ok(command) => self.process_command(command, debug_view),
                 Err(_) => {
                     // Debugger window was closed
-                    self.sh2_breakpoints = array::from_fn(|_| Sh2Breakpoints::none());
+                    self.sh2_breakpoints = array::from_fn(|_| Sh2BreakpointsParsed::none());
                     self.sh2_break_step = None;
                     self.m68k_breakpoints.clear();
                     self.z80_breakpoints.clear();

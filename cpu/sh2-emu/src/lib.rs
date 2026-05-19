@@ -18,7 +18,7 @@ mod wdt;
 
 use crate::bus::{AccessContext, BusInterface, Sh2LookupTable};
 use crate::cache::CpuCache;
-use crate::debug::BusDebugExt;
+use crate::debug::{BusDebugExt, Sh2Debugger};
 use crate::divu::DivisionUnit;
 use crate::dma::DmaController;
 use crate::frt::FreeRunTimer;
@@ -466,6 +466,12 @@ impl Sh2 {
         vector_number: u32,
         bus: &mut Bus,
     ) {
+        if let Some(mut debug_view) = bus.debug_view()
+            && let Some(interrupt_level) = interrupt_level
+        {
+            debug_view.check_interrupt(interrupt_level, self);
+        }
+
         let mut sp = self.registers.gpr[SP].wrapping_sub(4);
         self.write_longword(sp, self.registers.sr.into(), bus);
 

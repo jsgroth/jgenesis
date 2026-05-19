@@ -35,6 +35,9 @@ pub trait Sh2Debugger {
 
     /// Called for each instruction before it executes
     fn check_execute(&mut self, pc: u32, opcode: u16, cpu: &mut Sh2);
+
+    /// Called for each interrupt right before handling it
+    fn check_interrupt(&mut self, interrupt_level: u8, cpu: &mut Sh2);
 }
 
 /// Dummy [`Sh2Debugger`] implementation that exists only to satisfy type constraints.
@@ -79,6 +82,10 @@ impl Sh2Debugger for DummySh2Debugger {
     }
 
     fn check_execute(&mut self, _pc: u32, _opcode: u16, _cpu: &mut Sh2) {
+        unimplemented!("NullSh2Debugger is not a real debugger implementation")
+    }
+
+    fn check_interrupt(&mut self, _interrupt_level: u8, _cpu: &mut Sh2) {
         unimplemented!("NullSh2Debugger is not a real debugger implementation")
     }
 }

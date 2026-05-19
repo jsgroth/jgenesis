@@ -1,7 +1,7 @@
 use crate::api::debug::{
     DebugWhichCpu, GenesisComponents, Sega32XDebugger, Sega32XDebuggerFor68k,
     Sega32XDebuggerForSh2, Sega32XDebuggerForSh2Raw, Sega32XDebuggerForZ80,
-    Sega32XEmulatorDebugView, Sega32XMediumView, Sh2Breakpoints,
+    Sega32XEmulatorDebugView, Sega32XMediumView, Sh2BreakpointsParsed,
 };
 use crate::bus::{OtherCpu, Sh2Bus, WhichCpu};
 use crate::core::{Sega32X, Sega32XBus};
@@ -149,7 +149,7 @@ impl<'a> Sh2BusDebugView<'a> {
         }
     }
 
-    fn breakpoints(&self) -> &Sh2Breakpoints {
+    fn breakpoints(&self) -> &Sh2BreakpointsParsed {
         unsafe { self.0.debugger.debugger.as_ref().sh2_breakpoints(self.0.bus.which) }
     }
 
@@ -240,6 +240,22 @@ impl Sh2Debugger for Sh2BusDebugView<'_> {
         }
 
         if break_step || break_execute {
+            self.handle_breakpoint(cpu);
+        }
+    }
+
+    fn check_interrupt(&mut self, interrupt_level: u8, cpu: &mut Sh2) {
+        let which = self.0.bus.which;
+
+        let break_interrupt = unsafe {
+            self.0
+                .debugger
+                .debugger
+                .as_mut()
+                .sh2_breakpoints(which)
+                .should_break_interrupt(interrupt_level)
+        };
+        if break_interrupt {
             self.handle_breakpoint(cpu);
         }
     }
@@ -384,7 +400,7 @@ mod tests {
     use super::*;
     use crate::GenesisVdp;
     use crate::api::Sega32XEmulatorConfig;
-    use crate::api::debug::{S32XMemoryArea, Sega32XDebugCommand, Sh2Breakpoint};
+    use crate::api::debug::{S32XMemoryArea, Sega32XDebugCommand, Sh2Breakpoint, Sh2Breakpoints};
     use crate::core::SerialInterface;
     use crate::pwm::PwmChip;
     use crate::registers::SystemRegisters;
@@ -532,13 +548,16 @@ mod tests {
         debugger_handle
             .send_command(Sega32XDebugCommand::UpdateSh2Breakpoints(
                 WhichCpu::Master,
-                vec![Sh2Breakpoint {
-                    start_address: COMM_PORT_0,
-                    end_address: COMM_PORT_0,
-                    read: true,
-                    write: true,
-                    execute: true,
-                }],
+                Sh2Breakpoints {
+                    memory: vec![Sh2Breakpoint {
+                        start_address: COMM_PORT_0,
+                        end_address: COMM_PORT_0,
+                        read: true,
+                        write: true,
+                        execute: true,
+                    }],
+                    interrupt: vec![],
+                },
             ))
             .unwrap();
 
