@@ -72,7 +72,7 @@ jobs:
 
     - name: Install latest nightly Rust toolchain
       run: |
-        rustup toolchain add nightly --component rust-src
+        rustup toolchain add nightly --component rust-src --component miri
 
     - name: Run miri tests
       run: |
