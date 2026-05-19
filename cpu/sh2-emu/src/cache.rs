@@ -14,6 +14,7 @@
 //!   objects/"sprites" that are partially offscreen will not display at all until they are entirely
 //!   onscreen.
 
+use crate::debug::CacheDebugState;
 use bincode::{Decode, Encode};
 use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
 use jgenesis_common::num::{GetBit, U16Ext};
@@ -403,6 +404,15 @@ impl CpuCache {
 
     pub fn debug_view(&mut self) -> impl DebugMemoryView {
         DebugWordsView(self.ram.as_mut_slice(), Endian::Big)
+    }
+
+    pub(crate) fn debug_state(&self) -> CacheDebugState {
+        CacheDebugState {
+            enabled: self.control.cache_enabled,
+            instruction_replacement_enabled: !self.control.disable_instruction_replacement,
+            data_replacement_enabled: !self.control.disable_data_replacement,
+            mode: self.control.mode,
+        }
     }
 }
 

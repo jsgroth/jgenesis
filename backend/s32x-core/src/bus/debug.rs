@@ -136,7 +136,7 @@ impl<'a> Sh2BusDebugView<'a> {
                         audio_ram: self.0.debugger.audio_ram.as_mut(),
                         z80_bank_number: self.0.debugger.z80_bank_number,
                     },
-                    self.0.debugger.main_pending_writes.as_mut(),
+                    self.0.debugger.main_pending_writes.as_ref(),
                     self.0.debugger.vdp.as_mut(),
                     self.0.debugger.ym2612.as_mut(),
                     self.0.debugger.psg.as_mut(),

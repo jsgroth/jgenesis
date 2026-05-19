@@ -3,6 +3,7 @@
 //! Can also be used as an interval timer, and that is the only mode that is emulated. No 32X software
 //! uses the WDT as a watchdog timer
 
+use crate::debug::WatchdogTimerState;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 
@@ -140,5 +141,14 @@ impl WatchdogTimer {
 
     pub fn overflow_flag(&self) -> bool {
         self.interval_overflow_flag
+    }
+
+    pub(crate) fn debug_state(&self) -> WatchdogTimerState {
+        WatchdogTimerState {
+            enabled: self.enabled,
+            counter: self.timer_counter,
+            system_clock_divider: 1 << self.system_clock_shift,
+            overflow_flag: self.interval_overflow_flag,
+        }
     }
 }

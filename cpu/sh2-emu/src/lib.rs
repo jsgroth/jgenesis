@@ -35,6 +35,9 @@ use jgenesis_common::debug::DebugMemoryView;
 use std::env;
 use std::fmt::Debug;
 
+pub use cache::CacheMode;
+pub use dma::{DmaAddressMode, DmaChannel, DmaChannelControl, DmaTransferUnit};
+
 const RESET_PC_VECTOR: u32 = 0x00000000;
 const RESET_SP_VECTOR: u32 = 0x00000004;
 

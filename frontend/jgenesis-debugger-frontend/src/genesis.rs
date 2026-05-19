@@ -46,6 +46,7 @@ use segacd_core::api::SegaCdEmulator;
 use segacd_core::api::debug::{
     SegaCdDebugCommand, SegaCdDebugState, SegaCdDebugger, SegaCdDebuggerHandle, SegaCdMemoryArea,
 };
+use sh2_emu::{CacheMode, DmaAddressMode, DmaTransferUnit, Sh2};
 use smsgg_core::psg::Sn76489;
 use std::collections::HashMap;
 use std::error::Error;
@@ -63,6 +64,9 @@ const VDP_STATE_WINDOW_TITLE: &str = "VDP State";
 const S32X_SYSTEM_REGISTERS_WINDOW_TITLE: &str = "32X System Registers";
 const S32X_VDP_REGISTERS_WINDOW_TITLE: &str = "32X VDP Registers";
 const S32X_PWM_REGISTERS_WINDOW_TITLE: &str = "32X PWM Registers";
+
+const MASTER_SH2_REGISTERS_WINDOW_TITLE: &str = "Master SH-2 Registers";
+const SLAVE_SH2_REGISTERS_WINDOW_TITLE: &str = "Slave SH-2 Registers";
 
 const CRAM_ROWS: usize = 4;
 const CRAM_COLS: usize = 16;
@@ -283,6 +287,8 @@ struct State {
     vdp_state_open: bool,
     ym2612: Ym2612DebugWindowState,
     psg_open: bool,
+    master_sh2_registers_open: bool,
+    slave_sh2_registers_open: bool,
     s32x_system_registers_open: bool,
     s32x_vdp_registers_open: bool,
     s32x_pwm_registers_open: bool,
@@ -312,6 +318,8 @@ impl State {
             vdp_state_open: false,
             ym2612: Ym2612DebugWindowState::new(),
             psg_open: false,
+            master_sh2_registers_open: false,
+            slave_sh2_registers_open: false,
             s32x_system_registers_open: false,
             s32x_vdp_registers_open: false,
             s32x_pwm_registers_open: false,
@@ -445,6 +453,18 @@ fn render(
                 }
 
                 if matches!(debug_state, GenesisBasedDebugState::Sega32X(..)) {
+                    if ui.button("Master SH-2 Registers").clicked() {
+                        state.master_sh2_registers_open = true;
+                        crate::move_to_top(ctx.egui_ctx, MASTER_SH2_REGISTERS_WINDOW_TITLE);
+                        ui.close_kind(UiKind::Menu);
+                    }
+
+                    if ui.button("Slave SH-2 Registers").clicked() {
+                        state.slave_sh2_registers_open = true;
+                        crate::move_to_top(ctx.egui_ctx, SLAVE_SH2_REGISTERS_WINDOW_TITLE);
+                        ui.close_kind(UiKind::Menu);
+                    }
+
                     if ui.button("32X System Registers").clicked() {
                         state.s32x_system_registers_open = true;
                         crate::move_to_top(ctx.egui_ctx, S32X_SYSTEM_REGISTERS_WINDOW_TITLE);
@@ -587,6 +607,19 @@ fn render(
     render_z80_debug_windows(ctx.egui_ctx, debug_state, state);
 
     if let GenesisBasedDebugState::Sega32X(debug_state, debugger_handle) = &mut debug_state {
+        render_sh2_registers_window(
+            ctx.egui_ctx,
+            &mut debug_state.sh2_master,
+            MASTER_SH2_REGISTERS_WINDOW_TITLE,
+            &mut state.master_sh2_registers_open,
+        );
+        render_sh2_registers_window(
+            ctx.egui_ctx,
+            &mut debug_state.sh2_slave,
+            SLAVE_SH2_REGISTERS_WINDOW_TITLE,
+            &mut state.slave_sh2_registers_open,
+        );
+
         render_32x_palette_window(ctx.egui_ctx, debug_state, &mut state.s32x_palette);
         render_32x_system_registers_window(
             ctx.egui_ctx,
@@ -1201,6 +1234,133 @@ fn render_32x_color_grid(id: impl Hash, ui: &mut Ui, index: usize, entry: CramEn
         ui.label(format_display_color(entry.color));
         ui.end_row();
     });
+}
+
+fn render_sh2_registers_window(
+    ctx: &egui::Context,
+    sh2: &mut Sh2,
+    window_title: &str,
+    open: &mut bool,
+) {
+    // Roughly 23.01 MHz
+    const SH2_CLOCK_RATE: f64 = genesis_core::audio::NTSC_GENESIS_MCLK_FREQUENCY
+        / (genesis_config::NATIVE_M68K_DIVIDER as f64)
+        * (genesis_config::NATIVE_SH2_MULTIPLIER as f64);
+
+    Window::new(window_title)
+        .open(open)
+        .constrain(false)
+        .default_pos(crate::rand_window_pos())
+        .show(ctx, |ui| {
+            ScrollArea::vertical().show(ui, |ui| {
+                let state = sh2.sh7604_debug_state();
+
+                crate::render_registers_table(
+                    ui,
+                    "Cache Control",
+                    &[
+                        ("Enabled", &state.cache.enabled.to_string()),
+                        (
+                            "Instruction replacement",
+                            &state.cache.instruction_replacement_enabled.to_string(),
+                        ),
+                        ("Data replacement", &state.cache.data_replacement_enabled.to_string()),
+                        ("Mode", cache_mode_str(state.cache.mode)),
+                    ],
+                );
+
+                ui.separator();
+
+                crate::render_registers_table(
+                    ui,
+                    "Internal Interrupts",
+                    &[
+                        ("WDT interrupt level", &state.interrupts.wdt_priority.to_string()),
+                        ("WDT vector number", &state.interrupts.wdt_vector.to_string()),
+                        ("DMAC interrupt level", &state.interrupts.dmac_priority.to_string()),
+                        ("DMA0 vector number", &state.interrupts.dma0_vector.to_string()),
+                        ("DMA1 vector number", &state.interrupts.dma1_vector.to_string()),
+                        ("SCI interrupt level", &state.interrupts.sci_priority.to_string()),
+                        ("SCI vector number", &state.interrupts.sci_vector.to_string()),
+                    ],
+                );
+
+                ui.separator();
+
+                let wdt_frequency = SH2_CLOCK_RATE / (state.wdt.system_clock_divider as f64);
+
+                crate::render_registers_table(
+                    ui,
+                    "Watchdog Timer (WDT)",
+                    &[
+                        ("Enabled", &state.wdt.enabled.to_string()),
+                        ("Clock divider", &format!("{}", state.wdt.system_clock_divider)),
+                        ("Frequency", &format!("{} Hz", wdt_frequency.round())),
+                        ("Counter", &state.wdt.counter.to_string()),
+                        ("Overflow flag", &state.wdt.overflow_flag.to_string()),
+                    ],
+                );
+
+                for (i, channel) in state.dmac.channels.iter().enumerate() {
+                    ui.separator();
+
+                    crate::render_registers_table(
+                        ui,
+                        &format!("DMA Channel {i} (DMAC)"),
+                        &[
+                            (
+                                "DMA master enabled",
+                                &state.dmac.operation.dma_master_enabled.to_string(),
+                            ),
+                            ("Channel enabled", &channel.control.dma_enabled.to_string()),
+                            ("Auto request", &channel.control.auto_request.to_string()),
+                            ("Transfer unit", transfer_unit_str(channel.control.transfer_size)),
+                            (
+                                "Source address mode",
+                                dma_address_mode_str(channel.control.source_address_mode),
+                            ),
+                            (
+                                "Destination address mode",
+                                dma_address_mode_str(channel.control.destination_address_mode),
+                            ),
+                            ("Source address", &format!("${:08X}", channel.source_address)),
+                            (
+                                "Destination address",
+                                &format!("${:08X}", channel.destination_address),
+                            ),
+                            ("Length", &format!("0x{:08X}", channel.transfer_count)),
+                            ("Interrupt enabled", &channel.control.interrupt_enabled.to_string()),
+                            ("DMA complete flag", &channel.control.dma_complete.to_string()),
+                        ],
+                    );
+                }
+            });
+        });
+}
+
+fn cache_mode_str(mode: CacheMode) -> &'static str {
+    match mode {
+        CacheMode::FourWay => "4-way",
+        CacheMode::TwoWay => "2-way",
+    }
+}
+
+fn transfer_unit_str(unit: DmaTransferUnit) -> &'static str {
+    match unit {
+        DmaTransferUnit::Byte => "Byte",
+        DmaTransferUnit::Word => "Word",
+        DmaTransferUnit::Longword => "Longword",
+        DmaTransferUnit::SixteenByte => "16-byte",
+    }
+}
+
+fn dma_address_mode_str(mode: DmaAddressMode) -> &'static str {
+    match mode {
+        DmaAddressMode::Fixed => "Fixed",
+        DmaAddressMode::AutoIncrement => "Increment",
+        DmaAddressMode::AutoDecrement => "Decrement",
+        DmaAddressMode::Invalid => "Invalid",
+    }
 }
 
 fn render_32x_palette_window(

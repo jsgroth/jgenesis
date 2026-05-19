@@ -155,7 +155,7 @@ impl DmaChannelControl {
         self.dma_enabled = value.bit(0);
     }
 
-    pub fn interrupt_pending(&self) -> bool {
+    pub(crate) fn interrupt_pending(&self) -> bool {
         self.interrupt_enabled && self.dma_complete && self.dma_enabled
     }
 }

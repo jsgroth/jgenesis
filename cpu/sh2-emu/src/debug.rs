@@ -1,5 +1,8 @@
 use crate::Sh2;
 use crate::bus::{AccessContext, BusInterface, OpSize};
+use crate::cache::CacheMode;
+use crate::divu::DivisionUnit;
+use crate::dma::DmaController;
 
 pub trait Sh2Debugger {
     /// Called for all reads, including reads to internal SH-2/SH7604 addresses and reads that hit in cache
@@ -228,5 +231,62 @@ impl<Bus: BusInterface> BusDebugExt for Bus {
     fn check_execute(&mut self, pc: u32, opcode: u16, cpu: &mut Sh2) {
         let Some(mut debugger) = self.debug_view() else { return };
         debugger.check_execute(pc, opcode, cpu);
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CacheDebugState {
+    pub enabled: bool,
+    pub instruction_replacement_enabled: bool,
+    pub data_replacement_enabled: bool,
+    pub mode: CacheMode,
+}
+
+#[derive(Debug, Clone)]
+pub struct InterruptDebugState {
+    pub wdt_priority: u8,
+    pub dmac_priority: u8,
+    pub sci_priority: u8,
+    pub wdt_vector: u8,
+    pub dma0_vector: u8,
+    pub dma1_vector: u8,
+    pub sci_vector: u8,
+}
+
+#[derive(Debug, Clone)]
+pub struct WatchdogTimerState {
+    pub enabled: bool,
+    pub counter: u8,
+    pub system_clock_divider: u64,
+    pub overflow_flag: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct Sh7604DebugState {
+    pub cache: CacheDebugState,
+    pub interrupts: InterruptDebugState,
+    pub wdt: WatchdogTimerState,
+    pub dmac: DmaController,
+    pub divu: DivisionUnit,
+}
+
+impl Sh2 {
+    #[must_use]
+    pub fn sh7604_debug_state(&self) -> Sh7604DebugState {
+        Sh7604DebugState {
+            cache: self.cache.debug_state(),
+            interrupts: InterruptDebugState {
+                wdt_priority: self.sh7604.interrupts.wdt_priority,
+                dmac_priority: self.sh7604.interrupts.dmac_priority,
+                sci_priority: self.sh7604.interrupts.sci_priority,
+                wdt_vector: self.sh7604.interrupts.wdt_vector,
+                dma0_vector: self.sh7604.interrupts.dma0_vector,
+                dma1_vector: self.sh7604.interrupts.dma1_vector,
+                sci_vector: self.sh7604.interrupts.sci_rx_ok_vector,
+            },
+            wdt: self.watchdog_timer.debug_state(),
+            dmac: self.dmac.clone(),
+            divu: self.divu.clone(),
+        }
     }
 }
