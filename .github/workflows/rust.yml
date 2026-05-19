@@ -60,6 +60,23 @@ jobs:
     - name: Run tests with unstable cores enabled
       run: |
         cargo test --features unstable-cores
+  miri:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Install latest stable Rust toolchain
+      run: |
+        rustup update
+
+    - name: Install latest nightly Rust toolchain
+      run: |
+        rustup toolchain add nightly --component rust-src
+
+    - name: Run miri tests
+      run: |
+        scripts/run-miri-tests.sh
   build-web:
     runs-on: ubuntu-latest
 
