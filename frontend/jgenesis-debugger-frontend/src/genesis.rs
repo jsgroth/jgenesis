@@ -18,8 +18,8 @@ use crate::{DebugRenderContext, DebuggerMainProcess, DebuggerRunnerProcess, memv
 use egui::panel::{Side, TopBottomSide};
 use egui::scroll_area::ScrollBarVisibility;
 use egui::{
-    CentralPanel, Color32, CornerRadius, Grid, Image, Popup, Pos2, Rect, Sense, SidePanel, Stroke,
-    StrokeKind, TopBottomPanel, Ui, UiKind, Vec2, Window,
+    CentralPanel, Color32, CornerRadius, Grid, Image, Popup, Pos2, Rect, ScrollArea, Sense,
+    SidePanel, Stroke, StrokeKind, TopBottomPanel, Ui, UiKind, Vec2, Window,
 };
 use egui_extras::{Column, TableBuilder};
 use genesis_config::GenesisInputs;
@@ -28,7 +28,8 @@ use genesis_core::api::debug::{
     CopySpriteAttributesResult, CramEntry, GenesisDebugCommand, GenesisDebugState, GenesisDebugger,
     GenesisDebuggerHandle, GenesisMemoryArea, SpriteAttributeEntry,
 };
-use genesis_core::vdp::ColorModifier;
+use genesis_core::vdp::debug::VdpDebugState;
+use genesis_core::vdp::{ColorModifier, DataPortLocation};
 use genesis_core::ym2612::Ym2612;
 use jgenesis_common::debug::{DebugMemoryView, DebugViewWithWriteHook, Endian};
 use jgenesis_common::frontend::{
@@ -58,6 +59,7 @@ const SPRITE_ATTRIBUTES_WINDOW_TITLE: &str = "Sprite Attribute Table";
 const S32X_PALETTE_WINDOW_TITLE: &str = "32X Palette RAM";
 
 const VDP_REGISTERS_WINDOW_TITLE: &str = "VDP Registers";
+const VDP_STATE_WINDOW_TITLE: &str = "VDP State";
 const S32X_SYSTEM_REGISTERS_WINDOW_TITLE: &str = "32X System Registers";
 const S32X_VDP_REGISTERS_WINDOW_TITLE: &str = "32X VDP Registers";
 const S32X_PWM_REGISTERS_WINDOW_TITLE: &str = "32X PWM Registers";
@@ -278,6 +280,7 @@ struct State {
     sh2_master: Sh2DebugWindowState,
     sh2_slave: Sh2DebugWindowState,
     vdp_registers_open: bool,
+    vdp_state_open: bool,
     ym2612: Ym2612DebugWindowState,
     psg_open: bool,
     s32x_system_registers_open: bool,
@@ -306,6 +309,7 @@ impl State {
             sh2_master: Sh2DebugWindowState::new(WhichCpu::Master),
             sh2_slave: Sh2DebugWindowState::new(WhichCpu::Slave),
             vdp_registers_open: false,
+            vdp_state_open: false,
             ym2612: Ym2612DebugWindowState::new(),
             psg_open: false,
             s32x_system_registers_open: false,
@@ -332,35 +336,16 @@ macro_rules! match_each_state_variant {
 }
 
 impl GenesisBasedDebugState<'_> {
+    fn vdp(&self) -> &VdpDebugState {
+        match_each_state_variant!(self, state => state.vdp())
+    }
+
     fn ym2612(&self) -> &Ym2612 {
         match_each_state_variant!(self, state => state.ym2612())
     }
 
     fn psg(&self) -> &Sn76489 {
         match_each_state_variant!(self, state => state.psg())
-    }
-
-    fn copy_cram(&mut self, out: &mut [CramEntry], modifier: ColorModifier) {
-        match_each_state_variant!(self, state => state.copy_cram(out, modifier));
-    }
-
-    fn copy_vram(&mut self, out: &mut [Color], palette: u8, row_len: usize) {
-        match_each_state_variant!(self, state => state.copy_vram(out, palette, row_len));
-    }
-
-    fn dump_vdp_registers(&mut self, callback: impl FnMut(&str, &[(&str, &str)])) {
-        match_each_state_variant!(self, state => state.dump_vdp_registers(callback));
-    }
-
-    fn copy_h_scroll(&mut self, out: &mut [(u16, u16)]) {
-        match_each_state_variant!(self, state => state.copy_h_scroll(out));
-    }
-
-    fn copy_sprite_attributes(
-        &mut self,
-        out: &mut [SpriteAttributeEntry],
-    ) -> CopySpriteAttributesResult {
-        match_each_state_variant!(self, state => state.copy_sprite_attributes(out))
     }
 
     fn has_memory(&self, memory_area: MemoryArea) -> bool {
@@ -436,9 +421,15 @@ fn render(
             });
 
             ui.menu_button("Register Viewers", |ui| {
-                if ui.button("VDP").clicked() {
+                if ui.button("VDP Registers").clicked() {
                     state.vdp_registers_open = true;
                     crate::move_to_top(ctx.egui_ctx, VDP_REGISTERS_WINDOW_TITLE);
+                    ui.close_kind(UiKind::Menu);
+                }
+
+                if ui.button("VDP State").clicked() {
+                    state.vdp_state_open = true;
+                    crate::move_to_top(ctx.egui_ctx, VDP_STATE_WINDOW_TITLE);
                     ui.close_kind(UiKind::Menu);
                 }
 
@@ -574,6 +565,8 @@ fn render(
     );
 
     render_vdp_registers_window(ctx.egui_ctx, debug_state, &mut state.vdp_registers_open);
+
+    render_vdp_state_window(ctx.egui_ctx, debug_state, &mut state.vdp_state_open);
 
     ym2612debug::render_debug_window(
         ctx.egui_ctx,
@@ -897,7 +890,7 @@ fn render_cram_window(
         .constrain(false)
         .default_size([screen_width * 0.95, 225.0])
         .show(ctx, |ui| {
-            emu_state.copy_cram(state.entry_buffer.as_mut_slice(), state.modifier);
+            emu_state.vdp().copy_cram(state.entry_buffer.as_mut_slice(), state.modifier);
             for (entry, color) in
                 iter::zip(state.entry_buffer.iter(), state.color_buffer.iter_mut())
             {
@@ -1030,7 +1023,7 @@ fn render_vram_window(
                 }
             });
 
-            emu_state.copy_vram(state.buffer.as_mut_slice(), state.palette, 64);
+            emu_state.vdp().copy_vram(state.buffer.as_mut_slice(), state.palette, 64);
 
             let mut height = ui.available_width() * 0.45;
             if height > ui.available_height() {
@@ -1059,7 +1052,7 @@ fn render_h_scroll_window(
         .default_pos(crate::rand_window_pos())
         .default_width(200.0)
         .show(ctx, |ui| {
-            emu_state.copy_h_scroll(state.buffer.as_mut_slice());
+            emu_state.vdp().copy_h_scroll(state.buffer.as_mut_slice());
 
             crate::brighten_faint_bg_color(ui);
 
@@ -1113,7 +1106,7 @@ fn render_sprite_attributes_window(
         .default_width(500.0)
         .show(ctx, |ui| {
             let CopySpriteAttributesResult { sprite_table_len, top_left_x, top_left_y } =
-                emu_state.copy_sprite_attributes(state.buffer.as_mut_slice());
+                emu_state.vdp().copy_sprite_attributes(state.buffer.as_mut_slice());
 
             ui.checkbox(&mut state.adjust_coordinates, "Shift coordinates to top-left of screen");
 
@@ -1320,8 +1313,88 @@ fn render_vdp_registers_window(
     open: &mut bool,
 ) {
     crate::render_registers_window(ctx, "VDP Registers", open, |ui| {
-        emu_state.dump_vdp_registers(crate::dump_registers_callback(ui));
+        emu_state.vdp().dump_registers(crate::dump_registers_callback(ui));
     });
+}
+
+fn render_vdp_state_window(
+    ctx: &egui::Context,
+    emu_state: &mut GenesisBasedDebugState<'_>,
+    open: &mut bool,
+) {
+    Window::new(VDP_STATE_WINDOW_TITLE)
+        .open(open)
+        .constrain(false)
+        .default_pos(crate::rand_window_pos())
+        .show(ctx, |ui| {
+            ScrollArea::vertical().show(ui, |ui| {
+                let state = emu_state.vdp().internal_state();
+
+                crate::render_registers_table(
+                    ui,
+                    "Timing",
+                    &[
+                        ("Scanline", &state.scanline.to_string()),
+                        ("Scanline MCLK cycles", &state.scanline_mclk.to_string()),
+                        ("Scanline pixel", &state.pixel.to_string()),
+                        (
+                            "Active display pixel range",
+                            &format!(
+                                "{}-{}",
+                                state.active_display_pixels.start,
+                                state.active_display_pixels.end - 1
+                            ),
+                        ),
+                        ("VBlank flag", ["0", "1"][usize::from(state.vblank_flag)]),
+                        ("H (Internal)", &format!("0x{:03X}", state.internal_h)),
+                        ("H (External)", &format!("0x{:02X}", state.external_h)),
+                        ("V", &format!("0x{:02X}", state.v)),
+                    ],
+                );
+
+                ui.separator();
+
+                crate::render_registers_table(
+                    ui,
+                    "Interrupts",
+                    &[
+                        (
+                            "Vertical interrupt pending",
+                            ["0", "1"][usize::from(state.v_interrupt_pending)],
+                        ),
+                        (
+                            "Horizontal interrupt pending",
+                            ["0", "1"][usize::from(state.h_interrupt_pending)],
+                        ),
+                        ("Horizontal interrupt counter", &state.h_interrupt_counter.to_string()),
+                    ],
+                );
+
+                ui.separator();
+
+                crate::render_registers_table(
+                    ui,
+                    "Control Port",
+                    &[
+                        ("Mode", &format!("{:?}", state.data_port_mode)),
+                        ("Location", data_port_location_str(state.data_port_location)),
+                        ("Address", &format!("${:05X}", state.data_port_address)),
+                        ("Write flag", &format!("{:?}", state.write_flag)),
+                        ("DMA active", ["0", "1"][usize::from(state.dma_active)]),
+                    ],
+                );
+            });
+        });
+}
+
+fn data_port_location_str(location: DataPortLocation) -> &'static str {
+    match location {
+        DataPortLocation::Vram => "VRAM",
+        DataPortLocation::Vram8Bit => "VRAM (8-bit)",
+        DataPortLocation::Cram => "CRAM",
+        DataPortLocation::Vsram => "VSRAM",
+        DataPortLocation::Invalid => "Invalid",
+    }
 }
 
 fn render_32x_system_registers_window(

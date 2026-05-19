@@ -38,8 +38,8 @@
 use crate::GenesisEmulator;
 use crate::cartridge::Cartridge;
 use crate::memory::MainBusWrites;
+use crate::vdp::Vdp;
 use crate::vdp::debug::VdpDebugState;
-use crate::vdp::{ColorModifier, Vdp};
 use crate::ym2612::Ym2612;
 use jgenesis_common::debug::{
     DebugBytesView, DebugMemoryView, DebugWordsView, EmptyDebugView, Endian,
@@ -169,6 +169,11 @@ impl GenesisDebugState {
     }
 
     #[must_use]
+    pub fn vdp(&self) -> &VdpDebugState {
+        &self.vdp
+    }
+
+    #[must_use]
     pub fn ym2612(&self) -> &Ym2612 {
         &self.ym2612
     }
@@ -176,29 +181,6 @@ impl GenesisDebugState {
     #[must_use]
     pub fn psg(&self) -> &Sn76489 {
         &self.psg
-    }
-
-    pub fn copy_cram(&self, out: &mut [CramEntry], modifier: ColorModifier) {
-        self.vdp.copy_cram(out, modifier);
-    }
-
-    pub fn copy_vram(&self, out: &mut [Color], palette: u8, row_len: usize) {
-        self.vdp.copy_vram(out, palette, row_len);
-    }
-
-    pub fn dump_vdp_registers(&self, callback: impl FnMut(&str, &[(&str, &str)])) {
-        self.vdp.dump_registers(callback);
-    }
-
-    pub fn copy_h_scroll(&self, out: &mut [(u16, u16)]) {
-        self.vdp.copy_h_scroll(out);
-    }
-
-    pub fn copy_sprite_attributes(
-        &self,
-        out: &mut [SpriteAttributeEntry],
-    ) -> CopySpriteAttributesResult {
-        self.vdp.copy_sprite_attributes(out)
     }
 
     #[must_use]

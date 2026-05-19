@@ -164,19 +164,19 @@ impl HorizontalDisplaySize {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum ControlWriteFlag {
+pub enum ControlWriteFlag {
     First,
     Second,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum DataPortMode {
+pub enum DataPortMode {
     Read,
     Write,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum DataPortLocation {
+pub enum DataPortLocation {
     Vram,
     Vram8Bit,
     Cram,

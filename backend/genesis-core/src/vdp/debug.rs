@@ -1,14 +1,38 @@
 use crate::vdp;
 use crate::vdp::{
-    CachedSpriteData, ColorModifier, Cram, SpriteData, Vdp, Vram, Vsram, colors, render, sprites,
+    CachedSpriteData, ColorModifier, ControlWriteFlag, Cram, DataPortLocation, DataPortMode,
+    SpriteData, Vdp, Vram, Vsram, colors, render, sprites,
 };
 use jgenesis_common::debug::{DebugBytesView, DebugMemoryView, DebugWordsView, Endian};
+use std::ops::Range;
 
 use crate::api::debug::{CopySpriteAttributesResult, CramEntry, SpriteAttributeEntry};
 use crate::vdp::colors::ColorTables;
 use crate::vdp::registers::{DebugRegister, Registers};
 use crate::vdp::render::PatternGeneratorRowArgs;
 use jgenesis_common::frontend::Color;
+use jgenesis_common::num::U16Ext;
+
+// Internal state that is mostly not directly readable by software, but can be useful for debugging
+#[derive(Debug, Clone)]
+pub struct VdpInternalDebugState {
+    pub scanline: u16,
+    pub scanline_mclk: u64,
+    pub pixel: u16,
+    pub active_display_pixels: Range<u16>,
+    pub internal_h: u16,
+    pub external_h: u8,
+    pub v: u8,
+    pub vblank_flag: bool,
+    pub v_interrupt_pending: bool,
+    pub h_interrupt_pending: bool,
+    pub h_interrupt_counter: u16,
+    pub data_port_mode: DataPortMode,
+    pub data_port_location: DataPortLocation,
+    pub data_port_address: u32,
+    pub write_flag: ControlWriteFlag,
+    pub dma_active: bool,
+}
 
 #[derive(Debug, Clone)]
 pub struct VdpDebugState {
@@ -20,11 +44,14 @@ pub struct VdpDebugState {
     latched_registers: Registers,
     debug_register: DebugRegister,
     cached_sprite_attributes: Box<[CachedSpriteData]>,
+    internal_state: VdpInternalDebugState,
 }
 
 impl Vdp {
     #[must_use]
     pub fn to_debug_state(&self) -> VdpDebugState {
+        let hv = self.hv_counter_internal(self.state.scanline_mclk_cycles);
+
         VdpDebugState {
             vram: self.vram.clone(),
             cram: self.cram.clone(),
@@ -34,6 +61,27 @@ impl Vdp {
             latched_registers: self.latched_registers.clone(),
             debug_register: self.debug_register,
             cached_sprite_attributes: self.cached_sprite_attributes.clone(),
+            internal_state: VdpInternalDebugState {
+                scanline: self.state.scanline,
+                scanline_mclk: self.state.scanline_mclk_cycles,
+                pixel: self.state.pixel,
+                active_display_pixels: self
+                    .registers
+                    .horizontal_display_size
+                    .active_display_h_range(),
+                internal_h: hv.internal_h,
+                external_h: hv.hv_counter.lsb(),
+                v: hv.internal_v,
+                vblank_flag: hv.vblank_flag,
+                v_interrupt_pending: self.state.v_interrupt_pending,
+                h_interrupt_pending: self.state.h_interrupt_pending,
+                h_interrupt_counter: self.state.h_interrupt_counter,
+                data_port_mode: self.control_port.mode,
+                data_port_location: self.control_port.location,
+                data_port_address: self.control_port.data_port_address,
+                write_flag: self.control_port.write_flag,
+                dma_active: self.control_port.dma_active,
+            },
         }
     }
 
@@ -293,6 +341,11 @@ impl VdpDebugState {
 
     pub fn debug_vsram_view(&mut self) -> impl DebugMemoryView {
         DebugBytesView(self.vsram.as_mut_slice())
+    }
+
+    #[must_use]
+    pub fn internal_state(&self) -> &VdpInternalDebugState {
+        &self.internal_state
     }
 }
 
