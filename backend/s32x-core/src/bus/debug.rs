@@ -256,6 +256,7 @@ impl Sh2Debugger for Sh2BusDebugView<'_> {
                 .should_break_interrupt(interrupt_level)
         };
         if break_interrupt {
+            log::info!("[{which:?}] triggered interrupt breakpoint (level {interrupt_level})");
             self.handle_breakpoint(cpu);
         }
     }
