@@ -106,7 +106,7 @@ impl<const CHANNELS: usize, const LPF_TAPS: usize, Kernel: FirKernel<LPF_TAPS>>
             self.sample_count_product -= self.scaled_source_frequency;
 
             let output_samples =
-                array::from_fn(|ch| apply_fir_filter(&self.input[ch], Kernel::lpf_coefficients()));
+                apply_fir_filter(array::from_fn(|ch| &self.input[ch]), Kernel::lpf_coefficients());
             self.output.push_back(output_samples);
         }
     }
@@ -133,138 +133,167 @@ impl<const CHANNELS: usize, const LPF_TAPS: usize, Kernel: FirKernel<LPF_TAPS>>
     }
 }
 
-#[allow(clippy::needless_range_loop)]
-fn apply_fir_filter<const N: usize>(
-    samples: &RingBuffer<N>,
+fn apply_fir_filter<const N: usize, const CHANNELS: usize>(
+    samples: [&RingBuffer<N>; CHANNELS],
     coefficients: &LpfCoefficients<N>,
-) -> f64 {
-    if samples.len >= N {
-        #[cfg(target_arch = "x86_64")]
-        {
-            if is_x86_feature_detected!("avx512f") {
-                // SAFETY: This CPU supports AVX512F instructions
-                unsafe {
-                    return apply_fir_filter_avx512(samples, coefficients);
-                }
-            }
+) -> [f64; CHANNELS] {
+    #[cfg(target_arch = "x86_64")]
+    if samples[0].len >= N {
+        use std::sync::LazyLock;
 
-            if is_x86_feature_detected!("avx") && is_x86_feature_detected!("fma") {
-                // SAFETY: This CPU supports AVX and FMA instructions
-                unsafe {
-                    return apply_fir_filter_avxfma(samples, coefficients);
-                }
+        static AVXFMA_SUPPORTED: LazyLock<bool> =
+            LazyLock::new(|| is_x86_feature_detected!("avx") && is_x86_feature_detected!("fma"));
+
+        if is_x86_feature_detected!("avx512f") {
+            // SAFETY: This CPU supports AVX512F instructions
+            unsafe {
+                return apply_fir_filter_avx512(samples, coefficients);
             }
         }
 
-        let mut sum = 0.0;
+        if *AVXFMA_SUPPORTED {
+            // SAFETY: This CPU supports AVX and FMA instructions
+            unsafe {
+                return apply_fir_filter_avxfma(samples, coefficients);
+            }
+        }
+    }
+
+    apply_fir_filter_no_avx(samples, coefficients)
+}
+
+fn apply_fir_filter_no_avx<const N: usize, const CHANNELS: usize>(
+    samples: [&RingBuffer<N>; CHANNELS],
+    coefficients: &LpfCoefficients<N>,
+) -> [f64; CHANNELS] {
+    if samples[0].len >= N {
+        let mut sums = [0.0; CHANNELS];
         for (i, coefficient) in coefficients.iter().copied().enumerate() {
-            sum += coefficient * samples.buffer[samples.idx + i];
+            let input_idx = samples[0].idx + i;
+            for (ch, sum) in sums.iter_mut().enumerate() {
+                *sum += coefficient * samples[ch].buffer[input_idx];
+            }
         }
-        sum
+        sums
     } else {
-        let mut sum = 0.0;
-        for i in N - samples.len..N {
-            sum += coefficients[i] * samples.buffer[samples.idx + i - (N - samples.len)];
+        let mut sums = [0.0; CHANNELS];
+        for i in N - samples[0].len..N {
+            let input_idx = samples[0].idx + i - (N - samples[0].len);
+            for (ch, sum) in sums.iter_mut().enumerate() {
+                *sum += coefficients[i] * samples[ch].buffer[input_idx];
+            }
         }
-        sum
+        sums
     }
 }
 
 // SAFETY: This function must only be called when running on a CPU that supports AVX and FMA instructions
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx,fma")]
-unsafe fn apply_fir_filter_avxfma<const N: usize>(
-    samples: &RingBuffer<N>,
+fn apply_fir_filter_avxfma<const N: usize, const CHANNELS: usize>(
+    samples: [&RingBuffer<N>; CHANNELS],
     coefficients: &LpfCoefficients<N>,
-) -> f64 {
+) -> [f64; CHANNELS] {
     #[allow(clippy::wildcard_imports)]
     use std::arch::x86_64::*;
     use std::mem::transmute;
 
-    unsafe {
-        debug_assert!(samples.len == N);
-        let samples = &samples.buffer[samples.idx..samples.idx + N];
+    debug_assert!(samples[0].len == N);
+    let samples = samples.map(|buffer| &buffer.buffer[buffer.idx..buffer.idx + N]);
 
-        // Sum all chunks of 4 samples using f64x4 vectors
-        let mut sumvec = _mm256_setzero_pd();
-        for i in (0..N & !3).step_by(4) {
-            let a = _mm256_loadu_pd(samples.as_ptr().add(i));
-            let b = _mm256_load_pd(coefficients.as_ptr().add(i));
-            sumvec = _mm256_fmadd_pd(a, b, sumvec);
+    // Sum all chunks of 4 samples using f64x4 vectors
+    let mut sums = [_mm256_setzero_pd(); CHANNELS];
+
+    // SAFETY: Coefficients is guaranteed to be aligned to a 64-byte boundary and length N
+    // Each samples array is guaranteed to be length at least N (else the above slice operation will panic)
+    for i in (0..N & !3).step_by(4) {
+        let coefficients_chunk = unsafe { _mm256_load_pd(coefficients.as_ptr().add(i)) };
+        for ch in 0..CHANNELS {
+            let samples_chunk = unsafe { _mm256_loadu_pd(samples[ch].as_ptr().add(i)) };
+            sums[ch] = _mm256_fmadd_pd(coefficients_chunk, samples_chunk, sums[ch]);
         }
-
-        // Manual loop unroll to add in the last chunk of 0-3 samples
-        // The match should be optimized out at compile time since N is a const generic
-        match N & 3 {
-            0 => {}
-            1 => {
-                let a = _mm256_set_pd(samples[N - 1], 0.0, 0.0, 0.0);
-                let b = _mm256_set_pd(coefficients[N - 1], 0.0, 0.0, 0.0);
-                sumvec = _mm256_fmadd_pd(a, b, sumvec);
-            }
-            2 => {
-                let a = _mm256_set_pd(samples[N - 2], samples[N - 1], 0.0, 0.0);
-                let b = _mm256_set_pd(coefficients[N - 2], coefficients[N - 1], 0.0, 0.0);
-                sumvec = _mm256_fmadd_pd(a, b, sumvec);
-            }
-            3 => {
-                let a = _mm256_set_pd(samples[N - 3], samples[N - 2], samples[N - 1], 0.0);
-                let b = _mm256_set_pd(
-                    coefficients[N - 3],
-                    coefficients[N - 2],
-                    coefficients[N - 1],
-                    0.0,
-                );
-                sumvec = _mm256_fmadd_pd(a, b, sumvec);
-            }
-            _ => unreachable!("value & 3 is always <= 3"),
-        }
-
-        let hsum = _mm256_hadd_pd(sumvec, sumvec);
-        let components: [f64; 4] = transmute(hsum);
-        components[0] + components[2]
     }
+
+    // Manual loop unroll to add in the last chunk of 0-3 samples
+    // The match should be optimized out at compile time since N is a const generic
+    //
+    // Masked load intrinsics would be nicer than this, but those are AVX512-only
+    match N & 3 {
+        0 => {}
+        1 => {
+            let coefficients_chunk = _mm256_set_pd(coefficients[N - 1], 0.0, 0.0, 0.0);
+            for ch in 0..CHANNELS {
+                let samples_chunk = _mm256_set_pd(samples[ch][N - 1], 0.0, 0.0, 0.0);
+                sums[ch] = _mm256_fmadd_pd(coefficients_chunk, samples_chunk, sums[ch]);
+            }
+        }
+        2 => {
+            let coefficients_chunk =
+                _mm256_set_pd(coefficients[N - 2], coefficients[N - 1], 0.0, 0.0);
+            for ch in 0..CHANNELS {
+                let samples_chunk = _mm256_set_pd(samples[ch][N - 2], samples[ch][N - 1], 0.0, 0.0);
+                sums[ch] = _mm256_fmadd_pd(coefficients_chunk, samples_chunk, sums[ch]);
+            }
+        }
+        3 => {
+            let coefficients_chunk =
+                _mm256_set_pd(coefficients[N - 3], coefficients[N - 2], coefficients[N - 1], 0.0);
+            for ch in 0..CHANNELS {
+                let samples_chunk =
+                    _mm256_set_pd(samples[ch][N - 3], samples[ch][N - 2], samples[ch][N - 1], 0.0);
+                sums[ch] = _mm256_fmadd_pd(coefficients_chunk, samples_chunk, sums[ch]);
+            }
+        }
+        _ => unreachable!("value & 3 is always <= 3"),
+    }
+
+    sums.map(|sum| {
+        let hsum = _mm256_hadd_pd(sum, sum);
+        let components: [f64; 4] = unsafe { transmute(hsum) };
+        components[0] + components[2]
+    })
 }
 
 // SAFETY: This function must only be called when running on a CPU that supports AVX512F instructions
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f")]
-unsafe fn apply_fir_filter_avx512<const N: usize>(
-    samples: &RingBuffer<N>,
+fn apply_fir_filter_avx512<const N: usize, const CHANNELS: usize>(
+    samples: [&RingBuffer<N>; CHANNELS],
     coefficients: &LpfCoefficients<N>,
-) -> f64 {
+) -> [f64; CHANNELS] {
     #[allow(clippy::wildcard_imports)]
     use std::arch::x86_64::*;
 
-    unsafe {
-        debug_assert!(samples.len == N);
-        let samples = &samples.buffer[samples.idx..samples.idx + N];
+    debug_assert!(samples[0].len == N);
+    let samples = samples.map(|buffer| &buffer.buffer[buffer.idx..buffer.idx + N]);
 
-        let mut sum = _mm512_setzero_pd();
+    let mut sums = [_mm512_setzero_pd(); CHANNELS];
 
-        for i in (0..N & !7).step_by(8) {
-            let a = _mm512_loadu_pd(samples.as_ptr().add(i));
-            let b = _mm512_load_pd(coefficients.as_ptr().add(i));
-            sum = _mm512_fmadd_pd(a, b, sum);
+    // SAFETY: Coefficients is guaranteed to be aligned to a 64-byte boundary and length N
+    // Each samples array is guaranteed to be length at least N (else the above slice operation will panic)
+    for i in (0..N & !7).step_by(8) {
+        let coefficients_chunk = unsafe { _mm512_load_pd(coefficients.as_ptr().add(i)) };
+        for ch in 0..CHANNELS {
+            let samples_chunk = unsafe { _mm512_loadu_pd(samples[ch].as_ptr().add(i)) };
+            sums[ch] = _mm512_fmadd_pd(coefficients_chunk, samples_chunk, sums[ch]);
         }
-
-        if N & 7 != 0 {
-            let final_load_mask = (1 << (N & 7)) - 1;
-            let a = _mm512_mask_loadu_pd(
-                _mm512_setzero_pd(),
-                final_load_mask,
-                samples.as_ptr().add(N & !7),
-            );
-            let b = _mm512_mask_load_pd(
-                _mm512_setzero_pd(),
-                final_load_mask,
-                coefficients.as_ptr().add(N & !7),
-            );
-            sum = _mm512_fmadd_pd(a, b, sum);
-        }
-
-        _mm512_reduce_add_pd(sum)
     }
+
+    if N & 7 != 0 {
+        // SAFETY: Mask is used to prevent final loads from potentially going out of bounds
+        let final_load_mask = (1 << (N & 7)) - 1;
+
+        let coefficients_chunk =
+            unsafe { _mm512_maskz_load_pd(final_load_mask, coefficients.as_ptr().add(N & !7)) };
+
+        for ch in 0..CHANNELS {
+            let samples_chunk =
+                unsafe { _mm512_maskz_loadu_pd(final_load_mask, samples[ch].as_ptr().add(N & !7)) };
+            sums[ch] = _mm512_fmadd_pd(coefficients_chunk, samples_chunk, sums[ch]);
+        }
+    }
+
+    sums.map(|sum| _mm512_reduce_add_pd(sum))
 }
 
 pub type MonoFirResampler<const LPF_TAPS: usize, Kernel> = FirResampler<1, LPF_TAPS, Kernel>;
@@ -339,6 +368,51 @@ mod tests {
         assert_eq!(
             &buffer.buffer[buffer.idx..buffer.idx + N],
             &[12345.0, 56789.0, 54321.0, current[0]]
+        );
+    }
+
+    // Validates that the AVX/FMA and AVX512 versions of apply_fir_filter() produce identical results
+    // to the non-AVX version
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn apply_fir_filter_avx() {
+        const N: usize = 777;
+
+        if !is_x86_feature_detected!("avx") || !is_x86_feature_detected!("fma") {
+            // Nothing to test if this CPU doesn't even support AVX/FMA instructions
+            return;
+        }
+
+        let mut samples = RingBuffer::<N>::new();
+        samples.buffer.fill_with(rand::random);
+
+        for _ in 0..2 * N {
+            samples.push(rand::random());
+        }
+
+        let coefficients = Box::new(LpfCoefficients(array::from_fn(|_| rand::random())));
+
+        let non_avx_result = apply_fir_filter_no_avx([&samples], &coefficients)[0];
+
+        // SAFETY: This CPU supports AVX and FMA instructions
+        let avxfma_result = unsafe { apply_fir_filter_avxfma([&samples], &coefficients)[0] };
+
+        assert!(
+            (non_avx_result - avxfma_result).abs() < 1e-9,
+            "{non_avx_result} == {avxfma_result}"
+        );
+
+        if !is_x86_feature_detected!("avx512f") {
+            // Skip AVX512 test if this CPU does not support AVX512
+            return;
+        }
+
+        // SAFETY: This CPU supports AVX512F instructions
+        let avx512_result = unsafe { apply_fir_filter_avx512([&samples], &coefficients)[0] };
+
+        assert!(
+            (non_avx_result - avx512_result).abs() < 1e-9,
+            "{non_avx_result} == {avxfma_result}"
         );
     }
 }

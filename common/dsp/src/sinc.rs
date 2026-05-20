@@ -467,8 +467,8 @@ fn sum_wing_avx2<const REVERSE: bool, const CHANNELS: usize>(
             _mm256_add_epi64(interpolation_idxs, _mm256_set1_epi64x((4 * step) as i64));
     }
 
-    array::from_fn(|ch| {
-        let hsum = _mm256_hadd_pd(sums[ch], sums[ch]);
+    sums.map(|sum| {
+        let hsum = _mm256_hadd_pd(sum, sum);
         let components: [f64; 4] = unsafe { transmute(hsum) };
         components[0] + components[2]
     })
@@ -583,7 +583,7 @@ fn sum_wing_avx512<const REVERSE: bool, const CHANNELS: usize>(
             _mm512_add_epi64(interpolation_idxs, _mm512_set1_epi64((8 * step) as i64));
     }
 
-    array::from_fn(|ch| _mm512_reduce_add_pd(sums[ch]))
+    sums.map(|sum| _mm512_reduce_add_pd(sum))
 }
 
 pub type QualitySincResampler<const CHANNELS: usize> = SincResampler<CHANNELS, Quality>;
