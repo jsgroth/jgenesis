@@ -18,7 +18,7 @@ use crate::app::romlist::{RomListThreadHandle, RomMetadata};
 use crate::app::snes::HandledError;
 use crate::app::widgets::RenderErrorEffect;
 use crate::emuthread;
-use crate::emuthread::{EmuThreadCommand, EmuThreadHandle, EmuThreadStatus};
+use crate::emuthread::{EmuThreadCommand, EmuThreadHandle, EmuThreadStatus, EmulatorRunInput};
 use crate::widgets::SavePathSelect;
 use eframe::Frame;
 use egui::panel::TopBottomSide;
@@ -436,7 +436,7 @@ impl App {
         self.emu_thread.send(EmuThreadCommand::Run {
             console,
             config: Box::new(self.config.clone()),
-            file_path: path,
+            input: EmulatorRunInput::OpenFile(path),
         });
     }
 
@@ -771,9 +771,10 @@ impl App {
                     ui.add_enabled_ui(has_bios, |ui| {
                         if ui.button(label).clicked() {
                             self.emu_thread.stop_emulator_if_running();
-                            self.emu_thread.send(EmuThreadCommand::RunBios {
+                            self.emu_thread.send(EmuThreadCommand::Run {
                                 console,
                                 config: Box::new(self.config.clone()),
+                                input: EmulatorRunInput::RunBios,
                             });
                             self.state.current_file_path.clear();
                             ui.close_kind(UiKind::Menu);

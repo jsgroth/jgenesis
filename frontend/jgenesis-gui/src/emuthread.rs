@@ -113,9 +113,14 @@ impl ConsoleExt for Console {
 }
 
 #[derive(Debug, Clone)]
+pub enum EmulatorRunInput {
+    OpenFile(PathBuf),
+    RunBios,
+}
+
+#[derive(Debug, Clone)]
 pub enum EmuThreadCommand {
-    Run { console: Console, config: Box<AppConfig>, file_path: PathBuf },
-    RunBios { console: Console, config: Box<AppConfig> },
+    Run { console: Console, config: Box<AppConfig>, input: EmulatorRunInput },
     ReloadConfig(Box<AppConfig>, PathBuf),
     StopEmulator,
     Terminate,
@@ -251,7 +256,7 @@ fn thread_run(ctx: EmuThreadContext) {
         ctx.egui_ctx.request_repaint();
 
         match ctx.command_receiver.recv() {
-            Ok(EmuThreadCommand::Run { console, mut config, file_path }) => {
+            Ok(EmuThreadCommand::Run { console, mut config, input }) => {
                 ctx.status.store(console.running_status() as u8, Ordering::Relaxed);
 
                 if let Some(native_ppi) = ctx.egui_ctx.native_pixels_per_point() {
@@ -259,32 +264,14 @@ fn thread_run(ctx: EmuThreadContext) {
                     config.common.window_scale_factor = Some(native_ppi);
                 }
 
-                let emulator = match GenericEmulator::create(console, config, file_path) {
-                    Ok(emulator) => emulator,
-                    Err(err) => {
-                        log::error!("Error initializing emulator: {err}");
-                        *ctx.emulator_error.lock().unwrap() = Some(err);
-                        ctx.egui_ctx.request_repaint();
-                        continue;
+                let emulator = match input {
+                    EmulatorRunInput::OpenFile(file_path) => {
+                        GenericEmulator::create(console, config, file_path).map(Some)
                     }
+                    EmulatorRunInput::RunBios => GenericEmulator::create_run_bios(console, config),
                 };
-                let run_result = run_emulator(emulator, &ctx);
 
-                if run_result == RunEmuResult::Terminate {
-                    ctx.status.store(EmuThreadStatus::Terminated as u8, Ordering::Relaxed);
-                    ctx.egui_ctx.request_repaint();
-                    return;
-                }
-            }
-            Ok(EmuThreadCommand::RunBios { console, mut config }) => {
-                ctx.status.store(console.running_status() as u8, Ordering::Relaxed);
-
-                if let Some(native_ppi) = ctx.egui_ctx.native_pixels_per_point() {
-                    log::info!("Setting emulator window scale factor to {native_ppi}");
-                    config.common.window_scale_factor = Some(native_ppi);
-                }
-
-                let emulator = match GenericEmulator::create_run_bios(console, config) {
+                let emulator = match emulator {
                     Ok(Some(emulator)) => emulator,
                     Ok(None) => continue,
                     Err(err) => {
@@ -294,6 +281,7 @@ fn thread_run(ctx: EmuThreadContext) {
                         continue;
                     }
                 };
+
                 let run_result = run_emulator(emulator, &ctx);
 
                 if run_result == RunEmuResult::Terminate {
@@ -591,7 +579,7 @@ fn handle_command(
         EmuThreadCommand::LoadState { slot } => emulator.load_state(slot),
         EmuThreadCommand::SegaCdRemoveDisc => emulator.remove_disc()?,
         EmuThreadCommand::SegaCdChangeDisc(path) => emulator.change_disc(path)?,
-        EmuThreadCommand::Run { .. } | EmuThreadCommand::RunBios { .. } => {}
+        EmuThreadCommand::Run { .. } => {}
     }
 
     Ok(None)
