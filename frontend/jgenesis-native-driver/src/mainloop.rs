@@ -957,7 +957,7 @@ where
 
     fn toggle_overclocking(&mut self) -> NativeEmulatorResult<()> {
         self.hotkey_state.overclocking_enabled = !self.hotkey_state.overclocking_enabled;
-        self.update_and_reload_config(&self.raw_config.clone())?;
+        self.update_and_reload_config(&self.common_config.clone(), &self.raw_config.clone())?;
 
         let modal_text = if self.hotkey_state.overclocking_enabled {
             "Overclocking settings enabled"
@@ -975,8 +975,11 @@ where
 
     fn update_and_reload_config(
         &mut self,
+        common_config: &CommonConfig,
         emulator_config: &Emulator::Config,
     ) -> NativeEmulatorResult<()> {
+        self.reload_common_config(common_config)?;
+
         self.raw_config = emulator_config.clone();
         self.config = if self.hotkey_state.overclocking_enabled {
             self.raw_config.clone()

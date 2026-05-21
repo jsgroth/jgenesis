@@ -954,7 +954,7 @@ impl Ym2612 {
         }
     }
 
-    pub fn reload_config(&mut self, config: GenesisEmulatorConfig) {
+    pub fn reload_config(&mut self, config: &GenesisEmulatorConfig) {
         self.channels_muted = config.channels_muted();
         self.quantize_output = config.quantize_ym2612_output;
         self.emulate_ladder_effect = config.emulate_ym2612_ladder_effect;

@@ -236,7 +236,7 @@ pub struct Sega32XResampler {
 }
 
 impl Sega32XResampler {
-    pub fn new(timing_mode: TimingMode, config: Sega32XEmulatorConfig) -> Self {
+    pub fn new(timing_mode: TimingMode, config: &Sega32XEmulatorConfig) -> Self {
         Self {
             gen_filter: GenesisAudioFilter::new(
                 timing_mode,
@@ -250,8 +250,8 @@ impl Sega32XResampler {
                 genesis_core::audio::psg_frequency(timing_mode),
                 48000.0,
             ),
-            pwm_resampler: PwmResampler::new(&config, 48000),
-            volumes: VolumeMultipliers::from_config(&config),
+            pwm_resampler: PwmResampler::new(config, 48000),
+            volumes: VolumeMultipliers::from_config(config),
         }
     }
 
@@ -303,11 +303,11 @@ impl Sega32XResampler {
         Ok(())
     }
 
-    pub fn reload_config(&mut self, timing_mode: TimingMode, config: Sega32XEmulatorConfig) {
-        self.volumes = VolumeMultipliers::from_config(&config);
+    pub fn reload_config(&mut self, timing_mode: TimingMode, config: &Sega32XEmulatorConfig) {
+        self.volumes = VolumeMultipliers::from_config(config);
 
         self.gen_filter.reload_config(timing_mode, &config.genesis);
-        self.pwm_resampler.reload_config(&config);
+        self.pwm_resampler.reload_config(config);
     }
 
     pub fn update_output_frequency(&mut self, output_frequency: u64) {

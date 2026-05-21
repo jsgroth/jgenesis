@@ -61,9 +61,7 @@ impl NativeSmsGgEmulator {
     pub fn reload_smsgg_config(&mut self, config: Box<SmsGgConfig>) -> NativeEmulatorResult<()> {
         log::info!("Reloading config: {config}");
 
-        self.reload_common_config(&config.common)?;
-
-        self.update_and_reload_config(&config.emulator_config)?;
+        self.update_and_reload_config(&config.common, &config.emulator_config)?;
 
         self.input_mapper.update_mappings(
             config.common.axis_deadzone,

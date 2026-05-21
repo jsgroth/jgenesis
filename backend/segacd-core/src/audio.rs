@@ -141,7 +141,7 @@ pub struct AudioResampler {
 }
 
 impl AudioResampler {
-    pub fn new(timing_mode: TimingMode, config: SegaCdEmulatorConfig) -> Self {
+    pub fn new(timing_mode: TimingMode, config: &SegaCdEmulatorConfig) -> Self {
         let ym2612_resampler =
             QualitySincResampler::new(genesis_core::audio::ym2612_frequency(timing_mode), 48000.0);
         let psg_resampler =
@@ -155,12 +155,12 @@ impl AudioResampler {
                 timing_mode,
                 LowPassSettings::from_config(&config.genesis),
             ),
-            scd_filter: SegaCdAudioFilter::new(&config),
+            scd_filter: SegaCdAudioFilter::new(config),
             ym2612_resampler,
             psg_resampler,
             pcm_resampler,
             cd_resampler,
-            volumes: VolumeMultipliers::from_config(&config),
+            volumes: VolumeMultipliers::from_config(config),
         }
     }
 
@@ -226,11 +226,11 @@ impl AudioResampler {
         Ok(())
     }
 
-    pub fn reload_config(&mut self, timing_mode: TimingMode, config: SegaCdEmulatorConfig) {
-        self.volumes = VolumeMultipliers::from_config(&config);
+    pub fn reload_config(&mut self, timing_mode: TimingMode, config: &SegaCdEmulatorConfig) {
+        self.volumes = VolumeMultipliers::from_config(config);
 
         self.gen_filter.reload_config(timing_mode, &config.genesis);
-        self.scd_filter.reload_config(&config);
+        self.scd_filter.reload_config(config);
     }
 
     pub fn update_output_frequency(&mut self, output_frequency: u64) {

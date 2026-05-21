@@ -166,7 +166,7 @@ impl InputState {
         self.inputs = inputs;
     }
 
-    pub fn reload_config(&mut self, config: GenesisEmulatorConfig) {
+    pub fn reload_config(&mut self, config: &GenesisEmulatorConfig) {
         self.p1_controller_type = config.p1_controller_type;
         self.p2_controller_type = config.p2_controller_type;
     }

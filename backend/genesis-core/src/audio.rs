@@ -185,12 +185,12 @@ pub struct GenesisAudioResampler {
 
 impl GenesisAudioResampler {
     #[must_use]
-    pub fn new(timing_mode: TimingMode, config: GenesisEmulatorConfig) -> Self {
+    pub fn new(timing_mode: TimingMode, config: &GenesisEmulatorConfig) -> Self {
         Self {
-            filter: GenesisAudioFilter::new(timing_mode, LowPassSettings::from_config(&config)),
+            filter: GenesisAudioFilter::new(timing_mode, LowPassSettings::from_config(config)),
             ym2612_resampler: QualitySincResampler::new(ym2612_frequency(timing_mode), 48000.0),
             psg_resampler: PerformanceSincResampler::new(psg_frequency(timing_mode), 48000.0),
-            volumes: VolumeMultipliers::from_config(&config),
+            volumes: VolumeMultipliers::from_config(config),
         }
     }
 
@@ -238,10 +238,10 @@ impl GenesisAudioResampler {
         Ok(())
     }
 
-    pub fn reload_config(&mut self, timing_mode: TimingMode, config: GenesisEmulatorConfig) {
-        self.volumes = VolumeMultipliers::from_config(&config);
+    pub fn reload_config(&mut self, timing_mode: TimingMode, config: &GenesisEmulatorConfig) {
+        self.volumes = VolumeMultipliers::from_config(config);
 
-        self.filter.reload_config(timing_mode, &config);
+        self.filter.reload_config(timing_mode, config);
     }
 
     pub fn update_output_frequency(&mut self, output_frequency: u64) {

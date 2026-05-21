@@ -41,7 +41,7 @@ pub enum Sega32XError<RErr, AErr, SErr> {
     SaveWrite(SErr),
 }
 
-#[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
+#[derive(Debug, Clone, Encode, Decode, ConfigDisplay)]
 pub struct Sega32XEmulatorConfig {
     #[cfg_display(skip)]
     pub genesis: GenesisEmulatorConfig,
@@ -162,7 +162,7 @@ impl Sega32XEmulator {
             psg,
             memory,
             input,
-            audio_resampler: Sega32XResampler::new(timing_mode, config),
+            audio_resampler: Sega32XResampler::new(timing_mode, &config),
             main_bus_writes: MainBusWrites::new(),
             cycles: GenesisCycleCounters::new(config.genesis.clamped_m68k_divider()),
             region,
@@ -366,13 +366,13 @@ impl EmulatorTrait for Sega32XEmulator {
 
     fn reload_config(&mut self, config: &Self::Config) {
         self.vdp.reload_config(config.genesis.to_vdp_config(config.genesis_color_adjustment()));
-        self.ym2612.reload_config(config.genesis);
-        self.input.reload_config(config.genesis);
+        self.ym2612.reload_config(&config.genesis);
+        self.input.reload_config(&config.genesis);
         self.memory.medium_mut().reload_config(config);
-        self.audio_resampler.reload_config(self.timing_mode, *config);
+        self.audio_resampler.reload_config(self.timing_mode, config);
         self.cycles.update_m68k_divider(config.genesis.clamped_m68k_divider());
 
-        self.config = *config;
+        self.config = config.clone();
     }
 
     fn soft_reset(&mut self) {
@@ -388,7 +388,7 @@ impl EmulatorTrait for Sega32XEmulator {
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
         let rom = self.memory.medium_mut().cartridge_mut().take_rom();
 
-        *self = Self::create(rom, self.config, save_writer);
+        *self = Self::create(rom, self.config.clone(), save_writer);
     }
 
     fn load_state(&mut self, mut state: Self::SaveState) {

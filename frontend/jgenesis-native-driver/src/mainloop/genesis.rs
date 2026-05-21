@@ -26,9 +26,7 @@ impl NativeGenesisEmulator {
     ) -> NativeEmulatorResult<()> {
         log::info!("Reloading config: {config}");
 
-        self.reload_common_config(&config.common)?;
-
-        self.update_and_reload_config(&config.emulator_config)?;
+        self.update_and_reload_config(&config.common, &config.emulator_config)?;
 
         self.input_mapper.update_mappings(
             config.common.axis_deadzone,
@@ -50,9 +48,7 @@ impl NativeSegaCdEmulator {
     pub fn reload_sega_cd_config(&mut self, config: Box<SegaCdConfig>) -> NativeEmulatorResult<()> {
         log::info!("Reloading config: {config}");
 
-        self.reload_common_config(&config.genesis.common)?;
-
-        self.update_and_reload_config(&config.emulator_config)?;
+        self.update_and_reload_config(&config.genesis.common, &config.emulator_config)?;
 
         self.input_mapper.update_mappings(
             config.genesis.common.axis_deadzone,
@@ -102,9 +98,7 @@ impl Native32XEmulator {
     pub fn reload_32x_config(&mut self, config: Box<Sega32XConfig>) -> NativeEmulatorResult<()> {
         log::info!("Reloading config: {config}");
 
-        self.reload_common_config(&config.genesis.common)?;
-
-        self.update_and_reload_config(&config.emulator_config)?;
+        self.update_and_reload_config(&config.genesis.common, &config.emulator_config)?;
 
         self.input_mapper.update_mappings(
             config.genesis.common.axis_deadzone,
@@ -135,11 +129,11 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
         &extension,
     )?;
 
-    let emulator_config = config.emulator_config;
+    let emulator_config = config.emulator_config.clone();
     let initial_window_size = config.common.initial_window_size;
 
     let create_emulator_fn = move |save_writer: &mut FsSaveWriter| {
-        let emulator = GenesisEmulator::create(rom, emulator_config, save_writer);
+        let emulator = GenesisEmulator::create(rom, emulator_config.clone(), save_writer);
 
         let mut cartridge_title = emulator.cartridge_title();
         // Remove non-printable characters
@@ -161,7 +155,7 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
     NativeGenesisEmulator::new(
         NativeEmulatorArgs::new(
             Box::new(create_emulator_fn),
-            emulator_config,
+            config.emulator_config,
             config.common,
             extension,
             save_path,
@@ -233,7 +227,7 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
         source,
     })?;
 
-    let emulator_config = config.emulator_config;
+    let emulator_config = config.emulator_config.clone();
     let initial_window_size = config.genesis.common.initial_window_size;
     let run_without_disc = config.run_without_disc;
     let rom_path = rom_path.to_owned();
@@ -244,7 +238,7 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
             rom_path,
             rom_format,
             run_without_disc,
-            emulator_config,
+            emulator_config.clone(),
             save_writer,
         )?;
 
@@ -277,7 +271,7 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
     NativeSegaCdEmulator::new(
         NativeEmulatorArgs::new(
             Box::new(create_emulator_fn),
-            emulator_config,
+            config.emulator_config,
             config.genesis.common,
             SCD_SAVE_EXTENSION.into(),
             save_path,
@@ -340,11 +334,11 @@ pub fn create_32x(config: Box<Sega32XConfig>) -> NativeEmulatorResult<Native32XE
         &extension,
     )?;
 
-    let emulator_config = config.emulator_config;
+    let emulator_config = config.emulator_config.clone();
     let initial_window_size = config.genesis.common.initial_window_size;
 
     let create_emulator_fn = move |save_writer: &mut FsSaveWriter| {
-        let emulator = Sega32XEmulator::create(rom, emulator_config, save_writer);
+        let emulator = Sega32XEmulator::create(rom, emulator_config.clone(), save_writer);
 
         let cartridge_title = emulator.cartridge_title();
         let window_title = format!("32x - {cartridge_title}");
@@ -362,7 +356,7 @@ pub fn create_32x(config: Box<Sega32XConfig>) -> NativeEmulatorResult<Native32XE
     Native32XEmulator::new(
         NativeEmulatorArgs::new(
             Box::new(create_emulator_fn),
-            emulator_config,
+            config.emulator_config,
             config.genesis.common,
             extension,
             save_path,

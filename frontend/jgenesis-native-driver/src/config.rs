@@ -430,7 +430,7 @@ impl AppConfigExt for AppConfig {
 
     fn sega_cd_config(&self, path: PathBuf) -> Box<SegaCdConfig> {
         let genesis_config = *self.genesis_config(path);
-        let genesis_emu_config = genesis_config.emulator_config;
+        let genesis_emu_config = genesis_config.emulator_config.clone();
         Box::new(SegaCdConfig {
             genesis: genesis_config,
             bios_file_path: self.sega_cd.bios_path.clone(),
@@ -459,7 +459,7 @@ impl AppConfigExt for AppConfig {
 
     fn sega_32x_config(&self, path: PathBuf) -> Box<Sega32XConfig> {
         let genesis_config = *self.genesis_config(path);
-        let genesis_emu_config = genesis_config.emulator_config;
+        let genesis_emu_config = genesis_config.emulator_config.clone();
         Box::new(Sega32XConfig {
             genesis: genesis_config,
             emulator_config: Sega32XEmulatorConfig {

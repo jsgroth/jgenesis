@@ -70,7 +70,7 @@ pub enum SegaCdError<RErr, AErr, SErr> {
 
 pub type SegaCdResult<T, RErr, AErr, SErr> = Result<T, SegaCdError<RErr, AErr, SErr>>;
 
-#[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
+#[derive(Debug, Clone, Encode, Decode, ConfigDisplay)]
 pub struct SegaCdEmulatorConfig {
     #[cfg_display(skip)]
     pub genesis: GenesisEmulatorConfig,
@@ -233,7 +233,7 @@ impl SegaCdEmulator {
             emulator_config.genesis.p2_controller_type,
         );
 
-        let audio_resampler = AudioResampler::new(timing_mode, emulator_config);
+        let audio_resampler = AudioResampler::new(timing_mode, &emulator_config);
         let mut emulator = Self {
             memory,
             main_cpu,
@@ -571,17 +571,17 @@ impl EmulatorTrait for SegaCdEmulator {
 
     fn reload_config(&mut self, config: &Self::Config) {
         self.vdp.reload_config(config.genesis.to_vdp_config(DarkenColors::No));
-        self.ym2612.reload_config(config.genesis);
+        self.ym2612.reload_config(&config.genesis);
         self.pcm.reload_config(config);
-        self.input.reload_config(config.genesis);
-        self.audio_resampler.reload_config(self.timing_mode, *config);
+        self.input.reload_config(&config.genesis);
+        self.audio_resampler.reload_config(self.timing_mode, config);
         self.cycles.update_m68k_divider(config.genesis.clamped_m68k_divider());
         self.sub_cpu_divider = config.sub_cpu_divider.get();
 
         let sega_cd = self.memory.medium_mut();
         sega_cd.reload_config(config);
 
-        self.config = *config;
+        self.config = config.clone();
     }
 
     fn soft_reset(&mut self) {
@@ -600,7 +600,7 @@ impl EmulatorTrait for SegaCdEmulator {
         let bios = Vec::from(sega_cd.bios());
         let disc = sega_cd.take_cdrom();
 
-        *self = Self::create_from_disc(bios, disc, self.config, save_writer)
+        *self = Self::create_from_disc(bios, disc, self.config.clone(), save_writer)
             .expect("Hard reset should not cause an I/O error");
     }
 

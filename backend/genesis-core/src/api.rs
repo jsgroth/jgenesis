@@ -43,7 +43,7 @@ pub enum GenesisError<RErr, AErr, SErr> {
 
 pub type GenesisResult<RErr, AErr, SErr> = Result<TickEffect, GenesisError<RErr, AErr, SErr>>;
 
-#[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
+#[derive(Debug, Clone, Encode, Decode, ConfigDisplay)]
 pub struct GenesisEmulatorConfig {
     pub p1_controller_type: GenesisControllerType,
     pub p2_controller_type: GenesisControllerType,
@@ -242,7 +242,7 @@ impl GenesisEmulator {
             input,
             timing_mode,
             main_bus_writes: MainBusWrites::new(),
-            audio_resampler: GenesisAudioResampler::new(timing_mode, config),
+            audio_resampler: GenesisAudioResampler::new(timing_mode, &config),
             cycles: GenesisCycleCounters::new(config.clamped_m68k_divider()),
             config,
         };
@@ -485,12 +485,12 @@ impl EmulatorTrait for GenesisEmulator {
 
     fn reload_config(&mut self, config: &Self::Config) {
         self.vdp.reload_config(config.to_vdp_config(DarkenColors::No));
-        self.ym2612.reload_config(*config);
-        self.input.reload_config(*config);
-        self.audio_resampler.reload_config(self.timing_mode, *config);
+        self.ym2612.reload_config(config);
+        self.input.reload_config(config);
+        self.audio_resampler.reload_config(self.timing_mode, config);
         self.cycles.update_m68k_divider(config.clamped_m68k_divider());
 
-        self.config = *config;
+        self.config = config.clone();
     }
 
     fn soft_reset(&mut self) {
@@ -505,7 +505,7 @@ impl EmulatorTrait for GenesisEmulator {
         log::info!("Hard resetting console");
 
         let rom = self.memory.take_rom();
-        *self = GenesisEmulator::create(rom, self.config, save_writer);
+        *self = GenesisEmulator::create(rom, self.config.clone(), save_writer);
     }
 
     fn load_state(&mut self, mut state: Self::SaveState) {
