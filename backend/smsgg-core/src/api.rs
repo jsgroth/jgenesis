@@ -43,7 +43,7 @@ pub enum SmsGgHardware {
     Sg1000,
 }
 
-#[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
+#[derive(Debug, Clone, Encode, Decode, ConfigDisplay)]
 pub struct SmsGgEmulatorConfig {
     pub sms_timing_mode: TimingMode,
     pub sms_model: SmsModel,
@@ -62,12 +62,12 @@ pub struct SmsGgEmulatorConfig {
 
 impl EmulatorConfigTrait for SmsGgEmulatorConfig {
     fn with_overclocking_disabled(&self) -> Self {
-        Self { z80_divider: NonZeroU32::new(crate::NATIVE_Z80_DIVIDER).unwrap(), ..*self }
+        Self { z80_divider: NonZeroU32::new(crate::NATIVE_Z80_DIVIDER).unwrap(), ..self.clone() }
     }
 }
 
 impl SmsGgEmulatorConfig {
-    pub(crate) fn region(self, memory: &Memory) -> SmsGgRegion {
+    pub(crate) fn region(&self, memory: &Memory) -> SmsGgRegion {
         self.forced_region.unwrap_or_else(|| memory.guess_cartridge_region())
     }
 
@@ -372,7 +372,7 @@ impl EmulatorTrait for SmsGgEmulator {
     }
 
     fn reload_config(&mut self, config: &Self::Config) {
-        self.config = *config;
+        self.config = config.clone();
 
         let hardware = self.hardware();
         self.vdp_version = determine_vdp_version(hardware, config);

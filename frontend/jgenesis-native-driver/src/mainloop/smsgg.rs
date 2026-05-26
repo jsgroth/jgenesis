@@ -146,11 +146,12 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
         None
     };
 
-    let emulator_config = config.emulator_config;
+    let emulator_config = config.emulator_config.clone();
     let initial_window_size = config.common.initial_window_size;
 
     let create_emulator_fn = move |save_writer: &mut FsSaveWriter| {
-        let emulator = SmsGgEmulator::create(rom, bios_rom, hardware, emulator_config, save_writer);
+        let emulator =
+            SmsGgEmulator::create(rom, bios_rom, hardware, emulator_config.clone(), save_writer);
 
         let window_title = match hardware {
             SmsGgHardware::MasterSystem => format!("sms - {rom_title}"),
@@ -173,7 +174,7 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
     NativeSmsGgEmulator::new(
         NativeEmulatorArgs::new(
             Box::new(create_emulator_fn),
-            emulator_config,
+            config.emulator_config,
             config.common,
             extension,
             save_path,
