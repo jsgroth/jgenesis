@@ -64,7 +64,12 @@ pub struct Sega32X {
 
 impl Sega32X {
     pub fn new(rom: Vec<u8>, initial_ram: Option<Vec<u8>>, config: &Sega32XEmulatorConfig) -> Self {
-        let cartridge = Cartridge::from_rom(rom, initial_ram, config.genesis.forced_region);
+        let cartridge = Cartridge::new(
+            rom,
+            initial_ram,
+            config.genesis.forced_region,
+            &config.genesis.cheat_codes,
+        );
 
         let region = cartridge.region();
         let timing_mode = config.genesis.forced_timing_mode.unwrap_or(match region {
@@ -206,6 +211,7 @@ impl Sega32X {
     pub fn reload_config(&mut self, config: &Sega32XEmulatorConfig) {
         self.sh2_clock_multiplier = none_if_default_multiplier(config.sh2_clock_multiplier);
         self.s32x_bus.vdp.reload_config(config);
+        self.cartridge_mut().reload_config(&config.genesis);
     }
 
     pub fn reset(&mut self) {

@@ -149,7 +149,7 @@ impl Sega32XEmulator {
         let ym2612 = Ym2612::new_from_config(&config.genesis);
         let psg = Sn76489::new(Sn76489Version::Standard);
 
-        let memory = Memory::new(s32x);
+        let memory = Memory::new(s32x, &config.genesis);
 
         let input =
             InputState::new(config.genesis.p1_controller_type, config.genesis.p2_controller_type);

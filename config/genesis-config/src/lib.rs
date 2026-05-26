@@ -1,3 +1,5 @@
+pub mod cheats;
+
 use bincode::{Decode, Encode};
 use jgenesis_common::define_controller_inputs;
 use jgenesis_common::frontend::{FiniteF64, FrameSize, TimingMode};

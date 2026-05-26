@@ -325,6 +325,7 @@ pub struct CommonAppConfig {
     pub rewind_buffer_length_seconds: u64,
     pub pause_emulator: PauseEmulator,
     pub hide_mouse_cursor: HideMouseCursor,
+    pub cheats_enabled: bool,
 }
 
 impl CommonAppConfig {
@@ -378,6 +379,7 @@ impl Default for CommonAppConfig {
             rewind_buffer_length_seconds: DEFAULT_REWIND_BUFFER_LENGTH,
             pause_emulator: PauseEmulator::default(),
             hide_mouse_cursor: HideMouseCursor::default(),
+            cheats_enabled: true,
         }
     }
 }

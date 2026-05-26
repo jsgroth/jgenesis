@@ -5,6 +5,7 @@ use gb_config::GbcColorCorrection;
 use gb_core::api::GameBoyEmulatorConfig;
 use gba_config::GbaColorCorrection;
 use gba_core::api::{GbaAudioConfig, GbaEmulatorConfig};
+use genesis_config::cheats::GenesisCheats;
 use genesis_config::{S32XVoidColor, S32XVoidColorType};
 use genesis_core::GenesisEmulatorConfig;
 use jgenesis_common::frontend::{ColorCorrection, FiniteF32};
@@ -300,13 +301,13 @@ pub trait AppConfigExt {
     fn common_config(&self, path: PathBuf) -> CommonConfig;
 
     #[must_use]
-    fn genesis_config(&self, path: PathBuf) -> Box<GenesisConfig>;
+    fn genesis_config(&self, path: PathBuf, cheats: &GenesisCheats) -> Box<GenesisConfig>;
 
     #[must_use]
-    fn sega_cd_config(&self, path: PathBuf) -> Box<SegaCdConfig>;
+    fn sega_cd_config(&self, path: PathBuf, cheats: &GenesisCheats) -> Box<SegaCdConfig>;
 
     #[must_use]
-    fn sega_32x_config(&self, path: PathBuf) -> Box<Sega32XConfig>;
+    fn sega_32x_config(&self, path: PathBuf, cheats: &GenesisCheats) -> Box<Sega32XConfig>;
 
     #[must_use]
     fn smsgg_config(&self, path: PathBuf, hardware: Option<SmsGgHardware>) -> Box<SmsGgConfig>;
@@ -386,7 +387,7 @@ impl AppConfigExt for AppConfig {
         }
     }
 
-    fn genesis_config(&self, path: PathBuf) -> Box<GenesisConfig> {
+    fn genesis_config(&self, path: PathBuf, cheats: &GenesisCheats) -> Box<GenesisConfig> {
         Box::new(GenesisConfig {
             common: self.common_config(path),
             inputs: self.input.genesis.clone(),
@@ -424,12 +425,13 @@ impl AppConfigExt for AppConfig {
                 psg_enabled: self.genesis.psg_enabled,
                 ym2612_volume_adjustment_db: self.genesis.ym2612_volume_adjustment_db,
                 psg_volume_adjustment_db: self.genesis.psg_volume_adjustment_db,
+                cheat_codes: cheats.to_memory_override_vec(),
             },
         })
     }
 
-    fn sega_cd_config(&self, path: PathBuf) -> Box<SegaCdConfig> {
-        let genesis_config = *self.genesis_config(path);
+    fn sega_cd_config(&self, path: PathBuf, cheats: &GenesisCheats) -> Box<SegaCdConfig> {
+        let genesis_config = *self.genesis_config(path, cheats);
         let genesis_emu_config = genesis_config.emulator_config.clone();
         Box::new(SegaCdConfig {
             genesis: genesis_config,
@@ -457,8 +459,8 @@ impl AppConfigExt for AppConfig {
         })
     }
 
-    fn sega_32x_config(&self, path: PathBuf) -> Box<Sega32XConfig> {
-        let genesis_config = *self.genesis_config(path);
+    fn sega_32x_config(&self, path: PathBuf, cheats: &GenesisCheats) -> Box<Sega32XConfig> {
+        let genesis_config = *self.genesis_config(path, cheats);
         let genesis_emu_config = genesis_config.emulator_config.clone();
         Box::new(Sega32XConfig {
             genesis: genesis_config,

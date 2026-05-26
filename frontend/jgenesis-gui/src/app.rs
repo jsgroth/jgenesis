@@ -1,3 +1,4 @@
+mod cheats;
 mod common;
 mod gb;
 mod gba;
@@ -11,6 +12,7 @@ mod smsgg;
 mod snes;
 mod widgets;
 
+use crate::app::cheats::CheatWindowState;
 use crate::app::genesis::{GenesisVolumeState, S32XPriorityState};
 use crate::app::input::{GenericButton, InputMappingSet};
 use crate::app::nes::{NesPaletteState, OverscanState};
@@ -43,6 +45,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{fs, thread};
 use time::{OffsetDateTime, UtcOffset, format_description};
+
+pub(crate) use cheats::ActiveCheats;
 
 const RESERVED_HELP_TEXT_HEIGHT: f32 = 150.0;
 
@@ -141,6 +145,7 @@ enum OpenWindow {
     #[cfg(feature = "unstable-cores")]
     PceInput,
     Hotkeys,
+    Cheats,
     SmsGgOverclock,
     GenesisOverclock,
     SnesOverclock,
@@ -193,6 +198,7 @@ impl OpenWindow {
             #[cfg(feature = "unstable-cores")]
             OpenWindow::PceInput => "PC Engine Input Settings",
             OpenWindow::Hotkeys => "Hotkey Settings",
+            OpenWindow::Cheats => "Cheats",
             OpenWindow::SmsGgOverclock => "SMS/GG Overclocking Settings",
             OpenWindow::GenesisOverclock => "Genesis Overclocking Settings",
             OpenWindow::SnesOverclock => "SNES Overclocking Settings",
@@ -214,6 +220,7 @@ struct WaitingForInput {
 }
 
 struct AppState {
+    cheats: CheatWindowState,
     current_file_path: PathBuf,
     open_windows: HashSet<OpenWindow>,
     help_text: HashMap<OpenWindow, HelpText>,
@@ -250,6 +257,7 @@ struct AppState {
 impl AppState {
     fn new(ctx: &Context) -> Self {
         Self {
+            cheats: CheatWindowState::new(),
             current_file_path: PathBuf::new(),
             open_windows: HashSet::new(),
             help_text: HashMap::new(),
@@ -432,11 +440,14 @@ impl App {
 
         self.state.disc_change_options = romlist::find_all_disc_paths(&path);
 
+        self.load_cheats_for_game(console, &path);
+
         self.emu_thread.stop_emulator_if_running();
         self.emu_thread.send(EmuThreadCommand::Run {
             console,
             config: Box::new(self.config.clone()),
-            input: EmulatorRunInput::OpenFile(path),
+            cheats: Arc::clone(self.active_cheats()),
+            input: EmulatorRunInput::OpenFile(path.clone()),
         });
     }
 
@@ -684,6 +695,7 @@ impl App {
                     self.render_video_menu(ui);
                     self.render_audio_menu(ui);
                     self.render_input_menu(ui);
+                    self.render_cheats_menu_button(ui);
                     self.render_overclock_menu(ui);
                     self.render_help_menu(ui);
                 });
@@ -774,6 +786,7 @@ impl App {
                             self.emu_thread.send(EmuThreadCommand::Run {
                                 console,
                                 config: Box::new(self.config.clone()),
+                                cheats: Arc::new(ActiveCheats::None),
                                 input: EmulatorRunInput::RunBios,
                             });
                             self.state.current_file_path.clear();
@@ -1103,6 +1116,12 @@ impl App {
         });
     }
 
+    fn render_cheats_menu_button(&mut self, ui: &mut Ui) {
+        if ui.button("Cheats").clicked() {
+            self.state.open_window(ui.ctx(), OpenWindow::Cheats);
+        }
+    }
+
     fn render_overclock_menu(&mut self, ui: &mut Ui) {
         ui.menu_button("Overclocking", |ui| {
             for (label, window) in [
@@ -1321,6 +1340,7 @@ impl App {
                 #[cfg(feature = "unstable-cores")]
                 OpenWindow::PceInput => self.render_pce_input_settings(ctx),
                 OpenWindow::Hotkeys => self.render_hotkey_settings(ctx),
+                OpenWindow::Cheats => self.render_cheats_window(ctx),
                 OpenWindow::SmsGgOverclock => self.render_smsgg_overclock_settings(ctx),
                 OpenWindow::GenesisOverclock => self.render_genesis_overclock_settings(ctx),
                 OpenWindow::SnesOverclock => self.render_snes_overclock_settings(ctx),
@@ -1449,6 +1469,7 @@ impl App {
     fn reload_config(&mut self) {
         self.emu_thread.send(EmuThreadCommand::ReloadConfig(
             Box::new(self.config.clone()),
+            Arc::clone(self.active_cheats()),
             self.state.current_file_path.clone(),
         ));
     }

@@ -18,6 +18,7 @@ bytemuck = { workspace = true, features = ["extern_crate_alloc"] }
 clap = { workspace = true, optional = true }
 log = { workspace = true }
 rand = { workspace = true }
+rustc-hash = { workspace = true }
 serde = { workspace = true, optional = true }
 time = { workspace = true }
 

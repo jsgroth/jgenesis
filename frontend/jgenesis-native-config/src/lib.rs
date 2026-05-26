@@ -24,9 +24,13 @@ use crate::pce::PcEngineAppConfig;
 use crate::smsgg::SmsGgAppConfig;
 use crate::snes::SnesAppConfig;
 use jgenesis_proc_macros::{EnumDisplay, deserialize_default_on_error};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::path::{Path, PathBuf};
+use std::{fs, io};
+use thiserror::Error;
+
+pub const CHEATS_SUBDIR: &str = "cheats";
 
 pub const DEFAULT_GUI_WIDTH: f32 = 900.0;
 pub const DEFAULT_GUI_HEIGHT: f32 = 675.0;
@@ -104,6 +108,18 @@ pub enum EguiTheme {
     Light,
 }
 
+#[derive(Debug, Error)]
+pub enum SaveCheatsError {
+    #[error("I/O error saving cheats: {0}")]
+    Io(#[from] io::Error),
+    #[error("TOML serialization error: {0}")]
+    Toml(#[from] toml::ser::Error),
+    #[error(
+        "Unable to determine cheats file path; config_path='{config_path}', rom_file_path='{rom_file_path}'"
+    )]
+    UnableToDeterminePath { config_path: String, rom_file_path: String },
+}
+
 #[deserialize_default_on_error]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -137,6 +153,78 @@ impl AppConfig {
             log::error!("Error deserializing app config: {err}");
             Self::default()
         })
+    }
+
+    fn cheats_file_path(&self, config_path: &Path, rom_file_path: &Path) -> Option<PathBuf> {
+        // TODO support custom config path
+        let config_parent = config_path.parent()?;
+        let rom_extension = rom_file_path.extension()?;
+        let rom_path_toml = rom_file_path.with_extension("toml");
+        let rom_file_name_toml = rom_path_toml.file_name()?;
+
+        Some(config_parent.join(CHEATS_SUBDIR).join(rom_extension).join(rom_file_name_toml))
+    }
+
+    #[must_use]
+    pub fn try_load_cheats<Cheats>(
+        &self,
+        config_path: &Path,
+        rom_file_path: &Path,
+    ) -> Option<Cheats>
+    where
+        Cheats: DeserializeOwned,
+    {
+        let cheats_path = self.cheats_file_path(config_path, rom_file_path)?;
+
+        log::debug!("Loading cheats from '{}'", cheats_path.display());
+
+        let cheats_str = fs::read_to_string(&cheats_path).ok()?;
+        let cheats: Cheats = toml::from_str(&cheats_str).ok()?;
+
+        log::debug!("Successfully loaded cheats");
+
+        Some(cheats)
+    }
+
+    /// Save cheats to a game-specific cheats file.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any I/O or serialization errors encountered.
+    pub fn save_cheats<Cheats>(
+        &self,
+        config_path: &Path,
+        rom_file_path: &Path,
+        cheats: &Cheats,
+    ) -> Result<(), SaveCheatsError>
+    where
+        Cheats: Serialize,
+    {
+        let unable_determine_path_err = || SaveCheatsError::UnableToDeterminePath {
+            config_path: config_path.display().to_string(),
+            rom_file_path: rom_file_path.display().to_string(),
+        };
+
+        let Some(cheats_path) = self.cheats_file_path(config_path, rom_file_path) else {
+            return Err(unable_determine_path_err());
+        };
+
+        log::debug!("Saving cheats to '{}'", cheats_path.display());
+
+        let Some(cheats_parent) = cheats_path.parent() else {
+            return Err(unable_determine_path_err());
+        };
+
+        if !cheats_parent.exists() {
+            fs::create_dir_all(cheats_parent)?;
+        }
+
+        let cheats_str = toml::to_string_pretty(cheats)?;
+        fs::write(&cheats_path, &cheats_str)?;
+
+        log::debug!("Successfully saved cheats");
+
+        Ok(())
     }
 }
 

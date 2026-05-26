@@ -175,6 +175,7 @@ impl GenesisWebConfig {
             psg_enabled: true,
             ym2612_volume_adjustment_db: 0.0,
             psg_volume_adjustment_db: 0.0,
+            cheat_codes: vec![],
         }
     }
 }

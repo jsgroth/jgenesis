@@ -77,6 +77,8 @@ pub struct GenesisEmulatorConfig {
     pub psg_enabled: bool,
     pub ym2612_volume_adjustment_db: f64,
     pub psg_volume_adjustment_db: f64,
+    #[cfg_display(skip)]
+    pub cheat_codes: Vec<(u32, u16)>,
 }
 
 impl Default for GenesisEmulatorConfig {
@@ -113,6 +115,7 @@ impl Default for GenesisEmulatorConfig {
             psg_enabled: true,
             ym2612_volume_adjustment_db: 0.0,
             psg_volume_adjustment_db: 0.0,
+            cheat_codes: vec![],
         }
     }
 }
@@ -160,7 +163,7 @@ impl GenesisEmulatorConfig {
 
 impl EmulatorConfigTrait for GenesisEmulatorConfig {
     fn with_overclocking_disabled(&self) -> Self {
-        Self { m68k_clock_divider: timing::NATIVE_M68K_DIVIDER, ..*self }
+        Self { m68k_clock_divider: timing::NATIVE_M68K_DIVIDER, ..self.clone() }
     }
 }
 
@@ -212,8 +215,8 @@ impl GenesisEmulator {
         save_writer: &mut S,
     ) -> Self {
         let initial_ram = save_writer.load_bytes("sav").ok();
-        let cartridge = Cartridge::from_rom(rom, initial_ram, config.forced_region);
-        let memory = Memory::new(cartridge);
+        let cartridge = Cartridge::new(rom, initial_ram, config.forced_region, &config.cheat_codes);
+        let memory = Memory::new(cartridge, &config);
 
         let timing_mode =
             config.forced_timing_mode.unwrap_or_else(|| match memory.hardware_region() {
@@ -486,6 +489,8 @@ impl EmulatorTrait for GenesisEmulator {
     fn reload_config(&mut self, config: &Self::Config) {
         self.vdp.reload_config(config.to_vdp_config(DarkenColors::No));
         self.ym2612.reload_config(config);
+        self.memory.reload_config(config);
+        self.memory.medium_mut().reload_config(config);
         self.input.reload_config(config);
         self.audio_resampler.reload_config(self.timing_mode, config);
         self.cycles.update_m68k_divider(config.clamped_m68k_divider());

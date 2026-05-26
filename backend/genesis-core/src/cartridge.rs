@@ -1,9 +1,11 @@
+use crate::GenesisEmulatorConfig;
 use crate::cartridge::external::ExternalMemory;
 use crate::memory::PhysicalMedium;
 use crate::svp::Svp;
 use bincode::{Decode, Encode};
 use crc::Crc;
 use genesis_config::GenesisRegion;
+use jgenesis_common::cheats::CheatWordOverrides;
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use regex::Regex;
@@ -400,6 +402,8 @@ pub struct CartridgeHeader {
     pub ssf_mapper: bool,
 }
 
+type CartridgeCheatOverrides = CheatWordOverrides<0x000000, 0x3FFFFF>;
+
 #[derive(Debug, Clone, Encode, Decode, PartialClone)]
 pub struct Cartridge {
     #[partial_clone(default)]
@@ -408,6 +412,7 @@ pub struct Cartridge {
     mapper: Mapper,
     region: GenesisRegion,
     program_title: String,
+    cheat_overrides: CartridgeCheatOverrides,
 }
 
 const TRIPLE_PLAY_GOLD_SERIAL: &[u8] = b"T-172116";
@@ -419,10 +424,11 @@ const ROCKMAN_X3_CHECKSUM: u32 = 0x3EE639F0;
 
 impl Cartridge {
     #[must_use]
-    pub fn from_rom(
+    pub fn new(
         rom_bytes: Vec<u8>,
         initial_ram_bytes: Option<Vec<u8>>,
         forced_region: Option<GenesisRegion>,
+        cheat_codes: &[(u32, u16)],
     ) -> Self {
         // Take checksum before potentially byteswapping the ROM
         let checksum = CRC.checksum(&rom_bytes);
@@ -479,7 +485,16 @@ impl Cartridge {
 
         let program_title = parse_title_from_header(&rom_bytes, region);
 
-        Self { rom: Rom::new(rom_bytes), external: external_memory, mapper, region, program_title }
+        let cheat_overrides = CartridgeCheatOverrides::new(cheat_codes);
+
+        Self {
+            rom: Rom::new(rom_bytes),
+            external: external_memory,
+            mapper,
+            region,
+            program_title,
+            cheat_overrides,
+        }
     }
 
     #[inline]
@@ -527,6 +542,10 @@ impl Cartridge {
     #[must_use]
     pub fn region(&self) -> GenesisRegion {
         self.region
+    }
+
+    pub fn reload_config(&mut self, config: &GenesisEmulatorConfig) {
+        self.cheat_overrides.update_cheat_codes(&config.cheat_codes);
     }
 
     #[must_use]
@@ -684,6 +703,10 @@ fn is_virtua_racing(serial_number: &[u8]) -> bool {
 impl PhysicalMedium for Cartridge {
     #[inline]
     fn read_byte(&mut self, address: u32, open_bus: u16) -> u8 {
+        if let Some(cheat) = self.cheat_overrides.get(address) {
+            return cheat.to_be_bytes()[(address & 1) as usize];
+        }
+
         self.mapper
             .read_byte(address, &self.rom, &self.external)
             .unwrap_or_else(|| open_bus.to_be_bytes()[(address & 1) as usize])
@@ -691,6 +714,10 @@ impl PhysicalMedium for Cartridge {
 
     #[inline]
     fn read_word(&mut self, address: u32, open_bus: u16) -> u16 {
+        if let Some(cheat) = self.cheat_overrides.get(address) {
+            return cheat;
+        }
+
         self.mapper.read_word(address, &self.rom, &self.external).unwrap_or(open_bus)
     }
 

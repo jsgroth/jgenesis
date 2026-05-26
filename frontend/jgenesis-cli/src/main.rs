@@ -951,7 +951,7 @@ fn main() -> anyhow::Result<()> {
 
     let config_dirs = ConfigDirs::new();
     let config_dir_type = config_dirs.default_dir_type(args.config_path_override.clone());
-    let config_with_path = ConfigWithPath::load_from_dir_or_default(
+    let mut config_with_path = ConfigWithPath::load_from_dir_or_default(
         &config_dirs,
         &config_dir_type,
         AppConfig::default,
@@ -968,23 +968,23 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    let mut config = config_with_path.config;
-
-    args.apply_overrides(&mut config)?;
+    args.apply_overrides(&mut config_with_path.config)?;
 
     match hardware {
-        Hardware::MasterSystem => run_smsgg(args, config, SmsGgHardware::MasterSystem),
-        Hardware::GameGear => run_smsgg(args, config, SmsGgHardware::GameGear),
-        Hardware::Sg1000 => run_smsgg(args, config, SmsGgHardware::Sg1000),
-        Hardware::Genesis => run_genesis(args, config),
-        Hardware::SegaCd => run_sega_cd(args, config),
-        Hardware::Sega32X => run_32x(args, config),
-        Hardware::Nes => run_nes(args, config),
-        Hardware::Snes => run_snes(args, config),
-        Hardware::GameBoy => run_gb(args, config),
-        Hardware::GameBoyAdvance => run_gba(args, config),
+        Hardware::MasterSystem => {
+            run_smsgg(args, config_with_path.config, SmsGgHardware::MasterSystem)
+        }
+        Hardware::GameGear => run_smsgg(args, config_with_path.config, SmsGgHardware::GameGear),
+        Hardware::Sg1000 => run_smsgg(args, config_with_path.config, SmsGgHardware::Sg1000),
+        Hardware::Genesis => run_genesis(args, config_with_path),
+        Hardware::SegaCd => run_sega_cd(args, config_with_path),
+        Hardware::Sega32X => run_32x(args, config_with_path),
+        Hardware::Nes => run_nes(args, config_with_path.config),
+        Hardware::Snes => run_snes(args, config_with_path.config),
+        Hardware::GameBoy => run_gb(args, config_with_path.config),
+        Hardware::GameBoyAdvance => run_gba(args, config_with_path.config),
         #[cfg(feature = "unstable-cores")]
-        Hardware::PcEngine => run_pce(args, config),
+        Hardware::PcEngine => run_pce(args, config_with_path.config),
     }
 }
 
@@ -1025,23 +1025,28 @@ fn run_smsgg(args: Args, config: AppConfig, hardware: SmsGgHardware) -> anyhow::
     run_emulator(&mut emulator, &args)
 }
 
-fn run_genesis(args: Args, config: AppConfig) -> anyhow::Result<()> {
-    let mut emulator =
-        jgenesis_native_driver::create_genesis(config.genesis_config(args.file_path.clone()))?;
+fn run_genesis(args: Args, ConfigWithPath { config, path }: ConfigWithPath) -> anyhow::Result<()> {
+    let cheats = config.try_load_cheats(&path, &args.file_path).unwrap_or_default();
+    let mut emulator = jgenesis_native_driver::create_genesis(
+        config.genesis_config(args.file_path.clone(), &cheats),
+    )?;
     run_emulator(&mut emulator, &args)
 }
 
-fn run_sega_cd(args: Args, config: AppConfig) -> anyhow::Result<()> {
-    let mut scd_config = config.sega_cd_config(args.file_path.clone());
+fn run_sega_cd(args: Args, ConfigWithPath { config, path }: ConfigWithPath) -> anyhow::Result<()> {
+    let cheats = config.try_load_cheats(&path, &args.file_path).unwrap_or_default();
+    let mut scd_config = config.sega_cd_config(args.file_path.clone(), &cheats);
     scd_config.run_without_disc = args.scd_no_disc;
 
     let mut emulator = jgenesis_native_driver::create_sega_cd(scd_config)?;
     run_emulator(&mut emulator, &args)
 }
 
-fn run_32x(args: Args, config: AppConfig) -> anyhow::Result<()> {
-    let mut emulator =
-        jgenesis_native_driver::create_32x(config.sega_32x_config(args.file_path.clone()))?;
+fn run_32x(args: Args, ConfigWithPath { config, path }: ConfigWithPath) -> anyhow::Result<()> {
+    let cheats = config.try_load_cheats(&path, &args.file_path).unwrap_or_default();
+    let mut emulator = jgenesis_native_driver::create_32x(
+        config.sega_32x_config(args.file_path.clone(), &cheats),
+    )?;
     run_emulator(&mut emulator, &args)
 }
 

@@ -1,7 +1,9 @@
 mod inputwindow;
 
+use crate::app::ActiveCheats;
 use crate::emuthread::inputwindow::InputWindow;
 use anyhow::anyhow;
+use genesis_config::cheats::GenesisCheats;
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::input::{AxisDirection, GamepadAction, GenericInput, HatDirection};
 #[cfg(feature = "unstable-cores")]
@@ -29,6 +31,7 @@ use std::thread;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(test, derive(jgenesis_proc_macros::EnumAll))]
 pub enum EmuThreadStatus {
     Idle = 0,
     RunningSms = 1,
@@ -85,6 +88,10 @@ impl EmuThreadStatus {
         matches!(self, Self::RunningSms | Self::RunningGameGear)
     }
 
+    pub fn is_running_genesis_like(self) -> bool {
+        matches!(self, Self::RunningGenesis | Self::RunningSegaCd | Self::Running32X)
+    }
+
     pub fn is_running_handheld(self) -> bool {
         matches!(self, Self::RunningGameGear | Self::RunningGameBoy | Self::RunningGba)
     }
@@ -120,16 +127,27 @@ pub enum EmulatorRunInput {
 
 #[derive(Debug, Clone)]
 pub enum EmuThreadCommand {
-    Run { console: Console, config: Box<AppConfig>, input: EmulatorRunInput },
-    ReloadConfig(Box<AppConfig>, PathBuf),
+    Run {
+        console: Console,
+        config: Box<AppConfig>,
+        cheats: Arc<ActiveCheats>,
+        input: EmulatorRunInput,
+    },
+    ReloadConfig(Box<AppConfig>, Arc<ActiveCheats>, PathBuf),
     StopEmulator,
     Terminate,
-    CollectInput { axis_deadzone: i16 },
+    CollectInput {
+        axis_deadzone: i16,
+    },
     SoftReset,
     HardReset,
     OpenMemoryViewer,
-    SaveState { slot: usize },
-    LoadState { slot: usize },
+    SaveState {
+        slot: usize,
+    },
+    LoadState {
+        slot: usize,
+    },
     SegaCdRemoveDisc,
     SegaCdChangeDisc(PathBuf),
 }
@@ -256,7 +274,7 @@ fn thread_run(ctx: EmuThreadContext) {
         ctx.egui_ctx.request_repaint();
 
         match ctx.command_receiver.recv() {
-            Ok(EmuThreadCommand::Run { console, mut config, input }) => {
+            Ok(EmuThreadCommand::Run { console, mut config, cheats, input }) => {
                 ctx.status.store(console.running_status() as u8, Ordering::Relaxed);
 
                 if let Some(native_ppi) = ctx.egui_ctx.native_pixels_per_point() {
@@ -266,7 +284,7 @@ fn thread_run(ctx: EmuThreadContext) {
 
                 let emulator = match input {
                     EmulatorRunInput::OpenFile(file_path) => {
-                        GenericEmulator::create(console, config, file_path).map(Some)
+                        GenericEmulator::create(console, config, cheats, file_path).map(Some)
                     }
                     EmulatorRunInput::RunBios => GenericEmulator::create_run_bios(console, config),
                 };
@@ -345,6 +363,7 @@ impl GenericEmulator {
     fn create(
         console: Console,
         config: Box<AppConfig>,
+        cheats: Arc<ActiveCheats>,
         path: PathBuf,
     ) -> NativeEmulatorResult<Self> {
         let emulator = match console {
@@ -358,13 +377,13 @@ impl GenericEmulator {
                 config.smsgg_config(path, Some(SmsGgHardware::Sg1000)),
             )?)),
             Console::Genesis => Self::Genesis(Box::new(jgenesis_native_driver::create_genesis(
-                config.genesis_config(path),
+                config.genesis_config(path, cheats.genesis_or_default()),
             )?)),
             Console::SegaCd => Self::SegaCd(Box::new(jgenesis_native_driver::create_sega_cd(
-                config.sega_cd_config(path),
+                config.sega_cd_config(path, cheats.genesis_or_default()),
             )?)),
             Console::Sega32X => Self::Sega32X(Box::new(jgenesis_native_driver::create_32x(
-                config.sega_32x_config(path),
+                config.sega_32x_config(path, cheats.genesis_or_default()),
             )?)),
             Console::Nes => {
                 Self::Nes(Box::new(jgenesis_native_driver::create_nes(config.nes_config(path))?))
@@ -409,7 +428,8 @@ impl GenericEmulator {
                 Self::SmsGg(Box::new(jgenesis_native_driver::create_smsgg(gg_config)?))
             }
             Console::SegaCd => {
-                let mut scd_config = config.sega_cd_config(PathBuf::new());
+                let mut scd_config =
+                    config.sega_cd_config(PathBuf::new(), &GenesisCheats::default());
                 scd_config.run_without_disc = true;
 
                 Self::SegaCd(Box::new(jgenesis_native_driver::create_sega_cd(scd_config)?))
@@ -420,12 +440,20 @@ impl GenericEmulator {
         Ok(Some(emulator))
     }
 
-    fn reload_config(&mut self, config: Box<AppConfig>, path: PathBuf) -> NativeEmulatorResult<()> {
+    fn reload_config(
+        &mut self,
+        config: Box<AppConfig>,
+        cheats: Arc<ActiveCheats>,
+        path: PathBuf,
+    ) -> NativeEmulatorResult<()> {
         match self {
             Self::SmsGg(emulator) => emulator.reload_smsgg_config(config.smsgg_config(path, None)),
-            Self::Genesis(emulator) => emulator.reload_genesis_config(config.genesis_config(path)),
-            Self::SegaCd(emulator) => emulator.reload_sega_cd_config(config.sega_cd_config(path)),
-            Self::Sega32X(emulator) => emulator.reload_32x_config(config.sega_32x_config(path)),
+            Self::Genesis(emulator) => emulator
+                .reload_genesis_config(config.genesis_config(path, cheats.genesis_or_default())),
+            Self::SegaCd(emulator) => emulator
+                .reload_sega_cd_config(config.sega_cd_config(path, cheats.genesis_or_default())),
+            Self::Sega32X(emulator) => emulator
+                .reload_32x_config(config.sega_32x_config(path, cheats.genesis_or_default())),
             Self::Nes(emulator) => emulator.reload_nes_config(config.nes_config(path)),
             Self::Snes(emulator) => emulator.reload_snes_config(config.snes_config(path)),
             Self::GameBoy(emulator) => emulator.reload_gb_config(config.gb_config(path)),
@@ -543,8 +571,8 @@ fn handle_command(
     command: EmuThreadCommand,
 ) -> NativeEmulatorResult<Option<RunEmuResult>> {
     match command {
-        EmuThreadCommand::ReloadConfig(config, path) => {
-            emulator.reload_config(config, path)?;
+        EmuThreadCommand::ReloadConfig(config, cheats, path) => {
+            emulator.reload_config(config, cheats, path)?;
         }
         EmuThreadCommand::StopEmulator => {
             log::info!("Stopping emulator");
@@ -926,4 +954,16 @@ fn render_input_window(joysticks: &Joysticks, ui: &mut egui::Ui) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_from_discriminant() {
+        for value in EmuThreadStatus::ALL {
+            assert_eq!(EmuThreadStatus::from_discriminant(value as u8), value);
+        }
+    }
 }

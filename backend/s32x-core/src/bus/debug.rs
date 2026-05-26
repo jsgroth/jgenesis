@@ -434,7 +434,7 @@ mod tests {
         let (mut debugger, debugger_handle) = Sega32XDebugger::new(state_sender);
 
         let mut s32x_bus = Sega32XBus {
-            cartridge: Cartridge::from_rom(vec![0xFF; 1024], None, None),
+            cartridge: Cartridge::new(vec![0xFF; 1024], None, None, &[]),
             vdp: Vdp::new(TimingMode::Ntsc, &emu_config),
             pwm: PwmChip::new(TimingMode::Ntsc),
             registers: SystemRegisters::new(),

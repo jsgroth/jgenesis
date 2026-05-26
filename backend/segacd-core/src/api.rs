@@ -209,7 +209,7 @@ impl SegaCdEmulator {
             SegaCd::new(bios, disc, initial_backup_ram, initial_ram_cartridge, &emulator_config)?;
         let disc_title = sega_cd.disc_title()?.unwrap_or("(no disc)".into());
 
-        let memory = Memory::new(sega_cd);
+        let memory = Memory::new(sega_cd, &emulator_config.genesis);
         let timing_mode =
             emulator_config.genesis.forced_timing_mode.unwrap_or_else(|| {
                 match memory.hardware_region() {
@@ -572,6 +572,7 @@ impl EmulatorTrait for SegaCdEmulator {
     fn reload_config(&mut self, config: &Self::Config) {
         self.vdp.reload_config(config.genesis.to_vdp_config(DarkenColors::No));
         self.ym2612.reload_config(&config.genesis);
+        self.memory.reload_config(&config.genesis);
         self.pcm.reload_config(config);
         self.input.reload_config(&config.genesis);
         self.audio_resampler.reload_config(self.timing_mode, config);

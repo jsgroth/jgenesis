@@ -2002,7 +2002,9 @@ dependencies = [
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",
+ "regex",
  "serde",
+ "toml",
 ]
 
 [[package]]
@@ -2581,6 +2583,7 @@ dependencies = [
  "js-sys",
  "log",
  "rand 0.10.0",
+ "rustc-hash 2.1.1",
  "serde",
  "time",
 ]

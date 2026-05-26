@@ -2,7 +2,6 @@
 
 pub mod debug;
 
-use crate::GenesisRegionExt;
 use crate::api::debug::{GenesisMemoryDebugView, PhysicalMediumDebugView};
 use crate::cartridge::Cartridge;
 use crate::input::InputState;
@@ -10,8 +9,10 @@ use crate::memory::debug::GenesisMemory;
 use crate::timing::CycleCounters;
 use crate::vdp::Vdp;
 use crate::ym2612::Ym2612;
+use crate::{GenesisEmulatorConfig, GenesisRegionExt};
 use bincode::{Decode, Encode};
 use genesis_config::GenesisRegion;
+use jgenesis_common::cheats::CheatWordOverrides;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::PartialClone;
@@ -80,6 +81,8 @@ impl Signals {
     }
 }
 
+type RamCheatOverrides = CheatWordOverrides<0xFF0000, 0xFFFFFF>;
+
 #[derive(Debug, Clone, Encode, Decode, PartialClone)]
 pub struct Memory<Medium> {
     #[partial_clone(partial)]
@@ -89,12 +92,13 @@ pub struct Memory<Medium> {
     z80_bank_register: Z80BankRegister,
     signals: Signals,
     pub open_bus: u16,
+    ram_cheat_overrides: RamCheatOverrides,
 }
 
 impl<Medium: PhysicalMedium> Memory<Medium> {
     #[allow(clippy::missing_panics_doc)]
     #[must_use]
-    pub fn new(physical_medium: Medium) -> Self {
+    pub fn new(physical_medium: Medium, config: &GenesisEmulatorConfig) -> Self {
         Self {
             physical_medium,
             main_ram: vec![0; MAIN_RAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
@@ -102,6 +106,7 @@ impl<Medium: PhysicalMedium> Memory<Medium> {
             z80_bank_register: Z80BankRegister::default(),
             signals: Signals::default(),
             open_bus: 0,
+            ram_cheat_overrides: RamCheatOverrides::new(&config.cheat_codes),
         }
     }
 
@@ -153,6 +158,10 @@ impl<Medium: PhysicalMedium> Memory<Medium> {
     #[inline]
     pub fn reset_z80_signals(&mut self) {
         self.signals = Signals::default();
+    }
+
+    pub fn reload_config(&mut self, config: &GenesisEmulatorConfig) {
+        self.ram_cheat_overrides.update_cheat_codes(&config.cheat_codes);
     }
 
     pub fn clone_cartridge(&self) -> Option<Cartridge> {
@@ -540,6 +549,10 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterfa
             0xA11100..=0xA11101 => (self.read_busack_register() >> 8) as u8,
             0xC00000..=0xC0001F => self.read_vdp_byte(address),
             0xE00000..=0xFFFFFF => {
+                if let Some(cheat) = self.memory.ram_cheat_overrides.get(address) {
+                    return cheat.to_be_bytes()[(address & 1) as usize];
+                }
+
                 let word = self.memory.main_ram[((address & 0xFFFF) >> 1) as usize];
                 if !address.bit(0) { word.msb() } else { word.lsb() }
             }
@@ -578,7 +591,13 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterfa
             0xC00000..=0xC00003 => self.vdp.read_data(),
             0xC00004..=0xC00007 => self.read_vdp_status(),
             0xC00008..=0xC0000F => self.read_vdp_hv_counter(),
-            0xE00000..=0xFFFFFF => self.memory.main_ram[((address & 0xFFFF) >> 1) as usize],
+            0xE00000..=0xFFFFFF => {
+                if let Some(cheat) = self.memory.ram_cheat_overrides.get(address) {
+                    return cheat;
+                }
+
+                self.memory.main_ram[((address & 0xFFFF) >> 1) as usize]
+            }
             _ => self.memory.open_bus,
         };
 
@@ -769,6 +788,7 @@ mod tests {
     #[test]
     fn loading_tiny_rom_does_not_panic() {
         let rom = vec![0; 344];
-        let _ = Memory::new(Cartridge::from_rom(rom, None, None));
+        let _ =
+            Memory::new(Cartridge::new(rom, None, None, &[]), &GenesisEmulatorConfig::default());
     }
 }

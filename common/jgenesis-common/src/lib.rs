@@ -1,5 +1,6 @@
 pub mod audio;
 pub mod boxedarray;
+pub mod cheats;
 pub mod debug;
 pub mod frontend;
 pub mod input;
