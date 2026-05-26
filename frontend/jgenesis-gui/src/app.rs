@@ -18,20 +18,19 @@ use crate::app::input::{GenericButton, InputMappingSet};
 use crate::app::nes::{NesPaletteState, OverscanState};
 use crate::app::romlist::{RomListThreadHandle, RomMetadata};
 use crate::app::snes::HandledError;
-use crate::app::widgets::{RenderErrorEffect, SavePathSelect};
+use crate::app::widgets::RenderErrorEffect;
 use crate::emuthread;
 use crate::emuthread::{EmuThreadCommand, EmuThreadHandle, EmuThreadStatus, EmulatorRunInput};
 use eframe::Frame;
 use egui::panel::TopBottomSide;
 use egui::{
-    Align, Button, CentralPanel, Color32, Context, Grid, Key, KeyboardShortcut, LayerId, Layout,
+    Align, Button, CentralPanel, Color32, Context, Key, KeyboardShortcut, LayerId, Layout,
     Modifiers, Order, TextEdit, ThemePreference, TopBottomPanel, Ui, UiKind, Vec2, ViewportCommand,
     Widget, Window,
 };
 use egui_extras::{Column, TableBuilder};
 use emath::Pos2;
-use jgenesis_native_config::common::{CheatPath, HideMouseCursor, PauseEmulator};
-use jgenesis_native_config::paths::{ConfigDirType, ConfigDirs, ConfigWithPath};
+use jgenesis_native_config::paths::{ConfigDirType, ConfigDirs};
 use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen};
 use jgenesis_native_driver::extensions::Console;
 use jgenesis_native_driver::{NativeEmulatorError, extensions};
@@ -461,240 +460,6 @@ impl App {
     fn request_rom_list_scan(&mut self) {
         self.rom_list_thread.request_scan(self.config.rom_search_dirs.clone());
         self.state.rom_list_refresh_needed = true;
-    }
-
-    fn render_path_settings(&mut self, ctx: &Context) {
-        let mut open = true;
-        Window::new(OpenWindow::Paths.title()).open(&mut open).default_width(500.0).show(
-            ctx,
-            |ui| {
-                widgets::render_vertical_scroll_area(ui, |ui| {
-                    let using_override =
-                        matches!(self.config_dir_type, ConfigDirType::Override { .. });
-                    ui.add_enabled_ui(!using_override, |ui| {
-                        let prev_config_dir_type = self.config_dir_type.clone();
-
-                        ui.group(|ui| {
-                            ui.label("Settings path");
-
-                            ui.add_enabled_ui(self.config_dirs.user_profile_dir.is_some(), |ui| {
-                                ui.radio_value(
-                                    &mut self.config_dir_type,
-                                    ConfigDirType::UserProfile,
-                                    "User profile directory",
-                                );
-                            });
-
-                            ui.add_enabled_ui(self.config_dirs.emulator_dir.is_some(), |ui| {
-                                ui.radio_value(
-                                    &mut self.config_dir_type,
-                                    ConfigDirType::EmulatorDirectory,
-                                    "Emulator directory (Portable)",
-                                );
-                            });
-
-                            ui.label(format!("  {}", self.config_path.display()));
-                        });
-
-                        if self.config_dir_type != prev_config_dir_type {
-                            self.handle_config_dir_type_change(ctx);
-                        }
-                    });
-
-                    ui.add(SavePathSelect::new(
-                        "Game save file path",
-                        &mut self.config.common.save_path,
-                        &mut self.config.common.custom_save_path,
-                    ));
-
-                    ui.add(SavePathSelect::new(
-                        "Save state path",
-                        &mut self.config.common.state_path,
-                        &mut self.config.common.custom_state_path,
-                    ));
-
-                    ui.group(|ui| {
-                        ui.label("Cheats path");
-
-                        ui.horizontal(|ui| {
-                            ui.radio_value(
-                                &mut self.config.common.cheats_path,
-                                CheatPath::SettingsFolder,
-                                "Same folder as main settings",
-                            );
-                            ui.radio_value(
-                                &mut self.config.common.cheats_path,
-                                CheatPath::EmulatorFolder,
-                                "Emulator folder",
-                            );
-                            ui.radio_value(
-                                &mut self.config.common.cheats_path,
-                                CheatPath::Custom,
-                                "Custom",
-                            );
-                        });
-
-                        ui.add_enabled_ui(
-                            self.config.common.cheats_path == CheatPath::Custom,
-                            |ui| {
-                                widgets::render_custom_path_select(
-                                    ui,
-                                    &mut self.config.common.cheats_custom_path,
-                                );
-                            },
-                        );
-                    });
-
-                    ui.add_space(10.0);
-
-                    ui.group(|ui| {
-                        ui.heading("ROM search directories");
-
-                        ui.add_space(5.0);
-
-                        Grid::new("rom_search_dirs").show(ui, |ui| {
-                            for (i, rom_search_dir) in
-                                self.config.rom_search_dirs.clone().into_iter().enumerate()
-                            {
-                                ui.label(&rom_search_dir);
-
-                                if ui.button("Remove").clicked() {
-                                    self.config.rom_search_dirs.remove(i);
-                                    self.request_rom_list_scan();
-                                }
-
-                                ui.end_row();
-                            }
-                        });
-
-                        if ui.button("Add").clicked() {
-                            self.add_rom_search_directory();
-                        }
-                    });
-                });
-            },
-        );
-        if !open {
-            self.state.open_windows.remove(&OpenWindow::Paths);
-        }
-    }
-
-    fn handle_config_dir_type_change(&mut self, ctx: &Context) {
-        match &self.config_dir_type {
-            ConfigDirType::EmulatorDirectory => {
-                if let Err(err) = self.config_dirs.create_portable_txt() {
-                    log::error!("Error creating portable.txt file: {err}");
-                }
-            }
-            _ => {
-                if let Err(err) = self.config_dirs.delete_portable_txt() {
-                    log::error!("Error deleting portable.txt file: {err}");
-                }
-            }
-        }
-
-        let prev_rom_search_dirs = self.config.rom_search_dirs.clone();
-        let prev_list_filters = self.config.list_filters.clone();
-
-        // Try to load config from new path, but keep config unchanged if unable to load (e.g. file does not exist)
-        let new_config = ConfigWithPath::load_from_dir_or_default(
-            &self.config_dirs,
-            &self.config_dir_type,
-            || self.config.clone(),
-        );
-
-        log::info!("Config path changed to '{}'", new_config.path.display());
-
-        if !new_config.path.exists() {
-            log::info!(
-                "Saving current settings to new config path '{}'",
-                new_config.path.display()
-            );
-            if let Err(err) = new_config.save_config() {
-                log::error!(
-                    "Error saving current settings to '{}': {err}",
-                    new_config.path.display()
-                );
-            }
-        }
-
-        self.config = new_config.config;
-        self.config_path = new_config.path;
-
-        self.state.update_config_derived_fields(&self.config, ctx);
-
-        if prev_rom_search_dirs != self.config.rom_search_dirs
-            || prev_list_filters != self.config.list_filters
-        {
-            self.request_rom_list_scan();
-        }
-    }
-
-    fn render_interface_settings(&mut self, ctx: &Context) {
-        let mut open = true;
-        Window::new(OpenWindow::Interface.title()).open(&mut open).resizable(false).show(
-            ctx,
-            |ui| {
-                ui.group(|ui| {
-                    ui.label("Pause emulator automatically");
-
-                    for (option, label) in [
-                        (PauseEmulator::Never, "Never"),
-                        (
-                            PauseEmulator::EmulatorLosesFocus,
-                            "When emulator window is in background",
-                        ),
-                        (
-                            PauseEmulator::ApplicationLosesFocus,
-                            "When entire application is in background",
-                        ),
-                    ] {
-                        ui.radio_value(&mut self.config.common.pause_emulator, option, label);
-                    }
-                });
-
-                ui.add_space(5.0);
-
-                ui.group(|ui| {
-                    ui.label("Hide mouse cursor over emulator window");
-
-                    ui.radio_value(
-                        &mut self.config.common.hide_mouse_cursor,
-                        HideMouseCursor::Fullscreen,
-                        "Only when fullscreen",
-                    );
-                    ui.radio_value(
-                        &mut self.config.common.hide_mouse_cursor,
-                        HideMouseCursor::Always,
-                        "Always",
-                    );
-                    ui.radio_value(
-                        &mut self.config.common.hide_mouse_cursor,
-                        HideMouseCursor::Never,
-                        "Never",
-                    );
-                });
-
-                ui.add_space(5.0);
-
-                ui.group(|ui| {
-                    ui.label("UI theme");
-
-                    ui.horizontal(|ui| {
-                        ui.radio_value(
-                            &mut self.config.egui_theme,
-                            EguiTheme::SystemDefault,
-                            "System default",
-                        );
-                        ui.radio_value(&mut self.config.egui_theme, EguiTheme::Dark, "Dark");
-                        ui.radio_value(&mut self.config.egui_theme, EguiTheme::Light, "Light");
-                    });
-                });
-            },
-        );
-        if !open {
-            self.state.open_windows.remove(&OpenWindow::Interface);
-        }
     }
 
     fn render_about(&mut self, ctx: &Context) {
