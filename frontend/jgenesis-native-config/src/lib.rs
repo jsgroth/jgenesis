@@ -13,7 +13,7 @@ pub mod snes;
 
 pub use migration::{current_config_version, migrate_config, migrate_config_str};
 
-use crate::common::CommonAppConfig;
+use crate::common::{CheatPath, CommonAppConfig};
 use crate::gb::GameBoyAppConfig;
 use crate::gba::GameBoyAdvanceAppConfig;
 use crate::genesis::{GenesisAppConfig, Sega32XAppConfig, SegaCdAppConfig};
@@ -156,13 +156,19 @@ impl AppConfig {
     }
 
     fn cheats_file_path(&self, config_path: &Path, rom_file_path: &Path) -> Option<PathBuf> {
-        // TODO support custom config path
-        let config_parent = config_path.parent()?;
+        let cheats_dir = match self.common.cheats_path {
+            CheatPath::SettingsFolder => config_path.parent()?.join(CHEATS_SUBDIR),
+            CheatPath::EmulatorFolder => {
+                jgenesis_common::determine_emulator_dir()?.join(CHEATS_SUBDIR)
+            }
+            CheatPath::Custom => self.common.cheats_custom_path.clone(),
+        };
+
         let rom_extension = rom_file_path.extension()?;
         let rom_path_toml = rom_file_path.with_extension("toml");
         let rom_file_name_toml = rom_path_toml.file_name()?;
 
-        Some(config_parent.join(CHEATS_SUBDIR).join(rom_extension).join(rom_file_name_toml))
+        Some(cheats_dir.join(rom_extension).join(rom_file_name_toml))
     }
 
     #[must_use]

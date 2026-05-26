@@ -18,10 +18,9 @@ use crate::app::input::{GenericButton, InputMappingSet};
 use crate::app::nes::{NesPaletteState, OverscanState};
 use crate::app::romlist::{RomListThreadHandle, RomMetadata};
 use crate::app::snes::HandledError;
-use crate::app::widgets::RenderErrorEffect;
+use crate::app::widgets::{RenderErrorEffect, SavePathSelect};
 use crate::emuthread;
 use crate::emuthread::{EmuThreadCommand, EmuThreadHandle, EmuThreadStatus, EmulatorRunInput};
-use crate::widgets::SavePathSelect;
 use eframe::Frame;
 use egui::panel::TopBottomSide;
 use egui::{
@@ -31,7 +30,7 @@ use egui::{
 };
 use egui_extras::{Column, TableBuilder};
 use emath::Pos2;
-use jgenesis_native_config::common::{HideMouseCursor, PauseEmulator};
+use jgenesis_native_config::common::{CheatPath, HideMouseCursor, PauseEmulator};
 use jgenesis_native_config::paths::{ConfigDirType, ConfigDirs, ConfigWithPath};
 use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen};
 use jgenesis_native_driver::extensions::Console;
@@ -469,74 +468,109 @@ impl App {
         Window::new(OpenWindow::Paths.title()).open(&mut open).default_width(500.0).show(
             ctx,
             |ui| {
-                let using_override = matches!(self.config_dir_type, ConfigDirType::Override { .. });
-                ui.add_enabled_ui(!using_override, |ui| {
-                    let prev_config_dir_type = self.config_dir_type.clone();
+                widgets::render_vertical_scroll_area(ui, |ui| {
+                    let using_override =
+                        matches!(self.config_dir_type, ConfigDirType::Override { .. });
+                    ui.add_enabled_ui(!using_override, |ui| {
+                        let prev_config_dir_type = self.config_dir_type.clone();
 
-                    ui.group(|ui| {
-                        ui.label("Settings path");
+                        ui.group(|ui| {
+                            ui.label("Settings path");
 
-                        ui.add_enabled_ui(self.config_dirs.user_profile_dir.is_some(), |ui| {
-                            ui.radio_value(
-                                &mut self.config_dir_type,
-                                ConfigDirType::UserProfile,
-                                "User profile directory",
-                            );
+                            ui.add_enabled_ui(self.config_dirs.user_profile_dir.is_some(), |ui| {
+                                ui.radio_value(
+                                    &mut self.config_dir_type,
+                                    ConfigDirType::UserProfile,
+                                    "User profile directory",
+                                );
+                            });
+
+                            ui.add_enabled_ui(self.config_dirs.emulator_dir.is_some(), |ui| {
+                                ui.radio_value(
+                                    &mut self.config_dir_type,
+                                    ConfigDirType::EmulatorDirectory,
+                                    "Emulator directory (Portable)",
+                                );
+                            });
+
+                            ui.label(format!("  {}", self.config_path.display()));
                         });
 
-                        ui.add_enabled_ui(self.config_dirs.emulator_dir.is_some(), |ui| {
-                            ui.radio_value(
-                                &mut self.config_dir_type,
-                                ConfigDirType::EmulatorDirectory,
-                                "Emulator directory (Portable)",
-                            );
-                        });
-
-                        ui.label(format!("  {}", self.config_path.display()));
-                    });
-
-                    if self.config_dir_type != prev_config_dir_type {
-                        self.handle_config_dir_type_change(ctx);
-                    }
-                });
-
-                ui.add(SavePathSelect::new(
-                    "Game save file path",
-                    &mut self.config.common.save_path,
-                    &mut self.config.common.custom_save_path,
-                ));
-
-                ui.add(SavePathSelect::new(
-                    "Save state path",
-                    &mut self.config.common.state_path,
-                    &mut self.config.common.custom_state_path,
-                ));
-
-                ui.add_space(10.0);
-
-                ui.group(|ui| {
-                    ui.heading("ROM search directories");
-
-                    ui.add_space(5.0);
-
-                    Grid::new("rom_search_dirs").show(ui, |ui| {
-                        for (i, rom_search_dir) in
-                            self.config.rom_search_dirs.clone().into_iter().enumerate()
-                        {
-                            ui.label(&rom_search_dir);
-
-                            if ui.button("Remove").clicked() {
-                                self.config.rom_search_dirs.remove(i);
-                                self.request_rom_list_scan();
-                            }
-
-                            ui.end_row();
+                        if self.config_dir_type != prev_config_dir_type {
+                            self.handle_config_dir_type_change(ctx);
                         }
                     });
 
-                    if ui.button("Add").clicked() {
-                        self.add_rom_search_directory();
-                    }
+                    ui.add(SavePathSelect::new(
+                        "Game save file path",
+                        &mut self.config.common.save_path,
+                        &mut self.config.common.custom_save_path,
+                    ));
+
+                    ui.add(SavePathSelect::new(
+                        "Save state path",
+                        &mut self.config.common.state_path,
+                        &mut self.config.common.custom_state_path,
+                    ));
+
+                    ui.group(|ui| {
+                        ui.label("Cheats path");
+
+                        ui.horizontal(|ui| {
+                            ui.radio_value(
+                                &mut self.config.common.cheats_path,
+                                CheatPath::SettingsFolder,
+                                "Same folder as main settings",
+                            );
+                            ui.radio_value(
+                                &mut self.config.common.cheats_path,
+                                CheatPath::EmulatorFolder,
+                                "Emulator folder",
+                            );
+                            ui.radio_value(
+                                &mut self.config.common.cheats_path,
+                                CheatPath::Custom,
+                                "Custom",
+                            );
+                        });
+
+                        ui.add_enabled_ui(
+                            self.config.common.cheats_path == CheatPath::Custom,
+                            |ui| {
+                                widgets::render_custom_path_select(
+                                    ui,
+                                    &mut self.config.common.cheats_custom_path,
+                                );
+                            },
+                        );
+                    });
+
+                    ui.add_space(10.0);
+
+                    ui.group(|ui| {
+                        ui.heading("ROM search directories");
+
+                        ui.add_space(5.0);
+
+                        Grid::new("rom_search_dirs").show(ui, |ui| {
+                            for (i, rom_search_dir) in
+                                self.config.rom_search_dirs.clone().into_iter().enumerate()
+                            {
+                                ui.label(&rom_search_dir);
+
+                                if ui.button("Remove").clicked() {
+                                    self.config.rom_search_dirs.remove(i);
+                                    self.request_rom_list_scan();
+                                }
+
+                                ui.end_row();
+                            }
+                        });
+
+                        if ui.button("Add").clicked() {
+                            self.add_rom_search_directory();
+                        }
+                    });
                 });
             },
         );

@@ -1,11 +1,11 @@
 mod helptext;
 
 use crate::app::widgets::{
-    BiosErrorStrings, NumericTextEdit, OptionalPathSelector, RenderErrorEffect,
+    BiosErrorStrings, ClockModifier, NumericTextEdit, OptionalPathSelector, OverclockSlider,
+    RenderErrorEffect,
 };
 use crate::app::{App, Console, OpenWindow, widgets};
 use crate::emuthread::EmuThreadStatus;
-use crate::widgets::{ClockModifier, OverclockSlider};
 use egui::style::ScrollStyle;
 use egui::{Color32, Context, Slider, Ui, Window};
 use genesis_config::{GenesisAspectRatio, GenesisRegion, Opn2BusyBehavior, S32XPwmResampling};

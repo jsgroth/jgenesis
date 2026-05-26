@@ -284,6 +284,17 @@ pub enum ConfigSavePath {
     Custom,
 }
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumAll,
+)]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum CheatPath {
+    #[default]
+    SettingsFolder,
+    EmulatorFolder,
+    Custom,
+}
+
 #[deserialize_default_on_error]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -326,6 +337,8 @@ pub struct CommonAppConfig {
     pub pause_emulator: PauseEmulator,
     pub hide_mouse_cursor: HideMouseCursor,
     pub cheats_enabled: bool,
+    pub cheats_path: CheatPath,
+    pub cheats_custom_path: PathBuf,
 }
 
 impl CommonAppConfig {
@@ -380,6 +393,8 @@ impl Default for CommonAppConfig {
             pause_emulator: PauseEmulator::default(),
             hide_mouse_cursor: HideMouseCursor::default(),
             cheats_enabled: true,
+            cheats_path: CheatPath::default(),
+            cheats_custom_path: default_custom_cheats_path(),
         }
     }
 }
@@ -399,6 +414,10 @@ fn default_custom_save_path() -> PathBuf {
 
 fn default_custom_state_path() -> PathBuf {
     default_custom_path(SavePath::STATE_SUBDIR)
+}
+
+fn default_custom_cheats_path() -> PathBuf {
+    default_custom_path("cheats")
 }
 
 fn default_prescale_factor() -> PrescaleFactor {

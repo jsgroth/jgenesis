@@ -1,8 +1,9 @@
 mod helptext;
 
-use crate::app::widgets::{BiosErrorStrings, OptionalPathSelector, RenderErrorEffect};
+use crate::app::widgets::{
+    BiosErrorStrings, ClockModifier, OptionalPathSelector, OverclockSlider, RenderErrorEffect,
+};
 use crate::app::{App, OpenWindow, widgets};
-use crate::widgets::{ClockModifier, OverclockSlider};
 use egui::{Context, Window};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::extensions::Console;
