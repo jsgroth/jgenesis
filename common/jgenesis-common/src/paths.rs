@@ -3,8 +3,11 @@ use std::path::{Path, PathBuf};
 
 #[inline]
 #[must_use]
-pub fn is_appimage_build() -> bool {
-    option_env!("JGENESIS_APPIMAGE_BUILD").is_some_and(|var| !var.is_empty())
+pub const fn is_appimage_build() -> bool {
+    match option_env!("JGENESIS_APPIMAGE_BUILD") {
+        Some(var) => !var.is_empty(),
+        None => false,
+    }
 }
 
 /// Fix relative input paths when running from inside an AppImage.
@@ -31,4 +34,24 @@ pub fn fix_appimage_relative_path(path: PathBuf) -> PathBuf {
     );
 
     converted
+}
+
+/// Directory containing the emulator executable
+///
+/// Returns `None` if unable to determine
+#[inline]
+#[must_use]
+pub fn determine_emulator_dir() -> Option<PathBuf> {
+    let exe_path: PathBuf = if is_appimage_build() {
+        // When running from inside an AppImage, env::current_exe() returns a path inside the mount's
+        // temp dir.
+        //
+        // APPIMAGE env var should contain the path to the AppImage file:
+        //    https://docs.appimage.org/packaging-guide/environment-variables.html
+        env::var("APPIMAGE").ok()?.into()
+    } else {
+        env::current_exe().ok()?
+    };
+
+    exe_path.parent().map(ToOwned::to_owned)
 }

@@ -1,7 +1,7 @@
 use crate::AppConfig;
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::{env, fs, io};
+use std::{fs, io};
 use thiserror::Error;
 
 pub const CONFIG_FILENAME: &str = "jgenesis-config.toml";
@@ -25,7 +25,7 @@ impl ConfigDirs {
     #[must_use]
     pub fn new() -> Self {
         let user_profile_dir = determine_user_profile_dir();
-        let emulator_dir = determine_emulator_dir();
+        let emulator_dir = jgenesis_common::determine_emulator_dir();
 
         if user_profile_dir.is_none() {
             log::error!("Unable to determine user profile directory");
@@ -216,20 +216,4 @@ impl ConfigWithPath {
 fn determine_user_profile_dir() -> Option<PathBuf> {
     let base_dirs = directories::BaseDirs::new()?;
     Some(base_dirs.config_local_dir().join(JGENESIS_SUBDIR))
-}
-
-// Directory containing the emulator executable
-fn determine_emulator_dir() -> Option<PathBuf> {
-    let exe_path: PathBuf = if jgenesis_common::is_appimage_build() {
-        // When running from inside an AppImage, env::current_exe() returns a path inside the mount's
-        // temp dir.
-        //
-        // APPIMAGE env var should contain the path to the AppImage file:
-        //    https://docs.appimage.org/packaging-guide/environment-variables.html
-        env::var("APPIMAGE").ok()?.into()
-    } else {
-        env::current_exe().ok()?
-    };
-
-    exe_path.parent().map(ToOwned::to_owned)
 }

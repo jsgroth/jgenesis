@@ -203,16 +203,12 @@ fn determine_path(
             return Ok(rom_path.with_extension(save_extension));
         }
         SavePath::EmulatorFolder => {
-            let base_dir = if jgenesis_common::is_appimage_build() {
-                // When running in an AppImage, CWD does not return the location of the AppImage
-                // file; read the OWD var instead (Original Working Directory)
-                env::var("OWD").map_or_else(|err| {
-                    log::error!("Unable to determine AppImage working directory, defaulting to current directory: {err}");
-                    current_dir_with_fallback()
-                }, PathBuf::from)
-            } else {
-                determine_current_exe_parent()
-            };
+            let base_dir = jgenesis_common::determine_emulator_dir().unwrap_or_else(|| {
+                log::error!(
+                    "Unable to determine AppImage parent directory, defaulting to current directory"
+                );
+                current_dir_with_fallback()
+            });
 
             base_dir.join(save_subdir).join(rom_extension)
         }
@@ -242,28 +238,6 @@ fn strip_disc_from_file_name(file_name: &str) -> Cow<'_, str> {
     static DISC_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" \(Disc \d\)").unwrap());
 
     DISC_RE.replace(file_name, "")
-}
-
-fn determine_current_exe_parent() -> PathBuf {
-    let current_exe = match env::current_exe() {
-        Ok(current_exe) => current_exe,
-        Err(err) => {
-            log::error!(
-                "Unable to detemine current executable, falling back to current directory: {err}"
-            );
-            return current_dir_with_fallback();
-        }
-    };
-
-    let Some(parent) = current_exe.parent() else {
-        log::error!(
-            "Unable to determine parent directory of current executable '{}', falling back to current directory",
-            current_exe.display()
-        );
-        return current_dir_with_fallback();
-    };
-
-    parent.into()
 }
 
 // Fall back to temp dir if getting the current directory fails
