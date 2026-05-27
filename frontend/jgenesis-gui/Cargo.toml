@@ -48,6 +48,7 @@ pollster = { workspace = true }
 regex = { workspace = true }
 rfd = { workspace = true }
 sdl3 = { workspace = true }
+serde = { workspace = true }
 time = { workspace = true, features = ["formatting", "local-offset"] }
 toml = { workspace = true }
 wgpu = { workspace = true }

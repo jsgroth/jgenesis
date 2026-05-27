@@ -2654,6 +2654,7 @@ dependencies = [
  "rfd",
  "sdl3",
  "segacd-core",
+ "serde",
  "smsgg-config",
  "smsgg-core",
  "snes-config",

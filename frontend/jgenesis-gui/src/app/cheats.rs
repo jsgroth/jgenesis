@@ -5,7 +5,9 @@ use egui::{
 };
 use egui_extras::{Column, TableBuilder};
 use genesis_config::cheats::{GenesisCheat, GenesisCheatCodeType, GenesisCheats};
+use jgenesis_common::cheats::ByteCheatCodeU16Address;
 use jgenesis_native_driver::extensions::Console;
+use serde::Serialize;
 use smsgg_config::cheats::{SmsGgCheat, SmsGgCheatCodeType, SmsGgCheats};
 use std::borrow::Cow;
 use std::path::Path;
@@ -72,6 +74,78 @@ impl CheatConsole {
             Console::MasterSystem | Console::GameGear | Console::Sg1000 => Some(Self::SmsGg),
             _ => None,
         }
+    }
+}
+
+trait SystemCheats: PartialEq + Eq + Serialize {
+    type MemoryOverrides: PartialEq + Eq;
+
+    fn from_active_or_default(active: &ActiveCheats) -> &Self;
+
+    fn from_state(state: &CheatWindowState) -> Self;
+
+    fn into_active(self) -> ActiveCheats;
+
+    fn to_memory_overrides(&self) -> Self::MemoryOverrides;
+}
+
+impl SystemCheats for GenesisCheats {
+    type MemoryOverrides = Vec<(u32, u16)>;
+
+    fn from_active_or_default(active: &ActiveCheats) -> &Self {
+        active.genesis_or_default()
+    }
+
+    fn from_state(state: &CheatWindowState) -> Self {
+        Self {
+            cheats: state
+                .cheats
+                .iter()
+                .map(|cheat| GenesisCheat {
+                    name: cheat.name.clone(),
+                    enabled: cheat.enabled,
+                    codes: cheat.codes.clone(),
+                })
+                .collect(),
+        }
+    }
+
+    fn into_active(self) -> ActiveCheats {
+        ActiveCheats::Genesis(self)
+    }
+
+    fn to_memory_overrides(&self) -> Self::MemoryOverrides {
+        self.to_memory_override_vec()
+    }
+}
+
+impl SystemCheats for SmsGgCheats {
+    type MemoryOverrides = Vec<ByteCheatCodeU16Address>;
+
+    fn from_active_or_default(active: &ActiveCheats) -> &Self {
+        active.smsgg_or_default()
+    }
+
+    fn from_state(state: &CheatWindowState) -> Self {
+        Self {
+            cheats: state
+                .cheats
+                .iter()
+                .map(|cheat| SmsGgCheat {
+                    name: cheat.name.clone(),
+                    enabled: cheat.enabled,
+                    codes: cheat.codes.clone(),
+                })
+                .collect(),
+        }
+    }
+
+    fn into_active(self) -> ActiveCheats {
+        ActiveCheats::SmsGg(self)
+    }
+
+    fn to_memory_overrides(&self) -> Self::MemoryOverrides {
+        self.to_memory_override_vec()
     }
 }
 
@@ -198,85 +272,33 @@ impl App {
 
     fn update_active_cheats(&mut self) {
         match self.state.cheats.active_console {
-            Some(CheatConsole::Genesis) => self.update_genesis_active_cheats(),
-            Some(CheatConsole::SmsGg) => self.update_smsgg_active_cheats(),
+            Some(CheatConsole::Genesis) => self.update_system_active_cheats::<GenesisCheats>(),
+            Some(CheatConsole::SmsGg) => self.update_system_active_cheats::<SmsGgCheats>(),
             None => {}
         }
     }
 
-    fn update_genesis_active_cheats(&mut self) {
+    fn update_system_active_cheats<Cheats: SystemCheats>(&mut self) {
         let prev_active_cheats = Arc::clone(&self.state.cheats.active);
-        let prev_active_cheats = prev_active_cheats.genesis_or_default();
+        let prev_active_cheats = Cheats::from_active_or_default(&prev_active_cheats);
 
-        let genesis_cheats = GenesisCheats {
-            cheats: self
-                .state
-                .cheats
-                .cheats
-                .iter()
-                .map(|cheat| GenesisCheat {
-                    name: cheat.name.clone(),
-                    enabled: cheat.enabled,
-                    codes: cheat.codes.clone(),
-                })
-                .collect(),
-        };
+        let system_cheats = Cheats::from_state(&self.state.cheats);
 
-        let changed = *prev_active_cheats != genesis_cheats;
-
+        let changed = *prev_active_cheats != system_cheats;
         if changed {
             if let Err(err) = self.config.save_cheats(
                 &self.config_path,
                 &self.state.current_file_path,
-                &genesis_cheats,
+                &system_cheats,
             ) {
                 log::error!("Error saving cheats file: {err}");
             }
 
-            let new_memory_override_vec = genesis_cheats.to_memory_override_vec();
-            self.state.cheats.active = Arc::new(ActiveCheats::Genesis(genesis_cheats));
+            let new_memory_overrides = system_cheats.to_memory_overrides();
+            self.state.cheats.active = Arc::new(system_cheats.into_active());
 
-            let prev_memory_override_vec = prev_active_cheats.to_memory_override_vec();
-            if prev_memory_override_vec != new_memory_override_vec {
-                self.reload_config();
-            }
-        }
-    }
-
-    fn update_smsgg_active_cheats(&mut self) {
-        let prev_active_cheats = Arc::clone(&self.state.cheats.active);
-        let prev_active_cheats = prev_active_cheats.smsgg_or_default();
-
-        let smsgg_cheats = SmsGgCheats {
-            cheats: self
-                .state
-                .cheats
-                .cheats
-                .iter()
-                .map(|cheat| SmsGgCheat {
-                    name: cheat.name.clone(),
-                    enabled: cheat.enabled,
-                    codes: cheat.codes.clone(),
-                })
-                .collect(),
-        };
-
-        let changed = *prev_active_cheats != smsgg_cheats;
-
-        if changed {
-            if let Err(err) = self.config.save_cheats(
-                &self.config_path,
-                &self.state.current_file_path,
-                &smsgg_cheats,
-            ) {
-                log::error!("Error saving cheats file: {err}");
-            }
-
-            let new_memory_override_vec = smsgg_cheats.to_memory_override_vec();
-            self.state.cheats.active = Arc::new(ActiveCheats::SmsGg(smsgg_cheats));
-
-            let prev_memory_override_vec = prev_active_cheats.to_memory_override_vec();
-            if prev_memory_override_vec != new_memory_override_vec {
+            let prev_memory_overrides = prev_active_cheats.to_memory_overrides();
+            if prev_memory_overrides != new_memory_overrides {
                 self.reload_config();
             }
         }
@@ -446,20 +468,24 @@ fn render_central_panel(
         ui.add_space(5.0);
 
         ui.label("Enter one code per line.");
-
         ui.add_space(5.0);
+        ui.label("Supported code formats:");
 
         match console {
             CheatConsole::Genesis => {
-                ui.label("Supported code formats:");
-                ui.label(" • Game Genie (ABCD-EGHJ)");
-                ui.label(" • Action Replay (02468 ABCDE)");
-                ui.label(" • Memory address/value (02468A:BCDE)");
+                ui.label(RichText::new(" • Game Genie (ABCD-EGHJ)").monospace());
+                ui.label(
+                    RichText::new(" • Pro Action Replay (AAAAA AVVVV) (Little-endian value)")
+                        .monospace(),
+                );
+                ui.label(
+                    RichText::new(" • Memory address/value (AAAAAA:VVVV) (Big-endian value)")
+                        .monospace(),
+                );
             }
             CheatConsole::SmsGg => {
-                ui.label("Supported code formats:");
-                ui.label(" • Game Genie (FFF-FFF or FFF-FFF-FFF)");
-                ui.label(" • Pro Action Replay (00FF FFFF)");
+                ui.label(RichText::new(" • Game Genie (ABC-DEF or ABC-DEF-012)").monospace());
+                ui.label(RichText::new(" • Pro Action Replay (00AA AAVV)").monospace());
             }
         }
     });
