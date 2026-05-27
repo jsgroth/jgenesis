@@ -1,3 +1,46 @@
+# Next
+
+## New Features
+* (**Genesis** / **SMS** / **Game Gear**) Added support for cheat codes
+  * Genesis supports Game Genie codes, Pro Action Replay codes, and plain 68000 memory address/value pairs
+  * SMS/GG supports Game Genie codes and Pro Action Replay codes
+  * Cheats are also supported for Sega CD and 32X, though Sega CD only supports main working RAM overrides (memory addresses \$FF0000-\$FFFFFF)
+* (**Genesis**) Added some additional debugging functionality
+  * Added interrupt breakpoints for the 68000 and SH-2 CPUs
+  * Added a new "VDP State" view that shows some internal VDP state that is normally not directly readable by software, e.g. timing information and current control port state
+  * (**32X**) Added a new view that shows some SH7604 register contents including the cache control register, internal interrupt registers, the watchdog timer, and the DMA controller
+  * The main 68000 disassembly view now shows any buffered memory writes that are done from the emulated CPU's perspective but have not yet been applied to memory for inter-processor timing reasons
+
+## Improvements
+* Slightly improved audio resampling performance on CPUs that support AVX2 and/or AVX512 instructions; this most notably affects GB/GBC and NES
+  * The AVX2 and AVX512 code paths are gated behind runtime CPU feature checks (and those are gated behind compile-time arch checks), so the emulator will still run on CPUs that do not support any AVX instructions
+
+## Fixes
+* In Linux AppImage builds, fixed the save path "Emulator folder" options saving to the current working directory instead of the folder containing the AppImage file (if those are different)
+* (**GB**) Fixed serial port behavior to correctly emulate nothing being connected to the serial port; this fixes _Boxing_ not allowing you to start a game in 1-player mode
+  * (Previously the emulator was leaving the SB register unchanged instead of shifting in 1 bits on each serial clock)
+
+# 0.12.1
+
+## Settings Changes
+* On Windows, the settings file is now stored in a user profile directory by default (generally C:\Users\$NAME\AppData\Local\jgenesis\); other platforms already behaved this way (e.g. generally $HOME/.config/jgenesis/ on Linux)
+* If you want to restore the old Windows behavior of storing the settings file in the emulator directory, there is a new option in Settings > Paths to switch the settings file location, or you can create a portable.txt file in the emulator directory (contents don't matter, the file just has to exist); this works on all platforms
+* The --config command line arg still exists and overrides all of this behavior if it is used
+
+## Improvements
+* The rewind buffer is now compressed in memory; this significantly decreases the emulator's RAM usage, particularly when emulating Sega CD or 32X
+  * Exact savings will vary based on a lot of things, but with 32X for example I'm seeing that a 10-second rewind buffer now takes 40-80 MB of RAM instead of ~600 MB
+  * Compression is performed asynchronously, so this should not impact emulator performance
+* Save states are now compressed and written to disk asynchronously, which makes it significantly less likely that saving state will cause the emulator to stutter
+
+## Fixes
+* Fixed turbo input mappings not working properly; this was a regression in v0.12.0
+  * This was caused by the backend changes to support the Genesis debugging tools added in v0.12.0, which involved mostly rewriting the main emulator execution loop (among other things); the new version was missing the bit of code that makes turbo buttons alternate between pressed and not pressed
+Fixed all settings reverting to defaults when a single setting fails to deserialize from the config file; now only the setting(s) that failed to deserialize will reset to default
+* (**SNES**) Cartridges that specify a nonsensically high amount of SRAM in the cartridge header now get 256 KB of SRAM instead of none (#635)
+  * This seems to usually happen with prototype cartridges that don't have a proper cartridge header, where the "SRAM byte" is just part of a random chunk of code or data; some of these do require SRAM though
+
+
 # 0.12.0
 
 ## New Features
