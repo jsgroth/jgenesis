@@ -62,11 +62,10 @@ impl SmsGgCheat {
 
         self.codes
             .iter()
-            .map(|code| {
+            .filter_map(|code| {
                 SmsGgCheatCodeType::guess_from(code).and_then(|code_type| code_type.decode(code))
             })
-            .collect::<Option<Vec<_>>>()
-            .unwrap_or_default()
+            .collect()
     }
 }
 
