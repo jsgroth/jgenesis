@@ -497,6 +497,10 @@ fn smsgg_code_message(line: &str) -> Cow<'static, str> {
 }
 
 fn render_centered_message(ui: &mut Ui, message: &str) {
+    // Render an empty left panel to prevent some janky egui window behavior where the central panel
+    // extends below the window boundary
+    SidePanel::left("cheats_dummy_left_panel").show_inside(ui, |_ui| {});
+
     CentralPanel::default().show_inside(ui, |ui| {
         ui.centered_and_justified(|ui| {
             ui.label(message);
