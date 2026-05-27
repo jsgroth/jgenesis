@@ -217,7 +217,7 @@ impl Console {
 
     #[inline]
     #[must_use]
-    pub fn display_str(self) -> &'static str {
+    pub const fn display_str(self) -> &'static str {
         match self {
             Self::Sg1000 => "SG-1000",
             Self::MasterSystem => "Master System",
@@ -249,6 +249,26 @@ impl Console {
             Self::GameBoyAdvance => GAME_BOY_ADVANCE,
             #[cfg(feature = "pce")]
             Self::PcEngine => PC_ENGINE,
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn standard_extension(self) -> &'static str {
+        match self {
+            Console::MasterSystem => "sms",
+            Console::GameGear => "gg",
+            Console::Sg1000 => "sg",
+            Console::Genesis => "md",
+            Console::SegaCd => "scd", // Intentionally not CUE or CHD, too ambiguous
+            Console::Sega32X => "32x",
+            Console::Nes => "nes",
+            Console::Snes => "sfc",
+            Console::GameBoy => "gb",
+            Console::GameBoyColor => "gbc",
+            Console::GameBoyAdvance => "gba",
+            #[cfg(feature = "pce")]
+            Console::PcEngine => "pce",
         }
     }
 }

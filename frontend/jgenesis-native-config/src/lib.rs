@@ -155,7 +155,12 @@ impl AppConfig {
         })
     }
 
-    fn cheats_file_path(&self, config_path: &Path, rom_file_path: &Path) -> Option<PathBuf> {
+    fn cheats_file_path(
+        &self,
+        config_path: &Path,
+        rom_file_path: &Path,
+        system_extension: &str,
+    ) -> Option<PathBuf> {
         let cheats_dir = match self.common.cheats_path {
             CheatPath::SettingsFolder => config_path.parent()?.join(CHEATS_SUBDIR),
             CheatPath::EmulatorFolder => {
@@ -164,11 +169,10 @@ impl AppConfig {
             CheatPath::Custom => self.common.cheats_custom_path.clone(),
         };
 
-        let rom_extension = rom_file_path.extension()?;
         let rom_path_toml = rom_file_path.with_extension("toml");
         let rom_file_name_toml = rom_path_toml.file_name()?;
 
-        Some(cheats_dir.join(rom_extension).join(rom_file_name_toml))
+        Some(cheats_dir.join(system_extension).join(rom_file_name_toml))
     }
 
     #[must_use]
@@ -176,11 +180,12 @@ impl AppConfig {
         &self,
         config_path: &Path,
         rom_file_path: &Path,
+        system_extension: &str,
     ) -> Option<Cheats>
     where
         Cheats: DeserializeOwned,
     {
-        let cheats_path = self.cheats_file_path(config_path, rom_file_path)?;
+        let cheats_path = self.cheats_file_path(config_path, rom_file_path, system_extension)?;
 
         log::debug!("Loading cheats from '{}'", cheats_path.display());
 
@@ -201,6 +206,7 @@ impl AppConfig {
         &self,
         config_path: &Path,
         rom_file_path: &Path,
+        system_extension: &str,
         cheats: &Cheats,
     ) -> Result<(), SaveCheatsError>
     where
@@ -211,7 +217,8 @@ impl AppConfig {
             rom_file_path: rom_file_path.display().to_string(),
         };
 
-        let Some(cheats_path) = self.cheats_file_path(config_path, rom_file_path) else {
+        let Some(cheats_path) = self.cheats_file_path(config_path, rom_file_path, system_extension)
+        else {
             return Err(unable_determine_path_err());
         };
 

@@ -154,7 +154,7 @@ pub struct CheatWindowState {
     cheats: Vec<CheatState>,
     selected_cheat: usize,
     active: Arc<ActiveCheats>,
-    active_console: Option<CheatConsole>,
+    active_console: Option<(Console, CheatConsole)>,
 }
 
 impl CheatWindowState {
@@ -164,60 +164,6 @@ impl CheatWindowState {
             selected_cheat: 0,
             active: Arc::new(ActiveCheats::None),
             active_console: None,
-        }
-    }
-}
-
-impl From<GenesisCheats> for CheatWindowState {
-    fn from(value: GenesisCheats) -> Self {
-        Self {
-            cheats: value
-                .cheats
-                .iter()
-                .map(|cheat| {
-                    let codes_buffer = cheat.codes.join("\n");
-                    let code_messages =
-                        cheat.codes.iter().map(|code| genesis_code_message(code)).collect();
-
-                    CheatState {
-                        name: cheat.name.clone(),
-                        enabled: cheat.enabled,
-                        codes: cheat.codes.clone(),
-                        codes_buffer,
-                        code_messages,
-                    }
-                })
-                .collect(),
-            selected_cheat: 0,
-            active: Arc::new(ActiveCheats::Genesis(value)),
-            active_console: Some(CheatConsole::Genesis),
-        }
-    }
-}
-
-impl From<SmsGgCheats> for CheatWindowState {
-    fn from(value: SmsGgCheats) -> Self {
-        Self {
-            cheats: value
-                .cheats
-                .iter()
-                .map(|cheat| {
-                    let codes_buffer = cheat.codes.join("\n");
-                    let code_messages =
-                        cheat.codes.iter().map(|code| smsgg_code_message(code)).collect();
-
-                    CheatState {
-                        name: cheat.name.clone(),
-                        enabled: cheat.enabled,
-                        codes: cheat.codes.clone(),
-                        codes_buffer,
-                        code_messages,
-                    }
-                })
-                .collect(),
-            selected_cheat: 0,
-            active: Arc::new(ActiveCheats::SmsGg(value)),
-            active_console: Some(CheatConsole::SmsGg),
         }
     }
 }
@@ -240,7 +186,7 @@ impl App {
                 return;
             }
 
-            let Some(console) = cheats_state.active_console else {
+            let Some((_, console)) = cheats_state.active_console else {
                 render_centered_message(ui, "Cheats are not currently supported for this console");
                 return;
             };
@@ -272,13 +218,17 @@ impl App {
 
     fn update_active_cheats(&mut self) {
         match self.state.cheats.active_console {
-            Some(CheatConsole::Genesis) => self.update_system_active_cheats::<GenesisCheats>(),
-            Some(CheatConsole::SmsGg) => self.update_system_active_cheats::<SmsGgCheats>(),
+            Some((console, CheatConsole::Genesis)) => {
+                self.update_system_active_cheats::<GenesisCheats>(console);
+            }
+            Some((console, CheatConsole::SmsGg)) => {
+                self.update_system_active_cheats::<SmsGgCheats>(console);
+            }
             None => {}
         }
     }
 
-    fn update_system_active_cheats<Cheats: SystemCheats>(&mut self) {
+    fn update_system_active_cheats<Cheats: SystemCheats>(&mut self, console: Console) {
         let prev_active_cheats = Arc::clone(&self.state.cheats.active);
         let prev_active_cheats = Cheats::from_active_or_default(&prev_active_cheats);
 
@@ -289,6 +239,7 @@ impl App {
             if let Err(err) = self.config.save_cheats(
                 &self.config_path,
                 &self.state.current_file_path,
+                console.standard_extension(),
                 &system_cheats,
             ) {
                 log::error!("Error saving cheats file: {err}");
@@ -309,18 +260,68 @@ impl App {
             Some(CheatConsole::Genesis) => {
                 let cheats = self
                     .config
-                    .try_load_cheats::<GenesisCheats>(&self.config_path, rom_file_path)
+                    .try_load_cheats::<GenesisCheats>(
+                        &self.config_path,
+                        rom_file_path,
+                        console.standard_extension(),
+                    )
                     .unwrap_or_default();
 
-                self.state.cheats = cheats.into();
+                self.state.cheats = CheatWindowState {
+                    cheats: cheats
+                        .cheats
+                        .iter()
+                        .map(|cheat| {
+                            let codes_buffer = cheat.codes.join("\n");
+                            let code_messages =
+                                cheat.codes.iter().map(|code| genesis_code_message(code)).collect();
+
+                            CheatState {
+                                name: cheat.name.clone(),
+                                enabled: cheat.enabled,
+                                codes: cheat.codes.clone(),
+                                codes_buffer,
+                                code_messages,
+                            }
+                        })
+                        .collect(),
+                    selected_cheat: 0,
+                    active: Arc::new(ActiveCheats::Genesis(cheats)),
+                    active_console: Some((console, CheatConsole::Genesis)),
+                };
             }
             Some(CheatConsole::SmsGg) => {
                 let cheats = self
                     .config
-                    .try_load_cheats::<SmsGgCheats>(&self.config_path, rom_file_path)
+                    .try_load_cheats::<SmsGgCheats>(
+                        &self.config_path,
+                        rom_file_path,
+                        console.standard_extension(),
+                    )
                     .unwrap_or_default();
 
-                self.state.cheats = cheats.into();
+                self.state.cheats = CheatWindowState {
+                    cheats: cheats
+                        .cheats
+                        .iter()
+                        .map(|cheat| {
+                            let codes_buffer = cheat.codes.join("\n");
+                            let code_messages =
+                                cheat.codes.iter().map(|code| smsgg_code_message(code)).collect();
+
+                            CheatState {
+                                name: cheat.name.clone(),
+                                enabled: cheat.enabled,
+                                codes: cheat.codes.clone(),
+                                codes_buffer,
+                                code_messages,
+                            }
+                        })
+                        .collect(),
+                    selected_cheat: 0,
+                    active: Arc::new(ActiveCheats::SmsGg(cheats)),
+                    active_console: Some((console, CheatConsole::SmsGg)),
+                };
             }
             None => {
                 self.state.cheats.active = Arc::new(ActiveCheats::None);

@@ -1021,7 +1021,14 @@ fn run_smsgg(
     ConfigWithPath { config, path }: ConfigWithPath,
     hardware: SmsGgHardware,
 ) -> anyhow::Result<()> {
-    let cheats: SmsGgCheats = config.try_load_cheats(&path, &args.file_path).unwrap_or_default();
+    let cheats_extension = match hardware {
+        SmsGgHardware::MasterSystem => Console::MasterSystem.standard_extension(),
+        SmsGgHardware::GameGear => Console::GameGear.standard_extension(),
+        SmsGgHardware::Sg1000 => Console::Sg1000.standard_extension(),
+    };
+
+    let cheats: SmsGgCheats =
+        config.try_load_cheats(&path, &args.file_path, cheats_extension).unwrap_or_default();
     let mut smsgg_config = config.smsgg_config(args.file_path.clone(), Some(hardware), &cheats);
     smsgg_config.run_without_cartridge = args.sms_no_cartridge;
 
@@ -1030,7 +1037,9 @@ fn run_smsgg(
 }
 
 fn run_genesis(args: Args, ConfigWithPath { config, path }: ConfigWithPath) -> anyhow::Result<()> {
-    let cheats = config.try_load_cheats(&path, &args.file_path).unwrap_or_default();
+    let cheats = config
+        .try_load_cheats(&path, &args.file_path, Console::Genesis.standard_extension())
+        .unwrap_or_default();
     let mut emulator = jgenesis_native_driver::create_genesis(
         config.genesis_config(args.file_path.clone(), &cheats),
     )?;
@@ -1038,7 +1047,9 @@ fn run_genesis(args: Args, ConfigWithPath { config, path }: ConfigWithPath) -> a
 }
 
 fn run_sega_cd(args: Args, ConfigWithPath { config, path }: ConfigWithPath) -> anyhow::Result<()> {
-    let cheats = config.try_load_cheats(&path, &args.file_path).unwrap_or_default();
+    let cheats = config
+        .try_load_cheats(&path, &args.file_path, Console::SegaCd.standard_extension())
+        .unwrap_or_default();
     let mut scd_config = config.sega_cd_config(args.file_path.clone(), &cheats);
     scd_config.run_without_disc = args.scd_no_disc;
 
@@ -1047,7 +1058,9 @@ fn run_sega_cd(args: Args, ConfigWithPath { config, path }: ConfigWithPath) -> a
 }
 
 fn run_32x(args: Args, ConfigWithPath { config, path }: ConfigWithPath) -> anyhow::Result<()> {
-    let cheats = config.try_load_cheats(&path, &args.file_path).unwrap_or_default();
+    let cheats = config
+        .try_load_cheats(&path, &args.file_path, Console::Sega32X.standard_extension())
+        .unwrap_or_default();
     let mut emulator = jgenesis_native_driver::create_32x(
         config.sega_32x_config(args.file_path.clone(), &cheats),
     )?;
