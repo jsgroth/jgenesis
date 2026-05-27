@@ -26,6 +26,7 @@ use nes_core::api::NesEmulatorConfig;
 use pce_core::api::PceEmulatorConfig;
 use s32x_core::api::Sega32XEmulatorConfig;
 use segacd_core::api::SegaCdEmulatorConfig;
+use smsgg_config::cheats::SmsGgCheats;
 use smsgg_core::{SmsGgEmulatorConfig, SmsGgHardware};
 use snes_core::api::{CoprocessorRomFn, CoprocessorRoms, SnesEmulatorConfig};
 use std::fs;
@@ -310,7 +311,12 @@ pub trait AppConfigExt {
     fn sega_32x_config(&self, path: PathBuf, cheats: &GenesisCheats) -> Box<Sega32XConfig>;
 
     #[must_use]
-    fn smsgg_config(&self, path: PathBuf, hardware: Option<SmsGgHardware>) -> Box<SmsGgConfig>;
+    fn smsgg_config(
+        &self,
+        path: PathBuf,
+        hardware: Option<SmsGgHardware>,
+        cheats: &SmsGgCheats,
+    ) -> Box<SmsGgConfig>;
 
     #[must_use]
     fn nes_config(&self, path: PathBuf) -> Box<NesConfig>;
@@ -489,7 +495,12 @@ impl AppConfigExt for AppConfig {
         })
     }
 
-    fn smsgg_config(&self, path: PathBuf, hardware: Option<SmsGgHardware>) -> Box<SmsGgConfig> {
+    fn smsgg_config(
+        &self,
+        path: PathBuf,
+        hardware: Option<SmsGgHardware>,
+        cheats: &SmsGgCheats,
+    ) -> Box<SmsGgConfig> {
         Box::new(SmsGgConfig {
             common: self.common_config(path),
             inputs: self.input.smsgg.clone(),
@@ -508,6 +519,7 @@ impl AppConfigExt for AppConfig {
                 gg_use_sms_resolution: self.smsgg.gg_use_sms_resolution,
                 fm_sound_unit_enabled: self.smsgg.fm_sound_unit_enabled,
                 z80_divider: self.smsgg.z80_divider,
+                cheat_codes: cheats.to_memory_override_vec(),
             },
             sms_boot_from_bios: self.smsgg.sms_boot_from_bios,
             gg_boot_from_bios: self.smsgg.gg_boot_from_bios,

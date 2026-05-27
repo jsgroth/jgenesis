@@ -9,6 +9,7 @@ use crate::vdp::{Vdp, VdpBuffer, VdpTickEffect, ViewportSize};
 use crate::{VdpVersion, vdp};
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::BoxedColorArray;
+use jgenesis_common::cheats::ByteCheatCodeU16Address;
 use jgenesis_common::frontend::{
     AudioOutput, Color, CompositeParams, EmulatorConfigTrait, EmulatorTrait, FrameSize,
     InputPoller, PartialClone, RenderFrameOptions, Renderer, SamplesPerColorCycle, SaveWriter,
@@ -58,6 +59,8 @@ pub struct SmsGgEmulatorConfig {
     pub gg_use_sms_resolution: bool,
     pub fm_sound_unit_enabled: bool,
     pub z80_divider: NonZeroU32,
+    #[cfg_display(skip)]
+    pub cheat_codes: Vec<ByteCheatCodeU16Address>,
 }
 
 impl EmulatorConfigTrait for SmsGgEmulatorConfig {
@@ -140,7 +143,7 @@ impl SmsGgEmulator {
         log::info!("PSG version: {psg_version:?}");
 
         let rom = rom.unwrap_or_else(|| vec![0xFF; 0x8000]);
-        let memory = Memory::new(rom, bios_rom, cartridge_ram, hardware);
+        let memory = Memory::new(rom, bios_rom, cartridge_ram, hardware, &config);
         let vdp = Vdp::new(vdp_version, &config);
         let psg = Sn76489::new(psg_version);
         let input = InputState::new(config.region(&memory));
@@ -380,6 +383,8 @@ impl EmulatorTrait for SmsGgEmulator {
 
         self.psg.set_version(determine_psg_version(hardware, config));
 
+        self.memory.update_config(config);
+
         self.input.set_region(config.region(&self.memory));
         self.audio_resampler.update_timing_mode(self.vdp.timing_mode());
     }
@@ -395,7 +400,7 @@ impl EmulatorTrait for SmsGgEmulator {
     fn hard_reset<S: SaveWriter>(&mut self, _save_writer: &mut S) {
         log::info!("Hard resetting console");
 
-        self.memory.reset();
+        self.memory.reset(&self.config);
 
         self.z80 = Z80::new();
         init_z80(&mut self.z80);

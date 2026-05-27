@@ -21,6 +21,7 @@ use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, VSyncMode, WgpuBackend,
 };
 use nes_config::{NesAspectRatio, NesAudioResampler, NesPalette};
+use smsgg_config::cheats::SmsGgCheats;
 use smsgg_config::{GgAspectRatio, SmsAspectRatio, SmsGgRegion, SmsModel, Sn76489Version};
 use smsgg_core::SmsGgHardware;
 use snes_config::{AudioInterpolationMode, SnesAspectRatio};
@@ -971,11 +972,9 @@ fn main() -> anyhow::Result<()> {
     args.apply_overrides(&mut config_with_path.config)?;
 
     match hardware {
-        Hardware::MasterSystem => {
-            run_smsgg(args, config_with_path.config, SmsGgHardware::MasterSystem)
-        }
-        Hardware::GameGear => run_smsgg(args, config_with_path.config, SmsGgHardware::GameGear),
-        Hardware::Sg1000 => run_smsgg(args, config_with_path.config, SmsGgHardware::Sg1000),
+        Hardware::MasterSystem => run_smsgg(args, config_with_path, SmsGgHardware::MasterSystem),
+        Hardware::GameGear => run_smsgg(args, config_with_path, SmsGgHardware::GameGear),
+        Hardware::Sg1000 => run_smsgg(args, config_with_path, SmsGgHardware::Sg1000),
         Hardware::Genesis => run_genesis(args, config_with_path),
         Hardware::SegaCd => run_sega_cd(args, config_with_path),
         Hardware::Sega32X => run_32x(args, config_with_path),
@@ -1017,8 +1016,13 @@ fn guess_hardware(args: &Args) -> Hardware {
     }
 }
 
-fn run_smsgg(args: Args, config: AppConfig, hardware: SmsGgHardware) -> anyhow::Result<()> {
-    let mut smsgg_config = config.smsgg_config(args.file_path.clone(), Some(hardware));
+fn run_smsgg(
+    args: Args,
+    ConfigWithPath { config, path }: ConfigWithPath,
+    hardware: SmsGgHardware,
+) -> anyhow::Result<()> {
+    let cheats: SmsGgCheats = config.try_load_cheats(&path, &args.file_path).unwrap_or_default();
+    let mut smsgg_config = config.smsgg_config(args.file_path.clone(), Some(hardware), &cheats);
     smsgg_config.run_without_cartridge = args.sms_no_cartridge;
 
     let mut emulator = jgenesis_native_driver::create_smsgg(smsgg_config)?;

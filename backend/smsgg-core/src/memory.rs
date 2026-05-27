@@ -3,10 +3,11 @@
 mod mappers;
 mod metadata;
 
-use crate::SmsGgHardware;
 use crate::memory::mappers::{Mapper, Sg1000Mapper};
+use crate::{SmsGgEmulatorConfig, SmsGgHardware};
 use bincode::{Decode, Encode};
 use crc::Crc;
+use jgenesis_common::cheats::CheatByteOverridesU16Address;
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use smsgg_config::SmsGgRegion;
@@ -140,6 +141,7 @@ pub struct Memory {
     audio_control: AudioControl,
     gg_registers: GameGearRegisters,
     hardware: SmsGgHardware,
+    cheat_overrides: CheatByteOverridesU16Address,
 }
 
 impl Memory {
@@ -148,6 +150,7 @@ impl Memory {
         bios_rom: Option<Vec<u8>>,
         initial_cartridge_ram: Option<Vec<u8>>,
         hardware: SmsGgHardware,
+        config: &SmsGgEmulatorConfig,
     ) -> Self {
         let memory_control = MemoryControl::new(bios_rom.as_ref());
 
@@ -168,11 +171,16 @@ impl Memory {
             audio_control: AudioControl::default(),
             gg_registers: GameGearRegisters::new(),
             hardware,
+            cheat_overrides: CheatByteOverridesU16Address::new(&config.cheat_codes),
         }
     }
 
+    pub fn update_config(&mut self, config: &SmsGgEmulatorConfig) {
+        self.cheat_overrides.update_cheat_codes(&config.cheat_codes);
+    }
+
     pub fn read(&self, address: u16) -> u8 {
-        match address {
+        let value = match address {
             0x0000..=0xBFFF => {
                 match self.hardware {
                     SmsGgHardware::MasterSystem | SmsGgHardware::Sg1000 => {
@@ -217,7 +225,13 @@ impl Memory {
                 let ram_addr = address & self.hardware.ram_mask();
                 self.ram[ram_addr as usize]
             }
+        };
+
+        if let Some(cheat) = self.cheat_overrides.get(address, value) {
+            return cheat;
         }
+
+        value
     }
 
     fn read_bios_sms(&self, address: u16) -> u8 {
@@ -287,12 +301,13 @@ impl Memory {
         self.cartridge.rom = mem::take(&mut other.cartridge.rom);
     }
 
-    pub fn reset(&mut self) {
+    pub fn reset(&mut self, config: &SmsGgEmulatorConfig) {
         *self = Self::new(
             mem::take(&mut self.cartridge.rom.0),
             mem::take(&mut self.bios_rom),
             Some(mem::take(&mut self.cartridge.ram)),
             self.hardware,
+            config,
         );
     }
 

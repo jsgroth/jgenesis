@@ -5049,6 +5049,7 @@ dependencies = [
  "clap",
  "jgenesis-common",
  "jgenesis-proc-macros",
+ "regex",
  "serde",
 ]
 

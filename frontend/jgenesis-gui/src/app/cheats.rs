@@ -6,6 +6,7 @@ use egui::{
 use egui_extras::{Column, TableBuilder};
 use genesis_config::cheats::{GenesisCheat, GenesisCheatCodeType, GenesisCheats};
 use jgenesis_native_driver::extensions::Console;
+use smsgg_config::cheats::{SmsGgCheat, SmsGgCheatCodeType, SmsGgCheats};
 use std::borrow::Cow;
 use std::path::Path;
 use std::sync::{Arc, LazyLock};
@@ -13,6 +14,7 @@ use std::sync::{Arc, LazyLock};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActiveCheats {
     None,
+    SmsGg(SmsGgCheats),
     Genesis(GenesisCheats),
 }
 
@@ -22,7 +24,16 @@ impl ActiveCheats {
 
         match self {
             Self::Genesis(cheats) => cheats,
-            Self::None => &DEFAULT,
+            _ => &DEFAULT,
+        }
+    }
+
+    pub fn smsgg_or_default(&self) -> &SmsGgCheats {
+        static DEFAULT: LazyLock<SmsGgCheats> = LazyLock::new(SmsGgCheats::default);
+
+        match self {
+            Self::SmsGg(cheats) => cheats,
+            _ => &DEFAULT,
         }
     }
 }
@@ -48,16 +59,38 @@ impl CheatState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CheatConsole {
+    Genesis,
+    SmsGg,
+}
+
+impl CheatConsole {
+    fn from_console(console: Console) -> Option<Self> {
+        match console {
+            Console::Genesis | Console::SegaCd | Console::Sega32X => Some(Self::Genesis),
+            Console::MasterSystem | Console::GameGear | Console::Sg1000 => Some(Self::SmsGg),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CheatWindowState {
     cheats: Vec<CheatState>,
     selected_cheat: usize,
     active: Arc<ActiveCheats>,
+    active_console: Option<CheatConsole>,
 }
 
 impl CheatWindowState {
     pub fn new() -> Self {
-        Self { cheats: vec![], selected_cheat: 0, active: Arc::new(ActiveCheats::None) }
+        Self {
+            cheats: vec![],
+            selected_cheat: 0,
+            active: Arc::new(ActiveCheats::None),
+            active_console: None,
+        }
     }
 }
 
@@ -68,16 +101,14 @@ impl From<GenesisCheats> for CheatWindowState {
                 .cheats
                 .iter()
                 .map(|cheat| {
-                    let codes: Vec<_> =
-                        cheat.codes.iter().map(|code| code.as_str().to_string()).collect();
-                    let codes_buffer = codes.join("\n");
+                    let codes_buffer = cheat.codes.join("\n");
                     let code_messages =
-                        codes.iter().map(|code| genesis_code_message(code)).collect();
+                        cheat.codes.iter().map(|code| genesis_code_message(code)).collect();
 
                     CheatState {
                         name: cheat.name.clone(),
                         enabled: cheat.enabled,
-                        codes,
+                        codes: cheat.codes.clone(),
                         codes_buffer,
                         code_messages,
                     }
@@ -85,6 +116,34 @@ impl From<GenesisCheats> for CheatWindowState {
                 .collect(),
             selected_cheat: 0,
             active: Arc::new(ActiveCheats::Genesis(value)),
+            active_console: Some(CheatConsole::Genesis),
+        }
+    }
+}
+
+impl From<SmsGgCheats> for CheatWindowState {
+    fn from(value: SmsGgCheats) -> Self {
+        Self {
+            cheats: value
+                .cheats
+                .iter()
+                .map(|cheat| {
+                    let codes_buffer = cheat.codes.join("\n");
+                    let code_messages =
+                        cheat.codes.iter().map(|code| smsgg_code_message(code)).collect();
+
+                    CheatState {
+                        name: cheat.name.clone(),
+                        enabled: cheat.enabled,
+                        codes: cheat.codes.clone(),
+                        codes_buffer,
+                        code_messages,
+                    }
+                })
+                .collect(),
+            selected_cheat: 0,
+            active: Arc::new(ActiveCheats::SmsGg(value)),
+            active_console: Some(CheatConsole::SmsGg),
         }
     }
 }
@@ -107,11 +166,10 @@ impl App {
                 return;
             }
 
-            if !emu_thread_status.is_running_genesis_like() {
-                // TODO update when other systems are supported
+            let Some(console) = cheats_state.active_console else {
                 render_centered_message(ui, "Cheats are not currently supported for this console");
                 return;
-            }
+            };
 
             ui.add_enabled_ui(self.config.common.cheats_enabled, |ui| {
                 let mut cheat_just_created = false;
@@ -127,7 +185,7 @@ impl App {
                         return;
                     };
 
-                    render_central_panel(ui, cheat_state, cheat_just_created);
+                    render_central_panel(ui, console, cheat_state, cheat_just_created);
                 });
             });
 
@@ -139,7 +197,14 @@ impl App {
     }
 
     fn update_active_cheats(&mut self) {
-        // TODO update when other consoles are supported
+        match self.state.cheats.active_console {
+            Some(CheatConsole::Genesis) => self.update_genesis_active_cheats(),
+            Some(CheatConsole::SmsGg) => self.update_smsgg_active_cheats(),
+            None => {}
+        }
+    }
+
+    fn update_genesis_active_cheats(&mut self) {
         let prev_active_cheats = Arc::clone(&self.state.cheats.active);
         let prev_active_cheats = prev_active_cheats.genesis_or_default();
 
@@ -178,20 +243,66 @@ impl App {
         }
     }
 
+    fn update_smsgg_active_cheats(&mut self) {
+        let prev_active_cheats = Arc::clone(&self.state.cheats.active);
+        let prev_active_cheats = prev_active_cheats.smsgg_or_default();
+
+        let smsgg_cheats = SmsGgCheats {
+            cheats: self
+                .state
+                .cheats
+                .cheats
+                .iter()
+                .map(|cheat| SmsGgCheat {
+                    name: cheat.name.clone(),
+                    enabled: cheat.enabled,
+                    codes: cheat.codes.clone(),
+                })
+                .collect(),
+        };
+
+        let changed = *prev_active_cheats != smsgg_cheats;
+
+        if changed {
+            if let Err(err) = self.config.save_cheats(
+                &self.config_path,
+                &self.state.current_file_path,
+                &smsgg_cheats,
+            ) {
+                log::error!("Error saving cheats file: {err}");
+            }
+
+            let new_memory_override_vec = smsgg_cheats.to_memory_override_vec();
+            self.state.cheats.active = Arc::new(ActiveCheats::SmsGg(smsgg_cheats));
+
+            let prev_memory_override_vec = prev_active_cheats.to_memory_override_vec();
+            if prev_memory_override_vec != new_memory_override_vec {
+                self.reload_config();
+            }
+        }
+    }
+
     pub(super) fn load_cheats_for_game(&mut self, console: Console, rom_file_path: &Path) {
-        // TODO change when other consoles are supported
-        match console {
-            Console::Genesis | Console::SegaCd | Console::Sega32X => {
-                let Some(cheats) =
-                    self.config.try_load_cheats::<GenesisCheats>(&self.config_path, rom_file_path)
-                else {
-                    return;
-                };
+        match CheatConsole::from_console(console) {
+            Some(CheatConsole::Genesis) => {
+                let cheats = self
+                    .config
+                    .try_load_cheats::<GenesisCheats>(&self.config_path, rom_file_path)
+                    .unwrap_or_default();
 
                 self.state.cheats = cheats.into();
             }
-            _ => {
+            Some(CheatConsole::SmsGg) => {
+                let cheats = self
+                    .config
+                    .try_load_cheats::<SmsGgCheats>(&self.config_path, rom_file_path)
+                    .unwrap_or_default();
+
+                self.state.cheats = cheats.into();
+            }
+            None => {
                 self.state.cheats.active = Arc::new(ActiveCheats::None);
+                self.state.cheats.active_console = None;
             }
         }
     }
@@ -269,7 +380,12 @@ fn render_left_panel(
     }
 }
 
-fn render_central_panel(ui: &mut Ui, cheat_state: &mut CheatState, cheat_just_created: bool) {
+fn render_central_panel(
+    ui: &mut Ui,
+    console: CheatConsole,
+    cheat_state: &mut CheatState,
+    cheat_just_created: bool,
+) {
     const TEXTEDIT_WIDTH: f32 = 150.0;
     const TEXTEDIT_ROWS: usize = 10;
 
@@ -308,8 +424,10 @@ fn render_central_panel(ui: &mut Ui, cheat_state: &mut CheatState, cheat_just_cr
 
                     cheat_state.codes.push(line.into());
 
-                    // TODO change when other consoles are supported
-                    let message = genesis_code_message(line);
+                    let message = match console {
+                        CheatConsole::Genesis => genesis_code_message(line),
+                        CheatConsole::SmsGg => smsgg_code_message(line),
+                    };
                     cheat_state.code_messages.push(message);
                 }
             }
@@ -327,30 +445,55 @@ fn render_central_panel(ui: &mut Ui, cheat_state: &mut CheatState, cheat_just_cr
 
         ui.add_space(5.0);
 
-        // TODO change when other consoles are supported
         ui.label("Enter one code per line.");
 
         ui.add_space(5.0);
 
-        ui.label("Supported code formats:");
-        ui.label(" • Game Genie (ABCD-EGHJ)");
-        ui.label(" • Action Replay (02468 ABCDE)");
-        ui.label(" • Memory address/value (02468A:BCDE)");
+        match console {
+            CheatConsole::Genesis => {
+                ui.label("Supported code formats:");
+                ui.label(" • Game Genie (ABCD-EGHJ)");
+                ui.label(" • Action Replay (02468 ABCDE)");
+                ui.label(" • Memory address/value (02468A:BCDE)");
+            }
+            CheatConsole::SmsGg => {
+                ui.label("Supported code formats:");
+                ui.label(" • Game Genie (FFF-FFF or FFF-FFF-FFF)");
+                ui.label(" • Pro Action Replay (00FF FFFF)");
+            }
+        }
     });
 }
 
-fn genesis_code_message(line: &str) -> Cow<'static, str> {
-    const INVALID: &str = "Invalid code";
+const INVALID_CODE: &str = "Invalid code";
 
+fn genesis_code_message(line: &str) -> Cow<'static, str> {
     let Some(code_type) = GenesisCheatCodeType::guess_from(line) else {
-        return INVALID.into();
+        return INVALID_CODE.into();
     };
 
     let Some((address, value)) = code_type.decode(line) else {
-        return INVALID.into();
+        return INVALID_CODE.into();
     };
 
-    format!("{code_type}: ${address:06X} = 0x{value:04X}").into()
+    format!("${address:06X} = 0x{value:04X}").into()
+}
+
+fn smsgg_code_message(line: &str) -> Cow<'static, str> {
+    let Some(code_type) = SmsGgCheatCodeType::guess_from(line) else {
+        return INVALID_CODE.into();
+    };
+
+    let Some(code) = code_type.decode(line) else {
+        return INVALID_CODE.into();
+    };
+
+    match code.reference {
+        Some(reference) => {
+            format!("${:04X} = 0x{:02X} (if = 0x{reference:02X})", code.address, code.value).into()
+        }
+        None => format!("${:04X} = 0x{:02X}", code.address, code.value).into(),
+    }
 }
 
 fn render_centered_message(ui: &mut Ui, message: &str) {

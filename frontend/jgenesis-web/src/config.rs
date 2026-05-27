@@ -112,6 +112,7 @@ impl SmsGgWebConfig {
             gg_use_sms_resolution: false,
             fm_sound_unit_enabled: self.fm_unit_enabled,
             z80_divider: NonZeroU32::new(smsgg_core::NATIVE_Z80_DIVIDER).unwrap(),
+            cheat_codes: vec![],
         }
     }
 }

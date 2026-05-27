@@ -77,6 +77,61 @@ impl<const START_ADDRESS: usize, const END_ADDRESS: usize>
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+pub struct ByteCheatCodeU16Address {
+    pub address: u16,
+    pub value: u8,
+    // If present, only override reads when the value in memory matches the reference value
+    pub reference: Option<u8>,
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct CheatByteOverridesU16Address {
+    address_bitset: Box<[u64]>,
+    overrides: FxHashMap<u16, (u8, Option<u8>)>,
+}
+
+impl CheatByteOverridesU16Address {
+    #[must_use]
+    pub fn new(cheat_codes: &[ByteCheatCodeU16Address]) -> Self {
+        let mut overrides = Self {
+            address_bitset: vec![0; 0x10000 / 64].into_boxed_slice(),
+            overrides: FxHashMap::default(),
+        };
+
+        overrides.update_cheat_codes(cheat_codes);
+        overrides
+    }
+
+    pub fn update_cheat_codes(&mut self, cheat_codes: &[ByteCheatCodeU16Address]) {
+        self.address_bitset.fill(0);
+        self.overrides.clear();
+
+        for &ByteCheatCodeU16Address { address, value, reference } in cheat_codes {
+            self.address_bitset[(address / 64) as usize] |= 1 << (address & 63);
+            self.overrides.insert(address, (value, reference));
+        }
+    }
+
+    #[must_use]
+    pub fn get(&self, address: u16, memory_value: u8) -> Option<u8> {
+        if self.overrides.is_empty() {
+            return None;
+        }
+
+        if !self.address_bitset.get((address / 64) as usize)?.bit((address & 63) as u8) {
+            return None;
+        }
+
+        let (override_value, reference) = *self.overrides.get(&address)?;
+        if reference.is_some_and(|reference| reference != memory_value) {
+            return None;
+        }
+
+        Some(override_value)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
