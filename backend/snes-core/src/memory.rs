@@ -886,7 +886,7 @@ impl CpuInternalRegisters {
 
     fn update_irq_line(&mut self, ppu: &Ppu) {
         let ppu_htime = ppu.htime_for_irq();
-        debug_assert!(ppu_htime != self.irq.last_ppu_htime);
+        debug_assert_ne!(ppu_htime, self.irq.last_ppu_htime);
 
         let check_h = || {
             if ppu_htime < self.irq.last_ppu_htime {

@@ -55,7 +55,7 @@ const M68K_MAPPABLE_CART_BANK_END: u32 = 0x9FFFFF;
 // $A130EC-$A130EF: 32X ID ("MARS")
 const M68K_32X_ID_START: u32 = 0xA130EC;
 const M68K_32X_ID_END: u32 = 0xA130EF;
-const M68K_32X_ID: [u8; 4] = [b'M', b'A', b'R', b'S'];
+const M68K_32X_ID: [u8; 4] = *b"MARS";
 
 // $A130F0-$A130FF: Cartridge registers
 const M68K_CART_REGISTERS_START: u32 = 0xA130F0;

@@ -198,7 +198,7 @@ fn apply_fir_filter_avxfma<const N: usize, const CHANNELS: usize>(
     use std::arch::x86_64::*;
     use std::mem::transmute;
 
-    debug_assert!(samples[0].len == N);
+    debug_assert_eq!(samples[0].len, N);
     let samples = samples.map(|buffer| &buffer.buffer[buffer.idx..buffer.idx + N]);
 
     // Sum all chunks of 4 samples using f64x4 vectors
@@ -264,7 +264,7 @@ fn apply_fir_filter_avx512<const N: usize, const CHANNELS: usize>(
     #[allow(clippy::wildcard_imports)]
     use std::arch::x86_64::*;
 
-    debug_assert!(samples[0].len == N);
+    debug_assert_eq!(samples[0].len, N);
     let samples = samples.map(|buffer| &buffer.buffer[buffer.idx..buffer.idx + N]);
 
     let mut sums = [_mm512_setzero_pd(); CHANNELS];

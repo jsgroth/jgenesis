@@ -334,7 +334,6 @@ impl Mapper {
 
     /// Return whether the board's writable memory (if any) has been written to since the last time
     /// this method was called.
-    #[allow(clippy::collapsible_match)] // lint recommends code changes that don't compile
     pub(crate) fn get_and_clear_ram_dirty_bit(&mut self) -> bool {
         match self {
             Mapper::BandaiFcg(mapper) => {
