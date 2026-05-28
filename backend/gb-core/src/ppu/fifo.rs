@@ -358,11 +358,12 @@ impl PixelFifo {
                     }
                 }
             } else {
-                // In DMG mode, if BG is disabled and sprite pixel is transparent, always display white
-                // In CGB mode (DMG compatibility), always look up BG color 0
+                // In DMG mode, if BG is disabled and sprite pixel is transparent, always display
+                // BG color 0
+                let dmg_color = registers.bg_palette[0];
                 match self.hardware_mode {
-                    HardwareMode::Dmg => 0,
-                    HardwareMode::Cgb => bg_palette_ram.read_color(0, 0),
+                    HardwareMode::Dmg => dmg_color.into(),
+                    HardwareMode::Cgb => bg_palette_ram.read_color(0, dmg_color),
                 }
             };
 
