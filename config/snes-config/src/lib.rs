@@ -61,20 +61,25 @@ pub enum AudioInterpolationMode {
 
 define_controller_inputs! {
     buttons: SnesButton {
-        Up -> up,
-        Left -> left,
-        Right -> right,
-        Down -> down,
-        A -> a,
-        B -> b,
-        X -> x,
-        Y -> y,
-        L -> l,
-        R -> r,
-        Start -> start,
-        Select -> select,
+        Up -> up "Up",
+        Left -> left "Left",
+        Right -> right "Right",
+        Down -> down "Down",
+        A -> a "A",
+        B -> b "B",
+        X -> x "X",
+        Y -> y "Y",
+        L -> l "L",
+        R -> r "R",
+        Start -> start "Start",
+        Select -> select "Select",
     },
-    non_gamepad_buttons: [SuperScopeFire, SuperScopeCursor, SuperScopePause, SuperScopeTurboToggle],
+    non_gamepad_buttons: [
+        SuperScopeFire "Fire",
+        SuperScopeCursor "Cursor",
+        SuperScopePause "Pause",
+        SuperScopeTurboToggle "Turbo (Toggle)",
+    ],
     joypad: SnesJoypadState,
 }
 

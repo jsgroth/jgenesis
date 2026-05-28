@@ -44,6 +44,17 @@ macro_rules! define_controller_mapping {
                     }
                 )*
             }
+
+            #[must_use]
+            pub fn access_value(&mut self, button: $button_enum) -> Option<&mut Option<Vec<GenericInput>>> {
+                match button {
+                    $(
+                        $button_enum::$enum_value => Some(&mut self.$field),
+                    )*
+                    #[allow(unreachable_patterns)]
+                    _ => None,
+                }
+            }
         }
 
         impl std::fmt::Display for $name {
@@ -134,6 +145,23 @@ macro_rules! impl_to_turbo_mapping_vec {
     };
 }
 
+macro_rules! impl_player_mapping {
+    ($mapping:ty) => {
+        impl_player_mapping!($mapping, p1, p2, p1_turbo, p2_turbo);
+    };
+    ($mapping:ty, $p1:ident, $p2: ident, $p1_turbo:ident, $p2_turbo:ident) => {
+        #[must_use]
+        pub fn player_mapping(&mut self, player: Player, turbo: bool) -> &mut $mapping {
+            match (player, turbo) {
+                (Player::One, false) => &mut self.$p1,
+                (Player::Two, false) => &mut self.$p2,
+                (Player::One, true) => &mut self.$p1_turbo,
+                (Player::Two, true) => &mut self.$p2_turbo,
+            }
+        }
+    };
+}
+
 define_controller_mapping!(SmsGgControllerMapping, SmsGgButton, [
     up: Up,
     left: Left,
@@ -186,6 +214,8 @@ pub struct SmsGgInputMapping {
 }
 
 impl SmsGgInputMapping {
+    impl_player_mapping!(SmsGgControllerMapping);
+
     pub fn to_mapping_vec<'a>(&'a self, out: &mut ButtonMappingVec<'a, SmsGgButton>) {
         self.p1.to_mapping_vec(Player::One, out);
         self.p2.to_mapping_vec(Player::Two, out);
@@ -294,6 +324,8 @@ pub struct GenesisInputMapping {
 }
 
 impl GenesisInputMapping {
+    impl_player_mapping!(GenesisControllerMapping);
+
     pub fn to_mapping_vec<'a>(&'a self, out: &mut ButtonMappingVec<'a, GenesisButton>) {
         self.p1.to_mapping_vec(Player::One, out);
         self.p2.to_mapping_vec(Player::Two, out);
@@ -409,6 +441,8 @@ pub struct NesInputMapping {
 }
 
 impl NesInputMapping {
+    impl_player_mapping!(NesControllerMapping);
+
     pub fn to_mapping_vec<'a>(&'a self, out: &mut ButtonMappingVec<'a, NesButton>) {
         self.p1.to_mapping_vec(Player::One, out);
         self.p2.to_mapping_vec(Player::Two, out);
@@ -550,6 +584,8 @@ pub struct SnesInputMapping {
 }
 
 impl SnesInputMapping {
+    impl_player_mapping!(SnesControllerMapping);
+
     pub fn to_mapping_vec<'a>(&'a self, out: &mut ButtonMappingVec<'a, SnesButton>) {
         self.p1.to_mapping_vec(Player::One, out);
         self.p2.to_mapping_vec(Player::Two, out);
@@ -876,6 +912,8 @@ pub struct PceInputMapping {
 
 #[cfg(feature = "pce")]
 impl PceInputMapping {
+    impl_player_mapping!(PceJoypadMapping);
+
     pub fn to_mapping_vec<'a>(&'a self, out: &mut ButtonMappingVec<'a, PceButton>) {
         self.p1.to_mapping_vec(Player::One, out);
         self.p2.to_mapping_vec(Player::Two, out);
@@ -928,7 +966,7 @@ macro_rules! define_hotkey_mapping {
             )*
         ])
     };
-    ($($value:ident: $hotkey:ident default $default:tt,)* $(,)?) => {
+    ($($value:ident: $hotkey:ident $label:literal default $default:tt),* $(,)?) => {
         #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
         pub struct HotkeyMapping {
             $(
@@ -953,6 +991,15 @@ macro_rules! define_hotkey_mapping {
                     }
                 )*
             }
+
+            #[must_use]
+            pub fn access_value(&mut self, hotkey: Hotkey) -> &mut Option<Vec<GenericInput>> {
+                match hotkey {
+                    $(
+                        Hotkey::$hotkey => &mut self.$value,
+                    )*
+                }
+            }
         }
 
         impl std::fmt::Display for HotkeyMapping {
@@ -964,45 +1011,56 @@ macro_rules! define_hotkey_mapping {
                 ], f)
             }
         }
+
+        impl Hotkey {
+            #[must_use]
+            pub fn label(self) -> &'static str {
+                match self {
+                    $(
+                        Self::$hotkey => $label,
+                    )*
+                }
+            }
+        }
     };
 }
 
 define_hotkey_mapping!(
-    power_off: PowerOff default Escape,
-    exit: Exit default (LCtrl + Q),
-    toggle_fullscreen: ToggleFullscreen default F9,
-    save_state: SaveState default F5,
-    load_state: LoadState default F6,
-    next_save_state_slot: NextSaveStateSlot default RightBracket,
-    prev_save_state_slot: PrevSaveStateSlot default LeftBracket,
-    soft_reset: SoftReset default F1,
-    hard_reset: HardReset default F2,
-    pause: Pause default P,
-    step_frame: StepFrame default N,
-    fast_forward: FastForward default Tab,
-    rewind: Rewind default Grave,
-    toggle_overclocking: ToggleOverclocking default Semicolon,
-    open_debugger: OpenDebugger default Apostrophe,
-    save_state_slot_0: SaveStateSlot0 default none,
-    save_state_slot_1: SaveStateSlot1 default none,
-    save_state_slot_2: SaveStateSlot2 default none,
-    save_state_slot_3: SaveStateSlot3 default none,
-    save_state_slot_4: SaveStateSlot4 default none,
-    save_state_slot_5: SaveStateSlot5 default none,
-    save_state_slot_6: SaveStateSlot6 default none,
-    save_state_slot_7: SaveStateSlot7 default none,
-    save_state_slot_8: SaveStateSlot8 default none,
-    save_state_slot_9: SaveStateSlot9 default none,
-    load_state_slot_0: LoadStateSlot0 default none,
-    load_state_slot_1: LoadStateSlot1 default none,
-    load_state_slot_2: LoadStateSlot2 default none,
-    load_state_slot_3: LoadStateSlot3 default none,
-    load_state_slot_4: LoadStateSlot4 default none,
-    load_state_slot_5: LoadStateSlot5 default none,
-    load_state_slot_6: LoadStateSlot6 default none,
-    load_state_slot_7: LoadStateSlot7 default none,
-    load_state_slot_8: LoadStateSlot8 default none,
-    load_state_slot_9: LoadStateSlot9 default none,
+    power_off: PowerOff "Power off emulated system" default Escape,
+    exit: Exit "Exit application" default (LCtrl + Q),
+    toggle_fullscreen: ToggleFullscreen "Toggle fullscreen" default F9,
+    save_state: SaveState "Save state to current slot" default F5,
+    load_state: LoadState "Load state from current slot" default F6,
+    next_save_state_slot: NextSaveStateSlot "Next save state slot" default RightBracket,
+    prev_save_state_slot: PrevSaveStateSlot "Previous save state slot" default LeftBracket,
+    soft_reset: SoftReset "Soft reset" default F1,
+    hard_reset: HardReset "Hard reset" default F2,
+    pause: Pause "Pause" default P,
+    step_frame: StepFrame "Step to next frame" default N,
+    fast_forward: FastForward "Fast forward" default Tab,
+    rewind: Rewind "Rewind" default Grave,
+    toggle_overclocking: ToggleOverclocking "Toggle overclocking enabled" default Semicolon,
+    open_debugger: OpenDebugger "Open memory viewer" default Apostrophe,
+    save_state_slot_0: SaveStateSlot0 "Save state to slot 0" default none,
+    save_state_slot_1: SaveStateSlot1 "Save state to slot 1" default none,
+    save_state_slot_2: SaveStateSlot2 "Save state to slot 2" default none,
+    save_state_slot_3: SaveStateSlot3 "Save state to slot 3" default none,
+    save_state_slot_4: SaveStateSlot4 "Save state to slot 4" default none,
+    save_state_slot_5: SaveStateSlot5 "Save state to slot 5" default none,
+    save_state_slot_6: SaveStateSlot6 "Save state to slot 6" default none,
+    save_state_slot_7: SaveStateSlot7 "Save state to slot 7" default none,
+    save_state_slot_8: SaveStateSlot8 "Save state to slot 8" default none,
+    save_state_slot_9: SaveStateSlot9 "Save state to slot 9" default none,
+    load_state_slot_0: LoadStateSlot0 "Load state from slot 0" default none,
+    load_state_slot_1: LoadStateSlot1 "Load state from slot 1" default none,
+    load_state_slot_2: LoadStateSlot2 "Load state from slot 2" default none,
+    load_state_slot_3: LoadStateSlot3 "Load state from slot 3" default none,
+    load_state_slot_4: LoadStateSlot4 "Load state from slot 4" default none,
+    load_state_slot_5: LoadStateSlot5 "Load state from slot 5" default none,
+    load_state_slot_6: LoadStateSlot6 "Load state from slot 6" default none,
+    load_state_slot_7: LoadStateSlot7 "Load state from slot 7" default none,
+    load_state_slot_8: LoadStateSlot8 "Load state from slot 8" default none,
+    load_state_slot_9: LoadStateSlot9 "Load state from slot 9" default none,
 );
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]

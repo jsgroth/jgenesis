@@ -4,14 +4,14 @@ use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 
 define_controller_inputs! {
     buttons: PceButton {
-        Up -> up,
-        Left -> left,
-        Right -> right,
-        Down -> down,
-        Button1 -> button1,
-        Button2 -> button2,
-        Run -> run,
-        Select -> select,
+        Up -> up "Up",
+        Left -> left "Left",
+        Right -> right "Right",
+        Down -> down "Down",
+        Button1 -> button1 "Button I",
+        Button2 -> button2 "Button II",
+        Run -> run "Run",
+        Select -> select "Select",
     },
     joypad: PceJoypadState,
     inputs: PceInputs {

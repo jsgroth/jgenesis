@@ -22,6 +22,7 @@ use jgenesis_native_config::input::{GenericInput, Hotkey};
 use nes_config::NesButton;
 #[cfg(feature = "unstable-cores")]
 use pce_config::PceButton;
+use polonius_the_crab::{polonius, polonius_return};
 use smsgg_config::SmsGgButton;
 use snes_config::SnesButton;
 use std::mem;
@@ -120,15 +121,15 @@ pub enum GenericButton {
 impl GenericButton {
     pub fn label(self) -> &'static str {
         match self {
-            Self::SmsGg(button, _) => smsgg_label(button),
-            Self::Genesis(button, _) => genesis_label(button),
-            Self::Nes(button, _) => nes_label(button),
-            Self::Snes(button, _) => snes_label(button),
-            Self::GameBoy(button) => gb_label(button),
-            Self::Gba(button) => gba_label(button),
+            Self::SmsGg(button, _) => button.label(),
+            Self::Genesis(button, _) => button.label(),
+            Self::Nes(button, _) => button.label(),
+            Self::Snes(button, _) => button.label(),
+            Self::GameBoy(button) => button.label(),
+            Self::Gba(button) => button.label(),
             #[cfg(feature = "unstable-cores")]
-            Self::Pce(button, _) => pce_label(button),
-            Self::Hotkey(hotkey) => hotkey_label(hotkey),
+            Self::Pce(button, _) => button.label(),
+            Self::Hotkey(hotkey) => hotkey.label(),
         }
     }
 
@@ -136,7 +137,7 @@ impl GenericButton {
         self,
         mapping: InputMappingSet,
         config: &mut InputAppConfig,
-    ) -> &mut Option<Vec<GenericInput>> {
+    ) -> Option<&mut Option<Vec<GenericInput>>> {
         match self {
             Self::SmsGg(button, player) => {
                 access_smsgg_value(mapping, button, player, false, config)
@@ -150,7 +151,7 @@ impl GenericButton {
             Self::Gba(button) => access_gba_value(mapping, button, false, config),
             #[cfg(feature = "unstable-cores")]
             Self::Pce(button, player) => access_pce_value(mapping, button, player, false, config),
-            Self::Hotkey(hotkey) => access_hotkey(mapping, hotkey, config),
+            Self::Hotkey(hotkey) => Some(access_hotkey(mapping, hotkey, config)),
         }
     }
 
@@ -161,7 +162,7 @@ impl GenericButton {
     ) -> Option<&mut Option<Vec<GenericInput>>> {
         match self {
             Self::SmsGg(button @ (SmsGgButton::Button1 | SmsGgButton::Button2), player) => {
-                Some(access_smsgg_value(mapping, button, player, true, config))
+                access_smsgg_value(mapping, button, player, true, config)
             }
             Self::Genesis(
                 button @ (GenesisButton::A
@@ -171,9 +172,9 @@ impl GenericButton {
                 | GenesisButton::Y
                 | GenesisButton::Z),
                 player,
-            ) => Some(access_genesis_value(mapping, button, player, true, config)),
+            ) => access_genesis_value(mapping, button, player, true, config),
             Self::Nes(button @ (NesButton::A | NesButton::B), player) => {
-                Some(access_nes_value(mapping, button, player, true, config))
+                access_nes_value(mapping, button, player, true, config)
             }
             Self::Snes(
                 button @ (SnesButton::A
@@ -183,186 +184,32 @@ impl GenericButton {
                 | SnesButton::L
                 | SnesButton::R),
                 player,
-            ) => Some(access_snes_value(mapping, button, player, true, config)),
+            ) => access_snes_value(mapping, button, player, true, config),
             Self::GameBoy(button @ (GameBoyButton::A | GameBoyButton::B)) => {
-                Some(access_gb_value(mapping, button, true, config))
+                access_gb_value(mapping, button, true, config)
             }
             Self::Gba(button @ (GbaButton::A | GbaButton::B | GbaButton::L | GbaButton::R)) => {
-                Some(access_gba_value(mapping, button, true, config))
+                access_gba_value(mapping, button, true, config)
             }
             #[cfg(feature = "unstable-cores")]
             Self::Pce(button @ (PceButton::Button1 | PceButton::Button2), player) => {
-                Some(access_pce_value(mapping, button, player, true, config))
+                access_pce_value(mapping, button, player, true, config)
             }
             _ => None,
         }
     }
-}
 
-fn smsgg_label(button: SmsGgButton) -> &'static str {
-    use SmsGgButton::*;
-
-    match button {
-        Up => "Up:",
-        Left => "Left:",
-        Right => "Right:",
-        Down => "Down:",
-        Button1 => "Button 1:",
-        Button2 => "Button 2:",
-        Pause => "Start/Pause:",
-    }
-}
-
-fn genesis_label(button: GenesisButton) -> &'static str {
-    use GenesisButton::*;
-
-    match button {
-        Up => "Up:",
-        Left => "Left:",
-        Right => "Right:",
-        Down => "Down:",
-        A => "A:",
-        B => "B:",
-        C => "C:",
-        X => "X:",
-        Y => "Y:",
-        Z => "Z:",
-        Start => "Start:",
-        Mode => "Mode:",
-    }
-}
-
-fn nes_label(button: NesButton) -> &'static str {
-    use NesButton::*;
-
-    match button {
-        Up => "Up:",
-        Left => "Left:",
-        Right => "Right:",
-        Down => "Down:",
-        A => "A:",
-        B => "B:",
-        Start => "Start:",
-        Select => "Select:",
-        ZapperFire => "Fire:",
-        ZapperForceOffscreen => "Force offscreen (Hold):",
-    }
-}
-
-fn snes_label(button: SnesButton) -> &'static str {
-    use SnesButton::*;
-
-    match button {
-        Up => "Up:",
-        Left => "Left:",
-        Right => "Right:",
-        Down => "Down:",
-        A => "A:",
-        B => "B:",
-        X => "X:",
-        Y => "Y:",
-        L => "L:",
-        R => "R:",
-        Start => "Start:",
-        Select => "Select:",
-        SuperScopeFire => "Fire:",
-        SuperScopeCursor => "Cursor:",
-        SuperScopePause => "Pause:",
-        SuperScopeTurboToggle => "Turbo (Toggle):",
-    }
-}
-
-fn gb_label(button: GameBoyButton) -> &'static str {
-    use GameBoyButton::*;
-
-    match button {
-        Up => "Up:",
-        Left => "Left:",
-        Right => "Right:",
-        Down => "Down:",
-        A => "A:",
-        B => "B:",
-        Start => "Start:",
-        Select => "Select:",
-    }
-}
-
-fn gba_label(button: GbaButton) -> &'static str {
-    use GbaButton::*;
-
-    match button {
-        Up => "Up:",
-        Left => "Left:",
-        Right => "Right:",
-        Down => "Down:",
-        A => "A:",
-        B => "B:",
-        L => "L:",
-        R => "R:",
-        Start => "Start:",
-        Select => "Select:",
-        SolarIncreaseBrightness => "Increase brightness:",
-        SolarDecreaseBrightness => "Decrease brightness:",
-        SolarMinBrightness => "Set brightness to minimum:",
-        SolarMaxBrightness => "Set brightness to maximum:",
-    }
-}
-
-#[cfg(feature = "unstable-cores")]
-fn pce_label(button: PceButton) -> &'static str {
-    use PceButton::*;
-
-    match button {
-        Up => "Up:",
-        Left => "Left:",
-        Right => "Right:",
-        Down => "Down:",
-        Button1 => "Button I:",
-        Button2 => "Button II:",
-        Run => "Run:",
-        Select => "Select:",
-    }
-}
-
-fn hotkey_label(hotkey: Hotkey) -> &'static str {
-    use Hotkey::*;
-
-    match hotkey {
-        PowerOff => "Power off emulated system:",
-        Exit => "Exit application:",
-        ToggleFullscreen => "Toggle fullscreen:",
-        SaveState => "Save state to current slot:",
-        LoadState => "Load state from current slot:",
-        NextSaveStateSlot => "Next save state slot:",
-        PrevSaveStateSlot => "Previous save state slot:",
-        SoftReset => "Soft reset:",
-        HardReset => "Hard reset:",
-        Pause => "Pause:",
-        StepFrame => "Step to next frame:",
-        FastForward => "Fast forward:",
-        Rewind => "Rewind:",
-        ToggleOverclocking => "Toggle overclocking enabled:",
-        OpenDebugger => "Open memory viewer:",
-        SaveStateSlot0 => "Save state to slot 0:",
-        SaveStateSlot1 => "Save state to slot 1:",
-        SaveStateSlot2 => "Save state to slot 2:",
-        SaveStateSlot3 => "Save state to slot 3:",
-        SaveStateSlot4 => "Save state to slot 4:",
-        SaveStateSlot5 => "Save state to slot 5:",
-        SaveStateSlot6 => "Save state to slot 6:",
-        SaveStateSlot7 => "Save state to slot 7:",
-        SaveStateSlot8 => "Save state to slot 8:",
-        SaveStateSlot9 => "Save state to slot 9:",
-        LoadStateSlot0 => "Load state from slot 0:",
-        LoadStateSlot1 => "Load state from slot 1:",
-        LoadStateSlot2 => "Load state from slot 2:",
-        LoadStateSlot3 => "Load state from slot 3:",
-        LoadStateSlot4 => "Load state from slot 4:",
-        LoadStateSlot5 => "Load state from slot 5:",
-        LoadStateSlot6 => "Load state from slot 6:",
-        LoadStateSlot7 => "Load state from slot 7:",
-        LoadStateSlot8 => "Load state from slot 8:",
-        LoadStateSlot9 => "Load state from slot 9:",
+    pub fn access_value_maybe_turbo(
+        self,
+        mapping: InputMappingSet,
+        config: &mut InputAppConfig,
+        turbo: bool,
+    ) -> Option<&mut Option<Vec<GenericInput>>> {
+        if turbo {
+            self.access_value_turbo(mapping, config)
+        } else {
+            self.access_value(mapping, config)
+        }
     }
 }
 
@@ -372,29 +219,15 @@ fn access_smsgg_value(
     player: Player,
     turbo: bool,
     config: &mut InputAppConfig,
-) -> &mut Option<Vec<GenericInput>> {
+) -> Option<&mut Option<Vec<GenericInput>>> {
     let mapping_config = mapping.smsgg(config);
 
     if button == SmsGgButton::Pause {
-        return &mut mapping_config.pause;
+        return Some(&mut mapping_config.pause);
     }
 
-    let player_config = match (player, turbo) {
-        (Player::One, false) => &mut mapping_config.p1,
-        (Player::One, true) => &mut mapping_config.p1_turbo,
-        (Player::Two, false) => &mut mapping_config.p2,
-        (Player::Two, true) => &mut mapping_config.p2_turbo,
-    };
-
-    match button {
-        SmsGgButton::Up => &mut player_config.up,
-        SmsGgButton::Left => &mut player_config.left,
-        SmsGgButton::Right => &mut player_config.right,
-        SmsGgButton::Down => &mut player_config.down,
-        SmsGgButton::Button1 => &mut player_config.button1,
-        SmsGgButton::Button2 => &mut player_config.button2,
-        SmsGgButton::Pause => unreachable!("early return for Pause"),
-    }
+    let player_config = mapping_config.player_mapping(player, turbo);
+    player_config.access_value(button)
 }
 
 fn access_genesis_value(
@@ -403,30 +236,10 @@ fn access_genesis_value(
     player: Player,
     turbo: bool,
     config: &mut InputAppConfig,
-) -> &mut Option<Vec<GenericInput>> {
+) -> Option<&mut Option<Vec<GenericInput>>> {
     let mapping_config = mapping.genesis(config);
-
-    let player_config = match (player, turbo) {
-        (Player::One, false) => &mut mapping_config.p1,
-        (Player::One, true) => &mut mapping_config.p1_turbo,
-        (Player::Two, false) => &mut mapping_config.p2,
-        (Player::Two, true) => &mut mapping_config.p2_turbo,
-    };
-
-    match button {
-        GenesisButton::Up => &mut player_config.up,
-        GenesisButton::Left => &mut player_config.left,
-        GenesisButton::Right => &mut player_config.right,
-        GenesisButton::Down => &mut player_config.down,
-        GenesisButton::A => &mut player_config.a,
-        GenesisButton::B => &mut player_config.b,
-        GenesisButton::C => &mut player_config.c,
-        GenesisButton::X => &mut player_config.x,
-        GenesisButton::Y => &mut player_config.y,
-        GenesisButton::Z => &mut player_config.z,
-        GenesisButton::Start => &mut player_config.start,
-        GenesisButton::Mode => &mut player_config.mode,
-    }
+    let player_config = mapping_config.player_mapping(player, turbo);
+    player_config.access_value(button)
 }
 
 fn access_nes_value(
@@ -435,35 +248,17 @@ fn access_nes_value(
     player: Player,
     turbo: bool,
     config: &mut InputAppConfig,
-) -> &mut Option<Vec<GenericInput>> {
-    let mapping_config = mapping.nes(config);
+) -> Option<&mut Option<Vec<GenericInput>>> {
+    let mut mapping_config = mapping.nes(config);
 
-    match button {
-        NesButton::ZapperFire => return &mut mapping_config.zapper.fire,
-        NesButton::ZapperForceOffscreen => return &mut mapping_config.zapper.force_offscreen,
-        _ => {}
-    }
-
-    let player_config = match (player, turbo) {
-        (Player::One, false) => &mut mapping_config.p1,
-        (Player::One, true) => &mut mapping_config.p1_turbo,
-        (Player::Two, false) => &mut mapping_config.p2,
-        (Player::Two, true) => &mut mapping_config.p2_turbo,
-    };
-
-    match button {
-        NesButton::Up => &mut player_config.up,
-        NesButton::Left => &mut player_config.left,
-        NesButton::Right => &mut player_config.right,
-        NesButton::Down => &mut player_config.down,
-        NesButton::A => &mut player_config.a,
-        NesButton::B => &mut player_config.b,
-        NesButton::Start => &mut player_config.start,
-        NesButton::Select => &mut player_config.select,
-        NesButton::ZapperFire | NesButton::ZapperForceOffscreen => {
-            unreachable!("early return for Zapper buttons")
+    polonius!(|mapping_config| -> Option<&'polonius mut Option<Vec<GenericInput>>> {
+        if let Some(value) = mapping_config.zapper.access_value(button) {
+            polonius_return!(Some(value));
         }
-    }
+    });
+
+    let player_config = mapping_config.player_mapping(player, turbo);
+    player_config.access_value(button)
 }
 
 fn access_snes_value(
@@ -472,42 +267,17 @@ fn access_snes_value(
     player: Player,
     turbo: bool,
     config: &mut InputAppConfig,
-) -> &mut Option<Vec<GenericInput>> {
-    let mapping_config = mapping.snes(config);
+) -> Option<&mut Option<Vec<GenericInput>>> {
+    let mut mapping_config = mapping.snes(config);
 
-    match button {
-        SnesButton::SuperScopeFire => return &mut mapping_config.super_scope.fire,
-        SnesButton::SuperScopeCursor => return &mut mapping_config.super_scope.cursor,
-        SnesButton::SuperScopePause => return &mut mapping_config.super_scope.pause,
-        SnesButton::SuperScopeTurboToggle => return &mut mapping_config.super_scope.turbo_toggle,
-        _ => {}
-    }
+    polonius!(|mapping_config| -> Option<&'polonius mut Option<Vec<GenericInput>>> {
+        if let Some(value) = mapping_config.super_scope.access_value(button) {
+            polonius_return!(Some(value));
+        }
+    });
 
-    let player_config = match (player, turbo) {
-        (Player::One, false) => &mut mapping_config.p1,
-        (Player::One, true) => &mut mapping_config.p1_turbo,
-        (Player::Two, false) => &mut mapping_config.p2,
-        (Player::Two, true) => &mut mapping_config.p2_turbo,
-    };
-
-    match button {
-        SnesButton::Up => &mut player_config.up,
-        SnesButton::Left => &mut player_config.left,
-        SnesButton::Right => &mut player_config.right,
-        SnesButton::Down => &mut player_config.down,
-        SnesButton::A => &mut player_config.a,
-        SnesButton::B => &mut player_config.b,
-        SnesButton::X => &mut player_config.x,
-        SnesButton::Y => &mut player_config.y,
-        SnesButton::L => &mut player_config.l,
-        SnesButton::R => &mut player_config.r,
-        SnesButton::Start => &mut player_config.start,
-        SnesButton::Select => &mut player_config.select,
-        SnesButton::SuperScopeFire
-        | SnesButton::SuperScopeCursor
-        | SnesButton::SuperScopePause
-        | SnesButton::SuperScopeTurboToggle => unreachable!("early return for Super Scope buttons"),
-    }
+    let player_config = mapping_config.player_mapping(player, turbo);
+    player_config.access_value(button)
 }
 
 fn access_gb_value(
@@ -515,19 +285,9 @@ fn access_gb_value(
     button: GameBoyButton,
     turbo: bool,
     config: &mut InputAppConfig,
-) -> &mut Option<Vec<GenericInput>> {
+) -> Option<&mut Option<Vec<GenericInput>>> {
     let mapping_config = mapping.gb(config, turbo);
-
-    match button {
-        GameBoyButton::Up => &mut mapping_config.up,
-        GameBoyButton::Left => &mut mapping_config.left,
-        GameBoyButton::Right => &mut mapping_config.right,
-        GameBoyButton::Down => &mut mapping_config.down,
-        GameBoyButton::A => &mut mapping_config.a,
-        GameBoyButton::B => &mut mapping_config.b,
-        GameBoyButton::Start => &mut mapping_config.start,
-        GameBoyButton::Select => &mut mapping_config.select,
-    }
+    mapping_config.access_value(button)
 }
 
 fn access_gba_value(
@@ -535,25 +295,9 @@ fn access_gba_value(
     button: GbaButton,
     turbo: bool,
     config: &mut InputAppConfig,
-) -> &mut Option<Vec<GenericInput>> {
+) -> Option<&mut Option<Vec<GenericInput>>> {
     let mapping_config = mapping.gba(config, turbo);
-
-    match button {
-        GbaButton::Up => &mut mapping_config.joypad.up,
-        GbaButton::Left => &mut mapping_config.joypad.left,
-        GbaButton::Right => &mut mapping_config.joypad.right,
-        GbaButton::Down => &mut mapping_config.joypad.down,
-        GbaButton::A => &mut mapping_config.joypad.a,
-        GbaButton::B => &mut mapping_config.joypad.b,
-        GbaButton::L => &mut mapping_config.joypad.l,
-        GbaButton::R => &mut mapping_config.joypad.r,
-        GbaButton::Start => &mut mapping_config.joypad.start,
-        GbaButton::Select => &mut mapping_config.joypad.select,
-        GbaButton::SolarIncreaseBrightness => &mut mapping_config.solar.increase_brightness,
-        GbaButton::SolarDecreaseBrightness => &mut mapping_config.solar.decrease_brightness,
-        GbaButton::SolarMinBrightness => &mut mapping_config.solar.min_brightness,
-        GbaButton::SolarMaxBrightness => &mut mapping_config.solar.max_brightness,
-    }
+    mapping_config.joypad.access_value(button).or_else(|| mapping_config.solar.access_value(button))
 }
 
 #[cfg(feature = "unstable-cores")]
@@ -563,26 +307,10 @@ fn access_pce_value(
     player: Player,
     turbo: bool,
     config: &mut InputAppConfig,
-) -> &mut Option<Vec<GenericInput>> {
+) -> Option<&mut Option<Vec<GenericInput>>> {
     let mapping_config = mapping.pce(config);
-
-    let player_config = match (player, turbo) {
-        (Player::One, false) => &mut mapping_config.p1,
-        (Player::One, true) => &mut mapping_config.p1_turbo,
-        (Player::Two, false) => &mut mapping_config.p2,
-        (Player::Two, true) => &mut mapping_config.p2_turbo,
-    };
-
-    match button {
-        PceButton::Up => &mut player_config.up,
-        PceButton::Left => &mut player_config.left,
-        PceButton::Right => &mut player_config.right,
-        PceButton::Down => &mut player_config.down,
-        PceButton::Button1 => &mut player_config.button1,
-        PceButton::Button2 => &mut player_config.button2,
-        PceButton::Run => &mut player_config.run,
-        PceButton::Select => &mut player_config.select,
-    }
+    let player_config = mapping_config.player_mapping(player, turbo);
+    player_config.access_value(button)
 }
 
 fn access_hotkey(
@@ -590,47 +318,8 @@ fn access_hotkey(
     hotkey: Hotkey,
     config: &mut InputAppConfig,
 ) -> &mut Option<Vec<GenericInput>> {
-    use Hotkey::*;
-
     let mapping_config = mapping.hotkey(config);
-
-    match hotkey {
-        PowerOff => &mut mapping_config.power_off,
-        Exit => &mut mapping_config.exit,
-        ToggleFullscreen => &mut mapping_config.toggle_fullscreen,
-        SaveState => &mut mapping_config.save_state,
-        LoadState => &mut mapping_config.load_state,
-        NextSaveStateSlot => &mut mapping_config.next_save_state_slot,
-        PrevSaveStateSlot => &mut mapping_config.prev_save_state_slot,
-        SoftReset => &mut mapping_config.soft_reset,
-        HardReset => &mut mapping_config.hard_reset,
-        Pause => &mut mapping_config.pause,
-        StepFrame => &mut mapping_config.step_frame,
-        FastForward => &mut mapping_config.fast_forward,
-        Rewind => &mut mapping_config.rewind,
-        ToggleOverclocking => &mut mapping_config.toggle_overclocking,
-        OpenDebugger => &mut mapping_config.open_debugger,
-        SaveStateSlot0 => &mut mapping_config.save_state_slot_0,
-        SaveStateSlot1 => &mut mapping_config.save_state_slot_1,
-        SaveStateSlot2 => &mut mapping_config.save_state_slot_2,
-        SaveStateSlot3 => &mut mapping_config.save_state_slot_3,
-        SaveStateSlot4 => &mut mapping_config.save_state_slot_4,
-        SaveStateSlot5 => &mut mapping_config.save_state_slot_5,
-        SaveStateSlot6 => &mut mapping_config.save_state_slot_6,
-        SaveStateSlot7 => &mut mapping_config.save_state_slot_7,
-        SaveStateSlot8 => &mut mapping_config.save_state_slot_8,
-        SaveStateSlot9 => &mut mapping_config.save_state_slot_9,
-        LoadStateSlot0 => &mut mapping_config.load_state_slot_0,
-        LoadStateSlot1 => &mut mapping_config.load_state_slot_1,
-        LoadStateSlot2 => &mut mapping_config.load_state_slot_2,
-        LoadStateSlot3 => &mut mapping_config.load_state_slot_3,
-        LoadStateSlot4 => &mut mapping_config.load_state_slot_4,
-        LoadStateSlot5 => &mut mapping_config.load_state_slot_5,
-        LoadStateSlot6 => &mut mapping_config.load_state_slot_6,
-        LoadStateSlot7 => &mut mapping_config.load_state_slot_7,
-        LoadStateSlot8 => &mut mapping_config.load_state_slot_8,
-        LoadStateSlot9 => &mut mapping_config.load_state_slot_9,
-    }
+    mapping_config.access_value(hotkey)
 }
 
 impl App {
@@ -1441,22 +1130,26 @@ impl App {
         buttons: &[GenericButton],
         ui: &mut Ui,
     ) {
+        let axis_deadzone = self.config.input.axis_deadzone;
+
         Grid::new(id).show(ui, |ui| {
             for button in buttons {
-                ui.label(button.label());
+                ui.label(format!("{}:", button.label()));
 
-                let current_value = button.access_value(mapping, &mut self.config.input);
+                let Some(current_value) = button.access_value(mapping, &mut self.config.input)
+                else {
+                    continue;
+                };
+
                 let current_value_str = format_input_str(current_value.as_ref());
                 if ui.button(current_value_str).clicked() {
-                    self.emu_thread.send(EmuThreadCommand::CollectInput {
-                        axis_deadzone: self.config.input.axis_deadzone,
-                    });
+                    self.emu_thread.send(EmuThreadCommand::CollectInput { axis_deadzone });
                     self.state.waiting_for_input =
                         Some(WaitingForInput { button: *button, mapping, turbo: false });
                 }
 
                 if ui.button("Clear").clicked() {
-                    *button.access_value(mapping, &mut self.config.input) = None;
+                    *current_value = None;
                 }
 
                 if let Some(turbo_value) =
@@ -1466,17 +1159,12 @@ impl App {
 
                     let turbo_value_str = format_input_str(turbo_value.as_ref());
                     if ui.button(turbo_value_str).clicked() {
-                        self.emu_thread.send(EmuThreadCommand::CollectInput {
-                            axis_deadzone: self.config.input.axis_deadzone,
-                        });
+                        self.emu_thread.send(EmuThreadCommand::CollectInput { axis_deadzone });
                         self.state.waiting_for_input =
                             Some(WaitingForInput { button: *button, mapping, turbo: true });
                     }
 
-                    if ui.button("Clear").clicked()
-                        && let Some(turbo_value) =
-                            button.access_value_turbo(mapping, &mut self.config.input)
-                    {
+                    if ui.button("Clear").clicked() {
                         *turbo_value = None;
                     }
                 }

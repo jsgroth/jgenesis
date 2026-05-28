@@ -112,14 +112,14 @@ impl GgAspectRatio {
 
 define_controller_inputs! {
     buttons: SmsGgButton {
-        Up -> up,
-        Left -> left,
-        Right -> right,
-        Down -> down,
-        Button1 -> button1,
-        Button2 -> button2,
+        Up -> up "Up",
+        Left -> left "Left",
+        Right -> right "Right",
+        Down -> down "Down",
+        Button1 -> button1 "Button 1",
+        Button2 -> button2 "Button 2",
     },
-    non_gamepad_buttons: [Pause],
+    non_gamepad_buttons: [Pause "Start/Pause"],
     joypad: SmsGgJoypadState,
     inputs: SmsGgInputs {
         players: {

@@ -1229,16 +1229,10 @@ impl App {
                 log::info!("Received input {input:?} for button {button:?}");
                 if let Some(input) = input
                     && !input.is_empty()
+                    && let Some(value) =
+                        button.access_value_maybe_turbo(mapping, &mut self.config.input, turbo)
                 {
-                    if turbo {
-                        if let Some(value) =
-                            button.access_value_turbo(mapping, &mut self.config.input)
-                        {
-                            *value = Some(input);
-                        }
-                    } else {
-                        *button.access_value(mapping, &mut self.config.input) = Some(input);
-                    }
+                    *value = Some(input);
                 }
             } else if self.emu_thread.status().is_running() {
                 Window::new("Input Configuration").resizable(false).show(ctx, |ui| {

@@ -55,9 +55,9 @@ pub fn viewport_position_to_frame_position(
 macro_rules! define_controller_inputs {
     (
         buttons: $button_enum:ident {
-            $($button:ident -> $button_field:ident),* $(,)?
+            $($button:ident -> $button_field:ident $button_label:literal),* $(,)?
         }
-        $(, non_gamepad_buttons: [$($non_gamepad_button:ident),* $(,)?])?
+        $(, non_gamepad_buttons: [$($non_gamepad_button:ident $non_gamepad_label:literal),* $(,)?])?
         , joypad: $joypad_struct:ident
         $(
             , inputs: $inputs_struct:ident {
@@ -90,6 +90,20 @@ macro_rules! define_controller_inputs {
             $($(
                 $non_gamepad_button,
             )*)?
+        }
+
+        impl $button_enum {
+            #[must_use]
+            pub fn label(self) -> &'static str {
+                match self {
+                    $(
+                        Self::$button => $button_label,
+                    )*
+                    $($(
+                        Self::$non_gamepad_button => $non_gamepad_label,
+                    )*)?
+                }
+            }
         }
 
         #[derive(

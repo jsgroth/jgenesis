@@ -45,6 +45,7 @@ emath = { workspace = true }
 env_logger = { workspace = true }
 log = { workspace = true, features = ["release_max_level_info"] }
 pollster = { workspace = true }
+polonius-the-crab = { workspace = true }
 regex = { workspace = true }
 rfd = { workspace = true }
 sdl3 = { workspace = true }

@@ -185,16 +185,19 @@ pub enum NesAudioResampler {
 
 define_controller_inputs! {
     buttons: NesButton {
-        Up -> up,
-        Left -> left,
-        Right -> right,
-        Down -> down,
-        A -> a,
-        B -> b,
-        Start -> start,
-        Select -> select,
+        Up -> up "Up",
+        Left -> left "Left",
+        Right -> right "Right",
+        Down -> down "Down",
+        A -> a "A",
+        B -> b "B",
+        Start -> start "Start",
+        Select -> select "Select",
     },
-    non_gamepad_buttons: [ZapperFire, ZapperForceOffscreen],
+    non_gamepad_buttons: [
+        ZapperFire "Fire",
+        ZapperForceOffscreen "Force offscreen (Hold)",
+    ],
     joypad: NesJoypadState,
 }
 
