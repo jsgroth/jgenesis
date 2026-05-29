@@ -5,7 +5,7 @@ use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, NativeEmulatorError, save};
 use crate::{NativeEmulator, NativeEmulatorResult, extensions};
 use cdrom::reader::CdRom;
-use genesis_config::GenesisRegion;
+use genesis_config::{GenesisController, GenesisInputs, GenesisRegion};
 use genesis_core::GenesisEmulator;
 use jgenesis_native_config::common::WindowSize;
 use s32x_core::api::Sega32XEmulator;
@@ -35,7 +35,26 @@ impl NativeGenesisEmulator {
             &config.common.hotkey_config.to_mapping_vec(),
         );
 
+        update_controller_types(&config, &mut self.inputs);
+
         Ok(())
+    }
+}
+
+fn new_initial_inputs(config: &GenesisConfig) -> GenesisInputs {
+    GenesisInputs {
+        p1: GenesisController::new(config.inputs.p1_type),
+        p2: GenesisController::new(config.inputs.p2_type),
+    }
+}
+
+fn update_controller_types(config: &GenesisConfig, inputs: &mut GenesisInputs) {
+    if config.inputs.p1_type != inputs.p1.controller_type() {
+        inputs.p1 = GenesisController::new(config.inputs.p1_type);
+    }
+
+    if config.inputs.p2_type != inputs.p2.controller_type() {
+        inputs.p2 = GenesisController::new(config.inputs.p2_type);
     }
 }
 
@@ -56,6 +75,8 @@ impl NativeSegaCdEmulator {
             &config.genesis.inputs.to_turbo_mapping_vec(),
             &config.genesis.common.hotkey_config.to_mapping_vec(),
         );
+
+        update_controller_types(&config.genesis, &mut self.inputs);
 
         Ok(())
     }
@@ -107,6 +128,8 @@ impl Native32XEmulator {
             &config.genesis.common.hotkey_config.to_mapping_vec(),
         );
 
+        update_controller_types(&config.genesis, &mut self.inputs);
+
         Ok(())
     }
 }
@@ -152,6 +175,8 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
         Ok(CreatedEmulator { emulator, window_title, default_window_size })
     };
 
+    let initial_inputs = new_initial_inputs(&config);
+
     NativeGenesisEmulator::new(
         NativeEmulatorArgs::new(
             Box::new(create_emulator_fn),
@@ -163,6 +188,7 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
             config.inputs.to_mapping_vec(),
         )
         .with_turbo_mappings(config.inputs.to_turbo_mapping_vec())
+        .with_initial_inputs(initial_inputs)
         .with_debug_fn(|| jgenesis_debugger_frontend::genesis::genesis_debug_fn()),
     )
 }
@@ -268,6 +294,8 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
 
     let remove_disc_fn = SegaCdEmulator::remove_disc;
 
+    let initial_inputs = new_initial_inputs(&config.genesis);
+
     NativeSegaCdEmulator::new(
         NativeEmulatorArgs::new(
             Box::new(create_emulator_fn),
@@ -279,6 +307,7 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
             config.genesis.inputs.to_mapping_vec(),
         )
         .with_turbo_mappings(config.genesis.inputs.to_turbo_mapping_vec())
+        .with_initial_inputs(initial_inputs)
         .with_debug_fn(|| jgenesis_debugger_frontend::genesis::sega_cd_debug_fn())
         .with_disc_change_fns(change_disc_fn, remove_disc_fn),
     )
@@ -353,6 +382,8 @@ pub fn create_32x(config: Box<Sega32XConfig>) -> NativeEmulatorResult<Native32XE
         Ok(CreatedEmulator { emulator, window_title, default_window_size })
     };
 
+    let initial_inputs = new_initial_inputs(&config.genesis);
+
     Native32XEmulator::new(
         NativeEmulatorArgs::new(
             Box::new(create_emulator_fn),
@@ -364,6 +395,7 @@ pub fn create_32x(config: Box<Sega32XConfig>) -> NativeEmulatorResult<Native32XE
             config.genesis.inputs.to_mapping_vec(),
         )
         .with_turbo_mappings(config.genesis.inputs.to_turbo_mapping_vec())
+        .with_initial_inputs(initial_inputs)
         .with_debug_fn(|| jgenesis_debugger_frontend::genesis::sega_32x_debug_fn()),
     )
 }

@@ -1,136 +1,277 @@
 //! Code for handling Genesis controller input I/O registers
 
-use crate::GenesisEmulatorConfig;
 use bincode::{Decode, Encode};
-use genesis_config::{GenesisControllerType, GenesisInputs, GenesisJoypadState};
+use genesis_config::{GenesisController, GenesisInputs, GenesisJoypadState};
 use jgenesis_common::num::GetBit;
 
 // Produces roughly the expected timeout value in Joystick Test Program (PD)
 const FLIP_COUNTER_CYCLES: u32 = 12150;
 
-const TH_BIT: u8 = 6;
-
 #[derive(Debug, Clone, Copy, Encode, Decode)]
-struct PinDirections {
-    last_data_write: u8,
-    last_ctrl_write: u8,
-    th_flip_count: u8,
-    flip_reset_counter: u32,
+struct Pins {
+    // 0 = input (from controller), 1 = output (to controller)
+    directions: u8,
+    // Current pin states
+    pins: u8,
+    // If non-zero, 68K cycles remaining until TH is pulled high due to being set as input
     cycles_until_th_high: u32,
-    controller_th: bool,
+    // Used for external interrupts; not yet implemented except as an R/W bit
+    ctrl_bit_7: bool,
 }
 
-impl Default for PinDirections {
-    fn default() -> Self {
-        Self {
-            last_data_write: 0,
-            last_ctrl_write: 0,
-            th_flip_count: 0,
-            flip_reset_counter: 0,
-            cycles_until_th_high: 0,
-            // Some games will freeze at boot if controller TH doesn't default to 1
-            controller_th: true,
+macro_rules! impl_set_input_pin {
+    ($name:ident, $bit:ident) => {
+        fn $name(&mut self, pin: bool) {
+            if !self.directions.bit(Self::$bit) {
+                self.pins = (self.pins & !(1 << Self::$bit)) | (u8::from(pin) << Self::$bit);
+            }
+        }
+    };
+}
+
+impl Pins {
+    const TH: u8 = 6;
+    const TR: u8 = 5;
+    const TL: u8 = 4;
+    const D3: u8 = 3;
+    const D2: u8 = 2;
+    const D1: u8 = 1;
+    const D0: u8 = 0;
+
+    fn new() -> Self {
+        // TH must be initialized to 1 or some games will freeze at boot
+        Self { directions: 0, pins: 0xFF, cycles_until_th_high: 0, ctrl_bit_7: false }
+    }
+
+    fn read_ctrl(self) -> u8 {
+        (self.directions & !(1 << 7)) | (u8::from(self.ctrl_bit_7) << 7)
+    }
+
+    fn write_ctrl(&mut self, value: u8, state: &mut ControllerState) {
+        // DATA bit 7 always reads the last DATA write, so pretend it's always an output pin
+        self.directions = value | (1 << 7);
+        self.ctrl_bit_7 = value.bit(7);
+        state.update_pins(self);
+
+        if !self.directions.bit(Self::TH) {
+            // Gamepads don't drive the TH pin, so when TH is set to input, it should get pulled
+            // high after a short delay.
+            // Micro Machines depends on it getting pulled high within ~70 68K CPU cycles, while
+            // Trouble Shooter depends on it _not_ getting pulled high until after ~15 68K CPU cycles.
+            // TODO some devices do drive TH, e.g. lightguns
+            if self.cycles_until_th_high == 0 {
+                self.cycles_until_th_high = 30;
+            }
+        } else {
+            // TH is set to output
+            self.cycles_until_th_high = 0;
         }
     }
-}
 
-impl PinDirections {
-    fn write_ctrl(&mut self, ctrl_byte: u8, controller_type: GenesisControllerType) {
-        self.last_ctrl_write = ctrl_byte;
-        self.maybe_set_th(controller_type);
-
-        // When TH is set to input, the controller's TH should get pulled high, but only after a
-        // short delay.
-        // Micro Machines depends on it getting pulled high within ~70 68K CPU cycles, while
-        // Trouble Shooter depends on it _not_ getting pulled high until after ~15 68K CPU cycles.
-        self.cycles_until_th_high = if !ctrl_byte.bit(TH_BIT) { 30 } else { 0 };
+    fn th(self) -> bool {
+        self.pins.bit(Self::TH)
     }
 
-    fn write_data(&mut self, data_byte: u8, controller_type: GenesisControllerType) {
-        self.last_data_write = data_byte;
-        self.maybe_set_th(controller_type);
+    impl_set_input_pin!(input_th, TH);
+    impl_set_input_pin!(input_tr, TR);
+    impl_set_input_pin!(input_tl, TL);
+    impl_set_input_pin!(input_d3, D3);
+    impl_set_input_pin!(input_d2, D2);
+    impl_set_input_pin!(input_d1, D1);
+    impl_set_input_pin!(input_d0, D0);
+
+    fn output(&mut self, pins: u8, state: &mut ControllerState) {
+        self.pins = (self.pins & !self.directions) | (pins & self.directions);
+        state.update_pins(self);
     }
 
-    fn maybe_set_th(&mut self, controller_type: GenesisControllerType) {
-        if !self.last_ctrl_write.bit(TH_BIT) {
-            // TH bit is set to input; writes won't take effect until it's changed back to output
+    fn tick(&mut self, m68k_cycles: u32, state: &mut ControllerState) {
+        if self.cycles_until_th_high == 0 {
             return;
         }
 
-        let th = self.last_data_write.bit(TH_BIT);
-
-        // 6-button controller cycles through 4 different modes whenever TH flips from 0 to 1,
-        // resetting after ~1.5ms have passed without such a flip
-        if controller_type == GenesisControllerType::SixButton && !self.controller_th && th {
-            self.th_flip_count = (self.th_flip_count + 1) % 4;
-            self.flip_reset_counter = FLIP_COUNTER_CYCLES;
+        self.cycles_until_th_high = self.cycles_until_th_high.saturating_sub(m68k_cycles);
+        if self.cycles_until_th_high == 0 {
+            self.pins |= 1 << Self::TH;
+            state.update_pins(self);
         }
-        self.controller_th = th;
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+struct ThreeButtonState {
+    joypad: GenesisJoypadState,
+}
+
+impl ThreeButtonState {
+    fn new(joypad: GenesisJoypadState) -> Self {
+        Self { joypad }
     }
 
-    fn to_data_byte(self, joypad_state: GenesisJoypadState) -> u8 {
-        let mut controller_byte = match (self.th_flip_count, self.controller_th) {
-            (0..=2, true) => {
+    fn update_pins(&self, pins: &mut Pins) {
+        if pins.th() {
+            // B, C, and directional inputs
+            pins.input_tr(!self.joypad.c);
+            pins.input_tl(!self.joypad.b);
+            pins.input_d3(!self.joypad.right);
+            pins.input_d2(!self.joypad.left);
+            pins.input_d1(!self.joypad.down);
+            pins.input_d0(!self.joypad.up);
+        } else {
+            // A and start (and up/down)
+            pins.input_tr(!self.joypad.start);
+            pins.input_tl(!self.joypad.a);
+            pins.input_d3(false);
+            pins.input_d2(false);
+            pins.input_d1(!self.joypad.down);
+            pins.input_d0(!self.joypad.up);
+        }
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+struct SixButtonState {
+    joypad: GenesisJoypadState,
+    th_flip_count: u8,
+    flip_reset_counter: u32,
+    last_th: bool,
+}
+
+impl SixButtonState {
+    fn new(joypad: GenesisJoypadState) -> Self {
+        Self { joypad, th_flip_count: 0, flip_reset_counter: 0, last_th: true }
+    }
+
+    fn update_pins(&mut self, pins: &mut Pins) {
+        // 6-button controller cycles through 5 different modes whenever TH flips from 0 to 1,
+        // resetting after ~1.5ms have passed without such a flip
+        let th = pins.th();
+        if !self.last_th && th {
+            self.th_flip_count = (self.th_flip_count + 1) % 5;
+            self.flip_reset_counter = FLIP_COUNTER_CYCLES;
+        }
+        self.last_th = th;
+
+        match (self.th_flip_count, th) {
+            (0..=2 | 4, true) => {
                 // 3-button: B, C, and directional inputs
-                (u8::from(!joypad_state.c) << 5)
-                    | (u8::from(!joypad_state.b) << 4)
-                    | (u8::from(!joypad_state.right) << 3)
-                    | (u8::from(!joypad_state.left) << 2)
-                    | (u8::from(!joypad_state.down) << 1)
-                    | u8::from(!joypad_state.up)
+                pins.input_tr(!self.joypad.c);
+                pins.input_tl(!self.joypad.b);
+                pins.input_d3(!self.joypad.right);
+                pins.input_d2(!self.joypad.left);
+                pins.input_d1(!self.joypad.down);
+                pins.input_d0(!self.joypad.up);
             }
-            (0..=1, false) => {
+            (0 | 1 | 4, false) => {
                 // 3-button: A and Start (and up/down)
-                (u8::from(!joypad_state.start) << 5)
-                    | (u8::from(!joypad_state.a) << 4)
-                    | (u8::from(!joypad_state.down) << 1)
-                    | u8::from(!joypad_state.up)
-            }
-            (3, true) => {
-                // 6-button: New buttons (and B and C)
-                (u8::from(!joypad_state.c) << 5)
-                    | (u8::from(!joypad_state.b) << 4)
-                    | (u8::from(!joypad_state.mode) << 3)
-                    | (u8::from(!joypad_state.x) << 2)
-                    | (u8::from(!joypad_state.y) << 1)
-                    | u8::from(!joypad_state.z)
+                pins.input_tr(!self.joypad.start);
+                pins.input_tl(!self.joypad.a);
+                pins.input_d3(false);
+                pins.input_d2(false);
+                pins.input_d1(!self.joypad.down);
+                pins.input_d0(!self.joypad.up);
             }
             (2, false) => {
                 // 6-button: A, Start, and all 0s in the lower bits
-                (u8::from(!joypad_state.start) << 5) | (u8::from(!joypad_state.a) << 4)
+                // Used by games for 6-button controller detection
+                pins.input_tr(!self.joypad.start);
+                pins.input_tl(!self.joypad.a);
+                pins.input_d3(false);
+                pins.input_d2(false);
+                pins.input_d1(false);
+                pins.input_d0(false);
+            }
+            (3, true) => {
+                // 6-button: New buttons (and B and C)
+                pins.input_tr(!self.joypad.c);
+                pins.input_tl(!self.joypad.b);
+                pins.input_d3(!self.joypad.mode);
+                pins.input_d2(!self.joypad.x);
+                pins.input_d1(!self.joypad.y);
+                pins.input_d0(!self.joypad.z);
             }
             (3, false) => {
                 // 6-button: A, Start, and all 1s in the lower bits
-                (u8::from(!joypad_state.start) << 5) | (u8::from(!joypad_state.a) << 4) | 0b00001111
+                pins.input_tr(!self.joypad.start);
+                pins.input_tl(!self.joypad.a);
+                pins.input_d3(true);
+                pins.input_d2(true);
+                pins.input_d1(true);
+                pins.input_d0(true);
             }
-            _ => panic!("th_flip_count should always be <= 3, was {}", self.th_flip_count),
-        };
-        controller_byte |= u8::from(self.controller_th) << 6;
-
-        // Only bits set to input come from the controller (corresponding bit in CTRL = 0)
-        controller_byte &= !self.last_ctrl_write;
-
-        // Bit 7 always comes from the last data write
-        let outputs_byte = self.last_data_write & (self.last_ctrl_write | 0x80);
-
-        controller_byte | outputs_byte
+            _ => panic!("th_flip_count should always be <= 4, was {}", self.th_flip_count),
+        }
     }
 
-    fn to_ctrl_byte(self) -> u8 {
-        self.last_ctrl_write
-    }
+    fn tick(&mut self, m68k_cycles: u32, pins: &mut Pins) {
+        if self.flip_reset_counter == 0 {
+            return;
+        }
 
-    fn tick(&mut self, m68k_cycles: u32) {
         self.flip_reset_counter = self.flip_reset_counter.saturating_sub(m68k_cycles);
         if self.flip_reset_counter == 0 {
             self.th_flip_count = 0;
+            self.update_pins(pins);
         }
+    }
+}
 
-        if self.cycles_until_th_high != 0 {
-            self.cycles_until_th_high = self.cycles_until_th_high.saturating_sub(m68k_cycles);
-            if self.cycles_until_th_high == 0 {
-                self.controller_th = true;
+fn update_pins_no_controller(pins: &mut Pins) {
+    // All 1s signals to games that nothing is connected to the controller port
+    pins.input_th(true);
+    pins.input_tr(true);
+    pins.input_tl(true);
+    pins.input_d3(true);
+    pins.input_d2(true);
+    pins.input_d1(true);
+    pins.input_d0(true);
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+enum ControllerState {
+    ThreeButton(ThreeButtonState),
+    SixButton(SixButtonState),
+    None,
+}
+
+impl ControllerState {
+    fn new(controller: GenesisController) -> Self {
+        match controller {
+            GenesisController::ThreeButton(joypad) => {
+                Self::ThreeButton(ThreeButtonState::new(joypad))
             }
+            GenesisController::SixButton(joypad) => Self::SixButton(SixButtonState::new(joypad)),
+            GenesisController::None => Self::None,
+        }
+    }
+
+    fn update_inputs(&mut self, controller: GenesisController) {
+        match (self, controller) {
+            (Self::ThreeButton(state), GenesisController::ThreeButton(joypad)) => {
+                state.joypad = joypad;
+            }
+            (Self::SixButton(state), GenesisController::SixButton(joypad)) => {
+                state.joypad = joypad;
+            }
+            (Self::None, GenesisController::None) => {}
+            // Controller type changed; reset state
+            (state, controller) => {
+                *state = Self::new(controller);
+            }
+        }
+    }
+
+    fn update_pins(&mut self, pins: &mut Pins) {
+        match self {
+            Self::ThreeButton(state) => state.update_pins(pins),
+            Self::SixButton(state) => state.update_pins(pins),
+            Self::None => update_pins_no_controller(pins),
+        }
+    }
+
+    fn tick(&mut self, m68k_cycles: u32, pins: &mut Pins) {
+        if let Self::SixButton(state) = self {
+            state.tick(m68k_cycles, pins);
         }
     }
 }
@@ -138,90 +279,87 @@ impl PinDirections {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct InputState {
     inputs: GenesisInputs,
-    p1_controller_type: GenesisControllerType,
-    p2_controller_type: GenesisControllerType,
-    p1_pin_directions: PinDirections,
-    p2_pin_directions: PinDirections,
+    p1_state: ControllerState,
+    p2_state: ControllerState,
+    p1_pins: Pins,
+    p2_pins: Pins,
 }
-
-// All 1s signals to games that nothing is connected to the port
-const DATA_NO_CONTROLLER: u8 = 0xFF;
 
 impl InputState {
     #[must_use]
-    pub fn new(
-        p1_controller_type: GenesisControllerType,
-        p2_controller_type: GenesisControllerType,
-    ) -> Self {
+    pub fn new() -> Self {
+        let inputs = GenesisInputs::default();
+
         Self {
-            inputs: GenesisInputs::default(),
-            p1_controller_type,
-            p2_controller_type,
-            p1_pin_directions: PinDirections::default(),
-            p2_pin_directions: PinDirections::default(),
+            inputs,
+            p1_state: ControllerState::new(inputs.p1),
+            p2_state: ControllerState::new(inputs.p2),
+            p1_pins: Pins::new(),
+            p2_pins: Pins::new(),
         }
     }
 
     pub fn set_inputs(&mut self, inputs: GenesisInputs) {
+        if inputs == self.inputs {
+            return;
+        }
+
+        self.p1_state.update_inputs(inputs.p1);
+        self.p1_state.update_pins(&mut self.p1_pins);
+
+        self.p2_state.update_inputs(inputs.p2);
+        self.p2_state.update_pins(&mut self.p2_pins);
+
         self.inputs = inputs;
-    }
-
-    pub fn reload_config(&mut self, config: &GenesisEmulatorConfig) {
-        self.p1_controller_type = config.p1_controller_type;
-        self.p2_controller_type = config.p2_controller_type;
-    }
-
-    #[must_use]
-    pub fn controller_types(&self) -> (GenesisControllerType, GenesisControllerType) {
-        (self.p1_controller_type, self.p2_controller_type)
     }
 
     #[must_use]
     pub fn read_p1_data(&self) -> u8 {
-        if self.p1_controller_type == GenesisControllerType::None {
-            return DATA_NO_CONTROLLER;
-        }
-
-        self.p1_pin_directions.to_data_byte(self.inputs.p1)
+        self.p1_pins.pins
     }
 
     #[must_use]
     pub fn read_p2_data(&self) -> u8 {
-        if self.p2_controller_type == GenesisControllerType::None {
-            return DATA_NO_CONTROLLER;
-        }
-
-        self.p2_pin_directions.to_data_byte(self.inputs.p2)
+        self.p2_pins.pins
     }
 
     pub fn write_p1_data(&mut self, value: u8) {
-        self.p1_pin_directions.write_data(value, self.p1_controller_type);
+        self.p1_pins.output(value, &mut self.p1_state);
     }
 
     pub fn write_p2_data(&mut self, value: u8) {
-        self.p2_pin_directions.write_data(value, self.p2_controller_type);
+        self.p2_pins.output(value, &mut self.p2_state);
     }
 
     #[must_use]
     pub fn read_p1_ctrl(&self) -> u8 {
-        self.p1_pin_directions.to_ctrl_byte()
+        self.p1_pins.read_ctrl()
     }
 
     #[must_use]
     pub fn read_p2_ctrl(&self) -> u8 {
-        self.p2_pin_directions.to_ctrl_byte()
+        self.p2_pins.read_ctrl()
     }
 
     pub fn write_p1_ctrl(&mut self, value: u8) {
-        self.p1_pin_directions.write_ctrl(value, self.p1_controller_type);
+        self.p1_pins.write_ctrl(value, &mut self.p1_state);
     }
 
     pub fn write_p2_ctrl(&mut self, value: u8) {
-        self.p2_pin_directions.write_ctrl(value, self.p2_controller_type);
+        self.p2_pins.write_ctrl(value, &mut self.p2_state);
     }
 
     pub fn tick(&mut self, m68k_cycles: u32) {
-        self.p1_pin_directions.tick(m68k_cycles);
-        self.p2_pin_directions.tick(m68k_cycles);
+        self.p1_state.tick(m68k_cycles, &mut self.p1_pins);
+        self.p1_pins.tick(m68k_cycles, &mut self.p1_state);
+
+        self.p2_state.tick(m68k_cycles, &mut self.p2_pins);
+        self.p2_pins.tick(m68k_cycles, &mut self.p2_state);
+    }
+}
+
+impl Default for InputState {
+    fn default() -> Self {
+        Self::new()
     }
 }

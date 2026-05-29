@@ -2,8 +2,8 @@ use crate::js;
 use gba_config::{GbaAspectRatio, GbaAudioInterpolation, GbaButton, GbaColorCorrection, GbaInputs};
 use gba_core::api::{GbaAudioConfig, GbaEmulatorConfig};
 use genesis_config::{
-    GenesisAspectRatio, GenesisButton, GenesisControllerType, GenesisInputs, Opn2BusyBehavior,
-    PcmInterpolation, S32XColorTint, S32XPwmResampling, S32XVideoOut, S32XVoidColor,
+    GenesisAspectRatio, GenesisButton, GenesisInputs, Opn2BusyBehavior, PcmInterpolation,
+    S32XColorTint, S32XPwmResampling, S32XVideoOut, S32XVoidColor,
 };
 use genesis_core::GenesisEmulatorConfig;
 use jgenesis_common::frontend::{ColorCorrection, FiniteF32, MappableInputs, TimingMode};
@@ -145,8 +145,6 @@ impl Default for GenesisWebConfig {
 impl GenesisWebConfig {
     pub fn to_emulator_config(&self) -> GenesisEmulatorConfig {
         GenesisEmulatorConfig {
-            p1_controller_type: GenesisControllerType::default(),
-            p2_controller_type: GenesisControllerType::default(),
             forced_timing_mode: None,
             forced_region: None,
             aspect_ratio: self.aspect_ratio,

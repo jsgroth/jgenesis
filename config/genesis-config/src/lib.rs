@@ -2,7 +2,8 @@ pub mod cheats;
 
 use bincode::{Decode, Encode};
 use jgenesis_common::define_controller_inputs;
-use jgenesis_common::frontend::{FiniteF64, FrameSize, TimingMode};
+use jgenesis_common::frontend::{FiniteF64, FrameSize, MappableInputs, TimingMode};
+use jgenesis_common::input::Player;
 use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 use std::fmt::{Display, Formatter};
 
@@ -258,10 +259,59 @@ define_controller_inputs! {
         Mode -> mode "Mode",
     },
     joypad: GenesisJoypadState,
-    inputs: GenesisInputs {
-        players: {
-            p1: Player::One,
-            p2: Player::Two,
-        },
-    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+pub enum GenesisController {
+    ThreeButton(GenesisJoypadState),
+    SixButton(GenesisJoypadState),
+    None,
+}
+
+impl GenesisController {
+    #[must_use]
+    pub fn new(controller_type: GenesisControllerType) -> Self {
+        match controller_type {
+            GenesisControllerType::ThreeButton => Self::ThreeButton(GenesisJoypadState::default()),
+            GenesisControllerType::SixButton => Self::SixButton(GenesisJoypadState::default()),
+            GenesisControllerType::None => Self::None,
+        }
+    }
+
+    pub fn set_field(&mut self, button: GenesisButton, pressed: bool) {
+        match self {
+            Self::ThreeButton(state) | Self::SixButton(state) => state.set_button(button, pressed),
+            Self::None => {}
+        }
+    }
+
+    #[must_use]
+    pub fn controller_type(self) -> GenesisControllerType {
+        match self {
+            Self::ThreeButton(_) => GenesisControllerType::ThreeButton,
+            Self::SixButton(_) => GenesisControllerType::SixButton,
+            Self::None => GenesisControllerType::None,
+        }
+    }
+}
+
+impl Default for GenesisController {
+    fn default() -> Self {
+        Self::new(GenesisControllerType::SixButton)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+pub struct GenesisInputs {
+    pub p1: GenesisController,
+    pub p2: GenesisController,
+}
+
+impl MappableInputs<GenesisButton> for GenesisInputs {
+    fn set_field(&mut self, button: GenesisButton, player: Player, pressed: bool) {
+        match player {
+            Player::One => self.p1.set_field(button, pressed),
+            Player::Two => self.p2.set_field(button, pressed),
+        }
+    }
 }

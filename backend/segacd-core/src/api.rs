@@ -228,10 +228,7 @@ impl SegaCdEmulator {
         let ym2612 = Ym2612::new_from_config(&emulator_config.genesis);
         let psg = Sn76489::new(Sn76489Version::Standard);
         let pcm = Rf5c164::new(&emulator_config);
-        let input = InputState::new(
-            emulator_config.genesis.p1_controller_type,
-            emulator_config.genesis.p2_controller_type,
-        );
+        let input = InputState::new();
 
         let audio_resampler = AudioResampler::new(timing_mode, &emulator_config);
         let mut emulator = Self {
@@ -574,7 +571,6 @@ impl EmulatorTrait for SegaCdEmulator {
         self.ym2612.reload_config(&config.genesis);
         self.memory.reload_config(&config.genesis);
         self.pcm.reload_config(config);
-        self.input.reload_config(&config.genesis);
         self.audio_resampler.reload_config(self.timing_mode, config);
         self.cycles.update_m68k_divider(config.genesis.clamped_m68k_divider());
         self.sub_cpu_divider = config.sub_cpu_divider.get();

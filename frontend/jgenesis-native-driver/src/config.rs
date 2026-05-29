@@ -398,8 +398,6 @@ impl AppConfigExt for AppConfig {
             common: self.common_config(path),
             inputs: self.input.genesis.clone(),
             emulator_config: GenesisEmulatorConfig {
-                p1_controller_type: self.input.genesis.p1_type,
-                p2_controller_type: self.input.genesis.p2_type,
                 forced_timing_mode: self.genesis.forced_timing_mode,
                 forced_region: self.genesis.forced_region,
                 aspect_ratio: self.genesis.aspect_ratio,

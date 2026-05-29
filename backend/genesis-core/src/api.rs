@@ -14,8 +14,7 @@ use crate::ym2612::Ym2612;
 use crate::{audio, timing, vdp};
 use bincode::{Decode, Encode};
 use genesis_config::{
-    GenParParams, GenesisAspectRatio, GenesisButton, GenesisControllerType, GenesisInputs,
-    GenesisRegion, Opn2BusyBehavior,
+    GenParParams, GenesisAspectRatio, GenesisButton, GenesisInputs, GenesisRegion, Opn2BusyBehavior,
 };
 use jgenesis_common::frontend::{
     AudioOutput, EmulatorConfigTrait, EmulatorTrait, InputPoller, PartialClone, RenderFrameOptions,
@@ -45,8 +44,6 @@ pub type GenesisResult<RErr, AErr, SErr> = Result<TickEffect, GenesisError<RErr,
 
 #[derive(Debug, Clone, Encode, Decode, ConfigDisplay)]
 pub struct GenesisEmulatorConfig {
-    pub p1_controller_type: GenesisControllerType,
-    pub p2_controller_type: GenesisControllerType,
     pub forced_timing_mode: Option<TimingMode>,
     pub forced_region: Option<GenesisRegion>,
     pub aspect_ratio: GenesisAspectRatio,
@@ -84,8 +81,6 @@ pub struct GenesisEmulatorConfig {
 impl Default for GenesisEmulatorConfig {
     fn default() -> Self {
         Self {
-            p1_controller_type: GenesisControllerType::default(),
-            p2_controller_type: GenesisControllerType::default(),
             forced_timing_mode: None,
             forced_region: None,
             aspect_ratio: GenesisAspectRatio::default(),
@@ -230,7 +225,7 @@ impl GenesisEmulator {
         let vdp = Vdp::new(timing_mode, config.to_vdp_config(DarkenColors::No));
         let psg = Sn76489::new(Sn76489Version::Standard);
         let ym2612 = Ym2612::new_from_config(&config);
-        let input = InputState::new(config.p1_controller_type, config.p2_controller_type);
+        let input = InputState::new();
 
         // The Genesis does not allow TAS to lock the bus, so don't allow TAS writes
         let m68k = M68000::builder().allow_tas_writes(false).build();
@@ -491,7 +486,6 @@ impl EmulatorTrait for GenesisEmulator {
         self.ym2612.reload_config(config);
         self.memory.reload_config(config);
         self.memory.medium_mut().reload_config(config);
-        self.input.reload_config(config);
         self.audio_resampler.reload_config(self.timing_mode, config);
         self.cycles.update_m68k_divider(config.clamped_m68k_divider());
 
