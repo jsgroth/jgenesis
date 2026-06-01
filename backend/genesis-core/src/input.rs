@@ -1,11 +1,9 @@
 //! Code for handling Genesis controller input I/O registers
 
 use bincode::{Decode, Encode};
-use genesis_config::{GenesisController, GenesisInputs, GenesisJoypadState};
+use genesis_config::{GenesisController, GenesisInputs, GenesisJoypadState, Xe1apJoypadState};
 use jgenesis_common::num::GetBit;
-
-// Produces roughly the expected timeout value in Joystick Test Program (PD)
-const FLIP_COUNTER_CYCLES: u32 = 12150;
+use std::cmp;
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 struct Pins {
@@ -80,6 +78,11 @@ impl Pins {
     impl_set_input_pin!(input_d1, D1);
     impl_set_input_pin!(input_d0, D0);
 
+    fn input_data_nibble(&mut self, pins: u8) {
+        let low_nibble = (self.pins & self.directions) | (pins & !self.directions);
+        self.pins = (self.pins & !0x0F) | (low_nibble & 0x0F);
+    }
+
     fn output(&mut self, pins: u8, state: &mut ControllerState) {
         self.pins = (self.pins & !self.directions) | (pins & self.directions);
         state.update_pins(self);
@@ -138,6 +141,9 @@ struct SixButtonState {
 }
 
 impl SixButtonState {
+    // Produces roughly the expected timeout value in Joystick Test Program (PD), about 1.58ms
+    const FLIP_COUNTER_CYCLES: u32 = 12150;
+
     fn new(joypad: GenesisJoypadState) -> Self {
         Self { joypad, th_flip_count: 0, flip_reset_counter: 0, last_th: true }
     }
@@ -148,15 +154,22 @@ impl SixButtonState {
         let th = pins.th();
         if !self.last_th && th {
             self.th_flip_count = (self.th_flip_count + 1) % 5;
-            self.flip_reset_counter = FLIP_COUNTER_CYCLES;
+            self.flip_reset_counter = Self::FLIP_COUNTER_CYCLES;
         }
         self.last_th = th;
+
+        // TR and TL are always set the same way as 3-button
+        if th {
+            pins.input_tr(!self.joypad.c);
+            pins.input_tl(!self.joypad.b);
+        } else {
+            pins.input_tr(!self.joypad.start);
+            pins.input_tl(!self.joypad.a);
+        }
 
         match (self.th_flip_count, th) {
             (0..=2 | 4, true) => {
                 // 3-button: B, C, and directional inputs
-                pins.input_tr(!self.joypad.c);
-                pins.input_tl(!self.joypad.b);
                 pins.input_d3(!self.joypad.right);
                 pins.input_d2(!self.joypad.left);
                 pins.input_d1(!self.joypad.down);
@@ -164,8 +177,6 @@ impl SixButtonState {
             }
             (0 | 1 | 4, false) => {
                 // 3-button: A and Start (and up/down)
-                pins.input_tr(!self.joypad.start);
-                pins.input_tl(!self.joypad.a);
                 pins.input_d3(false);
                 pins.input_d2(false);
                 pins.input_d1(!self.joypad.down);
@@ -173,18 +184,10 @@ impl SixButtonState {
             }
             (2, false) => {
                 // 6-button: A, Start, and all 0s in the lower bits
-                // Used by games for 6-button controller detection
-                pins.input_tr(!self.joypad.start);
-                pins.input_tl(!self.joypad.a);
-                pins.input_d3(false);
-                pins.input_d2(false);
-                pins.input_d1(false);
-                pins.input_d0(false);
+                pins.input_data_nibble(0b0000);
             }
             (3, true) => {
                 // 6-button: New buttons (and B and C)
-                pins.input_tr(!self.joypad.c);
-                pins.input_tl(!self.joypad.b);
                 pins.input_d3(!self.joypad.mode);
                 pins.input_d2(!self.joypad.x);
                 pins.input_d1(!self.joypad.y);
@@ -192,12 +195,7 @@ impl SixButtonState {
             }
             (3, false) => {
                 // 6-button: A, Start, and all 1s in the lower bits
-                pins.input_tr(!self.joypad.start);
-                pins.input_tl(!self.joypad.a);
-                pins.input_d3(true);
-                pins.input_d2(true);
-                pins.input_d1(true);
-                pins.input_d0(true);
+                pins.input_data_nibble(0b1111);
             }
             _ => panic!("th_flip_count should always be <= 4, was {}", self.th_flip_count),
         }
@@ -216,31 +214,198 @@ impl SixButtonState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+enum Xe1apTransferState {
+    Idle,
+    Active,
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+struct Xe1apState {
+    joypad: Xe1apJoypadState,
+    transfer_state: Xe1apTransferState,
+    transfer_counter: u8,
+    transfer_clock: bool,
+    transfer_cycles_remaining: u32,
+    last_th: bool,
+}
+
+impl Xe1apState {
+    // These numbers are complete guesses based on what games can tolerate
+    const TRANSFER_CYCLES: u32 = 70;
+    const START_DELAY_CYCLES: u32 = 70;
+
+    fn new(joypad: Xe1apJoypadState) -> Self {
+        Self {
+            joypad,
+            transfer_state: Xe1apTransferState::Idle,
+            transfer_counter: 0,
+            transfer_clock: false,
+            transfer_cycles_remaining: Self::TRANSFER_CYCLES,
+            last_th: true,
+        }
+    }
+
+    fn update_pins(&mut self, pins: &mut Pins) {
+        let th = pins.th();
+        if self.last_th && !th {
+            // TH 1->0 transition begins a new transfer
+            self.transfer_state = Xe1apTransferState::Active;
+            self.transfer_counter = 0;
+            self.transfer_clock = true;
+            self.transfer_cycles_remaining = Self::TRANSFER_CYCLES + Self::START_DELAY_CYCLES;
+
+            pins.input_data_nibble(0b1111);
+        }
+        self.last_th = th;
+
+        pins.input_tl(self.transfer_counter.bit(0));
+        pins.input_tr(self.transfer_clock);
+
+        // Only update D3-D0 pins when TR=0
+        if !self.transfer_clock {
+            self.update_data_pins(pins);
+        }
+
+        log::debug!(
+            "XE-1AP pins update: data={:04b}, TL={}, TR={}, counter={}",
+            pins.pins & 0x0F,
+            u8::from(pins.pins.bit(Pins::TL)),
+            u8::from(pins.pins.bit(Pins::TR)),
+            self.transfer_counter
+        );
+    }
+
+    #[allow(clippy::match_same_arms)]
+    fn update_data_pins(&self, pins: &mut Pins) {
+        match self.transfer_counter {
+            0 => {
+                // E1, E2, Start, Select
+                pins.input_d3(!self.joypad.e1);
+                pins.input_d2(!self.joypad.e2);
+                pins.input_d1(!self.joypad.start);
+                pins.input_d0(!self.joypad.select);
+            }
+            1 => {
+                // A|A', B|B', C, D
+                pins.input_d3(!(self.joypad.a || self.joypad.ap));
+                pins.input_d2(!(self.joypad.b || self.joypad.bp));
+                pins.input_d1(!self.joypad.c);
+                pins.input_d0(!self.joypad.d);
+            }
+            2 => {
+                // Analog stick X, high nibble
+                pins.input_data_nibble(self.joypad.analog_x >> 4);
+            }
+            3 => {
+                // Analog stick Y, high nibble
+                pins.input_data_nibble(self.joypad.analog_y >> 4);
+            }
+            4 => {
+                // Always 0s
+                pins.input_data_nibble(0b0000);
+            }
+            5 => {
+                // Analog slider, high nibble
+                pins.input_data_nibble(self.joypad.slider >> 4);
+            }
+            6 => {
+                // Analog stick X, low nibble
+                pins.input_data_nibble(self.joypad.analog_x & 0x0F);
+            }
+            7 => {
+                // Analog stick Y, low nibble
+                pins.input_data_nibble(self.joypad.analog_y & 0x0F);
+            }
+            8 => {
+                // Always 0s
+                pins.input_data_nibble(0b0000);
+            }
+            9 => {
+                // Analog slider, low nibble
+                pins.input_data_nibble(self.joypad.slider & 0x0F);
+            }
+            10 => {
+                // Always 1s
+                pins.input_data_nibble(0b1111);
+            }
+            11 => {
+                // A, B, A', B'
+                pins.input_d3(!self.joypad.a);
+                pins.input_d2(!self.joypad.b);
+                pins.input_d1(!self.joypad.ap);
+                pins.input_d0(!self.joypad.bp);
+            }
+            _ => panic!(
+                "XE-1AP transfer counter should always be <= 11, was {}",
+                self.transfer_counter
+            ),
+        }
+    }
+
+    fn tick(&mut self, mut m68k_cycles: u32, pins: &mut Pins) {
+        if self.transfer_state == Xe1apTransferState::Idle {
+            return;
+        }
+
+        while m68k_cycles != 0 {
+            match self.transfer_state {
+                Xe1apTransferState::Idle => return,
+                Xe1apTransferState::Active => {
+                    let elapsed = cmp::min(m68k_cycles, self.transfer_cycles_remaining);
+                    m68k_cycles -= elapsed;
+                    self.transfer_cycles_remaining -= elapsed;
+                    if self.transfer_cycles_remaining != 0 {
+                        return;
+                    }
+
+                    self.transfer_cycles_remaining = Self::TRANSFER_CYCLES;
+
+                    self.transfer_clock = !self.transfer_clock;
+                    if self.transfer_clock {
+                        if self.transfer_counter < 11 {
+                            self.transfer_counter += 1;
+                        } else {
+                            // Transfer has ended
+                            self.transfer_state = Xe1apTransferState::Idle;
+                            self.transfer_clock = false;
+                            // TODO should D3-D0 get pulled high here?
+                        }
+                    }
+
+                    self.update_pins(pins);
+                }
+            }
+        }
+    }
+}
+
 fn update_pins_no_controller(pins: &mut Pins) {
     // All 1s signals to games that nothing is connected to the controller port
     pins.input_th(true);
     pins.input_tr(true);
     pins.input_tl(true);
-    pins.input_d3(true);
-    pins.input_d2(true);
-    pins.input_d1(true);
-    pins.input_d0(true);
+    pins.input_data_nibble(0b1111);
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
 enum ControllerState {
     ThreeButton(ThreeButtonState),
     SixButton(SixButtonState),
+    Xe1ap(Xe1apState),
     None,
 }
 
 impl ControllerState {
     fn new(controller: GenesisController) -> Self {
+        log::debug!("Creating new controller state for type {:?}", controller.controller_type());
+
         match controller {
             GenesisController::ThreeButton(joypad) => {
                 Self::ThreeButton(ThreeButtonState::new(joypad))
             }
             GenesisController::SixButton(joypad) => Self::SixButton(SixButtonState::new(joypad)),
+            GenesisController::Xe1ap(joypad) => Self::Xe1ap(Xe1apState::new(joypad)),
             GenesisController::None => Self::None,
         }
     }
@@ -251,6 +416,9 @@ impl ControllerState {
                 state.joypad = joypad;
             }
             (Self::SixButton(state), GenesisController::SixButton(joypad)) => {
+                state.joypad = joypad;
+            }
+            (Self::Xe1ap(state), GenesisController::Xe1ap(joypad)) => {
                 state.joypad = joypad;
             }
             (Self::None, GenesisController::None) => {}
@@ -265,13 +433,16 @@ impl ControllerState {
         match self {
             Self::ThreeButton(state) => state.update_pins(pins),
             Self::SixButton(state) => state.update_pins(pins),
+            Self::Xe1ap(state) => state.update_pins(pins),
             Self::None => update_pins_no_controller(pins),
         }
     }
 
     fn tick(&mut self, m68k_cycles: u32, pins: &mut Pins) {
-        if let Self::SixButton(state) = self {
-            state.tick(m68k_cycles, pins);
+        match self {
+            Self::SixButton(state) => state.tick(m68k_cycles, pins),
+            Self::Xe1ap(state) => state.tick(m68k_cycles, pins),
+            Self::ThreeButton(_) | Self::None => {}
         }
     }
 }
@@ -315,19 +486,23 @@ impl InputState {
 
     #[must_use]
     pub fn read_p1_data(&self) -> u8 {
+        log::debug!("P1 DATA read");
         self.p1_pins.pins
     }
 
     #[must_use]
     pub fn read_p2_data(&self) -> u8 {
+        log::debug!("P2 DATA read");
         self.p2_pins.pins
     }
 
     pub fn write_p1_data(&mut self, value: u8) {
+        log::debug!("P1 DATA write: {value:02X}");
         self.p1_pins.output(value, &mut self.p1_state);
     }
 
     pub fn write_p2_data(&mut self, value: u8) {
+        log::debug!("P2 DATA write: {value:02X}");
         self.p2_pins.output(value, &mut self.p2_state);
     }
 
@@ -342,10 +517,12 @@ impl InputState {
     }
 
     pub fn write_p1_ctrl(&mut self, value: u8) {
+        log::debug!("P1 CTRL write: {value:02X}");
         self.p1_pins.write_ctrl(value, &mut self.p1_state);
     }
 
     pub fn write_p2_ctrl(&mut self, value: u8) {
+        log::debug!("P2 CTRL write: {value:02X}");
         self.p2_pins.write_ctrl(value, &mut self.p2_state);
     }
 

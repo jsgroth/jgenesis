@@ -68,6 +68,7 @@ pub enum GenericButton<Button> {
 #[derive(Debug, Clone, Copy)]
 pub enum InputEvent<Button> {
     Button { button: Button, player: Player, pressed: bool },
+    AnalogValueChange { button: Button, player: Player, value: i16 },
     MouseMotion { x: f32, y: f32, display_info: DisplayInfo },
     MouseLeave,
     Hotkey { hotkey: Hotkey, pressed: bool },
@@ -527,23 +528,24 @@ where
     }
 
     fn handle_axis_input(&mut self, gamepad_idx: u32, axis_idx: u8, value: i16) {
-        let pressed = value.saturating_abs() > self.axis_deadzone;
+        let magnitude = value.saturating_abs();
+        let pressed = magnitude > self.axis_deadzone;
+        let pressed_direction = AxisDirection::from_value(value);
 
         if pressed {
-            let direction = AxisDirection::from_value(value);
             self.state.handle_input(
                 GenericInput::Gamepad {
                     gamepad_idx,
-                    action: GamepadAction::Axis(axis_idx, direction),
+                    action: GamepadAction::Axis(axis_idx, pressed_direction.inverse()),
                 },
-                true,
+                false,
             );
             self.state.handle_input(
                 GenericInput::Gamepad {
                     gamepad_idx,
-                    action: GamepadAction::Axis(axis_idx, direction.inverse()),
+                    action: GamepadAction::Axis(axis_idx, pressed_direction),
                 },
-                false,
+                true,
             );
         } else {
             for direction in [AxisDirection::Positive, AxisDirection::Negative] {
@@ -554,6 +556,37 @@ where
                     },
                     false,
                 );
+            }
+        }
+
+        // When a gamepad axis input is mapped to an emulated analog input, ensure that the emulator
+        // receives analog values instead of digital pressed vs. not pressed by pushing the analog
+        // value change events _after_ checking for a digital pressed change. This way the emulator's
+        // input mapping code will always see the analog change events last without needing to
+        // special case digital vs. analog inputs.
+        //
+        // For a similar reason, push an event for the inverse axis direction first in case both
+        // gamepad axis directions are mapped to the same emulated analog axis.
+        // TODO deadzone
+        for direction in [pressed_direction.inverse(), pressed_direction] {
+            let canonical_input = CanonicalInput::canonicalize(GenericInput::Gamepad {
+                gamepad_idx,
+                action: GamepadAction::Axis(axis_idx, direction),
+            });
+            let Some(buttons) = self.state.inputs_to_buttons.get(&canonical_input) else {
+                continue;
+            };
+
+            let direction_magnitude = if direction == pressed_direction { magnitude } else { 0 };
+
+            for &button in buttons {
+                let GenericButton::Button(button, player) = button else { continue };
+
+                self.state.input_events.borrow_mut().push(InputEvent::AnalogValueChange {
+                    button,
+                    player,
+                    value: direction_magnitude,
+                });
             }
         }
     }

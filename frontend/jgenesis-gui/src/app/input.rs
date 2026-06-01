@@ -170,7 +170,15 @@ impl GenericButton {
                 | GenesisButton::C
                 | GenesisButton::X
                 | GenesisButton::Y
-                | GenesisButton::Z),
+                | GenesisButton::Z
+                | GenesisButton::Xe1apA
+                | GenesisButton::Xe1apB
+                | GenesisButton::Xe1apC
+                | GenesisButton::Xe1apD
+                | GenesisButton::Xe1apE1
+                | GenesisButton::Xe1apE2
+                | GenesisButton::Xe1apAp
+                | GenesisButton::Xe1apBp),
                 player,
             ) => access_genesis_value(mapping, button, player, true, config),
             Self::Nes(button @ (NesButton::A | NesButton::B), player) => {
@@ -420,18 +428,26 @@ impl App {
     }
 
     pub(super) fn render_genesis_input_settings(&mut self, ctx: &Context) {
-        static P1_BUTTONS: LazyLock<Vec<GenericButton>> = LazyLock::new(|| {
+        fn genesis_buttons(
+            player: Player,
+            filter: impl Fn(GenesisButton) -> bool,
+        ) -> Vec<GenericButton> {
             GenesisButton::ALL
                 .into_iter()
-                .map(|button| GenericButton::Genesis(button, Player::One))
+                .filter_map(|button| {
+                    filter(button).then_some(GenericButton::Genesis(button, player))
+                })
                 .collect()
-        });
-        static P2_BUTTONS: LazyLock<Vec<GenericButton>> = LazyLock::new(|| {
-            GenesisButton::ALL
-                .into_iter()
-                .map(|button| GenericButton::Genesis(button, Player::Two))
-                .collect()
-        });
+        }
+
+        static P1_GAMEPAD: LazyLock<Vec<GenericButton>> =
+            LazyLock::new(|| genesis_buttons(Player::One, GenesisButton::is_gamepad));
+        static P2_GAMEPAD: LazyLock<Vec<GenericButton>> =
+            LazyLock::new(|| genesis_buttons(Player::Two, GenesisButton::is_gamepad));
+        static P1_XE1AP: LazyLock<Vec<GenericButton>> =
+            LazyLock::new(|| genesis_buttons(Player::One, GenesisButton::is_xe1ap));
+        static P2_XE1AP: LazyLock<Vec<GenericButton>> =
+            LazyLock::new(|| genesis_buttons(Player::Two, GenesisButton::is_xe1ap));
 
         let mut open = true;
         Window::new(OpenWindow::GenesisInput.title()).open(&mut open).show(ctx, |ui| {
@@ -440,13 +456,54 @@ impl App {
             let mapping = self.render_mapping_set_selector(OpenWindow::GenesisInput, ui);
             ui.separator();
 
+            ui.horizontal(|ui| {
+                for player in [Player::One, Player::Two] {
+                    ui.vertical(|ui| {
+                        ui.group(|ui| {
+                            let label = match player {
+                                Player::One => "Player 1 controller type",
+                                Player::Two => "Player 2 controller type",
+                            };
+                            ui.label(label);
+
+                            let controller_type_field = match player {
+                                Player::One => &mut self.config.input.genesis.p1_type,
+                                Player::Two => &mut self.config.input.genesis.p2_type,
+                            };
+
+                            ui.horizontal(|ui| {
+                                for (value, label) in [
+                                    (GenesisControllerType::ThreeButton, "3-button"),
+                                    (GenesisControllerType::SixButton, "6-button"),
+                                    (GenesisControllerType::Xe1ap, "XE-1 AP"),
+                                    (GenesisControllerType::None, "None"),
+                                ] {
+                                    ui.radio_value(controller_type_field, value, label);
+                                }
+                            });
+                        });
+                    });
+                }
+            });
+
+            ui.separator();
+
             Grid::new("genesis_inputs").spacing([50.0, 5.0]).show(ui, |ui| {
-                ui.heading("Player 1");
-                ui.heading("Player 2");
+                let (p1_heading, p1_buttons) = match self.config.input.genesis.p1_type {
+                    GenesisControllerType::Xe1ap => ("Player 1 - XE-1 AP", &P1_XE1AP),
+                    _ => ("Player 1 - Gamepad", &P1_GAMEPAD),
+                };
+                let (p2_heading, p2_buttons) = match self.config.input.genesis.p2_type {
+                    GenesisControllerType::Xe1ap => ("Player 2 - XE-1 AP", &P2_XE1AP),
+                    _ => ("Player 2 - Gamepad", &P2_GAMEPAD),
+                };
+
+                ui.heading(p1_heading);
+                ui.heading(p2_heading);
                 ui.end_row();
 
-                self.render_input_buttons("genesis_p1_input_settings", mapping, &P1_BUTTONS, ui);
-                self.render_input_buttons("genesis_p2_input_settings", mapping, &P2_BUTTONS, ui);
+                self.render_input_buttons("genesis_p1_input_settings", mapping, p1_buttons, ui);
+                self.render_input_buttons("genesis_p2_input_settings", mapping, p2_buttons, ui);
                 ui.end_row();
             });
 
@@ -479,37 +536,6 @@ impl App {
                     mapping_config.p2_turbo = GenesisControllerMapping::default();
                 }
             });
-
-            ui.separator();
-
-            for player in [Player::One, Player::Two] {
-                ui.group(|ui| {
-                    let label = match player {
-                        Player::One => "Player 1 controller type",
-                        Player::Two => "Player 2 controller type",
-                    };
-                    ui.label(label);
-
-                    let controller_type_field = match player {
-                        Player::One => &mut self.config.input.genesis.p1_type,
-                        Player::Two => &mut self.config.input.genesis.p2_type,
-                    };
-
-                    ui.horizontal(|ui| {
-                        ui.radio_value(
-                            controller_type_field,
-                            GenesisControllerType::ThreeButton,
-                            "3-button",
-                        );
-                        ui.radio_value(
-                            controller_type_field,
-                            GenesisControllerType::SixButton,
-                            "6-button",
-                        );
-                        ui.radio_value(controller_type_field, GenesisControllerType::None, "None");
-                    });
-                });
-            }
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GenesisInput);

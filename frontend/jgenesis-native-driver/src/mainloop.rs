@@ -687,6 +687,9 @@ where
                         self.renderer.add_or_update_modal(modal.id, modal.text, MODAL_DURATION);
                     }
                 }
+                InputEvent::AnalogValueChange { button, player, value } => {
+                    self.inputs.set_analog(button, player, value);
+                }
                 InputEvent::MouseMotion { x, y, display_info } => {
                     self.inputs.handle_mouse_motion(x, y, display_info);
                 }

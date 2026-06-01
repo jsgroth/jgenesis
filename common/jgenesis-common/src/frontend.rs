@@ -289,6 +289,10 @@ pub struct InputModal {
 pub trait MappableInputs<Button> {
     fn set_field(&mut self, button: Button, player: Player, pressed: bool);
 
+    // Value is always non-negative (0-32767)
+    #[allow(unused_variables)]
+    fn set_analog(&mut self, button: Button, player: Player, value: i16) {}
+
     #[allow(unused_variables)]
     fn handle_mouse_motion(&mut self, x: f32, y: f32, display_info: DisplayInfo) {}
 

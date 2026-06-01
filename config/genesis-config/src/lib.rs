@@ -165,6 +165,7 @@ pub enum GenesisControllerType {
     ThreeButton,
     #[default]
     SixButton,
+    Xe1ap,
     None,
 }
 
@@ -243,6 +244,7 @@ pub enum S32XPwmResampling {
     WindowedSinc,
 }
 
+// TODO this is a little awful...
 define_controller_inputs! {
     buttons: GenesisButton {
         Up -> up "Up",
@@ -258,13 +260,186 @@ define_controller_inputs! {
         Start -> start "Start",
         Mode -> mode "Mode",
     },
+    non_gamepad_buttons: [
+        Xe1apAnalogLeft "Stick - Left",
+        Xe1apAnalogRight "Stick - Right",
+        Xe1apAnalogUp "Stick - Up",
+        Xe1apAnalogDown "Stick - Down",
+        Xe1apSliderForward "Slider - Forward",
+        Xe1apSliderBackward "Slider - Backward",
+        Xe1apA "A",
+        Xe1apB "B",
+        Xe1apC "C",
+        Xe1apD "D",
+        Xe1apE1 "E1",
+        Xe1apE2 "E2",
+        Xe1apAp "A'",
+        Xe1apBp "B'",
+        Xe1apStart "Start",
+        Xe1apSelect "Select",
+    ],
     joypad: GenesisJoypadState,
+}
+
+impl GenesisButton {
+    #[must_use]
+    pub fn is_gamepad(self) -> bool {
+        matches!(
+            self,
+            Self::Up
+                | Self::Left
+                | Self::Right
+                | Self::Down
+                | Self::A
+                | Self::B
+                | Self::C
+                | Self::X
+                | Self::Y
+                | Self::Z
+                | Self::Start
+                | Self::Mode
+        )
+    }
+
+    #[must_use]
+    pub fn is_xe1ap(self) -> bool {
+        matches!(
+            self,
+            Self::Xe1apAnalogLeft
+                | Self::Xe1apAnalogRight
+                | Self::Xe1apAnalogUp
+                | Self::Xe1apAnalogDown
+                | Self::Xe1apSliderForward
+                | Self::Xe1apSliderBackward
+                | Self::Xe1apA
+                | Self::Xe1apB
+                | Self::Xe1apC
+                | Self::Xe1apD
+                | Self::Xe1apE1
+                | Self::Xe1apE2
+                | Self::Xe1apAp
+                | Self::Xe1apBp
+                | Self::Xe1apStart
+                | Self::Xe1apSelect
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+pub struct Xe1apJoypadState {
+    pub analog_x: u8,
+    pub analog_y: u8,
+    pub slider: u8,
+    pub a: bool,
+    pub b: bool,
+    pub c: bool,
+    pub d: bool,
+    pub e1: bool,
+    pub e2: bool,
+    pub ap: bool,
+    pub bp: bool,
+    pub start: bool,
+    pub select: bool,
+}
+
+impl Default for Xe1apJoypadState {
+    fn default() -> Self {
+        Self {
+            analog_x: xe1ap_analog_positive(0),
+            analog_y: xe1ap_analog_positive(0),
+            slider: xe1ap_analog_positive(0),
+            a: false,
+            b: false,
+            c: false,
+            d: false,
+            e1: false,
+            e2: false,
+            ap: false,
+            bp: false,
+            start: false,
+            select: false,
+        }
+    }
+}
+
+impl Xe1apJoypadState {
+    pub fn set_button(&mut self, button: GenesisButton, pressed: bool) {
+        match button {
+            GenesisButton::Xe1apAnalogLeft => {
+                self.analog_x = xe1ap_analog_negative(if pressed { i16::MAX } else { 0 });
+            }
+            GenesisButton::Xe1apAnalogRight => {
+                self.analog_x = xe1ap_analog_positive(if pressed { i16::MAX } else { 0 });
+            }
+            GenesisButton::Xe1apAnalogUp => {
+                self.analog_y = xe1ap_analog_negative(if pressed { i16::MAX } else { 0 });
+            }
+            GenesisButton::Xe1apAnalogDown => {
+                self.analog_y = xe1ap_analog_positive(if pressed { i16::MAX } else { 0 });
+            }
+            GenesisButton::Xe1apSliderForward => {
+                self.slider = xe1ap_analog_positive(if pressed { i16::MAX } else { 0 });
+            }
+            GenesisButton::Xe1apSliderBackward => {
+                self.slider = xe1ap_analog_negative(if pressed { i16::MAX } else { 0 });
+            }
+            GenesisButton::Xe1apA => self.a = pressed,
+            GenesisButton::Xe1apB => self.b = pressed,
+            GenesisButton::Xe1apC => self.c = pressed,
+            GenesisButton::Xe1apD => self.d = pressed,
+            GenesisButton::Xe1apE1 => self.e1 = pressed,
+            GenesisButton::Xe1apE2 => self.e2 = pressed,
+            GenesisButton::Xe1apAp => self.ap = pressed,
+            GenesisButton::Xe1apBp => self.bp = pressed,
+            GenesisButton::Xe1apStart => self.start = pressed,
+            GenesisButton::Xe1apSelect => self.select = pressed,
+            _ => {}
+        }
+    }
+
+    pub fn set_analog(&mut self, button: GenesisButton, value: i16) {
+        match button {
+            GenesisButton::Xe1apAnalogLeft => {
+                self.analog_x = xe1ap_analog_negative(value);
+            }
+            GenesisButton::Xe1apAnalogRight => {
+                self.analog_x = xe1ap_analog_positive(value);
+            }
+            GenesisButton::Xe1apAnalogUp => {
+                self.analog_y = xe1ap_analog_negative(value);
+            }
+            GenesisButton::Xe1apAnalogDown => {
+                self.analog_y = xe1ap_analog_positive(value);
+            }
+            GenesisButton::Xe1apSliderForward => {
+                self.slider = xe1ap_analog_positive(value);
+            }
+            GenesisButton::Xe1apSliderBackward => {
+                self.slider = xe1ap_analog_negative(value);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn xe1ap_analog_negative(value: i16) -> u8 {
+    // Negative values map to 0-128
+
+    // Round towards negative infinity instead of 0
+    let shifted = (value >> 8) + i16::from(value & 0xFF != 0);
+    (128 - shifted) as u8
+}
+
+fn xe1ap_analog_positive(value: i16) -> u8 {
+    // Positive values map to 128-255
+    ((value >> 8) + 128) as u8
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum GenesisController {
     ThreeButton(GenesisJoypadState),
     SixButton(GenesisJoypadState),
+    Xe1ap(Xe1apJoypadState),
     None,
 }
 
@@ -274,6 +449,7 @@ impl GenesisController {
         match controller_type {
             GenesisControllerType::ThreeButton => Self::ThreeButton(GenesisJoypadState::default()),
             GenesisControllerType::SixButton => Self::SixButton(GenesisJoypadState::default()),
+            GenesisControllerType::Xe1ap => Self::Xe1ap(Xe1apJoypadState::default()),
             GenesisControllerType::None => Self::None,
         }
     }
@@ -281,7 +457,14 @@ impl GenesisController {
     pub fn set_field(&mut self, button: GenesisButton, pressed: bool) {
         match self {
             Self::ThreeButton(state) | Self::SixButton(state) => state.set_button(button, pressed),
+            Self::Xe1ap(state) => state.set_button(button, pressed),
             Self::None => {}
+        }
+    }
+
+    pub fn set_analog(&mut self, button: GenesisButton, value: i16) {
+        if let Self::Xe1ap(state) = self {
+            state.set_analog(button, value);
         }
     }
 
@@ -290,6 +473,7 @@ impl GenesisController {
         match self {
             Self::ThreeButton(_) => GenesisControllerType::ThreeButton,
             Self::SixButton(_) => GenesisControllerType::SixButton,
+            Self::Xe1ap(_) => GenesisControllerType::Xe1ap,
             Self::None => GenesisControllerType::None,
         }
     }
@@ -312,6 +496,13 @@ impl MappableInputs<GenesisButton> for GenesisInputs {
         match player {
             Player::One => self.p1.set_field(button, pressed),
             Player::Two => self.p2.set_field(button, pressed),
+        }
+    }
+
+    fn set_analog(&mut self, button: GenesisButton, player: Player, value: i16) {
+        match player {
+            Player::One => self.p1.set_analog(button, value),
+            Player::Two => self.p2.set_analog(button, value),
         }
     }
 }
