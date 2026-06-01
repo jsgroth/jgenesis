@@ -1156,8 +1156,6 @@ impl App {
         buttons: &[GenericButton],
         ui: &mut Ui,
     ) {
-        let axis_deadzone = self.config.input.axis_deadzone;
-
         Grid::new(id).show(ui, |ui| {
             for button in buttons {
                 ui.label(format!("{}:", button.label()));
@@ -1169,7 +1167,7 @@ impl App {
 
                 let current_value_str = format_input_str(current_value.as_ref());
                 if ui.button(current_value_str).clicked() {
-                    self.emu_thread.send(EmuThreadCommand::CollectInput { axis_deadzone });
+                    self.emu_thread.send(EmuThreadCommand::CollectInput);
                     self.state.waiting_for_input =
                         Some(WaitingForInput { button: *button, mapping, turbo: false });
                 }
@@ -1185,7 +1183,7 @@ impl App {
 
                     let turbo_value_str = format_input_str(turbo_value.as_ref());
                     if ui.button(turbo_value_str).clicked() {
-                        self.emu_thread.send(EmuThreadCommand::CollectInput { axis_deadzone });
+                        self.emu_thread.send(EmuThreadCommand::CollectInput);
                         self.state.waiting_for_input =
                             Some(WaitingForInput { button: *button, mapping, turbo: true });
                     }

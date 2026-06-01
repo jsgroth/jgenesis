@@ -34,7 +34,16 @@ impl InputWindow {
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))?;
 
         let (width, height) = window.size();
-        let surface_format = surface.get_capabilities(&adapter).formats[0];
+
+        // egui prefers non-sRGB-aware surface formats
+        let surface_capabilities = surface.get_capabilities(&adapter);
+        let surface_format = surface_capabilities
+            .formats
+            .iter()
+            .copied()
+            .find(|&format| !format.is_srgb())
+            .unwrap_or(surface_capabilities.formats[0]);
+
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
