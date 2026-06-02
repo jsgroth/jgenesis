@@ -811,7 +811,9 @@ fn collect_input(
                 {
                     return Some(inputs.consume());
                 }
-                Event::KeyUp { .. } | Event::JoyButtonUp { .. } | Event::MouseButtonUp { .. } => {
+                Event::KeyUp { keycode: Some(keycode), .. }
+                    if inputs.contains(GenericInput::Keyboard(keycode)) =>
+                {
                     return Some(inputs.consume());
                 }
                 Event::JoyDeviceAdded { which: joystick_id, .. } => {
@@ -832,12 +834,22 @@ fn collect_input(
                         );
                     }
                 }
-                Event::JoyButtonDown { which: instance_id, button_idx, .. } => {
-                    if let Some(gamepad_idx) = joysticks.map_to_device_id(instance_id)
+                Event::JoyButtonDown { which: joystick_id, button_idx, .. } => {
+                    if let Some(gamepad_idx) = joysticks.map_to_device_id(joystick_id)
                         && inputs.insert(GenericInput::Gamepad {
                             gamepad_idx,
                             action: GamepadAction::Button(button_idx),
                         }) == CollectionDone::Yes
+                    {
+                        return Some(inputs.consume());
+                    }
+                }
+                Event::JoyButtonUp { which: joystick_id, button_idx, .. } => {
+                    if let Some(gamepad_idx) = joysticks.map_to_device_id(joystick_id)
+                        && inputs.contains(GenericInput::Gamepad {
+                            gamepad_idx,
+                            action: GamepadAction::Button(button_idx),
+                        })
                     {
                         return Some(inputs.consume());
                     }
@@ -890,6 +902,11 @@ fn collect_input(
                 }
                 Event::MouseButtonDown { mouse_btn, .. }
                     if inputs.insert(GenericInput::Mouse(mouse_btn)) == CollectionDone::Yes =>
+                {
+                    return Some(inputs.consume());
+                }
+                Event::MouseButtonUp { mouse_btn, .. }
+                    if inputs.contains(GenericInput::Mouse(mouse_btn)) =>
                 {
                     return Some(inputs.consume());
                 }
