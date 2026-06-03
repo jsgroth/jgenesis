@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use smsgg_config::SmsGgButton;
 use snes_config::SnesButton;
 use std::fmt::Formatter;
+use std::sync::LazyLock;
 
 pub type ButtonMappingVec<'a, Button> = Vec<((Button, Player), &'a Vec<GenericInput>)>;
 pub type HotkeyMappingVec<'a> = Vec<(Hotkey, &'a Vec<GenericInput>)>;
@@ -53,6 +54,27 @@ macro_rules! define_controller_mapping {
                     )*
                     #[allow(unreachable_patterns)]
                     _ => None,
+                }
+            }
+
+            #[must_use]
+            pub fn access_value_shared(&self, button: $button_enum) -> Option<&Option<Vec<GenericInput>>> {
+                match button {
+                    $(
+                        $button_enum::$enum_value => Some(&self.$field),
+                    )*
+                    #[allow(unreachable_patterns)]
+                    _ => None,
+                }
+            }
+
+            pub fn clone_from(&mut self, other: &Self, buttons: &[$button_enum]) {
+                for &button in buttons {
+                    if let Some(value) = self.access_value(button)
+                        && let Some(other_value) = other.access_value_shared(button)
+                    {
+                        *value = other_value.clone();
+                    }
                 }
             }
         }
@@ -354,6 +376,21 @@ impl GenesisControllerMapping {
             xe1ap_bp: None,
             xe1ap_start: None,
             xe1ap_select: None,
+        }
+    }
+
+    pub fn clone_from_type(&mut self, other: &Self, controller_type: GenesisControllerType) {
+        static GAMEPAD_BUTTONS: LazyLock<Vec<GenesisButton>> = LazyLock::new(|| {
+            GenesisButton::ALL.into_iter().filter(|&button| button.is_gamepad()).collect()
+        });
+
+        static XE1AP_BUTTONS: LazyLock<Vec<GenesisButton>> = LazyLock::new(|| {
+            GenesisButton::ALL.into_iter().filter(|&button| button.is_xe1ap()).collect()
+        });
+
+        match controller_type {
+            GenesisControllerType::Xe1ap => self.clone_from(other, &XE1AP_BUTTONS),
+            _ => self.clone_from(other, &GAMEPAD_BUTTONS),
         }
     }
 }

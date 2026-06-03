@@ -493,12 +493,15 @@ impl App {
             let mapping = self.render_mapping_set_selector(OpenWindow::GenesisInput, ui);
             ui.separator();
 
+            let p1_type = self.config.input.genesis.p1_type;
+            let p2_type = self.config.input.genesis.p2_type;
+
             Grid::new("genesis_inputs").spacing([50.0, 5.0]).show(ui, |ui| {
-                let (p1_heading, p1_buttons) = match self.config.input.genesis.p1_type {
+                let (p1_heading, p1_buttons) = match p1_type {
                     GenesisControllerType::Xe1ap => ("Player 1 - XE-1 AP", &P1_XE1AP),
                     _ => ("Player 1 - Gamepad", &P1_GAMEPAD),
                 };
-                let (p2_heading, p2_buttons) = match self.config.input.genesis.p2_type {
+                let (p2_heading, p2_buttons) = match p2_type {
                     GenesisControllerType::Xe1ap => ("Player 2 - XE-1 AP", &P2_XE1AP),
                     _ => ("Player 2 - Gamepad", &P2_GAMEPAD),
                 };
@@ -516,29 +519,49 @@ impl App {
 
             let mapping_config = mapping.genesis(&mut self.config.input);
             ui.horizontal(|ui| {
-                ComboBox::new("genesis_presets", "").selected_text("Apply preset...").show_ui(
-                    ui,
-                    |ui| {
-                        if ui.selectable_label(false, "Keyboard - Arrow movement").clicked() {
-                            mapping_config.p1 = GenesisControllerMapping::keyboard_arrows();
-                            mapping_config.p1_turbo = GenesisControllerMapping::default();
-                        }
+                ui.add_enabled_ui(p1_type != GenesisControllerType::Xe1ap, |ui| {
+                    ComboBox::new("genesis_presets", "").selected_text("Apply preset...").show_ui(
+                        ui,
+                        |ui| {
+                            if ui.selectable_label(false, "Keyboard - Arrow movement").clicked() {
+                                mapping_config.p1.clone_from_type(
+                                    &GenesisControllerMapping::keyboard_arrows(),
+                                    p1_type,
+                                );
+                                mapping_config
+                                    .p1_turbo
+                                    .clone_from_type(&GenesisControllerMapping::default(), p1_type);
+                            }
 
-                        if ui.selectable_label(false, "Keyboard - WASD movement").clicked() {
-                            mapping_config.p1 = GenesisControllerMapping::keyboard_wasd();
-                            mapping_config.p1_turbo = GenesisControllerMapping::default();
-                        }
-                    },
-                );
+                            if ui.selectable_label(false, "Keyboard - WASD movement").clicked() {
+                                mapping_config.p1.clone_from_type(
+                                    &GenesisControllerMapping::keyboard_wasd(),
+                                    p1_type,
+                                );
+                                mapping_config
+                                    .p1_turbo
+                                    .clone_from_type(&GenesisControllerMapping::default(), p1_type);
+                            }
+                        },
+                    );
+                });
 
                 if ui.button("Clear All P1").clicked() {
-                    mapping_config.p1 = GenesisControllerMapping::default();
-                    mapping_config.p1_turbo = GenesisControllerMapping::default();
+                    mapping_config
+                        .p1
+                        .clone_from_type(&GenesisControllerMapping::default(), p1_type);
+                    mapping_config
+                        .p1_turbo
+                        .clone_from_type(&GenesisControllerMapping::default(), p1_type);
                 }
 
                 if ui.button("Clear All P2").clicked() {
-                    mapping_config.p2 = GenesisControllerMapping::default();
-                    mapping_config.p2_turbo = GenesisControllerMapping::default();
+                    mapping_config
+                        .p2
+                        .clone_from_type(&GenesisControllerMapping::default(), p2_type);
+                    mapping_config
+                        .p2_turbo
+                        .clone_from_type(&GenesisControllerMapping::default(), p2_type);
                 }
             });
         });
