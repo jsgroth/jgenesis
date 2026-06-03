@@ -19,7 +19,7 @@ use crate::vdp::registers::{
     DebugRegister, DmaMode, H40_LEFT_BORDER, HorizontalDisplaySize, InterlacingMode,
     NTSC_BOTTOM_BORDER, NTSC_TOP_BORDER, PAL_V28_BOTTOM_BORDER, PAL_V28_TOP_BORDER,
     PAL_V30_BOTTOM_BORDER, PAL_V30_TOP_BORDER, RIGHT_BORDER, Registers, VerticalDisplaySize,
-    VramSizeKb,
+    VerticalScrollMode, VramSizeKb,
 };
 use crate::vdp::sprites::{SpriteBuffers, SpriteState};
 use bincode::{Decode, Encode};
@@ -790,14 +790,16 @@ impl Vdp {
         };
 
         // If this write occurred during active display, re-render the current scanline starting from the current pixel
-        if changed
-            && self.state.scanline < self.latched_registers.vertical_display_size.active_scanlines()
-        {
+        if changed {
             self.maybe_render_partial_line();
         }
     }
 
     fn maybe_render_partial_line(&mut self) {
+        if self.state.scanline >= self.latched_registers.vertical_display_size.active_scanlines() {
+            return;
+        }
+
         let render_start = self.registers.horizontal_display_size.rendering_begin_h();
         let active_display_range = self.registers.horizontal_display_size.active_display_h_range();
         if (render_start..active_display_range.end).contains(&self.state.pixel) {
@@ -1016,6 +1018,8 @@ impl Vdp {
             self.fifo.len()
         );
 
+        let mut render_partial_line = false;
+
         if entry.mode == DataPortMode::Write {
             match entry.location {
                 DataPortLocation::Vram => {
@@ -1047,6 +1051,9 @@ impl Vdp {
                     if vsram_addr < VSRAM_LEN {
                         self.vsram[vsram_addr] = entry.word.msb();
                         self.vsram[vsram_addr + 1] = entry.word.lsb();
+
+                        render_partial_line = self.latched_registers.vertical_scroll_mode
+                            == VerticalScrollMode::TwoCell;
                     }
                 }
                 DataPortLocation::Vram8Bit | DataPortLocation::Invalid => {}
@@ -1065,6 +1072,10 @@ impl Vdp {
         }
 
         self.state.data_port_read_wait &= !self.fifo.is_empty();
+
+        if render_partial_line {
+            self.maybe_render_partial_line();
+        }
     }
 
     pub fn write_debug_register(&mut self, value: u16) {
