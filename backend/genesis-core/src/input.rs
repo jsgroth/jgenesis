@@ -1,5 +1,6 @@
 //! Code for handling Genesis controller input I/O registers
 
+use crate::GenesisEmulatorConfig;
 use bincode::{Decode, Encode};
 use genesis_config::{GenesisController, GenesisInputs, GenesisJoypadState, Xe1apJoypadState};
 use jgenesis_common::num::GetBit;
@@ -447,9 +448,39 @@ impl ControllerState {
     }
 }
 
+trait GenesisControllerExt {
+    fn allow_opposing_directions(self, allow_opposing_directions: bool) -> Self;
+}
+
+impl GenesisControllerExt for GenesisController {
+    fn allow_opposing_directions(mut self, allow_opposing_directions: bool) -> Self {
+        if allow_opposing_directions {
+            return self;
+        }
+
+        match &mut self {
+            Self::ThreeButton(joypad) | Self::SixButton(joypad) => {
+                if joypad.left && joypad.right {
+                    joypad.left = false;
+                    joypad.right = false;
+                }
+
+                if joypad.up && joypad.down {
+                    joypad.up = false;
+                    joypad.down = false;
+                }
+            }
+            Self::Xe1ap(_) | Self::None => {}
+        }
+
+        self
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct InputState {
     inputs: GenesisInputs,
+    allow_opposing_joypad_directions: bool,
     p1_state: ControllerState,
     p2_state: ControllerState,
     p1_pins: Pins,
@@ -463,13 +494,18 @@ pub struct InputState {
 
 impl InputState {
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(config: &GenesisEmulatorConfig) -> Self {
         let inputs = GenesisInputs::default();
 
         Self {
             inputs,
-            p1_state: ControllerState::new(inputs.p1),
-            p2_state: ControllerState::new(inputs.p2),
+            allow_opposing_joypad_directions: config.allow_opposing_joypad_directions,
+            p1_state: ControllerState::new(
+                inputs.p1.allow_opposing_directions(config.allow_opposing_joypad_directions),
+            ),
+            p2_state: ControllerState::new(
+                inputs.p2.allow_opposing_directions(config.allow_opposing_joypad_directions),
+            ),
             p1_pins: Pins::new(),
             p2_pins: Pins::new(),
             ext_pins: Pins::new(),
@@ -484,13 +520,29 @@ impl InputState {
             return;
         }
 
-        self.p1_state.update_inputs(inputs.p1);
+        self.inputs = inputs;
+        self.update_state_and_pins();
+    }
+
+    fn update_state_and_pins(&mut self) {
+        let p1_inputs =
+            self.inputs.p1.allow_opposing_directions(self.allow_opposing_joypad_directions);
+        self.p1_state.update_inputs(p1_inputs);
         self.p1_state.update_pins(&mut self.p1_pins);
 
-        self.p2_state.update_inputs(inputs.p2);
+        let p2_inputs =
+            self.inputs.p2.allow_opposing_directions(self.allow_opposing_joypad_directions);
+        self.p2_state.update_inputs(p2_inputs);
         self.p2_state.update_pins(&mut self.p2_pins);
+    }
 
-        self.inputs = inputs;
+    pub fn reload_config(&mut self, config: &GenesisEmulatorConfig) {
+        if config.allow_opposing_joypad_directions == self.allow_opposing_joypad_directions {
+            return;
+        }
+
+        self.allow_opposing_joypad_directions = config.allow_opposing_joypad_directions;
+        self.update_state_and_pins();
     }
 
     #[must_use]
@@ -586,11 +638,5 @@ impl InputState {
 
         self.p2_state.tick(m68k_cycles, &mut self.p2_pins);
         self.p2_pins.tick(m68k_cycles, &mut self.p2_state);
-    }
-}
-
-impl Default for InputState {
-    fn default() -> Self {
-        Self::new()
     }
 }

@@ -46,6 +46,7 @@ pub type GenesisResult<RErr, AErr, SErr> = Result<TickEffect, GenesisError<RErr,
 pub struct GenesisEmulatorConfig {
     pub forced_timing_mode: Option<TimingMode>,
     pub forced_region: Option<GenesisRegion>,
+    pub allow_opposing_joypad_directions: bool,
     pub aspect_ratio: GenesisAspectRatio,
     pub force_square_pixels_in_h40: bool,
     pub adjust_aspect_ratio_in_2x_resolution: bool,
@@ -83,6 +84,7 @@ impl Default for GenesisEmulatorConfig {
         Self {
             forced_timing_mode: None,
             forced_region: None,
+            allow_opposing_joypad_directions: false,
             aspect_ratio: GenesisAspectRatio::default(),
             force_square_pixels_in_h40: false,
             adjust_aspect_ratio_in_2x_resolution: true,
@@ -225,7 +227,7 @@ impl GenesisEmulator {
         let vdp = Vdp::new(timing_mode, config.to_vdp_config(DarkenColors::No));
         let psg = Sn76489::new(Sn76489Version::Standard);
         let ym2612 = Ym2612::new_from_config(&config);
-        let input = InputState::new();
+        let input = InputState::new(&config);
 
         // The Genesis does not allow TAS to lock the bus, so don't allow TAS writes
         let m68k = M68000::builder().allow_tas_writes(false).build();
@@ -486,6 +488,7 @@ impl EmulatorTrait for GenesisEmulator {
         self.ym2612.reload_config(config);
         self.memory.reload_config(config);
         self.memory.medium_mut().reload_config(config);
+        self.input.reload_config(config);
         self.audio_resampler.reload_config(self.timing_mode, config);
         self.cycles.update_m68k_divider(config.clamped_m68k_divider());
 

@@ -16,6 +16,7 @@ const DEFAULT_DRIVE_SPEED: NonZeroU16 = NonZeroU16::new(1).unwrap();
 pub struct GenesisAppConfig {
     pub forced_timing_mode: Option<TimingMode>,
     pub forced_region: Option<GenesisRegion>,
+    pub allow_opposing_joypad_directions: bool,
     pub aspect_ratio: GenesisAspectRatio,
     pub force_square_pixels_in_h40: bool,
     pub adjust_aspect_ratio_in_2x_resolution: bool,
@@ -50,6 +51,7 @@ impl Default for GenesisAppConfig {
         Self {
             forced_timing_mode: None,
             forced_region: None,
+            allow_opposing_joypad_directions: false,
             aspect_ratio: GenesisAspectRatio::default(),
             force_square_pixels_in_h40: false,
             adjust_aspect_ratio_in_2x_resolution: true,

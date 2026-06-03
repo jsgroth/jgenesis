@@ -453,9 +453,6 @@ impl App {
         Window::new(OpenWindow::GenesisInput.title()).open(&mut open).show(ctx, |ui| {
             self.disable_if_waiting_for_input(ui);
 
-            let mapping = self.render_mapping_set_selector(OpenWindow::GenesisInput, ui);
-            ui.separator();
-
             ui.horizontal(|ui| {
                 for player in [Player::One, Player::Two] {
                     ui.vertical(|ui| {
@@ -486,6 +483,14 @@ impl App {
                 }
             });
 
+            ui.checkbox(
+                &mut self.config.genesis.allow_opposing_joypad_directions,
+                "Allow simultaneous opposing gamepad directions",
+            );
+
+            ui.separator();
+
+            let mapping = self.render_mapping_set_selector(OpenWindow::GenesisInput, ui);
             ui.separator();
 
             Grid::new("genesis_inputs").spacing([50.0, 5.0]).show(ui, |ui| {

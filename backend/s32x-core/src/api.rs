@@ -151,7 +151,7 @@ impl Sega32XEmulator {
 
         let memory = Memory::new(s32x, &config.genesis);
 
-        let input = InputState::new();
+        let input = InputState::new(&config.genesis);
 
         let mut emulator = Self {
             m68k,
@@ -367,6 +367,7 @@ impl EmulatorTrait for Sega32XEmulator {
         self.vdp.reload_config(config.genesis.to_vdp_config(config.genesis_color_adjustment()));
         self.ym2612.reload_config(&config.genesis);
         self.memory.medium_mut().reload_config(config);
+        self.input.reload_config(&config.genesis);
         self.audio_resampler.reload_config(self.timing_mode, config);
         self.cycles.update_m68k_divider(config.genesis.clamped_m68k_divider());
 

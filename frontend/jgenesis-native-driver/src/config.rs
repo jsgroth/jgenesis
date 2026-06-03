@@ -400,6 +400,7 @@ impl AppConfigExt for AppConfig {
             emulator_config: GenesisEmulatorConfig {
                 forced_timing_mode: self.genesis.forced_timing_mode,
                 forced_region: self.genesis.forced_region,
+                allow_opposing_joypad_directions: self.genesis.allow_opposing_joypad_directions,
                 aspect_ratio: self.genesis.aspect_ratio,
                 force_square_pixels_in_h40: self.genesis.force_square_pixels_in_h40,
                 anamorphic_widescreen: self.genesis.anamorphic_widescreen,
