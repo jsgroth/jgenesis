@@ -53,9 +53,9 @@ impl Vdp {
         let hv = self.hv_counter_internal(self.state.scanline_mclk_cycles);
 
         VdpDebugState {
-            vram: self.vram.clone(),
-            cram: self.cram.clone(),
-            vsram: self.vsram.clone(),
+            vram: self.vram.clone().into(),
+            cram: self.cram.clone().into(),
+            vsram: self.vsram.clone().into(),
             color_tables: self.color_tables.clone(),
             registers: self.registers.clone(),
             latched_registers: self.latched_registers.clone(),
@@ -94,7 +94,7 @@ impl Vdp {
     }
 
     pub fn debug_vsram_view(&mut self) -> impl DebugMemoryView {
-        DebugBytesView(self.vsram.as_mut_slice())
+        DebugWordsView(self.vsram.as_mut_slice(), Endian::Big)
     }
 }
 
@@ -340,7 +340,7 @@ impl VdpDebugState {
     }
 
     pub fn debug_vsram_view(&mut self) -> impl DebugMemoryView {
-        DebugBytesView(self.vsram.as_mut_slice())
+        DebugWordsView(self.vsram.as_mut_slice(), Endian::Big)
     }
 
     #[must_use]

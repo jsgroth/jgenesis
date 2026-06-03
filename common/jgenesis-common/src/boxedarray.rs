@@ -57,6 +57,12 @@ impl<T, const LEN: usize> From<Box<[T; LEN]>> for BoxedArray<T, LEN> {
     }
 }
 
+impl<T, const LEN: usize> From<BoxedArray<T, LEN>> for Box<[T; LEN]> {
+    fn from(value: BoxedArray<T, LEN>) -> Self {
+        value.0
+    }
+}
+
 impl<T, const LEN: usize> Deref for BoxedArray<T, LEN> {
     type Target = Box<[T; LEN]>;
 
@@ -138,6 +144,14 @@ impl<T, const ROWS: usize, const COLS: usize> From<Box<[[T; COLS]; ROWS]>>
 {
     fn from(value: Box<[[T; COLS]; ROWS]>) -> Self {
         Self(value)
+    }
+}
+
+impl<T, const ROWS: usize, const COLS: usize> From<Boxed2DArray<T, ROWS, COLS>>
+    for Box<[[T; COLS]; ROWS]>
+{
+    fn from(value: Boxed2DArray<T, ROWS, COLS>) -> Self {
+        value.0
     }
 }
 

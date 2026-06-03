@@ -922,11 +922,7 @@ fn read_v_scroll(
             BgPlane::B => latched_full_screen_v_scroll.1,
         },
         VerticalScrollMode::TwoCell => {
-            let offset = match plane {
-                BgPlane::A => 0,
-                BgPlane::B => 2,
-            };
-            read_two_cell_v_scroll(h_column, offset, vsram, registers.horizontal_display_size)
+            read_two_cell_v_scroll(h_column, plane, vsram, registers.horizontal_display_size)
         }
     };
 
@@ -936,7 +932,7 @@ fn read_v_scroll(
 
 fn read_two_cell_v_scroll(
     h_column: i16,
-    offset: usize,
+    plane: BgPlane,
     vsram: &Vsram,
     h_display_size: HorizontalDisplaySize,
 ) -> u16 {
@@ -948,13 +944,15 @@ fn read_two_cell_v_scroll(
         // Source: http://gendev.spritesmind.net/forum/viewtopic.php?t=737&postdays=0&postorder=asc&start=30
         match h_display_size {
             HorizontalDisplaySize::ThirtyTwoCell => 0,
-            HorizontalDisplaySize::FortyCell => {
-                u16::from_be_bytes([vsram[0x4C] & vsram[0x4E], vsram[0x4D] & vsram[0x4F]])
-            }
+            HorizontalDisplaySize::FortyCell => vsram[0x4C >> 1] & vsram[0x4E >> 1],
         }
     } else if h_column < active_display_columns {
-        let addr = 4 * (h_column as usize) + offset;
-        u16::from_be_bytes([vsram[addr], vsram[addr + 1]])
+        let offset = match plane {
+            BgPlane::A => 0,
+            BgPlane::B => 1,
+        };
+        let addr = 2 * (h_column as usize) + offset;
+        vsram[addr]
     } else {
         0
     }

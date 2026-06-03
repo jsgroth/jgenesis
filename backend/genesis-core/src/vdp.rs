@@ -23,7 +23,7 @@ use crate::vdp::registers::{
 };
 use crate::vdp::sprites::{SpriteBuffers, SpriteState};
 use bincode::{Decode, Encode};
-use jgenesis_common::boxedarray::BoxedColorArray;
+use jgenesis_common::boxedarray::{BoxedByteArray, BoxedColorArray, BoxedWordArray};
 use jgenesis_common::frontend::{
     Color, CompositeParams, FrameSize, SamplesPerColorCycle, TimingMode,
 };
@@ -38,7 +38,7 @@ pub use crate::vdp::colors::ColorModifier;
 
 const VRAM_LEN: usize = 64 * 1024;
 const CRAM_LEN_WORDS: usize = 64;
-const VSRAM_LEN: usize = 80;
+const VSRAM_LEN_WORDS: usize = 40;
 
 const MAX_SCREEN_WIDTH: usize = 320 + H40_LEFT_BORDER as usize + RIGHT_BORDER as usize;
 const MAX_SCREEN_HEIGHT: usize = 240 + PAL_V30_TOP_BORDER as usize + PAL_V30_BOTTOM_BORDER as usize;
@@ -534,15 +534,15 @@ struct HVCounter {
 
 type Vram = [u8; VRAM_LEN];
 type Cram = [u16; CRAM_LEN_WORDS];
-type Vsram = [u8; VSRAM_LEN];
+type Vsram = [u16; VSRAM_LEN_WORDS];
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Vdp {
     frame_buffer: BoxedColorArray<FRAME_BUFFER_LEN>,
     cram_dots: CramDotBuffer,
-    vram: Box<Vram>,
-    cram: Box<Cram>,
-    vsram: Box<Vsram>,
+    vram: BoxedByteArray<VRAM_LEN>,
+    cram: BoxedWordArray<CRAM_LEN_WORDS>,
+    vsram: BoxedWordArray<VSRAM_LEN_WORDS>,
     fifo: VdpFifo,
     dma_latency: u8,
     // Used to store writes to data port while FIFO is full
@@ -573,9 +573,9 @@ impl Vdp {
         Self {
             frame_buffer: BoxedColorArray::new(),
             cram_dots: CramDotBuffer::new(),
-            vram: vec![0; VRAM_LEN].into_boxed_slice().try_into().unwrap(),
-            cram: vec![0; CRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
-            vsram: vec![0; VSRAM_LEN].into_boxed_slice().try_into().unwrap(),
+            vram: BoxedByteArray::new(),
+            cram: BoxedWordArray::new(),
+            vsram: BoxedWordArray::new(),
             fifo: VdpFifo::new(),
             dma_latency: 0,
             pending_fifo_writes: VecDeque::with_capacity(8),
@@ -857,12 +857,12 @@ impl Vdp {
                 self.cram[cram_addr as usize]
             }
             DataPortLocation::Vsram => {
-                let vsram_addr = (self.control_port.data_port_address & 0x7F & !1) as usize;
-                if vsram_addr < VSRAM_LEN {
-                    u16::from_be_bytes([self.vsram[vsram_addr], self.vsram[vsram_addr + 1]])
+                let vsram_addr = ((self.control_port.data_port_address & 0x7F) >> 1) as usize;
+                if vsram_addr < VSRAM_LEN_WORDS {
+                    self.vsram[vsram_addr]
                 } else {
                     // TODO return most recently used VSRAM entry?
-                    u16::from_be_bytes([self.vsram[0], self.vsram[1]])
+                    self.vsram[0]
                 }
             }
             DataPortLocation::Invalid => {
@@ -1047,10 +1047,9 @@ impl Vdp {
                     );
                 }
                 DataPortLocation::Vsram => {
-                    let vsram_addr = (entry.address & 0x7F & !1) as usize;
-                    if vsram_addr < VSRAM_LEN {
-                        self.vsram[vsram_addr] = entry.word.msb();
-                        self.vsram[vsram_addr + 1] = entry.word.lsb();
+                    let vsram_addr = ((entry.address & 0x7F) >> 1) as usize;
+                    if vsram_addr < VSRAM_LEN_WORDS {
+                        self.vsram[vsram_addr] = entry.word;
 
                         render_partial_line = self.latched_registers.vertical_scroll_mode
                             == VerticalScrollMode::TwoCell;
@@ -1464,10 +1463,9 @@ impl Vdp {
             DataPortLocation::Vsram => {
                 // VSRAM fill is bugged; uses the value from the next FIFO slot instead of fill data
                 let word = self.fifo.next_slot_word();
-                let vsram_addr = (self.control_port.data_port_address & 0x7F & !1) as usize;
-                if vsram_addr < VSRAM_LEN {
-                    self.vsram[vsram_addr] = word.msb();
-                    self.vsram[vsram_addr + 1] = word.lsb();
+                let vsram_addr = ((self.control_port.data_port_address & 0x7F) >> 1) as usize;
+                if vsram_addr < VSRAM_LEN_WORDS {
+                    self.vsram[vsram_addr] = word;
                 }
             }
             DataPortLocation::Invalid => {}
@@ -1623,10 +1621,7 @@ impl Vdp {
                 // the background color.
                 log::trace!("Latching VDP registers");
                 self.latched_registers = self.registers.clone();
-                self.latched_full_screen_v_scroll = (
-                    u16::from_be_bytes([self.vsram[0], self.vsram[1]]),
-                    u16::from_be_bytes([self.vsram[2], self.vsram[3]]),
-                );
+                self.latched_full_screen_v_scroll = (self.vsram[0], self.vsram[1]);
             }
             VdpEvent::None => {}
         }
