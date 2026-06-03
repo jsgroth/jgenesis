@@ -306,16 +306,19 @@ impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u32>
     fn read_io_register(&self, address: u32) -> u8 {
         match address {
             // Version register
-            0xA10000 | 0xA10001 => {
+            0xA10001 => {
                 0x20 | (u8::from(self.memory.hardware_region().version_bit()) << 7)
                     | (u8::from(self.timing_mode == TimingMode::Pal) << 6)
             }
-            0xA10002 | 0xA10003 => self.input.read_p1_data(),
-            0xA10004 | 0xA10005 => self.input.read_p2_data(),
-            0xA10008 | 0xA10009 => self.input.read_p1_ctrl(),
-            0xA1000A | 0xA1000B => self.input.read_p2_ctrl(),
-            // TxData registers return 0xFF by default
-            0xA1000E | 0xA1000F | 0xA10014 | 0xA10015 | 0xA1001A | 0xA1001B => 0xFF,
+            0xA10003 => self.input.read_p1_data(),
+            0xA10005 => self.input.read_p2_data(),
+            0xA10007 => self.input.read_ext_data(),
+            0xA10009 => self.input.read_p1_ctrl(),
+            0xA1000B => self.input.read_p2_ctrl(),
+            0xA1000D => self.input.read_ext_ctrl(),
+            0xA1000F => self.input.read_p1_tx_data(),
+            0xA10015 => self.input.read_p2_tx_data(),
+            0xA1001B => self.input.read_ext_tx_data(),
             // Other I/O registers return 0x00 by default
             _ => 0x00,
         }
@@ -323,18 +326,15 @@ impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u32>
 
     fn write_io_register(&mut self, address: u32, value: u8) {
         match address {
-            0xA10002 | 0xA10003 => {
-                self.input.write_p1_data(value);
-            }
-            0xA10004 | 0xA10005 => {
-                self.input.write_p2_data(value);
-            }
-            0xA10008 | 0xA10009 => {
-                self.input.write_p1_ctrl(value);
-            }
-            0xA1000A | 0xA1000B => {
-                self.input.write_p2_ctrl(value);
-            }
+            0xA10003 => self.input.write_p1_data(value),
+            0xA10005 => self.input.write_p2_data(value),
+            0xA10007 => self.input.write_ext_data(value),
+            0xA10009 => self.input.write_p1_ctrl(value),
+            0xA1000B => self.input.write_p2_ctrl(value),
+            0xA1000D => self.input.write_ext_ctrl(value),
+            0xA1000F => self.input.write_p1_tx_data(value),
+            0xA10015 => self.input.write_p2_tx_data(value),
+            0xA1001B => self.input.write_ext_tx_data(value),
             _ => {}
         }
     }
@@ -466,7 +466,7 @@ impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u32>
                 self.apply_byte_write(address, value.msb());
             }
             0xA10000..=0xA1001F => {
-                self.write_io_register(address, value.lsb());
+                self.write_io_register(address | 1, value.lsb());
             }
             0xA11100..=0xA11101 => {
                 self.memory.signals.z80_busreq = value.bit(8);
@@ -545,7 +545,7 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterfa
                     self.memory.open_bus.msb()
                 }
             }
-            0xA10000..=0xA1001F => self.read_io_register(address),
+            0xA10000..=0xA1001F => self.read_io_register(address | 1),
             0xA11100..=0xA11101 => (self.read_busack_register() >> 8) as u8,
             0xC00000..=0xC0001F => self.read_vdp_byte(address),
             0xE00000..=0xFFFFFF => {
@@ -586,7 +586,10 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterfa
                     self.memory.open_bus & 0xFF00
                 }
             }
-            0xA10000..=0xA1001F => self.read_io_register(address).into(),
+            0xA10000..=0xA1001F => {
+                let byte = self.read_io_register(address | 1);
+                u16::from_le_bytes([byte, byte])
+            }
             0xA11100..=0xA11101 => self.read_busack_register(),
             0xC00000..=0xC00003 => self.vdp.read_data(),
             0xC00004..=0xC00007 => self.read_vdp_status(),

@@ -454,6 +454,11 @@ pub struct InputState {
     p2_state: ControllerState,
     p1_pins: Pins,
     p2_pins: Pins,
+    ext_pins: Pins,
+    // Serial transfer is not emulated, but these registers are R/W when nothing is connected
+    p1_tx_data: u8,
+    p2_tx_data: u8,
+    ext_tx_data: u8,
 }
 
 impl InputState {
@@ -467,6 +472,10 @@ impl InputState {
             p2_state: ControllerState::new(inputs.p2),
             p1_pins: Pins::new(),
             p2_pins: Pins::new(),
+            ext_pins: Pins::new(),
+            p1_tx_data: 0xFF,
+            p2_tx_data: 0xFF,
+            ext_tx_data: 0xFF,
         }
     }
 
@@ -496,6 +505,11 @@ impl InputState {
         self.p2_pins.pins
     }
 
+    #[must_use]
+    pub fn read_ext_data(&self) -> u8 {
+        self.ext_pins.pins
+    }
+
     pub fn write_p1_data(&mut self, value: u8) {
         log::debug!("P1 DATA write: {value:02X}");
         self.p1_pins.output(value, &mut self.p1_state);
@@ -504,6 +518,10 @@ impl InputState {
     pub fn write_p2_data(&mut self, value: u8) {
         log::debug!("P2 DATA write: {value:02X}");
         self.p2_pins.output(value, &mut self.p2_state);
+    }
+
+    pub fn write_ext_data(&mut self, value: u8) {
+        self.ext_pins.output(value, &mut ControllerState::None);
     }
 
     #[must_use]
@@ -516,6 +534,11 @@ impl InputState {
         self.p2_pins.read_ctrl()
     }
 
+    #[must_use]
+    pub fn read_ext_ctrl(&self) -> u8 {
+        self.ext_pins.read_ctrl()
+    }
+
     pub fn write_p1_ctrl(&mut self, value: u8) {
         log::debug!("P1 CTRL write: {value:02X}");
         self.p1_pins.write_ctrl(value, &mut self.p1_state);
@@ -524,6 +547,37 @@ impl InputState {
     pub fn write_p2_ctrl(&mut self, value: u8) {
         log::debug!("P2 CTRL write: {value:02X}");
         self.p2_pins.write_ctrl(value, &mut self.p2_state);
+    }
+
+    pub fn write_ext_ctrl(&mut self, value: u8) {
+        self.ext_pins.write_ctrl(value, &mut ControllerState::None);
+    }
+
+    #[must_use]
+    pub fn read_p1_tx_data(&self) -> u8 {
+        self.p1_tx_data
+    }
+
+    #[must_use]
+    pub fn read_p2_tx_data(&self) -> u8 {
+        self.p2_tx_data
+    }
+
+    #[must_use]
+    pub fn read_ext_tx_data(&self) -> u8 {
+        self.ext_tx_data
+    }
+
+    pub fn write_p1_tx_data(&mut self, value: u8) {
+        self.p1_tx_data = value;
+    }
+
+    pub fn write_p2_tx_data(&mut self, value: u8) {
+        self.p2_tx_data = value;
+    }
+
+    pub fn write_ext_tx_data(&mut self, value: u8) {
+        self.ext_tx_data = value;
     }
 
     pub fn tick(&mut self, m68k_cycles: u32) {
