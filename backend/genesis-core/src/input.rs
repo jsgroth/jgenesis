@@ -226,23 +226,37 @@ struct Xe1apState {
     joypad: Xe1apJoypadState,
     transfer_state: Xe1apTransferState,
     transfer_counter: u8,
-    transfer_clock: bool,
+    transfer_ack: bool,
     transfer_cycles_remaining: u32,
     last_th: bool,
 }
 
 impl Xe1apState {
-    // These numbers are complete guesses based on what games can tolerate
-    const TRANSFER_CYCLES: u32 = 70;
-    const START_DELAY_CYCLES: u32 = 70;
+    // Timings based on: https://archive.org/details/micomBASIC_1990-10/ (pages 79-80)
+    // When connected to the Genesis, TR is ACK and TL is L/H
+    // These timings are based on the fastest transfer speed
+    //
+    // Each pair of nibbles is transferred in a 4-step pattern:
+    //   A: ACK=0, L/H=0 (game reads first nibble here)
+    //   B: ACK=1, L/H=1
+    //   C: ACK=0, L/H=1 (game reads second nibble here)
+    //   D: ACK=1, L/H=0
+    //
+    // L/H appears to change shortly after ACK 0->1 transitions; this is not emulated
+    //
+    // Transfers seem to begin in step D after a TH 1->0 transition, except with L/H set to 0 instead of 1
+    const TRANSFER_A_CYCLES: u32 = 92; // Roughly 12 μs
+    const TRANSFER_B_CYCLES: u32 = 30; // Roughly 4 μs
+    const TRANSFER_C_CYCLES: u32 = 92; // Roughly 12 μs
+    const TRANSFER_D_CYCLES: u32 = 168; // Roughly 22 μs
 
     fn new(joypad: Xe1apJoypadState) -> Self {
         Self {
             joypad,
             transfer_state: Xe1apTransferState::Idle,
             transfer_counter: 0,
-            transfer_clock: false,
-            transfer_cycles_remaining: Self::TRANSFER_CYCLES,
+            transfer_ack: true,
+            transfer_cycles_remaining: 0,
             last_th: true,
         }
     }
@@ -253,19 +267,24 @@ impl Xe1apState {
             // TH 1->0 transition begins a new transfer
             self.transfer_state = Xe1apTransferState::Active;
             self.transfer_counter = 0;
-            self.transfer_clock = true;
-            self.transfer_cycles_remaining = Self::TRANSFER_CYCLES + Self::START_DELAY_CYCLES;
-
-            pins.input_data_nibble(0b1111);
+            self.transfer_ack = true;
+            self.transfer_cycles_remaining = Self::TRANSFER_D_CYCLES;
         }
         self.last_th = th;
 
         pins.input_tl(self.transfer_counter.bit(0));
-        pins.input_tr(self.transfer_clock);
+        pins.input_tr(self.transfer_ack);
 
-        // Only update D3-D0 pins when TR=0
-        if !self.transfer_clock {
-            self.update_data_pins(pins);
+        match self.transfer_state {
+            Xe1apTransferState::Idle => {
+                pins.input_data_nibble(0b1111);
+            }
+            Xe1apTransferState::Active => {
+                // Only update D3-D0 pins when TR=0
+                if !self.transfer_ack {
+                    self.update_data_pins(pins);
+                }
+            }
         }
 
         log::debug!(
@@ -360,17 +379,23 @@ impl Xe1apState {
                         return;
                     }
 
-                    self.transfer_cycles_remaining = Self::TRANSFER_CYCLES;
+                    self.transfer_cycles_remaining =
+                        match (self.transfer_ack, self.transfer_counter.bit(0)) {
+                            (true, false) => Self::TRANSFER_A_CYCLES,
+                            (false, false) => Self::TRANSFER_B_CYCLES,
+                            (true, true) => Self::TRANSFER_C_CYCLES,
+                            (false, true) => Self::TRANSFER_D_CYCLES,
+                        };
 
-                    self.transfer_clock = !self.transfer_clock;
-                    if self.transfer_clock {
+                    self.transfer_ack = !self.transfer_ack;
+                    if self.transfer_ack {
                         if self.transfer_counter < 11 {
                             self.transfer_counter += 1;
                         } else {
                             // Transfer has ended
                             self.transfer_state = Xe1apTransferState::Idle;
-                            self.transfer_clock = false;
-                            // TODO should D3-D0 get pulled high here?
+                            self.transfer_counter = 0;
+                            self.transfer_ack = true;
                         }
                     }
 
