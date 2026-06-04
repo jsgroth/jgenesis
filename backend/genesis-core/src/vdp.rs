@@ -16,11 +16,12 @@ use crate::vdp::colors::ColorTables;
 use crate::vdp::cramdots::CramDotBuffer;
 use crate::vdp::fifo::{VdpFifo, VdpFifoEntry, VramWriteSize};
 use crate::vdp::registers::{
-    DebugRegister, DmaMode, H40_LEFT_BORDER, HorizontalDisplaySize, InterlacingMode,
-    NTSC_BOTTOM_BORDER, NTSC_TOP_BORDER, PAL_V28_BOTTOM_BORDER, PAL_V28_TOP_BORDER,
-    PAL_V30_BOTTOM_BORDER, PAL_V30_TOP_BORDER, RIGHT_BORDER, Registers, VerticalDisplaySize,
-    VerticalScrollMode, VramSizeKb,
+    DebugRegister, DmaMode, H40_LEFT_BORDER, HorizontalDisplaySize, HorizontalScrollMode,
+    InterlacingMode, NTSC_BOTTOM_BORDER, NTSC_TOP_BORDER, PAL_V28_BOTTOM_BORDER,
+    PAL_V28_TOP_BORDER, PAL_V30_BOTTOM_BORDER, PAL_V30_TOP_BORDER, RIGHT_BORDER, Registers,
+    VerticalDisplaySize, VerticalScrollMode, VramSizeKb,
 };
+use crate::vdp::render::RasterLine;
 use crate::vdp::sprites::{SpriteBuffers, SpriteState};
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::{BoxedByteArray, BoxedColorArray, BoxedWordArray};
@@ -126,6 +127,11 @@ impl HorizontalDisplaySize {
             Self::ThirtyTwoCell => 0x018..0x118,
             Self::FortyCell => 0x01A..0x15A,
         }
+    }
+
+    const fn read_h_scroll_h(self) -> u16 {
+        // Actually -26 but that overflows in H32 mode
+        self.active_display_h_range().start - 24
     }
 
     const fn rendering_begin_h(self) -> u16 {
@@ -288,8 +294,6 @@ struct InternalState {
     v_border_forgotten: bool,
     top_border: u16,
     last_scroll_b_palettes: [u8; 2],
-    last_h_scroll_a: u16,
-    last_h_scroll_b: u16,
     scanline: u16,
     scanline_mclk_cycles: u64,
     pixel: u16,
@@ -321,8 +325,6 @@ impl InternalState {
             v_border_forgotten: false,
             top_border: VerticalDisplaySize::default().top_border(timing_mode),
             last_scroll_b_palettes: [0; 2],
-            last_h_scroll_a: 0,
-            last_h_scroll_b: 0,
             scanline: 0,
             scanline_mclk_cycles: 0,
             pixel: 0,
@@ -494,6 +496,7 @@ pub struct VdpConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, EnumAll)]
 enum VdpEvent {
     VInterrupt,
+    ReadHScroll,
     RenderLine,
     FetchSpriteAttributes,
     HBlankStart,
@@ -503,7 +506,7 @@ enum VdpEvent {
 }
 
 impl VdpEvent {
-    const NUM: usize = 7;
+    const NUM: usize = VdpEvent::ALL.len();
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -554,6 +557,7 @@ pub struct Vdp {
     registers: Registers,
     debug_register: DebugRegister,
     latched_registers: Registers,
+    latched_h_scroll: (u16, u16),
     latched_full_screen_v_scroll: (u16, u16),
     cached_sprite_attributes: Box<[CachedSpriteData; MAX_SPRITES_PER_FRAME]>,
     latched_sprite_attributes: Box<[CachedSpriteData; MAX_SPRITES_PER_FRAME]>,
@@ -586,6 +590,7 @@ impl Vdp {
             registers: Registers::new(),
             debug_register: DebugRegister::new(),
             latched_registers: Registers::new(),
+            latched_h_scroll: (0, 0),
             latched_full_screen_v_scroll: (0, 0),
             cached_sprite_attributes: vec![CachedSpriteData::default(); MAX_SPRITES_PER_FRAME]
                 .into_boxed_slice()
@@ -800,9 +805,8 @@ impl Vdp {
             return;
         }
 
-        let render_start = self.registers.horizontal_display_size.rendering_begin_h();
         let active_display_range = self.registers.horizontal_display_size.active_display_h_range();
-        if (render_start..active_display_range.end).contains(&self.state.pixel) {
+        if active_display_range.contains(&self.state.pixel) {
             log::trace!(
                 "Re-rendering line {} from pixel {} (frame pixel {})",
                 self.state.scanline,
@@ -1526,8 +1530,9 @@ impl Vdp {
     }
 
     fn vdp_event_times(h_display_size: HorizontalDisplaySize) -> [VdpEventWithTime; VdpEvent::NUM] {
-        let events = [
+        let mut events = [
             VdpEventWithTime::new(h_display_size.v_interrupt_h(), VdpEvent::VInterrupt),
+            VdpEventWithTime::new(h_display_size.read_h_scroll_h(), VdpEvent::ReadHScroll),
             VdpEventWithTime::new(
                 h_display_size.active_display_h_range().start,
                 VdpEvent::RenderLine,
@@ -1542,10 +1547,7 @@ impl Vdp {
             VdpEventWithTime::new(u16::MAX, VdpEvent::None),
         ];
 
-        debug_assert!(
-            (0..events.len() - 1).all(|i| events[i + 1].h >= events[i].h),
-            "Events must be in H-sorted order"
-        );
+        events.sort_by_key(|event| event.h);
 
         let count_occurrences =
             |event: VdpEvent| events.iter().filter(|e| e.event == event).count();
@@ -1569,6 +1571,33 @@ impl Vdp {
                     // at start of VBlank, e.g. Bugs Bunny in Double Trouble
                     self.state.frame_h_resolution = self.registers.horizontal_display_size;
                 }
+            }
+            VdpEvent::ReadHScroll => {
+                if !self.registers.display_enabled
+                    || (self.state.scanline
+                        >= self.latched_registers.vertical_display_size.active_scanlines()
+                        && !self.state.v_border_forgotten)
+                {
+                    return;
+                }
+
+                let raster_line = RasterLine::from_scanline(
+                    self.state.scanline,
+                    &self.latched_registers,
+                    self.timing_mode,
+                    self.state.interlaced_frame,
+                    self.state.interlaced_odd,
+                );
+
+                // Only the lowest 8 bits of raster line are used for H scroll lookups
+                let h_scroll_scanline = raster_line.line & 0xFF;
+
+                self.latched_h_scroll = read_h_scroll(
+                    &self.vram,
+                    self.registers.h_scroll_table_base_addr,
+                    self.registers.horizontal_scroll_mode,
+                    h_scroll_scanline,
+                );
             }
             VdpEvent::RenderLine => {
                 self.sprite_state
@@ -1977,6 +2006,29 @@ impl Vdp {
     pub fn timing_mode(&self) -> TimingMode {
         self.timing_mode
     }
+}
+
+fn read_h_scroll(
+    vram: &Vram,
+    h_scroll_table_addr: u16,
+    h_scroll_mode: HorizontalScrollMode,
+    scanline: u16,
+) -> (u16, u16) {
+    let h_scroll_addr = match h_scroll_mode {
+        HorizontalScrollMode::FullScreen => h_scroll_table_addr,
+        HorizontalScrollMode::Cell => h_scroll_table_addr.wrapping_add(32 * (scanline / 8)),
+        HorizontalScrollMode::Line => h_scroll_table_addr.wrapping_add(4 * scanline),
+        HorizontalScrollMode::Invalid => h_scroll_table_addr.wrapping_add(4 * (scanline & 0x7)),
+    };
+
+    let h_scroll_a =
+        u16::from_be_bytes([vram[h_scroll_addr as usize], vram[(h_scroll_addr + 1) as usize]]);
+    let h_scroll_b = u16::from_be_bytes([
+        vram[(h_scroll_addr + 2) as usize],
+        vram[(h_scroll_addr + 3) as usize],
+    ]);
+
+    (h_scroll_a & 0x03FF, h_scroll_b & 0x03FF)
 }
 
 fn convert_128kb_vram_address(address: u32) -> u32 {

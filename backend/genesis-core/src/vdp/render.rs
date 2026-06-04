@@ -1,8 +1,8 @@
 use crate::vdp;
 use crate::vdp::colors::{ColorModifier, ColorTables};
 use crate::vdp::registers::{
-    DebugRegister, HorizontalDisplaySize, HorizontalScrollMode, InterlacingMode, Plane,
-    RIGHT_BORDER, Registers, ScrollSize, VerticalDisplaySize, VerticalScrollMode,
+    DebugRegister, HorizontalDisplaySize, InterlacingMode, Plane, RIGHT_BORDER, Registers,
+    ScrollSize, VerticalDisplaySize, VerticalScrollMode,
 };
 use crate::vdp::{Cram, TilePixel, TimingModeExt, Vdp, Vram, Vsram, colors};
 use jgenesis_common::frontend::{Color, TimingMode};
@@ -226,11 +226,7 @@ impl Vdp {
                         self.timing_mode,
                         self.config.render_vertical_border,
                     ) {
-                        self.render_right_border(
-                            right_border_row,
-                            self.state.last_h_scroll_a,
-                            self.state.last_h_scroll_b,
-                        );
+                        self.render_right_border(right_border_row, self.latched_h_scroll);
                     }
                 }
             }
@@ -273,21 +269,12 @@ impl Vdp {
         // H scroll values, but before rendering the background planes. Otherwise it uses the
         // scroll B palettes from the current line instead of the previous line.
         if self.config.render_horizontal_border {
-            self.render_left_border(
-                frame_buffer_row,
-                self.backdrop_color(),
-                self.state.last_h_scroll_a,
-                self.state.last_h_scroll_b,
-            );
+            self.render_left_border(frame_buffer_row, self.backdrop_color(), self.latched_h_scroll);
 
             // If not using debug register to force one of the BG planes, render right border now
             // in case the backdrop color changes between lines
             if matches!(self.debug_register.forced_plane, Plane::Background | Plane::Sprite) {
-                self.render_right_border(
-                    frame_buffer_row,
-                    self.state.last_h_scroll_a,
-                    self.state.last_h_scroll_b,
-                );
+                self.render_right_border(frame_buffer_row, self.latched_h_scroll);
             }
         }
     }
@@ -362,19 +349,7 @@ impl Vdp {
             InterlacingMode::InterlacedDouble => (v_scroll_size_pixels << 1) - 1,
         };
 
-        let h_scroll_scanline = match self.latched_registers.interlacing_mode {
-            InterlacingMode::Progressive | InterlacingMode::Interlaced => raster_line,
-            InterlacingMode::InterlacedDouble => raster_line / 2,
-        };
-        let (h_scroll_a, h_scroll_b) = read_h_scroll(
-            &self.vram,
-            self.latched_registers.h_scroll_table_base_addr,
-            self.latched_registers.horizontal_scroll_mode,
-            // Only the lowest 8 bits of raster line are used for H scroll lookups
-            h_scroll_scanline & 0xFF,
-        );
-        self.state.last_h_scroll_a = h_scroll_a;
-        self.state.last_h_scroll_b = h_scroll_b;
+        let (h_scroll_a, h_scroll_b) = self.latched_h_scroll;
 
         let active_display_pixels =
             self.latched_registers.horizontal_display_size.active_display_pixels();
@@ -704,8 +679,7 @@ impl Vdp {
         &mut self,
         frame_buffer_row: u32,
         bg_color: u16,
-        h_scroll_a: u16,
-        h_scroll_b: u16,
+        (h_scroll_a, h_scroll_b): (u16, u16),
     ) {
         let screen_width = self.screen_width();
         let left_border: u32 = self.latched_registers.horizontal_display_size.left_border().into();
@@ -783,7 +757,7 @@ impl Vdp {
         }
     }
 
-    fn render_right_border(&mut self, frame_buffer_row: u32, h_scroll_a: u16, h_scroll_b: u16) {
+    fn render_right_border(&mut self, frame_buffer_row: u32, (h_scroll_a, h_scroll_b): (u16, u16)) {
         let screen_width = self.screen_width() as u16;
         let right_border_start = screen_width - RIGHT_BORDER;
 
@@ -956,29 +930,6 @@ fn read_two_cell_v_scroll(
     } else {
         0
     }
-}
-
-fn read_h_scroll(
-    vram: &Vram,
-    h_scroll_table_addr: u16,
-    h_scroll_mode: HorizontalScrollMode,
-    scanline: u16,
-) -> (u16, u16) {
-    let h_scroll_addr = match h_scroll_mode {
-        HorizontalScrollMode::FullScreen => h_scroll_table_addr,
-        HorizontalScrollMode::Cell => h_scroll_table_addr.wrapping_add(32 * (scanline / 8)),
-        HorizontalScrollMode::Line => h_scroll_table_addr.wrapping_add(4 * scanline),
-        HorizontalScrollMode::Invalid => h_scroll_table_addr.wrapping_add(4 * (scanline & 0x7)),
-    };
-
-    let h_scroll_a =
-        u16::from_be_bytes([vram[h_scroll_addr as usize], vram[(h_scroll_addr + 1) as usize]]);
-    let h_scroll_b = u16::from_be_bytes([
-        vram[(h_scroll_addr + 2) as usize],
-        vram[(h_scroll_addr + 3) as usize],
-    ]);
-
-    (h_scroll_a & 0x03FF, h_scroll_b & 0x03FF)
 }
 
 #[derive(Debug, Clone, Copy, Default)]
