@@ -301,7 +301,7 @@ struct InternalState {
     // Used to store writes to either VDP port while a memory-to-VRAM DMA is in progress
     // (Can happen if a DMA is initiated using a longword write)
     pending_writes: Vec<PendingWrite>,
-    pending_write_delay_pixels: u8,
+    display_enable_pending: bool,
     data_port_read_wait: bool,
     vram_fill_data: Option<u16>,
     vram_copy_odd_slot: bool,
@@ -330,7 +330,7 @@ impl InternalState {
             pixel: 0,
             in_vblank: false,
             pending_writes: Vec::with_capacity(10),
-            pending_write_delay_pixels: 0,
+            display_enable_pending: false,
             data_port_read_wait: false,
             vram_fill_data: None,
             vram_copy_odd_slot: false,
@@ -687,17 +687,29 @@ impl Vdp {
     }
 
     fn write_vdp_register(&mut self, value: u16) {
+        let prev_display_enabled = self.registers.display_enabled;
         let prev_h_display_size = self.registers.horizontal_display_size;
         let prev_v_display_size = self.registers.vertical_display_size;
 
         let register_number = ((value >> 8) & 0x1F) as u8;
         self.registers.write_internal_register(register_number, value as u8);
 
+        if !prev_display_enabled && self.registers.display_enabled && !self.fifo.is_empty() {
+            // When display switches from disabled to enabled while FIFO is not empty, wait to
+            // enable display until the FIFO is emptied.
+            // Possibly not accurate, but fixes glitches in games that re-enable display immediately
+            // after the end of a DMA (e.g. Mickey Mania, Overdrive 1 & 2)
+            self.registers.display_enabled = false;
+            self.state.display_enable_pending = true;
+        } else {
+            self.state.display_enable_pending &= self.registers.display_enabled;
+        }
+
         if self.registers.hv_counter_stopped && self.state.latched_hv_counter.is_none() {
             let HVCounter { hv_counter, .. } =
                 self.hv_counter_internal(self.state.scanline_mclk_cycles);
             self.state.latched_hv_counter = Some(hv_counter);
-        } else if !self.registers.hv_counter_stopped && self.state.latched_hv_counter.is_some() {
+        } else if !self.registers.hv_counter_stopped {
             self.state.latched_hv_counter = None;
         }
 
@@ -1049,6 +1061,8 @@ impl Vdp {
                         cram_addr,
                         entry.word,
                     );
+
+                    render_partial_line = true;
                 }
                 DataPortLocation::Vsram => {
                     let vsram_addr = ((entry.address & 0x7F) >> 1) as usize;
@@ -1075,6 +1089,21 @@ impl Vdp {
         }
 
         self.state.data_port_read_wait &= !self.fifo.is_empty();
+
+        if self.state.display_enable_pending && self.fifo.is_empty() {
+            // Display was re-enabled with a non-empty FIFO; actually enable it now
+            self.state.display_enable_pending = false;
+            self.registers.display_enabled = true;
+            self.latched_registers.display_enabled = true;
+
+            self.sprite_state.handle_display_enabled_write(
+                self.registers.horizontal_display_size,
+                self.registers.display_enabled,
+                self.state.pixel,
+            );
+
+            render_partial_line = true;
+        }
 
         if render_partial_line {
             self.maybe_render_partial_line();
@@ -1357,13 +1386,6 @@ impl Vdp {
             }
 
             self.state.pixel += 1;
-
-            if self.state.pending_write_delay_pixels != 0 {
-                self.state.pending_write_delay_pixels -= 1;
-                if self.state.pending_write_delay_pixels == 0 {
-                    self.apply_pending_writes();
-                }
-            }
         }
     }
 
@@ -1513,11 +1535,10 @@ impl Vdp {
 
         self.control_port.dma_active = false;
 
+        // Apply any writes that occurred mid-DMA (e.g. from a MOVE.L instruction where the first
+        // word started a DMA)
         if !self.state.pending_writes.is_empty() {
-            // If any port writes were enqueued after starting a memory-to-VRAM DMA, wait 5
-            // pixels before applying them (slightly longer than 5 CPU cycles)
-            // Fewer than 5 pixels causes a glitchy line in Mickey Mania's 3D stages
-            self.state.pending_write_delay_pixels = 5;
+            self.apply_pending_writes();
         }
 
         log::trace!(

@@ -99,8 +99,8 @@ impl HorizontalDisplaySize {
         }
     }
 
-    pub const fn max_sprite_pixels_per_line(self) -> u16 {
-        self.active_display_pixels()
+    pub const fn max_sprite_tiles_per_line(self) -> u16 {
+        self.active_display_pixels() / 8
     }
 
     pub const fn window_width_cells(self) -> u16 {

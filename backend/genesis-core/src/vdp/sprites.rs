@@ -67,7 +67,7 @@ impl SpriteState {
     }
 
     fn increment_pixels_disabled(&mut self, pixel: u16, h_display_size: HorizontalDisplaySize) {
-        self.pixels_disabled_during_hblank += if pixel > self.display_enabled_pixel {
+        self.pixels_disabled_during_hblank += if pixel >= self.display_enabled_pixel {
             pixel - self.display_enabled_pixel
         } else {
             pixel + h_display_size.pixels_including_hblank() - self.display_enabled_pixel
@@ -147,12 +147,8 @@ impl Vdp {
         // Actual hardware doesn't work exactly this way (it depends on exactly which VRAM access slots
         // display was disabled during), but this approximation works well enough for Mickey Mania's
         // 3D stages and Titan Overdrive's "your emulator suxx" screen
-        let sprites_not_scanned = if self.sprite_state.pixels_disabled_during_hblank != 0 {
-            self.sprite_state.pixels_disabled_during_hblank + 2
-        } else {
-            0
-        };
-        let max_sprites_to_scan = h_size.sprite_table_len().saturating_sub(sprites_not_scanned);
+        let sprites_skipped = self.sprite_state.pixels_disabled_during_hblank;
+        let max_sprites_to_scan = h_size.sprite_table_len().saturating_sub(sprites_skipped);
 
         let interlacing_mode = self.latched_registers.interlacing_mode;
         let sprite_scanline = (interlacing_mode.sprite_display_top() + raster_line.line)
@@ -251,27 +247,21 @@ impl Vdp {
         let sprite_display_area =
             SPRITE_H_DISPLAY_START..SPRITE_H_DISPLAY_START + h_size.active_display_pixels();
 
-        let half_tiles_not_fetched = if self.sprite_state.pixels_disabled_during_hblank != 0 {
-            self.sprite_state.pixels_disabled_during_hblank + 2
-        } else {
-            0
-        };
-
         let interlacing_mode = self.latched_registers.interlacing_mode;
         let sprite_scanline = interlacing_mode.sprite_display_top() + raster_line.line;
         let cell_height_shift = interlacing_mode.cell_height_shift();
         let y_mask = y_position_mask(interlacing_mode);
 
-        // Apply max sprite pixel per scanline limit.
+        // Apply max sprite tile per scanline limit.
         //
-        // If display was disabled during HBlank on the previous scanline, the number of sprite pixels
+        // If display was disabled during HBlank on the previous scanline, the number of sprite tiles
         // rendered is reduced roughly proportional to the number of pixels during which display was
-        // disabled.
+        // disabled (1 tile fetched per slot, i.e. 2 pixels).
         // As above, this is an approximation; in actual hardware it depends on which VRAM access slots
         // were skipped because display was disabled
-        let max_sprite_pixels_per_line =
-            h_size.max_sprite_pixels_per_line().saturating_sub(4 * half_tiles_not_fetched);
-        let max_sprite_tiles_per_line = max_sprite_pixels_per_line / 8;
+        let tiles_skipped = self.sprite_state.pixels_disabled_during_hblank.div_ceil(2);
+        let max_sprite_tiles_per_line =
+            h_size.max_sprite_tiles_per_line().saturating_sub(tiles_skipped);
 
         let mut tiles_fetched = 0;
         let mut dot_overflow = false;
