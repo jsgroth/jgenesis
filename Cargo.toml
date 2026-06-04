@@ -125,6 +125,7 @@ opt-level = 3
 
 [profile.release]
 incremental = true
+lto = "thin"
 
 [profile.release.build-override]
 opt-level = 1
