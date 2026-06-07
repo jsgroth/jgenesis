@@ -966,8 +966,14 @@ impl Vdp {
             // Mask out bit 10 (only used by legacy modes)
             _ => self.registers.base_name_table_address & 0xF800,
         };
-        let name_table_addr = (base_name_table_addr + (row << 6) + (col << 1))
-            & self.registers.name_table_address_mask;
+
+        let name_table_address_mask = if self.registers.version.is_sms1() {
+            self.registers.name_table_address_mask
+        } else {
+            0xFFFF
+        };
+        let name_table_addr =
+            (base_name_table_addr + (row << 6) + (col << 1)) & name_table_address_mask;
         let low_byte = self.vram[name_table_addr as usize];
         let high_byte = self.vram[(name_table_addr + 1) as usize];
 

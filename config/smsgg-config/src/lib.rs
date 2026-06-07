@@ -30,8 +30,8 @@ pub enum Sn76489Version {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum SmsModel {
-    #[default]
     Sms1,
+    #[default]
     Sms2,
 }
 
