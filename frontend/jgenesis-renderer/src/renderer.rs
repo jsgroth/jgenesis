@@ -236,24 +236,25 @@ impl RenderingPipeline {
         }
 
         // xBRZ upscaling
-        if let Some(xbrz_shader) = UpscaleShader::create_xbrz(
-            renderer_config.preprocess_shader,
-            device,
-            shaders,
-            &current_output_texture!(),
-        ) {
+        if let Some(scale_factor) = renderer_config.preprocess_shader.xbrz_scale_factor()
+            && let Some(xbrz_shader) = UpscaleShader::create_xbrz(
+                device,
+                shaders,
+                &current_output_texture!(),
+                scale_factor,
+            )
+        {
             log::debug!("Adding xBRZ shader");
             shader_pipeline.push(Box::new(xbrz_shader));
         }
 
         // MMPX upscaling
-        if renderer_config.preprocess_shader == PreprocessShader::Mmpx {
+        if renderer_config.preprocess_shader == PreprocessShader::Mmpx
+            && let Some(mmpx_shader) =
+                UpscaleShader::create_mmpx(device, shaders, &current_output_texture!())
+        {
             log::debug!("Adding MMPX shader");
-            shader_pipeline.push(Box::new(UpscaleShader::create_mmpx(
-                device,
-                shaders,
-                &current_output_texture!(),
-            )));
+            shader_pipeline.push(Box::new(mmpx_shader));
         }
 
         // Frame blending
@@ -827,7 +828,12 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             .request_device(&wgpu::DeviceDescriptor {
                 label: "device".into(),
                 required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
+                required_limits: wgpu::Limits {
+                    // Default texture dimension limit is 8K but basically every modern device
+                    // supports 16K textures; use whatever the device supports
+                    max_texture_dimension_2d: adapter.limits().max_texture_dimension_2d,
+                    ..wgpu::Limits::default()
+                },
                 memory_hints: wgpu::MemoryHints::default(),
                 trace: wgpu::Trace::Off,
             })

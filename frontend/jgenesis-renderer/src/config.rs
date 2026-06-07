@@ -230,6 +230,17 @@ impl PreprocessShader {
                 | Self::HorizontalBlurSnesAdaptive
         )
     }
+
+    pub(crate) fn xbrz_scale_factor(self) -> Option<u32> {
+        match self {
+            Self::Xbrz2x => Some(2),
+            Self::Xbrz3x => Some(3),
+            Self::Xbrz4x => Some(4),
+            Self::Xbrz5x => Some(5),
+            Self::Xbrz6x => Some(6),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumFromStr, EnumAll)]

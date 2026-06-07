@@ -4,6 +4,7 @@ use crate::config::{
 use crate::renderer::{PipelineShader, Shaders};
 use jgenesis_common::frontend::{ColorCorrection, DisplayArea, FiniteF64, FrameSize};
 use std::sync::Arc;
+use thiserror::Error;
 use wgpu::util::DeviceExt;
 
 const IDENTITY_VERTICES: u32 = 4;
@@ -664,6 +665,14 @@ impl PipelineShader for PrescaleShader {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum UpscaleShaderError {
+    #[error(
+        "Scaled texture size of {scaled_width}x{scaled_height} exceeds GPU device's maximum of {max_dimension}x{max_dimension}"
+    )]
+    TextureTooLarge { scaled_width: u32, scaled_height: u32, max_dimension: u32 },
+}
+
 pub struct UpscaleShader {
     output: Arc<wgpu::Texture>,
     bind_group: wgpu::BindGroup,
@@ -674,28 +683,40 @@ pub struct UpscaleShader {
 
 impl UpscaleShader {
     pub fn create_xbrz(
-        preprocess_shader: PreprocessShader,
+        device: &wgpu::Device,
+        shaders: &Shaders,
+        input: &wgpu::Texture,
+        scale_factor: u32,
+    ) -> Option<Self> {
+        let shader = (&shaders.xbrz, None);
+        let shader_constants = [("scale_factor", scale_factor.into())];
+
+        match Self::create(device, shader, &shader_constants, input, scale_factor) {
+            Ok(shader) => Some(shader),
+            Err(err) => {
+                log::error!("Error creating xBRZ {scale_factor}x shader: {err}");
+                if scale_factor > 2 {
+                    log::info!("Attempting to create an xBRZ {}x shader instead", scale_factor - 1);
+                    Self::create_xbrz(device, shaders, input, scale_factor - 1)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    pub fn create_mmpx(
         device: &wgpu::Device,
         shaders: &Shaders,
         input: &wgpu::Texture,
     ) -> Option<Self> {
-        let scale_factor = match preprocess_shader {
-            PreprocessShader::Xbrz2x => 2,
-            PreprocessShader::Xbrz3x => 3,
-            PreprocessShader::Xbrz4x => 4,
-            PreprocessShader::Xbrz5x => 5,
-            PreprocessShader::Xbrz6x => 6,
-            _ => return None,
-        };
-
-        let shader = (&shaders.xbrz, None);
-        let shader_constants = [("scale_factor", scale_factor.into())];
-
-        Some(Self::create(device, shader, &shader_constants, input, scale_factor))
-    }
-
-    pub fn create_mmpx(device: &wgpu::Device, shaders: &Shaders, input: &wgpu::Texture) -> Self {
-        Self::create(device, (&shaders.mmpx, None), &[], input, 2)
+        match Self::create(device, (&shaders.mmpx, None), &[], input, 2) {
+            Ok(shader) => Some(shader),
+            Err(err) => {
+                log::error!("Error creating MMPX shader: {err}");
+                None
+            }
+        }
     }
 
     pub fn create(
@@ -704,12 +725,24 @@ impl UpscaleShader {
         shader_constants: &[(&str, f64)],
         input: &wgpu::Texture,
         scale_factor: u32,
-    ) -> Self {
+    ) -> Result<Self, UpscaleShaderError> {
+        let scaled_width = scale_factor * input.width();
+        let scaled_height = scale_factor * input.height();
+        let max_dimension = device.limits().max_texture_dimension_2d;
+
+        if scaled_width > max_dimension || scaled_height > max_dimension {
+            return Err(UpscaleShaderError::TextureTooLarge {
+                scaled_width,
+                scaled_height,
+                max_dimension,
+            });
+        }
+
         let output = device.create_texture(&wgpu::TextureDescriptor {
             label: "xbrz_texture".into(),
             size: wgpu::Extent3d {
-                width: scale_factor * input.width(),
-                height: scale_factor * input.height(),
+                width: scaled_width,
+                height: scaled_height,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -755,7 +788,7 @@ impl UpscaleShader {
         let x_workgroups = input.width().div_ceil(16);
         let y_workgroups = input.height().div_ceil(16);
 
-        Self { output: Arc::new(output), bind_group, pipeline, x_workgroups, y_workgroups }
+        Ok(Self { output: Arc::new(output), bind_group, pipeline, x_workgroups, y_workgroups })
     }
 }
 
