@@ -197,22 +197,25 @@ impl SsfMapper {
     }
 
     #[must_use]
+    #[allow(clippy::missing_panics_doc)]
     pub fn should_use(rom: &[u8]) -> bool {
-        // Only one game uses the bank switching Sega mapper, Super Street Fighter 2
-        // Additionally enable the bank switching mapper for any cartridge that declares its system type as "SEGA SSF"
-        let serial_number = &rom[0x183..0x18B];
-        let is_ssf2 = is_super_street_fighter_2(serial_number);
-        let is_ssf_system = &rom[0x100..0x110] == b"SEGA SSF        ";
+        // Enable the bank switching mapper for any cartridge that declares its system type as "SEGA SSF"
+        if &rom[0x100..0x110] == b"SEGA SSF        " {
+            return true;
+        }
 
-        // Demons of Asteborg specifies its system as "SEGA DOA" but expects the SSF mapper
-        let is_doa = &rom[0x100..0x108] == b"SEGA DOA";
+        // If ROM is larger than 4 MB but address range is specified as $000000-$3FFFFF, assume it
+        // needs the SSF mapper (Super Street Fighter II, Demons of Asteborg, various homebrew)
+        if rom.len() > 0x400000 {
+            let rom_range_start = u32::from_be_bytes(rom[0x1A0..0x1A4].try_into().unwrap());
+            let rom_range_end = u32::from_be_bytes(rom[0x1A4..0x1A8].try_into().unwrap());
+            if rom_range_start == 0x000000 && rom_range_end == 0x3FFFFF {
+                return true;
+            }
+        }
 
-        is_ssf2 | is_ssf_system | is_doa
+        false
     }
-}
-
-fn is_super_street_fighter_2(serial_number: &[u8]) -> bool {
-    serial_number == b"T-12056 " || serial_number == b"MK-12056" || serial_number == b"T-12043 "
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
