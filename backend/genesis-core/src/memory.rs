@@ -504,13 +504,12 @@ impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u32>
 
     // $A11100
     fn read_busack_register(&self) -> u16 {
-        // Word reads of Z80 BUSREQ signal mirror the byte in both MSB and LSB (TODO is this right or should only bit 8 be set?)
-        let busack_byte: u8 = (!self.memory.signals.z80_busack()).into();
-        let busack_word = u16::from_be_bytes([busack_byte, busack_byte]);
+        // Bit 8 is Z80 BUSACK (active low), other bits are unused
+        let busack_word = u16::from(!self.memory.signals.z80_busack()) << 8;
 
-        // Unused bits should read open bus; Danny Sullivan's Indy Heat (Proto) depends on this or
-        // it will fail to boot
-        busack_word | (self.memory.open_bus & !0x0101)
+        // Unused bits should read open bus; Danny Sullivan's Indy Heat (Proto) and Time Killers
+        // depend on this or they will fail to boot
+        busack_word | (self.memory.open_bus & !(1 << 8))
     }
 }
 
@@ -546,7 +545,9 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterfa
                 }
             }
             0xA10000..=0xA1001F => self.read_io_register(address | 1),
-            0xA11100..=0xA11101 => (self.read_busack_register() >> 8) as u8,
+            0xA11100..=0xA11101 => {
+                self.read_busack_register().to_be_bytes()[(address & 1) as usize]
+            }
             0xC00000..=0xC0001F => self.read_vdp_byte(address),
             0xE00000..=0xFFFFFF => {
                 if let Some(cheat) = self.memory.ram_cheat_overrides.get(address) {
