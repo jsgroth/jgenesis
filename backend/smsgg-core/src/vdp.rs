@@ -1219,8 +1219,8 @@ impl Vdp {
                 }
                 VdpEvent::FrameInterruptPending => {
                     if self.scanline == active_scanlines {
-                        self.registers.frame_interrupt_pending = true;
-                        self.registers.frame_interrupt_flag = true;
+                        self.registers.frame_interrupt_pending =
+                            self.registers.frame_interrupt_flag;
 
                         self.fill_vertical_border();
                     }
