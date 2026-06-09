@@ -1,7 +1,9 @@
 use crate::config::CommonConfig;
 use crate::mainloop::audio::{SdlAudioOutput, SdlAudioOutputHandle};
 use crate::mainloop::input::{ThreadedInputPoller, ThreadedInputPollerHandle};
-use crate::mainloop::render::{RecvFrameError, ThreadedRenderer, ThreadedRendererHandle};
+use crate::mainloop::render::{
+    RecvFrameError, ThreadedRenderer, ThreadedRendererError, ThreadedRendererHandle,
+};
 use crate::mainloop::rewind::Rewinder;
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::state::{SaveStatePaths, StateSaverThreadHandle};
@@ -36,6 +38,7 @@ pub enum RunnerCommand<Emulator: EmulatorTrait> {
     Rewind { enabled: bool },
     SaveState { slot: usize },
     LoadState { slot: usize },
+    ForceRender,
     ReloadConfig(Box<(CommonConfig, Emulator::Config)>),
     StartDebugger(Box<NativeDebuggerRunnerProcess<Emulator>>),
     StopDebugger,
@@ -338,6 +341,11 @@ fn run_thread<Emulator: EmulatorTrait>(mut state: RunnerThreadState<Emulator>) {
             Err(CommandError::ReloadConfig(err)) => {
                 log::error!("{}", CommandError::ReloadConfig(err));
             }
+            Err(CommandError::Render(err)) => {
+                log::error!("Error rendering frame: {err}");
+                let _ = state.error_sender.send(err.into());
+                return;
+            }
             Err(CommandError::LostConnection) => {
                 log::error!("{}", CommandError::LostConnection);
                 return;
@@ -397,6 +405,8 @@ enum CommandEffect {
 enum CommandError {
     #[error("Error reloading config: {0}")]
     ReloadConfig(#[source] NativeEmulatorError),
+    #[error("Error rendering frame: {0}")]
+    Render(#[from] ThreadedRendererError),
     #[error("Lost connection to main thread")]
     LostConnection,
 }
@@ -460,6 +470,9 @@ fn handle_command<Emulator: EmulatorTrait>(
         }
         RunnerCommand::LoadState { slot } => {
             load_state(state, slot)?;
+        }
+        RunnerCommand::ForceRender => {
+            state.emulator.force_render(&mut state.renderer)?;
         }
         RunnerCommand::ReloadConfig(configs) => {
             state.reload_configs(configs.0, configs.1).map_err(CommandError::ReloadConfig)?;

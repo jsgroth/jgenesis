@@ -2,7 +2,7 @@ mod helptext;
 
 use crate::app::widgets::NumericTextEdit;
 use crate::app::{App, OpenWindow, WaitingForInput};
-use crate::emuthread::EmuThreadCommand;
+use crate::emuthread::{EmuThreadCommand, EmuThreadHandle};
 use egui::{Button, Color32, ComboBox, Context, Grid, ScrollArea, Slider, Ui, Window};
 use gb_config::GameBoyButton;
 use gba_config::GbaButton;
@@ -379,6 +379,10 @@ impl App {
                 self.render_input_buttons("smsgg_p1_input_settings", mapping, &P1_BUTTONS, ui);
                 self.render_input_buttons("smsgg_p2_input_settings", mapping, &P2_BUTTONS, ui);
                 ui.end_row();
+
+                self.render_configure_all_button(&P1_BUTTONS, mapping, ui);
+                self.render_configure_all_button(&P2_BUTTONS, mapping, ui);
+                ui.end_row();
             });
 
             ui.add_space(15.0);
@@ -513,6 +517,10 @@ impl App {
                 self.render_input_buttons("genesis_p1_input_settings", mapping, p1_buttons, ui);
                 self.render_input_buttons("genesis_p2_input_settings", mapping, p2_buttons, ui);
                 ui.end_row();
+
+                self.render_configure_all_button(p1_buttons, mapping, ui);
+                self.render_configure_all_button(p2_buttons, mapping, ui);
+                ui.end_row();
             });
 
             ui.add_space(15.0);
@@ -602,6 +610,10 @@ impl App {
 
                 self.render_input_buttons("nes_p1_inputs", mapping, &P1_BUTTONS, ui);
                 self.render_input_buttons("nes_p2_inputs", mapping, &P2_BUTTONS, ui);
+                ui.end_row();
+
+                self.render_configure_all_button(&P1_BUTTONS, mapping, ui);
+                self.render_configure_all_button(&P2_BUTTONS, mapping, ui);
                 ui.end_row();
             });
 
@@ -738,6 +750,10 @@ impl App {
                 self.render_input_buttons("snes_p1_inputs", mapping, &P1_BUTTONS, ui);
                 self.render_input_buttons("snes_p2_inputs", mapping, &P2_BUTTONS, ui);
                 ui.end_row();
+
+                self.render_configure_all_button(&P1_BUTTONS, mapping, ui);
+                self.render_configure_all_button(&P2_BUTTONS, mapping, ui);
+                ui.end_row();
             });
 
             ui.add_space(15.0);
@@ -847,6 +863,8 @@ impl App {
 
             self.render_input_buttons("gb_inputs", mapping, &BUTTONS, ui);
 
+            self.render_configure_all_button(&BUTTONS, mapping, ui);
+
             ui.add_space(15.0);
 
             ui.horizontal(|ui| {
@@ -896,6 +914,8 @@ impl App {
             ui.separator();
 
             self.render_input_buttons("gba_inputs", mapping, &BUTTONS, ui);
+
+            self.render_configure_all_button(&BUTTONS, mapping, ui);
 
             ui.add_space(15.0);
 
@@ -1032,6 +1052,9 @@ impl App {
 
             Grid::new("pce_inputs").spacing([50.0, 5.0]).show(ui, |ui| {
                 self.render_input_buttons("pce_p1_inputs", mapping, &P1_BUTTONS, ui);
+                ui.end_row();
+
+                self.render_configure_all_button(&P1_BUTTONS, mapping, ui);
                 ui.end_row();
             });
 
@@ -1195,9 +1218,13 @@ impl App {
 
                 let current_value_str = format_input_str(current_value.as_ref());
                 if ui.button(current_value_str).clicked() {
-                    self.emu_thread.send(EmuThreadCommand::CollectInput);
-                    self.state.waiting_for_input =
-                        Some(WaitingForInput { button: *button, mapping, turbo: false });
+                    send_collect_input_request(
+                        &self.emu_thread,
+                        &mut self.state.waiting_for_input,
+                        vec![*button],
+                        mapping,
+                        false,
+                    );
                 }
 
                 if ui.button("Clear").clicked() {
@@ -1211,9 +1238,13 @@ impl App {
 
                     let turbo_value_str = format_input_str(turbo_value.as_ref());
                     if ui.button(turbo_value_str).clicked() {
-                        self.emu_thread.send(EmuThreadCommand::CollectInput);
-                        self.state.waiting_for_input =
-                            Some(WaitingForInput { button: *button, mapping, turbo: true });
+                        send_collect_input_request(
+                            &self.emu_thread,
+                            &mut self.state.waiting_for_input,
+                            vec![*button],
+                            mapping,
+                            true,
+                        );
                     }
 
                     if ui.button("Clear").clicked() {
@@ -1240,6 +1271,36 @@ impl App {
 
         *field
     }
+
+    fn render_configure_all_button(
+        &mut self,
+        buttons: &[GenericButton],
+        mapping: InputMappingSet,
+        ui: &mut Ui,
+    ) {
+        ui.add_enabled_ui(!self.emu_thread.status().is_running(), |ui| {
+            if ui.button("Configure all").clicked() {
+                send_collect_input_request(
+                    &self.emu_thread,
+                    &mut self.state.waiting_for_input,
+                    buttons.to_vec(),
+                    mapping,
+                    false,
+                );
+            }
+        });
+    }
+}
+
+fn send_collect_input_request(
+    emu_thread: &EmuThreadHandle,
+    waiting_for_input: &mut Option<WaitingForInput>,
+    buttons: Vec<GenericButton>,
+    mapping: InputMappingSet,
+    turbo: bool,
+) {
+    emu_thread.send(EmuThreadCommand::CollectInput(buttons.clone()));
+    *waiting_for_input = Some(WaitingForInput { buttons, mapping, turbo });
 }
 
 fn format_input_str(value: Option<&Vec<GenericInput>>) -> String {

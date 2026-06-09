@@ -13,6 +13,7 @@ use std::array;
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::ops::Deref;
 use std::rc::Rc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -74,9 +75,19 @@ pub enum InputEvent<Button> {
     Hotkey { hotkey: Hotkey, pressed: bool },
 }
 
+pub struct InitialAxisDirections(pub Vec<(u8, AxisDirection)>);
+
+impl Deref for InitialAxisDirections {
+    type Target = Vec<(u8, AxisDirection)>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 pub struct Joysticks {
     subsystem: JoystickSubsystem,
-    open_joysticks: Vec<Joystick>,
+    open_joysticks: Vec<(Joystick, InitialAxisDirections)>,
     joystick_id_to_device_id: FxHashMap<u32, u32>,
     device_id_to_idx: FxHashMap<u32, usize>,
 }
@@ -98,7 +109,9 @@ impl Joysticks {
 
         let name = joystick.name();
 
-        self.open_joysticks.push(joystick);
+        let initial_axis_directions = read_initial_axis_directions(&joystick);
+
+        self.open_joysticks.push((joystick, initial_axis_directions));
         self.regenerate_id_maps().map_err(IntegerOrSdlError::SdlError)?;
 
         if let Some(&device_id) = self.joystick_id_to_device_id.get(&joystick_id) {
@@ -112,7 +125,7 @@ impl Joysticks {
     pub fn handle_device_removed(&mut self, joystick_id: u32) -> Result<Option<u32>, sdl3::Error> {
         let device_id = self.joystick_id_to_device_id.get(&joystick_id).copied();
 
-        self.open_joysticks.retain(|joystick| joystick.id() != joystick_id);
+        self.open_joysticks.retain(|(joystick, _)| joystick.id() != joystick_id);
         self.regenerate_id_maps()?;
 
         if let Some(device_id) = device_id {
@@ -130,7 +143,7 @@ impl Joysticks {
         let joystick_ids = self.subsystem.joysticks()?;
         for (device_id, joystick_id) in joystick_ids.into_iter().enumerate() {
             let Some(idx) =
-                self.open_joysticks.iter().position(|joystick| joystick.id() == joystick_id.0)
+                self.open_joysticks.iter().position(|(joystick, _)| joystick.id() == joystick_id.0)
             else {
                 continue;
             };
@@ -154,14 +167,41 @@ impl Joysticks {
 
     #[must_use]
     pub fn device(&self, device_id: u32) -> Option<&Joystick> {
-        self.device_id_to_idx.get(&device_id).map(|&idx| &self.open_joysticks[idx])
+        self.device_id_to_idx.get(&device_id).map(|&idx| &self.open_joysticks[idx].0)
     }
 
-    pub fn all_devices(&self) -> impl Iterator<Item = (u32, &'_ Joystick)> + '_ {
+    #[must_use]
+    pub fn initial_axis_directions(
+        &self,
+        device_id: u32,
+    ) -> Option<impl Iterator<Item = (u8, AxisDirection)>> {
+        self.device_id_to_idx.get(&device_id).map(|&idx| self.open_joysticks[idx].1.iter().copied())
+    }
+
+    pub fn all_devices(
+        &self,
+    ) -> impl Iterator<Item = (u32, &'_ (Joystick, InitialAxisDirections))> + '_ {
         self.device_id_to_idx
             .iter()
             .map(|(&device_id, &idx)| (device_id, &self.open_joysticks[idx]))
     }
+}
+
+fn read_initial_axis_directions(joystick: &Joystick) -> InitialAxisDirections {
+    InitialAxisDirections(
+        (0..joystick.num_axes())
+            .filter_map(|axis_id| {
+                let value = joystick.axis(axis_id).ok()?;
+                if value > 30000 {
+                    Some((axis_id as u8, AxisDirection::Positive))
+                } else if value < -30000 {
+                    Some((axis_id as u8, AxisDirection::Negative))
+                } else {
+                    None
+                }
+            })
+            .collect(),
+    )
 }
 
 struct InputMapperState<Button> {

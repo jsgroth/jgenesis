@@ -14,7 +14,7 @@ mod widgets;
 
 use crate::app::cheats::CheatWindowState;
 use crate::app::genesis::{GenesisVolumeState, S32XPriorityState};
-use crate::app::input::{GenericButton, InputMappingSet};
+use crate::app::input::InputMappingSet;
 use crate::app::nes::{NesPaletteState, OverscanState};
 use crate::app::romlist::{RomListThreadHandle, RomMetadata};
 use crate::app::snes::HandledError;
@@ -45,6 +45,7 @@ use std::{fs, thread};
 use time::{OffsetDateTime, UtcOffset, format_description};
 
 pub(crate) use cheats::ActiveCheats;
+pub(crate) use input::GenericButton;
 
 const RESERVED_HELP_TEXT_HEIGHT: f32 = 150.0;
 
@@ -212,7 +213,7 @@ struct HelpText {
 }
 
 struct WaitingForInput {
-    button: GenericButton,
+    buttons: Vec<GenericButton>,
     mapping: InputMappingSet,
     turbo: bool,
 }
@@ -1222,23 +1223,48 @@ impl App {
     }
 
     fn check_waiting_for_input(&mut self, ctx: &Context) {
-        if let Some(WaitingForInput { button, mapping, turbo }) = self.state.waiting_for_input {
-            if let Ok(input) = self.emu_thread.poll_input_receiver() {
-                self.state.waiting_for_input = None;
+        let Some(WaitingForInput { buttons, mapping, turbo }) = &mut self.state.waiting_for_input
+        else {
+            return;
+        };
 
-                log::info!("Received input {input:?} for button {button:?}");
-                if let Some(input) = input
-                    && !input.is_empty()
-                    && let Some(value) =
-                        button.access_value_maybe_turbo(mapping, &mut self.config.input, turbo)
-                {
-                    *value = Some(input);
+        while let Ok(input) = self.emu_thread.poll_input_receiver() {
+            let Some(button) = buttons.first() else {
+                self.state.waiting_for_input = None;
+                return;
+            };
+
+            log::info!("Received input {input:?} for button {button:?}");
+
+            match input {
+                Some(input) => {
+                    if !input.is_empty()
+                        && let Some(value) = button.access_value_maybe_turbo(
+                            *mapping,
+                            &mut self.config.input,
+                            *turbo,
+                        )
+                    {
+                        *value = Some(input);
+                    }
+
+                    buttons.remove(0);
+                    if buttons.is_empty() {
+                        self.state.waiting_for_input = None;
+                        return;
+                    }
                 }
-            } else if self.emu_thread.status().is_running() {
-                Window::new("Input Configuration").resizable(false).show(ctx, |ui| {
-                    ui.colored_label(Color32::GREEN, "Use the emulator window to configure input");
-                });
+                None => {
+                    self.state.waiting_for_input = None;
+                    return;
+                }
             }
+        }
+
+        if self.emu_thread.status().is_running() {
+            Window::new("Input Configuration").resizable(false).show(ctx, |ui| {
+                ui.colored_label(Color32::GREEN, "Use the emulator window to configure input");
+            });
         }
     }
 

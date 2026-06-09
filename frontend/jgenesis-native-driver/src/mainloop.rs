@@ -231,8 +231,12 @@ impl<Emulator: EmulatorTrait> NativeEmulator<Emulator> {
         self.renderer.focus();
     }
 
-    pub fn event_pump_and_joysticks_mut(&mut self) -> (&mut EventPump, &mut Joysticks) {
-        (&mut self.event_pump, self.input_mapper.joysticks_mut())
+    pub fn joysticks(&mut self) -> &mut Joysticks {
+        self.input_mapper.joysticks_mut()
+    }
+
+    pub fn event_pump(&mut self) -> &mut EventPump {
+        &mut self.event_pump
     }
 }
 
@@ -584,7 +588,7 @@ where
                     return Ok(Some(NativeTickEffect::PowerOff));
                 }
                 Event::Window { win_event, window_id, .. } => {
-                    if let Some(effect) = self.handle_window_event(win_event, window_id)? {
+                    if let Some(effect) = self.handle_window_event(&win_event, window_id)? {
                         return Ok(Some(effect));
                     }
                 }
@@ -632,9 +636,10 @@ where
         Ok(None)
     }
 
-    fn handle_window_event(
+    #[allow(clippy::missing_errors_doc)]
+    pub fn handle_window_event(
         &mut self,
-        win_event: WindowEvent,
+        win_event: &WindowEvent,
         window_id: u32,
     ) -> NativeEmulatorResult<Option<NativeTickEffect>> {
         match win_event {
@@ -800,17 +805,34 @@ where
 
     /// # Errors
     ///
-    /// Returns an error if the state cannot be saved (e.g. due to I/O error).
+    /// Returns an error if runner thread has disconnected.
     pub fn save_state(&mut self, slot: usize) -> NativeEmulatorResult<()> {
         self.runner.send_command(RunnerCommand::SaveState { slot })
     }
 
     /// # Errors
     ///
-    /// Return an error if the state cannot be loaded (e.g. due to I/O error or because the save
-    /// state does not exist).
+    /// Returns an error if runner thread has disconnected.
     pub fn load_state(&mut self, slot: usize) -> NativeEmulatorResult<()> {
         self.runner.send_command(RunnerCommand::LoadState { slot })
+    }
+
+    /// # Errors
+    ///
+    /// Returns an error if runner thread has disconnected or if there is an error rendering the
+    /// frame to the viewport.
+    pub fn force_render(&mut self) -> NativeEmulatorResult<()> {
+        self.runner.send_command(RunnerCommand::ForceRender)?;
+
+        match self.runner.try_recv_frame(&mut self.renderer, Duration::from_millis(10)) {
+            Ok(()) | Err(RecvFrameError::Recv(_)) => {}
+            Err(RecvFrameError::LostConnection) => {
+                return Err(NativeEmulatorError::LostRunnerConnection);
+            }
+            Err(RecvFrameError::Render(err)) => return Err(NativeEmulatorError::Render(err)),
+        }
+
+        Ok(())
     }
 
     /// Try to load the most recent save state.
