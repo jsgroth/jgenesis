@@ -30,9 +30,9 @@ use jgenesis_common::frontend::{
 };
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::EnumAll;
+use std::array;
 use std::collections::VecDeque;
 use std::ops::Range;
-use std::{array, cmp};
 use z80_emu::traits::InterruptLine;
 
 pub use crate::vdp::colors::ColorModifier;
