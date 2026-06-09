@@ -1,6 +1,6 @@
 [package]
 name = "jgenesis-web"
-version = "0.7.1"
+version = { workspace = true }
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -43,7 +43,7 @@ wgpu = { workspace = true }
 winit = { workspace = true, features = ["serde"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.web-sys]
-version = "0.3"
+workspace = true
 features = [
     "Window",
     "Document",

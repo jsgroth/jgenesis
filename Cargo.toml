@@ -6,7 +6,10 @@ members = [
     "backend/*",
     "frontend/*",
 ]
-resolver = "2"
+resolver = "3"
+
+[workspace.package]
+version = "0.12.1"
 
 [workspace.dependencies]
 # Third-party dependencies
@@ -60,6 +63,7 @@ console_log = "1"
 js-sys = "0.3"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
+web-sys = "0.3"
 web-time = "1"
 
 # Workspace common libraries

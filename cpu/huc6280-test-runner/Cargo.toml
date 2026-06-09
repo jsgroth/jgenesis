@@ -1,6 +1,6 @@
 [package]
 name = "huc6280-test-runner"
-version = "0.1.0"
+version = { workspace = true }
 edition = "2024"
 
 [dependencies]
