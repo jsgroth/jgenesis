@@ -1,4 +1,4 @@
-use crate::input::{GenericInput, Hotkey};
+use crate::input::{GenericInput, Hotkey, KeyboardInput};
 use gb_config::GameBoyButton;
 use gba_config::GbaButton;
 use genesis_config::{GenesisButton, GenesisControllerType};
@@ -20,7 +20,7 @@ pub type HotkeyMappingVec<'a> = Vec<(Hotkey, &'a Vec<GenericInput>)>;
 
 macro_rules! key_input {
     ($key:ident) => {
-        Some(vec![GenericInput::Keyboard(Keycode::$key)])
+        Some(vec![GenericInput::Keyboard(KeyboardInput::Keycode(Keycode::$key))])
     };
 }
 
@@ -1042,12 +1042,12 @@ macro_rules! define_hotkey_mapping {
         None
     };
     (@default $default:ident) => {
-        Some(vec![GenericInput::Keyboard(Keycode::$default)])
+        Some(vec![GenericInput::Keyboard(KeyboardInput::Keycode(Keycode::$default))])
     };
     (@default ($($default:ident $(+)?)*)) => {
         Some(vec![
             $(
-                GenericInput::Keyboard(Keycode::$default),
+                GenericInput::Keyboard(KeyboardInput::Keycode(Keycode::$default)),
             )*
         ])
     };

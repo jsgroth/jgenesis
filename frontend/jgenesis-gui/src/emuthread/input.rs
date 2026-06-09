@@ -3,11 +3,14 @@ use crate::emuthread::GenericEmulator;
 use anyhow::anyhow;
 use egui::RichText;
 use egui_wgpu::ScreenDescriptor;
-use jgenesis_native_config::input::{AxisDirection, GamepadAction, GenericInput, HatDirection};
+use jgenesis_native_config::input::{
+    AxisDirection, GamepadAction, GenericInput, HatDirection, KeyboardInput,
+};
 use jgenesis_native_driver::input::Joysticks;
 use sdl3::EventPump;
 use sdl3::event::{Event, WindowEvent};
 use sdl3::joystick::{HatState, Joystick};
+use sdl3::keyboard::{Keycode, Scancode};
 use sdl3::video::Window;
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::Sender;
@@ -310,13 +313,15 @@ fn collect_input(
                 Event::Quit { .. } => {
                     return None;
                 }
-                Event::KeyDown { keycode: Some(keycode), .. }
-                    if inputs.insert(GenericInput::Keyboard(keycode)) == CollectionDone::Yes =>
+                Event::KeyDown { keycode, scancode, .. }
+                    if let Some(key) = keyboard_input_for(keycode, scancode)
+                        && inputs.insert(GenericInput::Keyboard(key)) == CollectionDone::Yes =>
                 {
                     return Some(inputs.consume());
                 }
-                Event::KeyUp { keycode: Some(keycode), .. }
-                    if inputs.contains(GenericInput::Keyboard(keycode)) =>
+                Event::KeyUp { keycode, scancode, .. }
+                    if let Some(key) = keyboard_input_for(keycode, scancode)
+                        && inputs.contains(GenericInput::Keyboard(key)) =>
                 {
                     return Some(inputs.consume());
                 }
@@ -440,6 +445,21 @@ fn collect_input(
         }
 
         thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn keyboard_input_for(
+    keycode: Option<Keycode>,
+    scancode: Option<Scancode>,
+) -> Option<KeyboardInput> {
+    // Prefer keycode (virtual key) over scancode (physical key location) if both are present,
+    // only using scancode if keycode is unknown (e.g. the ñ key on Spanish keyboards).
+    // This is mainly to respect the keyboard layout's modifier key locations, and to make the
+    // input configuration UI hopefully less confusing
+    match (keycode, scancode) {
+        (Some(keycode), _) => Some(KeyboardInput::Keycode(keycode)),
+        (None, Some(scancode)) => Some(KeyboardInput::Scancode(scancode)),
+        (None, None) => None,
     }
 }
 

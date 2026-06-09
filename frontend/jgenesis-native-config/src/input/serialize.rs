@@ -1,48 +1,45 @@
-use crate::input::{GamepadAction, GenericInput};
-use sdl3::keyboard::Keycode;
+use crate::input::{GamepadAction, GenericInput, KeyboardInput};
 use sdl3::mouse::MouseButton;
 use serde::de::{Error, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::Formatter;
 use std::str::FromStr;
 
-// Keycode does not implement serde traits - serialize as the key name from Keycode::name()
-struct SerializableKeycode(Keycode);
-
-impl Serialize for SerializableKeycode {
+impl Serialize for KeyboardInput {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        serializer.serialize_str(&super::keycode_to_str(self.0))
+        serializer.serialize_str(&self.serialize_to_str())
     }
 }
 
-impl<'de> Deserialize<'de> for SerializableKeycode {
+impl<'de> Deserialize<'de> for KeyboardInput {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        struct KeycodeVisitor;
+        struct KeyboardInputVisitor;
 
-        impl Visitor<'_> for KeycodeVisitor {
-            type Value = SerializableKeycode;
+        impl Visitor<'_> for KeyboardInputVisitor {
+            type Value = KeyboardInput;
 
             fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-                write!(formatter, "SerializableKeycode")
+                write!(formatter, "KeyboardInput")
             }
 
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
             where
                 E: Error,
             {
-                let keycode = super::keycode_from_str(v)
-                    .ok_or_else(|| Error::custom(format!("Invalid SDL3 keycode string: '{v}'")))?;
-                Ok(SerializableKeycode(keycode))
+                let key = KeyboardInput::deserialize_from_str(v).ok_or_else(|| {
+                    Error::custom(format!("Invalid keyboard input string: '{v}'"))
+                })?;
+                Ok(key)
             }
         }
 
-        deserializer.deserialize_str(KeycodeVisitor)
+        deserializer.deserialize_str(KeyboardInputVisitor)
     }
 }
 
@@ -123,7 +120,7 @@ impl_from_mouse_button!(SerializableMouseButton, MouseButton);
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type")]
 enum SerializableGenericInput {
-    Keyboard { key: SerializableKeycode },
+    Keyboard { key: KeyboardInput },
     Gamepad { gamepad_idx: u32, action: SerializableGamepadAction },
     Mouse { button: SerializableMouseButton },
 }
@@ -134,9 +131,7 @@ impl Serialize for GenericInput {
         S: Serializer,
     {
         let serializable = match *self {
-            Self::Keyboard(keycode) => {
-                SerializableGenericInput::Keyboard { key: SerializableKeycode(keycode) }
-            }
+            Self::Keyboard(key) => SerializableGenericInput::Keyboard { key },
             Self::Gamepad { gamepad_idx, action } => SerializableGenericInput::Gamepad {
                 gamepad_idx,
                 action: SerializableGamepadAction(action),
@@ -156,7 +151,7 @@ impl<'de> Deserialize<'de> for GenericInput {
         let serializable = SerializableGenericInput::deserialize(deserializer)?;
 
         Ok(match serializable {
-            SerializableGenericInput::Keyboard { key } => Self::Keyboard(key.0),
+            SerializableGenericInput::Keyboard { key } => Self::Keyboard(key),
             SerializableGenericInput::Gamepad { gamepad_idx, action } => {
                 Self::Gamepad { gamepad_idx, action: action.0 }
             }

@@ -8,12 +8,40 @@ use crate::input::mappings::{
     SmsGgInputConfig, SnesInputConfig,
 };
 use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr, deserialize_default_on_error};
-use sdl3::keyboard::Keycode;
+use sdl3::keyboard::{Keycode, Scancode};
 use sdl3::mouse::MouseButton;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum KeyboardInput {
+    Keycode(Keycode),
+    Scancode(Scancode),
+}
+
+impl KeyboardInput {
+    fn display(self) -> Cow<'static, str> {
+        match self {
+            Self::Keycode(keycode) => keycode_to_str(keycode),
+            Self::Scancode(scancode) => scancode_to_str(scancode).into(),
+        }
+    }
+
+    fn serialize_to_str(self) -> String {
+        match self {
+            Self::Keycode(keycode) => keycode_to_str(keycode).to_string(),
+            Self::Scancode(scancode) => serialize_scancode(scancode),
+        }
+    }
+
+    fn deserialize_from_str(s: &str) -> Option<Self> {
+        keycode_from_str(s)
+            .map(Self::Keycode)
+            .or_else(|| deserialize_scancode(s).map(Self::Scancode))
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AxisDirection {
@@ -126,7 +154,7 @@ impl FromStr for GamepadAction {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GenericInput {
-    Keyboard(Keycode),
+    Keyboard(KeyboardInput),
     Gamepad { gamepad_idx: u32, action: GamepadAction },
     Mouse(MouseButton),
 }
@@ -134,7 +162,7 @@ pub enum GenericInput {
 impl Display for GenericInput {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            &Self::Keyboard(keycode) => write!(f, "Key: {}", keycode_to_str(keycode)),
+            &Self::Keyboard(key) => write!(f, "Key: {}", key.display()),
             Self::Gamepad { gamepad_idx, action } => write!(f, "Gamepad {gamepad_idx}: {action}"),
             Self::Mouse(mouse_button) => write!(f, "Mouse: {mouse_button:?}"),
         }
@@ -169,6 +197,46 @@ fn keycode_from_str(s: &str) -> Option<Keycode> {
                 Some(Keycode::LAlt)
             } else {
                 Keycode::from_name(s)
+            }
+        }
+    }
+}
+
+const SCANCODE_PREFIX: &str = "Scancode ";
+
+fn scancode_to_str(scancode: Scancode) -> &'static str {
+    match scancode {
+        Scancode::LCtrl | Scancode::RCtrl => "Ctrl",
+        Scancode::LAlt | Scancode::RAlt => "Alt",
+        Scancode::LShift | Scancode::RShift => "Shift",
+        _ => scancode.name(),
+    }
+}
+
+fn serialize_scancode(scancode: Scancode) -> String {
+    format!("{SCANCODE_PREFIX}{}", scancode_to_str(scancode))
+}
+
+fn deserialize_scancode(mut s: &str) -> Option<Scancode> {
+    if !s.starts_with(SCANCODE_PREFIX) {
+        return None;
+    }
+
+    s = &s[SCANCODE_PREFIX.len()..];
+
+    match s {
+        "Ctrl" => Some(Scancode::LCtrl),
+        "Alt" => Some(Scancode::LAlt),
+        "Shift" => Some(Scancode::LShift),
+        _ => {
+            if s == Scancode::RCtrl.name() {
+                Some(Scancode::LCtrl)
+            } else if s == Scancode::RAlt.name() {
+                Some(Scancode::LAlt)
+            } else if s == Scancode::RShift.name() {
+                Some(Scancode::RShift)
+            } else {
+                Scancode::from_name(s)
             }
         }
     }
