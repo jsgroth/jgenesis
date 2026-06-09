@@ -659,12 +659,12 @@ impl Vdp {
                     // OutRunners depends on there being a delay to FIFO writes when starting
                     // memory-to-VRAM DMA
                     if self.registers.dma_mode == DmaMode::MemoryToVram {
-                        // Hack: 8 slots gets roughly correct alignment for direct color DMA demos,
-                        // but 8 breaks Overdrive 2's plasma twisters effect. Use a shorter delay when
+                        // Hack: 5 slots gets roughly correct alignment for direct color DMA demos,
+                        // but 5 breaks Overdrive 2's plasma twisters effect. Use a shorter delay when
                         // DMAing to VSRAM (almost certainly working around other timing issues)
                         self.dma_latency = match self.control_port.location {
-                            DataPortLocation::Vsram => 5,
-                            _ => 8,
+                            DataPortLocation::Vsram => 2,
+                            _ => 5,
                         };
                     }
 
@@ -1443,6 +1443,9 @@ impl Vdp {
         }
 
         self.dma_latency = self.dma_latency.saturating_sub(1);
+        if self.dma_latency != 0 {
+            return;
+        }
 
         if self.fifo.is_full() {
             return;
@@ -1458,10 +1461,7 @@ impl Vdp {
         let word = memory.read_word_for_dma(self.registers.dma_source_address);
         self.increment_dma_source_address();
 
-        self.push_fifo(VdpFifoEntry {
-            latency: cmp::max(self.dma_latency, fifo::INITIAL_FIFO_LATENCY),
-            ..self.control_port.new_fifo_entry(word, self.registers.vram_size)
-        });
+        self.push_fifo(self.control_port.new_fifo_entry(word, self.registers.vram_size));
         self.control_port.increment_data_port_address(&self.registers);
 
         self.decrement_dma_length();
