@@ -996,23 +996,17 @@ impl Vdp {
         // Check sprite table cache on FIFO push; this works around some timing issues in rendering
         // Overdrive 2's textured cube effect
         if entry.mode == DataPortMode::Write && entry.location == DataPortLocation::Vram {
-            match self.registers.vram_size {
-                VramSizeKb::SixtyFour => {
-                    // A16 is checked for sprite table cache even in 64KB mode
-                    if !entry.address.bit(16) {
-                        self.maybe_update_sprite_cache(entry.address as u16, entry.word.msb());
-                        self.maybe_update_sprite_cache(
-                            (entry.address ^ 1) as u16,
-                            entry.word.lsb(),
-                        );
-                    }
-                }
-                VramSizeKb::OneTwentyEight => {
-                    // Both sprite cache bytes are updated even in 128KB mode, but byteswapped
-                    self.maybe_update_sprite_cache(entry.address as u16, entry.word.lsb());
-                    self.maybe_update_sprite_cache((entry.address ^ 1) as u16, entry.word.msb());
-                }
-            }
+            // Sprite cache bytes are effectively byteswapped in 128KB mode, since LSB is written
+            // to the target address as a single byte, but MSB can still update the paired byte
+            // in the sprite cache
+            let word_bytes = match self.registers.vram_size {
+                VramSizeKb::SixtyFour => entry.word.to_be_bytes(),
+                VramSizeKb::OneTwentyEight => entry.word.to_le_bytes(),
+            };
+
+            // Full 17-bit address is checked for sprite cache updates in both 64KB and 128KB mode
+            self.maybe_update_sprite_cache(entry.address, word_bytes[0]);
+            self.maybe_update_sprite_cache(entry.address ^ 1, word_bytes[1]);
         }
 
         log::trace!(
@@ -1478,7 +1472,7 @@ impl Vdp {
                 let byte = fill_data.msb();
                 let vram_addr = (self.control_port.data_port_address ^ 1) & 0xFFFF;
                 self.vram[vram_addr as usize] = byte;
-                self.maybe_update_sprite_cache(vram_addr as u16, byte);
+                self.maybe_update_sprite_cache(vram_addr, byte);
             }
             DataPortLocation::Cram => {
                 // CRAM fill is bugged; uses the value from the next FIFO slot instead of fill data
@@ -1515,7 +1509,7 @@ impl Vdp {
 
         let byte = self.vram[source_addr as usize];
         self.vram[dest_addr as usize] = byte;
-        self.maybe_update_sprite_cache(dest_addr as u16, byte);
+        self.maybe_update_sprite_cache(dest_addr, byte);
 
         self.decrement_dma_length();
     }
@@ -1774,30 +1768,28 @@ impl Vdp {
     }
 
     #[inline]
-    fn maybe_update_sprite_cache(&mut self, address: u16, value: u8) {
+    fn maybe_update_sprite_cache(&mut self, address: u32, value: u8) {
+        if address.bit(2) {
+            // Second 4 bytes of each sprite entry are not cached
+            return;
+        }
+
         let sprite_table_addr = self.registers.masked_sprite_attribute_table_addr();
         let h_size = self.registers.horizontal_display_size;
 
-        let (sprite_table_end, overflowed) =
-            sprite_table_addr.overflowing_add(8 * h_size.sprite_table_len());
-        let is_in_sprite_table = if overflowed {
-            // Address overflowed; this can happen if a game puts the SAT at the very end of VRAM (e.g. Snatcher)
-            // Address overflow is only possible in H32 mode when the table is located at $FE00-$FFFF, so simply check
-            // if address is past start address
-            address >= sprite_table_addr
-        } else {
-            (sprite_table_addr..sprite_table_end).contains(&address)
-        };
+        let sprite_table_end = sprite_table_addr + 8 * h_size.sprite_table_len();
+        if !(sprite_table_addr..sprite_table_end).contains(&address) {
+            // Address is not in sprite table
+            return;
+        }
 
-        if !address.bit(2) && is_in_sprite_table {
-            let idx = ((address - sprite_table_addr) / 8) as usize;
-            match address & 0x3 {
-                0x0 => self.cached_sprite_attributes[idx].update_first_word_msb(value),
-                0x1 => self.cached_sprite_attributes[idx].update_first_word_lsb(value),
-                0x2 => self.cached_sprite_attributes[idx].update_second_word_msb(value),
-                0x3 => self.cached_sprite_attributes[idx].update_second_word_lsb(value),
-                _ => unreachable!("value & 0x3 is always <= 0x3"),
-            }
+        let idx = ((address - sprite_table_addr) / 8) as usize;
+        match address & 0x3 {
+            0x0 => self.cached_sprite_attributes[idx].update_first_word_msb(value),
+            0x1 => self.cached_sprite_attributes[idx].update_first_word_lsb(value),
+            0x2 => self.cached_sprite_attributes[idx].update_second_word_msb(value),
+            0x3 => self.cached_sprite_attributes[idx].update_second_word_lsb(value),
+            _ => unreachable!("value & 0x3 is always <= 0x3"),
         }
     }
 

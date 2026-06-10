@@ -147,7 +147,7 @@ impl Vdp {
         // Actual hardware doesn't work exactly this way (it depends on exactly which VRAM access slots
         // display was disabled during), but this approximation works well enough for Mickey Mania's
         // 3D stages and Titan Overdrive's "your emulator suxx" screen
-        let sprites_skipped = self.sprite_state.pixels_disabled_during_hblank;
+        let sprites_skipped: u32 = self.sprite_state.pixels_disabled_during_hblank.into();
         let max_sprites_to_scan = h_size.sprite_table_len().saturating_sub(sprites_skipped);
 
         let interlacing_mode = self.latched_registers.interlacing_mode;
@@ -159,7 +159,7 @@ impl Vdp {
         let max_sprites_per_line = h_size.max_sprites_per_line() as usize;
 
         // Sprite 0 is always populated
-        let mut sprite_idx = 0_u16;
+        let mut sprite_idx = 0;
         for _ in 0..max_sprites_to_scan {
             let CachedSpriteData { v_position, v_size_cells, link_data, .. } =
                 self.latched_sprite_attributes[sprite_idx as usize];
@@ -213,10 +213,10 @@ impl Vdp {
 
         buffers.sprites.clear();
 
-        let sprite_table_addr = self.registers.masked_sprite_attribute_table_addr();
+        let sprite_table_addr = self.registers.masked_sprite_attribute_table_addr() & 0xFFFF;
 
         for &sprite_idx in &buffers.scanned_ids {
-            let sprite_addr = sprite_table_addr.wrapping_add(8 * u16::from(sprite_idx)) as usize;
+            let sprite_addr = sprite_table_addr.wrapping_add(8 * u32::from(sprite_idx)) as usize;
             let sprite = SpriteData::create(
                 self.cached_sprite_attributes[sprite_idx as usize],
                 &self.vram[sprite_addr + 4..sprite_addr + 8],
@@ -359,19 +359,18 @@ impl Vdp {
                         continue;
                     }
 
+                    let color = colors[pixel_offset as usize];
+
                     let pixel = h_position - SPRITE_H_DISPLAY_START;
                     if buffers.pixels[pixel as usize].color == 0 {
                         // Transparent pixels are always overwritten, even if the current pixel is also transparent
                         // Overdrive 2 depends on this for the title screen effect where it masks
                         // BG pixels using the palettes of transparent sprite pixels
-                        buffers.pixels[pixel as usize] = TilePixel {
-                            color: colors[pixel_offset as usize],
-                            palette: sprite.palette,
-                            priority: sprite.priority,
-                        };
+                        buffers.pixels[pixel as usize] =
+                            TilePixel { color, palette: sprite.palette, priority: sprite.priority };
                     } else {
                         // Sprite collision; two non-transparent sprite pixels in the same position
-                        self.sprite_state.collision = true;
+                        self.sprite_state.collision |= color != 0;
                     }
                 }
             }

@@ -239,6 +239,9 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
                     count += 1;
                 }
 
+                // Spurious read at the end of memory-to-register MOVEM (based on test ROM)
+                self.read_bus_word(address)?;
+
                 if let Some(postinc_register) = postinc_register {
                     postinc_register.write_long_word_to(&mut self.cpu.registers, address);
                 }

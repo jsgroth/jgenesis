@@ -85,7 +85,7 @@ impl HorizontalDisplaySize {
     }
 
     // Length in sprites
-    pub const fn sprite_table_len(self) -> u16 {
+    pub const fn sprite_table_len(self) -> u32 {
         match self {
             Self::ThirtyTwoCell => 64,
             Self::FortyCell => 80,
@@ -110,7 +110,7 @@ impl HorizontalDisplaySize {
         }
     }
 
-    pub const fn sprite_attribute_table_mask(self) -> u16 {
+    pub const fn sprite_attribute_table_mask(self) -> u32 {
         // Sprite attribute table A9 is ignored in H40 mode
         match self {
             Self::ThirtyTwoCell => !0,
@@ -377,7 +377,7 @@ pub struct Registers {
     // Register #4
     pub scroll_b_base_nt_addr: u16,
     // Register #5
-    pub sprite_attribute_table_base_addr: u16,
+    pub sprite_attribute_table_base_addr: u32,
     // Register #7
     pub background_palette: u8,
     pub background_color_id: u8,
@@ -520,8 +520,8 @@ impl Registers {
                 );
             }
             5 => {
-                // Register #5: Sprite attribute table base address (bits 15-9)
-                self.sprite_attribute_table_base_addr = u16::from(value & 0x7F) << 9;
+                // Register #5: Sprite attribute table base address (bits 16-9)
+                self.sprite_attribute_table_base_addr = u32::from(value) << 9;
 
                 log::trace!(
                     "  Sprite attribute table base address: {:04X}",
@@ -692,7 +692,7 @@ impl Registers {
         self.window_base_nt_addr & mask
     }
 
-    pub fn masked_sprite_attribute_table_addr(&self) -> u16 {
+    pub fn masked_sprite_attribute_table_addr(&self) -> u32 {
         self.sprite_attribute_table_base_addr
             & self.horizontal_display_size.sprite_attribute_table_mask()
     }

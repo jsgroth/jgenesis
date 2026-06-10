@@ -80,7 +80,7 @@ pub struct SpriteAttributeEntry {
 
 #[derive(Debug, Clone, Copy)]
 pub struct CopySpriteAttributesResult {
-    pub sprite_table_len: u16,
+    pub sprite_table_len: u32,
     pub top_left_x: u16,
     pub top_left_y: u16,
 }

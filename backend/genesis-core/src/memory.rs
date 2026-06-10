@@ -693,14 +693,20 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> z80_emu::BusInterface
                 self.cycles.record_z80_68k_bus_access();
 
                 let m68k_addr = self.memory.z80_bank_register.map_to_68k_address(address);
-                if !(0xA00000..=0xA0FFFF).contains(&m68k_addr) {
-                    <Self as m68000_emu::BusInterface>::read_byte(self, m68k_addr)
-                } else {
-                    // TODO this should lock up the system
-                    log::error!(
-                        "Z80 attempted to read its own memory from the 68k bus; z80_addr={address:04X}, m68k_addr={m68k_addr:08X}"
-                    );
-                    0xFF
+                match m68k_addr {
+                    0xA00000..=0xA0FFFF => {
+                        // TODO this should lock up the system
+                        log::error!(
+                            "Z80 attempted to read its own memory from the 68k bus; z80_addr={address:04X}, m68k_addr={m68k_addr:08X}"
+                        );
+                        0xFF
+                    }
+                    0xE00000..=0xFFFFFF => {
+                        // Z80 cannot read from 68000 working RAM
+                        // TODO should probably return Z80 open bus instead?
+                        0xFF
+                    }
+                    _ => <Self as m68000_emu::BusInterface>::read_byte(self, m68k_addr),
                 }
             }
         }
