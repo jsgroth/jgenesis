@@ -216,6 +216,7 @@ pub enum PreprocessShader {
     Xbrz5x,
     Xbrz6x,
     Mmpx,
+    MmpxEnhanced,
 }
 
 impl PreprocessShader {

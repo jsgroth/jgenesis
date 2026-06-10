@@ -18,10 +18,17 @@ use raw_window_handle::{HandleError, HasDisplayHandle, HasWindowHandle};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::{cmp, iter};
 use thiserror::Error;
 use wgpu::util::DeviceExt;
+
+// Texture usages that some shaders require on input texture
+static REQUIRED_TEXTURE_USAGES: LazyLock<wgpu::TextureUsages> = LazyLock::new(|| {
+    wgpu::TextureUsages::COPY_SRC
+        | wgpu::TextureUsages::TEXTURE_BINDING
+        | wgpu::TextureUsages::STORAGE_BINDING
+});
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -146,9 +153,7 @@ impl RenderingPipeline {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::COPY_SRC
-                | wgpu::TextureUsages::COPY_DST
-                | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: *REQUIRED_TEXTURE_USAGES | wgpu::TextureUsages::COPY_DST,
             view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
         }));
 
@@ -255,6 +260,14 @@ impl RenderingPipeline {
         {
             log::debug!("Adding MMPX shader");
             shader_pipeline.push(Box::new(mmpx_shader));
+        }
+
+        if renderer_config.preprocess_shader == PreprocessShader::MmpxEnhanced
+            && let Some(mmpx_enhanced_shader) =
+                UpscaleShader::create_mmpx_enhanced(device, shaders, &current_output_texture!())
+        {
+            log::debug!("Adding MMPX-Enhanced shader");
+            shader_pipeline.push(Box::new(mmpx_enhanced_shader));
         }
 
         // Frame blending
@@ -652,6 +665,7 @@ struct Shaders {
     ntsc: wgpu::ShaderModule,
     xbrz: wgpu::ShaderModule,
     mmpx: wgpu::ShaderModule,
+    mmpx_enhanced: wgpu::ShaderModule,
 }
 
 impl Shaders {
@@ -665,8 +679,23 @@ impl Shaders {
         let ntsc = device.create_shader_module(wgpu::include_wgsl!("wgsl/ntsc.wgsl"));
         let xbrz = device.create_shader_module(wgpu::include_wgsl!("wgsl/xbrz.wgsl"));
         let mmpx = device.create_shader_module(wgpu::include_wgsl!("wgsl/mmpx.wgsl"));
+        let mmpx_enhanced = device.create_shader_module(wgpu::include_wgsl!(concat!(
+            env!("OUT_DIR"),
+            "/mmpx_enhanced.wgsl"
+        )));
 
-        Self { render, prescale, identity, hblur, frame_blend, gb_color, ntsc, xbrz, mmpx }
+        Self {
+            render,
+            prescale,
+            identity,
+            hblur,
+            frame_blend,
+            gb_color,
+            ntsc,
+            xbrz,
+            mmpx,
+            mmpx_enhanced,
+        }
     }
 }
 
@@ -827,7 +856,7 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: "device".into(),
-                required_features: wgpu::Features::empty(),
+                required_features: wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
                 required_limits: wgpu::Limits {
                     // Default texture dimension limit is 8K but basically every modern device
                     // supports 16K textures; use whatever the device supports

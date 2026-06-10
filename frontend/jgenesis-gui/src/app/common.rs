@@ -265,11 +265,18 @@ impl App {
                     }
                 });
 
-                ui.radio_value(
-                    &mut self.config.common.preprocess_shader,
-                    PreprocessShader::Mmpx,
-                    "MMPX",
-                );
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.config.common.preprocess_shader,
+                        PreprocessShader::Mmpx,
+                        "MMPX",
+                    );
+                    ui.radio_value(
+                        &mut self.config.common.preprocess_shader,
+                        PreprocessShader::MmpxEnhanced,
+                        "MMPX Enhanced",
+                    );
+                });
 
                 ui.horizontal(|ui| {
                     ui.radio_value(

@@ -27,5 +27,8 @@ wgpu = { workspace = true }
 [target.'cfg(target_os = "windows")'.dependencies]
 pollster = { workspace = true }
 
+[build-dependencies]
+naga = { workspace = true, features = ["glsl-in", "wgsl-out"] }
+
 [lints]
 workspace = true

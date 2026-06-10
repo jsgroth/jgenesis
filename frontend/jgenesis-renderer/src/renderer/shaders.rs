@@ -1,7 +1,7 @@
 use crate::config::{
     AntiDitherShader, FrameRotation, PreprocessShader, PrescaleMode, RendererConfig,
 };
-use crate::renderer::{PipelineShader, Shaders};
+use crate::renderer::{PipelineShader, REQUIRED_TEXTURE_USAGES, Shaders};
 use jgenesis_common::frontend::{ColorCorrection, DisplayArea, FiniteF64, FrameSize};
 use std::sync::Arc;
 use thiserror::Error;
@@ -76,9 +76,7 @@ impl ColorCorrectionShader {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::COPY_SRC,
+            usage: *REQUIRED_TEXTURE_USAGES | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
         });
 
@@ -193,7 +191,7 @@ impl FrameBlendShader {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING
+            usage: *REQUIRED_TEXTURE_USAGES
                 | wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::COPY_DST,
             view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
@@ -369,9 +367,7 @@ impl BlurShader {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_SRC,
+            usage: *REQUIRED_TEXTURE_USAGES | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
         });
 
@@ -508,7 +504,7 @@ impl PrescaleShader {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: *REQUIRED_TEXTURE_USAGES | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
         });
 
@@ -719,6 +715,20 @@ impl UpscaleShader {
         }
     }
 
+    pub fn create_mmpx_enhanced(
+        device: &wgpu::Device,
+        shaders: &Shaders,
+        input: &wgpu::Texture,
+    ) -> Option<Self> {
+        match Self::create(device, (&shaders.mmpx_enhanced, None), &[], input, 2) {
+            Ok(shader) => Some(shader),
+            Err(err) => {
+                log::error!("Error creating MMPX Enhanced shader: {err}");
+                None
+            }
+        }
+    }
+
     pub fn create(
         device: &wgpu::Device,
         (shader_module, shader_entry_point): (&wgpu::ShaderModule, Option<&str>),
@@ -749,9 +759,7 @@ impl UpscaleShader {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::COPY_SRC,
+            usage: *REQUIRED_TEXTURE_USAGES,
             view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
         });
 

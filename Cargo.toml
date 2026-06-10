@@ -66,6 +66,9 @@ wasm-bindgen-futures = "0.4"
 web-sys = "0.3"
 web-time = "1"
 
+# Build-only dependencies
+naga = "29"
+
 # Workspace common libraries
 cdrom = { path = "common/cdrom" }
 dsp = { path = "common/dsp" }
