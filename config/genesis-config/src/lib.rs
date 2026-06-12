@@ -340,6 +340,13 @@ pub struct Xe1apJoypadState {
     pub bp: bool,
     pub start: bool,
     pub select: bool,
+    // Fields used only for mapping real world digital inputs to XE-1 AP analog inputs
+    analog_left: bool,
+    analog_right: bool,
+    analog_up: bool,
+    analog_down: bool,
+    slider_forward: bool,
+    slider_backward: bool,
 }
 
 impl Default for Xe1apJoypadState {
@@ -358,6 +365,12 @@ impl Default for Xe1apJoypadState {
             bp: false,
             start: false,
             select: false,
+            analog_left: false,
+            analog_right: false,
+            analog_up: false,
+            analog_down: false,
+            slider_forward: false,
+            slider_backward: false,
         }
     }
 }
@@ -366,22 +379,28 @@ impl Xe1apJoypadState {
     pub fn set_button(&mut self, button: GenesisButton, pressed: bool) {
         match button {
             GenesisButton::Xe1apAnalogLeft => {
-                self.analog_x = xe1ap_analog_negative(if pressed { i16::MAX } else { 0 });
+                self.analog_left = pressed;
+                self.analog_x = xe1ap_digital_to_analog(self.analog_left, self.analog_right);
             }
             GenesisButton::Xe1apAnalogRight => {
-                self.analog_x = xe1ap_analog_positive(if pressed { i16::MAX } else { 0 });
+                self.analog_right = pressed;
+                self.analog_x = xe1ap_digital_to_analog(self.analog_left, self.analog_right);
             }
             GenesisButton::Xe1apAnalogUp => {
-                self.analog_y = xe1ap_analog_negative(if pressed { i16::MAX } else { 0 });
+                self.analog_up = pressed;
+                self.analog_y = xe1ap_digital_to_analog(self.analog_up, self.analog_down);
             }
             GenesisButton::Xe1apAnalogDown => {
-                self.analog_y = xe1ap_analog_positive(if pressed { i16::MAX } else { 0 });
+                self.analog_down = pressed;
+                self.analog_y = xe1ap_digital_to_analog(self.analog_up, self.analog_down);
             }
             GenesisButton::Xe1apSliderForward => {
-                self.slider = xe1ap_analog_positive(if pressed { i16::MAX } else { 0 });
+                self.slider_forward = pressed;
+                self.slider = xe1ap_digital_to_analog(self.slider_backward, self.slider_forward);
             }
             GenesisButton::Xe1apSliderBackward => {
-                self.slider = xe1ap_analog_negative(if pressed { i16::MAX } else { 0 });
+                self.slider_backward = pressed;
+                self.slider = xe1ap_digital_to_analog(self.slider_backward, self.slider_forward);
             }
             GenesisButton::Xe1apA => self.a = pressed,
             GenesisButton::Xe1apB => self.b = pressed,
@@ -433,6 +452,17 @@ fn xe1ap_analog_negative(value: i16) -> u8 {
 fn xe1ap_analog_positive(value: i16) -> u8 {
     // Positive values map to 128-255
     ((value >> 8) + 128) as u8
+}
+
+fn xe1ap_digital_to_analog(negative: bool, positive: bool) -> u8 {
+    if negative == positive {
+        // Neither is pressed or both are pressed
+        xe1ap_analog_positive(0)
+    } else if negative {
+        xe1ap_analog_negative(i16::MAX)
+    } else {
+        xe1ap_analog_positive(i16::MAX)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
