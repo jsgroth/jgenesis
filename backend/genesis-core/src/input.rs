@@ -46,11 +46,11 @@ impl Pins {
         (self.directions & !(1 << 7)) | (u8::from(self.ctrl_bit_7) << 7)
     }
 
-    fn write_ctrl(&mut self, value: u8, state: &mut ControllerState) {
+    fn write_ctrl(&mut self, value: u8, last_data_write: u8, state: &mut ControllerState) {
         // DATA bit 7 always reads the last DATA write, so pretend it's always an output pin
         self.directions = value | (1 << 7);
         self.ctrl_bit_7 = value.bit(7);
-        state.update_pins(self);
+        self.output(last_data_write, state);
 
         if !self.directions.bit(Self::TH) {
             // Gamepads don't drive the TH pin, so when TH is set to input, it should get pulled
@@ -511,6 +511,9 @@ pub struct InputState {
     p1_pins: Pins,
     p2_pins: Pins,
     ext_pins: Pins,
+    p1_last_data_write: u8,
+    p2_last_data_write: u8,
+    ext_last_data_write: u8,
     // Serial transfer is not emulated, but these registers are R/W when nothing is connected
     p1_tx_data: u8,
     p2_tx_data: u8,
@@ -534,6 +537,9 @@ impl InputState {
             p1_pins: Pins::new(),
             p2_pins: Pins::new(),
             ext_pins: Pins::new(),
+            p1_last_data_write: 0xFF,
+            p2_last_data_write: 0xFF,
+            ext_last_data_write: 0xFF,
             p1_tx_data: 0xFF,
             p2_tx_data: 0xFF,
             ext_tx_data: 0xFF,
@@ -589,15 +595,18 @@ impl InputState {
 
     pub fn write_p1_data(&mut self, value: u8) {
         log::debug!("P1 DATA write: {value:02X}");
+        self.p1_last_data_write = value;
         self.p1_pins.output(value, &mut self.p1_state);
     }
 
     pub fn write_p2_data(&mut self, value: u8) {
         log::debug!("P2 DATA write: {value:02X}");
+        self.p2_last_data_write = value;
         self.p2_pins.output(value, &mut self.p2_state);
     }
 
     pub fn write_ext_data(&mut self, value: u8) {
+        self.ext_last_data_write = value;
         self.ext_pins.output(value, &mut ControllerState::None);
     }
 
@@ -618,16 +627,16 @@ impl InputState {
 
     pub fn write_p1_ctrl(&mut self, value: u8) {
         log::debug!("P1 CTRL write: {value:02X}");
-        self.p1_pins.write_ctrl(value, &mut self.p1_state);
+        self.p1_pins.write_ctrl(value, self.p1_last_data_write, &mut self.p1_state);
     }
 
     pub fn write_p2_ctrl(&mut self, value: u8) {
         log::debug!("P2 CTRL write: {value:02X}");
-        self.p2_pins.write_ctrl(value, &mut self.p2_state);
+        self.p2_pins.write_ctrl(value, self.p2_last_data_write, &mut self.p2_state);
     }
 
     pub fn write_ext_ctrl(&mut self, value: u8) {
-        self.ext_pins.write_ctrl(value, &mut ControllerState::None);
+        self.ext_pins.write_ctrl(value, self.ext_last_data_write, &mut ControllerState::None);
     }
 
     #[must_use]
