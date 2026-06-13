@@ -70,6 +70,11 @@ impl<const REFRESH_INTERVAL: u32> CycleCounters<REFRESH_INTERVAL> {
 
     #[inline]
     pub fn take_m68k_wait_cpu_cycles(&mut self) -> u32 {
+        if self.m68k_wait_cpu_cycles > self.max_wait_cpu_cycles {
+            self.m68k_wait_cpu_cycles -= self.max_wait_cpu_cycles;
+            return self.max_wait_cpu_cycles;
+        }
+
         mem::take(&mut self.m68k_wait_cpu_cycles)
     }
 
