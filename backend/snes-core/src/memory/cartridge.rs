@@ -1027,7 +1027,7 @@ fn exhirom_map_address(address: u32, rom_len: u32, sram_len: u32) -> CartridgeAd
             let rom_addr = exhirom_map_rom_address(address, rom_len);
             CartridgeAddress::Rom(rom_addr)
         }
-        (0x80..=0xBF, 0x6000..=0x7FFF) if sram_len != 0 => {
+        (0x00..=0x3F | 0x80..=0xBF, 0x6000..=0x7FFF) if sram_len != 0 => {
             // SRAM, if mapped (note bank range is different from regular HiROM)
             let sram_bank = bank & 0x1F;
             let sram_addr = ((sram_bank << 13) | (offset & 0x1FFF)) & (sram_len - 1);
