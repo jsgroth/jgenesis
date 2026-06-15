@@ -1,5 +1,6 @@
 use crate::frontend::{DisplayInfo, Rotation};
 
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Player {
     One,
@@ -185,6 +186,7 @@ macro_rules! define_controller_inputs {
                                 self.$player_field.set_button(button, pressed);
                             }
                         )*
+                        _ => {}
                     }
                 }
             }

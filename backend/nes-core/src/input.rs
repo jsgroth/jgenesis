@@ -98,6 +98,7 @@ impl MappableInputs<NesButton> for NesInputs {
                     joypad_state.set_button(button, pressed);
                 }
             }
+            _ => {}
         }
     }
 

@@ -526,6 +526,7 @@ impl MappableInputs<GenesisButton> for GenesisInputs {
         match player {
             Player::One => self.p1.set_field(button, pressed),
             Player::Two => self.p2.set_field(button, pressed),
+            _ => {}
         }
     }
 
@@ -533,6 +534,7 @@ impl MappableInputs<GenesisButton> for GenesisInputs {
         match player {
             Player::One => self.p1.set_analog(button, value),
             Player::Two => self.p2.set_analog(button, value),
+            _ => {}
         }
     }
 }

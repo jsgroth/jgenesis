@@ -234,7 +234,7 @@ fn access_smsgg_value(
         return Some(&mut mapping_config.pause);
     }
 
-    let player_config = mapping_config.player_mapping(player, turbo);
+    let player_config = mapping_config.player_mapping(player, turbo)?;
     player_config.access_value(button)
 }
 
@@ -246,7 +246,7 @@ fn access_genesis_value(
     config: &mut InputAppConfig,
 ) -> Option<&mut Option<Vec<GenericInput>>> {
     let mapping_config = mapping.genesis(config);
-    let player_config = mapping_config.player_mapping(player, turbo);
+    let player_config = mapping_config.player_mapping(player, turbo)?;
     player_config.access_value(button)
 }
 
@@ -265,7 +265,7 @@ fn access_nes_value(
         }
     });
 
-    let player_config = mapping_config.player_mapping(player, turbo);
+    let player_config = mapping_config.player_mapping(player, turbo)?;
     player_config.access_value(button)
 }
 
@@ -284,7 +284,7 @@ fn access_snes_value(
         }
     });
 
-    let player_config = mapping_config.player_mapping(player, turbo);
+    let player_config = mapping_config.player_mapping(player, turbo)?;
     player_config.access_value(button)
 }
 
@@ -317,7 +317,7 @@ fn access_pce_value(
     config: &mut InputAppConfig,
 ) -> Option<&mut Option<Vec<GenericInput>>> {
     let mapping_config = mapping.pce(config);
-    let player_config = mapping_config.player_mapping(player, turbo);
+    let player_config = mapping_config.player_mapping(player, turbo)?;
     player_config.access_value(button)
 }
 
@@ -458,19 +458,13 @@ impl App {
             self.disable_if_waiting_for_input(ui);
 
             ui.horizontal(|ui| {
-                for player in [Player::One, Player::Two] {
+                for (label, controller_type_field) in [
+                    ("Player 1 controller type", &mut self.config.input.genesis.p1_type),
+                    ("Player 2 controller type", &mut self.config.input.genesis.p2_type),
+                ] {
                     ui.vertical(|ui| {
                         ui.group(|ui| {
-                            let label = match player {
-                                Player::One => "Player 1 controller type",
-                                Player::Two => "Player 2 controller type",
-                            };
                             ui.label(label);
-
-                            let controller_type_field = match player {
-                                Player::One => &mut self.config.input.genesis.p1_type,
-                                Player::Two => &mut self.config.input.genesis.p2_type,
-                            };
 
                             ui.horizontal(|ui| {
                                 for (value, label) in [

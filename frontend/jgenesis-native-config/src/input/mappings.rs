@@ -173,12 +173,13 @@ macro_rules! impl_player_mapping {
     };
     ($mapping:ty, $p1:ident, $p2: ident, $p1_turbo:ident, $p2_turbo:ident) => {
         #[must_use]
-        pub fn player_mapping(&mut self, player: Player, turbo: bool) -> &mut $mapping {
+        pub fn player_mapping(&mut self, player: Player, turbo: bool) -> Option<&mut $mapping> {
             match (player, turbo) {
-                (Player::One, false) => &mut self.$p1,
-                (Player::Two, false) => &mut self.$p2,
-                (Player::One, true) => &mut self.$p1_turbo,
-                (Player::Two, true) => &mut self.$p2_turbo,
+                (Player::One, false) => Some(&mut self.$p1),
+                (Player::Two, false) => Some(&mut self.$p2),
+                (Player::One, true) => Some(&mut self.$p1_turbo),
+                (Player::Two, true) => Some(&mut self.$p2_turbo),
+                _ => None,
             }
         }
     };

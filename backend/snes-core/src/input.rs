@@ -103,6 +103,7 @@ impl MappableInputs<SnesButton> for SnesInputs {
                     joypad_state.set_button(button, pressed);
                 }
             }
+            _ => {}
         }
     }
 
