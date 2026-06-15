@@ -28,6 +28,7 @@ pub struct PceEmulatorConfig {
     pub crop_overscan: bool,
     pub remove_sprite_limits: bool,
     pub audio_resampler: PceAudioResampler,
+    pub allow_opposing_joypad_directions: bool,
     pub allow_simultaneous_run_select: bool,
 }
 

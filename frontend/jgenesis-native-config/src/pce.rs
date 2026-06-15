@@ -12,6 +12,7 @@ pub struct PcEngineAppConfig {
     pub crop_overscan: bool,
     pub remove_sprite_limits: bool,
     pub audio_resampler: PceAudioResampler,
+    pub allow_opposing_joypad_directions: bool,
     pub allow_simultaneous_run_select: bool,
 }
 
@@ -24,6 +25,7 @@ impl Default for PcEngineAppConfig {
             crop_overscan: true,
             remove_sprite_limits: false,
             audio_resampler: PceAudioResampler::default(),
+            allow_opposing_joypad_directions: false,
             allow_simultaneous_run_select: false,
         }
     }

@@ -1081,6 +1081,18 @@ impl App {
 
             let rect = ui
                 .checkbox(
+                    &mut self.config.pc_engine.allow_opposing_joypad_directions,
+                    "Allow simultaneous opposing gamepad directions",
+                )
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state
+                    .help_text
+                    .insert(OpenWindow::PceInput, helptext::PCE_OPPOSING_JOYPAD_DIRECTIONS);
+            }
+
+            let rect = ui
+                .checkbox(
                     &mut self.config.pc_engine.allow_simultaneous_run_select,
                     "Allow pressing Run+Select simultaneously",
                 )
