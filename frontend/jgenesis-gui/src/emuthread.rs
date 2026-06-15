@@ -5,7 +5,6 @@ use crate::emuthread::input::{CollectInputWindow, CollectInputsResult};
 use genesis_config::cheats::GenesisCheats;
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::input::GenericInput;
-#[cfg(feature = "unstable-cores")]
 use jgenesis_native_driver::NativePcEngineEmulator;
 use jgenesis_native_driver::config::AppConfigExt;
 use jgenesis_native_driver::extensions::Console;
@@ -106,7 +105,6 @@ impl ConsoleExt for Console {
             Self::Snes => EmuThreadStatus::RunningSnes,
             Self::GameBoy | Self::GameBoyColor => EmuThreadStatus::RunningGameBoy,
             Self::GameBoyAdvance => EmuThreadStatus::RunningGba,
-            #[cfg(feature = "unstable-cores")]
             Self::PcEngine => EmuThreadStatus::RunningPcEngine,
         }
     }
@@ -349,7 +347,6 @@ enum GenericEmulator {
     Snes(Box<NativeSnesEmulator>),
     GameBoy(Box<NativeGameBoyEmulator>),
     GameBoyAdvance(Box<NativeGbaEmulator>),
-    #[cfg(feature = "unstable-cores")]
     PcEngine(Box<NativePcEngineEmulator>),
 }
 
@@ -395,7 +392,6 @@ impl GenericEmulator {
             Console::GameBoyAdvance => Self::GameBoyAdvance(Box::new(
                 jgenesis_native_driver::create_gba(config.gba_config(path))?,
             )),
-            #[cfg(feature = "unstable-cores")]
             Console::PcEngine => Self::PcEngine(Box::new(jgenesis_native_driver::create_pce(
                 config.pce_config(path),
             )?)),
@@ -466,7 +462,7 @@ impl GenericEmulator {
             Self::Snes(emulator) => emulator.reload_snes_config(config.snes_config(path)),
             Self::GameBoy(emulator) => emulator.reload_gb_config(config.gb_config(path)),
             Self::GameBoyAdvance(emulator) => emulator.reload_gba_config(config.gba_config(path)),
-            #[cfg(feature = "unstable-cores")]
+
             Self::PcEngine(emulator) => emulator.reload_pce_config(config.pce_config(path)),
         }
     }

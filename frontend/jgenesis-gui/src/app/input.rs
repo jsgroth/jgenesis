@@ -16,11 +16,9 @@ use jgenesis_native_config::input::mappings::{
     SmsGgInputMapping, SnesControllerMapping, SnesControllerType, SnesInputMapping,
     SnesSuperScopeMapping,
 };
-#[cfg(feature = "unstable-cores")]
 use jgenesis_native_config::input::mappings::{PceInputMapping, PceJoypadMapping};
 use jgenesis_native_config::input::{GenericInput, Hotkey};
 use nes_config::NesButton;
-#[cfg(feature = "unstable-cores")]
 use pce_config::PceButton;
 use polonius_the_crab::{polonius, polonius_return};
 use smsgg_config::SmsGgButton;
@@ -89,7 +87,6 @@ impl InputMappingSet {
         }
     }
 
-    #[cfg(feature = "unstable-cores")]
     fn pce(self, config: &mut InputAppConfig) -> &mut PceInputMapping {
         match self {
             Self::One => &mut config.pc_engine.mapping_1,
@@ -113,7 +110,6 @@ pub enum GenericButton {
     Snes(SnesButton, Player),
     GameBoy(GameBoyButton),
     Gba(GbaButton),
-    #[cfg(feature = "unstable-cores")]
     Pce(PceButton, Player),
     Hotkey(Hotkey),
 }
@@ -127,7 +123,6 @@ impl GenericButton {
             Self::Snes(button, _) => button.label(),
             Self::GameBoy(button) => button.label(),
             Self::Gba(button) => button.label(),
-            #[cfg(feature = "unstable-cores")]
             Self::Pce(button, _) => button.label(),
             Self::Hotkey(hotkey) => hotkey.label(),
         }
@@ -149,7 +144,6 @@ impl GenericButton {
             Self::Snes(button, player) => access_snes_value(mapping, button, player, false, config),
             Self::GameBoy(button) => access_gb_value(mapping, button, false, config),
             Self::Gba(button) => access_gba_value(mapping, button, false, config),
-            #[cfg(feature = "unstable-cores")]
             Self::Pce(button, player) => access_pce_value(mapping, button, player, false, config),
             Self::Hotkey(hotkey) => Some(access_hotkey(mapping, hotkey, config)),
         }
@@ -199,7 +193,6 @@ impl GenericButton {
             Self::Gba(button @ (GbaButton::A | GbaButton::B | GbaButton::L | GbaButton::R)) => {
                 access_gba_value(mapping, button, true, config)
             }
-            #[cfg(feature = "unstable-cores")]
             Self::Pce(button @ (PceButton::Button1 | PceButton::Button2), player) => {
                 access_pce_value(mapping, button, player, true, config)
             }
@@ -308,7 +301,6 @@ fn access_gba_value(
     mapping_config.joypad.access_value(button).or_else(|| mapping_config.solar.access_value(button))
 }
 
-#[cfg(feature = "unstable-cores")]
 fn access_pce_value(
     mapping: InputMappingSet,
     button: PceButton,
@@ -1028,7 +1020,6 @@ impl App {
         }
     }
 
-    #[cfg(feature = "unstable-cores")]
     pub(super) fn render_pce_input_settings(&mut self, ctx: &Context) {
         static P1_BUTTONS: LazyLock<Vec<GenericButton>> = LazyLock::new(|| {
             PceButton::ALL

@@ -5,7 +5,6 @@ mod gba;
 mod genesis;
 mod input;
 mod nes;
-#[cfg(feature = "unstable-cores")]
 mod pce;
 mod romlist;
 mod smsgg;
@@ -73,7 +72,6 @@ impl ListFiltersExt for ListFilters {
             self.game_boy.then_some(Console::GameBoy),
             self.game_boy_color.then_some(Console::GameBoyColor),
             self.game_boy_advance.then_some(Console::GameBoyAdvance),
-            #[cfg(feature = "unstable-cores")]
             self.pc_engine.then_some(Console::PcEngine),
         ]
         .into_iter()
@@ -107,7 +105,6 @@ enum OpenWindow {
     SnesGeneral,
     GameBoyGeneral,
     GbaGeneral,
-    #[cfg(feature = "unstable-cores")]
     PceGeneral,
     Synchronization,
     Paths,
@@ -120,7 +117,6 @@ enum OpenWindow {
     SnesVideo,
     GameBoyVideo,
     GbaVideo,
-    #[cfg(feature = "unstable-cores")]
     PceVideo,
     CommonAudio,
     SmsGgAudio,
@@ -129,7 +125,6 @@ enum OpenWindow {
     SnesAudio,
     GameBoyAudio,
     GbaAudio,
-    #[cfg(feature = "unstable-cores")]
     PceAudio,
     GeneralInput,
     SmsGgInput,
@@ -141,7 +136,6 @@ enum OpenWindow {
     GameBoyInput,
     GbaInput,
     GbaPeripherals,
-    #[cfg(feature = "unstable-cores")]
     PceInput,
     Hotkeys,
     Cheats,
@@ -160,7 +154,6 @@ impl OpenWindow {
             OpenWindow::SnesGeneral => "SNES General Settings",
             OpenWindow::GameBoyGeneral => "Game Boy General Settings",
             OpenWindow::GbaGeneral => "GBA General Settings",
-            #[cfg(feature = "unstable-cores")]
             OpenWindow::PceGeneral => "PC Engine General Settings",
             OpenWindow::Synchronization => "Synchronization Settings",
             OpenWindow::Paths => "Path Settings",
@@ -173,7 +166,6 @@ impl OpenWindow {
             OpenWindow::SnesVideo => "SNES Video Settings",
             OpenWindow::GameBoyVideo => "Game Boy Video Settings",
             OpenWindow::GbaVideo => "GBA Video Settings",
-            #[cfg(feature = "unstable-cores")]
             OpenWindow::PceVideo => "PC Engine Video Settings",
             OpenWindow::CommonAudio => "General Audio Settings",
             OpenWindow::SmsGgAudio => "SMS/GG Audio Settings",
@@ -182,7 +174,6 @@ impl OpenWindow {
             OpenWindow::SnesAudio => "SNES Audio Settings",
             OpenWindow::GameBoyAudio => "Game Boy Audio Settings",
             OpenWindow::GbaAudio => "GBA Audio Settings",
-            #[cfg(feature = "unstable-cores")]
             OpenWindow::PceAudio => "PC Engine Audio Settings",
             OpenWindow::GeneralInput => "General Input Settings",
             OpenWindow::SmsGgInput => "SMS/GG Input Settings",
@@ -194,7 +185,6 @@ impl OpenWindow {
             OpenWindow::GameBoyInput => "Game Boy Input Settings",
             OpenWindow::GbaInput => "GBA Input Settings",
             OpenWindow::GbaPeripherals => "GBA Peripheral Settings",
-            #[cfg(feature = "unstable-cores")]
             OpenWindow::PceInput => "PC Engine Input Settings",
             OpenWindow::Hotkeys => "Hotkey Settings",
             OpenWindow::Cheats => "Cheats",
@@ -754,7 +744,6 @@ impl App {
                 ("SNES", OpenWindow::SnesGeneral),
                 ("Game Boy", OpenWindow::GameBoyGeneral),
                 ("Game Boy Advance", OpenWindow::GbaGeneral),
-                #[cfg(feature = "unstable-cores")]
                 ("PC Engine", OpenWindow::PceGeneral),
             ] {
                 if ui.button(label).clicked() {
@@ -803,7 +792,6 @@ impl App {
                 ("SNES", OpenWindow::SnesVideo),
                 ("Game Boy", OpenWindow::GameBoyVideo),
                 ("Game Boy Advance", OpenWindow::GbaVideo),
-                #[cfg(feature = "unstable-cores")]
                 ("PC Engine", OpenWindow::PceVideo),
             ] {
                 if ui.button(label).clicked() {
@@ -830,7 +818,6 @@ impl App {
                 ("SNES", OpenWindow::SnesAudio),
                 ("Game Boy", OpenWindow::GameBoyAudio),
                 ("Game Boy Advance", OpenWindow::GbaAudio),
-                #[cfg(feature = "unstable-cores")]
                 ("PC Engine", OpenWindow::PceAudio),
             ] {
                 if ui.button(label).clicked() {
@@ -901,7 +888,6 @@ impl App {
                 }
             });
 
-            #[cfg(feature = "unstable-cores")]
             if ui.button("PC Engine").clicked() {
                 self.state.open_window(ui.ctx(), OpenWindow::PceInput);
                 ui.close_kind(UiKind::Menu);
@@ -1056,7 +1042,6 @@ impl App {
             ui.checkbox(&mut self.config.list_filters.game_boy, "GB");
             ui.checkbox(&mut self.config.list_filters.game_boy_color, "GBC");
             ui.checkbox(&mut self.config.list_filters.game_boy_advance, "GBA");
-            #[cfg(feature = "unstable-cores")]
             ui.checkbox(&mut self.config.list_filters.pc_engine, "PCE");
 
             ui.add_space(10.0);
@@ -1103,7 +1088,6 @@ impl App {
                 OpenWindow::SnesGeneral => self.render_snes_general_settings(ctx),
                 OpenWindow::GameBoyGeneral => self.render_gb_general_settings(ctx),
                 OpenWindow::GbaGeneral => self.render_gba_general_settings(ctx),
-                #[cfg(feature = "unstable-cores")]
                 OpenWindow::PceGeneral => self.render_pce_general_settings(ctx),
                 OpenWindow::Synchronization => self.render_sync_settings(ctx),
                 OpenWindow::Paths => self.render_path_settings(ctx),
@@ -1116,7 +1100,6 @@ impl App {
                 OpenWindow::SnesVideo => self.render_snes_video_settings(ctx),
                 OpenWindow::GameBoyVideo => self.render_gb_video_settings(ctx),
                 OpenWindow::GbaVideo => self.render_gba_video_settings(ctx),
-                #[cfg(feature = "unstable-cores")]
                 OpenWindow::PceVideo => self.render_pce_video_settings(ctx),
                 OpenWindow::CommonAudio => self.render_common_audio_settings(ctx),
                 OpenWindow::SmsGgAudio => self.render_smsgg_audio_settings(ctx),
@@ -1125,7 +1108,6 @@ impl App {
                 OpenWindow::SnesAudio => self.render_snes_audio_settings(ctx),
                 OpenWindow::GameBoyAudio => self.render_gb_audio_settings(ctx),
                 OpenWindow::GbaAudio => self.render_gba_audio_settings(ctx),
-                #[cfg(feature = "unstable-cores")]
                 OpenWindow::PceAudio => self.render_pce_audio_settings(ctx),
                 OpenWindow::GeneralInput => self.render_general_input_settings(ctx),
                 OpenWindow::SmsGgInput => self.render_smsgg_input_settings(ctx),
@@ -1137,7 +1119,6 @@ impl App {
                 OpenWindow::GameBoyInput => self.render_gb_input_settings(ctx),
                 OpenWindow::GbaInput => self.render_gba_input_settings(ctx),
                 OpenWindow::GbaPeripherals => self.render_gba_peripheral_settings(ctx),
-                #[cfg(feature = "unstable-cores")]
                 OpenWindow::PceInput => self.render_pce_input_settings(ctx),
                 OpenWindow::Hotkeys => self.render_hotkey_settings(ctx),
                 OpenWindow::Cheats => self.render_cheats_window(ctx),

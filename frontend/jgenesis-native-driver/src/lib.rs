@@ -8,12 +8,10 @@ mod mainloop;
 pub use mainloop::{
     AudioError, Native32XEmulator, NativeEmulator, NativeEmulatorError, NativeEmulatorResult,
     NativeGameBoyEmulator, NativeGbaEmulator, NativeGenesisEmulator, NativeNesEmulator,
-    NativeSegaCdEmulator, NativeSmsGgEmulator, NativeSnesEmulator, NativeTickEffect,
-    SAVE_STATE_SLOTS, SaveStateMetadata, SaveWriteError, create_32x, create_gb, create_gba,
-    create_genesis, create_nes, create_sega_cd, create_smsgg, create_snes,
+    NativePcEngineEmulator, NativeSegaCdEmulator, NativeSmsGgEmulator, NativeSnesEmulator,
+    NativeTickEffect, SAVE_STATE_SLOTS, SaveStateMetadata, SaveWriteError, create_32x, create_gb,
+    create_gba, create_genesis, create_nes, create_pce, create_sega_cd, create_smsgg, create_snes,
 };
-#[cfg(feature = "pce")]
-pub use mainloop::{NativePcEngineEmulator, create_pce};
 use sdl3::VideoSubsystem;
 
 #[must_use]

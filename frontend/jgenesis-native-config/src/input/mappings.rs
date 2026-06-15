@@ -5,7 +5,6 @@ use genesis_config::{GenesisButton, GenesisControllerType};
 use jgenesis_common::input::Player;
 use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay};
 use nes_config::NesButton;
-#[cfg(feature = "pce")]
 use pce_config::PceButton;
 use sdl3::keyboard::Keycode;
 use sdl3::mouse::MouseButton;
@@ -939,7 +938,6 @@ impl Default for GbaInputConfig {
     }
 }
 
-#[cfg(feature = "pce")]
 define_controller_mapping!(PceJoypadMapping, PceButton, [
     up: Up,
     left: Left,
@@ -951,7 +949,6 @@ define_controller_mapping!(PceJoypadMapping, PceButton, [
     select: Select,
 ]);
 
-#[cfg(feature = "pce")]
 impl PceJoypadMapping {
     #[must_use]
     pub fn keyboard_arrows() -> Self {
@@ -982,7 +979,6 @@ impl PceJoypadMapping {
     }
 }
 
-#[cfg(feature = "pce")]
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ConfigDisplay)]
 #[serde(default)]
 pub struct PceInputMapping {
@@ -996,7 +992,6 @@ pub struct PceInputMapping {
     pub p2_turbo: PceJoypadMapping,
 }
 
-#[cfg(feature = "pce")]
 impl PceInputMapping {
     impl_player_mapping!(PceJoypadMapping);
 
@@ -1006,7 +1001,6 @@ impl PceInputMapping {
     }
 }
 
-#[cfg(feature = "pce")]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
 #[serde(default)]
 pub struct PceInputConfig {
@@ -1016,14 +1010,12 @@ pub struct PceInputConfig {
     pub mapping_2: PceInputMapping,
 }
 
-#[cfg(feature = "pce")]
 impl PceInputConfig {
     impl_to_mapping_vec!(PceButton);
 
     impl_to_turbo_mapping_vec!(PceButton);
 }
 
-#[cfg(feature = "pce")]
 impl Default for PceInputConfig {
     fn default() -> Self {
         Self {

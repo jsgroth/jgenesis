@@ -3,13 +3,10 @@ pub mod gba;
 pub mod genesis;
 mod memviewer;
 pub mod nes;
-#[cfg(feature = "pce")]
 pub mod pce;
 mod process;
 pub mod smsgg;
 pub mod snes;
-
-use sdl3::event::{Event, WindowEvent};
 
 use egui::epaint::ImageDelta;
 use egui::{
@@ -22,6 +19,7 @@ use jgenesis_common::frontend::Color;
 use jgenesis_native_config::EguiTheme;
 use jgenesis_renderer::config::RendererConfig;
 use sdl3::VideoSubsystem;
+use sdl3::event::{Event, WindowEvent};
 use sdl3::video::{Window, WindowBuildError};
 use std::collections::HashSet;
 use std::hash::Hash;

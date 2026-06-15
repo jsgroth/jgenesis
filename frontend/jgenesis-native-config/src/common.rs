@@ -6,7 +6,6 @@ use jgenesis_renderer::config::{
     PrescaleFactor, VSyncMode, WgpuBackend, WgpuPowerPreference,
 };
 use nes_config::NesAspectRatio;
-#[cfg(feature = "pce")]
 use pce_config::PceAspectRatio;
 use serde::{Deserialize, Serialize};
 use smsgg_config::{GgAspectRatio, SmsAspectRatio};
@@ -52,13 +51,9 @@ impl WindowSize {
     const GBA_HEIGHT: f64 = 160.0;
     const GBA_WIDTH: f64 = 240.0;
 
-    #[cfg(feature = "pce")]
     const PCE_WIDTH_WITH_OVERSCAN: f64 = 282.0;
-    #[cfg(feature = "pce")]
     const PCE_WIDTH_WITHOUT_OVERSCAN: f64 = 256.0;
-    #[cfg(feature = "pce")]
     const PCE_HEIGHT_WITH_OVERSCAN: f64 = 242.0;
-    #[cfg(feature = "pce")]
     const PCE_HEIGHT_WITHOUT_OVERSCAN: f64 = 224.0;
 
     #[must_use]
@@ -184,7 +179,6 @@ impl WindowSize {
         Self::new(Self::GBA_WIDTH, Self::GBA_HEIGHT, size)
     }
 
-    #[cfg(feature = "pce")]
     #[must_use]
     pub fn new_pce(size: NonZeroU8, aspect_ratio: PceAspectRatio, crop_overscan: bool) -> Self {
         let (mut width, height) = if crop_overscan {

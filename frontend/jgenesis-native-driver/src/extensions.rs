@@ -47,7 +47,6 @@ pub static ALL_CARTRIDGE_BASED: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
         GAME_BOY,
         GAME_BOY_COLOR,
         GAME_BOY_ADVANCE,
-        #[cfg(feature = "pce")]
         PC_ENGINE,
     ]
     .into_iter()
@@ -120,7 +119,6 @@ fn build_extension_lookup() -> HashMap<&'static str, Console> {
         (GAME_BOY, Console::GameBoy),
         (GAME_BOY_COLOR, Console::GameBoyColor),
         (GAME_BOY_ADVANCE, Console::GameBoyAdvance),
-        #[cfg(feature = "pce")]
         (PC_ENGINE, Console::PcEngine),
     ]
     .into_iter()
@@ -152,7 +150,6 @@ pub enum Console {
     GameBoy,
     GameBoyColor,
     GameBoyAdvance,
-    #[cfg(feature = "pce")]
     PcEngine,
 }
 
@@ -230,7 +227,6 @@ impl Console {
             Self::GameBoy => "Game Boy",
             Self::GameBoyColor => "Game Boy Color",
             Self::GameBoyAdvance => "Game Boy Advance",
-            #[cfg(feature = "pce")]
             Self::PcEngine => "PC Engine",
         }
     }
@@ -247,7 +243,6 @@ impl Console {
             Self::Snes => SNES,
             Self::GameBoy | Self::GameBoyColor => &GB_GBC,
             Self::GameBoyAdvance => GAME_BOY_ADVANCE,
-            #[cfg(feature = "pce")]
             Self::PcEngine => PC_ENGINE,
         }
     }
@@ -267,7 +262,6 @@ impl Console {
             Console::GameBoy => "gb",
             Console::GameBoyColor => "gbc",
             Console::GameBoyAdvance => "gba",
-            #[cfg(feature = "pce")]
             Console::PcEngine => "pce",
         }
     }

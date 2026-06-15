@@ -4,7 +4,6 @@ mod gba;
 mod genesis;
 mod input;
 mod nes;
-#[cfg(feature = "pce")]
 mod pce;
 mod render;
 mod rewind;
@@ -21,18 +20,17 @@ pub use genesis::{
     create_sega_cd,
 };
 pub use nes::{NativeNesEmulator, create_nes};
+pub use pce::{NativePcEngineEmulator, create_pce};
 pub use smsgg::{NativeSmsGgEmulator, create_smsgg};
 pub use snes::{NativeSnesEmulator, create_snes};
 pub use state::{SAVE_STATE_SLOTS, SaveStateMetadata};
-
-#[cfg(feature = "pce")]
-pub use pce::{NativePcEngineEmulator, create_pce};
 
 use crate::archive::ArchiveError;
 use crate::config::CommonConfig;
 use crate::fpstracker::FpsTracker;
 use crate::input::{InputEvent, InputMapper, Joysticks};
 use crate::mainloop::audio::{SdlAudioOutput, SdlAudioOutputHandle};
+use crate::mainloop::input::ThreadedInputPoller;
 use crate::mainloop::render::{RecvFrameError, ThreadedRenderer};
 use crate::mainloop::runner::{
     ChangeDiscFn, RemoveDiscFn, RunnerCommand, RunnerCommandResponse, RunnerSpawnArgs,
@@ -45,6 +43,7 @@ use gb_core::api::GameBoyLoadError;
 use gba_core::api::GbaLoadError;
 use genesis_config::GenesisRegion;
 use jgenesis_common::frontend::{EmulatorConfigTrait, EmulatorTrait, MappableInputs};
+use jgenesis_debugger_frontend::{DebugFn, DebuggerWindow};
 use jgenesis_native_config::EguiTheme;
 use jgenesis_native_config::common::{HideMouseCursor, WindowSize};
 use jgenesis_native_config::input::mappings::ButtonMappingVec;
@@ -1085,6 +1084,4 @@ macro_rules! bincode_config {
     };
 }
 
-use crate::mainloop::input::ThreadedInputPoller;
 use bincode_config;
-use jgenesis_debugger_frontend::{DebugFn, DebuggerWindow};

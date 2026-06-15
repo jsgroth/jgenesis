@@ -1,7 +1,6 @@
 pub mod mappings;
 mod serialize;
 
-#[cfg(feature = "pce")]
 use crate::input::mappings::PceInputConfig;
 use crate::input::mappings::{
     GameBoyInputConfig, GbaInputConfig, GenesisInputConfig, HotkeyConfig, NesInputConfig,
@@ -356,7 +355,6 @@ pub struct InputAppConfig {
     pub snes: SnesInputConfig,
     pub game_boy: GameBoyInputConfig,
     pub game_boy_advance: GbaInputConfig,
-    #[cfg(feature = "pce")]
     pub pc_engine: PceInputConfig,
     pub hotkeys: HotkeyConfig,
     pub axis_deadzone: i16,
@@ -373,7 +371,6 @@ impl Default for InputAppConfig {
             snes: SnesInputConfig::default(),
             game_boy: GameBoyInputConfig::default(),
             game_boy_advance: GbaInputConfig::default(),
-            #[cfg(feature = "pce")]
             pc_engine: PceInputConfig::default(),
             hotkeys: HotkeyConfig::default(),
             axis_deadzone: DEFAULT_AXIS_DEADZONE,

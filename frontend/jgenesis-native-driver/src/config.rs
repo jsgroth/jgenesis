@@ -12,7 +12,6 @@ use jgenesis_common::frontend::{ColorCorrection, FiniteF32};
 use jgenesis_native_config::common::{
     ConfigSavePath, HideMouseCursor, PauseEmulator, SavePath, WindowSize,
 };
-#[cfg(feature = "pce")]
 use jgenesis_native_config::input::mappings::PceInputConfig;
 use jgenesis_native_config::input::mappings::{
     GameBoyInputConfig, GbaInputConfig, GenesisInputConfig, HotkeyConfig, NesInputConfig,
@@ -22,7 +21,6 @@ use jgenesis_native_config::{AppConfig, EguiTheme};
 use jgenesis_proc_macros::ConfigDisplay;
 use jgenesis_renderer::config::{PreprocessShader, PrescaleMode, RendererConfig};
 use nes_core::api::NesEmulatorConfig;
-#[cfg(feature = "pce")]
 use pce_core::api::PceEmulatorConfig;
 use s32x_core::api::Sega32XEmulatorConfig;
 use segacd_core::api::SegaCdEmulatorConfig;
@@ -286,7 +284,6 @@ pub struct GameBoyAdvanceConfig {
     pub solar_max_brightness: u8,
 }
 
-#[cfg(feature = "pce")]
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct PcEngineConfig {
     #[cfg_display(indent_nested)]
@@ -330,7 +327,7 @@ pub trait AppConfigExt {
     #[must_use]
     fn gba_config(&self, path: PathBuf) -> Box<GameBoyAdvanceConfig>;
 
-    #[cfg(feature = "pce")]
+    #[must_use]
     fn pce_config(&self, path: PathBuf) -> Box<PcEngineConfig>;
 }
 
@@ -643,7 +640,6 @@ impl AppConfigExt for AppConfig {
         })
     }
 
-    #[cfg(feature = "pce")]
     fn pce_config(&self, path: PathBuf) -> Box<PcEngineConfig> {
         Box::new(PcEngineConfig {
             common: self.common_config(path),

@@ -1,5 +1,3 @@
-#![cfg(feature = "unstable-cores")]
-
 use crate::app::HelpText;
 
 pub const PCE_OPPOSING_JOYPAD_DIRECTIONS: HelpText = HelpText {

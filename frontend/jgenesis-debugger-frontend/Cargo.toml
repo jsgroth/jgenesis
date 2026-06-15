@@ -5,7 +5,6 @@ edition = "2024"
 
 [features]
 default = []
-pce = ["dep:pce-core"]
 
 [dependencies]
 jgenesis-common = { workspace = true }
@@ -20,7 +19,7 @@ gb-core = { workspace = true }
 gba-core = { workspace = true }
 genesis-core = { workspace = true }
 nes-core = { workspace = true }
-pce-core = { workspace = true, optional = true }
+pce-core = { workspace = true }
 s32x-core = { workspace = true }
 segacd-core = { workspace = true }
 smsgg-core = { workspace = true }
