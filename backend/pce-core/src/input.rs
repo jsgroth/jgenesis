@@ -46,6 +46,7 @@ impl PceJoypadStateExt for PceJoypadState {
 pub struct InputState {
     region: PceRegion,
     inputs: PceInputs,
+    latched_inputs: PceInputs,
     select_pin: bool,
     clear_pin: bool,
     allow_opposing_directions: bool,
@@ -57,6 +58,7 @@ impl InputState {
         Self {
             region: config.region,
             inputs: PceInputs::default(),
+            latched_inputs: PceInputs::default(),
             select_pin: false,
             clear_pin: false,
             allow_opposing_directions: config.allow_opposing_joypad_directions,
@@ -76,7 +78,7 @@ impl InputState {
 
     pub fn read_port(&mut self) -> u8 {
         let inputs = self
-            .inputs
+            .latched_inputs
             .p1
             .allow_opposing_directions(self.allow_opposing_directions)
             .allow_simultaneous_run_select(self.allow_simultaneous_run_select);
@@ -109,8 +111,16 @@ impl InputState {
     }
 
     pub fn write_port(&mut self, value: u8) {
+        let prev_clear = self.clear_pin;
+
         self.clear_pin = value.bit(1);
         self.select_pin = value.bit(0);
+
+        // Latching inputs on CLR 1->0 transitions fixes Order of the Griffon sometimes double-reading
+        // button presses
+        if prev_clear && !self.clear_pin {
+            self.latched_inputs = self.inputs;
+        }
 
         log::trace!(
             "I/O port write: {value:02X} (SEL={} CLR={})",
