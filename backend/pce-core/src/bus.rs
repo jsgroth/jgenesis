@@ -29,25 +29,23 @@ impl Bus<'_> {
             self.cpu_cycle();
         }
 
-        match address {
-            0x1FE000..=0x1FE3FF => self.video.read_vdc(
+        match address & 0x1FFF {
+            0x0000..=0x03FF => self.video.read_vdc(
                 address,
                 self.cycle_counter,
                 self.memory.cpu_registers().irq1_pending_mut(),
             ),
-            0x1FE400..=0x1FE7FF => self.video.read_vce(address),
-            0x1FE800..=0x1FEBFF => self.memory.cpu_registers().io_buffer(), // PSG, write-only
-            0x1FEC00..=0x1FEFFF => {
-                self.memory.cpu_registers().read_timer_register(*self.cycle_counter)
-            }
-            0x1FF000..=0x1FF3FF => {
+            0x0400..=0x07FF => self.video.read_vce(address),
+            0x0800..=0x0BFF => self.memory.cpu_registers().io_buffer(), // PSG, write-only
+            0x0C00..=0x0FFF => self.memory.cpu_registers().read_timer_register(*self.cycle_counter),
+            0x1000..=0x13FF => {
                 let value = self.input.read_port();
                 self.memory.cpu_registers().update_io_buffer(value, !0)
             }
-            0x1FF400..=0x1FF7FF => self.memory.cpu_registers().read_interrupt_register(address),
-            0x1FF800..=0x1FFBFF => 0xFF, // CD-ROM
-            0x1FFC00..=0x1FFFFF => 0xFF, // Unused
-            _ => todo!("read IO {address:06X}"),
+            0x1400..=0x17FF => self.memory.cpu_registers().read_interrupt_register(address),
+            0x1800..=0x1BFF => 0xFF, // CD-ROM
+            0x1C00..=0x1FFF => 0xFF, // Unused
+            _ => unreachable!("value & 0x1FFF is always <= 0x1FFF"),
         }
     }
 
@@ -58,36 +56,36 @@ impl Bus<'_> {
             self.cpu_cycle();
         }
 
-        match address {
-            0x1FE000..=0x1FE3FF => self.video.write_vdc(
+        match address & 0x1FFF {
+            0x0000..=0x03FF => self.video.write_vdc(
                 address,
                 value,
                 self.cycle_counter,
                 self.memory.cpu_registers().irq1_pending_mut(),
             ),
-            0x1FE400..=0x1FE7FF => self.video.write_vce(address, value),
-            0x1FE800..=0x1FEBFF => {
+            0x0400..=0x07FF => self.video.write_vce(address, value),
+            0x0800..=0x0BFF => {
                 self.psg.step_to(*self.cycle_counter);
                 self.psg.write(address, value);
                 self.memory.cpu_registers().update_io_buffer(value, !0);
             }
-            0x1FEC00..=0x1FEFFF => {
+            0x0C00..=0x0FFF => {
                 self.memory.cpu_registers().write_timer_register(
                     address,
                     value,
                     *self.cycle_counter,
                 );
             }
-            0x1FF000..=0x1FF3FF => {
+            0x1000..=0x13FF => {
                 self.input.write_port(value);
                 self.memory.cpu_registers().update_io_buffer(value, !0);
             }
-            0x1FF400..=0x1FF7FF => {
+            0x1400..=0x17FF => {
                 self.memory.cpu_registers().write_interrupt_register(address, value);
             }
-            0x1FF800..=0x1FFBFF => {} // CD-ROM
-            0x1FFC00..=0x1FFFFF => {} // Unused
-            _ => todo!("write IO {address:06X} {value:02X}"),
+            0x1800..=0x1BFF => {} // CD-ROM
+            0x1C00..=0x1FFF => {} // Unused
+            _ => unreachable!("value & 0x1FFF is always <= 0x1FFF"),
         }
     }
 }
