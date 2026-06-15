@@ -1,24 +1,52 @@
-# Next
+# 0.13.0
 
 ## New Features
-* (**Genesis** / **SMS** / **Game Gear**) Added support for cheat codes
+* (**Genesis** / **SMS** / **Game Gear**) Added support for cheat codes (#136)
   * Genesis supports Game Genie codes, Pro Action Replay codes, and plain 68000 memory address/value pairs
   * SMS/GG supports Game Genie codes and Pro Action Replay codes
   * Cheats are also supported for Sega CD and 32X, though Sega CD only supports main working RAM overrides (memory addresses \$FF0000-\$FFFFFF)
+* (**Genesis**) Added support for the XE-1 AP analog controller (#631)
+  * This is supported by about 10 official releases, including the _After Burner_ games and _Space Harrier_
+  * True analog control requires a gamepad with analog support (anything with an analog stick should work)
+* (**Genesis**) Added a new option for whether to allow simultaneous Left+Right or Up+Down inputs, which is now disabled by default (i.e. not allowed)
 * (**Genesis**) Added some additional debugging functionality
   * Added interrupt breakpoints for the 68000 and SH-2 CPUs
   * Added a new "VDP State" view that shows some internal VDP state that is normally not directly readable by software, e.g. timing information and current control port state
   * (**32X**) Added a new view that shows some SH7604 register contents including the cache control register, internal interrupt registers, the watchdog timer, and the DMA controller
   * The main 68000 disassembly view now shows any buffered memory writes that are done from the emulated CPU's perspective but have not yet been applied to memory for inter-processor timing reasons
+* Input settings windows now have a "Configure all" button so that you can configure every input without needing to click on each one individually
+* Added support for the MMPX Enhanced/EX upscaling shader by CrashGG (#644)
 
 ## Improvements
 * Slightly improved audio resampling performance on CPUs that support AVX2 and/or AVX512 instructions; this most notably affects GB/GBC and NES
   * The AVX2 and AVX512 code paths are gated behind runtime CPU feature checks (and those are gated behind compile-time arch checks), so the emulator will still run on CPUs that do not support any AVX instructions
+* (**SMS**) The VDP version setting now defaults to SMS2 instead of SMS1, because there seem to be more games that depend on the SMS2 behavior than SMS1 (#658 / #659)
 
 ## Fixes
-* In Linux AppImage builds, fixed the save path "Emulator folder" options saving to the current working directory instead of the folder containing the AppImage file (if those are different)
-* (**GB**) Fixed serial port behavior to correctly emulate nothing being connected to the serial port; this fixes _Boxing_ not allowing you to start a game in 1-player mode
+* (**Genesis**) Fixed the VDP potentially using outdated V scroll values when a game makes mid-scanline VSRAM writes while the VDP is in per-2-cell V scroll mode; this fixes a glitchy line during the Two-Face boss fight in _The Adventures of Batman & Robin_ (#653)
+* (**Genesis**) Adjusted VDP timing behavior when display changes from disabled to enabled while the VDP FIFO is not empty; this fixes a glitchy line in _Mickey Mania_'s 3D chase stages (again) and fixes incorrectly visible CRAM dots in the left border (#654)
+* (**Genesis**) Bit 0 of \$A11100 reads (Z80 BUSACK) is now open bus instead of duplicating bit 8; this fixes _Time Killers_ failing to boot (#664)
+* (**Genesis**) Fixed the VDP incorrectly latching H scroll mode well before it reads each line's H scroll values; this fixes a glitchy line in _Toy Story_'s racing stage (#655)
+* (**Genesis**) Fixed a degenerate timing edge case that could crash the emulator due to violating an assertion in the VDP code if the Z80 accessed ROM too rapidly in a short time; _Micro Machines_ semi-randomly triggered this
+* (**Genesis**) Fixed various I/O port behaviors identified by test ROM, mostly related to ports that are only used by peripherals (#652)
+* (**Genesis**) Added some additional heuristics for when to enable the SSF bank-switching mapper, for homebrew games that don't have the `SEGA SSF` string in the cartridge header (#656)
+* (**Genesis**) Fixed some inaccuracies identified by test ROMs (#669)
+  * Implemented MOVEM memory-to-register instructions performing an extra read at the end
+  * The Z80 is no longer allowed to read from main working RAM
+  * Fixed implementation of how the sprite attribute cache checks the full 17-bit VRAM address on VRAM writes (it was already trying to do this but not correctly)
+  * Fixed transparent sprite pixels incorrectly being able to trigger the VDP sprite collision flag in some cases
+* (**Genesis**) Fixed some edge case handling in 6-button gamepad emulation
+* (**SMS** / **Game Gear**) Fixed the VDP frame interrupt flag potentially getting set twice in the same frame if the CPU read the VDP status register at the exact right/wrong time; this fixes _Back to the Future Part III_ failing to boot (#657)
+* (**SMS**) Fixed the VDP version SMS1/SMS2 setting not always taking effect immediately when changed while a game is running
+* (**SNES**) Fixed ExHiROM SRAM bank mapping (was not ignoring A23); this fixes some homebrew and post-contemporary ExHiROM games not working properly
+* (**GB**) Fixed the PPU rendering white instead of BG color 0 when the PPU is enabled but the BG is disabled; this fixes screen flashing in _Megami Tensei Gaiden: Last Bible_ and _Last Bible II_ (GB versions) (#647)
+* (**GB**) Fixed serial port behavior to correctly emulate nothing being connected to the serial port; this fixes _Boxing_ not allowing you to start a game in 1-player mode (#641)
   * (Previously the emulator was leaving the SB register unchanged instead of shifting in 1 bits on each serial clock)
+* (**GBC**) Fixed HDMA length behavior when HDMA5 is written mid-HDMA with bit 7 clear
+* Fixed the emulator failing to register key presses from keys for which SDL3 does not have a virtual key mapping, such as the ñ key on Spanish keyboards (#668)
+* Fixed the xBRZ 6x shader crashing the emulator if enabled for 32X while the Genesis VDP is in H32 mode and horizontal border rendering is enabled, which caused the upscaled texture size to exceed wgpu's default maximum size
+  * The emulator now enables a higher maximum size if the graphics device supports it, and will also gracefully degrade instead of crashing if this still happens
+* In Linux AppImage builds, fixed the save path "Emulator folder" options saving to the current working directory instead of the folder containing the AppImage file (if those are different)
 
 # 0.12.1
 
