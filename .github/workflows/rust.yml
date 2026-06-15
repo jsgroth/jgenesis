@@ -8,7 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  JGENESIS_VERSION: 0.12.1
+  JGENESIS_VERSION: 0.13.0
 
 jobs:
   build:
@@ -168,7 +168,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      SDL_VERSION: 3.4.2
+      SDL_VERSION: 3.4.10
       DXC_RELEASE_TAG: v1.8.2505.1
       DXC_ZIP_FILE: dxc_2025_07_14.zip
 
