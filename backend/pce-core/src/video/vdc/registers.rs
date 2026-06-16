@@ -3,6 +3,7 @@ use crate::video::vdc::{CgMode, DmaStep, PendingCpuAccess, Vdc};
 use bincode::{Decode, Encode};
 use jgenesis_common::define_bit_enum;
 use jgenesis_common::num::{GetBit, U16Ext};
+use std::cmp;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum VramAccessWidth {
@@ -432,7 +433,10 @@ impl Vdc {
 
                 match byte {
                     WordByte::Low => {
-                        self.registers.h_sync_width = 8 * u16::from((value & 0x1F) + 1);
+                        // Don't allow games to set extremely low HSW values
+                        // Fixes horribly glitched graphics in Yo' Bro
+                        self.registers.h_sync_width =
+                            cmp::max(24, 8 * u16::from((value & 0x1F) + 1));
                         log::trace!("  H sync pulse width: {}", self.registers.h_sync_width);
                     }
                     WordByte::High => {
