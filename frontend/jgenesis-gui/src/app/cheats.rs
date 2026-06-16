@@ -62,13 +62,13 @@ impl CheatState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CheatConsole {
+pub enum CheatConsole {
     Genesis,
     SmsGg,
 }
 
 impl CheatConsole {
-    fn from_console(console: Console) -> Option<Self> {
+    pub fn from_console(console: Console) -> Option<Self> {
         match console {
             Console::Genesis | Console::SegaCd | Console::Sega32X => Some(Self::Genesis),
             Console::MasterSystem | Console::GameGear | Console::Sg1000 => Some(Self::SmsGg),

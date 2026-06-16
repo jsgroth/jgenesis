@@ -11,7 +11,7 @@ mod smsgg;
 mod snes;
 mod widgets;
 
-use crate::app::cheats::CheatWindowState;
+use crate::app::cheats::{CheatConsole, CheatWindowState};
 use crate::app::genesis::{GenesisVolumeState, S32XPriorityState};
 use crate::app::input::InputMappingSet;
 use crate::app::nes::{NesPaletteState, OverscanState};
@@ -903,9 +903,17 @@ impl App {
     }
 
     fn render_cheats_menu_button(&mut self, ui: &mut Ui) {
-        if ui.button("Cheats").clicked() {
-            self.state.open_window(ui.ctx(), OpenWindow::Cheats);
-        }
+        let cheats_supported = self
+            .emu_thread
+            .status()
+            .running_console()
+            .is_none_or(|console| CheatConsole::from_console(console).is_some());
+
+        ui.add_enabled_ui(cheats_supported, |ui| {
+            if ui.button("Cheats").clicked() {
+                self.state.open_window(ui.ctx(), OpenWindow::Cheats);
+            }
+        });
     }
 
     fn render_overclock_menu(&mut self, ui: &mut Ui) {

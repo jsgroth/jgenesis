@@ -87,6 +87,24 @@ impl EmuThreadStatus {
     pub fn is_running_handheld(self) -> bool {
         matches!(self, Self::RunningGameGear | Self::RunningGameBoy | Self::RunningGba)
     }
+
+    pub fn running_console(self) -> Option<Console> {
+        match self {
+            Self::RunningSms => Some(Console::MasterSystem),
+            Self::RunningGameGear => Some(Console::GameGear),
+            Self::RunningGenesis => Some(Console::Genesis),
+            Self::RunningSegaCd => Some(Console::SegaCd),
+            Self::Running32X => Some(Console::Sega32X),
+            Self::RunningNes => Some(Console::Nes),
+            Self::RunningSnes => Some(Console::Snes),
+            Self::RunningGameBoy => Some(Console::GameBoy),
+            Self::RunningGba => Some(Console::GameBoyAdvance),
+            Self::RunningPcEngine => Some(Console::PcEngine),
+            EmuThreadStatus::Idle
+            | EmuThreadStatus::WaitingForFirstCommand
+            | EmuThreadStatus::Terminated => None,
+        }
+    }
 }
 
 trait ConsoleExt {
