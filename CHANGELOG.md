@@ -1,6 +1,9 @@
 # 0.13.0
 
 ## New Features
+* Added support for the PC Engine / TurboGrafx-16
+  * Only the base system is emulated right now; no CD-ROM or SuperGrafx support, or Turbo Tap / multiple gamepads
+  * Options are fairly limited, but supports video options for palette, removing sprite-per-scanline limits, and whether to crop the overscan area
 * (**Genesis** / **SMS** / **Game Gear**) Added support for cheat codes (#136)
   * Genesis supports Game Genie codes, Pro Action Replay codes, and plain 68000 memory address/value pairs
   * SMS/GG supports Game Genie codes and Pro Action Replay codes
@@ -8,17 +11,18 @@
 * (**Genesis**) Added support for the XE-1 AP analog controller (#631)
   * This is supported by about 10 official releases, including the _After Burner_ games and _Space Harrier_
   * True analog control requires a gamepad with analog support (anything with an analog stick should work)
-* (**Genesis**) Added a new option for whether to allow simultaneous Left+Right or Up+Down inputs, which is now disabled by default (i.e. not allowed)
 * (**Genesis**) Added some additional debugging functionality
   * Added interrupt breakpoints for the 68000 and SH-2 CPUs
   * Added a new "VDP State" view that shows some internal VDP state that is normally not directly readable by software, e.g. timing information and current control port state
   * (**32X**) Added a new view that shows some SH7604 register contents including the cache control register, internal interrupt registers, the watchdog timer, and the DMA controller
   * The main 68000 disassembly view now shows any buffered memory writes that are done from the emulated CPU's perspective but have not yet been applied to memory for inter-processor timing reasons
+* All emulated systems now have an Input option for whether to allow simultaneous opposing gamepad directions (Left+Right or Up+Down); previously only NES did
+  * Official gamepads do not allow these, so these options are all disabled by default (i.e. not allowed)
 * Input settings windows now have a "Configure all" button so that you can configure every input without needing to click on each one individually
 * Added support for the MMPX Enhanced/EX upscaling shader by CrashGG (#644)
 
 ## Improvements
-* Slightly improved audio resampling performance on CPUs that support AVX2 and/or AVX512 instructions; this most notably affects GB/GBC and NES
+* Slightly improved audio resampling performance on CPUs that support AVX2 and/or AVX512 instructions; this most notably affects GB/GBC and NES (and PC Engine)
   * The AVX2 and AVX512 code paths are gated behind runtime CPU feature checks (and those are gated behind compile-time arch checks), so the emulator will still run on CPUs that do not support any AVX instructions
 * (**SMS**) The VDP version setting now defaults to SMS2 instead of SMS1, because there seem to be more games that depend on the SMS2 behavior than SMS1 (#658 / #659)
 
