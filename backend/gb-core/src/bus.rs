@@ -89,7 +89,7 @@ impl Bus<'_> {
         log::trace!("I/O register write: {address:04X} {value:02X}");
 
         match address & 0x7F {
-            0x00 => self.input_state.write_joyp(value),
+            0x00 => self.input_state.write_joyp(value, self.interrupt_registers),
             0x01 => self.serial_port.write_data(value),
             0x02 => self.serial_port.write_control(value),
             0x04 => self.timer.write_div(),

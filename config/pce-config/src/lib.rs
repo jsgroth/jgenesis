@@ -13,7 +13,7 @@ define_controller_inputs! {
         Run -> run "Run",
         Select -> select "Select",
     },
-    joypad: PceJoypadState,
+    joypad: PceJoypadState impl with_allow_opposing_directions,
     inputs: PceInputs {
         players: {
             p1: Player::One,

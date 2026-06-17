@@ -33,6 +33,7 @@ pub struct GameBoyAppConfig {
     pub frame_blending: bool,
     pub audio_resampler: GbAudioResampler,
     pub audio_60hz_hack: bool,
+    pub allow_opposing_joypad_directions: bool,
 }
 
 #[must_use]
@@ -60,6 +61,7 @@ impl Default for GameBoyAppConfig {
             frame_blending: true,
             audio_resampler: GbAudioResampler::default(),
             audio_60hz_hack: false,
+            allow_opposing_joypad_directions: false,
         }
     }
 }

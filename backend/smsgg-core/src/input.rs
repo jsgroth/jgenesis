@@ -1,5 +1,6 @@
 //! Code for handling Sega Master System / Game Gear controller input I/O registers
 
+use crate::SmsGgEmulatorConfig;
 use crate::vdp::Vdp;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
@@ -29,10 +30,11 @@ pub struct InputState {
     port_b_th: PinDirection,
     region: SmsGgRegion,
     reset: bool,
+    allow_opposing_directions: bool,
 }
 
 impl InputState {
-    pub fn new(region: SmsGgRegion) -> Self {
+    pub fn new(region: SmsGgRegion, config: &SmsGgEmulatorConfig) -> Self {
         Self {
             inputs: SmsGgInputs::default(),
             port_a_tr: PinDirection::Input,
@@ -41,6 +43,7 @@ impl InputState {
             port_b_th: PinDirection::Input,
             region,
             reset: false,
+            allow_opposing_directions: config.allow_opposing_joypad_inputs,
         }
     }
 
@@ -56,8 +59,9 @@ impl InputState {
         self.region
     }
 
-    pub fn set_region(&mut self, region: SmsGgRegion) {
+    pub fn reload_config(&mut self, region: SmsGgRegion, config: &SmsGgEmulatorConfig) {
         self.region = region;
+        self.allow_opposing_directions = config.allow_opposing_joypad_inputs;
     }
 
     pub fn set_reset(&mut self, reset: bool) {
@@ -87,32 +91,40 @@ impl InputState {
     }
 
     pub fn port_dc(&self) -> u8 {
-        let port_a_tr_bit = u8::from(self.port_a_tr.bit(!self.inputs.p1.button2)) << 5;
+        let p1_inputs =
+            self.inputs.p1.with_allow_opposing_directions(self.allow_opposing_directions);
+        let p2_inputs =
+            self.inputs.p2.with_allow_opposing_directions(self.allow_opposing_directions);
 
-        (u8::from(!self.inputs.p2.down) << 7)
-            | (u8::from(!self.inputs.p2.up) << 6)
+        let port_a_tr_bit = u8::from(self.port_a_tr.bit(!p1_inputs.button2)) << 5;
+
+        (u8::from(!p2_inputs.down) << 7)
+            | (u8::from(!p2_inputs.up) << 6)
             | port_a_tr_bit
-            | (u8::from(!self.inputs.p1.button1) << 4)
-            | (u8::from(!self.inputs.p1.right) << 3)
-            | (u8::from(!self.inputs.p1.left) << 2)
-            | (u8::from(!self.inputs.p1.down) << 1)
-            | u8::from(!self.inputs.p1.up)
+            | (u8::from(!p1_inputs.button1) << 4)
+            | (u8::from(!p1_inputs.right) << 3)
+            | (u8::from(!p1_inputs.left) << 2)
+            | (u8::from(!p1_inputs.down) << 1)
+            | u8::from(!p1_inputs.up)
     }
 
     pub fn port_dd(&self) -> u8 {
+        let p2_inputs =
+            self.inputs.p2.with_allow_opposing_directions(self.allow_opposing_directions);
+
         let port_b_th_bit =
             u8::from(self.region == SmsGgRegion::International && self.port_b_th.bit(true)) << 7;
         let port_a_th_bit =
             u8::from(self.region == SmsGgRegion::International && self.port_a_th.bit(true)) << 6;
-        let port_b_tr_bit = u8::from(self.port_b_tr.bit(!self.inputs.p2.button2)) << 3;
+        let port_b_tr_bit = u8::from(self.port_b_tr.bit(!p2_inputs.button2)) << 3;
 
         port_b_th_bit
             | port_a_th_bit
-            | 0x20
+            | (1 << 5)
             | (u8::from(!self.reset) << 4)
             | port_b_tr_bit
-            | (u8::from(!self.inputs.p2.button1) << 2)
-            | (u8::from(!self.inputs.p2.right) << 1)
-            | u8::from(!self.inputs.p2.left)
+            | (u8::from(!p2_inputs.button1) << 2)
+            | (u8::from(!p2_inputs.right) << 1)
+            | u8::from(!p2_inputs.left)
     }
 }

@@ -3,35 +3,12 @@ use jgenesis_common::frontend::{DisplayInfo, MappableInputs};
 use jgenesis_common::input::Player;
 use nes_config::{NesButton, NesJoypadState};
 
-pub(crate) trait NesJoypadStateExt: Sized + Copy {
-    #[must_use]
-    fn sanitize_opposing_directions(self) -> Self;
-
+pub(crate) trait NesJoypadStateExt {
     #[must_use]
     fn latch(self) -> LatchedJoypadState;
 }
 
 impl NesJoypadStateExt for NesJoypadState {
-    /// Prevent left+right or up+down from being pressed simultaneously from the NES's perspective.
-    ///
-    /// If left+right are pressed simultaneously, left will be preferred.
-    /// If up+down are pressed simultaneously, up will be preferred.
-    fn sanitize_opposing_directions(self) -> Self {
-        let mut sanitized = self;
-
-        if self.left && self.right {
-            // Arbitrarily prefer left
-            sanitized.right = false;
-        }
-
-        if self.up && self.down {
-            // Arbitrarily prefer up
-            sanitized.down = false;
-        }
-
-        sanitized
-    }
-
     fn latch(self) -> LatchedJoypadState {
         let bitstream = (u8::from(self.right) << 7)
             | (u8::from(self.left) << 6)

@@ -59,6 +59,7 @@ pub struct SmsGgEmulatorConfig {
     pub gg_use_sms_resolution: bool,
     pub fm_sound_unit_enabled: bool,
     pub z80_divider: NonZeroU32,
+    pub allow_opposing_joypad_inputs: bool,
     #[cfg_display(skip)]
     pub cheat_codes: Vec<ByteCheatCodeU16Address>,
 }
@@ -146,7 +147,7 @@ impl SmsGgEmulator {
         let memory = Memory::new(rom, bios_rom, cartridge_ram, hardware, &config);
         let vdp = Vdp::new(vdp_version, &config);
         let psg = Sn76489::new(psg_version);
-        let input = InputState::new(config.region(&memory));
+        let input = InputState::new(config.region(&memory), &config);
 
         log::info!("Region in cartridge header: {:?}", memory.guess_cartridge_region());
 
@@ -385,7 +386,7 @@ impl EmulatorTrait for SmsGgEmulator {
 
         self.memory.update_config(config);
 
-        self.input.set_region(config.region(&self.memory));
+        self.input.reload_config(config.region(&self.memory), config);
         self.audio_resampler.update_timing_mode(self.vdp.timing_mode());
     }
 
@@ -407,7 +408,7 @@ impl EmulatorTrait for SmsGgEmulator {
 
         self.vdp = Vdp::new(self.vdp_version, &self.config);
         self.psg = Sn76489::new(self.psg.version());
-        self.input = InputState::new(self.input.region());
+        self.input = InputState::new(self.input.region(), &self.config);
 
         self.ym2413 =
             self.config.fm_sound_unit_enabled.then(|| ym_opll::new_ym2413(YM2413_CLOCK_INTERVAL));

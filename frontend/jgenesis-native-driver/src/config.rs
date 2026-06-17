@@ -515,6 +515,7 @@ impl AppConfigExt for AppConfig {
                 gg_use_sms_resolution: self.smsgg.gg_use_sms_resolution,
                 fm_sound_unit_enabled: self.smsgg.fm_sound_unit_enabled,
                 z80_divider: self.smsgg.z80_divider,
+                allow_opposing_joypad_inputs: self.smsgg.allow_opposing_joypad_inputs,
                 cheat_codes: cheats.to_memory_override_vec(),
             },
             sms_boot_from_bios: self.smsgg.sms_boot_from_bios,
@@ -559,6 +560,7 @@ impl AppConfigExt for AppConfig {
                 audio_interpolation: self.snes.audio_interpolation,
                 audio_60hz_hack: self.snes.audio_60hz_hack,
                 gsu_overclock_factor: self.snes.gsu_overclock_factor,
+                allow_opposing_joypad_directions: self.snes.allow_opposing_joypad_directions,
             },
             dsp1_rom_path: self.snes.dsp1_rom_path.clone(),
             dsp2_rom_path: self.snes.dsp2_rom_path.clone(),
@@ -595,6 +597,7 @@ impl AppConfigExt for AppConfig {
                 frame_blending: self.game_boy.frame_blending,
                 audio_resampler: self.game_boy.audio_resampler,
                 audio_60hz_hack: self.game_boy.audio_60hz_hack,
+                allow_opposing_joypad_directions: self.game_boy.allow_opposing_joypad_directions,
             },
             dmg_boot_rom: self.game_boy.dmg_boot_rom,
             cgb_boot_rom: self.game_boy.cgb_boot_rom,
@@ -622,6 +625,9 @@ impl AppConfigExt for AppConfig {
                 color_correction,
                 frame_blending: self.game_boy_advance.frame_blending,
                 forced_save_memory_type: self.game_boy_advance.forced_save_memory_type,
+                allow_opposing_joypad_directions: self
+                    .game_boy_advance
+                    .allow_opposing_joypad_directions,
                 audio: GbaAudioConfig {
                     audio_interpolation: self.game_boy_advance.audio_interpolation,
                     psg_low_pass: self.game_boy_advance.psg_low_pass,

@@ -26,6 +26,8 @@ use snes_config::SnesButton;
 use std::mem;
 use std::sync::LazyLock;
 
+const ALLOW_OPPOSING_DIRECTIONS_LABEL: &str = "Allow simultaneous opposing gamepad directions";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InputMappingSet {
     #[default]
@@ -360,6 +362,12 @@ impl App {
         Window::new(OpenWindow::SmsGgInput.title()).open(&mut open).show(ctx, |ui| {
             self.disable_if_waiting_for_input(ui);
 
+            ui.checkbox(
+                &mut self.config.smsgg.allow_opposing_joypad_inputs,
+                ALLOW_OPPOSING_DIRECTIONS_LABEL,
+            );
+            ui.separator();
+
             let mapping = self.render_mapping_set_selector(OpenWindow::SmsGgInput, ui);
             ui.separator();
 
@@ -475,9 +483,8 @@ impl App {
 
             ui.checkbox(
                 &mut self.config.genesis.allow_opposing_joypad_directions,
-                "Allow simultaneous opposing gamepad directions",
+                ALLOW_OPPOSING_DIRECTIONS_LABEL,
             );
-
             ui.separator();
 
             let mapping = self.render_mapping_set_selector(OpenWindow::GenesisInput, ui);
@@ -586,6 +593,19 @@ impl App {
         Window::new(OpenWindow::NesInput.title()).open(&mut open).show(ctx, |ui| {
             self.disable_if_waiting_for_input(ui);
 
+            let rect = ui
+                .checkbox(
+                    &mut self.config.nes.allow_opposing_joypad_inputs,
+                    ALLOW_OPPOSING_DIRECTIONS_LABEL,
+                )
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state
+                    .help_text
+                    .insert(OpenWindow::NesInput, helptext::NES_OPPOSING_JOYPAD_DIRECTIONS);
+            }
+            ui.separator();
+
             let mapping = self.render_mapping_set_selector(OpenWindow::NesInput, ui);
             ui.separator();
 
@@ -632,6 +652,8 @@ impl App {
                     mapping_config.p2_turbo = NesControllerMapping::default();
                 }
             });
+
+            self.render_help_text(ui, OpenWindow::NesInput);
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::NesInput);
@@ -724,6 +746,12 @@ impl App {
         let mut open = true;
         Window::new(OpenWindow::SnesInput.title()).open(&mut open).show(ctx, |ui| {
             self.disable_if_waiting_for_input(ui);
+
+            ui.checkbox(
+                &mut self.config.snes.allow_opposing_joypad_directions,
+                ALLOW_OPPOSING_DIRECTIONS_LABEL,
+            );
+            ui.separator();
 
             let mapping = self.render_mapping_set_selector(OpenWindow::SnesInput, ui);
             ui.separator();
@@ -844,6 +872,12 @@ impl App {
         Window::new(OpenWindow::GameBoyInput.title()).open(&mut open).show(ctx, |ui| {
             self.disable_if_waiting_for_input(ui);
 
+            ui.checkbox(
+                &mut self.config.game_boy.allow_opposing_joypad_directions,
+                ALLOW_OPPOSING_DIRECTIONS_LABEL,
+            );
+            ui.separator();
+
             let mapping = self.render_mapping_set_selector(OpenWindow::GameBoyInput, ui);
             ui.separator();
 
@@ -895,6 +929,12 @@ impl App {
         let mut open = true;
         Window::new(OpenWindow::GbaInput.title()).open(&mut open).show(ctx, |ui| {
             self.disable_if_waiting_for_input(ui);
+
+            ui.checkbox(
+                &mut self.config.game_boy_advance.allow_opposing_joypad_directions,
+                ALLOW_OPPOSING_DIRECTIONS_LABEL,
+            );
+            ui.separator();
 
             let mapping = self.render_mapping_set_selector(OpenWindow::GbaInput, ui);
             ui.separator();
@@ -1032,6 +1072,32 @@ impl App {
         Window::new(OpenWindow::PceInput.title()).open(&mut open).show(ctx, |ui| {
             self.disable_if_waiting_for_input(ui);
 
+            let rect = ui
+                .checkbox(
+                    &mut self.config.pc_engine.allow_opposing_joypad_directions,
+                    ALLOW_OPPOSING_DIRECTIONS_LABEL,
+                )
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state
+                    .help_text
+                    .insert(OpenWindow::PceInput, helptext::OPPOSING_JOYPAD_DIRECTIONS);
+            }
+
+            let rect = ui
+                .checkbox(
+                    &mut self.config.pc_engine.allow_simultaneous_run_select,
+                    "Allow pressing Run+Select simultaneously",
+                )
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state
+                    .help_text
+                    .insert(OpenWindow::PceInput, helptext::PCE_SIMULTANEOUS_RUN_SELECT);
+            }
+
+            ui.separator();
+
             let mapping = self.render_mapping_set_selector(OpenWindow::PceInput, ui);
             ui.separator();
 
@@ -1067,32 +1133,6 @@ impl App {
                     mapping_config.p1_turbo = PceJoypadMapping::default();
                 }
             });
-
-            ui.add_space(15.0);
-
-            let rect = ui
-                .checkbox(
-                    &mut self.config.pc_engine.allow_opposing_joypad_directions,
-                    "Allow simultaneous opposing gamepad directions",
-                )
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state
-                    .help_text
-                    .insert(OpenWindow::PceInput, helptext::PCE_OPPOSING_JOYPAD_DIRECTIONS);
-            }
-
-            let rect = ui
-                .checkbox(
-                    &mut self.config.pc_engine.allow_simultaneous_run_select,
-                    "Allow pressing Run+Select simultaneously",
-                )
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state
-                    .help_text
-                    .insert(OpenWindow::PceInput, helptext::PCE_SIMULTANEOUS_RUN_SELECT);
-            }
 
             self.render_help_text(ui, OpenWindow::PceInput);
         });

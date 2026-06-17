@@ -278,7 +278,7 @@ define_controller_inputs! {
         Xe1apStart "Start",
         Xe1apSelect "Select",
     ],
-    joypad: GenesisJoypadState,
+    joypad: GenesisJoypadState impl with_allow_opposing_directions,
 }
 
 impl GenesisButton {

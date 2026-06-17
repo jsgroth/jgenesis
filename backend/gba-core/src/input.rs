@@ -1,5 +1,6 @@
 //! GBA input state and registers
 
+use crate::api::GbaEmulatorConfig;
 use crate::interrupts::{InterruptRegisters, InterruptType};
 use bincode::{Decode, Encode};
 use gba_config::GbaInputs;
@@ -15,16 +16,18 @@ pub struct InputState {
     irq_logic: IrqLogic,
     irq_mask: u16,
     prev_irq_line: bool,
+    allow_opposing_directions: bool,
 }
 
 impl InputState {
-    pub fn new() -> Self {
+    pub fn new(config: &GbaEmulatorConfig) -> Self {
         Self {
             inputs: GbaInputs::default(),
             irq_enabled: false,
             irq_logic: IrqLogic::default(),
             irq_mask: 0,
             prev_irq_line: false,
+            allow_opposing_directions: config.allow_opposing_joypad_directions,
         }
     }
 
@@ -40,17 +43,20 @@ impl InputState {
 
     // $4000130: KEYINPUT (Keypad input)
     pub fn read_keyinput(&self) -> u16 {
+        let joypad =
+            self.inputs.joypad.with_allow_opposing_directions(self.allow_opposing_directions);
+
         [
-            (self.inputs.joypad.a, 0),
-            (self.inputs.joypad.b, 1),
-            (self.inputs.joypad.select, 2),
-            (self.inputs.joypad.start, 3),
-            (self.inputs.joypad.right, 4),
-            (self.inputs.joypad.left, 5),
-            (self.inputs.joypad.up, 6),
-            (self.inputs.joypad.down, 7),
-            (self.inputs.joypad.r, 8),
-            (self.inputs.joypad.l, 9),
+            (joypad.a, 0),
+            (joypad.b, 1),
+            (joypad.select, 2),
+            (joypad.start, 3),
+            (joypad.right, 4),
+            (joypad.left, 5),
+            (joypad.up, 6),
+            (joypad.down, 7),
+            (joypad.r, 8),
+            (joypad.l, 9),
         ]
         .into_iter()
         .map(|(pressed, bit)| u16::from(!pressed) << bit)
@@ -102,5 +108,9 @@ impl InputState {
             interrupts.set_flag(InterruptType::Keypad, cycles);
         }
         self.prev_irq_line = irq_line;
+    }
+
+    pub fn reload_config(&mut self, config: &GbaEmulatorConfig) {
+        self.allow_opposing_directions = config.allow_opposing_joypad_directions;
     }
 }

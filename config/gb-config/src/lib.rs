@@ -65,7 +65,7 @@ define_controller_inputs! {
         Start -> start "Start",
         Select -> select "Select",
     },
-    joypad: GameBoyInputs,
+    joypad: GameBoyInputs impl with_allow_opposing_directions,
 }
 
 impl MappableInputs<GameBoyButton> for GameBoyInputs {

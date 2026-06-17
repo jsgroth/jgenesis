@@ -8,14 +8,6 @@ pub const TIMING_MODE: HelpText = HelpText {
     ],
 };
 
-pub const OPPOSING_DIRECTIONAL_INPUTS: HelpText = HelpText {
-    heading: "Opposing Directional Inputs",
-    text: &[
-        "Whether to allow simultaneous opposing directional inputs (left+right, up+down).",
-        "Much moreso than on other consoles, some NES games exhibit severe glitches if the game reads opposing directional inputs pressed simultaneously. Unchecking this option makes it impossible for the game to see that happen.",
-    ],
-};
-
 pub const DMA_DUMMY_JOY_READ: HelpText = HelpText {
     heading: "DMA Dummy Joypad Reads",
     text: &[

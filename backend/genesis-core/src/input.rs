@@ -474,26 +474,18 @@ impl ControllerState {
 }
 
 trait GenesisControllerExt {
-    fn allow_opposing_directions(self, allow_opposing_directions: bool) -> Self;
+    fn with_allow_opposing_directions(self, allow_opposing_directions: bool) -> Self;
 }
 
 impl GenesisControllerExt for GenesisController {
-    fn allow_opposing_directions(mut self, allow_opposing_directions: bool) -> Self {
+    fn with_allow_opposing_directions(mut self, allow_opposing_directions: bool) -> Self {
         if allow_opposing_directions {
             return self;
         }
 
         match &mut self {
             Self::ThreeButton(joypad) | Self::SixButton(joypad) => {
-                if joypad.left && joypad.right {
-                    joypad.left = false;
-                    joypad.right = false;
-                }
-
-                if joypad.up && joypad.down {
-                    joypad.up = false;
-                    joypad.down = false;
-                }
+                *joypad = joypad.with_allow_opposing_directions(allow_opposing_directions);
             }
             Self::Xe1ap(_) | Self::None => {}
         }
@@ -529,10 +521,10 @@ impl InputState {
             inputs,
             allow_opposing_joypad_directions: config.allow_opposing_joypad_directions,
             p1_state: ControllerState::new(
-                inputs.p1.allow_opposing_directions(config.allow_opposing_joypad_directions),
+                inputs.p1.with_allow_opposing_directions(config.allow_opposing_joypad_directions),
             ),
             p2_state: ControllerState::new(
-                inputs.p2.allow_opposing_directions(config.allow_opposing_joypad_directions),
+                inputs.p2.with_allow_opposing_directions(config.allow_opposing_joypad_directions),
             ),
             p1_pins: Pins::new(),
             p2_pins: Pins::new(),
@@ -557,12 +549,12 @@ impl InputState {
 
     fn update_state_and_pins(&mut self) {
         let p1_inputs =
-            self.inputs.p1.allow_opposing_directions(self.allow_opposing_joypad_directions);
+            self.inputs.p1.with_allow_opposing_directions(self.allow_opposing_joypad_directions);
         self.p1_state.update_inputs(p1_inputs);
         self.p1_state.update_pins(&mut self.p1_pins);
 
         let p2_inputs =
-            self.inputs.p2.allow_opposing_directions(self.allow_opposing_joypad_directions);
+            self.inputs.p2.with_allow_opposing_directions(self.allow_opposing_joypad_directions);
         self.p2_state.update_inputs(p2_inputs);
         self.p2_state.update_pins(&mut self.p2_pins);
     }

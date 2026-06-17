@@ -38,6 +38,7 @@ pub struct SnesEmulatorConfig {
     pub audio_interpolation: AudioInterpolationMode,
     pub audio_60hz_hack: bool,
     pub gsu_overclock_factor: NonZeroU64,
+    pub allow_opposing_joypad_directions: bool,
 }
 
 impl EmulatorConfigTrait for SnesEmulatorConfig {
@@ -55,6 +56,7 @@ impl Default for SnesEmulatorConfig {
             audio_interpolation: AudioInterpolationMode::default(),
             audio_60hz_hack: false,
             gsu_overclock_factor: NonZeroU64::new(1).unwrap(),
+            allow_opposing_joypad_directions: false,
         }
     }
 }
@@ -176,7 +178,7 @@ impl SnesEmulator {
         save_writer: &mut S,
     ) -> SnesLoadResult<Self> {
         let main_cpu = Wdc65816::new();
-        let cpu_registers = CpuInternalRegisters::new();
+        let cpu_registers = CpuInternalRegisters::new(&config);
         let dma_unit = DmaUnit::new();
 
         let initial_sram = save_writer.load_bytes("sav").ok();
@@ -420,6 +422,7 @@ impl EmulatorTrait for SnesEmulator {
         self.ppu.update_config(*config);
         self.apu.update_config(*config);
         self.memory.update_gsu_overclock_factor(config.gsu_overclock_factor);
+        self.cpu_registers.reload_config(config);
 
         self.emulator_config = *config;
     }

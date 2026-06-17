@@ -59,7 +59,7 @@ macro_rules! define_controller_inputs {
             $($button:ident -> $button_field:ident $button_label:literal),* $(,)?
         }
         $(, non_gamepad_buttons: [$($non_gamepad_button:ident $non_gamepad_label:literal),* $(,)?])?
-        , joypad: $joypad_struct:ident
+        , joypad: $joypad_struct:ident $(impl $with_allow_opposing_directions:ident)?
         $(
             , inputs: $inputs_struct:ident {
                 players: {
@@ -144,6 +144,28 @@ macro_rules! define_controller_inputs {
                 self.set_button(button, pressed);
                 self
             }
+
+            $(
+                #[inline]
+                #[must_use]
+                pub fn $with_allow_opposing_directions(mut self, allow_opposing_directions: bool) -> Self {
+                    if allow_opposing_directions {
+                        return self;
+                    }
+
+                    if self.left && self.right {
+                        self.left = false;
+                        self.right = false;
+                    }
+
+                    if self.up && self.down {
+                        self.up = false;
+                        self.down = false;
+                    }
+
+                    self
+                }
+            )?
         }
 
         $(

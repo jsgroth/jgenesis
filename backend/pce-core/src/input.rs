@@ -4,31 +4,11 @@ use jgenesis_common::num::GetBit;
 use pce_config::{PceInputs, PceJoypadState, PceRegion};
 
 trait PceJoypadStateExt {
-    fn allow_opposing_directions(self, allow_opposing_directions: bool) -> Self;
-
-    fn allow_simultaneous_run_select(self, allow_simultaneous_run_select: bool) -> Self;
+    fn with_simultaneous_run_select(self, allow_simultaneous_run_select: bool) -> Self;
 }
 
 impl PceJoypadStateExt for PceJoypadState {
-    fn allow_opposing_directions(mut self, allow_opposing_directions: bool) -> Self {
-        if allow_opposing_directions {
-            return self;
-        }
-
-        if self.left && self.right {
-            self.left = false;
-            self.right = false;
-        }
-
-        if self.up && self.down {
-            self.up = false;
-            self.down = false;
-        }
-
-        self
-    }
-
-    fn allow_simultaneous_run_select(mut self, allow_simultaneous_run_select: bool) -> Self {
+    fn with_simultaneous_run_select(mut self, allow_simultaneous_run_select: bool) -> Self {
         if allow_simultaneous_run_select {
             return self;
         }
@@ -80,8 +60,8 @@ impl InputState {
         let inputs = self
             .latched_inputs
             .p1
-            .allow_opposing_directions(self.allow_opposing_directions)
-            .allow_simultaneous_run_select(self.allow_simultaneous_run_select);
+            .with_allow_opposing_directions(self.allow_opposing_directions)
+            .with_simultaneous_run_select(self.allow_simultaneous_run_select);
 
         let data = match (self.select_pin, self.clear_pin) {
             (false, false) => [inputs.button1, inputs.button2, inputs.select, inputs.run],

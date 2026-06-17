@@ -1,3 +1,4 @@
+use crate::api::SnesEmulatorConfig;
 use crate::input::{SnesInputDevice, SnesInputs, SnesJoypadStateExt, SuperScopeState};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
@@ -79,10 +80,11 @@ pub struct InputState {
     current_inputs: SnesInputs,
     last_strobe_inputs: SnesInputs,
     super_scope_register: SuperScopeRegister,
+    allow_opposing_directions: bool,
 }
 
 impl InputState {
-    pub fn new() -> Self {
+    pub fn new(config: &SnesEmulatorConfig) -> Self {
         Self {
             auto_read_cycles_remaining: 0,
             auto_joypad_p1_inputs: SnesJoypadState::default().to_register_word(),
@@ -93,17 +95,24 @@ impl InputState {
             current_inputs: SnesInputs::default(),
             last_strobe_inputs: SnesInputs::default(),
             super_scope_register: SuperScopeRegister::default(),
+            allow_opposing_directions: config.allow_opposing_joypad_directions,
         }
     }
 
     pub fn set_strobe(&mut self, strobe: bool) {
         if !self.strobe && strobe {
-            self.manual_joypad_p1_inputs = self.current_inputs.p1.to_register_word();
+            self.manual_joypad_p1_inputs = self
+                .current_inputs
+                .p1
+                .with_allow_opposing_directions(self.allow_opposing_directions)
+                .to_register_word();
             self.manual_joypad_p2_inputs = match self.current_inputs.p2 {
                 SnesInputDevice::Controller(joypad_state) => {
                     self.super_scope_register = SuperScopeRegister::default();
 
-                    joypad_state.to_register_word()
+                    joypad_state
+                        .with_allow_opposing_directions(self.allow_opposing_directions)
+                        .to_register_word()
                 }
                 SnesInputDevice::SuperScope(super_scope_state) => {
                     // Read out the bits before updating them; otherwise the SNES will read Fire=1 on the frame before
@@ -188,5 +197,9 @@ impl InputState {
                 Some((x + 40, y + 1))
             })
             .flatten()
+    }
+
+    pub fn reload_config(&mut self, config: &SnesEmulatorConfig) {
+        self.allow_opposing_directions = config.allow_opposing_joypad_directions;
     }
 }

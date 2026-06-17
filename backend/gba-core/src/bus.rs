@@ -1047,7 +1047,7 @@ mod tests {
             timers: Timers::new(),
             interrupts: InterruptRegisters::new(),
             sio: SerialPort::new(),
-            inputs: InputState::new(),
+            inputs: InputState::new(&GbaEmulatorConfig::default()),
             state: BusState::new(),
             scheduler: Scheduler::new(),
         };

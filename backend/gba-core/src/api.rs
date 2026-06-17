@@ -75,6 +75,7 @@ pub struct GbaEmulatorConfig {
     pub color_correction: ColorCorrection,
     pub frame_blending: bool,
     pub forced_save_memory_type: Option<GbaSaveMemory>,
+    pub allow_opposing_joypad_directions: bool,
     #[cfg_display(indent_nested)]
     pub audio: GbaAudioConfig,
 }
@@ -154,7 +155,7 @@ impl GameBoyAdvanceEmulator {
             timers: Timers::new(),
             interrupts: InterruptRegisters::new(),
             sio: SerialPort::new(),
-            inputs: InputState::new(),
+            inputs: InputState::new(&config),
             state: BusState::new(),
             scheduler: Scheduler::new(),
         };
@@ -383,6 +384,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
     fn reload_config(&mut self, config: &Self::Config) {
         self.config = *config;
         self.bus.apu.reload_config(config.audio);
+        self.bus.inputs.reload_config(config);
     }
 
     fn soft_reset(&mut self) {

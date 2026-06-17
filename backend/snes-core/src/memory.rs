@@ -4,7 +4,7 @@ pub(crate) mod cartridge;
 pub(crate) mod dma;
 mod inputs;
 
-use crate::api::{CoprocessorRoms, SnesLoadResult};
+use crate::api::{CoprocessorRoms, SnesEmulatorConfig, SnesLoadResult};
 use crate::input::SnesInputs;
 use crate::memory::cartridge::Cartridge;
 use crate::memory::inputs::InputState;
@@ -348,7 +348,7 @@ pub struct CpuInternalRegisters {
 }
 
 impl CpuInternalRegisters {
-    pub fn new() -> Self {
+    pub fn new(config: &SnesEmulatorConfig) -> Self {
         Self {
             nmi_enabled: false,
             nmi_pending: false,
@@ -383,7 +383,7 @@ impl CpuInternalRegisters {
             vblank_nmi_flag: false,
             hblank_flag: false,
             programmable_joypad_port: 0xFF,
-            input_state: InputState::new(),
+            input_state: InputState::new(config),
         }
     }
 
@@ -980,6 +980,10 @@ impl CpuInternalRegisters {
         // Controllers can only latch H/V when WRIO bit 7 is set
         self.programmable_joypad_port.bit(7).then_some(self.input_state.hv_latch()).flatten()
     }
+
+    pub fn reload_config(&mut self, config: &SnesEmulatorConfig) {
+        self.input_state.reload_config(config);
+    }
 }
 
 #[cfg(test)]
@@ -1005,7 +1009,7 @@ mod tests {
 
     #[test]
     fn irq_v() {
-        let mut registers = CpuInternalRegisters::new();
+        let mut registers = CpuInternalRegisters::new(&SnesEmulatorConfig::default());
 
         // V IRQs
         registers.write_register(NMITIMEN, 0x20);
@@ -1071,7 +1075,7 @@ mod tests {
 
     #[test]
     fn irq_hv() {
-        let mut registers = CpuInternalRegisters::new();
+        let mut registers = CpuInternalRegisters::new(&SnesEmulatorConfig::default());
 
         // HV IRQs
         registers.write_register(NMITIMEN, 0x30);
@@ -1129,7 +1133,7 @@ mod tests {
 
     #[test]
     fn irq_hv_end_of_line() {
-        let mut registers = CpuInternalRegisters::new();
+        let mut registers = CpuInternalRegisters::new(&SnesEmulatorConfig::default());
 
         // HV IRQs
         registers.write_register(NMITIMEN, 0x30);

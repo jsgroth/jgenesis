@@ -80,7 +80,7 @@ define_controller_inputs! {
         SuperScopePause "Pause",
         SuperScopeTurboToggle "Turbo (Toggle)",
     ],
-    joypad: SnesJoypadState,
+    joypad: SnesJoypadState impl with_allow_opposing_directions,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

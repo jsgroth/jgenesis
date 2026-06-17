@@ -23,7 +23,7 @@ define_controller_inputs! {
         SolarMinBrightness "Set brightness to minimum",
         SolarMaxBrightness "Set brightness to maximum",
     ],
-    joypad: GbaJoypadInputs,
+    joypad: GbaJoypadInputs impl with_allow_opposing_directions,
 }
 
 impl GbaButton {

@@ -198,7 +198,7 @@ define_controller_inputs! {
         ZapperFire "Fire",
         ZapperForceOffscreen "Force offscreen (Hold)",
     ],
-    joypad: NesJoypadState,
+    joypad: NesJoypadState impl with_allow_opposing_directions,
 }
 
 impl NesButton {

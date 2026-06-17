@@ -57,6 +57,7 @@ pub struct GameBoyEmulatorConfig {
     pub frame_blending: bool,
     pub audio_resampler: GbAudioResampler,
     pub audio_60hz_hack: bool,
+    pub allow_opposing_joypad_directions: bool,
 }
 
 impl EmulatorConfigTrait for GameBoyEmulatorConfig {}
@@ -163,7 +164,7 @@ impl GameBoyEmulator {
             cartridge,
             timer: GbTimer::new(),
             dma_unit: DmaUnit::new(hardware_mode),
-            input_state: InputState::new(),
+            input_state: InputState::new(&config),
             rgba_buffer: RgbaFrameBuffer::default(),
             config,
             frame_count: 0,
@@ -220,7 +221,7 @@ impl EmulatorTrait for GameBoyEmulator {
         I: InputPoller<Self::Inputs>,
         S: SaveWriter,
     {
-        self.input_state.set_inputs(*input_poller.poll());
+        self.input_state.set_inputs(*input_poller.poll(), &mut self.interrupt_registers);
 
         self.cpu.execute_instruction(&mut Bus {
             hardware_mode: self.hardware_mode,
@@ -237,8 +238,6 @@ impl EmulatorTrait for GameBoyEmulator {
         });
 
         self.apu.drain_samples_into(audio_output).map_err(GameBoyError::Audio)?;
-
-        self.input_state.check_for_joypad_interrupt(&mut self.interrupt_registers);
 
         if self.ppu.frame_complete() {
             self.ppu.clear_frame_complete();
@@ -288,6 +287,7 @@ impl EmulatorTrait for GameBoyEmulator {
     fn reload_config(&mut self, config: &Self::Config) {
         self.config = *config;
         self.apu.reload_config(*config);
+        self.input_state.reload_config(config);
     }
 
     fn soft_reset(&mut self) {

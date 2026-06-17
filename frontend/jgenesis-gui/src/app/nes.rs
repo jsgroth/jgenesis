@@ -126,16 +126,6 @@ impl App {
 
             let rect = ui
                 .checkbox(
-                    &mut self.config.nes.allow_opposing_joypad_inputs,
-                    "Allow simultaneous opposing directional inputs",
-                )
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::OPPOSING_DIRECTIONAL_INPUTS);
-            }
-
-            let rect = ui
-                .checkbox(
                     &mut self.config.nes.dma_dummy_joy_reads,
                     "Allow DMA to trigger dummy joypad reads",
                 )

@@ -120,7 +120,7 @@ define_controller_inputs! {
         Button2 -> button2 "Button 2",
     },
     non_gamepad_buttons: [Pause "Start/Pause"],
-    joypad: SmsGgJoypadState,
+    joypad: SmsGgJoypadState impl with_allow_opposing_directions,
     inputs: SmsGgInputs {
         players: {
             p1: Player::One,
