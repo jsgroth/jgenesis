@@ -60,7 +60,7 @@ pub struct NesEmulatorConfig {
     /// Whether to allow simultaneous left+right and up+down joypad inputs.
     /// Some games exhibit severe glitches when opposing joypad directions are pressed
     /// simultaneously, e.g. Zelda 2 and Battletoads
-    pub allow_opposing_joypad_inputs: bool,
+    pub allow_opposing_joypad_directions: bool,
     /// Whether DMA is allowed to trigger dummy reads to the controller port registers.
     /// Dummy reads are more accurate to hardware but cause input glitches in some games.
     pub dma_dummy_joy_reads: bool,
@@ -314,8 +314,8 @@ impl EmulatorTrait for NesEmulator {
         let prev_in_vblank = self.ppu_state.in_vblank();
 
         let inputs = input_poller.poll();
-        self.bus.update_p1_joypad_state(inputs.p1, self.config.allow_opposing_joypad_inputs);
-        self.bus.update_p2_joypad_state(inputs.p2, self.config.allow_opposing_joypad_inputs);
+        self.bus.update_p1_joypad_state(inputs.p1, self.config.allow_opposing_joypad_directions);
+        self.bus.update_p2_joypad_state(inputs.p2, self.config.allow_opposing_joypad_directions);
 
         let timing_mode = self.bus.mapper().timing_mode();
 

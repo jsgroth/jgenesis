@@ -515,7 +515,7 @@ impl AppConfigExt for AppConfig {
                 gg_use_sms_resolution: self.smsgg.gg_use_sms_resolution,
                 fm_sound_unit_enabled: self.smsgg.fm_sound_unit_enabled,
                 z80_divider: self.smsgg.z80_divider,
-                allow_opposing_joypad_inputs: self.smsgg.allow_opposing_joypad_inputs,
+                allow_opposing_joypad_directions: self.smsgg.allow_opposing_joypad_directions,
                 cheat_codes: cheats.to_memory_override_vec(),
             },
             sms_boot_from_bios: self.smsgg.sms_boot_from_bios,
@@ -543,7 +543,7 @@ impl AppConfigExt for AppConfig {
                 silence_ultrasonic_triangle_output: self.nes.silence_ultrasonic_triangle_output,
                 audio_resampler: self.nes.audio_resampler,
                 audio_refresh_rate_adjustment: self.nes.audio_60hz_hack,
-                allow_opposing_joypad_inputs: self.nes.allow_opposing_joypad_inputs,
+                allow_opposing_joypad_directions: self.nes.allow_opposing_joypad_directions,
                 dma_dummy_joy_reads: self.nes.dma_dummy_joy_reads,
             },
         })

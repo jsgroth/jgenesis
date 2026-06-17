@@ -16,7 +16,7 @@ pub struct NesAppConfig {
     pub silence_ultrasonic_triangle_output: bool,
     pub audio_resampler: NesAudioResampler,
     pub audio_60hz_hack: bool,
-    pub allow_opposing_joypad_inputs: bool,
+    pub allow_opposing_joypad_directions: bool,
     pub dma_dummy_joy_reads: bool,
     pub palette: NesPalette,
 }
@@ -40,7 +40,7 @@ impl Default for NesAppConfig {
             silence_ultrasonic_triangle_output: false,
             audio_resampler: NesAudioResampler::default(),
             audio_60hz_hack: false,
-            allow_opposing_joypad_inputs: false,
+            allow_opposing_joypad_directions: false,
             dma_dummy_joy_reads: true,
             palette: NesPalette::default(),
         }

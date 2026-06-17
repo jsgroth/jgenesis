@@ -112,6 +112,7 @@ impl SmsGgWebConfig {
             gg_use_sms_resolution: false,
             fm_sound_unit_enabled: self.fm_unit_enabled,
             z80_divider: NonZeroU32::new(smsgg_core::NATIVE_Z80_DIVIDER).unwrap(),
+            allow_opposing_joypad_directions: false,
             cheat_codes: vec![],
         }
     }
@@ -195,6 +196,7 @@ impl SnesWebConfig {
             audio_interpolation: self.audio_interpolation,
             audio_60hz_hack: true,
             gsu_overclock_factor: NonZeroU64::new(1).unwrap(),
+            allow_opposing_joypad_directions: false,
         }
     }
 }
@@ -233,6 +235,7 @@ impl GbaWebConfig {
             },
             frame_blending: self.frame_blending,
             forced_save_memory_type: None,
+            allow_opposing_joypad_directions: false,
             audio: GbaAudioConfig {
                 audio_interpolation: self.audio_interpolation,
                 psg_low_pass: self.psg_low_pass,

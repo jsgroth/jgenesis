@@ -341,7 +341,7 @@ struct Args {
 
     /// Allow opposing directional inputs (left+right or up+down)
     #[arg(long, help_heading = NES_OPTIONS_HEADING)]
-    nes_allow_opposing_inputs: Option<bool>,
+    nes_allow_opposing_directions: Option<bool>,
 
     /// Silence ultrasonic triangle channel output (less accurate but reduces audio popping)
     #[arg(long, help_heading = NES_OPTIONS_HEADING)]
@@ -757,7 +757,7 @@ impl Args {
         apply_overrides!(self, config.nes, [
             nes_aspect_ratio -> aspect_ratio,
             nes_pal_black_border -> pal_black_border,
-            nes_allow_opposing_inputs -> allow_opposing_joypad_inputs,
+            nes_allow_opposing_directions -> allow_opposing_joypad_directions,
             nes_silence_ultrasonic_triangle -> silence_ultrasonic_triangle_output,
             nes_audio_resampler -> audio_resampler,
             nes_audio_60hz_hack -> audio_60hz_hack,

@@ -59,7 +59,7 @@ pub struct SmsGgEmulatorConfig {
     pub gg_use_sms_resolution: bool,
     pub fm_sound_unit_enabled: bool,
     pub z80_divider: NonZeroU32,
-    pub allow_opposing_joypad_inputs: bool,
+    pub allow_opposing_joypad_directions: bool,
     #[cfg_display(skip)]
     pub cheat_codes: Vec<ByteCheatCodeU16Address>,
 }

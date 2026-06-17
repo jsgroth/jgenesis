@@ -43,7 +43,7 @@ impl InputState {
             port_b_th: PinDirection::Input,
             region,
             reset: false,
-            allow_opposing_directions: config.allow_opposing_joypad_inputs,
+            allow_opposing_directions: config.allow_opposing_joypad_directions,
         }
     }
 
@@ -61,7 +61,7 @@ impl InputState {
 
     pub fn reload_config(&mut self, region: SmsGgRegion, config: &SmsGgEmulatorConfig) {
         self.region = region;
-        self.allow_opposing_directions = config.allow_opposing_joypad_inputs;
+        self.allow_opposing_directions = config.allow_opposing_joypad_directions;
     }
 
     pub fn set_reset(&mut self, reset: bool) {

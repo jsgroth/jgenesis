@@ -818,21 +818,21 @@ impl Bus {
     pub fn update_p1_joypad_state(
         &mut self,
         p1_joypad_state: NesJoypadState,
-        allow_opposing_inputs: bool,
+        allow_opposing_directions: bool,
     ) {
         self.io_registers.p1.joypad_state =
-            p1_joypad_state.with_allow_opposing_directions(allow_opposing_inputs);
+            p1_joypad_state.with_allow_opposing_directions(allow_opposing_directions);
     }
 
     pub fn update_p2_joypad_state(
         &mut self,
         p2_inputs: NesInputDevice,
-        allow_opposing_inputs: bool,
+        allow_opposing_directions: bool,
     ) {
         match p2_inputs {
             NesInputDevice::Controller(joypad_state) => {
                 self.io_registers.p2.joypad_state =
-                    joypad_state.with_allow_opposing_directions(allow_opposing_inputs);
+                    joypad_state.with_allow_opposing_directions(allow_opposing_directions);
                 self.io_registers.zapper_state = None;
             }
             NesInputDevice::Zapper(zapper_state) => {

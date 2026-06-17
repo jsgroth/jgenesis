@@ -363,7 +363,7 @@ impl App {
             self.disable_if_waiting_for_input(ui);
 
             ui.checkbox(
-                &mut self.config.smsgg.allow_opposing_joypad_inputs,
+                &mut self.config.smsgg.allow_opposing_joypad_directions,
                 ALLOW_OPPOSING_DIRECTIONS_LABEL,
             );
             ui.separator();
@@ -595,7 +595,7 @@ impl App {
 
             let rect = ui
                 .checkbox(
-                    &mut self.config.nes.allow_opposing_joypad_inputs,
+                    &mut self.config.nes.allow_opposing_joypad_directions,
                     ALLOW_OPPOSING_DIRECTIONS_LABEL,
                 )
                 .interact_rect;
