@@ -667,11 +667,10 @@ impl App {
 
                 ui.add_space(15.0);
 
-                let show_soft_reset = !matches!(
-                    self.emu_thread.status(),
-                    EmuThreadStatus::RunningGameBoy | EmuThreadStatus::RunningGba
-                );
-                ui.add_enabled_ui(show_soft_reset, |ui| {
+                let emu_thread_status = self.emu_thread.status();
+                let supports_soft_reset = !(emu_thread_status.is_running_handheld()
+                    || emu_thread_status == EmuThreadStatus::RunningPcEngine);
+                ui.add_enabled_ui(supports_soft_reset, |ui| {
                     if ui.button("Soft Reset").clicked() {
                         self.emu_thread.send(EmuThreadCommand::SoftReset);
                         ui.close_kind(UiKind::Menu);
@@ -690,47 +689,42 @@ impl App {
 
                 ui.add_space(15.0);
 
-                ui.add_enabled_ui(
-                    self.emu_thread.status() == EmuThreadStatus::RunningSegaCd,
-                    |ui| {
-                        ui.menu_button("Change Disc", |ui| {
-                            if !self.state.disc_change_options.is_empty() {
-                                for (name, path) in &self.state.disc_change_options {
-                                    let enabled = path != &self.state.current_file_path;
-                                    ui.add_enabled_ui(enabled, |ui| {
-                                        if ui.button(name).clicked() {
-                                            self.state.current_file_path.clone_from(path);
-                                            self.emu_thread.send(
-                                                EmuThreadCommand::SegaCdChangeDisc(path.clone()),
-                                            );
-                                            ui.close_kind(UiKind::Menu);
-                                        }
-                                    });
-                                }
-
-                                ui.separator();
+                ui.add_enabled_ui(emu_thread_status == EmuThreadStatus::RunningSegaCd, |ui| {
+                    ui.menu_button("Change Disc", |ui| {
+                        if !self.state.disc_change_options.is_empty() {
+                            for (name, path) in &self.state.disc_change_options {
+                                let enabled = path != &self.state.current_file_path;
+                                ui.add_enabled_ui(enabled, |ui| {
+                                    if ui.button(name).clicked() {
+                                        self.state.current_file_path.clone_from(path);
+                                        self.emu_thread
+                                            .send(EmuThreadCommand::SegaCdChangeDisc(path.clone()));
+                                        ui.close_kind(UiKind::Menu);
+                                    }
+                                });
                             }
 
-                            if ui.button("Select file...").clicked() {
-                                if let Some(path) = FileDialog::new()
-                                    .add_filter("cue/chd", &["cue", "chd"])
-                                    .pick_file()
-                                {
-                                    self.state.current_file_path.clone_from(&path);
-                                    self.emu_thread.send(EmuThreadCommand::SegaCdChangeDisc(path));
-                                }
+                            ui.separator();
+                        }
 
-                                ui.close_kind(UiKind::Menu);
+                        if ui.button("Select file...").clicked() {
+                            if let Some(path) =
+                                FileDialog::new().add_filter("cue/chd", &["cue", "chd"]).pick_file()
+                            {
+                                self.state.current_file_path.clone_from(&path);
+                                self.emu_thread.send(EmuThreadCommand::SegaCdChangeDisc(path));
                             }
-                        });
 
-                        if ui.button("Remove Disc").clicked() {
-                            self.emu_thread.send(EmuThreadCommand::SegaCdRemoveDisc);
-                            self.state.current_file_path.clear();
                             ui.close_kind(UiKind::Menu);
                         }
-                    },
-                );
+                    });
+
+                    if ui.button("Remove Disc").clicked() {
+                        self.emu_thread.send(EmuThreadCommand::SegaCdRemoveDisc);
+                        self.state.current_file_path.clear();
+                        ui.close_kind(UiKind::Menu);
+                    }
+                });
             });
         });
     }
