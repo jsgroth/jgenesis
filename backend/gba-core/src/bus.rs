@@ -23,6 +23,7 @@ pub(crate) struct BusState {
     pub cpu_pc: u32,
     pub last_bios_read: u32,
     pub open_bus: u32,
+    pub iwram_open_bus: u32,
     pub active_dma_channel: Option<u8>,
     pub locked: bool,
 }
@@ -34,6 +35,7 @@ impl BusState {
             cpu_pc: 0,
             last_bios_read: 0,
             open_bus: 0,
+            iwram_open_bus: 0,
             active_dma_channel: None,
             locked: false,
         }
@@ -165,19 +167,22 @@ impl Bus {
         match SIZE {
             OpSize::BYTE => {
                 let shift = 8 * (address & 3);
-                self.state.open_bus &= !(0xFF << shift);
-                self.state.open_bus |= (value & 0xFF) << shift;
+                self.state.iwram_open_bus &= !(0xFF << shift);
+                self.state.iwram_open_bus |= (value & 0xFF) << shift;
             }
             OpSize::HALFWORD => {
                 let shift = 8 * (address & 2);
-                self.state.open_bus &= !(0xFFFF << shift);
-                self.state.open_bus |= (value & 0xFFFF) << shift;
+                self.state.iwram_open_bus &= !(0xFFFF << shift);
+                self.state.iwram_open_bus |= (value & 0xFFFF) << shift;
             }
             OpSize::WORD => {
-                self.state.open_bus = value;
+                self.state.iwram_open_bus = value;
             }
             _ => invalid_size!(SIZE),
         }
+
+        // Any IWRAM access populates all 32 bits of the data bus (openbuster test ROM)
+        self.state.open_bus = self.state.iwram_open_bus;
 
         value
     }
