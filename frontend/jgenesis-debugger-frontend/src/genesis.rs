@@ -15,11 +15,10 @@ use crate::genesis::z80debug::{GenesisZ80MemoryMap, Z80BreakCommand, Z80DebugWin
 use crate::memviewer::MemoryViewerState;
 use crate::process::{DebuggerProcesses, RunTillNextResult};
 use crate::{DebugRenderContext, DebuggerMainProcess, DebuggerRunnerProcess, memviewer};
-use egui::panel::{Side, TopBottomSide};
 use egui::scroll_area::ScrollBarVisibility;
 use egui::{
-    CentralPanel, Color32, CornerRadius, Grid, Image, Popup, Pos2, Rect, ScrollArea, Sense,
-    SidePanel, Stroke, StrokeKind, TopBottomPanel, Ui, UiKind, Vec2, Window,
+    CentralPanel, Color32, CornerRadius, Grid, Image, Panel, Popup, Pos2, Rect, ScrollArea, Sense,
+    Stroke, StrokeKind, Ui, UiKind, Vec2, Window,
 };
 use egui_extras::{Column, TableBuilder};
 use genesis_config::GenesisInputs;
@@ -70,6 +69,10 @@ const SLAVE_SH2_REGISTERS_WINDOW_TITLE: &str = "Slave SH-2 Registers";
 
 const CRAM_ROWS: usize = 4;
 const CRAM_COLS: usize = 16;
+
+// Manually position open-by-default windows so they don't spawn over the top panel
+const CRAM_DEFAULT_POS: [f32; 2] = [16.0, 38.0];
+const VRAM_DEFAULT_POS: [f32; 2] = [16.0, 327.0];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum MemoryArea {
@@ -411,7 +414,7 @@ fn render(
     mut debug_state: &mut GenesisBasedDebugState<'_>,
     state: &mut State,
 ) {
-    TopBottomPanel::new(TopBottomSide::Top, "gen_debug_top").show(ctx.egui_ctx, |ui| {
+    Panel::top("gen_debug_top").show_inside(ctx.egui_ui, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("Memory Viewers", |ui| {
                 for &memory_area in MemoryArea::ALL {
@@ -421,7 +424,7 @@ fn render(
 
                     if ui.button(memory_area.name()).clicked() {
                         if let Some(memviewer_state) = state.memory_viewers.get_mut(&memory_area) {
-                            memviewer_state.open_window(ctx.egui_ctx);
+                            memviewer_state.open_window(ui);
                         }
                         ui.close_kind(UiKind::Menu);
                     }
@@ -431,55 +434,55 @@ fn render(
             ui.menu_button("Register Viewers", |ui| {
                 if ui.button("VDP Registers").clicked() {
                     state.vdp_registers_open = true;
-                    crate::move_to_top(ctx.egui_ctx, VDP_REGISTERS_WINDOW_TITLE);
+                    crate::move_to_top(ui, VDP_REGISTERS_WINDOW_TITLE);
                     ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("VDP State").clicked() {
                     state.vdp_state_open = true;
-                    crate::move_to_top(ctx.egui_ctx, VDP_STATE_WINDOW_TITLE);
+                    crate::move_to_top(ui, VDP_STATE_WINDOW_TITLE);
                     ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("YM2612").clicked() {
-                    state.ym2612.open_window(ctx.egui_ctx);
+                    state.ym2612.open_window(ui);
                     ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("SN76489").clicked() {
                     state.psg_open = true;
-                    crate::move_to_top(ctx.egui_ctx, psgdebug::WINDOW_TITLE);
+                    crate::move_to_top(ui, psgdebug::WINDOW_TITLE);
                     ui.close_kind(UiKind::Menu);
                 }
 
                 if matches!(debug_state, GenesisBasedDebugState::Sega32X(..)) {
                     if ui.button("Master SH-2 Registers").clicked() {
                         state.master_sh2_registers_open = true;
-                        crate::move_to_top(ctx.egui_ctx, MASTER_SH2_REGISTERS_WINDOW_TITLE);
+                        crate::move_to_top(ui, MASTER_SH2_REGISTERS_WINDOW_TITLE);
                         ui.close_kind(UiKind::Menu);
                     }
 
                     if ui.button("Slave SH-2 Registers").clicked() {
                         state.slave_sh2_registers_open = true;
-                        crate::move_to_top(ctx.egui_ctx, SLAVE_SH2_REGISTERS_WINDOW_TITLE);
+                        crate::move_to_top(ui, SLAVE_SH2_REGISTERS_WINDOW_TITLE);
                         ui.close_kind(UiKind::Menu);
                     }
 
                     if ui.button("32X System Registers").clicked() {
                         state.s32x_system_registers_open = true;
-                        crate::move_to_top(ctx.egui_ctx, S32X_SYSTEM_REGISTERS_WINDOW_TITLE);
+                        crate::move_to_top(ui, S32X_SYSTEM_REGISTERS_WINDOW_TITLE);
                         ui.close_kind(UiKind::Menu);
                     }
 
                     if ui.button("32X VDP").clicked() {
                         state.s32x_vdp_registers_open = true;
-                        crate::move_to_top(ctx.egui_ctx, S32X_VDP_REGISTERS_WINDOW_TITLE);
+                        crate::move_to_top(ui, S32X_VDP_REGISTERS_WINDOW_TITLE);
                         ui.close_kind(UiKind::Menu);
                     }
 
                     if ui.button("32X PWM").clicked() {
                         state.s32x_pwm_registers_open = true;
-                        crate::move_to_top(ctx.egui_ctx, S32X_PWM_REGISTERS_WINDOW_TITLE);
+                        crate::move_to_top(ui, S32X_PWM_REGISTERS_WINDOW_TITLE);
                         ui.close_kind(UiKind::Menu);
                     }
                 }
@@ -488,25 +491,25 @@ fn render(
             ui.menu_button("Video Memory", |ui| {
                 if ui.button("CRAM").clicked() {
                     state.cram.open = true;
-                    crate::move_to_top(ctx.egui_ctx, CRAM_WINDOW_TITLE);
+                    crate::move_to_top(ui, CRAM_WINDOW_TITLE);
                     ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("VRAM").clicked() {
                     state.vram.open = true;
-                    crate::move_to_top(ctx.egui_ctx, VRAM_WINDOW_TITLE);
+                    crate::move_to_top(ui, VRAM_WINDOW_TITLE);
                     ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("Sprite Attributes").clicked() {
                     state.sprite_attributes.open = true;
-                    crate::move_to_top(ctx.egui_ctx, SPRITE_ATTRIBUTES_WINDOW_TITLE);
+                    crate::move_to_top(ui, SPRITE_ATTRIBUTES_WINDOW_TITLE);
                     ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("H Scroll Table").clicked() {
                     state.h_scroll.open = true;
-                    crate::move_to_top(ctx.egui_ctx, H_SCROLL_WINDOW_TITLE);
+                    crate::move_to_top(ui, H_SCROLL_WINDOW_TITLE);
                     ui.close_kind(UiKind::Menu);
                 }
 
@@ -514,62 +517,62 @@ fn render(
                     && ui.button("32X Palette RAM").clicked()
                 {
                     state.s32x_palette.open = true;
-                    crate::move_to_top(ctx.egui_ctx, S32X_PALETTE_WINDOW_TITLE);
+                    crate::move_to_top(ui, S32X_PALETTE_WINDOW_TITLE);
                     ui.close_kind(UiKind::Menu);
                 }
             });
 
             ui.menu_button("CPU Debuggers", |ui| {
                 if ui.button("68000 Disassembly").clicked() {
-                    state.m68k.open_disassembly_window(ctx.egui_ctx);
+                    state.m68k.open_disassembly_window(ui);
                     ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("68000 Breakpoints").clicked() {
-                    state.m68k.open_breakpoints_window(ctx.egui_ctx);
+                    state.m68k.open_breakpoints_window(ui);
                     ui.close_kind(UiKind::Menu);
                 }
 
                 if matches!(debug_state, GenesisBasedDebugState::SegaCd(..)) {
                     if ui.button("Sub 68000 Disassembly").clicked() {
-                        state.m68k_sub.open_disassembly_window(ctx.egui_ctx);
+                        state.m68k_sub.open_disassembly_window(ui);
                         ui.close_kind(UiKind::Menu);
                     }
 
                     if ui.button("Sub 68000 Breakpoints").clicked() {
-                        state.m68k_sub.open_breakpoints_window(ctx.egui_ctx);
+                        state.m68k_sub.open_breakpoints_window(ui);
                         ui.close_kind(UiKind::Menu);
                     }
                 }
 
                 if ui.button("Z80 Disassembly").clicked() {
-                    state.z80.open_disassembly_window(ctx.egui_ctx);
+                    state.z80.open_disassembly_window(ui);
                     ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("Z80 Breakpoints").clicked() {
-                    state.z80.open_breakpoints_window(ctx.egui_ctx);
+                    state.z80.open_breakpoints_window(ui);
                     ui.close_kind(UiKind::Menu);
                 }
 
                 if matches!(debug_state, GenesisBasedDebugState::Sega32X(..)) {
                     if ui.button("SH-2 Master Disassembly").clicked() {
-                        state.sh2_master.open_disassembly_window(ctx.egui_ctx);
+                        state.sh2_master.open_disassembly_window(ui);
                         ui.close_kind(UiKind::Menu);
                     }
 
                     if ui.button("SH-2 Master Breakpoints").clicked() {
-                        state.sh2_master.open_breakpoints_window(ctx.egui_ctx);
+                        state.sh2_master.open_breakpoints_window(ui);
                         ui.close_kind(UiKind::Menu);
                     }
 
                     if ui.button("SH-2 Slave Disassembly").clicked() {
-                        state.sh2_slave.open_disassembly_window(ctx.egui_ctx);
+                        state.sh2_slave.open_disassembly_window(ui);
                         ui.close_kind(UiKind::Menu);
                     }
 
                     if ui.button("SH-2 Slave Breakpoints").clicked() {
-                        state.sh2_slave.open_breakpoints_window(ctx.egui_ctx);
+                        state.sh2_slave.open_breakpoints_window(ui);
                         ui.close_kind(UiKind::Menu);
                     }
                 }
@@ -578,61 +581,61 @@ fn render(
     });
 
     render_memory_viewer_windows(
-        ctx.egui_ctx,
+        ctx.egui_ui,
         debug_state,
         &mut state.memory_viewers,
         &mut state.memory_edit_hook,
     );
 
-    render_vdp_registers_window(ctx.egui_ctx, debug_state, &mut state.vdp_registers_open);
+    render_vdp_registers_window(ctx.egui_ui, debug_state, &mut state.vdp_registers_open);
 
-    render_vdp_state_window(ctx.egui_ctx, debug_state, &mut state.vdp_state_open);
+    render_vdp_state_window(ctx.egui_ui, debug_state, &mut state.vdp_state_open);
 
     ym2612debug::render_debug_window(
-        ctx.egui_ctx,
+        ctx.egui_ui,
         debug_state.ym2612().debug_view(),
         &mut state.ym2612,
     );
 
-    psgdebug::render_debug_window(ctx.egui_ctx, debug_state.psg(), &mut state.psg_open);
+    psgdebug::render_debug_window(ctx.egui_ui, debug_state.psg(), &mut state.psg_open);
 
-    let screen_width = crate::screen_width(ctx.egui_ctx);
+    let screen_width = crate::screen_width(ctx.egui_ui);
 
-    render_cram_window(ctx.egui_ctx, screen_width, debug_state, &mut state.cram);
-    render_vram_window(ctx.egui_ctx, screen_width, debug_state, &mut state.vram);
-    render_h_scroll_window(ctx.egui_ctx, debug_state, &mut state.h_scroll);
-    render_sprite_attributes_window(ctx.egui_ctx, debug_state, &mut state.sprite_attributes);
+    render_cram_window(ctx.egui_ui, screen_width, debug_state, &mut state.cram);
+    render_vram_window(ctx.egui_ui, screen_width, debug_state, &mut state.vram);
+    render_h_scroll_window(ctx.egui_ui, debug_state, &mut state.h_scroll);
+    render_sprite_attributes_window(ctx.egui_ui, debug_state, &mut state.sprite_attributes);
 
-    render_m68k_debug_windows(ctx.egui_ctx, debug_state, state);
-    render_z80_debug_windows(ctx.egui_ctx, debug_state, state);
+    render_m68k_debug_windows(ctx.egui_ui, debug_state, state);
+    render_z80_debug_windows(ctx.egui_ui, debug_state, state);
 
     if let GenesisBasedDebugState::Sega32X(debug_state, debugger_handle) = &mut debug_state {
         render_sh2_registers_window(
-            ctx.egui_ctx,
+            ctx.egui_ui,
             &mut debug_state.sh2_master,
             MASTER_SH2_REGISTERS_WINDOW_TITLE,
             &mut state.master_sh2_registers_open,
         );
         render_sh2_registers_window(
-            ctx.egui_ctx,
+            ctx.egui_ui,
             &mut debug_state.sh2_slave,
             SLAVE_SH2_REGISTERS_WINDOW_TITLE,
             &mut state.slave_sh2_registers_open,
         );
 
-        render_32x_palette_window(ctx.egui_ctx, debug_state, &mut state.s32x_palette);
+        render_32x_palette_window(ctx.egui_ui, debug_state, &mut state.s32x_palette);
         render_32x_system_registers_window(
-            ctx.egui_ctx,
+            ctx.egui_ui,
             debug_state,
             &mut state.s32x_system_registers_open,
         );
         render_32x_vdp_registers_window(
-            ctx.egui_ctx,
+            ctx.egui_ui,
             debug_state,
             &mut state.s32x_vdp_registers_open,
         );
         render_32x_pwm_registers_window(
-            ctx.egui_ctx,
+            ctx.egui_ui,
             debug_state,
             &mut state.s32x_pwm_registers_open,
         );
@@ -640,14 +643,14 @@ fn render(
         let break_status = debugger_handle.sh2_break_status();
 
         sh2debug::render_disassembly_window(
-            ctx.egui_ctx,
+            ctx.egui_ui,
             debug_state,
             &mut state.sh2_master,
             &debugger_handle.command_sender,
             break_status.get(WhichCpu::Master),
         );
         sh2debug::render_disassembly_window(
-            ctx.egui_ctx,
+            ctx.egui_ui,
             debug_state,
             &mut state.sh2_slave,
             &debugger_handle.command_sender,
@@ -655,12 +658,12 @@ fn render(
         );
 
         sh2debug::render_breakpoints_window(
-            ctx.egui_ctx,
+            ctx.egui_ui,
             &mut state.sh2_master,
             &debugger_handle.command_sender,
         );
         sh2debug::render_breakpoints_window(
-            ctx.egui_ctx,
+            ctx.egui_ui,
             &mut state.sh2_slave,
             &debugger_handle.command_sender,
         );
@@ -921,6 +924,7 @@ fn render_cram_window(
     Window::new(CRAM_WINDOW_TITLE)
         .open(&mut state.open)
         .constrain(false)
+        .default_pos(CRAM_DEFAULT_POS)
         .default_size([screen_width * 0.95, 225.0])
         .show(ctx, |ui| {
             emu_state.vdp().copy_cram(state.entry_buffer.as_mut_slice(), state.modifier);
@@ -930,10 +934,9 @@ fn render_cram_window(
                 *color = entry.color;
             }
 
-            SidePanel::new(Side::Right, "cram_right_panel")
-                .resizable(false)
-                .min_width(125.0)
-                .show_inside(ui, |ui| {
+            Panel::right("cram_right_panel").resizable(false).min_size(125.0).show_inside(
+                ui,
+                |ui| {
                     let cram_entry = state.entry_buffer[state.selected_color];
 
                     paint_rect_and_advance_cursor(
@@ -950,7 +953,8 @@ fn render_cram_window(
                         state.selected_color % 16,
                         cram_entry,
                     );
-                });
+                },
+            );
 
             CentralPanel::default().show_inside(ui, |ui| {
                 let modifier_resp = ui.horizontal(|ui| {
@@ -1046,6 +1050,7 @@ fn render_vram_window(
     Window::new(VRAM_WINDOW_TITLE)
         .open(&mut state.open)
         .constrain(false)
+        .default_pos(VRAM_DEFAULT_POS)
         .default_width(screen_width * 0.95)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -1381,10 +1386,9 @@ fn render_32x_palette_window(
                 *color = entry.color;
             }
 
-            SidePanel::new(Side::Right, "32x_palette_side_panel")
-                .resizable(false)
-                .min_width(135.0)
-                .show_inside(ui, |ui| {
+            Panel::right("32x_palette_side_panel").resizable(false).min_size(135.0).show_inside(
+                ui,
+                |ui| {
                     let selected_entry = state.entry_buffer[state.selected_color];
 
                     paint_rect_and_advance_cursor(
@@ -1400,7 +1404,8 @@ fn render_32x_palette_window(
                         state.selected_color,
                         selected_entry,
                     );
-                });
+                },
+            );
 
             CentralPanel::default().show_inside(ui, |ui| {
                 let mut image_size = ui.max_rect().size();

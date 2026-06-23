@@ -425,8 +425,8 @@ fn collect_input(
 
         match window {
             CollectInputWindow::Gui { window, joysticks, .. } => {
-                let result = window.update(|ctx| {
-                    egui::CentralPanel::default().show(ctx, |ui| {
+                let result = window.update(|ui| {
+                    egui::CentralPanel::default().show_inside(ui, |ui| {
                         render_input_window(joysticks, button, ui);
                     });
                 });
@@ -588,11 +588,13 @@ pub struct InputWindow {
 
 impl InputWindow {
     pub fn new(window: Window, scale_factor: f32) -> anyhow::Result<Self> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
 
         // SAFETY: The returned surface must not outlive the window
         let surface = unsafe {
-            instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_window(&window)?)
+            instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_display_and_window(
+                &window, &window,
+            )?)
         }?;
 
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -629,29 +631,45 @@ impl InputWindow {
         let platform = egui_sdl3_platform::Platform::new(&window, scale_factor);
         let start_time = SystemTime::now();
 
-        let renderer = egui_wgpu::Renderer::new(&device, surface_format, None, 1, false);
+        let renderer = egui_wgpu::Renderer::new(
+            &device,
+            surface_format,
+            egui_wgpu::RendererOptions::default(),
+        );
 
         Ok(Self { surface, surface_config, device, queue, platform, renderer, start_time, window })
     }
 
-    pub fn update(&mut self, render_fn: impl FnMut(&egui::Context)) -> anyhow::Result<()> {
+    pub fn update(&mut self, render_fn: impl FnMut(&mut egui::Ui)) -> anyhow::Result<()> {
         let egui_input = self.platform.take_raw_input(
             SystemTime::now().duration_since(self.start_time).unwrap_or_default().as_secs_f64(),
         );
 
-        let full_output = self.platform.context().run(egui_input, render_fn);
+        let full_output = self.platform.context().run_ui(egui_input, render_fn);
 
+        let mut suboptimal_surface = false;
         let output = match self.surface.get_current_texture() {
-            Ok(output) => output,
-            Err(wgpu::SurfaceError::Outdated) => {
-                log::warn!("Skipping input window frame because wgpu surface has changed");
-                return Ok(());
+            wgpu::CurrentSurfaceTexture::Success(output) => output,
+            wgpu::CurrentSurfaceTexture::Suboptimal(output) => {
+                suboptimal_surface = true;
+                output
             }
-            Err(wgpu::SurfaceError::Timeout) => {
+            wgpu::CurrentSurfaceTexture::Timeout => {
                 log::warn!("Skipping input window frame because wgpu surface timed out");
                 return Ok(());
             }
-            Err(err) => return Err(err.into()),
+            wgpu::CurrentSurfaceTexture::Outdated => {
+                log::warn!("Skipping input window frame because wgpu surface is outdated");
+                self.surface.configure(&self.device, &self.surface_config);
+                return Ok(());
+            }
+            wgpu::CurrentSurfaceTexture::Occluded => {
+                log::debug!("Skipping input window frame because wgpu surface is occluded");
+                return Ok(());
+            }
+            wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Validation => {
+                return Err(anyhow!("wgpu surface was lost or failed validation"));
+            }
         };
         let output_view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -683,6 +701,7 @@ impl InputWindow {
             let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &output_view,
+                    depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
@@ -703,6 +722,10 @@ impl InputWindow {
 
         for id in &full_output.textures_delta.free {
             self.renderer.free_texture(id);
+        }
+
+        if suboptimal_surface {
+            self.surface.configure(&self.device, &self.surface_config);
         }
 
         Ok(())

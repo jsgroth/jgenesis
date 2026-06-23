@@ -2,7 +2,9 @@
 //! <https://github.com/hasenbanck/egui_winit_platform>
 
 use egui::ahash::HashMapExt;
-use egui::{MouseWheelUnit, OutputCommand, PlatformOutput, ViewportIdMap, ViewportInfo};
+use egui::{
+    MouseWheelUnit, OutputCommand, PlatformOutput, TouchPhase, ViewportIdMap, ViewportInfo,
+};
 use sdl3::event::Event as SdlEvent;
 use sdl3::event::WindowEvent as SdlWindowEvent;
 use sdl3::mouse::MouseWheelDirection;
@@ -101,6 +103,7 @@ impl Platform {
                 self.raw_input.events.push(egui::Event::MouseWheel {
                     unit: MouseWheelUnit::Point,
                     delta,
+                    phase: TouchPhase::Move,
                     modifiers: self.raw_input.modifiers,
                 });
             }

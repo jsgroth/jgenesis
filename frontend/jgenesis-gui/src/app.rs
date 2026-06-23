@@ -21,11 +21,10 @@ use crate::app::widgets::RenderErrorEffect;
 use crate::emuthread;
 use crate::emuthread::{EmuThreadCommand, EmuThreadHandle, EmuThreadStatus, EmulatorRunInput};
 use eframe::Frame;
-use egui::panel::TopBottomSide;
 use egui::{
     Align, Button, CentralPanel, Color32, Context, Key, KeyboardShortcut, LayerId, Layout,
-    Modifiers, Order, TextEdit, ThemePreference, TopBottomPanel, Ui, UiKind, Vec2, ViewportCommand,
-    Widget, Window,
+    Modifiers, Order, Panel, TextEdit, ThemePreference, Ui, UiKind, Vec2, ViewportCommand, Widget,
+    Window,
 };
 use egui_extras::{Column, TableBuilder};
 use emath::Pos2;
@@ -475,11 +474,11 @@ impl App {
         }
     }
 
-    fn render_menu(&mut self, ctx: &Context) {
-        TopBottomPanel::new(TopBottomSide::Top, "top_bottom_panel").show(ctx, |ui| {
+    fn render_menu(&mut self, ui: &mut Ui) {
+        Panel::top("top_bottom_panel").show_inside(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.add_enabled_ui(!self.state.error_window_open, |ui| {
-                    self.render_file_menu(ctx, ui);
+                    self.render_file_menu(ui);
                     self.render_emulation_menu(ui);
                     self.render_settings_menu(ui);
                     self.render_video_menu(ui);
@@ -493,20 +492,20 @@ impl App {
         });
     }
 
-    fn render_file_menu(&mut self, ctx: &Context, ui: &mut Ui) {
+    fn render_file_menu(&mut self, ui: &mut Ui) {
         let open_shortcut = KeyboardShortcut::new(Modifiers::CTRL, Key::O);
-        if ctx.input_mut(|input| input.consume_shortcut(&open_shortcut)) {
+        if ui.input_mut(|input| input.consume_shortcut(&open_shortcut)) {
             self.open_file(None);
         }
 
         let open_most_recent_shortcut = KeyboardShortcut::new(Modifiers::NONE, Key::F5);
-        if ctx.input_mut(|input| input.consume_shortcut(&open_most_recent_shortcut)) {
+        if ui.input_mut(|input| input.consume_shortcut(&open_most_recent_shortcut)) {
             self.open_most_recent_file();
         }
 
         let quit_shortcut = KeyboardShortcut::new(Modifiers::CTRL, Key::Q);
-        if ctx.input_mut(|input| input.consume_shortcut(&quit_shortcut)) {
-            ctx.send_viewport_cmd(ViewportCommand::Close);
+        if ui.input_mut(|input| input.consume_shortcut(&quit_shortcut)) {
+            ui.send_viewport_cmd(ViewportCommand::Close);
         }
 
         ui.menu_button("File", |ui| {
@@ -539,7 +538,7 @@ impl App {
                 });
 
                 let open_most_recent_button = Button::new("Open Most Recent")
-                    .shortcut_text(ctx.format_shortcut(&open_most_recent_shortcut));
+                    .shortcut_text(ui.format_shortcut(&open_most_recent_shortcut));
                 if ui.add(open_most_recent_button).clicked() {
                     self.open_most_recent_file();
                     ui.close_kind(UiKind::Menu);
@@ -588,17 +587,15 @@ impl App {
 
             ui.add_space(10.0);
 
-            let open_button =
-                Button::new("Open").shortcut_text(ctx.format_shortcut(&open_shortcut));
+            let open_button = Button::new("Open").shortcut_text(ui.format_shortcut(&open_shortcut));
             if open_button.ui(ui).clicked() {
                 self.open_file(None);
                 ui.close_kind(UiKind::Menu);
             }
 
-            let quit_button =
-                Button::new("Quit").shortcut_text(ctx.format_shortcut(&quit_shortcut));
+            let quit_button = Button::new("Quit").shortcut_text(ui.format_shortcut(&quit_shortcut));
             if quit_button.ui(ui).clicked() {
-                ctx.send_viewport_cmd(ViewportCommand::Close);
+                ui.send_viewport_cmd(ViewportCommand::Close);
             }
         });
     }
@@ -934,8 +931,8 @@ impl App {
         });
     }
 
-    fn render_central_panel(&mut self, ctx: &Context) {
-        CentralPanel::default().show(ctx, |ui| {
+    fn render_central_panel(&mut self, ui: &mut Ui) {
+        CentralPanel::default().show_inside(ui, |ui| {
             ui.add_enabled_ui(!self.state.error_window_open, |ui| {
                 if self.rom_list_thread.any_scans_in_progress() {
                     ui.centered_and_justified(|ui| {
@@ -1308,7 +1305,7 @@ impl App {
 
     fn update_window_size_in_config(&mut self, ctx: &Context) {
         ctx.viewport(|vp| {
-            let Pos2 { x: width, y: height } = vp.input.screen_rect.max;
+            let Pos2 { x: width, y: height } = vp.input.viewport_rect().max;
             self.config.gui_window_width = width;
             self.config.gui_window_height = height;
         });
@@ -1316,9 +1313,9 @@ impl App {
 }
 
 impl eframe::App for App {
-    fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
+    fn ui(&mut self, ui: &mut Ui, _frame: &mut Frame) {
         if self.emu_thread.exit_signal() {
-            ctx.send_viewport_cmd(ViewportCommand::Close);
+            ui.send_viewport_cmd(ViewportCommand::Close);
             return;
         }
 
@@ -1340,28 +1337,28 @@ impl eframe::App for App {
 
             // Don't auto-focus the GUI window if -f/--file-path arg was set
             if !self.initial_focused && !self.state.close_on_emulator_exit {
-                ctx.send_viewport_cmd(ViewportCommand::Focus);
-                self.initial_focused = ctx.input(|input| input.raw.focused);
+                ui.send_viewport_cmd(ViewportCommand::Focus);
+                self.initial_focused = ui.input(|input| input.raw.focused);
             }
         }
 
-        let gui_focused = ctx.input(|input| input.raw.focused);
+        let gui_focused = ui.input(|input| input.raw.focused);
         self.emu_thread.update_gui_focused(gui_focused);
 
         let prev_config = self.config.clone();
 
-        self.check_emulator_error(ctx);
-        self.check_waiting_for_input(ctx);
-        self.check_for_close_on_emu_exit(ctx);
+        self.check_emulator_error(ui);
+        self.check_waiting_for_input(ui);
+        self.check_for_close_on_emu_exit(ui);
 
-        self.update_egui_theme(ctx);
+        self.update_egui_theme(ui);
 
-        self.render_menu(ctx);
-        self.render_central_panel(ctx);
+        self.render_menu(ui);
+        self.render_central_panel(ui);
 
-        self.render_windows(ctx);
+        self.render_windows(ui);
 
-        self.update_window_size_in_config(ctx);
+        self.update_window_size_in_config(ui);
 
         if prev_config != self.config {
             if should_reload_config(&prev_config, &self.config) {
@@ -1373,13 +1370,13 @@ impl eframe::App for App {
                 log::error!("Error serializing app config: {err}");
             }
 
-            nes::update_palette_textures(ctx, &self.state.nes_palette, &self.config.nes.palette);
+            nes::update_palette_textures(ui, &self.state.nes_palette, &self.config.nes.palette);
         }
 
         self.state.rendered_first_frame = true;
     }
 
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+    fn on_exit(&mut self) {
         self.terminate_emu_thread();
     }
 }

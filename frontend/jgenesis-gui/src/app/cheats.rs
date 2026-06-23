@@ -1,7 +1,7 @@
 use crate::app::{App, OpenWindow};
 use egui::{
-    CentralPanel, Context, FontFamily, Label, RichText, ScrollArea, Sense, SidePanel, TextEdit,
-    TextStyle, TopBottomPanel, Ui, Window,
+    CentralPanel, Context, FontFamily, Label, Panel, RichText, ScrollArea, Sense, TextEdit,
+    TextStyle, Ui, Window,
 };
 use egui_extras::{Column, TableBuilder};
 use genesis_config::cheats::{GenesisCheat, GenesisCheatCodeType, GenesisCheats};
@@ -176,7 +176,7 @@ impl App {
         Window::new(WINDOW.title()).open(&mut open).default_width(800.0).show(ctx, |ui| {
             let cheats_state = &mut self.state.cheats;
 
-            TopBottomPanel::top("cheats_top_panel").show_inside(ui, |ui| {
+            Panel::top("cheats_top_panel").show_inside(ui, |ui| {
                 ui.checkbox(&mut self.config.common.cheats_enabled, "Cheats enabled");
             });
 
@@ -194,7 +194,7 @@ impl App {
             ui.add_enabled_ui(self.config.common.cheats_enabled, |ui| {
                 let mut cheat_just_created = false;
 
-                SidePanel::left("cheats_left_panel").show_inside(ui, |ui| {
+                Panel::left("cheats_left_panel").show_inside(ui, |ui| {
                     render_left_panel(ui, cheats_state, &mut cheat_just_created);
                 });
 
@@ -524,10 +524,6 @@ fn smsgg_code_message(line: &str) -> Cow<'static, str> {
 }
 
 fn render_centered_message(ui: &mut Ui, message: &str) {
-    // Render an empty left panel to prevent some janky egui window behavior where the central panel
-    // extends below the window boundary
-    SidePanel::left("cheats_dummy_left_panel").show_inside(ui, |_ui| {});
-
     CentralPanel::default().show_inside(ui, |ui| {
         ui.centered_and_justified(|ui| {
             ui.label(message);

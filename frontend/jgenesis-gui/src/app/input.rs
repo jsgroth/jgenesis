@@ -1156,7 +1156,7 @@ impl App {
 
             ScrollArea::vertical()
                 .auto_shrink([false, true])
-                .max_height(ctx.screen_rect().height() * 0.5)
+                .max_height(ctx.content_rect().height() * 0.5)
                 .show(ui, |ui| {
                     ui.heading("General");
                     self.render_input_buttons("general_hotkeys", mapping, &GENERAL_HOTKEYS, ui);

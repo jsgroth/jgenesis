@@ -96,7 +96,7 @@ pub fn render_vertical_scroll_area<R>(
     ui: &mut Ui,
     add_contents: impl FnOnce(&mut Ui) -> R,
 ) -> ScrollAreaOutput<R> {
-    let screen_height = ui.input(|i| i.screen_rect.height());
+    let screen_height = ui.input(|i| i.content_rect().height());
 
     let mut scroll_area = ScrollArea::vertical().auto_shrink([false, true]);
 

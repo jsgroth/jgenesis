@@ -1,11 +1,14 @@
 use clap::Parser;
 use eframe::NativeOptions;
-use egui::{Vec2, ViewportBuilder};
+use egui::{IconData, ViewportBuilder};
 use env_logger::Env;
+use image::ImageFormat;
 use jgenesis_gui::app::{App, ConfigInfo, LoadAtStartup};
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::paths::{ConfigDirs, ConfigWithPath};
 use std::path::PathBuf;
+
+const ICON: &[u8] = include_bytes!("../../32x32.png");
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -135,8 +138,15 @@ fn main() -> eframe::Result<()> {
 
     let (gui_width, gui_height) = initial_gui_size(&config_with_path.config);
 
+    let icon = image::load_from_memory_with_format(ICON, ImageFormat::Png)
+        .expect("Failed to load GUI icon");
+    let icon_width = icon.width();
+    let icon_height = icon.height();
+
     let options = NativeOptions {
-        viewport: ViewportBuilder::default().with_inner_size(Vec2::new(gui_width, gui_height)),
+        viewport: ViewportBuilder::default().with_inner_size([gui_width, gui_height]).with_icon(
+            IconData { rgba: icon.into_bytes(), width: icon_width, height: icon_height },
+        ),
         ..NativeOptions::default()
     };
 

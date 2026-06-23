@@ -38,15 +38,14 @@ fn basic_render_pass<'encoder, 'label>(
         label: label.into(),
         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
             view: &output_view,
+            depth_slice: None,
             resolve_target: None,
             ops: wgpu::Operations {
                 load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                 store: wgpu::StoreOp::Store,
             },
         })],
-        depth_stencil_attachment: None,
-        timestamp_writes: None,
-        occlusion_query_set: None,
+        ..wgpu::RenderPassDescriptor::default()
     })
 }
 
@@ -110,7 +109,7 @@ impl ColorCorrectionShader {
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -227,7 +226,7 @@ impl FrameBlendShader {
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -405,7 +404,7 @@ impl BlurShader {
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -546,7 +545,7 @@ impl PrescaleShader {
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 

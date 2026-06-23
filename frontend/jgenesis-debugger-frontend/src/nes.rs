@@ -51,9 +51,9 @@ fn render(mut ctx: DebugRenderContext<'_>, emulator: &mut NesEmulator, state: &m
     update_oam_texture(&mut ctx, emulator, state);
     update_palette_ram_texture(&mut ctx, emulator, state);
 
-    let screen_width = crate::screen_width(ctx.egui_ctx);
+    let screen_width = crate::screen_width(ctx.egui_ui);
 
-    CentralPanel::default().show(ctx.egui_ctx, |ui| {
+    CentralPanel::default().show_inside(ctx.egui_ui, |ui| {
         ui.horizontal(|ui| {
             ui.add(SelectableButton::new("Nametables", &mut state.tab, Tab::Nametables));
             ui.add(SelectableButton::new("OAM", &mut state.tab, Tab::Oam));

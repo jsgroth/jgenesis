@@ -1,9 +1,8 @@
-use egui::panel::Side;
 use egui::scroll_area::ScrollBarVisibility;
 use egui::style::ScrollStyle;
 use egui::{
-    Align, CentralPanel, Color32, Context, FontId, Id, LayerId, Order, RichText, SidePanel,
-    TextEdit, Ui, Window,
+    Align, CentralPanel, Color32, Context, FontId, Id, LayerId, Order, Panel, RichText, TextEdit,
+    Ui, Window,
 };
 use egui_extras::{Column, TableBuilder};
 use jgenesis_common::debug::{DebugMemoryView, Endian};
@@ -120,86 +119,81 @@ fn render_right_panel(
     state: &mut MemoryViewerState,
     ui: &mut Ui,
 ) {
-    SidePanel::new(Side::Right, format!("{}_right", state.window_title))
-        .resizable(false)
-        .show_inside(ui, |ui| {
-            ui.heading("Go to address");
+    Panel::right(format!("{}_right", state.window_title)).resizable(false).show_inside(ui, |ui| {
+        ui.heading("Go to address");
 
-            ui.horizontal(|ui| {
-                let resp = ui.add(
-                    TextEdit::singleline(&mut state.goto_text).desired_width(70.0).font(MONOSPACE),
-                );
-                let enter_pressed =
-                    resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        ui.horizontal(|ui| {
+            let resp = ui.add(
+                TextEdit::singleline(&mut state.goto_text).desired_width(70.0).font(MONOSPACE),
+            );
+            let enter_pressed = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
 
-                let goto_address = ui.button("Go").clicked() || enter_pressed;
+            let goto_address = ui.button("Go").clicked() || enter_pressed;
 
-                if goto_address && let Ok(address) = usize::from_str_radix(&state.goto_text, 16) {
-                    state.goto_address = Some(address);
-                }
-            });
-
-            if state.editable {
-                ui.add_space(20.0);
-
-                ui.heading("Edit memory");
-
-                ui.horizontal(|ui| {
-                    ui.label("Address");
-
-                    ui.add(
-                        TextEdit::singleline(&mut state.set_address_text)
-                            .desired_width(70.0)
-                            .font(MONOSPACE),
-                    );
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label("Value");
-
-                    ui.add(
-                        TextEdit::singleline(&mut state.value_text)
-                            .desired_width(70.0)
-                            .font(MONOSPACE),
-                    );
-                });
-
-                if ui.button("Set byte (8-bit)").clicked() {
-                    try_set_byte(memory, state);
-                }
-
-                if ui.button("Set word (16-bit)").clicked() {
-                    try_set_word(memory, state);
-                }
-
-                if ui.button("Set longword (32-bit)").clicked() {
-                    try_set_longword(memory, state);
-                }
-
-                if state.set_invalid {
-                    ui.colored_label(Color32::RED, "Invalid address or value");
-                }
-            }
-
-            ui.add_space(20.0);
-
-            ui.heading("Column size");
-            ui.radio_value(&mut state.columns, MemoryViewerColumns::Byte, "Byte (8-bit)");
-            ui.radio_value(&mut state.columns, MemoryViewerColumns::Word, "Word (16-bit)");
-            ui.radio_value(&mut state.columns, MemoryViewerColumns::Longword, "Longword (32-bit)");
-
-            ui.add_space(20.0);
-
-            ui.heading("Endianness");
-            ui.radio_value(&mut state.endian, Endian::Big, "Big-endian");
-            ui.radio_value(&mut state.endian, Endian::Little, "Little-endian");
-
-            ui.add_space(20.0);
-
-            if ui.button("Export to file...").clicked() {
-                export_to_file(memory, state);
+            if goto_address && let Ok(address) = usize::from_str_radix(&state.goto_text, 16) {
+                state.goto_address = Some(address);
             }
         });
+
+        if state.editable {
+            ui.add_space(20.0);
+
+            ui.heading("Edit memory");
+
+            ui.horizontal(|ui| {
+                ui.label("Address");
+
+                ui.add(
+                    TextEdit::singleline(&mut state.set_address_text)
+                        .desired_width(70.0)
+                        .font(MONOSPACE),
+                );
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Value");
+
+                ui.add(
+                    TextEdit::singleline(&mut state.value_text).desired_width(70.0).font(MONOSPACE),
+                );
+            });
+
+            if ui.button("Set byte (8-bit)").clicked() {
+                try_set_byte(memory, state);
+            }
+
+            if ui.button("Set word (16-bit)").clicked() {
+                try_set_word(memory, state);
+            }
+
+            if ui.button("Set longword (32-bit)").clicked() {
+                try_set_longword(memory, state);
+            }
+
+            if state.set_invalid {
+                ui.colored_label(Color32::RED, "Invalid address or value");
+            }
+        }
+
+        ui.add_space(20.0);
+
+        ui.heading("Column size");
+        ui.radio_value(&mut state.columns, MemoryViewerColumns::Byte, "Byte (8-bit)");
+        ui.radio_value(&mut state.columns, MemoryViewerColumns::Word, "Word (16-bit)");
+        ui.radio_value(&mut state.columns, MemoryViewerColumns::Longword, "Longword (32-bit)");
+
+        ui.add_space(20.0);
+
+        ui.heading("Endianness");
+        ui.radio_value(&mut state.endian, Endian::Big, "Big-endian");
+        ui.radio_value(&mut state.endian, Endian::Little, "Little-endian");
+
+        ui.add_space(20.0);
+
+        if ui.button("Export to file...").clicked() {
+            export_to_file(memory, state);
+        }
+    });
 }
 
 fn render_central_panel(
@@ -211,6 +205,10 @@ fn render_central_panel(
     const ROW_HEIGHT: f32 = 15.0;
 
     let ctx = ui.ctx().clone();
+
+    // Workaround for https://github.com/emilk/egui/issues/8092
+    #[cfg(debug_assertions)]
+    ctx.global_style_mut(|style| style.debug.warn_if_rect_changes_id = false);
 
     let highlight_color = crate::highlight_color(ctx.theme());
 

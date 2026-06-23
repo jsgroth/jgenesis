@@ -68,9 +68,9 @@ fn render(mut ctx: DebugRenderContext<'_>, emulator: &mut SnesEmulator, state: &
     update_cgram_texture(&mut ctx, emulator, state);
     update_vram_texture(&mut ctx, emulator, state);
 
-    let screen_width = crate::screen_width(ctx.egui_ctx);
+    let screen_width = crate::screen_width(ctx.egui_ui);
 
-    CentralPanel::default().show(ctx.egui_ctx, |ui| {
+    CentralPanel::default().show_inside(ctx.egui_ui, |ui| {
         ui.horizontal(|ui| {
             ui.add(SelectableButton::new("VRAM", &mut state.tab, Tab::Vram));
             ui.add(SelectableButton::new("CGRAM", &mut state.tab, Tab::Cgram));

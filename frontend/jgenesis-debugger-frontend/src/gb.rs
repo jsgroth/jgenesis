@@ -51,9 +51,9 @@ fn render(mut ctx: DebugRenderContext<'_>, emulator: &mut GameBoyEmulator, state
     update_sprite_texture(&mut ctx, emulator, state);
     update_palettes_texture(&mut ctx, emulator, state);
 
-    let screen_width = crate::screen_width(ctx.egui_ctx);
+    let screen_width = crate::screen_width(ctx.egui_ui);
 
-    CentralPanel::default().show(ctx.egui_ctx, |ui| {
+    CentralPanel::default().show_inside(ctx.egui_ui, |ui| {
         ui.horizontal(|ui| {
             ui.add(SelectableButton::new("Background", &mut state.tab, Tab::Background));
             ui.add(SelectableButton::new("Sprites", &mut state.tab, Tab::Sprites));

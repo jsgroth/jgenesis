@@ -3,17 +3,13 @@ use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, EnumFromStr};
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU32;
 
-pub const DXIL_PATH: &str = "dxil.dll";
 pub const DXCOMPILER_PATH: &str = "dxcompiler.dll";
 
 #[must_use]
 pub fn dx12_backend_options() -> wgpu::Dx12BackendOptions {
     wgpu::Dx12BackendOptions {
-        shader_compiler: wgpu::Dx12Compiler::DynamicDxc {
-            dxc_path: DXCOMPILER_PATH.into(),
-            dxil_path: DXIL_PATH.into(),
-            max_shader_model: wgpu::DxcShaderModel::V6_7,
-        },
+        shader_compiler: wgpu::Dx12Compiler::DynamicDxc { dxc_path: DXCOMPILER_PATH.into() },
+        ..wgpu::Dx12BackendOptions::default()
     }
 }
 
@@ -50,14 +46,13 @@ fn supports_dx12() -> bool {
     use std::sync::LazyLock;
 
     static SUPPORTS_DX12: LazyLock<bool> = LazyLock::new(|| {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::DX12,
-            flags: wgpu::InstanceFlags::default(),
             backend_options: wgpu::BackendOptions {
                 dx12: dx12_backend_options(),
-                gl: wgpu::GlBackendOptions::default(),
-                noop: wgpu::NoopBackendOptions::default(),
+                ..wgpu::BackendOptions::default()
             },
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
 
         let adapter =

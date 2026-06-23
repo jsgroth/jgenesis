@@ -1,10 +1,7 @@
 use crate::genesis::widgets::{BreakpointWindowResponse, BreakpointsWidget, U24};
 use crate::{AddressSet, non_selectable_label};
-use egui::panel::{Side, TopBottomSide};
 use egui::style::ScrollStyle;
-use egui::{
-    Align, CentralPanel, Grid, Layout, RichText, SidePanel, TextEdit, TopBottomPanel, Ui, Window,
-};
+use egui::{Align, CentralPanel, Grid, Layout, Panel, RichText, TextEdit, Ui, Window};
 use egui_extras::{Column, TableBuilder};
 use genesis_core::api::debug::{
     DebugPendingWrite, GenesisDebugState, M68000BreakStatus, M68000Breakpoint, M68000Breakpoints,
@@ -454,7 +451,7 @@ pub fn render_disassembly_window(
         .constrain(false)
         .resizable([true, true])
         .default_pos(default_pos)
-        .default_width(750.0)
+        .default_width(800.0)
         .show(ctx, |ui| {
             if let Some(handle_command) = handle_command {
                 render_disasm_top_panel(state, handle_command, ui);
@@ -471,11 +468,7 @@ fn render_disasm_top_panel(
     mut handle_command: impl FnMut(M68kBreakCommand),
     ui: &mut Ui,
 ) {
-    TopBottomPanel::new(
-        TopBottomSide::Top,
-        format!("{}_top_panel", state.disassembly_window_title),
-    )
-    .show_inside(ui, |ui| {
+    Panel::top(format!("{}_top_panel", state.disassembly_window_title)).show_inside(ui, |ui| {
         ui.horizontal(|ui| {
             if ui.button("Pause").clicked() {
                 handle_command(M68kBreakCommand::Pause);
@@ -506,97 +499,93 @@ fn render_disasm_right_panel(
     state: &mut M68kDebugWindowState,
     ui: &mut Ui,
 ) {
-    SidePanel::new(Side::Right, format!("{}_right_panel", state.disassembly_window_title))
-        .show_inside(ui, |ui| {
-            ui.horizontal(|ui| {
-                let text_resp = ui.add(
-                    TextEdit::singleline(&mut state.disassemble_jump_addr).desired_width(60.0),
-                );
-                let button_resp = ui.button("Jump to address");
+    Panel::right(format!("{}_right_panel", state.disassembly_window_title)).show_inside(ui, |ui| {
+        ui.horizontal(|ui| {
+            let text_resp =
+                ui.add(TextEdit::singleline(&mut state.disassemble_jump_addr).desired_width(60.0));
+            let button_resp = ui.button("Jump to address");
 
-                let should_jump = button_resp.clicked()
-                    || (text_resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
-                if should_jump
-                    && let Ok(address) = u32::from_str_radix(&state.disassemble_jump_addr, 16)
-                {
-                    state.move_disassembly_table(address & 0xFFFFFF & !1);
-                }
-            });
-
-            ui.add_space(3.0);
-
-            if ui.button("Jump to PC").clicked() {
-                state.move_disassembly_table(m68k.pc());
-            }
-
-            ui.separator();
-
-            let data_registers = m68k.data_registers();
-            let address_registers = m68k.address_registers();
-            let status_register = m68k.status_register();
-
-            Grid::new(format!("{}_registers", state.disassembly_window_title)).show(ui, |ui| {
-                for i in 0..7 {
-                    ui.label(format!("D{i}"));
-                    ui.label(monospace_u32(data_registers[i]));
-
-                    ui.label(format!("A{i}"));
-                    ui.label(monospace_u32(address_registers[i]));
-
-                    ui.end_row();
-                }
-
-                ui.label("D7");
-                ui.label(monospace_u32(data_registers[7]));
-
-                ui.label("A7");
-                ui.label(monospace_u32(m68k.stack_pointer()));
-
-                ui.end_row();
-
-                ui.label("SSP");
-                ui.label(monospace_u32(m68k.supervisor_stack_pointer()));
-
-                ui.label("USP");
-                ui.label(monospace_u32(m68k.user_stack_pointer()));
-
-                ui.end_row();
-
-                ui.label("SR");
-                ui.label(monospace_u16(status_register));
-
-                ui.label("PC");
-                ui.label(monospace_u32(m68k.pc()));
-
-                ui.end_row();
-            });
-
-            ui.horizontal(|ui| {
-                ui.label("CCR");
-
-                ui.add_space(20.0);
-
-                let carry: u8 = status_register.bit(0).into();
-                let overflow: u8 = status_register.bit(1).into();
-                let zero: u8 = status_register.bit(2).into();
-                let negative: u8 = status_register.bit(3).into();
-                let extend: u8 = status_register.bit(4).into();
-                ui.label(
-                    RichText::new(format!(
-                        "C={carry} V={overflow} Z={zero} N={negative} X={extend}"
-                    ))
-                    .monospace(),
-                );
-            });
-
-            for (label, text) in memory_map.extra_info() {
-                ui.horizontal(|ui| {
-                    ui.label(label);
-                    ui.add_space(5.0);
-                    ui.label(RichText::new(text).monospace());
-                });
+            let should_jump = button_resp.clicked()
+                || (text_resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+            if should_jump
+                && let Ok(address) = u32::from_str_radix(&state.disassemble_jump_addr, 16)
+            {
+                state.move_disassembly_table(address & 0xFFFFFF & !1);
             }
         });
+
+        ui.add_space(3.0);
+
+        if ui.button("Jump to PC").clicked() {
+            state.move_disassembly_table(m68k.pc());
+        }
+
+        ui.separator();
+
+        let data_registers = m68k.data_registers();
+        let address_registers = m68k.address_registers();
+        let status_register = m68k.status_register();
+
+        Grid::new(format!("{}_registers", state.disassembly_window_title)).show(ui, |ui| {
+            for i in 0..7 {
+                ui.label(format!("D{i}"));
+                ui.label(monospace_u32(data_registers[i]));
+
+                ui.label(format!("A{i}"));
+                ui.label(monospace_u32(address_registers[i]));
+
+                ui.end_row();
+            }
+
+            ui.label("D7");
+            ui.label(monospace_u32(data_registers[7]));
+
+            ui.label("A7");
+            ui.label(monospace_u32(m68k.stack_pointer()));
+
+            ui.end_row();
+
+            ui.label("SSP");
+            ui.label(monospace_u32(m68k.supervisor_stack_pointer()));
+
+            ui.label("USP");
+            ui.label(monospace_u32(m68k.user_stack_pointer()));
+
+            ui.end_row();
+
+            ui.label("SR");
+            ui.label(monospace_u16(status_register));
+
+            ui.label("PC");
+            ui.label(monospace_u32(m68k.pc()));
+
+            ui.end_row();
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("CCR");
+
+            ui.add_space(20.0);
+
+            let carry: u8 = status_register.bit(0).into();
+            let overflow: u8 = status_register.bit(1).into();
+            let zero: u8 = status_register.bit(2).into();
+            let negative: u8 = status_register.bit(3).into();
+            let extend: u8 = status_register.bit(4).into();
+            ui.label(
+                RichText::new(format!("C={carry} V={overflow} Z={zero} N={negative} X={extend}"))
+                    .monospace(),
+            );
+        });
+
+        for (label, text) in memory_map.extra_info() {
+            ui.horizontal(|ui| {
+                ui.label(label);
+                ui.add_space(5.0);
+                ui.label(RichText::new(text).monospace());
+            });
+        }
+    });
 }
 
 fn render_disasm_central_panel(
@@ -614,7 +603,7 @@ fn render_disasm_central_panel(
         let mut table_builder = TableBuilder::new(ui)
             .column(Column::auto().at_least(10.0))
             .column(Column::auto().at_least(60.0))
-            .column(Column::auto().at_least(250.0))
+            .column(Column::auto().at_least(270.0))
             .column(Column::remainder())
             .striped(true)
             .sense(egui::Sense::click());

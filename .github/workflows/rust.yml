@@ -169,8 +169,8 @@ jobs:
 
     env:
       SDL_VERSION: 3.4.10
-      DXC_RELEASE_TAG: v1.8.2505.1
-      DXC_ZIP_FILE: dxc_2025_07_14.zip
+      DXC_RELEASE_TAG: v1.9.2602
+      DXC_ZIP_FILE: dxc_2026_02_20.zip
 
     steps:
       - uses: actions/checkout@v6
@@ -224,7 +224,7 @@ jobs:
           mv sdl3/SDL3.dll ./ && \
           mv sdl3/README.md ./README-SDL3.md && \
           mv sdl3/LICENSE.txt ./LICENSE-SDL3.txt && \
-          mv dxcompiler/bin/x64/*.dll ./ && \
+          mv dxcompiler/bin/x64/dxcompiler.dll ./ && \
           mv dxcompiler/LICENSE* ./ && \
           zip -r jgenesis-${JGENESIS_VERSION}-cli-windows-x86_64.zip LICENSE* README-SDL3.md *.dll jgenesis-cli.exe && \
           zip -r jgenesis-${JGENESIS_VERSION}-gui-windows-x86_64.zip LICENSE* README-SDL3.md *.dll jgenesis-gui.exe

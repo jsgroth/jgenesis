@@ -40,9 +40,9 @@ pub fn render_fn() -> Box<DebugRenderFn<PcEngineEmulator>> {
 }
 
 fn render(ctx: DebugRenderContext<'_>, emulator: &mut PcEngineEmulator, state: &mut State) {
-    update_palette_textures(ctx.egui_ctx, emulator, state);
+    update_palette_textures(ctx.egui_ui, emulator, state);
 
-    Window::new("BG Palettes").resizable(true).default_width(400.0).show(ctx.egui_ctx, |ui| {
+    Window::new("BG Palettes").resizable(true).default_width(400.0).show(ctx.egui_ui, |ui| {
         let size = clamp_palette_image_size(ui.available_size());
 
         if let Some(bg_palettes_texture) = state.bg_palettes_texture {
@@ -50,7 +50,7 @@ fn render(ctx: DebugRenderContext<'_>, emulator: &mut PcEngineEmulator, state: &
         }
     });
 
-    Window::new("Sprite Palettes").resizable(true).default_width(400.0).show(ctx.egui_ctx, |ui| {
+    Window::new("Sprite Palettes").resizable(true).default_width(400.0).show(ctx.egui_ui, |ui| {
         let size = clamp_palette_image_size(ui.available_size());
 
         if let Some(sprite_palettes_texture) = state.sprite_palettes_texture {
@@ -58,8 +58,8 @@ fn render(ctx: DebugRenderContext<'_>, emulator: &mut PcEngineEmulator, state: &
         }
     });
 
-    Window::new("VRAM").resizable(true).show(ctx.egui_ctx, |ui| {
-        update_vram_texture(ctx.egui_ctx, emulator, state);
+    Window::new("VRAM").resizable(true).show(ctx.egui_ui, |ui| {
+        update_vram_texture(ui, emulator, state);
 
         ui.spacing_mut().item_spacing = [2.0, 3.0].into();
 

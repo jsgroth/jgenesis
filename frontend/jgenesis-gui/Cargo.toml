@@ -43,6 +43,7 @@ egui_extras = { workspace = true }
 egui-wgpu = { workspace = true }
 emath = { workspace = true }
 env_logger = { workspace = true }
+image = { workspace = true, features = ["png"] }
 log = { workspace = true, features = ["release_max_level_info"] }
 pollster = { workspace = true }
 polonius-the-crab = { workspace = true }

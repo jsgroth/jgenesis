@@ -1,11 +1,8 @@
 use crate::genesis::m68kdebug::M68kDebugMemoryMap;
 use crate::genesis::widgets::{BreakpointWindowResponse, BreakpointsWidget};
 use crate::{AddressSet, non_selectable_label};
-use egui::panel::{Side, TopBottomSide};
 use egui::style::ScrollStyle;
-use egui::{
-    Align, CentralPanel, Grid, Layout, RichText, SidePanel, TextEdit, TopBottomPanel, Ui, Window,
-};
+use egui::{Align, CentralPanel, Grid, Layout, Panel, RichText, TextEdit, Ui, Window};
 use egui_extras::{Column, TableBuilder};
 use genesis_core::api::debug::{GenesisDebugState, Z80BreakStatus, Z80Breakpoint};
 use z80_emu::{DisassembledInstruction, MemoryAccess, Z80};
@@ -161,7 +158,7 @@ fn render_disasm_top_panel(
     mut handle_command: impl FnMut(Z80BreakCommand),
     ui: &mut Ui,
 ) {
-    TopBottomPanel::new(TopBottomSide::Top, "z80_top_panel").show_inside(ui, |ui| {
+    Panel::top("z80_top_panel").show_inside(ui, |ui| {
         ui.horizontal(|ui| {
             if ui.button("Pause").clicked() {
                 handle_command(Z80BreakCommand::Pause);
@@ -187,7 +184,7 @@ fn render_disasm_top_panel(
 }
 
 fn render_disasm_right_panel(z80: &Z80, state: &mut Z80DebugWindowState, ui: &mut Ui) {
-    SidePanel::new(Side::Right, "z80_right_panel").show_inside(ui, |ui| {
+    Panel::right("z80_right_panel").show_inside(ui, |ui| {
         ui.horizontal(|ui| {
             let text_resp =
                 ui.add(TextEdit::singleline(&mut state.jump_to_address).desired_width(40.0));

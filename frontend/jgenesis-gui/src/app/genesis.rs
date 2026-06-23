@@ -559,7 +559,7 @@ impl App {
 
         let mut open = true;
         Window::new(WINDOW.title()).open(&mut open).show(ctx, |ui| {
-            ui.ctx().style_mut(|style| style.spacing.scroll = ScrollStyle::solid());
+            ui.ctx().global_style_mut(|style| style.spacing.scroll = ScrollStyle::solid());
 
             widgets::render_vertical_scroll_area(ui, |ui| {
                 let rect = ui

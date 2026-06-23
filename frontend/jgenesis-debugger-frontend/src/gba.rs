@@ -1,12 +1,15 @@
 use crate::memviewer::MemoryViewerState;
 use crate::{DebugRenderContext, DebugRenderFn, memviewer};
-use egui::panel::TopBottomSide;
-use egui::{TopBottomPanel, UiKind, Vec2, Window};
+use egui::{Panel, UiKind, Vec2, Window};
 use gba_core::api::GameBoyAdvanceEmulator;
 use gba_core::api::debug::GbaMemoryArea;
 use jgenesis_common::debug::Endian;
 use jgenesis_common::frontend::Color;
 use std::collections::HashMap;
+
+// Manually position windows so they don't spawn over the top panel
+const BG_PALETTES_DEFAULT_POS: [f32; 2] = [16.0, 38.0];
+const SPRITE_PALETTES_DEFAULT_POS: [f32; 2] = [396.0, 38.0];
 
 struct PaletteWindowState {
     open: bool,
@@ -54,7 +57,7 @@ pub fn render_fn() -> Box<DebugRenderFn<GameBoyAdvanceEmulator>> {
 }
 
 fn render(ctx: DebugRenderContext<'_>, emulator: &mut GameBoyAdvanceEmulator, state: &mut State) {
-    TopBottomPanel::new(TopBottomSide::Top, "gba_debug_top").show(ctx.egui_ctx, |ui| {
+    Panel::top("gba_debug_top").show_inside(ctx.egui_ui, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("Memory Viewers", |ui| {
                 for area in GbaMemoryArea::ALL {
@@ -65,7 +68,7 @@ fn render(ctx: DebugRenderContext<'_>, emulator: &mut GameBoyAdvanceEmulator, st
                     if ui.button(area.name()).clicked()
                         && let Some(memviewer_state) = state.memory_viewer_states.get_mut(&area)
                     {
-                        memviewer_state.open_window(ctx.egui_ctx);
+                        memviewer_state.open_window(ui);
                         ui.close_kind(UiKind::Menu);
                     }
                 }
@@ -89,20 +92,22 @@ fn render(ctx: DebugRenderContext<'_>, emulator: &mut GameBoyAdvanceEmulator, st
         let Some(state) = state.memory_viewer_states.get_mut(&area) else { continue };
 
         let mut memory = emulator.debug().memory_view(area);
-        memviewer::render(ctx.egui_ctx, memory.as_mut(), state);
+        memviewer::render(ctx.egui_ui, memory.as_mut(), state);
     }
 
     emulator.debug().copy_palette_ram(state.palette_buffer.as_mut_slice());
 
     render_palette_window(
-        ctx.egui_ctx,
+        ctx.egui_ui,
         "BG Palettes",
+        BG_PALETTES_DEFAULT_POS,
         state.palette_buffer.as_slice(),
         &mut state.bg_palette,
     );
     render_palette_window(
-        ctx.egui_ctx,
+        ctx.egui_ui,
         "Sprite Palettes",
+        SPRITE_PALETTES_DEFAULT_POS,
         state.palette_buffer.as_slice(),
         &mut state.obj_palette,
     );
@@ -111,22 +116,27 @@ fn render(ctx: DebugRenderContext<'_>, emulator: &mut GameBoyAdvanceEmulator, st
 fn render_palette_window(
     ctx: &egui::Context,
     title: &str,
+    default_pos: [f32; 2],
     buffer: &[Color],
     state: &mut PaletteWindowState,
 ) {
-    Window::new(title).open(&mut state.open).default_size([350.0, 400.0]).show(ctx, |ui| {
-        let texture = crate::update_egui_texture(
-            ctx,
-            [16, 16],
-            &buffer[state.offset..state.offset + 256],
-            &mut state.texture,
-        );
+    Window::new(title)
+        .open(&mut state.open)
+        .default_pos(default_pos)
+        .default_size([350.0, 400.0])
+        .show(ctx, |ui| {
+            let texture = crate::update_egui_texture(
+                ctx,
+                [16, 16],
+                &buffer[state.offset..state.offset + 256],
+                &mut state.texture,
+            );
 
-        let mut size = ui.available_width();
-        if ui.available_height() < size {
-            size = ui.available_height();
-        }
+            let mut size = ui.available_width();
+            if ui.available_height() < size {
+                size = ui.available_height();
+            }
 
-        ui.image((texture, Vec2::new(size, size)));
-    });
+            ui.image((texture, Vec2::new(size, size)));
+        });
 }

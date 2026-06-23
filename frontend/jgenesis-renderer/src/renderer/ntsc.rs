@@ -265,10 +265,10 @@ impl NtscShader {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: "rgb_to_ntsc_pipeline_layout".into(),
                 bind_group_layouts: &[
-                    &rgb_to_ntsc_bind_group_layout,
-                    &immediates_bind_group_layout,
+                    Some(&rgb_to_ntsc_bind_group_layout),
+                    Some(&immediates_bind_group_layout),
                 ],
-                push_constant_ranges: &[],
+                immediate_size: 0,
             });
 
         let rgb_to_ntsc_shader = match variant {
@@ -419,10 +419,10 @@ impl NtscShader {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: "luma_chroma_to_rgb_pipeline_layout".into(),
                 bind_group_layouts: &[
-                    &luma_chroma_to_rgb_bind_group_layout,
-                    &immediates_bind_group_layout,
+                    Some(&luma_chroma_to_rgb_bind_group_layout),
+                    Some(&immediates_bind_group_layout),
                 ],
-                push_constant_ranges: &[],
+                immediate_size: 0,
             });
 
         let luma_chroma_to_rgb_pipeline =

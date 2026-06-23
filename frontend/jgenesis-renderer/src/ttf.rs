@@ -104,7 +104,7 @@ impl ModalRenderer {
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         };
         let bg_pipeline = device.create_render_pipeline(&bg_pipeline_descriptor);
@@ -183,7 +183,7 @@ impl ModalRenderer {
         let mut line_top = BORDER_OFFSET;
         for (modal, buffer) in self.modals.iter().zip(self.buffers.iter_mut()) {
             buffer.set_size(&mut self.font_system, Some(width as f32), Some(height as f32));
-            buffer.set_text(&mut self.font_system, &modal.text, &font_attrs, Shaping::Basic);
+            buffer.set_text(&mut self.font_system, &modal.text, &font_attrs, Shaping::Basic, None);
             buffer.shape_until_scroll(&mut self.font_system, false);
 
             text_areas.push(TextArea {

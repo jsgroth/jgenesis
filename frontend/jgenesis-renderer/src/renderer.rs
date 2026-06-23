@@ -366,7 +366,7 @@ impl RenderingPipeline {
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -438,7 +438,27 @@ impl RenderingPipeline {
         #[cfg(feature = "ttf")] modal_renderer: &mut ttf::ModalRenderer,
         frame_time_tracker: &mut FrameTimeTracker,
     ) -> Result<RenderResult, RendererError> {
-        let output = surface.get_current_texture()?;
+        let mut suboptimal_surface = false;
+        let output = match surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(texture) => texture,
+            wgpu::CurrentSurfaceTexture::Suboptimal(texture) => {
+                suboptimal_surface = true;
+                texture
+            }
+            wgpu::CurrentSurfaceTexture::Timeout => {
+                return Err(RendererError::WgpuSurfaceTimeout);
+            }
+            wgpu::CurrentSurfaceTexture::Occluded => {
+                return Err(RendererError::WgpuSurfaceOccluded);
+            }
+            wgpu::CurrentSurfaceTexture::Outdated => {
+                log::warn!("Skipping frame because wgpu surface is outdated");
+                return Ok(RenderResult::SuboptimalSurface);
+            }
+            wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Validation => {
+                return Err(RendererError::WgpuSurfaceLost);
+            }
+        };
 
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -498,6 +518,7 @@ impl RenderingPipeline {
                 label: "surface_render_pass".into(),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &output_view,
+                    depth_slice: None,
                     resolve_target: resolve_target.as_ref(),
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
@@ -521,13 +542,10 @@ impl RenderingPipeline {
 
         queue.submit(iter::once(encoder.finish()));
 
-        let render_result =
-            if output.suboptimal { RenderResult::SuboptimalSurface } else { RenderResult::None };
-
         frame_time_tracker.sync();
         output.present();
 
-        Ok(render_result)
+        Ok(if suboptimal_surface { RenderResult::SuboptimalSurface } else { RenderResult::None })
     }
 }
 
@@ -639,8 +657,12 @@ pub enum RendererError {
     WgpuCreateSurface(#[from] wgpu::CreateSurfaceError),
     #[error("Error requesting wgpu device: {0}")]
     WgpuRequestDevice(#[from] wgpu::RequestDeviceError),
-    #[error("Error getting handle to wgpu output surface: {0}")]
-    WgpuSurface(#[from] wgpu::SurfaceError),
+    #[error("Timeout obtaining wgpu surface texture")]
+    WgpuSurfaceTimeout,
+    #[error("wgpu surface is occluded")]
+    WgpuSurfaceOccluded,
+    #[error("wgpu surface was lost or failed validation")]
+    WgpuSurfaceLost,
     #[error("Failed to obtain wgpu adapter")]
     WgpuRequestAdapter(#[from] wgpu::RequestAdapterError),
     #[error(
@@ -823,19 +845,20 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
     ) -> Result<Self, RendererError> {
         let backends = config.wgpu_backend.to_wgpu();
 
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends,
-            flags: wgpu::InstanceFlags::default(),
             backend_options: wgpu::BackendOptions {
                 dx12: config::dx12_backend_options(),
-                gl: wgpu::GlBackendOptions::default(),
-                noop: wgpu::NoopBackendOptions::default(),
+                ..wgpu::BackendOptions::default()
             },
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
 
         // SAFETY: The surface must not outlive the window it was created from
         let surface = unsafe {
-            instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_window(&window)?)
+            instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_display_and_window(
+                &window, &window,
+            )?)
         }?;
 
         let adapter = instance
@@ -863,6 +886,7 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
                     max_texture_dimension_2d: adapter.limits().max_texture_dimension_2d,
                     ..wgpu::Limits::default()
                 },
+                experimental_features: wgpu::ExperimentalFeatures::default(),
                 memory_hints: wgpu::MemoryHints::default(),
                 trace: wgpu::Trace::Off,
             })
@@ -1119,16 +1143,12 @@ impl<Window> Renderer for WgpuRenderer<Window> {
                 log::debug!("Reconfiguring surface because graphics API reported it as suboptimal");
                 self.surface.configure(&self.device, &self.surface_config);
             }
-            Err(RendererError::WgpuSurface(wgpu::SurfaceError::Outdated)) => {
-                // This can sometimes happen on Windows with the Vulkan backend while the window is minimized
-                log::warn!(
-                    "Skipping frame because wgpu surface has changed and swap chain is outdated"
-                );
-                self.surface.configure(&self.device, &self.surface_config);
-            }
-            Err(RendererError::WgpuSurface(wgpu::SurfaceError::Timeout)) => {
+            Err(RendererError::WgpuSurfaceTimeout) => {
                 log::warn!("Skipping frame because wgpu surface timed out");
                 self.surface.configure(&self.device, &self.surface_config);
+            }
+            Err(RendererError::WgpuSurfaceOccluded) => {
+                log::debug!("Skipping frame because surface is occluded");
             }
             Err(err) => return Err(err),
         }

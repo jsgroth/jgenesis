@@ -1,6 +1,5 @@
 use crate::genesis::widgets::{BreakpointWindowResponse, BreakpointsWidget};
 use crate::{AddressSet, non_selectable_label};
-use egui::panel::{Side, TopBottomSide};
 use egui::style::ScrollStyle;
 use egui::{Align, Grid, Layout, RichText, TextEdit, Ui, Window};
 use egui_extras::{Column, TableBuilder};
@@ -236,32 +235,29 @@ fn render_disasm_top_panel(
     window_title: &str,
     ui: &mut Ui,
 ) {
-    egui::TopBottomPanel::new(TopBottomSide::Top, format!("{window_title}_top_panel")).show_inside(
-        ui,
-        |ui| {
-            ui.horizontal(|ui| {
-                if ui.button("Pause").clicked() {
-                    let _ = command_sender.send(Sega32XDebugCommand::BreakPauseSh2(state.which));
-                }
+    egui::Panel::top(format!("{window_title}_top_panel")).show_inside(ui, |ui| {
+        ui.horizontal(|ui| {
+            if ui.button("Pause").clicked() {
+                let _ = command_sender.send(Sega32XDebugCommand::BreakPauseSh2(state.which));
+            }
 
-                if ui.button("Resume").clicked() {
-                    let _ = command_sender.send(Sega32XDebugCommand::BreakResume);
-                }
+            if ui.button("Resume").clicked() {
+                let _ = command_sender.send(Sega32XDebugCommand::BreakResume);
+            }
 
-                if ui.button("Step").clicked() {
-                    let _ = command_sender.send(Sega32XDebugCommand::BreakStepSh2(state.which));
-                }
+            if ui.button("Step").clicked() {
+                let _ = command_sender.send(Sega32XDebugCommand::BreakStepSh2(state.which));
+            }
 
-                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                    if ui.button("Breakpoints").clicked() {
-                        state.open_breakpoints_window(ui.ctx());
-                    }
-                });
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                if ui.button("Breakpoints").clicked() {
+                    state.open_breakpoints_window(ui.ctx());
+                }
             });
+        });
 
-            ui.add_space(3.0);
-        },
-    );
+        ui.add_space(3.0);
+    });
 }
 
 fn render_disasm_right_panel(
@@ -270,9 +266,9 @@ fn render_disasm_right_panel(
     window_title: &str,
     ui: &mut Ui,
 ) {
-    egui::SidePanel::new(Side::Right, format!("{window_title}_left_panel"))
-        .min_width(250.0)
-        .show_inside(ui, |ui| {
+    egui::Panel::right(format!("{window_title}_left_panel")).min_size(250.0).show_inside(
+        ui,
+        |ui| {
             ui.heading("Disassembly Area");
 
             for (value, label) in [
@@ -353,7 +349,8 @@ fn render_disasm_right_panel(
                 ))
                 .monospace(),
             );
-        });
+        },
+    );
 }
 
 fn render_disasm_central_panel(

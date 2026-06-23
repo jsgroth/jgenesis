@@ -33,9 +33,9 @@ fn render(mut ctx: DebugRenderContext<'_>, emulator: &mut SmsGgEmulator, state: 
     update_cram_texture(&mut ctx, emulator, state);
     update_vram_texture(&mut ctx, emulator, state);
 
-    let screen_width = crate::screen_width(ctx.egui_ctx);
+    let screen_width = crate::screen_width(ctx.egui_ui);
 
-    Window::new("CRAM").default_width(screen_width * 0.95).show(ctx.egui_ctx, |ui| {
+    Window::new("CRAM").default_width(screen_width * 0.95).show(ctx.egui_ui, |ui| {
         let mut height = ui.available_width() * 0.125;
         if height > ui.available_height() {
             height = ui.available_height();
@@ -46,7 +46,7 @@ fn render(mut ctx: DebugRenderContext<'_>, emulator: &mut SmsGgEmulator, state: 
         ui.image((cram_texture, Vec2::new(width, height)));
     });
 
-    Window::new("VRAM").default_width(screen_width * 0.95).show(ctx.egui_ctx, |ui| {
+    Window::new("VRAM").default_width(screen_width * 0.95).show(ctx.egui_ui, |ui| {
         ui.horizontal(|ui| {
             ui.label("Palette");
 
@@ -67,7 +67,7 @@ fn render(mut ctx: DebugRenderContext<'_>, emulator: &mut SmsGgEmulator, state: 
     });
 
     Window::new("VDP Registers").default_open(false).default_pos(Pos2::new(5.0, 5.0)).show(
-        ctx.egui_ctx,
+        ctx.egui_ui,
         |ui| {
             ScrollArea::vertical().show(ui, |ui| {
                 Grid::new("smsgg_vdp_registers").num_columns(2).show(ui, |ui| {
