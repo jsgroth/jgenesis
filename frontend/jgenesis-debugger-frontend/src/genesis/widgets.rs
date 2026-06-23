@@ -127,7 +127,8 @@ where
         window_open: &mut bool,
         additional_breakpoints: impl FnOnce(&mut Ui) -> BreakpointWindowResponse,
     ) -> BreakpointWindowResponse {
-        let mut response = BreakpointWindowResponse::NotChanged;
+        let mut response = BreakpointWindowResponse::from_changed(self.breakpoints_changed);
+        self.breakpoints_changed = false;
 
         Window::new(window_title)
             .open(window_open)
@@ -272,8 +273,7 @@ where
             }
         }
 
-        if initial_breakpoints != self.breakpoints || self.breakpoints_changed {
-            self.breakpoints_changed = false;
+        if initial_breakpoints != self.breakpoints {
             BreakpointWindowResponse::Changed
         } else {
             BreakpointWindowResponse::NotChanged
