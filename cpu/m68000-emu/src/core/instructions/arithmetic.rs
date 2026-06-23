@@ -480,8 +480,13 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         let remainder = operand_l % operand_r;
 
         if quotient > i16::MAX.into() || quotient < i16::MIN.into() {
-            self.cpu.registers.ccr =
-                ConditionCodes { carry: false, overflow: true, ..self.cpu.registers.ccr };
+            self.cpu.registers.ccr = ConditionCodes {
+                carry: false,
+                overflow: true,
+                zero: false,
+                negative: true,
+                ..self.cpu.registers.ccr
+            };
 
             return if operand_l.wrapping_abs() >> 16 >= operand_r.abs() {
                 // Absolute overflows take 16 cycles for non-negative dividend and 18 for negative dividend
@@ -523,8 +528,13 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         let remainder = operand_l % operand_r;
 
         if quotient > u16::MAX.into() {
-            self.cpu.registers.ccr =
-                ConditionCodes { carry: false, overflow: true, ..self.cpu.registers.ccr };
+            self.cpu.registers.ccr = ConditionCodes {
+                carry: false,
+                overflow: true,
+                zero: false,
+                negative: true,
+                ..self.cpu.registers.ccr
+            };
 
             // Overflow is always 10 cycles plus the time to read the divisor
             return Ok(10 + source.address_calculation_cycles(OpSize::Word));
