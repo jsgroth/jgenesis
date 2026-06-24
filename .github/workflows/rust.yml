@@ -169,8 +169,8 @@ jobs:
 
     env:
       SDL_VERSION: 3.4.10
-      DXC_RELEASE_TAG: v1.9.2602
-      DXC_ZIP_FILE: dxc_2026_02_20.zip
+      DXC_RELEASE_TAG: v1.9.2602.24
+      DXC_ZIP_FILE: dxc_2026_05_27.zip
 
     steps:
       - uses: actions/checkout@v6
