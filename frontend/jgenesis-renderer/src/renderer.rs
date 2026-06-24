@@ -2,7 +2,7 @@ mod ntsc;
 mod shaders;
 
 use crate::config;
-use crate::config::{FrameRotation, PreprocessShader, RendererConfig};
+use crate::config::{FrameRotation, PreprocessShader, RendererConfig, VSyncMode};
 use crate::renderer::ntsc::{NtscShader, NtscShaderVariant};
 use crate::renderer::shaders::{
     BlurShader, ColorCorrectionShader, FrameBlendShader, PrescaleShader, UpscaleShader,
@@ -825,6 +825,7 @@ pub struct WgpuRenderer<Window> {
     modal_renderer: ttf::ModalRenderer,
     frame_count: u64,
     speed_multiplier: u64,
+    force_sync_off: bool,
     frame_time_tracker: FrameTimeTracker,
     // SAFETY: The surface must not outlive the window it was created from, thus the window must be
     // declared after the surface
@@ -956,6 +957,7 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             modal_renderer,
             frame_count: 0,
             speed_multiplier: 1,
+            force_sync_off: false,
             frame_time_tracker: FrameTimeTracker::new(config.frame_time_sync),
             window,
             window_size,
@@ -983,7 +985,7 @@ impl<Window> WgpuRenderer<Window> {
             // Reset last frame time if frame time sync was just enabled
             self.frame_time_tracker.last_frame_time_nanos = timeutils::current_time_nanos();
         }
-        self.frame_time_tracker.sync_enabled = config.frame_time_sync;
+        self.frame_time_tracker.sync_enabled = config.frame_time_sync && !self.force_sync_off;
 
         self.renderer_config = config;
 
@@ -994,6 +996,35 @@ impl<Window> WgpuRenderer<Window> {
 
         // Force render pipeline to be recreated on the next render_frame() call
         self.pipelines.clear();
+    }
+
+    pub fn set_force_sync_off(&mut self, force_sync_off: bool) {
+        let prev_force_sync_off = self.force_sync_off;
+        self.force_sync_off = force_sync_off;
+
+        if prev_force_sync_off != force_sync_off
+            && self.renderer_config.vsync_mode == VSyncMode::Enabled
+        {
+            let desired_present_mode = if force_sync_off {
+                VSyncMode::Disabled.to_wgpu_present_mode()
+            } else {
+                self.renderer_config.vsync_mode.to_wgpu_present_mode()
+            };
+            log::debug!("Changing wgpu present mode to {desired_present_mode:?}");
+
+            if self.surface_capabilities.present_modes.contains(&desired_present_mode) {
+                self.surface.configure(
+                    &self.device,
+                    &wgpu::SurfaceConfiguration {
+                        present_mode: desired_present_mode,
+                        ..self.surface_config.clone()
+                    },
+                );
+            }
+        }
+
+        self.frame_time_tracker.sync_enabled =
+            self.renderer_config.frame_time_sync && !force_sync_off;
     }
 
     pub fn handle_resize(&mut self, size: WindowSize) {

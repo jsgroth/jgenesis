@@ -465,9 +465,11 @@ fn handle_command<Emulator: EmulatorTrait>(
         }
         RunnerCommand::FastForward { enabled: true } => {
             state.audio_output.set_speed_multiplier(state.common_config.fast_forward_multiplier);
+            state.rewinder.set_speed_multiplier(state.common_config.fast_forward_multiplier);
         }
         RunnerCommand::FastForward { enabled: false } => {
             state.audio_output.set_speed_multiplier(1);
+            state.rewinder.set_speed_multiplier(1);
         }
         RunnerCommand::Rewind { enabled: true } => {
             state.rewinder.start_rewinding();

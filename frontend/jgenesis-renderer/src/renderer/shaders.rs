@@ -488,7 +488,7 @@ impl PrescaleShader {
             return None;
         }
 
-        log::info!(
+        log::debug!(
             "Creating prescale shader with width factor {prescale_width}x and height factor {prescale_height}x",
         );
 

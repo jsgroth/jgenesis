@@ -93,6 +93,7 @@ pub struct Rewinder<Emulator: EmulatorTrait> {
     previous_states: VecDeque<Vec<u8>>,
     buffer_len: usize,
     frame_count: u64,
+    interval_multiplier: f64,
     last_rewind_time: Option<Instant>,
     compressor_handle: CompressorThreadHandle<Emulator>,
 }
@@ -106,6 +107,7 @@ impl<Emulator: EmulatorTrait> Rewinder<Emulator> {
             previous_states: VecDeque::with_capacity(buffer_len + 1),
             buffer_len,
             frame_count: 0,
+            interval_multiplier: 1.0,
             last_rewind_time: None,
             compressor_handle,
         }
@@ -167,7 +169,8 @@ impl<Emulator: EmulatorTrait> Rewinder<Emulator> {
     {
         let Some(last_rewind_time) = self.last_rewind_time else { return Ok(()) };
 
-        let rewind_interval_secs = 1.0 / 60.0 * (FRAME_DIVIDER as f64) / (REWIND_SPEED as f64);
+        let rewind_interval_secs =
+            self.interval_multiplier / 60.0 * (FRAME_DIVIDER as f64) / (REWIND_SPEED as f64);
 
         let now = Instant::now();
         if now.duration_since(last_rewind_time) >= Duration::from_secs_f64(rewind_interval_secs) {
@@ -202,6 +205,16 @@ impl<Emulator: EmulatorTrait> Rewinder<Emulator> {
         while self.previous_states.len() > buffer_len {
             self.previous_states.pop_front();
         }
+    }
+
+    pub fn set_speed_multiplier(&mut self, speed_multiplier: u64) {
+        self.interval_multiplier = match speed_multiplier {
+            1 => 1.0,
+            // Default rewind speed is 2x, so fudge 2x and 3x to make them between 2x and 4x speed
+            2 => 3.0 / 4.0,
+            3 => 3.0 / 5.0,
+            _ => (REWIND_SPEED as f64) / (speed_multiplier as f64),
+        };
     }
 }
 

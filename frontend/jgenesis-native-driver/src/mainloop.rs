@@ -122,7 +122,7 @@ struct HotkeyState<Emulator: EmulatorTrait> {
     hide_mouse_cursor: HideMouseCursor,
     save_state_slot: usize,
     paused: bool,
-    fast_forward_multiplier: u64,
+    fast_forwarding: bool,
     rewinding: bool,
     overclocking_enabled: bool,
     debugger_window: Option<DebuggerWindow>,
@@ -137,7 +137,7 @@ impl<Emulator: EmulatorTrait> HotkeyState<Emulator> {
             hide_mouse_cursor: common_config.hide_mouse_cursor,
             save_state_slot: 0,
             paused: false,
-            fast_forward_multiplier: common_config.fast_forward_multiplier,
+            fast_forwarding: false,
             rewinding: false,
             overclocking_enabled: true,
             debugger_window: None,
@@ -211,7 +211,6 @@ impl<Emulator: EmulatorTrait> NativeEmulator<Emulator> {
 
         self.hotkey_state.hide_mouse_cursor = config.hide_mouse_cursor;
 
-        self.hotkey_state.fast_forward_multiplier = config.fast_forward_multiplier;
         // Reset speed multiplier in case the fast forward hotkey changed
         self.renderer.set_speed_multiplier(1);
 
@@ -891,14 +890,8 @@ where
         // else, hotkey released
 
         match hotkey {
-            Hotkey::FastForward => {
-                self.renderer.set_speed_multiplier(1);
-                self.runner.send_command(RunnerCommand::FastForward { enabled: false })?;
-            }
-            Hotkey::Rewind => {
-                self.runner.send_command(RunnerCommand::Rewind { enabled: false })?;
-                self.hotkey_state.rewinding = false;
-            }
+            Hotkey::FastForward => self.set_fast_forwarding(false)?,
+            Hotkey::Rewind => self.set_rewinding(false)?,
             _ => {}
         }
 
@@ -928,11 +921,8 @@ where
             CompactHotkey::StepFrame => {
                 self.runner.send_command(RunnerCommand::StepFrame)?;
             }
-            CompactHotkey::FastForward => self.enable_fast_forward()?,
-            CompactHotkey::Rewind => {
-                self.runner.send_command(RunnerCommand::Rewind { enabled: true })?;
-                self.hotkey_state.rewinding = true;
-            }
+            CompactHotkey::FastForward => self.set_fast_forwarding(true)?,
+            CompactHotkey::Rewind => self.set_rewinding(true)?,
             CompactHotkey::ToggleOverclocking => self.toggle_overclocking()?,
             CompactHotkey::OpenDebugger => self.open_memory_viewer()?,
         }
@@ -979,9 +969,34 @@ where
         );
     }
 
-    fn enable_fast_forward(&mut self) -> NativeEmulatorResult<()> {
-        self.renderer.set_speed_multiplier(self.hotkey_state.fast_forward_multiplier);
-        self.runner.send_command(RunnerCommand::FastForward { enabled: true })
+    fn set_fast_forwarding(&mut self, enabled: bool) -> NativeEmulatorResult<()> {
+        self.runner.send_command(RunnerCommand::FastForward { enabled })?;
+        self.hotkey_state.fast_forwarding = enabled;
+        self.update_renderer_fast_forward_config();
+
+        Ok(())
+    }
+
+    fn set_rewinding(&mut self, enabled: bool) -> NativeEmulatorResult<()> {
+        self.runner.send_command(RunnerCommand::Rewind { enabled })?;
+        self.hotkey_state.rewinding = enabled;
+        self.update_renderer_fast_forward_config();
+
+        Ok(())
+    }
+
+    fn update_renderer_fast_forward_config(&mut self) {
+        let fast_forwarding = self.hotkey_state.fast_forwarding;
+        let rewinding = self.hotkey_state.rewinding;
+
+        let speed_multiplier = if fast_forwarding && !rewinding {
+            self.common_config.fast_forward_multiplier
+        } else {
+            1
+        };
+        self.renderer.set_speed_multiplier(speed_multiplier);
+
+        self.renderer.set_force_sync_off(rewinding);
     }
 
     fn toggle_overclocking(&mut self) -> NativeEmulatorResult<()> {
