@@ -163,42 +163,35 @@ impl CollectedInputs {
 
     #[must_use]
     fn insert(&mut self, input: GenericInput) -> CollectionDone {
-        let axis_input = match input {
+        match input {
             GenericInput::Gamepad {
                 gamepad_idx,
                 action: GamepadAction::Axis(axis_idx, direction),
-            } => Some((gamepad_idx, axis_idx, direction)),
-            _ => None,
-        };
+            } => {
+                let opposite_input = GenericInput::Gamepad {
+                    gamepad_idx,
+                    action: GamepadAction::Axis(axis_idx, direction.inverse()),
+                };
+                if self.contains(opposite_input) {
+                    return CollectionDone::Yes;
+                }
 
-        if let Some((gamepad_idx, axis_idx, direction)) = axis_input
-            && let Some(&initial_direction) =
-                self.initial_axis_directions.get(&(gamepad_idx, axis_idx))
-            && direction == initial_direction
-        {
-            self.initial_axis_directions.remove(&(gamepad_idx, axis_idx));
-            self.gamepad_starting_states.insert(input);
-        }
+                self.gamepad_starting_states.remove(&opposite_input);
 
-        let is_axis_input = axis_input.is_some();
-        if (is_axis_input && self.gamepad_starting_states.contains(&input))
-            || (!is_axis_input && self.gamepad_starting_states.remove(&input))
-        {
-            return CollectionDone::No;
-        }
-
-        if let Some((gamepad_idx, axis_idx, _)) = axis_input
-            && self.initial_axis_directions.contains_key(&(gamepad_idx, axis_idx))
-        {
-            return CollectionDone::No;
-        }
-
-        if let Some(opposite) = opposite_axis_direction(input) {
-            if self.contains(opposite) {
-                return CollectionDone::Yes;
+                if self.gamepad_starting_states.contains(&input)
+                    || self
+                        .initial_axis_directions
+                        .get(&(gamepad_idx, axis_idx))
+                        .is_some_and(|&initial_direction| direction == initial_direction)
+                {
+                    return CollectionDone::No;
+                }
             }
-
-            self.gamepad_starting_states.remove(&opposite);
+            _ => {
+                if self.gamepad_starting_states.remove(&input) {
+                    return CollectionDone::No;
+                }
+            }
         }
 
         self.inputs.insert(input);
@@ -224,18 +217,6 @@ impl CollectedInputs {
         }
 
         CollectionDone::No
-    }
-}
-
-fn opposite_axis_direction(input: GenericInput) -> Option<GenericInput> {
-    match input {
-        GenericInput::Gamepad { gamepad_idx, action: GamepadAction::Axis(axis_idx, direction) } => {
-            Some(GenericInput::Gamepad {
-                gamepad_idx,
-                action: GamepadAction::Axis(axis_idx, direction.inverse()),
-            })
-        }
-        _ => None,
     }
 }
 
