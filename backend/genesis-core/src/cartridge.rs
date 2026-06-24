@@ -399,10 +399,12 @@ impl GenesisRegionExt for GenesisRegion {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct CartridgeHeader {
-    pub region: Option<GenesisRegion>,
-    pub ssf_mapper: bool,
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct CartridgeMetadata {
+    pub program_title: String,
+    pub region: GenesisRegion,
+    // If the game has known issues when sprite limits are removed (e.g. Sonic 1)
+    pub sprite_limit_compatibility_issues: bool,
 }
 
 type CartridgeCheatOverrides = CheatWordOverrides<0x000000, 0x3FFFFF>;
@@ -413,8 +415,8 @@ pub struct Cartridge {
     rom: Rom,
     external: ExternalMemory,
     mapper: Mapper,
-    region: GenesisRegion,
-    program_title: String,
+    forced_region: Option<GenesisRegion>,
+    metadata: CartridgeMetadata,
     cheat_overrides: CartridgeCheatOverrides,
 }
 
@@ -439,13 +441,12 @@ impl Cartridge {
 
         let mut rom_bytes = ensure_rom_in_expected_format(rom_bytes);
 
-        let region = forced_region.unwrap_or_else(|| {
-            GenesisRegion::from_rom(&rom_bytes).unwrap_or_else(|| {
-                log::warn!("Unable to determine cartridge region from ROM header; using Americas");
-                GenesisRegion::Americas
-            })
+        let region = GenesisRegion::from_rom(&rom_bytes).unwrap_or_else(|| {
+            log::warn!("Unable to determine cartridge region from ROM header; using Americas");
+            GenesisRegion::Americas
         });
-        log::info!("Genesis hardware region: {region:?}");
+
+        log::info!("Cartridge region: {region:?}");
 
         let external_memory = ExternalMemory::from_rom(&rom_bytes, checksum, initial_ram_bytes);
 
@@ -487,6 +488,10 @@ impl Cartridge {
         }
 
         let program_title = parse_title_from_header(&rom_bytes, region);
+        let sprite_limit_compatibility_issues = has_sprite_limit_compatibility_issues(&rom_bytes);
+
+        let metadata =
+            CartridgeMetadata { program_title, region, sprite_limit_compatibility_issues };
 
         let cheat_overrides = CartridgeCheatOverrides::new(cheat_codes);
 
@@ -494,8 +499,8 @@ impl Cartridge {
             rom: Rom::new(rom_bytes),
             external: external_memory,
             mapper,
-            region,
-            program_title,
+            forced_region,
+            metadata,
             cheat_overrides,
         }
     }
@@ -537,17 +542,18 @@ impl Cartridge {
 
     #[inline]
     #[must_use]
-    pub fn program_title(&self) -> &str {
-        &self.program_title
+    pub fn metadata(&self) -> &CartridgeMetadata {
+        &self.metadata
     }
 
     #[inline]
     #[must_use]
-    pub fn region(&self) -> GenesisRegion {
-        self.region
+    pub fn program_title(&self) -> &str {
+        &self.metadata.program_title
     }
 
     pub fn reload_config(&mut self, config: &GenesisEmulatorConfig) {
+        self.forced_region = config.forced_region;
         self.cheat_overrides.update_cheat_codes(&config.cheat_codes);
     }
 
@@ -703,6 +709,16 @@ fn is_virtua_racing(serial_number: &[u8]) -> bool {
     serial_number == b"MK-1229 " || serial_number == b"G-7001  "
 }
 
+fn has_sprite_limit_compatibility_issues(rom: &[u8]) -> bool {
+    const SERIAL_NUMBERS: &[&[u8]] = &[
+        b"GM 00001009-00", // Sonic the Hedgehog (USA, Europe)
+        b"GM 00004049-01", // Sonic the Hedgehog (Japan, Europe, Korea)
+    ];
+
+    let serial_number = &rom[0x180..0x18E];
+    SERIAL_NUMBERS.contains(&serial_number)
+}
+
 impl PhysicalMedium for Cartridge {
     #[inline]
     fn read_byte(&mut self, address: u32, open_bus: u16) -> u8 {
@@ -769,7 +785,7 @@ impl PhysicalMedium for Cartridge {
 
     #[inline]
     fn region(&self) -> GenesisRegion {
-        self.region
+        self.forced_region.unwrap_or(self.metadata.region)
     }
 
     fn clone_cartridge(&self) -> Option<Cartridge> {

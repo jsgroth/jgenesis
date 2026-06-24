@@ -19,7 +19,7 @@ use genesis_core::vdp::{DarkenColors, Vdp, VdpTickEffect};
 use genesis_core::ym2612::Ym2612;
 use genesis_core::{GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorConfigTrait, EmulatorTrait, InputPoller, PartialClone, Renderer,
+    AudioOutput, EmulatorConfigTrait, EmulatorTrait, InputPoller, Modal, PartialClone, Renderer,
     SaveWriter, TickEffect, TickResult, TimingMode,
 };
 use jgenesis_proc_macros::ConfigDisplay;
@@ -405,5 +405,20 @@ impl EmulatorTrait for Sega32XEmulator {
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
         self.audio_resampler.update_output_frequency(output_frequency);
+    }
+
+    fn startup_modals(&self) -> Vec<Modal> {
+        let mut modals = Vec::new();
+
+        if self.config.genesis.remove_sprite_limits
+            && self.memory.medium().cartridge().metadata().sprite_limit_compatibility_issues
+        {
+            modals.push(Modal {
+                id: None,
+                text: genesis_core::api::SPRITE_LIMITS_MODAL_MESSAGE.into(),
+            });
+        }
+
+        modals
     }
 }

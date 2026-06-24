@@ -9,7 +9,9 @@ use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::state::{SaveStatePaths, StateSaverThreadHandle};
 use crate::mainloop::{CreateEmulatorFn, CreatedEmulator, save, state};
 use crate::{NativeEmulatorError, NativeEmulatorResult, SaveStateMetadata};
-use jgenesis_common::frontend::{AudioOutput, EmulatorTrait, Renderer, SaveWriter, TickEffect};
+use jgenesis_common::frontend::{
+    AudioOutput, EmulatorTrait, Modal, Renderer, SaveWriter, TickEffect,
+};
 use jgenesis_debugger_frontend::DebuggerRunnerProcess;
 use jgenesis_native_config::common::WindowSize;
 use std::error::Error;
@@ -150,6 +152,7 @@ pub struct RunnerSpawnArgs<'a, Emulator: EmulatorTrait> {
 pub struct RunnerThreadHandle<Emulator: EmulatorTrait> {
     initial_window_title: String,
     default_window_size: WindowSize,
+    startup_modals: Vec<Modal>,
     renderer_handle: ThreadedRendererHandle,
     input_poller_handle: ThreadedInputPollerHandle<Emulator::Inputs>,
     command_sender: Sender<RunnerCommand<Emulator>>,
@@ -206,7 +209,8 @@ pub fn spawn<Emulator: EmulatorTrait>(
 
         thread::spawn(move || match create_emulator_fn(&mut save_writer) {
             Ok(CreatedEmulator { emulator, window_title, default_window_size }) => {
-                init_sender.send(Ok((window_title, default_window_size))).unwrap();
+                let startup_modals = emulator.startup_modals();
+                init_sender.send(Ok((window_title, default_window_size, startup_modals))).unwrap();
 
                 let state_saver_thread = state::spawn_state_saver_thread();
 
@@ -249,11 +253,13 @@ pub fn spawn<Emulator: EmulatorTrait>(
 
     audio_output_handle.set_emulator_thread(runner_handle.thread().clone());
 
-    let (initial_window_title, default_window_size) = init_receiver.recv().unwrap()?;
+    let (initial_window_title, default_window_size, startup_modals) =
+        init_receiver.recv().unwrap()?;
 
     Ok(RunnerThreadHandle {
         initial_window_title,
         default_window_size,
+        startup_modals,
         renderer_handle,
         input_poller_handle,
         command_sender,
@@ -330,6 +336,10 @@ impl<Emulator: EmulatorTrait> RunnerThreadHandle<Emulator> {
 
     pub fn default_window_size(&self) -> WindowSize {
         self.default_window_size
+    }
+
+    pub fn startup_modals(&self) -> &[Modal] {
+        &self.startup_modals
     }
 }
 

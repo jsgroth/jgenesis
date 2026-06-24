@@ -1,6 +1,6 @@
 use bincode::{Decode, Encode};
 use jgenesis_common::define_controller_inputs;
-use jgenesis_common::frontend::{FiniteF64, InputModal, MappableInputs};
+use jgenesis_common::frontend::{FiniteF64, MappableInputs, Modal};
 use jgenesis_common::input::Player;
 use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 
@@ -110,18 +110,13 @@ impl MappableInputs<GbaButton> for GbaInputs {
         }
     }
 
-    fn modal_for_input(
-        &self,
-        button: GbaButton,
-        _player: Player,
-        pressed: bool,
-    ) -> Option<InputModal> {
+    fn modal_for_input(&self, button: GbaButton, _player: Player, pressed: bool) -> Option<Modal> {
         if !pressed || !button.is_solar_sensor() {
             return None;
         }
 
         let text = format!("Solar sensor brightness: {}", self.solar.brightness);
-        Some(InputModal { id: Some("solar_sensor".into()), text })
+        Some(Modal { id: Some("solar_sensor".into()), text })
     }
 }
 

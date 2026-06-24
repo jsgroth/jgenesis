@@ -17,8 +17,8 @@ use genesis_config::{
     GenParParams, GenesisAspectRatio, GenesisButton, GenesisInputs, GenesisRegion, Opn2BusyBehavior,
 };
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorConfigTrait, EmulatorTrait, InputPoller, PartialClone, RenderFrameOptions,
-    Renderer, SaveWriter, TickEffect, TickResult, TimingMode,
+    AudioOutput, EmulatorConfigTrait, EmulatorTrait, InputPoller, Modal, PartialClone,
+    RenderFrameOptions, Renderer, SaveWriter, TickEffect, TickResult, TimingMode,
 };
 use jgenesis_proc_macros::ConfigDisplay;
 use m68000_emu::M68000;
@@ -29,6 +29,8 @@ use std::fmt::{Debug, Display};
 use std::num::NonZeroU64;
 use thiserror::Error;
 use z80_emu::Z80;
+
+pub const SPRITE_LIMITS_MODAL_MESSAGE: &str = "Sprite limits are disabled; may cause glitches";
 
 #[derive(Debug, Error)]
 pub enum GenesisError<RErr, AErr, SErr> {
@@ -525,6 +527,18 @@ impl EmulatorTrait for GenesisEmulator {
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
         self.audio_resampler.update_output_frequency(output_frequency);
+    }
+
+    fn startup_modals(&self) -> Vec<Modal> {
+        let mut modals = Vec::new();
+
+        if self.config.remove_sprite_limits
+            && self.memory.medium().metadata().sprite_limit_compatibility_issues
+        {
+            modals.push(Modal { id: None, text: SPRITE_LIMITS_MODAL_MESSAGE.into() });
+        }
+
+        modals
     }
 }
 

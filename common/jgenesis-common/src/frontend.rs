@@ -281,7 +281,8 @@ pub enum TickEffect {
 
 pub type TickResult<Err> = Result<TickEffect, Err>;
 
-pub struct InputModal {
+#[derive(Debug, Clone)]
+pub struct Modal {
     pub id: Option<Cow<'static, str>>,
     pub text: String,
 }
@@ -299,7 +300,7 @@ pub trait MappableInputs<Button> {
     fn handle_mouse_leave(&mut self) {}
 
     #[allow(unused_variables)]
-    fn modal_for_input(&self, button: Button, player: Player, pressed: bool) -> Option<InputModal> {
+    fn modal_for_input(&self, button: Button, player: Player, pressed: bool) -> Option<Modal> {
         None
     }
 }
@@ -378,4 +379,8 @@ pub trait EmulatorTrait: 'static {
     fn target_fps(&self) -> f64;
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64);
+
+    fn startup_modals(&self) -> Vec<Modal> {
+        vec![]
+    }
 }

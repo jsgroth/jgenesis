@@ -539,6 +539,11 @@ where
             rom_path: common_config.rom_file_path,
         };
 
+        for modal in emulator.runner.startup_modals() {
+            let modal = modal.clone();
+            emulator.renderer.add_or_update_modal(modal.id, modal.text, MODAL_DURATION);
+        }
+
         if common_config.load_recent_state_at_launch {
             emulator.try_load_most_recent_state();
         }

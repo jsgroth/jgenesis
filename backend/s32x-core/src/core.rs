@@ -13,6 +13,7 @@ use crate::vdp::Vdp;
 use bincode::{Decode, Encode};
 use genesis_config::GenesisRegion;
 use genesis_core::cartridge::Cartridge;
+use genesis_core::memory::PhysicalMedium;
 use genesis_core::timing;
 use jgenesis_common::boxedarray::BoxedWordArray;
 use jgenesis_common::frontend::TimingMode;
