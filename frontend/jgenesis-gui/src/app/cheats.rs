@@ -1,7 +1,8 @@
 use crate::app::{App, OpenWindow};
+use egui::text::CCursorRange;
 use egui::{
-    CentralPanel, Context, FontFamily, Label, Panel, RichText, ScrollArea, Sense, TextEdit,
-    TextStyle, Ui, Window,
+    Button, CentralPanel, Context, FontFamily, Key, KeyboardShortcut, Label, Modifiers, Panel,
+    Response, RichText, ScrollArea, Sense, TextEdit, TextStyle, Ui, ViewportCommand, Window,
 };
 use egui_extras::{Column, TableBuilder};
 use genesis_config::cheats::{GenesisCheat, GenesisCheatCodeType, GenesisCheats};
@@ -47,6 +48,7 @@ pub struct CheatState {
     codes: Vec<String>,
     codes_buffer: String,
     code_messages: Vec<Cow<'static, str>>,
+    cursor_range: Option<CCursorRange>,
 }
 
 impl CheatState {
@@ -57,6 +59,7 @@ impl CheatState {
             codes: vec![],
             codes_buffer: String::new(),
             code_messages: vec![],
+            cursor_range: None,
         }
     }
 }
@@ -282,6 +285,7 @@ impl App {
                                 codes: cheat.codes.clone(),
                                 codes_buffer,
                                 code_messages,
+                                cursor_range: None,
                             }
                         })
                         .collect(),
@@ -315,6 +319,7 @@ impl App {
                                 codes: cheat.codes.clone(),
                                 codes_buffer,
                                 code_messages,
+                                cursor_range: None,
                             }
                         })
                         .collect(),
@@ -427,14 +432,16 @@ fn render_central_panel(
 
     ScrollArea::vertical().show(ui, |ui| {
         ui.horizontal(|ui| {
-            let resp = ui.add(
+            let cheats_resp = text_edit_with_copy_paste_menu(
                 TextEdit::multiline(&mut cheat_state.codes_buffer)
                     .font(TextStyle::Monospace)
                     .desired_width(TEXTEDIT_WIDTH)
                     .desired_rows(TEXTEDIT_ROWS),
+                &mut cheat_state.cursor_range,
+                ui,
             );
 
-            if resp.changed() {
+            if cheats_resp.changed() {
                 cheat_state.codes.clear();
                 cheat_state.code_messages.clear();
 
@@ -490,6 +497,45 @@ fn render_central_panel(
             }
         }
     });
+}
+
+fn text_edit_with_copy_paste_menu(
+    text_edit: TextEdit<'_>,
+    cursor_range: &mut Option<CCursorRange>,
+    ui: &mut Ui,
+) -> Response {
+    let mut resp = text_edit.show(ui);
+
+    // Workaround for: https://github.com/emilk/egui/issues/4393
+    //
+    // egui's builtin TextEdit widget does not distinguish between left and right clicks when updating
+    // the cursor position, which is obviously problematic for a right click copy/paste menu
+    let right_mouse_down = resp.response.secondary_clicked()
+        || ui.input(|i| i.pointer.secondary_down() && !i.pointer.is_decidedly_dragging());
+    let cursor_range_selected = cursor_range.is_some_and(|range| range.primary != range.secondary);
+    if right_mouse_down && cursor_range_selected {
+        resp.state.cursor.set_char_range(*cursor_range);
+        resp.state.store(ui, resp.response.id);
+    } else {
+        *cursor_range = resp.cursor_range;
+    }
+
+    resp.response.context_menu(|ui| {
+        for (label, key, command) in [
+            ("Cut", Key::X, ViewportCommand::RequestCut),
+            ("Copy", Key::C, ViewportCommand::RequestCopy),
+            ("Paste", Key::V, ViewportCommand::RequestPaste),
+        ] {
+            let button = Button::new(label)
+                .shortcut_text(ui.format_shortcut(&KeyboardShortcut::new(Modifiers::CTRL, key)));
+            if ui.add(button).clicked() {
+                resp.response.request_focus();
+                ui.send_viewport_cmd(command);
+            }
+        }
+    });
+
+    resp.response.response
 }
 
 const INVALID_CODE: &str = "Invalid code";
