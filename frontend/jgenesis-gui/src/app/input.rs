@@ -485,6 +485,10 @@ impl App {
                 &mut self.config.genesis.allow_opposing_joypad_directions,
                 ALLOW_OPPOSING_DIRECTIONS_LABEL,
             );
+            ui.checkbox(
+                &mut self.config.genesis.auto_3_button_mode,
+                "Automatically enable 3-button mode in 6-button-incompatible games",
+            );
             ui.separator();
 
             let mapping = self.render_mapping_set_selector(OpenWindow::GenesisInput, ui);

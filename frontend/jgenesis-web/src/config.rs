@@ -149,6 +149,7 @@ impl GenesisWebConfig {
             forced_timing_mode: None,
             forced_region: None,
             allow_opposing_joypad_directions: false,
+            auto_3_button_mode: true,
             aspect_ratio: self.aspect_ratio,
             force_square_pixels_in_h40: false,
             adjust_aspect_ratio_in_2x_resolution: true,

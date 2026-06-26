@@ -328,9 +328,11 @@ impl GenesisRegionExt for GenesisRegion {
             0x224256C7, // Andre Agassi Tennis (Europe)
             0x90F5C2B7, // Brian Lara Cricket (Europe)
             0xEB8F4374, // Indiana Jones and the Last Crusade (Europe)
+            0xD97D1699, // International Rugby (Europe)
+            0xC0DCE0E5, // Midway Presents Arcade's Greatest Hits (Europe)
+            0x924E57D3, // Olympic Gold (Europe)
             0xFA537A45, // Winter Olympics (Europe)
             0xDACA01C3, // World Class Leader Board (Europe)
-            0xC0DCE0E5, // Midway Presents Arcade's Greatest Hits (Europe)
             0x4C926BF6, // Nuance Xmas-Intro 2024
             0x0F51DD6A, // Chaekopon by Limp Ninja
         ];
@@ -405,6 +407,7 @@ pub struct CartridgeMetadata {
     pub region: GenesisRegion,
     // If the game has known issues when sprite limits are removed (e.g. Sonic 1)
     pub sprite_limit_compatibility_issues: bool,
+    pub six_button_incompatible: bool,
 }
 
 type CartridgeCheatOverrides = CheatWordOverrides<0x000000, 0x3FFFFF>;
@@ -489,9 +492,14 @@ impl Cartridge {
 
         let program_title = parse_title_from_header(&rom_bytes, region);
         let sprite_limit_compatibility_issues = has_sprite_limit_compatibility_issues(&rom_bytes);
+        let six_button_incompatible_game = is_six_button_incompatible(&rom_bytes);
 
-        let metadata =
-            CartridgeMetadata { program_title, region, sprite_limit_compatibility_issues };
+        let metadata = CartridgeMetadata {
+            program_title,
+            region,
+            sprite_limit_compatibility_issues,
+            six_button_incompatible: six_button_incompatible_game,
+        };
 
         let cheat_overrides = CartridgeCheatOverrides::new(cheat_codes);
 
@@ -711,11 +719,39 @@ fn is_virtua_racing(serial_number: &[u8]) -> bool {
 
 fn has_sprite_limit_compatibility_issues(rom: &[u8]) -> bool {
     const SERIAL_NUMBERS: &[&[u8]] = &[
-        b"GM 00001009-00", // Sonic the Hedgehog (USA, Europe)
-        b"GM 00004049-01", // Sonic the Hedgehog (Japan, Europe, Korea)
+        b"GM 00001009", // Sonic the Hedgehog (USA, Europe)
+        b"GM 00004049", // Sonic the Hedgehog (Japan, Europe, Korea)
     ];
 
-    let serial_number = &rom[0x180..0x18E];
+    let serial_number = &rom[0x180..0x18B];
+    SERIAL_NUMBERS.contains(&serial_number)
+}
+
+#[must_use]
+pub fn is_six_button_incompatible(rom: &[u8]) -> bool {
+    // List of games from https://segaretro.org/Six_Button_Control_Pad_(Mega_Drive)
+    const SERIAL_NUMBERS: &[&[u8]] = &[
+        b"GM_T-081056", // Arch Rivals - The Arcade Game (USA, Europe)
+        b"GM T-49116 ", // Beast Wrestler (USA)
+        b"GM T-74023-", // Double Dragon II - The Revenge (Japan)
+        b"GM T-50156 ", // Faery Tale Adventure, The (USA, Europe)
+        b"GM 00004016", // Forgotten Worlds (World)
+        b"GM 00001122", // Golden Axe II (World)
+        b"T-88056-50 ", // International Rugby (Europe)
+        b"GM T-50016 ", // John Madden Football (USA, Europe)
+        b"GM T-103026", // King of the Monsters (USA)
+        b"GM G-4104 0", // King of the Monsters (Japan)
+        b"GM MK-1086-", // King of the Monsters (Europe)
+        b"GM MK-1210 ", // Mario Lemieux Hockey (USA, Europe)
+        b"GM T-48036 ", // Ms. Pac-Man (USA, Europe)
+        b"GM  T-79016", // Olympic Gold (Japan, USA, Europe)
+        b"GM T-113106", // Second Samurai (Europe)
+        b"GM T-50216 ", // Starflight (USA, Europe)
+        b"GM T-95026-", // Sunset Riders (USA, Europe)
+        b"GM T-70015-", // Terminator, The (USA, Europe) (Sega CD)
+    ];
+
+    let serial_number = &rom[0x180..0x18B];
     SERIAL_NUMBERS.contains(&serial_number)
 }
 

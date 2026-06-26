@@ -885,6 +885,16 @@ impl CdDrive {
         Ok(Some(WHITESPACE_RE.replace_all(title.trim(), " ").to_string()))
     }
 
+    pub fn has_six_button_incompatible_game(&mut self) -> SegaCdLoadResult<bool> {
+        let Some(disc) = &mut self.disc else { return Ok(false) };
+
+        disc.read_sector(1, CdTime::SECTOR_0_START, self.sector_buffer.as_mut())?;
+
+        // Skip sync bytes and sector header
+        let first_data_sector = &self.sector_buffer[16..];
+        Ok(genesis_core::cartridge::is_six_button_incompatible(first_data_sector))
+    }
+
     pub fn take_disc(&mut self) -> Option<CdRom> {
         self.disc.take()
     }

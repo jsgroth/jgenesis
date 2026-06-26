@@ -208,6 +208,7 @@ impl SegaCdEmulator {
         let mut sega_cd =
             SegaCd::new(bios, disc, initial_backup_ram, initial_ram_cartridge, &emulator_config)?;
         let disc_title = sega_cd.disc_title()?.unwrap_or("(no disc)".into());
+        let six_button_incompatible_game = sega_cd.has_six_button_incompatible_game()?;
 
         let memory = Memory::new(sega_cd, &emulator_config.genesis);
         let timing_mode =
@@ -228,7 +229,8 @@ impl SegaCdEmulator {
         let ym2612 = Ym2612::new_from_config(&emulator_config.genesis);
         let psg = Sn76489::new(Sn76489Version::Standard);
         let pcm = Rf5c164::new(&emulator_config);
-        let input = InputState::new(&emulator_config.genesis);
+
+        let input = InputState::new(&emulator_config.genesis, six_button_incompatible_game);
 
         let audio_resampler = AudioResampler::new(timing_mode, &emulator_config);
         let mut emulator = Self {

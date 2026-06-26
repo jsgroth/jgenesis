@@ -553,6 +553,10 @@ impl SegaCd {
         self.disc_drive.disc_title(self.region())
     }
 
+    pub fn has_six_button_incompatible_game(&mut self) -> SegaCdLoadResult<bool> {
+        self.disc_drive.cdd_mut().has_six_button_incompatible_game()
+    }
+
     pub fn word_ram(&self) -> &WordRam {
         &self.word_ram
     }

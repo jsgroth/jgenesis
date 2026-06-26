@@ -447,7 +447,7 @@ impl Default for GenesisInputConfig {
     fn default() -> Self {
         Self {
             p1_type: GenesisControllerType::default(),
-            p2_type: GenesisControllerType::default(),
+            p2_type: GenesisControllerType::None,
             mapping_1: default_genesis_mapping_1(),
             mapping_2: GenesisInputMapping::default(),
         }

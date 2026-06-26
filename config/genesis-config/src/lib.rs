@@ -515,10 +515,16 @@ impl Default for GenesisController {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub struct GenesisInputs {
     pub p1: GenesisController,
     pub p2: GenesisController,
+}
+
+impl Default for GenesisInputs {
+    fn default() -> Self {
+        Self { p1: GenesisController::default(), p2: GenesisController::None }
+    }
 }
 
 impl MappableInputs<GenesisButton> for GenesisInputs {

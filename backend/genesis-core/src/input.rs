@@ -474,10 +474,19 @@ impl ControllerState {
 }
 
 trait GenesisControllerExt {
+    fn with_auto_3_button(self, auto_3_button: bool) -> Self;
+
     fn with_allow_opposing_directions(self, allow_opposing_directions: bool) -> Self;
 }
 
 impl GenesisControllerExt for GenesisController {
+    fn with_auto_3_button(self, auto_3_button: bool) -> Self {
+        match self {
+            Self::SixButton(joypad) if auto_3_button => Self::ThreeButton(joypad),
+            _ => self,
+        }
+    }
+
     fn with_allow_opposing_directions(mut self, allow_opposing_directions: bool) -> Self {
         if allow_opposing_directions {
             return self;
@@ -498,6 +507,8 @@ impl GenesisControllerExt for GenesisController {
 pub struct InputState {
     inputs: GenesisInputs,
     allow_opposing_joypad_directions: bool,
+    auto_3_button_mode: bool,
+    six_button_incompatible_game: bool,
     p1_state: ControllerState,
     p2_state: ControllerState,
     p1_pins: Pins,
@@ -514,12 +525,20 @@ pub struct InputState {
 
 impl InputState {
     #[must_use]
-    pub fn new(config: &GenesisEmulatorConfig) -> Self {
+    pub fn new(config: &GenesisEmulatorConfig, six_button_incompatible_game: bool) -> Self {
+        if six_button_incompatible_game && config.auto_3_button_mode {
+            log::info!(
+                "Game is known to be incompatible with 6-button controller; forcing 3-button mode"
+            );
+        }
+
         let inputs = GenesisInputs::default();
 
         Self {
             inputs,
             allow_opposing_joypad_directions: config.allow_opposing_joypad_directions,
+            auto_3_button_mode: config.auto_3_button_mode,
+            six_button_incompatible_game,
             p1_state: ControllerState::new(
                 inputs.p1.with_allow_opposing_directions(config.allow_opposing_joypad_directions),
             ),
@@ -548,24 +567,42 @@ impl InputState {
     }
 
     fn update_state_and_pins(&mut self) {
-        let p1_inputs =
-            self.inputs.p1.with_allow_opposing_directions(self.allow_opposing_joypad_directions);
+        let auto_3_button = self.six_button_incompatible_game && self.auto_3_button_mode;
+
+        let p1_inputs = self
+            .inputs
+            .p1
+            .with_auto_3_button(auto_3_button)
+            .with_allow_opposing_directions(self.allow_opposing_joypad_directions);
         self.p1_state.update_inputs(p1_inputs);
         self.p1_state.update_pins(&mut self.p1_pins);
 
-        let p2_inputs =
-            self.inputs.p2.with_allow_opposing_directions(self.allow_opposing_joypad_directions);
+        let p2_inputs = self
+            .inputs
+            .p2
+            .with_auto_3_button(auto_3_button)
+            .with_allow_opposing_directions(self.allow_opposing_joypad_directions);
         self.p2_state.update_inputs(p2_inputs);
         self.p2_state.update_pins(&mut self.p2_pins);
     }
 
     pub fn reload_config(&mut self, config: &GenesisEmulatorConfig) {
-        if config.allow_opposing_joypad_directions == self.allow_opposing_joypad_directions {
-            return;
+        macro_rules! update_fields_if_changed {
+            ($first:ident $(, $rest:ident)* $(,)?) => {
+                {
+                    if config.$first == self.$first $(&& config.$rest == self.$rest)* {
+                        return;
+                    }
+
+                    self.$first = config.$first;
+                    $(self.$rest = config.$rest;)*
+
+                    self.update_state_and_pins();
+                }
+            }
         }
 
-        self.allow_opposing_joypad_directions = config.allow_opposing_joypad_directions;
-        self.update_state_and_pins();
+        update_fields_if_changed!(allow_opposing_joypad_directions, auto_3_button_mode);
     }
 
     #[must_use]

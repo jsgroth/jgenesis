@@ -151,7 +151,10 @@ impl Sega32XEmulator {
 
         let memory = Memory::new(s32x, &config.genesis);
 
-        let input = InputState::new(&config.genesis);
+        let input = InputState::new(
+            &config.genesis,
+            memory.medium().cartridge().metadata().six_button_incompatible,
+        );
 
         let mut emulator = Self {
             m68k,
