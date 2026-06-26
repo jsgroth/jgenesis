@@ -487,7 +487,7 @@ impl App {
             );
             ui.checkbox(
                 &mut self.config.genesis.auto_3_button_mode,
-                "Automatically enable 3-button mode in 6-button-incompatible games",
+                "Automatically force 3-button mode in 6-button-incompatible games",
             );
             ui.separator();
 
