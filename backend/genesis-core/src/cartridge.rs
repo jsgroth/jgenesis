@@ -734,7 +734,7 @@ pub fn is_six_button_incompatible(rom: &[u8]) -> bool {
         b"GM_T-081056", // Arch Rivals - The Arcade Game (USA, Europe)
         b"GM T-49116 ", // Beast Wrestler (USA)
         b"GM T-74023-", // Double Dragon II - The Revenge (Japan)
-        b"GM T-50156 ", // Faery Tale Adventure, The (USA, Europe)
+        b"GM T-50156 ", // The Faery Tale Adventure (USA, Europe)
         b"GM 00004016", // Forgotten Worlds (World)
         b"GM 00001122", // Golden Axe II (World)
         b"T-88056-50 ", // International Rugby (Europe)
@@ -748,7 +748,7 @@ pub fn is_six_button_incompatible(rom: &[u8]) -> bool {
         b"GM T-113106", // Second Samurai (Europe)
         b"GM T-50216 ", // Starflight (USA, Europe)
         b"GM T-95026-", // Sunset Riders (USA, Europe)
-        b"GM T-70015-", // Terminator, The (USA, Europe) (Sega CD)
+        b"GM T-70015-", // The Terminator (USA, Europe) (Sega CD)
     ];
 
     let serial_number = &rom[0x180..0x18B];

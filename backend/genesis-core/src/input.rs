@@ -244,7 +244,7 @@ impl Xe1apState {
     //
     // L/H appears to change shortly after ACK 0->1 transitions; this is not emulated
     //
-    // Transfers seem to begin in step D after a TH 1->0 transition, except with L/H set to 0 instead of 1
+    // Transfers seem to begin in step D after a TH 1->0 transition
     const TRANSFER_A_CYCLES: u32 = 92; // Roughly 12 μs
     const TRANSFER_B_CYCLES: u32 = 30; // Roughly 4 μs
     const TRANSFER_C_CYCLES: u32 = 92; // Roughly 12 μs
@@ -532,19 +532,13 @@ impl InputState {
             );
         }
 
-        let inputs = GenesisInputs::default();
-
-        Self {
-            inputs,
+        let mut input_state = Self {
+            inputs: GenesisInputs::default(),
             allow_opposing_joypad_directions: config.allow_opposing_joypad_directions,
             auto_3_button_mode: config.auto_3_button_mode,
             six_button_incompatible_game,
-            p1_state: ControllerState::new(
-                inputs.p1.with_allow_opposing_directions(config.allow_opposing_joypad_directions),
-            ),
-            p2_state: ControllerState::new(
-                inputs.p2.with_allow_opposing_directions(config.allow_opposing_joypad_directions),
-            ),
+            p1_state: ControllerState::new(GenesisController::None),
+            p2_state: ControllerState::new(GenesisController::None),
             p1_pins: Pins::new(),
             p2_pins: Pins::new(),
             ext_pins: Pins::new(),
@@ -554,7 +548,10 @@ impl InputState {
             p1_tx_data: 0xFF,
             p2_tx_data: 0xFF,
             ext_tx_data: 0xFF,
-        }
+        };
+
+        input_state.update_state_and_pins();
+        input_state
     }
 
     pub fn set_inputs(&mut self, inputs: GenesisInputs) {
