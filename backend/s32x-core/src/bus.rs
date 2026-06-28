@@ -753,7 +753,7 @@ impl Sh2Bus {
                 }
             }
             _ => {
-                log::warn!(
+                log::debug!(
                     "SH-2 {:?} invalid address {} read {address:08X}, ctx: {ctx}",
                     self.which,
                     OpSize::display::<SIZE>()
@@ -922,7 +922,7 @@ impl Sh2Bus {
                 }
             }
             _ => {
-                log::warn!(
+                log::debug!(
                     "SH-2 {:?} invalid address {} write: {address:08X} {value:08X}, ctx: {ctx}",
                     self.which,
                     OpSize::display::<SIZE>()
