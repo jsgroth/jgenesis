@@ -17,6 +17,7 @@ Linux, Windows, and web (WASM) are officially supported. Other platforms may wor
   * Super Nintendo Entertainment System (SNES) / Super Famicom
   * Game Boy / Game Boy Color
   * Game Boy Advance
+  * PC Engine / TurboGrafx-16
 * GPU-based renderer with integer prescaling and optional linear interpolation
 * Configurable pixel aspect ratio for each console with several different options: accurate to original hardware/TVs, square pixels, and stretched to fill the window
 * Support for the Sega Master System FM sound unit expansion
@@ -30,6 +31,14 @@ Linux, Windows, and web (WASM) are officially supported. Other platforms may wor
 * Optional CPU overclocking for Sega Master System, Game Gear, and Genesis emulation
 * Optional 2-4x GSU overclocking for SNES Super FX games
 * Can run the Titan Overdrive and Titan Overdrive 2 demos for the Mega Drive
+
+## System Requirements
+
+* **CPU**: Published release builds require a 64-bit x86 CPU with SSE4.2 support (every x86 CPU made since ~2011 should have this)
+  * Builds from source have no particular CPU requirements
+* **GPU**: Must support Vulkan (cross-platform) or DirectX 12 (Windows 10+)
+* **RAM**: 300 MB free or so should be enough with default settings
+  * Some settings can significantly increase RAM usage, e.g. increasing rewind buffer length or loading CD-ROM images into RAM
 
 ## Dev Builds
 
