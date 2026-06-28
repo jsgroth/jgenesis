@@ -19,7 +19,7 @@ use jgenesis_native_config::input::mappings::{
 use jgenesis_native_config::input::mappings::{PceInputMapping, PceJoypadMapping};
 use jgenesis_native_config::input::{GenericInput, Hotkey};
 use nes_config::NesButton;
-use pce_config::PceButton;
+use pce_config::{PceButton, PceInputDevice};
 use polonius_the_crab::{polonius, polonius_return};
 use smsgg_config::SmsGgButton;
 use snes_config::SnesButton;
@@ -1065,16 +1065,37 @@ impl App {
     }
 
     pub(super) fn render_pce_input_settings(&mut self, ctx: &Context) {
-        static P1_BUTTONS: LazyLock<Vec<GenericButton>> = LazyLock::new(|| {
-            PceButton::ALL
-                .into_iter()
-                .map(|button| GenericButton::Pce(button, Player::One))
-                .collect()
-        });
-
         let mut open = true;
         Window::new(OpenWindow::PceInput.title()).open(&mut open).show(ctx, |ui| {
             self.disable_if_waiting_for_input(ui);
+
+            ui.group(|ui| {
+                ui.label("Controller port");
+
+                ui.horizontal(|ui| {
+                    for (value, label) in [
+                        (PceInputDevice::TwoButtonGamepad, "Gamepad"),
+                        (PceInputDevice::TurboTap, "Turbo Tap"),
+                    ] {
+                        ui.radio_value(&mut self.config.pc_engine.input_device, value, label);
+                    }
+                });
+
+                ui.horizontal(|ui| {
+                    ui.add_enabled_ui(
+                        self.config.pc_engine.input_device == PceInputDevice::TurboTap,
+                        |ui| {
+                            ui.label("Turbo Tap gamepads:");
+
+                            for (idx, connected) in
+                                self.config.pc_engine.turbo_tap_connected.iter_mut().enumerate()
+                            {
+                                ui.checkbox(connected, (idx + 1).to_string());
+                            }
+                        },
+                    );
+                });
+            });
 
             let rect = ui
                 .checkbox(
@@ -1105,36 +1126,68 @@ impl App {
             let mapping = self.render_mapping_set_selector(OpenWindow::PceInput, ui);
             ui.separator();
 
+            let using_turbo_tap = self.config.pc_engine.input_device == PceInputDevice::TurboTap;
+            if !using_turbo_tap {
+                self.state.pce_selected_player_idx = 0;
+            }
+
+            ui.add_enabled_ui(using_turbo_tap, |ui| {
+                ComboBox::new("pce_player_combo", "").show_index(
+                    ui,
+                    &mut self.state.pce_selected_player_idx,
+                    5,
+                    |player_idx| format!("Player {}", player_idx + 1),
+                );
+            });
+            ui.add_space(5.0);
+
+            let player = [Player::One, Player::Two, Player::Three, Player::Four, Player::Five]
+                [self.state.pce_selected_player_idx];
+
             Grid::new("pce_inputs").spacing([50.0, 5.0]).show(ui, |ui| {
-                self.render_input_buttons("pce_p1_inputs", mapping, &P1_BUTTONS, ui);
+                let buttons = PceButton::ALL
+                    .into_iter()
+                    .map(|button| GenericButton::Pce(button, player))
+                    .collect::<Vec<_>>();
+
+                self.render_input_buttons("pce_p1_inputs", mapping, &buttons, ui);
                 ui.end_row();
 
-                self.render_configure_all_button(&P1_BUTTONS, mapping, ui);
+                self.render_configure_all_button(&buttons, mapping, ui);
                 ui.end_row();
             });
 
             ui.add_space(15.0);
 
             let mapping_config = mapping.pce(&mut self.config.input);
+            let (mapping, turbo_mapping) = match player {
+                Player::One => (&mut mapping_config.p1, &mut mapping_config.p1_turbo),
+                Player::Two => (&mut mapping_config.p2, &mut mapping_config.p2_turbo),
+                Player::Three => (&mut mapping_config.p3, &mut mapping_config.p3_turbo),
+                Player::Four => (&mut mapping_config.p4, &mut mapping_config.p4_turbo),
+                Player::Five => (&mut mapping_config.p5, &mut mapping_config.p5_turbo),
+                _ => unreachable!("player is always 1-5"),
+            };
+
             ui.horizontal(|ui| {
                 ComboBox::new("pce_presets", "").selected_text("Apply preset...").show_ui(
                     ui,
                     |ui| {
                         if ui.selectable_label(false, "Keyboard - Arrow movement").clicked() {
-                            mapping_config.p1 = PceJoypadMapping::keyboard_arrows();
-                            mapping_config.p1_turbo = PceJoypadMapping::default();
+                            *mapping = PceJoypadMapping::keyboard_arrows();
+                            *turbo_mapping = PceJoypadMapping::default();
                         }
 
                         if ui.selectable_label(false, "Keyboard - WASD movement").clicked() {
-                            mapping_config.p1 = PceJoypadMapping::keyboard_wasd();
-                            mapping_config.p1_turbo = PceJoypadMapping::default();
+                            *mapping = PceJoypadMapping::keyboard_wasd();
+                            *turbo_mapping = PceJoypadMapping::default();
                         }
                     },
                 );
 
                 if ui.button("Clear All").clicked() {
-                    mapping_config.p1 = PceJoypadMapping::default();
-                    mapping_config.p1_turbo = PceJoypadMapping::default();
+                    *mapping = PceJoypadMapping::default();
+                    *turbo_mapping = PceJoypadMapping::default();
                 }
             });
 

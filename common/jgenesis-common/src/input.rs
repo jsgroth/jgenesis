@@ -5,6 +5,9 @@ use crate::frontend::{DisplayInfo, Rotation};
 pub enum Player {
     One,
     Two,
+    Three,
+    Four,
+    Five,
 }
 
 #[inline]

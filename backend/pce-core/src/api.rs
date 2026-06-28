@@ -12,7 +12,8 @@ use jgenesis_common::frontend::{
 };
 use jgenesis_proc_macros::ConfigDisplay;
 use pce_config::{
-    PceAspectRatio, PceAudioResampler, PceButton, PceInputs, PcePaletteType, PceRegion,
+    PceAspectRatio, PceAudioResampler, PceButton, PceInputDevice, PceInputs, PcePaletteType,
+    PceRegion,
 };
 use std::fmt::{Debug, Display};
 use thiserror::Error;
@@ -28,6 +29,9 @@ pub struct PceEmulatorConfig {
     pub crop_overscan: bool,
     pub remove_sprite_limits: bool,
     pub audio_resampler: PceAudioResampler,
+    pub input_device: PceInputDevice,
+    #[cfg_display(debug_fmt)]
+    pub turbo_tap_connected: [bool; pce_config::TURBO_TAP_GAMEPADS as usize],
     pub allow_opposing_joypad_directions: bool,
     pub allow_simultaneous_run_select: bool,
 }

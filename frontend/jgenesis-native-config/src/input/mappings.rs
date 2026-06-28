@@ -152,13 +152,17 @@ macro_rules! impl_to_mapping_vec {
 
 macro_rules! impl_to_turbo_mapping_vec {
     ($button:ty) => {
+        impl_to_turbo_mapping_vec!($button, [(One, p1_turbo), (Two, p2_turbo)]);
+    };
+    ($button:ty, [$(($player:ident, $field:ident)),* $(,)?]) => {
         #[must_use]
         pub fn to_turbo_mapping_vec(&self) -> ButtonMappingVec<'_, $button> {
             let mut out = Vec::new();
 
             for mapping in [&self.mapping_1, &self.mapping_2] {
-                mapping.p1_turbo.to_mapping_vec(Player::One, &mut out);
-                mapping.p2_turbo.to_mapping_vec(Player::Two, &mut out);
+                $(
+                    mapping.$field.to_mapping_vec(Player::$player, &mut out);
+                )*
             }
 
             out
@@ -168,16 +172,16 @@ macro_rules! impl_to_turbo_mapping_vec {
 
 macro_rules! impl_player_mapping {
     ($mapping:ty) => {
-        impl_player_mapping!($mapping, p1, p2, p1_turbo, p2_turbo);
+        impl_player_mapping!($mapping, [(One, p1, p1_turbo), (Two, p2, p2_turbo)]);
     };
-    ($mapping:ty, $p1:ident, $p2: ident, $p1_turbo:ident, $p2_turbo:ident) => {
+    ($mapping:ty, [$(($player:ident, $field:ident, $turbo_field:ident)),* $(,)?]) => {
         #[must_use]
         pub fn player_mapping(&mut self, player: Player, turbo: bool) -> Option<&mut $mapping> {
             match (player, turbo) {
-                (Player::One, false) => Some(&mut self.$p1),
-                (Player::Two, false) => Some(&mut self.$p2),
-                (Player::One, true) => Some(&mut self.$p1_turbo),
-                (Player::Two, true) => Some(&mut self.$p2_turbo),
+                $(
+                    (Player::$player, false) => Some(&mut self.$field),
+                    (Player::$player, true) => Some(&mut self.$turbo_field),
+                )*
                 _ => None,
             }
         }
@@ -987,17 +991,41 @@ pub struct PceInputMapping {
     #[cfg_display(indent_nested)]
     pub p2: PceJoypadMapping,
     #[cfg_display(indent_nested)]
+    pub p3: PceJoypadMapping,
+    #[cfg_display(indent_nested)]
+    pub p4: PceJoypadMapping,
+    #[cfg_display(indent_nested)]
+    pub p5: PceJoypadMapping,
+    #[cfg_display(indent_nested)]
     pub p1_turbo: PceJoypadMapping,
     #[cfg_display(indent_nested)]
     pub p2_turbo: PceJoypadMapping,
+    #[cfg_display(indent_nested)]
+    pub p3_turbo: PceJoypadMapping,
+    #[cfg_display(indent_nested)]
+    pub p4_turbo: PceJoypadMapping,
+    #[cfg_display(indent_nested)]
+    pub p5_turbo: PceJoypadMapping,
 }
 
 impl PceInputMapping {
-    impl_player_mapping!(PceJoypadMapping);
+    impl_player_mapping!(
+        PceJoypadMapping,
+        [
+            (One, p1, p1_turbo),
+            (Two, p2, p2_turbo),
+            (Three, p3, p3_turbo),
+            (Four, p4, p4_turbo),
+            (Five, p5, p5_turbo),
+        ]
+    );
 
     pub fn to_mapping_vec<'a>(&'a self, out: &mut ButtonMappingVec<'a, PceButton>) {
         self.p1.to_mapping_vec(Player::One, out);
         self.p2.to_mapping_vec(Player::Two, out);
+        self.p3.to_mapping_vec(Player::Three, out);
+        self.p4.to_mapping_vec(Player::Four, out);
+        self.p5.to_mapping_vec(Player::Five, out);
     }
 }
 
@@ -1013,7 +1041,10 @@ pub struct PceInputConfig {
 impl PceInputConfig {
     impl_to_mapping_vec!(PceButton);
 
-    impl_to_turbo_mapping_vec!(PceButton);
+    impl_to_turbo_mapping_vec!(
+        PceButton,
+        [(One, p1_turbo), (Two, p2_turbo), (Three, p3_turbo), (Four, p4_turbo), (Five, p5_turbo)]
+    );
 }
 
 impl Default for PceInputConfig {
@@ -1022,8 +1053,14 @@ impl Default for PceInputConfig {
             mapping_1: PceInputMapping {
                 p1: PceJoypadMapping::keyboard_arrows(),
                 p2: PceJoypadMapping::default(),
+                p3: PceJoypadMapping::default(),
+                p4: PceJoypadMapping::default(),
+                p5: PceJoypadMapping::default(),
                 p1_turbo: PceJoypadMapping::default(),
                 p2_turbo: PceJoypadMapping::default(),
+                p3_turbo: PceJoypadMapping::default(),
+                p4_turbo: PceJoypadMapping::default(),
+                p5_turbo: PceJoypadMapping::default(),
             },
             mapping_2: PceInputMapping::default(),
         }

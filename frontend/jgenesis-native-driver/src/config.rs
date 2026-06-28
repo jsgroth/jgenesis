@@ -658,6 +658,8 @@ impl AppConfigExt for AppConfig {
                 crop_overscan: self.pc_engine.crop_overscan,
                 remove_sprite_limits: self.pc_engine.remove_sprite_limits,
                 audio_resampler: self.pc_engine.audio_resampler,
+                input_device: self.pc_engine.input_device,
+                turbo_tap_connected: self.pc_engine.turbo_tap_connected,
                 allow_opposing_joypad_directions: self.pc_engine.allow_opposing_joypad_directions,
                 allow_simultaneous_run_select: self.pc_engine.allow_simultaneous_run_select,
             },
