@@ -2,13 +2,11 @@ use clap::Parser;
 use eframe::NativeOptions;
 use egui::{IconData, ViewportBuilder};
 use env_logger::Env;
-use image::ImageFormat;
+use image::{DynamicImage, ImageFormat};
 use jgenesis_gui::app::{App, ConfigInfo, LoadAtStartup};
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::paths::{ConfigDirs, ConfigWithPath};
 use std::path::PathBuf;
-
-const ICON: &[u8] = include_bytes!("../../32x32.png");
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -108,6 +106,12 @@ fn f32_max(value: f32, max: f32) -> f32 {
     if value < max { max } else { value }
 }
 
+fn load_icon() -> DynamicImage {
+    const ICON: &[u8] = include_bytes!("../../256x256.png");
+
+    image::load_from_memory_with_format(ICON, ImageFormat::Png).expect("Failed to load GUI icon")
+}
+
 fn main() -> eframe::Result<()> {
     env_logger::Builder::from_env(
         Env::default().default_filter_or(jgenesis_common::DEFAULT_LOG_FILTER),
@@ -138,8 +142,7 @@ fn main() -> eframe::Result<()> {
 
     let (gui_width, gui_height) = initial_gui_size(&config_with_path.config);
 
-    let icon = image::load_from_memory_with_format(ICON, ImageFormat::Png)
-        .expect("Failed to load GUI icon");
+    let icon = load_icon();
     let icon_width = icon.width();
     let icon_height = icon.height();
 
@@ -163,4 +166,14 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(|cc| Ok(Box::new(App::new(config_info, load_at_startup, cc.egui_ctx.clone())))),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn load_icon_does_not_panic() {
+        let _ = load_icon();
+    }
 }

@@ -36,7 +36,7 @@ sdl3 = { workspace = true }
 toml = { workspace = true }
 
 [package.metadata.packager]
-icons = ["../32x32.png"]
+icons = ["../256x256.png"]
 # Nightly toolchain used because of -Ztune-cpu codegen arg
 # Statically link SDL3 because otherwise the AppImage fails to build when building SDL3 from source
 before-packaging-command = """
