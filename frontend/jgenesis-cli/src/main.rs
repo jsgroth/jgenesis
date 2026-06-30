@@ -15,7 +15,11 @@ use jgenesis_native_config::input::mappings::{NesControllerType, SnesControllerT
 use jgenesis_native_config::paths::{ConfigDirs, ConfigWithPath};
 use jgenesis_native_driver::config::AppConfigExt;
 use jgenesis_native_driver::extensions::{Console, ConsoleWithSize};
-use jgenesis_native_driver::{NativeEmulator, NativeTickEffect};
+use jgenesis_native_driver::{
+    Native32XEmulator, NativeEmulator, NativeGameBoyEmulator, NativeGbaEmulator,
+    NativeGenesisEmulator, NativeNesEmulator, NativePcEngineEmulator, NativeSegaCdEmulator,
+    NativeSmsGgEmulator, NativeSnesEmulator, NativeTickEffect,
+};
 use jgenesis_proc_macros::{CustomValueEnum, EnumAll, EnumDisplay};
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, VSyncMode, WgpuBackend,
@@ -1029,7 +1033,7 @@ fn run_smsgg(
     let mut smsgg_config = config.smsgg_config(args.file_path.clone(), Some(hardware), &cheats);
     smsgg_config.run_without_cartridge = args.sms_no_cartridge;
 
-    let mut emulator = jgenesis_native_driver::create_smsgg(smsgg_config)?;
+    let mut emulator = NativeSmsGgEmulator::create(smsgg_config)?;
     run_emulator(&mut emulator, &args)
 }
 
@@ -1037,9 +1041,8 @@ fn run_genesis(args: Args, ConfigWithPath { config, path }: ConfigWithPath) -> a
     let cheats = config
         .try_load_cheats(&path, &args.file_path, Console::Genesis.standard_extension())
         .unwrap_or_default();
-    let mut emulator = jgenesis_native_driver::create_genesis(
-        config.genesis_config(args.file_path.clone(), &cheats),
-    )?;
+    let mut emulator =
+        NativeGenesisEmulator::create(config.genesis_config(args.file_path.clone(), &cheats))?;
     run_emulator(&mut emulator, &args)
 }
 
@@ -1050,7 +1053,7 @@ fn run_sega_cd(args: Args, ConfigWithPath { config, path }: ConfigWithPath) -> a
     let mut scd_config = config.sega_cd_config(args.file_path.clone(), &cheats);
     scd_config.run_without_disc = args.scd_no_disc;
 
-    let mut emulator = jgenesis_native_driver::create_sega_cd(scd_config)?;
+    let mut emulator = NativeSegaCdEmulator::create(scd_config)?;
     run_emulator(&mut emulator, &args)
 }
 
@@ -1058,38 +1061,33 @@ fn run_32x(args: Args, ConfigWithPath { config, path }: ConfigWithPath) -> anyho
     let cheats = config
         .try_load_cheats(&path, &args.file_path, Console::Sega32X.standard_extension())
         .unwrap_or_default();
-    let mut emulator = jgenesis_native_driver::create_32x(
-        config.sega_32x_config(args.file_path.clone(), &cheats),
-    )?;
+    let mut emulator =
+        Native32XEmulator::create(config.sega_32x_config(args.file_path.clone(), &cheats))?;
     run_emulator(&mut emulator, &args)
 }
 
 fn run_nes(args: Args, config: AppConfig) -> anyhow::Result<()> {
-    let mut emulator =
-        jgenesis_native_driver::create_nes(config.nes_config(args.file_path.clone()))?;
+    let mut emulator = NativeNesEmulator::create(config.nes_config(args.file_path.clone()))?;
     run_emulator(&mut emulator, &args)
 }
 
 fn run_snes(args: Args, config: AppConfig) -> anyhow::Result<()> {
-    let mut emulator =
-        jgenesis_native_driver::create_snes(config.snes_config(args.file_path.clone()))?;
+    let mut emulator = NativeSnesEmulator::create(config.snes_config(args.file_path.clone()))?;
     run_emulator(&mut emulator, &args)
 }
 
 fn run_gb(args: Args, config: AppConfig) -> anyhow::Result<()> {
-    let mut emulator = jgenesis_native_driver::create_gb(config.gb_config(args.file_path.clone()))?;
+    let mut emulator = NativeGameBoyEmulator::create(config.gb_config(args.file_path.clone()))?;
     run_emulator(&mut emulator, &args)
 }
 
 fn run_gba(args: Args, config: AppConfig) -> anyhow::Result<()> {
-    let mut emulator =
-        jgenesis_native_driver::create_gba(config.gba_config(args.file_path.clone()))?;
+    let mut emulator = NativeGbaEmulator::create(config.gba_config(args.file_path.clone()))?;
     run_emulator(&mut emulator, &args)
 }
 
 fn run_pce(args: Args, config: AppConfig) -> anyhow::Result<()> {
-    let mut emulator =
-        jgenesis_native_driver::create_pce(config.pce_config(args.file_path.clone()))?;
+    let mut emulator = NativePcEngineEmulator::create(config.pce_config(args.file_path.clone()))?;
     run_emulator(&mut emulator, &args)
 }
 
