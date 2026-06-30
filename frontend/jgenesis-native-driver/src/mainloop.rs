@@ -1,4 +1,5 @@
 mod audio;
+mod create;
 mod gb;
 mod gba;
 mod genesis;
@@ -13,16 +14,13 @@ mod smsgg;
 mod snes;
 mod state;
 
-pub use gb::{NativeGameBoyEmulator, create_gb};
-pub use gba::{NativeGbaEmulator, create_gba};
-pub use genesis::{
-    Native32XEmulator, NativeGenesisEmulator, NativeSegaCdEmulator, create_32x, create_genesis,
-    create_sega_cd,
-};
-pub use nes::{NativeNesEmulator, create_nes};
-pub use pce::{NativePcEngineEmulator, create_pce};
-pub use smsgg::{NativeSmsGgEmulator, create_smsgg};
-pub use snes::{NativeSnesEmulator, create_snes};
+pub use gb::NativeGameBoyEmulator;
+pub use gba::NativeGbaEmulator;
+pub use genesis::{Native32XEmulator, NativeGenesisEmulator, NativeSegaCdEmulator};
+pub use nes::NativeNesEmulator;
+pub use pce::NativePcEngineEmulator;
+pub use smsgg::NativeSmsGgEmulator;
+pub use snes::NativeSnesEmulator;
 pub use state::{SAVE_STATE_SLOTS, SaveStateMetadata};
 
 use crate::archive::ArchiveError;
@@ -362,7 +360,7 @@ pub enum NativeEmulatorError {
 
 pub type NativeEmulatorResult<T> = Result<T, NativeEmulatorError>;
 
-pub(crate) struct CreatedEmulator<Emulator: EmulatorTrait> {
+pub struct CreatedEmulator<Emulator: EmulatorTrait> {
     pub emulator: Emulator,
     pub window_title: String,
     pub default_window_size: WindowSize,

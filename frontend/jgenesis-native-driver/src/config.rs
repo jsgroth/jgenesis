@@ -1,6 +1,3 @@
-use crate::archive::{ArchiveEntry, ArchiveError};
-use crate::mainloop::NativeEmulatorError;
-use crate::{NativeEmulatorResult, archive, extensions};
 use gb_config::GbcColorCorrection;
 use gb_core::api::GameBoyEmulatorConfig;
 use gba_config::GbaColorCorrection;
@@ -30,17 +27,6 @@ use snes_core::api::{CoprocessorRomFn, CoprocessorRoms, SnesEmulatorConfig};
 use std::fs;
 use std::num::NonZeroU8;
 use std::path::{Path, PathBuf};
-
-#[derive(Debug, Clone)]
-pub(crate) struct RomReadResult {
-    pub rom: Vec<u8>,
-    pub extension: String,
-}
-
-struct NameWithExtension {
-    file_name: String,
-    extension: String,
-}
 
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct CommonConfig {
@@ -72,80 +58,6 @@ pub struct CommonConfig {
     pub pause_emulator: PauseEmulator,
     pub hide_mouse_cursor: HideMouseCursor,
     pub egui_theme: EguiTheme,
-}
-
-impl CommonConfig {
-    pub(crate) fn read_rom_file(
-        &self,
-        supported_extensions: &[&str],
-    ) -> NativeEmulatorResult<RomReadResult> {
-        #[derive(Default)]
-        struct ArchiveListCallback {
-            first_supported_file: Option<NameWithExtension>,
-        }
-
-        impl ArchiveListCallback {
-            fn as_fn_mut<'ext>(
-                &mut self,
-                supported_extensions: &'ext [&str],
-            ) -> impl FnMut(ArchiveEntry<'_>) + use<'_, 'ext> {
-                |entry| {
-                    if self.first_supported_file.is_some() {
-                        return;
-                    }
-
-                    let Some(extension) = extensions::from_path(entry.file_name) else { return };
-                    if supported_extensions.contains(&extension.as_str()) {
-                        self.first_supported_file = Some(NameWithExtension {
-                            file_name: entry.file_name.into(),
-                            extension,
-                        });
-                    }
-                }
-            }
-
-            fn open_file(
-                self,
-                archive_path: &Path,
-                read_fn: fn(&Path, &str) -> Result<Vec<u8>, ArchiveError>,
-            ) -> NativeEmulatorResult<RomReadResult> {
-                let first_supported_file = self.first_supported_file.ok_or_else(|| {
-                    NativeEmulatorError::Archive(ArchiveError::NoSupportedFiles {
-                        path: archive_path.display().to_string(),
-                    })
-                })?;
-
-                let contents = read_fn(archive_path, &first_supported_file.file_name)
-                    .map_err(NativeEmulatorError::Archive)?;
-                Ok(RomReadResult { rom: contents, extension: first_supported_file.extension })
-            }
-        }
-
-        let path = &self.rom_file_path;
-        let extension = extensions::from_path(path).unwrap_or_default();
-        match extension.as_str() {
-            "zip" => {
-                let mut callback = ArchiveListCallback::default();
-                archive::list_files_zip(path, callback.as_fn_mut(supported_extensions))
-                    .map_err(NativeEmulatorError::Archive)?;
-                callback.open_file(path, archive::read_file_zip)
-            }
-            "7z" => {
-                let mut callback = ArchiveListCallback::default();
-                archive::list_files_7z(path, callback.as_fn_mut(supported_extensions))
-                    .map_err(NativeEmulatorError::Archive)?;
-                callback.open_file(path, archive::read_file_7z)
-            }
-            _ => {
-                let contents = fs::read(path).map_err(|source| NativeEmulatorError::RomRead {
-                    path: path.display().to_string(),
-                    source,
-                })?;
-
-                Ok(RomReadResult { rom: contents, extension })
-            }
-        }
-    }
 }
 
 #[derive(Debug, Clone, ConfigDisplay)]

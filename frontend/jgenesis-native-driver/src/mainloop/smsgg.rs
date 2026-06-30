@@ -1,13 +1,15 @@
-use crate::config::SmsGgConfig;
+use crate::config::{CommonConfig, SmsGgConfig};
 use std::fs;
 
-use crate::mainloop::save::FsSaveWriter;
-use crate::mainloop::{CreatedEmulator, NativeEmulatorArgs, file_name_no_ext, save};
+use crate::mainloop::{CreatedEmulator, NativeDebugFn, create, file_name_no_ext};
 use crate::{NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
 
+use crate::mainloop::create::{CreatableEmulator, ReadInputResult};
+use jgenesis_common::frontend::SaveWriter;
 use jgenesis_native_config::common::WindowSize;
+use jgenesis_native_config::input::mappings::ButtonMappingVec;
 use smsgg_core::{SmsGgEmulator, SmsGgHardware};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub type NativeSmsGgEmulator = NativeEmulator<SmsGgEmulator>;
 
@@ -54,104 +56,81 @@ impl SmsGgHardwareExt for SmsGgHardware {
     }
 }
 
-impl NativeSmsGgEmulator {
-    /// # Errors
-    ///
-    /// This method will return an error if it is unable to reload audio config.
-    pub fn reload_smsgg_config(&mut self, config: Box<SmsGgConfig>) -> NativeEmulatorResult<()> {
-        log::info!("Reloading config: {config}");
+impl CreatableEmulator for SmsGgEmulator {
+    type NativeConfig = SmsGgConfig;
+    type CreateInput = Vec<u8>;
 
-        self.update_and_reload_config(&config.common, &config.emulator_config)?;
+    fn read_create_input(
+        config: &Self::NativeConfig,
+    ) -> NativeEmulatorResult<ReadInputResult<Self::CreateInput>> {
+        if config.run_without_cartridge {
+            let hardware = config.hardware.unwrap_or_else(|| {
+                log::error!(
+                    "run_without_cartridge set without specifying hardware; this is probably a bug"
+                );
+                SmsGgHardware::MasterSystem
+            });
 
-        self.input_mapper.update_mappings(
-            config.common.axis_deadzone,
-            &config.inputs.to_mapping_vec(),
-            &config.inputs.to_turbo_mapping_vec(),
-            &config.common.hotkey_config.to_mapping_vec(),
+            let Some(bios_path) = hardware.bios_path(config) else {
+                return Err(hardware.no_bios_error());
+            };
+
+            let bios_rom = fs::read(bios_path).map_err(|source| {
+                NativeEmulatorError::SmsGgBiosRead { path: bios_path.clone(), source }
+            })?;
+
+            Ok(ReadInputResult {
+                input: bios_rom,
+                rom_path: bios_path.clone(),
+                save_extension: hardware.standard_extension().into(),
+            })
+        } else {
+            create::read_rom_file(&config.common.rom_file_path, &extensions::SMSGG)
+        }
+    }
+
+    fn create(
+        input: ReadInputResult<Self::CreateInput>,
+        config: &Self::NativeConfig,
+        save_writer: &mut impl SaveWriter,
+    ) -> NativeEmulatorResult<CreatedEmulator<Self>> {
+        let rom: Option<Vec<u8>>;
+        let bios_rom: Option<Vec<u8>>;
+        let hardware: SmsGgHardware;
+        let rom_title: String;
+
+        if config.run_without_cartridge {
+            rom = None;
+            bios_rom = Some(input.input);
+            hardware = config.hardware.unwrap_or(SmsGgHardware::MasterSystem);
+            rom_title = "(BIOS)".into();
+        } else {
+            rom = Some(input.input);
+
+            hardware = config.hardware.unwrap_or_else(|| hardware_for_ext(&input.save_extension));
+
+            bios_rom = if hardware.boot_from_bios(config) {
+                let Some(bios_path) = hardware.bios_path(config) else {
+                    return Err(hardware.no_bios_error());
+                };
+                Some(fs::read(bios_path).map_err(|source| NativeEmulatorError::SmsGgBiosRead {
+                    path: bios_path.clone(),
+                    source,
+                })?)
+            } else {
+                None
+            };
+
+            rom_title = file_name_no_ext(&input.rom_path)?;
+        }
+
+        let emulator = SmsGgEmulator::create(
+            rom,
+            bios_rom,
+            hardware,
+            config.emulator_config.clone(),
+            save_writer,
         );
-
-        Ok(())
-    }
-}
-
-/// Create an emulator with the SMS/GG core with the given config.
-///
-/// # Errors
-///
-/// This function will propagate any video, audio, or disk errors encountered.
-pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsGgEmulator> {
-    log::info!("Running with config: {config}");
-
-    let rom: Option<Vec<u8>>;
-    let extension: String;
-    let save_path: PathBuf;
-    let save_state_path: PathBuf;
-    let hardware: SmsGgHardware;
-    let rom_title: String;
-
-    let run_without_cartridge = config.run_without_cartridge;
-    if !run_without_cartridge {
-        let rom_path = Path::new(&config.common.rom_file_path);
-
-        let rom_read_result = config.common.read_rom_file(&extensions::SMSGG)?;
-        rom = Some(rom_read_result.rom);
-        extension = rom_read_result.extension;
-
-        let determined_paths = save::determine_save_paths(
-            &config.common.save_path,
-            &config.common.state_path,
-            rom_path,
-            &extension,
-        )?;
-        save_path = determined_paths.save_path;
-        save_state_path = determined_paths.save_state_path;
-
-        hardware = config.hardware.unwrap_or_else(|| hardware_for_ext(&extension));
-        rom_title = file_name_no_ext(rom_path)?;
-    } else {
-        hardware = config.hardware.unwrap_or_else(|| {
-            log::error!(
-                "run_without_cartridge set without specifying hardware; this is probably a bug"
-            );
-            SmsGgHardware::MasterSystem
-        });
-
-        let bios_path = hardware.bios_path(&config);
-        let Some(bios_path) = bios_path else { return Err(hardware.no_bios_error()) };
-
-        rom = None;
-        extension = hardware.standard_extension().into();
-
-        let determined_paths = save::determine_save_paths(
-            &config.common.save_path,
-            &config.common.state_path,
-            bios_path,
-            &extension,
-        )?;
-        save_path = determined_paths.save_path;
-        save_state_path = determined_paths.save_state_path;
-
-        rom_title = "(BIOS)".into();
-    }
-
-    let bios_rom = if hardware.boot_from_bios(&config) {
-        let Some(bios_path) = hardware.bios_path(&config) else {
-            return Err(hardware.no_bios_error());
-        };
-        Some(fs::read(bios_path).map_err(|source| NativeEmulatorError::SmsGgBiosRead {
-            path: bios_path.clone(),
-            source,
-        })?)
-    } else {
-        None
-    };
-
-    let emulator_config = config.emulator_config.clone();
-    let initial_window_size = config.common.initial_window_size;
-
-    let create_emulator_fn = move |save_writer: &mut FsSaveWriter| {
-        let emulator =
-            SmsGgEmulator::create(rom, bios_rom, hardware, emulator_config.clone(), save_writer);
 
         let window_title = match hardware {
             SmsGgHardware::MasterSystem => format!("sms - {rom_title}"),
@@ -160,34 +139,42 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
         };
 
         let default_window_size = match hardware {
-            SmsGgHardware::MasterSystem | SmsGgHardware::Sg1000 => {
-                WindowSize::new_sms(initial_window_size, emulator_config.sms_aspect_ratio)
-            }
-            SmsGgHardware::GameGear => {
-                WindowSize::new_game_gear(initial_window_size, emulator_config.gg_aspect_ratio)
-            }
+            SmsGgHardware::MasterSystem | SmsGgHardware::Sg1000 => WindowSize::new_sms(
+                config.common.initial_window_size,
+                config.emulator_config.sms_aspect_ratio,
+            ),
+            SmsGgHardware::GameGear => WindowSize::new_game_gear(
+                config.common.initial_window_size,
+                config.emulator_config.gg_aspect_ratio,
+            ),
         };
 
         Ok(CreatedEmulator { emulator, window_title, default_window_size })
-    };
+    }
 
-    NativeSmsGgEmulator::new(
-        NativeEmulatorArgs::new(
-            Box::new(create_emulator_fn),
-            config.emulator_config,
-            config.common,
-            extension,
-            save_path,
-            save_state_path,
-            config.inputs.to_mapping_vec(),
-        )
-        .with_turbo_mappings(config.inputs.to_turbo_mapping_vec())
-        .with_debug_fn(|| {
+    fn common_config(config: &Self::NativeConfig) -> &CommonConfig {
+        &config.common
+    }
+
+    fn emulator_config(config: &Self::NativeConfig) -> &Self::Config {
+        &config.emulator_config
+    }
+
+    fn input_mappings(config: &Self::NativeConfig) -> ButtonMappingVec<'_, Self::Button> {
+        config.inputs.to_mapping_vec()
+    }
+
+    fn turbo_input_mappings(config: &Self::NativeConfig) -> ButtonMappingVec<'_, Self::Button> {
+        config.inputs.to_turbo_mapping_vec()
+    }
+
+    fn debug_fn() -> Option<NativeDebugFn<Self>> {
+        Some(|| {
             jgenesis_debugger_frontend::partial_clone_debug_fn(
                 jgenesis_debugger_frontend::smsgg::render_fn(),
             )
-        }),
-    )
+        })
+    }
 }
 
 fn hardware_for_ext(extension: &str) -> SmsGgHardware {

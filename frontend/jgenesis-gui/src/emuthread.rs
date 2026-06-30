@@ -377,42 +377,42 @@ impl GenericEmulator {
     ) -> NativeEmulatorResult<Self> {
         let emulator = match console {
             Console::MasterSystem => {
-                Self::SmsGg(Box::new(jgenesis_native_driver::create_smsgg(config.smsgg_config(
+                Self::SmsGg(Box::new(NativeSmsGgEmulator::create(config.smsgg_config(
                     path,
                     Some(SmsGgHardware::MasterSystem),
                     cheats.smsgg_or_default(),
                 ))?))
             }
-            Console::GameGear => Self::SmsGg(Box::new(jgenesis_native_driver::create_smsgg(
+            Console::GameGear => Self::SmsGg(Box::new(NativeSmsGgEmulator::create(
                 config.smsgg_config(path, Some(SmsGgHardware::GameGear), cheats.smsgg_or_default()),
             )?)),
-            Console::Sg1000 => Self::SmsGg(Box::new(jgenesis_native_driver::create_smsgg(
+            Console::Sg1000 => Self::SmsGg(Box::new(NativeSmsGgEmulator::create(
                 config.smsgg_config(path, Some(SmsGgHardware::Sg1000), cheats.smsgg_or_default()),
             )?)),
-            Console::Genesis => Self::Genesis(Box::new(jgenesis_native_driver::create_genesis(
+            Console::Genesis => Self::Genesis(Box::new(NativeGenesisEmulator::create(
                 config.genesis_config(path, cheats.genesis_or_default()),
             )?)),
-            Console::SegaCd => Self::SegaCd(Box::new(jgenesis_native_driver::create_sega_cd(
+            Console::SegaCd => Self::SegaCd(Box::new(NativeSegaCdEmulator::create(
                 config.sega_cd_config(path, cheats.genesis_or_default()),
             )?)),
-            Console::Sega32X => Self::Sega32X(Box::new(jgenesis_native_driver::create_32x(
+            Console::Sega32X => Self::Sega32X(Box::new(Native32XEmulator::create(
                 config.sega_32x_config(path, cheats.genesis_or_default()),
             )?)),
             Console::Nes => {
-                Self::Nes(Box::new(jgenesis_native_driver::create_nes(config.nes_config(path))?))
+                Self::Nes(Box::new(NativeNesEmulator::create(config.nes_config(path))?))
             }
             Console::Snes => {
-                Self::Snes(Box::new(jgenesis_native_driver::create_snes(config.snes_config(path))?))
+                Self::Snes(Box::new(NativeSnesEmulator::create(config.snes_config(path))?))
             }
             Console::GameBoy | Console::GameBoyColor => {
-                Self::GameBoy(Box::new(jgenesis_native_driver::create_gb(config.gb_config(path))?))
+                Self::GameBoy(Box::new(NativeGameBoyEmulator::create(config.gb_config(path))?))
             }
-            Console::GameBoyAdvance => Self::GameBoyAdvance(Box::new(
-                jgenesis_native_driver::create_gba(config.gba_config(path))?,
-            )),
-            Console::PcEngine => Self::PcEngine(Box::new(jgenesis_native_driver::create_pce(
-                config.pce_config(path),
-            )?)),
+            Console::GameBoyAdvance => {
+                Self::GameBoyAdvance(Box::new(NativeGbaEmulator::create(config.gba_config(path))?))
+            }
+            Console::PcEngine => {
+                Self::PcEngine(Box::new(NativePcEngineEmulator::create(config.pce_config(path))?))
+            }
         };
 
         Ok(emulator)
@@ -432,7 +432,7 @@ impl GenericEmulator {
                 sms_config.sms_boot_from_bios = true;
                 sms_config.run_without_cartridge = true;
 
-                Self::SmsGg(Box::new(jgenesis_native_driver::create_smsgg(sms_config)?))
+                Self::SmsGg(Box::new(NativeSmsGgEmulator::create(sms_config)?))
             }
             Console::GameGear => {
                 let mut gg_config = config.smsgg_config(
@@ -443,14 +443,14 @@ impl GenericEmulator {
                 gg_config.gg_boot_from_bios = true;
                 gg_config.run_without_cartridge = true;
 
-                Self::SmsGg(Box::new(jgenesis_native_driver::create_smsgg(gg_config)?))
+                Self::SmsGg(Box::new(NativeSmsGgEmulator::create(gg_config)?))
             }
             Console::SegaCd => {
                 let mut scd_config =
                     config.sega_cd_config(PathBuf::new(), &GenesisCheats::default());
                 scd_config.run_without_disc = true;
 
-                Self::SegaCd(Box::new(jgenesis_native_driver::create_sega_cd(scd_config)?))
+                Self::SegaCd(Box::new(NativeSegaCdEmulator::create(scd_config)?))
             }
             _ => return Ok(None),
         };
@@ -465,23 +465,24 @@ impl GenericEmulator {
         path: PathBuf,
     ) -> NativeEmulatorResult<()> {
         match self {
-            Self::SmsGg(emulator) => emulator.reload_smsgg_config(config.smsgg_config(
-                path,
-                None,
-                cheats.smsgg_or_default(),
-            )),
-            Self::Genesis(emulator) => emulator
-                .reload_genesis_config(config.genesis_config(path, cheats.genesis_or_default())),
-            Self::SegaCd(emulator) => emulator
-                .reload_sega_cd_config(config.sega_cd_config(path, cheats.genesis_or_default())),
-            Self::Sega32X(emulator) => emulator
-                .reload_32x_config(config.sega_32x_config(path, cheats.genesis_or_default())),
-            Self::Nes(emulator) => emulator.reload_nes_config(config.nes_config(path)),
-            Self::Snes(emulator) => emulator.reload_snes_config(config.snes_config(path)),
-            Self::GameBoy(emulator) => emulator.reload_gb_config(config.gb_config(path)),
-            Self::GameBoyAdvance(emulator) => emulator.reload_gba_config(config.gba_config(path)),
+            Self::SmsGg(emulator) => {
+                emulator.reload_config(config.smsgg_config(path, None, cheats.smsgg_or_default()))
+            }
+            Self::Genesis(emulator) => {
+                emulator.reload_config(config.genesis_config(path, cheats.genesis_or_default()))
+            }
+            Self::SegaCd(emulator) => {
+                emulator.reload_config(config.sega_cd_config(path, cheats.genesis_or_default()))
+            }
+            Self::Sega32X(emulator) => {
+                emulator.reload_config(config.sega_32x_config(path, cheats.genesis_or_default()))
+            }
+            Self::Nes(emulator) => emulator.reload_config(config.nes_config(path)),
+            Self::Snes(emulator) => emulator.reload_config(config.snes_config(path)),
+            Self::GameBoy(emulator) => emulator.reload_config(config.gb_config(path)),
+            Self::GameBoyAdvance(emulator) => emulator.reload_config(config.gba_config(path)),
 
-            Self::PcEngine(emulator) => emulator.reload_pce_config(config.pce_config(path)),
+            Self::PcEngine(emulator) => emulator.reload_config(config.pce_config(path)),
         }
     }
 
