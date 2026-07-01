@@ -5,7 +5,6 @@ use crate::emuthread::input::{CollectInputWindow, CollectInputsResult};
 use genesis_config::cheats::GenesisCheats;
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::input::GenericInput;
-use jgenesis_native_driver::NativePcEngineEmulator;
 use jgenesis_native_driver::config::AppConfigExt;
 use jgenesis_native_driver::extensions::Console;
 use jgenesis_native_driver::input::Joysticks;
@@ -14,12 +13,15 @@ use jgenesis_native_driver::{
     NativeGbaEmulator, NativeGenesisEmulator, NativeNesEmulator, NativeSegaCdEmulator,
     NativeSmsGgEmulator, NativeSnesEmulator, NativeTickEffect, SaveStateMetadata,
 };
+use jgenesis_native_driver::{NativePcEngineEmulator, SdlSubsystems};
 use jgenesis_proc_macros::MatchEachVariantMacro;
 use sdl3::EventPump;
 use sdl3::event::WindowEvent;
 use smsgg_config::cheats::SmsGgCheats;
 use smsgg_core::SmsGgHardware;
+use std::cell::RefCell;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::SendError;
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
@@ -270,6 +272,17 @@ struct EmuThreadContext {
 }
 
 fn thread_run(ctx: EmuThreadContext) {
+    let sdl = match SdlSubsystems::init() {
+        Ok(sdl) => sdl,
+        Err(err) => {
+            log::error!("Error initializing SDL3: {err}");
+            *ctx.emulator_error.lock().unwrap() = Some(err);
+            ctx.status.store(EmuThreadStatus::Terminated as u8, Ordering::Relaxed);
+            ctx.egui_ctx.request_repaint();
+            return;
+        }
+    };
+
     loop {
         if ctx.status.load(Ordering::Relaxed) != EmuThreadStatus::WaitingForFirstCommand as u8 {
             ctx.status.store(EmuThreadStatus::Idle as u8, Ordering::Relaxed);
@@ -284,6 +297,10 @@ fn thread_run(ctx: EmuThreadContext) {
             Ok(EmuThreadCommand::Run { console, mut config, cheats, input }) => {
                 ctx.status.store(console.running_status() as u8, Ordering::Relaxed);
 
+                if let Err(err) = sdl.drain_events() {
+                    log::error!("Error handling queued joystick events: {err}");
+                }
+
                 if let Some(native_ppi) = ctx.egui_ctx.native_pixels_per_point() {
                     log::info!("Setting emulator window scale factor to {native_ppi}");
                     config.common.window_scale_factor = Some(native_ppi);
@@ -291,9 +308,12 @@ fn thread_run(ctx: EmuThreadContext) {
 
                 let emulator = match input {
                     EmulatorRunInput::OpenFile(file_path) => {
-                        GenericEmulator::create(console, config, cheats, file_path).map(Some)
+                        GenericEmulator::create(sdl.clone(), console, config, cheats, file_path)
+                            .map(Some)
                     }
-                    EmulatorRunInput::RunBios => GenericEmulator::create_run_bios(console, config),
+                    EmulatorRunInput::RunBios => {
+                        GenericEmulator::create_run_bios(sdl.clone(), console, config)
+                    }
                 };
 
                 let emulator = match emulator {
@@ -317,6 +337,7 @@ fn thread_run(ctx: EmuThreadContext) {
             }
             Ok(EmuThreadCommand::CollectInput(buttons)) => {
                 match input::collect_input_not_running(
+                    &sdl,
                     buttons,
                     ctx.egui_ctx.pixels_per_point(),
                     &ctx.input_sender,
@@ -370,55 +391,65 @@ enum GenericEmulator {
 
 impl GenericEmulator {
     fn create(
+        sdl: SdlSubsystems,
         console: Console,
         config: Box<AppConfig>,
         cheats: Arc<ActiveCheats>,
         path: PathBuf,
     ) -> NativeEmulatorResult<Self> {
         let emulator = match console {
-            Console::MasterSystem => {
-                Self::SmsGg(Box::new(NativeSmsGgEmulator::create(config.smsgg_config(
+            Console::MasterSystem => Self::SmsGg(Box::new(NativeSmsGgEmulator::create(
+                sdl,
+                config.smsgg_config(
                     path,
                     Some(SmsGgHardware::MasterSystem),
                     cheats.smsgg_or_default(),
-                ))?))
-            }
+                ),
+            )?)),
             Console::GameGear => Self::SmsGg(Box::new(NativeSmsGgEmulator::create(
+                sdl,
                 config.smsgg_config(path, Some(SmsGgHardware::GameGear), cheats.smsgg_or_default()),
             )?)),
             Console::Sg1000 => Self::SmsGg(Box::new(NativeSmsGgEmulator::create(
+                sdl,
                 config.smsgg_config(path, Some(SmsGgHardware::Sg1000), cheats.smsgg_or_default()),
             )?)),
             Console::Genesis => Self::Genesis(Box::new(NativeGenesisEmulator::create(
+                sdl,
                 config.genesis_config(path, cheats.genesis_or_default()),
             )?)),
             Console::SegaCd => Self::SegaCd(Box::new(NativeSegaCdEmulator::create(
+                sdl,
                 config.sega_cd_config(path, cheats.genesis_or_default()),
             )?)),
             Console::Sega32X => Self::Sega32X(Box::new(Native32XEmulator::create(
+                sdl,
                 config.sega_32x_config(path, cheats.genesis_or_default()),
             )?)),
             Console::Nes => {
-                Self::Nes(Box::new(NativeNesEmulator::create(config.nes_config(path))?))
+                Self::Nes(Box::new(NativeNesEmulator::create(sdl, config.nes_config(path))?))
             }
             Console::Snes => {
-                Self::Snes(Box::new(NativeSnesEmulator::create(config.snes_config(path))?))
+                Self::Snes(Box::new(NativeSnesEmulator::create(sdl, config.snes_config(path))?))
             }
             Console::GameBoy | Console::GameBoyColor => {
-                Self::GameBoy(Box::new(NativeGameBoyEmulator::create(config.gb_config(path))?))
+                Self::GameBoy(Box::new(NativeGameBoyEmulator::create(sdl, config.gb_config(path))?))
             }
-            Console::GameBoyAdvance => {
-                Self::GameBoyAdvance(Box::new(NativeGbaEmulator::create(config.gba_config(path))?))
-            }
-            Console::PcEngine => {
-                Self::PcEngine(Box::new(NativePcEngineEmulator::create(config.pce_config(path))?))
-            }
+            Console::GameBoyAdvance => Self::GameBoyAdvance(Box::new(NativeGbaEmulator::create(
+                sdl,
+                config.gba_config(path),
+            )?)),
+            Console::PcEngine => Self::PcEngine(Box::new(NativePcEngineEmulator::create(
+                sdl,
+                config.pce_config(path),
+            )?)),
         };
 
         Ok(emulator)
     }
 
     fn create_run_bios(
+        sdl: SdlSubsystems,
         console: Console,
         config: Box<AppConfig>,
     ) -> NativeEmulatorResult<Option<Self>> {
@@ -432,7 +463,7 @@ impl GenericEmulator {
                 sms_config.sms_boot_from_bios = true;
                 sms_config.run_without_cartridge = true;
 
-                Self::SmsGg(Box::new(NativeSmsGgEmulator::create(sms_config)?))
+                Self::SmsGg(Box::new(NativeSmsGgEmulator::create(sdl, sms_config)?))
             }
             Console::GameGear => {
                 let mut gg_config = config.smsgg_config(
@@ -443,14 +474,14 @@ impl GenericEmulator {
                 gg_config.gg_boot_from_bios = true;
                 gg_config.run_without_cartridge = true;
 
-                Self::SmsGg(Box::new(NativeSmsGgEmulator::create(gg_config)?))
+                Self::SmsGg(Box::new(NativeSmsGgEmulator::create(sdl, gg_config)?))
             }
             Console::SegaCd => {
                 let mut scd_config =
                     config.sega_cd_config(PathBuf::new(), &GenesisCheats::default());
                 scd_config.run_without_disc = true;
 
-                Self::SegaCd(Box::new(NativeSegaCdEmulator::create(scd_config)?))
+                Self::SegaCd(Box::new(NativeSegaCdEmulator::create(sdl, scd_config)?))
             }
             _ => return Ok(None),
         };
@@ -542,11 +573,11 @@ impl GenericEmulator {
         match_each_variant!(self, emulator => emulator.focus());
     }
 
-    fn joysticks(&mut self) -> &mut Joysticks {
+    fn joysticks(&self) -> Rc<RefCell<Joysticks>> {
         match_each_variant!(self, emulator => emulator.joysticks())
     }
 
-    fn event_pump(&mut self) -> &mut EventPump {
+    fn event_pump(&self) -> Rc<RefCell<EventPump>> {
         match_each_variant!(self, emulator => emulator.event_pump())
     }
 

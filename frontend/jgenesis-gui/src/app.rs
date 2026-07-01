@@ -1170,11 +1170,11 @@ impl App {
                 NativeEmulatorError::SnesLoad(snes_load_err) => {
                     match self.render_snes_load_error(ctx, snes_load_err, &mut open) {
                         HandledError::Yes(effect) => effect,
-                        HandledError::No => Self::render_generic_error_window(ctx, err, &mut open),
+                        HandledError::No => self.render_generic_error_window(ctx, err, &mut open),
                     }
                 }
                 NativeEmulatorError::GbaNoBios => self.render_gba_bios_error(ctx, &mut open),
-                _ => Self::render_generic_error_window(ctx, err, &mut open),
+                _ => self.render_generic_error_window(ctx, err, &mut open),
             };
 
             match render_effect {
@@ -1186,17 +1186,28 @@ impl App {
 
             if !open {
                 *error_lock = None;
+
+                if self.emu_thread.status() == EmuThreadStatus::Terminated {
+                    // Error was fatal; close the application
+                    ctx.send_viewport_cmd(ViewportCommand::Close);
+                }
             }
         }
     }
 
     fn render_generic_error_window(
+        &self,
         ctx: &Context,
         err: &NativeEmulatorError,
         open: &mut bool,
     ) -> RenderErrorEffect {
         Window::new("Emulator Error").open(open).resizable(false).show(ctx, |ui| {
-            ui.label("Emulator terminated with error:");
+            let heading = match self.emu_thread.status() {
+                EmuThreadStatus::Terminated => "Fatal error:",
+                _ => "Emulator terminated with error:",
+            };
+
+            ui.label(heading);
             ui.add_space(10.0);
             ui.colored_label(Color32::RED, err.to_string());
         });

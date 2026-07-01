@@ -1,14 +1,83 @@
 use crate::archive::{ArchiveEntry, ArchiveError};
 use crate::config::CommonConfig;
+use crate::input::Joysticks;
 use crate::mainloop::runner::{ChangeDiscFn, RemoveDiscFn};
 use crate::mainloop::save::FsSaveWriter;
 use crate::mainloop::{CreatedEmulator, NativeDebugFn, NativeEmulatorArgs, save};
 use crate::{NativeEmulator, NativeEmulatorError, NativeEmulatorResult, archive, extensions};
 use jgenesis_common::frontend::{EmulatorTrait, SaveWriter};
 use jgenesis_native_config::input::mappings::ButtonMappingVec;
+use sdl3::event::Event;
+use sdl3::mouse::MouseUtil;
+use sdl3::{AudioSubsystem, EventPump, IntegerOrSdlError, VideoSubsystem};
+use std::cell::RefCell;
 use std::fmt::Display;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
+
+#[derive(Clone)]
+pub struct SdlSubsystems {
+    pub video: Rc<RefCell<VideoSubsystem>>,
+    pub audio: Rc<RefCell<AudioSubsystem>>,
+    pub joysticks: Rc<RefCell<Joysticks>>,
+    pub event_pump: Rc<RefCell<EventPump>>,
+    pub mouse_util: Rc<RefCell<MouseUtil>>,
+}
+
+impl SdlSubsystems {
+    /// Initialize SDL3 and all required subsystems.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any SDL initialization errors, e.g. if SDL3 is already initialized.
+    pub fn init() -> NativeEmulatorResult<Self> {
+        let sdl_ctx = sdl3::init().map_err(NativeEmulatorError::SdlInit)?;
+        let video = sdl_ctx.video().map_err(NativeEmulatorError::SdlVideoInit)?;
+        let audio = sdl_ctx.audio().map_err(NativeEmulatorError::SdlAudioInit)?;
+        let joystick = sdl_ctx.joystick().map_err(NativeEmulatorError::SdlJoystickInit)?;
+        let event_pump = sdl_ctx.event_pump().map_err(NativeEmulatorError::SdlEventPumpInit)?;
+        let mouse_util = sdl_ctx.mouse();
+
+        // Allow gamepad inputs while window does not have focus
+        // https://wiki.libsdl.org/SDL3/SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS
+        sdl3::hint::set("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
+
+        let joysticks = Joysticks::new(joystick);
+
+        Ok(Self {
+            video: Rc::new(RefCell::new(video)),
+            audio: Rc::new(RefCell::new(audio)),
+            joysticks: Rc::new(RefCell::new(joysticks)),
+            event_pump: Rc::new(RefCell::new(event_pump)),
+            mouse_util: Rc::new(RefCell::new(mouse_util)),
+        })
+    }
+
+    /// Drain all pending SDL events while ensuring that no joystick added/removed events are missed.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any errors raised by SDL's joystick subsystem.
+    pub fn drain_events(&self) -> Result<(), IntegerOrSdlError> {
+        let mut joysticks = self.joysticks.borrow_mut();
+        for event in self.event_pump.borrow_mut().poll_iter() {
+            match event {
+                Event::JoyDeviceAdded { which: joystick_id, .. } => {
+                    joysticks.handle_device_added(joystick_id)?;
+                }
+                Event::JoyDeviceRemoved { which: joystick_id, .. } => {
+                    joysticks
+                        .handle_device_removed(joystick_id)
+                        .map_err(IntegerOrSdlError::SdlError)?;
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+}
 
 #[derive(Clone)]
 pub struct ReadInputResult<T> {
@@ -82,7 +151,10 @@ impl<Emulator: CreatableEmulator> NativeEmulator<Emulator> {
     /// # Errors
     ///
     /// Propagates any errors encountered creating or initializing the emulator.
-    pub fn create(config: Box<Emulator::NativeConfig>) -> NativeEmulatorResult<Self> {
+    pub fn create(
+        sdl: SdlSubsystems,
+        config: Box<Emulator::NativeConfig>,
+    ) -> NativeEmulatorResult<Self> {
         log::info!("Running with config: {config}");
 
         let input = Emulator::read_create_input(&config)?;
@@ -122,7 +194,7 @@ impl<Emulator: CreatableEmulator> NativeEmulator<Emulator> {
             args = args.with_debug_fn(debug_fn);
         }
 
-        Self::new(args)
+        Self::new(sdl, args)
     }
 
     /// Reload configuration.

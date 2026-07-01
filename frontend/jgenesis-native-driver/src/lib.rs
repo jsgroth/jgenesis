@@ -9,7 +9,7 @@ pub use mainloop::{
     AudioError, Native32XEmulator, NativeEmulator, NativeEmulatorError, NativeEmulatorResult,
     NativeGameBoyEmulator, NativeGbaEmulator, NativeGenesisEmulator, NativeNesEmulator,
     NativePcEngineEmulator, NativeSegaCdEmulator, NativeSmsGgEmulator, NativeSnesEmulator,
-    NativeTickEffect, SAVE_STATE_SLOTS, SaveStateMetadata, SaveWriteError,
+    NativeTickEffect, SAVE_STATE_SLOTS, SaveStateMetadata, SaveWriteError, SdlSubsystems,
 };
 use sdl3::VideoSubsystem;
 
