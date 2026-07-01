@@ -14,11 +14,14 @@ mod smsgg;
 mod snes;
 mod state;
 
+pub use audio::AudioError;
+pub use create::SdlSubsystems;
 pub use gb::NativeGameBoyEmulator;
 pub use gba::NativeGbaEmulator;
 pub use genesis::{Native32XEmulator, NativeGenesisEmulator, NativeSegaCdEmulator};
 pub use nes::NativeNesEmulator;
 pub use pce::NativePcEngineEmulator;
+pub use save::SaveWriteError;
 pub use smsgg::NativeSmsGgEmulator;
 pub use snes::NativeSnesEmulator;
 pub use state::{SAVE_STATE_SLOTS, SaveStateMetadata};
@@ -35,7 +38,6 @@ use crate::mainloop::runner::{
     RunnerThreadHandle,
 };
 use crate::mainloop::save::FsSaveWriter;
-pub use audio::AudioError;
 use bincode::error::{DecodeError, EncodeError};
 use gb_core::api::GameBoyLoadError;
 use gba_core::api::GbaLoadError;
@@ -49,10 +51,10 @@ use jgenesis_native_config::input::{CompactHotkey, Hotkey};
 use jgenesis_renderer::renderer;
 use jgenesis_renderer::renderer::{RendererError, WgpuRenderer};
 use nes_core::api::NesInitializationError;
-pub use save::SaveWriteError;
 use sdl3::event::{Event, WindowEvent};
+use sdl3::mouse::MouseUtil;
 use sdl3::video::{FullscreenType, Window, WindowBuildError};
-use sdl3::{AudioSubsystem, EventPump, IntegerOrSdlError, JoystickSubsystem, Sdl, VideoSubsystem};
+use sdl3::{EventPump, IntegerOrSdlError, VideoSubsystem};
 use segacd_core::api::SegaCdLoadError;
 use snes_core::api::SnesLoadError;
 use std::cell::RefCell;
@@ -188,15 +190,13 @@ pub struct NativeEmulator<Emulator: EmulatorTrait> {
     audio_output_handle: SdlAudioOutputHandle,
     input_mapper: InputMapper<Emulator::Button>,
     inputs: Emulator::Inputs,
-    event_pump: EventPump,
-    event_buffer: Rc<RefCell<Vec<Event>>>,
-    video: VideoSubsystem,
     hotkey_state: HotkeyState<Emulator>,
     window_state: WindowState,
     fps_tracker: FpsTracker,
     rom_path: PathBuf,
-    // Put SDL handle last so that it is dropped last when the emulator is dropped
-    sdl: Sdl,
+    video: Rc<RefCell<VideoSubsystem>>,
+    event_pump: Rc<RefCell<EventPump>>,
+    mouse_util: Rc<RefCell<MouseUtil>>,
 }
 
 impl<Emulator: EmulatorTrait> NativeEmulator<Emulator> {
@@ -213,7 +213,7 @@ impl<Emulator: EmulatorTrait> NativeEmulator<Emulator> {
         self.renderer.set_speed_multiplier(1);
 
         let fullscreen = self.renderer.is_fullscreen();
-        self.sdl.mouse().show_cursor(!config.hide_mouse_cursor.should_hide(fullscreen));
+        self.mouse_util.borrow().show_cursor(!config.hide_mouse_cursor.should_hide(fullscreen));
 
         self.hotkey_state.egui_theme = config.egui_theme;
         if let Some(debugger) = &mut self.hotkey_state.debugger_window {
@@ -227,12 +227,12 @@ impl<Emulator: EmulatorTrait> NativeEmulator<Emulator> {
         self.renderer.focus();
     }
 
-    pub fn joysticks(&mut self) -> &mut Joysticks {
-        self.input_mapper.joysticks_mut()
+    pub fn joysticks(&self) -> Rc<RefCell<Joysticks>> {
+        self.input_mapper.joysticks()
     }
 
-    pub fn event_pump(&mut self) -> &mut EventPump {
-        &mut self.event_pump
+    pub fn event_pump(&self) -> Rc<RefCell<EventPump>> {
+        Rc::clone(&self.event_pump)
     }
 }
 
@@ -450,6 +450,7 @@ where
     Emulator: EmulatorTrait,
 {
     fn new(
+        sdl: SdlSubsystems,
         NativeEmulatorArgs {
             create_emulator_fn,
             change_disc_fn,
@@ -465,13 +466,15 @@ where
             debug_fn,
         }: NativeEmulatorArgs<'_, '_, Emulator>,
     ) -> NativeEmulatorResult<Self> {
-        let (sdl, video, audio, joystick, event_pump) = init_sdl3(&common_config)?;
+        sdl.mouse_util.borrow().show_cursor(
+            !common_config.hide_mouse_cursor.should_hide(common_config.launch_in_fullscreen),
+        );
 
         let (audio_output, mut audio_output_handle) =
-            SdlAudioOutput::create_and_init(audio, &common_config)?;
+            SdlAudioOutput::create_and_init(sdl.audio, &common_config)?;
 
         let input_mapper = InputMapper::new(
-            joystick,
+            sdl.joysticks,
             common_config.axis_deadzone,
             &button_mappings,
             &turbo_mappings,
@@ -503,7 +506,7 @@ where
         }
 
         let window = create_window(
-            &video,
+            &sdl.video.borrow(),
             runner.initial_window_title(),
             initial_window_size.width,
             initial_window_size.height,
@@ -526,14 +529,13 @@ where
             audio_output_handle,
             input_mapper,
             inputs: initial_inputs,
-            sdl,
-            event_pump,
-            event_buffer: Rc::new(RefCell::new(Vec::with_capacity(100))),
-            video,
             hotkey_state,
             window_state: WindowState::new(),
             fps_tracker: FpsTracker::new(),
             rom_path: common_config.rom_file_path,
+            video: sdl.video,
+            event_pump: sdl.event_pump,
+            mouse_util: sdl.mouse_util,
         };
 
         for modal in emulator.runner.startup_modals() {
@@ -567,13 +569,7 @@ where
                 .should_pause(self.window_state.emulator_focused, self.window_state.any_focused());
         self.runner.set_paused(paused);
 
-        // Gymnastics to avoid borrow checker errors that would otherwise occur due to
-        // calling `&mut self` methods while mutably borrowing the event pump
-        let event_buffer_ref = Rc::clone(&self.event_buffer);
-        let mut event_buffer = event_buffer_ref.borrow_mut();
-        event_buffer.extend(self.event_pump.poll_iter());
-
-        for event in event_buffer.drain(..) {
+        for event in Rc::clone(&self.event_pump).borrow_mut().poll_iter() {
             self.input_mapper.handle_event(
                 &event,
                 self.renderer.window_id(),
@@ -787,7 +783,7 @@ where
         let (runner_process, main_process) = (self.hotkey_state.debug_fn)();
 
         let debugger_window = match DebuggerWindow::new(
-            &self.video,
+            &self.video.borrow(),
             self.hotkey_state.window_scale_factor,
             self.hotkey_state.egui_theme,
             self.renderer.config(),
@@ -931,7 +927,9 @@ where
     fn toggle_fullscreen(&mut self) -> NativeEmulatorResult<()> {
         let fullscreen =
             self.renderer.toggle_fullscreen().map_err(NativeEmulatorError::SdlSetFullscreen)?;
-        self.sdl.mouse().show_cursor(!self.hotkey_state.hide_mouse_cursor.should_hide(fullscreen));
+        self.mouse_util
+            .borrow()
+            .show_cursor(!self.hotkey_state.hide_mouse_cursor.should_hide(fullscreen));
 
         Ok(())
     }
@@ -1048,24 +1046,6 @@ fn file_name_no_ext<P: AsRef<Path>>(path: P) -> NativeEmulatorResult<String> {
         .file_name()
         .map(|file_name| file_name.to_string_lossy().into_owned())
         .ok_or_else(|| NativeEmulatorError::ParseFileName(path.as_ref().display().to_string()))
-}
-
-fn init_sdl3(
-    config: &CommonConfig,
-) -> NativeEmulatorResult<(Sdl, VideoSubsystem, AudioSubsystem, JoystickSubsystem, EventPump)> {
-    let sdl = sdl3::init().map_err(NativeEmulatorError::SdlInit)?;
-    let video = sdl.video().map_err(NativeEmulatorError::SdlVideoInit)?;
-    let audio = sdl.audio().map_err(NativeEmulatorError::SdlAudioInit)?;
-    let joystick = sdl.joystick().map_err(NativeEmulatorError::SdlJoystickInit)?;
-    let event_pump = sdl.event_pump().map_err(NativeEmulatorError::SdlEventPumpInit)?;
-
-    // Allow gamepad inputs while window does not have focus
-    // https://wiki.libsdl.org/SDL3/SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS
-    sdl3::hint::set("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
-
-    sdl.mouse().show_cursor(!config.hide_mouse_cursor.should_hide(config.launch_in_fullscreen));
-
-    Ok((sdl, video, audio, joystick, event_pump))
 }
 
 fn create_window(

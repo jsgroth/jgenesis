@@ -6,13 +6,16 @@ use egui_wgpu::ScreenDescriptor;
 use jgenesis_native_config::input::{
     AxisDirection, GamepadAction, GenericInput, HatDirection, KeyboardInput,
 };
+use jgenesis_native_driver::SdlSubsystems;
 use jgenesis_native_driver::input::Joysticks;
 use sdl3::EventPump;
 use sdl3::event::{Event, WindowEvent};
 use sdl3::joystick::{HatState, Joystick};
 use sdl3::keyboard::{Keycode, Scancode};
 use sdl3::video::Window;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::mpsc::Sender;
 use std::time::{Duration, SystemTime};
 use std::{iter, thread};
@@ -24,20 +27,14 @@ pub enum CollectInputsResult {
 }
 
 pub fn collect_input_not_running(
+    sdl: &SdlSubsystems,
     buttons: Vec<GenericButton>,
     scale_factor: f32,
     input_sender: &Sender<Option<Vec<GenericInput>>>,
 ) -> anyhow::Result<()> {
-    let sdl = sdl3::init().map_err(|err| anyhow!("Error initializing SDL3: {err}"))?;
-    let video =
-        sdl.video().map_err(|err| anyhow!("Error initializing SDL3 video subsystem: {err}"))?;
-    let joystick_subsystem = sdl
-        .joystick()
-        .map_err(|err| anyhow!("Error initializing SDL3 joystick subsystem: {err}"))?;
-    let mut event_pump =
-        sdl.event_pump().map_err(|err| anyhow!("Error initializing SDL3 event pump: {err}"))?;
-
-    let mut sdl_window = video
+    let mut sdl_window = sdl
+        .video
+        .borrow()
         .window(
             "SDL input configuration",
             (400.0 * scale_factor).round() as u32,
@@ -45,21 +42,22 @@ pub fn collect_input_not_running(
         )
         .build()?;
     sdl_window.raise();
+
     let mut window = InputWindow::new(sdl_window, scale_factor)?;
 
-    let mut joysticks = Joysticks::new(joystick_subsystem);
+    sdl.drain_events()?;
 
     collect_inputs(
         &buttons,
         CollectInputWindow::Gui {
             window: &mut window,
-            joysticks: &mut joysticks,
-            event_pump: &mut event_pump,
+            joysticks: &sdl.joysticks,
+            event_pump: &sdl.event_pump,
         },
         input_sender,
     );
 
-    for _ in event_pump.poll_iter() {}
+    sdl.drain_events()?;
 
     Ok(())
 }
@@ -221,21 +219,25 @@ impl CollectedInputs {
 }
 
 pub enum CollectInputWindow<'a> {
-    Gui { window: &'a mut InputWindow, joysticks: &'a mut Joysticks, event_pump: &'a mut EventPump },
+    Gui {
+        window: &'a mut InputWindow,
+        joysticks: &'a Rc<RefCell<Joysticks>>,
+        event_pump: &'a Rc<RefCell<EventPump>>,
+    },
     Emulator(&'a mut GenericEmulator),
 }
 
 impl CollectInputWindow<'_> {
-    fn joysticks(&mut self) -> &mut Joysticks {
+    fn joysticks(&self) -> Rc<RefCell<Joysticks>> {
         match self {
-            Self::Gui { joysticks, .. } => joysticks,
+            Self::Gui { joysticks, .. } => Rc::clone(joysticks),
             Self::Emulator(emulator) => emulator.joysticks(),
         }
     }
 
-    fn event_pump(&mut self) -> &mut EventPump {
+    fn event_pump(&self) -> Rc<RefCell<EventPump>> {
         match self {
-            Self::Gui { event_pump, .. } => event_pump,
+            Self::Gui { event_pump, .. } => Rc::clone(event_pump),
             Self::Emulator(emulator) => emulator.event_pump(),
         }
     }
@@ -280,15 +282,16 @@ fn collect_input(
     // input the wrong direction
     const AXIS_DEADZONE: i16 = 27000;
 
-    let mut inputs = CollectedInputs::new(window.joysticks(), AXIS_DEADZONE);
+    let joysticks = window.joysticks();
+    let mut joysticks = joysticks.borrow_mut();
+
+    let mut inputs = CollectedInputs::new(&joysticks, AXIS_DEADZONE);
 
     loop {
-        while let Some(event) = window.event_pump().poll_event() {
+        for event in window.event_pump().borrow_mut().poll_iter() {
             log::debug!("SDL event: {event:?}");
 
             window.handle_sdl_event(&event);
-
-            let joysticks = window.joysticks();
 
             match event {
                 Event::Quit { .. } => {
@@ -314,7 +317,7 @@ fn collect_input(
                     if let Some(gamepad_idx) = joysticks.map_to_device_id(joystick_id)
                         && let Some(joystick) = joysticks.device(gamepad_idx)
                     {
-                        inputs.add_device(joysticks, gamepad_idx, joystick, AXIS_DEADZONE);
+                        inputs.add_device(&joysticks, gamepad_idx, joystick, AXIS_DEADZONE);
                     }
                 }
                 Event::JoyDeviceRemoved { which: joystick_id, .. } => {
@@ -405,10 +408,10 @@ fn collect_input(
         }
 
         match window {
-            CollectInputWindow::Gui { window, joysticks, .. } => {
+            CollectInputWindow::Gui { window, .. } => {
                 let result = window.update(|ui| {
                     egui::CentralPanel::default().show_inside(ui, |ui| {
-                        render_input_window(joysticks, button, ui);
+                        render_input_window(&joysticks, button, ui);
                     });
                 });
                 if let Err(err) = result {

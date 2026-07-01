@@ -150,7 +150,7 @@ impl Joysticks {
     }
 
     #[allow(clippy::missing_errors_doc)]
-    pub fn handle_device_removed(&mut self, joystick_id: u32) -> Result<Option<u32>, sdl3::Error> {
+    pub fn handle_device_removed(&mut self, joystick_id: u32) -> Result<(), sdl3::Error> {
         let device_id = self.joystick_id_to_device_id.get(&joystick_id).copied();
 
         self.open_joysticks.retain(|(joystick, _)| joystick.id() != joystick_id);
@@ -160,7 +160,7 @@ impl Joysticks {
             log::info!("Removed joystick ID {joystick_id} (Device ID {device_id})");
         }
 
-        Ok(device_id)
+        Ok(())
     }
 
     fn regenerate_id_maps(&mut self) -> Result<(), sdl3::Error> {
@@ -186,11 +186,6 @@ impl Joysticks {
     #[must_use]
     pub fn map_to_device_id(&mut self, instance_id: u32) -> Option<u32> {
         self.joystick_id_to_device_id.get(&instance_id).copied()
-    }
-
-    #[must_use]
-    pub fn subsystem(&self) -> &JoystickSubsystem {
-        &self.subsystem
     }
 
     #[must_use]
@@ -450,6 +445,89 @@ where
         }
     }
 
+    fn handle_axis_input(
+        &mut self,
+        axis_deadzone: i16,
+        gamepad_idx: u32,
+        axis_idx: u8,
+        value: i16,
+    ) {
+        let magnitude = value.saturating_abs();
+        let pressed = magnitude > axis_deadzone;
+        let pressed_direction = AxisDirection::from_value(value);
+
+        if pressed {
+            self.handle_input(
+                GenericInput::Gamepad {
+                    gamepad_idx,
+                    action: GamepadAction::Axis(axis_idx, pressed_direction.inverse()),
+                },
+                false,
+            );
+            self.handle_input(
+                GenericInput::Gamepad {
+                    gamepad_idx,
+                    action: GamepadAction::Axis(axis_idx, pressed_direction),
+                },
+                true,
+            );
+        } else {
+            for direction in [AxisDirection::Positive, AxisDirection::Negative] {
+                self.handle_input(
+                    GenericInput::Gamepad {
+                        gamepad_idx,
+                        action: GamepadAction::Axis(axis_idx, direction),
+                    },
+                    false,
+                );
+            }
+        }
+
+        // When a gamepad axis input is mapped to an emulated analog input, ensure that the emulator
+        // receives analog values instead of digital pressed vs. not pressed by pushing the analog
+        // value change events _after_ checking for a digital pressed change. This way the emulator's
+        // input mapping code will always see the analog change events last without needing to
+        // special case digital vs. analog inputs.
+        //
+        // For a similar reason, push an event for the inverse axis direction first in case both
+        // gamepad axis directions are mapped to the same emulated analog axis.
+        // TODO deadzone
+        for direction in [pressed_direction.inverse(), pressed_direction] {
+            let canonical_input = CanonicalInput::canonicalize(GenericInput::Gamepad {
+                gamepad_idx,
+                action: GamepadAction::Axis(axis_idx, direction),
+            });
+            let Some(buttons) = self.inputs_to_buttons.get(&canonical_input) else {
+                continue;
+            };
+
+            let direction_magnitude = if direction == pressed_direction { magnitude } else { 0 };
+
+            for &button in buttons {
+                let GenericButton::Button(button, player) = button else { continue };
+
+                self.input_events.borrow_mut().push(InputEvent::AnalogValueChange {
+                    button,
+                    player,
+                    value: direction_magnitude,
+                });
+            }
+        }
+    }
+
+    fn handle_hat_input(&mut self, gamepad_idx: u32, hat_idx: u8, state: HatState) {
+        for direction in HatDirection::ALL {
+            let pressed = is_hat_direction_pressed(direction, state);
+            self.handle_input(
+                GenericInput::Gamepad {
+                    gamepad_idx,
+                    action: GamepadAction::Hat(hat_idx, direction),
+                },
+                pressed,
+            );
+        }
+    }
+
     fn toggle_turbo_states(&mut self) {
         for (&(button, player), pressed) in &mut self.active_turbo_buttons {
             self.input_events.borrow_mut().push(InputEvent::Button {
@@ -473,7 +551,7 @@ where
 }
 
 pub(crate) struct InputMapper<Button> {
-    joysticks: Joysticks,
+    joysticks: Rc<RefCell<Joysticks>>,
     axis_deadzone: i16,
     state: InputMapperState<Button>,
 }
@@ -483,14 +561,12 @@ where
     Button: Debug + Copy + Hash + Eq,
 {
     pub fn new(
-        joystick_subsystem: JoystickSubsystem,
+        joysticks: Rc<RefCell<Joysticks>>,
         axis_deadzone: i16,
         button_mappings: &[((Button, Player), &Vec<GenericInput>)],
         turbo_mappings: &[((Button, Player), &Vec<GenericInput>)],
         hotkey_mappings: &[(Hotkey, &Vec<GenericInput>)],
     ) -> Self {
-        let joysticks = Joysticks::new(joystick_subsystem);
-
         let mut state = InputMapperState::new();
         state.update_mappings(button_mappings, turbo_mappings, hotkey_mappings);
 
@@ -515,6 +591,8 @@ where
         display_info: Option<DisplayInfo>,
     ) {
         log::debug!("SDL event: {event:?}");
+
+        let mut joysticks = self.joysticks.borrow_mut();
 
         match *event {
             Event::KeyDown { keycode, scancode, window_id, .. }
@@ -576,7 +654,7 @@ where
                 self.state.input_events.borrow_mut().push(InputEvent::MouseLeave);
             }
             Event::JoyButtonDown { which, button_idx, .. } => {
-                let Some(gamepad_idx) = self.joysticks.map_to_device_id(which) else { return };
+                let Some(gamepad_idx) = joysticks.map_to_device_id(which) else { return };
                 self.state.handle_input(
                     GenericInput::Gamepad {
                         gamepad_idx,
@@ -586,7 +664,7 @@ where
                 );
             }
             Event::JoyButtonUp { which, button_idx, .. } => {
-                let Some(gamepad_idx) = self.joysticks.map_to_device_id(which) else { return };
+                let Some(gamepad_idx) = joysticks.map_to_device_id(which) else { return };
                 self.state.handle_input(
                     GenericInput::Gamepad {
                         gamepad_idx,
@@ -596,103 +674,26 @@ where
                 );
             }
             Event::JoyAxisMotion { which, axis_idx, value, .. } => {
-                let Some(gamepad_idx) = self.joysticks.map_to_device_id(which) else { return };
-                self.handle_axis_input(gamepad_idx, axis_idx, value);
+                let Some(gamepad_idx) = joysticks.map_to_device_id(which) else { return };
+                self.state.handle_axis_input(self.axis_deadzone, gamepad_idx, axis_idx, value);
             }
             Event::JoyHatMotion { which, hat_idx, state, .. } => {
-                let Some(gamepad_idx) = self.joysticks.map_to_device_id(which) else { return };
-                self.handle_hat_input(gamepad_idx, hat_idx, state);
+                let Some(gamepad_idx) = joysticks.map_to_device_id(which) else { return };
+                self.state.handle_hat_input(gamepad_idx, hat_idx, state);
             }
             Event::JoyDeviceAdded { which, .. } => {
-                if let Err(err) = self.joysticks.handle_device_added(which) {
+                if let Err(err) = joysticks.handle_device_added(which) {
                     log::error!("Error opening joystick with joystick id {which}: {err}");
                 }
                 self.state.unset_all_gamepad_inputs();
             }
             Event::JoyDeviceRemoved { which, .. } => {
-                if let Err(err) = self.joysticks.handle_device_removed(which) {
+                if let Err(err) = joysticks.handle_device_removed(which) {
                     log::error!("Error closing joystick with joystick id {which}: {err}");
                 }
                 self.state.unset_all_gamepad_inputs();
             }
             _ => {}
-        }
-    }
-
-    fn handle_axis_input(&mut self, gamepad_idx: u32, axis_idx: u8, value: i16) {
-        let magnitude = value.saturating_abs();
-        let pressed = magnitude > self.axis_deadzone;
-        let pressed_direction = AxisDirection::from_value(value);
-
-        if pressed {
-            self.state.handle_input(
-                GenericInput::Gamepad {
-                    gamepad_idx,
-                    action: GamepadAction::Axis(axis_idx, pressed_direction.inverse()),
-                },
-                false,
-            );
-            self.state.handle_input(
-                GenericInput::Gamepad {
-                    gamepad_idx,
-                    action: GamepadAction::Axis(axis_idx, pressed_direction),
-                },
-                true,
-            );
-        } else {
-            for direction in [AxisDirection::Positive, AxisDirection::Negative] {
-                self.state.handle_input(
-                    GenericInput::Gamepad {
-                        gamepad_idx,
-                        action: GamepadAction::Axis(axis_idx, direction),
-                    },
-                    false,
-                );
-            }
-        }
-
-        // When a gamepad axis input is mapped to an emulated analog input, ensure that the emulator
-        // receives analog values instead of digital pressed vs. not pressed by pushing the analog
-        // value change events _after_ checking for a digital pressed change. This way the emulator's
-        // input mapping code will always see the analog change events last without needing to
-        // special case digital vs. analog inputs.
-        //
-        // For a similar reason, push an event for the inverse axis direction first in case both
-        // gamepad axis directions are mapped to the same emulated analog axis.
-        // TODO deadzone
-        for direction in [pressed_direction.inverse(), pressed_direction] {
-            let canonical_input = CanonicalInput::canonicalize(GenericInput::Gamepad {
-                gamepad_idx,
-                action: GamepadAction::Axis(axis_idx, direction),
-            });
-            let Some(buttons) = self.state.inputs_to_buttons.get(&canonical_input) else {
-                continue;
-            };
-
-            let direction_magnitude = if direction == pressed_direction { magnitude } else { 0 };
-
-            for &button in buttons {
-                let GenericButton::Button(button, player) = button else { continue };
-
-                self.state.input_events.borrow_mut().push(InputEvent::AnalogValueChange {
-                    button,
-                    player,
-                    value: direction_magnitude,
-                });
-            }
-        }
-    }
-
-    fn handle_hat_input(&mut self, gamepad_idx: u32, hat_idx: u8, state: HatState) {
-        for direction in HatDirection::ALL {
-            let pressed = is_hat_direction_pressed(direction, state);
-            self.state.handle_input(
-                GenericInput::Gamepad {
-                    gamepad_idx,
-                    action: GamepadAction::Hat(hat_idx, direction),
-                },
-                pressed,
-            );
         }
     }
 
@@ -707,8 +708,8 @@ where
 }
 
 impl<Button> InputMapper<Button> {
-    pub fn joysticks_mut(&mut self) -> &mut Joysticks {
-        &mut self.joysticks
+    pub fn joysticks(&self) -> Rc<RefCell<Joysticks>> {
+        Rc::clone(&self.joysticks)
     }
 }
 

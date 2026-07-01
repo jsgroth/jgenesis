@@ -18,7 +18,7 @@ use jgenesis_native_driver::extensions::{Console, ConsoleWithSize};
 use jgenesis_native_driver::{
     Native32XEmulator, NativeEmulator, NativeGameBoyEmulator, NativeGbaEmulator,
     NativeGenesisEmulator, NativeNesEmulator, NativePcEngineEmulator, NativeSegaCdEmulator,
-    NativeSmsGgEmulator, NativeSnesEmulator, NativeTickEffect,
+    NativeSmsGgEmulator, NativeSnesEmulator, NativeTickEffect, SdlSubsystems,
 };
 use jgenesis_proc_macros::{CustomValueEnum, EnumAll, EnumDisplay};
 use jgenesis_renderer::config::{
@@ -974,18 +974,22 @@ fn main() -> anyhow::Result<()> {
 
     args.apply_overrides(&mut config_with_path.config)?;
 
+    let sdl = SdlSubsystems::init()?;
+
     match hardware {
-        Hardware::MasterSystem => run_smsgg(args, config_with_path, SmsGgHardware::MasterSystem),
-        Hardware::GameGear => run_smsgg(args, config_with_path, SmsGgHardware::GameGear),
-        Hardware::Sg1000 => run_smsgg(args, config_with_path, SmsGgHardware::Sg1000),
-        Hardware::Genesis => run_genesis(args, config_with_path),
-        Hardware::SegaCd => run_sega_cd(args, config_with_path),
-        Hardware::Sega32X => run_32x(args, config_with_path),
-        Hardware::Nes => run_nes(args, config_with_path.config),
-        Hardware::Snes => run_snes(args, config_with_path.config),
-        Hardware::GameBoy => run_gb(args, config_with_path.config),
-        Hardware::GameBoyAdvance => run_gba(args, config_with_path.config),
-        Hardware::PcEngine => run_pce(args, config_with_path.config),
+        Hardware::MasterSystem => {
+            run_smsgg(sdl, args, config_with_path, SmsGgHardware::MasterSystem)
+        }
+        Hardware::GameGear => run_smsgg(sdl, args, config_with_path, SmsGgHardware::GameGear),
+        Hardware::Sg1000 => run_smsgg(sdl, args, config_with_path, SmsGgHardware::Sg1000),
+        Hardware::Genesis => run_genesis(sdl, args, config_with_path),
+        Hardware::SegaCd => run_sega_cd(sdl, args, config_with_path),
+        Hardware::Sega32X => run_32x(sdl, args, config_with_path),
+        Hardware::Nes => run_nes(sdl, args, config_with_path.config),
+        Hardware::Snes => run_snes(sdl, args, config_with_path.config),
+        Hardware::GameBoy => run_gb(sdl, args, config_with_path.config),
+        Hardware::GameBoyAdvance => run_gba(sdl, args, config_with_path.config),
+        Hardware::PcEngine => run_pce(sdl, args, config_with_path.config),
     }
 }
 
@@ -1018,6 +1022,7 @@ fn guess_hardware(args: &Args) -> Hardware {
 }
 
 fn run_smsgg(
+    sdl: SdlSubsystems,
     args: Args,
     ConfigWithPath { config, path }: ConfigWithPath,
     hardware: SmsGgHardware,
@@ -1033,61 +1038,75 @@ fn run_smsgg(
     let mut smsgg_config = config.smsgg_config(args.file_path.clone(), Some(hardware), &cheats);
     smsgg_config.run_without_cartridge = args.sms_no_cartridge;
 
-    let mut emulator = NativeSmsGgEmulator::create(smsgg_config)?;
+    let mut emulator = NativeSmsGgEmulator::create(sdl, smsgg_config)?;
     run_emulator(&mut emulator, &args)
 }
 
-fn run_genesis(args: Args, ConfigWithPath { config, path }: ConfigWithPath) -> anyhow::Result<()> {
+fn run_genesis(
+    sdl: SdlSubsystems,
+    args: Args,
+    ConfigWithPath { config, path }: ConfigWithPath,
+) -> anyhow::Result<()> {
     let cheats = config
         .try_load_cheats(&path, &args.file_path, Console::Genesis.standard_extension())
         .unwrap_or_default();
     let mut emulator =
-        NativeGenesisEmulator::create(config.genesis_config(args.file_path.clone(), &cheats))?;
+        NativeGenesisEmulator::create(sdl, config.genesis_config(args.file_path.clone(), &cheats))?;
     run_emulator(&mut emulator, &args)
 }
 
-fn run_sega_cd(args: Args, ConfigWithPath { config, path }: ConfigWithPath) -> anyhow::Result<()> {
+fn run_sega_cd(
+    sdl: SdlSubsystems,
+    args: Args,
+    ConfigWithPath { config, path }: ConfigWithPath,
+) -> anyhow::Result<()> {
     let cheats = config
         .try_load_cheats(&path, &args.file_path, Console::SegaCd.standard_extension())
         .unwrap_or_default();
     let mut scd_config = config.sega_cd_config(args.file_path.clone(), &cheats);
     scd_config.run_without_disc = args.scd_no_disc;
 
-    let mut emulator = NativeSegaCdEmulator::create(scd_config)?;
+    let mut emulator = NativeSegaCdEmulator::create(sdl, scd_config)?;
     run_emulator(&mut emulator, &args)
 }
 
-fn run_32x(args: Args, ConfigWithPath { config, path }: ConfigWithPath) -> anyhow::Result<()> {
+fn run_32x(
+    sdl: SdlSubsystems,
+    args: Args,
+    ConfigWithPath { config, path }: ConfigWithPath,
+) -> anyhow::Result<()> {
     let cheats = config
         .try_load_cheats(&path, &args.file_path, Console::Sega32X.standard_extension())
         .unwrap_or_default();
     let mut emulator =
-        Native32XEmulator::create(config.sega_32x_config(args.file_path.clone(), &cheats))?;
+        Native32XEmulator::create(sdl, config.sega_32x_config(args.file_path.clone(), &cheats))?;
     run_emulator(&mut emulator, &args)
 }
 
-fn run_nes(args: Args, config: AppConfig) -> anyhow::Result<()> {
-    let mut emulator = NativeNesEmulator::create(config.nes_config(args.file_path.clone()))?;
+fn run_nes(sdl: SdlSubsystems, args: Args, config: AppConfig) -> anyhow::Result<()> {
+    let mut emulator = NativeNesEmulator::create(sdl, config.nes_config(args.file_path.clone()))?;
     run_emulator(&mut emulator, &args)
 }
 
-fn run_snes(args: Args, config: AppConfig) -> anyhow::Result<()> {
-    let mut emulator = NativeSnesEmulator::create(config.snes_config(args.file_path.clone()))?;
+fn run_snes(sdl: SdlSubsystems, args: Args, config: AppConfig) -> anyhow::Result<()> {
+    let mut emulator = NativeSnesEmulator::create(sdl, config.snes_config(args.file_path.clone()))?;
     run_emulator(&mut emulator, &args)
 }
 
-fn run_gb(args: Args, config: AppConfig) -> anyhow::Result<()> {
-    let mut emulator = NativeGameBoyEmulator::create(config.gb_config(args.file_path.clone()))?;
+fn run_gb(sdl: SdlSubsystems, args: Args, config: AppConfig) -> anyhow::Result<()> {
+    let mut emulator =
+        NativeGameBoyEmulator::create(sdl, config.gb_config(args.file_path.clone()))?;
     run_emulator(&mut emulator, &args)
 }
 
-fn run_gba(args: Args, config: AppConfig) -> anyhow::Result<()> {
-    let mut emulator = NativeGbaEmulator::create(config.gba_config(args.file_path.clone()))?;
+fn run_gba(sdl: SdlSubsystems, args: Args, config: AppConfig) -> anyhow::Result<()> {
+    let mut emulator = NativeGbaEmulator::create(sdl, config.gba_config(args.file_path.clone()))?;
     run_emulator(&mut emulator, &args)
 }
 
-fn run_pce(args: Args, config: AppConfig) -> anyhow::Result<()> {
-    let mut emulator = NativePcEngineEmulator::create(config.pce_config(args.file_path.clone()))?;
+fn run_pce(sdl: SdlSubsystems, args: Args, config: AppConfig) -> anyhow::Result<()> {
+    let mut emulator =
+        NativePcEngineEmulator::create(sdl, config.pce_config(args.file_path.clone()))?;
     run_emulator(&mut emulator, &args)
 }
 

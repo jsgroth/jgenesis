@@ -3,7 +3,9 @@ use jgenesis_common::audio::DynamicResamplingRate;
 use jgenesis_common::frontend::AudioOutput;
 use sdl3::AudioSubsystem;
 use sdl3::audio::{AudioCallback, AudioFormat, AudioSpec, AudioStream, AudioStreamWithCallback};
+use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::Thread;
 use std::time::Duration;
@@ -79,7 +81,7 @@ impl AudioCallback<f32> for AudioQueueCallback {
 }
 
 pub struct SdlAudioOutputHandle {
-    audio_subsystem: AudioSubsystem,
+    audio_subsystem: Rc<RefCell<AudioSubsystem>>,
     audio_stream: AudioStreamWithCallback<AudioQueueCallback>,
     callback_state: Arc<Mutex<AudioCallbackState>>,
     output_frequency: u64,
@@ -113,8 +115,11 @@ impl SdlAudioOutputHandle {
 
             self.audio_stream.pause().map_err(AudioError::PauseStream)?;
 
-            self.audio_stream =
-                open_audio_stream(&self.audio_subsystem, config, Arc::clone(&self.callback_state))?;
+            self.audio_stream = open_audio_stream(
+                &self.audio_subsystem.borrow(),
+                config,
+                Arc::clone(&self.callback_state),
+            )?;
         }
 
         {
@@ -138,13 +143,13 @@ impl SdlAudioOutputHandle {
 
 impl SdlAudioOutput {
     pub fn create_and_init(
-        audio_subsystem: AudioSubsystem,
+        audio_subsystem: Rc<RefCell<AudioSubsystem>>,
         config: &CommonConfig,
     ) -> AudioResult<(Self, SdlAudioOutputHandle)> {
         let callback_state = Arc::new(Mutex::new(AudioCallbackState::new(config)));
 
         let audio_stream =
-            open_audio_stream(&audio_subsystem, config, Arc::clone(&callback_state))?;
+            open_audio_stream(&audio_subsystem.borrow(), config, Arc::clone(&callback_state))?;
 
         let audio_output = Self {
             muted: config.mute_audio,
