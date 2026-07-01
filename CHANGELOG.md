@@ -1,3 +1,21 @@
+# 0.13.1
+
+## New Features
+* (**Genesis**) Added a new enabled-by-default option to automatically force 6-button controllers into 3-button mode when running a game that has known compatibility issues with 6-button controllers, such as _Golden Axe II_ (#682)
+* (**PC Engine**) Added support for the Turbo Tap (i.e. multiple emulated gamepads, up to 5)
+* Holding the rewind and fast forward hotkeys together now rewinds at increased speed, based on the configured fast forward multiplier (#674)
+* Added a right click cut/copy/paste menu to the Cheats text edit box (#678)
+
+## Improvements
+* (**Genesis**) When the "remove sprite-per-scanline limits" setting is enabled with a game that has known compatibility issues with it (read: Sonic 1), the emulator now shows a message at game boot noting that this may cause glitches
+  * I did this instead of forcing it off because it does reduce sprite flickering during gameplay; it just also causes a major glitch on the title screen, unfortunately
+* (**32X**) SH-2 invalid memory address accesses are no longer logged to console by default; on Windows, this fixes potential slowdown in games that frequently access invalid addresses, e.g. _Pitfall: The Mayan Adventure_
+* When mapping gamepad analog triggers to inputs, it should no longer be possible to accidentally map "trigger released" to anything (#674)
+
+## Fixes
+* (**Genesis**) Fixed the 68000 DIVU/DIVS instructions setting the Z and N flags incorrectly when the division overflows; this fixes _Blood Shot_ sometimes allowing you to see part of a wall that's supposed to be behind you and then freezing (#679)
+* (**GBA**) Improved accuracy of IWRAM open bus emulation, based on the openbuster test ROM (#676)
+
 # 0.13.0
 
 ## New Features
