@@ -217,6 +217,8 @@ impl Vdp {
             self.state.scanline_mclk -= MCLK_CYCLES_PER_SCANLINE;
             self.state.scanline += 1;
 
+            self.latch_registers();
+
             if self.state.scanline == active_lines_per_frame {
                 // Beginning of VBlank; frame buffer switches take effect
                 if self.state.display_frame_buffer != self.registers.display_frame_buffer {
@@ -260,18 +262,19 @@ impl Vdp {
         }
     }
 
-    fn handle_hblank_start(&mut self, registers: &mut SystemRegisters) {
-        // Latch registers for rendering next line
+    fn latch_registers(&mut self) {
         self.latched = self.registers.clone();
 
         // In case VDP was switched to blank mode with a pending frame buffer swap
-        if self.latched.frame_buffer_mode == FrameBufferMode::Blank {
-            if self.state.display_frame_buffer != self.registers.display_frame_buffer {
-                log::debug!("Front frame buffer set to {:?}", self.state.display_frame_buffer);
-            }
+        if self.latched.frame_buffer_mode == FrameBufferMode::Blank
+            && self.state.display_frame_buffer != self.registers.display_frame_buffer
+        {
             self.state.display_frame_buffer = self.registers.display_frame_buffer;
+            log::debug!("Front frame buffer set to {:?}", self.state.display_frame_buffer);
         }
+    }
 
+    fn handle_hblank_start(&mut self, registers: &mut SystemRegisters) {
         if self.state.h_interrupt_counter == 0 {
             self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
             registers.notify_h_interrupt();
