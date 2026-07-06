@@ -1,5 +1,6 @@
 //! SH-2 internal I/O registers (accessed using A29-31 = 111)
 
+use crate::bus::BusInterface;
 use crate::dma::DmaController;
 use crate::sci::SerialInterface;
 use crate::wdt::WatchdogTimer;
@@ -378,9 +379,18 @@ impl Sh7604Registers {
     }
 }
 
+// The SH7604 manual says there's a 3-12 cycle latency on FRT accesses, though it's unclear whether
+// this applies to only FRC or to all FRT registers.
+// Applying to all registers fixes some timing issues around line 224 HINT and VINT
+const FRT_WAIT_CYCLES: u64 = 7;
+
 impl Sh2 {
     #[allow(clippy::match_same_arms)]
-    pub(super) fn read_internal_register_byte(&self, address: u32) -> u8 {
+    pub(super) fn read_internal_register_byte(
+        &self,
+        address: u32,
+        bus: &mut impl BusInterface,
+    ) -> u8 {
         log::trace!("[{}] Internal register byte read: {address:08X}", self.name);
 
         match address {
@@ -389,7 +399,10 @@ impl Sh2 {
                 0
             }
             0xFFFFFE00..=0xFFFFFE05 => self.serial.read_register(address),
-            0xFFFFFE10..=0xFFFFFE19 => self.free_run_timer.read_register(address),
+            0xFFFFFE10..=0xFFFFFE19 => {
+                bus.increment_cycle_counter(FRT_WAIT_CYCLES);
+                self.free_run_timer.read_register(address)
+            }
             0xFFFFFE60 => self.sh7604.interrupts.read_iprb().msb(),
             0xFFFFFE61 => self.sh7604.interrupts.read_iprb().lsb(),
             0xFFFFFE62 => self.sh7604.interrupts.read_vcra().msb(),
@@ -458,14 +471,22 @@ impl Sh2 {
     }
 
     #[allow(clippy::match_same_arms)]
-    pub(super) fn write_internal_register_byte(&mut self, address: u32, value: u8) {
+    pub(super) fn write_internal_register_byte(
+        &mut self,
+        address: u32,
+        value: u8,
+        bus: &mut impl BusInterface,
+    ) {
         log::trace!("[{}] Internal register byte write: {address:08X} {value:02X}", self.name);
 
         match address {
             // Cosmic Carnage constantly accesses this address - not sure what it's supposed to be
             0xFFFFFC17 => {}
             0xFFFFFE00..=0xFFFFFE05 => self.serial.write_register(address, value),
-            0xFFFFFE10..=0xFFFFFE19 => self.free_run_timer.write_register(address, value),
+            0xFFFFFE10..=0xFFFFFE19 => {
+                bus.increment_cycle_counter(FRT_WAIT_CYCLES);
+                self.free_run_timer.write_register(address, value);
+            }
             0xFFFFFE60 => self.sh7604.interrupts.write_iprb_high(value),
             // IPRB low byte; does not do anything
             0xFFFFFE61 => {}
@@ -495,6 +516,8 @@ impl Sh2 {
                 self.name
             ),
         }
+
+        self.update_internal_interrupt_level();
     }
 
     pub(super) fn write_internal_register_word(&mut self, address: u32, value: u16) {
@@ -521,6 +544,8 @@ impl Sh2 {
                 self.name
             ),
         }
+
+        self.update_internal_interrupt_level();
     }
 
     #[allow(clippy::match_same_arms)]
@@ -544,6 +569,8 @@ impl Sh2 {
                 self.name
             ),
         }
+
+        self.update_internal_interrupt_level();
     }
 }
 

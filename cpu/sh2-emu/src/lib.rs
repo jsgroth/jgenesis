@@ -168,8 +168,9 @@ impl Sh2 {
 
         let external_interrupt_level = bus.interrupt_level();
         let internal_interrupt_level = self.sh7604.internal_interrupt.priority;
+        let interrupt_mask = self.registers.sr.interrupt_mask;
 
-        if external_interrupt_level > self.registers.sr.interrupt_mask
+        if external_interrupt_level > interrupt_mask
             && external_interrupt_level >= internal_interrupt_level
         {
             let vector_number = BASE_IRL_VECTOR_NUMBER + u32::from(external_interrupt_level >> 1);
@@ -177,7 +178,7 @@ impl Sh2 {
             return;
         }
 
-        if internal_interrupt_level > self.registers.sr.interrupt_mask {
+        if internal_interrupt_level > interrupt_mask {
             let vector_number: u32 = self.sh7604.internal_interrupt.vector_number.into();
             self.handle_exception(Some(internal_interrupt_level), vector_number, bus);
             return;
@@ -185,7 +186,10 @@ impl Sh2 {
 
         for _ in 0..ticks {
             self.execute_single_instruction(bus);
-            if bus.should_stop_execution() {
+            if bus.should_stop_execution()
+                || self.registers.sr.interrupt_mask < bus.interrupt_level()
+                || self.registers.sr.interrupt_mask < self.sh7604.internal_interrupt.priority
+            {
                 return;
             }
         }
@@ -209,7 +213,7 @@ impl Sh2 {
 
         if log::log_enabled!(log::Level::Trace) && self.trace_log_enabled {
             let mut disassembled = DisassembledInstruction::new();
-            disassemble::disassemble_into(pc, opcode, &mut disassembled);
+            disassemble_into(pc, opcode, &mut disassembled);
             log::trace!(
                 "[{}] Executing opcode {opcode:04X} at PC {pc:08X}: {}",
                 self.name,
@@ -258,7 +262,7 @@ impl Sh2 {
                 0
             }
             6 => self.cache.read_data_array_u8(address),
-            7 => self.read_internal_register_byte(address),
+            7 => self.read_internal_register_byte(address, bus),
             _ => unreachable!("u32 >> 29 is always 0-7"),
         }
     }
@@ -400,7 +404,7 @@ impl Sh2 {
                 );
             }
             6 => self.cache.write_data_array_u8(address, value),
-            7 => self.write_internal_register_byte(address, value),
+            7 => self.write_internal_register_byte(address, value, bus),
             _ => unreachable!("u32 >> 29 is always 0-7"),
         }
     }
