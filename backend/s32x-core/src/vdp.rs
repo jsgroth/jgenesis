@@ -6,7 +6,7 @@ mod registers;
 use crate::GenesisVdp;
 use crate::api::Sega32XEmulatorConfig;
 use crate::registers::SystemRegisters;
-use crate::vdp::registers::{FrameBufferMode, Registers, SelectedFrameBuffer};
+use crate::vdp::registers::{FrameBufferMode, Registers, SelectedFrameBuffer, VerticalResolution};
 use bincode::{Decode, Encode};
 use genesis_config::{S32XColorTint, S32XVideoOut, S32XVoidColor};
 use genesis_core::vdp::BorderSize;
@@ -22,12 +22,19 @@ use std::ops::Range;
 
 const MCLK_CYCLES_PER_SCANLINE: u64 = genesis_core::vdp::MCLK_CYCLES_PER_SCANLINE;
 
-// 13 pixels after Genesis H40 HBlank start
-const HBLANK_START_MCLK_CYCLES: u64 = 343 * 8;
+// 25 pixels after Genesis H40 HBlank start
+const HBLANK_START_MCLK_CYCLES: u64 = 355 * 8;
 const HBLANK_END_MCLK_CYCLES: u64 = HBLANK_START_MCLK_CYCLES - 320 * 8;
 
-// Very slightly after actual hardware starts rendering the line
-const RENDER_LINE_MCLK_CYCLES: u64 = 26 * 8;
+// Manual says VBlank begins 27 dots after HBlank begins on the last line, but 27 breaks some tests
+// that depend on timing between H and V interrupts
+const VBLANK_START_MCLK_CYCLES: u64 = HBLANK_START_MCLK_CYCLES + 22 * 8;
+
+// VDP latches registers 76 dots after HBlank begins
+const LATCH_REGISTERS_MCLK_CYCLES: u64 =
+    (HBLANK_START_MCLK_CYCLES + 76 * 8) % MCLK_CYCLES_PER_SCANLINE;
+
+const RENDER_LINE_MCLK_CYCLES: u64 = HBLANK_END_MCLK_CYCLES;
 
 // DRAM refresh takes ~40 SH-2 cycles
 const DRAM_REFRESH_MCLK_CYCLES: Range<u64> =
@@ -83,6 +90,7 @@ struct State {
     scanlines_in_current_frame: u16,
     h_interrupt_this_line: bool,
     h_interrupt_counter: u16,
+    vblank_flag: bool,
     display_frame_buffer: SelectedFrameBuffer,
     auto_fill_mclk_remaining: u64,
     fb_write_timing_fifo: VecDeque<u64>,
@@ -99,6 +107,7 @@ impl State {
             scanlines_in_current_frame: u16::MAX,
             h_interrupt_this_line: true,
             h_interrupt_counter: 0,
+            vblank_flag: false,
             display_frame_buffer: SelectedFrameBuffer::default(),
             auto_fill_mclk_remaining: 0,
             fb_write_timing_fifo: VecDeque::with_capacity(4),
@@ -202,6 +211,12 @@ impl Vdp {
         let prev_scanline_mclk = self.state.scanline_mclk;
         self.state.scanline_mclk += mclk_cycles;
 
+        if prev_scanline_mclk < LATCH_REGISTERS_MCLK_CYCLES
+            && self.state.scanline_mclk >= LATCH_REGISTERS_MCLK_CYCLES
+        {
+            self.latch_registers();
+        }
+
         if self.state.h_interrupt_this_line || self.registers.h_interrupt_in_vblank {
             if prev_scanline_mclk < HBLANK_START_MCLK_CYCLES
                 && self.state.scanline_mclk >= HBLANK_START_MCLK_CYCLES
@@ -212,39 +227,42 @@ impl Vdp {
             self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
         }
 
-        let active_lines_per_frame = self.latched.v_resolution.active_scanlines_per_frame();
+        if prev_scanline_mclk < VBLANK_START_MCLK_CYCLES
+            && self.state.scanline_mclk >= VBLANK_START_MCLK_CYCLES
+        {
+            if self.state.scanline == self.latched.active_scanlines_per_frame - 1 {
+                self.handle_vblank_start(registers, genesis_vdp);
+            } else if self.state.scanline == self.state.scanlines_in_current_frame - 1 {
+                self.state.vblank_flag = false;
+                registers.notify_vblank_end();
+            }
+        }
+
         if self.state.scanline_mclk >= MCLK_CYCLES_PER_SCANLINE {
             self.state.scanline_mclk -= MCLK_CYCLES_PER_SCANLINE;
             self.state.scanline += 1;
 
-            self.latch_registers();
+            if self.state.scanline_mclk >= LATCH_REGISTERS_MCLK_CYCLES {
+                self.latch_registers();
+            }
 
-            if self.state.scanline == active_lines_per_frame {
-                // Beginning of VBlank; frame buffer switches take effect
-                if self.state.display_frame_buffer != self.registers.display_frame_buffer {
-                    log::debug!(
-                        "VBlank: Changing front frame buffer to {:?}",
-                        self.registers.display_frame_buffer
-                    );
-                }
-                self.state.display_frame_buffer = self.registers.display_frame_buffer;
-                registers.notify_vblank_start();
-
-                // Grab scanlines in frame at start of VBlank to avoid a dependency on which order
-                // the VDPs execute in, since interlacing state is latched at the start of line 0
+            if self.state.scanline == VerticalResolution::V30.active_scanlines_per_frame()
+                && !self.state.vblank_flag
+            {
+                // Workaround for a timing edge case related to V28/V30 mode switch
+                // TODO is it even allowed to switch between V28 and V30 outside of VBlank?
+                self.state.vblank_flag = true;
                 self.state.scanlines_in_current_frame = genesis_vdp.scanlines_in_current_frame();
+            }
 
-                // No HINTs during VBlank (unless the HEN bit is set)
-                self.state.h_interrupt_this_line = false;
-            } else if self.state.scanline >= self.state.scanlines_in_current_frame {
+            if self.state.scanline >= self.state.scanlines_in_current_frame {
                 self.state.scanline = 0;
-                registers.notify_vblank_end();
             } else if self.state.scanline == self.state.scanlines_in_current_frame - 1 {
                 // First HINT before rendering line 0
                 self.state.h_interrupt_this_line = true;
             }
 
-            if self.state.scanline < active_lines_per_frame
+            if self.state.scanline < self.latched.active_scanlines_per_frame
                 && self.state.scanline_mclk >= RENDER_LINE_MCLK_CYCLES
             {
                 self.render_line();
@@ -254,7 +272,7 @@ impl Vdp {
         } else if prev_scanline_mclk < RENDER_LINE_MCLK_CYCLES
             && self.state.scanline_mclk >= RENDER_LINE_MCLK_CYCLES
         {
-            if self.state.scanline < active_lines_per_frame {
+            if self.state.scanline < self.latched.active_scanlines_per_frame {
                 self.render_line();
             }
             self.state.cycles_till_next_render =
@@ -283,9 +301,42 @@ impl Vdp {
         }
     }
 
+    fn handle_vblank_start(&mut self, registers: &mut SystemRegisters, genesis_vdp: &GenesisVdp) {
+        if self.state.vblank_flag {
+            return;
+        }
+
+        registers.notify_vblank_start();
+
+        // Beginning of VBlank; frame buffer switches take effect
+        if self.state.display_frame_buffer != self.registers.display_frame_buffer {
+            log::debug!(
+                "VBlank: Changing front frame buffer to {:?}",
+                self.registers.display_frame_buffer
+            );
+        }
+        self.state.display_frame_buffer = self.registers.display_frame_buffer;
+
+        // Grab scanlines in frame at start of VBlank to avoid a dependency on which order
+        // the VDPs execute in, since interlacing state is latched at the start of line 0
+        self.state.scanlines_in_current_frame = genesis_vdp.scanlines_in_current_frame();
+
+        // No HINTs during VBlank (unless the HEN bit is set)
+        self.state.h_interrupt_this_line = false;
+
+        self.state.vblank_flag = true;
+    }
+
     pub fn mclk_cycles_until_next_event(&self, h_interrupt_enabled: bool) -> u64 {
-        // Sync at every line render
+        // Sync at every line render and register latch
         let mut cycles_till_next = self.state.cycles_till_next_render;
+
+        let cycles_till_register_latch = if self.state.scanline_mclk < LATCH_REGISTERS_MCLK_CYCLES {
+            LATCH_REGISTERS_MCLK_CYCLES - self.state.scanline_mclk
+        } else {
+            MCLK_CYCLES_PER_SCANLINE - self.state.scanline_mclk + LATCH_REGISTERS_MCLK_CYCLES
+        };
+        cycles_till_next = cmp::min(cycles_till_next, cycles_till_register_latch);
 
         // Sync at HINT if HINT will trigger on this line
         if h_interrupt_enabled
@@ -294,6 +345,14 @@ impl Vdp {
         {
             cycles_till_next =
                 cmp::min(cycles_till_next, HBLANK_START_MCLK_CYCLES - self.state.scanline_mclk);
+        }
+
+        // Sync at VBlank start
+        if self.state.scanline == self.latched.active_scanlines_per_frame - 1
+            && self.state.scanline_mclk < VBLANK_START_MCLK_CYCLES
+        {
+            cycles_till_next =
+                cmp::min(cycles_till_next, VBLANK_START_MCLK_CYCLES - self.state.scanline_mclk);
         }
 
         // Sync at auto fill end if an auto fill is in progress
@@ -456,7 +515,9 @@ impl Vdp {
             }
             0xA => {
                 self.registers.write_frame_buffer_control(value);
-                if self.in_vblank() || self.latched.frame_buffer_mode == FrameBufferMode::Blank {
+                if self.state.vblank_flag
+                    || self.latched.frame_buffer_mode == FrameBufferMode::Blank
+                {
                     self.state.display_frame_buffer = self.registers.display_frame_buffer;
                     log::debug!("Front frame buffer set to {:?}", self.state.display_frame_buffer);
                 }
@@ -602,7 +663,7 @@ impl Vdp {
     // 68000: $A1518A
     // SH-2: $410A
     fn read_frame_buffer_control(&self) -> u16 {
-        let in_vblank = self.in_vblank();
+        let in_vblank = self.state.vblank_flag;
         let in_hblank = self.in_hblank();
 
         let cram_accessible = in_vblank || in_hblank;
@@ -643,10 +704,6 @@ impl Vdp {
         // Official documentation appears to say that auto fill takes (7 + 3 * length) Sclk cycles
         let auto_fill_sclk = 7 + 3 * u64::from(self.registers.auto_fill_length);
         self.state.auto_fill_mclk_remaining = auto_fill_sclk * 7 / 3;
-    }
-
-    fn in_vblank(&self) -> bool {
-        self.state.scanline >= self.latched.v_resolution.active_scanlines_per_frame()
     }
 
     fn in_hblank(&self) -> bool {
@@ -745,8 +802,7 @@ impl Vdp {
             genesis_vdp.frame_buffer_mut()
         };
 
-        let active_lines_per_frame: u32 =
-            self.latched.v_resolution.active_scanlines_per_frame().into();
+        let active_lines_per_frame: u32 = self.latched.active_scanlines_per_frame.into();
         let s32x_only = self.config.video_out == S32XVideoOut::S32XOnly;
 
         let frame_width = if EXPAND_H {

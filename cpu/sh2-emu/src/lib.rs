@@ -491,8 +491,9 @@ impl Sh2 {
         self.registers.next_pc = self.registers.pc.wrapping_add(2);
         self.registers.next_op_in_delay_slot = false;
 
-        // TODO how long does it take to handle an interrupt?
-        bus.increment_cycle_counter(5);
+        // Interrupt handling takes 10 cycles, plus memory access time, plus time to flush the pipeline
+        // Memory access time is already accounted for, so arbitrarily say it will take 3 cycles to flush
+        bus.increment_cycle_counter(13);
 
         log::debug!(
             "[{}] Handled interrupt of level {interrupt_level:?} with vector number {vector_number}, jumped to {:08X}",

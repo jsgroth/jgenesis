@@ -81,6 +81,7 @@ impl SelectedFrameBuffer {
 pub struct Registers {
     pub frame_buffer_mode: FrameBufferMode,
     pub v_resolution: VerticalResolution,
+    pub active_scanlines_per_frame: u16,
     pub priority: bool,
     pub display_frame_buffer: SelectedFrameBuffer,
     pub screen_left_shift: bool,
@@ -96,6 +97,7 @@ impl Default for Registers {
         Self {
             frame_buffer_mode: FrameBufferMode::default(),
             v_resolution: VerticalResolution::default(),
+            active_scanlines_per_frame: VerticalResolution::default().active_scanlines_per_frame(),
             priority: false,
             display_frame_buffer: SelectedFrameBuffer::default(),
             screen_left_shift: false,
@@ -124,6 +126,8 @@ impl Registers {
         self.frame_buffer_mode = FrameBufferMode::from_word(value);
         self.v_resolution = VerticalResolution::from_bit(value.bit(6));
         self.priority = value.bit(7);
+
+        self.active_scanlines_per_frame = self.v_resolution.active_scanlines_per_frame();
 
         log::debug!("Display mode write: {value:04X}");
         log::debug!("  Frame buffer mode: {:?}", self.frame_buffer_mode);
