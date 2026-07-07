@@ -59,6 +59,10 @@ impl SdlSubsystems {
     /// # Errors
     ///
     /// Propagates any errors raised by SDL's joystick subsystem.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if `joysticks` or `event_pump` is already borrowed.
     pub fn drain_events(&self) -> Result<(), IntegerOrSdlError> {
         let mut joysticks = self.joysticks.borrow_mut();
         for event in self.event_pump.borrow_mut().poll_iter() {

@@ -340,6 +340,7 @@ fn thread_run(ctx: EmuThreadContext) {
                     &sdl,
                     buttons,
                     ctx.egui_ctx.pixels_per_point(),
+                    ctx.egui_ctx.theme(),
                     &ctx.input_sender,
                 ) {
                     Ok(()) => {

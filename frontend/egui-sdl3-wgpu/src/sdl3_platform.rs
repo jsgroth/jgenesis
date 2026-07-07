@@ -3,7 +3,8 @@
 
 use egui::ahash::HashMapExt;
 use egui::{
-    MouseWheelUnit, OutputCommand, PlatformOutput, TouchPhase, ViewportIdMap, ViewportInfo,
+    MouseWheelUnit, OutputCommand, PlatformOutput, TouchPhase, ViewportId, ViewportIdMap,
+    ViewportInfo,
 };
 use sdl3::event::Event as SdlEvent;
 use sdl3::event::WindowEvent as SdlWindowEvent;
@@ -24,7 +25,7 @@ impl Platform {
 
         let mut viewports = ViewportIdMap::new();
         viewports.insert(
-            context.viewport_id(),
+            ViewportId::ROOT,
             ViewportInfo { native_pixels_per_point: Some(scale_factor), ..ViewportInfo::default() },
         );
 
@@ -162,6 +163,10 @@ impl Platform {
             }
             _ => {}
         }
+    }
+
+    pub(crate) fn has_pending_input_event(&self) -> bool {
+        !self.raw_input.events.is_empty()
     }
 
     #[must_use]

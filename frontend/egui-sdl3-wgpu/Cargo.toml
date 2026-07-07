@@ -1,0 +1,18 @@
+[package]
+name = "egui-sdl3-wgpu"
+version = { workspace = true }
+edition = "2024"
+
+[dependencies]
+egui = { workspace = true }
+egui_extras = { workspace = true }
+egui-wgpu = { workspace = true }
+log = { workspace = true }
+pollster = { workspace = true }
+raw-window-handle = { workspace = true }
+sdl3 = { workspace = true }
+thiserror = { workspace = true }
+wgpu = { workspace = true }
+
+[lints]
+workspace = true

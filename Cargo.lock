@@ -1484,11 +1484,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "egui-sdl3-platform"
+name = "egui-sdl3-wgpu"
 version = "0.13.1"
 dependencies = [
  "egui",
+ "egui-wgpu",
+ "egui_extras",
+ "log",
+ "pollster",
+ "raw-window-handle",
  "sdl3",
+ "thiserror 2.0.18",
+ "wgpu",
 ]
 
 [[package]]
@@ -2688,7 +2695,7 @@ version = "0.13.1"
 dependencies = [
  "bytemuck",
  "egui",
- "egui-sdl3-platform",
+ "egui-sdl3-wgpu",
  "egui-wgpu",
  "egui_extras",
  "gb-core",
@@ -2703,7 +2710,6 @@ dependencies = [
  "m68000-emu",
  "nes-core",
  "pce-core",
- "pollster",
  "rand 0.10.1",
  "rfd",
  "s32x-core",
@@ -2725,8 +2731,7 @@ dependencies = [
  "clap",
  "eframe",
  "egui",
- "egui-sdl3-platform",
- "egui-wgpu",
+ "egui-sdl3-wgpu",
  "egui_extras",
  "emath",
  "env_logger",
@@ -2744,7 +2749,6 @@ dependencies = [
  "nes-config",
  "nes-core",
  "pce-config",
- "pollster",
  "polonius-the-crab 0.5.0",
  "regex",
  "rfd",
@@ -2757,7 +2761,6 @@ dependencies = [
  "snes-core",
  "time",
  "toml",
- "wgpu",
  "xrandr",
 ]
 
@@ -2792,6 +2795,7 @@ dependencies = [
  "bincode",
  "cdrom",
  "clap",
+ "egui-sdl3-wgpu",
  "gb-config",
  "gb-core",
  "gba-config",

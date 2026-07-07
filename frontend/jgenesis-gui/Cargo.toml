@@ -33,19 +33,17 @@ snes-config = { workspace = true }
 jgenesis-native-config = { workspace = true}
 jgenesis-native-driver = { workspace = true }
 jgenesis-renderer = { workspace = true }
-egui-sdl3-platform = { workspace = true }
+egui-sdl3-wgpu = { workspace = true }
 
 anyhow = { workspace = true }
 clap = { workspace = true }
 eframe = { workspace = true }
 egui = { workspace = true }
 egui_extras = { workspace = true }
-egui-wgpu = { workspace = true }
 emath = { workspace = true }
 env_logger = { workspace = true }
 image = { workspace = true, features = ["png"] }
 log = { workspace = true, features = ["release_max_level_info"] }
-pollster = { workspace = true }
 polonius-the-crab = { workspace = true }
 regex = { workspace = true }
 rfd = { workspace = true }
@@ -53,7 +51,6 @@ sdl3 = { workspace = true }
 serde = { workspace = true }
 time = { workspace = true, features = ["formatting", "local-offset"] }
 toml = { workspace = true }
-wgpu = { workspace = true }
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 xrandr = { workspace = true }

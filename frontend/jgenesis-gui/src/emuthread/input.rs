@@ -1,24 +1,22 @@
 use crate::app::GenericButton;
 use crate::emuthread::GenericEmulator;
-use anyhow::anyhow;
 use egui::RichText;
-use egui_wgpu::ScreenDescriptor;
+use egui_sdl3_wgpu::{FrameOptions, FrameRunEffect, FrameRunError};
 use jgenesis_native_config::input::{
     AxisDirection, GamepadAction, GenericInput, HatDirection, KeyboardInput,
 };
 use jgenesis_native_driver::SdlSubsystems;
 use jgenesis_native_driver::input::Joysticks;
-use sdl3::EventPump;
-use sdl3::event::{Event, WindowEvent};
+use sdl3::event::Event;
 use sdl3::joystick::{HatState, Joystick};
 use sdl3::keyboard::{Keycode, Scancode};
-use sdl3::video::Window;
+use sdl3::{EventPump, VideoSubsystem};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::mpsc::Sender;
-use std::time::{Duration, SystemTime};
-use std::{iter, thread};
+use std::thread;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CollectInputsResult {
@@ -30,20 +28,10 @@ pub fn collect_input_not_running(
     sdl: &SdlSubsystems,
     buttons: Vec<GenericButton>,
     scale_factor: f32,
+    egui_theme: egui::Theme,
     input_sender: &Sender<Option<Vec<GenericInput>>>,
 ) -> anyhow::Result<()> {
-    let mut sdl_window = sdl
-        .video
-        .borrow()
-        .window(
-            "SDL input configuration",
-            (400.0 * scale_factor).round() as u32,
-            (150.0 * scale_factor).round() as u32,
-        )
-        .build()?;
-    sdl_window.raise();
-
-    let mut window = InputWindow::new(sdl_window, scale_factor)?;
+    let mut window = InputWindow::new(&sdl.video.borrow(), scale_factor, egui_theme)?;
 
     sdl.drain_events()?;
 
@@ -409,13 +397,18 @@ fn collect_input(
 
         match window {
             CollectInputWindow::Gui { window, .. } => {
-                let result = window.update(|ui| {
+                match window.update(|ui| {
                     egui::CentralPanel::default().show_inside(ui, |ui| {
                         render_input_window(&joysticks, button, ui);
                     });
-                });
-                if let Err(err) = result {
-                    log::error!("Error rendering input window: {err}");
+                }) {
+                    Ok(FrameRunEffect::None) => {}
+                    Ok(FrameRunEffect::Closed) => {
+                        return None;
+                    }
+                    Err(err) => {
+                        log::error!("Error rendering input window: {err}");
+                    }
                 }
             }
             CollectInputWindow::Emulator(emulator) => {
@@ -559,177 +552,53 @@ fn render_input_window(joysticks: &Joysticks, button: GenericButton, ui: &mut eg
 }
 
 pub struct InputWindow {
-    surface: wgpu::Surface<'static>,
-    surface_config: wgpu::SurfaceConfiguration,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    platform: egui_sdl3_platform::Platform,
-    renderer: egui_wgpu::Renderer,
-    start_time: SystemTime,
-    // SAFETY: The window must be declared after the surface so that the surface is dropped first
-    window: Window,
+    frame: egui_sdl3_wgpu::Frame,
 }
 
 impl InputWindow {
-    pub fn new(window: Window, scale_factor: f32) -> anyhow::Result<Self> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-
-        // SAFETY: The returned surface must not outlive the window
-        let surface = unsafe {
-            instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_display_and_window(
-                &window, &window,
-            )?)
-        }?;
-
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            compatible_surface: Some(&surface),
-            ..wgpu::RequestAdapterOptions::default()
-        }))?;
-
-        let (device, queue) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))?;
-
-        let (width, height) = window.size();
-
-        // egui prefers non-sRGB-aware surface formats
-        let surface_capabilities = surface.get_capabilities(&adapter);
-        let surface_format = surface_capabilities
-            .formats
-            .iter()
-            .copied()
-            .find(|&format| !format.is_srgb())
-            .unwrap_or(surface_capabilities.formats[0]);
-
-        let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_format,
-            width,
-            height,
-            present_mode: wgpu::PresentMode::AutoNoVsync,
-            desired_maximum_frame_latency: 2,
-            alpha_mode: wgpu::CompositeAlphaMode::default(),
-            view_formats: vec![],
+    pub fn new(
+        video: &VideoSubsystem,
+        scale_factor: f32,
+        egui_theme: egui::Theme,
+    ) -> anyhow::Result<Self> {
+        let options = FrameOptions {
+            window_width: 400,
+            window_height: 150,
+            scale_factor: Some(scale_factor),
+            resizable: false,
+            text_input: false,
+            egui_theme: match egui_theme {
+                egui::Theme::Dark => egui::ThemePreference::Dark,
+                egui::Theme::Light => egui::ThemePreference::Light,
+            },
+            ..FrameOptions::default()
         };
-        surface.configure(&device, &surface_config);
 
-        let platform = egui_sdl3_platform::Platform::new(&window, scale_factor);
-        let start_time = SystemTime::now();
+        let frame = egui_sdl3_wgpu::Frame::new("SDL input configuration", video, options)?;
 
-        let renderer = egui_wgpu::Renderer::new(
-            &device,
-            surface_format,
-            egui_wgpu::RendererOptions::default(),
-        );
-
-        Ok(Self { surface, surface_config, device, queue, platform, renderer, start_time, window })
+        Ok(Self { frame })
     }
 
-    pub fn update(&mut self, render_fn: impl FnMut(&mut egui::Ui)) -> anyhow::Result<()> {
-        let egui_input = self.platform.take_raw_input(
-            SystemTime::now().duration_since(self.start_time).unwrap_or_default().as_secs_f64(),
-        );
-
-        let full_output = self.platform.context().run_ui(egui_input, render_fn);
-
-        let mut suboptimal_surface = false;
-        let output = match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(output) => output,
-            wgpu::CurrentSurfaceTexture::Suboptimal(output) => {
-                suboptimal_surface = true;
-                output
-            }
-            wgpu::CurrentSurfaceTexture::Timeout => {
-                log::warn!("Skipping input window frame because wgpu surface timed out");
-                return Ok(());
-            }
-            wgpu::CurrentSurfaceTexture::Outdated => {
-                log::warn!("Skipping input window frame because wgpu surface is outdated");
-                self.surface.configure(&self.device, &self.surface_config);
-                return Ok(());
-            }
-            wgpu::CurrentSurfaceTexture::Occluded => {
-                log::debug!("Skipping input window frame because wgpu surface is occluded");
-                return Ok(());
-            }
-            wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Validation => {
-                return Err(anyhow!("wgpu surface was lost or failed validation"));
-            }
-        };
-        let output_view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let paint_jobs =
-            self.platform.context().tessellate(full_output.shapes, full_output.pixels_per_point);
-
-        let screen_descriptor = ScreenDescriptor {
-            size_in_pixels: [self.surface_config.width, self.surface_config.height],
-            pixels_per_point: full_output.pixels_per_point,
-        };
-
-        for (id, image_delta) in &full_output.textures_delta.set {
-            self.renderer.update_texture(&self.device, &self.queue, *id, image_delta);
-        }
-
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: "debugger_encoder".into(),
-        });
-
-        self.renderer.update_buffers(
-            &self.device,
-            &self.queue,
-            &mut encoder,
-            &paint_jobs,
-            &screen_descriptor,
-        );
-
-        {
-            let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &output_view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                ..wgpu::RenderPassDescriptor::default()
-            });
-
-            // egui-wgpu requires a RenderPass with static lifetime
-            let mut render_pass = render_pass.forget_lifetime();
-
-            self.renderer.render(&mut render_pass, &paint_jobs, &screen_descriptor);
-        }
-
-        self.queue.submit(iter::once(encoder.finish()));
-        output.present();
-
-        for id in &full_output.textures_delta.free {
-            self.renderer.free_texture(id);
-        }
-
-        if suboptimal_surface {
-            self.surface.configure(&self.device, &self.surface_config);
-        }
-
-        Ok(())
+    pub fn update(
+        &mut self,
+        mut render_fn: impl FnMut(&mut egui::Ui),
+    ) -> Result<FrameRunEffect, FrameRunError> {
+        self.frame.run(|ui, _ctx| render_fn(ui))
     }
 
     pub fn handle_sdl_event(&mut self, event: &Event) {
-        match event {
-            Event::Window {
-                window_id,
-                win_event: WindowEvent::Resized(..) | WindowEvent::PixelSizeChanged(..),
-                ..
-            } if *window_id == self.window.id() => {
-                let (width, height) = self.window.size();
-                self.surface_config.width = width;
-                self.surface_config.height = height;
-                self.surface.configure(&self.device, &self.surface_config);
-            }
-            _ => {}
-        }
+        self.frame.handle_sdl_event(event);
 
-        self.platform.handle_event(event);
+        if matches!(
+            event,
+            Event::JoyDeviceAdded { .. }
+                | Event::JoyDeviceRemoved { .. }
+                | Event::JoyButtonUp { .. }
+                | Event::JoyButtonDown { .. }
+                | Event::JoyAxisMotion { .. }
+                | Event::JoyHatMotion { .. }
+        ) {
+            self.frame.egui_ctx().request_repaint();
+        }
     }
 }

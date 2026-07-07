@@ -624,13 +624,25 @@ where
             Err(RecvFrameError::Recv(RecvTimeoutError::Timeout)) => {}
         }
 
-        if let Some(debugger_window) = &mut self.hotkey_state.debugger_window
-            && let Err(err) = debugger_window.update()
-        {
-            log::error!("Error updating debugger window: {err}");
+        if let Some(debugger_window) = &mut self.hotkey_state.debugger_window {
+            match debugger_window.update() {
+                Ok(FrameRunEffect::None) => {}
+                Ok(FrameRunEffect::Closed) => {
+                    self.stop_debugger()?;
+                }
+                Err(err) => {
+                    log::error!("Error updating debugger window: {err}");
+                }
+            }
         }
 
         Ok(None)
+    }
+
+    fn stop_debugger(&mut self) -> NativeEmulatorResult<()> {
+        self.hotkey_state.debugger_window = None;
+        self.window_state.debugger_focused = false;
+        self.runner.send_command(RunnerCommand::StopDebugger)
     }
 
     #[allow(clippy::missing_errors_doc)]
@@ -646,9 +658,7 @@ where
                 }
 
                 if self.hotkey_state.is_debugger_window_id(window_id) {
-                    self.window_state.debugger_focused = false;
-                    self.hotkey_state.debugger_window = None;
-                    self.runner.send_command(RunnerCommand::StopDebugger)?;
+                    self.stop_debugger()?;
                 }
             }
             WindowEvent::FocusGained => {
@@ -1083,3 +1093,4 @@ macro_rules! bincode_config {
 }
 
 use bincode_config;
+use egui_sdl3_wgpu::FrameRunEffect;

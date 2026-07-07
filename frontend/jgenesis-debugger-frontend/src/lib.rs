@@ -14,39 +14,30 @@ use egui::{
     TextureFilter, TextureOptions, TextureWrapMode, ThemePreference, Ui, Widget, WidgetText,
 };
 use egui_extras::{Column, TableBuilder};
-use egui_wgpu::ScreenDescriptor;
+use egui_sdl3_wgpu::{FrameCreateError, FrameOptions, FrameRunEffect, FrameRunError};
 use jgenesis_common::frontend::Color;
 use jgenesis_native_config::EguiTheme;
 use jgenesis_renderer::config::RendererConfig;
-use sdl3::VideoSubsystem;
-use sdl3::event::{Event, WindowEvent};
-use sdl3::video::{Window, WindowBuildError};
-use std::collections::HashSet;
-use std::hash::Hash;
-use std::sync::Arc;
-use std::time::SystemTime;
-use std::{array, iter};
-use thiserror::Error;
-
 pub use process::{
     DebugFn, DebugRenderFn, DebuggerMainProcess, DebuggerRunnerProcess, clone_debug_fn,
     null_debug_fn, partial_clone_debug_fn,
 };
+use sdl3::VideoSubsystem;
+use sdl3::event::Event;
+use std::array;
+use std::collections::HashSet;
+use std::fmt::Debug;
+use std::hash::Hash;
+use std::sync::Arc;
+use std::time::Duration;
+use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum DebuggerError {
-    #[error("Failed to create surface from window handle: {0}")]
-    WindowHandleError(#[from] wgpu::rwh::HandleError),
-    #[error("Failed to create SDL3 window: {0}")]
-    SdlWindowCreateFailed(#[from] WindowBuildError),
-    #[error("Failed to obtain wgpu adapter: {0}")]
-    RequestAdapterFailed(#[from] wgpu::RequestAdapterError),
-    #[error("Failed to create wgpu surface: {0}")]
-    CreateSurfaceFailed(#[from] wgpu::CreateSurfaceError),
-    #[error("wgpu surface was lost or failed validation")]
-    WgpuSurfaceLost,
-    #[error("Failed to obtain wgpu device: {0}")]
-    RequestDeviceFailed(#[from] wgpu::RequestDeviceError),
+    #[error("Error creating egui/SDL3/wgpu frame: {0}")]
+    FrameCreate(#[from] FrameCreateError),
+    #[error("Error rendering debugger window: {0}")]
+    FrameRun(#[from] FrameRunError),
 }
 
 pub struct DebugRenderContext<'a> {
@@ -57,16 +48,8 @@ pub struct DebugRenderContext<'a> {
 }
 
 pub struct DebuggerWindow {
-    surface: wgpu::Surface<'static>,
-    surface_config: wgpu::SurfaceConfiguration,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    platform: egui_sdl3_platform::Platform,
-    egui_renderer: egui_wgpu::Renderer,
-    start_time: SystemTime,
+    frame: egui_sdl3_wgpu::Frame,
     debugger_process: Box<dyn DebuggerMainProcess>,
-    // SAFETY: The window must be dropped after the surface
-    window: Window,
 }
 
 impl DebuggerWindow {
@@ -80,97 +63,20 @@ impl DebuggerWindow {
         render_config: &RendererConfig,
         debugger_process: Box<dyn DebuggerMainProcess>,
     ) -> Result<Self, DebuggerError> {
-        let scale_factor =
-            scale_factor.or_else(|| try_get_primary_display_scale(video)).unwrap_or(1.0);
-        let window_width = (925.0 * scale_factor).round() as u32;
-        let window_height = (790.0 * scale_factor).round() as u32;
-
-        let window = video
-            .window("Memory Viewer", window_width, window_height)
-            .resizable()
-            .metal_view()
-            .build()?;
-        let (width, height) = window.size();
-
-        video.text_input().start(&window);
-
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: render_config.wgpu_backend.to_wgpu(),
-            backend_options: wgpu::BackendOptions {
-                dx12: jgenesis_renderer::config::dx12_backend_options(),
-                ..wgpu::BackendOptions::default()
-            },
-            ..wgpu::InstanceDescriptor::new_without_display_handle()
-        });
-
-        // SAFETY: The surface must not outlive the window
-        let surface = unsafe {
-            instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_display_and_window(
-                &window, &window,
-            )?)
-        }?;
-
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: render_config.wgpu_power_preference.to_wgpu(),
-            force_fallback_adapter: false,
-            compatible_surface: Some(&surface),
-        }))?;
-
-        let (device, queue) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-                label: "debugger_device".into(),
-                ..wgpu::DeviceDescriptor::default()
-            }))?;
-
-        let surface_capabilities = surface.get_capabilities(&adapter);
-
-        // egui prefers non-sRGB-aware surface formats
-        let surface_format = surface_capabilities
-            .formats
-            .iter()
-            .copied()
-            .find(|&format| !format.is_srgb())
-            .unwrap_or(surface_capabilities.formats[0]);
-        log::info!("Rendering debugger window with surface format {surface_format:?}");
-
-        let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_DST,
-            format: surface_format,
-            width,
-            height,
-            present_mode: wgpu::PresentMode::AutoNoVsync,
-            desired_maximum_frame_latency: 2,
-            alpha_mode: wgpu::CompositeAlphaMode::Auto,
-            view_formats: vec![],
+        let options = FrameOptions {
+            window_width: 925,
+            window_height: 790,
+            scale_factor,
+            egui_theme: egui_theme_preference(egui_theme),
+            install_egui_image_loaders: true,
+            wgpu_backends: render_config.wgpu_backend.to_wgpu(),
+            wgpu_power_preference: render_config.wgpu_power_preference.to_wgpu(),
+            ..FrameOptions::default()
         };
-        surface.configure(&device, &surface_config);
 
-        let window_scale = window.display_scale();
-        log::info!("Window scale factor {window_scale}");
+        let frame = egui_sdl3_wgpu::Frame::new("Memory Viewer", video, options)?;
 
-        let platform = egui_sdl3_platform::Platform::new(&window, window_scale);
-        platform.context().set_theme(egui_theme_preference(egui_theme));
-        egui_extras::install_image_loaders(platform.context());
-
-        let start_time = SystemTime::now();
-
-        let egui_renderer = egui_wgpu::Renderer::new(
-            &device,
-            surface_format,
-            egui_wgpu::RendererOptions::default(),
-        );
-
-        Ok(Self {
-            surface,
-            surface_config,
-            device,
-            queue,
-            platform,
-            egui_renderer,
-            start_time,
-            debugger_process,
-            window,
-        })
+        Ok(Self { frame, debugger_process })
     }
 
     /// Update internal state and render the debugger frontend.
@@ -178,138 +84,37 @@ impl DebuggerWindow {
     /// # Errors
     ///
     /// Propagates any errors encountered while rendering.
-    pub fn update(&mut self) -> Result<(), DebuggerError> {
-        let egui_input = self.platform.take_raw_input(
-            SystemTime::now().duration_since(self.start_time).unwrap_or_default().as_secs_f64(),
-        );
-
-        let full_output = self.platform.context().run_ui(egui_input, |ui| {
-            if let Err(err) = self.debugger_process.run(DebugRenderContext {
+    pub fn update(&mut self) -> Result<FrameRunEffect, DebuggerError> {
+        let effect = self.frame.run(|ui, ctx| {
+            let debug_ctx = DebugRenderContext {
                 egui_ui: ui,
-                device: &self.device,
-                queue: &self.queue,
-                renderer: &mut self.egui_renderer,
-            }) {
-                log::error!("Error updating debugger window: {err}");
+                device: ctx.device,
+                queue: ctx.queue,
+                renderer: ctx.renderer,
+            };
+            if let Err(err) = self.debugger_process.run(debug_ctx) {
+                log::error!("Error rendering debugger window: {err}");
             }
-        });
-        self.platform.handle_egui_output(&full_output.platform_output);
 
-        let mut suboptimal_surface = false;
-        let output = match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(output) => output,
-            wgpu::CurrentSurfaceTexture::Suboptimal(output) => {
-                suboptimal_surface = true;
-                output
-            }
-            wgpu::CurrentSurfaceTexture::Outdated => {
-                log::warn!("Skipping debug frame because wgpu surface is outdated");
-                self.surface.configure(&self.device, &self.surface_config);
-                return Ok(());
-            }
-            wgpu::CurrentSurfaceTexture::Timeout => {
-                log::warn!("Skipping debug frame because wgpu surface timed out");
-                self.surface.configure(&self.device, &self.surface_config);
-                return Ok(());
-            }
-            wgpu::CurrentSurfaceTexture::Occluded => {
-                log::debug!("Skipping debug frame because wgpu surface is occluded");
-                return Ok(());
-            }
-            wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Validation => {
-                return Err(DebuggerError::WgpuSurfaceLost);
-            }
-        };
-        let output_view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+            // Ensure window updates at 60 FPS minimum; displayed graphics can change as the
+            // emulator runs
+            ui.request_repaint_after(Duration::from_micros(16666));
+        })?;
 
-        let paint_jobs =
-            self.platform.context().tessellate(full_output.shapes, full_output.pixels_per_point);
-
-        let screen_descriptor = ScreenDescriptor {
-            size_in_pixels: [self.surface_config.width, self.surface_config.height],
-            pixels_per_point: full_output.pixels_per_point,
-        };
-
-        for (id, image_delta) in &full_output.textures_delta.set {
-            self.egui_renderer.update_texture(&self.device, &self.queue, *id, image_delta);
-        }
-
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: "debugger_encoder".into(),
-        });
-
-        self.egui_renderer.update_buffers(
-            &self.device,
-            &self.queue,
-            &mut encoder,
-            &paint_jobs,
-            &screen_descriptor,
-        );
-
-        {
-            let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: "egui_render_pass".into(),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &output_view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                ..wgpu::RenderPassDescriptor::default()
-            });
-
-            // egui-wgpu requires a RenderPass with static lifetime
-            let mut render_pass = render_pass.forget_lifetime();
-
-            self.egui_renderer.render(&mut render_pass, &paint_jobs, &screen_descriptor);
-        }
-
-        self.queue.submit(iter::once(encoder.finish()));
-        output.present();
-
-        for id in &full_output.textures_delta.free {
-            self.egui_renderer.free_texture(id);
-        }
-
-        if suboptimal_surface {
-            self.surface.configure(&self.device, &self.surface_config);
-        }
-
-        Ok(())
+        Ok(effect)
     }
 
     pub fn update_egui_theme(&mut self, egui_theme: EguiTheme) {
-        self.platform.context().set_theme(egui_theme_preference(egui_theme));
+        self.frame.update_egui_theme(egui_theme_preference(egui_theme));
     }
 
     pub fn handle_sdl_event(&mut self, event: &Event) {
-        match event {
-            Event::Window {
-                window_id,
-                win_event: WindowEvent::Resized(..) | WindowEvent::PixelSizeChanged(..),
-                ..
-            } if *window_id == self.window.id() => {
-                let (width, height) = self.window.size();
-                self.surface_config.width = width;
-                self.surface_config.height = height;
-                self.surface.configure(&self.device, &self.surface_config);
-            }
-            _ => {}
-        }
-
-        self.platform.handle_event(event);
+        self.frame.handle_sdl_event(event);
     }
 
     pub fn window_id(&self) -> u32 {
-        self.window.id()
+        self.frame.window_id()
     }
-}
-
-fn try_get_primary_display_scale(video: &VideoSubsystem) -> Option<f32> {
-    video.get_primary_display().ok().and_then(|display| display.get_content_scale().ok())
 }
 
 fn screen_width(ctx: &egui::Context) -> f32 {

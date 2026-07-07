@@ -108,7 +108,7 @@ snes-core = { path = "backend/snes-core" }
 ym-opll = { path = "backend/ym-opll" }
 
 # Workspace frontend libraries
-egui-sdl3-platform = { path = "frontend/egui-sdl3-platform" }
+egui-sdl3-wgpu = { path = "frontend/egui-sdl3-wgpu" }
 jgenesis-debugger-frontend = { path = "frontend/jgenesis-debugger-frontend" }
 jgenesis-native-config = { path = "frontend/jgenesis-native-config" }
 jgenesis-native-driver = { path = "frontend/jgenesis-native-driver" }
