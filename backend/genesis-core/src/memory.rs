@@ -683,6 +683,7 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> z80_emu::BusInterface
             }
             0x7F00..=0x7F1F => {
                 // VDP ports
+                self.cycles.record_z80_68k_bus_access();
                 self.read_vdp_byte(address.into())
             }
             0x7F20..=0x7FFF => {
@@ -740,6 +741,7 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> z80_emu::BusInterface
             }
             0x7F00..=0x7F1F => {
                 // VDP addresses
+                self.cycles.record_z80_68k_bus_access();
                 self.write_vdp_byte(address.into(), value);
             }
             0x8000..=0xFFFF => {

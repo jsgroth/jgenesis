@@ -16,9 +16,9 @@ pub struct CycleCounters<const REFRESH_INTERVAL: u32> {
     pub m68k_divider_u32: NonZeroU32,
     pub max_wait_cpu_cycles: u32,
     pub m68k_wait_cpu_cycles: u32,
+    pub m68k_wait_counter: u8,
     pub z80_mclk_counter: u64,
     pub z80_wait_mclk_cycles: u64,
-    pub z80_odd_access: bool,
     pub ym2612_mclk_counter: u64,
     pub psg_mclk_counter: u64,
     pub m68k_refresh_counter: u32,
@@ -47,9 +47,9 @@ impl<const REFRESH_INTERVAL: u32> CycleCounters<REFRESH_INTERVAL> {
             m68k_divider_u32,
             max_wait_cpu_cycles,
             m68k_wait_cpu_cycles: 0,
+            m68k_wait_counter: 0,
             z80_mclk_counter: 0,
             z80_wait_mclk_cycles: 0,
-            z80_odd_access: false,
             ym2612_mclk_counter: 0,
             psg_mclk_counter: 0,
             m68k_refresh_counter: 0,
@@ -145,10 +145,9 @@ impl<const REFRESH_INTERVAL: u32> CycleCounters<REFRESH_INTERVAL> {
 
     #[inline]
     pub fn record_z80_68k_bus_access(&mut self) {
-        // Each time the Z80 accesses the 68K bus, the Z80 is stalled for on average 3.3 Z80 cycles (= 49.5 mclk cycles)
-        // and the 68K is stalled for on average 11 68K cycles
-        self.z80_wait_mclk_cycles += 49 + u64::from(self.z80_odd_access);
-        self.z80_odd_access = !self.z80_odd_access;
+        // Each time the Z80 accesses the 68K bus, the Z80 is stalled for on average 3 Z80 cycles
+        // and the 68K is stalled for on average slightly less than 9.7 68K cycles (based on test ROM)
+        self.z80_wait_mclk_cycles += 3 * Z80_DIVIDER;
 
         // The Z80 should halt if it accesses the 68K bus during a VDP DMA or while the 68K is
         // stalled on a VDP FIFO write
@@ -157,7 +156,11 @@ impl<const REFRESH_INTERVAL: u32> CycleCounters<REFRESH_INTERVAL> {
         if !self.vdp_owns_bus {
             // Not sure if it's accurate for this to be conditional, but adding this delay after
             // a VDP DMA breaks some effects in Overdrive
-            self.m68k_wait_cpu_cycles += 11;
+            self.m68k_wait_cpu_cycles += 9 + u32::from(self.m68k_wait_counter < 7);
+            self.m68k_wait_counter += 1;
+            if self.m68k_wait_counter == 10 {
+                self.m68k_wait_counter = 0;
+            }
         }
     }
 
