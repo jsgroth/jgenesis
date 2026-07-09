@@ -26,6 +26,7 @@ pub struct CycleCounters<const REFRESH_INTERVAL: u32> {
     pub m68k_mclk_cycles: u64,
     pub z80_mclk_cycles: u64,
     pub ym2612_mclk_cycles: u64,
+    pub last_ym2612_drain_mclk: u64,
     pub psg_mclk_cycles: u64,
     pub m68k_refresh_counter: u32,
     pub vdp_owns_bus: bool,
@@ -57,6 +58,7 @@ impl<const REFRESH_INTERVAL: u32> CycleCounters<REFRESH_INTERVAL> {
             m68k_mclk_cycles: 0,
             z80_mclk_cycles: 0,
             ym2612_mclk_cycles: 0,
+            last_ym2612_drain_mclk: 0,
             psg_mclk_cycles: 0,
             m68k_refresh_counter: 0,
             vdp_owns_bus: false,
@@ -216,7 +218,7 @@ impl<const REFRESH_INTERVAL: u32> CycleCounters<REFRESH_INTERVAL> {
         mut output: impl FnMut((f64, f64)),
     ) {
         if vdp_tick_effect != VdpTickEffect::FrameComplete
-            && self.ym2612_mclk_cycles + MAX_YM2612_LAG_MCLK > self.z80_mclk_cycles
+            && self.last_ym2612_drain_mclk + MAX_YM2612_LAG_MCLK > self.z80_mclk_cycles
         {
             return;
         }
@@ -229,6 +231,8 @@ impl<const REFRESH_INTERVAL: u32> CycleCounters<REFRESH_INTERVAL> {
         for sample in ym2612.drain_output_samples() {
             output(sample);
         }
+
+        self.last_ym2612_drain_mclk = self.z80_mclk_cycles;
     }
 }
 
