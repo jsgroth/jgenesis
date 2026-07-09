@@ -511,6 +511,13 @@ impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u32>
         // depend on this or they will fail to boot
         busack_word | (self.memory.open_bus & !(1 << 8))
     }
+
+    fn sync_ym2612(&mut self) {
+        if self.cycles.has_ym2612_ticks() {
+            let ticks = self.cycles.take_ym2612_ticks();
+            self.ym2612.tick(ticks);
+        }
+    }
 }
 
 // The Genesis has a 24-bit bus, not 32-bit
@@ -670,6 +677,7 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> z80_emu::BusInterface
             }
             0x4000..=0x5FFF => {
                 // YM2612 registers/ports (mirrored every 4 addresses)
+                self.sync_ym2612();
                 self.ym2612.read_register(address)
             }
             0x6000..=0x60FF => {
@@ -725,6 +733,7 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> z80_emu::BusInterface
             }
             0x4000..=0x5FFF => {
                 // YM2612 registers/ports (mirrored every 4 addresses)
+                self.sync_ym2612();
                 match address & 0x03 {
                     0x00 => self.ym2612.write_address_1(value),
                     0x02 => self.ym2612.write_address_2(value),

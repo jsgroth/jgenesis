@@ -325,7 +325,7 @@ impl GenesisEmulator {
                     self.z80.tick(&mut bus);
                 }
             }
-            bus.cycles.decrement_z80();
+            bus.cycles.z80_cycle();
         }
 
         self.main_bus_writes = bus.pending_writes;
@@ -341,19 +341,21 @@ impl GenesisEmulator {
                 self.audio_resampler.collect_psg_sample(psg_sample);
             }
 
-            self.cycles.decrement_psg();
+            self.cycles.psg_cycle();
         }
 
-        if self.cycles.has_ym2612_ticks() {
-            let ym2612_ticks = self.cycles.take_ym2612_ticks();
-            self.ym2612
-                .tick(ym2612_ticks, |(l, r)| self.audio_resampler.collect_ym2612_sample(l, r));
-        }
+        let vdp_tick_effect = self.vdp.tick(elapsed_mclk_cycles, &mut self.memory);
+
+        self.cycles.maybe_sync_and_drain_ym2612(
+            vdp_tick_effect,
+            &mut self.ym2612,
+            |(sample_l, sample_r)| self.audio_resampler.collect_ym2612_sample(sample_l, sample_r),
+        );
 
         self.audio_resampler.output_samples(audio_output).map_err(GenesisError::Audio)?;
 
         let mut tick_effect = TickEffect::None;
-        if self.vdp.tick(elapsed_mclk_cycles, &mut self.memory) == VdpTickEffect::FrameComplete {
+        if vdp_tick_effect == VdpTickEffect::FrameComplete {
             self.render_frame(renderer).map_err(GenesisError::Render)?;
 
             if self.memory.is_external_ram_persistent()

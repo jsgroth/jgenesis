@@ -407,7 +407,7 @@ impl SegaCdEmulator {
                     self.z80.tick(&mut main_bus);
                 }
             }
-            main_bus.cycles.decrement_z80();
+            main_bus.cycles.z80_cycle();
         }
 
         self.main_bus_writes = main_bus.take_writes();
@@ -476,14 +476,7 @@ impl SegaCdEmulator {
                 let (psg_sample, _) = self.psg.sample();
                 self.audio_resampler.collect_psg_sample(psg_sample);
             }
-            self.cycles.decrement_psg();
-        }
-
-        // YM2612
-        if self.cycles.has_ym2612_ticks() {
-            let ym2612_ticks = self.cycles.take_ym2612_ticks();
-            self.ym2612
-                .tick(ym2612_ticks, |(l, r)| self.audio_resampler.collect_ym2612_sample(l, r));
+            self.cycles.psg_cycle();
         }
 
         // RF5C164
@@ -491,12 +484,21 @@ impl SegaCdEmulator {
             self.audio_resampler.collect_pcm_sample(pcm_sample_l, pcm_sample_r);
         });
 
+        // VDP
+        let vdp_tick_effect = self.vdp.tick(genesis_mclk_elapsed, &mut self.memory);
+
+        // YM2612
+        self.cycles.maybe_sync_and_drain_ym2612(
+            vdp_tick_effect,
+            &mut self.ym2612,
+            |(sample_l, sample_r)| self.audio_resampler.collect_ym2612_sample(sample_l, sample_r),
+        );
+
         // Output any audio samples that are queued up
         self.audio_resampler.output_samples(audio_output).map_err(SegaCdError::Audio)?;
 
-        // VDP
         let mut tick_effect = TickEffect::None;
-        if self.vdp.tick(genesis_mclk_elapsed, &mut self.memory) == VdpTickEffect::FrameComplete {
+        if vdp_tick_effect == VdpTickEffect::FrameComplete {
             self.render_frame(renderer).map_err(SegaCdError::Render)?;
 
             if self.memory.medium_mut().get_and_clear_backup_ram_dirty_bit() {

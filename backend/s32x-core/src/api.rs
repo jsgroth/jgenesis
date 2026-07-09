@@ -219,7 +219,7 @@ impl Sega32XEmulator {
                     self.z80.tick(&mut bus);
                 }
             }
-            bus.cycles.decrement_z80();
+            bus.cycles.z80_cycle();
         }
 
         self.main_bus_writes = bus.take_writes();
@@ -253,25 +253,27 @@ impl Sega32XEmulator {
 
         self.input.tick(m68k_cycles);
 
-        if self.cycles.has_ym2612_ticks() {
-            let ym2612_ticks = self.cycles.take_ym2612_ticks();
-            self.ym2612
-                .tick(ym2612_ticks, |(l, r)| self.audio_resampler.collect_ym2612_sample(l, r));
-        }
-
         while self.cycles.should_tick_psg() {
             if self.psg.tick() == Sn76489TickEffect::Clocked {
                 // PSG output is mono in Genesis; stereo output is only for Game Gear
                 let (psg_sample, _) = self.psg.sample();
                 self.audio_resampler.collect_psg_sample(psg_sample);
             }
-            self.cycles.decrement_psg();
+            self.cycles.psg_cycle();
         }
+
+        let vdp_tick_effect = self.vdp.tick(mclk_cycles, &mut self.memory);
+
+        self.cycles.maybe_sync_and_drain_ym2612(
+            vdp_tick_effect,
+            &mut self.ym2612,
+            |(sample_l, sample_r)| self.audio_resampler.collect_ym2612_sample(sample_l, sample_r),
+        );
 
         self.audio_resampler.output_samples(audio_output).map_err(Sega32XError::Audio)?;
 
         let mut tick_effect = TickEffect::None;
-        if self.vdp.tick(mclk_cycles, &mut self.memory) == VdpTickEffect::FrameComplete {
+        if vdp_tick_effect == VdpTickEffect::FrameComplete {
             self.memory.medium_mut().vdp().composite_frame(&mut self.vdp);
             self.render_frame(renderer).map_err(Sega32XError::Render)?;
 

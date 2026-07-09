@@ -449,6 +449,7 @@ pub struct Ym2612 {
     busy_behavior: Opn2BusyBehavior,
     last_status_read: u8,
     status_decay_samples_remaining: u32,
+    output_samples: Vec<(f64, f64)>,
 }
 
 impl Ym2612 {
@@ -477,6 +478,7 @@ impl Ym2612 {
             busy_behavior,
             last_status_read: 0,
             status_decay_samples_remaining: 0,
+            output_samples: Vec::with_capacity(500),
         }
     }
 
@@ -668,7 +670,7 @@ impl Ym2612 {
     }
 
     #[inline]
-    pub fn tick(&mut self, ticks: u32, mut output: impl FnMut((f64, f64))) {
+    pub fn tick(&mut self, ticks: u32) {
         for _ in 0..ticks {
             self.busy_cycles_remaining = self.busy_cycles_remaining.saturating_sub(1);
 
@@ -696,7 +698,7 @@ impl Ym2612 {
                 }
 
                 self.clock();
-                output(self.sample());
+                self.output_samples.push(self.sample());
             }
         }
     }
@@ -727,6 +729,10 @@ impl Ym2612 {
 
         // Each channel has a range of [-8192, 8191], so divide the sums by 6*8192 to convert to [-1.0, 1.0]
         (f64::from(sum_l) / 49152.0, f64::from(sum_r) / 49152.0)
+    }
+
+    pub fn drain_output_samples(&mut self) -> impl Iterator<Item = (f64, f64)> {
+        self.output_samples.drain(..)
     }
 
     fn apply_panning(&self, sample: i16, pan_enabled: bool) -> i16 {
@@ -1007,7 +1013,7 @@ mod tests {
         check_4001_4003(&mut ym2612, 0x80);
 
         // Tick for 40 internal cycles
-        ym2612.tick(40, |_| {});
+        ym2612.tick(40);
 
         // Busy flag should be clear by now, but $4001-$4003 should still read the old value
         check_4001_4003(&mut ym2612, 0x80);
@@ -1027,7 +1033,7 @@ mod tests {
         check_4001_4003(&mut ym2612, 0x80);
 
         // Tick for almost half a second's worth of cycles
-        ym2612.tick(500000, |_| {});
+        ym2612.tick(500000);
 
         // Status value should have decayed to 0 by now
         check_4001_4003(&mut ym2612, 0);

@@ -1,5 +1,8 @@
 //! Cycle counting and wait state tracking for the Genesis hardware
 
+use crate::vdp;
+use crate::vdp::VdpTickEffect;
+use crate::ym2612::Ym2612;
 use bincode::{Decode, Encode};
 use std::num::{NonZeroU32, NonZeroU64};
 use std::{cmp, mem};
@@ -9,6 +12,9 @@ pub const Z80_DIVIDER: u64 = 15;
 pub const YM2612_DIVIDER: u64 = 7 * 6;
 pub const PSG_DIVIDER: u64 = 15;
 
+// Sync the YM2612 at least once per scanline
+pub const MAX_YM2612_LAG_MCLK: u64 = vdp::MCLK_CYCLES_PER_SCANLINE;
+
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct CycleCounters<const REFRESH_INTERVAL: u32> {
     // Store divider as both u64 and u32 for better codegen when doing u32 division
@@ -17,10 +23,10 @@ pub struct CycleCounters<const REFRESH_INTERVAL: u32> {
     pub max_wait_cpu_cycles: u32,
     pub m68k_wait_cpu_cycles: u32,
     pub m68k_wait_counter: u8,
-    pub z80_mclk_counter: u64,
-    pub z80_wait_mclk_cycles: u64,
-    pub ym2612_mclk_counter: u64,
-    pub psg_mclk_counter: u64,
+    pub m68k_mclk_cycles: u64,
+    pub z80_mclk_cycles: u64,
+    pub ym2612_mclk_cycles: u64,
+    pub psg_mclk_cycles: u64,
     pub m68k_refresh_counter: u32,
     pub vdp_owns_bus: bool,
     pub z80_halt: bool,
@@ -48,10 +54,10 @@ impl<const REFRESH_INTERVAL: u32> CycleCounters<REFRESH_INTERVAL> {
             max_wait_cpu_cycles,
             m68k_wait_cpu_cycles: 0,
             m68k_wait_counter: 0,
-            z80_mclk_counter: 0,
-            z80_wait_mclk_cycles: 0,
-            ym2612_mclk_counter: 0,
-            psg_mclk_counter: 0,
+            m68k_mclk_cycles: 0,
+            z80_mclk_cycles: 0,
+            ym2612_mclk_cycles: 0,
+            psg_mclk_cycles: 0,
             m68k_refresh_counter: 0,
             vdp_owns_bus: false,
             z80_halt: false,
@@ -132,14 +138,9 @@ impl<const REFRESH_INTERVAL: u32> CycleCounters<REFRESH_INTERVAL> {
         self.vdp_owns_bus = vdp_owns_bus;
         self.z80_halt &= vdp_owns_bus;
 
-        self.z80_mclk_counter += mclk_cycles;
-        self.ym2612_mclk_counter += mclk_cycles;
-        self.psg_mclk_counter += mclk_cycles;
-
-        if !vdp_owns_bus {
-            let z80_wait_elapsed = cmp::min(self.z80_mclk_counter, self.z80_wait_mclk_cycles);
-            self.z80_mclk_counter -= z80_wait_elapsed;
-            self.z80_wait_mclk_cycles -= z80_wait_elapsed;
+        self.m68k_mclk_cycles += mclk_cycles;
+        if self.z80_halt {
+            self.z80_mclk_cycles += mclk_cycles;
         }
     }
 
@@ -147,7 +148,7 @@ impl<const REFRESH_INTERVAL: u32> CycleCounters<REFRESH_INTERVAL> {
     pub fn record_z80_68k_bus_access(&mut self) {
         // Each time the Z80 accesses the 68K bus, the Z80 is stalled for on average 3 Z80 cycles
         // and the 68K is stalled for on average slightly less than 9.7 68K cycles (based on test ROM)
-        self.z80_wait_mclk_cycles += 3 * Z80_DIVIDER;
+        self.z80_mclk_cycles += 3 * Z80_DIVIDER;
 
         // The Z80 should halt if it accesses the 68K bus during a VDP DMA or while the 68K is
         // stalled on a VDP FIFO write
@@ -174,37 +175,60 @@ impl<const REFRESH_INTERVAL: u32> CycleCounters<REFRESH_INTERVAL> {
     #[inline]
     #[must_use]
     pub fn should_tick_z80(&self) -> bool {
-        self.z80_mclk_counter >= Z80_DIVIDER
+        self.z80_mclk_cycles + Z80_DIVIDER <= self.m68k_mclk_cycles
     }
 
     #[inline]
-    pub fn decrement_z80(&mut self) {
-        self.z80_mclk_counter -= Z80_DIVIDER;
+    pub fn z80_cycle(&mut self) {
+        self.z80_mclk_cycles += Z80_DIVIDER;
     }
 
     #[inline]
     #[must_use]
     pub fn has_ym2612_ticks(&mut self) -> bool {
-        self.ym2612_mclk_counter >= YM2612_DIVIDER
+        self.ym2612_mclk_cycles + YM2612_DIVIDER <= self.z80_mclk_cycles
     }
 
     #[inline]
     #[must_use]
     pub fn take_ym2612_ticks(&mut self) -> u32 {
-        let ticks = self.ym2612_mclk_counter / YM2612_DIVIDER;
-        self.ym2612_mclk_counter %= YM2612_DIVIDER;
+        let ticks = (self.z80_mclk_cycles - self.ym2612_mclk_cycles) / YM2612_DIVIDER;
+        self.ym2612_mclk_cycles += ticks * YM2612_DIVIDER;
         ticks as u32
     }
 
     #[inline]
     #[must_use]
     pub fn should_tick_psg(&self) -> bool {
-        self.psg_mclk_counter >= PSG_DIVIDER
+        self.psg_mclk_cycles + PSG_DIVIDER <= self.m68k_mclk_cycles
     }
 
     #[inline]
-    pub fn decrement_psg(&mut self) {
-        self.psg_mclk_counter -= PSG_DIVIDER;
+    pub fn psg_cycle(&mut self) {
+        self.psg_mclk_cycles += PSG_DIVIDER;
+    }
+
+    #[inline]
+    pub fn maybe_sync_and_drain_ym2612(
+        &mut self,
+        vdp_tick_effect: VdpTickEffect,
+        ym2612: &mut Ym2612,
+        mut output: impl FnMut((f64, f64)),
+    ) {
+        if vdp_tick_effect != VdpTickEffect::FrameComplete
+            && self.ym2612_mclk_cycles + MAX_YM2612_LAG_MCLK > self.z80_mclk_cycles
+        {
+            return;
+        }
+
+        if self.has_ym2612_ticks() {
+            let ticks = self.take_ym2612_ticks();
+            ym2612.tick(ticks);
+        }
+
+        for sample in ym2612.drain_output_samples() {
+            output(sample);
+        }
     }
 }
 
