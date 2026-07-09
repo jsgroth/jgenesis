@@ -164,7 +164,6 @@ impl GenesisWebConfig {
             plane_b_enabled: true,
             sprites_enabled: true,
             window_enabled: true,
-            backdrop_enabled: true,
             quantize_ym2612_output: true,
             emulate_ym2612_ladder_effect: true,
             opn2_busy_behavior: Opn2BusyBehavior::default(),

@@ -415,7 +415,6 @@ impl AppConfigExt for AppConfig {
                 plane_b_enabled: self.genesis.plane_b_enabled,
                 sprites_enabled: self.genesis.sprites_enabled,
                 window_enabled: self.genesis.window_enabled,
-                backdrop_enabled: self.genesis.backdrop_enabled,
                 quantize_ym2612_output: self.genesis.quantize_ym2612_output,
                 emulate_ym2612_ladder_effect: self.genesis.emulate_ym2612_ladder_effect,
                 opn2_busy_behavior: self.genesis.opn2_busy_behavior,

@@ -4,7 +4,7 @@ use crate::vdp::registers::{
     DebugRegister, HorizontalDisplaySize, InterlacingMode, Plane, RIGHT_BORDER, Registers,
     ScrollSize, VerticalDisplaySize, VerticalScrollMode,
 };
-use crate::vdp::{Cram, TilePixel, TimingModeExt, Vdp, Vram, Vsram, colors};
+use crate::vdp::{TilePixel, TimingModeExt, Vdp, Vram, Vsram, colors};
 use jgenesis_common::frontend::{Color, TimingMode};
 use jgenesis_common::num::GetBit;
 use std::{array, cmp};
@@ -543,7 +543,7 @@ impl Vdp {
             &self.sprite_buffers
         };
 
-        let bg_color = self.backdrop_color();
+        let bg_cram_idx = self.backdrop_cram_idx();
 
         let screen_width = self.screen_width();
         let active_display_pixels =
@@ -565,15 +565,17 @@ impl Vdp {
                 sprite_pixel,
                 scroll_a_pixel,
                 scroll_b_pixel,
-                bg_color,
+                bg_cram_idx,
                 in_h_border: !(0..active_display_pixels as i16).contains(&pixel),
                 in_v_border: raster_line.in_v_border && !self.state.v_border_forgotten,
             };
-            let (pixel_color, color_modifier) = if self.latched_registers.shadow_highlight_flag {
-                determine_pixel_color::<true>(&self.cram, self.debug_register, pixel_color_args)
+            let (pixel_cram_idx, color_modifier) = if self.latched_registers.shadow_highlight_flag {
+                determine_pixel_color::<true>(self.debug_register, pixel_color_args)
             } else {
-                determine_pixel_color::<false>(&self.cram, self.debug_register, pixel_color_args)
+                determine_pixel_color::<false>(self.debug_register, pixel_color_args)
             };
+
+            let pixel_color = colors::lookup(&self.cram, pixel_cram_idx);
 
             set_in_frame_buffer(
                 &mut self.frame_buffer,
@@ -601,7 +603,11 @@ impl Vdp {
             }
             Plane::Sprite => {
                 // Fill with color 0
-                self.fill_frame_buffer_row(frame_buffer_row, starting_pixel, self.cram[0]);
+                self.fill_frame_buffer_row(
+                    frame_buffer_row,
+                    starting_pixel,
+                    colors::lookup(&self.cram, 0),
+                );
             }
             Plane::ScrollA | Plane::ScrollB => {
                 // What happens here is quite strange. In actual hardware, the VRAM chip continues cycling through the
@@ -658,7 +664,7 @@ impl Vdp {
                     let palette = self.state.last_scroll_b_palettes[((pixel / 8) & 1) as usize];
                     let current_byte = current_group[(tile_col >> 1) as usize];
                     let color_id = (current_byte >> (4 - ((tile_col & 1) << 2))) & 0x0F;
-                    let color = colors::resolve_color(&self.cram, palette, color_id);
+                    let color = colors::resolve(&self.cram, palette, color_id);
 
                     let frame_buffer_col = pixel - start_pixel;
                     set_in_frame_buffer(
@@ -701,7 +707,7 @@ impl Vdp {
             }
             Plane::Sprite => {
                 // Fill border with color 0
-                let color_0 = self.cram[0];
+                let color_0 = colors::lookup(&self.cram, 0);
                 for col in 0..left_border {
                     set_in_frame_buffer(
                         &mut self.frame_buffer,
@@ -722,7 +728,7 @@ impl Vdp {
                 let border_offset =
                     16 - self.latched_registers.horizontal_display_size.left_border();
                 let end_col = border_pixels.saturating_sub(border_offset);
-                let color_0 = self.cram[0];
+                let color_0 = colors::lookup(&self.cram, 0);
 
                 for col in 0..end_col {
                     set_in_frame_buffer(
@@ -779,7 +785,7 @@ impl Vdp {
             }
             Plane::Sprite => {
                 // Fill border with color 0
-                let color_0 = self.cram[0];
+                let color_0 = colors::lookup(&self.cram, 0);
                 for col in right_border_start..screen_width {
                     set_in_frame_buffer(
                         &mut self.frame_buffer,
@@ -838,7 +844,7 @@ impl Vdp {
             self.sprite_buffers.last_tile_addresses[sprite_tile as usize] + (sprite_col >> 1);
         let color_id = (self.vram[vram_addr as usize] >> (4 - ((sprite_col & 1) << 2))) & 0x0F;
         let palette = self.state.last_scroll_b_palettes[(pixel / 8) as usize];
-        let color = colors::resolve_color(&self.cram, palette, color_id);
+        let color = colors::resolve(&self.cram, palette, color_id);
 
         let screen_width = self.screen_width();
         set_in_frame_buffer(
@@ -852,16 +858,12 @@ impl Vdp {
         );
     }
 
+    fn backdrop_cram_idx(&self) -> u8 {
+        (self.registers.background_palette << 4) | self.registers.background_color_id
+    }
+
     fn backdrop_color(&self) -> u16 {
-        if self.config.backdrop_enabled {
-            colors::resolve_color(
-                &self.cram,
-                self.registers.background_palette,
-                self.registers.background_color_id,
-            )
-        } else {
-            0
-        }
+        colors::lookup(&self.cram, self.backdrop_cram_idx())
     }
 }
 
@@ -1016,7 +1018,7 @@ struct PixelColorArgs {
     sprite_pixel: TilePixel,
     scroll_a_pixel: TilePixel,
     scroll_b_pixel: TilePixel,
-    bg_color: u16,
+    bg_cram_idx: u8,
     in_h_border: bool,
     in_v_border: bool,
 }
@@ -1024,32 +1026,34 @@ struct PixelColorArgs {
 #[inline]
 #[allow(clippy::unnested_or_patterns)]
 fn determine_pixel_color<const SHADOW_HIGHLIGHT: bool>(
-    cram: &Cram,
     debug_register: DebugRegister,
     PixelColorArgs {
         sprite_pixel,
         scroll_a_pixel,
         scroll_b_pixel,
-        bg_color,
+        bg_cram_idx,
         in_h_border,
         in_v_border,
     }: PixelColorArgs,
-) -> (u16, ColorModifier) {
+) -> (u8, ColorModifier) {
     let sprite_cram_idx = (sprite_pixel.palette << 4) | sprite_pixel.color;
     let scroll_a_cram_idx = (scroll_a_pixel.palette << 4) | scroll_a_pixel.color;
     let scroll_b_cram_idx = (scroll_b_pixel.palette << 4) | scroll_b_pixel.color;
 
     if in_h_border || in_v_border || debug_register.display_disabled {
-        let color = match debug_register.forced_plane {
-            Plane::Background => bg_color,
+        let cram_idx = match debug_register.forced_plane {
+            Plane::Background => bg_cram_idx,
             Plane::Sprite => {
-                let cram_idx = if in_h_border { 0 } else { sprite_cram_idx };
-                cram[cram_idx as usize]
+                if in_h_border {
+                    0
+                } else {
+                    sprite_cram_idx
+                }
             }
-            Plane::ScrollA => cram[scroll_a_cram_idx as usize],
-            Plane::ScrollB => cram[scroll_b_cram_idx as usize],
+            Plane::ScrollA => scroll_a_cram_idx,
+            Plane::ScrollB => scroll_b_cram_idx,
         };
-        return (color, ColorModifier::None);
+        return (cram_idx, ColorModifier::None);
     }
 
     let mut modifier = if SHADOW_HIGHLIGHT && !scroll_a_pixel.priority && !scroll_b_pixel.priority {
@@ -1112,7 +1116,6 @@ fn determine_pixel_color<const SHADOW_HIGHLIGHT: bool>(
             Plane::ScrollB => scroll_b_cram_idx,
         };
         let cram_idx = ((palette << 4) | color_id) & cram_idx_mask;
-        let color = cram[cram_idx as usize];
 
         // Sprite color id 14 is never shadowed/highlighted, and neither is a sprite with the priority
         // bit set
@@ -1120,17 +1123,15 @@ fn determine_pixel_color<const SHADOW_HIGHLIGHT: bool>(
             modifier = ColorModifier::None;
         }
 
-        // Set alpha bit to indicate that the backdrop color was not used (needed by 32X)
-        return (color | 0x8000, modifier);
+        return (cram_idx, modifier);
     }
 
     let fallback_color = match debug_register.forced_plane {
-        Plane::Background => bg_color,
-        Plane::Sprite => cram[sprite_cram_idx as usize],
-        Plane::ScrollA => cram[scroll_a_cram_idx as usize],
-        Plane::ScrollB => cram[scroll_b_cram_idx as usize],
+        Plane::Background => bg_cram_idx,
+        Plane::Sprite => sprite_cram_idx,
+        Plane::ScrollA => scroll_a_cram_idx,
+        Plane::ScrollB => scroll_b_cram_idx,
     };
 
-    // Clear alpha bit to indicate that the backdrop color was used (needed by 32X)
-    (fallback_color & 0x7FFF, modifier)
+    (fallback_color, modifier)
 }

@@ -407,7 +407,6 @@ impl App {
                     ui.checkbox(&mut self.config.genesis.plane_b_enabled, "Plane B");
                     ui.checkbox(&mut self.config.genesis.sprites_enabled, "Sprites");
                     ui.checkbox(&mut self.config.genesis.window_enabled, "Window");
-                    ui.checkbox(&mut self.config.genesis.backdrop_enabled, "Backdrop");
                 });
             })
             .response

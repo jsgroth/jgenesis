@@ -137,13 +137,8 @@ pub const RENDER_BORDERS: HelpText = HelpText {
     ],
 };
 
-pub const ENABLED_LAYERS: HelpText = HelpText {
-    heading: "Enabled Layers",
-    text: &[
-        "Control which layers are rendered.",
-        "Disabling the backdrop causes the VDP to render black instead of the backdrop color.",
-    ],
-};
+pub const ENABLED_LAYERS: HelpText =
+    HelpText { heading: "Enabled Layers", text: &["Control which layers are rendered."] };
 
 pub const S32X_DARKEN_GEN_COLORS: HelpText = HelpText {
     heading: "Darken Genesis Colors",

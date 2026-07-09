@@ -489,7 +489,6 @@ pub struct VdpConfig {
     pub plane_b_enabled: bool,
     pub sprites_enabled: bool,
     pub window_enabled: bool,
-    pub backdrop_enabled: bool,
     pub color_adjustment: DarkenColors,
 }
 

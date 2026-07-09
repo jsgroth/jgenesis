@@ -97,6 +97,13 @@ pub fn gen_to_rgba(
     Color::rgba(colors[r as usize], colors[g as usize], colors[b as usize], a)
 }
 
-pub fn resolve_color(cram: &Cram, palette: u8, color_id: u8) -> u16 {
-    cram[((palette << 4) | color_id) as usize]
+pub fn resolve(cram: &Cram, palette: u8, color_id: u8) -> u16 {
+    lookup(cram, (palette << 4) | color_id)
+}
+
+pub fn lookup(cram: &Cram, cram_idx: u8) -> u16 {
+    // Use alpha bit to indicate whether pixel is transparent (needed by 32X)
+    // 32X transparency is based on color index being 0 (verified on hardware)
+    let alpha = cram_idx & 0xF != 0;
+    (cram[cram_idx as usize] & 0x7FFF) | (u16::from(alpha) << 15)
 }

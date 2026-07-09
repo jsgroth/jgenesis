@@ -126,7 +126,7 @@ impl VdpDebugState {
 
                 for (col, color_id) in colors.into_iter().enumerate() {
                     let out_idx = base_idx + row * row_len * 8 + col;
-                    let color = colors::resolve_color(&self.cram, palette, color_id);
+                    let color = colors::resolve(&self.cram, palette, color_id);
                     out[out_idx] = parse_gen_color(color, ColorModifier::None, &self.color_tables);
                     out[out_idx].a = 255;
                 }

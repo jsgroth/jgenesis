@@ -64,7 +64,6 @@ pub struct GenesisEmulatorConfig {
     pub plane_b_enabled: bool,
     pub sprites_enabled: bool,
     pub window_enabled: bool,
-    pub backdrop_enabled: bool,
     pub quantize_ym2612_output: bool,
     pub emulate_ym2612_ladder_effect: bool,
     pub opn2_busy_behavior: Opn2BusyBehavior,
@@ -103,7 +102,6 @@ impl Default for GenesisEmulatorConfig {
             plane_b_enabled: true,
             sprites_enabled: true,
             window_enabled: true,
-            backdrop_enabled: true,
             quantize_ym2612_output: true,
             emulate_ym2612_ladder_effect: true,
             opn2_busy_behavior: Opn2BusyBehavior::default(),
@@ -134,7 +132,6 @@ impl GenesisEmulatorConfig {
             plane_b_enabled: self.plane_b_enabled,
             sprites_enabled: self.sprites_enabled,
             window_enabled: self.window_enabled,
-            backdrop_enabled: self.backdrop_enabled,
             color_adjustment,
         }
     }
