@@ -1033,8 +1033,9 @@ fn run_smsgg(
         SmsGgHardware::Sg1000 => Console::Sg1000.standard_extension(),
     };
 
-    let cheats: SmsGgCheats =
-        config.try_load_cheats(&path, &args.file_path, cheats_extension).unwrap_or_default();
+    let cheats: SmsGgCheats = config
+        .try_load_cheats_if_enabled(&path, &args.file_path, cheats_extension)
+        .unwrap_or_default();
     let mut smsgg_config = config.smsgg_config(args.file_path.clone(), Some(hardware), &cheats);
     smsgg_config.run_without_cartridge = args.sms_no_cartridge;
 
@@ -1048,7 +1049,7 @@ fn run_genesis(
     ConfigWithPath { config, path }: ConfigWithPath,
 ) -> anyhow::Result<()> {
     let cheats = config
-        .try_load_cheats(&path, &args.file_path, Console::Genesis.standard_extension())
+        .try_load_cheats_if_enabled(&path, &args.file_path, Console::Genesis.standard_extension())
         .unwrap_or_default();
     let mut emulator =
         NativeGenesisEmulator::create(sdl, config.genesis_config(args.file_path.clone(), &cheats))?;
@@ -1061,7 +1062,7 @@ fn run_sega_cd(
     ConfigWithPath { config, path }: ConfigWithPath,
 ) -> anyhow::Result<()> {
     let cheats = config
-        .try_load_cheats(&path, &args.file_path, Console::SegaCd.standard_extension())
+        .try_load_cheats_if_enabled(&path, &args.file_path, Console::SegaCd.standard_extension())
         .unwrap_or_default();
     let mut scd_config = config.sega_cd_config(args.file_path.clone(), &cheats);
     scd_config.run_without_disc = args.scd_no_disc;
@@ -1076,7 +1077,7 @@ fn run_32x(
     ConfigWithPath { config, path }: ConfigWithPath,
 ) -> anyhow::Result<()> {
     let cheats = config
-        .try_load_cheats(&path, &args.file_path, Console::Sega32X.standard_extension())
+        .try_load_cheats_if_enabled(&path, &args.file_path, Console::Sega32X.standard_extension())
         .unwrap_or_default();
     let mut emulator =
         Native32XEmulator::create(sdl, config.sega_32x_config(args.file_path.clone(), &cheats))?;

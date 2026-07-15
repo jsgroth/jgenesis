@@ -191,6 +191,22 @@ impl AppConfig {
         Some(cheats)
     }
 
+    #[must_use]
+    pub fn try_load_cheats_if_enabled<Cheats>(
+        &self,
+        config_path: &Path,
+        rom_file_path: &Path,
+        system_extension: &str,
+    ) -> Option<Cheats>
+    where
+        Cheats: DeserializeOwned,
+    {
+        self.common
+            .cheats_enabled
+            .then(|| self.try_load_cheats::<Cheats>(config_path, rom_file_path, system_extension))
+            .flatten()
+    }
+
     /// Save cheats to a game-specific cheats file.
     ///
     /// # Errors
