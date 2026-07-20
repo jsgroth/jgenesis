@@ -163,8 +163,7 @@ impl RenderingPipeline {
             .frame_rotation
             .rotate_frame_size_and_aspect_ratio(frame_size, options.pixel_aspect_ratio);
         let display_area = determine_display_area(
-            window_size.width,
-            window_size.height,
+            window_size,
             rotated_frame_size,
             rotated_aspect_ratio,
             renderer_config.force_integer_height_scaling,
@@ -585,14 +584,19 @@ fn compute_vertices(
 }
 
 fn determine_display_area(
-    window_width: u32,
-    window_height: u32,
+    WindowSize { width: window_width, height: window_height, pixel_density }: WindowSize,
     frame_size: FrameSize,
     pixel_aspect_ratio: Option<FiniteF64>,
     force_integer_height_scaling: bool,
 ) -> DisplayArea {
     let Some(pixel_aspect_ratio) = pixel_aspect_ratio else {
-        return DisplayArea { width: window_width, height: window_height, x: 0, y: 0 };
+        return DisplayArea {
+            width: window_width,
+            height: window_height,
+            x: 0,
+            y: 0,
+            pixel_density,
+        };
     };
 
     let pixel_aspect_ratio: f64 = pixel_aspect_ratio.into();
@@ -619,7 +623,7 @@ fn determine_display_area(
     let x = (window_width - screen_width) / 2;
     let y = (window_height - screen_height) / 2;
 
-    DisplayArea { width: screen_width, height: screen_height, x, y }
+    DisplayArea { width: screen_width, height: screen_height, x, y, pixel_density }
 }
 
 fn scale_vertex_position(
@@ -805,10 +809,11 @@ impl FrameTimeTracker {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WindowSize {
     pub width: u32,
     pub height: u32,
+    pub pixel_density: f32,
 }
 
 pub struct WgpuRenderer<Window> {

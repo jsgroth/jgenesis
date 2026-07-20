@@ -4,15 +4,21 @@ version = { workspace = true }
 edition = "2024"
 
 [dependencies]
+arboard = { workspace = true }
 egui = { workspace = true }
 egui_extras = { workspace = true }
 egui-wgpu = { workspace = true }
+image = { workspace = true }
 log = { workspace = true }
+open = { workspace = true }
 pollster = { workspace = true }
 raw-window-handle = { workspace = true }
 sdl3 = { workspace = true }
 thiserror = { workspace = true }
 wgpu = { workspace = true }
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+smithay-clipboard = { workspace = true }
 
 [lints]
 workspace = true

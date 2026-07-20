@@ -7,9 +7,8 @@ use crate::mainloop::{CreatedEmulator, NativeDebugFn, NativeEmulatorArgs, save};
 use crate::{NativeEmulator, NativeEmulatorError, NativeEmulatorResult, archive, extensions};
 use jgenesis_common::frontend::{EmulatorTrait, SaveWriter};
 use jgenesis_native_config::input::mappings::ButtonMappingVec;
-use sdl3::event::Event;
 use sdl3::mouse::MouseUtil;
-use sdl3::{AudioSubsystem, EventPump, IntegerOrSdlError, VideoSubsystem};
+use sdl3::{AudioSubsystem, EventPump, VideoSubsystem};
 use std::cell::RefCell;
 use std::fmt::Display;
 use std::fs;
@@ -43,6 +42,10 @@ impl SdlSubsystems {
         // https://wiki.libsdl.org/SDL3/SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS
         sdl3::hint::set("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
 
+        // Register mouse down events for mouse clicks that change window focus
+        // https://wiki.libsdl.org/SDL3/SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH
+        sdl3::hint::set("SDL_MOUSE_FOCUS_CLICKTHROUGH", "1");
+
         let joysticks = Joysticks::new(joystick);
 
         Ok(Self {
@@ -52,34 +55,6 @@ impl SdlSubsystems {
             event_pump: Rc::new(RefCell::new(event_pump)),
             mouse_util: Rc::new(RefCell::new(mouse_util)),
         })
-    }
-
-    /// Drain all pending SDL events while ensuring that no joystick added/removed events are missed.
-    ///
-    /// # Errors
-    ///
-    /// Propagates any errors raised by SDL's joystick subsystem.
-    ///
-    /// # Panics
-    ///
-    /// Will panic if `joysticks` or `event_pump` is already borrowed.
-    pub fn drain_events(&self) -> Result<(), IntegerOrSdlError> {
-        let mut joysticks = self.joysticks.borrow_mut();
-        for event in self.event_pump.borrow_mut().poll_iter() {
-            match event {
-                Event::JoyDeviceAdded { which: joystick_id, .. } => {
-                    joysticks.handle_device_added(joystick_id)?;
-                }
-                Event::JoyDeviceRemoved { which: joystick_id, .. } => {
-                    joysticks
-                        .handle_device_removed(joystick_id)
-                        .map_err(IntegerOrSdlError::SdlError)?;
-                }
-                _ => {}
-            }
-        }
-
-        Ok(())
     }
 }
 

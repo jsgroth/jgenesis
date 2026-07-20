@@ -183,8 +183,8 @@ impl App {
                 ui.checkbox(&mut self.config.common.cheats_enabled, "Cheats enabled");
             });
 
-            let emu_thread_status = self.emu_thread.status();
-            if !emu_thread_status.is_running() {
+            let emu_runner_status = self.emu_runner.status();
+            if !emu_runner_status.is_running() {
                 render_centered_message(ui, "Load a game to edit cheats");
                 return;
             }

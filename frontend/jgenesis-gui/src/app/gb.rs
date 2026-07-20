@@ -2,7 +2,7 @@ mod helptext;
 
 use crate::app::widgets::{BiosErrorStrings, OptionalPathSelector, RenderErrorEffect};
 use crate::app::{App, OpenWindow, widgets};
-use crate::emuthread::EmuThreadStatus;
+use crate::emurunner::EmuRunnerStatus;
 use egui::{Context, Slider, Ui, Window};
 use gb_config::{GbAspectRatio, GbAudioResampler, GbPalette, GbcColorCorrection};
 use jgenesis_native_config::gb::GameBoyAppConfig;
@@ -30,7 +30,7 @@ impl App {
 
                 ui.add_space(5.0);
 
-                let running_gb = self.emu_thread.status() != EmuThreadStatus::RunningGameBoy;
+                let running_gb = self.emu_runner.status() != EmuRunnerStatus::RunningGameBoy;
                 ui.add_enabled_ui(running_gb, |ui| {
                     let rect = ui
                         .checkbox(

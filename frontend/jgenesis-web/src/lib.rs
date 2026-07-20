@@ -423,7 +423,8 @@ enum JgenesisUserEvent {
 
 const CANVAS_WIDTH: u32 = 878;
 const CANVAS_HEIGHT: u32 = 672;
-const CANVAS_SIZE: WindowSize = WindowSize { width: CANVAS_WIDTH, height: CANVAS_HEIGHT };
+const CANVAS_SIZE: WindowSize =
+    WindowSize { width: CANVAS_WIDTH, height: CANVAS_HEIGHT, pixel_density: 1.0 };
 
 /// # Panics
 #[wasm_bindgen]

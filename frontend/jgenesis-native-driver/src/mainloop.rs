@@ -120,13 +120,13 @@ type NativeDebugFn<Emulator> = DebugFn<
 
 struct HotkeyState<Emulator: EmulatorTrait> {
     hide_mouse_cursor: HideMouseCursor,
+    mouse_over_emulator_window: bool,
     save_state_slot: usize,
     paused: bool,
     fast_forwarding: bool,
     rewinding: bool,
     overclocking_enabled: bool,
     debugger_window: Option<DebuggerWindow>,
-    window_scale_factor: Option<f32>,
     egui_theme: EguiTheme,
     debug_fn: NativeDebugFn<Emulator>,
 }
@@ -135,13 +135,13 @@ impl<Emulator: EmulatorTrait> HotkeyState<Emulator> {
     fn new(common_config: &CommonConfig, debug_fn: NativeDebugFn<Emulator>) -> Self {
         Self {
             hide_mouse_cursor: common_config.hide_mouse_cursor,
+            mouse_over_emulator_window: common_config.launch_in_fullscreen,
             save_state_slot: 0,
             paused: false,
             fast_forwarding: false,
             rewinding: false,
             overclocking_enabled: true,
             debugger_window: None,
-            window_scale_factor: common_config.window_scale_factor,
             egui_theme: common_config.egui_theme,
             debug_fn,
         }
@@ -212,8 +212,7 @@ impl<Emulator: EmulatorTrait> NativeEmulator<Emulator> {
         // Reset speed multiplier in case the fast forward hotkey changed
         self.renderer.set_speed_multiplier(1);
 
-        let fullscreen = self.renderer.is_fullscreen();
-        self.mouse_util.borrow().show_cursor(!config.hide_mouse_cursor.should_hide(fullscreen));
+        self.update_show_cursor();
 
         self.hotkey_state.egui_theme = config.egui_theme;
         if let Some(debugger) = &mut self.hotkey_state.debugger_window {
@@ -466,10 +465,6 @@ where
             debug_fn,
         }: NativeEmulatorArgs<'_, '_, Emulator>,
     ) -> NativeEmulatorResult<Self> {
-        sdl.mouse_util.borrow().show_cursor(
-            !common_config.hide_mouse_cursor.should_hide(common_config.launch_in_fullscreen),
-        );
-
         let (audio_output, mut audio_output_handle) =
             SdlAudioOutput::create_and_init(sdl.audio, &common_config)?;
 
@@ -499,11 +494,7 @@ where
             save_writer,
         })?;
 
-        let mut initial_window_size =
-            common_config.window_size.unwrap_or(runner.default_window_size());
-        if let Some(scale_factor) = common_config.window_scale_factor {
-            initial_window_size = initial_window_size.scale(scale_factor);
-        }
+        let initial_window_size = common_config.window_size.unwrap_or(runner.default_window_size());
 
         let window = create_window(
             &sdl.video.borrow(),
@@ -559,7 +550,10 @@ where
     ///
     /// This method will propagate any errors encountered when rendering frames, pushing audio
     /// samples, or writing save files.
-    pub fn run(&mut self) -> NativeEmulatorResult<Option<NativeTickEffect>> {
+    pub fn run(
+        &mut self,
+        mut sdl_event_handler: impl FnMut(&Event),
+    ) -> NativeEmulatorResult<Option<NativeTickEffect>> {
         self.runner.try_recv_error()?;
 
         let paused = self.hotkey_state.paused
@@ -567,9 +561,12 @@ where
                 .common_config
                 .pause_emulator
                 .should_pause(self.window_state.emulator_focused, self.window_state.any_focused());
+
         self.runner.set_paused(paused);
 
         for event in Rc::clone(&self.event_pump).borrow_mut().poll_iter() {
+            sdl_event_handler(&event);
+
             self.input_mapper.handle_event(
                 &event,
                 self.renderer.window_id(),
@@ -588,6 +585,11 @@ where
                     if let Some(effect) = self.handle_window_event(&win_event, window_id)? {
                         return Ok(Some(effect));
                     }
+                }
+                Event::MouseMotion { window_id, .. } => {
+                    self.hotkey_state.mouse_over_emulator_window =
+                        window_id == self.renderer.window_id();
+                    self.update_show_cursor();
                 }
                 _ => {}
             }
@@ -637,6 +639,18 @@ where
         }
 
         Ok(None)
+    }
+
+    fn update_show_cursor(&self) {
+        let mouse_util = self.mouse_util.borrow();
+
+        if self.hotkey_state.mouse_over_emulator_window {
+            mouse_util.show_cursor(
+                !self.hotkey_state.hide_mouse_cursor.should_hide(self.renderer.is_fullscreen()),
+            );
+        } else {
+            mouse_util.show_cursor(true);
+        }
     }
 
     fn stop_debugger(&mut self) -> NativeEmulatorResult<()> {
@@ -794,7 +808,6 @@ where
 
         let debugger_window = match DebuggerWindow::new(
             &self.video.borrow(),
-            self.hotkey_state.window_scale_factor,
             self.hotkey_state.egui_theme,
             self.renderer.config(),
             main_process,
@@ -937,9 +950,13 @@ where
     fn toggle_fullscreen(&mut self) -> NativeEmulatorResult<()> {
         let fullscreen =
             self.renderer.toggle_fullscreen().map_err(NativeEmulatorError::SdlSetFullscreen)?;
-        self.mouse_util
-            .borrow()
-            .show_cursor(!self.hotkey_state.hide_mouse_cursor.should_hide(fullscreen));
+
+        // Don't wait for mouse motion to hide cursor when entering fullscreen
+        if fullscreen {
+            self.mouse_util
+                .borrow()
+                .show_cursor(!self.hotkey_state.hide_mouse_cursor.should_hide(fullscreen));
+        }
 
         Ok(())
     }
@@ -1047,6 +1064,7 @@ where
 impl<Emulator: EmulatorTrait> Drop for NativeEmulator<Emulator> {
     fn drop(&mut self) {
         let _ = self.runner.send_command(RunnerCommand::Terminate);
+        self.mouse_util.borrow().show_cursor(true);
     }
 }
 
@@ -1065,8 +1083,19 @@ fn create_window(
     height: u32,
     fullscreen: bool,
 ) -> NativeEmulatorResult<Window> {
-    let mut window_builder = video.window(title, width, height);
+    let display_scale = video
+        .get_primary_display()
+        .ok()
+        .and_then(|display| display.get_content_scale().ok())
+        .unwrap_or(1.0);
+
+    let mut window_builder = video.window(
+        title,
+        (width as f32 * display_scale).round() as u32,
+        (height as f32 * display_scale).round() as u32,
+    );
     window_builder.metal_view();
+    window_builder.high_pixel_density();
     window_builder.resizable();
     window_builder.position_centered();
 
@@ -1079,8 +1108,10 @@ fn create_window(
 }
 
 fn sdl_window_size(window: &Window) -> renderer::WindowSize {
-    let (width, height) = window.size();
-    renderer::WindowSize { width, height }
+    let (width, height) = window.size_in_pixels();
+    let pixel_density = window.pixel_density();
+
+    renderer::WindowSize { width, height, pixel_density }
 }
 
 macro_rules! bincode_config {

@@ -487,10 +487,6 @@ struct Args {
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     window_height: Option<u32>,
 
-    /// Emulator window scale factor
-    #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
-    window_scale_factor: Option<f32>,
-
     /// Launch in fullscreen
     #[arg(long, default_value_t, help_heading = VIDEO_OPTIONS_HEADING)]
     fullscreen: bool,
@@ -856,13 +852,6 @@ impl Args {
             config.common.launch_in_fullscreen = true;
         }
 
-        if let Some(scale_factor) = self.window_scale_factor {
-            config.common.window_scale_factor = Some(scale_factor);
-        } else if let Some(scale_factor) = try_get_primary_display_scale() {
-            log::info!("Got primary display scale factor {scale_factor}");
-            config.common.window_scale_factor = Some(scale_factor);
-        }
-
         apply_overrides!(
             self,
             config.common,
@@ -924,13 +913,6 @@ impl Args {
 fn fix_optional_relative_path(option: &mut Option<PathBuf>) {
     let Some(path) = option.take() else { return };
     *option = Some(jgenesis_common::fix_appimage_relative_path(path));
-}
-
-fn try_get_primary_display_scale() -> Option<f32> {
-    sdl3::init()
-        .ok()
-        .and_then(|sdl| sdl.video().ok())
-        .and_then(|video| jgenesis_native_driver::try_get_primary_display_scale(&video))
 }
 
 fn main() -> anyhow::Result<()> {
@@ -1127,7 +1109,7 @@ where
     }
 
     loop {
-        match emulator.run()? {
+        match emulator.run(|_event| {})? {
             Some(NativeTickEffect::PowerOff | NativeTickEffect::Exit) => return Ok(()),
             None => {}
         }

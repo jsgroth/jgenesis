@@ -2,7 +2,7 @@ mod helptext;
 
 use crate::app::widgets::{BiosErrorStrings, RenderErrorEffect};
 use crate::app::{App, Console, OpenWindow, widgets};
-use crate::emuthread::EmuThreadStatus;
+use crate::emurunner::EmuRunnerStatus;
 use egui::{Context, Grid, Ui, Window};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_config::snes::SnesAppConfig;
@@ -65,7 +65,7 @@ impl App {
             let rect = ui
                 .group(|ui| {
                     ui.add_enabled_ui(
-                        self.emu_thread.status() != EmuThreadStatus::RunningSnes,
+                        self.emu_runner.status() != EmuRunnerStatus::RunningSnes,
                         |ui| {
                             ui.label("Timing / display mode");
 

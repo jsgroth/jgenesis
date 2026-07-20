@@ -819,6 +819,10 @@ mod tests {
     use super::*;
     use crate::config::PrescaleFactor;
 
+    fn display_area(width: u32, height: u32) -> DisplayArea {
+        DisplayArea { width, height, x: 0, y: 0, pixel_density: 1.0 }
+    }
+
     fn basic_auto_prescale_test(
         width: u32,
         height: u32,
@@ -829,7 +833,7 @@ mod tests {
             PrescaleMode::Auto,
             FrameSize { width, height },
             None,
-            DisplayArea { width: width * width_scale, height: height * height_scale, x: 0, y: 0 },
+            display_area(width * width_scale, height * height_scale),
             FrameRotation::None,
             wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
             &wgpu::Limits::default(),
@@ -866,7 +870,7 @@ mod tests {
             PrescaleMode::Auto,
             FrameSize { width: 320, height: 480 },
             Some(FiniteF64::try_from(2.0).unwrap()),
-            DisplayArea { width: 320 * 4, height: 240 * 4, x: 0, y: 0 },
+            display_area(320 * 4, 240 * 4),
             FrameRotation::None,
             wgpu::Extent3d { width: 320, height: 480, depth_or_array_layers: 1 },
             &wgpu::Limits::default(),
@@ -882,7 +886,7 @@ mod tests {
             PrescaleMode::Auto,
             FrameSize { width: 512, height: 240 },
             Some(FiniteF64::try_from(0.5).unwrap()),
-            DisplayArea { width: 256 * 4, height: 240 * 4, x: 0, y: 0 },
+            display_area(256 * 4, 240 * 4),
             FrameRotation::None,
             wgpu::Extent3d { width: 512, height: 240, depth_or_array_layers: 1 },
             &wgpu::Limits::default(),
@@ -898,7 +902,7 @@ mod tests {
             PrescaleMode::Auto,
             FrameSize { width: 320, height: 240 },
             None,
-            DisplayArea { width: 320 * 4, height: 240 * 4, x: 0, y: 0 },
+            display_area(320 * 4, 240 * 4),
             FrameRotation::None,
             wgpu::Extent3d { width: 320 * 2, height: 240, depth_or_array_layers: 1 },
             &wgpu::Limits::default(),
@@ -914,7 +918,7 @@ mod tests {
             PrescaleMode::Auto,
             FrameSize { width: 320, height: 240 },
             None,
-            DisplayArea { width: 320 * 11 / 4, height: 240 * 7 / 4, x: 0, y: 0 },
+            display_area(320 * 11 / 4, 240 * 7 / 4),
             FrameRotation::None,
             wgpu::Extent3d { width: 320, height: 240, depth_or_array_layers: 1 },
             &wgpu::Limits::default(),
@@ -930,7 +934,7 @@ mod tests {
             PrescaleMode::Auto,
             FrameSize { width: 320, height: 240 },
             Some(FiniteF64::try_from(0.9).unwrap()),
-            DisplayArea { width: 320 * 2 * 9 / 10, height: 240 * 2, x: 0, y: 0 },
+            display_area(320 * 2 * 9 / 10, 240 * 2),
             FrameRotation::None,
             wgpu::Extent3d { width: 320, height: 240, depth_or_array_layers: 1 },
             &wgpu::Limits::default(),
@@ -948,7 +952,7 @@ mod tests {
             PrescaleMode::Manual { width: factor, height: factor },
             FrameSize { width: 320, height: 240 },
             None,
-            DisplayArea { width: 320 * 5, height: 240 * 5, x: 0, y: 0 },
+            display_area(320 * 5, 240 * 5),
             FrameRotation::None,
             wgpu::Extent3d { width: 320, height: 240, depth_or_array_layers: 1 },
             &wgpu::Limits::default(),
@@ -965,7 +969,7 @@ mod tests {
             PrescaleMode::Manual { width: factor, height: factor },
             FrameSize { width: 320, height: 240 },
             None,
-            DisplayArea { width: 320 * 5, height: 240 * 5, x: 0, y: 0 },
+            display_area(320 * 5, 240 * 5),
             FrameRotation::None,
             wgpu::Extent3d { width: 320 * 2, height: 240, depth_or_array_layers: 1 },
             &wgpu::Limits::default(),
@@ -981,7 +985,7 @@ mod tests {
             PrescaleMode::Auto,
             FrameSize { width: 200, height: 400 },
             None,
-            DisplayArea { width: 1000, height: 600, x: 0, y: 0 },
+            display_area(1000, 600),
             FrameRotation::Clockwise,
             wgpu::Extent3d { width: 200, height: 400, depth_or_array_layers: 1 },
             &wgpu::Limits::default(),

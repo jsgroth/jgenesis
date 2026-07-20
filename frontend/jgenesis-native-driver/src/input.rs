@@ -132,7 +132,26 @@ impl Joysticks {
     }
 
     #[allow(clippy::missing_errors_doc)]
+    pub fn handle_sdl_event(&mut self, event: &Event) -> Result<(), IntegerOrSdlError> {
+        match *event {
+            Event::JoyDeviceAdded { which: joystick_id, .. } => {
+                self.handle_device_added(joystick_id)?;
+            }
+            Event::JoyDeviceRemoved { which: joystick_id, .. } => {
+                self.handle_device_removed(joystick_id).map_err(IntegerOrSdlError::SdlError)?;
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+
+    #[allow(clippy::missing_errors_doc)]
     pub fn handle_device_added(&mut self, joystick_id: u32) -> Result<(), IntegerOrSdlError> {
+        if self.joystick_id_to_device_id.contains_key(&joystick_id) {
+            return Ok(());
+        }
+
         let joystick = self.subsystem.open(SDL_JoystickID(joystick_id))?;
 
         let name = joystick.name();

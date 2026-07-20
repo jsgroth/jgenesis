@@ -301,7 +301,7 @@ impl App {
             }
 
             let rect = ui
-                .add_enabled_ui(!self.emu_thread.status().is_running_smsgg(), |ui| {
+                .add_enabled_ui(!self.emu_runner.status().is_running_smsgg(), |ui| {
                     ui.checkbox(
                         &mut self.config.smsgg.fm_sound_unit_enabled,
                         "Master System FM sound unit enabled",

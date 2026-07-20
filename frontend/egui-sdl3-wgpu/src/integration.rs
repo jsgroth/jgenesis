@@ -1,7 +1,10 @@
+use crate::clipboard::Clipboard;
 use egui::{OrderedViewportIdMap, Ui, ViewportCommand, ViewportId, ViewportOutput};
 use egui_wgpu::ScreenDescriptor;
+use image::GenericImageView;
 use sdl3::VideoSubsystem;
 use sdl3::event::{Event, WindowEvent};
+use sdl3::pixels::PixelFormat;
 use sdl3::video::{Window, WindowBuildError};
 use std::cmp::Ordering;
 use std::iter;
@@ -19,14 +22,13 @@ pub struct FrameContext<'frame> {
 pub struct FrameOptions {
     pub window_width: u32,
     pub window_height: u32,
-    pub scale_factor: Option<f32>,
     pub resizable: bool,
     pub text_input: bool,
     pub egui_theme: egui::ThemePreference,
     pub install_egui_image_loaders: bool,
+    pub icon: Option<image::DynamicImage>,
     pub wgpu_backends: wgpu::Backends,
     pub wgpu_power_preference: wgpu::PowerPreference,
-    pub wgpu_surface_usages: wgpu::TextureUsages,
     pub wgpu_present_mode: wgpu::PresentMode,
 }
 
@@ -35,14 +37,13 @@ impl Default for FrameOptions {
         Self {
             window_width: 800,
             window_height: 600,
-            scale_factor: None,
             resizable: true,
             text_input: true,
             egui_theme: egui::ThemePreference::System,
             install_egui_image_loaders: false,
+            icon: None,
             wgpu_backends: wgpu::Backends::PRIMARY,
             wgpu_power_preference: wgpu::PowerPreference::None,
-            wgpu_surface_usages: wgpu::TextureUsages::RENDER_ATTACHMENT,
             wgpu_present_mode: wgpu::PresentMode::AutoNoVsync,
         }
     }
@@ -52,6 +53,8 @@ impl Default for FrameOptions {
 pub enum FrameCreateError {
     #[error("Error creating SDL3 window: {0}")]
     SdlWindow(#[from] WindowBuildError),
+    #[error("Error setting window icon: {0}")]
+    WindowIcon(#[source] sdl3::Error),
     #[error("Error obtaining window/display handle: {0}")]
     WindowHandle(#[from] raw_window_handle::HandleError),
     #[error("Error creating wgpu surface: {0}")]
@@ -110,35 +113,42 @@ pub struct Frame {
     last_repaint: SystemTime,
     next_repaint: Arc<Mutex<NextRepaint>>,
     paint_count: u64,
+    window_shown: bool,
     closed: bool,
-    // SAFETY: The window must be dropped after the surface
+    clipboard: Clipboard,
+    // SAFETY: The window must be dropped after the surface and the clipboard
     window: Window,
 }
 
 impl Frame {
     #[allow(clippy::missing_errors_doc)]
+    #[allow(clippy::missing_panics_doc)]
     pub fn new(
         window_title: &str,
         video: &VideoSubsystem,
         options: FrameOptions,
     ) -> Result<Self, FrameCreateError> {
-        let scale_factor =
-            options.scale_factor.or_else(|| try_get_primary_display_scale(video)).unwrap_or(1.0);
-        let window_width = (options.window_width as f32 * scale_factor).round() as u32;
-        let window_height = (options.window_height as f32 * scale_factor).round() as u32;
+        let display_scale_factor = try_get_primary_display_scale(video).unwrap_or(1.0);
+        let window_width = (options.window_width as f32 * display_scale_factor).round() as u32;
+        let window_height = (options.window_height as f32 * display_scale_factor).round() as u32;
 
         let mut window_builder = video.window(window_title, window_width, window_height);
 
+        window_builder.hidden();
         window_builder.metal_view();
+        window_builder.high_pixel_density();
 
         if options.resizable {
             window_builder.resizable();
         }
 
         let mut window = window_builder.build()?;
-        window.raise();
 
-        let (width, height) = window.size();
+        if let Some(icon) = &options.icon {
+            set_window_icon(&mut window, icon).map_err(FrameCreateError::WindowIcon)?;
+        }
+
+        let (width, height) = window.size_in_pixels();
 
         if options.text_input {
             video.text_input().start(&window);
@@ -176,7 +186,7 @@ impl Frame {
             .unwrap_or(surface_capabilities.formats[0]);
 
         let surface_config = wgpu::SurfaceConfiguration {
-            usage: options.wgpu_surface_usages,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
             width,
             height,
@@ -187,13 +197,7 @@ impl Frame {
         };
         surface.configure(&device, &surface_config);
 
-        let window_scale = window.display_scale();
-
-        log::info!(
-            "Rendering window '{window_title}' with surface format {surface_format:?} and scale factor {window_scale}"
-        );
-
-        let platform = crate::Platform::new(&window, window_scale);
+        let platform = crate::Platform::new(&window);
         platform.context().set_theme(options.egui_theme);
 
         if options.install_egui_image_loaders {
@@ -221,6 +225,9 @@ impl Frame {
             egui_wgpu::RendererOptions::default(),
         );
 
+        // SAFETY: The clipboard must not outlive the window
+        let clipboard = unsafe { Clipboard::new(&window) };
+
         Ok(Self {
             surface,
             surface_config,
@@ -232,12 +239,15 @@ impl Frame {
             last_repaint: start_time,
             next_repaint,
             paint_count: 0,
+            window_shown: false,
             closed: false,
+            clipboard,
             window,
         })
     }
 
     #[allow(clippy::missing_errors_doc)]
+    #[allow(clippy::missing_panics_doc)]
     pub fn run(
         &mut self,
         mut render_fn: impl FnMut(&mut Ui, FrameContext<'_>),
@@ -280,7 +290,7 @@ impl Frame {
             };
             render_fn(ui, frame_ctx);
         });
-        self.platform.handle_egui_output(&full_output.platform_output);
+        self.platform.handle_egui_output(&full_output.platform_output, &mut self.clipboard);
 
         if let Some(effect) = self.handle_viewport_output(&full_output.viewport_output) {
             return match effect {
@@ -375,6 +385,13 @@ impl Frame {
 
         self.last_repaint = now;
 
+        // Waiting to show the window until after the first paint avoids a briefly visible black screen
+        if !self.window_shown {
+            self.window.show();
+            self.window.raise();
+            self.window_shown = true;
+        }
+
         Ok(FrameRunEffect::None)
     }
 
@@ -382,6 +399,7 @@ impl Frame {
         self.platform.context().set_theme(theme_preference);
     }
 
+    #[allow(clippy::missing_panics_doc)]
     pub fn handle_sdl_event(&mut self, event: &Event) {
         if self.closed {
             return;
@@ -399,10 +417,12 @@ impl Frame {
                         return;
                     }
                     WindowEvent::PixelSizeChanged(..) | WindowEvent::Resized(..) => {
-                        let (width, height) = self.window.size();
+                        let (width, height) = self.window.size_in_pixels();
                         self.surface_config.width = width;
                         self.surface_config.height = height;
                         self.surface.configure(&self.device, &self.surface_config);
+
+                        self.platform.context().request_repaint();
                     }
                     _ => {}
                 }
@@ -410,13 +430,10 @@ impl Frame {
             _ => {}
         }
 
-        self.platform.handle_event(event);
+        self.platform.handle_event(event, &mut self.clipboard);
 
         if self.platform.has_pending_input_event() {
-            *self.next_repaint.lock().unwrap() = NextRepaint {
-                delay: Duration::ZERO,
-                pass_number: self.platform.context().cumulative_pass_nr(),
-            };
+            self.platform.context().request_repaint();
         }
     }
 
@@ -437,15 +454,17 @@ impl Frame {
                     self.window.raise();
                 }
                 ViewportCommand::RequestCut => {
-                    todo!()
+                    self.platform.request_cut();
                 }
                 ViewportCommand::RequestCopy => {
-                    todo!()
+                    self.platform.request_copy();
                 }
                 ViewportCommand::RequestPaste => {
-                    todo!()
+                    self.platform.request_paste(self.clipboard.load());
                 }
-                _ => {}
+                _ => {
+                    log::warn!("unhandled egui viewport command: {command:?}");
+                }
             }
         }
 
@@ -463,4 +482,28 @@ impl Frame {
 
 fn try_get_primary_display_scale(video: &VideoSubsystem) -> Option<f32> {
     video.get_primary_display().ok().and_then(|display| display.get_content_scale().ok())
+}
+
+fn set_window_icon(window: &mut Window, icon: &image::DynamicImage) -> Result<(), sdl3::Error> {
+    let mut pixels = vec![0_u8; (4 * icon.width() * icon.height()) as usize];
+
+    for (x, y, image::Rgba([r, g, b, a])) in icon.pixels() {
+        let pixels_idx = (4 * (y * icon.width() + x)) as usize;
+
+        pixels[pixels_idx] = b;
+        pixels[pixels_idx + 1] = g;
+        pixels[pixels_idx + 2] = r;
+        pixels[pixels_idx + 3] = a;
+    }
+
+    let surface = sdl3::surface::Surface::from_data(
+        &mut pixels,
+        icon.width(),
+        icon.height(),
+        4 * icon.width(),
+        PixelFormat::BGRA32,
+    )?;
+    window.set_icon(&surface);
+
+    Ok(())
 }

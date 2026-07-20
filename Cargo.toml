@@ -14,6 +14,7 @@ version = "0.13.1"
 [workspace.dependencies]
 # Third-party dependencies
 anyhow = "1"
+arboard = "3"
 base64 = "0.22"
 bincode = "2"
 bytemuck = { version = "1", features = ["derive"] }
@@ -21,7 +22,6 @@ chd = "0.3"
 clap = { version = "4", features = ["derive"] }
 crc = "3"
 directories = "6"
-eframe = "0.34"
 egui = "0.34"
 egui_extras = "0.34"
 egui-wgpu = "0.34"
@@ -33,6 +33,7 @@ glyphon = "0.11"
 image = "0.25"
 log = "0.4"
 num = "0.4"
+open = "5"
 pollster = "0.4"
 polonius-the-crab = "0.5"
 rand = "0.10"
@@ -45,15 +46,14 @@ sdl3 = { version = "0.18", features = ["raw-window-handle"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sevenz-rust = "0.6"
+smithay-clipboard = "0.7"
 test-log = "0.2"
 thiserror = "2"
 time = "0.3"
 tinyvec = "1"
 toml = "1"
 toml_edit = "0.25"
-winit = "0.30"
 wgpu = "29"
-xrandr = "0.2"
 zip = "8"
 zstd = "0.13"
 
@@ -65,6 +65,7 @@ wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = "0.3"
 web-time = "1"
+winit = "0.30"
 
 # Build-only dependencies
 naga = "29"

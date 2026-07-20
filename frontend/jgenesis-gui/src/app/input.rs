@@ -1,8 +1,8 @@
 mod helptext;
 
+use crate::app::inputcollect::InputCollectionState;
 use crate::app::widgets::NumericTextEdit;
-use crate::app::{App, OpenWindow, WaitingForInput};
-use crate::emuthread::{EmuThreadCommand, EmuThreadHandle};
+use crate::app::{App, OpenWindow};
 use egui::{Button, Color32, ComboBox, Context, Grid, ScrollArea, Slider, Ui, Window};
 use gb_config::GameBoyButton;
 use gba_config::GbaButton;
@@ -1289,7 +1289,7 @@ impl App {
     }
 
     fn disable_if_waiting_for_input(&self, ui: &mut Ui) {
-        if self.state.waiting_for_input.is_some() {
+        if self.state.input_collection.is_some() {
             ui.disable();
         }
     }
@@ -1312,13 +1312,12 @@ impl App {
 
                 let current_value_str = format_input_str(current_value.as_ref());
                 if ui.button(current_value_str).clicked() {
-                    send_collect_input_request(
-                        &self.emu_thread,
-                        &mut self.state.waiting_for_input,
+                    self.state.input_collection = Some(InputCollectionState::new(
+                        &self.joysticks.borrow(),
                         vec![*button],
                         mapping,
                         false,
-                    );
+                    ));
                 }
 
                 if ui.button("Clear").clicked() {
@@ -1332,13 +1331,12 @@ impl App {
 
                     let turbo_value_str = format_input_str(turbo_value.as_ref());
                     if ui.button(turbo_value_str).clicked() {
-                        send_collect_input_request(
-                            &self.emu_thread,
-                            &mut self.state.waiting_for_input,
+                        self.state.input_collection = Some(InputCollectionState::new(
+                            &self.joysticks.borrow(),
                             vec![*button],
                             mapping,
                             true,
-                        );
+                        ));
                     }
 
                     if ui.button("Clear").clicked() {
@@ -1372,29 +1370,15 @@ impl App {
         mapping: InputMappingSet,
         ui: &mut Ui,
     ) {
-        ui.add_enabled_ui(!self.emu_thread.status().is_running(), |ui| {
-            if ui.button("Configure all").clicked() {
-                send_collect_input_request(
-                    &self.emu_thread,
-                    &mut self.state.waiting_for_input,
-                    buttons.to_vec(),
-                    mapping,
-                    false,
-                );
-            }
-        });
+        if ui.button("Configure all").clicked() {
+            self.state.input_collection = Some(InputCollectionState::new(
+                &self.joysticks.borrow(),
+                buttons.to_vec(),
+                mapping,
+                false,
+            ));
+        }
     }
-}
-
-fn send_collect_input_request(
-    emu_thread: &EmuThreadHandle,
-    waiting_for_input: &mut Option<WaitingForInput>,
-    buttons: Vec<GenericButton>,
-    mapping: InputMappingSet,
-    turbo: bool,
-) {
-    emu_thread.send(EmuThreadCommand::CollectInput(buttons.clone()));
-    *waiting_for_input = Some(WaitingForInput { buttons, mapping, turbo });
 }
 
 fn format_input_str(value: Option<&Vec<GenericInput>>) -> String {

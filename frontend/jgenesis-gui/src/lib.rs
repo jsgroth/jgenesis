@@ -1,2 +1,4 @@
 pub mod app;
-mod emuthread;
+mod emurunner;
+
+pub use emurunner::{GuiEmulatorRunner, GuiEmulatorRunnerHandle};

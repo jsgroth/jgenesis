@@ -2,11 +2,11 @@ mod helptext;
 
 use crate::app::widgets::NumericTextEdit;
 use crate::app::{App, OpenWindow, widgets};
-use crate::emuthread::EmuThreadStatus;
-use eframe::emath::Align;
-use eframe::epaint::Color32;
-use eframe::epaint::textures::TextureWrapMode;
+use crate::emurunner::EmuRunnerStatus;
+use egui::emath::Align;
+use egui::epaint::Color32;
 use egui::epaint::ImageDelta;
+use egui::epaint::textures::TextureWrapMode;
 use egui::{
     ColorImage, Context, ImageData, Layout, Slider, TextureFilter, TextureId, TextureOptions, Ui,
     Window,
@@ -94,7 +94,7 @@ impl App {
             let rect = ui
                 .group(|ui| {
                     ui.add_enabled_ui(
-                        self.emu_thread.status() != EmuThreadStatus::RunningNes,
+                        self.emu_runner.status() != EmuRunnerStatus::RunningNes,
                         |ui| {
                             ui.label("Timing / display mode");
 

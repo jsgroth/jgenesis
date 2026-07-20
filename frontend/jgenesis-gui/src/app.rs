@@ -4,6 +4,7 @@ mod gb;
 mod gba;
 mod genesis;
 mod input;
+mod inputcollect;
 mod nes;
 mod pce;
 mod romlist;
@@ -18,9 +19,9 @@ use crate::app::nes::{NesPaletteState, OverscanState};
 use crate::app::romlist::{RomListThreadHandle, RomMetadata};
 use crate::app::snes::HandledError;
 use crate::app::widgets::RenderErrorEffect;
-use crate::emuthread;
-use crate::emuthread::{EmuThreadCommand, EmuThreadHandle, EmuThreadStatus, EmulatorRunInput};
-use eframe::Frame;
+use crate::emurunner::{
+    EmuRunnerCommand, EmuRunnerStatus, EmulatorRunInput, GuiEmulatorRunnerHandle,
+};
 use egui::{
     Align, Button, CentralPanel, Color32, Context, Key, KeyboardShortcut, LayerId, Layout,
     Modifiers, Order, Panel, TextEdit, ThemePreference, Ui, UiKind, Vec2, ViewportCommand, Widget,
@@ -31,19 +32,21 @@ use emath::Pos2;
 use jgenesis_native_config::paths::{ConfigDirType, ConfigDirs};
 use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen};
 use jgenesis_native_driver::extensions::Console;
-use jgenesis_native_driver::{NativeEmulatorError, extensions};
+use jgenesis_native_driver::{NativeEmulatorError, SdlSubsystems, extensions};
 use nes_config::NesPalette;
 use rfd::FileDialog;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-use std::{fs, thread};
 use time::{OffsetDateTime, UtcOffset, format_description};
 
+use crate::app::inputcollect::InputCollectionState;
 pub(crate) use cheats::ActiveCheats;
 pub(crate) use input::GenericButton;
+use jgenesis_native_driver::input::Joysticks;
 
 const RESERVED_HELP_TEXT_HEIGHT: f32 = 150.0;
 
@@ -201,12 +204,6 @@ struct HelpText {
     text: &'static [&'static str],
 }
 
-struct WaitingForInput {
-    buttons: Vec<GenericButton>,
-    mapping: InputMappingSet,
-    turbo: bool,
-}
-
 struct AppState {
     cheats: CheatWindowState,
     current_file_path: PathBuf,
@@ -231,7 +228,7 @@ struct AppState {
     genesis_volume: GenesisVolumeState,
     s32x_priority: S32XPriorityState,
     overscan: OverscanState,
-    waiting_for_input: Option<WaitingForInput>,
+    input_collection: Option<InputCollectionState>,
     rom_list: Arc<Mutex<Vec<RomMetadata>>>,
     filtered_rom_list: Rc<[RomMetadata]>,
     rom_list_refresh_needed: bool,
@@ -269,7 +266,7 @@ impl AppState {
             genesis_volume: GenesisVolumeState::default(),
             s32x_priority: S32XPriorityState::default(),
             overscan: OverscanState::default(),
-            waiting_for_input: None,
+            input_collection: None,
             rom_list: Arc::new(Mutex::new(vec![])),
             filtered_rom_list: vec![].into(),
             rom_list_refresh_needed: true,
@@ -335,10 +332,10 @@ pub struct App {
     config_path: PathBuf,
     config_dirs: ConfigDirs,
     config_dir_type: ConfigDirType,
-    emu_thread: EmuThreadHandle,
+    emu_runner: GuiEmulatorRunnerHandle,
     rom_list_thread: RomListThreadHandle,
     load_at_startup: Option<LoadAtStartup>,
-    initial_focused: bool,
+    joysticks: Rc<RefCell<Joysticks>>,
 }
 
 impl App {
@@ -347,11 +344,12 @@ impl App {
         config_info: ConfigInfo,
         load_at_startup: Option<LoadAtStartup>,
         ctx: Context,
+        sdl: &SdlSubsystems,
+        emu_runner: GuiEmulatorRunnerHandle,
     ) -> Self {
         let config = config_info.initial_config;
 
         let state = AppState::from_config(&config, &ctx);
-        let emu_thread = emuthread::spawn(ctx.clone());
 
         let rom_list_thread = RomListThreadHandle::spawn(Arc::clone(&state.rom_list), ctx);
         rom_list_thread.request_scan(config.rom_search_dirs.clone());
@@ -362,19 +360,14 @@ impl App {
             config_path: config_info.config_path,
             config_dirs: config_info.config_dirs,
             config_dir_type: config_info.config_dir_type,
-            emu_thread,
+            emu_runner,
             rom_list_thread,
             load_at_startup,
-            initial_focused: false,
+            joysticks: Rc::clone(&sdl.joysticks),
         }
     }
 
     fn open_file(&mut self, console: Option<Console>) {
-        if self.state.waiting_for_input.is_some() {
-            log::warn!("Cannot open file while configuring input");
-            return;
-        }
-
         let mut file_dialog = FileDialog::new();
 
         file_dialog = match console {
@@ -410,7 +403,7 @@ impl App {
             None => {
                 let Some(metadata) = romlist::read_metadata(Path::new(&path)) else {
                     log::error!("Unable to detect compatible file at path: '{}'", path.display());
-                    self.emu_thread.clear_waiting_for_first_command();
+                    self.emu_runner.clear_waiting_for_first_command();
                     return;
                 };
                 metadata.console
@@ -432,8 +425,7 @@ impl App {
 
         self.load_cheats_for_game(console, &path);
 
-        self.emu_thread.stop_emulator_if_running();
-        self.emu_thread.send(EmuThreadCommand::Run {
+        self.emu_runner.push_command(EmuRunnerCommand::Run {
             console,
             config: Box::new(self.config.clone()),
             cheats: Arc::clone(self.active_cheats()),
@@ -573,8 +565,7 @@ impl App {
                 ] {
                     ui.add_enabled_ui(has_bios, |ui| {
                         if ui.button(label).clicked() {
-                            self.emu_thread.stop_emulator_if_running();
-                            self.emu_thread.send(EmuThreadCommand::Run {
+                            self.emu_runner.push_command(EmuRunnerCommand::Run {
                                 console,
                                 config: Box::new(self.config.clone()),
                                 cheats: Arc::new(ActiveCheats::None),
@@ -611,8 +602,8 @@ impl App {
 
     fn render_emulation_menu(&mut self, ui: &mut Ui) {
         ui.menu_button("Emulation", |ui| {
-            ui.add_enabled_ui(self.emu_thread.status().is_running(), |ui| {
-                let save_state_metadata = self.emu_thread.save_state_metadata();
+            ui.add_enabled_ui(self.emu_runner.status().is_running(), |ui| {
+                let save_state_metadata = self.emu_runner.save_state_metadata();
 
                 ui.menu_button("Load State", |ui| {
                     ui.set_min_width(200.0);
@@ -624,7 +615,8 @@ impl App {
                                     .unwrap_or_else(|| "Unknown".into());
                                 let label = format!("Slot {slot} - {formatted_time}");
                                 if ui.button(label).clicked() {
-                                    self.emu_thread.send(EmuThreadCommand::LoadState { slot });
+                                    self.emu_runner
+                                        .push_command(EmuRunnerCommand::LoadState { slot });
                                     ui.close_kind(UiKind::Menu);
                                 }
                             }
@@ -651,7 +643,7 @@ impl App {
                         };
 
                         if ui.button(label).clicked() {
-                            self.emu_thread.send(EmuThreadCommand::SaveState { slot });
+                            self.emu_runner.push_command(EmuRunnerCommand::SaveState { slot });
                             ui.close_kind(UiKind::Menu);
                         }
                     }
@@ -660,35 +652,35 @@ impl App {
                 ui.add_space(15.0);
 
                 if ui.button("Open Memory Viewer").clicked() {
-                    self.emu_thread.send(EmuThreadCommand::OpenMemoryViewer);
+                    self.emu_runner.push_command(EmuRunnerCommand::OpenMemoryViewer);
                     ui.close_kind(UiKind::Menu);
                 }
 
                 ui.add_space(15.0);
 
-                let emu_thread_status = self.emu_thread.status();
-                let supports_soft_reset = !(emu_thread_status.is_running_handheld()
-                    || emu_thread_status == EmuThreadStatus::RunningPcEngine);
+                let emu_runner_status = self.emu_runner.status();
+                let supports_soft_reset = !(emu_runner_status.is_running_handheld()
+                    || emu_runner_status == EmuRunnerStatus::RunningPcEngine);
                 ui.add_enabled_ui(supports_soft_reset, |ui| {
                     if ui.button("Soft Reset").clicked() {
-                        self.emu_thread.send(EmuThreadCommand::SoftReset);
+                        self.emu_runner.push_command(EmuRunnerCommand::SoftReset);
                         ui.close_kind(UiKind::Menu);
                     }
                 });
 
                 if ui.button("Hard Reset").clicked() {
-                    self.emu_thread.send(EmuThreadCommand::HardReset);
+                    self.emu_runner.push_command(EmuRunnerCommand::HardReset);
                     ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("Power Off").clicked() {
-                    self.emu_thread.send(EmuThreadCommand::StopEmulator);
+                    self.emu_runner.push_command(EmuRunnerCommand::StopEmulator);
                     ui.close_kind(UiKind::Menu);
                 }
 
                 ui.add_space(15.0);
 
-                ui.add_enabled_ui(emu_thread_status == EmuThreadStatus::RunningSegaCd, |ui| {
+                ui.add_enabled_ui(emu_runner_status == EmuRunnerStatus::RunningSegaCd, |ui| {
                     ui.menu_button("Change Disc", |ui| {
                         if !self.state.disc_change_options.is_empty() {
                             for (name, path) in &self.state.disc_change_options {
@@ -696,8 +688,9 @@ impl App {
                                 ui.add_enabled_ui(enabled, |ui| {
                                     if ui.button(name).clicked() {
                                         self.state.current_file_path.clone_from(path);
-                                        self.emu_thread
-                                            .send(EmuThreadCommand::SegaCdChangeDisc(path.clone()));
+                                        self.emu_runner.push_command(
+                                            EmuRunnerCommand::SegaCdChangeDisc(path.clone()),
+                                        );
                                         ui.close_kind(UiKind::Menu);
                                     }
                                 });
@@ -711,7 +704,8 @@ impl App {
                                 FileDialog::new().add_filter("cue/chd", &["cue", "chd"]).pick_file()
                             {
                                 self.state.current_file_path.clone_from(&path);
-                                self.emu_thread.send(EmuThreadCommand::SegaCdChangeDisc(path));
+                                self.emu_runner
+                                    .push_command(EmuRunnerCommand::SegaCdChangeDisc(path));
                             }
 
                             ui.close_kind(UiKind::Menu);
@@ -719,7 +713,7 @@ impl App {
                     });
 
                     if ui.button("Remove Disc").clicked() {
-                        self.emu_thread.send(EmuThreadCommand::SegaCdRemoveDisc);
+                        self.emu_runner.push_command(EmuRunnerCommand::SegaCdRemoveDisc);
                         self.state.current_file_path.clear();
                         ui.close_kind(UiKind::Menu);
                     }
@@ -897,7 +891,7 @@ impl App {
 
     fn render_cheats_menu_button(&mut self, ui: &mut Ui) {
         let cheats_supported = self
-            .emu_thread
+            .emu_runner
             .status()
             .running_console()
             .is_none_or(|console| CheatConsole::from_console(console).is_some());
@@ -947,7 +941,7 @@ impl App {
                         }
                     });
                 } else {
-                    ui.add_enabled_ui(self.state.waiting_for_input.is_none(), |ui| {
+                    ui.add_enabled_ui(self.state.input_collection.is_none(), |ui| {
                         self.render_central_panel_filters(ui);
 
                         ui.add_space(15.0);
@@ -995,7 +989,6 @@ impl App {
                                             .ui(ui)
                                             .clicked()
                                         {
-                                            self.emu_thread.stop_emulator_if_running();
                                             self.launch_emulator(metadata.full_path.clone(), None);
                                         }
                                     });
@@ -1149,11 +1142,12 @@ impl App {
     }
 
     fn check_emulator_error(&mut self, ctx: &Context) {
-        let emulator_error = self.emu_thread.emulator_error();
-        let mut error_lock = emulator_error.lock().unwrap();
-        self.state.error_window_open = error_lock.is_some();
+        let emulator_error = self.emu_runner.emulator_error();
+        let mut emulator_error = emulator_error.borrow_mut();
 
-        if let Some(err) = error_lock.as_ref() {
+        self.state.error_window_open = emulator_error.is_some();
+
+        if let Some(err) = &*emulator_error {
             let mut open = true;
             let render_effect = match err {
                 NativeEmulatorError::SmsNoBios => self.render_sms_bios_error(ctx, &mut open),
@@ -1170,12 +1164,16 @@ impl App {
                 NativeEmulatorError::SnesLoad(snes_load_err) => {
                     match self.render_snes_load_error(ctx, snes_load_err, &mut open) {
                         HandledError::Yes(effect) => effect,
-                        HandledError::No => self.render_generic_error_window(ctx, err, &mut open),
+                        HandledError::No => Self::render_generic_error_window(ctx, err, &mut open),
                     }
                 }
                 NativeEmulatorError::GbaNoBios => self.render_gba_bios_error(ctx, &mut open),
-                _ => self.render_generic_error_window(ctx, err, &mut open),
+                _ => Self::render_generic_error_window(ctx, err, &mut open),
             };
+
+            if !open {
+                *emulator_error = None;
+            }
 
             match render_effect {
                 RenderErrorEffect::LaunchEmulator(console) => {
@@ -1183,31 +1181,16 @@ impl App {
                 }
                 RenderErrorEffect::None => {}
             }
-
-            if !open {
-                *error_lock = None;
-
-                if self.emu_thread.status() == EmuThreadStatus::Terminated {
-                    // Error was fatal; close the application
-                    ctx.send_viewport_cmd(ViewportCommand::Close);
-                }
-            }
         }
     }
 
     fn render_generic_error_window(
-        &self,
         ctx: &Context,
         err: &NativeEmulatorError,
         open: &mut bool,
     ) -> RenderErrorEffect {
         Window::new("Emulator Error").open(open).resizable(false).show(ctx, |ui| {
-            let heading = match self.emu_thread.status() {
-                EmuThreadStatus::Terminated => "Fatal error:",
-                _ => "Emulator terminated with error:",
-            };
-
-            ui.label(heading);
+            ui.label("Emulator terminated with error:");
             ui.add_space(10.0);
             ui.colored_label(Color32::RED, err.to_string());
         });
@@ -1215,56 +1198,20 @@ impl App {
         RenderErrorEffect::None
     }
 
-    fn check_waiting_for_input(&mut self, ctx: &Context) {
-        let Some(WaitingForInput { buttons, mapping, turbo }) = &mut self.state.waiting_for_input
-        else {
-            return;
-        };
+    fn check_input_collection(&mut self, ctx: &Context) {
+        let Some(input_collection) = &mut self.state.input_collection else { return };
 
-        while let Ok(input) = self.emu_thread.poll_input_receiver() {
-            let Some(button) = buttons.first() else {
-                self.state.waiting_for_input = None;
-                return;
-            };
+        input_collection.show_window(ctx, &self.joysticks.borrow());
 
-            log::info!("Received input {input:?} for button {button:?}");
-
-            match input {
-                Some(input) => {
-                    if !input.is_empty()
-                        && let Some(value) = button.access_value_maybe_turbo(
-                            *mapping,
-                            &mut self.config.input,
-                            *turbo,
-                        )
-                    {
-                        *value = Some(input);
-                    }
-
-                    buttons.remove(0);
-                    if buttons.is_empty() {
-                        self.state.waiting_for_input = None;
-                        return;
-                    }
-                }
-                None => {
-                    self.state.waiting_for_input = None;
-                    return;
-                }
-            }
-        }
-
-        if self.emu_thread.status().is_running() {
-            Window::new("Input Configuration").resizable(false).show(ctx, |ui| {
-                ui.colored_label(Color32::GREEN, "Use the emulator window to configure input");
-            });
+        if input_collection.done() {
+            self.state.input_collection = None;
         }
     }
 
     fn check_for_close_on_emu_exit(&mut self, ctx: &Context) {
         if self.state.close_on_emulator_exit {
-            let status = self.emu_thread.status();
-            if !status.is_running() && status != EmuThreadStatus::WaitingForFirstCommand {
+            let status = self.emu_runner.status();
+            if !status.is_running() && status != EmuRunnerStatus::WaitingForFirstCommand {
                 ctx.send_viewport_cmd(ViewportCommand::Close);
             }
         }
@@ -1279,7 +1226,7 @@ impl App {
     }
 
     fn reload_config(&mut self) {
-        self.emu_thread.send(EmuThreadCommand::ReloadConfig(
+        self.emu_runner.push_command(EmuRunnerCommand::ReloadConfig(
             Box::new(self.config.clone()),
             Arc::clone(self.active_cheats()),
             self.state.current_file_path.clone(),
@@ -1298,24 +1245,6 @@ impl App {
             .into();
     }
 
-    fn terminate_emu_thread(&self) {
-        if self.emu_thread.status() == EmuThreadStatus::Terminated {
-            return;
-        }
-
-        let _ = self.emu_thread.try_send(EmuThreadCommand::Terminate);
-
-        let wait_limit = Instant::now() + Duration::from_secs(1);
-        while Instant::now() < wait_limit && self.emu_thread.status() != EmuThreadStatus::Terminated
-        {
-            thread::sleep(Duration::from_millis(1));
-        }
-
-        if self.emu_thread.status() != EmuThreadStatus::Terminated {
-            log::warn!("Failed to terminate emulation thread; exiting anyway");
-        }
-    }
-
     fn update_window_size_in_config(&mut self, ctx: &Context) {
         ctx.viewport(|vp| {
             let Pos2 { x: width, y: height } = vp.input.viewport_rect().max;
@@ -1323,11 +1252,10 @@ impl App {
             self.config.gui_window_height = height;
         });
     }
-}
 
-impl eframe::App for App {
-    fn ui(&mut self, ui: &mut Ui, _frame: &mut Frame) {
-        if self.emu_thread.exit_signal() {
+    #[allow(clippy::missing_panics_doc)]
+    pub fn ui(&mut self, ui: &mut Ui) {
+        if self.emu_runner.exit_signal() {
             ui.send_viewport_cmd(ViewportCommand::Close);
             return;
         }
@@ -1337,31 +1265,25 @@ impl eframe::App for App {
             self.refresh_filtered_rom_list();
         }
 
-        if self.state.rendered_first_frame {
-            if let Some(load_at_startup) = self.load_at_startup.take() {
-                self.launch_emulator(load_at_startup.file_path, None);
+        if self.state.rendered_first_frame
+            && let Some(load_at_startup) = self.load_at_startup.take()
+        {
+            self.launch_emulator(load_at_startup.file_path, None);
 
-                if let Some(load_state_slot) = load_at_startup.load_state_slot {
-                    self.emu_thread.send(EmuThreadCommand::LoadState { slot: load_state_slot });
-                }
-
-                self.state.close_on_emulator_exit = true;
+            if let Some(load_state_slot) = load_at_startup.load_state_slot {
+                self.emu_runner.push_command(EmuRunnerCommand::LoadState { slot: load_state_slot });
             }
 
-            // Don't auto-focus the GUI window if -f/--file-path arg was set
-            if !self.initial_focused && !self.state.close_on_emulator_exit {
-                ui.send_viewport_cmd(ViewportCommand::Focus);
-                self.initial_focused = ui.input(|input| input.raw.focused);
-            }
+            self.state.close_on_emulator_exit = true;
         }
 
         let gui_focused = ui.input(|input| input.raw.focused);
-        self.emu_thread.update_gui_focused(gui_focused);
+        self.emu_runner.update_gui_focused(gui_focused);
 
         let prev_config = self.config.clone();
 
         self.check_emulator_error(ui);
-        self.check_waiting_for_input(ui);
+        self.check_input_collection(ui);
         self.check_for_close_on_emu_exit(ui);
 
         self.update_egui_theme(ui);
@@ -1389,8 +1311,16 @@ impl eframe::App for App {
         self.state.rendered_first_frame = true;
     }
 
-    fn on_exit(&mut self) {
-        self.terminate_emu_thread();
+    pub fn handle_sdl_event(&mut self, event: &sdl3::event::Event, ctx: &Context, window_id: u32) {
+        if let Some(input_collection) = &mut self.state.input_collection {
+            input_collection.handle_sdl_event(
+                event,
+                ctx,
+                window_id,
+                &mut self.joysticks.borrow_mut(),
+                &mut self.config.input,
+            );
+        }
     }
 }
 

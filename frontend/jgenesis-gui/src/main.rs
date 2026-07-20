@@ -1,12 +1,15 @@
 use clap::Parser;
-use eframe::NativeOptions;
-use egui::{IconData, ViewportBuilder};
+use egui_sdl3_wgpu::{FrameOptions, FrameRunEffect};
 use env_logger::Env;
 use image::{DynamicImage, ImageFormat};
+use jgenesis_gui::GuiEmulatorRunner;
 use jgenesis_gui::app::{App, ConfigInfo, LoadAtStartup};
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::paths::{ConfigDirs, ConfigWithPath};
+use jgenesis_native_driver::SdlSubsystems;
 use std::path::PathBuf;
+use std::thread;
+use std::time::Duration;
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -51,50 +54,6 @@ impl Args {
     }
 }
 
-// Attempt to detect if the application is running on a Steam Deck, and if it is then override
-// the winit scale factor to 1. It defaults to 4.5 on the Steam Deck which results in the GUI
-// being completely unusable.
-#[cfg(all(unix, not(target_os = "macos")))]
-fn steam_deck_dpi_hack() {
-    let Ok(mut xhandle) = xrandr::XHandle::open() else {
-        return;
-    };
-    let Ok(monitors) = xhandle.monitors() else {
-        return;
-    };
-
-    if monitors.len() != 1 {
-        return;
-    }
-
-    let monitor = &monitors[0];
-
-    if monitor.width_px != 1280 || monitor.height_px != 800 || monitor.outputs.len() != 1 {
-        return;
-    }
-
-    let output = &monitor.outputs[0];
-
-    let Some(edid) = output.properties.iter().find_map(|(_, property)| match &property.value {
-        xrandr::Value::Edid(edid) => Some(edid),
-        _ => None,
-    }) else {
-        return;
-    };
-
-    // Display name part of the EDID is always here on the Steam Deck: 'ANX7530 U<LF>'
-    if edid[75..87] == [0xFC, 0x00, 0x41, 0x4E, 0x58, 0x37, 0x35, 0x33, 0x30, 0x20, 0x55, 0x0A] {
-        log::info!(
-            "It looks like this is a Steam Deck; overriding winit scale factor to 1 as otherwise it will default to 4.5"
-        );
-
-        // SAFETY: This function is only called during initialization, before spawning any threads
-        unsafe {
-            std::env::set_var("WINIT_X11_SCALE_FACTOR", "1");
-        }
-    }
-}
-
 fn initial_gui_size(config: &AppConfig) -> (f32, f32) {
     (
         f32_max(jgenesis_native_config::DEFAULT_GUI_WIDTH, config.gui_window_width),
@@ -112,7 +71,7 @@ fn load_icon() -> DynamicImage {
     image::load_from_memory_with_format(ICON, ImageFormat::Png).expect("Failed to load GUI icon")
 }
 
-fn main() -> eframe::Result<()> {
+fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(
         Env::default().default_filter_or(jgenesis_common::DEFAULT_LOG_FILTER),
     )
@@ -124,9 +83,6 @@ fn main() -> eframe::Result<()> {
         println!("{}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
-
-    #[cfg(all(unix, not(target_os = "macos")))]
-    steam_deck_dpi_hack();
 
     let config_dirs = ConfigDirs::new();
     let config_dir_type = config_dirs.default_dir_type(args.config_path.clone());
@@ -143,15 +99,6 @@ fn main() -> eframe::Result<()> {
     let (gui_width, gui_height) = initial_gui_size(&config_with_path.config);
 
     let icon = load_icon();
-    let icon_width = icon.width();
-    let icon_height = icon.height();
-
-    let options = NativeOptions {
-        viewport: ViewportBuilder::default().with_inner_size([gui_width, gui_height]).with_icon(
-            IconData { rgba: icon.into_bytes(), width: icon_width, height: icon_height },
-        ),
-        ..NativeOptions::default()
-    };
 
     let config_info = ConfigInfo {
         initial_config: config_with_path.config,
@@ -161,11 +108,35 @@ fn main() -> eframe::Result<()> {
     };
     let load_at_startup = args.load_at_startup();
 
-    eframe::run_native(
-        "jgenesis",
-        options,
-        Box::new(|cc| Ok(Box::new(App::new(config_info, load_at_startup, cc.egui_ctx.clone())))),
-    )
+    let sdl = SdlSubsystems::init()?;
+
+    let options = FrameOptions {
+        window_width: gui_width.round() as u32,
+        window_height: gui_height.round() as u32,
+        icon: Some(icon),
+        ..FrameOptions::default()
+    };
+
+    let mut frame = egui_sdl3_wgpu::Frame::new("jgenesis", &sdl.video.borrow(), options)?;
+
+    let (mut emu_runner, emu_runner_handle) =
+        GuiEmulatorRunner::new(sdl.clone(), frame.egui_ctx().clone());
+
+    let mut app =
+        App::new(config_info, load_at_startup, frame.egui_ctx().clone(), &sdl, emu_runner_handle);
+
+    loop {
+        emu_runner.run(|event| {
+            frame.handle_sdl_event(event);
+            app.handle_sdl_event(event, frame.egui_ctx(), frame.window_id());
+        });
+
+        if frame.run(|ui, _ctx| app.ui(ui))? == FrameRunEffect::Closed {
+            return Ok(());
+        }
+
+        thread::sleep(Duration::from_millis(1));
+    }
 }
 
 #[cfg(test)]

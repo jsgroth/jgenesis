@@ -26,8 +26,9 @@ pub fn viewport_position_to_frame_position(
         return None;
     }
 
-    let x: f64 = x.into();
-    let y: f64 = y.into();
+    let x: f64 = (x * display_area.pixel_density).into();
+    let y: f64 = (y * display_area.pixel_density).into();
+
     let display_left: f64 = display_left.into();
     let display_width: f64 = display_area.width.into();
     let frame_width: f64 = frame_size.width.into();

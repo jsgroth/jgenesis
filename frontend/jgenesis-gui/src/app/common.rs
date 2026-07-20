@@ -2,8 +2,7 @@ mod helptext;
 
 use crate::app::widgets::{NumericTextEdit, SavePathSelect};
 use crate::app::{App, OpenWindow, widgets};
-use eframe::epaint::Color32;
-use egui::{Context, Grid, Slider, Ui, Window};
+use egui::{Color32, Context, Grid, Slider, Ui, Window};
 use jgenesis_native_config::EguiTheme;
 use jgenesis_native_config::common::{CheatPath, HideMouseCursor, PauseEmulator};
 use jgenesis_native_config::paths::{ConfigDirType, ConfigWithPath};
@@ -90,7 +89,7 @@ impl App {
     fn render_wgpu_backend_setting(&mut self, ui: &mut Ui, window: OpenWindow) {
         let rect = ui
             .group(|ui| {
-                ui.add_enabled_ui(!self.emu_thread.status().is_running(), |ui| {
+                ui.add_enabled_ui(!self.emu_runner.status().is_running(), |ui| {
                     ui.label("wgpu backend");
                     ui.horizontal(|ui| {
                         for (value, label) in [
@@ -113,7 +112,7 @@ impl App {
     fn render_wgpu_power_preference_setting(&mut self, ui: &mut Ui, window: OpenWindow) {
         let rect = ui
             .group(|ui| {
-                ui.add_enabled_ui(!self.emu_thread.status().is_running(), |ui| {
+                ui.add_enabled_ui(!self.emu_runner.status().is_running(), |ui| {
                     ui.label("wgpu power preference");
                     ui.horizontal(|ui| {
                         for (value, label) in [
@@ -208,7 +207,7 @@ impl App {
                     "None",
                 );
 
-                let composite_enabled = !self.emu_thread.status().is_running_handheld();
+                let composite_enabled = !self.emu_runner.status().is_running_handheld();
 
                 ui.horizontal(|ui| {
                     ui.add_enabled_ui(composite_enabled, |ui| {

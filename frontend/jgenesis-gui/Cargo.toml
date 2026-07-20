@@ -37,7 +37,6 @@ egui-sdl3-wgpu = { workspace = true }
 
 anyhow = { workspace = true }
 clap = { workspace = true }
-eframe = { workspace = true }
 egui = { workspace = true }
 egui_extras = { workspace = true }
 emath = { workspace = true }
@@ -51,9 +50,6 @@ sdl3 = { workspace = true }
 serde = { workspace = true }
 time = { workspace = true, features = ["formatting", "local-offset"] }
 toml = { workspace = true }
-
-[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
-xrandr = { workspace = true }
 
 [package.metadata.packager]
 icons = ["../256x256.png"]

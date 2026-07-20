@@ -58,7 +58,6 @@ impl DebuggerWindow {
     /// Propagates any errors encountered while initializing the window or the wgpu renderer.
     pub fn new(
         video: &VideoSubsystem,
-        scale_factor: Option<f32>,
         egui_theme: EguiTheme,
         render_config: &RendererConfig,
         debugger_process: Box<dyn DebuggerMainProcess>,
@@ -66,7 +65,6 @@ impl DebuggerWindow {
         let options = FrameOptions {
             window_width: 925,
             window_height: 790,
-            scale_factor,
             egui_theme: egui_theme_preference(egui_theme),
             install_egui_image_loaders: true,
             wgpu_backends: render_config.wgpu_backend.to_wgpu(),

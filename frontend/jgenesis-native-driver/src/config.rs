@@ -43,8 +43,6 @@ pub struct CommonConfig {
     pub state_path: SavePath,
     #[cfg_display(debug_fmt)]
     pub window_size: Option<WindowSize>,
-    #[cfg_display(debug_fmt)]
-    pub window_scale_factor: Option<f32>,
     #[cfg_display(indent_nested)]
     pub renderer_config: RendererConfig,
     pub fast_forward_multiplier: u64,
@@ -265,7 +263,6 @@ impl AppConfigExt for AppConfig {
             save_path: save_path(self.common.save_path, &self.common.custom_save_path),
             state_path: save_path(self.common.state_path, &self.common.custom_state_path),
             window_size: self.common.window_size(),
-            window_scale_factor: self.common.window_scale_factor,
             renderer_config: RendererConfig {
                 wgpu_backend: self.common.wgpu_backend,
                 wgpu_power_preference: self.common.wgpu_power_preference,
