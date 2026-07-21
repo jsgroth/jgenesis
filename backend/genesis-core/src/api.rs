@@ -227,7 +227,7 @@ impl GenesisEmulator {
         let z80 = Z80::new();
         let vdp = Vdp::new(timing_mode, config.to_vdp_config(DarkenColors::No));
         let psg = Sn76489::new(Sn76489Version::Standard);
-        let ym2612 = Ym2612::new_from_config(&config);
+        let ym2612 = Ym2612::new(&config);
         let input = InputState::new(&config, memory.medium().metadata().six_button_incompatible);
 
         // The Genesis does not allow TAS to lock the bus, so don't allow TAS writes

@@ -146,7 +146,7 @@ impl Sega32XEmulator {
         let z80 = Z80::new();
         let vdp =
             Vdp::new(timing_mode, config.genesis.to_vdp_config(config.genesis_color_adjustment()));
-        let ym2612 = Ym2612::new_from_config(&config.genesis);
+        let ym2612 = Ym2612::new(&config.genesis);
         let psg = Sn76489::new(Sn76489Version::Standard);
 
         let memory = Memory::new(s32x, &config.genesis);

@@ -226,7 +226,7 @@ impl SegaCdEmulator {
         let z80 = Z80::new();
         let vdp = Vdp::new(timing_mode, emulator_config.genesis.to_vdp_config(DarkenColors::No));
         let graphics_coprocessor = GraphicsCoprocessor::new();
-        let ym2612 = Ym2612::new_from_config(&emulator_config.genesis);
+        let ym2612 = Ym2612::new(&emulator_config.genesis);
         let psg = Sn76489::new(Sn76489Version::Standard);
         let pcm = Rf5c164::new(&emulator_config);
 

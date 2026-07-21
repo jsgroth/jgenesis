@@ -475,7 +475,7 @@ mod tests {
         let mut z80 = Z80::new();
         let mut genesis_vdp =
             GenesisVdp::new(TimingMode::Ntsc, emu_config.genesis.to_vdp_config(DarkenColors::Yes));
-        let mut ym2612 = Ym2612::new_from_config(&GenesisEmulatorConfig::default());
+        let mut ym2612 = Ym2612::new(&GenesisEmulatorConfig::default());
         let mut psg = Sn76489::new(Sn76489Version::default());
         let mut working_ram = vec![0; 64 * 1024];
         let mut audio_ram = vec![0; 8 * 1024];

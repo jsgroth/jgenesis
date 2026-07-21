@@ -17,8 +17,8 @@ use crate::ym2612::timer::{TimerA, TimerB, TimerControl, TimerTickEffect};
 use bincode::{Decode, Encode};
 use genesis_config::Opn2BusyBehavior;
 use jgenesis_common::num::GetBit;
-use std::array;
 use std::sync::LazyLock;
+use std::{array, mem};
 
 pub use debug::{
     Channel3FrequencyMode, ChannelRegisters, GlobalRegisters, LfoState, OperatorRegisters,
@@ -454,21 +454,34 @@ pub struct Ym2612 {
 
 impl Ym2612 {
     #[must_use]
-    pub fn new(
+    pub fn new(config: &GenesisEmulatorConfig) -> Self {
+        Self::new_internal(
+            config.channels_muted(),
+            config.quantize_ym2612_output,
+            config.emulate_ym2612_ladder_effect,
+            config.opn2_busy_behavior,
+            FM_SAMPLE_DIVIDER,
+            Vec::with_capacity(500),
+        )
+    }
+
+    fn new_internal(
         channels_muted: [bool; 6],
         quantize_output: bool,
         emulate_ladder_effect: bool,
         busy_behavior: Opn2BusyBehavior,
+        sample_divider: u8,
+        output_samples: Vec<(f64, f64)>,
     ) -> Self {
         Self {
             channels: array::from_fn(|_| FmChannel::default()),
             channels_muted,
             dac_channel_enabled: false,
-            dac_channel_sample: 0,
+            dac_channel_sample: 128,
             lfo: LowFrequencyOscillator::new(),
             selected_register: 0,
             selected_register_group: RegisterGroup::default(),
-            sample_divider: FM_SAMPLE_DIVIDER,
+            sample_divider,
             busy_cycles_remaining: 0,
             timer_a: TimerA::new(),
             timer_b: TimerB::new(),
@@ -478,26 +491,18 @@ impl Ym2612 {
             busy_behavior,
             last_status_read: 0,
             status_decay_samples_remaining: 0,
-            output_samples: Vec::with_capacity(500),
+            output_samples,
         }
     }
 
-    #[must_use]
-    pub fn new_from_config(config: &GenesisEmulatorConfig) -> Self {
-        Self::new(
-            config.channels_muted(),
-            config.quantize_ym2612_output,
-            config.emulate_ym2612_ladder_effect,
-            config.opn2_busy_behavior,
-        )
-    }
-
     pub fn reset(&mut self) {
-        *self = Self::new(
+        *self = Self::new_internal(
             self.channels_muted,
             self.quantize_output,
             self.emulate_ladder_effect,
             self.busy_behavior,
+            self.sample_divider,
+            mem::take(&mut self.output_samples),
         );
     }
 
@@ -974,7 +979,10 @@ mod tests {
 
     #[test]
     fn ladder_effect() {
-        let ym2612 = Ym2612::new([true; 6], false, true, Opn2BusyBehavior::default());
+        let ym2612 = Ym2612::new(&GenesisEmulatorConfig {
+            emulate_ym2612_ladder_effect: true,
+            ..GenesisEmulatorConfig::default()
+        });
 
         // Zero; output +4
         assert_eq!(4 << 5, ym2612.apply_panning(0, false));
@@ -991,7 +999,10 @@ mod tests {
 
     #[test]
     fn busy_flag_ym2612() {
-        let mut ym2612 = Ym2612::new([true; 6], false, true, Opn2BusyBehavior::Ym2612);
+        let mut ym2612 = Ym2612::new(&GenesisEmulatorConfig {
+            opn2_busy_behavior: Opn2BusyBehavior::Ym2612,
+            ..GenesisEmulatorConfig::default()
+        });
 
         let check_4001_4003 = |ym2612: &mut Ym2612, value: u8| {
             for address in 0x4001..=0x4003 {
