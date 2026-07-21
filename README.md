@@ -17,7 +17,7 @@ Linux, Windows, and web (WASM) are officially supported. Other platforms may wor
   * Super Nintendo Entertainment System (SNES) / Super Famicom
   * Game Boy / Game Boy Color
   * Game Boy Advance
-  * PC Engine / TurboGrafx-16
+  * PC Engine / TurboGrafx-16 (No CD-ROM<sup>2</sup> support yet)
 * GPU-based renderer with integer prescaling and optional linear interpolation
 * Configurable pixel aspect ratio for each console with several different options: accurate to original hardware/TVs, square pixels, and stretched to fill the window
 * Support for the Sega Master System FM sound unit expansion
@@ -50,6 +50,10 @@ Note that these builds are not always well-tested and may have bugs.
 ## Build & Run
 
 See [BUILD.md](BUILD.md)
+
+## License
+
+All code in this repository is licensed under the [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.en.html) unless explicitly stated otherwise at the top of the file (for example, some shader files are MIT-licensed).
 
 ## Screenshots
 
@@ -131,3 +135,11 @@ See [BUILD.md](BUILD.md)
 * Tonc - GBA programming guide: <https://gbadev.net/tonc/foreword.html>
 * mGBA blog: <https://mgba.io/tag/development/>
 * NanoBoyAdvance hardware documentation: <https://nba-emu.github.io/hw-docs/foreword.html>
+
+### PC Engine / TurboGrafx-16
+* PC Engine / TurboGrafx-16 Architecture: <https://www.copetti.org/writings/consoles/pc-engine/>
+* PC Engine Developer Documentation: <https://archive.org/details/PCEDev>
+* HuC6280 opcode matrix: <https://www.chrismcovell.com/PCEdev/HuC6280_opcodes.html>
+* TurboGrafx-16 Hardware Notes by Charles MacDonald: <https://www.romhacking.net/documents/302/>
+* [Screen Resolution, VDC Setup, and Sprite Limits](https://web.archive.org/web/20250903193836/https://pcengine.proboards.com/thread/639/screen-resolution-setup-sprite-limits)
+* [Mednafen](https://mednafen.github.io/) and [Mesen](https://mesen.ca/) as references for some poorly-documented edge case behaviors
