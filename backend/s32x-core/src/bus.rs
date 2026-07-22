@@ -442,8 +442,6 @@ pub struct Sh2Bus {
     debugger: Option<(Sega32XDebuggerForSh2Raw, NonNull<Sh2>)>,
 }
 
-sh2_emu::impl_sh2_lookup_table!(Sh2Bus);
-
 pub struct Sh2BusGuard<'bus, 'other> {
     bus: Sh2Bus,
     _bus_marker: PhantomData<&'bus ()>,
@@ -1165,6 +1163,8 @@ impl BusInterface for Sh2Bus {
     fn should_stop_execution(&self) -> bool {
         self.cycle_counter >= self.cycle_limit
     }
+
+    sh2_emu::impl_sh2_opcode_table!(Sh2Bus);
 }
 
 #[inline]

@@ -64,8 +64,6 @@ impl DebugSh2Bus {
     }
 }
 
-sh2_emu::impl_sh2_lookup_table!(DebugSh2Bus);
-
 pub(crate) struct DebugSh2BusGuard<'bus, 'other, 'debug, 'genram, 'genvdp> {
     bus: DebugSh2Bus,
     _bus_marker: PhantomData<&'bus ()>,
@@ -316,6 +314,8 @@ impl BusInterface for DebugSh2Bus {
     fn debug_view(&mut self) -> Option<Self::DebugView<'_>> {
         Some(Sh2BusDebugView(self))
     }
+
+    sh2_emu::impl_sh2_opcode_table!(DebugSh2Bus);
 }
 
 impl MainBus68kDebugger<Sega32X> for Sega32XDebuggerFor68k<'_> {

@@ -71,7 +71,7 @@ impl OpSize {
     }
 }
 
-pub trait BusInterface {
+pub trait BusInterface: Sized {
     /// Debug view type; if not implemented, set to [`crate::debug::DummySh2Debugger`]
     type DebugView<'a>: Sh2Debugger
     where
@@ -134,24 +134,21 @@ pub trait BusInterface {
     fn debug_view(&mut self) -> Option<Self::DebugView<'_>> {
         None
     }
-}
 
-pub trait Sh2LookupTable<Bus: BusInterface> {
-    fn table<'a>() -> &'a OpcodeTable<Bus>;
+    fn opcode_table<'a>() -> &'a OpcodeTable<Self>;
 }
 
 #[macro_export]
-macro_rules! impl_sh2_lookup_table {
+macro_rules! impl_sh2_opcode_table {
     ($bus:ident) => {
-        impl $crate::bus::Sh2LookupTable<$bus> for $crate::Sh2 {
-            fn table<'a>() -> &'a $crate::OpcodeTable<$bus> {
-                static TABLE: ::std::sync::LazyLock<$crate::OpcodeTable<$bus>> =
-                    ::std::sync::LazyLock::new(|| $crate::OpcodeTable::new());
+        #[inline]
+        fn opcode_table<'a>() -> &'a $crate::OpcodeTable<$bus> {
+            static TABLE: ::std::sync::LazyLock<$crate::OpcodeTable<$bus>> =
+                ::std::sync::LazyLock::new(|| $crate::OpcodeTable::new());
 
-                &*TABLE
-            }
+            &*TABLE
         }
     };
 }
 
-pub use impl_sh2_lookup_table;
+pub use impl_sh2_opcode_table;
