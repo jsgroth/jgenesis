@@ -24,11 +24,10 @@ use jgenesis_common::frontend::{
 };
 use jgenesis_proc_macros::ConfigDisplay;
 use m68000_emu::M68000;
-use smsgg_config::Sn76489Version;
-use smsgg_core::psg::{Sn76489, Sn76489TickEffect};
 use std::fmt::{Debug, Display};
 use std::num::NonZeroU64;
 use thiserror::Error;
+use ti_sn76489::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use z80_emu::Z80;
 
 #[derive(Debug, Error)]

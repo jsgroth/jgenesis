@@ -49,11 +49,11 @@ use jgenesis_common::num::GetBit;
 use jgenesis_common::sync::SharedVarSender;
 use jgenesis_proc_macros::EnumAll;
 use m68000_emu::M68000;
-use smsgg_core::psg::Sn76489;
 use std::array;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, SendError, Sender, TryRecvError};
 use std::sync::{Arc, mpsc};
+use ti_sn76489::Sn76489;
 use z80_emu::Z80;
 
 #[derive(Debug, Clone, Copy, Default)]

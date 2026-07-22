@@ -17,8 +17,8 @@ use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::PartialClone;
 use m68000_emu::debug::DummyM68000Debugger;
-use smsgg_core::psg::Sn76489;
 use std::mem;
+use ti_sn76489::Sn76489;
 use z80_emu::debug::DummyZ80Debugger;
 use z80_emu::traits::InterruptLine;
 

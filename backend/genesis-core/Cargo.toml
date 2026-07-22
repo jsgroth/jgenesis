@@ -11,12 +11,11 @@ jgenesis-proc-macros = { workspace = true }
 jgenesis-common = { workspace = true }
 
 genesis-config = { workspace = true }
-smsgg-config = { workspace = true }
 
 m68000-emu = { workspace = true, features = ["bincode"] }
 z80-emu = { workspace = true, features = ["bincode"] }
 
-smsgg-core = { workspace = true }
+ti-sn76489 = { workspace = true }
 
 bincode = { workspace = true }
 crc = { workspace = true }

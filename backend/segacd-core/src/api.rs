@@ -26,12 +26,11 @@ use jgenesis_common::frontend::{
 };
 use jgenesis_proc_macros::ConfigDisplay;
 use m68000_emu::M68000;
-use smsgg_config::Sn76489Version;
-use smsgg_core::psg::{Sn76489, Sn76489TickEffect};
 use std::fmt::{Debug, Display};
 use std::num::{NonZeroU16, NonZeroU64};
 use std::path::Path;
 use thiserror::Error;
+use ti_sn76489::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use z80_emu::Z80;
 
 pub const DEFAULT_SUB_CPU_DIVIDER: u64 = genesis_config::NATIVE_SUB_CPU_DIVIDER;

@@ -416,8 +416,7 @@ mod tests {
     use jgenesis_common::boxedarray::BoxedWordArray;
     use jgenesis_common::frontend::TimingMode;
     use m68000_emu::M68000;
-    use smsgg_config::Sn76489Version;
-    use smsgg_core::psg::Sn76489;
+    use ti_sn76489::{Sn76489, Sn76489Version};
     use z80_emu::Z80;
 
     const COMM_PORT_0: u32 = 0x20004020;

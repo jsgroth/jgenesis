@@ -1,6 +1,6 @@
 use egui::{Grid, Ui, Window};
-use smsgg_core::psg::{NoiseMode, NoiseReload, Sn76489};
 use std::borrow::Cow;
+use ti_sn76489::{NoiseMode, NoiseReload, Sn76489};
 
 pub const WINDOW_TITLE: &str = "SN76489 Registers";
 

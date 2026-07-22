@@ -18,9 +18,9 @@ use jgenesis_common::debug::{DebugBytesView, DebugMemoryView};
 use jgenesis_common::frontend::{AudioOutput, InputPoller, Renderer, SaveWriter, TickResult};
 use jgenesis_common::sync::SharedVarSender;
 use m68000_emu::M68000;
-use smsgg_core::psg::Sn76489;
 use std::sync::mpsc::{Receiver, SendError, Sender, TryRecvError};
 use std::sync::{Arc, mpsc};
+use ti_sn76489::Sn76489;
 use z80_emu::Z80;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

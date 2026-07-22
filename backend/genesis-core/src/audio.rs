@@ -29,6 +29,11 @@ pub fn new_ym2612_dc_offset(timing_mode: TimingMode) -> FirstOrderIirFilter {
     dsp::design::butterworth(5.0, ym2612_frequency(timing_mode), FilterType::HighPass)
 }
 
+#[must_use]
+pub fn new_psg_dc_offset(timing_mode: TimingMode) -> FirstOrderIirFilter {
+    dsp::design::butterworth(5.0, psg_frequency(timing_mode), FilterType::HighPass)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub struct LowPassSettings {
     pub genesis_enabled: bool,
@@ -68,7 +73,7 @@ impl GenesisAudioFilter {
         Self {
             ym2612_dc_offset_l: new_ym2612_dc_offset(timing_mode),
             ym2612_dc_offset_r: new_ym2612_dc_offset(timing_mode),
-            psg_dc_offset: smsgg_core::audio::new_psg_dc_offset(timing_mode),
+            psg_dc_offset: new_psg_dc_offset(timing_mode),
             low_pass_settings,
             ym2612_gen_low_pass_l: new_ym2612_low_pass(
                 timing_mode,

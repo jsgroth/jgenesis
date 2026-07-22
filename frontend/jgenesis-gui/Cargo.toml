@@ -21,6 +21,7 @@ nes-core = { workspace = true }
 segacd-core = { workspace = true }
 smsgg-core = { workspace = true }
 snes-core = { workspace = true }
+ti-sn76489 = { workspace = true }
 
 gb-config = { workspace = true }
 gba-config = { workspace = true }

@@ -26,12 +26,13 @@ use jgenesis_renderer::config::{
 };
 use nes_config::{NesAspectRatio, NesAudioResampler, NesPalette};
 use smsgg_config::cheats::SmsGgCheats;
-use smsgg_config::{GgAspectRatio, SmsAspectRatio, SmsGgRegion, SmsModel, Sn76489Version};
+use smsgg_config::{GgAspectRatio, SmsAspectRatio, SmsGgRegion, SmsModel};
 use smsgg_core::SmsGgHardware;
 use snes_config::{AudioInterpolationMode, SnesAspectRatio};
 use std::fmt::Debug;
 use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 use std::path::{Path, PathBuf};
+use ti_sn76489::Sn76489Version;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumAll, EnumDisplay, CustomValueEnum)]
 enum Hardware {

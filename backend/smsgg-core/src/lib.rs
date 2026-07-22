@@ -3,7 +3,6 @@ pub mod audio;
 mod bus;
 mod input;
 mod memory;
-pub mod psg;
 mod vdp;
 
 pub use api::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgError, SmsGgHardware, SmsGgResult};

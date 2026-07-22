@@ -24,6 +24,7 @@ s32x-core = { workspace = true }
 segacd-core = { workspace = true }
 smsgg-core = { workspace = true }
 snes-core = { workspace = true }
+ti-sn76489 = { workspace = true }
 
 egui-sdl3-wgpu = { workspace = true }
 jgenesis-native-config = { workspace = true }

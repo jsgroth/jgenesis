@@ -106,6 +106,7 @@ segacd-core = { path = "backend/segacd-core" }
 smsgg-core = { path = "backend/smsgg-core" }
 snes-coprocessors = { path = "backend/snes-coprocessors" }
 snes-core = { path = "backend/snes-core" }
+ti-sn76489 = { path = "backend/ti-sn76489" }
 ym-opll = { path = "backend/ym-opll" }
 
 # Workspace frontend libraries

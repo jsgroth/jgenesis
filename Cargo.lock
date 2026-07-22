@@ -1621,10 +1621,9 @@ dependencies = [
  "log",
  "m68000-emu",
  "regex",
- "smsgg-config",
- "smsgg-core",
  "test-log",
  "thiserror 2.0.18",
+ "ti-sn76489",
  "z80-emu",
 ]
 
@@ -2016,6 +2015,7 @@ dependencies = [
  "smsgg-config",
  "smsgg-core",
  "snes-config",
+ "ti-sn76489",
  "toml",
 ]
 
@@ -2065,6 +2065,7 @@ dependencies = [
  "smsgg-core",
  "snes-core",
  "thiserror 2.0.18",
+ "ti-sn76489",
  "wgpu",
  "z80-emu",
 ]
@@ -2104,6 +2105,7 @@ dependencies = [
  "smsgg-core",
  "snes-config",
  "snes-core",
+ "ti-sn76489",
  "time",
  "toml",
 ]
@@ -2128,6 +2130,7 @@ dependencies = [
  "smsgg-config",
  "snes-config",
  "thiserror 2.0.18",
+ "ti-sn76489",
  "toml",
  "toml_edit",
 ]
@@ -4076,9 +4079,8 @@ dependencies = [
  "log",
  "m68000-emu",
  "sh2-emu",
- "smsgg-config",
- "smsgg-core",
  "thiserror 2.0.18",
+ "ti-sn76489",
  "z80-emu",
 ]
 
@@ -4226,9 +4228,8 @@ dependencies = [
  "log",
  "m68000-emu",
  "regex",
- "smsgg-config",
- "smsgg-core",
  "thiserror 2.0.18",
+ "ti-sn76489",
  "z80-emu",
 ]
 
@@ -4551,6 +4552,7 @@ dependencies = [
  "log",
  "smsgg-config",
  "thiserror 2.0.18",
+ "ti-sn76489",
  "tinyvec",
  "ym-opll",
  "z80-emu",
@@ -4790,6 +4792,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f60246a4944f24f6e018aa17cdeffb7818b76356965d03b07d6a9886e8962185"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "ti-sn76489"
+version = "0.13.1"
+dependencies = [
+ "bincode",
+ "clap",
+ "jgenesis-common",
+ "jgenesis-proc-macros",
+ "serde",
 ]
 
 [[package]]

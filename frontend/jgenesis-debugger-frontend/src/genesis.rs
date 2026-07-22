@@ -46,11 +46,11 @@ use segacd_core::api::debug::{
     SegaCdDebugCommand, SegaCdDebugState, SegaCdDebugger, SegaCdDebuggerHandle, SegaCdMemoryArea,
 };
 use sh2_emu::{CacheMode, DmaAddressMode, DmaTransferUnit, Sh2};
-use smsgg_core::psg::Sn76489;
 use std::collections::HashMap;
 use std::error::Error;
 use std::hash::Hash;
 use std::iter;
+use ti_sn76489::Sn76489;
 
 const CRAM_WINDOW_TITLE: &str = "CRAM";
 const VRAM_WINDOW_TITLE: &str = "VRAM";

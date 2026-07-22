@@ -9,14 +9,13 @@ jgenesis-common = { workspace = true }
 jgenesis-proc-macros = { workspace = true }
 
 genesis-config = { workspace = true }
-smsgg-config = { workspace = true }
 
 m68000-emu = { workspace = true }
 sh2-emu = { workspace = true }
 z80-emu = { workspace = true }
 
 genesis-core = { workspace = true }
-smsgg-core = { workspace = true }
+ti-sn76489 = { workspace = true }
 
 bincode = { workspace = true, features = ["derive"] }
 log = { workspace = true }

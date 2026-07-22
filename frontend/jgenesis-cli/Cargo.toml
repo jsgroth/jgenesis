@@ -27,6 +27,7 @@ jgenesis-proc-macros = { workspace = true }
 jgenesis-renderer = { workspace = true, features = ["clap"] }
 
 smsgg-core = { workspace = true }
+ti-sn76489 = { workspace = true, features = ["clap"] }
 
 anyhow = { workspace = true }
 clap = { workspace = true }
