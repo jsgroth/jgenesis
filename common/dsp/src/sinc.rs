@@ -645,13 +645,10 @@ mod tests {
     }
 
     // Validates that sum_wing_avx2() and sum_wing_avx512() produce the same results as sum_wing_no_avx()
-    #[cfg(target_arch = "x86_64")]
-    fn sum_wing_avx_kernel<Kernel: SincKernel>(source_rate: f64) {
-        if !is_x86_feature_detected!("avx2") || !is_x86_feature_detected!("fma") {
-            // Don't bother doing anything if not even AVX2 is supported
-            return;
-        }
-
+    fn sum_wing_test<Kernel: SincKernel>(
+        source_rate: f64,
+        sum_wing_avx_fn: impl Fn(bool, &[f32], u64, u64, [&[f64]; 1], usize) -> [f64; 1],
+    ) {
         let target_rate = 48000.0;
         let ratio = target_rate / source_rate;
         let required_samples = estimate_required_samples::<Kernel>(ratio);
@@ -665,121 +662,52 @@ mod tests {
         let fir = Kernel::fir();
 
         let mut buffer = SampleRingBuffer::new(required_samples);
+        buffer.idx = buffer.buffer.len() - SampleRingBuffer::EXTRA_SPACE - required_samples;
         for _ in 0..2 * required_samples {
             buffer.push(rand::random());
         }
 
-        // SAFETY: AVX2 and FMA are supported on this CPU, as checked above
-        unsafe {
-            for _ in 0..required_samples / 2 {
-                let n = required_samples / 2 + buffer.idx;
+        // Use fewer iterations when running in miri because miri is very slow
+        let iterations = cfg_select! {
+            miri => 3,
+            _ => required_samples / 2,
+        };
 
-                let interpolation_idx = (rand::random_range(0.0..1.0) * step_float).round() as u64;
+        for _ in 0..iterations {
+            let n = required_samples / 2 + buffer.idx;
 
-                let non_avx_reverse = sum_wing_no_avx::<true, _>(
-                    fir,
-                    interpolation_idx,
-                    step,
-                    [buffer.buffer.as_slice()],
-                    n,
-                );
-                let non_avx_forward = sum_wing_no_avx::<false, _>(
-                    fir,
-                    interpolation_idx,
-                    step,
-                    [buffer.buffer.as_slice()],
-                    n,
-                );
+            let interpolation_idx = (rand::random_range(0.0..1.0) * step_float).round() as u64;
 
-                let avx2_reverse = sum_wing_avx2::<true, _>(
-                    fir,
-                    interpolation_idx,
-                    step,
-                    [buffer.buffer.as_slice()],
-                    n,
-                );
-                let avx2_forward = sum_wing_avx2::<false, _>(
-                    fir,
-                    interpolation_idx,
-                    step,
-                    [buffer.buffer.as_slice()],
-                    n,
-                );
+            let non_avx_reverse = sum_wing_no_avx::<true, _>(
+                fir,
+                interpolation_idx,
+                step,
+                [buffer.buffer.as_slice()],
+                n,
+            );
+            let non_avx_forward = sum_wing_no_avx::<false, _>(
+                fir,
+                interpolation_idx,
+                step,
+                [buffer.buffer.as_slice()],
+                n,
+            );
 
-                assert!(
-                    (non_avx_reverse[0] - avx2_reverse[0]).abs() < 1e-9,
-                    "{non_avx_reverse:?} == {avx2_reverse:?} (source rate {source_rate})"
-                );
-                assert!(
-                    (non_avx_forward[0] - avx2_forward[0]).abs() < 1e-9,
-                    "{non_avx_forward:?} == {avx2_forward:?} (source rate {source_rate})",
-                );
+            let avx_reverse =
+                sum_wing_avx_fn(true, fir, interpolation_idx, step, [buffer.buffer.as_slice()], n);
+            let avx_forward =
+                sum_wing_avx_fn(false, fir, interpolation_idx, step, [buffer.buffer.as_slice()], n);
 
-                buffer.pop();
-            }
-        }
+            assert!(
+                (non_avx_reverse[0] - avx_reverse[0]).abs() < 1e-9,
+                "{non_avx_reverse:?} == {avx_reverse:?} (source rate {source_rate})"
+            );
+            assert!(
+                (non_avx_forward[0] - avx_forward[0]).abs() < 1e-9,
+                "{non_avx_forward:?} == {avx_forward:?} (source rate {source_rate})",
+            );
 
-        // Skip rest of test if AVX512 is not supported
-        if !is_x86_feature_detected!("avx512f")
-            || !is_x86_feature_detected!("avx512vl")
-            || !is_x86_feature_detected!("avx512dq")
-        {
-            return;
-        }
-
-        let mut buffer = SampleRingBuffer::new(required_samples);
-        for _ in 0..2 * required_samples {
-            buffer.push(rand::random());
-        }
-
-        // SAFETY: AVX512 is supported on this CPU, as checked above
-        unsafe {
-            for _ in 0..required_samples / 2 {
-                let n = required_samples / 2 + buffer.idx;
-
-                let interpolation_idx = (rand::random_range(0.0..1.0) * step_float).round() as u64;
-
-                let non_avx_reverse = sum_wing_no_avx::<true, _>(
-                    fir,
-                    interpolation_idx,
-                    step,
-                    [buffer.buffer.as_slice()],
-                    n,
-                );
-                let non_avx_forward = sum_wing_no_avx::<false, _>(
-                    fir,
-                    interpolation_idx,
-                    step,
-                    [buffer.buffer.as_slice()],
-                    n,
-                );
-
-                let avx512_reverse = sum_wing_avx512::<true, _>(
-                    fir,
-                    interpolation_idx,
-                    step,
-                    [buffer.buffer.as_slice()],
-                    n,
-                );
-                let avx512_forward = sum_wing_avx512::<false, _>(
-                    fir,
-                    interpolation_idx,
-                    step,
-                    [buffer.buffer.as_slice()],
-                    n,
-                );
-
-                assert!(
-                    (non_avx_reverse[0] - avx512_reverse[0]).abs() < 1e-9,
-                    "{non_avx_reverse:?} == {avx512_reverse:?} (source rate {source_rate})"
-                );
-                assert!(
-                    (non_avx_forward[0] - avx512_forward[0]).abs() < 1e-9,
-                    "{non_avx_forward:?} == {avx512_forward:?} (source rate {source_rate})"
-                );
-
-                buffer.pop();
-            }
+            buffer.pop();
         }
     }
 
@@ -789,17 +717,59 @@ mod tests {
     //   $ cargo +nightly miri test -p dsp
     #[cfg(target_arch = "x86_64")]
     #[test]
-    fn sum_wing_avx_quality_kernel() {
+    fn test_sum_wing_avx2() {
+        // SAFETY: Only run test on CPUs that support AVX2 and FMA
+        if !is_x86_feature_detected!("avx2") || !is_x86_feature_detected!("fma") {
+            return;
+        }
+
         for &source_rate in TEST_SOURCE_RATES {
-            sum_wing_avx_kernel::<Quality>(source_rate);
+            let sum_wing_fn = |reverse,
+                               fir: &[f32],
+                               interpolation_idx,
+                               step,
+                               samples: [&[f64]; 1],
+                               n| {
+                if reverse {
+                    unsafe { sum_wing_avx2::<true, _>(fir, interpolation_idx, step, samples, n) }
+                } else {
+                    unsafe { sum_wing_avx2::<false, _>(fir, interpolation_idx, step, samples, n) }
+                }
+            };
+
+            sum_wing_test::<Performance>(source_rate, sum_wing_fn);
+            sum_wing_test::<Quality>(source_rate, sum_wing_fn);
         }
     }
 
     #[cfg(target_arch = "x86_64")]
+    #[cfg_attr(miri, ignore)] // miri does not support all required AVX512 intrinsics as of 1.99 nightly
     #[test]
-    fn sum_wing_avx_performance_kernel() {
+    fn test_sum_wing_avx512() {
+        // SAFETY: Only run test on CPUs that support AVX512 (F + DQ + VL)
+        if !is_x86_feature_detected!("avx512f")
+            || !is_x86_feature_detected!("avx512dq")
+            || !is_x86_feature_detected!("avx512vl")
+        {
+            return;
+        }
+
         for &source_rate in TEST_SOURCE_RATES {
-            sum_wing_avx_kernel::<Performance>(source_rate);
+            let sum_wing_fn = |reverse,
+                               fir: &[f32],
+                               interpolation_idx,
+                               step,
+                               samples: [&[f64]; 1],
+                               n| {
+                if reverse {
+                    unsafe { sum_wing_avx512::<true, _>(fir, interpolation_idx, step, samples, n) }
+                } else {
+                    unsafe { sum_wing_avx512::<false, _>(fir, interpolation_idx, step, samples, n) }
+                }
+            };
+
+            sum_wing_test::<Performance>(source_rate, sum_wing_fn);
+            sum_wing_test::<Quality>(source_rate, sum_wing_fn);
         }
     }
 }

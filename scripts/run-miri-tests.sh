@@ -2,6 +2,9 @@
 
 set -euo pipefail
 
+# Ensure miri runs with AVX2/AVX512 enabled if supported on this CPU
+export RUSTFLAGS="-C target-cpu=native"
+
 # Windowed sinc interpolator tests - reads from raw pointers using x86_64 intrinsics
 cargo +nightly miri test -p dsp
 
