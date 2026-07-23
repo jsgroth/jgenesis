@@ -1,12 +1,12 @@
 //! Sega CD's physical drive, which documentation refers to as the CDD
 
-use crate::api::{SegaCdEmulatorConfig, SegaCdLoadResult};
+use crate::api::SegaCdLoadResult;
 use crate::cddrive::cdc::{Rchip, RchipDmaArgs};
 use bincode::{Decode, Encode};
 use cdrom::cdtime::CdTime;
 use cdrom::cue::{Track, TrackType};
 use cdrom::reader::{CdRom, CdRomFileFormat};
-use genesis_config::GenesisRegion;
+use genesis_config::{GenesisRegion, SegaCdEmulatorConfig};
 use jgenesis_proc_macros::PartialClone;
 use regex::Regex;
 use std::cmp::Ordering;

@@ -2,9 +2,11 @@ use gb_config::GbcColorCorrection;
 use gb_core::api::GameBoyEmulatorConfig;
 use gba_config::GbaColorCorrection;
 use gba_core::api::{GbaAudioConfig, GbaEmulatorConfig};
+use genesis_config::GenesisEmulatorConfig;
 use genesis_config::cheats::GenesisCheats;
-use genesis_config::{S32XVoidColor, S32XVoidColorType};
-use genesis_core::GenesisEmulatorConfig;
+use genesis_config::{
+    S32XVoidColor, S32XVoidColorType, Sega32XEmulatorConfig, SegaCdEmulatorConfig,
+};
 use jgenesis_common::frontend::{ColorCorrection, FiniteF32};
 use jgenesis_native_config::common::{
     ConfigSavePath, HideMouseCursor, PauseEmulator, SavePath, WindowSize,
@@ -19,8 +21,6 @@ use jgenesis_proc_macros::ConfigDisplay;
 use jgenesis_renderer::config::{PreprocessShader, PrescaleMode, RendererConfig};
 use nes_core::api::NesEmulatorConfig;
 use pce_core::api::PceEmulatorConfig;
-use s32x_core::api::Sega32XEmulatorConfig;
-use segacd_core::api::SegaCdEmulatorConfig;
 use smsgg_config::cheats::SmsGgCheats;
 use smsgg_core::{SmsGgEmulatorConfig, SmsGgHardware};
 use snes_core::api::{CoprocessorRomFn, CoprocessorRoms, SnesEmulatorConfig};

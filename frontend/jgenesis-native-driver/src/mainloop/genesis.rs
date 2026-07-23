@@ -6,6 +6,7 @@ use crate::{NativeEmulator, NativeEmulatorResult, extensions};
 use cdrom::reader::CdRom;
 use genesis_config::{GenesisController, GenesisInputs, GenesisRegion};
 use genesis_core::GenesisEmulator;
+use genesis_core::api::GenesisEmulatorConfigExt;
 use jgenesis_common::frontend::SaveWriter;
 use jgenesis_native_config::common::WindowSize;
 use jgenesis_native_config::input::mappings::ButtonMappingVec;

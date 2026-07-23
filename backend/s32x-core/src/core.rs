@@ -1,6 +1,5 @@
 //! 32X core code
 
-use crate::api::Sega32XEmulatorConfig;
 use crate::api::debug::{GenesisComponents, Sega32XDebuggerForSh2, Sega32XMediumView};
 use crate::audio::PwmResampler;
 use crate::bootrom;
@@ -11,7 +10,7 @@ use crate::pwm::PwmChip;
 use crate::registers::SystemRegisters;
 use crate::vdp::Vdp;
 use bincode::{Decode, Encode};
-use genesis_config::GenesisRegion;
+use genesis_config::{GenesisRegion, Sega32XEmulatorConfig};
 use genesis_core::cartridge::Cartridge;
 use genesis_core::memory::PhysicalMedium;
 use genesis_core::timing;

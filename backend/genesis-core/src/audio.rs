@@ -1,10 +1,10 @@
 //! Genesis audio resampling, filtering, and mixing code
 
-use crate::GenesisEmulatorConfig;
 use bincode::{Decode, Encode};
 use dsp::design::FilterType;
 use dsp::iir::{FirstOrderIirFilter, IirFilter, SecondOrderIirFilter};
 use dsp::sinc::{PerformanceSincResampler, QualitySincResampler};
+use genesis_config::GenesisEmulatorConfig;
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
 use std::cmp;
 

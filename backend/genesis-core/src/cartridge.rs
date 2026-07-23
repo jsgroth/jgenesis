@@ -1,10 +1,9 @@
-use crate::GenesisEmulatorConfig;
 use crate::cartridge::external::ExternalMemory;
 use crate::memory::PhysicalMedium;
 use crate::svp::Svp;
 use bincode::{Decode, Encode};
 use crc::Crc;
-use genesis_config::GenesisRegion;
+use genesis_config::{GenesisEmulatorConfig, GenesisRegion};
 use jgenesis_common::cheats::CheatWordOverrides;
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};

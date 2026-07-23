@@ -2,6 +2,7 @@
 
 pub mod debug;
 
+use crate::GenesisRegionExt;
 use crate::api::debug::{GenesisMemoryDebugView, PhysicalMediumDebugView};
 use crate::cartridge::Cartridge;
 use crate::input::InputState;
@@ -9,9 +10,8 @@ use crate::memory::debug::GenesisMemory;
 use crate::timing::CycleCounters;
 use crate::vdp::Vdp;
 use crate::ym2612::Ym2612;
-use crate::{GenesisEmulatorConfig, GenesisRegionExt};
 use bincode::{Decode, Encode};
-use genesis_config::GenesisRegion;
+use genesis_config::{GenesisEmulatorConfig, GenesisRegion};
 use jgenesis_common::cheats::CheatWordOverrides;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::{GetBit, U16Ext};

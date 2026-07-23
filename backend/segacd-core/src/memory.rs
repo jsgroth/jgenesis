@@ -5,8 +5,8 @@ pub(crate) mod debug;
 mod font;
 pub(crate) mod wordram;
 
+use crate::api::SegaCdLoadResult;
 use crate::api::debug::SegaCdMediumView;
-use crate::api::{SegaCdEmulatorConfig, SegaCdLoadResult};
 use crate::cddrive::cdc::{DeviceDestination, Rchip};
 use crate::cddrive::cdd::{CdDrive, CdModel};
 use crate::cddrive::{CdController, cdc};
@@ -16,7 +16,7 @@ use crate::rf5c164::Rf5c164;
 use bincode::{Decode, Encode};
 use cdrom::cdtime::CdTime;
 use cdrom::reader::{CdRom, CdRomFileFormat};
-use genesis_config::GenesisRegion;
+use genesis_config::{GenesisRegion, SegaCdEmulatorConfig};
 use genesis_core::GenesisRegionExt;
 use genesis_core::memory::{MainBusWrites, Memory, PhysicalMedium};
 use jgenesis_common::boxedarray::BoxedByteArray;

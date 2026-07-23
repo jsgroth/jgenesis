@@ -5,15 +5,13 @@ use genesis_config::{
     GenesisAspectRatio, GenesisButton, GenesisInputs, Opn2BusyBehavior, PcmInterpolation,
     S32XColorTint, S32XPwmResampling, S32XVideoOut, S32XVoidColor,
 };
-use genesis_core::GenesisEmulatorConfig;
+use genesis_config::{GenesisEmulatorConfig, Sega32XEmulatorConfig, SegaCdEmulatorConfig};
 use jgenesis_common::frontend::{ColorCorrection, FiniteF32, MappableInputs, TimingMode};
 use jgenesis_common::input::Player;
 use jgenesis_renderer::config::{
     AntiDitherShader, FilterMode, FrameRotation, NtscShaderConfig, PreprocessShader,
     PrescaleFactor, PrescaleMode, RendererConfig, VSyncMode, WgpuBackend, WgpuPowerPreference,
 };
-use s32x_core::api::Sega32XEmulatorConfig;
-use segacd_core::api::SegaCdEmulatorConfig;
 use serde::{Deserialize, Serialize};
 use smsgg_config::{GgAspectRatio, SmsAspectRatio, SmsGgButton, SmsGgInputs, SmsModel};
 use smsgg_core::SmsGgEmulatorConfig;

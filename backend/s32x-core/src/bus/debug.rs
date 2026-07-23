@@ -400,13 +400,13 @@ impl MainBusZ80Debugger<Sega32X> for Sega32XDebuggerForZ80<'_> {
 mod tests {
     use super::*;
     use crate::GenesisVdp;
-    use crate::api::Sega32XEmulatorConfig;
     use crate::api::debug::{S32XMemoryArea, Sega32XDebugCommand, Sh2Breakpoint, Sh2Breakpoints};
     use crate::core::SerialInterface;
     use crate::pwm::PwmChip;
     use crate::registers::SystemRegisters;
     use crate::vdp::Vdp;
-    use genesis_core::GenesisEmulatorConfig;
+    use genesis_config::{GenesisEmulatorConfig, Sega32XEmulatorConfig};
+    use genesis_core::api::GenesisEmulatorConfigExt;
     use genesis_core::api::debug::GenesisMemoryArea;
     use genesis_core::cartridge::Cartridge;
     use genesis_core::memory::MainBusWrites;

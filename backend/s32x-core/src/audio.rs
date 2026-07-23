@@ -1,11 +1,10 @@
 #![allow(clippy::excessive_precision)]
 
-use crate::api::Sega32XEmulatorConfig;
 use bincode::{Decode, Encode};
 use dsp::design::FilterType;
 use dsp::iir::FirstOrderIirFilter;
 use dsp::sinc::{PerformanceSincResampler, QualitySincResampler};
-use genesis_config::S32XPwmResampling;
+use genesis_config::{S32XPwmResampling, Sega32XEmulatorConfig};
 use genesis_core::audio::{GenesisAudioFilter, LowPassSettings, volume_multiplier};
 use jgenesis_common::audio::CubicResampler;
 use jgenesis_common::frontend::{AudioOutput, TimingMode};

@@ -2,10 +2,13 @@ pub mod cheats;
 
 use bincode::{Decode, Encode};
 use jgenesis_common::define_controller_inputs;
-use jgenesis_common::frontend::{FiniteF64, FrameSize, MappableInputs, TimingMode};
+use jgenesis_common::frontend::{
+    EmulatorConfigTrait, FiniteF64, FrameSize, MappableInputs, TimingMode,
+};
 use jgenesis_common::input::Player;
-use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
+use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, EnumFromStr};
 use std::fmt::{Display, Formatter};
+use std::num::{NonZeroU16, NonZeroU64};
 
 pub const NATIVE_M68K_DIVIDER: u64 = 7;
 
@@ -541,6 +544,199 @@ impl MappableInputs<GenesisButton> for GenesisInputs {
             Player::One => self.p1.set_analog(button, value),
             Player::Two => self.p2.set_analog(button, value),
             _ => {}
+        }
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode, ConfigDisplay)]
+pub struct GenesisEmulatorConfig {
+    pub forced_timing_mode: Option<TimingMode>,
+    pub forced_region: Option<GenesisRegion>,
+    pub allow_opposing_joypad_directions: bool,
+    pub auto_3_button_mode: bool,
+    pub aspect_ratio: GenesisAspectRatio,
+    pub force_square_pixels_in_h40: bool,
+    pub adjust_aspect_ratio_in_2x_resolution: bool,
+    pub anamorphic_widescreen: bool,
+    pub remove_sprite_limits: bool,
+    pub m68k_clock_divider: u64,
+    pub non_linear_color_scale: bool,
+    pub deinterlace: bool,
+    pub render_vertical_border: bool,
+    pub render_horizontal_border: bool,
+    pub plane_a_enabled: bool,
+    pub plane_b_enabled: bool,
+    pub sprites_enabled: bool,
+    pub window_enabled: bool,
+    pub quantize_ym2612_output: bool,
+    pub emulate_ym2612_ladder_effect: bool,
+    pub opn2_busy_behavior: Opn2BusyBehavior,
+    pub genesis_lpf_enabled: bool,
+    pub genesis_lpf_cutoff: u32,
+    pub ym2612_2nd_lpf_enabled: bool,
+    pub ym2612_2nd_lpf_cutoff: u32,
+    #[cfg_display(debug_fmt)]
+    pub ym2612_channels_enabled: [bool; 6],
+    pub ym2612_enabled: bool,
+    pub psg_enabled: bool,
+    pub ym2612_volume_adjustment_db: f64,
+    pub psg_volume_adjustment_db: f64,
+    #[cfg_display(skip)]
+    pub cheat_codes: Vec<(u32, u16)>,
+}
+
+impl Default for GenesisEmulatorConfig {
+    fn default() -> Self {
+        Self {
+            forced_timing_mode: None,
+            forced_region: None,
+            allow_opposing_joypad_directions: false,
+            auto_3_button_mode: true,
+            aspect_ratio: GenesisAspectRatio::default(),
+            force_square_pixels_in_h40: false,
+            adjust_aspect_ratio_in_2x_resolution: true,
+            anamorphic_widescreen: false,
+            remove_sprite_limits: false,
+            m68k_clock_divider: NATIVE_M68K_DIVIDER,
+            non_linear_color_scale: true,
+            deinterlace: true,
+            render_vertical_border: false,
+            render_horizontal_border: false,
+            plane_a_enabled: true,
+            plane_b_enabled: true,
+            sprites_enabled: true,
+            window_enabled: true,
+            quantize_ym2612_output: true,
+            emulate_ym2612_ladder_effect: true,
+            opn2_busy_behavior: Opn2BusyBehavior::default(),
+            genesis_lpf_enabled: true,
+            genesis_lpf_cutoff: MODEL_1_VA2_LPF_CUTOFF,
+            ym2612_2nd_lpf_enabled: false,
+            ym2612_2nd_lpf_cutoff: MODEL_2_2ND_LPF_CUTOFF,
+            ym2612_channels_enabled: [true; 6],
+            ym2612_enabled: true,
+            psg_enabled: true,
+            ym2612_volume_adjustment_db: 0.0,
+            psg_volume_adjustment_db: 0.0,
+            cheat_codes: vec![],
+        }
+    }
+}
+
+impl GenesisEmulatorConfig {
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
+    pub fn clamped_m68k_divider(&self) -> NonZeroU64 {
+        let clamped_divider = self.m68k_clock_divider.clamp(1, NATIVE_M68K_DIVIDER);
+        if clamped_divider != self.m68k_clock_divider {
+            log::warn!(
+                "Clamped M68K clock divider from {} to {clamped_divider}",
+                self.m68k_clock_divider
+            );
+        }
+        NonZeroU64::new(clamped_divider).unwrap()
+    }
+}
+
+impl EmulatorConfigTrait for GenesisEmulatorConfig {
+    fn with_overclocking_disabled(&self) -> Self {
+        Self { m68k_clock_divider: NATIVE_M68K_DIVIDER, ..self.clone() }
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode, ConfigDisplay)]
+pub struct SegaCdEmulatorConfig {
+    #[cfg_display(skip)]
+    pub genesis: GenesisEmulatorConfig,
+    pub pcm_interpolation: PcmInterpolation,
+    pub enable_ram_cartridge: bool,
+    pub load_disc_into_ram: bool,
+    pub disc_drive_speed: NonZeroU16,
+    pub sub_cpu_divider: NonZeroU64,
+    pub pcm_lpf_enabled: bool,
+    pub pcm_lpf_cutoff: u32,
+    pub apply_genesis_lpf_to_pcm: bool,
+    pub apply_genesis_lpf_to_cd_da: bool,
+    pub pcm_enabled: bool,
+    pub cd_audio_enabled: bool,
+    pub pcm_volume_adjustment_db: f64,
+    pub cd_volume_adjustment_db: f64,
+}
+
+impl Default for SegaCdEmulatorConfig {
+    fn default() -> Self {
+        Self {
+            genesis: GenesisEmulatorConfig::default(),
+            pcm_interpolation: PcmInterpolation::default(),
+            enable_ram_cartridge: true,
+            load_disc_into_ram: false,
+            disc_drive_speed: NonZeroU16::new(1).unwrap(),
+            sub_cpu_divider: NonZeroU64::new(NATIVE_SUB_CPU_DIVIDER).unwrap(),
+            pcm_lpf_enabled: true,
+            pcm_lpf_cutoff: DEFAULT_PCM_LPF_CUTOFF,
+            apply_genesis_lpf_to_pcm: false,
+            apply_genesis_lpf_to_cd_da: false,
+            pcm_enabled: true,
+            cd_audio_enabled: true,
+            pcm_volume_adjustment_db: 0.0,
+            cd_volume_adjustment_db: 0.0,
+        }
+    }
+}
+
+impl EmulatorConfigTrait for SegaCdEmulatorConfig {
+    fn with_overclocking_disabled(&self) -> Self {
+        Self {
+            genesis: self.genesis.with_overclocking_disabled(),
+            disc_drive_speed: NonZeroU16::new(1).unwrap(),
+            sub_cpu_divider: NonZeroU64::new(NATIVE_SUB_CPU_DIVIDER).unwrap(),
+            ..*self
+        }
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode, ConfigDisplay)]
+pub struct Sega32XEmulatorConfig {
+    #[cfg_display(skip)]
+    pub genesis: GenesisEmulatorConfig,
+    pub sh2_clock_multiplier: NonZeroU64,
+    pub video_out: S32XVideoOut,
+    pub darken_genesis_colors: bool,
+    pub color_tint: S32XColorTint,
+    pub show_high_priority: bool,
+    pub show_low_priority: bool,
+    pub void_color: S32XVoidColor,
+    pub apply_genesis_lpf_to_pwm: bool,
+    pub pwm_resampling: S32XPwmResampling,
+    pub pwm_enabled: bool,
+    pub pwm_volume_adjustment_db: f64,
+}
+
+impl Default for Sega32XEmulatorConfig {
+    fn default() -> Self {
+        Self {
+            genesis: GenesisEmulatorConfig::default(),
+            sh2_clock_multiplier: NonZeroU64::new(NATIVE_SH2_MULTIPLIER).unwrap(),
+            video_out: S32XVideoOut::default(),
+            darken_genesis_colors: true,
+            color_tint: S32XColorTint::default(),
+            show_high_priority: true,
+            show_low_priority: true,
+            void_color: S32XVoidColor::default(),
+            apply_genesis_lpf_to_pwm: true,
+            pwm_resampling: S32XPwmResampling::default(),
+            pwm_enabled: true,
+            pwm_volume_adjustment_db: 0.0,
+        }
+    }
+}
+
+impl EmulatorConfigTrait for Sega32XEmulatorConfig {
+    fn with_overclocking_disabled(&self) -> Self {
+        Self {
+            genesis: self.genesis.with_overclocking_disabled(),
+            sh2_clock_multiplier: NonZeroU64::new(NATIVE_SH2_MULTIPLIER).unwrap(),
+            ..*self
         }
     }
 }

@@ -12,22 +12,21 @@ use crate::rf5c164::Rf5c164;
 use bincode::{Decode, Encode};
 use cdrom::CdRomError;
 use cdrom::reader::{CdRom, CdRomFileFormat};
-use genesis_config::{GenesisButton, GenesisRegion, PcmInterpolation};
+use genesis_config::{GenesisButton, GenesisRegion, SegaCdEmulatorConfig};
+use genesis_core::GenesisInputs;
+use genesis_core::api::GenesisEmulatorConfigExt;
 use genesis_core::input::InputState;
 use genesis_core::memory::debug::DebugMainBus;
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::timing::GenesisCycleCounters;
 use genesis_core::vdp::{DarkenColors, Vdp, VdpTickEffect};
 use genesis_core::ym2612::Ym2612;
-use genesis_core::{GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorConfigTrait, EmulatorTrait, InputPoller, PartialClone, Renderer,
-    SaveWriter, TickEffect, TickResult, TimingMode,
+    AudioOutput, EmulatorTrait, InputPoller, PartialClone, Renderer, SaveWriter, TickEffect,
+    TickResult, TimingMode,
 };
-use jgenesis_proc_macros::ConfigDisplay;
 use m68000_emu::M68000;
 use std::fmt::{Debug, Display};
-use std::num::{NonZeroU16, NonZeroU64};
 use std::path::Path;
 use thiserror::Error;
 use ti_sn76489::{Sn76489, Sn76489TickEffect, Sn76489Version};
@@ -68,36 +67,6 @@ pub enum SegaCdError<RErr, AErr, SErr> {
 }
 
 pub type SegaCdResult<T, RErr, AErr, SErr> = Result<T, SegaCdError<RErr, AErr, SErr>>;
-
-#[derive(Debug, Clone, Encode, Decode, ConfigDisplay)]
-pub struct SegaCdEmulatorConfig {
-    #[cfg_display(skip)]
-    pub genesis: GenesisEmulatorConfig,
-    pub pcm_interpolation: PcmInterpolation,
-    pub enable_ram_cartridge: bool,
-    pub load_disc_into_ram: bool,
-    pub disc_drive_speed: NonZeroU16,
-    pub sub_cpu_divider: NonZeroU64,
-    pub pcm_lpf_enabled: bool,
-    pub pcm_lpf_cutoff: u32,
-    pub apply_genesis_lpf_to_pcm: bool,
-    pub apply_genesis_lpf_to_cd_da: bool,
-    pub pcm_enabled: bool,
-    pub cd_audio_enabled: bool,
-    pub pcm_volume_adjustment_db: f64,
-    pub cd_volume_adjustment_db: f64,
-}
-
-impl EmulatorConfigTrait for SegaCdEmulatorConfig {
-    fn with_overclocking_disabled(&self) -> Self {
-        Self {
-            genesis: self.genesis.with_overclocking_disabled(),
-            disc_drive_speed: NonZeroU16::new(1).unwrap(),
-            sub_cpu_divider: NonZeroU64::new(DEFAULT_SUB_CPU_DIVIDER).unwrap(),
-            ..*self
-        }
-    }
-}
 
 #[derive(Debug, Encode, Decode, PartialClone)]
 pub struct SegaCdEmulator {

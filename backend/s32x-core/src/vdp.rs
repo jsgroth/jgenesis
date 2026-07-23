@@ -4,11 +4,10 @@ pub(crate) mod debug;
 mod registers;
 
 use crate::GenesisVdp;
-use crate::api::Sega32XEmulatorConfig;
 use crate::registers::SystemRegisters;
 use crate::vdp::registers::{FrameBufferMode, Registers, SelectedFrameBuffer, VerticalResolution};
 use bincode::{Decode, Encode};
-use genesis_config::{S32XColorTint, S32XVideoOut, S32XVoidColor};
+use genesis_config::{S32XColorTint, S32XVideoOut, S32XVoidColor, Sega32XEmulatorConfig};
 use genesis_core::vdp::BorderSize;
 use jgenesis_common::boxedarray::BoxedColorArray;
 use jgenesis_common::frontend::{

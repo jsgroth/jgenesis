@@ -2,11 +2,11 @@
 //!
 //! Reuses some resampling/filtering code from [`genesis_core::audio`]
 
-use crate::api::SegaCdEmulatorConfig;
 use bincode::{Decode, Encode};
 use dsp::design::FilterType;
 use dsp::iir::{FirstOrderIirFilter, IirFilter, SecondOrderIirFilter};
 use dsp::sinc::{PerformanceSincResampler, QualitySincResampler};
+use genesis_config::SegaCdEmulatorConfig;
 use genesis_core::audio::{GenesisAudioFilter, LowPassSettings, volume_multiplier};
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
 use std::cmp;

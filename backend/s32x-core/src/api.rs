@@ -8,24 +8,21 @@ use crate::api::debug::{GenesisComponents, Sega32XDebugger};
 use crate::audio::Sega32XResampler;
 use crate::core::Sega32X;
 use bincode::{Decode, Encode};
-use genesis_config::{
-    GenesisButton, GenesisRegion, S32XColorTint, S32XPwmResampling, S32XVideoOut, S32XVoidColor,
-};
+use genesis_config::{GenesisButton, GenesisRegion, Sega32XEmulatorConfig};
+use genesis_core::GenesisInputs;
+use genesis_core::api::GenesisEmulatorConfigExt;
 use genesis_core::input::InputState;
 use genesis_core::memory::debug::DebugMainBus;
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::timing::GenesisCycleCounters;
 use genesis_core::vdp::{DarkenColors, Vdp, VdpTickEffect};
 use genesis_core::ym2612::Ym2612;
-use genesis_core::{GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorConfigTrait, EmulatorTrait, InputPoller, Modal, PartialClone, Renderer,
-    SaveWriter, TickEffect, TickResult, TimingMode,
+    AudioOutput, EmulatorTrait, InputPoller, Modal, PartialClone, Renderer, SaveWriter, TickEffect,
+    TickResult, TimingMode,
 };
-use jgenesis_proc_macros::ConfigDisplay;
 use m68000_emu::M68000;
 use std::fmt::{Debug, Display};
-use std::num::NonZeroU64;
 use thiserror::Error;
 use ti_sn76489::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use z80_emu::Z80;
@@ -40,55 +37,13 @@ pub enum Sega32XError<RErr, AErr, SErr> {
     SaveWrite(SErr),
 }
 
-#[derive(Debug, Clone, Encode, Decode, ConfigDisplay)]
-pub struct Sega32XEmulatorConfig {
-    #[cfg_display(skip)]
-    pub genesis: GenesisEmulatorConfig,
-    pub sh2_clock_multiplier: NonZeroU64,
-    pub video_out: S32XVideoOut,
-    pub darken_genesis_colors: bool,
-    pub color_tint: S32XColorTint,
-    pub show_high_priority: bool,
-    pub show_low_priority: bool,
-    pub void_color: S32XVoidColor,
-    pub apply_genesis_lpf_to_pwm: bool,
-    pub pwm_resampling: S32XPwmResampling,
-    pub pwm_enabled: bool,
-    pub pwm_volume_adjustment_db: f64,
+pub(crate) trait Sega32XEmulatorConfigExt {
+    fn genesis_color_adjustment(&self) -> DarkenColors;
 }
 
-impl Default for Sega32XEmulatorConfig {
-    fn default() -> Self {
-        Self {
-            genesis: GenesisEmulatorConfig::default(),
-            sh2_clock_multiplier: NonZeroU64::new(crate::SH2_CLOCK_MULTIPLIER).unwrap(),
-            video_out: S32XVideoOut::default(),
-            darken_genesis_colors: true,
-            color_tint: S32XColorTint::default(),
-            show_high_priority: true,
-            show_low_priority: true,
-            void_color: S32XVoidColor::default(),
-            apply_genesis_lpf_to_pwm: true,
-            pwm_resampling: S32XPwmResampling::default(),
-            pwm_enabled: true,
-            pwm_volume_adjustment_db: 0.0,
-        }
-    }
-}
-
-impl Sega32XEmulatorConfig {
+impl Sega32XEmulatorConfigExt for Sega32XEmulatorConfig {
     fn genesis_color_adjustment(&self) -> DarkenColors {
         if self.darken_genesis_colors { DarkenColors::Yes } else { DarkenColors::No }
-    }
-}
-
-impl EmulatorConfigTrait for Sega32XEmulatorConfig {
-    fn with_overclocking_disabled(&self) -> Self {
-        Self {
-            genesis: self.genesis.with_overclocking_disabled(),
-            sh2_clock_multiplier: NonZeroU64::new(crate::SH2_CLOCK_MULTIPLIER).unwrap(),
-            ..*self
-        }
     }
 }
 

@@ -11,20 +11,18 @@ use crate::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use crate::timing::{CycleCounters, GenesisCycleCounters};
 use crate::vdp::{DarkenColors, Vdp, VdpConfig, VdpTickEffect};
 use crate::ym2612::Ym2612;
-use crate::{audio, timing, vdp};
+use crate::{audio, vdp};
 use bincode::{Decode, Encode};
 use genesis_config::{
-    GenParParams, GenesisAspectRatio, GenesisButton, GenesisInputs, GenesisRegion, Opn2BusyBehavior,
+    GenParParams, GenesisButton, GenesisEmulatorConfig, GenesisInputs, GenesisRegion,
 };
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorConfigTrait, EmulatorTrait, InputPoller, Modal, PartialClone,
-    RenderFrameOptions, Renderer, SaveWriter, TickEffect, TickResult, TimingMode,
+    AudioOutput, EmulatorTrait, InputPoller, Modal, PartialClone, RenderFrameOptions, Renderer,
+    SaveWriter, TickEffect, TickResult, TimingMode,
 };
-use jgenesis_proc_macros::ConfigDisplay;
 use m68000_emu::M68000;
 use std::cmp;
 use std::fmt::{Debug, Display};
-use std::num::NonZeroU64;
 use thiserror::Error;
 use ti_sn76489::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use z80_emu::Z80;
@@ -43,84 +41,16 @@ pub enum GenesisError<RErr, AErr, SErr> {
 
 pub type GenesisResult<RErr, AErr, SErr> = Result<TickEffect, GenesisError<RErr, AErr, SErr>>;
 
-#[derive(Debug, Clone, Encode, Decode, ConfigDisplay)]
-pub struct GenesisEmulatorConfig {
-    pub forced_timing_mode: Option<TimingMode>,
-    pub forced_region: Option<GenesisRegion>,
-    pub allow_opposing_joypad_directions: bool,
-    pub auto_3_button_mode: bool,
-    pub aspect_ratio: GenesisAspectRatio,
-    pub force_square_pixels_in_h40: bool,
-    pub adjust_aspect_ratio_in_2x_resolution: bool,
-    pub anamorphic_widescreen: bool,
-    pub remove_sprite_limits: bool,
-    pub m68k_clock_divider: u64,
-    pub non_linear_color_scale: bool,
-    pub deinterlace: bool,
-    pub render_vertical_border: bool,
-    pub render_horizontal_border: bool,
-    pub plane_a_enabled: bool,
-    pub plane_b_enabled: bool,
-    pub sprites_enabled: bool,
-    pub window_enabled: bool,
-    pub quantize_ym2612_output: bool,
-    pub emulate_ym2612_ladder_effect: bool,
-    pub opn2_busy_behavior: Opn2BusyBehavior,
-    pub genesis_lpf_enabled: bool,
-    pub genesis_lpf_cutoff: u32,
-    pub ym2612_2nd_lpf_enabled: bool,
-    pub ym2612_2nd_lpf_cutoff: u32,
-    #[cfg_display(debug_fmt)]
-    pub ym2612_channels_enabled: [bool; 6],
-    pub ym2612_enabled: bool,
-    pub psg_enabled: bool,
-    pub ym2612_volume_adjustment_db: f64,
-    pub psg_volume_adjustment_db: f64,
-    #[cfg_display(skip)]
-    pub cheat_codes: Vec<(u32, u16)>,
-}
-
-impl Default for GenesisEmulatorConfig {
-    fn default() -> Self {
-        Self {
-            forced_timing_mode: None,
-            forced_region: None,
-            allow_opposing_joypad_directions: false,
-            auto_3_button_mode: true,
-            aspect_ratio: GenesisAspectRatio::default(),
-            force_square_pixels_in_h40: false,
-            adjust_aspect_ratio_in_2x_resolution: true,
-            anamorphic_widescreen: false,
-            remove_sprite_limits: false,
-            m68k_clock_divider: timing::NATIVE_M68K_DIVIDER,
-            non_linear_color_scale: true,
-            deinterlace: true,
-            render_vertical_border: false,
-            render_horizontal_border: false,
-            plane_a_enabled: true,
-            plane_b_enabled: true,
-            sprites_enabled: true,
-            window_enabled: true,
-            quantize_ym2612_output: true,
-            emulate_ym2612_ladder_effect: true,
-            opn2_busy_behavior: Opn2BusyBehavior::default(),
-            genesis_lpf_enabled: true,
-            genesis_lpf_cutoff: genesis_config::MODEL_1_VA2_LPF_CUTOFF,
-            ym2612_2nd_lpf_enabled: false,
-            ym2612_2nd_lpf_cutoff: genesis_config::MODEL_2_2ND_LPF_CUTOFF,
-            ym2612_channels_enabled: [true; 6],
-            ym2612_enabled: true,
-            psg_enabled: true,
-            ym2612_volume_adjustment_db: 0.0,
-            psg_volume_adjustment_db: 0.0,
-            cheat_codes: vec![],
-        }
-    }
-}
-
-impl GenesisEmulatorConfig {
+pub trait GenesisEmulatorConfigExt {
     #[must_use]
-    pub fn to_vdp_config(&self, color_adjustment: DarkenColors) -> VdpConfig {
+    fn to_vdp_config(&self, color_adjustment: DarkenColors) -> VdpConfig;
+
+    #[must_use]
+    fn to_gen_par_params(&self) -> GenParParams;
+}
+
+impl GenesisEmulatorConfigExt for GenesisEmulatorConfig {
+    fn to_vdp_config(&self, color_adjustment: DarkenColors) -> VdpConfig {
         VdpConfig {
             enforce_sprite_limits: !self.remove_sprite_limits,
             non_linear_color_scale: self.non_linear_color_scale,
@@ -135,32 +65,12 @@ impl GenesisEmulatorConfig {
         }
     }
 
-    #[must_use]
-    #[allow(clippy::missing_panics_doc)]
-    pub fn clamped_m68k_divider(&self) -> NonZeroU64 {
-        let clamped_divider = self.m68k_clock_divider.clamp(1, timing::NATIVE_M68K_DIVIDER);
-        if clamped_divider != self.m68k_clock_divider {
-            log::warn!(
-                "Clamped M68K clock divider from {} to {clamped_divider}",
-                self.m68k_clock_divider
-            );
-        }
-        NonZeroU64::new(clamped_divider).unwrap()
-    }
-
-    #[must_use]
-    pub fn to_gen_par_params(&self) -> GenParParams {
+    fn to_gen_par_params(&self) -> GenParParams {
         GenParParams {
             force_square_in_h40: self.force_square_pixels_in_h40,
             adjust_for_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
             anamorphic_widescreen: self.anamorphic_widescreen,
         }
-    }
-}
-
-impl EmulatorConfigTrait for GenesisEmulatorConfig {
-    fn with_overclocking_disabled(&self) -> Self {
-        Self { m68k_clock_divider: timing::NATIVE_M68K_DIVIDER, ..self.clone() }
     }
 }
 
