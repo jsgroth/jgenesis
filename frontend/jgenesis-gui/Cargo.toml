@@ -16,6 +16,7 @@ sdl3-static-link = ["sdl3/static-link"]
 jgenesis-common = { workspace = true, features = ["serde"] }
 jgenesis-proc-macros = { workspace = true }
 
+genesis-components = { workspace = true }
 genesis-core = { workspace = true }
 nes-core = { workspace = true }
 segacd-core = { workspace = true }

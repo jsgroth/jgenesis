@@ -7,8 +7,8 @@ use crate::GenesisVdp;
 use crate::registers::SystemRegisters;
 use crate::vdp::registers::{FrameBufferMode, Registers, SelectedFrameBuffer, VerticalResolution};
 use bincode::{Decode, Encode};
+use genesis_components::vdp::BorderSize;
 use genesis_config::{S32XColorTint, S32XVideoOut, S32XVoidColor, Sega32XEmulatorConfig};
-use genesis_core::vdp::BorderSize;
 use jgenesis_common::boxedarray::BoxedColorArray;
 use jgenesis_common::frontend::{
     Color, CompositeParams, FiniteF64, FrameSize, RenderFrameOptions, Renderer,
@@ -19,7 +19,7 @@ use std::cmp;
 use std::collections::VecDeque;
 use std::ops::Range;
 
-const MCLK_CYCLES_PER_SCANLINE: u64 = genesis_core::vdp::MCLK_CYCLES_PER_SCANLINE;
+const MCLK_CYCLES_PER_SCANLINE: u64 = genesis_components::vdp::MCLK_CYCLES_PER_SCANLINE;
 
 // 25 pixels after Genesis H40 HBlank start
 const HBLANK_START_MCLK_CYCLES: u64 = 355 * 8;
@@ -48,7 +48,7 @@ const V28_FRAME_HEIGHT: u32 = 224;
 const V30_FRAME_HEIGHT: u32 = 240;
 
 // The H32 frame buffer should be large enough to store frames as H1280px resolution (4 * 320)
-const EXPANDED_FRAME_BUFFER_LEN: usize = genesis_core::vdp::FRAME_BUFFER_LEN * 4;
+const EXPANDED_FRAME_BUFFER_LEN: usize = genesis_components::vdp::FRAME_BUFFER_LEN * 4;
 
 // Offset between the left edge of the Genesis H32 frame and the 32X frame, in H1280px pixels
 //
@@ -912,7 +912,7 @@ impl Vdp {
         &mut self,
         frame_size: FrameSize,
         border_size: BorderSize,
-        frame_buffer: &mut [Color; genesis_core::vdp::FRAME_BUFFER_LEN],
+        frame_buffer: &mut [Color; genesis_components::vdp::FRAME_BUFFER_LEN],
     ) {
         let expanded_frame_width = determine_expanded_buffer_width::<H32>(frame_size, border_size);
         let gen_pixel_width = genesis_expanded_pixel_width::<H32>();
@@ -944,7 +944,8 @@ impl Vdp {
         renderer: &mut R,
     ) -> Result<(), R::Err> {
         if self.state.next_render_buffer == WhichFrameBuffer::Genesis {
-            let target_fps = genesis_core::target_framerate(genesis_vdp, genesis_vdp.timing_mode());
+            let target_fps =
+                genesis_components::target_framerate(genesis_vdp, genesis_vdp.timing_mode());
             return renderer.render_frame(
                 genesis_vdp.frame_buffer(),
                 genesis_vdp.frame_size(),
@@ -980,7 +981,8 @@ impl Vdp {
         aspect_ratio = aspect_ratio
             .map(|par| par * FiniteF64::try_from(1.0 / f64::from(gen_pixel_width)).unwrap());
 
-        let target_fps = genesis_core::target_framerate(genesis_vdp, genesis_vdp.timing_mode());
+        let target_fps =
+            genesis_components::target_framerate(genesis_vdp, genesis_vdp.timing_mode());
         renderer.render_frame(
             self.expanded_frame_buffer.as_ref(),
             frame_size,

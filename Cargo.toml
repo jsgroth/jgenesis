@@ -98,6 +98,7 @@ snes-config = { path = "config/snes-config" }
 # Workspace backend libraries
 gba-core = { path = "backend/gba-core" }
 gb-core = { path = "backend/gb-core" }
+genesis-components = { path = "backend/genesis-components" }
 genesis-core = { path = "backend/genesis-core" }
 nes-core = { path = "backend/nes-core" }
 pce-core = { path = "backend/pce-core" }

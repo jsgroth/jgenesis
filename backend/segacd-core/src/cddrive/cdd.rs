@@ -892,7 +892,7 @@ impl CdDrive {
 
         // Skip sync bytes and sector header
         let first_data_sector = &self.sector_buffer[16..];
-        Ok(genesis_core::cartridge::is_six_button_incompatible(first_data_sector))
+        Ok(genesis_components::cartridge::is_six_button_incompatible(first_data_sector))
     }
 
     pub fn take_disc(&mut self) -> Option<CdRom> {

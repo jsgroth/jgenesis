@@ -2,7 +2,7 @@ use egui::emath::OrderedFloat;
 use egui::scroll_area::ScrollBarVisibility;
 use egui::style::ScrollStyle;
 use egui::{Grid, ScrollArea, Ui, Window};
-use genesis_core::ym2612::{
+use genesis_components::ym2612::{
     Channel3FrequencyMode, ChannelRegisters, GlobalRegisters, OperatorRegisters, TimerState,
     Ym2612DebugView,
 };

@@ -17,6 +17,7 @@ genesis-config = { workspace = true }
 
 gb-core = { workspace = true }
 gba-core = { workspace = true }
+genesis-components = { workspace = true }
 genesis-core = { workspace = true }
 nes-core = { workspace = true }
 pce-core = { workspace = true }

@@ -8,15 +8,15 @@ use crate::api::debug::{GenesisComponents, Sega32XDebugger};
 use crate::audio::Sega32XResampler;
 use crate::core::Sega32X;
 use bincode::{Decode, Encode};
+use genesis_components::GenesisEmulatorConfigExt;
+use genesis_components::input::InputState;
+use genesis_components::memory::debug::DebugMainBus;
+use genesis_components::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
+use genesis_components::timing::GenesisCycleCounters;
+use genesis_components::vdp::{DarkenColors, Vdp, VdpTickEffect};
+use genesis_components::ym2612::Ym2612;
+use genesis_config::GenesisInputs;
 use genesis_config::{GenesisButton, GenesisRegion, Sega32XEmulatorConfig};
-use genesis_core::GenesisInputs;
-use genesis_core::api::GenesisEmulatorConfigExt;
-use genesis_core::input::InputState;
-use genesis_core::memory::debug::DebugMainBus;
-use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
-use genesis_core::timing::GenesisCycleCounters;
-use genesis_core::vdp::{DarkenColors, Vdp, VdpTickEffect};
-use genesis_core::ym2612::Ym2612;
 use jgenesis_common::frontend::{
     AudioOutput, EmulatorTrait, InputPoller, Modal, PartialClone, Renderer, SaveWriter, TickEffect,
     TickResult, TimingMode,
@@ -244,6 +244,8 @@ impl Sega32XEmulator {
         debug_assert_eq!(self.vdp.scanline(), self.memory.medium_mut().vdp().scanline());
         debug_assert_eq!(self.vdp.scanline_mclk(), self.memory.medium_mut().vdp().scanline_mclk());
 
+        genesis_components::check_for_long_dma_skip(&self.vdp, &mut self.cycles);
+
         if !m68k_wait {
             self.vdp.update_interrupt_latches();
         }
@@ -359,7 +361,7 @@ impl EmulatorTrait for Sega32XEmulator {
     }
 
     fn target_fps(&self) -> f64 {
-        genesis_core::target_framerate(&self.vdp, self.timing_mode)
+        genesis_components::target_framerate(&self.vdp, self.timing_mode)
     }
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
@@ -374,7 +376,7 @@ impl EmulatorTrait for Sega32XEmulator {
         {
             modals.push(Modal {
                 id: None,
-                text: genesis_core::api::SPRITE_LIMITS_MODAL_MESSAGE.into(),
+                text: genesis_components::SPRITE_LIMITS_MODAL_MESSAGE.into(),
             });
         }
 

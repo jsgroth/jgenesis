@@ -623,8 +623,8 @@ impl App {
                     label: "Genesis 68000 clock divider",
                     current_value: &mut self.config.genesis.m68k_clock_divider,
                     range: 1..=7,
-                    master_clock: genesis_core::audio::NTSC_GENESIS_MCLK_FREQUENCY,
-                    default_divider: genesis_core::timing::NATIVE_M68K_DIVIDER as f64,
+                    master_clock: genesis_components::audio::NTSC_GENESIS_MCLK_FREQUENCY,
+                    default_divider: genesis_config::NATIVE_M68K_DIVIDER as f64,
                     modifier: ClockModifier::Divider,
                 })
                 .interact_rect;
@@ -653,7 +653,7 @@ impl App {
                     label: "32X SH-2 clock multiplier",
                     current_value: &mut self.config.sega_32x.sh2_clock_multiplier,
                     range: NonZeroU64::new(3).unwrap()..=NonZeroU64::new(10).unwrap(),
-                    master_clock: genesis_core::audio::NTSC_GENESIS_MCLK_FREQUENCY / 7.0,
+                    master_clock: genesis_components::audio::NTSC_GENESIS_MCLK_FREQUENCY / 7.0,
                     default_divider: genesis_config::NATIVE_SH2_MULTIPLIER as f64,
                     modifier: ClockModifier::Multiplier,
                 })

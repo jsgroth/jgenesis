@@ -6,7 +6,7 @@ use crate::vdp::{
 use jgenesis_common::debug::{DebugBytesView, DebugMemoryView, DebugWordsView, Endian};
 use std::ops::Range;
 
-use crate::api::debug::{CopySpriteAttributesResult, CramEntry, SpriteAttributeEntry};
+use crate::debug::{CopySpriteAttributesResult, CramEntry, SpriteAttributeEntry};
 use crate::vdp::colors::ColorTables;
 use crate::vdp::registers::{DebugRegister, Registers};
 use crate::vdp::render::PatternGeneratorRowArgs;

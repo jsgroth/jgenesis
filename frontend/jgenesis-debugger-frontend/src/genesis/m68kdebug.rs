@@ -3,10 +3,10 @@ use crate::{AddressSet, non_selectable_label};
 use egui::style::ScrollStyle;
 use egui::{Align, CentralPanel, Grid, Layout, Panel, RichText, TextEdit, Ui, Window};
 use egui_extras::{Column, TableBuilder};
-use genesis_core::api::debug::{
+use genesis_components::cartridge::Cartridge;
+use genesis_components::debug::{
     DebugPendingWrite, GenesisDebugState, M68000BreakStatus, M68000Breakpoint, M68000Breakpoints,
 };
-use genesis_core::cartridge::Cartridge;
 use jgenesis_common::num::{GetBit, U16Ext};
 use m68000_emu::disassemble::{DisassembledInstruction, MemoryAccess, MemoryReadType};
 use m68000_emu::{M68000, OpSize};

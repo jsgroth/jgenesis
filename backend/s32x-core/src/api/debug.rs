@@ -6,17 +6,17 @@ use crate::vdp::Vdp;
 use crate::vdp::debug::VdpDebugState;
 use crate::{GenesisVdp, WhichCpu};
 use bincode::{Decode, Encode};
-use genesis_config::GenesisInputs;
-use genesis_core::api::debug::{
+use genesis_components::cartridge::Cartridge;
+use genesis_components::debug::{
     BaseGenesisDebugView, CramEntry, GenesisDebugState, GenesisMemoryArea, M68000BreakStatus,
     M68000BreakStatusAtomic, M68000BreakpointManager, M68000Breakpoints, M68000BreakpointsParsed,
     PhysicalMediumDebugView, Z80BreakStatus, Z80BreakStatusAtomic, Z80Breakpoint,
     Z80BreakpointManager, Z80Breakpoints,
 };
-use genesis_core::cartridge::Cartridge;
-use genesis_core::memory::MainBusWrites;
-use genesis_core::memory::debug::GenesisMemory;
-use genesis_core::ym2612::Ym2612;
+use genesis_components::memory::MainBusWrites;
+use genesis_components::memory::debug::GenesisMemory;
+use genesis_components::ym2612::Ym2612;
+use genesis_config::GenesisInputs;
 use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
 use jgenesis_common::frontend::{AudioOutput, InputPoller, Renderer, SaveWriter, TickResult};
 use jgenesis_common::num::GetBit;

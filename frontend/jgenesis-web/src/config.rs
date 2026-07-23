@@ -136,7 +136,7 @@ impl Default for GenesisWebConfig {
             lpf_enabled: true,
             render_vertical_border: false,
             render_horizontal_border: false,
-            m68k_divider: genesis_core::timing::NATIVE_M68K_DIVIDER,
+            m68k_divider: genesis_config::NATIVE_M68K_DIVIDER,
         }
     }
 }

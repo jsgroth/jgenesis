@@ -12,15 +12,15 @@ use crate::rf5c164::Rf5c164;
 use bincode::{Decode, Encode};
 use cdrom::CdRomError;
 use cdrom::reader::{CdRom, CdRomFileFormat};
+use genesis_components::GenesisEmulatorConfigExt;
+use genesis_components::input::InputState;
+use genesis_components::memory::debug::DebugMainBus;
+use genesis_components::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
+use genesis_components::timing::GenesisCycleCounters;
+use genesis_components::vdp::{DarkenColors, Vdp, VdpTickEffect};
+use genesis_components::ym2612::Ym2612;
+use genesis_config::GenesisInputs;
 use genesis_config::{GenesisButton, GenesisRegion, SegaCdEmulatorConfig};
-use genesis_core::GenesisInputs;
-use genesis_core::api::GenesisEmulatorConfigExt;
-use genesis_core::input::InputState;
-use genesis_core::memory::debug::DebugMainBus;
-use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
-use genesis_core::timing::GenesisCycleCounters;
-use genesis_core::vdp::{DarkenColors, Vdp, VdpTickEffect};
-use genesis_core::ym2612::Ym2612;
 use jgenesis_common::frontend::{
     AudioOutput, EmulatorTrait, InputPoller, PartialClone, Renderer, SaveWriter, TickEffect,
     TickResult, TimingMode,
@@ -284,7 +284,12 @@ impl SegaCdEmulator {
     }
 
     fn render_frame<R: Renderer>(&self, renderer: &mut R) -> Result<(), R::Err> {
-        genesis_core::render_frame(self.timing_mode, &self.vdp, &self.config.genesis, renderer)
+        genesis_components::render_frame(
+            self.timing_mode,
+            &self.vdp,
+            &self.config.genesis,
+            renderer,
+        )
     }
 
     #[inline]
@@ -484,7 +489,7 @@ impl SegaCdEmulator {
             tick_effect = TickEffect::FrameRendered;
         }
 
-        genesis_core::check_for_long_dma_skip(&self.vdp, &mut self.cycles);
+        genesis_components::check_for_long_dma_skip(&self.vdp, &mut self.cycles);
 
         if !m68k_wait {
             self.vdp.update_interrupt_latches();
@@ -584,7 +589,7 @@ impl EmulatorTrait for SegaCdEmulator {
     }
 
     fn target_fps(&self) -> f64 {
-        genesis_core::target_framerate(&self.vdp, self.timing_mode)
+        genesis_components::target_framerate(&self.vdp, self.timing_mode)
     }
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {

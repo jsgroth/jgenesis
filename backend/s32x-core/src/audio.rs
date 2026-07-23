@@ -4,13 +4,13 @@ use bincode::{Decode, Encode};
 use dsp::design::FilterType;
 use dsp::iir::FirstOrderIirFilter;
 use dsp::sinc::{PerformanceSincResampler, QualitySincResampler};
+use genesis_components::audio::{GenesisAudioFilter, LowPassSettings};
 use genesis_config::{S32XPwmResampling, Sega32XEmulatorConfig};
-use genesis_core::audio::{GenesisAudioFilter, LowPassSettings, volume_multiplier};
 use jgenesis_common::audio::CubicResampler;
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
 use std::collections::VecDeque;
 
-const PSG_COEFFICIENT: f64 = genesis_core::audio::PSG_COEFFICIENT;
+const PSG_COEFFICIENT: f64 = genesis_components::audio::PSG_COEFFICIENT;
 
 // -2 dB (10^(-2 / 20))
 const PWM_COEFFICIENT: f64 = 0.7943282347242815;
@@ -209,6 +209,8 @@ struct VolumeMultipliers {
 
 impl VolumeMultipliers {
     fn from_config(config: &Sega32XEmulatorConfig) -> Self {
+        use genesis_components::audio::volume_multiplier;
+
         Self {
             ym2612: volume_multiplier(
                 config.genesis.ym2612_enabled,
@@ -242,11 +244,11 @@ impl Sega32XResampler {
                 LowPassSettings::from_config(&config.genesis),
             ),
             ym2612_resampler: QualitySincResampler::new(
-                genesis_core::audio::ym2612_frequency(timing_mode),
+                genesis_components::audio::ym2612_frequency(timing_mode),
                 48000.0,
             ),
             psg_resampler: PerformanceSincResampler::new(
-                genesis_core::audio::psg_frequency(timing_mode),
+                genesis_components::audio::psg_frequency(timing_mode),
                 48000.0,
             ),
             pwm_resampler: PwmResampler::new(config, 48000),

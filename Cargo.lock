@@ -1595,6 +1595,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "genesis-components"
+version = "0.13.1"
+dependencies = [
+ "bincode",
+ "crc",
+ "dsp",
+ "genesis-config",
+ "jgenesis-common",
+ "jgenesis-proc-macros",
+ "log",
+ "m68000-emu",
+ "regex",
+ "test-log",
+ "ti-sn76489",
+ "z80-emu",
+]
+
+[[package]]
 name = "genesis-config"
 version = "0.13.1"
 dependencies = [
@@ -1613,15 +1631,12 @@ name = "genesis-core"
 version = "0.13.1"
 dependencies = [
  "bincode",
- "crc",
  "dsp",
+ "genesis-components",
  "genesis-config",
  "jgenesis-common",
- "jgenesis-proc-macros",
  "log",
  "m68000-emu",
- "regex",
- "test-log",
  "thiserror 2.0.18",
  "ti-sn76489",
  "z80-emu",
@@ -2046,6 +2061,7 @@ dependencies = [
  "egui_extras",
  "gb-core",
  "gba-core",
+ "genesis-components",
  "genesis-config",
  "genesis-core",
  "image",
@@ -2083,6 +2099,7 @@ dependencies = [
  "env_logger",
  "gb-config",
  "gba-config",
+ "genesis-components",
  "genesis-config",
  "genesis-core",
  "image",
@@ -2147,6 +2164,7 @@ dependencies = [
  "gb-core",
  "gba-config",
  "gba-core",
+ "genesis-components",
  "genesis-config",
  "genesis-core",
  "jgenesis-common",
@@ -2498,9 +2516,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.32"
+version = "0.4.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "953f07c43838f8e6f9758cab68bf5bed85465e7587ebe0b823f1bcd81978ad3a"
+checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 
 [[package]]
 name = "loop9"
@@ -3926,9 +3944,9 @@ dependencies = [
 
 [[package]]
 name = "regex"
-version = "1.12.4"
+version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1292b7759ae1cb9ec195452d1390a074f0cd8541ab7a5a8c31cd6db45d4a6ba"
+checksum = "f020237b6c8eed93db2e2cb53c00c60a8e1bc73da7d073199a1180401450218d"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -3938,9 +3956,9 @@ dependencies = [
 
 [[package]]
 name = "regex-automata"
-version = "0.4.14"
+version = "0.4.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e1dd4122fc1595e8162618945476892eefca7b88c52820e74af6262213cae8f"
+checksum = "8fcfdb36bda0c880c5931cdc7a2bcdc8ba4556847b9d912bca70bc94708711ad"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -4072,8 +4090,8 @@ version = "0.13.1"
 dependencies = [
  "bincode",
  "dsp",
+ "genesis-components",
  "genesis-config",
- "genesis-core",
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",
@@ -4221,8 +4239,8 @@ dependencies = [
  "bincode",
  "cdrom",
  "dsp",
+ "genesis-components",
  "genesis-config",
- "genesis-core",
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",

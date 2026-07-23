@@ -6,12 +6,12 @@ use bincode::{Decode, Encode};
 use dsp::design::FilterType;
 use dsp::iir::{FirstOrderIirFilter, IirFilter, SecondOrderIirFilter};
 use dsp::sinc::{PerformanceSincResampler, QualitySincResampler};
+use genesis_components::audio::{GenesisAudioFilter, LowPassSettings};
 use genesis_config::SegaCdEmulatorConfig;
-use genesis_core::audio::{GenesisAudioFilter, LowPassSettings, volume_multiplier};
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
 use std::cmp;
 
-const PSG_COEFFICIENT: f64 = genesis_core::audio::PSG_COEFFICIENT;
+const PSG_COEFFICIENT: f64 = genesis_components::audio::PSG_COEFFICIENT;
 
 const SEGA_CD_MCLK_FREQUENCY: f64 = 50_000_000.0;
 const CD_DA_FREQUENCY: f64 = 44_100.0;
@@ -111,6 +111,8 @@ struct VolumeMultipliers {
 
 impl VolumeMultipliers {
     fn from_config(config: &SegaCdEmulatorConfig) -> Self {
+        use genesis_components::audio::volume_multiplier;
+
         Self {
             ym2612: volume_multiplier(
                 config.genesis.ym2612_enabled,
@@ -142,10 +144,14 @@ pub struct AudioResampler {
 
 impl AudioResampler {
     pub fn new(timing_mode: TimingMode, config: &SegaCdEmulatorConfig) -> Self {
-        let ym2612_resampler =
-            QualitySincResampler::new(genesis_core::audio::ym2612_frequency(timing_mode), 48000.0);
-        let psg_resampler =
-            PerformanceSincResampler::new(genesis_core::audio::psg_frequency(timing_mode), 48000.0);
+        let ym2612_resampler = QualitySincResampler::new(
+            genesis_components::audio::ym2612_frequency(timing_mode),
+            48000.0,
+        );
+        let psg_resampler = PerformanceSincResampler::new(
+            genesis_components::audio::psg_frequency(timing_mode),
+            48000.0,
+        );
         let pcm_resampler =
             QualitySincResampler::new(SEGA_CD_MCLK_FREQUENCY / 4.0 / 384.0, 48000.0);
         let cd_resampler = QualitySincResampler::new(CD_DA_FREQUENCY, 48000.0);

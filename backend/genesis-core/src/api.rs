@@ -1,33 +1,26 @@
 //! Genesis public interface and main loop
 
-pub mod debug;
-
-use crate::api::debug::GenesisDebugger;
 use crate::audio::GenesisAudioResampler;
-use crate::cartridge::Cartridge;
-use crate::input::InputState;
-use crate::memory::debug::DebugMainBus;
-use crate::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
-use crate::timing::{CycleCounters, GenesisCycleCounters};
-use crate::vdp::{DarkenColors, Vdp, VdpConfig, VdpTickEffect};
-use crate::ym2612::Ym2612;
-use crate::{audio, vdp};
 use bincode::{Decode, Encode};
-use genesis_config::{
-    GenParParams, GenesisButton, GenesisEmulatorConfig, GenesisInputs, GenesisRegion,
-};
+use genesis_components::GenesisEmulatorConfigExt;
+use genesis_components::cartridge::Cartridge;
+use genesis_components::debug::{CartridgeDebugView, GenesisDebugger, GenesisEmulatorDebugView};
+use genesis_components::input::InputState;
+use genesis_components::memory::debug::DebugMainBus;
+use genesis_components::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
+use genesis_components::timing::GenesisCycleCounters;
+use genesis_components::vdp::{DarkenColors, Vdp, VdpTickEffect};
+use genesis_components::ym2612::Ym2612;
+use genesis_config::{GenesisButton, GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorTrait, InputPoller, Modal, PartialClone, RenderFrameOptions, Renderer,
-    SaveWriter, TickEffect, TickResult, TimingMode,
+    AudioOutput, EmulatorTrait, InputPoller, Modal, PartialClone, Renderer, SaveWriter, TickEffect,
+    TickResult, TimingMode,
 };
 use m68000_emu::M68000;
-use std::cmp;
 use std::fmt::{Debug, Display};
 use thiserror::Error;
 use ti_sn76489::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use z80_emu::Z80;
-
-pub const SPRITE_LIMITS_MODAL_MESSAGE: &str = "Sprite limits are disabled; may cause glitches";
 
 #[derive(Debug, Error)]
 pub enum GenesisError<RErr, AErr, SErr> {
@@ -40,39 +33,6 @@ pub enum GenesisError<RErr, AErr, SErr> {
 }
 
 pub type GenesisResult<RErr, AErr, SErr> = Result<TickEffect, GenesisError<RErr, AErr, SErr>>;
-
-pub trait GenesisEmulatorConfigExt {
-    #[must_use]
-    fn to_vdp_config(&self, color_adjustment: DarkenColors) -> VdpConfig;
-
-    #[must_use]
-    fn to_gen_par_params(&self) -> GenParParams;
-}
-
-impl GenesisEmulatorConfigExt for GenesisEmulatorConfig {
-    fn to_vdp_config(&self, color_adjustment: DarkenColors) -> VdpConfig {
-        VdpConfig {
-            enforce_sprite_limits: !self.remove_sprite_limits,
-            non_linear_color_scale: self.non_linear_color_scale,
-            deinterlace: self.deinterlace,
-            render_vertical_border: self.render_vertical_border,
-            render_horizontal_border: self.render_horizontal_border,
-            plane_a_enabled: self.plane_a_enabled,
-            plane_b_enabled: self.plane_b_enabled,
-            sprites_enabled: self.sprites_enabled,
-            window_enabled: self.window_enabled,
-            color_adjustment,
-        }
-    }
-
-    fn to_gen_par_params(&self) -> GenParParams {
-        GenParParams {
-            force_square_in_h40: self.force_square_pixels_in_h40,
-            adjust_for_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
-            anamorphic_widescreen: self.anamorphic_widescreen,
-        }
-    }
-}
 
 #[derive(Debug, Encode, Decode, PartialClone)]
 pub struct GenesisEmulator {
@@ -181,7 +141,7 @@ impl GenesisEmulator {
     }
 
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
-        render_frame(self.timing_mode, &self.vdp, &self.config, renderer)
+        genesis_components::render_frame(self.timing_mode, &self.vdp, &self.config, renderer)
     }
 
     #[inline]
@@ -276,7 +236,7 @@ impl GenesisEmulator {
             tick_effect = TickEffect::FrameRendered;
         }
 
-        check_for_long_dma_skip(&self.vdp, &mut self.cycles);
+        genesis_components::check_for_long_dma_skip(&self.vdp, &mut self.cycles);
 
         if !m68k_wait {
             self.vdp.update_interrupt_latches();
@@ -313,37 +273,19 @@ impl GenesisEmulator {
             Some(debugger),
         )
     }
-}
 
-/// Render the current VDP frame buffer.
-///
-/// # Errors
-///
-/// This function will propagate any error returned by the renderer.
-pub fn render_frame<R: Renderer>(
-    timing_mode: TimingMode,
-    vdp: &Vdp,
-    config: &GenesisEmulatorConfig,
-    renderer: &mut R,
-) -> Result<(), R::Err> {
-    let frame_size = vdp.frame_size();
-    let pixel_aspect_ratio = config.aspect_ratio.to_pixel_aspect_ratio(
-        timing_mode,
-        frame_size,
-        config.to_gen_par_params(),
-    );
-    let target_fps = target_framerate(vdp, timing_mode);
-
-    renderer.render_frame(
-        vdp.frame_buffer(),
-        frame_size,
-        target_fps,
-        RenderFrameOptions {
-            pixel_aspect_ratio,
-            composite_params: Some(vdp.composite_params()),
-            ..RenderFrameOptions::default()
-        },
-    )
+    #[must_use]
+    pub fn as_debug_view(&mut self) -> GenesisEmulatorDebugView<'_> {
+        GenesisEmulatorDebugView {
+            m68k: &mut self.m68k,
+            z80: &mut self.z80,
+            memory: self.memory.as_debug_view(|cartridge| CartridgeDebugView { cartridge }),
+            pending_writes: &self.main_bus_writes,
+            vdp: &mut self.vdp,
+            ym2612: &mut self.ym2612,
+            psg: &mut self.psg,
+        }
+    }
 }
 
 impl EmulatorTrait for GenesisEmulator {
@@ -432,7 +374,7 @@ impl EmulatorTrait for GenesisEmulator {
     }
 
     fn target_fps(&self) -> f64 {
-        target_framerate(&self.vdp, self.timing_mode)
+        genesis_components::target_framerate(&self.vdp, self.timing_mode)
     }
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
@@ -445,58 +387,12 @@ impl EmulatorTrait for GenesisEmulator {
         if self.config.remove_sprite_limits
             && self.memory.medium().metadata().sprite_limit_compatibility_issues
         {
-            modals.push(Modal { id: None, text: SPRITE_LIMITS_MODAL_MESSAGE.into() });
+            modals.push(Modal {
+                id: None,
+                text: genesis_components::SPRITE_LIMITS_MODAL_MESSAGE.into(),
+            });
         }
 
         modals
     }
-}
-
-#[inline]
-#[must_use]
-pub fn target_framerate(vdp: &Vdp, timing_mode: TimingMode) -> f64 {
-    let mclk_frequency = match timing_mode {
-        TimingMode::Ntsc => audio::NTSC_GENESIS_MCLK_FREQUENCY,
-        TimingMode::Pal => audio::PAL_GENESIS_MCLK_FREQUENCY,
-    };
-
-    mclk_frequency / (vdp::MCLK_CYCLES_PER_SCANLINE as f64) / vdp.average_scanlines_per_frame()
-}
-
-// If a long DMA is in progress (i.e. the DMA will not finish on this line), preemptively skip the
-// 68000 forward by a large number of mclk cycles (up to 1250).
-//
-// This function is public so that it can be used by the Sega CD core
-#[inline]
-pub fn check_for_long_dma_skip<const REFRESH_INTERVAL: u32>(
-    vdp: &Vdp,
-    cycles: &mut CycleCounters<REFRESH_INTERVAL>,
-) {
-    if !vdp.long_halting_dma_in_progress() {
-        return;
-    }
-
-    if !cycles.z80_halt {
-        // Don't advance for very long time slices if the Z80 is still active; doing so causes
-        // video/audio desync in Overdrive 2.
-        // 8 68K cycles is slightly less than 4 Z80 cycles
-        cycles.m68k_wait_cpu_cycles = 8;
-        return;
-    }
-
-    // Skip as close as possible to the end of the current scanline
-    let wait_cycles = cmp::max(
-        cycles.m68k_wait_cpu_cycles,
-        cmp::min(
-            cycles.max_wait_cpu_cycles,
-            (vdp::MCLK_CYCLES_PER_SCANLINE - vdp.scanline_mclk()) as u32
-                / cycles.m68k_divider_u32.get(),
-        ),
-    );
-    cycles.m68k_wait_cpu_cycles = wait_cycles;
-
-    log::trace!(
-        "Skipping {wait_cycles} 68000 CPU cycles in long DMA optimization, scanline mclk is {}",
-        vdp.scanline_mclk()
-    );
 }

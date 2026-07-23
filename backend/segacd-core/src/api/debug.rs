@@ -3,17 +3,17 @@ use crate::cddrive::cdc::Rchip;
 use crate::memory::wordram::WordRam;
 use crate::memory::{ScdCpu, SegaCd};
 use crate::rf5c164::Rf5c164;
-use genesis_config::GenesisInputs;
-use genesis_core::api::debug::{
+use genesis_components::debug::{
     BaseGenesisDebugView, GenesisDebugState, GenesisMemoryArea, M68000BreakStatus,
     M68000BreakStatusAtomic, M68000BreakpointManager, M68000Breakpoints, M68000BreakpointsParsed,
     PhysicalMediumDebugView, Z80BreakStatus, Z80BreakStatusAtomic, Z80Breakpoint,
     Z80BreakpointManager, Z80Breakpoints,
 };
-use genesis_core::memory::MainBus;
-use genesis_core::memory::debug::{MainBus68kDebugger, MainBusZ80Debugger};
-use genesis_core::vdp::Vdp;
-use genesis_core::ym2612::Ym2612;
+use genesis_components::memory::MainBus;
+use genesis_components::memory::debug::{MainBus68kDebugger, MainBusZ80Debugger};
+use genesis_components::vdp::Vdp;
+use genesis_components::ym2612::Ym2612;
+use genesis_config::GenesisInputs;
 use jgenesis_common::debug::{DebugBytesView, DebugMemoryView};
 use jgenesis_common::frontend::{AudioOutput, InputPoller, Renderer, SaveWriter, TickResult};
 use jgenesis_common::sync::SharedVarSender;

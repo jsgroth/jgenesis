@@ -4,7 +4,7 @@ use crate::{AddressSet, non_selectable_label};
 use egui::style::ScrollStyle;
 use egui::{Align, CentralPanel, Grid, Layout, Panel, RichText, TextEdit, Ui, Window};
 use egui_extras::{Column, TableBuilder};
-use genesis_core::api::debug::{GenesisDebugState, Z80BreakStatus, Z80Breakpoint};
+use genesis_components::debug::{GenesisDebugState, Z80BreakStatus, Z80Breakpoint};
 use z80_emu::{DisassembledInstruction, MemoryAccess, Z80};
 
 const DISASSEMBLY_WINDOW_TITLE: &str = "Z80 Disassembly";

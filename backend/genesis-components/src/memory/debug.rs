@@ -1,8 +1,8 @@
-use crate::api::debug::{
+use crate::cartridge::Cartridge;
+use crate::debug::{
     CartridgeDebugView, GenesisCpu, GenesisDebuggerFor68k, GenesisDebuggerForZ80,
     GenesisEmulatorDebugView,
 };
-use crate::cartridge::Cartridge;
 use crate::memory::{MainBus, PhysicalMedium};
 use m68000_emu::M68000;
 use m68000_emu::debug::M68000Debugger;

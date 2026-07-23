@@ -21,15 +21,15 @@ use egui::{
     Stroke, StrokeKind, Ui, UiKind, Vec2, Window,
 };
 use egui_extras::{Column, TableBuilder};
-use genesis_config::GenesisInputs;
-use genesis_core::GenesisEmulator;
-use genesis_core::api::debug::{
+use genesis_components::debug::{
     CopySpriteAttributesResult, CramEntry, GenesisDebugCommand, GenesisDebugState, GenesisDebugger,
     GenesisDebuggerHandle, GenesisMemoryArea, SpriteAttributeEntry,
 };
-use genesis_core::vdp::debug::VdpDebugState;
-use genesis_core::vdp::{ColorModifier, DataPortLocation};
-use genesis_core::ym2612::Ym2612;
+use genesis_components::vdp::debug::VdpDebugState;
+use genesis_components::vdp::{ColorModifier, DataPortLocation};
+use genesis_components::ym2612::Ym2612;
+use genesis_config::GenesisInputs;
+use genesis_core::GenesisEmulator;
 use jgenesis_common::debug::{DebugMemoryView, DebugViewWithWriteHook, Endian};
 use jgenesis_common::frontend::{
     AudioOutput, Color, InputPoller, Renderer, SaveWriter, TickEffect,
@@ -1248,7 +1248,7 @@ fn render_sh2_registers_window(
     open: &mut bool,
 ) {
     // Roughly 23.01 MHz
-    const SH2_CLOCK_RATE: f64 = genesis_core::audio::NTSC_GENESIS_MCLK_FREQUENCY
+    const SH2_CLOCK_RATE: f64 = genesis_components::audio::NTSC_GENESIS_MCLK_FREQUENCY
         / (genesis_config::NATIVE_M68K_DIVIDER as f64)
         * (genesis_config::NATIVE_SH2_MULTIPLIER as f64);
 

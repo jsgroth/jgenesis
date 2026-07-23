@@ -35,7 +35,6 @@
 //! messier due to the need to avoid putting any lifetime parameters on the SH-2 bus struct
 //! combined with the communication port catch-up code.
 
-use crate::GenesisEmulator;
 use crate::cartridge::Cartridge;
 use crate::memory::MainBusWrites;
 use crate::vdp::Vdp;
@@ -301,7 +300,7 @@ fn main_bus_writes_to_debug(main_bus_writes: &MainBusWrites) -> Vec<DebugPending
 }
 
 pub struct CartridgeDebugView<'a> {
-    pub(crate) cartridge: &'a mut Cartridge,
+    pub cartridge: &'a mut Cartridge,
 }
 
 impl PhysicalMediumDebugView for CartridgeDebugView<'_> {
@@ -311,21 +310,6 @@ impl PhysicalMediumDebugView for CartridgeDebugView<'_> {
 }
 
 pub type GenesisEmulatorDebugView<'a> = BaseGenesisDebugView<'a, CartridgeDebugView<'a>>;
-
-impl GenesisEmulator {
-    #[must_use]
-    pub fn as_debug_view(&mut self) -> GenesisEmulatorDebugView<'_> {
-        GenesisEmulatorDebugView {
-            m68k: &mut self.m68k,
-            z80: &mut self.z80,
-            memory: self.memory.as_debug_view(|cartridge| CartridgeDebugView { cartridge }),
-            pending_writes: &self.main_bus_writes,
-            vdp: &mut self.vdp,
-            ym2612: &mut self.ym2612,
-            psg: &mut self.psg,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct M68000Breakpoint {

@@ -1,6 +1,6 @@
 use crate::api::debug::{BreakWhichCpu, SegaCdDebuggerForSubCpu, SegaCdEmulatorDebugView};
 use crate::memory::{ScdCpu, SegaCd, SubBus};
-use genesis_core::api::debug::BaseGenesisDebugView;
+use genesis_components::debug::BaseGenesisDebugView;
 use m68000_emu::debug::M68000Debugger;
 use m68000_emu::{BusInterface, M68000};
 

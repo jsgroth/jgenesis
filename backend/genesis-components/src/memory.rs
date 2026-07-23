@@ -2,9 +2,9 @@
 
 pub mod debug;
 
-use crate::GenesisRegionExt;
-use crate::api::debug::{GenesisMemoryDebugView, PhysicalMediumDebugView};
 use crate::cartridge::Cartridge;
+use crate::cartridge::GenesisRegionExt;
+use crate::debug::{GenesisMemoryDebugView, PhysicalMediumDebugView};
 use crate::input::InputState;
 use crate::memory::debug::GenesisMemory;
 use crate::timing::CycleCounters;
