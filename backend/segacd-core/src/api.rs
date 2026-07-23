@@ -16,7 +16,7 @@ use genesis_components::GenesisEmulatorConfigExt;
 use genesis_components::input::InputState;
 use genesis_components::memory::debug::DebugMainBus;
 use genesis_components::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
-use genesis_components::timing::GenesisCycleCounters;
+use genesis_components::timing::CycleCounters;
 use genesis_components::vdp::{DarkenColors, Vdp, VdpTickEffect};
 use genesis_components::ym2612::Ym2612;
 use genesis_config::GenesisInputs;
@@ -39,8 +39,6 @@ const PAL_GENESIS_MASTER_CLOCK_RATE: u64 = 53_203_424;
 pub const SEGA_CD_MASTER_CLOCK_RATE: u64 = 50_000_000;
 
 const BIOS_LEN: usize = memory::BIOS_LEN;
-
-type SegaCdCycleCounters = GenesisCycleCounters;
 
 #[derive(Debug, Error)]
 pub enum SegaCdLoadError {
@@ -85,7 +83,7 @@ pub struct SegaCdEmulator {
     timing_mode: TimingMode,
     main_bus_writes: MainBusWrites,
     disc_title: String,
-    cycles: SegaCdCycleCounters,
+    cycles: CycleCounters,
     sega_cd_mclk_cycles: u64,
     sega_cd_mclk_cycle_product: u64,
     sub_cpu_divider: u64,
@@ -216,7 +214,7 @@ impl SegaCdEmulator {
             timing_mode,
             main_bus_writes: MainBusWrites::new(),
             disc_title,
-            cycles: SegaCdCycleCounters::new(emulator_config.genesis.clamped_m68k_divider()),
+            cycles: CycleCounters::new(emulator_config.genesis.clamped_m68k_divider()),
             sega_cd_mclk_cycles: 0,
             sega_cd_mclk_cycle_product: 0,
             sub_cpu_divider: emulator_config.sub_cpu_divider.get(),

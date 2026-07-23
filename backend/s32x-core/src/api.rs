@@ -12,7 +12,7 @@ use genesis_components::GenesisEmulatorConfigExt;
 use genesis_components::input::InputState;
 use genesis_components::memory::debug::DebugMainBus;
 use genesis_components::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
-use genesis_components::timing::GenesisCycleCounters;
+use genesis_components::timing::CycleCounters;
 use genesis_components::vdp::{DarkenColors, Vdp, VdpTickEffect};
 use genesis_components::ym2612::Ym2612;
 use genesis_config::GenesisInputs;
@@ -76,7 +76,7 @@ pub struct Sega32XEmulator {
     input: InputState,
     audio_resampler: Sega32XResampler,
     main_bus_writes: MainBusWrites,
-    cycles: GenesisCycleCounters,
+    cycles: CycleCounters,
     region: GenesisRegion,
     timing_mode: TimingMode,
     config: Sega32XEmulatorConfig,
@@ -120,7 +120,7 @@ impl Sega32XEmulator {
             input,
             audio_resampler: Sega32XResampler::new(timing_mode, &config),
             main_bus_writes: MainBusWrites::new(),
-            cycles: GenesisCycleCounters::new(config.genesis.clamped_m68k_divider()),
+            cycles: CycleCounters::new(config.genesis.clamped_m68k_divider()),
             region,
             timing_mode,
             config,

@@ -339,11 +339,7 @@ impl MainBus68kDebugger<Sega32X> for Sega32XDebuggerFor68k<'_> {
         self.debugger.check_68k_break_step()
     }
 
-    fn handle_breakpoint<const REFRESH_INTERVAL: u32>(
-        &mut self,
-        cpu: &mut M68000,
-        bus: &mut MainBus<'_, Sega32X, REFRESH_INTERVAL>,
-    ) {
+    fn handle_breakpoint(&mut self, cpu: &mut M68000, bus: &mut MainBus<'_, Sega32X>) {
         let mut debug_view = Sega32XEmulatorDebugView {
             genesis: BaseGenesisDebugView {
                 m68k: cpu,
@@ -376,11 +372,7 @@ impl MainBusZ80Debugger<Sega32X> for Sega32XDebuggerForZ80<'_> {
         self.debugger.check_z80_break_step()
     }
 
-    fn handle_breakpoint<const REFRESH_INTERVAL: u32>(
-        &mut self,
-        cpu: &mut Z80,
-        bus: &mut MainBus<'_, Sega32X, REFRESH_INTERVAL>,
-    ) {
+    fn handle_breakpoint(&mut self, cpu: &mut Z80, bus: &mut MainBus<'_, Sega32X>) {
         let mut debug_view = Sega32XEmulatorDebugView {
             genesis: BaseGenesisDebugView {
                 m68k: self.m68k,

@@ -473,11 +473,7 @@ impl MainBus68kDebugger<SegaCd> for SegaCdDebuggerForMainCpu<'_> {
         self.debugger.main_cpu_breakpoints.check_break_step()
     }
 
-    fn handle_breakpoint<const REFRESH_INTERVAL: u32>(
-        &mut self,
-        cpu: &mut M68000,
-        bus: &mut MainBus<'_, SegaCd, REFRESH_INTERVAL>,
-    ) {
+    fn handle_breakpoint(&mut self, cpu: &mut M68000, bus: &mut MainBus<'_, SegaCd>) {
         let mut debug_view = SegaCdEmulatorDebugView {
             genesis: BaseGenesisDebugView {
                 m68k: cpu,
@@ -519,11 +515,7 @@ impl MainBusZ80Debugger<SegaCd> for SegaCdDebuggerForZ80<'_> {
         self.debugger.z80_breakpoints.check_break_step()
     }
 
-    fn handle_breakpoint<const REFRESH_INTERVAL: u32>(
-        &mut self,
-        cpu: &mut Z80,
-        bus: &mut MainBus<'_, SegaCd, REFRESH_INTERVAL>,
-    ) {
+    fn handle_breakpoint(&mut self, cpu: &mut Z80, bus: &mut MainBus<'_, SegaCd>) {
         let mut debug_view = SegaCdEmulatorDebugView {
             genesis: BaseGenesisDebugView {
                 m68k: self.main_cpu,

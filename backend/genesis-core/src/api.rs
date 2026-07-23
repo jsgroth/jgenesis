@@ -8,7 +8,7 @@ use genesis_components::debug::{CartridgeDebugView, GenesisDebugger, GenesisEmul
 use genesis_components::input::InputState;
 use genesis_components::memory::debug::DebugMainBus;
 use genesis_components::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
-use genesis_components::timing::GenesisCycleCounters;
+use genesis_components::timing::CycleCounters;
 use genesis_components::vdp::{DarkenColors, Vdp, VdpTickEffect};
 use genesis_components::ym2612::Ym2612;
 use genesis_config::{GenesisButton, GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
@@ -47,7 +47,7 @@ pub struct GenesisEmulator {
     timing_mode: TimingMode,
     main_bus_writes: MainBusWrites,
     audio_resampler: GenesisAudioResampler,
-    cycles: GenesisCycleCounters,
+    cycles: CycleCounters,
     config: GenesisEmulatorConfig,
 }
 
@@ -113,7 +113,7 @@ impl GenesisEmulator {
             timing_mode,
             main_bus_writes: MainBusWrites::new(),
             audio_resampler: GenesisAudioResampler::new(timing_mode, &config),
-            cycles: GenesisCycleCounters::new(config.clamped_m68k_divider()),
+            cycles: CycleCounters::new(config.clamped_m68k_divider()),
             config,
         };
 

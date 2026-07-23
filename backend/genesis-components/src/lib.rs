@@ -96,10 +96,7 @@ pub fn render_frame<R: Renderer>(
 //
 // This function is public so that it can be used by the Sega CD core
 #[inline]
-pub fn check_for_long_dma_skip<const REFRESH_INTERVAL: u32>(
-    vdp: &Vdp,
-    cycles: &mut CycleCounters<REFRESH_INTERVAL>,
-) {
+pub fn check_for_long_dma_skip(vdp: &Vdp, cycles: &mut CycleCounters) {
     if !vdp.long_halting_dma_in_progress() {
         return;
     }

@@ -259,7 +259,7 @@ impl MainBusWrites {
     }
 }
 
-pub struct MainBus<'a, Medium, const REFRESH_INTERVAL: u32> {
+pub struct MainBus<'a, Medium> {
     pub memory: &'a mut Memory<Medium>,
     pub vdp: &'a mut Vdp,
     pub psg: &'a mut Sn76489,
@@ -268,13 +268,11 @@ pub struct MainBus<'a, Medium, const REFRESH_INTERVAL: u32> {
     pub timing_mode: TimingMode,
     pub signals: MainBusSignals,
     pub pending_writes: MainBusWrites,
-    pub cycles: &'a mut CycleCounters<REFRESH_INTERVAL>,
+    pub cycles: &'a mut CycleCounters,
     pub m68k_opcode: u16,
 }
 
-impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u32>
-    MainBus<'a, Medium, REFRESH_INTERVAL>
-{
+impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
     #[allow(clippy::too_many_arguments)]
     #[inline]
     pub fn new(
@@ -283,7 +281,7 @@ impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u32>
         psg: &'a mut Sn76489,
         ym2612: &'a mut Ym2612,
         input: &'a mut InputState,
-        cycles: &'a mut CycleCounters<REFRESH_INTERVAL>,
+        cycles: &'a mut CycleCounters,
         m68k_opcode: u16,
         timing_mode: TimingMode,
         signals: MainBusSignals,
@@ -523,9 +521,7 @@ impl<'a, Medium: PhysicalMedium, const REFRESH_INTERVAL: u32>
 // The Genesis has a 24-bit bus, not 32-bit
 const ADDRESS_MASK: u32 = 0xFFFFFF;
 
-impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterface
-    for MainBus<'_, Medium, REFRESH_INTERVAL>
-{
+impl<Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'_, Medium> {
     type DebugView<'a>
         = DummyM68000Debugger
     where
@@ -656,9 +652,7 @@ impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> m68000_emu::BusInterfa
     }
 }
 
-impl<Medium: PhysicalMedium, const REFRESH_INTERVAL: u32> z80_emu::BusInterface
-    for MainBus<'_, Medium, REFRESH_INTERVAL>
-{
+impl<Medium: PhysicalMedium> z80_emu::BusInterface for MainBus<'_, Medium> {
     type DebugView<'a>
         = DummyZ80Debugger
     where

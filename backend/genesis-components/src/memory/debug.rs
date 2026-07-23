@@ -16,8 +16,8 @@ pub struct GenesisMemory<'a> {
     pub z80_bank_number: u32,
 }
 
-pub struct DebugMainBus<'busref, 'bus, const REFRESH_INTERVAL: u32, Medium, Debugger> {
-    pub bus: &'busref mut MainBus<'bus, Medium, REFRESH_INTERVAL>,
+pub struct DebugMainBus<'busref, 'bus, Medium, Debugger> {
+    pub bus: &'busref mut MainBus<'bus, Medium>,
     pub debugger: Debugger,
 }
 
@@ -32,11 +32,7 @@ pub trait MainBus68kDebugger<Medium> {
 
     fn check_break_step(&mut self) -> bool;
 
-    fn handle_breakpoint<const REFRESH_INTERVAL: u32>(
-        &mut self,
-        cpu: &mut M68000,
-        bus: &mut MainBus<'_, Medium, REFRESH_INTERVAL>,
-    );
+    fn handle_breakpoint(&mut self, cpu: &mut M68000, bus: &mut MainBus<'_, Medium>);
 }
 
 pub trait MainBusZ80Debugger<Medium> {
@@ -48,19 +44,14 @@ pub trait MainBusZ80Debugger<Medium> {
 
     fn check_break_step(&mut self) -> bool;
 
-    fn handle_breakpoint<const REFRESH_INTERVAL: u32>(
-        &mut self,
-        cpu: &mut Z80,
-        bus: &mut MainBus<'_, Medium, REFRESH_INTERVAL>,
-    );
+    fn handle_breakpoint(&mut self, cpu: &mut Z80, bus: &mut MainBus<'_, Medium>);
 }
 
-pub struct DebugMainBusView<'slf, 'busref, 'bus, const REFRESH_INTERVAL: u32, Medium, Debugger>(
-    &'slf mut DebugMainBus<'busref, 'bus, REFRESH_INTERVAL, Medium, Debugger>,
+pub struct DebugMainBusView<'slf, 'busref, 'bus, Medium, Debugger>(
+    &'slf mut DebugMainBus<'busref, 'bus, Medium, Debugger>,
 );
 
-impl<const REFRESH_INTERVAL: u32, Medium, Debugger> M68000Debugger
-    for DebugMainBusView<'_, '_, '_, REFRESH_INTERVAL, Medium, Debugger>
+impl<Medium, Debugger> M68000Debugger for DebugMainBusView<'_, '_, '_, Medium, Debugger>
 where
     Medium: PhysicalMedium,
     Debugger: MainBus68kDebugger<Medium>,
@@ -114,8 +105,7 @@ where
     }
 }
 
-impl<const REFRESH_INTERVAL: u32, Medium, Debugger> Z80Debugger
-    for DebugMainBusView<'_, '_, '_, REFRESH_INTERVAL, Medium, Debugger>
+impl<Medium, Debugger> Z80Debugger for DebugMainBusView<'_, '_, '_, Medium, Debugger>
 where
     Medium: PhysicalMedium,
     Debugger: MainBusZ80Debugger<Medium>,
@@ -156,14 +146,14 @@ where
     }
 }
 
-impl<'busref, 'bus, const REFRESH_INTERVAL: u32, Medium, Debugger> m68000_emu::BusInterface
-    for DebugMainBus<'busref, 'bus, REFRESH_INTERVAL, Medium, Debugger>
+impl<'busref, 'bus, Medium, Debugger> m68000_emu::BusInterface
+    for DebugMainBus<'busref, 'bus, Medium, Debugger>
 where
     Medium: PhysicalMedium,
     Debugger: MainBus68kDebugger<Medium>,
 {
     type DebugView<'a>
-        = DebugMainBusView<'a, 'busref, 'bus, REFRESH_INTERVAL, Medium, Debugger>
+        = DebugMainBusView<'a, 'busref, 'bus, Medium, Debugger>
     where
         Self: 'a;
 
@@ -204,14 +194,14 @@ where
     }
 }
 
-impl<'busref, 'bus, const REFRESH_INTERVAL: u32, Medium, Debugger> z80_emu::BusInterface
-    for DebugMainBus<'busref, 'bus, REFRESH_INTERVAL, Medium, Debugger>
+impl<'busref, 'bus, Medium, Debugger> z80_emu::BusInterface
+    for DebugMainBus<'busref, 'bus, Medium, Debugger>
 where
     Medium: PhysicalMedium,
     Debugger: MainBusZ80Debugger<Medium>,
 {
     type DebugView<'a>
-        = DebugMainBusView<'a, 'busref, 'bus, REFRESH_INTERVAL, Medium, Debugger>
+        = DebugMainBusView<'a, 'busref, 'bus, Medium, Debugger>
     where
         Self: 'a;
 
@@ -273,11 +263,7 @@ impl MainBus68kDebugger<Cartridge> for GenesisDebuggerFor68k<'_> {
         self.debugger.check_68k_break_step()
     }
 
-    fn handle_breakpoint<const REFRESH_INTERVAL: u32>(
-        &mut self,
-        cpu: &mut M68000,
-        bus: &mut MainBus<'_, Cartridge, REFRESH_INTERVAL>,
-    ) {
+    fn handle_breakpoint(&mut self, cpu: &mut M68000, bus: &mut MainBus<'_, Cartridge>) {
         let mut debug_view = GenesisEmulatorDebugView {
             m68k: cpu,
             z80: self.z80,
@@ -309,11 +295,7 @@ impl MainBusZ80Debugger<Cartridge> for GenesisDebuggerForZ80<'_> {
         self.debugger.check_z80_break_step()
     }
 
-    fn handle_breakpoint<const REFRESH_INTERVAL: u32>(
-        &mut self,
-        cpu: &mut Z80,
-        bus: &mut MainBus<'_, Cartridge, REFRESH_INTERVAL>,
-    ) {
+    fn handle_breakpoint(&mut self, cpu: &mut Z80, bus: &mut MainBus<'_, Cartridge>) {
         let mut debug_view = GenesisEmulatorDebugView {
             m68k: self.m68k,
             z80: cpu,

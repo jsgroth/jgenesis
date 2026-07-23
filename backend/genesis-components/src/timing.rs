@@ -15,8 +15,10 @@ pub const PSG_DIVIDER: u64 = 15;
 // Sync the YM2612 at least once per scanline
 pub const MAX_YM2612_LAG_MCLK: u64 = vdp::MCLK_CYCLES_PER_SCANLINE;
 
+pub const REFRESH_INTERVAL: u32 = 128;
+
 #[derive(Debug, Clone, Copy, Encode, Decode)]
-pub struct CycleCounters<const REFRESH_INTERVAL: u32> {
+pub struct CycleCounters {
     // Store divider as both u64 and u32 for better codegen when doing u32 division
     pub m68k_divider: NonZeroU64,
     pub m68k_divider_u32: NonZeroU32,
@@ -41,7 +43,7 @@ fn max_wait_cpu_cycles(m68k_divider: NonZeroU64) -> u32 {
     MAX_WAIT_MCLK_CYCLES / m68k_divider.get() as u32
 }
 
-impl<const REFRESH_INTERVAL: u32> CycleCounters<REFRESH_INTERVAL> {
+impl CycleCounters {
     #[inline]
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
@@ -235,7 +237,3 @@ impl<const REFRESH_INTERVAL: u32> CycleCounters<REFRESH_INTERVAL> {
         self.last_ym2612_drain_mclk = self.z80_mclk_cycles;
     }
 }
-
-pub const GENESIS_REFRESH_INTERVAL: u32 = 128;
-
-pub type GenesisCycleCounters = CycleCounters<GENESIS_REFRESH_INTERVAL>;
