@@ -85,6 +85,7 @@ enum WhichFrameBuffer {
 #[derive(Debug, Clone, Encode, Decode)]
 struct State {
     next_render_buffer: WhichFrameBuffer,
+    fully_blank_frame: bool,
     scanline: u16,
     scanline_mclk: u64,
     scanlines_in_current_frame: u16,
@@ -102,6 +103,7 @@ impl State {
     fn new() -> Self {
         Self {
             next_render_buffer: WhichFrameBuffer::Genesis,
+            fully_blank_frame: true,
             scanline: 0,
             scanline_mclk: 0,
             scanlines_in_current_frame: u16::MAX,
@@ -364,6 +366,9 @@ impl Vdp {
     }
 
     fn render_line(&mut self) {
+        self.state.fully_blank_frame |= self.state.scanline == 0;
+        self.state.fully_blank_frame &= self.latched.frame_buffer_mode == FrameBufferMode::Blank;
+
         match self.latched.frame_buffer_mode {
             FrameBufferMode::Blank => {
                 self.rendered_frame[self.state.scanline as usize].fill(0);
@@ -722,12 +727,10 @@ impl Vdp {
         // Default to rendering from the Genesis VDP frame buffer, switch later if necessary
         self.state.next_render_buffer = WhichFrameBuffer::Genesis;
 
-        if (self.config.video_out != S32XVideoOut::S32XOnly
-            && self.latched.frame_buffer_mode == FrameBufferMode::Blank)
+        if (self.config.video_out != S32XVideoOut::S32XOnly && self.state.fully_blank_frame)
             || self.config.video_out == S32XVideoOut::GenesisOnly
         {
             // Leave Genesis frame as-is
-            // TODO what if 32X VDP was switched to blank mode mid-frame?
             return;
         }
 
