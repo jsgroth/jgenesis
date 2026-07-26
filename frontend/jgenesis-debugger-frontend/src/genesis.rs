@@ -1,1900 +1,1900 @@
-mod m68kdebug;
-mod psgdebug;
-mod sh2debug;
-mod widgets;
-mod ym2612debug;
-mod z80debug;
-
-use crate::genesis::m68kdebug::{
-    M68kBreakCommand, M68kDebugWindowState, Main68kInterruptBreakpoints, SegaCdSubMemoryMap,
-    Sub68kInterruptBreakpoints,
-};
-use crate::genesis::sh2debug::Sh2DebugWindowState;
-use crate::genesis::ym2612debug::Ym2612DebugWindowState;
-use crate::genesis::z80debug::{GenesisZ80MemoryMap, Z80BreakCommand, Z80DebugWindowState};
-use crate::memviewer::MemoryViewerState;
-use crate::process::{DebuggerProcesses, RunTillNextResult};
-use crate::{DebugRenderContext, DebuggerMainProcess, DebuggerRunnerProcess, memviewer};
-use egui::scroll_area::ScrollBarVisibility;
-use egui::{
-    CentralPanel, Color32, CornerRadius, Grid, Image, Panel, Popup, Pos2, Rect, ScrollArea, Sense,
-    Stroke, StrokeKind, Ui, UiKind, Vec2, Window,
-};
-use egui_extras::{Column, TableBuilder};
-use genesis_components::debug::{
-    CopySpriteAttributesResult, CramEntry, GenesisDebugCommand, GenesisDebugState, GenesisDebugger,
-    GenesisDebuggerHandle, GenesisMemoryArea, SpriteAttributeEntry,
-};
-use genesis_components::vdp::debug::VdpDebugState;
-use genesis_components::vdp::{ColorModifier, DataPortLocation};
-use genesis_components::ym2612::Ym2612;
-use genesis_config::GenesisInputs;
-use genesis_core::GenesisEmulator;
-use jgenesis_common::debug::{DebugMemoryView, DebugViewWithWriteHook, Endian};
-use jgenesis_common::frontend::{
-    AudioOutput, Color, InputPoller, Renderer, SaveWriter, TickEffect,
-};
-use jgenesis_common::num::GetBit;
-use jgenesis_common::sync::{SharedVarReceiver, SharedVarSender};
-use s32x_core::WhichCpu;
-use s32x_core::api::Sega32XEmulator;
-use s32x_core::api::debug::{
-    S32XMemoryArea, Sega32XDebugCommand, Sega32XDebugState, Sega32XDebugger, Sega32XDebuggerHandle,
-};
-use segacd_core::api::SegaCdEmulator;
-use segacd_core::api::debug::{
-    SegaCdDebugCommand, SegaCdDebugState, SegaCdDebugger, SegaCdDebuggerHandle, SegaCdMemoryArea,
-};
-use sh2_emu::{CacheMode, DmaAddressMode, DmaTransferUnit, Sh2};
-use std::collections::HashMap;
-use std::error::Error;
-use std::hash::Hash;
-use std::iter;
-use ti_sn76489::Sn76489;
-
-const CRAM_WINDOW_TITLE: &str = "CRAM";
-const VRAM_WINDOW_TITLE: &str = "VRAM";
-const H_SCROLL_WINDOW_TITLE: &str = "H Scroll Table";
-const SPRITE_ATTRIBUTES_WINDOW_TITLE: &str = "Sprite Attribute Table";
-const S32X_PALETTE_WINDOW_TITLE: &str = "32X Palette RAM";
-
-const VDP_REGISTERS_WINDOW_TITLE: &str = "VDP Registers";
-const VDP_STATE_WINDOW_TITLE: &str = "VDP State";
-const S32X_SYSTEM_REGISTERS_WINDOW_TITLE: &str = "32X System Registers";
-const S32X_VDP_REGISTERS_WINDOW_TITLE: &str = "32X VDP Registers";
-const S32X_PWM_REGISTERS_WINDOW_TITLE: &str = "32X PWM Registers";
-
-const MASTER_SH2_REGISTERS_WINDOW_TITLE: &str = "Master SH-2 Registers";
-const SLAVE_SH2_REGISTERS_WINDOW_TITLE: &str = "Slave SH-2 Registers";
-
-const CRAM_ROWS: usize = 4;
-const CRAM_COLS: usize = 16;
-
-// Manually position open-by-default windows so they don't spawn over the top panel
-const CRAM_DEFAULT_POS: [f32; 2] = [16.0, 38.0];
-const VRAM_DEFAULT_POS: [f32; 2] = [16.0, 327.0];
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum MemoryArea {
-    Genesis(GenesisMemoryArea),
-    SegaCd(SegaCdMemoryArea),
-    Sega32X(S32XMemoryArea),
-}
-
-impl MemoryArea {
-    const ALL: &'static [Self] = &[
-        Self::Genesis(GenesisMemoryArea::CartridgeRom),
-        Self::Genesis(GenesisMemoryArea::WorkingRam),
-        Self::Genesis(GenesisMemoryArea::AudioRam),
-        Self::Genesis(GenesisMemoryArea::Vram),
-        Self::Genesis(GenesisMemoryArea::Cram),
-        Self::Genesis(GenesisMemoryArea::Vsram),
-        Self::SegaCd(SegaCdMemoryArea::BiosRom),
-        Self::SegaCd(SegaCdMemoryArea::PrgRam),
-        Self::SegaCd(SegaCdMemoryArea::WordRam),
-        Self::SegaCd(SegaCdMemoryArea::PcmRam),
-        Self::SegaCd(SegaCdMemoryArea::CdcRam),
-        Self::Sega32X(S32XMemoryArea::Sdram),
-        Self::Sega32X(S32XMemoryArea::MasterSh2Cache),
-        Self::Sega32X(S32XMemoryArea::SlaveSh2Cache),
-        Self::Sega32X(S32XMemoryArea::FrameBuffer0),
-        Self::Sega32X(S32XMemoryArea::FrameBuffer1),
-        Self::Sega32X(S32XMemoryArea::PaletteRam),
-    ];
-
-    fn name(self) -> &'static str {
-        match self {
-            Self::Genesis(area) => match area {
-                GenesisMemoryArea::CartridgeRom => "Cartridge ROM",
-                GenesisMemoryArea::WorkingRam => "Working RAM",
-                GenesisMemoryArea::AudioRam => "Audio RAM",
-                GenesisMemoryArea::Vram => "VRAM",
-                GenesisMemoryArea::Cram => "CRAM",
-                GenesisMemoryArea::Vsram => "VSRAM",
-            },
-            Self::SegaCd(area) => match area {
-                SegaCdMemoryArea::BiosRom => "BIOS ROM",
-                SegaCdMemoryArea::PrgRam => "PRG RAM",
-                SegaCdMemoryArea::WordRam => "Word RAM",
-                SegaCdMemoryArea::PcmRam => "PCM Waveform RAM",
-                SegaCdMemoryArea::CdcRam => "CDC Buffer RAM",
-            },
-            Self::Sega32X(area) => match area {
-                S32XMemoryArea::Sdram => "32X SDRAM",
-                S32XMemoryArea::MasterSh2Cache => "Master SH-2 Cache",
-                S32XMemoryArea::SlaveSh2Cache => "Slave SH-2 Cache",
-                S32XMemoryArea::FrameBuffer0 => "32X Frame Buffer 0",
-                S32XMemoryArea::FrameBuffer1 => "32X Frame Buffer 1",
-                S32XMemoryArea::PaletteRam => "32X Palette RAM",
-            },
-        }
-    }
-
-    fn default_file_name(self) -> &'static str {
-        match self {
-            Self::Genesis(area) => match area {
-                GenesisMemoryArea::CartridgeRom => "rom.bin",
-                GenesisMemoryArea::WorkingRam => "wram.bin",
-                GenesisMemoryArea::AudioRam => "audioram.bin",
-                GenesisMemoryArea::Vram => "vram.bin",
-                GenesisMemoryArea::Cram => "cram.bin",
-                GenesisMemoryArea::Vsram => "vsram.bin",
-            },
-            Self::SegaCd(area) => match area {
-                SegaCdMemoryArea::BiosRom => "bios.bin",
-                SegaCdMemoryArea::PrgRam => "prgram.bin",
-                SegaCdMemoryArea::WordRam => "wordram.bin",
-                SegaCdMemoryArea::PcmRam => "pcmram.bin",
-                SegaCdMemoryArea::CdcRam => "cdcram.bin",
-            },
-            Self::Sega32X(area) => match area {
-                S32XMemoryArea::Sdram => "sdram.bin",
-                S32XMemoryArea::MasterSh2Cache => "mcache.bin",
-                S32XMemoryArea::SlaveSh2Cache => "scache.bin",
-                S32XMemoryArea::FrameBuffer0 => "fb0.bin",
-                S32XMemoryArea::FrameBuffer1 => "fb1.bin",
-                S32XMemoryArea::PaletteRam => "paletteram.bin",
-            },
-        }
-    }
-
-    fn new_states() -> HashMap<Self, MemoryViewerState> {
-        Self::ALL
-            .iter()
-            .map(|&area| {
-                (
-                    area,
-                    MemoryViewerState::new(area.name(), Endian::Big)
-                        .with_default_file_name(area.default_file_name().into())
-                        .with_editable(),
-                )
-            })
-            .collect()
-    }
-}
-
-struct CramWindowState {
-    open: bool,
-    modifier: ColorModifier,
-    selected_color: usize,
-    popup_contains_pointer: bool,
-    entry_buffer: Box<[CramEntry; CRAM_ROWS * CRAM_COLS]>,
-    color_buffer: Box<[Color; CRAM_ROWS * CRAM_COLS]>,
-    texture: Option<egui::TextureId>,
-}
-
-impl CramWindowState {
-    fn new() -> Self {
-        Self {
-            open: true,
-            modifier: ColorModifier::None,
-            selected_color: 0,
-            popup_contains_pointer: false,
-            entry_buffer: vec![CramEntry::default(); CRAM_ROWS * CRAM_COLS]
-                .into_boxed_slice()
-                .try_into()
-                .unwrap(),
-            color_buffer: vec![Color::default(); CRAM_ROWS * CRAM_COLS]
-                .into_boxed_slice()
-                .try_into()
-                .unwrap(),
-            texture: None,
-        }
-    }
-}
-
-struct VramWindowState {
-    open: bool,
-    palette: u8,
-    buffer: Box<[Color; 2048 * 64]>,
-    texture: Option<egui::TextureId>,
-}
-
-impl VramWindowState {
-    fn new() -> Self {
-        Self {
-            open: true,
-            palette: 0,
-            buffer: vec![Color::default(); 2048 * 64].into_boxed_slice().try_into().unwrap(),
-            texture: None,
-        }
-    }
-}
-
-struct HScrollWindowState {
-    open: bool,
-    buffer: Box<[(u16, u16); 256]>,
-}
-
-impl HScrollWindowState {
-    fn new() -> Self {
-        Self { open: false, buffer: vec![(0, 0); 256].into_boxed_slice().try_into().unwrap() }
-    }
-}
-
-struct SpriteAttributesWindowState {
-    open: bool,
-    buffer: Box<[SpriteAttributeEntry; 80]>,
-    adjust_coordinates: bool,
-}
-
-impl SpriteAttributesWindowState {
-    fn new() -> Self {
-        Self {
-            open: false,
-            buffer: vec![SpriteAttributeEntry::default(); 80]
-                .into_boxed_slice()
-                .try_into()
-                .unwrap(),
-            adjust_coordinates: false,
-        }
-    }
-}
-
-struct S32XPaletteRamState {
-    open: bool,
-    selected_color: usize,
-    popup_contains_pointer: bool,
-    entry_buffer: Box<[CramEntry; 256]>,
-    color_buffer: Box<[Color; 256]>,
-    texture: Option<egui::TextureId>,
-}
-
-impl S32XPaletteRamState {
-    fn new() -> Self {
-        Self {
-            open: false,
-            selected_color: 0,
-            popup_contains_pointer: false,
-            entry_buffer: vec![CramEntry::default(); 256].into_boxed_slice().try_into().unwrap(),
-            color_buffer: vec![Color::default(); 256].into_boxed_slice().try_into().unwrap(),
-            texture: None,
-        }
-    }
-}
-
-struct State {
-    memory_viewers: HashMap<MemoryArea, MemoryViewerState>,
-    memory_edit_hook: Box<dyn FnMut(MemoryArea, usize, u8)>,
-    cram: CramWindowState,
-    vram: VramWindowState,
-    h_scroll: HScrollWindowState,
-    sprite_attributes: SpriteAttributesWindowState,
-    s32x_palette: S32XPaletteRamState,
-    z80: Z80DebugWindowState,
-    m68k: M68kDebugWindowState,
-    m68k_sub: M68kDebugWindowState,
-    sh2_master: Sh2DebugWindowState,
-    sh2_slave: Sh2DebugWindowState,
-    vdp_registers_open: bool,
-    vdp_state_open: bool,
-    ym2612: Ym2612DebugWindowState,
-    psg_open: bool,
-    master_sh2_registers_open: bool,
-    slave_sh2_registers_open: bool,
-    s32x_system_registers_open: bool,
-    s32x_vdp_registers_open: bool,
-    s32x_pwm_registers_open: bool,
-}
-
-impl State {
-    fn new(memory_edit_hook: Box<dyn FnMut(MemoryArea, usize, u8)>) -> Self {
-        Self {
-            memory_viewers: MemoryArea::new_states(),
-            memory_edit_hook,
-            cram: CramWindowState::new(),
-            vram: VramWindowState::new(),
-            h_scroll: HScrollWindowState::new(),
-            sprite_attributes: SpriteAttributesWindowState::new(),
-            s32x_palette: S32XPaletteRamState::new(),
-            z80: Z80DebugWindowState::new(),
-            m68k: M68kDebugWindowState::new_default_titles()
-                .with_interrupt_breakpoints(Box::new(Main68kInterruptBreakpoints::default())),
-            m68k_sub: M68kDebugWindowState::new_with_titles(
-                "Sub 68000 Disassembly",
-                "Sub 68000 Breakpoints",
-            )
-            .with_interrupt_breakpoints(Box::new(Sub68kInterruptBreakpoints::default())),
-            sh2_master: Sh2DebugWindowState::new(WhichCpu::Master),
-            sh2_slave: Sh2DebugWindowState::new(WhichCpu::Slave),
-            vdp_registers_open: false,
-            vdp_state_open: false,
-            ym2612: Ym2612DebugWindowState::new(),
-            psg_open: false,
-            master_sh2_registers_open: false,
-            slave_sh2_registers_open: false,
-            s32x_system_registers_open: false,
-            s32x_vdp_registers_open: false,
-            s32x_pwm_registers_open: false,
-        }
-    }
-}
-
-pub(crate) enum GenesisBasedDebugState<'a> {
-    Genesis(&'a mut GenesisDebugState, &'a GenesisDebuggerHandle),
-    SegaCd(&'a mut SegaCdDebugState, &'a SegaCdDebuggerHandle),
-    Sega32X(&'a mut Sega32XDebugState, &'a Sega32XDebuggerHandle),
-}
-
-macro_rules! match_each_state_variant {
-    ($self:expr, state => state.$method:ident($($param:tt)*)) => {
-        match $self {
-            Self::Genesis(state, ..) => state.$method($($param)*),
-            Self::SegaCd(state, ..) => state.genesis.$method($($param)*),
-            Self::Sega32X(state, ..) => state.genesis.$method($($param)*),
-        }
-    }
-}
-
-impl GenesisBasedDebugState<'_> {
-    fn vdp(&self) -> &VdpDebugState {
-        match_each_state_variant!(self, state => state.vdp())
-    }
-
-    fn ym2612(&self) -> &Ym2612 {
-        match_each_state_variant!(self, state => state.ym2612())
-    }
-
-    fn psg(&self) -> &Sn76489 {
-        match_each_state_variant!(self, state => state.psg())
-    }
-
-    fn has_memory(&self, memory_area: MemoryArea) -> bool {
-        match self {
-            Self::Genesis(..) => matches!(memory_area, MemoryArea::Genesis(_)),
-            Self::SegaCd(..) => match memory_area {
-                MemoryArea::Genesis(GenesisMemoryArea::CartridgeRom) | MemoryArea::Sega32X(_) => {
-                    false
-                }
-                MemoryArea::Genesis(_) | MemoryArea::SegaCd(_) => true,
-            },
-            Self::Sega32X(..) => {
-                matches!(memory_area, MemoryArea::Genesis(_) | MemoryArea::Sega32X(_))
-            }
-        }
-    }
-
-    fn debug_memory_view(
-        &mut self,
-        memory_area: MemoryArea,
-    ) -> Option<Box<dyn DebugMemoryView + '_>> {
-        match (self, memory_area) {
-            (Self::Genesis(state, ..), MemoryArea::Genesis(area)) => Some(state.memory_view(area)),
-            (Self::SegaCd(state, ..), MemoryArea::Genesis(area)) => {
-                Some(state.genesis().memory_view(area))
-            }
-            (Self::SegaCd(state, ..), MemoryArea::SegaCd(area)) => {
-                Some(state.scd_memory_view(area))
-            }
-            (Self::Sega32X(state, ..), MemoryArea::Genesis(area)) => {
-                Some(state.genesis().memory_view(area))
-            }
-            (Self::Sega32X(state, ..), MemoryArea::Sega32X(area)) => {
-                Some(state.s32x_memory_view(area))
-            }
-            (Self::Genesis(..), MemoryArea::SegaCd(_) | MemoryArea::Sega32X(_))
-            | (Self::SegaCd(..), MemoryArea::Sega32X(_))
-            | (Self::Sega32X(..), MemoryArea::SegaCd(_)) => None,
-        }
-    }
-}
-
-pub(crate) type GenesisDebugRenderFn =
-    dyn FnMut(DebugRenderContext<'_>, &mut GenesisBasedDebugState<'_>);
-
-pub(crate) fn render_fn(
-    memory_edit_hook: Box<dyn FnMut(MemoryArea, usize, u8)>,
-) -> Box<GenesisDebugRenderFn> {
-    let mut state = State::new(memory_edit_hook);
-    Box::new(move |ctx, emu_state| render(ctx, emu_state, &mut state))
-}
-
-fn render(
-    ctx: DebugRenderContext<'_>,
-    mut debug_state: &mut GenesisBasedDebugState<'_>,
-    state: &mut State,
-) {
-    Panel::top("gen_debug_top").show_inside(ctx.egui_ui, |ui| {
-        egui::MenuBar::new().ui(ui, |ui| {
-            ui.menu_button("Memory Viewers", |ui| {
-                for &memory_area in MemoryArea::ALL {
-                    if !debug_state.has_memory(memory_area) {
-                        continue;
-                    }
-
-                    if ui.button(memory_area.name()).clicked() {
-                        if let Some(memviewer_state) = state.memory_viewers.get_mut(&memory_area) {
-                            memviewer_state.open_window(ui);
-                        }
-                        ui.close_kind(UiKind::Menu);
-                    }
-                }
-            });
-
-            ui.menu_button("Register Viewers", |ui| {
-                if ui.button("VDP Registers").clicked() {
-                    state.vdp_registers_open = true;
-                    crate::move_to_top(ui, VDP_REGISTERS_WINDOW_TITLE);
-                    ui.close_kind(UiKind::Menu);
-                }
-
-                if ui.button("VDP State").clicked() {
-                    state.vdp_state_open = true;
-                    crate::move_to_top(ui, VDP_STATE_WINDOW_TITLE);
-                    ui.close_kind(UiKind::Menu);
-                }
-
-                if ui.button("YM2612").clicked() {
-                    state.ym2612.open_window(ui);
-                    ui.close_kind(UiKind::Menu);
-                }
-
-                if ui.button("SN76489").clicked() {
-                    state.psg_open = true;
-                    crate::move_to_top(ui, psgdebug::WINDOW_TITLE);
-                    ui.close_kind(UiKind::Menu);
-                }
-
-                if matches!(debug_state, GenesisBasedDebugState::Sega32X(..)) {
-                    if ui.button("Master SH-2 Registers").clicked() {
-                        state.master_sh2_registers_open = true;
-                        crate::move_to_top(ui, MASTER_SH2_REGISTERS_WINDOW_TITLE);
-                        ui.close_kind(UiKind::Menu);
-                    }
-
-                    if ui.button("Slave SH-2 Registers").clicked() {
-                        state.slave_sh2_registers_open = true;
-                        crate::move_to_top(ui, SLAVE_SH2_REGISTERS_WINDOW_TITLE);
-                        ui.close_kind(UiKind::Menu);
-                    }
-
-                    if ui.button("32X System Registers").clicked() {
-                        state.s32x_system_registers_open = true;
-                        crate::move_to_top(ui, S32X_SYSTEM_REGISTERS_WINDOW_TITLE);
-                        ui.close_kind(UiKind::Menu);
-                    }
-
-                    if ui.button("32X VDP").clicked() {
-                        state.s32x_vdp_registers_open = true;
-                        crate::move_to_top(ui, S32X_VDP_REGISTERS_WINDOW_TITLE);
-                        ui.close_kind(UiKind::Menu);
-                    }
-
-                    if ui.button("32X PWM").clicked() {
-                        state.s32x_pwm_registers_open = true;
-                        crate::move_to_top(ui, S32X_PWM_REGISTERS_WINDOW_TITLE);
-                        ui.close_kind(UiKind::Menu);
-                    }
-                }
-            });
-
-            ui.menu_button("Video Memory", |ui| {
-                if ui.button("CRAM").clicked() {
-                    state.cram.open = true;
-                    crate::move_to_top(ui, CRAM_WINDOW_TITLE);
-                    ui.close_kind(UiKind::Menu);
-                }
-
-                if ui.button("VRAM").clicked() {
-                    state.vram.open = true;
-                    crate::move_to_top(ui, VRAM_WINDOW_TITLE);
-                    ui.close_kind(UiKind::Menu);
-                }
-
-                if ui.button("Sprite Attributes").clicked() {
-                    state.sprite_attributes.open = true;
-                    crate::move_to_top(ui, SPRITE_ATTRIBUTES_WINDOW_TITLE);
-                    ui.close_kind(UiKind::Menu);
-                }
-
-                if ui.button("H Scroll Table").clicked() {
-                    state.h_scroll.open = true;
-                    crate::move_to_top(ui, H_SCROLL_WINDOW_TITLE);
-                    ui.close_kind(UiKind::Menu);
-                }
-
-                if matches!(debug_state, GenesisBasedDebugState::Sega32X(..))
-                    && ui.button("32X Palette RAM").clicked()
-                {
-                    state.s32x_palette.open = true;
-                    crate::move_to_top(ui, S32X_PALETTE_WINDOW_TITLE);
-                    ui.close_kind(UiKind::Menu);
-                }
-            });
-
-            ui.menu_button("CPU Debuggers", |ui| {
-                if ui.button("68000 Disassembly").clicked() {
-                    state.m68k.open_disassembly_window(ui);
-                    ui.close_kind(UiKind::Menu);
-                }
-
-                if ui.button("68000 Breakpoints").clicked() {
-                    state.m68k.open_breakpoints_window(ui);
-                    ui.close_kind(UiKind::Menu);
-                }
-
-                if matches!(debug_state, GenesisBasedDebugState::SegaCd(..)) {
-                    if ui.button("Sub 68000 Disassembly").clicked() {
-                        state.m68k_sub.open_disassembly_window(ui);
-                        ui.close_kind(UiKind::Menu);
-                    }
-
-                    if ui.button("Sub 68000 Breakpoints").clicked() {
-                        state.m68k_sub.open_breakpoints_window(ui);
-                        ui.close_kind(UiKind::Menu);
-                    }
-                }
-
-                if ui.button("Z80 Disassembly").clicked() {
-                    state.z80.open_disassembly_window(ui);
-                    ui.close_kind(UiKind::Menu);
-                }
-
-                if ui.button("Z80 Breakpoints").clicked() {
-                    state.z80.open_breakpoints_window(ui);
-                    ui.close_kind(UiKind::Menu);
-                }
-
-                if matches!(debug_state, GenesisBasedDebugState::Sega32X(..)) {
-                    if ui.button("SH-2 Master Disassembly").clicked() {
-                        state.sh2_master.open_disassembly_window(ui);
-                        ui.close_kind(UiKind::Menu);
-                    }
-
-                    if ui.button("SH-2 Master Breakpoints").clicked() {
-                        state.sh2_master.open_breakpoints_window(ui);
-                        ui.close_kind(UiKind::Menu);
-                    }
-
-                    if ui.button("SH-2 Slave Disassembly").clicked() {
-                        state.sh2_slave.open_disassembly_window(ui);
-                        ui.close_kind(UiKind::Menu);
-                    }
-
-                    if ui.button("SH-2 Slave Breakpoints").clicked() {
-                        state.sh2_slave.open_breakpoints_window(ui);
-                        ui.close_kind(UiKind::Menu);
-                    }
-                }
-            });
-        });
-    });
-
-    render_memory_viewer_windows(
-        ctx.egui_ui,
-        debug_state,
-        &mut state.memory_viewers,
-        &mut state.memory_edit_hook,
-    );
-
-    render_vdp_registers_window(ctx.egui_ui, debug_state, &mut state.vdp_registers_open);
-
-    render_vdp_state_window(ctx.egui_ui, debug_state, &mut state.vdp_state_open);
-
-    ym2612debug::render_debug_window(
-        ctx.egui_ui,
-        debug_state.ym2612().debug_view(),
-        &mut state.ym2612,
-    );
-
-    psgdebug::render_debug_window(ctx.egui_ui, debug_state.psg(), &mut state.psg_open);
-
-    let screen_width = crate::screen_width(ctx.egui_ui);
-
-    render_cram_window(ctx.egui_ui, screen_width, debug_state, &mut state.cram);
-    render_vram_window(ctx.egui_ui, screen_width, debug_state, &mut state.vram);
-    render_h_scroll_window(ctx.egui_ui, debug_state, &mut state.h_scroll);
-    render_sprite_attributes_window(ctx.egui_ui, debug_state, &mut state.sprite_attributes);
-
-    render_m68k_debug_windows(ctx.egui_ui, debug_state, state);
-    render_z80_debug_windows(ctx.egui_ui, debug_state, state);
-
-    if let GenesisBasedDebugState::Sega32X(debug_state, debugger_handle) = &mut debug_state {
-        render_sh2_registers_window(
-            ctx.egui_ui,
-            &mut debug_state.sh2_master,
-            MASTER_SH2_REGISTERS_WINDOW_TITLE,
-            &mut state.master_sh2_registers_open,
-        );
-        render_sh2_registers_window(
-            ctx.egui_ui,
-            &mut debug_state.sh2_slave,
-            SLAVE_SH2_REGISTERS_WINDOW_TITLE,
-            &mut state.slave_sh2_registers_open,
-        );
-
-        render_32x_palette_window(ctx.egui_ui, debug_state, &mut state.s32x_palette);
-        render_32x_system_registers_window(
-            ctx.egui_ui,
-            debug_state,
-            &mut state.s32x_system_registers_open,
-        );
-        render_32x_vdp_registers_window(
-            ctx.egui_ui,
-            debug_state,
-            &mut state.s32x_vdp_registers_open,
-        );
-        render_32x_pwm_registers_window(
-            ctx.egui_ui,
-            debug_state,
-            &mut state.s32x_pwm_registers_open,
-        );
-
-        let break_status = debugger_handle.sh2_break_status();
-
-        sh2debug::render_disassembly_window(
-            ctx.egui_ui,
-            debug_state,
-            &mut state.sh2_master,
-            &debugger_handle.command_sender,
-            break_status.get(WhichCpu::Master),
-        );
-        sh2debug::render_disassembly_window(
-            ctx.egui_ui,
-            debug_state,
-            &mut state.sh2_slave,
-            &debugger_handle.command_sender,
-            break_status.get(WhichCpu::Slave),
-        );
-
-        sh2debug::render_breakpoints_window(
-            ctx.egui_ui,
-            &mut state.sh2_master,
-            &debugger_handle.command_sender,
-        );
-        sh2debug::render_breakpoints_window(
-            ctx.egui_ui,
-            &mut state.sh2_slave,
-            &debugger_handle.command_sender,
-        );
-    }
-}
-
-fn render_m68k_debug_windows(
-    ctx: &egui::Context,
-    debug_state: &mut GenesisBasedDebugState<'_>,
-    state: &mut State,
-) {
-    match debug_state {
-        GenesisBasedDebugState::Genesis(debug_state, debugger_handle) => {
-            if let Some(memory_map) = m68kdebug::new_genesis_memory_map(debug_state) {
-                let m68k = debug_state.m68k();
-                m68kdebug::render_disassembly_window(
-                    ctx,
-                    m68k,
-                    memory_map,
-                    &mut state.m68k,
-                    debugger_handle.m68k_break_status(),
-                    Some(|command| {
-                        let genesis_cmd = match command {
-                            M68kBreakCommand::Pause => GenesisDebugCommand::BreakPause68k,
-                            M68kBreakCommand::Resume => GenesisDebugCommand::BreakResume,
-                            M68kBreakCommand::Step => GenesisDebugCommand::BreakStep68k,
-                        };
-                        let _ = debugger_handle.send_command(genesis_cmd);
-                    }),
-                );
-
-                m68kdebug::render_breakpoints_window(ctx, &mut state.m68k, |breakpoints| {
-                    let _ = debugger_handle
-                        .send_command(GenesisDebugCommand::Update68kBreakpoints(breakpoints));
-                });
-            }
-        }
-        GenesisBasedDebugState::SegaCd(debug_state, debugger_handle) => {
-            let memory_map = m68kdebug::new_scd_main_memory_map(debug_state);
-            let m68k = debug_state.genesis.m68k();
-            m68kdebug::render_disassembly_window(
-                ctx,
-                m68k,
-                memory_map,
-                &mut state.m68k,
-                debugger_handle.main_cpu_break_status(),
-                Some(|command| {
-                    let scd_command = match command {
-                        M68kBreakCommand::Resume => SegaCdDebugCommand::BreakResume,
-                        M68kBreakCommand::Pause => SegaCdDebugCommand::BreakPauseMain68k,
-                        M68kBreakCommand::Step => SegaCdDebugCommand::BreakStepMain68k,
-                    };
-                    let _ = debugger_handle.send_command(scd_command);
-                }),
-            );
-
-            let sub_memory_map = SegaCdSubMemoryMap::new(debug_state);
-            let sub_cpu = debug_state.sub_cpu();
-            m68kdebug::render_disassembly_window(
-                ctx,
-                sub_cpu,
-                sub_memory_map,
-                &mut state.m68k_sub,
-                debugger_handle.sub_cpu_break_status(),
-                Some(|command| {
-                    let scd_command = match command {
-                        M68kBreakCommand::Resume => SegaCdDebugCommand::BreakResume,
-                        M68kBreakCommand::Pause => SegaCdDebugCommand::BreakPauseSub68k,
-                        M68kBreakCommand::Step => SegaCdDebugCommand::BreakStepSub68k,
-                    };
-                    let _ = debugger_handle.send_command(scd_command);
-                }),
-            );
-
-            m68kdebug::render_breakpoints_window(ctx, &mut state.m68k, |breakpoints| {
-                let _ = debugger_handle
-                    .send_command(SegaCdDebugCommand::UpdateMain68kBreakpoints(breakpoints));
-            });
-
-            m68kdebug::render_breakpoints_window(ctx, &mut state.m68k_sub, |breakpoints| {
-                let _ = debugger_handle
-                    .send_command(SegaCdDebugCommand::UpdateSub68kBreakpoints(breakpoints));
-            });
-        }
-        GenesisBasedDebugState::Sega32X(debug_state, debugger_handle) => {
-            if let Some(memory_map) = m68kdebug::new_32x_memory_map(debug_state) {
-                let m68k = debug_state.genesis.m68k();
-
-                m68kdebug::render_disassembly_window(
-                    ctx,
-                    m68k,
-                    memory_map,
-                    &mut state.m68k,
-                    debugger_handle.m68k_break_status(),
-                    Some(|command| {
-                        let s32x_command = match command {
-                            M68kBreakCommand::Pause => Sega32XDebugCommand::BreakPause68k,
-                            M68kBreakCommand::Resume => Sega32XDebugCommand::BreakResume,
-                            M68kBreakCommand::Step => Sega32XDebugCommand::BreakStep68k,
-                        };
-                        let _ = debugger_handle.send_command(s32x_command);
-                    }),
-                );
-
-                m68kdebug::render_breakpoints_window(ctx, &mut state.m68k, |breakpoints| {
-                    let _ = debugger_handle
-                        .send_command(Sega32XDebugCommand::Update68kBreakpoints(breakpoints));
-                });
-            }
-        }
-    }
-}
-
-fn render_z80_debug_windows(
-    ctx: &egui::Context,
-    debug_state: &mut GenesisBasedDebugState<'_>,
-    state: &mut State,
-) {
-    match debug_state {
-        GenesisBasedDebugState::Genesis(debug_state, debugger_handle) => {
-            if let Some(m68k_memory_map) = m68kdebug::new_genesis_memory_map(debug_state) {
-                z80debug::render_disassembly_window(
-                    ctx,
-                    debug_state.z80(),
-                    GenesisZ80MemoryMap::new(debug_state, &m68k_memory_map),
-                    &mut state.z80,
-                    debugger_handle.z80_break_status(),
-                    Some(|command| {
-                        let genesis_command = match command {
-                            Z80BreakCommand::Pause => GenesisDebugCommand::BreakPauseZ80,
-                            Z80BreakCommand::Resume => GenesisDebugCommand::BreakResume,
-                            Z80BreakCommand::Step => GenesisDebugCommand::BreakStepZ80,
-                        };
-                        let _ = debugger_handle.send_command(genesis_command);
-                    }),
-                );
-            }
-
-            z80debug::render_breakpoints_window(ctx, &mut state.z80, |breakpoints| {
-                let _ = debugger_handle
-                    .send_command(GenesisDebugCommand::UpdateZ80Breakpoints(breakpoints));
-            });
-        }
-        GenesisBasedDebugState::SegaCd(debug_state, debugger_handle) => {
-            z80debug::render_disassembly_window(
-                ctx,
-                debug_state.genesis.z80(),
-                GenesisZ80MemoryMap::new(
-                    &debug_state.genesis,
-                    &m68kdebug::new_scd_main_memory_map(debug_state),
-                ),
-                &mut state.z80,
-                debugger_handle.z80_break_status(),
-                Some(|command| {
-                    let scd_command = match command {
-                        Z80BreakCommand::Resume => SegaCdDebugCommand::BreakResume,
-                        Z80BreakCommand::Pause => SegaCdDebugCommand::BreakPauseZ80,
-                        Z80BreakCommand::Step => SegaCdDebugCommand::BreakStepZ80,
-                    };
-                    let _ = debugger_handle.send_command(scd_command);
-                }),
-            );
-
-            z80debug::render_breakpoints_window(ctx, &mut state.z80, |breakpoints| {
-                let _ = debugger_handle
-                    .send_command(SegaCdDebugCommand::UpdateZ80Breakpoints(breakpoints));
-            });
-        }
-        GenesisBasedDebugState::Sega32X(debug_state, debugger_handle) => {
-            if let Some(m68k_memory_map) = m68kdebug::new_32x_memory_map(debug_state) {
-                z80debug::render_disassembly_window(
-                    ctx,
-                    debug_state.genesis.z80(),
-                    GenesisZ80MemoryMap::new(&debug_state.genesis, &m68k_memory_map),
-                    &mut state.z80,
-                    debugger_handle.z80_break_status(),
-                    Some(|command| {
-                        let s32x_command = match command {
-                            Z80BreakCommand::Pause => Sega32XDebugCommand::BreakPauseZ80,
-                            Z80BreakCommand::Resume => Sega32XDebugCommand::BreakResume,
-                            Z80BreakCommand::Step => Sega32XDebugCommand::BreakStepZ80,
-                        };
-                        let _ = debugger_handle.send_command(s32x_command);
-                    }),
-                );
-            }
-
-            z80debug::render_breakpoints_window(ctx, &mut state.z80, |breakpoints| {
-                let _ = debugger_handle
-                    .send_command(Sega32XDebugCommand::UpdateZ80Breakpoints(breakpoints));
-            });
-        }
-    }
-}
-
-fn render_memory_viewer_windows(
-    egui_ctx: &egui::Context,
-    emu_state: &mut GenesisBasedDebugState<'_>,
-    memory_viewer_states: &mut HashMap<MemoryArea, MemoryViewerState>,
-    memory_edit_hook: &mut dyn FnMut(MemoryArea, usize, u8),
-) {
-    for (&memory_area, state) in memory_viewer_states.iter_mut() {
-        if let Some(memory) = emu_state.debug_memory_view(memory_area) {
-            let mut memory = DebugViewWithWriteHook::new(
-                memory,
-                Box::new(|address, value| memory_edit_hook(memory_area, address, value)),
-            );
-            memviewer::render(egui_ctx, &mut memory, state);
-        }
-    }
-}
-
-fn render_color_info_grid(
-    id: impl Hash,
-    ui: &mut Ui,
-    palette: usize,
-    color_idx: usize,
-    entry: CramEntry,
-) {
-    Grid::new(id).show(ui, |ui| {
-        ui.label("Palette");
-        ui.label(palette.to_string());
-        ui.end_row();
-
-        ui.label("Index");
-        ui.label(color_idx.to_string());
-        ui.end_row();
-
-        ui.label("Color");
-        ui.label(format!("0x{:03X}", entry.value));
-        ui.end_row();
-
-        ui.label("R / G / B");
-        ui.label(format!(
-            "{} / {} / {}",
-            (entry.value >> 1) & 7,
-            (entry.value >> 5) & 7,
-            (entry.value >> 9) & 7
-        ));
-        ui.end_row();
-
-        ui.label("Display");
-        ui.label(format_display_color(entry.color));
-        ui.end_row();
-    });
-}
-
-fn format_display_color(color: Color) -> String {
-    format!("#{:02X}{:02X}{:02X}", color.r, color.g, color.b)
-}
-
-fn render_cram_window(
-    ctx: &egui::Context,
-    screen_width: f32,
-    emu_state: &mut GenesisBasedDebugState<'_>,
-    state: &mut CramWindowState,
-) {
-    Window::new(CRAM_WINDOW_TITLE)
-        .open(&mut state.open)
-        .constrain(false)
-        .default_pos(CRAM_DEFAULT_POS)
-        .default_size([screen_width * 0.95, 225.0])
-        .show(ctx, |ui| {
-            emu_state.vdp().copy_cram(state.entry_buffer.as_mut_slice(), state.modifier);
-            for (entry, color) in
-                iter::zip(state.entry_buffer.iter(), state.color_buffer.iter_mut())
-            {
-                *color = entry.color;
-            }
-
-            Panel::right("cram_right_panel").resizable(false).min_size(125.0).show_inside(
-                ui,
-                |ui| {
-                    let cram_entry = state.entry_buffer[state.selected_color];
-
-                    paint_rect_and_advance_cursor(
-                        ui,
-                        ui.max_rect().min,
-                        Vec2::new(50.0, 50.0),
-                        cram_entry.color,
-                    );
-
-                    render_color_info_grid(
-                        "cram_side_panel_grid",
-                        ui,
-                        state.selected_color / 16,
-                        state.selected_color % 16,
-                        cram_entry,
-                    );
-                },
-            );
-
-            CentralPanel::default().show_inside(ui, |ui| {
-                let modifier_resp = ui.horizontal(|ui| {
-                    ui.radio_value(&mut state.modifier, ColorModifier::None, "Normal");
-                    ui.radio_value(&mut state.modifier, ColorModifier::Shadow, "Shadowed");
-                    ui.radio_value(&mut state.modifier, ColorModifier::Highlight, "Highlighted");
-                });
-
-                let mut image_size =
-                    ui.max_rect().size() - Vec2::new(0.0, modifier_resp.response.rect.height());
-                if image_size.y > image_size.x * 0.25 {
-                    image_size.y = image_size.x * 0.25;
-                } else {
-                    image_size.x = image_size.y * 4.0;
-                }
-
-                let texture = crate::update_egui_texture(
-                    ctx,
-                    [CRAM_COLS, CRAM_ROWS],
-                    state.color_buffer.as_slice(),
-                    &mut state.texture,
-                );
-                let image_resp = ui.add(Image::new((texture, image_size)).sense(Sense::click()));
-
-                let mut clicked = image_resp.clicked();
-                let contains_pointer =
-                    image_resp.contains_pointer() || state.popup_contains_pointer;
-                if (clicked || contains_pointer)
-                    && let Some(pos) = ui.input(|i| i.pointer.latest_pos())
-                {
-                    let normalized_pos = crate::normalize_position(pos, image_resp.interact_rect);
-                    let row = (normalized_pos.y * (CRAM_ROWS as f32)) as usize;
-                    let col = (normalized_pos.x * (CRAM_COLS as f32)) as usize;
-
-                    if row < CRAM_ROWS && col < CRAM_COLS {
-                        let buffer_idx = CRAM_COLS * row + col;
-
-                        if contains_pointer {
-                            let cram_entry = state.entry_buffer[buffer_idx];
-
-                            let popup_resp = Popup::from_response(&image_resp)
-                                .at_pointer()
-                                .gap(5.0)
-                                .show(|ui| {
-                                    paint_rect_and_advance_cursor(
-                                        ui,
-                                        ui.max_rect().min + Vec2::new(35.0, 0.0),
-                                        Vec2::new(25.0, 25.0),
-                                        cram_entry.color,
-                                    );
-
-                                    render_color_info_grid(
-                                        "cram_popup_grid",
-                                        ui,
-                                        row,
-                                        col,
-                                        cram_entry,
-                                    );
-                                });
-                            clicked |=
-                                popup_resp.as_ref().is_some_and(|resp| resp.response.clicked());
-                            state.popup_contains_pointer =
-                                popup_resp.is_some_and(|resp| resp.response.contains_pointer());
-                        }
-
-                        if clicked {
-                            state.selected_color = buffer_idx;
-                        }
-                    }
-                }
-            });
-        });
-}
-
-fn paint_rect_and_advance_cursor(ui: &mut Ui, min: Pos2, size: Vec2, fill_color: Color) {
-    let rect = Rect { min, max: min + size };
-    ui.painter().rect(
-        rect,
-        CornerRadius::ZERO,
-        Color32::from_rgb(fill_color.r, fill_color.g, fill_color.b),
-        Stroke::new(1.0_f32, ui.visuals().text_color()),
-        StrokeKind::Middle,
-    );
-    ui.advance_cursor_after_rect(rect);
-}
-
-fn render_vram_window(
-    ctx: &egui::Context,
-    screen_width: f32,
-    emu_state: &mut GenesisBasedDebugState<'_>,
-    state: &mut VramWindowState,
-) {
-    Window::new(VRAM_WINDOW_TITLE)
-        .open(&mut state.open)
-        .constrain(false)
-        .default_pos(VRAM_DEFAULT_POS)
-        .default_width(screen_width * 0.95)
-        .show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.label("Palette");
-
-                for i in 0..4 {
-                    ui.radio_value(&mut state.palette, i, format!("{i}"));
-                }
-            });
-
-            emu_state.vdp().copy_vram(state.buffer.as_mut_slice(), state.palette, 64);
-
-            let mut height = ui.available_width() * 0.45;
-            if height > ui.available_height() {
-                height = ui.available_height();
-            }
-            let width = height * 2.0;
-
-            let texture = crate::update_egui_texture(
-                ctx,
-                [64 * 8, 32 * 8],
-                state.buffer.as_slice(),
-                &mut state.texture,
-            );
-            ui.image((texture, Vec2::new(width, height)));
-        });
-}
-
-fn render_h_scroll_window(
-    ctx: &egui::Context,
-    emu_state: &mut GenesisBasedDebugState<'_>,
-    state: &mut HScrollWindowState,
-) {
-    Window::new(H_SCROLL_WINDOW_TITLE)
-        .open(&mut state.open)
-        .constrain(false)
-        .default_pos(crate::rand_window_pos())
-        .default_width(200.0)
-        .show(ctx, |ui| {
-            emu_state.vdp().copy_h_scroll(state.buffer.as_mut_slice());
-
-            crate::brighten_faint_bg_color(ui);
-
-            TableBuilder::new(ui)
-                .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
-                .column(Column::auto().at_least(50.0))
-                .columns(Column::auto(), 2)
-                .column(Column::remainder())
-                .striped(true)
-                .header(20.0, |mut header| {
-                    header.col(|ui| {
-                        ui.heading("Line");
-                    });
-                    header.col(|ui| {
-                        ui.heading("Plane A");
-                    });
-                    header.col(|ui| {
-                        ui.heading("Plane B");
-                    });
-                    header.col(|_ui| {});
-                })
-                .body(|body| {
-                    body.rows(18.0, 256, |mut row| {
-                        let line = row.index();
-                        let (h_scroll_a, h_scroll_b) = state.buffer[line];
-
-                        row.col(|ui| {
-                            ui.label(line.to_string());
-                        });
-                        row.col(|ui| {
-                            ui.label(h_scroll_a.to_string());
-                        });
-                        row.col(|ui| {
-                            ui.label(h_scroll_b.to_string());
-                        });
-                        row.col(|_ui| {});
-                    });
-                });
-        });
-}
-
-fn render_sprite_attributes_window(
-    ctx: &egui::Context,
-    emu_state: &mut GenesisBasedDebugState<'_>,
-    state: &mut SpriteAttributesWindowState,
-) {
-    Window::new(SPRITE_ATTRIBUTES_WINDOW_TITLE)
-        .open(&mut state.open)
-        .constrain(false)
-        .default_pos(crate::rand_window_pos())
-        .default_width(500.0)
-        .show(ctx, |ui| {
-            let CopySpriteAttributesResult { sprite_table_len, top_left_x, top_left_y } =
-                emu_state.vdp().copy_sprite_attributes(state.buffer.as_mut_slice());
-
-            ui.checkbox(&mut state.adjust_coordinates, "Shift coordinates to top-left of screen");
-
-            let (x_offset, y_offset) = if state.adjust_coordinates {
-                (-i32::from(top_left_x), -i32::from(top_left_y))
-            } else {
-                (0, 0)
-            };
-
-            crate::brighten_faint_bg_color(ui);
-
-            TableBuilder::new(ui)
-                .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
-                .columns(Column::auto().at_least(50.0), 11)
-                .column(Column::remainder())
-                .striped(true)
-                .header(20.0, |mut header| {
-                    for heading in [
-                        "Index",
-                        "Tile",
-                        "X",
-                        "Y",
-                        "Cell Size",
-                        "Palette",
-                        "Priority",
-                        "H Flip",
-                        "V Flip",
-                        "Link",
-                    ] {
-                        header.col(|ui| {
-                            ui.heading(heading);
-                        });
-                    }
-                    header.col(|_ui| {});
-                })
-                .body(|body| {
-                    body.rows(18.0, sprite_table_len as usize, |mut row| {
-                        let idx = row.index();
-                        let sprite = state.buffer[idx];
-
-                        for value in [
-                            idx.to_string(),
-                            sprite.tile_number.to_string(),
-                            (i32::from(sprite.x) + x_offset).to_string(),
-                            (i32::from(sprite.y) + y_offset).to_string(),
-                            format!("{}x{}", sprite.h_cells, sprite.v_cells),
-                            sprite.palette.to_string(),
-                            u8::from(sprite.priority).to_string(),
-                            u8::from(sprite.h_flip).to_string(),
-                            u8::from(sprite.v_flip).to_string(),
-                            sprite.link.to_string(),
-                        ] {
-                            row.col(|ui| {
-                                ui.label(value);
-                            });
-                        }
-                        row.col(|_ui| {});
-                    });
-                });
-        });
-}
-
-fn render_32x_color_grid(id: impl Hash, ui: &mut Ui, index: usize, entry: CramEntry) {
-    Grid::new(id).show(ui, |ui| {
-        ui.label("Index");
-        ui.label(format!("0x{index:02X} ({index})"));
-        ui.end_row();
-
-        ui.label("Color");
-        ui.label(format!("0x{:04X}", entry.value));
-        ui.end_row();
-
-        let fmt_color = |component: u16| format!("0x{component:02X} ({component})");
-
-        ui.label("Red");
-        ui.label(fmt_color(entry.value & 0x1F));
-        ui.end_row();
-
-        ui.label("Green");
-        ui.label(fmt_color((entry.value >> 5) & 0x1F));
-        ui.end_row();
-
-        ui.label("Blue");
-        ui.label(fmt_color((entry.value >> 10) & 0x1F));
-        ui.end_row();
-
-        ui.label("Priority");
-        ui.label(if entry.value.bit(15) { "1" } else { "0" });
-        ui.end_row();
-
-        ui.label("Display");
-        ui.label(format_display_color(entry.color));
-        ui.end_row();
-    });
-}
-
-fn render_sh2_registers_window(
-    ctx: &egui::Context,
-    sh2: &mut Sh2,
-    window_title: &str,
-    open: &mut bool,
-) {
-    // Roughly 23.01 MHz
-    const SH2_CLOCK_RATE: f64 = genesis_components::audio::NTSC_GENESIS_MCLK_FREQUENCY
-        / (genesis_config::NATIVE_M68K_DIVIDER as f64)
-        * (genesis_config::NATIVE_SH2_MULTIPLIER as f64);
-
-    Window::new(window_title)
-        .open(open)
-        .constrain(false)
-        .default_pos(crate::rand_window_pos())
-        .show(ctx, |ui| {
-            ScrollArea::vertical().show(ui, |ui| {
-                let state = sh2.sh7604_debug_state();
-
-                crate::render_registers_table(
-                    ui,
-                    "Cache Control",
-                    &[
-                        ("Enabled", &state.cache.enabled.to_string()),
-                        (
-                            "Instruction replacement",
-                            &state.cache.instruction_replacement_enabled.to_string(),
-                        ),
-                        ("Data replacement", &state.cache.data_replacement_enabled.to_string()),
-                        ("Mode", cache_mode_str(state.cache.mode)),
-                    ],
-                );
-
-                ui.separator();
-
-                crate::render_registers_table(
-                    ui,
-                    "Internal Interrupts",
-                    &[
-                        ("WDT interrupt level", &state.interrupts.wdt_priority.to_string()),
-                        ("WDT vector number", &state.interrupts.wdt_vector.to_string()),
-                        ("DMAC interrupt level", &state.interrupts.dmac_priority.to_string()),
-                        ("DMA0 vector number", &state.interrupts.dma0_vector.to_string()),
-                        ("DMA1 vector number", &state.interrupts.dma1_vector.to_string()),
-                        ("SCI interrupt level", &state.interrupts.sci_priority.to_string()),
-                        ("SCI vector number", &state.interrupts.sci_vector.to_string()),
-                    ],
-                );
-
-                ui.separator();
-
-                let wdt_frequency = SH2_CLOCK_RATE / (state.wdt.system_clock_divider as f64);
-
-                crate::render_registers_table(
-                    ui,
-                    "Watchdog Timer (WDT)",
-                    &[
-                        ("Enabled", &state.wdt.enabled.to_string()),
-                        ("Clock divider", &format!("{}", state.wdt.system_clock_divider)),
-                        ("Frequency", &format!("{} Hz", wdt_frequency.round())),
-                        ("Counter", &state.wdt.counter.to_string()),
-                        ("Overflow flag", &state.wdt.overflow_flag.to_string()),
-                    ],
-                );
-
-                for (i, channel) in state.dmac.channels.iter().enumerate() {
-                    ui.separator();
-
-                    crate::render_registers_table(
-                        ui,
-                        &format!("DMA Channel {i} (DMAC)"),
-                        &[
-                            (
-                                "DMA master enabled",
-                                &state.dmac.operation.dma_master_enabled.to_string(),
-                            ),
-                            ("Channel enabled", &channel.control.dma_enabled.to_string()),
-                            ("Auto request", &channel.control.auto_request.to_string()),
-                            ("Transfer unit", transfer_unit_str(channel.control.transfer_size)),
-                            (
-                                "Source address mode",
-                                dma_address_mode_str(channel.control.source_address_mode),
-                            ),
-                            (
-                                "Destination address mode",
-                                dma_address_mode_str(channel.control.destination_address_mode),
-                            ),
-                            ("Source address", &format!("${:08X}", channel.source_address)),
-                            (
-                                "Destination address",
-                                &format!("${:08X}", channel.destination_address),
-                            ),
-                            ("Length", &format!("0x{:08X}", channel.transfer_count)),
-                            ("Interrupt enabled", &channel.control.interrupt_enabled.to_string()),
-                            ("DMA complete flag", &channel.control.dma_complete.to_string()),
-                        ],
-                    );
-                }
-            });
-        });
-}
-
-fn cache_mode_str(mode: CacheMode) -> &'static str {
-    match mode {
-        CacheMode::FourWay => "4-way",
-        CacheMode::TwoWay => "2-way",
-    }
-}
-
-fn transfer_unit_str(unit: DmaTransferUnit) -> &'static str {
-    match unit {
-        DmaTransferUnit::Byte => "Byte",
-        DmaTransferUnit::Word => "Word",
-        DmaTransferUnit::Longword => "Longword",
-        DmaTransferUnit::SixteenByte => "16-byte",
-    }
-}
-
-fn dma_address_mode_str(mode: DmaAddressMode) -> &'static str {
-    match mode {
-        DmaAddressMode::Fixed => "Fixed",
-        DmaAddressMode::AutoIncrement => "Increment",
-        DmaAddressMode::AutoDecrement => "Decrement",
-        DmaAddressMode::Invalid => "Invalid",
-    }
-}
-
-fn render_32x_palette_window(
-    ctx: &egui::Context,
-    emu_state: &mut Sega32XDebugState,
-    state: &mut S32XPaletteRamState,
-) {
-    Window::new(S32X_PALETTE_WINDOW_TITLE)
-        .open(&mut state.open)
-        .constrain(false)
-        .default_pos(crate::rand_window_pos())
-        .default_size([700.0, 550.0])
-        .show(ctx, |ui| {
-            emu_state.copy_palette(state.entry_buffer.as_mut_slice());
-            for (entry, color) in
-                iter::zip(state.entry_buffer.iter(), state.color_buffer.iter_mut())
-            {
-                *color = entry.color;
-            }
-
-            Panel::right("32x_palette_side_panel").resizable(false).min_size(135.0).show_inside(
-                ui,
-                |ui| {
-                    let selected_entry = state.entry_buffer[state.selected_color];
-
-                    paint_rect_and_advance_cursor(
-                        ui,
-                        ui.max_rect().min,
-                        Vec2::new(50.0, 50.0),
-                        selected_entry.color,
-                    );
-
-                    render_32x_color_grid(
-                        "32x_palette_side_panel_grid",
-                        ui,
-                        state.selected_color,
-                        selected_entry,
-                    );
-                },
-            );
-
-            CentralPanel::default().show_inside(ui, |ui| {
-                let mut image_size = ui.max_rect().size();
-                if image_size.y > image_size.x {
-                    image_size.y = image_size.x;
-                } else {
-                    image_size.x = image_size.y;
-                }
-
-                let texture = crate::update_egui_texture(
-                    ctx,
-                    [16, 16],
-                    state.color_buffer.as_slice(),
-                    &mut state.texture,
-                );
-                let image_resp = ui.add(Image::new((texture, image_size)).sense(Sense::click()));
-
-                let mut clicked = image_resp.clicked();
-                let contains_pointer =
-                    image_resp.contains_pointer() || state.popup_contains_pointer;
-                if (clicked || contains_pointer)
-                    && let Some(pos) = ui.input(|i| i.pointer.latest_pos())
-                {
-                    let normalized_pos = crate::normalize_position(pos, image_resp.interact_rect);
-                    let row = (normalized_pos.y * 16.0) as usize;
-                    let col = (normalized_pos.x * 16.0) as usize;
-
-                    if row < 16 && col < 16 {
-                        let buffer_idx = 16 * row + col;
-
-                        if contains_pointer {
-                            let entry = state.entry_buffer[buffer_idx];
-
-                            let popup_resp = Popup::from_response(&image_resp)
-                                .at_pointer()
-                                .gap(5.0)
-                                .show(|ui| {
-                                    paint_rect_and_advance_cursor(
-                                        ui,
-                                        ui.max_rect().min + Vec2::new(45.0, 0.0),
-                                        Vec2::new(25.0, 25.0),
-                                        entry.color,
-                                    );
-
-                                    render_32x_color_grid(
-                                        "32x_palette_popup_color_grid",
-                                        ui,
-                                        buffer_idx,
-                                        entry,
-                                    );
-                                });
-                            clicked |=
-                                popup_resp.as_ref().is_some_and(|resp| resp.response.clicked());
-                            state.popup_contains_pointer =
-                                popup_resp.is_some_and(|resp| resp.response.contains_pointer());
-                        }
-
-                        if clicked {
-                            state.selected_color = buffer_idx;
-                        }
-                    }
-                }
-            });
-        });
-}
-
-fn render_vdp_registers_window(
-    ctx: &egui::Context,
-    emu_state: &mut GenesisBasedDebugState<'_>,
-    open: &mut bool,
-) {
-    crate::render_registers_window(ctx, "VDP Registers", open, |ui| {
-        emu_state.vdp().dump_registers(crate::dump_registers_callback(ui));
-    });
-}
-
-fn render_vdp_state_window(
-    ctx: &egui::Context,
-    emu_state: &mut GenesisBasedDebugState<'_>,
-    open: &mut bool,
-) {
-    Window::new(VDP_STATE_WINDOW_TITLE)
-        .open(open)
-        .constrain(false)
-        .default_pos(crate::rand_window_pos())
-        .show(ctx, |ui| {
-            ScrollArea::vertical().show(ui, |ui| {
-                let state = emu_state.vdp().internal_state();
-
-                crate::render_registers_table(
-                    ui,
-                    "Timing",
-                    &[
-                        ("Scanline", &state.scanline.to_string()),
-                        ("Scanline MCLK cycles", &state.scanline_mclk.to_string()),
-                        ("Scanline pixel", &state.pixel.to_string()),
-                        (
-                            "Active display pixel range",
-                            &format!(
-                                "{}-{}",
-                                state.active_display_pixels.start,
-                                state.active_display_pixels.end - 1
-                            ),
-                        ),
-                        ("VBlank flag", ["0", "1"][usize::from(state.vblank_flag)]),
-                        ("H (Internal)", &format!("0x{:03X}", state.internal_h)),
-                        ("H (External)", &format!("0x{:02X}", state.external_h)),
-                        ("V", &format!("0x{:02X}", state.v)),
-                    ],
-                );
-
-                ui.separator();
-
-                crate::render_registers_table(
-                    ui,
-                    "Interrupts",
-                    &[
-                        (
-                            "Vertical interrupt pending",
-                            ["0", "1"][usize::from(state.v_interrupt_pending)],
-                        ),
-                        (
-                            "Horizontal interrupt pending",
-                            ["0", "1"][usize::from(state.h_interrupt_pending)],
-                        ),
-                        ("Horizontal interrupt counter", &state.h_interrupt_counter.to_string()),
-                    ],
-                );
-
-                ui.separator();
-
-                crate::render_registers_table(
-                    ui,
-                    "Control Port",
-                    &[
-                        ("Mode", &format!("{:?}", state.data_port_mode)),
-                        ("Location", data_port_location_str(state.data_port_location)),
-                        ("Address", &format!("${:05X}", state.data_port_address)),
-                        ("Write flag", &format!("{:?}", state.write_flag)),
-                        ("DMA active", ["0", "1"][usize::from(state.dma_active)]),
-                    ],
-                );
-            });
-        });
-}
-
-fn data_port_location_str(location: DataPortLocation) -> &'static str {
-    match location {
-        DataPortLocation::Vram => "VRAM",
-        DataPortLocation::Vram8Bit => "VRAM (8-bit)",
-        DataPortLocation::Cram => "CRAM",
-        DataPortLocation::Vsram => "VSRAM",
-        DataPortLocation::Invalid => "Invalid",
-    }
-}
-
-fn render_32x_system_registers_window(
-    ctx: &egui::Context,
-    emu_state: &mut Sega32XDebugState,
-    open: &mut bool,
-) {
-    crate::render_registers_window(ctx, "32X System Registers", open, |ui| {
-        emu_state.dump_32x_system_registers(crate::dump_registers_callback(ui));
-    });
-}
-
-fn render_32x_vdp_registers_window(
-    ctx: &egui::Context,
-    emu_state: &mut Sega32XDebugState,
-    open: &mut bool,
-) {
-    crate::render_registers_window(ctx, "32X VDP Registers", open, |ui| {
-        emu_state.dump_32x_vdp_registers(crate::dump_registers_callback(ui));
-    });
-}
-
-fn render_32x_pwm_registers_window(
-    ctx: &egui::Context,
-    emu_state: &mut Sega32XDebugState,
-    open: &mut bool,
-) {
-    crate::render_registers_window(ctx, "32X PWM Registers", open, |ui| {
-        emu_state.dump_pwm_registers(crate::dump_registers_callback(ui));
-    });
-}
-
-struct GenesisDebugRunnerProcess {
-    state_sender: SharedVarSender<GenesisDebugState>,
-    debugger: GenesisDebugger,
-}
-
-impl<R, A, I, S> DebuggerRunnerProcess<GenesisEmulator, R, A, I, S> for GenesisDebugRunnerProcess
-where
-    R: Renderer,
-    A: AudioOutput,
-    I: InputPoller<GenesisInputs>,
-    S: SaveWriter,
-{
-    fn run(
-        &mut self,
-        emulator: &mut GenesisEmulator,
-    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-        let mut debug_view = emulator.as_debug_view();
-        self.debugger.process_commands(&mut debug_view);
-        self.state_sender.update(debug_view.to_debug_state());
-
-        Ok(())
-    }
-
-    fn run_emulator_till_next_frame(
-        &mut self,
-        emulator: &mut GenesisEmulator,
-        renderer: &mut R,
-        audio_output: &mut A,
-        input_poller: &mut I,
-        save_writer: &mut S,
-    ) -> RunTillNextResult<GenesisEmulator, R::Err, A::Err, S::Err> {
-        while emulator.debug_tick(
-            renderer,
-            audio_output,
-            input_poller,
-            save_writer,
-            &mut self.debugger,
-        )? != TickEffect::FrameRendered
-        {}
-
-        Ok(())
-    }
-}
-
-struct GenesisDebugMainProcess {
-    debugger_handle: GenesisDebuggerHandle,
-    state_receiver: SharedVarReceiver<GenesisDebugState>,
-    render_fn: Box<GenesisDebugRenderFn>,
-}
-
-impl DebuggerMainProcess for GenesisDebugMainProcess {
-    fn run(
-        &mut self,
-        ctx: DebugRenderContext<'_>,
-    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-        let Some(state) = self.state_receiver.get() else { return Ok(()) };
-        (self.render_fn)(ctx, &mut GenesisBasedDebugState::Genesis(state, &self.debugger_handle));
-
-        Ok(())
-    }
-}
-
-#[must_use]
-pub fn genesis_debug_fn<R, A, I, S>() -> DebuggerProcesses<GenesisEmulator, R, A, I, S>
-where
-    R: Renderer,
-    A: AudioOutput,
-    I: InputPoller<GenesisInputs>,
-    S: SaveWriter,
-{
-    let (state_sender, state_receiver) = jgenesis_common::sync::new_shared_var();
-    let (debugger, debugger_handle) = GenesisDebugger::new(state_sender.clone());
-
-    let memory_edit_hook = {
-        let command_sender = debugger_handle.command_sender.clone();
-
-        Box::new(move |memory_area, address, value| {
-            if let MemoryArea::Genesis(memory_area) = memory_area {
-                let _ = command_sender.send(GenesisDebugCommand::EditMemory(
-                    memory_area,
-                    address,
-                    value,
-                ));
-            }
-        })
-    };
-
-    let runner_process = GenesisDebugRunnerProcess { state_sender, debugger };
-    let main_process = GenesisDebugMainProcess {
-        debugger_handle,
-        state_receiver,
-        render_fn: render_fn(memory_edit_hook),
-    };
-
-    (Box::new(runner_process), Box::new(main_process))
-}
-
-struct SegaCdDebugRunnerProcess {
-    state_sender: SharedVarSender<SegaCdDebugState>,
-    debugger: SegaCdDebugger,
-}
-
-impl<R, A, I, S> DebuggerRunnerProcess<SegaCdEmulator, R, A, I, S> for SegaCdDebugRunnerProcess
-where
-    R: Renderer,
-    A: AudioOutput,
-    I: InputPoller<GenesisInputs>,
-    S: SaveWriter,
-{
-    fn run(
-        &mut self,
-        emulator: &mut SegaCdEmulator,
-    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-        let mut debug_view = emulator.as_debug_view();
-        self.debugger.process_commands(&mut debug_view);
-        self.state_sender.update(debug_view.to_debug_state());
-
-        Ok(())
-    }
-
-    fn run_emulator_till_next_frame(
-        &mut self,
-        emulator: &mut SegaCdEmulator,
-        renderer: &mut R,
-        audio_output: &mut A,
-        input_poller: &mut I,
-        save_writer: &mut S,
-    ) -> RunTillNextResult<SegaCdEmulator, R::Err, A::Err, S::Err> {
-        while emulator.debug_tick(
-            renderer,
-            audio_output,
-            input_poller,
-            save_writer,
-            &mut self.debugger,
-        )? != TickEffect::FrameRendered
-        {}
-
-        Ok(())
-    }
-}
-
-struct SegaCdDebugMainProcess {
-    debugger_handle: SegaCdDebuggerHandle,
-    state_receiver: SharedVarReceiver<SegaCdDebugState>,
-    render_fn: Box<GenesisDebugRenderFn>,
-}
-
-impl DebuggerMainProcess for SegaCdDebugMainProcess {
-    fn run(
-        &mut self,
-        ctx: DebugRenderContext<'_>,
-    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-        let Some(state) = self.state_receiver.get() else { return Ok(()) };
-        (self.render_fn)(ctx, &mut GenesisBasedDebugState::SegaCd(state, &self.debugger_handle));
-
-        Ok(())
-    }
-}
-
-#[must_use]
-pub fn sega_cd_debug_fn<R, A, I, S>() -> DebuggerProcesses<SegaCdEmulator, R, A, I, S>
-where
-    R: Renderer,
-    A: AudioOutput,
-    I: InputPoller<GenesisInputs>,
-    S: SaveWriter,
-{
-    let (state_sender, state_receiver) = jgenesis_common::sync::new_shared_var();
-    let (debugger, debugger_handle) = SegaCdDebugger::new(state_sender.clone());
-
-    let memory_edit_hook = {
-        let debugger_handle = debugger_handle.clone();
-
-        Box::new(move |memory_area, address, value| match memory_area {
-            MemoryArea::Genesis(memory_area) => {
-                let _ = debugger_handle.send_command(SegaCdDebugCommand::EditGenesisMemory(
-                    memory_area,
-                    address,
-                    value,
-                ));
-            }
-            MemoryArea::SegaCd(memory_area) => {
-                let _ = debugger_handle.send_command(SegaCdDebugCommand::EditSegaCdMemory(
-                    memory_area,
-                    address,
-                    value,
-                ));
-            }
-            MemoryArea::Sega32X(_) => {}
-        })
-    };
-
-    let runner_process = SegaCdDebugRunnerProcess { state_sender, debugger };
-    let main_process = SegaCdDebugMainProcess {
-        debugger_handle,
-        state_receiver,
-        render_fn: render_fn(memory_edit_hook),
-    };
-
-    (Box::new(runner_process), Box::new(main_process))
-}
-
-struct Sega32XDebugRunnerProcess {
-    state_sender: SharedVarSender<Sega32XDebugState>,
-    debugger: Sega32XDebugger,
-}
-
-impl<R, A, I, S> DebuggerRunnerProcess<Sega32XEmulator, R, A, I, S> for Sega32XDebugRunnerProcess
-where
-    R: Renderer,
-    A: AudioOutput,
-    I: InputPoller<GenesisInputs>,
-    S: SaveWriter,
-{
-    fn run(
-        &mut self,
-        emulator: &mut Sega32XEmulator,
-    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-        let mut debug_view = emulator.as_debug_view();
-        self.debugger.process_commands(&mut debug_view);
-        self.state_sender.update(debug_view.to_debug_state());
-
-        Ok(())
-    }
-
-    fn run_emulator_till_next_frame(
-        &mut self,
-        emulator: &mut Sega32XEmulator,
-        renderer: &mut R,
-        audio_output: &mut A,
-        input_poller: &mut I,
-        save_writer: &mut S,
-    ) -> RunTillNextResult<Sega32XEmulator, R::Err, A::Err, S::Err> {
-        while emulator.debug_tick(
-            renderer,
-            audio_output,
-            input_poller,
-            save_writer,
-            &mut self.debugger,
-        )? != TickEffect::FrameRendered
-        {}
-
-        Ok(())
-    }
-}
-
-struct Sega32XDebugMainProcess {
-    debugger_handle: Sega32XDebuggerHandle,
-    state_receiver: SharedVarReceiver<Sega32XDebugState>,
-    render_fn: Box<GenesisDebugRenderFn>,
-}
-
-impl DebuggerMainProcess for Sega32XDebugMainProcess {
-    fn run(
-        &mut self,
-        ctx: DebugRenderContext<'_>,
-    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-        let Some(state) = self.state_receiver.get() else { return Ok(()) };
-        (self.render_fn)(ctx, &mut GenesisBasedDebugState::Sega32X(state, &self.debugger_handle));
-
-        Ok(())
-    }
-}
-
-#[must_use]
-pub fn sega_32x_debug_fn<R, A, I, S>() -> DebuggerProcesses<Sega32XEmulator, R, A, I, S>
-where
-    R: Renderer,
-    A: AudioOutput,
-    I: InputPoller<GenesisInputs>,
-    S: SaveWriter,
-{
-    let (state_sender, state_receiver) = jgenesis_common::sync::new_shared_var();
-    let (debugger, debugger_handle) = Sega32XDebugger::new(state_sender.clone());
-
-    let memory_edit_hook = {
-        let command_sender = debugger_handle.command_sender.clone();
-
-        Box::new(move |memory_area, address, value| match memory_area {
-            MemoryArea::Genesis(memory_area) => {
-                let _ = command_sender.send(Sega32XDebugCommand::EditGenesisMemory(
-                    memory_area,
-                    address,
-                    value,
-                ));
-            }
-            MemoryArea::Sega32X(memory_area) => {
-                let _ = command_sender.send(Sega32XDebugCommand::Edit32XMemory(
-                    memory_area,
-                    address,
-                    value,
-                ));
-            }
-            MemoryArea::SegaCd(_) => {}
-        })
-    };
-
-    let runner_process = Sega32XDebugRunnerProcess { state_sender, debugger };
-    let main_process = Sega32XDebugMainProcess {
-        debugger_handle,
-        state_receiver,
-        render_fn: render_fn(memory_edit_hook),
-    };
-
-    (Box::new(runner_process), Box::new(main_process))
-}
+// mod m68kdebug;
+// mod psgdebug;
+// mod sh2debug;
+// mod widgets;
+// mod ym2612debug;
+// mod z80debug;
+//
+// use crate::genesis::m68kdebug::{
+//     M68kBreakCommand, M68kDebugWindowState, Main68kInterruptBreakpoints, SegaCdSubMemoryMap,
+//     Sub68kInterruptBreakpoints,
+// };
+// use crate::genesis::sh2debug::Sh2DebugWindowState;
+// use crate::genesis::ym2612debug::Ym2612DebugWindowState;
+// use crate::genesis::z80debug::{GenesisZ80MemoryMap, Z80BreakCommand, Z80DebugWindowState};
+// use crate::memviewer::MemoryViewerState;
+// use crate::process::{DebuggerProcesses, RunTillNextResult};
+// use crate::{DebugRenderContext, DebuggerMainProcess, DebuggerRunnerProcess, memviewer};
+// use egui::scroll_area::ScrollBarVisibility;
+// use egui::{
+//     CentralPanel, Color32, CornerRadius, Grid, Image, Panel, Popup, Pos2, Rect, ScrollArea, Sense,
+//     Stroke, StrokeKind, Ui, UiKind, Vec2, Window,
+// };
+// use egui_extras::{Column, TableBuilder};
+// use genesis_components::debug::{
+//     CopySpriteAttributesResult, CramEntry, GenesisDebugCommand, GenesisDebugState, GenesisDebugger,
+//     GenesisDebuggerHandle, GenesisMemoryArea, SpriteAttributeEntry,
+// };
+// use genesis_components::vdp::debug::VdpDebugState;
+// use genesis_components::vdp::{ColorModifier, DataPortLocation};
+// use genesis_components::ym2612::Ym2612;
+// use genesis_config::GenesisInputs;
+// use genesis_core::GenesisEmulator;
+// use jgenesis_common::debug::{DebugMemoryView, DebugViewWithWriteHook, Endian};
+// use jgenesis_common::frontend::{
+//     AudioOutput, Color, InputPoller, Renderer, SaveWriter, TickEffect,
+// };
+// use jgenesis_common::num::GetBit;
+// use jgenesis_common::sync::{SharedVarReceiver, SharedVarSender};
+// use s32x_core::WhichCpu;
+// use s32x_core::api::Sega32XEmulator;
+// use s32x_core::api::debug::{
+//     S32XMemoryArea, Sega32XDebugCommand, Sega32XDebugState, Sega32XDebugger, Sega32XDebuggerHandle,
+// };
+// use segacd_core::api::SegaCdEmulator;
+// use segacd_core::api::debug::{
+//     SegaCdDebugCommand, SegaCdDebugState, SegaCdDebugger, SegaCdDebuggerHandle, SegaCdMemoryArea,
+// };
+// use sh2_emu::{CacheMode, DmaAddressMode, DmaTransferUnit, Sh2};
+// use std::collections::HashMap;
+// use std::error::Error;
+// use std::hash::Hash;
+// use std::iter;
+// use ti_sn76489::Sn76489;
+//
+// const CRAM_WINDOW_TITLE: &str = "CRAM";
+// const VRAM_WINDOW_TITLE: &str = "VRAM";
+// const H_SCROLL_WINDOW_TITLE: &str = "H Scroll Table";
+// const SPRITE_ATTRIBUTES_WINDOW_TITLE: &str = "Sprite Attribute Table";
+// const S32X_PALETTE_WINDOW_TITLE: &str = "32X Palette RAM";
+//
+// const VDP_REGISTERS_WINDOW_TITLE: &str = "VDP Registers";
+// const VDP_STATE_WINDOW_TITLE: &str = "VDP State";
+// const S32X_SYSTEM_REGISTERS_WINDOW_TITLE: &str = "32X System Registers";
+// const S32X_VDP_REGISTERS_WINDOW_TITLE: &str = "32X VDP Registers";
+// const S32X_PWM_REGISTERS_WINDOW_TITLE: &str = "32X PWM Registers";
+//
+// const MASTER_SH2_REGISTERS_WINDOW_TITLE: &str = "Master SH-2 Registers";
+// const SLAVE_SH2_REGISTERS_WINDOW_TITLE: &str = "Slave SH-2 Registers";
+//
+// const CRAM_ROWS: usize = 4;
+// const CRAM_COLS: usize = 16;
+//
+// // Manually position open-by-default windows so they don't spawn over the top panel
+// const CRAM_DEFAULT_POS: [f32; 2] = [16.0, 38.0];
+// const VRAM_DEFAULT_POS: [f32; 2] = [16.0, 327.0];
+//
+// #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// pub(crate) enum MemoryArea {
+//     Genesis(GenesisMemoryArea),
+//     SegaCd(SegaCdMemoryArea),
+//     Sega32X(S32XMemoryArea),
+// }
+//
+// impl MemoryArea {
+//     const ALL: &'static [Self] = &[
+//         Self::Genesis(GenesisMemoryArea::CartridgeRom),
+//         Self::Genesis(GenesisMemoryArea::WorkingRam),
+//         Self::Genesis(GenesisMemoryArea::AudioRam),
+//         Self::Genesis(GenesisMemoryArea::Vram),
+//         Self::Genesis(GenesisMemoryArea::Cram),
+//         Self::Genesis(GenesisMemoryArea::Vsram),
+//         Self::SegaCd(SegaCdMemoryArea::BiosRom),
+//         Self::SegaCd(SegaCdMemoryArea::PrgRam),
+//         Self::SegaCd(SegaCdMemoryArea::WordRam),
+//         Self::SegaCd(SegaCdMemoryArea::PcmRam),
+//         Self::SegaCd(SegaCdMemoryArea::CdcRam),
+//         Self::Sega32X(S32XMemoryArea::Sdram),
+//         Self::Sega32X(S32XMemoryArea::MasterSh2Cache),
+//         Self::Sega32X(S32XMemoryArea::SlaveSh2Cache),
+//         Self::Sega32X(S32XMemoryArea::FrameBuffer0),
+//         Self::Sega32X(S32XMemoryArea::FrameBuffer1),
+//         Self::Sega32X(S32XMemoryArea::PaletteRam),
+//     ];
+//
+//     fn name(self) -> &'static str {
+//         match self {
+//             Self::Genesis(area) => match area {
+//                 GenesisMemoryArea::CartridgeRom => "Cartridge ROM",
+//                 GenesisMemoryArea::WorkingRam => "Working RAM",
+//                 GenesisMemoryArea::AudioRam => "Audio RAM",
+//                 GenesisMemoryArea::Vram => "VRAM",
+//                 GenesisMemoryArea::Cram => "CRAM",
+//                 GenesisMemoryArea::Vsram => "VSRAM",
+//             },
+//             Self::SegaCd(area) => match area {
+//                 SegaCdMemoryArea::BiosRom => "BIOS ROM",
+//                 SegaCdMemoryArea::PrgRam => "PRG RAM",
+//                 SegaCdMemoryArea::WordRam => "Word RAM",
+//                 SegaCdMemoryArea::PcmRam => "PCM Waveform RAM",
+//                 SegaCdMemoryArea::CdcRam => "CDC Buffer RAM",
+//             },
+//             Self::Sega32X(area) => match area {
+//                 S32XMemoryArea::Sdram => "32X SDRAM",
+//                 S32XMemoryArea::MasterSh2Cache => "Master SH-2 Cache",
+//                 S32XMemoryArea::SlaveSh2Cache => "Slave SH-2 Cache",
+//                 S32XMemoryArea::FrameBuffer0 => "32X Frame Buffer 0",
+//                 S32XMemoryArea::FrameBuffer1 => "32X Frame Buffer 1",
+//                 S32XMemoryArea::PaletteRam => "32X Palette RAM",
+//             },
+//         }
+//     }
+//
+//     fn default_file_name(self) -> &'static str {
+//         match self {
+//             Self::Genesis(area) => match area {
+//                 GenesisMemoryArea::CartridgeRom => "rom.bin",
+//                 GenesisMemoryArea::WorkingRam => "wram.bin",
+//                 GenesisMemoryArea::AudioRam => "audioram.bin",
+//                 GenesisMemoryArea::Vram => "vram.bin",
+//                 GenesisMemoryArea::Cram => "cram.bin",
+//                 GenesisMemoryArea::Vsram => "vsram.bin",
+//             },
+//             Self::SegaCd(area) => match area {
+//                 SegaCdMemoryArea::BiosRom => "bios.bin",
+//                 SegaCdMemoryArea::PrgRam => "prgram.bin",
+//                 SegaCdMemoryArea::WordRam => "wordram.bin",
+//                 SegaCdMemoryArea::PcmRam => "pcmram.bin",
+//                 SegaCdMemoryArea::CdcRam => "cdcram.bin",
+//             },
+//             Self::Sega32X(area) => match area {
+//                 S32XMemoryArea::Sdram => "sdram.bin",
+//                 S32XMemoryArea::MasterSh2Cache => "mcache.bin",
+//                 S32XMemoryArea::SlaveSh2Cache => "scache.bin",
+//                 S32XMemoryArea::FrameBuffer0 => "fb0.bin",
+//                 S32XMemoryArea::FrameBuffer1 => "fb1.bin",
+//                 S32XMemoryArea::PaletteRam => "paletteram.bin",
+//             },
+//         }
+//     }
+//
+//     fn new_states() -> HashMap<Self, MemoryViewerState> {
+//         Self::ALL
+//             .iter()
+//             .map(|&area| {
+//                 (
+//                     area,
+//                     MemoryViewerState::new(area.name(), Endian::Big)
+//                         .with_default_file_name(area.default_file_name().into())
+//                         .with_editable(),
+//                 )
+//             })
+//             .collect()
+//     }
+// }
+//
+// struct CramWindowState {
+//     open: bool,
+//     modifier: ColorModifier,
+//     selected_color: usize,
+//     popup_contains_pointer: bool,
+//     entry_buffer: Box<[CramEntry; CRAM_ROWS * CRAM_COLS]>,
+//     color_buffer: Box<[Color; CRAM_ROWS * CRAM_COLS]>,
+//     texture: Option<egui::TextureId>,
+// }
+//
+// impl CramWindowState {
+//     fn new() -> Self {
+//         Self {
+//             open: true,
+//             modifier: ColorModifier::None,
+//             selected_color: 0,
+//             popup_contains_pointer: false,
+//             entry_buffer: vec![CramEntry::default(); CRAM_ROWS * CRAM_COLS]
+//                 .into_boxed_slice()
+//                 .try_into()
+//                 .unwrap(),
+//             color_buffer: vec![Color::default(); CRAM_ROWS * CRAM_COLS]
+//                 .into_boxed_slice()
+//                 .try_into()
+//                 .unwrap(),
+//             texture: None,
+//         }
+//     }
+// }
+//
+// struct VramWindowState {
+//     open: bool,
+//     palette: u8,
+//     buffer: Box<[Color; 2048 * 64]>,
+//     texture: Option<egui::TextureId>,
+// }
+//
+// impl VramWindowState {
+//     fn new() -> Self {
+//         Self {
+//             open: true,
+//             palette: 0,
+//             buffer: vec![Color::default(); 2048 * 64].into_boxed_slice().try_into().unwrap(),
+//             texture: None,
+//         }
+//     }
+// }
+//
+// struct HScrollWindowState {
+//     open: bool,
+//     buffer: Box<[(u16, u16); 256]>,
+// }
+//
+// impl HScrollWindowState {
+//     fn new() -> Self {
+//         Self { open: false, buffer: vec![(0, 0); 256].into_boxed_slice().try_into().unwrap() }
+//     }
+// }
+//
+// struct SpriteAttributesWindowState {
+//     open: bool,
+//     buffer: Box<[SpriteAttributeEntry; 80]>,
+//     adjust_coordinates: bool,
+// }
+//
+// impl SpriteAttributesWindowState {
+//     fn new() -> Self {
+//         Self {
+//             open: false,
+//             buffer: vec![SpriteAttributeEntry::default(); 80]
+//                 .into_boxed_slice()
+//                 .try_into()
+//                 .unwrap(),
+//             adjust_coordinates: false,
+//         }
+//     }
+// }
+//
+// struct S32XPaletteRamState {
+//     open: bool,
+//     selected_color: usize,
+//     popup_contains_pointer: bool,
+//     entry_buffer: Box<[CramEntry; 256]>,
+//     color_buffer: Box<[Color; 256]>,
+//     texture: Option<egui::TextureId>,
+// }
+//
+// impl S32XPaletteRamState {
+//     fn new() -> Self {
+//         Self {
+//             open: false,
+//             selected_color: 0,
+//             popup_contains_pointer: false,
+//             entry_buffer: vec![CramEntry::default(); 256].into_boxed_slice().try_into().unwrap(),
+//             color_buffer: vec![Color::default(); 256].into_boxed_slice().try_into().unwrap(),
+//             texture: None,
+//         }
+//     }
+// }
+//
+// struct State {
+//     memory_viewers: HashMap<MemoryArea, MemoryViewerState>,
+//     memory_edit_hook: Box<dyn FnMut(MemoryArea, usize, u8)>,
+//     cram: CramWindowState,
+//     vram: VramWindowState,
+//     h_scroll: HScrollWindowState,
+//     sprite_attributes: SpriteAttributesWindowState,
+//     s32x_palette: S32XPaletteRamState,
+//     z80: Z80DebugWindowState,
+//     m68k: M68kDebugWindowState,
+//     m68k_sub: M68kDebugWindowState,
+//     sh2_master: Sh2DebugWindowState,
+//     sh2_slave: Sh2DebugWindowState,
+//     vdp_registers_open: bool,
+//     vdp_state_open: bool,
+//     ym2612: Ym2612DebugWindowState,
+//     psg_open: bool,
+//     master_sh2_registers_open: bool,
+//     slave_sh2_registers_open: bool,
+//     s32x_system_registers_open: bool,
+//     s32x_vdp_registers_open: bool,
+//     s32x_pwm_registers_open: bool,
+// }
+//
+// impl State {
+//     fn new(memory_edit_hook: Box<dyn FnMut(MemoryArea, usize, u8)>) -> Self {
+//         Self {
+//             memory_viewers: MemoryArea::new_states(),
+//             memory_edit_hook,
+//             cram: CramWindowState::new(),
+//             vram: VramWindowState::new(),
+//             h_scroll: HScrollWindowState::new(),
+//             sprite_attributes: SpriteAttributesWindowState::new(),
+//             s32x_palette: S32XPaletteRamState::new(),
+//             z80: Z80DebugWindowState::new(),
+//             m68k: M68kDebugWindowState::new_default_titles()
+//                 .with_interrupt_breakpoints(Box::new(Main68kInterruptBreakpoints::default())),
+//             m68k_sub: M68kDebugWindowState::new_with_titles(
+//                 "Sub 68000 Disassembly",
+//                 "Sub 68000 Breakpoints",
+//             )
+//             .with_interrupt_breakpoints(Box::new(Sub68kInterruptBreakpoints::default())),
+//             sh2_master: Sh2DebugWindowState::new(WhichCpu::Master),
+//             sh2_slave: Sh2DebugWindowState::new(WhichCpu::Slave),
+//             vdp_registers_open: false,
+//             vdp_state_open: false,
+//             ym2612: Ym2612DebugWindowState::new(),
+//             psg_open: false,
+//             master_sh2_registers_open: false,
+//             slave_sh2_registers_open: false,
+//             s32x_system_registers_open: false,
+//             s32x_vdp_registers_open: false,
+//             s32x_pwm_registers_open: false,
+//         }
+//     }
+// }
+//
+// pub(crate) enum GenesisBasedDebugState<'a> {
+//     Genesis(&'a mut GenesisDebugState, &'a GenesisDebuggerHandle),
+//     SegaCd(&'a mut SegaCdDebugState, &'a SegaCdDebuggerHandle),
+//     Sega32X(&'a mut Sega32XDebugState, &'a Sega32XDebuggerHandle),
+// }
+//
+// macro_rules! match_each_state_variant {
+//     ($self:expr, state => state.$method:ident($($param:tt)*)) => {
+//         match $self {
+//             Self::Genesis(state, ..) => state.$method($($param)*),
+//             Self::SegaCd(state, ..) => state.genesis.$method($($param)*),
+//             Self::Sega32X(state, ..) => state.genesis.$method($($param)*),
+//         }
+//     }
+// }
+//
+// impl GenesisBasedDebugState<'_> {
+//     fn vdp(&self) -> &VdpDebugState {
+//         match_each_state_variant!(self, state => state.vdp())
+//     }
+//
+//     fn ym2612(&self) -> &Ym2612 {
+//         match_each_state_variant!(self, state => state.ym2612())
+//     }
+//
+//     fn psg(&self) -> &Sn76489 {
+//         match_each_state_variant!(self, state => state.psg())
+//     }
+//
+//     fn has_memory(&self, memory_area: MemoryArea) -> bool {
+//         match self {
+//             Self::Genesis(..) => matches!(memory_area, MemoryArea::Genesis(_)),
+//             Self::SegaCd(..) => match memory_area {
+//                 MemoryArea::Genesis(GenesisMemoryArea::CartridgeRom) | MemoryArea::Sega32X(_) => {
+//                     false
+//                 }
+//                 MemoryArea::Genesis(_) | MemoryArea::SegaCd(_) => true,
+//             },
+//             Self::Sega32X(..) => {
+//                 matches!(memory_area, MemoryArea::Genesis(_) | MemoryArea::Sega32X(_))
+//             }
+//         }
+//     }
+//
+//     fn debug_memory_view(
+//         &mut self,
+//         memory_area: MemoryArea,
+//     ) -> Option<Box<dyn DebugMemoryView + '_>> {
+//         match (self, memory_area) {
+//             (Self::Genesis(state, ..), MemoryArea::Genesis(area)) => Some(state.memory_view(area)),
+//             (Self::SegaCd(state, ..), MemoryArea::Genesis(area)) => {
+//                 Some(state.genesis().memory_view(area))
+//             }
+//             (Self::SegaCd(state, ..), MemoryArea::SegaCd(area)) => {
+//                 Some(state.scd_memory_view(area))
+//             }
+//             (Self::Sega32X(state, ..), MemoryArea::Genesis(area)) => {
+//                 Some(state.genesis().memory_view(area))
+//             }
+//             (Self::Sega32X(state, ..), MemoryArea::Sega32X(area)) => {
+//                 Some(state.s32x_memory_view(area))
+//             }
+//             (Self::Genesis(..), MemoryArea::SegaCd(_) | MemoryArea::Sega32X(_))
+//             | (Self::SegaCd(..), MemoryArea::Sega32X(_))
+//             | (Self::Sega32X(..), MemoryArea::SegaCd(_)) => None,
+//         }
+//     }
+// }
+//
+// pub(crate) type GenesisDebugRenderFn =
+//     dyn FnMut(DebugRenderContext<'_>, &mut GenesisBasedDebugState<'_>);
+//
+// pub(crate) fn render_fn(
+//     memory_edit_hook: Box<dyn FnMut(MemoryArea, usize, u8)>,
+// ) -> Box<GenesisDebugRenderFn> {
+//     let mut state = State::new(memory_edit_hook);
+//     Box::new(move |ctx, emu_state| render(ctx, emu_state, &mut state))
+// }
+//
+// fn render(
+//     ctx: DebugRenderContext<'_>,
+//     mut debug_state: &mut GenesisBasedDebugState<'_>,
+//     state: &mut State,
+// ) {
+//     Panel::top("gen_debug_top").show_inside(ctx.egui_ui, |ui| {
+//         egui::MenuBar::new().ui(ui, |ui| {
+//             ui.menu_button("Memory Viewers", |ui| {
+//                 for &memory_area in MemoryArea::ALL {
+//                     if !debug_state.has_memory(memory_area) {
+//                         continue;
+//                     }
+//
+//                     if ui.button(memory_area.name()).clicked() {
+//                         if let Some(memviewer_state) = state.memory_viewers.get_mut(&memory_area) {
+//                             memviewer_state.open_window(ui);
+//                         }
+//                         ui.close_kind(UiKind::Menu);
+//                     }
+//                 }
+//             });
+//
+//             ui.menu_button("Register Viewers", |ui| {
+//                 if ui.button("VDP Registers").clicked() {
+//                     state.vdp_registers_open = true;
+//                     crate::move_to_top(ui, VDP_REGISTERS_WINDOW_TITLE);
+//                     ui.close_kind(UiKind::Menu);
+//                 }
+//
+//                 if ui.button("VDP State").clicked() {
+//                     state.vdp_state_open = true;
+//                     crate::move_to_top(ui, VDP_STATE_WINDOW_TITLE);
+//                     ui.close_kind(UiKind::Menu);
+//                 }
+//
+//                 if ui.button("YM2612").clicked() {
+//                     state.ym2612.open_window(ui);
+//                     ui.close_kind(UiKind::Menu);
+//                 }
+//
+//                 if ui.button("SN76489").clicked() {
+//                     state.psg_open = true;
+//                     crate::move_to_top(ui, psgdebug::WINDOW_TITLE);
+//                     ui.close_kind(UiKind::Menu);
+//                 }
+//
+//                 if matches!(debug_state, GenesisBasedDebugState::Sega32X(..)) {
+//                     if ui.button("Master SH-2 Registers").clicked() {
+//                         state.master_sh2_registers_open = true;
+//                         crate::move_to_top(ui, MASTER_SH2_REGISTERS_WINDOW_TITLE);
+//                         ui.close_kind(UiKind::Menu);
+//                     }
+//
+//                     if ui.button("Slave SH-2 Registers").clicked() {
+//                         state.slave_sh2_registers_open = true;
+//                         crate::move_to_top(ui, SLAVE_SH2_REGISTERS_WINDOW_TITLE);
+//                         ui.close_kind(UiKind::Menu);
+//                     }
+//
+//                     if ui.button("32X System Registers").clicked() {
+//                         state.s32x_system_registers_open = true;
+//                         crate::move_to_top(ui, S32X_SYSTEM_REGISTERS_WINDOW_TITLE);
+//                         ui.close_kind(UiKind::Menu);
+//                     }
+//
+//                     if ui.button("32X VDP").clicked() {
+//                         state.s32x_vdp_registers_open = true;
+//                         crate::move_to_top(ui, S32X_VDP_REGISTERS_WINDOW_TITLE);
+//                         ui.close_kind(UiKind::Menu);
+//                     }
+//
+//                     if ui.button("32X PWM").clicked() {
+//                         state.s32x_pwm_registers_open = true;
+//                         crate::move_to_top(ui, S32X_PWM_REGISTERS_WINDOW_TITLE);
+//                         ui.close_kind(UiKind::Menu);
+//                     }
+//                 }
+//             });
+//
+//             ui.menu_button("Video Memory", |ui| {
+//                 if ui.button("CRAM").clicked() {
+//                     state.cram.open = true;
+//                     crate::move_to_top(ui, CRAM_WINDOW_TITLE);
+//                     ui.close_kind(UiKind::Menu);
+//                 }
+//
+//                 if ui.button("VRAM").clicked() {
+//                     state.vram.open = true;
+//                     crate::move_to_top(ui, VRAM_WINDOW_TITLE);
+//                     ui.close_kind(UiKind::Menu);
+//                 }
+//
+//                 if ui.button("Sprite Attributes").clicked() {
+//                     state.sprite_attributes.open = true;
+//                     crate::move_to_top(ui, SPRITE_ATTRIBUTES_WINDOW_TITLE);
+//                     ui.close_kind(UiKind::Menu);
+//                 }
+//
+//                 if ui.button("H Scroll Table").clicked() {
+//                     state.h_scroll.open = true;
+//                     crate::move_to_top(ui, H_SCROLL_WINDOW_TITLE);
+//                     ui.close_kind(UiKind::Menu);
+//                 }
+//
+//                 if matches!(debug_state, GenesisBasedDebugState::Sega32X(..))
+//                     && ui.button("32X Palette RAM").clicked()
+//                 {
+//                     state.s32x_palette.open = true;
+//                     crate::move_to_top(ui, S32X_PALETTE_WINDOW_TITLE);
+//                     ui.close_kind(UiKind::Menu);
+//                 }
+//             });
+//
+//             ui.menu_button("CPU Debuggers", |ui| {
+//                 if ui.button("68000 Disassembly").clicked() {
+//                     state.m68k.open_disassembly_window(ui);
+//                     ui.close_kind(UiKind::Menu);
+//                 }
+//
+//                 if ui.button("68000 Breakpoints").clicked() {
+//                     state.m68k.open_breakpoints_window(ui);
+//                     ui.close_kind(UiKind::Menu);
+//                 }
+//
+//                 if matches!(debug_state, GenesisBasedDebugState::SegaCd(..)) {
+//                     if ui.button("Sub 68000 Disassembly").clicked() {
+//                         state.m68k_sub.open_disassembly_window(ui);
+//                         ui.close_kind(UiKind::Menu);
+//                     }
+//
+//                     if ui.button("Sub 68000 Breakpoints").clicked() {
+//                         state.m68k_sub.open_breakpoints_window(ui);
+//                         ui.close_kind(UiKind::Menu);
+//                     }
+//                 }
+//
+//                 if ui.button("Z80 Disassembly").clicked() {
+//                     state.z80.open_disassembly_window(ui);
+//                     ui.close_kind(UiKind::Menu);
+//                 }
+//
+//                 if ui.button("Z80 Breakpoints").clicked() {
+//                     state.z80.open_breakpoints_window(ui);
+//                     ui.close_kind(UiKind::Menu);
+//                 }
+//
+//                 if matches!(debug_state, GenesisBasedDebugState::Sega32X(..)) {
+//                     if ui.button("SH-2 Master Disassembly").clicked() {
+//                         state.sh2_master.open_disassembly_window(ui);
+//                         ui.close_kind(UiKind::Menu);
+//                     }
+//
+//                     if ui.button("SH-2 Master Breakpoints").clicked() {
+//                         state.sh2_master.open_breakpoints_window(ui);
+//                         ui.close_kind(UiKind::Menu);
+//                     }
+//
+//                     if ui.button("SH-2 Slave Disassembly").clicked() {
+//                         state.sh2_slave.open_disassembly_window(ui);
+//                         ui.close_kind(UiKind::Menu);
+//                     }
+//
+//                     if ui.button("SH-2 Slave Breakpoints").clicked() {
+//                         state.sh2_slave.open_breakpoints_window(ui);
+//                         ui.close_kind(UiKind::Menu);
+//                     }
+//                 }
+//             });
+//         });
+//     });
+//
+//     render_memory_viewer_windows(
+//         ctx.egui_ui,
+//         debug_state,
+//         &mut state.memory_viewers,
+//         &mut state.memory_edit_hook,
+//     );
+//
+//     render_vdp_registers_window(ctx.egui_ui, debug_state, &mut state.vdp_registers_open);
+//
+//     render_vdp_state_window(ctx.egui_ui, debug_state, &mut state.vdp_state_open);
+//
+//     ym2612debug::render_debug_window(
+//         ctx.egui_ui,
+//         debug_state.ym2612().debug_view(),
+//         &mut state.ym2612,
+//     );
+//
+//     psgdebug::render_debug_window(ctx.egui_ui, debug_state.psg(), &mut state.psg_open);
+//
+//     let screen_width = crate::screen_width(ctx.egui_ui);
+//
+//     render_cram_window(ctx.egui_ui, screen_width, debug_state, &mut state.cram);
+//     render_vram_window(ctx.egui_ui, screen_width, debug_state, &mut state.vram);
+//     render_h_scroll_window(ctx.egui_ui, debug_state, &mut state.h_scroll);
+//     render_sprite_attributes_window(ctx.egui_ui, debug_state, &mut state.sprite_attributes);
+//
+//     render_m68k_debug_windows(ctx.egui_ui, debug_state, state);
+//     render_z80_debug_windows(ctx.egui_ui, debug_state, state);
+//
+//     if let GenesisBasedDebugState::Sega32X(debug_state, debugger_handle) = &mut debug_state {
+//         render_sh2_registers_window(
+//             ctx.egui_ui,
+//             &mut debug_state.sh2_master,
+//             MASTER_SH2_REGISTERS_WINDOW_TITLE,
+//             &mut state.master_sh2_registers_open,
+//         );
+//         render_sh2_registers_window(
+//             ctx.egui_ui,
+//             &mut debug_state.sh2_slave,
+//             SLAVE_SH2_REGISTERS_WINDOW_TITLE,
+//             &mut state.slave_sh2_registers_open,
+//         );
+//
+//         render_32x_palette_window(ctx.egui_ui, debug_state, &mut state.s32x_palette);
+//         render_32x_system_registers_window(
+//             ctx.egui_ui,
+//             debug_state,
+//             &mut state.s32x_system_registers_open,
+//         );
+//         render_32x_vdp_registers_window(
+//             ctx.egui_ui,
+//             debug_state,
+//             &mut state.s32x_vdp_registers_open,
+//         );
+//         render_32x_pwm_registers_window(
+//             ctx.egui_ui,
+//             debug_state,
+//             &mut state.s32x_pwm_registers_open,
+//         );
+//
+//         let break_status = debugger_handle.sh2_break_status();
+//
+//         sh2debug::render_disassembly_window(
+//             ctx.egui_ui,
+//             debug_state,
+//             &mut state.sh2_master,
+//             &debugger_handle.command_sender,
+//             break_status.get(WhichCpu::Master),
+//         );
+//         sh2debug::render_disassembly_window(
+//             ctx.egui_ui,
+//             debug_state,
+//             &mut state.sh2_slave,
+//             &debugger_handle.command_sender,
+//             break_status.get(WhichCpu::Slave),
+//         );
+//
+//         sh2debug::render_breakpoints_window(
+//             ctx.egui_ui,
+//             &mut state.sh2_master,
+//             &debugger_handle.command_sender,
+//         );
+//         sh2debug::render_breakpoints_window(
+//             ctx.egui_ui,
+//             &mut state.sh2_slave,
+//             &debugger_handle.command_sender,
+//         );
+//     }
+// }
+//
+// fn render_m68k_debug_windows(
+//     ctx: &egui::Context,
+//     debug_state: &mut GenesisBasedDebugState<'_>,
+//     state: &mut State,
+// ) {
+//     match debug_state {
+//         GenesisBasedDebugState::Genesis(debug_state, debugger_handle) => {
+//             if let Some(memory_map) = m68kdebug::new_genesis_memory_map(debug_state) {
+//                 let m68k = debug_state.m68k();
+//                 m68kdebug::render_disassembly_window(
+//                     ctx,
+//                     m68k,
+//                     memory_map,
+//                     &mut state.m68k,
+//                     debugger_handle.m68k_break_status(),
+//                     Some(|command| {
+//                         let genesis_cmd = match command {
+//                             M68kBreakCommand::Pause => GenesisDebugCommand::BreakPause68k,
+//                             M68kBreakCommand::Resume => GenesisDebugCommand::BreakResume,
+//                             M68kBreakCommand::Step => GenesisDebugCommand::BreakStep68k,
+//                         };
+//                         let _ = debugger_handle.send_command(genesis_cmd);
+//                     }),
+//                 );
+//
+//                 m68kdebug::render_breakpoints_window(ctx, &mut state.m68k, |breakpoints| {
+//                     let _ = debugger_handle
+//                         .send_command(GenesisDebugCommand::Update68kBreakpoints(breakpoints));
+//                 });
+//             }
+//         }
+//         GenesisBasedDebugState::SegaCd(debug_state, debugger_handle) => {
+//             let memory_map = m68kdebug::new_scd_main_memory_map(debug_state);
+//             let m68k = debug_state.genesis.m68k();
+//             m68kdebug::render_disassembly_window(
+//                 ctx,
+//                 m68k,
+//                 memory_map,
+//                 &mut state.m68k,
+//                 debugger_handle.main_cpu_break_status(),
+//                 Some(|command| {
+//                     let scd_command = match command {
+//                         M68kBreakCommand::Resume => SegaCdDebugCommand::BreakResume,
+//                         M68kBreakCommand::Pause => SegaCdDebugCommand::BreakPauseMain68k,
+//                         M68kBreakCommand::Step => SegaCdDebugCommand::BreakStepMain68k,
+//                     };
+//                     let _ = debugger_handle.send_command(scd_command);
+//                 }),
+//             );
+//
+//             let sub_memory_map = SegaCdSubMemoryMap::new(debug_state);
+//             let sub_cpu = debug_state.sub_cpu();
+//             m68kdebug::render_disassembly_window(
+//                 ctx,
+//                 sub_cpu,
+//                 sub_memory_map,
+//                 &mut state.m68k_sub,
+//                 debugger_handle.sub_cpu_break_status(),
+//                 Some(|command| {
+//                     let scd_command = match command {
+//                         M68kBreakCommand::Resume => SegaCdDebugCommand::BreakResume,
+//                         M68kBreakCommand::Pause => SegaCdDebugCommand::BreakPauseSub68k,
+//                         M68kBreakCommand::Step => SegaCdDebugCommand::BreakStepSub68k,
+//                     };
+//                     let _ = debugger_handle.send_command(scd_command);
+//                 }),
+//             );
+//
+//             m68kdebug::render_breakpoints_window(ctx, &mut state.m68k, |breakpoints| {
+//                 let _ = debugger_handle
+//                     .send_command(SegaCdDebugCommand::UpdateMain68kBreakpoints(breakpoints));
+//             });
+//
+//             m68kdebug::render_breakpoints_window(ctx, &mut state.m68k_sub, |breakpoints| {
+//                 let _ = debugger_handle
+//                     .send_command(SegaCdDebugCommand::UpdateSub68kBreakpoints(breakpoints));
+//             });
+//         }
+//         GenesisBasedDebugState::Sega32X(debug_state, debugger_handle) => {
+//             if let Some(memory_map) = m68kdebug::new_32x_memory_map(debug_state) {
+//                 let m68k = debug_state.genesis.m68k();
+//
+//                 m68kdebug::render_disassembly_window(
+//                     ctx,
+//                     m68k,
+//                     memory_map,
+//                     &mut state.m68k,
+//                     debugger_handle.m68k_break_status(),
+//                     Some(|command| {
+//                         let s32x_command = match command {
+//                             M68kBreakCommand::Pause => Sega32XDebugCommand::BreakPause68k,
+//                             M68kBreakCommand::Resume => Sega32XDebugCommand::BreakResume,
+//                             M68kBreakCommand::Step => Sega32XDebugCommand::BreakStep68k,
+//                         };
+//                         let _ = debugger_handle.send_command(s32x_command);
+//                     }),
+//                 );
+//
+//                 m68kdebug::render_breakpoints_window(ctx, &mut state.m68k, |breakpoints| {
+//                     let _ = debugger_handle
+//                         .send_command(Sega32XDebugCommand::Update68kBreakpoints(breakpoints));
+//                 });
+//             }
+//         }
+//     }
+// }
+//
+// fn render_z80_debug_windows(
+//     ctx: &egui::Context,
+//     debug_state: &mut GenesisBasedDebugState<'_>,
+//     state: &mut State,
+// ) {
+//     match debug_state {
+//         GenesisBasedDebugState::Genesis(debug_state, debugger_handle) => {
+//             if let Some(m68k_memory_map) = m68kdebug::new_genesis_memory_map(debug_state) {
+//                 z80debug::render_disassembly_window(
+//                     ctx,
+//                     debug_state.z80(),
+//                     GenesisZ80MemoryMap::new(debug_state, &m68k_memory_map),
+//                     &mut state.z80,
+//                     debugger_handle.z80_break_status(),
+//                     Some(|command| {
+//                         let genesis_command = match command {
+//                             Z80BreakCommand::Pause => GenesisDebugCommand::BreakPauseZ80,
+//                             Z80BreakCommand::Resume => GenesisDebugCommand::BreakResume,
+//                             Z80BreakCommand::Step => GenesisDebugCommand::BreakStepZ80,
+//                         };
+//                         let _ = debugger_handle.send_command(genesis_command);
+//                     }),
+//                 );
+//             }
+//
+//             z80debug::render_breakpoints_window(ctx, &mut state.z80, |breakpoints| {
+//                 let _ = debugger_handle
+//                     .send_command(GenesisDebugCommand::UpdateZ80Breakpoints(breakpoints));
+//             });
+//         }
+//         GenesisBasedDebugState::SegaCd(debug_state, debugger_handle) => {
+//             z80debug::render_disassembly_window(
+//                 ctx,
+//                 debug_state.genesis.z80(),
+//                 GenesisZ80MemoryMap::new(
+//                     &debug_state.genesis,
+//                     &m68kdebug::new_scd_main_memory_map(debug_state),
+//                 ),
+//                 &mut state.z80,
+//                 debugger_handle.z80_break_status(),
+//                 Some(|command| {
+//                     let scd_command = match command {
+//                         Z80BreakCommand::Resume => SegaCdDebugCommand::BreakResume,
+//                         Z80BreakCommand::Pause => SegaCdDebugCommand::BreakPauseZ80,
+//                         Z80BreakCommand::Step => SegaCdDebugCommand::BreakStepZ80,
+//                     };
+//                     let _ = debugger_handle.send_command(scd_command);
+//                 }),
+//             );
+//
+//             z80debug::render_breakpoints_window(ctx, &mut state.z80, |breakpoints| {
+//                 let _ = debugger_handle
+//                     .send_command(SegaCdDebugCommand::UpdateZ80Breakpoints(breakpoints));
+//             });
+//         }
+//         GenesisBasedDebugState::Sega32X(debug_state, debugger_handle) => {
+//             if let Some(m68k_memory_map) = m68kdebug::new_32x_memory_map(debug_state) {
+//                 z80debug::render_disassembly_window(
+//                     ctx,
+//                     debug_state.genesis.z80(),
+//                     GenesisZ80MemoryMap::new(&debug_state.genesis, &m68k_memory_map),
+//                     &mut state.z80,
+//                     debugger_handle.z80_break_status(),
+//                     Some(|command| {
+//                         let s32x_command = match command {
+//                             Z80BreakCommand::Pause => Sega32XDebugCommand::BreakPauseZ80,
+//                             Z80BreakCommand::Resume => Sega32XDebugCommand::BreakResume,
+//                             Z80BreakCommand::Step => Sega32XDebugCommand::BreakStepZ80,
+//                         };
+//                         let _ = debugger_handle.send_command(s32x_command);
+//                     }),
+//                 );
+//             }
+//
+//             z80debug::render_breakpoints_window(ctx, &mut state.z80, |breakpoints| {
+//                 let _ = debugger_handle
+//                     .send_command(Sega32XDebugCommand::UpdateZ80Breakpoints(breakpoints));
+//             });
+//         }
+//     }
+// }
+//
+// fn render_memory_viewer_windows(
+//     egui_ctx: &egui::Context,
+//     emu_state: &mut GenesisBasedDebugState<'_>,
+//     memory_viewer_states: &mut HashMap<MemoryArea, MemoryViewerState>,
+//     memory_edit_hook: &mut dyn FnMut(MemoryArea, usize, u8),
+// ) {
+//     for (&memory_area, state) in memory_viewer_states.iter_mut() {
+//         if let Some(memory) = emu_state.debug_memory_view(memory_area) {
+//             let mut memory = DebugViewWithWriteHook::new(
+//                 memory,
+//                 Box::new(|address, value| memory_edit_hook(memory_area, address, value)),
+//             );
+//             memviewer::render(egui_ctx, &mut memory, state);
+//         }
+//     }
+// }
+//
+// fn render_color_info_grid(
+//     id: impl Hash,
+//     ui: &mut Ui,
+//     palette: usize,
+//     color_idx: usize,
+//     entry: CramEntry,
+// ) {
+//     Grid::new(id).show(ui, |ui| {
+//         ui.label("Palette");
+//         ui.label(palette.to_string());
+//         ui.end_row();
+//
+//         ui.label("Index");
+//         ui.label(color_idx.to_string());
+//         ui.end_row();
+//
+//         ui.label("Color");
+//         ui.label(format!("0x{:03X}", entry.value));
+//         ui.end_row();
+//
+//         ui.label("R / G / B");
+//         ui.label(format!(
+//             "{} / {} / {}",
+//             (entry.value >> 1) & 7,
+//             (entry.value >> 5) & 7,
+//             (entry.value >> 9) & 7
+//         ));
+//         ui.end_row();
+//
+//         ui.label("Display");
+//         ui.label(format_display_color(entry.color));
+//         ui.end_row();
+//     });
+// }
+//
+// fn format_display_color(color: Color) -> String {
+//     format!("#{:02X}{:02X}{:02X}", color.r, color.g, color.b)
+// }
+//
+// fn render_cram_window(
+//     ctx: &egui::Context,
+//     screen_width: f32,
+//     emu_state: &mut GenesisBasedDebugState<'_>,
+//     state: &mut CramWindowState,
+// ) {
+//     Window::new(CRAM_WINDOW_TITLE)
+//         .open(&mut state.open)
+//         .constrain(false)
+//         .default_pos(CRAM_DEFAULT_POS)
+//         .default_size([screen_width * 0.95, 225.0])
+//         .show(ctx, |ui| {
+//             emu_state.vdp().copy_cram(state.entry_buffer.as_mut_slice(), state.modifier);
+//             for (entry, color) in
+//                 iter::zip(state.entry_buffer.iter(), state.color_buffer.iter_mut())
+//             {
+//                 *color = entry.color;
+//             }
+//
+//             Panel::right("cram_right_panel").resizable(false).min_size(125.0).show_inside(
+//                 ui,
+//                 |ui| {
+//                     let cram_entry = state.entry_buffer[state.selected_color];
+//
+//                     paint_rect_and_advance_cursor(
+//                         ui,
+//                         ui.max_rect().min,
+//                         Vec2::new(50.0, 50.0),
+//                         cram_entry.color,
+//                     );
+//
+//                     render_color_info_grid(
+//                         "cram_side_panel_grid",
+//                         ui,
+//                         state.selected_color / 16,
+//                         state.selected_color % 16,
+//                         cram_entry,
+//                     );
+//                 },
+//             );
+//
+//             CentralPanel::default().show_inside(ui, |ui| {
+//                 let modifier_resp = ui.horizontal(|ui| {
+//                     ui.radio_value(&mut state.modifier, ColorModifier::None, "Normal");
+//                     ui.radio_value(&mut state.modifier, ColorModifier::Shadow, "Shadowed");
+//                     ui.radio_value(&mut state.modifier, ColorModifier::Highlight, "Highlighted");
+//                 });
+//
+//                 let mut image_size =
+//                     ui.max_rect().size() - Vec2::new(0.0, modifier_resp.response.rect.height());
+//                 if image_size.y > image_size.x * 0.25 {
+//                     image_size.y = image_size.x * 0.25;
+//                 } else {
+//                     image_size.x = image_size.y * 4.0;
+//                 }
+//
+//                 let texture = crate::update_egui_texture(
+//                     ctx,
+//                     [CRAM_COLS, CRAM_ROWS],
+//                     state.color_buffer.as_slice(),
+//                     &mut state.texture,
+//                 );
+//                 let image_resp = ui.add(Image::new((texture, image_size)).sense(Sense::click()));
+//
+//                 let mut clicked = image_resp.clicked();
+//                 let contains_pointer =
+//                     image_resp.contains_pointer() || state.popup_contains_pointer;
+//                 if (clicked || contains_pointer)
+//                     && let Some(pos) = ui.input(|i| i.pointer.latest_pos())
+//                 {
+//                     let normalized_pos = crate::normalize_position(pos, image_resp.interact_rect);
+//                     let row = (normalized_pos.y * (CRAM_ROWS as f32)) as usize;
+//                     let col = (normalized_pos.x * (CRAM_COLS as f32)) as usize;
+//
+//                     if row < CRAM_ROWS && col < CRAM_COLS {
+//                         let buffer_idx = CRAM_COLS * row + col;
+//
+//                         if contains_pointer {
+//                             let cram_entry = state.entry_buffer[buffer_idx];
+//
+//                             let popup_resp = Popup::from_response(&image_resp)
+//                                 .at_pointer()
+//                                 .gap(5.0)
+//                                 .show(|ui| {
+//                                     paint_rect_and_advance_cursor(
+//                                         ui,
+//                                         ui.max_rect().min + Vec2::new(35.0, 0.0),
+//                                         Vec2::new(25.0, 25.0),
+//                                         cram_entry.color,
+//                                     );
+//
+//                                     render_color_info_grid(
+//                                         "cram_popup_grid",
+//                                         ui,
+//                                         row,
+//                                         col,
+//                                         cram_entry,
+//                                     );
+//                                 });
+//                             clicked |=
+//                                 popup_resp.as_ref().is_some_and(|resp| resp.response.clicked());
+//                             state.popup_contains_pointer =
+//                                 popup_resp.is_some_and(|resp| resp.response.contains_pointer());
+//                         }
+//
+//                         if clicked {
+//                             state.selected_color = buffer_idx;
+//                         }
+//                     }
+//                 }
+//             });
+//         });
+// }
+//
+// fn paint_rect_and_advance_cursor(ui: &mut Ui, min: Pos2, size: Vec2, fill_color: Color) {
+//     let rect = Rect { min, max: min + size };
+//     ui.painter().rect(
+//         rect,
+//         CornerRadius::ZERO,
+//         Color32::from_rgb(fill_color.r, fill_color.g, fill_color.b),
+//         Stroke::new(1.0_f32, ui.visuals().text_color()),
+//         StrokeKind::Middle,
+//     );
+//     ui.advance_cursor_after_rect(rect);
+// }
+//
+// fn render_vram_window(
+//     ctx: &egui::Context,
+//     screen_width: f32,
+//     emu_state: &mut GenesisBasedDebugState<'_>,
+//     state: &mut VramWindowState,
+// ) {
+//     Window::new(VRAM_WINDOW_TITLE)
+//         .open(&mut state.open)
+//         .constrain(false)
+//         .default_pos(VRAM_DEFAULT_POS)
+//         .default_width(screen_width * 0.95)
+//         .show(ctx, |ui| {
+//             ui.horizontal(|ui| {
+//                 ui.label("Palette");
+//
+//                 for i in 0..4 {
+//                     ui.radio_value(&mut state.palette, i, format!("{i}"));
+//                 }
+//             });
+//
+//             emu_state.vdp().copy_vram(state.buffer.as_mut_slice(), state.palette, 64);
+//
+//             let mut height = ui.available_width() * 0.45;
+//             if height > ui.available_height() {
+//                 height = ui.available_height();
+//             }
+//             let width = height * 2.0;
+//
+//             let texture = crate::update_egui_texture(
+//                 ctx,
+//                 [64 * 8, 32 * 8],
+//                 state.buffer.as_slice(),
+//                 &mut state.texture,
+//             );
+//             ui.image((texture, Vec2::new(width, height)));
+//         });
+// }
+//
+// fn render_h_scroll_window(
+//     ctx: &egui::Context,
+//     emu_state: &mut GenesisBasedDebugState<'_>,
+//     state: &mut HScrollWindowState,
+// ) {
+//     Window::new(H_SCROLL_WINDOW_TITLE)
+//         .open(&mut state.open)
+//         .constrain(false)
+//         .default_pos(crate::rand_window_pos())
+//         .default_width(200.0)
+//         .show(ctx, |ui| {
+//             emu_state.vdp().copy_h_scroll(state.buffer.as_mut_slice());
+//
+//             crate::brighten_faint_bg_color(ui);
+//
+//             TableBuilder::new(ui)
+//                 .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
+//                 .column(Column::auto().at_least(50.0))
+//                 .columns(Column::auto(), 2)
+//                 .column(Column::remainder())
+//                 .striped(true)
+//                 .header(20.0, |mut header| {
+//                     header.col(|ui| {
+//                         ui.heading("Line");
+//                     });
+//                     header.col(|ui| {
+//                         ui.heading("Plane A");
+//                     });
+//                     header.col(|ui| {
+//                         ui.heading("Plane B");
+//                     });
+//                     header.col(|_ui| {});
+//                 })
+//                 .body(|body| {
+//                     body.rows(18.0, 256, |mut row| {
+//                         let line = row.index();
+//                         let (h_scroll_a, h_scroll_b) = state.buffer[line];
+//
+//                         row.col(|ui| {
+//                             ui.label(line.to_string());
+//                         });
+//                         row.col(|ui| {
+//                             ui.label(h_scroll_a.to_string());
+//                         });
+//                         row.col(|ui| {
+//                             ui.label(h_scroll_b.to_string());
+//                         });
+//                         row.col(|_ui| {});
+//                     });
+//                 });
+//         });
+// }
+//
+// fn render_sprite_attributes_window(
+//     ctx: &egui::Context,
+//     emu_state: &mut GenesisBasedDebugState<'_>,
+//     state: &mut SpriteAttributesWindowState,
+// ) {
+//     Window::new(SPRITE_ATTRIBUTES_WINDOW_TITLE)
+//         .open(&mut state.open)
+//         .constrain(false)
+//         .default_pos(crate::rand_window_pos())
+//         .default_width(500.0)
+//         .show(ctx, |ui| {
+//             let CopySpriteAttributesResult { sprite_table_len, top_left_x, top_left_y } =
+//                 emu_state.vdp().copy_sprite_attributes(state.buffer.as_mut_slice());
+//
+//             ui.checkbox(&mut state.adjust_coordinates, "Shift coordinates to top-left of screen");
+//
+//             let (x_offset, y_offset) = if state.adjust_coordinates {
+//                 (-i32::from(top_left_x), -i32::from(top_left_y))
+//             } else {
+//                 (0, 0)
+//             };
+//
+//             crate::brighten_faint_bg_color(ui);
+//
+//             TableBuilder::new(ui)
+//                 .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
+//                 .columns(Column::auto().at_least(50.0), 11)
+//                 .column(Column::remainder())
+//                 .striped(true)
+//                 .header(20.0, |mut header| {
+//                     for heading in [
+//                         "Index",
+//                         "Tile",
+//                         "X",
+//                         "Y",
+//                         "Cell Size",
+//                         "Palette",
+//                         "Priority",
+//                         "H Flip",
+//                         "V Flip",
+//                         "Link",
+//                     ] {
+//                         header.col(|ui| {
+//                             ui.heading(heading);
+//                         });
+//                     }
+//                     header.col(|_ui| {});
+//                 })
+//                 .body(|body| {
+//                     body.rows(18.0, sprite_table_len as usize, |mut row| {
+//                         let idx = row.index();
+//                         let sprite = state.buffer[idx];
+//
+//                         for value in [
+//                             idx.to_string(),
+//                             sprite.tile_number.to_string(),
+//                             (i32::from(sprite.x) + x_offset).to_string(),
+//                             (i32::from(sprite.y) + y_offset).to_string(),
+//                             format!("{}x{}", sprite.h_cells, sprite.v_cells),
+//                             sprite.palette.to_string(),
+//                             u8::from(sprite.priority).to_string(),
+//                             u8::from(sprite.h_flip).to_string(),
+//                             u8::from(sprite.v_flip).to_string(),
+//                             sprite.link.to_string(),
+//                         ] {
+//                             row.col(|ui| {
+//                                 ui.label(value);
+//                             });
+//                         }
+//                         row.col(|_ui| {});
+//                     });
+//                 });
+//         });
+// }
+//
+// fn render_32x_color_grid(id: impl Hash, ui: &mut Ui, index: usize, entry: CramEntry) {
+//     Grid::new(id).show(ui, |ui| {
+//         ui.label("Index");
+//         ui.label(format!("0x{index:02X} ({index})"));
+//         ui.end_row();
+//
+//         ui.label("Color");
+//         ui.label(format!("0x{:04X}", entry.value));
+//         ui.end_row();
+//
+//         let fmt_color = |component: u16| format!("0x{component:02X} ({component})");
+//
+//         ui.label("Red");
+//         ui.label(fmt_color(entry.value & 0x1F));
+//         ui.end_row();
+//
+//         ui.label("Green");
+//         ui.label(fmt_color((entry.value >> 5) & 0x1F));
+//         ui.end_row();
+//
+//         ui.label("Blue");
+//         ui.label(fmt_color((entry.value >> 10) & 0x1F));
+//         ui.end_row();
+//
+//         ui.label("Priority");
+//         ui.label(if entry.value.bit(15) { "1" } else { "0" });
+//         ui.end_row();
+//
+//         ui.label("Display");
+//         ui.label(format_display_color(entry.color));
+//         ui.end_row();
+//     });
+// }
+//
+// fn render_sh2_registers_window(
+//     ctx: &egui::Context,
+//     sh2: &mut Sh2,
+//     window_title: &str,
+//     open: &mut bool,
+// ) {
+//     // Roughly 23.01 MHz
+//     const SH2_CLOCK_RATE: f64 = genesis_components::audio::NTSC_GENESIS_MCLK_FREQUENCY
+//         / (genesis_config::NATIVE_M68K_DIVIDER as f64)
+//         * (genesis_config::NATIVE_SH2_MULTIPLIER as f64);
+//
+//     Window::new(window_title)
+//         .open(open)
+//         .constrain(false)
+//         .default_pos(crate::rand_window_pos())
+//         .show(ctx, |ui| {
+//             ScrollArea::vertical().show(ui, |ui| {
+//                 let state = sh2.sh7604_debug_state();
+//
+//                 crate::render_registers_table(
+//                     ui,
+//                     "Cache Control",
+//                     &[
+//                         ("Enabled", &state.cache.enabled.to_string()),
+//                         (
+//                             "Instruction replacement",
+//                             &state.cache.instruction_replacement_enabled.to_string(),
+//                         ),
+//                         ("Data replacement", &state.cache.data_replacement_enabled.to_string()),
+//                         ("Mode", cache_mode_str(state.cache.mode)),
+//                     ],
+//                 );
+//
+//                 ui.separator();
+//
+//                 crate::render_registers_table(
+//                     ui,
+//                     "Internal Interrupts",
+//                     &[
+//                         ("WDT interrupt level", &state.interrupts.wdt_priority.to_string()),
+//                         ("WDT vector number", &state.interrupts.wdt_vector.to_string()),
+//                         ("DMAC interrupt level", &state.interrupts.dmac_priority.to_string()),
+//                         ("DMA0 vector number", &state.interrupts.dma0_vector.to_string()),
+//                         ("DMA1 vector number", &state.interrupts.dma1_vector.to_string()),
+//                         ("SCI interrupt level", &state.interrupts.sci_priority.to_string()),
+//                         ("SCI vector number", &state.interrupts.sci_vector.to_string()),
+//                     ],
+//                 );
+//
+//                 ui.separator();
+//
+//                 let wdt_frequency = SH2_CLOCK_RATE / (state.wdt.system_clock_divider as f64);
+//
+//                 crate::render_registers_table(
+//                     ui,
+//                     "Watchdog Timer (WDT)",
+//                     &[
+//                         ("Enabled", &state.wdt.enabled.to_string()),
+//                         ("Clock divider", &format!("{}", state.wdt.system_clock_divider)),
+//                         ("Frequency", &format!("{} Hz", wdt_frequency.round())),
+//                         ("Counter", &state.wdt.counter.to_string()),
+//                         ("Overflow flag", &state.wdt.overflow_flag.to_string()),
+//                     ],
+//                 );
+//
+//                 for (i, channel) in state.dmac.channels.iter().enumerate() {
+//                     ui.separator();
+//
+//                     crate::render_registers_table(
+//                         ui,
+//                         &format!("DMA Channel {i} (DMAC)"),
+//                         &[
+//                             (
+//                                 "DMA master enabled",
+//                                 &state.dmac.operation.dma_master_enabled.to_string(),
+//                             ),
+//                             ("Channel enabled", &channel.control.dma_enabled.to_string()),
+//                             ("Auto request", &channel.control.auto_request.to_string()),
+//                             ("Transfer unit", transfer_unit_str(channel.control.transfer_size)),
+//                             (
+//                                 "Source address mode",
+//                                 dma_address_mode_str(channel.control.source_address_mode),
+//                             ),
+//                             (
+//                                 "Destination address mode",
+//                                 dma_address_mode_str(channel.control.destination_address_mode),
+//                             ),
+//                             ("Source address", &format!("${:08X}", channel.source_address)),
+//                             (
+//                                 "Destination address",
+//                                 &format!("${:08X}", channel.destination_address),
+//                             ),
+//                             ("Length", &format!("0x{:08X}", channel.transfer_count)),
+//                             ("Interrupt enabled", &channel.control.interrupt_enabled.to_string()),
+//                             ("DMA complete flag", &channel.control.dma_complete.to_string()),
+//                         ],
+//                     );
+//                 }
+//             });
+//         });
+// }
+//
+// fn cache_mode_str(mode: CacheMode) -> &'static str {
+//     match mode {
+//         CacheMode::FourWay => "4-way",
+//         CacheMode::TwoWay => "2-way",
+//     }
+// }
+//
+// fn transfer_unit_str(unit: DmaTransferUnit) -> &'static str {
+//     match unit {
+//         DmaTransferUnit::Byte => "Byte",
+//         DmaTransferUnit::Word => "Word",
+//         DmaTransferUnit::Longword => "Longword",
+//         DmaTransferUnit::SixteenByte => "16-byte",
+//     }
+// }
+//
+// fn dma_address_mode_str(mode: DmaAddressMode) -> &'static str {
+//     match mode {
+//         DmaAddressMode::Fixed => "Fixed",
+//         DmaAddressMode::AutoIncrement => "Increment",
+//         DmaAddressMode::AutoDecrement => "Decrement",
+//         DmaAddressMode::Invalid => "Invalid",
+//     }
+// }
+//
+// fn render_32x_palette_window(
+//     ctx: &egui::Context,
+//     emu_state: &mut Sega32XDebugState,
+//     state: &mut S32XPaletteRamState,
+// ) {
+//     Window::new(S32X_PALETTE_WINDOW_TITLE)
+//         .open(&mut state.open)
+//         .constrain(false)
+//         .default_pos(crate::rand_window_pos())
+//         .default_size([700.0, 550.0])
+//         .show(ctx, |ui| {
+//             emu_state.copy_palette(state.entry_buffer.as_mut_slice());
+//             for (entry, color) in
+//                 iter::zip(state.entry_buffer.iter(), state.color_buffer.iter_mut())
+//             {
+//                 *color = entry.color;
+//             }
+//
+//             Panel::right("32x_palette_side_panel").resizable(false).min_size(135.0).show_inside(
+//                 ui,
+//                 |ui| {
+//                     let selected_entry = state.entry_buffer[state.selected_color];
+//
+//                     paint_rect_and_advance_cursor(
+//                         ui,
+//                         ui.max_rect().min,
+//                         Vec2::new(50.0, 50.0),
+//                         selected_entry.color,
+//                     );
+//
+//                     render_32x_color_grid(
+//                         "32x_palette_side_panel_grid",
+//                         ui,
+//                         state.selected_color,
+//                         selected_entry,
+//                     );
+//                 },
+//             );
+//
+//             CentralPanel::default().show_inside(ui, |ui| {
+//                 let mut image_size = ui.max_rect().size();
+//                 if image_size.y > image_size.x {
+//                     image_size.y = image_size.x;
+//                 } else {
+//                     image_size.x = image_size.y;
+//                 }
+//
+//                 let texture = crate::update_egui_texture(
+//                     ctx,
+//                     [16, 16],
+//                     state.color_buffer.as_slice(),
+//                     &mut state.texture,
+//                 );
+//                 let image_resp = ui.add(Image::new((texture, image_size)).sense(Sense::click()));
+//
+//                 let mut clicked = image_resp.clicked();
+//                 let contains_pointer =
+//                     image_resp.contains_pointer() || state.popup_contains_pointer;
+//                 if (clicked || contains_pointer)
+//                     && let Some(pos) = ui.input(|i| i.pointer.latest_pos())
+//                 {
+//                     let normalized_pos = crate::normalize_position(pos, image_resp.interact_rect);
+//                     let row = (normalized_pos.y * 16.0) as usize;
+//                     let col = (normalized_pos.x * 16.0) as usize;
+//
+//                     if row < 16 && col < 16 {
+//                         let buffer_idx = 16 * row + col;
+//
+//                         if contains_pointer {
+//                             let entry = state.entry_buffer[buffer_idx];
+//
+//                             let popup_resp = Popup::from_response(&image_resp)
+//                                 .at_pointer()
+//                                 .gap(5.0)
+//                                 .show(|ui| {
+//                                     paint_rect_and_advance_cursor(
+//                                         ui,
+//                                         ui.max_rect().min + Vec2::new(45.0, 0.0),
+//                                         Vec2::new(25.0, 25.0),
+//                                         entry.color,
+//                                     );
+//
+//                                     render_32x_color_grid(
+//                                         "32x_palette_popup_color_grid",
+//                                         ui,
+//                                         buffer_idx,
+//                                         entry,
+//                                     );
+//                                 });
+//                             clicked |=
+//                                 popup_resp.as_ref().is_some_and(|resp| resp.response.clicked());
+//                             state.popup_contains_pointer =
+//                                 popup_resp.is_some_and(|resp| resp.response.contains_pointer());
+//                         }
+//
+//                         if clicked {
+//                             state.selected_color = buffer_idx;
+//                         }
+//                     }
+//                 }
+//             });
+//         });
+// }
+//
+// fn render_vdp_registers_window(
+//     ctx: &egui::Context,
+//     emu_state: &mut GenesisBasedDebugState<'_>,
+//     open: &mut bool,
+// ) {
+//     crate::render_registers_window(ctx, "VDP Registers", open, |ui| {
+//         emu_state.vdp().dump_registers(crate::dump_registers_callback(ui));
+//     });
+// }
+//
+// fn render_vdp_state_window(
+//     ctx: &egui::Context,
+//     emu_state: &mut GenesisBasedDebugState<'_>,
+//     open: &mut bool,
+// ) {
+//     Window::new(VDP_STATE_WINDOW_TITLE)
+//         .open(open)
+//         .constrain(false)
+//         .default_pos(crate::rand_window_pos())
+//         .show(ctx, |ui| {
+//             ScrollArea::vertical().show(ui, |ui| {
+//                 let state = emu_state.vdp().internal_state();
+//
+//                 crate::render_registers_table(
+//                     ui,
+//                     "Timing",
+//                     &[
+//                         ("Scanline", &state.scanline.to_string()),
+//                         ("Scanline MCLK cycles", &state.scanline_mclk.to_string()),
+//                         ("Scanline pixel", &state.pixel.to_string()),
+//                         (
+//                             "Active display pixel range",
+//                             &format!(
+//                                 "{}-{}",
+//                                 state.active_display_pixels.start,
+//                                 state.active_display_pixels.end - 1
+//                             ),
+//                         ),
+//                         ("VBlank flag", ["0", "1"][usize::from(state.vblank_flag)]),
+//                         ("H (Internal)", &format!("0x{:03X}", state.internal_h)),
+//                         ("H (External)", &format!("0x{:02X}", state.external_h)),
+//                         ("V", &format!("0x{:02X}", state.v)),
+//                     ],
+//                 );
+//
+//                 ui.separator();
+//
+//                 crate::render_registers_table(
+//                     ui,
+//                     "Interrupts",
+//                     &[
+//                         (
+//                             "Vertical interrupt pending",
+//                             ["0", "1"][usize::from(state.v_interrupt_pending)],
+//                         ),
+//                         (
+//                             "Horizontal interrupt pending",
+//                             ["0", "1"][usize::from(state.h_interrupt_pending)],
+//                         ),
+//                         ("Horizontal interrupt counter", &state.h_interrupt_counter.to_string()),
+//                     ],
+//                 );
+//
+//                 ui.separator();
+//
+//                 crate::render_registers_table(
+//                     ui,
+//                     "Control Port",
+//                     &[
+//                         ("Mode", &format!("{:?}", state.data_port_mode)),
+//                         ("Location", data_port_location_str(state.data_port_location)),
+//                         ("Address", &format!("${:05X}", state.data_port_address)),
+//                         ("Write flag", &format!("{:?}", state.write_flag)),
+//                         ("DMA active", ["0", "1"][usize::from(state.dma_active)]),
+//                     ],
+//                 );
+//             });
+//         });
+// }
+//
+// fn data_port_location_str(location: DataPortLocation) -> &'static str {
+//     match location {
+//         DataPortLocation::Vram => "VRAM",
+//         DataPortLocation::Vram8Bit => "VRAM (8-bit)",
+//         DataPortLocation::Cram => "CRAM",
+//         DataPortLocation::Vsram => "VSRAM",
+//         DataPortLocation::Invalid => "Invalid",
+//     }
+// }
+//
+// fn render_32x_system_registers_window(
+//     ctx: &egui::Context,
+//     emu_state: &mut Sega32XDebugState,
+//     open: &mut bool,
+// ) {
+//     crate::render_registers_window(ctx, "32X System Registers", open, |ui| {
+//         emu_state.dump_32x_system_registers(crate::dump_registers_callback(ui));
+//     });
+// }
+//
+// fn render_32x_vdp_registers_window(
+//     ctx: &egui::Context,
+//     emu_state: &mut Sega32XDebugState,
+//     open: &mut bool,
+// ) {
+//     crate::render_registers_window(ctx, "32X VDP Registers", open, |ui| {
+//         emu_state.dump_32x_vdp_registers(crate::dump_registers_callback(ui));
+//     });
+// }
+//
+// fn render_32x_pwm_registers_window(
+//     ctx: &egui::Context,
+//     emu_state: &mut Sega32XDebugState,
+//     open: &mut bool,
+// ) {
+//     crate::render_registers_window(ctx, "32X PWM Registers", open, |ui| {
+//         emu_state.dump_pwm_registers(crate::dump_registers_callback(ui));
+//     });
+// }
+//
+// struct GenesisDebugRunnerProcess {
+//     state_sender: SharedVarSender<GenesisDebugState>,
+//     debugger: GenesisDebugger,
+// }
+//
+// impl<R, A, I, S> DebuggerRunnerProcess<GenesisEmulator, R, A, I, S> for GenesisDebugRunnerProcess
+// where
+//     R: Renderer,
+//     A: AudioOutput,
+//     I: InputPoller<GenesisInputs>,
+//     S: SaveWriter,
+// {
+//     fn run(
+//         &mut self,
+//         emulator: &mut GenesisEmulator,
+//     ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+//         let mut debug_view = emulator.as_debug_view();
+//         self.debugger.process_commands(&mut debug_view);
+//         self.state_sender.update(debug_view.to_debug_state());
+//
+//         Ok(())
+//     }
+//
+//     fn run_emulator_till_next_frame(
+//         &mut self,
+//         emulator: &mut GenesisEmulator,
+//         renderer: &mut R,
+//         audio_output: &mut A,
+//         input_poller: &mut I,
+//         save_writer: &mut S,
+//     ) -> RunTillNextResult<GenesisEmulator, R::Err, A::Err, S::Err> {
+//         while emulator.debug_tick(
+//             renderer,
+//             audio_output,
+//             input_poller,
+//             save_writer,
+//             &mut self.debugger,
+//         )? != TickEffect::FrameRendered
+//         {}
+//
+//         Ok(())
+//     }
+// }
+//
+// struct GenesisDebugMainProcess {
+//     debugger_handle: GenesisDebuggerHandle,
+//     state_receiver: SharedVarReceiver<GenesisDebugState>,
+//     render_fn: Box<GenesisDebugRenderFn>,
+// }
+//
+// impl DebuggerMainProcess for GenesisDebugMainProcess {
+//     fn run(
+//         &mut self,
+//         ctx: DebugRenderContext<'_>,
+//     ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+//         let Some(state) = self.state_receiver.get() else { return Ok(()) };
+//         (self.render_fn)(ctx, &mut GenesisBasedDebugState::Genesis(state, &self.debugger_handle));
+//
+//         Ok(())
+//     }
+// }
+//
+// #[must_use]
+// pub fn genesis_debug_fn<R, A, I, S>() -> DebuggerProcesses<GenesisEmulator, R, A, I, S>
+// where
+//     R: Renderer,
+//     A: AudioOutput,
+//     I: InputPoller<GenesisInputs>,
+//     S: SaveWriter,
+// {
+//     let (state_sender, state_receiver) = jgenesis_common::sync::new_shared_var();
+//     let (debugger, debugger_handle) = GenesisDebugger::new(state_sender.clone());
+//
+//     let memory_edit_hook = {
+//         let command_sender = debugger_handle.command_sender.clone();
+//
+//         Box::new(move |memory_area, address, value| {
+//             if let MemoryArea::Genesis(memory_area) = memory_area {
+//                 let _ = command_sender.send(GenesisDebugCommand::EditMemory(
+//                     memory_area,
+//                     address,
+//                     value,
+//                 ));
+//             }
+//         })
+//     };
+//
+//     let runner_process = GenesisDebugRunnerProcess { state_sender, debugger };
+//     let main_process = GenesisDebugMainProcess {
+//         debugger_handle,
+//         state_receiver,
+//         render_fn: render_fn(memory_edit_hook),
+//     };
+//
+//     (Box::new(runner_process), Box::new(main_process))
+// }
+//
+// struct SegaCdDebugRunnerProcess {
+//     state_sender: SharedVarSender<SegaCdDebugState>,
+//     debugger: SegaCdDebugger,
+// }
+//
+// impl<R, A, I, S> DebuggerRunnerProcess<SegaCdEmulator, R, A, I, S> for SegaCdDebugRunnerProcess
+// where
+//     R: Renderer,
+//     A: AudioOutput,
+//     I: InputPoller<GenesisInputs>,
+//     S: SaveWriter,
+// {
+//     fn run(
+//         &mut self,
+//         emulator: &mut SegaCdEmulator,
+//     ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+//         let mut debug_view = emulator.as_debug_view();
+//         self.debugger.process_commands(&mut debug_view);
+//         self.state_sender.update(debug_view.to_debug_state());
+//
+//         Ok(())
+//     }
+//
+//     fn run_emulator_till_next_frame(
+//         &mut self,
+//         emulator: &mut SegaCdEmulator,
+//         renderer: &mut R,
+//         audio_output: &mut A,
+//         input_poller: &mut I,
+//         save_writer: &mut S,
+//     ) -> RunTillNextResult<SegaCdEmulator, R::Err, A::Err, S::Err> {
+//         while emulator.debug_tick(
+//             renderer,
+//             audio_output,
+//             input_poller,
+//             save_writer,
+//             &mut self.debugger,
+//         )? != TickEffect::FrameRendered
+//         {}
+//
+//         Ok(())
+//     }
+// }
+//
+// struct SegaCdDebugMainProcess {
+//     debugger_handle: SegaCdDebuggerHandle,
+//     state_receiver: SharedVarReceiver<SegaCdDebugState>,
+//     render_fn: Box<GenesisDebugRenderFn>,
+// }
+//
+// impl DebuggerMainProcess for SegaCdDebugMainProcess {
+//     fn run(
+//         &mut self,
+//         ctx: DebugRenderContext<'_>,
+//     ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+//         let Some(state) = self.state_receiver.get() else { return Ok(()) };
+//         (self.render_fn)(ctx, &mut GenesisBasedDebugState::SegaCd(state, &self.debugger_handle));
+//
+//         Ok(())
+//     }
+// }
+//
+// #[must_use]
+// pub fn sega_cd_debug_fn<R, A, I, S>() -> DebuggerProcesses<SegaCdEmulator, R, A, I, S>
+// where
+//     R: Renderer,
+//     A: AudioOutput,
+//     I: InputPoller<GenesisInputs>,
+//     S: SaveWriter,
+// {
+//     let (state_sender, state_receiver) = jgenesis_common::sync::new_shared_var();
+//     let (debugger, debugger_handle) = SegaCdDebugger::new(state_sender.clone());
+//
+//     let memory_edit_hook = {
+//         let debugger_handle = debugger_handle.clone();
+//
+//         Box::new(move |memory_area, address, value| match memory_area {
+//             MemoryArea::Genesis(memory_area) => {
+//                 let _ = debugger_handle.send_command(SegaCdDebugCommand::EditGenesisMemory(
+//                     memory_area,
+//                     address,
+//                     value,
+//                 ));
+//             }
+//             MemoryArea::SegaCd(memory_area) => {
+//                 let _ = debugger_handle.send_command(SegaCdDebugCommand::EditSegaCdMemory(
+//                     memory_area,
+//                     address,
+//                     value,
+//                 ));
+//             }
+//             MemoryArea::Sega32X(_) => {}
+//         })
+//     };
+//
+//     let runner_process = SegaCdDebugRunnerProcess { state_sender, debugger };
+//     let main_process = SegaCdDebugMainProcess {
+//         debugger_handle,
+//         state_receiver,
+//         render_fn: render_fn(memory_edit_hook),
+//     };
+//
+//     (Box::new(runner_process), Box::new(main_process))
+// }
+//
+// struct Sega32XDebugRunnerProcess {
+//     state_sender: SharedVarSender<Sega32XDebugState>,
+//     debugger: Sega32XDebugger,
+// }
+//
+// impl<R, A, I, S> DebuggerRunnerProcess<Sega32XEmulator, R, A, I, S> for Sega32XDebugRunnerProcess
+// where
+//     R: Renderer,
+//     A: AudioOutput,
+//     I: InputPoller<GenesisInputs>,
+//     S: SaveWriter,
+// {
+//     fn run(
+//         &mut self,
+//         emulator: &mut Sega32XEmulator,
+//     ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+//         let mut debug_view = emulator.as_debug_view();
+//         self.debugger.process_commands(&mut debug_view);
+//         self.state_sender.update(debug_view.to_debug_state());
+//
+//         Ok(())
+//     }
+//
+//     fn run_emulator_till_next_frame(
+//         &mut self,
+//         emulator: &mut Sega32XEmulator,
+//         renderer: &mut R,
+//         audio_output: &mut A,
+//         input_poller: &mut I,
+//         save_writer: &mut S,
+//     ) -> RunTillNextResult<Sega32XEmulator, R::Err, A::Err, S::Err> {
+//         while emulator.debug_tick(
+//             renderer,
+//             audio_output,
+//             input_poller,
+//             save_writer,
+//             &mut self.debugger,
+//         )? != TickEffect::FrameRendered
+//         {}
+//
+//         Ok(())
+//     }
+// }
+//
+// struct Sega32XDebugMainProcess {
+//     debugger_handle: Sega32XDebuggerHandle,
+//     state_receiver: SharedVarReceiver<Sega32XDebugState>,
+//     render_fn: Box<GenesisDebugRenderFn>,
+// }
+//
+// impl DebuggerMainProcess for Sega32XDebugMainProcess {
+//     fn run(
+//         &mut self,
+//         ctx: DebugRenderContext<'_>,
+//     ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+//         let Some(state) = self.state_receiver.get() else { return Ok(()) };
+//         (self.render_fn)(ctx, &mut GenesisBasedDebugState::Sega32X(state, &self.debugger_handle));
+//
+//         Ok(())
+//     }
+// }
+//
+// #[must_use]
+// pub fn sega_32x_debug_fn<R, A, I, S>() -> DebuggerProcesses<Sega32XEmulator, R, A, I, S>
+// where
+//     R: Renderer,
+//     A: AudioOutput,
+//     I: InputPoller<GenesisInputs>,
+//     S: SaveWriter,
+// {
+//     let (state_sender, state_receiver) = jgenesis_common::sync::new_shared_var();
+//     let (debugger, debugger_handle) = Sega32XDebugger::new(state_sender.clone());
+//
+//     let memory_edit_hook = {
+//         let command_sender = debugger_handle.command_sender.clone();
+//
+//         Box::new(move |memory_area, address, value| match memory_area {
+//             MemoryArea::Genesis(memory_area) => {
+//                 let _ = command_sender.send(Sega32XDebugCommand::EditGenesisMemory(
+//                     memory_area,
+//                     address,
+//                     value,
+//                 ));
+//             }
+//             MemoryArea::Sega32X(memory_area) => {
+//                 let _ = command_sender.send(Sega32XDebugCommand::Edit32XMemory(
+//                     memory_area,
+//                     address,
+//                     value,
+//                 ));
+//             }
+//             MemoryArea::SegaCd(_) => {}
+//         })
+//     };
+//
+//     let runner_process = Sega32XDebugRunnerProcess { state_sender, debugger };
+//     let main_process = Sega32XDebugMainProcess {
+//         debugger_handle,
+//         state_receiver,
+//         render_fn: render_fn(memory_edit_hook),
+//     };
+//
+//     (Box::new(runner_process), Box::new(main_process))
+// }

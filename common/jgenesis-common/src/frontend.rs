@@ -1,7 +1,9 @@
 mod finitefloat;
 
-use bincode::{Decode, Encode};
 pub use finitefloat::{FiniteF32, FiniteF64};
+
+use crate::input::Player;
+use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 use std::borrow::Cow;
 use std::error::Error;
@@ -260,7 +262,12 @@ pub trait PartialClone {
     fn partial_clone(&self) -> Self;
 }
 
-use crate::input::Player;
+impl<T: PartialClone> PartialClone for Option<T> {
+    fn partial_clone(&self) -> Self {
+        self.as_ref().map(T::partial_clone)
+    }
+}
+
 pub use jgenesis_proc_macros::PartialClone;
 
 #[derive(

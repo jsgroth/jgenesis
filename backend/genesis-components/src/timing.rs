@@ -213,15 +213,18 @@ impl CycleCounters {
     }
 
     #[inline]
+    pub fn ym2612_sync_needed(&self) -> bool {
+        self.last_ym2612_drain_mclk + MAX_YM2612_LAG_MCLK <= self.z80_mclk_cycles
+    }
+
+    #[inline]
     pub fn maybe_sync_and_drain_ym2612(
         &mut self,
         vdp_tick_effect: VdpTickEffect,
         ym2612: &mut Ym2612,
         mut output: impl FnMut((f64, f64)),
     ) {
-        if vdp_tick_effect != VdpTickEffect::FrameComplete
-            && self.last_ym2612_drain_mclk + MAX_YM2612_LAG_MCLK > self.z80_mclk_cycles
-        {
+        if vdp_tick_effect != VdpTickEffect::FrameComplete && !self.ym2612_sync_needed() {
             return;
         }
 

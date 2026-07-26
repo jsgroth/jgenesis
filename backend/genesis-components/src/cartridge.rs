@@ -569,6 +569,11 @@ impl Cartridge {
         self.mapper.peek_word(address, &self.rom, &self.external).unwrap_or(0xFFFF)
     }
 
+    #[inline]
+    pub fn region(&self) -> GenesisRegion {
+        self.forced_region.unwrap_or(self.metadata.region)
+    }
+
     #[must_use]
     pub fn debug_rom_view(&mut self) -> &mut [u16] {
         self.rom.0.as_mut()

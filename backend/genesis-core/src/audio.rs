@@ -1,5 +1,6 @@
 //! Genesis audio resampling, filtering, and mixing code
 
+use crate::bus::GenesisAudioOutput;
 use bincode::{Decode, Encode};
 use dsp::sinc::{PerformanceSincResampler, QualitySincResampler};
 use genesis_components::audio::{GenesisAudioFilter, LowPassSettings};
@@ -105,5 +106,15 @@ impl GenesisAudioResampler {
     pub fn update_output_frequency(&mut self, output_frequency: u64) {
         self.ym2612_resampler.update_output_frequency(output_frequency as f64);
         self.psg_resampler.update_output_frequency(output_frequency as f64);
+    }
+}
+
+impl GenesisAudioOutput for GenesisAudioResampler {
+    fn collect_ym2612(&mut self, (sample_l, sample_r): (f64, f64)) {
+        self.ym2612_resampler.collect([sample_l, sample_r])
+    }
+
+    fn collect_psg(&mut self, sample: f64) {
+        self.psg_resampler.collect([sample]);
     }
 }

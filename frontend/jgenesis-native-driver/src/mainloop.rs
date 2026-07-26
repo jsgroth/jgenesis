@@ -18,7 +18,7 @@ pub use audio::AudioError;
 pub use create::SdlSubsystems;
 pub use gb::NativeGameBoyEmulator;
 pub use gba::NativeGbaEmulator;
-pub use genesis::{Native32XEmulator, NativeGenesisEmulator, NativeSegaCdEmulator};
+pub use genesis::NativeGenesisEmulator;
 pub use nes::NativeNesEmulator;
 pub use pce::NativePcEngineEmulator;
 pub use save::SaveWriteError;
