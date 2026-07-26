@@ -114,7 +114,7 @@ fn parse_bin_file_names(cue_contents: &str) -> impl Iterator<Item = &str> {
 pub fn from_recent_opens(recent_opens: &[RecentOpen]) -> Vec<RomMetadata> {
     recent_opens
         .iter()
-        .filter_map(|RecentOpen { console, path: path_str }| {
+        .filter_map(|RecentOpen { console, path: path_str, .. }| {
             let console = Console::from_str(console).ok()?;
             let path = Path::new(path_str);
             let file_name_no_ext =

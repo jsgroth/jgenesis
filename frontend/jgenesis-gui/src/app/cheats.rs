@@ -73,7 +73,9 @@ pub enum CheatConsole {
 impl CheatConsole {
     pub fn from_console(console: Console) -> Option<Self> {
         match console {
-            Console::Genesis | Console::SegaCd | Console::Sega32X => Some(Self::Genesis),
+            Console::Genesis | Console::SegaCd | Console::Sega32X | Console::SegaCd32X => {
+                Some(Self::Genesis)
+            }
             Console::MasterSystem | Console::GameGear | Console::Sg1000 => Some(Self::SmsGg),
             _ => None,
         }

@@ -40,6 +40,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use time::{OffsetDateTime, UtcOffset, format_description};
 
@@ -47,6 +48,7 @@ use crate::app::inputcollect::InputCollectionState;
 pub(crate) use cheats::ActiveCheats;
 pub(crate) use input::GenericButton;
 use jgenesis_native_driver::input::Joysticks;
+use segacd_core::CdRomFileFormat;
 
 const RESERVED_HELP_TEXT_HEIGHT: f32 = 150.0;
 
@@ -69,6 +71,7 @@ impl ListFiltersExt for ListFilters {
             self.genesis.then_some(Console::Genesis),
             self.sega_cd.then_some(Console::SegaCd),
             self.sega_32x.then_some(Console::Sega32X),
+            (self.sega_cd || self.sega_32x).then_some(Console::SegaCd32X),
             self.nes.then_some(Console::Nes),
             self.snes.then_some(Console::Snes),
             self.game_boy.then_some(Console::GameBoy),
@@ -207,6 +210,7 @@ struct HelpText {
 struct AppState {
     cheats: CheatWindowState,
     current_file_path: PathBuf,
+    current_secondary_file_paths: Vec<PathBuf>,
     open_windows: HashSet<OpenWindow>,
     help_text: HashMap<OpenWindow, HelpText>,
     input_mapping_sets: HashMap<OpenWindow, InputMappingSet>,
@@ -245,6 +249,7 @@ impl AppState {
         Self {
             cheats: CheatWindowState::new(),
             current_file_path: PathBuf::new(),
+            current_secondary_file_paths: vec![],
             open_windows: HashSet::new(),
             help_text: HashMap::new(),
             input_mapping_sets: HashMap::new(),
@@ -386,18 +391,43 @@ impl App {
         }
         let Some(path) = file_dialog.pick_file() else { return };
 
-        self.launch_emulator(path, console);
+        match console {
+            Some(console @ (Console::SegaCd | Console::SegaCd32X)) => {
+                let mut secondary_paths = vec![];
+                if CdRomFileFormat::from_file_path(&path).is_none() {
+                    let disc_path = Self::open_sega_cd_secondary_path_dialog();
+                    if let Some(disc_path) = disc_path {
+                        secondary_paths.push(disc_path);
+                    }
+                }
+
+                self.launch_emulator(path, secondary_paths, console)
+            }
+            Some(console) => self.launch_emulator(path, vec![], console),
+            None => self.launch_emulator_auto(path, None),
+        }
     }
 
-    fn open_most_recent_file(&mut self) {
-        let Some(recent_open) = self.state.recent_open_list.first() else { return };
+    fn open_recent_file(&mut self, index: usize) {
+        let Some(recent_open) = self.config.recent_open_list.get(index) else { return };
+        let Ok(console) = Console::from_str(&recent_open.console) else { return };
 
-        self.launch_emulator(recent_open.full_path.clone(), Some(recent_open.console));
+        self.launch_emulator(
+            recent_open.path.clone(),
+            recent_open.secondary_paths.clone(),
+            console,
+        );
     }
 
-    fn launch_emulator(&mut self, path: PathBuf, console: Option<Console>) {
-        self.state.current_file_path.clone_from(&path);
+    fn open_sega_cd_secondary_path_dialog() -> Option<PathBuf> {
+        // Sega CD is attached but the main file is not a CD-ROM image; prompt to load a disc
+        FileDialog::new()
+            .set_title("Sega CD Disc Image")
+            .add_filter("cue/chd", extensions::SEGA_CD)
+            .pick_file()
+    }
 
+    fn launch_emulator_auto(&mut self, path: PathBuf, console: Option<Console>) {
         let console = match console {
             Some(console) => console,
             None => {
@@ -410,14 +440,34 @@ impl App {
             }
         };
 
+        let mut secondary_paths = vec![];
+        if matches!(console, Console::SegaCd | Console::SegaCd32X)
+            && CdRomFileFormat::from_file_path(&path).is_none()
+            && let Some(secondary_path) = Self::open_sega_cd_secondary_path_dialog()
+        {
+            secondary_paths.push(secondary_path);
+        }
+
+        self.launch_emulator(path, secondary_paths, console);
+    }
+
+    fn launch_emulator(&mut self, path: PathBuf, secondary_paths: Vec<PathBuf>, console: Console) {
+        self.state.current_file_path.clone_from(&path);
+        self.state.current_secondary_file_paths.clone_from(&secondary_paths);
+
         // Update Open Recent contents
         let console_str = console.to_string();
         self.config
             .recent_open_list
             .retain(|open| open.path != path || open.console != console_str);
-        self.config
-            .recent_open_list
-            .insert(0, RecentOpen { console: console_str, path: path.clone() });
+        self.config.recent_open_list.insert(
+            0,
+            RecentOpen {
+                console: console_str,
+                path: path.clone(),
+                secondary_paths: secondary_paths.clone(),
+            },
+        );
         self.config.recent_open_list.truncate(10);
         self.state.recent_open_list = romlist::from_recent_opens(&self.config.recent_open_list);
 
@@ -429,7 +479,7 @@ impl App {
             console,
             config: Box::new(self.config.clone()),
             cheats: Arc::clone(self.active_cheats()),
-            input: EmulatorRunInput::OpenFile(path.clone()),
+            input: EmulatorRunInput::OpenFile { file_path: path, secondary_paths },
         });
     }
 
@@ -494,7 +544,7 @@ impl App {
 
         let open_most_recent_shortcut = KeyboardShortcut::new(Modifiers::NONE, Key::F5);
         if ui.input_mut(|input| input.consume_shortcut(&open_most_recent_shortcut)) {
-            self.open_most_recent_file();
+            self.open_recent_file(0);
         }
 
         let quit_shortcut = KeyboardShortcut::new(Modifiers::CTRL, Key::Q);
@@ -508,14 +558,16 @@ impl App {
                     ui.set_min_width(300.0);
                     ui.set_max_width(500.0);
 
-                    for recent_open in self.state.recent_open_list.clone() {
+                    for (i, recent_open) in
+                        self.state.recent_open_list.clone().into_iter().enumerate()
+                    {
                         let label = format!(
                             "{} [{}]",
                             recent_open.file_name_no_ext,
                             recent_open.console.display_str()
                         );
                         if ui.button(label).clicked() {
-                            self.launch_emulator(recent_open.full_path, Some(recent_open.console));
+                            self.open_recent_file(i);
                             ui.close_kind(UiKind::Menu);
                         }
 
@@ -534,7 +586,7 @@ impl App {
                 let open_most_recent_button = Button::new("Open Most Recent")
                     .shortcut_text(ui.format_shortcut(&open_most_recent_shortcut));
                 if ui.add(open_most_recent_button).clicked() {
-                    self.open_most_recent_file();
+                    self.open_recent_file(0);
                     ui.close_kind(UiKind::Menu);
                 }
             });
@@ -680,7 +732,7 @@ impl App {
 
                 ui.add_space(15.0);
 
-                ui.add_enabled_ui(emu_runner_status == EmuRunnerStatus::RunningSegaCd, |ui| {
+                ui.add_enabled_ui(emu_runner_status.is_running_disc_based(), |ui| {
                     ui.menu_button("Change Disc", |ui| {
                         if !self.state.disc_change_options.is_empty() {
                             for (name, path) in &self.state.disc_change_options {
@@ -989,7 +1041,10 @@ impl App {
                                             .ui(ui)
                                             .clicked()
                                         {
-                                            self.launch_emulator(metadata.full_path.clone(), None);
+                                            self.launch_emulator_auto(
+                                                metadata.full_path.clone(),
+                                                Some(metadata.console),
+                                            );
                                         }
                                     });
 
@@ -1177,7 +1232,11 @@ impl App {
 
             match render_effect {
                 RenderErrorEffect::LaunchEmulator(console) => {
-                    self.launch_emulator(self.state.current_file_path.clone(), Some(console));
+                    self.launch_emulator(
+                        self.state.current_file_path.clone(),
+                        self.state.current_secondary_file_paths.clone(),
+                        console,
+                    );
                 }
                 RenderErrorEffect::None => {}
             }
@@ -1229,7 +1288,6 @@ impl App {
         self.emu_runner.push_command(EmuRunnerCommand::ReloadConfig(
             Box::new(self.config.clone()),
             Arc::clone(self.active_cheats()),
-            self.state.current_file_path.clone(),
         ));
     }
 
@@ -1265,10 +1323,11 @@ impl App {
             self.refresh_filtered_rom_list();
         }
 
+        // TODO CD32X - multiple paths
         if self.state.rendered_first_frame
             && let Some(load_at_startup) = self.load_at_startup.take()
         {
-            self.launch_emulator(load_at_startup.file_path, None);
+            self.launch_emulator_auto(load_at_startup.file_path, None);
 
             if let Some(load_state_slot) = load_at_startup.load_state_slot {
                 self.emu_runner.push_command(EmuRunnerCommand::LoadState { slot: load_state_slot });

@@ -17,7 +17,7 @@ use jgenesis_native_config::input::mappings::{
     SmsGgInputConfig, SnesInputConfig,
 };
 use jgenesis_native_config::{AppConfig, EguiTheme};
-use jgenesis_proc_macros::ConfigDisplay;
+use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay};
 use jgenesis_renderer::config::{PreprocessShader, PrescaleMode, RendererConfig};
 use nes_core::api::NesEmulatorConfig;
 use pce_core::api::PceEmulatorConfig;
@@ -77,14 +77,35 @@ pub struct SmsGgConfig {
     pub gg_bios_path: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumDisplay)]
+pub enum GenesisHardware {
+    Standalone,
+    SegaCd,
+    Sega32X,
+    SegaCd32X,
+}
+
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct GenesisConfig {
     #[cfg_display(indent_nested)]
     pub common: CommonConfig,
+    // Disc path for Sega CD boot-from-cartridge (Mode 1)
+    // Cartridge path for boot-from-disc (Mode 2)
+    #[cfg_display(path)]
+    pub secondary_path: Option<PathBuf>,
     #[cfg_display(indent_nested)]
     pub inputs: GenesisInputConfig,
+    pub hardware: GenesisHardware,
     #[cfg_display(indent_nested)]
     pub emulator_config: GenesisEmulatorConfig,
+    #[cfg_display(path)]
+    pub scd_us_bios_path: Option<PathBuf>,
+    #[cfg_display(path)]
+    pub scd_eu_bios_path: Option<PathBuf>,
+    #[cfg_display(path)]
+    pub scd_jp_bios_path: Option<PathBuf>,
+    pub scd_per_region_bios: bool,
+    pub scd_run_without_disc: bool,
 }
 
 #[derive(Debug, Clone, ConfigDisplay)]
@@ -209,7 +230,13 @@ pub trait AppConfigExt {
     fn common_config(&self, path: PathBuf) -> CommonConfig;
 
     #[must_use]
-    fn genesis_config(&self, path: PathBuf, cheats: &GenesisCheats) -> Box<GenesisConfig>;
+    fn genesis_config(
+        &self,
+        path: PathBuf,
+        secondary_path: Option<PathBuf>,
+        hardware: Option<GenesisHardware>,
+        cheats: &GenesisCheats,
+    ) -> Box<GenesisConfig>;
 
     #[must_use]
     fn sega_cd_config(&self, path: PathBuf, cheats: &GenesisCheats) -> Box<SegaCdConfig>;
@@ -299,10 +326,18 @@ impl AppConfigExt for AppConfig {
         }
     }
 
-    fn genesis_config(&self, path: PathBuf, cheats: &GenesisCheats) -> Box<GenesisConfig> {
+    fn genesis_config(
+        &self,
+        path: PathBuf,
+        secondary_path: Option<PathBuf>,
+        hardware: Option<GenesisHardware>,
+        cheats: &GenesisCheats,
+    ) -> Box<GenesisConfig> {
         Box::new(GenesisConfig {
             common: self.common_config(path),
+            secondary_path,
             inputs: self.input.genesis.clone(),
+            hardware: hardware.unwrap_or(GenesisHardware::Standalone),
             emulator_config: GenesisEmulatorConfig {
                 forced_timing_mode: self.genesis.forced_timing_mode,
                 forced_region: self.genesis.forced_region,
@@ -338,11 +373,18 @@ impl AppConfigExt for AppConfig {
                 psg_volume_adjustment_db: self.genesis.psg_volume_adjustment_db,
                 cheat_codes: cheats.to_memory_override_vec(),
             },
+            scd_us_bios_path: self.sega_cd.bios_path.clone(),
+            scd_eu_bios_path: self.sega_cd.eu_bios_path.clone(),
+            scd_jp_bios_path: self.sega_cd.jp_bios_path.clone(),
+            scd_per_region_bios: self.sega_cd.per_region_bios,
+            scd_run_without_disc: false,
         })
     }
 
+    // TODO CD32X - remove
     fn sega_cd_config(&self, path: PathBuf, cheats: &GenesisCheats) -> Box<SegaCdConfig> {
-        let genesis_config = *self.genesis_config(path, cheats);
+        let genesis_config =
+            *self.genesis_config(path, None, Some(GenesisHardware::SegaCd), cheats);
         let genesis_emu_config = genesis_config.emulator_config.clone();
         Box::new(SegaCdConfig {
             genesis: genesis_config,
@@ -370,8 +412,10 @@ impl AppConfigExt for AppConfig {
         })
     }
 
+    // TODO CD32X - remove
     fn sega_32x_config(&self, path: PathBuf, cheats: &GenesisCheats) -> Box<Sega32XConfig> {
-        let genesis_config = *self.genesis_config(path, cheats);
+        let genesis_config =
+            *self.genesis_config(path, None, Some(GenesisHardware::Sega32X), cheats);
         let genesis_emu_config = genesis_config.emulator_config.clone();
         Box::new(Sega32XConfig {
             genesis: genesis_config,

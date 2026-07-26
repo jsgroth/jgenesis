@@ -13,12 +13,12 @@ use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::common::{ConfigSavePath, HideMouseCursor};
 use jgenesis_native_config::input::mappings::{NesControllerType, SnesControllerType};
 use jgenesis_native_config::paths::{ConfigDirs, ConfigWithPath};
-use jgenesis_native_driver::config::AppConfigExt;
+use jgenesis_native_driver::config::{AppConfigExt, GenesisHardware};
 use jgenesis_native_driver::extensions::{Console, ConsoleWithSize};
 use jgenesis_native_driver::{
-    Native32XEmulator, NativeEmulator, NativeGameBoyEmulator, NativeGbaEmulator,
-    NativeGenesisEmulator, NativeNesEmulator, NativePcEngineEmulator, NativeSegaCdEmulator,
-    NativeSmsGgEmulator, NativeSnesEmulator, NativeTickEffect, SdlSubsystems,
+    NativeEmulator, NativeGameBoyEmulator, NativeGbaEmulator, NativeGenesisEmulator,
+    NativeNesEmulator, NativePcEngineEmulator, NativeSmsGgEmulator, NativeSnesEmulator,
+    NativeTickEffect, SdlSubsystems,
 };
 use jgenesis_proc_macros::{CustomValueEnum, EnumAll, EnumDisplay};
 use jgenesis_renderer::config::{
@@ -42,6 +42,7 @@ enum Hardware {
     Genesis,
     SegaCd,
     Sega32X,
+    SegaCd32X,
     Nes,
     Snes,
     GameBoy,
@@ -76,6 +77,10 @@ struct Args {
     /// ROM file path
     #[arg(short = 'f', long)]
     file_path: PathBuf,
+
+    /// Secondary ROM file path, e.g. Sega CD disc image when the primary file is a cartridge ROM image
+    #[arg(long)]
+    secondary_file_path: Option<PathBuf>,
 
     /// Override default config file path (jgenesis-config.toml)
     #[arg(long = "config")]
@@ -965,9 +970,10 @@ fn main() -> anyhow::Result<()> {
         }
         Hardware::GameGear => run_smsgg(sdl, args, config_with_path, SmsGgHardware::GameGear),
         Hardware::Sg1000 => run_smsgg(sdl, args, config_with_path, SmsGgHardware::Sg1000),
-        Hardware::Genesis => run_genesis(sdl, args, config_with_path),
-        Hardware::SegaCd => run_sega_cd(sdl, args, config_with_path),
-        Hardware::Sega32X => run_32x(sdl, args, config_with_path),
+        Hardware::Genesis => run_genesis(sdl, args, config_with_path, GenesisHardware::Standalone),
+        Hardware::SegaCd => run_genesis(sdl, args, config_with_path, GenesisHardware::SegaCd),
+        Hardware::Sega32X => run_genesis(sdl, args, config_with_path, GenesisHardware::Sega32X),
+        Hardware::SegaCd32X => run_genesis(sdl, args, config_with_path, GenesisHardware::SegaCd32X),
         Hardware::Nes => run_nes(sdl, args, config_with_path.config),
         Hardware::Snes => run_snes(sdl, args, config_with_path.config),
         Hardware::GameBoy => run_gb(sdl, args, config_with_path.config),
@@ -996,6 +1002,7 @@ fn guess_hardware(args: &Args) -> Hardware {
         Console::Genesis => Hardware::Genesis,
         Console::SegaCd => Hardware::SegaCd,
         Console::Sega32X => Hardware::Sega32X,
+        Console::SegaCd32X => Hardware::SegaCd32X,
         Console::Nes => Hardware::Nes,
         Console::Snes => Hardware::Snes,
         Console::GameBoy | Console::GameBoyColor => Hardware::GameBoy,
@@ -1030,40 +1037,31 @@ fn run_genesis(
     sdl: SdlSubsystems,
     args: Args,
     ConfigWithPath { config, path }: ConfigWithPath,
+    hardware: GenesisHardware,
 ) -> anyhow::Result<()> {
-    let cheats = config
-        .try_load_cheats_if_enabled(&path, &args.file_path, Console::Genesis.standard_extension())
-        .unwrap_or_default();
-    let mut emulator =
-        NativeGenesisEmulator::create(sdl, config.genesis_config(args.file_path.clone(), &cheats))?;
-    run_emulator(&mut emulator, &args)
-}
+    let cheats_console = match hardware {
+        GenesisHardware::Standalone => Console::Genesis,
+        GenesisHardware::SegaCd => Console::SegaCd,
+        GenesisHardware::Sega32X => Console::Sega32X,
+        GenesisHardware::SegaCd32X => Console::SegaCd32X,
+    };
 
-fn run_sega_cd(
-    sdl: SdlSubsystems,
-    args: Args,
-    ConfigWithPath { config, path }: ConfigWithPath,
-) -> anyhow::Result<()> {
     let cheats = config
-        .try_load_cheats_if_enabled(&path, &args.file_path, Console::SegaCd.standard_extension())
+        .try_load_cheats_if_enabled(&path, &args.file_path, cheats_console.standard_extension())
         .unwrap_or_default();
-    let mut scd_config = config.sega_cd_config(args.file_path.clone(), &cheats);
-    scd_config.run_without_disc = args.scd_no_disc;
 
-    let mut emulator = NativeSegaCdEmulator::create(sdl, scd_config)?;
-    run_emulator(&mut emulator, &args)
-}
+    let secondary_file_path = match hardware {
+        GenesisHardware::SegaCd | GenesisHardware::SegaCd32X => args.secondary_file_path.clone(),
+        GenesisHardware::Standalone | GenesisHardware::Sega32X => None,
+    };
 
-fn run_32x(
-    sdl: SdlSubsystems,
-    args: Args,
-    ConfigWithPath { config, path }: ConfigWithPath,
-) -> anyhow::Result<()> {
-    let cheats = config
-        .try_load_cheats_if_enabled(&path, &args.file_path, Console::Sega32X.standard_extension())
-        .unwrap_or_default();
-    let mut emulator =
-        Native32XEmulator::create(sdl, config.sega_32x_config(args.file_path.clone(), &cheats))?;
+    let mut genesis_config =
+        config.genesis_config(args.file_path.clone(), secondary_file_path, Some(hardware), &cheats);
+    genesis_config.scd_run_without_disc =
+        matches!(hardware, GenesisHardware::SegaCd | GenesisHardware::SegaCd32X)
+            && args.scd_no_disc;
+
+    let mut emulator = NativeGenesisEmulator::create(sdl, genesis_config)?;
     run_emulator(&mut emulator, &args)
 }
 

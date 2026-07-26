@@ -5,7 +5,6 @@ use crate::app::widgets::{
     RenderErrorEffect,
 };
 use crate::app::{App, Console, OpenWindow, widgets};
-use crate::emurunner::EmuRunnerStatus;
 use egui::style::ScrollStyle;
 use egui::{Color32, Context, Slider, Ui, Window};
 use genesis_config::{GenesisAspectRatio, GenesisRegion, Opn2BusyBehavior, S32XPwmResampling};
@@ -105,9 +104,7 @@ impl App {
         let mut open = true;
         Window::new(WINDOW.title()).open(&mut open).resizable(true).show(ctx, |ui| {
             let emu_runner_status = self.emu_runner.status();
-            let running_genesis = emu_runner_status == EmuRunnerStatus::RunningGenesis
-                || emu_runner_status == EmuRunnerStatus::RunningSegaCd
-                || emu_runner_status == EmuRunnerStatus::Running32X;
+            let running_genesis = emu_runner_status.is_running_genesis();
 
             let rect = ui
                 .group(|ui| {

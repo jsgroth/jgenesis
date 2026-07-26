@@ -1,10 +1,12 @@
 use crate::archive;
 use crate::archive::{ArchiveEntry, ArchiveError};
+use cdrom::cdtime::CdTime;
+use cdrom::reader::{CdRom, CdRomFileFormat};
 use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs::File;
-use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::io::{BufReader, Read};
 use std::path::Path;
 use std::sync::LazyLock;
 use std::{fs, io};
@@ -31,6 +33,15 @@ pub static SMSGG: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
         .collect()
 });
 
+pub static GENESIS_32X: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
+    [GENESIS, SEGA_32X]
+        .into_iter()
+        .flat_map(|system| system.iter().copied())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect()
+});
+
 pub static GB_GBC: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
     [GAME_BOY, GAME_BOY_COLOR].into_iter().flat_map(|system| system.iter().copied()).collect()
 });
@@ -51,6 +62,8 @@ pub static ALL_CARTRIDGE_BASED: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
     ]
     .into_iter()
     .flat_map(|system| system.iter().copied())
+    .collect::<HashSet<_>>()
+    .into_iter()
     .collect()
 });
 
@@ -111,9 +124,7 @@ fn build_extension_lookup() -> HashMap<&'static str, Console> {
         (SG_1000, Console::Sg1000),
         (MASTER_SYSTEM, Console::MasterSystem),
         (GAME_GEAR, Console::GameGear),
-        (GENESIS, Console::Genesis),
         (SEGA_CD, Console::SegaCd),
-        (SEGA_32X, Console::Sega32X),
         (NES, Console::Nes),
         (SNES, Console::Snes),
         (GAME_BOY, Console::GameBoy),
@@ -145,6 +156,7 @@ pub enum Console {
     Genesis,
     SegaCd,
     Sega32X,
+    SegaCd32X,
     Nes,
     Snes,
     GameBoy,
@@ -158,16 +170,22 @@ impl Console {
     pub fn from_file(file_path: &Path) -> Option<ConsoleWithSize> {
         let extension = from_path(file_path)?;
         if let Some(&console) = EXTENSION_LOOKUP.get(&extension.as_str()) {
+            let console = match console {
+                Console::SegaCd if is_disc_sega_cd_32x(file_path) => Console::SegaCd32X,
+                _ => console,
+            };
+
+            let file_size = fs::metadata(file_path).ok()?.len();
+            return Some(ConsoleWithSize { console, file_size });
+        }
+
+        if GENESIS_32X.contains(&extension.as_str()) {
+            let console = guess_genesis_console_raw_file(file_path).ok()?;
             let file_size = fs::metadata(file_path).ok()?.len();
             return Some(ConsoleWithSize { console, file_size });
         }
 
         match extension.as_str() {
-            "bin" => {
-                let console = guess_bin_console_raw_file(file_path).ok()?;
-                let file_size = fs::metadata(file_path).ok()?.len();
-                Some(ConsoleWithSize { console, file_size })
-            }
             "zip" => Self::from_zip(file_path),
             "7z" => Self::from_7z(file_path),
             _ => None,
@@ -203,9 +221,9 @@ impl Console {
             return Some(ConsoleWithSize { console, file_size: first_supported_file.size });
         }
 
-        if first_supported_file.extension.as_str() == "bin" {
+        if GENESIS_32X.contains(&first_supported_file.extension.as_str()) {
             let contents = read_file_fn(&first_supported_file.file_name).ok()?;
-            let console = guess_bin_console_archive(&contents);
+            let console = guess_genesis_console(&contents);
             return Some(ConsoleWithSize { console, file_size: first_supported_file.size });
         }
 
@@ -222,6 +240,7 @@ impl Console {
             Self::Genesis => "Genesis",
             Self::SegaCd => "Sega CD",
             Self::Sega32X => "32X",
+            Self::SegaCd32X => "Sega CD 32X",
             Self::Nes => "NES",
             Self::Snes => "SNES",
             Self::GameBoy => "Game Boy",
@@ -239,6 +258,7 @@ impl Console {
             Self::Genesis => GENESIS,
             Self::SegaCd => SEGA_CD,
             Self::Sega32X => SEGA_32X,
+            Self::SegaCd32X => todo!("supported extensions"),
             Self::Nes => NES,
             Self::Snes => SNES,
             Self::GameBoy | Self::GameBoyColor => &GB_GBC,
@@ -257,6 +277,7 @@ impl Console {
             Console::Genesis => "md",
             Console::SegaCd => "scd", // Intentionally not CUE or CHD, too ambiguous
             Console::Sega32X => "32x",
+            Console::SegaCd32X => "scd32x",
             Console::Nes => "nes",
             Console::Snes => "sfc",
             Console::GameBoy => "gb",
@@ -267,29 +288,54 @@ impl Console {
     }
 }
 
-fn guess_bin_console_raw_file(path: &Path) -> io::Result<Console> {
-    const SECURITY_PROGRAM_CARTRIDGE_ADDR: u64 = s32x_core::SECURITY_PROGRAM_CARTRIDGE_ADDR as u64;
-    const SECURITY_PROGRAM_LEN: usize = s32x_core::SECURITY_PROGRAM_LEN;
-
+// Assuming this is a path to a Genesis or 32X image, determine what hardware is supported/required
+fn guess_genesis_console_raw_file(path: &Path) -> io::Result<Console> {
     let file = File::open(path)?;
-    if file.metadata()?.len() < SECURITY_PROGRAM_CARTRIDGE_ADDR + SECURITY_PROGRAM_LEN as u64 {
+    let file_len = file.metadata()?.len();
+
+    if file_len
+        < (s32x_core::SECURITY_PROGRAM_CARTRIDGE_ADDR + s32x_core::SECURITY_PROGRAM_LEN) as u64
+    {
         return Ok(Console::Genesis);
     }
 
     let mut reader = BufReader::new(file);
-    reader.seek(SeekFrom::Start(SECURITY_PROGRAM_CARTRIDGE_ADDR))?;
-
-    let mut buffer = [0; SECURITY_PROGRAM_LEN];
+    let mut buffer =
+        vec![0; s32x_core::SECURITY_PROGRAM_CARTRIDGE_ADDR + s32x_core::SECURITY_PROGRAM_LEN];
     reader.read_exact(&mut buffer)?;
 
-    Ok(if buffer == s32x_core::security_program() { Console::Sega32X } else { Console::Genesis })
+    Ok(guess_genesis_console(&buffer))
 }
 
-fn guess_bin_console_archive(file: &[u8]) -> Console {
+fn guess_genesis_console(header: &[u8]) -> Console {
     let start = s32x_core::SECURITY_PROGRAM_CARTRIDGE_ADDR;
     let end = start + s32x_core::SECURITY_PROGRAM_LEN;
-
     let contains_s32x_security_program =
-        file.len() >= end && &file[start..end] == s32x_core::security_program();
-    if contains_s32x_security_program { Console::Sega32X } else { Console::Genesis }
+        header.len() >= end && &header[start..end] == s32x_core::security_program();
+
+    // 'C' in the devices section indicates Sega CD support: https://plutiedev.com/rom-header#devices
+    let supports_sega_cd = header.len() >= 0x1A0 && header[0x190..0x1A0].contains(&b'C');
+
+    if supports_sega_cd && contains_s32x_security_program {
+        Console::SegaCd32X
+    } else if contains_s32x_security_program {
+        Console::Sega32X
+    } else if supports_sega_cd {
+        Console::SegaCd
+    } else {
+        Console::Genesis
+    }
+}
+
+// Assuming this is a path to a Sega CD disc image, check whether the game supports/requires 32X
+fn is_disc_sega_cd_32x(path: &Path) -> bool {
+    let Some(disc_format) = CdRomFileFormat::from_file_path(path) else { return false };
+    let Ok(mut disc) = CdRom::open(path, disc_format) else { return false };
+
+    let mut sector_buffer = vec![0; cdrom::BYTES_PER_SECTOR as usize];
+    if disc.read_sector(1, CdTime::SECTOR_0_START, &mut sector_buffer).is_err() {
+        return false;
+    }
+
+    &sector_buffer[0x110..0x118] == b"SEGA 32X"
 }
