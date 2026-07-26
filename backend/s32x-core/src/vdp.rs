@@ -91,6 +91,7 @@ struct State {
     scanlines_in_current_frame: u16,
     h_interrupt_this_line: bool,
     h_interrupt_counter: u16,
+    h_interrupt_interval_written: bool,
     vblank_flag: bool,
     display_frame_buffer: SelectedFrameBuffer,
     auto_fill_mclk_remaining: u64,
@@ -109,6 +110,7 @@ impl State {
             scanlines_in_current_frame: u16::MAX,
             h_interrupt_this_line: true,
             h_interrupt_counter: 0,
+            h_interrupt_interval_written: false,
             vblank_flag: false,
             display_frame_buffer: SelectedFrameBuffer::default(),
             auto_fill_mclk_remaining: 0,
@@ -219,14 +221,11 @@ impl Vdp {
             self.latch_registers();
         }
 
-        if self.state.h_interrupt_this_line || self.registers.h_interrupt_in_vblank {
-            if prev_scanline_mclk < HBLANK_START_MCLK_CYCLES
-                && self.state.scanline_mclk >= HBLANK_START_MCLK_CYCLES
-            {
-                self.handle_hblank_start(registers);
-            }
-        } else {
-            self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
+        if (self.state.h_interrupt_this_line || self.registers.h_interrupt_in_vblank)
+            && prev_scanline_mclk < HBLANK_START_MCLK_CYCLES
+            && self.state.scanline_mclk >= HBLANK_START_MCLK_CYCLES
+        {
+            self.handle_hblank_start(registers);
         }
 
         if prev_scanline_mclk < VBLANK_START_MCLK_CYCLES
@@ -264,19 +263,15 @@ impl Vdp {
                 self.state.h_interrupt_this_line = true;
             }
 
-            if self.state.scanline < self.latched.active_scanlines_per_frame
-                && self.state.scanline_mclk >= RENDER_LINE_MCLK_CYCLES
-            {
-                self.render_line();
+            if self.state.scanline_mclk >= RENDER_LINE_MCLK_CYCLES {
+                self.handle_hblank_end();
                 self.state.cycles_till_next_render =
                     MCLK_CYCLES_PER_SCANLINE + RENDER_LINE_MCLK_CYCLES - self.state.scanline_mclk;
             }
         } else if prev_scanline_mclk < RENDER_LINE_MCLK_CYCLES
             && self.state.scanline_mclk >= RENDER_LINE_MCLK_CYCLES
         {
-            if self.state.scanline < self.latched.active_scanlines_per_frame {
-                self.render_line();
-            }
+            self.handle_hblank_end();
             self.state.cycles_till_next_render =
                 MCLK_CYCLES_PER_SCANLINE + RENDER_LINE_MCLK_CYCLES - self.state.scanline_mclk;
         }
@@ -300,6 +295,24 @@ impl Vdp {
             registers.notify_h_interrupt();
         } else {
             self.state.h_interrupt_counter -= 1;
+        }
+    }
+
+    fn handle_hblank_end(&mut self) {
+        let active_scanlines_per_frame = self.latched.active_scanlines_per_frame;
+
+        if self.state.h_interrupt_interval_written {
+            // HINT interval changes are only latched after HBlanks that could have triggered HINTs
+            if self.registers.h_interrupt_in_vblank
+                || self.state.scanline <= active_scanlines_per_frame
+            {
+                self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
+                self.state.h_interrupt_interval_written = false;
+            }
+        }
+
+        if self.state.scanline < active_scanlines_per_frame {
+            self.render_line();
         }
     }
 
@@ -662,6 +675,7 @@ impl Vdp {
     // SH-2: $4004
     pub fn write_h_interrupt_interval(&mut self, value: u16) {
         self.registers.h_interrupt_interval = value & 0xFF;
+        self.state.h_interrupt_interval_written = true;
         log::trace!("H interrupt interval write: {value:04X}");
     }
 
