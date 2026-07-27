@@ -45,10 +45,10 @@ use std::sync::{Arc, Mutex};
 use time::{OffsetDateTime, UtcOffset, format_description};
 
 use crate::app::inputcollect::InputCollectionState;
+use cdrom::reader::CdRomFileFormat;
 pub(crate) use cheats::ActiveCheats;
 pub(crate) use input::GenericButton;
 use jgenesis_native_driver::input::Joysticks;
-use segacd_core::CdRomFileFormat;
 
 const RESERVED_HELP_TEXT_HEIGHT: f32 = 150.0;
 

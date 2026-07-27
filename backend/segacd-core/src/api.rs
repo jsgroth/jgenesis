@@ -1,36 +1,19 @@
 //! Sega CD public interface and main loop
 
-pub mod debug;
-
-use crate::api::debug::SegaCdDebugger;
-use crate::audio::AudioResampler;
-use crate::graphics::GraphicsCoprocessor;
+use crate::bus::SegaCdBus;
 use crate::memory;
-use crate::memory::debug::DebugSubBus;
-use crate::memory::{SegaCd, SubBus};
-use crate::rf5c164::Rf5c164;
 use bincode::{Decode, Encode};
 use cdrom::CdRomError;
-use cdrom::reader::{CdRom, CdRomFileFormat};
-use genesis_components::GenesisEmulatorConfigExt;
-use genesis_components::input::InputState;
-use genesis_components::memory::debug::DebugMainBus;
-use genesis_components::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
-use genesis_components::timing::CycleCounters;
-use genesis_components::vdp::{DarkenColors, Vdp, VdpTickEffect};
-use genesis_components::ym2612::Ym2612;
-use genesis_config::GenesisInputs;
-use genesis_config::{GenesisButton, GenesisRegion, SegaCdEmulatorConfig};
-use jgenesis_common::frontend::{
-    AudioOutput, EmulatorTrait, InputPoller, PartialClone, Renderer, SaveWriter, TickEffect,
-    TickResult, TimingMode,
-};
+use cdrom::cdtime::CdTime;
+use cdrom::reader::CdRom;
+use genesis_components::cartridge::GenesisRegionExt;
+use genesis_config::GenesisEmulatorConfig;
+use genesis_config::GenesisRegion;
+use jgenesis_common::frontend::{EmulatorTrait, PartialClone, TimingMode};
+use jgenesis_common::num::U16Ext;
 use m68000_emu::M68000;
-use std::fmt::{Debug, Display};
-use std::path::Path;
+use std::fmt::Debug;
 use thiserror::Error;
-use ti_sn76489::{Sn76489, Sn76489TickEffect, Sn76489Version};
-use z80_emu::Z80;
 
 pub const DEFAULT_SUB_CPU_DIVIDER: u64 = genesis_config::NATIVE_SUB_CPU_DIVIDER;
 
@@ -52,337 +35,68 @@ pub enum SegaCdLoadError {
 
 pub type SegaCdLoadResult<T> = Result<T, SegaCdLoadError>;
 
-#[derive(Debug, Error)]
-pub enum SegaCdError<RErr, AErr, SErr> {
-    #[error("Disc-related error: {0}")]
-    Disc(#[from] SegaCdLoadError),
-    #[error("Rendering error: {0}")]
-    Render(RErr),
-    #[error("Audio output error: {0}")]
-    Audio(AErr),
-    #[error("Save write error: {0}")]
-    SaveWrite(SErr),
+pub trait SegaCdAudioOutput {
+    fn collect_pcm(&mut self, sample: (f64, f64));
+
+    fn collect_cd(&mut self, sample: (f64, f64));
 }
 
-pub type SegaCdResult<T, RErr, AErr, SErr> = Result<T, SegaCdError<RErr, AErr, SErr>>;
-
 #[derive(Debug, Encode, Decode, PartialClone)]
-pub struct SegaCdEmulator {
-    #[partial_clone(partial)]
-    memory: Memory<SegaCd>,
-    main_cpu: M68000,
+pub struct SegaCd {
     sub_cpu: M68000,
-    z80: Z80,
-    vdp: Vdp,
-    graphics_coprocessor: GraphicsCoprocessor,
-    ym2612: Ym2612,
-    psg: Sn76489,
-    pcm: Rf5c164,
-    input: InputState,
-    audio_resampler: AudioResampler,
+    #[partial_clone(partial)]
+    bus: SegaCdBus,
+    disc_title: Option<String>,
+    six_button_incompatible_game: bool,
     timing_mode: TimingMode,
-    main_bus_writes: MainBusWrites,
-    disc_title: String,
-    cycles: CycleCounters,
     sega_cd_mclk_cycles: u64,
     sega_cd_mclk_cycle_product: u64,
     sub_cpu_divider: u64,
     sub_cpu_wait_cycles: u64,
-    sub_cpu_pending_intack: Option<u8>,
-    config: SegaCdEmulatorConfig,
+    config: GenesisEmulatorConfig,
 }
 
-// This is a macro instead of a function so that it only mutably borrows the needed fields
-macro_rules! new_main_bus {
-    ($self:expr, m68k_reset: $m68k_reset:expr) => {
-        MainBus::new(
-            &mut $self.memory,
-            &mut $self.vdp,
-            &mut $self.psg,
-            &mut $self.ym2612,
-            &mut $self.input,
-            &mut $self.cycles,
-            $self.main_cpu.next_opcode(),
-            $self.timing_mode,
-            MainBusSignals { m68k_reset: $m68k_reset },
-            std::mem::take(&mut $self.main_bus_writes),
-        )
-    };
-}
-
-impl SegaCdEmulator {
-    /// Create a Sega CD emulator that reads a CD-ROM image from disk.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error in any of the following conditions:
-    /// * The BIOS is invalid
-    /// * Unable to read the given CUE or CHD file
-    /// * Unable to read every BIN file that is referenced in the CUE file
-    /// * Unable to read boot information from the beginning of the CD-ROM data track
-    #[allow(clippy::if_then_some_else_none)]
-    pub fn create<P: AsRef<Path>, S: SaveWriter>(
-        bios: Vec<u8>,
-        rom_path: P,
-        format: CdRomFileFormat,
-        run_without_disc: bool,
-        emulator_config: SegaCdEmulatorConfig,
-        save_writer: &mut S,
-    ) -> SegaCdLoadResult<Self> {
-        let disc = if !run_without_disc {
-            Some(if emulator_config.load_disc_into_ram {
-                CdRom::open_in_memory(rom_path, format)?
-            } else {
-                CdRom::open(rom_path, format)?
-            })
-        } else {
-            None
-        };
-
-        Self::create_from_disc(bios, disc, emulator_config, save_writer)
-    }
-
-    /// Create a Sega CD emulator that reads a CD-ROM image from an in-memory CHD image.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the BIOS is invalid, the CHD image is invalid, or the emulator is unable
-    /// to read boot information from the beginning of the CD-ROM data track.
-    pub fn create_in_memory<S: SaveWriter>(
-        bios: Vec<u8>,
-        chd_bytes: Vec<u8>,
-        emulator_config: SegaCdEmulatorConfig,
-        save_writer: &mut S,
-    ) -> SegaCdLoadResult<Self> {
-        let disc = CdRom::open_chd_in_memory(chd_bytes)?;
-
-        Self::create_from_disc(bios, Some(disc), emulator_config, save_writer)
-    }
-
-    fn create_from_disc<S: SaveWriter>(
+impl SegaCd {
+    pub fn new(
         bios: Vec<u8>,
         disc: Option<CdRom>,
-        emulator_config: SegaCdEmulatorConfig,
-        save_writer: &mut S,
+        timing_mode: TimingMode,
+        initial_backup_ram: Option<Vec<u8>>,
+        initial_ram_cartridge: Option<Vec<u8>>,
+        config: &GenesisEmulatorConfig,
     ) -> SegaCdLoadResult<Self> {
-        if bios.len() != BIOS_LEN {
+        if bios.len() != memory::BIOS_LEN {
             return Err(SegaCdLoadError::InvalidBios { bios_len: bios.len() });
         }
 
-        let initial_backup_ram = save_writer.load_bytes("sav").ok();
-        let initial_ram_cartridge = save_writer.load_bytes("ramc").ok();
-        let mut sega_cd =
-            SegaCd::new(bios, disc, initial_backup_ram, initial_ram_cartridge, &emulator_config)?;
-        let disc_title = sega_cd.disc_title()?.unwrap_or("(no disc)".into());
-        let six_button_incompatible_game = sega_cd.has_six_button_incompatible_game()?;
+        let mut bus =
+            SegaCdBus::new(bios, disc, initial_backup_ram, initial_ram_cartridge, config)?;
 
-        let memory = Memory::new(sega_cd, &emulator_config.genesis);
-        let timing_mode =
-            emulator_config.genesis.forced_timing_mode.unwrap_or_else(|| {
-                match memory.hardware_region() {
-                    GenesisRegion::Americas | GenesisRegion::Japan => TimingMode::Ntsc,
-                    GenesisRegion::Europe => TimingMode::Pal,
-                }
-            });
+        let disc_title = bus.disc_title()?;
+        let six_button_incompatible_game = bus.has_six_button_incompatible_game()?;
 
-        log::info!("Running with timing/display mode: {timing_mode}");
+        let sub_cpu = M68000::builder().allow_tas_writes(true).name("Sub".into()).build();
+        let sub_cpu_divider = config.sega_cd.sub_cpu_divider.get();
 
-        let main_cpu = M68000::builder().allow_tas_writes(false).name("Main".into()).build();
-        let sub_cpu = M68000::builder().name("Sub".into()).build();
-        let z80 = Z80::new();
-        let vdp = Vdp::new(timing_mode, emulator_config.genesis.to_vdp_config(DarkenColors::No));
-        let graphics_coprocessor = GraphicsCoprocessor::new();
-        let ym2612 = Ym2612::new(&emulator_config.genesis);
-        let psg = Sn76489::new(Sn76489Version::Standard);
-        let pcm = Rf5c164::new(&emulator_config);
-
-        let input = InputState::new(&emulator_config.genesis, six_button_incompatible_game);
-
-        let audio_resampler = AudioResampler::new(timing_mode, &emulator_config);
-        let mut emulator = Self {
-            memory,
-            main_cpu,
+        Ok(Self {
             sub_cpu,
-            z80,
-            vdp,
-            graphics_coprocessor,
-            ym2612,
-            psg,
-            pcm,
-            input,
-            audio_resampler,
+            bus,
             timing_mode,
-            main_bus_writes: MainBusWrites::new(),
             disc_title,
-            cycles: CycleCounters::new(emulator_config.genesis.clamped_m68k_divider()),
+            six_button_incompatible_game,
             sega_cd_mclk_cycles: 0,
             sega_cd_mclk_cycle_product: 0,
-            sub_cpu_divider: emulator_config.sub_cpu_divider.get(),
+            sub_cpu_divider,
             sub_cpu_wait_cycles: 0,
-            sub_cpu_pending_intack: None,
-            config: emulator_config,
-        };
-
-        // Reset main CPU so that execution starts from the right place
-        emulator.main_cpu.execute_instruction(&mut new_main_bus!(emulator, m68k_reset: true));
-
-        Ok(emulator)
+            config: config.clone(),
+        })
     }
 
-    #[inline]
-    fn tick_sub_cpu<const DEBUG: bool>(
+    pub fn tick(
         &mut self,
-        mut sub_cpu_cycles: u64,
-        mut debugger: Option<&mut SegaCdDebugger>,
-    ) {
-        if self.memory.medium().word_ram().sub_performed_blocked_access() {
-            // If the sub CPU accesses word RAM while it's in 2M mode and owned by the main CPU, it
-            // should halt until the main CPU writes DMNA=1 to transfer ownership to the sub CPU.
-            // Marko's Magic Football depends on this or it will have glitched map graphics
-            log::trace!("Not running sub CPU because word RAM writes are buffered");
-            return;
-        }
-
-        let mut bus = SubBus::new(
-            &mut self.memory,
-            &mut self.graphics_coprocessor,
-            &mut self.pcm,
-            &self.main_bus_writes,
-        );
-
-        while sub_cpu_cycles >= self.sub_cpu_wait_cycles {
-            bus.flush_buffered_writes();
-
-            let wait_cycles = self.sub_cpu_wait_cycles;
-
-            self.sub_cpu_wait_cycles = if DEBUG && let Some(debugger) = &mut debugger {
-                let mut debug_bus = DebugSubBus {
-                    bus: &mut bus,
-                    debugger: debugger.for_sub_cpu(
-                        &mut self.main_cpu,
-                        &mut self.z80,
-                        &mut self.vdp,
-                        &mut self.ym2612,
-                        &mut self.psg,
-                    ),
-                };
-                self.sub_cpu.execute_instruction(&mut debug_bus).into()
-            } else {
-                self.sub_cpu.execute_instruction(&mut bus).into()
-            };
-
-            sub_cpu_cycles -= wait_cycles;
-
-            if bus.memory.medium().word_ram().sub_performed_blocked_access() {
-                return;
-            }
-        }
-
-        self.sub_cpu_wait_cycles -= sub_cpu_cycles;
-    }
-
-    fn render_frame<R: Renderer>(&self, renderer: &mut R) -> Result<(), R::Err> {
-        genesis_components::render_frame(
-            self.timing_mode,
-            &self.vdp,
-            &self.config.genesis,
-            renderer,
-        )
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn disc_title(&self) -> &str {
-        &self.disc_title
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn timing_mode(&self) -> TimingMode {
-        self.timing_mode
-    }
-
-    pub fn remove_disc(&mut self) {
-        self.memory.medium_mut().remove_disc();
-        self.disc_title = "(no disc)".into();
-    }
-
-    /// # Errors
-    ///
-    /// This method will return an error if the disc drive is unable to load the disc.
-    pub fn change_disc<P: AsRef<Path>>(
-        &mut self,
-        rom_path: P,
-        format: CdRomFileFormat,
+        genesis_mclk_elapsed: u64,
+        audio_output: &mut impl SegaCdAudioOutput,
     ) -> SegaCdLoadResult<()> {
-        let sega_cd = self.memory.medium_mut();
-        sega_cd.change_disc(rom_path, format, self.config.load_disc_into_ram)?;
-        self.disc_title = sega_cd.disc_title()?.unwrap_or_else(|| "(no disc)".into());
-
-        Ok(())
-    }
-
-    fn tick_inner<const DEBUG: bool, R, A, I, S>(
-        &mut self,
-        renderer: &mut R,
-        audio_output: &mut A,
-        input_poller: &mut I,
-        save_writer: &mut S,
-        mut debugger: Option<&mut SegaCdDebugger>,
-    ) -> TickResult<SegaCdError<R::Err, A::Err, S::Err>>
-    where
-        R: Renderer,
-        A: AudioOutput,
-        I: InputPoller<GenesisInputs>,
-        S: SaveWriter,
-    {
-        self.input.set_inputs(*input_poller.poll());
-
-        let mut main_bus = new_main_bus!(self, m68k_reset: false);
-
-        // Main 68000
-        let m68k_pc = self.main_cpu.pc();
-        let m68k_wait = main_bus.cycles.m68k_wait_cpu_cycles != 0;
-        let main_cpu_cycles = if m68k_wait {
-            main_bus.cycles.take_m68k_wait_cpu_cycles()
-        } else if DEBUG && let Some(debugger) = &mut debugger {
-            let mut debug_bus = DebugMainBus {
-                bus: &mut main_bus,
-                debugger: debugger.for_main_cpu(&mut self.sub_cpu, &mut self.z80, &mut self.pcm),
-            };
-            self.main_cpu.execute_instruction(&mut debug_bus)
-        } else {
-            self.main_cpu.execute_instruction(&mut main_bus)
-        };
-        let genesis_mclk_elapsed = main_bus.cycles.record_68k_instruction(
-            m68k_pc,
-            main_cpu_cycles,
-            m68k_wait,
-            main_bus.vdp.should_halt_cpu(),
-        );
-
-        // Z80
-        while main_bus.cycles.should_tick_z80() {
-            if !main_bus.cycles.z80_halt {
-                if DEBUG && let Some(debugger) = &mut debugger {
-                    let mut debug_bus = DebugMainBus {
-                        bus: &mut main_bus,
-                        debugger: debugger.for_z80(
-                            &mut self.main_cpu,
-                            &mut self.sub_cpu,
-                            &mut self.pcm,
-                        ),
-                    };
-                    self.z80.tick(&mut debug_bus);
-                } else {
-                    self.z80.tick(&mut main_bus);
-                }
-            }
-            main_bus.cycles.z80_cycle();
-        }
-
-        self.main_bus_writes = main_bus.take_writes();
-
         self.sega_cd_mclk_cycle_product += genesis_mclk_elapsed * SEGA_CD_MASTER_CLOCK_RATE;
         let scd_mclk_elapsed = match self.timing_mode {
             TimingMode::Ntsc => {
@@ -418,179 +132,187 @@ impl SegaCdEmulator {
             }
         };
 
-        // Disc drive and timer/stopwatch
-        let sega_cd = self.memory.medium_mut();
-        sega_cd.tick(elapsed_scd_mclk_cycles, &mut self.pcm, |sample_l, sample_r| {
-            self.audio_resampler.collect_cd_sample(sample_l, sample_r);
-        })?;
+        self.bus.tick_components(scd_mclk_elapsed, pcm_cycles, audio_output)?;
 
-        // Graphics ASIC
-        if !sega_cd.word_ram().is_sub_access_blocked() {
-            let graphics_interrupt_enabled = sega_cd.graphics_interrupt_enabled();
-            self.graphics_coprocessor.tick(
-                elapsed_scd_mclk_cycles,
-                sega_cd.word_ram_mut(),
-                graphics_interrupt_enabled,
-            );
+        self.tick_sub_cpu(sub_cpu_cycles);
+
+        Ok(())
+    }
+
+    fn tick_sub_cpu(&mut self, mut sub_cpu_cycles: u64) {
+        if self.bus.word_ram().sub_performed_blocked_access() {
+            // If the sub CPU accesses word RAM while it's in 2M mode and owned by the main CPU, it
+            // should halt until the main CPU writes DMNA=1 to transfer ownership to the sub CPU.
+            // Marko's Magic Football depends on this or it will have glitched map graphics
+            log::trace!("Not running sub CPU because word RAM writes are buffered");
+            return;
         }
 
-        // Sub 68000
-        self.tick_sub_cpu::<DEBUG>(sub_cpu_cycles, debugger);
+        while sub_cpu_cycles >= self.sub_cpu_wait_cycles {
+            self.bus.flush_buffered_sub_writes();
 
-        // Input state (for 6-button controller reset)
-        self.input.tick(main_cpu_cycles);
+            sub_cpu_cycles -= self.sub_cpu_wait_cycles;
+            self.sub_cpu_wait_cycles = self.sub_cpu.execute_instruction(&mut self.bus).into();
 
-        // PSG
-        while self.cycles.should_tick_psg() {
-            if self.psg.tick() == Sn76489TickEffect::Clocked {
-                // PSG output is mono in Genesis; stereo output is only for Game Gear
-                let (psg_sample, _) = self.psg.sample();
-                self.audio_resampler.collect_psg_sample(psg_sample);
+            if self.bus.word_ram().sub_performed_blocked_access() {
+                return;
             }
-            self.cycles.psg_cycle();
         }
 
-        // RF5C164
-        self.pcm.tick(pcm_cycles, |(pcm_sample_l, pcm_sample_r)| {
-            self.audio_resampler.collect_pcm_sample(pcm_sample_l, pcm_sample_r);
-        });
+        self.sub_cpu_wait_cycles -= sub_cpu_cycles;
+    }
 
-        // VDP
-        let vdp_tick_effect = self.vdp.tick(genesis_mclk_elapsed, &mut self.memory);
-
-        // YM2612
-        self.cycles.maybe_sync_and_drain_ym2612(
-            vdp_tick_effect,
-            &mut self.ym2612,
-            |(sample_l, sample_r)| self.audio_resampler.collect_ym2612_sample(sample_l, sample_r),
-        );
-
-        // Output any audio samples that are queued up
-        self.audio_resampler.output_samples(audio_output).map_err(SegaCdError::Audio)?;
-
-        let mut tick_effect = TickEffect::None;
-        if vdp_tick_effect == VdpTickEffect::FrameComplete {
-            self.render_frame(renderer).map_err(SegaCdError::Render)?;
-
-            if self.memory.medium_mut().get_and_clear_backup_ram_dirty_bit() {
-                let sega_cd = self.memory.medium();
-
-                save_writer
-                    .persist_bytes("sav", sega_cd.backup_ram())
-                    .map_err(SegaCdError::SaveWrite)?;
-
-                save_writer
-                    .persist_bytes("ramc", sega_cd.ram_cartridge())
-                    .map_err(SegaCdError::SaveWrite)?;
+    pub fn main_read_memory<const WORD: bool>(&self, address: u32) -> u16 {
+        if address & 0x200000 == 0 {
+            // BIOS ROM / PRG RAM
+            if WORD {
+                let msb = self.bus.main_read_bios_prg_ram(address);
+                let lsb = self.bus.main_read_bios_prg_ram(address + 1);
+                u16::from_be_bytes([msb, lsb])
+            } else {
+                self.bus.main_read_bios_prg_ram(address).into()
             }
-
-            tick_effect = TickEffect::FrameRendered;
+        } else {
+            // Word RAM
+            if WORD {
+                let msb = self.bus.main_read_word_ram(address);
+                let lsb = self.bus.main_read_word_ram(address + 1);
+                u16::from_be_bytes([msb, lsb])
+            } else {
+                self.bus.main_read_word_ram(address).into()
+            }
         }
+    }
 
-        genesis_components::check_for_long_dma_skip(&self.vdp, &mut self.cycles);
-
-        if !m68k_wait {
-            self.vdp.update_interrupt_latches();
+    pub fn main_write_memory<const WORD: bool>(&mut self, address: u32, value: u16) {
+        if address & 0x200000 == 0 {
+            // BIOS ROM / PRG RAM
+            if WORD {
+                self.bus.main_write_bios_prg_ram(address, value.msb());
+                self.bus.main_write_bios_prg_ram(address + 1, value.lsb());
+            } else {
+                self.bus.main_write_bios_prg_ram(address, value as u8);
+            }
+        } else {
+            // Word RAM
+            if WORD {
+                self.bus.main_write_word_ram(address, value.msb());
+                self.bus.main_write_word_ram(address + 1, value.lsb());
+            } else {
+                self.bus.main_write_word_ram(address, value as u8);
+            }
         }
-
-        // Apply main CPU writes after ticking the sub CPU; this fixes random freezing in Silpheed
-        self.main_bus_writes = new_main_bus!(self, m68k_reset: false).apply_writes();
-
-        Ok(tick_effect)
-    }
-}
-
-impl EmulatorTrait for SegaCdEmulator {
-    type Button = GenesisButton;
-    type Inputs = GenesisInputs;
-    type Config = SegaCdEmulatorConfig;
-    type SaveState = Self;
-
-    type Err<
-        RErr: Debug + Display + Send + Sync + 'static,
-        AErr: Debug + Display + Send + Sync + 'static,
-        SErr: Debug + Display + Send + Sync + 'static,
-    > = SegaCdError<RErr, AErr, SErr>;
-
-    fn tick<R, A, I, S>(
-        &mut self,
-        renderer: &mut R,
-        audio_output: &mut A,
-        input_poller: &mut I,
-        save_writer: &mut S,
-    ) -> Result<TickEffect, Self::Err<R::Err, A::Err, S::Err>>
-    where
-        R: Renderer,
-        A: AudioOutput,
-        I: InputPoller<Self::Inputs>,
-        S: SaveWriter,
-    {
-        self.tick_inner::<false, _, _, _, _>(
-            renderer,
-            audio_output,
-            input_poller,
-            save_writer,
-            None,
-        )
     }
 
-    fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>
-    where
-        R: Renderer,
-    {
-        self.render_frame(renderer)
+    pub fn read_word_for_dma(&mut self, address: u32, open_bus: &mut u16) -> u16 {
+        if address & 0x200000 == 0 {
+            *open_bus = self.main_read_memory::<true>(address);
+            *open_bus
+        } else {
+            // Word RAM reads are delayed
+            let prev_open_bus = *open_bus;
+            *open_bus = self.main_read_memory::<true>(address);
+            prev_open_bus
+        }
     }
 
-    fn reload_config(&mut self, config: &Self::Config) {
-        self.vdp.reload_config(config.genesis.to_vdp_config(DarkenColors::No));
-        self.ym2612.reload_config(&config.genesis);
-        self.memory.reload_config(&config.genesis);
-        self.input.reload_config(&config.genesis);
-        self.pcm.reload_config(config);
-        self.audio_resampler.reload_config(self.timing_mode, config);
-        self.cycles.update_m68k_divider(config.genesis.clamped_m68k_divider());
-        self.sub_cpu_divider = config.sub_cpu_divider.get();
+    pub fn read_ram_cartridge<const WORD: bool>(&self, mut address: u32) -> u16 {
+        if WORD {
+            address |= 1;
+        }
+        self.bus.read_ram_cartridge(address).into()
+    }
 
-        let sega_cd = self.memory.medium_mut();
-        sega_cd.reload_config(config);
+    pub fn write_ram_cartridge<const WORD: bool>(&mut self, mut address: u32, value: u16) {
+        if WORD {
+            address |= 1;
+        }
+        self.bus.write_ram_cartridge(address, value as u8);
+    }
+
+    pub fn main_read_register<const WORD: bool>(&mut self, address: u32) -> u16 {
+        self.bus.main_read_register::<WORD>(address)
+    }
+
+    pub fn main_write_register<const WORD: bool>(&mut self, address: u32, value: u16) {
+        self.bus.main_write_register::<WORD>(address, value);
+    }
+
+    pub fn reload_config(&mut self, config: &GenesisEmulatorConfig) {
+        self.sub_cpu_divider = config.sega_cd.sub_cpu_divider.get();
+        self.bus.reload_config(config);
 
         self.config = config.clone();
     }
 
-    fn soft_reset(&mut self) {
-        // Reset main CPU
-        self.main_cpu.execute_instruction(&mut new_main_bus!(self, m68k_reset: true));
-        self.memory.reset_z80_signals();
-
-        self.ym2612.reset();
-        self.pcm.disable();
-
-        self.memory.medium_mut().reset();
+    pub fn reset(&mut self) {
+        self.bus.reset();
     }
 
-    fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
-        let sega_cd = self.memory.medium_mut();
-        let bios = Vec::from(sega_cd.bios());
-        let disc = sega_cd.take_cdrom();
-
-        *self = Self::create_from_disc(bios, disc, self.config.clone(), save_writer)
-            .expect("Hard reset should not cause an I/O error");
+    pub fn disc_title(&self) -> Option<String> {
+        self.disc_title.clone()
     }
 
-    fn load_state(&mut self, mut state: Self::SaveState) {
-        state.memory.medium_mut().take_rom_from(self.memory.medium_mut());
-        *self = state;
+    pub fn region(&self) -> GenesisRegion {
+        self.bus.region()
     }
 
-    fn to_save_state(&self) -> Self::SaveState {
-        self.partial_clone()
+    pub fn has_six_button_incompatible_game(&self) -> bool {
+        self.six_button_incompatible_game
     }
 
-    fn target_fps(&self) -> f64 {
-        genesis_components::target_framerate(&self.vdp, self.timing_mode)
+    pub fn take_backup_ram_dirty(&mut self) -> bool {
+        self.bus.take_backup_ram_dirty()
     }
 
-    fn update_audio_output_frequency(&mut self, output_frequency: u64) {
-        self.audio_resampler.update_output_frequency(output_frequency);
+    pub fn backup_ram(&self) -> &[u8] {
+        self.bus.backup_ram()
     }
+
+    pub fn ram_cartridge(&self) -> &[u8] {
+        self.bus.ram_cartridge()
+    }
+
+    pub fn take_bios_and_disc(self) -> (Vec<u8>, Option<CdRom>) {
+        self.bus.take_bios_and_disc()
+    }
+}
+
+/// Attempt to parse a console region out of the CD-ROM's data track.
+///
+/// Returns None if unable to confidently determine region.
+///
+/// # Errors
+///
+/// Propagates any errors encountered while reading the CD-ROM files from disk.
+pub fn parse_disc_region(disc: &mut CdRom) -> SegaCdLoadResult<GenesisRegion> {
+    // ROM header is always located at track 1 sector 0
+    let mut rom_header = vec![0; cdrom::BYTES_PER_SECTOR as usize];
+    disc.read_sector(1, CdTime::SECTOR_0_START, &mut rom_header)?;
+
+    // Sega CD ROM header starts at $010 because the first 16 bytes are sync + CD-ROM data track header
+    let region = GenesisRegion::from_rom(&rom_header[0x010..]).unwrap_or_else(|| {
+        log::warn!("Unable to determine region from ROM header; defaulting to US");
+        GenesisRegion::Americas
+    });
+
+    let serial_number = &rom_header[0x190..0x1A0];
+
+    // The Smurfs (EU) has a US header but only works properly with PAL timings
+    if region == GenesisRegion::Americas && serial_number == b"GM T-151015-00  " {
+        return Ok(GenesisRegion::Europe);
+    }
+
+    // Hack to fix Snatcher (US/EU), which incorrectly reports its region as J in the header
+    if region == GenesisRegion::Japan && serial_number == b"GM T-95035 -00  " {
+        let console_name = &rom_header[0x110..0x120];
+        if console_name == "SEGA GENESIS    ".as_bytes() {
+            return Ok(GenesisRegion::Americas);
+        } else if console_name == "SEGA MEGA DRIVE ".as_bytes() {
+            return Ok(GenesisRegion::Europe);
+        }
+        // Any other console name is unexpected, leave region as-is
+    }
+
+    Ok(region)
 }

@@ -93,6 +93,7 @@ impl Default for ListFilters {
 pub struct RecentOpen {
     pub console: String,
     pub path: PathBuf,
+    #[serde(default)]
     pub secondary_paths: Vec<PathBuf>,
 }
 

@@ -26,6 +26,7 @@ jgenesis-native-driver = { workspace = true, features = ["clap"] }
 jgenesis-proc-macros = { workspace = true }
 jgenesis-renderer = { workspace = true, features = ["clap"] }
 
+genesis-core = { workspace = true }
 smsgg-core = { workspace = true }
 ti-sn76489 = { workspace = true, features = ["clap"] }
 

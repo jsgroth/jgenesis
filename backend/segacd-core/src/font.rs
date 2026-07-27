@@ -45,7 +45,7 @@ impl FontRegisters {
         // $FF8050-$FF8051: Bit 15-12 data
         // $FF8052-$FF8053: Bit 11-8 data
         // $FF8054-$FF8055: Bit 7-4 data
-        // $FF8053-$FF8050: Bit 3-0 data
+        // $FF8056-$FF8057: Bit 3-0 data
         let word_idx = (address & 0x07) >> 1;
         let base_font_bit = ((3 - word_idx) << 2) as u8;
 

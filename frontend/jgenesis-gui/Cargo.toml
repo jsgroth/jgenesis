@@ -13,6 +13,7 @@ sdl3-build-from-source = ["sdl3/build-from-source"]
 sdl3-static-link = ["sdl3/static-link"]
 
 [dependencies]
+cdrom = { workspace = true }
 jgenesis-common = { workspace = true, features = ["serde"] }
 jgenesis-proc-macros = { workspace = true }
 

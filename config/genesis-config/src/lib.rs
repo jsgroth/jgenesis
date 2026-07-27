@@ -550,6 +550,8 @@ impl MappableInputs<GenesisButton> for GenesisInputs {
 
 #[derive(Debug, Clone, Encode, Decode, ConfigDisplay)]
 pub struct GenesisEmulatorConfig {
+    #[cfg_display(indent_nested)]
+    pub sega_cd: SegaCdEmulatorConfig,
     pub forced_timing_mode: Option<TimingMode>,
     pub forced_region: Option<GenesisRegion>,
     pub allow_opposing_joypad_directions: bool,
@@ -588,6 +590,7 @@ pub struct GenesisEmulatorConfig {
 impl Default for GenesisEmulatorConfig {
     fn default() -> Self {
         Self {
+            sega_cd: SegaCdEmulatorConfig::default(),
             forced_timing_mode: None,
             forced_region: None,
             allow_opposing_joypad_directions: false,
@@ -640,17 +643,18 @@ impl GenesisEmulatorConfig {
 
 impl EmulatorConfigTrait for GenesisEmulatorConfig {
     fn with_overclocking_disabled(&self) -> Self {
-        Self { m68k_clock_divider: NATIVE_M68K_DIVIDER, ..self.clone() }
+        Self {
+            sega_cd: self.sega_cd.with_overclocking_disabled(),
+            m68k_clock_divider: NATIVE_M68K_DIVIDER,
+            ..self.clone()
+        }
     }
 }
 
 #[derive(Debug, Clone, Encode, Decode, ConfigDisplay)]
 pub struct SegaCdEmulatorConfig {
-    #[cfg_display(skip)]
-    pub genesis: GenesisEmulatorConfig,
     pub pcm_interpolation: PcmInterpolation,
     pub enable_ram_cartridge: bool,
-    pub load_disc_into_ram: bool,
     pub disc_drive_speed: NonZeroU16,
     pub sub_cpu_divider: NonZeroU64,
     pub pcm_lpf_enabled: bool,
@@ -666,10 +670,8 @@ pub struct SegaCdEmulatorConfig {
 impl Default for SegaCdEmulatorConfig {
     fn default() -> Self {
         Self {
-            genesis: GenesisEmulatorConfig::default(),
             pcm_interpolation: PcmInterpolation::default(),
             enable_ram_cartridge: true,
-            load_disc_into_ram: false,
             disc_drive_speed: NonZeroU16::new(1).unwrap(),
             sub_cpu_divider: NonZeroU64::new(NATIVE_SUB_CPU_DIVIDER).unwrap(),
             pcm_lpf_enabled: true,
@@ -687,7 +689,6 @@ impl Default for SegaCdEmulatorConfig {
 impl EmulatorConfigTrait for SegaCdEmulatorConfig {
     fn with_overclocking_disabled(&self) -> Self {
         Self {
-            genesis: self.genesis.with_overclocking_disabled(),
             disc_drive_speed: NonZeroU16::new(1).unwrap(),
             sub_cpu_divider: NonZeroU64::new(NATIVE_SUB_CPU_DIVIDER).unwrap(),
             ..*self

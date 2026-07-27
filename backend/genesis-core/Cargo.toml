@@ -6,8 +6,10 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+cdrom = { workspace = true }
 dsp = { workspace = true }
 jgenesis-common = { workspace = true }
+jgenesis-proc-macros = { workspace = true }
 
 genesis-config = { workspace = true }
 
@@ -15,6 +17,7 @@ m68000-emu = { workspace = true, features = ["bincode"] }
 z80-emu = { workspace = true, features = ["bincode"] }
 
 genesis-components = { workspace = true }
+segacd-core = { workspace = true }
 ti-sn76489 = { workspace = true }
 
 bincode = { workspace = true }

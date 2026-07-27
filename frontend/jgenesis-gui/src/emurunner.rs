@@ -1,7 +1,8 @@
 use crate::app::ActiveCheats;
 use genesis_config::cheats::GenesisCheats;
+use genesis_core::api::GenesisHardware;
 use jgenesis_native_config::AppConfig;
-use jgenesis_native_driver::config::{AppConfigExt, GenesisHardware};
+use jgenesis_native_driver::config::AppConfigExt;
 use jgenesis_native_driver::extensions::Console;
 use jgenesis_native_driver::{
     NativeEmulatorError, NativeEmulatorResult, NativeGameBoyEmulator, NativeGbaEmulator,

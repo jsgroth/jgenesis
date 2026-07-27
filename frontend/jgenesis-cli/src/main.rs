@@ -8,12 +8,13 @@ use gba_config::GbaSaveMemory;
 use genesis_config::PcmInterpolation;
 use genesis_config::S32XVideoOut;
 use genesis_config::{GenesisAspectRatio, GenesisControllerType, GenesisRegion, Opn2BusyBehavior};
+use genesis_core::api::GenesisHardware;
 use jgenesis_common::frontend::{EmulatorTrait, TimingMode};
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::common::{ConfigSavePath, HideMouseCursor};
 use jgenesis_native_config::input::mappings::{NesControllerType, SnesControllerType};
 use jgenesis_native_config::paths::{ConfigDirs, ConfigWithPath};
-use jgenesis_native_driver::config::{AppConfigExt, GenesisHardware};
+use jgenesis_native_driver::config::AppConfigExt;
 use jgenesis_native_driver::extensions::{Console, ConsoleWithSize};
 use jgenesis_native_driver::{
     NativeEmulator, NativeGameBoyEmulator, NativeGbaEmulator, NativeGenesisEmulator,

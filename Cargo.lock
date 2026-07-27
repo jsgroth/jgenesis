@@ -1631,12 +1631,15 @@ name = "genesis-core"
 version = "0.13.1"
 dependencies = [
  "bincode",
+ "cdrom",
  "dsp",
  "genesis-components",
  "genesis-config",
  "jgenesis-common",
+ "jgenesis-proc-macros",
  "log",
  "m68000-emu",
+ "segacd-core",
  "thiserror 2.0.18",
  "ti-sn76489",
  "z80-emu",
@@ -2019,6 +2022,7 @@ dependencies = [
  "gb-config",
  "gba-config",
  "genesis-config",
+ "genesis-core",
  "jgenesis-common",
  "jgenesis-native-config",
  "jgenesis-native-driver",
@@ -2091,6 +2095,7 @@ name = "jgenesis-gui"
 version = "0.13.1"
 dependencies = [
  "anyhow",
+ "cdrom",
  "clap",
  "egui",
  "egui-sdl3-wgpu",
@@ -4247,8 +4252,6 @@ dependencies = [
  "m68000-emu",
  "regex",
  "thiserror 2.0.18",
- "ti-sn76489",
- "z80-emu",
 ]
 
 [[package]]

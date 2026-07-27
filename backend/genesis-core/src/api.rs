@@ -3,6 +3,7 @@
 use crate::audio::GenesisAudioResampler;
 use crate::bus::GenesisBus;
 use bincode::{Decode, Encode};
+use cdrom::reader::CdRom;
 use genesis_components::cartridge::Cartridge;
 use genesis_components::debug::GenesisDebugger;
 use genesis_components::vdp::VdpTickEffect;
@@ -11,13 +12,21 @@ use jgenesis_common::frontend::{
     AudioOutput, EmulatorTrait, InputPoller, Modal, PartialClone, Renderer, SaveWriter, TickEffect,
     TickResult, TimingMode,
 };
+use jgenesis_proc_macros::EnumDisplay;
 use m68000_emu::M68000;
+use segacd_core::api::{SegaCd, SegaCdLoadError, SegaCdLoadResult};
 use std::fmt::{Debug, Display};
 use thiserror::Error;
 use z80_emu::Z80;
 
+const SRAM_EXTENSION: &str = "sav";
+const BACKUP_RAM_EXTENSION: &str = "bram";
+const RAM_CARTRIDGE_EXTENSION: &str = "ramc";
+
 #[derive(Debug, Error)]
 pub enum GenesisError<RErr, AErr, SErr> {
+    #[error("Sega CD disc error: {0}")]
+    SegaCd(#[from] SegaCdLoadError),
     #[error("Rendering error: {0}")]
     Render(RErr),
     #[error("Audio output error: {0}")]
@@ -28,6 +37,24 @@ pub enum GenesisError<RErr, AErr, SErr> {
 
 pub type GenesisResult<RErr, AErr, SErr> = Result<TickEffect, GenesisError<RErr, AErr, SErr>>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, EnumDisplay)]
+pub enum GenesisHardware {
+    Standalone,
+    SegaCd,
+    Sega32X,
+    SegaCd32X,
+}
+
+impl GenesisHardware {
+    pub fn has_sega_cd(self) -> bool {
+        matches!(self, Self::SegaCd | Self::SegaCd32X)
+    }
+
+    pub fn has_32x(self) -> bool {
+        matches!(self, Self::Sega32X | Self::SegaCd32X)
+    }
+}
+
 #[derive(Debug, Encode, Decode, PartialClone)]
 pub struct GenesisEmulator {
     m68k: M68000,
@@ -36,27 +63,35 @@ pub struct GenesisEmulator {
     bus: GenesisBus,
     timing_mode: TimingMode,
     audio_resampler: GenesisAudioResampler,
+    hardware: GenesisHardware,
     config: GenesisEmulatorConfig,
 }
 
 impl GenesisEmulator {
-    /// Initialize the emulator from the given ROM.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if unable to parse the ROM header.
-    #[must_use]
     pub fn create<S: SaveWriter>(
-        rom: Vec<u8>,
+        hardware: GenesisHardware,
+        cartridge_rom: Option<Vec<u8>>,
+        sega_cd_bios_rom: Option<Vec<u8>>,
+        mut disc: Option<CdRom>,
         config: GenesisEmulatorConfig,
         save_writer: &mut S,
-    ) -> Self {
-        let initial_ram = save_writer.load_bytes("sav").ok();
-        // TODO Sega CD
-        let cartridge = Cartridge::new(rom, initial_ram, config.forced_region, &config.cheat_codes);
+    ) -> SegaCdLoadResult<Self> {
+        let sega_cd_present = hardware.has_sega_cd();
+        let s32x_present = hardware.has_32x();
 
-        // TODO Sega CD
-        let region = cartridge.region();
+        let initial_ram = save_writer.load_bytes(SRAM_EXTENSION).ok();
+
+        let cartridge = cartridge_rom
+            .map(|rom| Cartridge::new(rom, initial_ram, config.forced_region, &config.cheat_codes));
+
+        let region = cartridge
+            .as_ref()
+            .map(Cartridge::region)
+            .or_else(|| {
+                let disc = disc.as_mut()?;
+                segacd_core::api::parse_disc_region(disc).ok()
+            })
+            .unwrap_or(GenesisRegion::Americas);
 
         let timing_mode = config.forced_timing_mode.unwrap_or_else(|| match region {
             GenesisRegion::Europe => TimingMode::Pal,
@@ -65,27 +100,46 @@ impl GenesisEmulator {
 
         log::info!("Using timing / display mode {timing_mode}");
 
-        let bus = GenesisBus::new(timing_mode, Some(cartridge), &config);
+        let sega_cd = if sega_cd_present {
+            let Some(bios_rom) = sega_cd_bios_rom else { return Err(SegaCdLoadError::MissingBios) };
+
+            let backup_ram_extension = match &cartridge {
+                Some(_) => BACKUP_RAM_EXTENSION,
+                None => SRAM_EXTENSION,
+            };
+            let initial_backup_ram = save_writer.load_bytes(backup_ram_extension).ok();
+
+            let initial_ram_cartridge = save_writer.load_bytes(RAM_CARTRIDGE_EXTENSION).ok();
+
+            let sega_cd = SegaCd::new(
+                bios_rom,
+                disc,
+                timing_mode,
+                initial_backup_ram,
+                initial_ram_cartridge,
+                &config,
+            )?;
+            Some(sega_cd)
+        } else {
+            None
+        };
+
+        let bus = GenesisBus::new(timing_mode, cartridge, sega_cd, &config);
 
         // The Genesis does not allow TAS to lock the bus, so don't allow TAS writes
-        let m68k = M68000::builder().allow_tas_writes(false).build();
+        let m68k = M68000::builder().allow_tas_writes(false).name("Main".into()).build();
         let z80 = Z80::new();
 
-        let mut emulator = Self {
-            m68k,
-            z80,
-            bus,
-            timing_mode,
-            audio_resampler: GenesisAudioResampler::new(timing_mode, &config),
-            config,
-        };
+        let audio_resampler = GenesisAudioResampler::new(hardware, timing_mode, &config);
+
+        let mut emulator = Self { m68k, z80, bus, timing_mode, audio_resampler, hardware, config };
 
         // Reset CPU so that execution will start from the right place
         emulator.bus.m68k_reset = true;
         emulator.m68k.execute_instruction(&mut emulator.bus);
         emulator.bus.m68k_reset = false;
 
-        emulator
+        Ok(emulator)
     }
 
     #[must_use]
@@ -154,20 +208,33 @@ impl GenesisEmulator {
             elapsed_mclk_cycles,
             m68k_wait,
             &mut self.audio_resampler,
-        );
+        )?;
 
         self.audio_resampler.output_samples(audio_output).map_err(GenesisError::Audio)?;
 
         if vdp_tick_effect == VdpTickEffect::FrameComplete {
             self.render_frame(renderer).map_err(GenesisError::Render)?;
 
-            // TODO Sega CD
-            if self.bus.has_persistent_ram()
-                && self.bus.get_and_clear_persistent_ram_dirty()
-                && let Some(ram) = self.bus.cartridge.as_ref().map(Cartridge::external_ram)
-                && !ram.is_empty()
-            {
-                save_writer.persist_bytes("sav", ram).map_err(GenesisError::Save)?;
+            if self.bus.has_persistent_ram() && self.bus.get_and_clear_persistent_ram_dirty() {
+                if let Some(ram) = self.bus.cartridge.as_ref().map(Cartridge::external_ram)
+                    && !ram.is_empty()
+                {
+                    save_writer.persist_bytes(SRAM_EXTENSION, ram).map_err(GenesisError::Save)?;
+                }
+
+                if let Some(sega_cd) = &mut self.bus.sega_cd {
+                    let backup_ram_extension = match &self.bus.cartridge {
+                        Some(_) => BACKUP_RAM_EXTENSION,
+                        None => SRAM_EXTENSION,
+                    };
+                    save_writer
+                        .persist_bytes(backup_ram_extension, sega_cd.backup_ram())
+                        .map_err(GenesisError::Save)?;
+
+                    save_writer
+                        .persist_bytes(RAM_CARTRIDGE_EXTENSION, sega_cd.ram_cartridge())
+                        .map_err(GenesisError::Save)?;
+                }
             }
         }
 
@@ -274,10 +341,23 @@ impl EmulatorTrait for GenesisEmulator {
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
         log::info!("Hard resetting console");
 
-        // TODO Sega CD
-        let rom =
-            self.bus.cartridge.take().map(|mut cartridge| cartridge.take_rom()).unwrap_or_default();
-        *self = GenesisEmulator::create(rom, self.config.clone(), save_writer);
+        let cartridge_rom = self.bus.cartridge.take().map(|mut cartridge| cartridge.take_rom());
+
+        let (sega_cd_bios, disc) =
+            match self.bus.sega_cd.take().map(|sega_cd| sega_cd.take_bios_and_disc()) {
+                Some((bios_rom, disc)) => (Some(bios_rom), disc),
+                None => (None, None),
+            };
+
+        *self = GenesisEmulator::create(
+            self.hardware,
+            cartridge_rom,
+            sega_cd_bios,
+            disc,
+            self.config.clone(),
+            save_writer,
+        )
+        .expect("Hard reset should not error");
     }
 
     fn load_state(&mut self, mut state: Self::SaveState) {
