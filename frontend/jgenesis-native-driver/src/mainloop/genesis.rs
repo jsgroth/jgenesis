@@ -103,12 +103,13 @@ impl CreatableEmulator for GenesisEmulator {
             save_writer,
         )?;
 
+        let system_name = config.hardware.to_string().to_ascii_lowercase();
         let mut cartridge_title = emulator.cartridge_title();
         // Remove non-printable characters
         cartridge_title.retain(|c| {
             c.is_ascii_alphanumeric() || c.is_ascii_whitespace() || c.is_ascii_punctuation()
         });
-        let window_title = format!("genesis - {cartridge_title}");
+        let window_title = format!("{system_name} - {cartridge_title}");
 
         let default_window_size = WindowSize::new_genesis(
             config.common.initial_window_size,

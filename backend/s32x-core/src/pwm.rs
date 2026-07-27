@@ -2,7 +2,7 @@
 
 mod debug;
 
-use crate::audio::PwmResampler;
+use crate::api::Sega32XAudioOutput;
 use crate::registers::SystemRegisters;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
@@ -179,13 +179,13 @@ impl PwmChip {
         &mut self,
         mut sh2_cycles: u64,
         system_registers: &mut SystemRegisters,
-        pwm_resampler: &mut PwmResampler,
+        audio_output: &mut impl Sega32XAudioOutput,
     ) {
         if (self.control.l_out.is_off() && self.control.r_out.is_off()) || self.cycle_register == 1
         {
             // PWM counters are stopped when both channels are off
             // Output 0 samples at ~22 KHz
-            pwm_resampler.update_source_frequency(compute_sample_rate(
+            audio_output.update_pwm_source_frequency(compute_sample_rate(
                 self.genesis_mclk_frequency,
                 TWENTY_TWO_KHZ_CYCLE_REGISTER,
             ));
@@ -197,14 +197,14 @@ impl PwmChip {
 
                 if self.off_cycle_counter == 0 {
                     self.off_cycle_counter = (TWENTY_TWO_KHZ_CYCLE_REGISTER - 1).into();
-                    pwm_resampler.collect_sample(0.0, 0.0);
+                    audio_output.collect_pwm((0.0, 0.0));
                 }
             }
 
             return;
         }
 
-        pwm_resampler.update_source_frequency(compute_sample_rate(
+        audio_output.update_pwm_source_frequency(compute_sample_rate(
             self.genesis_mclk_frequency,
             self.cycle_register,
         ));
@@ -232,7 +232,7 @@ impl PwmChip {
                     OutputDirection::Opposite => pulse_width_to_f64(self.l_output, cycle_register),
                     _ => 0.0,
                 };
-                pwm_resampler.collect_sample(sample_l, sample_r);
+                audio_output.collect_pwm((sample_l, sample_r));
 
                 self.timer_counter -= 1;
                 if self.timer_counter == 0 {

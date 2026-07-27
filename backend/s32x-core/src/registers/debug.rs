@@ -41,7 +41,7 @@ impl SystemRegisters {
         callback(
             "$4006 / $A15106",
             &[
-                ("RV (ROM-to-VRAM DMA allowed)", bool_str(self.dma.rom_to_vram_dma)),
+                ("RV (ROM-to-VRAM DMA allowed)", bool_str(self.dma.rom_to_vram)),
                 ("DREQ active", bool_str(self.dma.active)),
             ],
         );

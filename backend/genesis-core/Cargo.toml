@@ -18,6 +18,7 @@ z80-emu = { workspace = true, features = ["bincode"] }
 
 genesis-components = { workspace = true }
 segacd-core = { workspace = true }
+s32x-core = { workspace = true }
 ti-sn76489 = { workspace = true }
 
 bincode = { workspace = true }

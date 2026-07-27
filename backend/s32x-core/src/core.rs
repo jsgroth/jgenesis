@@ -27,26 +27,7 @@ const SH2_MULTIPLIER: u64 = crate::SH2_CLOCK_MULTIPLIER;
 // Prefer to execute SH-2 instructions in longer chunks when possible for better performance
 pub const SH2_EXECUTION_SLICE_LEN: u64 = 50;
 
-const SDRAM_LEN_WORDS: usize = 256 * 1024 / 2;
-
-#[derive(Debug, Clone, Default, Encode, Decode)]
-pub struct SerialInterface {
-    pub master_to_slave: Option<u8>,
-    pub slave_to_master: Option<u8>,
-}
-
-#[derive(Debug, Clone, PartialClone, Encode, Decode)]
-pub struct Sega32XBus {
-    #[partial_clone(partial)]
-    pub cartridge: Cartridge,
-    pub vdp: Vdp,
-    pub pwm: PwmChip,
-    pub registers: SystemRegisters,
-    pub sdram: BoxedWordArray<SDRAM_LEN_WORDS>,
-    pub serial: SerialInterface,
-}
-
-#[derive(Debug, Clone, PartialClone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct Sega32X {
     sh2_master: Sh2,
     sh2_slave: Sh2,
@@ -55,7 +36,6 @@ pub struct Sega32X {
     master_cycles: u64,
     slave_cycles: u64,
     sh2_clock_multiplier: Option<NonZeroU64>,
-    #[partial_clone(partial)]
     pub s32x_bus: Sega32XBus,
     pub m68k_vectors: Box<M68kVectors>,
     pub region: GenesisRegion,
@@ -86,7 +66,6 @@ impl Sega32X {
             slave_cycles: 0,
             sh2_clock_multiplier: none_if_default_multiplier(config.sh2_clock_multiplier),
             s32x_bus: Sega32XBus {
-                cartridge,
                 vdp: Vdp::new(timing_mode, config),
                 pwm: PwmChip::new(timing_mode),
                 registers: SystemRegisters::new(),

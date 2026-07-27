@@ -1639,6 +1639,7 @@ dependencies = [
  "jgenesis-proc-macros",
  "log",
  "m68000-emu",
+ "s32x-core",
  "segacd-core",
  "thiserror 2.0.18",
  "ti-sn76489",
@@ -4100,11 +4101,9 @@ dependencies = [
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",
- "m68000-emu",
  "sh2-emu",
  "thiserror 2.0.18",
  "ti-sn76489",
- "z80-emu",
 ]
 
 [[package]]

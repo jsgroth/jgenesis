@@ -888,6 +888,11 @@ impl SegaCdBus {
         (bios_rom, disc)
     }
 
+    pub fn take_bios_and_disc_from(&mut self, other: &mut Self) {
+        self.bios.0 = mem::take(&mut other.bios.0);
+        self.disc_drive.take_disc_from(&mut other.disc_drive);
+    }
+
     pub fn change_disc(&mut self, _disc: CdRom) {
         todo!("change disc")
     }

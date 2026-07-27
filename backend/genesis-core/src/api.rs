@@ -14,8 +14,9 @@ use jgenesis_common::frontend::{
 };
 use jgenesis_proc_macros::EnumDisplay;
 use m68000_emu::M68000;
+use s32x_core::api::Sega32X;
 use segacd_core::api::{SegaCd, SegaCdLoadError, SegaCdLoadResult};
-use std::fmt::{Debug, Display};
+use std::fmt::{Debug, Display, Formatter};
 use thiserror::Error;
 use z80_emu::Z80;
 
@@ -37,12 +38,23 @@ pub enum GenesisError<RErr, AErr, SErr> {
 
 pub type GenesisResult<RErr, AErr, SErr> = Result<TickEffect, GenesisError<RErr, AErr, SErr>>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, EnumDisplay)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum GenesisHardware {
     Standalone,
     SegaCd,
     Sega32X,
     SegaCd32X,
+}
+
+impl Display for GenesisHardware {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Standalone => write!(f, "Genesis"),
+            Self::SegaCd => write!(f, "Sega CD"),
+            Self::Sega32X => write!(f, "32X"),
+            Self::SegaCd32X => write!(f, "Sega CD 32X"),
+        }
+    }
 }
 
 impl GenesisHardware {
@@ -76,6 +88,8 @@ impl GenesisEmulator {
         config: GenesisEmulatorConfig,
         save_writer: &mut S,
     ) -> SegaCdLoadResult<Self> {
+        log::info!("Running with hardware {hardware}");
+
         let sega_cd_present = hardware.has_sega_cd();
         let s32x_present = hardware.has_32x();
 
@@ -124,7 +138,9 @@ impl GenesisEmulator {
             None
         };
 
-        let bus = GenesisBus::new(timing_mode, cartridge, sega_cd, &config);
+        let sega_32x = s32x_present.then(|| Sega32X::new(timing_mode, cartridge.as_ref(), &config));
+
+        let bus = GenesisBus::new(timing_mode, cartridge, sega_cd, sega_32x, &config);
 
         // The Genesis does not allow TAS to lock the bus, so don't allow TAS writes
         let m68k = M68000::builder().allow_tas_writes(false).name("Main".into()).build();
@@ -160,7 +176,15 @@ impl GenesisEmulator {
     }
 
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
-        genesis_components::render_frame(self.timing_mode, &self.bus.vdp, &self.config, renderer)
+        match &mut self.bus.sega_32x {
+            Some(sega_32x) => sega_32x.render_frame(&self.bus.vdp, renderer),
+            None => genesis_components::render_frame(
+                self.timing_mode,
+                &self.bus.vdp,
+                &self.config,
+                renderer,
+            ),
+        }
     }
 
     #[inline]
@@ -213,6 +237,10 @@ impl GenesisEmulator {
         self.audio_resampler.output_samples(audio_output).map_err(GenesisError::Audio)?;
 
         if vdp_tick_effect == VdpTickEffect::FrameComplete {
+            if let Some(sega_32x) = &mut self.bus.sega_32x {
+                sega_32x.composite_frame(&mut self.bus.vdp);
+            }
+
             self.render_frame(renderer).map_err(GenesisError::Render)?;
 
             if self.bus.has_persistent_ram() && self.bus.get_and_clear_persistent_ram_dirty() {
@@ -361,12 +389,18 @@ impl EmulatorTrait for GenesisEmulator {
     }
 
     fn load_state(&mut self, mut state: Self::SaveState) {
-        // TODO Sega CD
         if let Some(state_cartridge) = &mut state.bus.cartridge
             && let Some(self_cartridge) = &mut self.bus.cartridge
         {
             state_cartridge.take_rom_from(self_cartridge);
         }
+
+        if let Some(state_sega_cd) = &mut state.bus.sega_cd
+            && let Some(self_sega_cd) = &mut self.bus.sega_cd
+        {
+            state_sega_cd.take_bios_and_disc_from(self_sega_cd);
+        }
+
         *self = state;
     }
 
@@ -385,13 +419,17 @@ impl EmulatorTrait for GenesisEmulator {
     fn startup_modals(&self) -> Vec<Modal> {
         let mut modals = Vec::new();
 
-        // TODO Sega CD
         if self.config.remove_sprite_limits
-            && self
+            && (self
                 .bus
                 .cartridge
                 .as_ref()
                 .is_some_and(|cartridge| cartridge.metadata().sprite_limit_compatibility_issues)
+                || self
+                    .bus
+                    .sega_cd
+                    .as_ref()
+                    .is_some_and(|sega_cd| sega_cd.has_six_button_incompatible_game()))
         {
             modals.push(Modal {
                 id: None,

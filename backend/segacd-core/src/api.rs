@@ -92,6 +92,7 @@ impl SegaCd {
         })
     }
 
+    #[inline]
     pub fn tick(
         &mut self,
         genesis_mclk_elapsed: u64,
@@ -162,6 +163,7 @@ impl SegaCd {
         self.sub_cpu_wait_cycles -= sub_cpu_cycles;
     }
 
+    #[inline]
     pub fn main_read_memory<const WORD: bool>(&self, address: u32) -> u16 {
         if address & 0x200000 == 0 {
             // BIOS ROM / PRG RAM
@@ -184,6 +186,7 @@ impl SegaCd {
         }
     }
 
+    #[inline]
     pub fn main_write_memory<const WORD: bool>(&mut self, address: u32, value: u16) {
         if address & 0x200000 == 0 {
             // BIOS ROM / PRG RAM
@@ -204,6 +207,7 @@ impl SegaCd {
         }
     }
 
+    #[inline]
     pub fn read_word_for_dma(&mut self, address: u32, open_bus: &mut u16) -> u16 {
         if address & 0x200000 == 0 {
             *open_bus = self.main_read_memory::<true>(address);
@@ -216,6 +220,7 @@ impl SegaCd {
         }
     }
 
+    #[inline]
     pub fn read_ram_cartridge<const WORD: bool>(&self, mut address: u32) -> u16 {
         if WORD {
             address |= 1;
@@ -223,6 +228,7 @@ impl SegaCd {
         self.bus.read_ram_cartridge(address).into()
     }
 
+    #[inline]
     pub fn write_ram_cartridge<const WORD: bool>(&mut self, mut address: u32, value: u16) {
         if WORD {
             address |= 1;
@@ -230,10 +236,12 @@ impl SegaCd {
         self.bus.write_ram_cartridge(address, value as u8);
     }
 
+    #[inline]
     pub fn main_read_register<const WORD: bool>(&mut self, address: u32) -> u16 {
         self.bus.main_read_register::<WORD>(address)
     }
 
+    #[inline]
     pub fn main_write_register<const WORD: bool>(&mut self, address: u32, value: u16) {
         self.bus.main_write_register::<WORD>(address, value);
     }
@@ -275,6 +283,10 @@ impl SegaCd {
 
     pub fn take_bios_and_disc(self) -> (Vec<u8>, Option<CdRom>) {
         self.bus.take_bios_and_disc()
+    }
+
+    pub fn take_bios_and_disc_from(&mut self, other: &mut Self) {
+        self.bus.take_bios_and_disc_from(&mut other.bus);
     }
 }
 

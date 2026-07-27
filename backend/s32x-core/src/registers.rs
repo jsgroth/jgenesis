@@ -1,6 +1,6 @@
 mod debug;
 
-use crate::bus::WhichCpu;
+use crate::WhichCpu;
 use crate::vdp::Vdp;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, U16Ext, U24Ext};
@@ -153,14 +153,14 @@ impl DmaFifo {
     }
 
     pub fn clear(&mut self) {
-        *self = Self::default();
+        self.ready.fill(false);
     }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct DmaRegisters {
-    pub rom_to_vram_dma: bool,
-    // TODO not sure what this does - seems like maybe something to do with Sega CD?
+    pub rom_to_vram: bool,
+    // TODO not sure what this does
     pub bit_1: bool,
     pub active: bool,
     pub source_address: u32,
@@ -172,7 +172,7 @@ pub struct DmaRegisters {
 impl Default for DmaRegisters {
     fn default() -> Self {
         Self {
-            rom_to_vram_dma: false,
+            rom_to_vram: false,
             bit_1: false,
             active: false,
             source_address: 0,
@@ -193,12 +193,13 @@ pub struct SystemRegisters {
     pub master_interrupts: Sh2Interrupts,
     pub slave_interrupts: Sh2Interrupts,
     pub dma: DmaRegisters,
+    pub cartridge_present: bool,
     // Functionality not emulated, only bits 0 and 8 being R/W
     pub sega_tv_bits: u16,
 }
 
 impl SystemRegisters {
-    pub fn new() -> Self {
+    pub fn new(cartridge_present: bool) -> Self {
         Self {
             adapter_enabled: false,
             reset_sh2: false,
@@ -208,6 +209,7 @@ impl SystemRegisters {
             master_interrupts: Sh2Interrupts::default(),
             slave_interrupts: Sh2Interrupts::default(),
             dma: DmaRegisters::default(),
+            cartridge_present,
             sega_tv_bits: 0,
         }
     }
@@ -254,6 +256,8 @@ impl SystemRegisters {
 
         self.master_interrupts.update_interrupt_level();
         self.slave_interrupts.update_interrupt_level();
+
+        self.adapter_enabled = false;
     }
 
     pub fn m68k_read(&mut self, address: u32) -> u16 {
@@ -407,7 +411,7 @@ impl SystemRegisters {
         (u16::from(self.dma.fifo.is_full()) << 7)
             | (u16::from(self.dma.active) << 2)
             | (u16::from(self.dma.bit_1) << 1)
-            | u16::from(self.dma.rom_to_vram_dma)
+            | u16::from(self.dma.rom_to_vram)
     }
 
     // SH-2: $4006
@@ -416,12 +420,12 @@ impl SystemRegisters {
             | (u16::from(self.dma.fifo.sh2_is_empty()) << 14)
             | (u16::from(self.dma.active) << 2)
             | (u16::from(self.dma.bit_1) << 1)
-            | u16::from(self.dma.rom_to_vram_dma)
+            | u16::from(self.dma.rom_to_vram)
     }
 
     // 68000: $A15106
     fn write_dreq_control(&mut self, value: u16) {
-        self.dma.rom_to_vram_dma = value.bit(0);
+        self.dma.rom_to_vram = value.bit(0);
         self.dma.bit_1 = value.bit(1);
         self.dma.active = value.bit(2);
 
@@ -430,7 +434,7 @@ impl SystemRegisters {
         }
 
         log::trace!("DREQ control write: {value:04X}");
-        log::trace!("  ROM-to-VRAM DMA active: {}", self.dma.rom_to_vram_dma);
+        log::trace!("  ROM-to-VRAM DMA active: {}", self.dma.rom_to_vram);
         log::trace!("  DMA active: {}", self.dma.active);
     }
 
@@ -526,9 +530,9 @@ impl SystemRegisters {
             WhichCpu::Slave => self.slave_interrupts.mask_bits(),
         };
 
-        // Bit 8 (Cartridge not inserted) hardcoded to 0
         ((self.vdp_access as u16) << 15)
             | (u16::from(self.adapter_enabled) << 9)
+            | (u16::from(!self.cartridge_present) << 8)
             | (u16::from(vdp.hen_bit()) << 7)
             | mask_bits
     }

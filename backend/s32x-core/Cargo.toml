@@ -10,9 +10,7 @@ jgenesis-proc-macros = { workspace = true }
 
 genesis-config = { workspace = true }
 
-m68000-emu = { workspace = true }
 sh2-emu = { workspace = true }
-z80-emu = { workspace = true }
 
 genesis-components = { workspace = true }
 ti-sn76489 = { workspace = true }

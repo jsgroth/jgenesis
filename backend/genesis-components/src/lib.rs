@@ -18,14 +18,14 @@ pub const SPRITE_LIMITS_MODAL_MESSAGE: &str = "Sprite limits are disabled; may c
 
 pub trait GenesisEmulatorConfigExt {
     #[must_use]
-    fn to_vdp_config(&self, color_adjustment: DarkenColors) -> VdpConfig;
+    fn to_vdp_config(&self, s32x_present: bool) -> VdpConfig;
 
     #[must_use]
     fn to_gen_par_params(&self) -> GenParParams;
 }
 
 impl GenesisEmulatorConfigExt for GenesisEmulatorConfig {
-    fn to_vdp_config(&self, color_adjustment: DarkenColors) -> VdpConfig {
+    fn to_vdp_config(&self, s32x_present: bool) -> VdpConfig {
         VdpConfig {
             enforce_sprite_limits: !self.remove_sprite_limits,
             non_linear_color_scale: self.non_linear_color_scale,
@@ -36,7 +36,11 @@ impl GenesisEmulatorConfigExt for GenesisEmulatorConfig {
             plane_b_enabled: self.plane_b_enabled,
             sprites_enabled: self.sprites_enabled,
             window_enabled: self.window_enabled,
-            color_adjustment,
+            color_adjustment: if s32x_present && self.sega_32x.darken_genesis_colors {
+                DarkenColors::Yes
+            } else {
+                DarkenColors::No
+            },
         }
     }
 

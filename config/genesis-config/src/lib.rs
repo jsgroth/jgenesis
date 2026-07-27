@@ -552,6 +552,8 @@ impl MappableInputs<GenesisButton> for GenesisInputs {
 pub struct GenesisEmulatorConfig {
     #[cfg_display(indent_nested)]
     pub sega_cd: SegaCdEmulatorConfig,
+    #[cfg_display(indent_nested)]
+    pub sega_32x: Sega32XEmulatorConfig,
     pub forced_timing_mode: Option<TimingMode>,
     pub forced_region: Option<GenesisRegion>,
     pub allow_opposing_joypad_directions: bool,
@@ -591,6 +593,7 @@ impl Default for GenesisEmulatorConfig {
     fn default() -> Self {
         Self {
             sega_cd: SegaCdEmulatorConfig::default(),
+            sega_32x: Sega32XEmulatorConfig::default(),
             forced_timing_mode: None,
             forced_region: None,
             allow_opposing_joypad_directions: false,
@@ -645,6 +648,7 @@ impl EmulatorConfigTrait for GenesisEmulatorConfig {
     fn with_overclocking_disabled(&self) -> Self {
         Self {
             sega_cd: self.sega_cd.with_overclocking_disabled(),
+            sega_32x: self.sega_32x.with_overclocking_disabled(),
             m68k_clock_divider: NATIVE_M68K_DIVIDER,
             ..self.clone()
         }
@@ -698,8 +702,6 @@ impl EmulatorConfigTrait for SegaCdEmulatorConfig {
 
 #[derive(Debug, Clone, Encode, Decode, ConfigDisplay)]
 pub struct Sega32XEmulatorConfig {
-    #[cfg_display(skip)]
-    pub genesis: GenesisEmulatorConfig,
     pub sh2_clock_multiplier: NonZeroU64,
     pub video_out: S32XVideoOut,
     pub darken_genesis_colors: bool,
@@ -716,7 +718,6 @@ pub struct Sega32XEmulatorConfig {
 impl Default for Sega32XEmulatorConfig {
     fn default() -> Self {
         Self {
-            genesis: GenesisEmulatorConfig::default(),
             sh2_clock_multiplier: NonZeroU64::new(NATIVE_SH2_MULTIPLIER).unwrap(),
             video_out: S32XVideoOut::default(),
             darken_genesis_colors: true,
@@ -734,10 +735,6 @@ impl Default for Sega32XEmulatorConfig {
 
 impl EmulatorConfigTrait for Sega32XEmulatorConfig {
     fn with_overclocking_disabled(&self) -> Self {
-        Self {
-            genesis: self.genesis.with_overclocking_disabled(),
-            sh2_clock_multiplier: NonZeroU64::new(NATIVE_SH2_MULTIPLIER).unwrap(),
-            ..*self
-        }
+        Self { sh2_clock_multiplier: NonZeroU64::new(NATIVE_SH2_MULTIPLIER).unwrap(), ..*self }
     }
 }

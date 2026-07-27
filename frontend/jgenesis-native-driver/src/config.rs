@@ -233,9 +233,6 @@ pub trait AppConfigExt {
     ) -> Box<GenesisConfig>;
 
     #[must_use]
-    fn sega_32x_config(&self, path: PathBuf, cheats: &GenesisCheats) -> Box<Sega32XConfig>;
-
-    #[must_use]
     fn smsgg_config(
         &self,
         path: PathBuf,
@@ -344,6 +341,27 @@ impl AppConfigExt for AppConfig {
                     pcm_volume_adjustment_db: self.sega_cd.pcm_volume_adjustment_db,
                     cd_volume_adjustment_db: self.sega_cd.cd_volume_adjustment_db,
                 },
+                sega_32x: Sega32XEmulatorConfig {
+                    sh2_clock_multiplier: self.sega_32x.sh2_clock_multiplier,
+                    video_out: self.sega_32x.video_out,
+                    darken_genesis_colors: self.sega_32x.darken_genesis_colors,
+                    color_tint: self.sega_32x.color_tint,
+                    show_high_priority: self.sega_32x.show_high_priority,
+                    show_low_priority: self.sega_32x.show_low_priority,
+                    void_color: match self.sega_32x.void_color_type {
+                        S32XVoidColorType::PaletteRam => {
+                            S32XVoidColor::PaletteRam { idx: self.sega_32x.void_palette_index }
+                        }
+                        S32XVoidColorType::Direct => {
+                            let [r, g, b] = self.sega_32x.void_direct;
+                            S32XVoidColor::Direct { r, g, b, a: self.sega_32x.void_direct_priority }
+                        }
+                    },
+                    apply_genesis_lpf_to_pwm: self.sega_32x.apply_genesis_lpf_to_pwm,
+                    pwm_resampling: self.sega_32x.pwm_resampling,
+                    pwm_enabled: self.sega_32x.pwm_enabled,
+                    pwm_volume_adjustment_db: self.sega_32x.pwm_volume_adjustment_db,
+                },
                 forced_timing_mode: self.genesis.forced_timing_mode,
                 forced_region: self.genesis.forced_region,
                 allow_opposing_joypad_directions: self.genesis.allow_opposing_joypad_directions,
@@ -384,38 +402,6 @@ impl AppConfigExt for AppConfig {
             scd_per_region_bios: self.sega_cd.per_region_bios,
             scd_run_without_disc: false,
             scd_load_disc_into_ram: self.sega_cd.load_disc_into_ram,
-        })
-    }
-
-    // TODO CD32X - remove
-    fn sega_32x_config(&self, path: PathBuf, cheats: &GenesisCheats) -> Box<Sega32XConfig> {
-        let genesis_config =
-            *self.genesis_config(path, None, Some(GenesisHardware::Sega32X), cheats);
-        let genesis_emu_config = genesis_config.emulator_config.clone();
-        Box::new(Sega32XConfig {
-            genesis: genesis_config,
-            emulator_config: Sega32XEmulatorConfig {
-                genesis: genesis_emu_config,
-                sh2_clock_multiplier: self.sega_32x.sh2_clock_multiplier,
-                video_out: self.sega_32x.video_out,
-                darken_genesis_colors: self.sega_32x.darken_genesis_colors,
-                color_tint: self.sega_32x.color_tint,
-                show_high_priority: self.sega_32x.show_high_priority,
-                show_low_priority: self.sega_32x.show_low_priority,
-                void_color: match self.sega_32x.void_color_type {
-                    S32XVoidColorType::PaletteRam => {
-                        S32XVoidColor::PaletteRam { idx: self.sega_32x.void_palette_index }
-                    }
-                    S32XVoidColorType::Direct => {
-                        let [r, g, b] = self.sega_32x.void_direct;
-                        S32XVoidColor::Direct { r, g, b, a: self.sega_32x.void_direct_priority }
-                    }
-                },
-                apply_genesis_lpf_to_pwm: self.sega_32x.apply_genesis_lpf_to_pwm,
-                pwm_resampling: self.sega_32x.pwm_resampling,
-                pwm_enabled: self.sega_32x.pwm_enabled,
-                pwm_volume_adjustment_db: self.sega_32x.pwm_volume_adjustment_db,
-            },
         })
     }
 

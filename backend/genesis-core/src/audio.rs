@@ -7,6 +7,8 @@ use dsp::sinc::{PerformanceSincResampler, QualitySincResampler};
 use genesis_components::audio::{GenesisAudioFilter, LowPassSettings};
 use genesis_config::GenesisEmulatorConfig;
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
+use s32x_core::api::Sega32XAudioOutput;
+use s32x_core::audio::PwmResampler;
 use segacd_core::api::SegaCdAudioOutput;
 use segacd_core::audio::SegaCdAudioFilter;
 
@@ -18,6 +20,9 @@ const PCM_COEFFICIENT: f64 = 0.5011872336272722;
 // -7 dB (10 ^ -7/20)
 const CD_COEFFICIENT: f64 = 0.44668359215096315;
 
+// -2 dB (10 ^ -2/20))
+const PWM_COEFFICIENT: f64 = 0.7943282347242815;
+
 const SEGA_CD_MCLK_FREQUENCY: f64 = segacd_core::audio::SEGA_CD_MCLK_FREQUENCY;
 const CD_DA_FREQUENCY: f64 = segacd_core::audio::CD_DA_FREQUENCY;
 
@@ -27,6 +32,7 @@ struct VolumeMultipliers {
     psg: f64,
     pcm: f64,
     cd: f64,
+    pwm: f64,
 }
 
 impl VolumeMultipliers {
@@ -47,6 +53,11 @@ impl VolumeMultipliers {
                     config.sega_cd.cd_audio_enabled,
                     config.sega_cd.cd_volume_adjustment_db,
                 ),
+            pwm: PWM_COEFFICIENT
+                * volume_multiplier(
+                    config.sega_32x.pwm_enabled,
+                    config.sega_32x.pwm_volume_adjustment_db,
+                ),
         }
     }
 }
@@ -59,6 +70,7 @@ pub struct GenesisAudioResampler {
     psg_resampler: PerformanceSincResampler<1>,
     pcm_resampler: QualitySincResampler<2>,
     cd_resampler: QualitySincResampler<2>,
+    pwm_resampler: PwmResampler,
     volumes: VolumeMultipliers,
     sega_cd_present: bool,
     s32x_present: bool,
@@ -86,6 +98,7 @@ impl GenesisAudioResampler {
             ),
             pcm_resampler: QualitySincResampler::new(pcm_frequency, 48000.0),
             cd_resampler: QualitySincResampler::new(CD_DA_FREQUENCY, 48000.0),
+            pwm_resampler: PwmResampler::new(config, 48000),
             volumes: VolumeMultipliers::from_config(config),
             sega_cd_present: hardware.has_sega_cd(),
             s32x_present: hardware.has_32x(),
@@ -105,6 +118,7 @@ impl GenesisAudioResampler {
             self.psg_resampler.output_buffer_len(),
             if self.sega_cd_present { self.pcm_resampler.output_buffer_len() } else { usize::MAX },
             if self.sega_cd_present { self.cd_resampler.output_buffer_len() } else { usize::MAX },
+            if self.s32x_present { self.pwm_resampler.output_buffer_len() } else { usize::MAX },
         ]
         .into_iter()
         .min()
@@ -140,8 +154,17 @@ impl GenesisAudioResampler {
                 [0.0; 2]
             };
 
-            let sample_l = (ym2612_l + psg + pcm_l + cd_l).clamp(-1.0, 1.0);
-            let sample_r = (ym2612_r + psg + pcm_r + cd_r).clamp(-1.0, 1.0);
+            let [pwm_l, pwm_r] = if self.s32x_present {
+                self.pwm_resampler
+                    .output_buffer_pop_front()
+                    .unwrap()
+                    .map(|sample| sample * self.volumes.pwm)
+            } else {
+                [0.0; 2]
+            };
+
+            let sample_l = (ym2612_l + psg + pcm_l + cd_l + pwm_l).clamp(-1.0, 1.0);
+            let sample_r = (ym2612_r + psg + pcm_r + cd_r + pwm_r).clamp(-1.0, 1.0);
 
             audio_output.push_sample(sample_l, sample_r)?;
         }
@@ -154,6 +177,7 @@ impl GenesisAudioResampler {
 
         self.filter.reload_config(timing_mode, config);
         self.sega_cd_filter.reload_config(config);
+        self.pwm_resampler.reload_config(config);
     }
 
     pub fn update_output_frequency(&mut self, output_frequency: u64) {
@@ -163,6 +187,7 @@ impl GenesisAudioResampler {
         self.psg_resampler.update_output_frequency(output_frequency);
         self.pcm_resampler.update_output_frequency(output_frequency);
         self.cd_resampler.update_output_frequency(output_frequency);
+        self.pwm_resampler.update_output_frequency(output_frequency as u64);
     }
 }
 
@@ -187,5 +212,15 @@ impl SegaCdAudioOutput for GenesisAudioResampler {
     fn collect_cd(&mut self, sample: (f64, f64)) {
         let (sample_l, sample_r) = self.sega_cd_filter.filter_cd_da(sample);
         self.cd_resampler.collect([sample_l, sample_r]);
+    }
+}
+
+impl Sega32XAudioOutput for GenesisAudioResampler {
+    fn collect_pwm(&mut self, (sample_l, sample_r): (f64, f64)) {
+        self.pwm_resampler.collect_sample(sample_l, sample_r);
+    }
+
+    fn update_pwm_source_frequency(&mut self, frequency: f64) {
+        self.pwm_resampler.update_source_frequency(frequency);
     }
 }

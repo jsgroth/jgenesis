@@ -4,19 +4,22 @@ use genesis_components::cartridge::{Cartridge, GenesisRegionExt};
 use genesis_components::input::InputState;
 use genesis_components::memory::{Memory2, PhysicalMedium};
 use genesis_components::timing::CycleCounters;
-use genesis_components::vdp::{DarkenColors, Vdp, VdpBusView, VdpTickEffect};
+use genesis_components::vdp::{Vdp, VdpBusView, VdpTickEffect};
 use genesis_components::ym2612::Ym2612;
 use genesis_config::{GenesisEmulatorConfig, GenesisRegion};
 use jgenesis_common::frontend::{PartialClone, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext};
 use m68000_emu::debug::DummyM68000Debugger;
+use s32x_core::api::{Sega32X, Sega32XAudioOutput};
 use segacd_core::api::{SegaCd, SegaCdAudioOutput, SegaCdLoadResult};
 use std::mem;
 use ti_sn76489::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use z80_emu::debug::DummyZ80Debugger;
 use z80_emu::traits::InterruptLine;
 
-pub trait GenesisAudioOutput: SegaCdAudioOutput {
+const MARS: [u8; 4] = *b"MARS";
+
+pub trait GenesisAudioOutput: SegaCdAudioOutput + Sega32XAudioOutput {
     fn collect_ym2612(&mut self, sample: (f64, f64));
 
     fn collect_psg(&mut self, sample: f64);
@@ -79,6 +82,7 @@ impl PendingWrites {
 
 struct VdpView<'bus> {
     sega_cd: Option<&'bus mut SegaCd>,
+    sega_32x: Option<&'bus mut Sega32X>,
     cartridge: Option<&'bus mut Cartridge>,
     memory: &'bus mut Memory2,
     open_bus: &'bus mut u16,
@@ -88,8 +92,11 @@ impl VdpBusView for VdpView<'_> {
     fn read_word_for_dma(&mut self, address: u32) -> u16 {
         match address {
             0x000000..=0x3FFFFF => {
-                if let Some(cartridge) = &mut self.cartridge {
-                    // TODO 32X
+                if let Some(cartridge) = &mut self.cartridge
+                    && self.sega_32x.as_mut().is_none_or(|sega_32x| {
+                        !sega_32x.adapter_enabled() || sega_32x.rom_to_vram_dma()
+                    })
+                {
                     cartridge.read_word_for_dma(address, self.open_bus)
                 } else if let Some(sega_cd) = &mut self.sega_cd {
                     sega_cd.read_word_for_dma(address, self.open_bus)
@@ -107,6 +114,7 @@ impl VdpBusView for VdpView<'_> {
 pub struct GenesisBus {
     #[partial_clone(partial)]
     pub sega_cd: Option<SegaCd>,
+    pub sega_32x: Option<Sega32X>,
     pub memory: Memory2,
     #[partial_clone(partial)]
     pub cartridge: Option<Cartridge>,
@@ -129,11 +137,11 @@ impl GenesisBus {
         timing_mode: TimingMode,
         cartridge: Option<Cartridge>,
         sega_cd: Option<SegaCd>,
+        sega_32x: Option<Sega32X>,
         config: &GenesisEmulatorConfig,
     ) -> Self {
         let memory = Memory2::new(config);
-        // TODO 32X
-        let vdp = Vdp::new(timing_mode, config.to_vdp_config(DarkenColors::No));
+        let vdp = Vdp::new(timing_mode, config.to_vdp_config(sega_32x.is_some()));
         let psg = Sn76489::new(Sn76489Version::Standard);
         let ym2612 = Ym2612::new(config);
 
@@ -148,6 +156,7 @@ impl GenesisBus {
 
         Self {
             sega_cd,
+            sega_32x,
             memory,
             cartridge,
             vdp,
@@ -173,10 +182,6 @@ impl GenesisBus {
         m68k_wait: bool,
         audio_output: &mut impl GenesisAudioOutput,
     ) -> SegaCdLoadResult<VdpTickEffect> {
-        if let Some(sega_cd) = &mut self.sega_cd {
-            sega_cd.tick(mclk_cycles, audio_output)?;
-        }
-
         if let Some(cartridge) = &mut self.cartridge {
             cartridge.tick(m68k_cycles);
         }
@@ -197,6 +202,7 @@ impl GenesisBus {
             mclk_cycles,
             &mut VdpView {
                 sega_cd: self.sega_cd.as_mut(),
+                sega_32x: self.sega_32x.as_mut(),
                 cartridge: self.cartridge.as_mut(),
                 memory: &mut self.memory,
                 open_bus: &mut self.open_bus,
@@ -209,6 +215,14 @@ impl GenesisBus {
             for sample in self.ym2612.drain_output_samples() {
                 audio_output.collect_ym2612(sample);
             }
+        }
+
+        if let Some(sega_cd) = &mut self.sega_cd {
+            sega_cd.tick(mclk_cycles, audio_output)?;
+        }
+
+        if let Some(sega_32x) = &mut self.sega_32x {
+            sega_32x.tick(mclk_cycles, &mut self.cartridge, &self.vdp, audio_output);
         }
 
         genesis_components::check_for_long_dma_skip(&self.vdp, &mut self.cycles);
@@ -246,13 +260,16 @@ impl GenesisBus {
             sega_cd.reload_config(config);
         }
 
+        if let Some(sega_32x) = &mut self.sega_32x {
+            sega_32x.reload_config(&config.sega_32x);
+        }
+
         if let Some(cartridge) = &mut self.cartridge {
             cartridge.reload_config(config);
         }
 
         self.memory.reload_config(config);
-        // TODO 32X
-        self.vdp.reload_config(config.to_vdp_config(DarkenColors::No));
+        self.vdp.reload_config(config.to_vdp_config(self.sega_32x.is_some()));
         self.ym2612.reload_config(config);
         self.input.reload_config(config);
         self.cycles.update_m68k_divider(config.clamped_m68k_divider());
@@ -261,6 +278,10 @@ impl GenesisBus {
     pub fn reset(&mut self) {
         if let Some(sega_cd) = &mut self.sega_cd {
             sega_cd.reset();
+        }
+
+        if let Some(sega_32x) = &mut self.sega_32x {
+            sega_32x.reset();
         }
 
         self.z80_signals = Z80Signals::default();
@@ -290,8 +311,16 @@ impl GenesisBus {
             0x000000..=0x3FFFFF => {
                 // If cartridge is present, maps to cartridge
                 // Otherwise maps to Sega CD BIOS ROM / PRG RAM / Word RAM
-                // TODO 32X
-                if let Some(cartridge) = &mut self.cartridge {
+                if let Some(sega_32x) = &mut self.sega_32x
+                    && sega_32x.adapter_enabled()
+                    && self.cartridge.is_some()
+                {
+                    sega_32x.m68k_read_cartridge::<WORD>(
+                        address,
+                        self.open_bus,
+                        self.cartridge.as_mut(),
+                    )
+                } else if let Some(cartridge) = &mut self.cartridge {
                     if WORD {
                         cartridge.read_word(address, self.open_bus)
                     } else {
@@ -306,6 +335,7 @@ impl GenesisBus {
             0x400000..=0x7FFFFF => {
                 // If cartridge is present, maps to Sega CD if present, otherwise let it go through to the cartridge
                 // Otherwise, assuming Sega CD is present, maps to Sega CD RAM cartridge
+                // TODO can 68000 access the cartridge here when 32X adapter is enabled?
                 match (&mut self.cartridge, &mut self.sega_cd) {
                     (Some(_cartridge), Some(sega_cd)) => sega_cd.main_read_memory::<WORD>(address),
                     (Some(cartridge), None) => {
@@ -319,8 +349,11 @@ impl GenesisBus {
                     (None, None) => self.open_bus,
                 }
             }
-            0x800000..=0x9FFFFF => {
-                todo!("32X")
+            0x800000..=0x9FFFFF
+                if let Some(sega_32x) = &mut self.sega_32x
+                    && sega_32x.adapter_enabled() =>
+            {
+                sega_32x.m68k_read_memory::<WORD>(address, self.open_bus, self.cartridge.as_mut())
             }
             0xA00000..=0xA0FFFF => {
                 // Z80 memory map; 68k can only access when the Z80 is running and removed from the bus
@@ -362,13 +395,25 @@ impl GenesisBus {
             0xA12000..=0xA12FFF if let Some(sega_cd) = &mut self.sega_cd => {
                 sega_cd.main_read_register::<WORD>(address)
             }
-            // TODO 32X A13
-            0xA15000..=0xA15FFF if let Some(cartridge) = &mut self.cartridge => {
-                // TODO 32X
+            0xA130EC..=0xA130EF if self.sega_32x.is_some() => {
+                let idx = (address & 3) as usize;
                 if WORD {
-                    cartridge.read_word(address, self.open_bus)
+                    u16::from_be_bytes(MARS[idx..idx + 2].try_into().unwrap())
                 } else {
-                    cartridge.read_byte(address, self.open_bus).into()
+                    MARS[idx].into()
+                }
+            }
+            0xA15000..=0xA15FFF => {
+                if let Some(sega_32x) = &mut self.sega_32x {
+                    sega_32x.m68k_read_register::<WORD>(address, self.open_bus)
+                } else if let Some(cartridge) = &mut self.cartridge {
+                    if WORD {
+                        cartridge.read_word(address, self.open_bus)
+                    } else {
+                        cartridge.read_byte(address, self.open_bus).into()
+                    }
+                } else {
+                    self.open_bus
                 }
             }
             0xC00000..=0xC0001F => self.read_vdp::<WORD>(address),
@@ -405,8 +450,12 @@ impl GenesisBus {
             0x000000..=0x3FFFFF => {
                 // If cartridge is present, maps to cartridge
                 // Otherwise maps to Sega CD BIOS ROM / PRG RAM / Word RAM
-                // TODO 32X
-                if let Some(cartridge) = &mut self.cartridge {
+                if let Some(sega_32x) = &mut self.sega_32x
+                    && sega_32x.adapter_enabled()
+                    && self.cartridge.is_some()
+                {
+                    sega_32x.m68k_write_cartridge::<WORD>(address, value, self.cartridge.as_mut());
+                } else if let Some(cartridge) = &mut self.cartridge {
                     if WORD {
                         cartridge.write_word(address, value);
                     } else {
@@ -419,6 +468,7 @@ impl GenesisBus {
             0x400000..=0x7FFFFF => {
                 // If cartridge is present, maps to Sega CD if present, otherwise let it go through to the cartridge
                 // Otherwise, assuming Sega CD is present, maps to Sega CD RAM cartridge
+                // TODO can 68000 access the cartridge here when 32X adapter is enabled?
                 match (&mut self.cartridge, &mut self.sega_cd) {
                     (Some(_cartridge), Some(sega_cd)) => {
                         sega_cd.main_write_memory::<WORD>(address, value);
@@ -436,8 +486,11 @@ impl GenesisBus {
                     (None, None) => {}
                 }
             }
-            0x800000..=0x9FFFFF => {
-                todo!("32X")
+            0x800000..=0x9FFFFF
+                if let Some(sega_32x) = &mut self.sega_32x
+                    && sega_32x.adapter_enabled() =>
+            {
+                sega_32x.m68k_write_memory::<WORD>(address, value, self.cartridge.as_mut());
             }
             0xA00000..=0xA0FFFF if self.z80_signals.busack() => {
                 // Z80 memory map; writable by the 68k only when the Z80 is removed from the bus
@@ -473,7 +526,6 @@ impl GenesisBus {
                 sega_cd.main_write_register::<WORD>(address, value);
             }
             0xA13000..=0xA13FFF => {
-                // TODO 32X
                 if let Some(cartridge) = &mut self.cartridge {
                     if WORD {
                         cartridge.write_word(address, value);
@@ -482,12 +534,15 @@ impl GenesisBus {
                     }
                 }
             }
-            // TODO 32X A15
-            0xA15000..=0xA15FFF if let Some(cartridge) = &mut self.cartridge => {
-                if WORD {
-                    cartridge.write_word(address, value);
-                } else {
-                    cartridge.write_byte(address, value as u8);
+            0xA15000..=0xA15FFF => {
+                if let Some(sega_32x) = &mut self.sega_32x {
+                    sega_32x.m68k_write_register::<WORD>(address, value);
+                } else if let Some(cartridge) = &mut self.cartridge {
+                    if WORD {
+                        cartridge.write_word(address, value);
+                    } else {
+                        cartridge.write_byte(address, value as u8);
+                    }
                 }
             }
             0xC00000..=0xC0001F => {

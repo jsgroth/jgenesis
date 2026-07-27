@@ -300,23 +300,34 @@ impl DmaController {
 
         // TODO respect priority
 
+        let mut idx_can_run: Option<usize> = None;
+
         for (idx, channel) in self.channels.iter_mut().enumerate() {
             if !channel.control.dma_enabled || channel.control.dma_complete {
                 continue;
             }
 
+            let can_run = channel.control.auto_request
+                || (idx == 0 && bus.dma_request_0())
+                || (idx == 1 && bus.dma_request_1());
+
             if channel.control.bus_mode == DmaBusMode::CycleStealing && channel.just_ran {
                 channel.just_ran = false;
+                if can_run && idx_can_run.is_none() {
+                    idx_can_run = Some(idx);
+                }
                 continue;
             }
 
-            if channel.control.auto_request
-                || (idx == 0 && bus.dma_request_0())
-                || (idx == 1 && bus.dma_request_1())
-            {
+            if can_run {
                 channel.just_ran = true;
                 return Some(idx);
             }
+        }
+
+        if let Some(idx) = idx_can_run {
+            self.channels[idx].just_ran = true;
+            return Some(idx);
         }
 
         None
