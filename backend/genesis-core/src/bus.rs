@@ -1,18 +1,18 @@
+use crate::timing::CycleCounters;
 use bincode::{Decode, Encode};
-use genesis_components::GenesisEmulatorConfigExt;
 use genesis_components::cartridge::{Cartridge, GenesisRegionExt};
 use genesis_components::input::InputState;
-use genesis_components::memory::{Memory2, PhysicalMedium};
-use genesis_components::timing::CycleCounters;
+use genesis_components::memory::Memory;
 use genesis_components::vdp::{Vdp, VdpBusView, VdpTickEffect};
 use genesis_components::ym2612::Ym2612;
+use genesis_components::{GenesisEmulatorConfigExt, vdp};
 use genesis_config::{GenesisEmulatorConfig, GenesisRegion};
 use jgenesis_common::frontend::{PartialClone, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext};
 use m68000_emu::debug::DummyM68000Debugger;
 use s32x_core::api::{Sega32X, Sega32XAudioOutput};
 use segacd_core::api::{SegaCd, SegaCdAudioOutput, SegaCdLoadResult};
-use std::mem;
+use std::{cmp, mem};
 use ti_sn76489::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use z80_emu::debug::DummyZ80Debugger;
 use z80_emu::traits::InterruptLine;
@@ -84,7 +84,7 @@ struct VdpView<'bus> {
     sega_cd: Option<&'bus mut SegaCd>,
     sega_32x: Option<&'bus mut Sega32X>,
     cartridge: Option<&'bus mut Cartridge>,
-    memory: &'bus mut Memory2,
+    memory: &'bus mut Memory,
     open_bus: &'bus mut u16,
 }
 
@@ -115,7 +115,7 @@ pub struct GenesisBus {
     #[partial_clone(partial)]
     pub sega_cd: Option<SegaCd>,
     pub sega_32x: Option<Sega32X>,
-    pub memory: Memory2,
+    pub memory: Memory,
     #[partial_clone(partial)]
     pub cartridge: Option<Cartridge>,
     pub vdp: Vdp,
@@ -140,7 +140,7 @@ impl GenesisBus {
         sega_32x: Option<Sega32X>,
         config: &GenesisEmulatorConfig,
     ) -> Self {
-        let memory = Memory2::new(config);
+        let memory = Memory::new(config);
         let vdp = Vdp::new(timing_mode, config.to_vdp_config(sega_32x.is_some()));
         let psg = Sn76489::new(Sn76489Version::Standard);
         let ym2612 = Ym2612::new(config);
@@ -225,7 +225,7 @@ impl GenesisBus {
             sega_32x.tick(mclk_cycles, &mut self.cartridge, &self.vdp, audio_output);
         }
 
-        genesis_components::check_for_long_dma_skip(&self.vdp, &mut self.cycles);
+        check_for_long_dma_skip(&self.vdp, &mut self.cycles);
 
         if !m68k_wait {
             self.vdp.update_interrupt_latches();
@@ -652,6 +652,41 @@ impl GenesisBus {
             self.ym2612.tick(ticks);
         }
     }
+}
+
+// If a long DMA is in progress (i.e. the DMA will not finish on this line), preemptively skip the
+// 68000 forward by a large number of mclk cycles (up to 1250).
+//
+// This function is public so that it can be used by the Sega CD core
+#[inline]
+fn check_for_long_dma_skip(vdp: &Vdp, cycles: &mut CycleCounters) {
+    if !vdp.long_halting_dma_in_progress() {
+        return;
+    }
+
+    if !cycles.z80_halt {
+        // Don't advance for very long time slices if the Z80 is still active; doing so causes
+        // video/audio desync in Overdrive 2.
+        // 8 68K cycles is slightly less than 4 Z80 cycles
+        cycles.m68k_wait_cpu_cycles = 8;
+        return;
+    }
+
+    // Skip as close as possible to the end of the current scanline
+    let wait_cycles = cmp::max(
+        cycles.m68k_wait_cpu_cycles,
+        cmp::min(
+            cycles.max_wait_cpu_cycles,
+            (vdp::MCLK_CYCLES_PER_SCANLINE - vdp.scanline_mclk()) as u32
+                / cycles.m68k_divider_u32.get(),
+        ),
+    );
+    cycles.m68k_wait_cpu_cycles = wait_cycles;
+
+    log::trace!(
+        "Skipping {wait_cycles} 68000 CPU cycles in long DMA optimization, scanline mclk is {}",
+        vdp.scanline_mclk()
+    );
 }
 
 impl m68000_emu::BusInterface for GenesisBus {

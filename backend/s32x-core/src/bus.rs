@@ -6,7 +6,6 @@ use crate::vdp::Vdp;
 use crate::{WhichCpu, bootrom};
 use bincode::{Decode, Encode};
 use genesis_components::cartridge::Cartridge;
-use genesis_components::memory::PhysicalMedium;
 use jgenesis_common::boxedarray::BoxedWordArray;
 use jgenesis_common::num::{GetBit, U16Ext};
 use sh2_emu::Sh2;

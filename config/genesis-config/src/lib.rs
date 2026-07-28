@@ -740,3 +740,23 @@ impl EmulatorConfigTrait for Sega32XEmulatorConfig {
         Self { sh2_clock_multiplier: NonZeroU64::new(NATIVE_SH2_MULTIPLIER).unwrap(), ..*self }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+pub struct LowPassSettings {
+    pub genesis_enabled: bool,
+    pub genesis_cutoff: u32,
+    pub ym2612_2nd_enabled: bool,
+    pub ym2612_2nd_cutoff: u32,
+}
+
+impl LowPassSettings {
+    #[must_use]
+    pub fn from_config(config: &GenesisEmulatorConfig) -> Self {
+        Self {
+            genesis_enabled: config.genesis_lpf_enabled,
+            genesis_cutoff: config.genesis_lpf_cutoff,
+            ym2612_2nd_enabled: config.ym2612_2nd_lpf_enabled,
+            ym2612_2nd_cutoff: config.ym2612_2nd_lpf_cutoff,
+        }
+    }
+}

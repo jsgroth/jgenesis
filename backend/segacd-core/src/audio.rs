@@ -5,10 +5,10 @@
 use bincode::{Decode, Encode};
 use dsp::design::FilterType;
 use dsp::iir::{FirstOrderIirFilter, IirFilter, SecondOrderIirFilter};
-use genesis_components::audio::LowPassSettings;
-use genesis_config::GenesisEmulatorConfig;
+use genesis_config::{GenesisEmulatorConfig, LowPassSettings};
 
 pub const SEGA_CD_MCLK_FREQUENCY: f64 = 50_000_000.0;
+pub const PCM_FREQUENCY: f64 = SEGA_CD_MCLK_FREQUENCY / 4.0 / 384.0;
 pub const CD_DA_FREQUENCY: f64 = 44_100.0;
 
 fn new_pcm_low_pass<const N: usize>(cutoff: f64) -> IirFilter<N> {

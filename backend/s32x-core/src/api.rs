@@ -9,10 +9,8 @@ use crate::registers::{Access, SystemRegisters};
 use crate::vdp::Vdp;
 use crate::{GenesisVdp, WhichCpu, bootrom};
 use bincode::{Decode, Encode};
+use genesis_components::GenesisEmulatorConfigExt;
 use genesis_components::cartridge::Cartridge;
-use genesis_components::memory::PhysicalMedium;
-use genesis_components::vdp::DarkenColors;
-use genesis_components::{GenesisEmulatorConfigExt, timing};
 use genesis_config::GenesisEmulatorConfig;
 use genesis_config::Sega32XEmulatorConfig;
 use jgenesis_common::boxedarray::BoxedWordArray;
@@ -23,7 +21,7 @@ use std::cmp;
 use std::fmt::Debug;
 use std::num::NonZeroU64;
 
-const M68K_DIVIDER: u64 = timing::NATIVE_M68K_DIVIDER;
+const M68K_DIVIDER: u64 = genesis_config::NATIVE_M68K_DIVIDER;
 const SH2_MULTIPLIER: u64 = crate::SH2_CLOCK_MULTIPLIER;
 
 // Prefer to execute SH-2 instructions in longer chunks when possible for better performance

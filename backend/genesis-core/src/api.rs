@@ -5,14 +5,12 @@ use crate::bus::GenesisBus;
 use bincode::{Decode, Encode};
 use cdrom::reader::CdRom;
 use genesis_components::cartridge::Cartridge;
-use genesis_components::debug::GenesisDebugger;
 use genesis_components::vdp::VdpTickEffect;
 use genesis_config::{GenesisButton, GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
 use jgenesis_common::frontend::{
     AudioOutput, EmulatorTrait, InputPoller, Modal, PartialClone, Renderer, SaveWriter, TickEffect,
     TickResult, TimingMode,
 };
-use jgenesis_proc_macros::EnumDisplay;
 use m68000_emu::M68000;
 use s32x_core::api::Sega32X;
 use segacd_core::api::{SegaCd, SegaCdLoadError, SegaCdLoadResult};
@@ -214,7 +212,6 @@ impl GenesisEmulator {
         audio_output: &mut A,
         input_poller: &mut I,
         save_writer: &mut S,
-        mut debugger: Option<&mut GenesisDebugger>,
     ) -> TickResult<GenesisError<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
@@ -291,33 +288,6 @@ impl GenesisEmulator {
             VdpTickEffect::None => TickEffect::None,
         })
     }
-
-    /// # Errors
-    ///
-    /// This method will propagate any errors encountered while rendering frames or pushing audio
-    /// samples.
-    pub fn debug_tick<R, A, I, S>(
-        &mut self,
-        renderer: &mut R,
-        audio_output: &mut A,
-        input_poller: &mut I,
-        save_writer: &mut S,
-        debugger: &mut GenesisDebugger,
-    ) -> TickResult<GenesisError<R::Err, A::Err, S::Err>>
-    where
-        R: Renderer,
-        A: AudioOutput,
-        I: InputPoller<GenesisInputs>,
-        S: SaveWriter,
-    {
-        self.tick_inner::<true, _, _, _, _>(
-            renderer,
-            audio_output,
-            input_poller,
-            save_writer,
-            Some(debugger),
-        )
-    }
 }
 
 impl EmulatorTrait for GenesisEmulator {
@@ -353,13 +323,7 @@ impl EmulatorTrait for GenesisEmulator {
         I: InputPoller<Self::Inputs>,
         S: SaveWriter,
     {
-        self.tick_inner::<false, _, _, _, _>(
-            renderer,
-            audio_output,
-            input_poller,
-            save_writer,
-            None,
-        )
+        self.tick_inner::<false, _, _, _, _>(renderer, audio_output, input_poller, save_writer)
     }
 
     fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>

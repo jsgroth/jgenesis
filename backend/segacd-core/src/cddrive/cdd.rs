@@ -5,12 +5,11 @@ use crate::cddrive::cdc::{Rchip, RchipDmaArgs};
 use bincode::{Decode, Encode};
 use cdrom::cdtime::CdTime;
 use cdrom::cue::{Track, TrackType};
-use cdrom::reader::{CdRom, CdRomFileFormat};
+use cdrom::reader::CdRom;
 use genesis_config::{GenesisRegion, SegaCdEmulatorConfig};
 use jgenesis_proc_macros::PartialClone;
 use regex::Regex;
 use std::cmp::Ordering;
-use std::path::Path;
 use std::sync::LazyLock;
 use std::{array, cmp};
 

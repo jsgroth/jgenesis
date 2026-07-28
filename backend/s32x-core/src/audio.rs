@@ -4,8 +4,7 @@ use bincode::{Decode, Encode};
 use dsp::design::FilterType;
 use dsp::iir::FirstOrderIirFilter;
 use dsp::sinc::QualitySincResampler;
-use genesis_components::audio::LowPassSettings;
-use genesis_config::{GenesisEmulatorConfig, S32XPwmResampling};
+use genesis_config::{GenesisEmulatorConfig, LowPassSettings, S32XPwmResampling};
 use jgenesis_common::audio::CubicResampler;
 use std::collections::VecDeque;
 

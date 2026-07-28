@@ -169,8 +169,8 @@ impl PwmChip {
             timer_counter: 16,
             dreq1: false,
             genesis_mclk_frequency: match timing_mode {
-                TimingMode::Ntsc => genesis_components::audio::NTSC_GENESIS_MCLK_FREQUENCY,
-                TimingMode::Pal => genesis_components::audio::PAL_GENESIS_MCLK_FREQUENCY,
+                TimingMode::Ntsc => genesis_components::NTSC_GENESIS_MCLK_FREQUENCY,
+                TimingMode::Pal => genesis_components::PAL_GENESIS_MCLK_FREQUENCY,
             },
         }
     }
