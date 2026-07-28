@@ -482,11 +482,15 @@ impl GenericEmulator {
 
                 Self::SmsGg(Box::new(NativeSmsGgEmulator::create(sdl, gg_config)?))
             }
-            Console::SegaCd => {
+            Console::SegaCd | Console::SegaCd32X => {
+                let hardware = match console {
+                    Console::SegaCd32X => GenesisHardware::SegaCd32X,
+                    _ => GenesisHardware::SegaCd,
+                };
                 let mut genesis_config = config.genesis_config(
                     PathBuf::new(),
                     None,
-                    Some(GenesisHardware::SegaCd),
+                    Some(hardware),
                     &GenesisCheats::default(),
                 );
                 genesis_config.scd_run_without_disc = true;
@@ -526,19 +530,11 @@ impl GenericEmulator {
     }
 
     fn remove_disc(&mut self) -> NativeEmulatorResult<()> {
-        if let Self::Genesis(emulator) = self {
-            todo!("remove disc")
-        }
-
-        Ok(())
+        match_each_variant!(self, emulator => emulator.remove_disc())
     }
 
     fn change_disc(&mut self, path: PathBuf) -> NativeEmulatorResult<()> {
-        if let Self::Genesis(emulator) = self {
-            todo!("change disc")
-        }
-
-        Ok(())
+        match_each_variant!(self, emulator => emulator.change_disc(path))
     }
 
     fn run(

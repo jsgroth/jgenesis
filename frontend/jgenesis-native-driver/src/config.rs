@@ -18,7 +18,7 @@ use jgenesis_native_config::input::mappings::{
     SmsGgInputConfig, SnesInputConfig,
 };
 use jgenesis_native_config::{AppConfig, EguiTheme};
-use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay};
+use jgenesis_proc_macros::ConfigDisplay;
 use jgenesis_renderer::config::{PreprocessShader, PrescaleMode, RendererConfig};
 use nes_core::api::NesEmulatorConfig;
 use pce_core::api::PceEmulatorConfig;
@@ -99,7 +99,6 @@ pub struct GenesisConfig {
     pub scd_jp_bios_path: Option<PathBuf>,
     pub scd_per_region_bios: bool,
     pub scd_run_without_disc: bool,
-    pub scd_load_disc_into_ram: bool,
 }
 
 #[derive(Debug, Clone, ConfigDisplay)]
@@ -330,6 +329,7 @@ impl AppConfigExt for AppConfig {
                 sega_cd: SegaCdEmulatorConfig {
                     pcm_interpolation: self.sega_cd.pcm_interpolation,
                     enable_ram_cartridge: self.sega_cd.enable_ram_cartridge,
+                    load_disc_into_ram: self.sega_cd.load_disc_into_ram,
                     disc_drive_speed: self.sega_cd.disc_drive_speed,
                     sub_cpu_divider: self.sega_cd.sub_cpu_divider,
                     pcm_lpf_enabled: self.sega_cd.pcm_lpf_enabled,
@@ -401,7 +401,6 @@ impl AppConfigExt for AppConfig {
             scd_jp_bios_path: self.sega_cd.jp_bios_path.clone(),
             scd_per_region_bios: self.sega_cd.per_region_bios,
             scd_run_without_disc: false,
-            scd_load_disc_into_ram: self.sega_cd.load_disc_into_ram,
         })
     }
 

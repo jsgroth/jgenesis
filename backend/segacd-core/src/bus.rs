@@ -893,8 +893,8 @@ impl SegaCdBus {
         self.disc_drive.take_disc_from(&mut other.disc_drive);
     }
 
-    pub fn change_disc(&mut self, _disc: CdRom) {
-        todo!("change disc")
+    pub fn change_disc(&mut self, disc: CdRom) {
+        self.cdd_mut().change_disc(disc);
     }
 
     pub fn remove_disc(&mut self) {

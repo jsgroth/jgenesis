@@ -159,8 +159,8 @@ impl GenesisEmulator {
     }
 
     #[must_use]
-    pub fn cartridge_title(&mut self) -> String {
-        self.bus.game_title().unwrap_or_default()
+    pub fn game_title(&mut self) -> Option<String> {
+        self.bus.game_title()
     }
 
     #[inline]
@@ -173,6 +173,26 @@ impl GenesisEmulator {
     #[must_use]
     pub fn timing_mode(&self) -> TimingMode {
         self.timing_mode
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn hardware(&self) -> GenesisHardware {
+        self.hardware
+    }
+
+    pub fn remove_disc(&mut self) {
+        if let Some(sega_cd) = &mut self.bus.sega_cd {
+            sega_cd.remove_disc();
+        }
+    }
+
+    pub fn change_disc(&mut self, disc: CdRom) -> SegaCdLoadResult<()> {
+        if let Some(sega_cd) = &mut self.bus.sega_cd {
+            sega_cd.change_disc(disc)?;
+        }
+
+        Ok(())
     }
 
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {

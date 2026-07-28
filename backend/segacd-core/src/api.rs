@@ -9,7 +9,7 @@ use cdrom::reader::CdRom;
 use genesis_components::cartridge::GenesisRegionExt;
 use genesis_config::GenesisEmulatorConfig;
 use genesis_config::GenesisRegion;
-use jgenesis_common::frontend::{EmulatorTrait, PartialClone, TimingMode};
+use jgenesis_common::frontend::{PartialClone, TimingMode};
 use jgenesis_common::num::U16Ext;
 use m68000_emu::M68000;
 use std::fmt::Debug;
@@ -287,6 +287,18 @@ impl SegaCd {
 
     pub fn take_bios_and_disc_from(&mut self, other: &mut Self) {
         self.bus.take_bios_and_disc_from(&mut other.bus);
+    }
+
+    pub fn change_disc(&mut self, disc: CdRom) -> SegaCdLoadResult<()> {
+        self.bus.change_disc(disc);
+        self.disc_title = self.bus.disc_title()?;
+
+        Ok(())
+    }
+
+    pub fn remove_disc(&mut self) {
+        self.bus.remove_disc();
+        self.disc_title = None;
     }
 }
 

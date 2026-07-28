@@ -614,6 +614,7 @@ impl App {
                         self.config.smsgg.sms_bios_path.is_some(),
                     ),
                     ("Sega CD", Console::SegaCd, self.config.sega_cd.bios_path.is_some()),
+                    ("Sega CD 32X", Console::SegaCd32X, self.config.sega_cd.bios_path.is_some()),
                 ] {
                     ui.add_enabled_ui(has_bios, |ui| {
                         if ui.button(label).clicked() {

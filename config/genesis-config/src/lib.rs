@@ -659,6 +659,7 @@ impl EmulatorConfigTrait for GenesisEmulatorConfig {
 pub struct SegaCdEmulatorConfig {
     pub pcm_interpolation: PcmInterpolation,
     pub enable_ram_cartridge: bool,
+    pub load_disc_into_ram: bool,
     pub disc_drive_speed: NonZeroU16,
     pub sub_cpu_divider: NonZeroU64,
     pub pcm_lpf_enabled: bool,
@@ -676,6 +677,7 @@ impl Default for SegaCdEmulatorConfig {
         Self {
             pcm_interpolation: PcmInterpolation::default(),
             enable_ram_cartridge: true,
+            load_disc_into_ram: false,
             disc_drive_speed: NonZeroU16::new(1).unwrap(),
             sub_cpu_divider: NonZeroU64::new(NATIVE_SUB_CPU_DIVIDER).unwrap(),
             pcm_lpf_enabled: true,

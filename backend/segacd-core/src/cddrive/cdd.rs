@@ -917,21 +917,10 @@ impl CdDrive {
         self.state = State::TrayOpening { auto_close: self.model == CdModel::Two };
     }
 
-    pub fn change_disc<P: AsRef<Path>>(
-        &mut self,
-        rom_path: P,
-        format: CdRomFileFormat,
-        load_disc_into_ram: bool,
-    ) -> SegaCdLoadResult<()> {
-        let cue_path = rom_path.as_ref();
+    pub fn change_disc(&mut self, disc: CdRom) {
+        log::info!("Changing disc");
 
-        log::info!("Changing disc to '{}'", cue_path.display());
-
-        self.disc = Some(if load_disc_into_ram {
-            CdRom::open_in_memory(cue_path, format)?
-        } else {
-            CdRom::open(cue_path, format)?
-        });
+        self.disc = Some(disc);
 
         // Only open the tray if running a Model 2 BIOS version.
         // Model 1 BIOS versions will usually crash if the tray opens without the BIOS first sending
@@ -939,8 +928,6 @@ impl CdDrive {
         if self.model == CdModel::Two {
             self.state = State::TrayOpening { auto_close: true };
         }
-
-        Ok(())
     }
 
     pub fn reload_config(&mut self, config: &SegaCdEmulatorConfig) {
