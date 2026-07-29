@@ -427,7 +427,7 @@ impl Vdp {
 
         let mask_fn = self.priority_mask_fn();
 
-        if self.latched.screen_left_shift {
+        if self.screen_left_shift(line_addr) {
             for pixel in 0..FRAME_WIDTH as u16 {
                 let frame_buffer_addr = line_addr.wrapping_add((pixel + 1) >> 1);
                 let color = (frame_buffer[frame_buffer_addr as usize] >> (8 * (pixel & 1))) & 0xFF;
@@ -448,7 +448,7 @@ impl Vdp {
     fn render_direct_color(&mut self) {
         let line = self.state.scanline as usize;
         let frame_buffer = front_frame_buffer!(self);
-        let line_addr = frame_buffer[line];
+        let mut line_addr = frame_buffer[line];
 
         log::trace!(
             "Rendering line {line} from frame buffer {:?} in direct color mode, addr={line_addr:04X}",
@@ -457,9 +457,15 @@ impl Vdp {
 
         let mask_fn = self.priority_mask_fn();
 
+        if self.screen_left_shift(line_addr) {
+            line_addr = line_addr.wrapping_add(1);
+        }
+
         for pixel in 0..FRAME_WIDTH as u16 {
-            let color = frame_buffer[line_addr.wrapping_add(pixel) as usize];
+            let color = frame_buffer[line_addr as usize];
             self.rendered_frame[line][pixel as usize] = mask_fn(color);
+
+            line_addr = line_addr.wrapping_add(1);
         }
     }
 
@@ -475,6 +481,8 @@ impl Vdp {
 
         let mask_fn = self.priority_mask_fn();
 
+        let screen_left_shift = self.screen_left_shift(line_addr);
+
         let mut pixel = 0;
         while pixel < FRAME_WIDTH {
             let [run_length_byte, color_idx] = frame_buffer[line_addr as usize].to_be_bytes();
@@ -482,12 +490,22 @@ impl Vdp {
 
             let color = self.cram[color_idx as usize];
             let mut run_length = u16::from(run_length_byte) + 1;
+            if pixel == 0 && screen_left_shift {
+                run_length -= 1;
+            }
+
             while pixel < FRAME_WIDTH && run_length != 0 {
                 self.rendered_frame[line][pixel as usize] = mask_fn(color);
                 pixel += 1;
                 run_length -= 1;
             }
         }
+    }
+
+    fn screen_left_shift(&self, line_address: u16) -> bool {
+        // Screen shift does not apply when the low byte of the line address is 0xFF
+        // Mentioned in 32X hardware manual supplement and verified on hardware
+        self.latched.screen_left_shift && line_address.lsb() != 0xFF
     }
 
     pub fn read_register(&self, address: u32) -> u16 {
