@@ -32,6 +32,7 @@ pub type AudioResult<T> = Result<T, AudioError>;
 
 struct AudioCallbackState {
     queue: VecDeque<(f32, f32)>,
+    last_sample: (f32, f32),
     hardware_queue_size: u32,
     unpark_threshold: u32,
     emulator_thread: Thread,
@@ -42,6 +43,7 @@ impl AudioCallbackState {
     fn new(config: &CommonConfig) -> Self {
         Self {
             queue: VecDeque::with_capacity(2 * config.audio_buffer_size as usize),
+            last_sample: (0.0, 0.0),
             hardware_queue_size: config.audio_hardware_queue_size,
             unpark_threshold: audio_sync_threshold(config),
             emulator_thread: thread::current(),
@@ -64,7 +66,9 @@ impl AudioCallback<f32> for AudioQueueCallback {
 
         let stereo_samples = cmp::max(state.hardware_queue_size, ((requested + 1) / 2) as u32);
         for _ in 0..stereo_samples {
-            let Some((sample_l, sample_r)) = state.queue.pop_front() else { break };
+            // Repeating the last sample on buffer underruns prevents awful noises for some systems (e.g. 32X)
+            let (sample_l, sample_r) = state.queue.pop_front().unwrap_or(state.last_sample);
+            state.last_sample = (sample_l, sample_r);
 
             if let Err(err) = stream.put_data_f32(&[sample_l, sample_r]) {
                 log::error!("Error pushing audio samples: {err}");
