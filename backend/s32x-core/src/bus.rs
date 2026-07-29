@@ -528,32 +528,6 @@ impl Sh2Bus {
         }
     }
 
-    // $02000000-$03FFFFFF: Cartridge
-    fn write_02<const SIZE: u8>(&mut self, address: u32, value: u32) {
-        self.cycle_counter += if SIZE == OpSize::LONGWORD {
-            2 * (1 + SH2_CARTRIDGE_CYCLES)
-        } else {
-            1 + SH2_CARTRIDGE_CYCLES
-        };
-
-        let Some(cartridge) = self.cartridge() else { return };
-
-        match SIZE {
-            OpSize::BYTE => {
-                cartridge.write_byte(address & 0x7FFFFF, value as u8);
-            }
-            OpSize::WORD => {
-                cartridge.write_word(address & 0x7FFFFF, value as u16);
-            }
-            OpSize::LONGWORD => {
-                let rom_addr = address & 0x7FFFFF & !3;
-                cartridge.write_word(rom_addr, (value >> 16) as u16);
-                cartridge.write_word(rom_addr | 2, value as u16);
-            }
-            _ => invalid_size!(SIZE),
-        }
-    }
-
     // $04000000-$05FFFFFF: Frame buffer
     fn write_04<const SIZE: u8>(&mut self, address: u32, value: u32, ctx: AccessContext) {
         if self.s32x_bus().registers.vdp_access != Access::Sh2 {
@@ -670,21 +644,21 @@ impl BusInterface for Sh2Bus {
     fn write<const SIZE: u8>(&mut self, address: u32, value: u32, ctx: AccessContext) {
         const BYTE_FNS: [fn(&mut Sh2Bus, u32, u32, AccessContext); 4] = [
             |bus, address, value, ctx| bus.write_00::<{ OpSize::BYTE }>(address, value, ctx),
-            |bus, address, value, _ctx| bus.write_02::<{ OpSize::BYTE }>(address, value),
+            |_, _, _, _| {}, // SH-2s cannot write to the cartridge
             |bus, address, value, ctx| bus.write_04::<{ OpSize::BYTE }>(address, value, ctx),
             |bus, address, value, ctx| bus.write_06::<{ OpSize::BYTE }>(address, value, ctx),
         ];
 
         const WORD_FNS: [fn(&mut Sh2Bus, u32, u32, AccessContext); 4] = [
             |bus, address, value, ctx| bus.write_00::<{ OpSize::WORD }>(address, value, ctx),
-            |bus, address, value, _ctx| bus.write_02::<{ OpSize::WORD }>(address, value),
+            |_, _, _, _| {}, // SH-2s cannot write to the cartridge
             |bus, address, value, ctx| bus.write_04::<{ OpSize::WORD }>(address, value, ctx),
             |bus, address, value, ctx| bus.write_06::<{ OpSize::WORD }>(address, value, ctx),
         ];
 
         const LONGWORD_FNS: [fn(&mut Sh2Bus, u32, u32, AccessContext); 4] = [
             |bus, address, value, ctx| bus.write_00::<{ OpSize::LONGWORD }>(address, value, ctx),
-            |bus, address, value, _ctx| bus.write_02::<{ OpSize::LONGWORD }>(address, value),
+            |_, _, _, _| {}, // SH-2s cannot write to the cartridge
             |bus, address, value, ctx| bus.write_04::<{ OpSize::LONGWORD }>(address, value, ctx),
             |bus, address, value, ctx| bus.write_06::<{ OpSize::LONGWORD }>(address, value, ctx),
         ];

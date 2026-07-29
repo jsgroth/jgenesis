@@ -512,6 +512,15 @@ impl Cartridge {
     }
 
     #[inline]
+    pub fn read<const WORD: bool>(&mut self, address: u32, open_bus: u16) -> u16 {
+        if WORD {
+            self.read_word(address, open_bus)
+        } else {
+            self.read_byte(address, open_bus).into()
+        }
+    }
+
+    #[inline]
     pub fn read_byte(&mut self, address: u32, open_bus: u16) -> u8 {
         if let Some(cheat) = self.cheat_overrides.get(address) {
             return cheat.to_be_bytes()[(address & 1) as usize];
@@ -541,6 +550,15 @@ impl Cartridge {
                 *open_bus = self.read_word(address, *open_bus);
                 *open_bus
             }
+        }
+    }
+
+    #[inline]
+    pub fn write<const WORD: bool>(&mut self, address: u32, value: u16) {
+        if WORD {
+            self.write_word(address, value);
+        } else {
+            self.write_byte(address, value as u8);
         }
     }
 

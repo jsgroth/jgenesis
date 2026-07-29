@@ -242,11 +242,7 @@ impl Sega32X {
             return if WORD { open_bus } else { open_bus.be_byte(address & 1).into() };
         };
 
-        if WORD {
-            cartridge.read_word(address, open_bus)
-        } else {
-            cartridge.read_byte(address, open_bus).into()
-        }
+        cartridge.read::<WORD>(address, open_bus)
     }
 
     // Writes to $000000-$3FFFFF while the 32X adapter is enabled
@@ -275,11 +271,7 @@ impl Sega32X {
 
         let Some(cartridge) = cartridge else { return };
 
-        if WORD {
-            cartridge.write_word(address, value);
-        } else {
-            cartridge.write_byte(address, value as u8);
-        }
+        cartridge.write::<WORD>(address, value);
     }
 
     // Reads from $800000-$9FFFFF while the 32X adapter is enabled
@@ -311,11 +303,7 @@ impl Sega32X {
             {
                 // First 512KB of cartridge
                 let rom_addr = address & 0x7FFFF;
-                if WORD {
-                    cartridge.read_word(rom_addr, open_bus)
-                } else {
-                    cartridge.read_byte(rom_addr, open_bus).into()
-                }
+                cartridge.read::<WORD>(rom_addr, open_bus)
             }
             0x900000..=0x9FFFFF
                 if !self.rom_to_vram_dma()
@@ -324,11 +312,7 @@ impl Sega32X {
                 // Mappable 1MB cartridge bank
                 let rom_addr =
                     (u32::from(self.bus.registers.m68k_rom_bank) << 20) | (address & 0xFFFFF);
-                if WORD {
-                    cartridge.read_word(rom_addr, open_bus)
-                } else {
-                    cartridge.read_byte(rom_addr, open_bus).into()
-                }
+                cartridge.read::<WORD>(rom_addr, open_bus)
             }
             _ => {
                 if WORD {
@@ -386,11 +370,7 @@ impl Sega32X {
             {
                 // First 512KB of cartridge
                 let rom_addr = address & 0x7FFFF;
-                if WORD {
-                    cartridge.write_word(rom_addr, value);
-                } else {
-                    cartridge.write_byte(rom_addr, value as u8);
-                }
+                cartridge.write::<WORD>(rom_addr, value);
             }
             0x900000..=0x9FFFFF
                 if !self.rom_to_vram_dma()
@@ -399,11 +379,7 @@ impl Sega32X {
                 // Mappable 1MB cartridge bank
                 let rom_addr =
                     (u32::from(self.bus.registers.m68k_rom_bank) << 20) | (address & 0xFFFFF);
-                if WORD {
-                    cartridge.write_word(rom_addr, value);
-                } else {
-                    cartridge.write_byte(rom_addr, value as u8);
-                }
+                cartridge.write::<WORD>(rom_addr, value);
             }
             _ => {}
         }

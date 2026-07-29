@@ -111,12 +111,21 @@ impl CreatableEmulator for GenesisEmulator {
             save_writer,
         )?;
 
-        let default_window_size = WindowSize::new_genesis(
-            config.common.initial_window_size,
-            config.emulator_config.aspect_ratio,
-            emulator.timing_mode(),
-            config.emulator_config.to_gen_par_params(),
-        );
+        let default_window_size = if config.hardware.has_32x() {
+            WindowSize::new_32x(
+                config.common.initial_window_size,
+                config.emulator_config.aspect_ratio,
+                emulator.timing_mode(),
+                config.emulator_config.to_gen_par_params(),
+            )
+        } else {
+            WindowSize::new_genesis(
+                config.common.initial_window_size,
+                config.emulator_config.aspect_ratio,
+                emulator.timing_mode(),
+                config.emulator_config.to_gen_par_params(),
+            )
+        };
 
         let window_title = generate_window_title(&mut emulator, config.hardware);
 

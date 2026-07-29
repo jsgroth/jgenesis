@@ -1,6 +1,5 @@
 pub mod cartridge;
 pub mod debug;
-pub mod input;
 pub mod memory;
 pub(crate) mod svp;
 pub mod vdp;
@@ -8,7 +7,7 @@ pub mod ym2612;
 
 use crate::vdp::{DarkenColors, Vdp, VdpConfig};
 use genesis_config::{GenParParams, GenesisEmulatorConfig};
-use jgenesis_common::frontend::{RenderFrameOptions, Renderer, TimingMode};
+use jgenesis_common::frontend::TimingMode;
 
 pub const NTSC_GENESIS_MCLK_FREQUENCY: f64 = 53_693_175.0;
 pub const PAL_GENESIS_MCLK_FREQUENCY: f64 = 53_203_424.0;
@@ -61,35 +60,4 @@ pub fn target_framerate(vdp: &Vdp, timing_mode: TimingMode) -> f64 {
     };
 
     mclk_frequency / (vdp::MCLK_CYCLES_PER_SCANLINE as f64) / vdp.average_scanlines_per_frame()
-}
-
-/// Render the current VDP frame buffer.
-///
-/// # Errors
-///
-/// This function will propagate any error returned by the renderer.
-pub fn render_frame<R: Renderer>(
-    timing_mode: TimingMode,
-    vdp: &Vdp,
-    config: &GenesisEmulatorConfig,
-    renderer: &mut R,
-) -> Result<(), R::Err> {
-    let frame_size = vdp.frame_size();
-    let pixel_aspect_ratio = config.aspect_ratio.to_pixel_aspect_ratio(
-        timing_mode,
-        frame_size,
-        config.to_gen_par_params(),
-    );
-    let target_fps = target_framerate(vdp, timing_mode);
-
-    renderer.render_frame(
-        vdp.frame_buffer(),
-        frame_size,
-        target_fps,
-        RenderFrameOptions {
-            pixel_aspect_ratio,
-            composite_params: Some(vdp.composite_params()),
-            ..RenderFrameOptions::default()
-        },
-    )
 }

@@ -39,12 +39,29 @@ impl Memory {
     }
 
     #[must_use]
+    pub fn read_main_ram<const WORD: bool>(&self, address: u32) -> u16 {
+        if WORD {
+            self.read_main_ram_word(address)
+        } else {
+            self.read_main_ram_byte(address).into()
+        }
+    }
+
+    #[must_use]
     pub fn read_main_ram_word(&self, address: u32) -> u16 {
         if let Some(cheat) = self.ram_cheat_overrides.get(address) {
             return cheat;
         }
 
         self.main_ram[((address & 0xFFFF) >> 1) as usize]
+    }
+
+    pub fn write_main_ram<const WORD: bool>(&mut self, address: u32, value: u16) {
+        if WORD {
+            self.write_main_ram_word(address, value);
+        } else {
+            self.write_main_ram_byte(address, value as u8);
+        }
     }
 
     pub fn write_main_ram_byte(&mut self, address: u32, value: u8) {

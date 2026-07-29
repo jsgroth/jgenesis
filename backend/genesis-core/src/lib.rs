@@ -1,6 +1,7 @@
 pub mod api;
 pub mod audio;
 mod bus;
+mod input;
 mod timing;
 
 pub use api::{GenesisEmulator, GenesisError, GenesisResult};

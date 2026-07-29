@@ -1,8 +1,8 @@
 use crate::api::debug::{DebugPendingWrite, GenesisDebuggerWithCpus, genesis_components};
+use crate::input::InputState;
 use crate::timing::CycleCounters;
 use bincode::{Decode, Encode};
 use genesis_components::cartridge::{Cartridge, GenesisRegionExt};
-use genesis_components::input::InputState;
 use genesis_components::memory::Memory;
 use genesis_components::vdp::{Vdp, VdpBusView, VdpTickEffect};
 use genesis_components::ym2612::Ym2612;
@@ -380,15 +380,11 @@ impl GenesisBus {
                         self.cartridge.as_mut(),
                     )
                 } else if let Some(cartridge) = &mut self.cartridge {
-                    if WORD {
-                        cartridge.read_word(address, self.open_bus)
-                    } else {
-                        cartridge.read_byte(address, self.open_bus).into()
-                    }
+                    cartridge.read::<WORD>(address, self.open_bus)
                 } else if let Some(sega_cd) = &mut self.sega_cd {
                     sega_cd.main_read_memory::<WORD>(address)
                 } else {
-                    self.open_bus
+                    self.read_open_bus::<WORD>(address)
                 }
             }
             0x400000..=0x7FFFFF => {
@@ -397,15 +393,9 @@ impl GenesisBus {
                 // TODO can 68000 access the cartridge here when 32X adapter is enabled?
                 match (&mut self.cartridge, &mut self.sega_cd) {
                     (Some(_cartridge), Some(sega_cd)) => sega_cd.main_read_memory::<WORD>(address),
-                    (Some(cartridge), None) => {
-                        if WORD {
-                            cartridge.read_word(address, self.open_bus)
-                        } else {
-                            cartridge.read_byte(address, self.open_bus).into()
-                        }
-                    }
+                    (Some(cartridge), None) => cartridge.read::<WORD>(address, self.open_bus),
                     (None, Some(sega_cd)) => sega_cd.read_ram_cartridge::<WORD>(address),
-                    (None, None) => self.open_bus,
+                    (None, None) => self.read_open_bus::<WORD>(address),
                 }
             }
             0x800000..=0x9FFFFF
@@ -430,10 +420,8 @@ impl GenesisBus {
                     } else {
                         byte.into()
                     }
-                } else if WORD {
-                    self.open_bus
                 } else {
-                    self.open_bus.be_byte(address & 1).into()
+                    self.read_open_bus::<WORD>(address)
                 }
             }
             0xA10000..=0xA1001F => {
@@ -457,6 +445,7 @@ impl GenesisBus {
                 sega_cd.main_read_register::<WORD>(address)
             }
             0xA130EC..=0xA130EF if self.sega_32x.is_some() => {
+                // Always reads the ASCII string "MARS"; used by 32X games to detect 32X hardware
                 let idx = (address & 3) as usize;
                 if WORD {
                     u16::from_be_bytes(MARS[idx..idx + 2].try_into().unwrap())
@@ -468,24 +457,14 @@ impl GenesisBus {
                 if let Some(sega_32x) = &mut self.sega_32x {
                     sega_32x.m68k_read_register::<WORD>(address, self.open_bus)
                 } else if let Some(cartridge) = &mut self.cartridge {
-                    if WORD {
-                        cartridge.read_word(address, self.open_bus)
-                    } else {
-                        cartridge.read_byte(address, self.open_bus).into()
-                    }
+                    cartridge.read::<WORD>(address, self.open_bus)
                 } else {
-                    self.open_bus
+                    self.read_open_bus::<WORD>(address)
                 }
             }
             0xC00000..=0xC0001F => self.read_vdp::<WORD>(address),
-            0xE00000..=0xFFFFFF => {
-                if WORD {
-                    self.memory.read_main_ram_word(address)
-                } else {
-                    self.memory.read_main_ram_byte(address).into()
-                }
-            }
-            _ => self.open_bus,
+            0xE00000..=0xFFFFFF => self.memory.read_main_ram::<WORD>(address),
+            _ => self.read_open_bus::<WORD>(address),
         };
 
         if WORD {
@@ -496,6 +475,11 @@ impl GenesisBus {
         }
 
         value
+    }
+
+    #[inline(always)]
+    fn read_open_bus<const WORD: bool>(&self, address: u32) -> u16 {
+        if WORD { self.open_bus } else { self.open_bus.be_byte(address & 1).into() }
     }
 
     fn apply_write<const WORD: bool>(&mut self, address: u32, value: u16) {
@@ -517,11 +501,7 @@ impl GenesisBus {
                 {
                     sega_32x.m68k_write_cartridge::<WORD>(address, value, self.cartridge.as_mut());
                 } else if let Some(cartridge) = &mut self.cartridge {
-                    if WORD {
-                        cartridge.write_word(address, value);
-                    } else {
-                        cartridge.write_byte(address, value as u8);
-                    }
+                    cartridge.write::<WORD>(address, value);
                 } else if let Some(sega_cd) = &mut self.sega_cd {
                     sega_cd.main_write_memory::<WORD>(address, value);
                 }
@@ -535,11 +515,7 @@ impl GenesisBus {
                         sega_cd.main_write_memory::<WORD>(address, value);
                     }
                     (Some(cartridge), None) => {
-                        if WORD {
-                            cartridge.write_word(address, value);
-                        } else {
-                            cartridge.write_byte(address, value as u8);
-                        }
+                        cartridge.write::<WORD>(address, value);
                     }
                     (None, Some(sega_cd)) => {
                         sega_cd.write_ram_cartridge::<WORD>(address, value);
@@ -586,35 +562,23 @@ impl GenesisBus {
             0xA12000..=0xA12FFF if let Some(sega_cd) = &mut self.sega_cd => {
                 sega_cd.main_write_register::<WORD>(address, value);
             }
-            0xA13000..=0xA13FFF => {
-                if let Some(cartridge) = &mut self.cartridge {
-                    if WORD {
-                        cartridge.write_word(address, value);
-                    } else {
-                        cartridge.write_byte(address, value as u8);
-                    }
-                }
+            0xA13000..=0xA13FFF if let Some(cartridge) = &mut self.cartridge => {
+                // TIME signal; used by various cartridge mapper registers
+                cartridge.write::<WORD>(address, value);
             }
             0xA15000..=0xA15FFF => {
                 if let Some(sega_32x) = &mut self.sega_32x {
                     sega_32x.m68k_write_register::<WORD>(address, value);
                 } else if let Some(cartridge) = &mut self.cartridge {
-                    if WORD {
-                        cartridge.write_word(address, value);
-                    } else {
-                        cartridge.write_byte(address, value as u8);
-                    }
+                    // SVP maps registers to $A15xxx
+                    cartridge.write::<WORD>(address, value);
                 }
             }
             0xC00000..=0xC0001F => {
                 self.write_vdp_psg::<WORD>(address, value);
             }
             0xE00000..=0xFFFFFF => {
-                if WORD {
-                    self.memory.write_main_ram_word(address, value);
-                } else {
-                    self.memory.write_main_ram_byte(address, value as u8);
-                }
+                self.memory.write_main_ram::<WORD>(address, value);
             }
             _ => {}
         }
@@ -631,8 +595,10 @@ impl GenesisBus {
                     .or_else(|| self.sega_cd.as_ref().map(SegaCd::region))
                     .unwrap_or(GenesisRegion::Americas);
 
-                0x20 | (u8::from(region.version_bit()) << 7)
+                // TODO version (lowest 4 bits) hardcoded to 0
+                (u8::from(region.version_bit()) << 7)
                     | (u8::from(self.timing_mode == TimingMode::Pal) << 6)
+                    | (u8::from(self.sega_cd.is_none()))
             }
             0xA10003 => self.input.read_p1_data(),
             0xA10005 => self.input.read_p2_data(),

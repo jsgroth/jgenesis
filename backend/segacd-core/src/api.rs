@@ -17,6 +17,7 @@ use jgenesis_common::frontend::{PartialClone, TimingMode};
 use jgenesis_common::num::U16Ext;
 use m68000_emu::M68000;
 use std::fmt::Debug;
+use std::mem;
 use thiserror::Error;
 
 pub const DEFAULT_SUB_CPU_DIVIDER: u64 = genesis_config::NATIVE_SUB_CPU_DIVIDER;
@@ -238,9 +239,7 @@ impl SegaCd {
             *open_bus
         } else {
             // Word RAM reads are delayed
-            let prev_open_bus = *open_bus;
-            *open_bus = self.main_read_memory::<true>(address);
-            prev_open_bus
+            mem::replace(open_bus, self.main_read_memory::<true>(address))
         }
     }
 
@@ -351,7 +350,7 @@ pub fn parse_disc_region(disc: &mut CdRom) -> SegaCdLoadResult<GenesisRegion> {
 
     // Sega CD ROM header starts at $010 because the first 16 bytes are sync + CD-ROM data track header
     let region = GenesisRegion::from_rom(&rom_header[0x010..]).unwrap_or_else(|| {
-        log::warn!("Unable to determine region from ROM header; defaulting to US");
+        log::warn!("Unable to determine region from disc header; defaulting to US");
         GenesisRegion::Americas
     });
 

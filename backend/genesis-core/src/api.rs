@@ -8,12 +8,13 @@ use crate::bus::GenesisBus;
 use crate::bus::debug::{Debug68000Bus, DebugZ80Bus};
 use bincode::{Decode, Encode};
 use cdrom::reader::CdRom;
+use genesis_components::GenesisEmulatorConfigExt;
 use genesis_components::cartridge::Cartridge;
-use genesis_components::vdp::VdpTickEffect;
+use genesis_components::vdp::{Vdp, VdpTickEffect};
 use genesis_config::{GenesisButton, GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorTrait, InputPoller, Modal, PartialClone, Renderer, SaveWriter, TickEffect,
-    TickResult, TimingMode,
+    AudioOutput, EmulatorTrait, InputPoller, Modal, PartialClone, RenderFrameOptions, Renderer,
+    SaveWriter, TickEffect, TickResult, TimingMode,
 };
 use m68000_emu::M68000;
 use s32x_core::api::Sega32X;
@@ -61,11 +62,13 @@ impl Display for GenesisHardware {
 
 impl GenesisHardware {
     #[must_use]
+    #[inline]
     pub fn has_sega_cd(self) -> bool {
         matches!(self, Self::SegaCd | Self::SegaCd32X)
     }
 
     #[must_use]
+    #[inline]
     pub fn has_32x(self) -> bool {
         matches!(self, Self::Sega32X | Self::SegaCd32X)
     }
@@ -207,13 +210,10 @@ impl GenesisEmulator {
 
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
         match &mut self.bus.sega_32x {
-            Some(sega_32x) => sega_32x.render_frame(&self.bus.vdp, renderer),
-            None => genesis_components::render_frame(
-                self.timing_mode,
-                &self.bus.vdp,
-                &self.config,
-                renderer,
-            ),
+            Some(sega_32x) if sega_32x.adapter_enabled() => {
+                sega_32x.render_frame(&self.bus.vdp, renderer)
+            }
+            _ => render_frame(self.timing_mode, &self.bus.vdp, &self.config, renderer),
         }
     }
 
@@ -276,7 +276,9 @@ impl GenesisEmulator {
         self.audio_resampler.output_samples(audio_output).map_err(GenesisError::Audio)?;
 
         if vdp_tick_effect == VdpTickEffect::FrameComplete {
-            if let Some(sega_32x) = &mut self.bus.sega_32x {
+            if let Some(sega_32x) = &mut self.bus.sega_32x
+                && sega_32x.adapter_enabled()
+            {
                 sega_32x.composite_frame(&mut self.bus.vdp);
             }
 
@@ -340,6 +342,32 @@ impl GenesisEmulator {
             Some(debugger),
         )
     }
+}
+
+fn render_frame<R: Renderer>(
+    timing_mode: TimingMode,
+    vdp: &Vdp,
+    config: &GenesisEmulatorConfig,
+    renderer: &mut R,
+) -> Result<(), R::Err> {
+    let frame_size = vdp.frame_size();
+    let pixel_aspect_ratio = config.aspect_ratio.to_pixel_aspect_ratio(
+        timing_mode,
+        frame_size,
+        config.to_gen_par_params(),
+    );
+    let target_fps = genesis_components::target_framerate(vdp, timing_mode);
+
+    renderer.render_frame(
+        vdp.frame_buffer(),
+        frame_size,
+        target_fps,
+        RenderFrameOptions {
+            pixel_aspect_ratio,
+            composite_params: Some(vdp.composite_params()),
+            ..RenderFrameOptions::default()
+        },
+    )
 }
 
 impl EmulatorTrait for GenesisEmulator {
