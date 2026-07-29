@@ -2238,6 +2238,7 @@ version = "0.13.1"
 dependencies = [
  "anyhow",
  "bincode",
+ "cdrom",
  "console_error_panic_hook",
  "console_log",
  "gba-config",

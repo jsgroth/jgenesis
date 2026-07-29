@@ -21,6 +21,7 @@ genesis-config = { workspace = true, features = ["serde"] }
 smsgg-config = { workspace = true, features = ["serde"] }
 snes-config = { workspace = true, features = ["serde"] }
 
+cdrom = { workspace = true }
 jgenesis-common = { workspace = true, features = ["serde"] }
 jgenesis-proc-macros = { workspace = true }
 jgenesis-renderer = { workspace = true, features = ["serde"] }

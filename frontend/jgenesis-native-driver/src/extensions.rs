@@ -1,6 +1,5 @@
 use crate::archive;
 use crate::archive::{ArchiveEntry, ArchiveError};
-use cdrom::cdtime::CdTime;
 use cdrom::reader::{CdRom, CdRomFileFormat};
 use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 use std::collections::{HashMap, HashSet};
@@ -327,10 +326,5 @@ fn is_disc_sega_cd_32x(path: &Path) -> bool {
     let Some(disc_format) = CdRomFileFormat::from_file_path(path) else { return false };
     let Ok(mut disc) = CdRom::open(path, disc_format) else { return false };
 
-    let mut sector_buffer = vec![0; cdrom::BYTES_PER_SECTOR as usize];
-    if disc.read_sector(1, CdTime::SECTOR_0_START, &mut sector_buffer).is_err() {
-        return false;
-    }
-
-    &sector_buffer[0x110..0x118] == b"SEGA 32X"
+    segacd_core::is_cd_32x_disc(&mut disc)
 }

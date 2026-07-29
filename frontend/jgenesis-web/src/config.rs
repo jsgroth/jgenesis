@@ -142,8 +142,14 @@ impl Default for GenesisWebConfig {
 }
 
 impl GenesisWebConfig {
-    pub fn to_emulator_config(&self) -> GenesisEmulatorConfig {
+    pub fn to_emulator_config(
+        &self,
+        sega_cd: SegaCdEmulatorConfig,
+        sega_32x: Sega32XEmulatorConfig,
+    ) -> GenesisEmulatorConfig {
         GenesisEmulatorConfig {
+            sega_cd,
+            sega_32x,
             forced_timing_mode: None,
             forced_region: None,
             allow_opposing_joypad_directions: false,
@@ -434,9 +440,8 @@ impl WebConfig {
         js::localStorageSet(Self::LOCAL_STORAGE_KEY, &config_str);
     }
 
-    pub fn to_sega_cd_config(&self) -> SegaCdEmulatorConfig {
-        SegaCdEmulatorConfig {
-            genesis: self.genesis.to_emulator_config(),
+    pub fn to_genesis_config(&self) -> GenesisEmulatorConfig {
+        let sega_cd_config = SegaCdEmulatorConfig {
             pcm_interpolation: PcmInterpolation::CubicHermite6Point,
             enable_ram_cartridge: true,
             load_disc_into_ram: true,
@@ -450,12 +455,9 @@ impl WebConfig {
             cd_audio_enabled: true,
             pcm_volume_adjustment_db: 0.0,
             cd_volume_adjustment_db: 0.0,
-        }
-    }
+        };
 
-    pub fn to_32x_config(&self) -> Sega32XEmulatorConfig {
-        Sega32XEmulatorConfig {
-            genesis: self.genesis.to_emulator_config(),
+        let sega_32x_config = Sega32XEmulatorConfig {
             sh2_clock_multiplier: NonZeroU64::new(genesis_config::NATIVE_SH2_MULTIPLIER).unwrap(),
             video_out: S32XVideoOut::default(),
             darken_genesis_colors: true,
@@ -467,7 +469,9 @@ impl WebConfig {
             pwm_resampling: S32XPwmResampling::CubicHermite,
             pwm_enabled: true,
             pwm_volume_adjustment_db: 0.0,
-        }
+        };
+
+        self.genesis.to_emulator_config(sega_cd_config, sega_32x_config)
     }
 
     pub fn to_renderer_config(&self) -> RendererConfig {
