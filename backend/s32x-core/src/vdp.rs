@@ -481,7 +481,7 @@ impl Vdp {
 
         let mask_fn = self.priority_mask_fn();
 
-        let screen_left_shift = self.screen_left_shift(line_addr);
+        let mut skip_first = self.screen_left_shift(line_addr);
 
         let mut pixel = 0;
         while pixel < FRAME_WIDTH {
@@ -490,14 +490,16 @@ impl Vdp {
 
             let color = self.cram[color_idx as usize];
             let mut run_length = u16::from(run_length_byte) + 1;
-            if pixel == 0 && screen_left_shift {
-                run_length -= 1;
-            }
 
             while pixel < FRAME_WIDTH && run_length != 0 {
+                run_length -= 1;
+                if skip_first {
+                    skip_first = false;
+                    continue;
+                }
+
                 self.rendered_frame[line][pixel as usize] = mask_fn(color);
                 pixel += 1;
-                run_length -= 1;
             }
         }
     }
