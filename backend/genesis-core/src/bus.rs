@@ -1,3 +1,4 @@
+use crate::api::debug::{DebugPendingWrite, GenesisDebuggerWithCpus, genesis_components};
 use crate::timing::CycleCounters;
 use bincode::{Decode, Encode};
 use genesis_components::cartridge::{Cartridge, GenesisRegionExt};
@@ -10,12 +11,16 @@ use genesis_config::{GenesisEmulatorConfig, GenesisRegion};
 use jgenesis_common::frontend::{PartialClone, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext};
 use m68000_emu::debug::DummyM68000Debugger;
-use s32x_core::api::{Sega32X, Sega32XAudioOutput};
+use s32x_core::api::debug::Dummy32XDebugger;
+use s32x_core::api::{GenesisVdpInfo, Sega32X, Sega32XAudioOutput};
+use segacd_core::api::debug::DummySegaCdDebugger;
 use segacd_core::api::{SegaCd, SegaCdAudioOutput, SegaCdLoadResult};
 use std::{cmp, mem};
 use ti_sn76489::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use z80_emu::debug::DummyZ80Debugger;
 use z80_emu::traits::InterruptLine;
+
+pub mod debug;
 
 const MARS: [u8; 4] = *b"MARS";
 
@@ -33,6 +38,10 @@ pub struct Z80BankRegister {
 
 impl Z80BankRegister {
     const BITS: u8 = 9;
+
+    pub fn value(self) -> u32 {
+        self.bank_number
+    }
 
     pub fn map_to_68k_address(self, z80_address: u16) -> u32 {
         (self.bank_number << 15) | u32::from(z80_address & 0x7FFF)
@@ -77,6 +86,18 @@ impl PendingWrites {
     fn clear(&mut self) {
         self.byte.clear();
         self.word.clear();
+    }
+
+    pub fn to_debug_vec(&self) -> Vec<DebugPendingWrite> {
+        self.byte
+            .iter()
+            .map(|&(address, value)| DebugPendingWrite::Byte { address, value })
+            .chain(
+                self.word
+                    .iter()
+                    .map(|&(address, value)| DebugPendingWrite::Word { address, value }),
+            )
+            .collect()
     }
 }
 
@@ -175,12 +196,13 @@ impl GenesisBus {
     }
 
     #[inline]
-    pub fn tick_components(
+    pub fn tick_components<const DEBUG: bool>(
         &mut self,
         m68k_cycles: u32,
         mclk_cycles: u64,
         m68k_wait: bool,
         audio_output: &mut impl GenesisAudioOutput,
+        mut debugger: Option<GenesisDebuggerWithCpus<'_, '_>>,
     ) -> SegaCdLoadResult<VdpTickEffect> {
         if let Some(cartridge) = &mut self.cartridge {
             cartridge.tick(m68k_cycles);
@@ -218,11 +240,48 @@ impl GenesisBus {
         }
 
         if let Some(sega_cd) = &mut self.sega_cd {
-            sega_cd.tick(mclk_cycles, audio_output)?;
+            if DEBUG && let Some(debugger) = &mut debugger {
+                let mut sega_cd_debugger = debugger.for_sega_cd(
+                    self.sega_32x.as_mut(),
+                    genesis_components!(self),
+                    self.cartridge.as_mut(),
+                );
+                sega_cd.tick::<true>(mclk_cycles, audio_output, &mut sega_cd_debugger)?;
+            } else {
+                sega_cd.tick::<false>(mclk_cycles, audio_output, &mut DummySegaCdDebugger)?;
+            }
         }
 
         if let Some(sega_32x) = &mut self.sega_32x {
-            sega_32x.tick(mclk_cycles, &mut self.cartridge, &self.vdp, audio_output);
+            let genesis_vdp_info = GenesisVdpInfo {
+                scanline: self.vdp.scanline(),
+                scanline_mclk: self.vdp.scanline_mclk(),
+                frame_size: self.vdp.frame_size(),
+                border_size: self.vdp.border_size(),
+                scanlines_in_current_frame: self.vdp.scanlines_in_current_frame(),
+            };
+
+            if DEBUG && let Some(debugger) = &mut debugger {
+                unsafe {
+                    let mut s32x_debugger =
+                        debugger.for_32x(self.sega_cd.as_mut(), genesis_components!(self));
+                    sega_32x.tick::<true>(
+                        mclk_cycles,
+                        &mut self.cartridge,
+                        genesis_vdp_info,
+                        audio_output,
+                        &mut s32x_debugger,
+                    );
+                }
+            } else {
+                sega_32x.tick::<false>(
+                    mclk_cycles,
+                    &mut self.cartridge,
+                    genesis_vdp_info,
+                    audio_output,
+                    &mut Dummy32XDebugger,
+                );
+            }
         }
 
         check_for_long_dma_skip(&self.vdp, &mut self.cycles);

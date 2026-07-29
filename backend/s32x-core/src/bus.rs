@@ -1,5 +1,9 @@
 //! 32X memory mapping for the 68000 and SH-2s
 
+pub mod debug;
+
+use crate::api::debug::Sega32XDebugger;
+use crate::bus::debug::{DebugSh2Bus, DebugSh2BusGuard};
 use crate::pwm::PwmChip;
 use crate::registers::{Access, SystemRegisters};
 use crate::vdp::Vdp;
@@ -252,9 +256,12 @@ impl Sh2Bus {
     // the slave SH-2. After the slave SH-2 sees a specific value from the master SH-2, it
     // writes to the communication port twice in quick succession, and the master SH-2 must
     // read the first value before it's overwritten
-    fn sync_if_comm_port_accessed(&mut self, address: u32) {
-        // $00004020-$0000402F are the communication ports
-        if !(0x4020..0x4030).contains(&address) {
+    fn need_to_sync_other(&self, address: u32) -> bool {
+        (0x4020..0x4030).contains(&address) && self.other_sh2.is_some()
+    }
+
+    fn maybe_sync_other_cpu(&mut self, address: u32) {
+        if !self.need_to_sync_other(address) {
             return;
         }
 
@@ -295,7 +302,7 @@ impl Sh2Bus {
                     OpSize::display::<SIZE>()
                 );
 
-                self.sync_if_comm_port_accessed(address);
+                self.maybe_sync_other_cpu(address);
 
                 let which = self.which;
                 sh2_read_register::<SIZE>(address, |address| {
@@ -446,7 +453,7 @@ impl Sh2Bus {
                     OpSize::display::<SIZE>()
                 );
 
-                self.sync_if_comm_port_accessed(address);
+                self.maybe_sync_other_cpu(address);
 
                 let which = self.which;
                 sh2_write_register::<SIZE>(

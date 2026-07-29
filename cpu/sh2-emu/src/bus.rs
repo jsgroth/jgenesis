@@ -37,6 +37,14 @@ impl Display for AccessContext {
 
 pub struct OpSize;
 
+// For cases where size can't be passed as a const generic (e.g. dyn-compatible trait methods)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpSizeEnum {
+    Byte,
+    Word,
+    Longword,
+}
+
 impl OpSize {
     pub const BYTE: u8 = 0;
     pub const WORD: u8 = 1;
@@ -66,6 +74,20 @@ impl OpSize {
             Self::BYTE => 0xFF,
             Self::WORD => 0xFFFF,
             Self::LONGWORD => 0xFFFFFFFF,
+            _ => panic!("invalid size {SIZE}"),
+        }
+    }
+
+    /// # Panics
+    ///
+    /// Panics if `SIZE` is not a valid `OpSize` value
+    #[must_use]
+    #[inline(always)]
+    pub fn enum_value<const SIZE: u8>() -> OpSizeEnum {
+        match SIZE {
+            Self::BYTE => OpSizeEnum::Byte,
+            Self::WORD => OpSizeEnum::Word,
+            Self::LONGWORD => OpSizeEnum::Longword,
             _ => panic!("invalid size {SIZE}"),
         }
     }

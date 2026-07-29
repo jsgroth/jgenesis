@@ -69,4 +69,8 @@ impl Memory {
     pub fn reload_config(&mut self, config: &GenesisEmulatorConfig) {
         self.ram_cheat_overrides.update_cheat_codes(&config.cheat_codes);
     }
+
+    pub fn debug_ram_view(&mut self) -> (&mut [u16], &mut [u8]) {
+        (self.main_ram.as_mut_slice(), self.audio_ram.as_mut_slice())
+    }
 }

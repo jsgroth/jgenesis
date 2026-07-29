@@ -175,8 +175,7 @@ impl CreatableEmulator for GenesisEmulator {
     }
 
     fn debug_fn() -> Option<NativeDebugFn<Self>> {
-        // TODO CD32X
-        None
+        Some(jgenesis_debugger_frontend::genesis::genesis_debug_fn)
     }
 }
 

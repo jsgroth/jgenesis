@@ -26,28 +26,28 @@ pub const PC_ENGINE: &[&str] = &["pce"];
 
 pub const SUPPORTED_ARCHIVES: &[&str] = &["zip", "7z"];
 
-pub static SMSGG: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
-    [SG_1000, MASTER_SYSTEM, GAME_GEAR]
-        .into_iter()
-        .flat_map(|system| system.iter().copied())
-        .collect()
-});
-
-pub static GENESIS_32X: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
-    [GENESIS, SEGA_32X]
-        .into_iter()
+fn concat_extensions(iter: impl IntoIterator<Item = &'static [&'static str]>) -> Vec<&'static str> {
+    iter.into_iter()
         .flat_map(|system| system.iter().copied())
         .collect::<HashSet<_>>()
         .into_iter()
         .collect()
-});
+}
 
-pub static GB_GBC: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
-    [GAME_BOY, GAME_BOY_COLOR].into_iter().flat_map(|system| system.iter().copied()).collect()
-});
+pub static SMSGG: LazyLock<Vec<&'static str>> =
+    LazyLock::new(|| concat_extensions([SG_1000, MASTER_SYSTEM, GAME_GEAR]));
+
+pub static GENESIS_32X: LazyLock<Vec<&'static str>> =
+    LazyLock::new(|| concat_extensions([GENESIS, SEGA_32X]));
+
+pub static SEGA_CD_32X: LazyLock<Vec<&'static str>> =
+    LazyLock::new(|| concat_extensions([GENESIS, SEGA_CD, SEGA_32X]));
+
+pub static GB_GBC: LazyLock<Vec<&'static str>> =
+    LazyLock::new(|| concat_extensions([GAME_BOY, GAME_BOY_COLOR]));
 
 pub static ALL_CARTRIDGE_BASED: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
-    [
+    concat_extensions([
         SG_1000,
         MASTER_SYSTEM,
         GAME_GEAR,
@@ -59,12 +59,7 @@ pub static ALL_CARTRIDGE_BASED: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
         GAME_BOY_COLOR,
         GAME_BOY_ADVANCE,
         PC_ENGINE,
-    ]
-    .into_iter()
-    .flat_map(|system| system.iter().copied())
-    .collect::<HashSet<_>>()
-    .into_iter()
-    .collect()
+    ])
 });
 
 pub static ALL: LazyLock<Vec<&'static str>> = LazyLock::new(|| {

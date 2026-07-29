@@ -17,6 +17,8 @@ use m68000_emu::BusInterface;
 use m68000_emu::debug::DummyM68000Debugger;
 use std::mem;
 
+pub mod debug;
+
 // RAM cartridge size byte is N in the formula 8KB * 2^N
 // N=4 signals 128KB
 const RAM_CARTRIDGE_SIZE_BYTE: u8 = 0x04;

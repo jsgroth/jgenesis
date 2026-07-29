@@ -1,7 +1,11 @@
 //! Genesis public interface and main loop
 
+pub mod debug;
+
+use crate::api::debug::GenesisDebugger;
 use crate::audio::GenesisAudioResampler;
 use crate::bus::GenesisBus;
+use crate::bus::debug::{Debug68000Bus, DebugZ80Bus};
 use bincode::{Decode, Encode};
 use cdrom::reader::CdRom;
 use genesis_components::cartridge::Cartridge;
@@ -212,6 +216,7 @@ impl GenesisEmulator {
         audio_output: &mut A,
         input_poller: &mut I,
         save_writer: &mut S,
+        mut debugger: Option<&mut GenesisDebugger>,
     ) -> TickResult<GenesisError<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
@@ -226,6 +231,9 @@ impl GenesisEmulator {
         let m68k_wait = self.bus.cycles.m68k_wait_cpu_cycles != 0;
         let m68k_cycles = if m68k_wait {
             self.bus.cycles.take_m68k_wait_cpu_cycles()
+        } else if DEBUG && let Some(debugger) = &mut debugger {
+            let mut debug_bus = Debug68000Bus::new(&mut self.bus, &mut self.z80, debugger);
+            self.m68k.execute_instruction(&mut debug_bus)
         } else {
             self.m68k.execute_instruction(&mut self.bus)
         };
@@ -239,16 +247,22 @@ impl GenesisEmulator {
 
         while self.bus.cycles.should_tick_z80() {
             if !self.bus.cycles.z80_halt {
-                self.z80.tick(&mut self.bus);
+                if DEBUG && let Some(debugger) = &mut debugger {
+                    let mut debug_bus = DebugZ80Bus::new(&mut self.bus, &mut self.m68k, debugger);
+                    self.z80.tick(&mut debug_bus);
+                } else {
+                    self.z80.tick(&mut self.bus);
+                }
             }
             self.bus.cycles.z80_cycle();
         }
 
-        let vdp_tick_effect = self.bus.tick_components(
+        let vdp_tick_effect = self.bus.tick_components::<DEBUG>(
             m68k_cycles,
             elapsed_mclk_cycles,
             m68k_wait,
             &mut self.audio_resampler,
+            debugger.as_mut().map(|debugger| debugger.with_cpus(&mut self.m68k, &mut self.z80)),
         )?;
 
         self.audio_resampler.output_samples(audio_output).map_err(GenesisError::Audio)?;
@@ -288,6 +302,30 @@ impl GenesisEmulator {
             VdpTickEffect::None => TickEffect::None,
         })
     }
+
+    #[inline]
+    pub fn debug_tick<R, A, I, S>(
+        &mut self,
+        renderer: &mut R,
+        audio_output: &mut A,
+        input_poller: &mut I,
+        save_writer: &mut S,
+        debugger: &mut GenesisDebugger,
+    ) -> GenesisResult<R::Err, A::Err, S::Err>
+    where
+        R: Renderer,
+        A: AudioOutput,
+        I: InputPoller<GenesisInputs>,
+        S: SaveWriter,
+    {
+        self.tick_inner::<true, _, _, _, _>(
+            renderer,
+            audio_output,
+            input_poller,
+            save_writer,
+            Some(debugger),
+        )
+    }
 }
 
 impl EmulatorTrait for GenesisEmulator {
@@ -323,7 +361,13 @@ impl EmulatorTrait for GenesisEmulator {
         I: InputPoller<Self::Inputs>,
         S: SaveWriter,
     {
-        self.tick_inner::<false, _, _, _, _>(renderer, audio_output, input_poller, save_writer)
+        self.tick_inner::<false, _, _, _, _>(
+            renderer,
+            audio_output,
+            input_poller,
+            save_writer,
+            None,
+        )
     }
 
     fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>

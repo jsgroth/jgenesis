@@ -9,11 +9,11 @@ edition = "2024"
 cdrom = { workspace = true }
 dsp = { workspace = true }
 jgenesis-common = { workspace = true }
-jgenesis-proc-macros = { workspace = true }
 
 genesis-config = { workspace = true }
 
 m68000-emu = { workspace = true, features = ["bincode"] }
+sh2-emu = { workspace = true }
 z80-emu = { workspace = true, features = ["bincode"] }
 
 genesis-components = { workspace = true }

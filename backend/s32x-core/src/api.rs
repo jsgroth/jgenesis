@@ -1,8 +1,10 @@
 //! 32X public interface and main loop
-//!
-//! At some point common code should probably be collapsed between the Genesis/SCD/32X crates
 
+pub mod debug;
+
+use crate::api::debug::Sega32XDebugger;
 use crate::bootrom::M68kVectors;
+use crate::bus::debug::DebugSh2Bus;
 use crate::bus::{Sega32XBus, SerialInterface, Sh2Bus};
 use crate::pwm::PwmChip;
 use crate::registers::{Access, SystemRegisters};
@@ -11,10 +13,11 @@ use crate::{GenesisVdp, WhichCpu, bootrom};
 use bincode::{Decode, Encode};
 use genesis_components::GenesisEmulatorConfigExt;
 use genesis_components::cartridge::Cartridge;
+use genesis_components::vdp::BorderSize;
 use genesis_config::GenesisEmulatorConfig;
 use genesis_config::Sega32XEmulatorConfig;
 use jgenesis_common::boxedarray::BoxedWordArray;
-use jgenesis_common::frontend::{Renderer, TimingMode};
+use jgenesis_common::frontend::{FrameSize, Renderer, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext};
 use sh2_emu::Sh2;
 use std::cmp;
@@ -31,6 +34,15 @@ pub trait Sega32XAudioOutput {
     fn collect_pwm(&mut self, sample: (f64, f64));
 
     fn update_pwm_source_frequency(&mut self, frequency: f64);
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct GenesisVdpInfo {
+    pub scanline: u16,
+    pub scanline_mclk: u64,
+    pub frame_size: FrameSize,
+    pub border_size: BorderSize,
+    pub scanlines_in_current_frame: u16,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -75,12 +87,13 @@ impl Sega32X {
         }
     }
 
-    pub fn tick(
+    pub fn tick<const DEBUG: bool>(
         &mut self,
         mut total_mclk_cycles: u64,
         cartridge: &mut Option<Cartridge>,
-        genesis_vdp: &GenesisVdp,
+        vdp_info: GenesisVdpInfo,
         audio_output: &mut impl Sega32XAudioOutput,
+        debugger: &mut impl Sega32XDebugger,
     ) {
         while total_mclk_cycles > 0 {
             let h_interrupt_enabled = self.bus.registers.either_h_interrupt_enabled();
@@ -120,10 +133,19 @@ impl Sega32X {
                 self.global_cycles,
                 Some((&mut self.sh2_master, &mut self.master_cycles)),
             );
-            while slave_bus.cycle_counter < slave_bus.cycle_limit {
-                self.sh2_slave.execute(SH2_EXECUTION_SLICE_LEN, &mut *slave_bus);
-            }
-            self.slave_cycles = slave_bus.cycle_counter;
+
+            self.slave_cycles = if DEBUG {
+                let mut debug_bus = DebugSh2Bus::create(slave_bus, debugger);
+                while debug_bus.cycle_counter() < debug_bus.cycle_limit() {
+                    self.sh2_slave.execute(SH2_EXECUTION_SLICE_LEN, &mut *debug_bus);
+                }
+                debug_bus.cycle_counter()
+            } else {
+                while slave_bus.cycle_counter < slave_bus.cycle_limit {
+                    self.sh2_slave.execute(SH2_EXECUTION_SLICE_LEN, &mut *slave_bus);
+                }
+                slave_bus.cycle_counter
+            };
 
             // Master SH-2
             let mut master_bus = Sh2Bus::create(
@@ -134,10 +156,18 @@ impl Sega32X {
                 self.global_cycles,
                 Some((&mut self.sh2_slave, &mut self.slave_cycles)),
             );
-            while master_bus.cycle_counter < master_bus.cycle_limit {
-                self.sh2_master.execute(SH2_EXECUTION_SLICE_LEN, &mut *master_bus);
-            }
-            self.master_cycles = master_bus.cycle_counter;
+            self.master_cycles = if DEBUG {
+                let mut debug_bus = DebugSh2Bus::create(master_bus, debugger);
+                while debug_bus.cycle_counter() < debug_bus.cycle_limit() {
+                    self.sh2_master.execute(SH2_EXECUTION_SLICE_LEN, &mut *debug_bus);
+                }
+                debug_bus.cycle_counter()
+            } else {
+                while master_bus.cycle_counter < master_bus.cycle_limit {
+                    self.sh2_master.execute(SH2_EXECUTION_SLICE_LEN, &mut *master_bus);
+                }
+                master_bus.cycle_counter
+            };
 
             // SH-2/SH7604 peripherals (WDT, SCI)
             let mut peripherals_bus =
@@ -148,14 +178,14 @@ impl Sega32X {
             self.sh2_slave.tick_peripherals(elapsed_pwm_cycles, &mut *peripherals_bus);
 
             // 32X VDP
-            self.bus.vdp.tick(mclk_cycles, &mut self.bus.registers, genesis_vdp);
+            self.bus.vdp.tick(mclk_cycles, &mut self.bus.registers, vdp_info);
 
             // PWM chip
             self.bus.pwm.tick(elapsed_pwm_cycles, &mut self.bus.registers, audio_output);
         }
 
-        debug_assert_eq!(self.bus.vdp.scanline(), genesis_vdp.scanline());
-        debug_assert_eq!(self.bus.vdp.scanline_mclk(), genesis_vdp.scanline_mclk());
+        debug_assert_eq!(self.bus.vdp.scanline(), vdp_info.scanline);
+        debug_assert_eq!(self.bus.vdp.scanline_mclk(), vdp_info.scanline_mclk);
     }
 
     pub fn reload_config(&mut self, config: &Sega32XEmulatorConfig) {

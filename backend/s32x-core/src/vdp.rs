@@ -4,6 +4,7 @@ pub(crate) mod debug;
 mod registers;
 
 use crate::GenesisVdp;
+use crate::api::GenesisVdpInfo;
 use crate::registers::SystemRegisters;
 use crate::vdp::registers::{FrameBufferMode, Registers, SelectedFrameBuffer, VerticalResolution};
 use bincode::{Decode, Encode};
@@ -206,7 +207,7 @@ impl Vdp {
         &mut self,
         mclk_cycles: u64,
         registers: &mut SystemRegisters,
-        genesis_vdp: &GenesisVdp,
+        vdp_info: GenesisVdpInfo,
     ) {
         self.state.auto_fill_mclk_remaining =
             self.state.auto_fill_mclk_remaining.saturating_sub(mclk_cycles);
@@ -231,7 +232,7 @@ impl Vdp {
             && self.state.scanline_mclk >= VBLANK_START_MCLK_CYCLES
         {
             if self.state.scanline == self.latched.active_scanlines_per_frame - 1 {
-                self.handle_vblank_start(registers, genesis_vdp);
+                self.handle_vblank_start(registers, vdp_info);
             } else if self.state.scanline == self.state.scanlines_in_current_frame - 1 {
                 self.state.vblank_flag = false;
                 registers.notify_vblank_end();
@@ -252,7 +253,7 @@ impl Vdp {
                 // Workaround for a timing edge case related to V28/V30 mode switch
                 // TODO is it even allowed to switch between V28 and V30 outside of VBlank?
                 self.state.vblank_flag = true;
-                self.state.scanlines_in_current_frame = genesis_vdp.scanlines_in_current_frame();
+                self.state.scanlines_in_current_frame = vdp_info.scanlines_in_current_frame;
             }
 
             if self.state.scanline >= self.state.scanlines_in_current_frame {
@@ -315,7 +316,7 @@ impl Vdp {
         }
     }
 
-    fn handle_vblank_start(&mut self, registers: &mut SystemRegisters, genesis_vdp: &GenesisVdp) {
+    fn handle_vblank_start(&mut self, registers: &mut SystemRegisters, vdp_info: GenesisVdpInfo) {
         if self.state.vblank_flag {
             return;
         }
@@ -333,7 +334,7 @@ impl Vdp {
 
         // Grab scanlines in frame at start of VBlank to avoid a dependency on which order
         // the VDPs execute in, since interlacing state is latched at the start of line 0
-        self.state.scanlines_in_current_frame = genesis_vdp.scanlines_in_current_frame();
+        self.state.scanlines_in_current_frame = vdp_info.scanlines_in_current_frame;
 
         // No HINTs during VBlank (unless the HEN bit is set)
         self.state.h_interrupt_this_line = false;

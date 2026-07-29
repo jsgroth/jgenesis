@@ -4,7 +4,7 @@ use crate::{AddressSet, non_selectable_label};
 use egui::style::ScrollStyle;
 use egui::{Align, CentralPanel, Grid, Layout, Panel, RichText, TextEdit, Ui, Window};
 use egui_extras::{Column, TableBuilder};
-use genesis_components::debug::{GenesisDebugState, Z80BreakStatus, Z80Breakpoint};
+use genesis_core::api::debug::{GenesisDebugState, Z80BreakStatus, Z80Breakpoint};
 use z80_emu::{DisassembledInstruction, MemoryAccess, Z80};
 
 const DISASSEMBLY_WINDOW_TITLE: &str = "Z80 Disassembly";
@@ -77,17 +77,14 @@ pub trait Z80MemoryMap {
     fn peek(&self, address: u16) -> Option<u8>;
 }
 
-pub struct GenesisZ80MemoryMap<'a, M68kMap> {
+pub struct GenesisZ80MemoryMap<'a> {
     pub audio_ram: &'a [u8],
     pub z80_memory_bank: u32,
-    pub m68k_map: &'a M68kMap,
+    pub m68k_map: &'a dyn M68kDebugMemoryMap,
 }
 
-impl<'a, M68kMap> GenesisZ80MemoryMap<'a, M68kMap>
-where
-    M68kMap: M68kDebugMemoryMap,
-{
-    pub fn new(debug_state: &'a GenesisDebugState, m68k_map: &'a M68kMap) -> Self {
+impl<'a> GenesisZ80MemoryMap<'a> {
+    pub fn new(debug_state: &'a GenesisDebugState, m68k_map: &'a dyn M68kDebugMemoryMap) -> Self {
         Self {
             audio_ram: debug_state.audio_ram(),
             z80_memory_bank: debug_state.z80_bank_number(),
@@ -96,10 +93,7 @@ where
     }
 }
 
-impl<M68kMap> Z80MemoryMap for GenesisZ80MemoryMap<'_, M68kMap>
-where
-    M68kMap: M68kDebugMemoryMap,
-{
+impl Z80MemoryMap for GenesisZ80MemoryMap<'_> {
     fn peek(&self, address: u16) -> Option<u8> {
         match address {
             0x0000..=0x3FFF => Some(self.audio_ram[(address & 0x1FFF) as usize]),

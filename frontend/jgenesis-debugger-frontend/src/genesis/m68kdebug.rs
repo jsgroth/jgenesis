@@ -4,13 +4,12 @@ use egui::style::ScrollStyle;
 use egui::{Align, CentralPanel, Grid, Layout, Panel, RichText, TextEdit, Ui, Window};
 use egui_extras::{Column, TableBuilder};
 use genesis_components::cartridge::Cartridge;
-use genesis_components::debug::{
+use genesis_core::api::debug::{
     DebugPendingWrite, GenesisDebugState, M68000BreakStatus, M68000Breakpoint, M68000Breakpoints,
 };
 use jgenesis_common::num::{GetBit, U16Ext};
 use m68000_emu::disassemble::{DisassembledInstruction, MemoryAccess, MemoryReadType};
 use m68000_emu::{M68000, OpSize};
-use s32x_core::api::debug::Sega32XDebugState;
 use segacd_core::WordRam;
 use segacd_core::api::debug::SegaCdDebugState;
 
@@ -262,13 +261,13 @@ impl M68kDebugMemoryMap for CartridgeMemoryMap<'_> {
 
 pub fn new_genesis_memory_map(
     debug_state: &GenesisDebugState,
-) -> Option<Genesis68kMemoryMap<'_, CartridgeMemoryMap<'_>>> {
-    Some(Genesis68kMemoryMap {
+) -> Option<Box<dyn M68kDebugMemoryMap + '_>> {
+    Some(Box::new(Genesis68kMemoryMap {
         medium: CartridgeMemoryMap { cartridge: debug_state.cartridge()? },
         working_ram: debug_state.working_ram(),
         audio_ram: debug_state.audio_ram(),
         main_pending_writes: debug_state.pending_writes(),
-    })
+    }))
 }
 
 pub struct SegaCdMainMemoryMap<'a> {
@@ -328,14 +327,14 @@ impl M68kDebugMemoryMap for SegaCdMainMemoryMap<'_> {
 }
 
 pub fn new_scd_main_memory_map(
-    debug_state: &SegaCdDebugState,
-) -> Genesis68kMemoryMap<'_, SegaCdMainMemoryMap<'_>> {
-    Genesis68kMemoryMap {
-        medium: SegaCdMainMemoryMap::new(debug_state),
-        working_ram: debug_state.genesis.working_ram(),
-        audio_ram: debug_state.genesis.audio_ram(),
-        main_pending_writes: debug_state.genesis.pending_writes(),
-    }
+    debug_state: &GenesisDebugState,
+) -> Option<Box<dyn M68kDebugMemoryMap + '_>> {
+    Some(Box::new(Genesis68kMemoryMap {
+        medium: SegaCdMainMemoryMap::new(debug_state.sega_cd.as_ref()?),
+        working_ram: &debug_state.working_ram,
+        audio_ram: &debug_state.audio_ram,
+        main_pending_writes: &debug_state.pending_writes,
+    }))
 }
 
 pub struct SegaCdSubMemoryMap<'a> {
@@ -373,10 +372,13 @@ pub struct S32X68kMemoryMap<'a> {
 }
 
 impl<'a> S32X68kMemoryMap<'a> {
-    pub fn new(debug_state: &'a Sega32XDebugState) -> Option<Self> {
-        let cartridge = debug_state.genesis.cartridge()?;
+    pub fn new(debug_state: &'a GenesisDebugState) -> Option<Self> {
+        let cartridge = debug_state.cartridge.as_ref()?;
 
-        Some(Self { cartridge, banked_rom_base_addr: u32::from(debug_state.m68k_rom_bank()) << 20 })
+        Some(Self {
+            cartridge,
+            banked_rom_base_addr: u32::from(debug_state.sega_32x.as_ref()?.m68k_rom_bank()) << 20,
+        })
     }
 }
 
@@ -409,20 +411,20 @@ impl M68kDebugMemoryMap for S32X68kMemoryMap<'_> {
 }
 
 pub fn new_32x_memory_map(
-    debug_state: &Sega32XDebugState,
-) -> Option<Genesis68kMemoryMap<'_, S32X68kMemoryMap<'_>>> {
-    Some(Genesis68kMemoryMap {
+    debug_state: &GenesisDebugState,
+) -> Option<Box<dyn M68kDebugMemoryMap + '_>> {
+    Some(Box::new(Genesis68kMemoryMap {
         medium: S32X68kMemoryMap::new(debug_state)?,
-        working_ram: debug_state.genesis.working_ram(),
-        audio_ram: debug_state.genesis.audio_ram(),
-        main_pending_writes: debug_state.genesis.pending_writes(),
-    })
+        working_ram: &debug_state.working_ram,
+        audio_ram: &debug_state.audio_ram,
+        main_pending_writes: &debug_state.pending_writes,
+    }))
 }
 
 pub fn render_disassembly_window(
     ctx: &egui::Context,
     m68k: &M68000,
-    memory_map: impl M68kDebugMemoryMap,
+    memory_map: &dyn M68kDebugMemoryMap,
     state: &mut M68kDebugWindowState,
     break_status: M68000BreakStatus,
     handle_command: Option<impl FnMut(M68kBreakCommand)>,
@@ -457,8 +459,8 @@ pub fn render_disassembly_window(
                 render_disasm_top_panel(state, handle_command, ui);
             }
 
-            render_disasm_right_panel(m68k, &memory_map, state, ui);
-            render_disasm_central_panel(m68k, &memory_map, state, break_status, ui);
+            render_disasm_right_panel(m68k, memory_map, state, ui);
+            render_disasm_central_panel(m68k, memory_map, state, break_status, ui);
         });
     state.disassembly_open = open;
 }
@@ -495,7 +497,7 @@ fn render_disasm_top_panel(
 
 fn render_disasm_right_panel(
     m68k: &M68000,
-    memory_map: &impl M68kDebugMemoryMap,
+    memory_map: &dyn M68kDebugMemoryMap,
     state: &mut M68kDebugWindowState,
     ui: &mut Ui,
 ) {
@@ -590,7 +592,7 @@ fn render_disasm_right_panel(
 
 fn render_disasm_central_panel(
     m68k: &M68000,
-    memory_map: &impl M68kDebugMemoryMap,
+    memory_map: &dyn M68kDebugMemoryMap,
     state: &mut M68kDebugWindowState,
     break_status: M68000BreakStatus,
     ui: &mut Ui,
@@ -702,7 +704,7 @@ fn render_disasm_central_panel(
 fn render_memory_access_col(
     memory_read: MemoryAccess,
     m68k: &M68000,
-    memory_map: &impl M68kDebugMemoryMap,
+    memory_map: &dyn M68kDebugMemoryMap,
     instruction: &DisassembledInstruction,
     ui: &mut Ui,
 ) {

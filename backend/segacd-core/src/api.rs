@@ -1,6 +1,10 @@
 //! Sega CD public interface and main loop
 
+pub mod debug;
+
+use crate::api::debug::SegaCdDebugger;
 use crate::bus::SegaCdBus;
+use crate::bus::debug::DebugSegaCdBus;
 use crate::memory;
 use bincode::{Decode, Encode};
 use cdrom::CdRomError;
@@ -93,10 +97,11 @@ impl SegaCd {
     }
 
     #[inline]
-    pub fn tick(
+    pub fn tick<const DEBUG: bool>(
         &mut self,
         genesis_mclk_elapsed: u64,
         audio_output: &mut impl SegaCdAudioOutput,
+        debugger: &mut impl SegaCdDebugger,
     ) -> SegaCdLoadResult<()> {
         self.sega_cd_mclk_cycle_product += genesis_mclk_elapsed * SEGA_CD_MASTER_CLOCK_RATE;
         let scd_mclk_elapsed = match self.timing_mode {
@@ -135,12 +140,16 @@ impl SegaCd {
 
         self.bus.tick_components(scd_mclk_elapsed, pcm_cycles, audio_output)?;
 
-        self.tick_sub_cpu(sub_cpu_cycles);
+        self.tick_sub_cpu::<DEBUG>(sub_cpu_cycles, debugger);
 
         Ok(())
     }
 
-    fn tick_sub_cpu(&mut self, mut sub_cpu_cycles: u64) {
+    fn tick_sub_cpu<const DEBUG: bool>(
+        &mut self,
+        mut sub_cpu_cycles: u64,
+        debugger: &mut impl SegaCdDebugger,
+    ) {
         if self.bus.word_ram().sub_performed_blocked_access() {
             // If the sub CPU accesses word RAM while it's in 2M mode and owned by the main CPU, it
             // should halt until the main CPU writes DMNA=1 to transfer ownership to the sub CPU.
@@ -153,7 +162,13 @@ impl SegaCd {
             self.bus.flush_buffered_sub_writes();
 
             sub_cpu_cycles -= self.sub_cpu_wait_cycles;
-            self.sub_cpu_wait_cycles = self.sub_cpu.execute_instruction(&mut self.bus).into();
+
+            self.sub_cpu_wait_cycles = if DEBUG {
+                let mut debug_bus = DebugSegaCdBus::new(&mut self.bus, debugger);
+                self.sub_cpu.execute_instruction(&mut debug_bus).into()
+            } else {
+                self.sub_cpu.execute_instruction(&mut self.bus).into()
+            };
 
             if self.bus.word_ram().sub_performed_blocked_access() {
                 return;
