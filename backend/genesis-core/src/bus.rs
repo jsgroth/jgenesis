@@ -169,7 +169,7 @@ impl GenesisBus {
         let six_button_incompatible = cartridge
             .as_ref()
             .map(|cartridge| cartridge.metadata().six_button_incompatible)
-            .or_else(|| sega_cd.as_ref().map(|sega_cd| sega_cd.has_six_button_incompatible_game()))
+            .or_else(|| sega_cd.as_ref().map(SegaCd::has_six_button_incompatible_game))
             .unwrap_or(false);
         let input = InputState::new(config, six_button_incompatible);
 
@@ -299,7 +299,7 @@ impl GenesisBus {
         self.cartridge
             .as_ref()
             .map(|cartridge| cartridge.program_title().to_owned())
-            .or_else(|| self.sega_cd.as_ref().map(|sega_cd| sega_cd.disc_title()).flatten())
+            .or_else(|| self.sega_cd.as_ref().and_then(SegaCd::disc_title))
     }
 
     pub fn has_persistent_ram(&self) -> bool {
@@ -430,8 +430,10 @@ impl GenesisBus {
                     } else {
                         byte.into()
                     }
+                } else if WORD {
+                    self.open_bus
                 } else {
-                    if WORD { self.open_bus } else { self.open_bus.msb().into() }
+                    self.open_bus.be_byte(address & 1).into()
                 }
             }
             0xA10000..=0xA1001F => {
@@ -812,6 +814,7 @@ impl z80_emu::BusInterface for GenesisBus {
         Self: 'a;
 
     #[inline]
+    #[allow(clippy::match_same_arms)]
     fn read_memory(&mut self, address: u16) -> u8 {
         log::trace!("Z80 bus read from {address:04X}");
 

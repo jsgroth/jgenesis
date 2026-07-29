@@ -61,6 +61,7 @@ pub struct Sega32X {
 }
 
 impl Sega32X {
+    #[must_use]
     pub fn new(
         timing_mode: TimingMode,
         cartridge: Option<&Cartridge>,
@@ -87,6 +88,7 @@ impl Sega32X {
         }
     }
 
+    #[inline]
     pub fn tick<const DEBUG: bool>(
         &mut self,
         mut total_mclk_cycles: u64,
@@ -198,19 +200,23 @@ impl Sega32X {
     }
 
     // ADEN bit in $A15100
+    #[must_use]
     #[inline]
     pub fn adapter_enabled(&self) -> bool {
         self.bus.registers.adapter_enabled
     }
 
     // RV bit in $A15106
+    #[must_use]
     #[inline]
     pub fn rom_to_vram_dma(&self) -> bool {
         self.bus.registers.dma.rom_to_vram
     }
 
     // Reads from $000000-$3FFFFF while the 32X adapter is enabled
+    #[must_use]
     #[inline]
+    #[allow(clippy::missing_panics_doc)]
     pub fn m68k_read_cartridge<const WORD: bool>(
         &mut self,
         address: u32,
@@ -277,6 +283,7 @@ impl Sega32X {
     }
 
     // Reads from $800000-$9FFFFF while the 32X adapter is enabled
+    #[must_use]
     #[inline]
     pub fn m68k_read_memory<const WORD: bool>(
         &mut self,
@@ -403,6 +410,7 @@ impl Sega32X {
     }
 
     // Reads from $A15000-$A15FFF (32X registers and 32X CRAM)
+    #[must_use]
     #[inline]
     pub fn m68k_read_register<const WORD: bool>(&mut self, address: u32, open_bus: u16) -> u16 {
         let word = match address {
@@ -510,6 +518,9 @@ impl Sega32X {
         self.bus.vdp.composite_frame(genesis_vdp);
     }
 
+    /// # Errors
+    ///
+    /// Propagates any rendering errors.
     pub fn render_frame<R: Renderer>(
         &mut self,
         genesis_vdp: &GenesisVdp,

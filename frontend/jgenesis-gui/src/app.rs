@@ -401,7 +401,7 @@ impl App {
                     }
                 }
 
-                self.launch_emulator(path, secondary_paths, console)
+                self.launch_emulator(path, secondary_paths, console);
             }
             Some(console) => self.launch_emulator(path, vec![], console),
             None => self.launch_emulator_auto(path, None),

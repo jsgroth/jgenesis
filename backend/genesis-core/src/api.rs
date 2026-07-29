@@ -60,10 +60,12 @@ impl Display for GenesisHardware {
 }
 
 impl GenesisHardware {
+    #[must_use]
     pub fn has_sega_cd(self) -> bool {
         matches!(self, Self::SegaCd | Self::SegaCd32X)
     }
 
+    #[must_use]
     pub fn has_32x(self) -> bool {
         matches!(self, Self::Sega32X | Self::SegaCd32X)
     }
@@ -82,6 +84,9 @@ pub struct GenesisEmulator {
 }
 
 impl GenesisEmulator {
+    /// # Errors
+    ///
+    /// Propagates any errors encountered while initializing Sega CD (if Sega CD is enabled).
     pub fn create<S: SaveWriter>(
         hardware: GenesisHardware,
         cartridge_rom: Option<Vec<u8>>,
@@ -109,7 +114,7 @@ impl GenesisEmulator {
             })
             .unwrap_or(GenesisRegion::Americas);
 
-        let timing_mode = config.forced_timing_mode.unwrap_or_else(|| match region {
+        let timing_mode = config.forced_timing_mode.unwrap_or(match region {
             GenesisRegion::Europe => TimingMode::Pal,
             GenesisRegion::Americas | GenesisRegion::Japan => TimingMode::Ntsc,
         });
@@ -189,6 +194,9 @@ impl GenesisEmulator {
         }
     }
 
+    /// # Errors
+    ///
+    /// Propagates any CD-ROM read errors.
     pub fn change_disc(&mut self, disc: CdRom) -> SegaCdLoadResult<()> {
         if let Some(sega_cd) = &mut self.bus.sega_cd {
             sega_cd.change_disc(disc)?;
@@ -303,6 +311,12 @@ impl GenesisEmulator {
         })
     }
 
+    /// Similar to [`<Self as EmulatorTrait>::tick`] but runs with debugger hooks enabled.
+    ///
+    /// # Errors
+    ///
+    /// This method will propagate any errors encountered while rendering frames or pushing audio
+    /// samples.
     #[inline]
     pub fn debug_tick<R, A, I, S>(
         &mut self,
@@ -399,11 +413,10 @@ impl EmulatorTrait for GenesisEmulator {
 
         let cartridge_rom = self.bus.cartridge.take().map(|mut cartridge| cartridge.take_rom());
 
-        let (sega_cd_bios, disc) =
-            match self.bus.sega_cd.take().map(|sega_cd| sega_cd.take_bios_and_disc()) {
-                Some((bios_rom, disc)) => (Some(bios_rom), disc),
-                None => (None, None),
-            };
+        let (sega_cd_bios, disc) = match self.bus.sega_cd.take().map(SegaCd::take_bios_and_disc) {
+            Some((bios_rom, disc)) => (Some(bios_rom), disc),
+            None => (None, None),
+        };
 
         *self = GenesisEmulator::create(
             self.hardware,
@@ -453,11 +466,7 @@ impl EmulatorTrait for GenesisEmulator {
                 .cartridge
                 .as_ref()
                 .is_some_and(|cartridge| cartridge.metadata().sprite_limit_compatibility_issues)
-                || self
-                    .bus
-                    .sega_cd
-                    .as_ref()
-                    .is_some_and(|sega_cd| sega_cd.has_six_button_incompatible_game()))
+                || self.bus.sega_cd.as_ref().is_some_and(SegaCd::has_six_button_incompatible_game))
         {
             modals.push(Modal {
                 id: None,

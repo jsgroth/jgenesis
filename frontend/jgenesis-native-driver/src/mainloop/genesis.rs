@@ -44,7 +44,7 @@ impl CreatableEmulator for GenesisEmulator {
             };
 
             if config.scd_run_without_disc {
-                rom_path = bios_path.clone();
+                rom_path.clone_from(&bios_path);
             }
 
             let bios_rom = fs::read(&bios_path).map_err(|source| {

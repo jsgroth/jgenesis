@@ -28,6 +28,7 @@ impl Memory {
         }
     }
 
+    #[must_use]
     pub fn read_main_ram_byte(&self, address: u32) -> u8 {
         if let Some(cheat) = self.ram_cheat_overrides.get(address) {
             return cheat.to_be_bytes()[(address & 1) as usize];
@@ -37,6 +38,7 @@ impl Memory {
         word.to_be_bytes()[(address & 1) as usize]
     }
 
+    #[must_use]
     pub fn read_main_ram_word(&self, address: u32) -> u16 {
         if let Some(cheat) = self.ram_cheat_overrides.get(address) {
             return cheat;
@@ -58,6 +60,7 @@ impl Memory {
         self.main_ram[((address & 0xFFFF) >> 1) as usize] = value;
     }
 
+    #[must_use]
     pub fn read_audio_ram(&self, address: u16) -> u8 {
         self.audio_ram[(address & 0x1FFF) as usize]
     }
@@ -70,6 +73,7 @@ impl Memory {
         self.ram_cheat_overrides.update_cheat_codes(&config.cheat_codes);
     }
 
+    #[must_use]
     pub fn debug_ram_view(&mut self) -> (&mut [u16], &mut [u8]) {
         (self.main_ram.as_mut_slice(), self.audio_ram.as_mut_slice())
     }

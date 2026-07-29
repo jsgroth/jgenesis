@@ -138,6 +138,7 @@ pub struct PwmResampler {
 }
 
 impl PwmResampler {
+    #[must_use]
     pub fn new(config: &GenesisEmulatorConfig, output_frequency: u64) -> Self {
         const INITIAL_PWM_FREQUENCY: f64 = 22000.0;
 
@@ -162,6 +163,7 @@ impl PwmResampler {
         }
     }
 
+    #[must_use]
     pub fn output_buffer_len(&self) -> usize {
         self.output.len()
     }

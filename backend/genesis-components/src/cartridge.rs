@@ -574,6 +574,7 @@ impl Cartridge {
         }
     }
 
+    #[must_use]
     #[inline]
     pub fn region(&self) -> GenesisRegion {
         self.forced_region.unwrap_or(self.metadata.region)

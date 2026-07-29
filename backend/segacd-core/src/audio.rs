@@ -35,6 +35,7 @@ pub struct SegaCdAudioFilter {
 }
 
 impl SegaCdAudioFilter {
+    #[must_use]
     pub fn new(config: &GenesisEmulatorConfig) -> Self {
         let gen_cutoff: f64 = config.genesis_lpf_cutoff.into();
         let pcm_cutoff: f64 = config.sega_cd.pcm_lpf_cutoff.into();
@@ -54,6 +55,7 @@ impl SegaCdAudioFilter {
         }
     }
 
+    #[must_use]
     pub fn filter_pcm(&mut self, (mut sample_l, mut sample_r): (f64, f64)) -> (f64, f64) {
         if self.pcm_lpf_enabled {
             sample_l = self.pcm_lpf_l.filter(sample_l);
@@ -68,6 +70,7 @@ impl SegaCdAudioFilter {
         (sample_l, sample_r)
     }
 
+    #[must_use]
     pub fn filter_cd_da(&mut self, (sample_l, sample_r): (f64, f64)) -> (f64, f64) {
         if !self.gen_low_pass_setting.genesis_enabled || !self.apply_gen_lpf_to_cd_da {
             return (sample_l, sample_r);

@@ -319,7 +319,7 @@ impl GenesisAudioResampler {
 impl GenesisAudioOutput for GenesisAudioResampler {
     fn collect_ym2612(&mut self, sample: (f64, f64)) {
         let (sample_l, sample_r) = self.filter.filter_ym2612(sample);
-        self.ym2612_resampler.collect([sample_l, sample_r])
+        self.ym2612_resampler.collect([sample_l, sample_r]);
     }
 
     fn collect_psg(&mut self, sample: f64) {

@@ -77,6 +77,7 @@ pub struct SegaCdDebugView<'scd> {
 }
 
 impl SegaCdDebugView<'_> {
+    #[must_use]
     pub fn to_debug_state(&self) -> SegaCdDebugState {
         SegaCdDebugState {
             sub_cpu: self.sub_cpu.clone(),

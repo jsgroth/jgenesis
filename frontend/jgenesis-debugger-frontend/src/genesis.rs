@@ -589,14 +589,14 @@ fn render(
 
         sh2debug::render_disassembly_window(
             ctx.egui_ui,
-            &mut debug_state.state,
+            debug_state.state,
             &mut state.sh2_master,
             &debugger_handle.command_sender,
             break_status.get(WhichCpu::Master),
         );
         sh2debug::render_disassembly_window(
             ctx.egui_ui,
-            &mut debug_state.state,
+            debug_state.state,
             &mut state.sh2_slave,
             &debugger_handle.command_sender,
             break_status.get(WhichCpu::Slave),
@@ -624,9 +624,9 @@ fn render_m68k_debug_windows(
 
     {
         // TODO CD32X
-        let Some(main_memory_map) = m68kdebug::new_scd_main_memory_map(&debug_state.state)
-            .or_else(|| m68kdebug::new_32x_memory_map(&debug_state.state))
-            .or_else(|| m68kdebug::new_genesis_memory_map(&debug_state.state))
+        let Some(main_memory_map) = m68kdebug::new_scd_main_memory_map(debug_state.state)
+            .or_else(|| m68kdebug::new_32x_memory_map(debug_state.state))
+            .or_else(|| m68kdebug::new_genesis_memory_map(debug_state.state))
         else {
             return;
         };
@@ -685,9 +685,9 @@ fn render_z80_debug_windows(
     state: &mut State,
 ) {
     // TODO CD32X
-    let Some(m68k_memory_map) = m68kdebug::new_scd_main_memory_map(&debug_state.state)
-        .or_else(|| m68kdebug::new_32x_memory_map(&debug_state.state))
-        .or_else(|| m68kdebug::new_genesis_memory_map(&debug_state.state))
+    let Some(m68k_memory_map) = m68kdebug::new_scd_main_memory_map(debug_state.state)
+        .or_else(|| m68kdebug::new_32x_memory_map(debug_state.state))
+        .or_else(|| m68kdebug::new_genesis_memory_map(debug_state.state))
     else {
         return;
     };
@@ -697,7 +697,7 @@ fn render_z80_debug_windows(
     z80debug::render_disassembly_window(
         ctx,
         debug_state.state.z80(),
-        GenesisZ80MemoryMap::new(&debug_state.state, m68k_memory_map.as_ref()),
+        GenesisZ80MemoryMap::new(debug_state.state, m68k_memory_map.as_ref()),
         &mut state.z80,
         debugger_handle.z80_break_status(),
         Some(|command| {

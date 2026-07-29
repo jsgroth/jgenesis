@@ -89,6 +89,7 @@ pub struct Sega32XDebugView<'s32x> {
 }
 
 impl Sega32XDebugView<'_> {
+    #[must_use]
     pub fn to_debug_state(&self) -> Sega32XDebugState {
         Sega32XDebugState {
             sdram: self.sdram.to_vec().into_boxed_slice(),

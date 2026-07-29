@@ -49,7 +49,7 @@ impl DebugSh2Bus {
                     cycle_limit,
                 },
                 debugger: self.debugger,
-                other_sh2: cpu as *mut _,
+                other_sh2: ptr::from_mut(cpu),
             };
 
             while other_bus.bus.cycle_counter < cycle_limit {

@@ -253,7 +253,7 @@ impl Console {
             Self::Genesis => GENESIS,
             Self::SegaCd => SEGA_CD,
             Self::Sega32X => SEGA_32X,
-            Self::SegaCd32X => todo!("supported extensions"),
+            Self::SegaCd32X => &SEGA_CD_32X,
             Self::Nes => NES,
             Self::Snes => SNES,
             Self::GameBoy | Self::GameBoyColor => &GB_GBC,

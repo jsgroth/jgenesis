@@ -114,7 +114,7 @@ impl<'bus, 'debugger, Debugger: SegaCdDebugger> BusInterface
 
     #[inline]
     fn reset(&self) -> bool {
-        <SegaCdBus as BusInterface>::reset(&self.bus)
+        <SegaCdBus as BusInterface>::reset(self.bus)
     }
 
     #[inline]

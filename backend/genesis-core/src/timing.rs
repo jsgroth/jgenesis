@@ -2,8 +2,6 @@
 
 use bincode::{Decode, Encode};
 use genesis_components::vdp;
-use genesis_components::vdp::VdpTickEffect;
-use genesis_components::ym2612::Ym2612;
 use std::num::{NonZeroU32, NonZeroU64};
 use std::{cmp, mem};
 

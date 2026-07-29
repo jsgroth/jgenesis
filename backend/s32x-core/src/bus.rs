@@ -2,8 +2,6 @@
 
 pub mod debug;
 
-use crate::api::debug::Sega32XDebugger;
-use crate::bus::debug::{DebugSh2Bus, DebugSh2BusGuard};
 use crate::pwm::PwmChip;
 use crate::registers::{Access, SystemRegisters};
 use crate::vdp::Vdp;
@@ -211,7 +209,7 @@ impl Sh2Bus {
         // SAFETY: Sh2Bus contains raw pointers that are created from mutable references here. The
         // returned bus is only accessible through a guard so that the caller cannot reborrow or
         // move the underlying values until after dropping the guard.
-        let cartridge = cartridge.map(|cartridge| cartridge as *mut _).unwrap_or(ptr::null_mut());
+        let cartridge = cartridge.map(ptr::from_mut).unwrap_or(ptr::null_mut());
         let other_sh2 = other_sh2.map(|(other_cpu, other_cycles)| OtherCpu {
             cpu: other_cpu.into(),
             cycle_counter: other_cycles.into(),

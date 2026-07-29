@@ -1,7 +1,7 @@
 use crate::api::debug::{GenesisCpu, GenesisDebugView, GenesisDebugger, genesis_components};
 use crate::bus::GenesisBus;
+use m68000_emu::M68000;
 use m68000_emu::debug::M68000Debugger;
-use m68000_emu::{BusInterface, M68000};
 use s32x_core::api::Sega32X;
 use segacd_core::api::SegaCd;
 use z80_emu::Z80;
@@ -57,7 +57,7 @@ impl M68000Debugger for M68000DebugView<'_, '_, '_, '_> {
     }
 
     #[inline]
-    fn check_write<const WORD: bool>(&mut self, address: u32, value: u16, cpu: &mut M68000) {
+    fn check_write<const WORD: bool>(&mut self, address: u32, _value: u16, cpu: &mut M68000) {
         if self.0.debugger.m68k_breakpoints().check_write::<WORD>(address) {
             self.0.debugger.handle_breakpoint(
                 GenesisCpu::M68k,
@@ -133,7 +133,7 @@ impl<'bus, 'z80, 'debugger> m68000_emu::BusInterface for Debug68000Bus<'bus, 'z8
 
     #[inline]
     fn reset(&self) -> bool {
-        <GenesisBus as m68000_emu::BusInterface>::reset(&self.bus)
+        <GenesisBus as m68000_emu::BusInterface>::reset(self.bus)
     }
 
     #[inline]
@@ -178,7 +178,7 @@ impl Z80Debugger for Z80DebugView<'_, '_, '_, '_> {
     fn check_read_io(&mut self, address: u16, cpu: &mut Z80) {}
 
     #[inline]
-    fn check_write_memory(&mut self, address: u16, value: u8, cpu: &mut Z80) {
+    fn check_write_memory(&mut self, address: u16, _value: u8, cpu: &mut Z80) {
         if self.0.debugger.z80_breakpoints().check_write(address) {
             self.0.debugger.handle_breakpoint(
                 GenesisCpu::Z80,
@@ -248,7 +248,7 @@ impl<'bus, 'm68k, 'debugger> z80_emu::BusInterface for DebugZ80Bus<'bus, 'm68k, 
 
     #[inline]
     fn reset(&self) -> bool {
-        <GenesisBus as z80_emu::BusInterface>::reset(&self.bus)
+        <GenesisBus as z80_emu::BusInterface>::reset(self.bus)
     }
 
     #[inline]

@@ -16,7 +16,7 @@ use segacd_core::api::SegaCd;
 use segacd_core::api::debug::{
     SegaCdDebugState, SegaCdDebugView, SegaCdDebugger, SegaCdMemoryArea,
 };
-use sh2_emu::bus::{OpSize, OpSizeEnum};
+use sh2_emu::bus::OpSizeEnum;
 use std::ops::Deref;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
@@ -1192,6 +1192,9 @@ impl GenesisDebugger {
 }
 
 impl GenesisDebuggerHandle {
+    /// # Errors
+    ///
+    /// Returns an error if the debugger backend has been closed.
     pub fn send_command(
         &self,
         command: GenesisDebugCommand,
@@ -1285,7 +1288,7 @@ impl GenesisDebuggerWithCpus<'_, '_> {
             debugger: self.debugger.into(),
             m68k: self.m68k.into(),
             z80: self.z80.into(),
-            sega_cd: sega_cd.map(|sega_cd| sega_cd as *mut _).unwrap_or(ptr::null_mut()),
+            sega_cd: sega_cd.map(ptr::from_mut).unwrap_or(ptr::null_mut()),
             working_ram: genesis_components.working_ram.into(),
             audio_ram: genesis_components.audio_ram.into(),
             z80_bank_number: genesis_components.z80_bank_number,

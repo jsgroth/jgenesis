@@ -21,8 +21,8 @@ use thiserror::Error;
 
 pub const DEFAULT_SUB_CPU_DIVIDER: u64 = genesis_config::NATIVE_SUB_CPU_DIVIDER;
 
-const NTSC_GENESIS_MASTER_CLOCK_RATE: u64 = 53_693_175;
-const PAL_GENESIS_MASTER_CLOCK_RATE: u64 = 53_203_424;
+const NTSC_GENESIS_MASTER_CLOCK_RATE: u64 = genesis_components::NTSC_GENESIS_MCLK_FREQUENCY as u64;
+const PAL_GENESIS_MASTER_CLOCK_RATE: u64 = genesis_components::PAL_GENESIS_MCLK_FREQUENCY as u64;
 pub const SEGA_CD_MASTER_CLOCK_RATE: u64 = 50_000_000;
 
 const BIOS_LEN: usize = memory::BIOS_LEN;
@@ -61,6 +61,10 @@ pub struct SegaCd {
 }
 
 impl SegaCd {
+    /// # Errors
+    ///
+    /// Returns an error if the BIOS ROM is not the correct size or if there is an error reading
+    /// the CD-ROM image.
     pub fn new(
         bios: Vec<u8>,
         disc: Option<CdRom>,
@@ -96,6 +100,9 @@ impl SegaCd {
         })
     }
 
+    /// # Errors
+    ///
+    /// Propagates any CD-ROM disc read errors.
     #[inline]
     pub fn tick<const DEBUG: bool>(
         &mut self,
@@ -178,6 +185,7 @@ impl SegaCd {
         self.sub_cpu_wait_cycles -= sub_cpu_cycles;
     }
 
+    #[must_use]
     #[inline]
     pub fn main_read_memory<const WORD: bool>(&self, address: u32) -> u16 {
         if address & 0x200000 == 0 {
@@ -222,6 +230,7 @@ impl SegaCd {
         }
     }
 
+    #[must_use]
     #[inline]
     pub fn read_word_for_dma(&mut self, address: u32, open_bus: &mut u16) -> u16 {
         if address & 0x200000 == 0 {
@@ -235,6 +244,7 @@ impl SegaCd {
         }
     }
 
+    #[must_use]
     #[inline]
     pub fn read_ram_cartridge<const WORD: bool>(&self, mut address: u32) -> u16 {
         if WORD {
@@ -251,6 +261,7 @@ impl SegaCd {
         self.bus.write_ram_cartridge(address, value as u8);
     }
 
+    #[must_use]
     #[inline]
     pub fn main_read_register<const WORD: bool>(&mut self, address: u32) -> u16 {
         self.bus.main_read_register::<WORD>(address)
@@ -272,14 +283,17 @@ impl SegaCd {
         self.bus.reset();
     }
 
+    #[must_use]
     pub fn disc_title(&self) -> Option<String> {
         self.disc_title.clone()
     }
 
+    #[must_use]
     pub fn region(&self) -> GenesisRegion {
         self.bus.region()
     }
 
+    #[must_use]
     pub fn has_six_button_incompatible_game(&self) -> bool {
         self.six_button_incompatible_game
     }
@@ -288,14 +302,17 @@ impl SegaCd {
         self.bus.take_backup_ram_dirty()
     }
 
+    #[must_use]
     pub fn backup_ram(&self) -> &[u8] {
         self.bus.backup_ram()
     }
 
+    #[must_use]
     pub fn ram_cartridge(&self) -> &[u8] {
         self.bus.ram_cartridge()
     }
 
+    #[must_use]
     pub fn take_bios_and_disc(self) -> (Vec<u8>, Option<CdRom>) {
         self.bus.take_bios_and_disc()
     }
@@ -304,6 +321,9 @@ impl SegaCd {
         self.bus.take_bios_and_disc_from(&mut other.bus);
     }
 
+    /// # Errors
+    ///
+    /// Propagates any CD-ROM read errors.
     pub fn change_disc(&mut self, disc: CdRom) -> SegaCdLoadResult<()> {
         self.bus.change_disc(disc);
         self.disc_title = self.bus.disc_title()?;

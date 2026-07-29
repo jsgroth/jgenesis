@@ -436,6 +436,7 @@ impl SegaCdBus {
         self.buffered_sub_register_writes = writes;
     }
 
+    #[allow(clippy::match_same_arms)]
     fn sub_read_register<const WORD: bool>(&mut self, address: u32) -> u16 {
         log::trace!("Sub CPU register {} read: {address:06X}", if WORD { "word" } else { "byte" });
 
@@ -926,6 +927,7 @@ impl BusInterface for SegaCdBus {
         self.sub_write::<true>(address, value);
     }
 
+    #[allow(clippy::bool_to_int_with_if)]
     fn interrupt_level(&self) -> u8 {
         if self.registers.cdc_interrupt_enabled && self.cdc().interrupt_pending() {
             // INT5: CDC interrupt
