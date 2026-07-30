@@ -8,15 +8,18 @@ use crate::vdp::Vdp;
 use crate::{WhichCpu, bootrom};
 use bincode::{Decode, Encode};
 use genesis_components::cartridge::Cartridge;
+use genesis_config::Sega32XEmulatorConfig;
 use jgenesis_common::boxedarray::BoxedWordArray;
+use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::{GetBit, U16Ext};
+use jgenesis_proc_macros::PartialClone;
 use sh2_emu::Sh2;
 use sh2_emu::bus::{AccessContext, BusInterface, OpSize};
 use sh2_emu::debug::DummySh2Debugger;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
-use std::{array, cmp, ptr};
+use std::{array, cmp};
 
 const SDRAM_LEN_WORDS: usize = 256 * 1024 / 2;
 const SDRAM_MASK: u32 = 0x3FFFF;
@@ -27,13 +30,36 @@ pub struct SerialInterface {
     pub slave_to_master: Option<u8>,
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, PartialClone)]
 pub struct Sega32XBus {
+    #[partial_clone(partial)]
+    pub cartridge: Option<Cartridge>,
     pub vdp: Vdp,
     pub pwm: PwmChip,
     pub registers: SystemRegisters,
     pub sdram: BoxedWordArray<SDRAM_LEN_WORDS>,
     pub serial: SerialInterface,
+    pub stalled_on_cartridge_access: bool,
+}
+
+impl Sega32XBus {
+    pub fn new(
+        timing_mode: TimingMode,
+        cartridge: Option<Cartridge>,
+        config: &Sega32XEmulatorConfig,
+    ) -> Self {
+        let cartridge_present = cartridge.is_some();
+
+        Self {
+            cartridge,
+            vdp: Vdp::new(timing_mode, config),
+            pwm: PwmChip::new(timing_mode),
+            registers: SystemRegisters::new(cartridge_present),
+            sdram: BoxedWordArray::new(),
+            serial: SerialInterface::default(),
+            stalled_on_cartridge_access: false,
+        }
+    }
 }
 
 pub struct OtherCpu {
@@ -44,7 +70,6 @@ pub struct OtherCpu {
 // SH-2 memory map
 pub struct Sh2Bus {
     s32x_bus: NonNull<Sega32XBus>,
-    cartridge: *mut Cartridge,
     other_sh2: Option<OtherCpu>,
     pub which: WhichCpu,
     pub cycle_counter: u64,
@@ -200,7 +225,6 @@ impl Sh2Bus {
     #[inline]
     pub fn create<'bus, 'cartridge, 'other>(
         s32x_bus: &'bus mut Sega32XBus,
-        cartridge: Option<&'cartridge mut Cartridge>,
         which: WhichCpu,
         cycle_counter: u64,
         cycle_limit: u64,
@@ -209,21 +233,13 @@ impl Sh2Bus {
         // SAFETY: Sh2Bus contains raw pointers that are created from mutable references here. The
         // returned bus is only accessible through a guard so that the caller cannot reborrow or
         // move the underlying values until after dropping the guard.
-        let cartridge = cartridge.map(ptr::from_mut).unwrap_or(ptr::null_mut());
         let other_sh2 = other_sh2.map(|(other_cpu, other_cycles)| OtherCpu {
             cpu: other_cpu.into(),
             cycle_counter: other_cycles.into(),
         });
 
         Sh2BusGuard {
-            bus: Sh2Bus {
-                s32x_bus: s32x_bus.into(),
-                cartridge,
-                other_sh2,
-                which,
-                cycle_counter,
-                cycle_limit,
-            },
+            bus: Sh2Bus { s32x_bus: s32x_bus.into(), other_sh2, which, cycle_counter, cycle_limit },
             _bus_marker: PhantomData,
             _cartridge_marker: PhantomData,
             _other_marker: PhantomData,
@@ -244,11 +260,6 @@ impl Sh2Bus {
         unsafe { self.s32x_bus.as_ref() }
     }
 
-    fn cartridge(&mut self) -> Option<&mut Cartridge> {
-        // SAFETY: Similar to above but with a nullable pointer, hence this returns an Option
-        unsafe { self.cartridge.as_mut() }
-    }
-
     // Brutal Unleashed: Above the Claw requires fairly close synchronization to prevent
     // the game from freezing due to the master SH-2 missing a communication port write from
     // the slave SH-2. After the slave SH-2 sees a specific value from the master SH-2, it
@@ -263,27 +274,30 @@ impl Sh2Bus {
             return;
         }
 
-        let Some(OtherCpu { mut cpu, cycle_counter }) = self.other_sh2 else { return };
+        let Some(OtherCpu { cpu: mut other_cpu, cycle_counter: other_cycle_counter }) =
+            self.other_sh2
+        else {
+            return;
+        };
 
         // SAFETY: All raw pointers used here were created from mutable references and are
-        // guaranteed non-null (except for the cartridge).
+        // guaranteed non-null.
         // The original Sh2Bus instance is not used while the other CPU is executing against the
         // bus copy.
         unsafe {
             let limit = cmp::min(self.cycle_limit, self.cycle_counter);
             let mut bus = Sh2Bus {
                 s32x_bus: self.s32x_bus,
-                cartridge: self.cartridge,
                 which: self.which.other(),
-                cycle_counter: cycle_counter.read(),
+                cycle_counter: other_cycle_counter.read(),
                 cycle_limit: limit,
                 other_sh2: None,
             };
 
             while bus.cycle_counter < bus.cycle_limit {
-                cpu.as_mut().execute(crate::api::SH2_EXECUTION_SLICE_LEN, &mut bus);
+                other_cpu.as_mut().execute(crate::api::SH2_EXECUTION_SLICE_LEN, &mut bus);
             }
-            cycle_counter.write(bus.cycle_counter);
+            other_cycle_counter.write(bus.cycle_counter);
         }
     }
 
@@ -373,24 +387,33 @@ impl Sh2Bus {
 
     // $02000000-$03FFFFFF: Cartridge
     fn read_02<const SIZE: u8>(&mut self, address: u32) -> u32 {
+        // SH-2s stall if they access the cartridge while RV=1
+        self.s32x_bus().stalled_on_cartridge_access |= self.s32x_bus().registers.dma.rom_to_vram;
+
+        if self.s32x_bus().registers.dma.rom_to_vram {
+            log::debug!("SH-2 {:?} accessed ROM {address:08X} while RV=1", self.which);
+        }
+
         self.cycle_counter += if SIZE == OpSize::LONGWORD {
             2 * (1 + SH2_CARTRIDGE_CYCLES)
         } else {
             1 + SH2_CARTRIDGE_CYCLES
         };
 
-        let Some(cartridge) = self.cartridge() else {
+        let Some(cartridge) = &mut self.s32x_bus().cartridge else {
             // TODO open bus?
             return !0;
         };
 
+        // Only A21-A0 are connected to the cartridge on the SH-2 side
+        let cartridge_addr = address & 0x3FFFFF;
+
         match SIZE {
-            OpSize::BYTE => cartridge.read_byte(address & 0x7FFFFF, !0).into(),
-            OpSize::WORD => cartridge.read_word(address & 0x7FFFFF, !0).into(),
+            OpSize::BYTE => cartridge.read_byte(cartridge_addr, !0).into(),
+            OpSize::WORD => cartridge.read_word(cartridge_addr, !0).into(),
             OpSize::LONGWORD => {
-                let rom_addr = address & 0x7FFFFF & !3;
-                let high: u32 = cartridge.read_word(rom_addr, !0).into();
-                let low: u32 = cartridge.read_word(rom_addr | 2, !0).into();
+                let high: u32 = cartridge.read_word(cartridge_addr, !0).into();
+                let low: u32 = cartridge.read_word(cartridge_addr | 2, !0).into();
                 low | (high << 16)
             }
             _ => invalid_size!(SIZE),
@@ -727,7 +750,7 @@ impl BusInterface for Sh2Bus {
 
     #[inline]
     fn should_stop_execution(&self) -> bool {
-        self.cycle_counter >= self.cycle_limit
+        self.cycle_counter >= self.cycle_limit || self.s32x_bus_shared().stalled_on_cartridge_access
     }
 
     sh2_emu::impl_sh2_opcode_table!(Sh2Bus);

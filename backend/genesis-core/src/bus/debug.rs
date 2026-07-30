@@ -15,12 +15,20 @@ impl GenesisBus {
         z80: &'z80 mut Z80,
     ) -> GenesisDebugView<'m68k, 'z80, 'bus, 'bus, 'bus, 'bus> {
         let components = genesis_components!(self);
+
+        let (s32x_debug_view, s32x_cartridge) =
+            match self.sega_32x.as_mut().map(Sega32X::as_debug_view) {
+                Some((debug_view, cartridge)) => (Some(debug_view), cartridge),
+                None => (None, None),
+            };
+        let cartridge = s32x_cartridge.or(self.cartridge.as_mut());
+
         components.into_debug_view(
             m68k,
             z80,
             self.sega_cd.as_mut().map(SegaCd::as_debug_view),
-            self.sega_32x.as_mut().map(Sega32X::as_debug_view),
-            self.cartridge.as_mut(),
+            s32x_debug_view,
+            cartridge,
         )
     }
 }

@@ -105,7 +105,7 @@ impl GenesisEmulator {
 
         let initial_ram = save_writer.load_bytes(SRAM_EXTENSION).ok();
 
-        let cartridge = cartridge_rom
+        let mut cartridge = cartridge_rom
             .map(|rom| Cartridge::new(rom, initial_ram, config.forced_region, &config.cheat_codes));
 
         let region = cartridge
@@ -148,7 +148,8 @@ impl GenesisEmulator {
             None
         };
 
-        let sega_32x = s32x_present.then(|| Sega32X::new(timing_mode, cartridge.as_ref(), &config));
+        // If 32X is present, let 32X own the cartridge instead of GenesisBus
+        let sega_32x = s32x_present.then(|| Sega32X::new(timing_mode, cartridge.take(), &config));
 
         let bus = GenesisBus::new(timing_mode, cartridge, sega_cd, sega_32x, &config);
 
@@ -439,7 +440,12 @@ impl EmulatorTrait for GenesisEmulator {
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
         log::info!("Hard resetting console");
 
-        let cartridge_rom = self.bus.cartridge.take().map(|mut cartridge| cartridge.take_rom());
+        let cartridge_rom = self
+            .bus
+            .sega_32x
+            .as_mut()
+            .and_then(Sega32X::take_rom)
+            .or_else(|| self.bus.cartridge.as_mut().map(Cartridge::take_rom));
 
         let (sega_cd_bios, disc) = match self.bus.sega_cd.take().map(SegaCd::take_bios_and_disc) {
             Some((bios_rom, disc)) => (Some(bios_rom), disc),
@@ -468,6 +474,12 @@ impl EmulatorTrait for GenesisEmulator {
             && let Some(self_sega_cd) = &mut self.bus.sega_cd
         {
             state_sega_cd.take_bios_and_disc_from(self_sega_cd);
+        }
+
+        if let Some(state_32x) = &mut state.bus.sega_32x
+            && let Some(self_32x) = &mut self.bus.sega_32x
+        {
+            state_32x.take_rom_from(self_32x);
         }
 
         *self = state;

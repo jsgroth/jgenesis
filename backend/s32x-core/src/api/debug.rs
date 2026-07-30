@@ -126,15 +126,19 @@ impl Sega32XDebugView<'_> {
 }
 
 impl Sega32X {
-    pub fn as_debug_view(&mut self) -> Sega32XDebugView<'_> {
-        Sega32XDebugView {
+    pub fn as_debug_view(&mut self) -> (Sega32XDebugView<'_>, Option<&mut Cartridge>) {
+        let debug_view = Sega32XDebugView {
             sdram: self.bus.sdram.as_mut_slice(),
             sh2_master: &mut self.sh2_master,
             sh2_slave: &mut self.sh2_slave,
             system_registers: &mut self.bus.registers,
             vdp: &mut self.bus.vdp,
             pwm: &mut self.bus.pwm,
-        }
+        };
+
+        let cartridge = self.bus.cartridge.as_mut();
+
+        (debug_view, cartridge)
     }
 }
 

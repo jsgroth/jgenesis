@@ -5,20 +5,17 @@ pub mod debug;
 use crate::api::debug::Sega32XDebugger;
 use crate::bootrom::M68kVectors;
 use crate::bus::debug::DebugSh2Bus;
-use crate::bus::{Sega32XBus, SerialInterface, Sh2Bus};
-use crate::pwm::PwmChip;
-use crate::registers::{Access, SystemRegisters};
-use crate::vdp::Vdp;
+use crate::bus::{Sega32XBus, Sh2Bus};
+use crate::registers::Access;
 use crate::{GenesisVdp, WhichCpu, bootrom};
 use bincode::{Decode, Encode};
 use genesis_components::GenesisEmulatorConfigExt;
 use genesis_components::cartridge::Cartridge;
 use genesis_components::vdp::BorderSize;
 use genesis_config::GenesisEmulatorConfig;
-use genesis_config::Sega32XEmulatorConfig;
-use jgenesis_common::boxedarray::BoxedWordArray;
 use jgenesis_common::frontend::{FrameSize, Renderer, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext};
+use jgenesis_proc_macros::PartialClone;
 use sh2_emu::Sh2;
 use std::cmp;
 use std::fmt::Debug;
@@ -45,7 +42,7 @@ pub struct GenesisVdpInfo {
     pub scanlines_in_current_frame: u16,
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, PartialClone)]
 pub struct Sega32X {
     sh2_master: Sh2,
     sh2_slave: Sh2,
@@ -54,6 +51,7 @@ pub struct Sega32X {
     master_cycles: u64,
     slave_cycles: u64,
     sh2_clock_multiplier: Option<NonZeroU64>,
+    #[partial_clone(partial)]
     bus: Sega32XBus,
     m68k_vectors: Box<M68kVectors>,
     timing_mode: TimingMode,
@@ -64,7 +62,7 @@ impl Sega32X {
     #[must_use]
     pub fn new(
         timing_mode: TimingMode,
-        cartridge: Option<&Cartridge>,
+        cartridge: Option<Cartridge>,
         config: &GenesisEmulatorConfig,
     ) -> Self {
         Self {
@@ -75,13 +73,7 @@ impl Sega32X {
             master_cycles: 0,
             slave_cycles: 0,
             sh2_clock_multiplier: none_if_default_multiplier(config.sega_32x.sh2_clock_multiplier),
-            bus: Sega32XBus {
-                vdp: Vdp::new(timing_mode, &config.sega_32x),
-                pwm: PwmChip::new(timing_mode),
-                registers: SystemRegisters::new(cartridge.is_some()),
-                sdram: BoxedWordArray::new(),
-                serial: SerialInterface::default(),
-            },
+            bus: Sega32XBus::new(timing_mode, cartridge, &config.sega_32x),
             m68k_vectors: Box::new(bootrom::new_m68k_vectors()),
             timing_mode,
             config: config.clone(),
@@ -92,12 +84,14 @@ impl Sega32X {
     pub fn tick<const DEBUG: bool>(
         &mut self,
         mut total_mclk_cycles: u64,
-        cartridge: &mut Option<Cartridge>,
         vdp_info: GenesisVdpInfo,
         audio_output: &mut impl Sega32XAudioOutput,
         debugger: &mut impl Sega32XDebugger,
     ) {
         while total_mclk_cycles > 0 {
+            // If an SH-2 is stalled on a cartridge ROM access, it unstalls when RV=0
+            self.bus.stalled_on_cartridge_access &= self.bus.registers.dma.rom_to_vram;
+
             let h_interrupt_enabled = self.bus.registers.either_h_interrupt_enabled();
             let mclk_till_next_vdp_event =
                 self.bus.vdp.mclk_cycles_until_next_event(h_interrupt_enabled);
@@ -126,54 +120,11 @@ impl Sega32X {
 
             self.global_cycles += elapsed_sh2_cycles;
 
-            // Slave SH-2
-            let mut slave_bus = Sh2Bus::create(
-                &mut self.bus,
-                cartridge.as_mut(),
-                WhichCpu::Slave,
-                self.slave_cycles,
-                self.global_cycles,
-                Some((&mut self.sh2_master, &mut self.master_cycles)),
-            );
-
-            self.slave_cycles = if DEBUG {
-                let mut debug_bus = DebugSh2Bus::create(slave_bus, debugger);
-                while debug_bus.cycle_counter() < debug_bus.cycle_limit() {
-                    self.sh2_slave.execute(SH2_EXECUTION_SLICE_LEN, &mut *debug_bus);
-                }
-                debug_bus.cycle_counter()
-            } else {
-                while slave_bus.cycle_counter < slave_bus.cycle_limit {
-                    self.sh2_slave.execute(SH2_EXECUTION_SLICE_LEN, &mut *slave_bus);
-                }
-                slave_bus.cycle_counter
-            };
-
-            // Master SH-2
-            let mut master_bus = Sh2Bus::create(
-                &mut self.bus,
-                cartridge.as_mut(),
-                WhichCpu::Master,
-                self.master_cycles,
-                self.global_cycles,
-                Some((&mut self.sh2_slave, &mut self.slave_cycles)),
-            );
-            self.master_cycles = if DEBUG {
-                let mut debug_bus = DebugSh2Bus::create(master_bus, debugger);
-                while debug_bus.cycle_counter() < debug_bus.cycle_limit() {
-                    self.sh2_master.execute(SH2_EXECUTION_SLICE_LEN, &mut *debug_bus);
-                }
-                debug_bus.cycle_counter()
-            } else {
-                while master_bus.cycle_counter < master_bus.cycle_limit {
-                    self.sh2_master.execute(SH2_EXECUTION_SLICE_LEN, &mut *master_bus);
-                }
-                master_bus.cycle_counter
-            };
+            // SH-2s
+            self.execute_cpus::<DEBUG>(debugger);
 
             // SH-2/SH7604 peripherals (WDT, SCI)
-            let mut peripherals_bus =
-                Sh2Bus::create(&mut self.bus, None, WhichCpu::Master, 0, 0, None);
+            let mut peripherals_bus = Sh2Bus::create(&mut self.bus, WhichCpu::Master, 0, 0, None);
             self.sh2_master.tick_peripherals(elapsed_pwm_cycles, &mut *peripherals_bus);
 
             peripherals_bus.which = WhichCpu::Slave;
@@ -190,9 +141,77 @@ impl Sega32X {
         debug_assert_eq!(self.bus.vdp.scanline_mclk(), vdp_info.scanline_mclk);
     }
 
-    pub fn reload_config(&mut self, config: &Sega32XEmulatorConfig) {
-        self.sh2_clock_multiplier = none_if_default_multiplier(config.sh2_clock_multiplier);
-        self.bus.vdp.reload_config(config);
+    fn execute_cpus<const DEBUG: bool>(&mut self, debugger: &mut impl Sega32XDebugger) {
+        if self.bus.stalled_on_cartridge_access {
+            self.slave_cycles = self.global_cycles;
+            self.master_cycles = self.global_cycles;
+            return;
+        }
+
+        // Slave SH-2
+        let mut slave_bus = Sh2Bus::create(
+            &mut self.bus,
+            WhichCpu::Slave,
+            self.slave_cycles,
+            self.global_cycles,
+            Some((&mut self.sh2_master, &mut self.master_cycles)),
+        );
+
+        self.slave_cycles = if DEBUG {
+            let mut debug_bus = DebugSh2Bus::create(slave_bus, debugger);
+            while debug_bus.cycle_counter() < debug_bus.cycle_limit() {
+                self.sh2_slave.execute(SH2_EXECUTION_SLICE_LEN, &mut *debug_bus);
+            }
+            debug_bus.cycle_counter()
+        } else {
+            while slave_bus.cycle_counter < slave_bus.cycle_limit {
+                self.sh2_slave.execute(SH2_EXECUTION_SLICE_LEN, &mut *slave_bus);
+            }
+            slave_bus.cycle_counter
+        };
+
+        // Master SH-2
+        let mut master_bus = Sh2Bus::create(
+            &mut self.bus,
+            WhichCpu::Master,
+            self.master_cycles,
+            self.global_cycles,
+            Some((&mut self.sh2_slave, &mut self.slave_cycles)),
+        );
+        self.master_cycles = if DEBUG {
+            let mut debug_bus = DebugSh2Bus::create(master_bus, debugger);
+            while debug_bus.cycle_counter() < debug_bus.cycle_limit() {
+                self.sh2_master.execute(SH2_EXECUTION_SLICE_LEN, &mut *debug_bus);
+            }
+            debug_bus.cycle_counter()
+        } else {
+            while master_bus.cycle_counter < master_bus.cycle_limit {
+                self.sh2_master.execute(SH2_EXECUTION_SLICE_LEN, &mut *master_bus);
+            }
+            master_bus.cycle_counter
+        };
+    }
+
+    pub fn reload_config(&mut self, config: &GenesisEmulatorConfig) {
+        self.sh2_clock_multiplier =
+            none_if_default_multiplier(config.sega_32x.sh2_clock_multiplier);
+        self.bus.vdp.reload_config(&config.sega_32x);
+
+        if let Some(cartridge) = &mut self.bus.cartridge {
+            cartridge.reload_config(config);
+        }
+    }
+
+    pub fn take_rom(&mut self) -> Option<Vec<u8>> {
+        self.bus.cartridge.as_mut().map(Cartridge::take_rom)
+    }
+
+    pub fn take_rom_from(&mut self, other: &mut Self) {
+        if let Some(cartridge) = self.bus.cartridge.as_mut()
+            && let Some(other_cartridge) = other.bus.cartridge.as_mut()
+        {
+            cartridge.take_rom_from(other_cartridge);
+        }
     }
 
     pub fn reset(&mut self) {
@@ -213,16 +232,23 @@ impl Sega32X {
         self.bus.registers.dma.rom_to_vram
     }
 
+    #[must_use]
+    #[inline]
+    pub fn cartridge(&self) -> Option<&Cartridge> {
+        self.bus.cartridge.as_ref()
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn cartridge_mut(&mut self) -> Option<&mut Cartridge> {
+        self.bus.cartridge.as_mut()
+    }
+
     // Reads from $000000-$3FFFFF while the 32X adapter is enabled
     #[must_use]
     #[inline]
     #[allow(clippy::missing_panics_doc)]
-    pub fn m68k_read_cartridge<const WORD: bool>(
-        &mut self,
-        address: u32,
-        open_bus: u16,
-        cartridge: Option<&mut Cartridge>,
-    ) -> u16 {
+    pub fn m68k_read_cartridge<const WORD: bool>(&mut self, address: u32, open_bus: u16) -> u16 {
         if address < 0x000100 {
             // 68K vector ROM + HINT vector
             return if WORD {
@@ -238,7 +264,7 @@ impl Sega32X {
             return open_bus;
         }
 
-        let Some(cartridge) = cartridge else {
+        let Some(cartridge) = &mut self.bus.cartridge else {
             return if WORD { open_bus } else { open_bus.be_byte(address & 1).into() };
         };
 
@@ -247,12 +273,7 @@ impl Sega32X {
 
     // Writes to $000000-$3FFFFF while the 32X adapter is enabled
     #[inline]
-    pub fn m68k_write_cartridge<const WORD: bool>(
-        &mut self,
-        address: u32,
-        value: u16,
-        cartridge: Option<&mut Cartridge>,
-    ) {
+    pub fn m68k_write_cartridge<const WORD: bool>(&mut self, address: u32, value: u16) {
         if (0x70..0x74).contains(&address) {
             // HINT vector is R/W
             if WORD {
@@ -269,7 +290,7 @@ impl Sega32X {
             return;
         }
 
-        let Some(cartridge) = cartridge else { return };
+        let Some(cartridge) = &mut self.bus.cartridge else { return };
 
         cartridge.write::<WORD>(address, value);
     }
@@ -277,12 +298,7 @@ impl Sega32X {
     // Reads from $800000-$9FFFFF while the 32X adapter is enabled
     #[must_use]
     #[inline]
-    pub fn m68k_read_memory<const WORD: bool>(
-        &mut self,
-        address: u32,
-        open_bus: u16,
-        cartridge: Option<&mut Cartridge>,
-    ) -> u16 {
+    pub fn m68k_read_memory<const WORD: bool>(&mut self, address: u32, open_bus: u16) -> u16 {
         match address {
             0x840000..=0x87FFFF => {
                 // Frame buffer
@@ -299,7 +315,7 @@ impl Sega32X {
             }
             0x880000..=0x8FFFFF
                 if !self.rom_to_vram_dma()
-                    && let Some(cartridge) = cartridge =>
+                    && let Some(cartridge) = &mut self.bus.cartridge =>
             {
                 // First 512KB of cartridge
                 let rom_addr = address & 0x7FFFF;
@@ -307,7 +323,7 @@ impl Sega32X {
             }
             0x900000..=0x9FFFFF
                 if !self.rom_to_vram_dma()
-                    && let Some(cartridge) = cartridge =>
+                    && let Some(cartridge) = &mut self.bus.cartridge =>
             {
                 // Mappable 1MB cartridge bank
                 let rom_addr =
@@ -326,12 +342,7 @@ impl Sega32X {
 
     // Writes to $800000-$9FFFFF while the 32X adapter is enabled
     #[inline]
-    pub fn m68k_write_memory<const WORD: bool>(
-        &mut self,
-        address: u32,
-        value: u16,
-        cartridge: Option<&mut Cartridge>,
-    ) {
+    pub fn m68k_write_memory<const WORD: bool>(&mut self, address: u32, value: u16) {
         match address {
             0x840000..=0x85FFFF => {
                 // Frame buffer
@@ -366,7 +377,7 @@ impl Sega32X {
             }
             0x880000..=0x8FFFFF
                 if !self.rom_to_vram_dma()
-                    && let Some(cartridge) = cartridge =>
+                    && let Some(cartridge) = &mut self.bus.cartridge =>
             {
                 // First 512KB of cartridge
                 let rom_addr = address & 0x7FFFF;
@@ -374,7 +385,7 @@ impl Sega32X {
             }
             0x900000..=0x9FFFFF
                 if !self.rom_to_vram_dma()
-                    && let Some(cartridge) = cartridge =>
+                    && let Some(cartridge) = &mut self.bus.cartridge =>
             {
                 // Mappable 1MB cartridge bank
                 let rom_addr =

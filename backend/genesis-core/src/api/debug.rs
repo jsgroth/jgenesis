@@ -1321,12 +1321,19 @@ impl SegaCdDebugger for GenesisDebuggerForSegaCd<'_, '_, '_> {
     }
 
     fn handle_sub_breakpoint(&mut self, debug_view: SegaCdDebugView<'_>) {
+        let (s32x_debug_view, s32x_cartridge) =
+            match self.sega_32x.as_mut().map(|sega_32x| sega_32x.as_debug_view()) {
+                Some((debug_view, cartridge)) => (Some(debug_view), cartridge),
+                None => (None, None),
+            };
+        let cartridge = s32x_cartridge.or(self.cartridge.as_deref_mut());
+
         let mut genesis_debug_view = self.genesis_components.as_debug_view(
             self.m68k,
             self.z80,
             Some(debug_view),
-            self.sega_32x.as_mut().map(|sega_32x| sega_32x.as_debug_view()),
-            self.cartridge.as_deref_mut(),
+            s32x_debug_view,
+            cartridge,
         );
         self.debugger.handle_breakpoint(GenesisCpu::Sub68k, &mut genesis_debug_view);
     }

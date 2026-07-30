@@ -42,7 +42,6 @@ impl DebugSh2Bus {
             let mut other_bus = Self {
                 bus: Sh2Bus {
                     s32x_bus: self.bus.s32x_bus,
-                    cartridge: self.bus.cartridge,
                     other_sh2: None,
                     which: self.bus.which.other(),
                     cycle_counter: other_cycle_counter.read(),
@@ -146,7 +145,7 @@ impl DebugSh2BusView<'_> {
             pwm: &mut s32x_bus.pwm,
         };
 
-        let cartridge = unsafe { self.0.bus.cartridge.as_mut() };
+        let cartridge = s32x_bus.cartridge.as_mut();
 
         (debug_view, cartridge)
     }

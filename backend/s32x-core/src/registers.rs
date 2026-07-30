@@ -258,6 +258,7 @@ impl SystemRegisters {
         self.slave_interrupts.update_interrupt_level();
 
         self.adapter_enabled = false;
+        self.dma.rom_to_vram = false;
     }
 
     pub fn m68k_read(&mut self, address: u32) -> u16 {
@@ -308,9 +309,6 @@ impl SystemRegisters {
                 self.sega_tv_bits = value & 0x0101;
             }
             0xA15120..=0xA1512F => self.write_communication_port(address, value),
-            0xA15130..=0xA15138 => {
-                log::warn!("Ignoring PWM register write: {address:06X} {value:04X}");
-            }
             _ => log::warn!("M68K invalid register write: {address:06X} {value:04X}"),
         }
     }
