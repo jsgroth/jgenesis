@@ -285,33 +285,42 @@ impl GenesisEmulator {
 
             self.render_frame(renderer).map_err(GenesisError::Render)?;
 
-            if self.bus.has_persistent_ram() && self.bus.get_and_clear_persistent_ram_dirty() {
-                if let Some(ram) = self.bus.cartridge.as_ref().map(Cartridge::external_ram)
-                    && !ram.is_empty()
-                {
-                    save_writer.persist_bytes(SRAM_EXTENSION, ram).map_err(GenesisError::Save)?;
-                }
-
-                if let Some(sega_cd) = &mut self.bus.sega_cd {
-                    let backup_ram_extension = match &self.bus.cartridge {
-                        Some(_) => BACKUP_RAM_EXTENSION,
-                        None => SRAM_EXTENSION,
-                    };
-                    save_writer
-                        .persist_bytes(backup_ram_extension, sega_cd.backup_ram())
-                        .map_err(GenesisError::Save)?;
-
-                    save_writer
-                        .persist_bytes(RAM_CARTRIDGE_EXTENSION, sega_cd.ram_cartridge())
-                        .map_err(GenesisError::Save)?;
-                }
-            }
+            self.persist_save_files(save_writer).map_err(GenesisError::Save)?;
         }
 
         Ok(match vdp_tick_effect {
             VdpTickEffect::FrameComplete => TickEffect::FrameRendered,
             VdpTickEffect::None => TickEffect::None,
         })
+    }
+
+    fn persist_save_files<S: SaveWriter>(&mut self, save_writer: &mut S) -> Result<(), S::Err> {
+        if !self.bus.has_persistent_ram() || !self.bus.get_and_clear_persistent_ram_dirty() {
+            return Ok(());
+        }
+
+        if let Some(ram) = self.bus.cartridge().map(Cartridge::external_ram)
+            && !ram.is_empty()
+        {
+            save_writer.persist_bytes(SRAM_EXTENSION, ram)?;
+        }
+
+        if let Some(sega_cd) = &self.bus.sega_cd {
+            // Backup RAM is the primary save location for Sega CD games, so prefer .sav over .bram
+            // if there's no game cartridge
+            let backup_ram_extension = match self.bus.cartridge() {
+                Some(_) => BACKUP_RAM_EXTENSION,
+                None => SRAM_EXTENSION,
+            };
+            save_writer.persist_bytes(backup_ram_extension, sega_cd.backup_ram())?;
+
+            // RAM cartridge is only present when there's no game cartridge (there's only 1 slot)
+            if self.bus.cartridge().is_none() {
+                save_writer.persist_bytes(RAM_CARTRIDGE_EXTENSION, sega_cd.ram_cartridge())?;
+            }
+        }
+
+        Ok(())
     }
 
     /// Similar to [`<Self as EmulatorTrait>::tick`] but runs with debugger hooks enabled.
@@ -430,22 +439,17 @@ impl EmulatorTrait for GenesisEmulator {
     fn soft_reset(&mut self) {
         log::info!("Soft resetting console");
 
+        self.bus.reset();
+
         self.bus.m68k_reset = true;
         self.m68k.execute_instruction(&mut self.bus);
         self.bus.m68k_reset = false;
-
-        self.bus.reset();
     }
 
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
         log::info!("Hard resetting console");
 
-        let cartridge_rom = self
-            .bus
-            .sega_32x
-            .as_mut()
-            .and_then(Sega32X::take_rom)
-            .or_else(|| self.bus.cartridge.as_mut().map(Cartridge::take_rom));
+        let cartridge_rom = self.bus.cartridge_mut().map(Cartridge::take_rom);
 
         let (sega_cd_bios, disc) = match self.bus.sega_cd.take().map(SegaCd::take_bios_and_disc) {
             Some((bios_rom, disc)) => (Some(bios_rom), disc),
@@ -464,8 +468,8 @@ impl EmulatorTrait for GenesisEmulator {
     }
 
     fn load_state(&mut self, mut state: Self::SaveState) {
-        if let Some(state_cartridge) = &mut state.bus.cartridge
-            && let Some(self_cartridge) = &mut self.bus.cartridge
+        if let Some(state_cartridge) = state.bus.cartridge_mut()
+            && let Some(self_cartridge) = self.bus.cartridge_mut()
         {
             state_cartridge.take_rom_from(self_cartridge);
         }
@@ -474,12 +478,6 @@ impl EmulatorTrait for GenesisEmulator {
             && let Some(self_sega_cd) = &mut self.bus.sega_cd
         {
             state_sega_cd.take_bios_and_disc_from(self_sega_cd);
-        }
-
-        if let Some(state_32x) = &mut state.bus.sega_32x
-            && let Some(self_32x) = &mut self.bus.sega_32x
-        {
-            state_32x.take_rom_from(self_32x);
         }
 
         *self = state;

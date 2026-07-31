@@ -199,38 +199,38 @@ impl GraphicsCoprocessor {
     #[allow(clippy::match_same_arms)]
     pub fn write_register_byte(&mut self, address: u32, value: u8) {
         match address & 0x1FF {
-            0x0059 => {
+            0x059 => {
                 // Stamp data size
                 self.stamp_map_size = StampMapSizeScreens::from_bit(value.bit(2));
                 self.stamp_size = StampSizeDots::from_bit(value.bit(1));
                 self.stamp_map_repeats = value.bit(0);
             }
-            0x005A..=0x005B => {
+            0x05A..=0x05B => {
                 // Stamp map base address (word access only)
                 self.write_register_word(address & !1, u16::from_le_bytes([value, value]));
             }
-            0x005D => {
+            0x05D => {
                 // Image buffer V cell size (minus one)
                 self.image_buffer_v_cell_size = ((value & 0x1F) + 1).into();
             }
-            0x005E..=0x005F => {
+            0x05E..=0x05F => {
                 // Image buffer start address (word access only)
                 self.write_register_word(address & !1, u16::from_le_bytes([value, value]));
             }
-            0x0061 => {
+            0x061 => {
                 // Image buffer offset
                 self.image_buffer_v_offset = u32::from(value >> 3) & 0x07;
                 self.image_buffer_h_offset = (value & 0x07).into();
             }
-            0x0062..=0x0063 => {
+            0x062..=0x063 => {
                 // Image buffer H dot size (word access only)
                 self.write_register_word(address & !1, u16::from_le_bytes([value, value]));
             }
-            0x0064..=0x0065 => {
+            0x064..=0x065 => {
                 // Image buffer V dot size (word access only)
                 self.write_register_word(address & !1, u16::from_le_bytes([value, value]));
             }
-            0x0066..=0x0067 => {
+            0x066..=0x067 => {
                 // Trace vector base address (word access only)
                 self.write_register_word(address & !1, u16::from_le_bytes([value, value]));
             }
@@ -241,35 +241,35 @@ impl GraphicsCoprocessor {
     #[allow(clippy::match_same_arms)]
     pub fn write_register_word(&mut self, address: u32, value: u16) {
         match address & 0x1FF {
-            0x0058 => {
+            0x058 => {
                 // Stamp data size (only low byte is writable)
                 self.write_register_byte(address | 1, value as u8);
             }
-            0x005A => {
+            0x05A => {
                 // Stamp map base address (bits 17-7)
                 self.stamp_map_base_address = u32::from(value & 0xFFE0) << 2;
             }
-            0x005C => {
+            0x05C => {
                 // Image buffer V cell size (only low byte is writable)
                 self.write_register_byte(address | 1, value as u8);
             }
-            0x005E => {
+            0x05E => {
                 // Image buffer start address (bits 17-5)
                 self.image_buffer_start_address = u32::from(value & 0xFFF8) << 2;
             }
-            0x0060 => {
+            0x060 => {
                 // Image buffer offset (only low byte is writable)
                 self.write_register_byte(address | 1, value as u8);
             }
-            0x0062 => {
+            0x062 => {
                 // Image buffer H dot size
                 self.image_buffer_h_dot_size = (value & 0x01FF).into();
             }
-            0x0064 => {
+            0x064 => {
                 // Image buffer V dot size
                 self.image_buffer_v_dot_size = (value & 0x00FF).into();
             }
-            0x0066 => {
+            0x066 => {
                 // Trace vector base address / begin graphics operation
                 self.trace_vector_base_address = u32::from(value & 0xFFFE) << 2;
 
@@ -285,9 +285,9 @@ impl GraphicsCoprocessor {
                 //   - Divide by 4 because there are 4 pixels per image buffer word
                 let h_dot_size = self.image_buffer_h_dot_size;
                 let v_dot_size = self.image_buffer_v_dot_size;
-                let estimated_mclk_cycles_per_line = 4 + 2 * h_dot_size + h_dot_size / 4;
+                let estimated_words_per_line = 4 + 2 * h_dot_size + h_dot_size / 4;
                 let estimated_mclk_cycles =
-                    SUB_CPU_DIVIDER * 3 * v_dot_size * estimated_mclk_cycles_per_line;
+                    SUB_CPU_DIVIDER * 3 * v_dot_size * estimated_words_per_line;
                 self.state = State::Processing {
                     mclk_cycles_remaining: estimated_mclk_cycles.into(),
                     operation_performed: false,

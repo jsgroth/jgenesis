@@ -202,18 +202,6 @@ impl Sega32X {
         }
     }
 
-    pub fn take_rom(&mut self) -> Option<Vec<u8>> {
-        self.bus.cartridge.as_mut().map(Cartridge::take_rom)
-    }
-
-    pub fn take_rom_from(&mut self, other: &mut Self) {
-        if let Some(cartridge) = self.bus.cartridge.as_mut()
-            && let Some(other_cartridge) = other.bus.cartridge.as_mut()
-        {
-            cartridge.take_rom_from(other_cartridge);
-        }
-    }
-
     pub fn reset(&mut self) {
         self.bus.registers.reset();
     }
@@ -259,13 +247,17 @@ impl Sega32X {
             };
         }
 
-        if !self.bus.registers.dma.rom_to_vram {
-            // $000100-$7FFFFF is not accessible on the Genesis side while RV=0
-            return open_bus;
+        let open_bus_read =
+            move || if WORD { open_bus } else { open_bus.be_byte(address & 1).into() };
+
+        if !self.rom_to_vram_dma() {
+            // $000100-$3FFFFF is not accessible on the Genesis side while RV=0
+            log::warn!("68000 invalid cartridge read while RV=0: {address:06X}");
+            return open_bus_read();
         }
 
         let Some(cartridge) = &mut self.bus.cartridge else {
-            return if WORD { open_bus } else { open_bus.be_byte(address & 1).into() };
+            return open_bus_read();
         };
 
         cartridge.read::<WORD>(address, open_bus)
@@ -285,8 +277,9 @@ impl Sega32X {
             return;
         }
 
-        if !self.bus.registers.dma.rom_to_vram {
-            // $000100-$7FFFFF is not accessible on the Genesis side while RV=0
+        if !self.rom_to_vram_dma() {
+            // $000100-$3FFFFF is not accessible on the Genesis side while RV=0
+            log::warn!("68000 invalid cartridge write while RV=0: {address:06X} {value:04X}");
             return;
         }
 
@@ -331,11 +324,11 @@ impl Sega32X {
                 cartridge.read::<WORD>(rom_addr, open_bus)
             }
             _ => {
-                if WORD {
-                    open_bus
-                } else {
-                    open_bus.be_byte(address & 1).into()
+                if (0x880000..=0x9FFFFF).contains(&address) && self.rom_to_vram_dma() {
+                    log::warn!("68000 invalid cartridge read while RV=1: {address:06X}");
                 }
+
+                if WORD { open_bus } else { open_bus.be_byte(address & 1).into() }
             }
         }
     }
@@ -392,7 +385,13 @@ impl Sega32X {
                     (u32::from(self.bus.registers.m68k_rom_bank) << 20) | (address & 0xFFFFF);
                 cartridge.write::<WORD>(rom_addr, value);
             }
-            _ => {}
+            _ => {
+                if (0x880000..=0x9FFFFF).contains(&address) && self.rom_to_vram_dma() {
+                    log::warn!(
+                        "68000 invalid cartridge write while RV=1: {address:06X} {value:04X}"
+                    );
+                }
+            }
         }
     }
 
@@ -414,7 +413,7 @@ impl Sega32X {
                 match self.bus.registers.vdp_access {
                     Access::M68k => self.bus.vdp.read_register(address & !1),
                     Access::Sh2 => {
-                        log::warn!("VDP register read while FM=1: {address:06X}");
+                        log::warn!("68000 VDP register read while FM=1: {address:06X}");
                         !0
                     }
                 }
@@ -424,7 +423,7 @@ impl Sega32X {
                 match self.bus.registers.vdp_access {
                     Access::M68k => self.bus.vdp.read_cram(address & !1),
                     Access::Sh2 => {
-                        log::warn!("CRAM read while FM=1: {address:06X}");
+                        log::warn!("68000 CRAM read while FM=1: {address:06X}");
                         !0
                     }
                 }
@@ -472,7 +471,9 @@ impl Sega32X {
                         }
                     }
                     Access::Sh2 => {
-                        log::warn!("VDP register write while FM=1: {address:06X} {value:04X}");
+                        log::warn!(
+                            "68000 VDP register write while FM=1: {address:06X} {value:04X}"
+                        );
                     }
                 }
             }
@@ -493,7 +494,7 @@ impl Sega32X {
                         }
                     }
                     Access::Sh2 => {
-                        log::warn!("CRAM write while FM=1: {address:06X} {value:04X}");
+                        log::warn!("68000 CRAM write while FM=1: {address:06X} {value:04X}");
                     }
                 }
             }

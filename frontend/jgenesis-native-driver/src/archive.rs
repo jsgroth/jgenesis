@@ -1,8 +1,8 @@
 use crate::extensions;
 use std::fs::File;
-use std::io;
 use std::io::{BufReader, Read};
 use std::path::Path;
+use std::{cmp, io, iter};
 use thiserror::Error;
 use zip::ZipArchive;
 use zip::result::ZipError;
@@ -132,7 +132,11 @@ pub fn list_files_7z(
 /// Propagates any I/O or decoding errors.
 ///
 /// Will return an error if the archive does not contain the specified file.
-pub fn read_file_zip(zip_path: &Path, file_name: &str) -> Result<Vec<u8>, ArchiveError> {
+pub fn read_file_zip(
+    zip_path: &Path,
+    file_name: &str,
+    max_len: usize,
+) -> Result<Vec<u8>, ArchiveError> {
     let io_err_fn = |source| ArchiveError::io(zip_path, source);
     let zip_err_fn = |source| ArchiveError::zip(zip_path, source);
 
@@ -141,9 +145,10 @@ pub fn read_file_zip(zip_path: &Path, file_name: &str) -> Result<Vec<u8>, Archiv
     let mut archive = ZipArchive::new(reader).map_err(zip_err_fn)?;
 
     let mut entry = archive.by_name(file_name).map_err(zip_err_fn)?;
+    let len = cmp::min(entry.size() as usize, max_len);
 
-    let mut buffer = Vec::with_capacity(entry.size() as usize);
-    entry.read_to_end(&mut buffer).map_err(io_err_fn)?;
+    let mut buffer = vec![0; len];
+    entry.read_exact(&mut buffer).map_err(io_err_fn)?;
 
     Ok(buffer)
 }
@@ -155,7 +160,11 @@ pub fn read_file_zip(zip_path: &Path, file_name: &str) -> Result<Vec<u8>, Archiv
 /// Propagates any I/O or decoding errors.
 ///
 /// Will return an error if the archive does not contain the specified file.
-pub fn read_file_7z(sevenz_path: &Path, file_name: &str) -> Result<Vec<u8>, ArchiveError> {
+pub fn read_file_7z(
+    sevenz_path: &Path,
+    file_name: &str,
+    max_len: usize,
+) -> Result<Vec<u8>, ArchiveError> {
     let io_err_fn = |source| ArchiveError::io(sevenz_path, source);
     let sevenz_err_fn = |source| ArchiveError::sevenz(sevenz_path, source);
 
@@ -176,7 +185,9 @@ pub fn read_file_7z(sevenz_path: &Path, file_name: &str) -> Result<Vec<u8>, Arch
         decoder
             .for_each_entries(&mut |entry, reader| {
                 if entry.name.as_str() == file_name {
-                    reader.read_to_end(&mut buffer)?;
+                    let len = cmp::min(entry.size as usize, max_len);
+                    buffer.extend(iter::repeat_n(0, len));
+                    reader.read_exact(&mut buffer[..len])?;
                     found = true;
                     Ok(false)
                 } else {

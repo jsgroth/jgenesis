@@ -3,15 +3,12 @@ mod debug;
 use crate::WhichCpu;
 use crate::vdp::Vdp;
 use bincode::{Decode, Encode};
+use jgenesis_common::define_bit_enum;
 use jgenesis_common::num::{GetBit, U16Ext, U24Ext};
 use std::array;
 use std::fmt::{Display, Formatter};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-pub enum Access {
-    M68k = 0,
-    Sh2 = 1,
-}
+define_bit_enum!(Access, [M68k, Sh2]);
 
 impl Display for Access {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -19,12 +16,6 @@ impl Display for Access {
             Self::M68k => write!(f, "68000"),
             Self::Sh2 => write!(f, "SH-2"),
         }
-    }
-}
-
-impl Access {
-    fn from_bit(bit: bool) -> Self {
-        if bit { Self::Sh2 } else { Self::M68k }
     }
 }
 
@@ -258,7 +249,6 @@ impl SystemRegisters {
         self.slave_interrupts.update_interrupt_level();
 
         self.adapter_enabled = false;
-        self.dma.rom_to_vram = false;
     }
 
     pub fn m68k_read(&mut self, address: u32) -> u16 {

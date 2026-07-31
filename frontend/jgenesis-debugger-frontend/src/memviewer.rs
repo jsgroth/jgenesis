@@ -206,10 +206,6 @@ fn render_central_panel(
 
     let ctx = ui.ctx().clone();
 
-    // Workaround for https://github.com/emilk/egui/issues/8092
-    #[cfg(debug_assertions)]
-    ctx.global_style_mut(|style| style.debug.warn_if_rect_changes_id = false);
-
     let highlight_color = crate::highlight_color(ctx.theme());
 
     CentralPanel::default().show_inside(ui, |ui| {

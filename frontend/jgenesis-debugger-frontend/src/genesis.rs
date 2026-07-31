@@ -6,8 +6,8 @@ mod ym2612debug;
 mod z80debug;
 
 use crate::genesis::m68kdebug::{
-    M68kBreakCommand, M68kDebugWindowState, Main68kInterruptBreakpoints, SegaCdSubMemoryMap,
-    Sub68kInterruptBreakpoints,
+    Genesis68kMemoryMap, M68kBreakCommand, M68kDebugWindowState, Main68kInterruptBreakpoints,
+    SegaCdSubMemoryMap, Sub68kInterruptBreakpoints,
 };
 use crate::genesis::sh2debug::Sh2DebugWindowState;
 use crate::genesis::ym2612debug::Ym2612DebugWindowState;
@@ -475,56 +475,31 @@ fn render(
             });
 
             ui.menu_button("CPU Debuggers", |ui| {
-                if ui.button("68000 Disassembly").clicked() {
+                if ui.button("68000").clicked() {
                     state.m68k.open_disassembly_window(ui);
                     ui.close_kind(UiKind::Menu);
                 }
 
-                if ui.button("68000 Breakpoints").clicked() {
-                    state.m68k.open_breakpoints_window(ui);
-                    ui.close_kind(UiKind::Menu);
-                }
-
                 if debug_state.state.sega_cd.is_some() {
-                    if ui.button("Sub 68000 Disassembly").clicked() {
+                    if ui.button("Sub 68000").clicked() {
                         state.m68k_sub.open_disassembly_window(ui);
                         ui.close_kind(UiKind::Menu);
                     }
-
-                    if ui.button("Sub 68000 Breakpoints").clicked() {
-                        state.m68k_sub.open_breakpoints_window(ui);
-                        ui.close_kind(UiKind::Menu);
-                    }
                 }
 
-                if ui.button("Z80 Disassembly").clicked() {
+                if ui.button("Z80").clicked() {
                     state.z80.open_disassembly_window(ui);
                     ui.close_kind(UiKind::Menu);
                 }
 
-                if ui.button("Z80 Breakpoints").clicked() {
-                    state.z80.open_breakpoints_window(ui);
-                    ui.close_kind(UiKind::Menu);
-                }
-
                 if debug_state.state.sega_32x.is_some() {
-                    if ui.button("SH-2 Master Disassembly").clicked() {
+                    if ui.button("SH-2 Master").clicked() {
                         state.sh2_master.open_disassembly_window(ui);
                         ui.close_kind(UiKind::Menu);
                     }
 
-                    if ui.button("SH-2 Master Breakpoints").clicked() {
-                        state.sh2_master.open_breakpoints_window(ui);
-                        ui.close_kind(UiKind::Menu);
-                    }
-
-                    if ui.button("SH-2 Slave Disassembly").clicked() {
+                    if ui.button("SH-2 Slave").clicked() {
                         state.sh2_slave.open_disassembly_window(ui);
-                        ui.close_kind(UiKind::Menu);
-                    }
-
-                    if ui.button("SH-2 Slave Breakpoints").clicked() {
-                        state.sh2_slave.open_breakpoints_window(ui);
                         ui.close_kind(UiKind::Menu);
                     }
                 }
@@ -623,18 +598,12 @@ fn render_m68k_debug_windows(
     let debugger_handle = debug_state.debugger_handle;
 
     {
-        // TODO CD32X
-        let Some(main_memory_map) = m68kdebug::new_scd_main_memory_map(debug_state.state)
-            .or_else(|| m68kdebug::new_32x_memory_map(debug_state.state))
-            .or_else(|| m68kdebug::new_genesis_memory_map(debug_state.state))
-        else {
-            return;
-        };
+        let main_memory_map = Genesis68kMemoryMap::new(debug_state.state);
 
         m68kdebug::render_disassembly_window(
             ctx,
             &debug_state.state.m68k,
-            main_memory_map.as_ref(),
+            &main_memory_map,
             &mut state.m68k,
             debugger_handle.m68k_break_status(),
             Some(|command| {
@@ -684,20 +653,14 @@ fn render_z80_debug_windows(
     debug_state: &mut GenesisDebuggerFrontendState<'_>,
     state: &mut State,
 ) {
-    // TODO CD32X
-    let Some(m68k_memory_map) = m68kdebug::new_scd_main_memory_map(debug_state.state)
-        .or_else(|| m68kdebug::new_32x_memory_map(debug_state.state))
-        .or_else(|| m68kdebug::new_genesis_memory_map(debug_state.state))
-    else {
-        return;
-    };
+    let memory_map = Genesis68kMemoryMap::new(debug_state.state);
 
     let debugger_handle = debug_state.debugger_handle;
 
     z80debug::render_disassembly_window(
         ctx,
-        debug_state.state.z80(),
-        GenesisZ80MemoryMap::new(debug_state.state, m68k_memory_map.as_ref()),
+        &debug_state.state.z80,
+        GenesisZ80MemoryMap::new(debug_state.state, &memory_map),
         &mut state.z80,
         debugger_handle.z80_break_status(),
         Some(|command| {

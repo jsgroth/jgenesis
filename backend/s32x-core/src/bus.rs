@@ -750,7 +750,7 @@ impl BusInterface for Sh2Bus {
 
     #[inline]
     fn should_stop_execution(&self) -> bool {
-        self.cycle_counter >= self.cycle_limit || self.s32x_bus_shared().stalled_on_cartridge_access
+        self.cycle_counter >= self.cycle_limit
     }
 
     sh2_emu::impl_sh2_opcode_table!(Sh2Bus);

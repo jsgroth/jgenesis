@@ -415,27 +415,6 @@ impl SegaCdBus {
         }
     }
 
-    pub fn flush_buffered_sub_writes(&mut self) {
-        if self.buffered_sub_register_writes.is_empty() {
-            return;
-        }
-
-        let mut writes = mem::take(&mut self.buffered_sub_register_writes);
-        for &(address, value) in &writes {
-            match value {
-                BufferedWrite::Byte(byte) => {
-                    self.sub_write_register::<false>(address, byte.into());
-                }
-                BufferedWrite::Word(word) => {
-                    self.sub_write_register::<true>(address, word);
-                }
-            }
-        }
-
-        writes.clear();
-        self.buffered_sub_register_writes = writes;
-    }
-
     #[allow(clippy::match_same_arms)]
     fn sub_read_register<const WORD: bool>(&mut self, address: u32) -> u16 {
         log::trace!("Sub CPU register {} read: {address:06X}", if WORD { "word" } else { "byte" });
@@ -717,7 +696,8 @@ impl SegaCdBus {
     fn sub_read<const WORD: bool>(&mut self, address: u32) -> u16 {
         // Only A0-A19 are connected for the sub CPU:
         //   https://gendev.spritesmind.net/forum/viewtopic.php?p=18935#p18935
-        match address & 0xFFFFF {
+        let address = address & 0xFFFFF;
+        match address {
             0x00000..=0x7FFFF => {
                 // PRG RAM
                 if WORD {
@@ -769,7 +749,8 @@ impl SegaCdBus {
     fn sub_write<const WORD: bool>(&mut self, address: u32, value: u16) {
         // Only A0-A19 are connected for the sub CPU:
         //   https://gendev.spritesmind.net/forum/viewtopic.php?p=18935#p18935
-        match address & 0xFFFFF {
+        let address = address & 0xFFFFF;
+        match address {
             0x00000..=0x7FFFF => {
                 // PRG RAM
                 if WORD {
@@ -825,6 +806,27 @@ impl SegaCdBus {
             }
             _ => unreachable!("value & 0xFFFFF is always <= 0xFFFFF"),
         }
+    }
+
+    pub fn flush_buffered_sub_writes(&mut self) {
+        if self.buffered_sub_register_writes.is_empty() {
+            return;
+        }
+
+        let mut writes = mem::take(&mut self.buffered_sub_register_writes);
+        for &(address, value) in &writes {
+            match value {
+                BufferedWrite::Byte(byte) => {
+                    self.sub_write_register::<false>(address, byte.into());
+                }
+                BufferedWrite::Word(word) => {
+                    self.sub_write_register::<true>(address, word);
+                }
+            }
+        }
+
+        writes.clear();
+        self.buffered_sub_register_writes = writes;
     }
 
     pub(crate) fn word_ram(&self) -> &WordRam {

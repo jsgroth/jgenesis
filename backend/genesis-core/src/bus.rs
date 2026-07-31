@@ -118,13 +118,10 @@ impl VdpBusView for VdpView<'_> {
                 {
                     // 32X or Sega CD 32X Mode 1
                     // $000000-$3FFFFF is only accessible while adapter is disabled or RV=1
-                    if sega_32x.adapter_enabled() && sega_32x.rom_to_vram_dma() {
-                        sega_32x.m68k_read_cartridge::<true>(address, *self.open_bus)
-                    } else if !sega_32x.adapter_enabled() {
-                        sega_32x
-                            .cartridge_mut()
-                            .map(|cartridge| cartridge.read_word_for_dma(address, self.open_bus))
-                            .unwrap_or(*self.open_bus)
+                    if (!sega_32x.adapter_enabled() || sega_32x.rom_to_vram_dma())
+                        && let Some(cartridge) = sega_32x.cartridge_mut()
+                    {
+                        cartridge.read_word_for_dma(address, self.open_bus)
                     } else {
                         *self.open_bus
                     }
@@ -316,11 +313,11 @@ impl GenesisBus {
         Ok(vdp_tick_effect)
     }
 
-    fn cartridge(&self) -> Option<&Cartridge> {
+    pub(crate) fn cartridge(&self) -> Option<&Cartridge> {
         self.sega_32x.as_ref().and_then(Sega32X::cartridge).or(self.cartridge.as_ref())
     }
 
-    fn cartridge_mut(&mut self) -> Option<&mut Cartridge> {
+    pub(crate) fn cartridge_mut(&mut self) -> Option<&mut Cartridge> {
         self.sega_32x.as_mut().and_then(Sega32X::cartridge_mut).or(self.cartridge.as_mut())
     }
 
@@ -438,33 +435,24 @@ impl GenesisBus {
             {
                 sega_32x.m68k_read_memory::<WORD>(address, self.open_bus)
             }
-            0xA00000..=0xA0FFFF => {
+            0xA00000..=0xA0FFFF if self.z80_signals.busack() => {
                 // Z80 memory map; 68k can only access when the Z80 is running and removed from the bus
-                if self.z80_signals.busack() {
-                    self.cycles.record_68k_z80_bus_access();
+                self.cycles.record_68k_z80_bus_access();
 
-                    // For 68k access, $8000-$FFFF mirrors $0000-$7FFF
-                    let byte = <Self as z80_emu::BusInterface>::read_memory(
-                        self,
-                        (address & 0x7FFF) as u16,
-                    );
-                    if WORD {
-                        // All Z80 access is byte-size; word reads mirror the byte in both MSB and LSB
-                        u16::from_ne_bytes([byte; 2])
-                    } else {
-                        byte.into()
-                    }
+                // For 68k access, $8000-$FFFF mirrors $0000-$7FFF
+                let byte =
+                    <Self as z80_emu::BusInterface>::read_memory(self, (address & 0x7FFF) as u16);
+                if WORD {
+                    // All Z80 access is byte-size; word reads mirror the byte in both MSB and LSB
+                    u16::from_ne_bytes([byte; 2])
                 } else {
-                    self.read_open_bus::<WORD>(address)
+                    byte.into()
                 }
             }
             0xA10000..=0xA1001F => {
-                if WORD {
-                    let byte = self.read_io_register(address | 1);
-                    u16::from_ne_bytes([byte; 2])
-                } else {
-                    self.read_io_register(address).into()
-                }
+                // I/O ports, even addresses mirror odd addresses
+                let byte = self.read_io_register(address | 1);
+                if WORD { u16::from_ne_bytes([byte; 2]) } else { byte.into() }
             }
             0xA11100 => {
                 // Bit 8 is Z80 BUSACK (active low), other bits are unused
@@ -586,12 +574,9 @@ impl GenesisBus {
                     byte,
                 );
             }
-            0xA10000..=0xA1000F => {
-                if WORD {
-                    self.write_io_register(address | 1, value.lsb());
-                } else {
-                    self.write_io_register(address, value as u8);
-                }
+            0xA10000..=0xA1001F => {
+                // I/O ports, even addresses mirror odd addresses
+                self.write_io_register(address | 1, value as u8);
             }
             0xA11100 => {
                 self.z80_signals.busreq = if WORD { value.bit(8) } else { value.bit(0) };

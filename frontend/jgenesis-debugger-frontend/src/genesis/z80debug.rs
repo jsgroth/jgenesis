@@ -86,8 +86,8 @@ pub struct GenesisZ80MemoryMap<'a> {
 impl<'a> GenesisZ80MemoryMap<'a> {
     pub fn new(debug_state: &'a GenesisDebugState, m68k_map: &'a dyn M68kDebugMemoryMap) -> Self {
         Self {
-            audio_ram: debug_state.audio_ram(),
-            z80_memory_bank: debug_state.z80_bank_number(),
+            audio_ram: debug_state.audio_ram.as_ref(),
+            z80_memory_bank: debug_state.z80_bank_number,
             m68k_map,
         }
     }

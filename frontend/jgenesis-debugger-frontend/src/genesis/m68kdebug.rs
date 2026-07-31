@@ -201,29 +201,110 @@ fn read_u16(memory: &[u8], address: usize) -> u16 {
     u16::from_be_bytes([memory[address], memory[address + 1]])
 }
 
-pub struct Genesis68kMemoryMap<'a, Medium> {
-    pub medium: Medium,
+#[derive(Debug, Clone, Copy)]
+pub struct Genesis68kMemoryMap<'a> {
+    pub cartridge: Option<&'a Cartridge>,
     pub working_ram: &'a [u16],
     pub audio_ram: &'a [u8],
     pub main_pending_writes: &'a [DebugPendingWrite],
+    pub sega_cd: Option<SegaCd68kMemoryMap<'a>>,
+    pub sega_32x: Option<Sega32X68kMemoryMap>,
 }
 
-impl<Medium: M68kDebugMemoryMap> M68kDebugMemoryMap for Genesis68kMemoryMap<'_, Medium> {
+#[derive(Debug, Clone, Copy)]
+pub struct SegaCd68kMemoryMap<'a> {
+    pub bios_rom: &'a [u8],
+    pub prg_ram: &'a [u8],
+    pub word_ram: &'a WordRam,
+    pub prg_ram_base_addr: usize,
+}
+
+impl SegaCd68kMemoryMap<'_> {
+    fn peek(&self, address: u32) -> u16 {
+        if address & 0x200000 == 0 {
+            if address & 0x20000 == 0 {
+                let bios_addr = (address & 0x1FFFF) as usize;
+                u16::from_be_bytes([self.bios_rom[bios_addr], self.bios_rom[bios_addr + 1]])
+            } else {
+                let prg_ram_addr = self.prg_ram_base_addr | (address & 0x1FFFF) as usize;
+                u16::from_be_bytes([self.prg_ram[prg_ram_addr], self.prg_ram[prg_ram_addr + 1]])
+            }
+        } else {
+            let msb = self.word_ram.main_cpu_read_ram(address);
+            let lsb = self.word_ram.main_cpu_read_ram(address + 1);
+            u16::from_be_bytes([msb, lsb])
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Sega32X68kMemoryMap {
+    pub banked_rom_base_addr: u32,
+}
+
+impl<'a> Genesis68kMemoryMap<'a> {
+    pub fn new(debug_state: &'a GenesisDebugState) -> Self {
+        Self {
+            cartridge: debug_state.cartridge.as_ref(),
+            working_ram: debug_state.working_ram.as_ref(),
+            audio_ram: debug_state.audio_ram.as_ref(),
+            main_pending_writes: debug_state.pending_writes.as_slice(),
+            sega_cd: debug_state.sega_cd.as_ref().map(|sega_cd| SegaCd68kMemoryMap {
+                bios_rom: sega_cd.bios_rom(),
+                prg_ram: sega_cd.prg_ram(),
+                word_ram: sega_cd.word_ram(),
+                prg_ram_base_addr: usize::from(sega_cd.main_cpu_prg_ram_bank()) << 17,
+            }),
+            sega_32x: debug_state.sega_32x.as_ref().map(|sega_32x| Sega32X68kMemoryMap {
+                banked_rom_base_addr: u32::from(sega_32x.m68k_rom_bank()) << 20,
+            }),
+        }
+    }
+}
+
+impl M68kDebugMemoryMap for Genesis68kMemoryMap<'_> {
     fn peek(&self, address: u32) -> Option<u16> {
-        let address = address & 0xFFFFFF;
+        let address = address & 0xFFFFFF & !1;
 
         match address {
+            0x000000..=0x3FFFFF => {
+                if let Some(cartridge) = self.cartridge {
+                    Some(cartridge.peek_word(address))
+                } else if let Some(sega_cd) = self.sega_cd {
+                    Some(sega_cd.peek(address))
+                } else {
+                    None
+                }
+            }
+            0x400000..=0x7FFFFF => match (self.cartridge, self.sega_cd) {
+                (Some(_cartridge), Some(sega_cd)) => Some(sega_cd.peek(address)),
+                (Some(cartridge), None) => Some(cartridge.peek_word(address)),
+                (None, _) => None,
+            },
+            0x880000..=0x8FFFFF
+                if self.sega_32x.is_some()
+                    && let Some(cartridge) = self.cartridge =>
+            {
+                Some(cartridge.peek_word(address & 0x7FFFF))
+            }
+            0x900000..=0x9FFFFF
+                if let Some(sega_32x) = self.sega_32x
+                    && let Some(cartridge) = self.cartridge =>
+            {
+                let cartridge_addr = sega_32x.banked_rom_base_addr | (address & 0xFFFFF);
+                Some(cartridge.peek_word(cartridge_addr))
+            }
             0xA00000..=0xA03FFF | 0xA08000..=0xA0BFFF => {
                 let byte = self.audio_ram[(address & 0x1FFF) as usize];
                 Some(u16::from_le_bytes([byte, byte]))
             }
             0xE00000..=0xFFFFFF => Some(self.working_ram[((address & 0xFFFF) >> 1) as usize]),
-            _ => self.medium.peek(address),
+            _ => None,
         }
     }
 
     fn extra_info(&self) -> Vec<(&'static str, String)> {
-        let mut extra_info = self.medium.extra_info();
+        let mut extra_info = Vec::new();
 
         if !self.main_pending_writes.is_empty() {
             extra_info.push(("Buffered writes", String::new()));
@@ -240,101 +321,30 @@ impl<Medium: M68kDebugMemoryMap> M68kDebugMemoryMap for Genesis68kMemoryMap<'_, 
             }
         }
 
+        if let Some(sega_cd) = self.sega_cd {
+            extra_info.push((
+                "PRG RAM Bank",
+                format!(
+                    "{} ({:05X}-{:05X})",
+                    sega_cd.prg_ram_base_addr >> 17,
+                    sega_cd.prg_ram_base_addr,
+                    sega_cd.prg_ram_base_addr | 0x1FFFF
+                ),
+            ));
+        }
+
+        if let Some(sega_32x) = self.sega_32x {
+            let banked_rom_range = format!(
+                "{} ({:06X}-{:06X})",
+                sega_32x.banked_rom_base_addr >> 20,
+                sega_32x.banked_rom_base_addr,
+                sega_32x.banked_rom_base_addr | 0xFFFFF
+            );
+            extra_info.push(("32X ROM Bank", banked_rom_range));
+        }
+
         extra_info
     }
-}
-
-pub struct CartridgeMemoryMap<'a> {
-    pub cartridge: &'a Cartridge,
-}
-
-impl M68kDebugMemoryMap for CartridgeMemoryMap<'_> {
-    fn peek(&self, address: u32) -> Option<u16> {
-        let address = address & 0xFFFFFF;
-
-        match address {
-            0x000000..=0x7FFFFF => Some(self.cartridge.peek_word(address)),
-            _ => None,
-        }
-    }
-}
-
-pub fn new_genesis_memory_map(
-    debug_state: &GenesisDebugState,
-) -> Option<Box<dyn M68kDebugMemoryMap + '_>> {
-    Some(Box::new(Genesis68kMemoryMap {
-        medium: CartridgeMemoryMap { cartridge: debug_state.cartridge()? },
-        working_ram: debug_state.working_ram(),
-        audio_ram: debug_state.audio_ram(),
-        main_pending_writes: debug_state.pending_writes(),
-    }))
-}
-
-pub struct SegaCdMainMemoryMap<'a> {
-    pub bios_rom: &'a [u8],
-    pub prg_ram: &'a [u8],
-    pub word_ram: &'a WordRam,
-    pub prg_ram_base_addr: usize,
-}
-
-impl<'a> SegaCdMainMemoryMap<'a> {
-    pub fn new(debug_state: &'a SegaCdDebugState) -> Self {
-        Self {
-            bios_rom: debug_state.bios_rom(),
-            prg_ram: debug_state.prg_ram(),
-            word_ram: debug_state.word_ram(),
-            prg_ram_base_addr: usize::from(debug_state.main_cpu_prg_ram_bank()) << 17,
-        }
-    }
-}
-
-impl M68kDebugMemoryMap for SegaCdMainMemoryMap<'_> {
-    fn peek(&self, address: u32) -> Option<u16> {
-        let address = address & 0xFFFFFF & !1;
-
-        let word = match address {
-            0x000000..=0x1FFFFF => {
-                let relative_addr = (address & 0x1FFFF) as usize;
-                if address & 0x20000 == 0 {
-                    read_u16(self.bios_rom, relative_addr)
-                } else {
-                    let prg_ram_addr = self.prg_ram_base_addr | relative_addr;
-                    read_u16(self.prg_ram, prg_ram_addr)
-                }
-            }
-            0x200000..=0x3FFFFF => {
-                let msb = self.word_ram.main_cpu_read_ram(address);
-                let lsb = self.word_ram.main_cpu_read_ram(address + 1);
-                u16::from_be_bytes([msb, lsb])
-            }
-            _ => return None,
-        };
-
-        Some(word)
-    }
-
-    fn extra_info(&self) -> Vec<(&'static str, String)> {
-        vec![(
-            "PRG RAM Bank",
-            format!(
-                "{} ({:05X}-{:05X})",
-                self.prg_ram_base_addr >> 17,
-                self.prg_ram_base_addr,
-                self.prg_ram_base_addr | 0x1FFFF
-            ),
-        )]
-    }
-}
-
-pub fn new_scd_main_memory_map(
-    debug_state: &GenesisDebugState,
-) -> Option<Box<dyn M68kDebugMemoryMap + '_>> {
-    Some(Box::new(Genesis68kMemoryMap {
-        medium: SegaCdMainMemoryMap::new(debug_state.sega_cd.as_ref()?),
-        working_ram: &debug_state.working_ram,
-        audio_ram: &debug_state.audio_ram,
-        main_pending_writes: &debug_state.pending_writes,
-    }))
 }
 
 pub struct SegaCdSubMemoryMap<'a> {
@@ -364,61 +374,6 @@ impl M68kDebugMemoryMap for SegaCdSubMemoryMap<'_> {
 
         Some(word)
     }
-}
-
-pub struct S32X68kMemoryMap<'a> {
-    pub cartridge: &'a Cartridge,
-    pub banked_rom_base_addr: u32,
-}
-
-impl<'a> S32X68kMemoryMap<'a> {
-    pub fn new(debug_state: &'a GenesisDebugState) -> Option<Self> {
-        let cartridge = debug_state.cartridge.as_ref()?;
-
-        Some(Self {
-            cartridge,
-            banked_rom_base_addr: u32::from(debug_state.sega_32x.as_ref()?.m68k_rom_bank()) << 20,
-        })
-    }
-}
-
-impl M68kDebugMemoryMap for S32X68kMemoryMap<'_> {
-    fn peek(&self, address: u32) -> Option<u16> {
-        let address = address & 0xFFFFFF;
-
-        let word = match address {
-            0x000000..=0x3FFFFF => self.cartridge.peek_word(address),
-            0x880000..=0x8FFFFF => self.cartridge.peek_word(address & 0x7FFFF),
-            0x900000..=0x9FFFFF => {
-                let address = self.banked_rom_base_addr | (address & 0xFFFFF);
-                self.cartridge.peek_word(address)
-            }
-            _ => return None,
-        };
-
-        Some(word)
-    }
-
-    fn extra_info(&self) -> Vec<(&'static str, String)> {
-        let banked_rom_range = format!(
-            "{} ({:06X}-{:06X})",
-            self.banked_rom_base_addr >> 20,
-            self.banked_rom_base_addr,
-            self.banked_rom_base_addr | 0xFFFFF
-        );
-        vec![("32X ROM Bank", banked_rom_range)]
-    }
-}
-
-pub fn new_32x_memory_map(
-    debug_state: &GenesisDebugState,
-) -> Option<Box<dyn M68kDebugMemoryMap + '_>> {
-    Some(Box::new(Genesis68kMemoryMap {
-        medium: S32X68kMemoryMap::new(debug_state)?,
-        working_ram: &debug_state.working_ram,
-        audio_ram: &debug_state.audio_ram,
-        main_pending_writes: &debug_state.pending_writes,
-    }))
 }
 
 pub fn render_disassembly_window(

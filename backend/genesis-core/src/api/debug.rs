@@ -60,61 +60,6 @@ pub struct GenesisDebugState {
 
 impl GenesisDebugState {
     #[must_use]
-    pub fn m68k(&self) -> &M68000 {
-        &self.m68k
-    }
-
-    #[must_use]
-    pub fn z80(&self) -> &Z80 {
-        &self.z80
-    }
-
-    #[must_use]
-    pub fn cartridge(&self) -> Option<&Cartridge> {
-        self.cartridge.as_ref()
-    }
-
-    #[must_use]
-    pub fn cartridge_rom(&self) -> Option<&[u16]> {
-        self.cartridge.as_ref().map(Cartridge::debug_rom_view_shared)
-    }
-
-    #[must_use]
-    pub fn working_ram(&self) -> &[u16] {
-        self.working_ram.as_ref()
-    }
-
-    #[must_use]
-    pub fn audio_ram(&self) -> &[u8] {
-        self.audio_ram.as_ref()
-    }
-
-    #[must_use]
-    pub fn z80_bank_number(&self) -> u32 {
-        self.z80_bank_number
-    }
-
-    #[must_use]
-    pub fn pending_writes(&self) -> &[DebugPendingWrite] {
-        &self.pending_writes
-    }
-
-    #[must_use]
-    pub fn vdp(&self) -> &VdpDebugState {
-        &self.vdp
-    }
-
-    #[must_use]
-    pub fn ym2612(&self) -> &Ym2612 {
-        &self.ym2612
-    }
-
-    #[must_use]
-    pub fn psg(&self) -> &Sn76489 {
-        &self.psg
-    }
-
-    #[must_use]
     pub fn memory_view(&mut self, memory_area: GenesisMemoryArea) -> Box<dyn DebugMemoryView + '_> {
         match memory_area {
             GenesisMemoryArea::CartridgeRom => match self.cartridge.as_mut() {

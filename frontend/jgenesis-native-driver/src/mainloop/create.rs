@@ -276,7 +276,7 @@ pub(crate) fn read_rom_file(
         fn open_file(
             self,
             archive_path: &Path,
-            read_fn: fn(&Path, &str) -> Result<Vec<u8>, ArchiveError>,
+            read_fn: fn(&Path, &str, usize) -> Result<Vec<u8>, ArchiveError>,
         ) -> NativeEmulatorResult<(Vec<u8>, String)> {
             let first_supported_file = self.first_supported_file.ok_or_else(|| {
                 NativeEmulatorError::Archive(ArchiveError::NoSupportedFiles {
@@ -284,7 +284,7 @@ pub(crate) fn read_rom_file(
                 })
             })?;
 
-            let contents = read_fn(archive_path, &first_supported_file.file_name)
+            let contents = read_fn(archive_path, &first_supported_file.file_name, usize::MAX)
                 .map_err(NativeEmulatorError::Archive)?;
             Ok((contents, first_supported_file.extension))
         }

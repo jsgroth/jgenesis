@@ -8,7 +8,7 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
 use std::sync::LazyLock;
-use std::{fs, io};
+use std::{cmp, fs, io};
 
 pub const SG_1000: &[&str] = &["sg"];
 pub const MASTER_SYSTEM: &[&str] = &["sms"];
@@ -24,6 +24,9 @@ pub const GAME_BOY_ADVANCE: &[&str] = &["gba", "bin"];
 pub const PC_ENGINE: &[&str] = &["pce"];
 
 pub const SUPPORTED_ARCHIVES: &[&str] = &["zip", "7z"];
+
+const GENESIS_32X_HEADER_LEN: usize =
+    s32x_core::SECURITY_PROGRAM_CARTRIDGE_ADDR + s32x_core::SECURITY_PROGRAM_LEN;
 
 fn concat_extensions(iter: impl IntoIterator<Item = &'static [&'static str]>) -> Vec<&'static str> {
     iter.into_iter()
@@ -118,6 +121,7 @@ fn build_extension_lookup() -> HashMap<&'static str, Console> {
         (SG_1000, Console::Sg1000),
         (MASTER_SYSTEM, Console::MasterSystem),
         (GAME_GEAR, Console::GameGear),
+        // Exclude Genesis/32X because need to check the header for Sega CD support
         (SEGA_CD, Console::SegaCd),
         (NES, Console::Nes),
         (SNES, Console::Snes),
@@ -190,21 +194,23 @@ impl Console {
         let mut callback = ArchiveListCallback::new();
         archive::list_files_zip(zip_path, callback.as_fn_mut()).ok()?;
 
-        Self::from_list_callback(callback, |file_name| archive::read_file_zip(zip_path, file_name))
+        Self::from_list_callback(callback, |file_name, max_len| {
+            archive::read_file_zip(zip_path, file_name, max_len)
+        })
     }
 
     fn from_7z(sevenz_path: &Path) -> Option<ConsoleWithSize> {
         let mut callback = ArchiveListCallback::new();
         archive::list_files_7z(sevenz_path, callback.as_fn_mut()).ok()?;
 
-        Self::from_list_callback(callback, |file_name| {
-            archive::read_file_7z(sevenz_path, file_name)
+        Self::from_list_callback(callback, |file_name, max_len| {
+            archive::read_file_7z(sevenz_path, file_name, max_len)
         })
     }
 
     fn from_list_callback(
         callback: ArchiveListCallback,
-        read_file_fn: impl FnOnce(&str) -> Result<Vec<u8>, ArchiveError>,
+        read_file_fn: impl FnOnce(&str, usize) -> Result<Vec<u8>, ArchiveError>,
     ) -> Option<ConsoleWithSize> {
         if callback.contains_cue {
             return None;
@@ -216,8 +222,9 @@ impl Console {
         }
 
         if GENESIS_32X.contains(&first_supported_file.extension.as_str()) {
-            let contents = read_file_fn(&first_supported_file.file_name).ok()?;
-            let console = guess_genesis_console(&contents);
+            let header =
+                read_file_fn(&first_supported_file.file_name, GENESIS_32X_HEADER_LEN).ok()?;
+            let console = guess_genesis_console(&header);
             return Some(ConsoleWithSize { console, file_size: first_supported_file.size });
         }
 
@@ -265,19 +272,18 @@ impl Console {
     #[must_use]
     pub const fn standard_extension(self) -> &'static str {
         match self {
-            Console::MasterSystem => "sms",
-            Console::GameGear => "gg",
-            Console::Sg1000 => "sg",
-            Console::Genesis => "md",
-            Console::SegaCd => "scd", // Intentionally not CUE or CHD, too ambiguous
-            Console::Sega32X => "32x",
-            Console::SegaCd32X => "scd32x",
-            Console::Nes => "nes",
-            Console::Snes => "sfc",
-            Console::GameBoy => "gb",
-            Console::GameBoyColor => "gbc",
-            Console::GameBoyAdvance => "gba",
-            Console::PcEngine => "pce",
+            Self::MasterSystem => "sms",
+            Self::GameGear => "gg",
+            Self::Sg1000 => "sg",
+            Self::Genesis => "md",
+            Self::SegaCd | Self::SegaCd32X => "scd", // Intentionally not CUE or CHD, too ambiguous
+            Self::Sega32X => "32x",
+            Self::Nes => "nes",
+            Self::Snes => "sfc",
+            Self::GameBoy => "gb",
+            Self::GameBoyColor => "gbc",
+            Self::GameBoyAdvance => "gba",
+            Self::PcEngine => "pce",
         }
     }
 }
@@ -286,16 +292,10 @@ impl Console {
 fn guess_genesis_console_raw_file(path: &Path) -> io::Result<Console> {
     let file = File::open(path)?;
     let file_len = file.metadata()?.len();
-
-    if file_len
-        < (s32x_core::SECURITY_PROGRAM_CARTRIDGE_ADDR + s32x_core::SECURITY_PROGRAM_LEN) as u64
-    {
-        return Ok(Console::Genesis);
-    }
+    let buffer_len = cmp::min(file_len as usize, GENESIS_32X_HEADER_LEN);
 
     let mut reader = BufReader::new(file);
-    let mut buffer =
-        vec![0; s32x_core::SECURITY_PROGRAM_CARTRIDGE_ADDR + s32x_core::SECURITY_PROGRAM_LEN];
+    let mut buffer = vec![0; buffer_len];
     reader.read_exact(&mut buffer)?;
 
     Ok(guess_genesis_console(&buffer))
