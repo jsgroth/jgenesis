@@ -1,7 +1,7 @@
 use crate::archive;
 use crate::archive::{ArchiveEntry, ArchiveError};
 use cdrom::reader::{CdRom, CdRomFileFormat};
-use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
+use jgenesis_proc_macros::{CustomValueEnum, EnumAll, EnumDisplay, EnumFromStr};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs::File;
@@ -146,7 +146,7 @@ pub struct ConsoleWithSize {
     pub file_size: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumDisplay, EnumFromStr, EnumAll)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumDisplay, EnumFromStr, EnumAll, CustomValueEnum)]
 pub enum Console {
     MasterSystem,
     GameGear,
@@ -308,7 +308,10 @@ fn guess_genesis_console(header: &[u8]) -> Console {
         header.len() >= end && &header[start..end] == s32x_core::security_program();
 
     // 'C' in the devices section indicates Sega CD support: https://plutiedev.com/rom-header#devices
-    let supports_sega_cd = header.len() >= 0x1A0 && header[0x190..0x1A0].contains(&b'C');
+    let mut supports_sega_cd = header.len() >= 0x1A0 && header[0x190..0x1A0].contains(&b'C');
+
+    // Special case Flux (audio CD visualizer), header doesn't indicate Sega CD support
+    supports_sega_cd |= header.len() >= 0x18B && &header[0x180..0x18B] == b"GM T-70416-";
 
     if supports_sega_cd && contains_s32x_security_program {
         Console::SegaCd32X

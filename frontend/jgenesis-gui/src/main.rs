@@ -7,20 +7,29 @@ use jgenesis_gui::app::{App, ConfigInfo, LoadAtStartup};
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::paths::{ConfigDirs, ConfigWithPath};
 use jgenesis_native_driver::SdlSubsystems;
+use jgenesis_native_driver::extensions::Console;
 use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
 #[derive(Debug, Parser)]
 struct Args {
-    /// Use a specific config file path instead of the default path of 'jgenesis-config.toml'
+    /// Use a specific config file path instead of the default
     #[arg(long = "config")]
     config_path: Option<PathBuf>,
 
     /// If set, the GUI will open this file immediately after starting up, and the GUI will exit
-    /// when the emulator window is closed
+    /// when the emulator window is closed.
+    ///
+    /// For platforms with multiple file inputs (e.g. Sega CD 32X), you can set this argument
+    /// multiple times, e.g. '-f /path/to/cartridge.32x -f /path/to/disc.cue'
     #[arg(long = "file-path", short = 'f')]
-    startup_file_path: Option<PathBuf>,
+    startup_file_paths: Vec<PathBuf>,
+
+    /// In combination with -f, specify what hardware to emulate. Will auto-detect based on file if
+    /// not set
+    #[arg(long = "hardware")]
+    console: Option<Console>,
 
     /// In combination with -f, attempt to load the specified save state when launching the game.
     /// This arg has no effect if -f/--file-path is not set
@@ -38,17 +47,23 @@ impl Args {
             self.config_path = Some(jgenesis_common::fix_appimage_relative_path(config_path));
         }
 
-        if let Some(startup_file_path) = self.startup_file_path {
-            self.startup_file_path =
-                Some(jgenesis_common::fix_appimage_relative_path(startup_file_path));
-        }
+        self.startup_file_paths = self
+            .startup_file_paths
+            .into_iter()
+            .map(jgenesis_common::fix_appimage_relative_path)
+            .collect();
 
         self
     }
 
     fn load_at_startup(&self) -> Option<LoadAtStartup> {
-        self.startup_file_path.as_ref().map(|file_path| LoadAtStartup {
-            file_path: file_path.clone(),
+        if self.startup_file_paths.is_empty() {
+            return None;
+        }
+
+        Some(LoadAtStartup {
+            file_paths: self.startup_file_paths.clone(),
+            console: self.console,
             load_state_slot: self.load_save_state,
         })
     }
@@ -92,7 +107,7 @@ fn main() -> anyhow::Result<()> {
         AppConfig::default,
     );
 
-    if let Some(file_path) = &args.startup_file_path {
+    if let Some(file_path) = args.startup_file_paths.first() {
         log::info!("Will open file '{}' after starting", file_path.display());
     }
 

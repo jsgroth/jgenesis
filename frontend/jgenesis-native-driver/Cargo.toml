@@ -5,10 +5,6 @@ edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[features]
-default = []
-clap = ["dep:clap"]
-
 [dependencies]
 cdrom = { workspace = true }
 jgenesis-proc-macros = { workspace = true }
@@ -39,7 +35,7 @@ jgenesis-native-config = { workspace = true }
 jgenesis-renderer = { workspace = true, features = ["serde", "ttf"] }
 
 bincode = { workspace = true }
-clap = { workspace = true, optional = true }
+clap = { workspace = true }
 log = { workspace = true }
 pollster = { workspace = true }
 regex = { workspace = true }

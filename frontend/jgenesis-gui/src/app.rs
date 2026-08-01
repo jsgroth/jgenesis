@@ -319,7 +319,8 @@ impl AppState {
 
 #[derive(Debug, Clone)]
 pub struct LoadAtStartup {
-    pub file_path: PathBuf,
+    pub file_paths: Vec<PathBuf>,
+    pub console: Option<Console>,
     pub load_state_slot: Option<usize>,
 }
 
@@ -1324,17 +1325,8 @@ impl App {
             self.refresh_filtered_rom_list();
         }
 
-        // TODO CD32X - multiple paths
-        if self.state.rendered_first_frame
-            && let Some(load_at_startup) = self.load_at_startup.take()
-        {
-            self.launch_emulator_auto(load_at_startup.file_path, None);
-
-            if let Some(load_state_slot) = load_at_startup.load_state_slot {
-                self.emu_runner.push_command(EmuRunnerCommand::LoadState { slot: load_state_slot });
-            }
-
-            self.state.close_on_emulator_exit = true;
+        if self.state.rendered_first_frame {
+            self.check_load_at_startup();
         }
 
         let gui_focused = ui.input(|input| input.raw.focused);
@@ -1381,6 +1373,31 @@ impl App {
                 &mut self.config.input,
             );
         }
+    }
+
+    fn check_load_at_startup(&mut self) {
+        let Some(load_at_startup) = self.load_at_startup.take() else { return };
+        let Some(primary_path) = load_at_startup.file_paths.first() else { return };
+
+        let console = load_at_startup
+            .console
+            .or_else(|| Console::from_file(primary_path).map(|console| console.console))
+            .unwrap_or_else(|| {
+                log::error!(
+                    "Unable to guess hardware for path '{}'; defaulting to Genesis",
+                    primary_path.display()
+                );
+                Console::Genesis
+            });
+
+        let secondary_paths = &load_at_startup.file_paths[1..];
+        self.launch_emulator(primary_path.clone(), secondary_paths.to_vec(), console);
+
+        if let Some(load_state_slot) = load_at_startup.load_state_slot {
+            self.emu_runner.push_command(EmuRunnerCommand::LoadState { slot: load_state_slot });
+        }
+
+        self.state.close_on_emulator_exit = true;
     }
 }
 
