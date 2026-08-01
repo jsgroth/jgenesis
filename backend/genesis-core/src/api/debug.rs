@@ -1,3 +1,41 @@
+//! A brief overview of the various structs involved here:
+//!
+//! * [`GenesisDebugState`] contains all data needed for the frontend to render the debugger UI,
+//!   and it owns all of its data so it can be safely sent between threads
+//!
+//! * [`GenesisDebugView`] contains mutable references to everything that the backend needs
+//!   to access in order to process debugger commands
+//!
+//! * [`GenesisDebugger`] stores current debugger backend state (e.g. breakpoints and current PCs)
+//!
+//! * [`GenesisDebugCommand`] is an enum of debugger commands that the UI can send to the backend
+//!
+//! [`GenesisDebugView`] does not have a mutable reference to [`GenesisEmulator`] itself
+//! because the emulator needs to construct a [`GenesisDebugView`] when a breakpoint is
+//! tripped, at which point the debugger code has access to component mutable references but not
+//! the full emulator struct.
+//!
+//! The backend can create a [`GenesisDebugView`] either from a [`GenesisEmulator`] value
+//! (done when processing debug commands between frames) or from mutable references to the individual
+//! components (done when handling a breakpoint).
+//!
+//! [`GenesisDebugView`] then has a method to create a [`GenesisDebugState`] from itself by
+//! cloning all of the data that [`GenesisDebugState`] needs to own. This is done once for frame
+//! during normal execution to periodically send updated emulator state to the UI, and it's done
+//! immediately upon handling a breakpoint so that the UI sees the emulator state at the exact
+//! point where the breakpoint tripped.
+//!
+//! [`GenesisDebuggerForSegaCd`] and [`s32x::GenesisDebuggerFor32X`] are structs that wrap a
+//! [`GenesisDebugger`] along with mutable references or pointers to components that are not on the
+//! named CPU's bus. The 32X version contains raw pointers due to the need to avoid putting lifetime
+//! parameters on the SH-2 bus struct, which requires [`s32x::GenesisDebuggerFor32X`] to have a static
+//! lifetime.
+
+pub mod s32x;
+
+#[cfg(test)]
+mod tests;
+
 use crate::GenesisEmulator;
 use crate::bus::PendingWrites;
 use genesis_components::cartridge::Cartridge;
@@ -11,22 +49,19 @@ use jgenesis_common::sync::SharedVarSender;
 use m68000_emu::M68000;
 use s32x_core::WhichCpu;
 use s32x_core::api::Sega32X;
-use s32x_core::api::debug::{S32XMemoryArea, Sega32XDebugState, Sega32XDebugView, Sega32XDebugger};
-use segacd_core::api::SegaCd;
 use segacd_core::api::debug::{
     SegaCdDebugState, SegaCdDebugView, SegaCdDebugger, SegaCdMemoryArea,
 };
 use sh2_emu::bus::OpSizeEnum;
+use std::array;
 use std::ops::Deref;
-use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, SendError, Sender, TryRecvError};
 use std::sync::{Arc, mpsc};
-use std::{array, ptr};
 use ti_sn76489::Sn76489;
 use z80_emu::Z80;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAll)]
 pub enum GenesisMemoryArea {
     CartridgeRom,
     WorkingRam,
@@ -248,6 +283,8 @@ macro_rules! genesis_components {
 
 pub(crate) use genesis_components;
 use jgenesis_common::num::GetBit;
+use jgenesis_proc_macros::EnumAll;
+use s32x_core::api::debug::{S32XMemoryArea, Sega32XDebugState, Sega32XDebugView};
 
 #[derive(Debug, Clone)]
 pub enum GenesisDebugCommand {
@@ -1193,20 +1230,6 @@ pub(crate) struct GenesisDebuggerForSegaCd<'debugger, 'genesis, 's32x> {
     cartridge: Option<&'genesis mut Cartridge>,
 }
 
-pub(crate) struct GenesisDebuggerFor32X {
-    debugger: NonNull<GenesisDebugger>,
-    m68k: NonNull<M68000>,
-    z80: NonNull<Z80>,
-    sega_cd: *mut SegaCd,
-    working_ram: NonNull<[u16]>,
-    audio_ram: NonNull<[u8]>,
-    z80_bank_number: u32,
-    pending_writes: NonNull<PendingWrites>,
-    vdp: NonNull<Vdp>,
-    ym2612: NonNull<Ym2612>,
-    psg: NonNull<Sn76489>,
-}
-
 impl GenesisDebuggerWithCpus<'_, '_> {
     pub(crate) fn for_sega_cd<'genesis, 's32x>(
         &mut self,
@@ -1221,26 +1244,6 @@ impl GenesisDebuggerWithCpus<'_, '_> {
             sega_32x,
             genesis_components,
             cartridge,
-        }
-    }
-
-    pub(crate) unsafe fn for_32x(
-        &mut self,
-        sega_cd: Option<&mut SegaCd>,
-        genesis_components: GenesisComponents<'_>,
-    ) -> GenesisDebuggerFor32X {
-        GenesisDebuggerFor32X {
-            debugger: self.debugger.into(),
-            m68k: self.m68k.into(),
-            z80: self.z80.into(),
-            sega_cd: sega_cd.map(ptr::from_mut).unwrap_or(ptr::null_mut()),
-            working_ram: genesis_components.working_ram.into(),
-            audio_ram: genesis_components.audio_ram.into(),
-            z80_bank_number: genesis_components.z80_bank_number,
-            pending_writes: genesis_components.pending_writes.into(),
-            vdp: genesis_components.vdp.into(),
-            ym2612: genesis_components.ym2612.into(),
-            psg: genesis_components.psg.into(),
         }
     }
 }
@@ -1281,77 +1284,5 @@ impl SegaCdDebugger for GenesisDebuggerForSegaCd<'_, '_, '_> {
             cartridge,
         );
         self.debugger.handle_breakpoint(GenesisCpu::Sub68k, &mut genesis_debug_view);
-    }
-}
-
-impl Sega32XDebugger for GenesisDebuggerFor32X {
-    fn check_sh2_read_breakpoint(
-        &mut self,
-        which: WhichCpu,
-        address: u32,
-        size: OpSizeEnum,
-    ) -> bool {
-        unsafe {
-            self.debugger.as_mut().sh2_breakpoints.breakpoints[which as usize]
-                .should_break_read(address, size)
-        }
-    }
-
-    fn check_sh2_write_breakpoint(
-        &mut self,
-        which: WhichCpu,
-        address: u32,
-        _value: u32,
-        size: OpSizeEnum,
-    ) -> bool {
-        unsafe {
-            self.debugger.as_mut().sh2_breakpoints.breakpoints[which as usize]
-                .should_break_write(address, size)
-        }
-    }
-
-    fn check_sh2_execute_breakpoint(&mut self, which: WhichCpu, pc: u32, _opcode: u16) -> bool {
-        unsafe {
-            let sh2_breakpoints = &mut self.debugger.as_mut().sh2_breakpoints;
-
-            let execute = sh2_breakpoints.update_pc_and_check_execute(which, pc);
-            let step = sh2_breakpoints.check_break_step(which);
-
-            execute || step
-        }
-    }
-
-    fn check_sh2_interrupt_breakpoint(&mut self, which: WhichCpu, interrupt_level: u8) -> bool {
-        unsafe {
-            self.debugger.as_mut().sh2_breakpoints.breakpoints[which as usize]
-                .should_break_interrupt(interrupt_level)
-        }
-    }
-
-    fn handle_sh2_breakpoint(
-        &mut self,
-        which: WhichCpu,
-        cartridge: Option<&mut Cartridge>,
-        debug_view: Sega32XDebugView<'_>,
-    ) {
-        unsafe {
-            let mut genesis_debug_view = GenesisDebugView {
-                sega_cd: self.sega_cd.as_mut().map(SegaCd::as_debug_view),
-                sega_32x: Some(debug_view),
-                m68k: self.m68k.as_mut(),
-                z80: self.z80.as_mut(),
-                cartridge,
-                working_ram: self.working_ram.as_mut(),
-                audio_ram: self.audio_ram.as_mut(),
-                z80_bank_number: self.z80_bank_number,
-                pending_writes: self.pending_writes.as_mut(),
-                vdp: self.vdp.as_mut(),
-                ym2612: self.ym2612.as_mut(),
-                psg: self.psg.as_mut(),
-            };
-            self.debugger
-                .as_mut()
-                .handle_breakpoint(GenesisCpu::Sh2(which), &mut genesis_debug_view);
-        }
     }
 }

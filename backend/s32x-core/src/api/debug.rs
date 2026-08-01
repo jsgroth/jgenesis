@@ -7,10 +7,11 @@ use crate::vdp::debug::VdpDebugState;
 use genesis_components::cartridge::Cartridge;
 use genesis_components::debug::CramEntry;
 use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
+use jgenesis_proc_macros::EnumAll;
 use sh2_emu::Sh2;
 use sh2_emu::bus::OpSizeEnum;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAll)]
 pub enum S32XMemoryArea {
     Sdram,
     MasterSh2Cache,

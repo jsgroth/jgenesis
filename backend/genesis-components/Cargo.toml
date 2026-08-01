@@ -4,7 +4,6 @@ edition = "2024"
 version.workspace = true
 
 [dependencies]
-dsp = { workspace = true }
 jgenesis-common = { workspace = true }
 jgenesis-proc-macros = { workspace = true }
 
@@ -12,8 +11,6 @@ genesis-config = { workspace = true }
 
 m68000-emu = { workspace = true, features = ["bincode"] }
 z80-emu = { workspace = true, features = ["bincode"] }
-
-ti-sn76489 = { workspace = true }
 
 bincode = { workspace = true }
 crc = { workspace = true }

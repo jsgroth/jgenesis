@@ -9,6 +9,7 @@ edition = "2024"
 cdrom = { workspace = true }
 dsp = { workspace = true }
 jgenesis-common = { workspace = true }
+jgenesis-proc-macros = { workspace = true }
 
 genesis-config = { workspace = true }
 
@@ -24,6 +25,9 @@ ti-sn76489 = { workspace = true }
 bincode = { workspace = true }
 log = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+s32x-core = { workspace = true, features = ["test-apis"] }
 
 [lints]
 workspace = true

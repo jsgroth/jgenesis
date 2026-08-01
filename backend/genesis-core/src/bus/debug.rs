@@ -57,6 +57,8 @@ impl M68000Debugger for M68000DebugView<'_, '_, '_, '_> {
     #[inline]
     fn check_read<const WORD: bool>(&mut self, address: u32, cpu: &mut M68000) {
         if self.0.debugger.m68k_breakpoints().check_read::<WORD>(address) {
+            log::info!("68000 triggered read breakpoint: {address:06X}");
+
             self.0.debugger.handle_breakpoint(
                 GenesisCpu::M68k,
                 &mut self.0.bus.as_debug_view(cpu, self.0.z80),
@@ -65,8 +67,10 @@ impl M68000Debugger for M68000DebugView<'_, '_, '_, '_> {
     }
 
     #[inline]
-    fn check_write<const WORD: bool>(&mut self, address: u32, _value: u16, cpu: &mut M68000) {
+    fn check_write<const WORD: bool>(&mut self, address: u32, value: u16, cpu: &mut M68000) {
         if self.0.debugger.m68k_breakpoints().check_write::<WORD>(address) {
+            log::info!("68000 triggered write breakpoint: {address:06X} {value:04X}");
+
             self.0.debugger.handle_breakpoint(
                 GenesisCpu::M68k,
                 &mut self.0.bus.as_debug_view(cpu, self.0.z80),
@@ -79,6 +83,10 @@ impl M68000Debugger for M68000DebugView<'_, '_, '_, '_> {
         let execute = self.0.debugger.m68k_breakpoints().update_pc_and_check_execute(pc);
         let step = self.0.debugger.m68k_breakpoints().check_break_step();
 
+        if execute {
+            log::info!("68000 triggered execute breakpoint: PC={pc:06X}");
+        }
+
         if execute || step {
             self.0.debugger.handle_breakpoint(
                 GenesisCpu::M68k,
@@ -90,6 +98,8 @@ impl M68000Debugger for M68000DebugView<'_, '_, '_, '_> {
     #[inline]
     fn check_interrupt(&mut self, interrupt_level: u8, cpu: &mut M68000) {
         if self.0.debugger.m68k_breakpoints().check_interrupt(interrupt_level) {
+            log::info!("68000 triggered interrupt breakpoint; interrupt level {interrupt_level}");
+
             self.0.debugger.handle_breakpoint(
                 GenesisCpu::M68k,
                 &mut self.0.bus.as_debug_view(cpu, self.0.z80),
@@ -174,6 +184,8 @@ impl Z80Debugger for Z80DebugView<'_, '_, '_, '_> {
     #[inline]
     fn check_read_memory(&mut self, address: u16, cpu: &mut Z80) {
         if self.0.debugger.z80_breakpoints().check_read(address) {
+            log::info!("Z80 triggered read breakpoint: {address:04X}");
+
             self.0.debugger.handle_breakpoint(
                 GenesisCpu::Z80,
                 &mut self.0.bus.as_debug_view(self.0.m68k, cpu),
@@ -186,8 +198,10 @@ impl Z80Debugger for Z80DebugView<'_, '_, '_, '_> {
     fn check_read_io(&mut self, address: u16, cpu: &mut Z80) {}
 
     #[inline]
-    fn check_write_memory(&mut self, address: u16, _value: u8, cpu: &mut Z80) {
+    fn check_write_memory(&mut self, address: u16, value: u8, cpu: &mut Z80) {
         if self.0.debugger.z80_breakpoints().check_write(address) {
+            log::info!("Z80 triggered write breakpoint: {address:04X} {value:02X}");
+
             self.0.debugger.handle_breakpoint(
                 GenesisCpu::Z80,
                 &mut self.0.bus.as_debug_view(self.0.m68k, cpu),
@@ -203,6 +217,10 @@ impl Z80Debugger for Z80DebugView<'_, '_, '_, '_> {
     fn check_execute(&mut self, pc: u16, cpu: &mut Z80) {
         let execute = self.0.debugger.z80_breakpoints().update_pc_and_check_execute(pc);
         let step = self.0.debugger.z80_breakpoints().check_break_step();
+
+        if execute {
+            log::info!("Z80 triggered execute breakpoint: PC={pc:04X}");
+        }
 
         if execute || step {
             self.0.debugger.handle_breakpoint(

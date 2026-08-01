@@ -42,6 +42,8 @@ pub struct BusDebugView<'debugbus, 'bus, 'debugger, Debugger>(
 impl<Debugger: SegaCdDebugger> M68000Debugger for BusDebugView<'_, '_, '_, Debugger> {
     fn check_read<const WORD: bool>(&mut self, address: u32, cpu: &mut M68000) {
         if self.0.debugger.check_sub_read_breakpoint::<WORD>(address) {
+            log::info!("Sub 68000 triggered read breakpoint: {address:06X}");
+
             let debug_view = self.0.bus.as_debug_view(cpu);
             self.0.debugger.handle_sub_breakpoint(debug_view);
         }
@@ -49,6 +51,8 @@ impl<Debugger: SegaCdDebugger> M68000Debugger for BusDebugView<'_, '_, '_, Debug
 
     fn check_write<const WORD: bool>(&mut self, address: u32, value: u16, cpu: &mut M68000) {
         if self.0.debugger.check_sub_write_breakpoint::<WORD>(address, value) {
+            log::info!("Sub 68000 triggered write breakpoint: {address:06X} {value:04X}");
+
             let debug_view = self.0.bus.as_debug_view(cpu);
             self.0.debugger.handle_sub_breakpoint(debug_view);
         }
@@ -56,6 +60,8 @@ impl<Debugger: SegaCdDebugger> M68000Debugger for BusDebugView<'_, '_, '_, Debug
 
     fn check_execute(&mut self, pc: u32, cpu: &mut M68000) {
         if self.0.debugger.check_sub_execute_breakpoint(pc) {
+            log::info!("Sub 68000 triggered execute breakpoint: PC={pc:06X}");
+
             let debug_view = self.0.bus.as_debug_view(cpu);
             self.0.debugger.handle_sub_breakpoint(debug_view);
         }
@@ -63,6 +69,10 @@ impl<Debugger: SegaCdDebugger> M68000Debugger for BusDebugView<'_, '_, '_, Debug
 
     fn check_interrupt(&mut self, interrupt_level: u8, cpu: &mut M68000) {
         if self.0.debugger.check_sub_interrupt_breakpoint(interrupt_level) {
+            log::info!(
+                "Sub 68000 triggered interrupt breakpoint, interrupt level {interrupt_level}"
+            );
+
             let debug_view = self.0.bus.as_debug_view(cpu);
             self.0.debugger.handle_sub_breakpoint(debug_view);
         }

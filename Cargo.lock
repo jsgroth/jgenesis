@@ -1600,7 +1600,6 @@ version = "0.13.1"
 dependencies = [
  "bincode",
  "crc",
- "dsp",
  "genesis-config",
  "jgenesis-common",
  "jgenesis-proc-macros",
@@ -1608,7 +1607,6 @@ dependencies = [
  "m68000-emu",
  "regex",
  "test-log",
- "ti-sn76489",
  "z80-emu",
 ]
 
@@ -1636,6 +1634,7 @@ dependencies = [
  "genesis-components",
  "genesis-config",
  "jgenesis-common",
+ "jgenesis-proc-macros",
  "log",
  "m68000-emu",
  "s32x-core",
@@ -4103,8 +4102,6 @@ dependencies = [
  "jgenesis-proc-macros",
  "log",
  "sh2-emu",
- "thiserror 2.0.18",
- "ti-sn76489",
 ]
 
 [[package]]

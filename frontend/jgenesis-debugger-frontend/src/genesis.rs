@@ -480,11 +480,9 @@ fn render(
                     ui.close_kind(UiKind::Menu);
                 }
 
-                if debug_state.state.sega_cd.is_some() {
-                    if ui.button("Sub 68000").clicked() {
-                        state.m68k_sub.open_disassembly_window(ui);
-                        ui.close_kind(UiKind::Menu);
-                    }
+                if debug_state.state.sega_cd.is_some() && ui.button("Sub 68000").clicked() {
+                    state.m68k_sub.open_disassembly_window(ui);
+                    ui.close_kind(UiKind::Menu);
                 }
 
                 if ui.button("Z80").clicked() {

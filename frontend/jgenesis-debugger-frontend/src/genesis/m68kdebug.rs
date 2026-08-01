@@ -270,10 +270,8 @@ impl M68kDebugMemoryMap for Genesis68kMemoryMap<'_> {
             0x000000..=0x3FFFFF => {
                 if let Some(cartridge) = self.cartridge {
                     Some(cartridge.peek_word(address))
-                } else if let Some(sega_cd) = self.sega_cd {
-                    Some(sega_cd.peek(address))
                 } else {
-                    None
+                    self.sega_cd.as_ref().map(|sega_cd| sega_cd.peek(address))
                 }
             }
             0x400000..=0x7FFFFF => match (self.cartridge, self.sega_cd) {

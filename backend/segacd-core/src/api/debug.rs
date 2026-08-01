@@ -3,9 +3,10 @@ use crate::api::SegaCd;
 use crate::cddrive::cdc::Rchip;
 use crate::rf5c164::Rf5c164;
 use jgenesis_common::debug::{DebugBytesView, DebugMemoryView};
+use jgenesis_proc_macros::EnumAll;
 use m68000_emu::M68000;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAll)]
 pub enum SegaCdMemoryArea {
     BiosRom,
     PrgRam,

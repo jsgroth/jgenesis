@@ -17,6 +17,10 @@ use jgenesis_common::frontend::{FrameSize, Renderer, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::PartialClone;
 use sh2_emu::Sh2;
+#[cfg(feature = "test-apis")]
+use sh2_emu::bus::{AccessContext, BusInterface, OpSize};
+#[cfg(feature = "test-apis")]
+use sh2_emu::debug::Sh2Debugger;
 use std::cmp;
 use std::fmt::Debug;
 use std::num::NonZeroU64;
@@ -190,6 +194,65 @@ impl Sega32X {
             }
             master_bus.cycle_counter
         };
+    }
+
+    #[cfg(feature = "test-apis")]
+    pub fn simulate_bus_interactions<const DEBUG: bool>(
+        &mut self,
+        debugger: &mut impl Sega32XDebugger,
+        which: WhichCpu,
+        reads: &[u32],
+        writes: &[(u32, u32)],
+    ) {
+        self.global_cycles = 0;
+        self.master_cycles = 0;
+        self.slave_cycles = 0;
+
+        let (sh2, other_sh2, other_cycles) = match which {
+            WhichCpu::Master => (&mut self.sh2_master, &mut self.sh2_slave, &mut self.slave_cycles),
+            WhichCpu::Slave => (&mut self.sh2_slave, &mut self.sh2_master, &mut self.master_cycles),
+        };
+
+        let mut bus = Sh2Bus::create(&mut self.bus, which, 0, 50, Some((other_sh2, other_cycles)));
+        bus.cycle_limit = 100;
+
+        if DEBUG {
+            let mut debug_bus = DebugSh2Bus::create(bus, debugger);
+            Self::simulate_bus_interactions_inner(&mut *debug_bus, reads, writes, sh2);
+        } else {
+            Self::simulate_bus_interactions_inner(&mut *bus, reads, writes, sh2);
+        }
+    }
+
+    #[cfg(feature = "test-apis")]
+    fn simulate_bus_interactions_inner<Bus: BusInterface>(
+        bus: &mut Bus,
+        reads: &[u32],
+        writes: &[(u32, u32)],
+        sh2: &mut Sh2,
+    ) {
+        for &address in reads {
+            if let Some(mut debug_view) = bus.debug_view() {
+                debug_view.check_read::<{ OpSize::WORD }>(address, sh2);
+                debug_view.apply_read::<{ OpSize::WORD }>(address, AccessContext::Fetch, sh2);
+            } else {
+                bus.read::<{ OpSize::WORD }>(address, AccessContext::Fetch);
+            }
+        }
+
+        for &(address, value) in writes {
+            if let Some(mut debug_view) = bus.debug_view() {
+                debug_view.check_write::<{ OpSize::WORD }>(address, value, sh2);
+                debug_view.apply_write::<{ OpSize::WORD }>(
+                    address,
+                    value,
+                    AccessContext::Fetch,
+                    sh2,
+                );
+            } else {
+                bus.write::<{ OpSize::WORD }>(address, value, AccessContext::Fetch);
+            }
+        }
     }
 
     pub fn reload_config(&mut self, config: &GenesisEmulatorConfig) {

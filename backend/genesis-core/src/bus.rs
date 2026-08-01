@@ -282,16 +282,14 @@ impl GenesisBus {
             };
 
             if DEBUG && let Some(debugger) = &mut debugger {
-                unsafe {
-                    let mut s32x_debugger =
-                        debugger.for_32x(self.sega_cd.as_mut(), genesis_components!(self));
-                    sega_32x.tick::<true>(
-                        mclk_cycles,
-                        genesis_vdp_info,
-                        audio_output,
-                        &mut s32x_debugger,
-                    );
-                }
+                let mut s32x_debugger =
+                    debugger.for_32x(self.sega_cd.as_mut(), genesis_components!(self));
+                sega_32x.tick::<true>(
+                    mclk_cycles,
+                    genesis_vdp_info,
+                    audio_output,
+                    &mut *s32x_debugger,
+                );
             } else {
                 sega_32x.tick::<false>(
                     mclk_cycles,

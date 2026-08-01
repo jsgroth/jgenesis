@@ -38,6 +38,9 @@ impl DebugSh2Bus {
 
         let cycle_limit = cmp::min(self.bus.cycle_counter, self.bus.cycle_limit);
 
+        // SAFETY: Similar to Sh2Bus::maybe_sync_other_cpu but also attaches a pointer to the
+        // current CPU, created from a mutable reference here. The current CPU and the original bus
+        // are not used while the other CPU is executing against the debug bus.
         unsafe {
             let mut other_bus = Self {
                 bus: Sh2Bus {
@@ -73,6 +76,11 @@ impl DebugSh2Bus {
         bus_guard: Sh2BusGuard<'bus, 'cartridge, 'other>,
         debugger: &'debug mut Debugger,
     ) -> DebugSh2BusGuard<'debug, 'bus, 'cartridge, 'other> {
+        // SAFETY: Consumes an Sh2BusGuard to get the inner bus, and returns another guard that has
+        // the same lifetimes plus the debugger lifetime.
+        // Converts the debugger mutable reference to a raw pointer here and uses the debugger
+        // lifetime to ensure that the caller cannot access the debugger until after this guard is
+        // dropped.
         let debugger: &mut dyn Sega32XDebugger = debugger;
         let debug_bus = DebugSh2Bus {
             bus: bus_guard.bus,
@@ -114,20 +122,28 @@ impl DebugSh2BusView<'_> {
     fn as_debug_view<'slf, 'cpu, 'ret>(
         &'slf mut self,
         cpu: &'cpu mut Sh2,
-    ) -> (Sega32XDebugView<'ret>, Option<&'slf mut Cartridge>)
+    ) -> Option<(Sega32XDebugView<'ret>, Option<&'slf mut Cartridge>)>
     where
         'slf: 'ret,
         'cpu: 'ret,
     {
         let s32x_bus = unsafe { self.0.bus.s32x_bus.as_mut() };
 
+        // SAFETY: other_sh2 is only set on DebugSh2Bus when created in DebugSh2Bus::maybe_sync_other_cpu
+        // above, where it is created from a mutable reference. Otherwise this pulls the other SH-2
+        // out of the inner Sh2Bus, which is only ever set in Sh2Bus::create.
         let other_sh2 = unsafe {
             if !self.0.other_sh2.is_null() {
                 self.0.other_sh2.as_mut().unwrap()
             } else if let Some(other_sh2) = self.0.bus.other_sh2.as_mut() {
                 other_sh2.cpu.as_mut()
             } else {
-                todo!("should never happen")
+                // This _shouldn't_ ever happen, but don't crash if it does
+                log::error!(
+                    "Invalid debugger state; no pointer to other SH-2 while {:?} is executing",
+                    self.0.bus.which
+                );
+                return None;
             }
         };
 
@@ -147,7 +163,7 @@ impl DebugSh2BusView<'_> {
 
         let cartridge = s32x_bus.cartridge.as_mut();
 
-        (debug_view, cartridge)
+        Some((debug_view, cartridge))
     }
 }
 
@@ -155,10 +171,15 @@ impl Sh2Debugger for DebugSh2BusView<'_> {
     fn check_read<const SIZE: u8>(&mut self, address: u32, cpu: &mut Sh2) {
         let which = self.which();
 
+        // SAFETY: Debugger was created from a mutable reference, and DebugSh2Bus is only accessible
+        // through a guard
         unsafe {
             let debugger = self.0.debugger.as_mut();
-            if debugger.check_sh2_read_breakpoint(which, address, OpSize::enum_value::<SIZE>()) {
-                let (debug_view, cartridge) = self.as_debug_view(cpu);
+            if debugger.check_sh2_read_breakpoint(which, address, OpSize::enum_value::<SIZE>())
+                && let Some((debug_view, cartridge)) = self.as_debug_view(cpu)
+            {
+                log::info!("SH-2 {which:?} triggered read breakpoint: {address:08X}");
+
                 debugger.handle_sh2_breakpoint(which, cartridge, debug_view);
             }
         }
@@ -177,6 +198,8 @@ impl Sh2Debugger for DebugSh2BusView<'_> {
     fn check_write<const SIZE: u8>(&mut self, address: u32, value: u32, cpu: &mut Sh2) {
         let which = self.which();
 
+        // SAFETY: Debugger was created from a mutable reference, and DebugSh2Bus is only accessible
+        // through a guard
         unsafe {
             let debugger = self.0.debugger.as_mut();
             if debugger.check_sh2_write_breakpoint(
@@ -184,8 +207,10 @@ impl Sh2Debugger for DebugSh2BusView<'_> {
                 address,
                 value,
                 OpSize::enum_value::<SIZE>(),
-            ) {
-                let (debug_view, cartridge) = self.as_debug_view(cpu);
+            ) && let Some((debug_view, cartridge)) = self.as_debug_view(cpu)
+            {
+                log::info!("SH-2 {which:?} triggered write breakpoint: {address:08X} {value:08X}");
+
                 debugger.handle_sh2_breakpoint(which, cartridge, debug_view);
             }
         }
@@ -215,10 +240,15 @@ impl Sh2Debugger for DebugSh2BusView<'_> {
     fn check_execute(&mut self, pc: u32, opcode: u16, cpu: &mut Sh2) {
         let which = self.which();
 
+        // SAFETY: Debugger was created from a mutable reference, and DebugSh2Bus is only accessible
+        // through a guard
         unsafe {
             let debugger = self.0.debugger.as_mut();
-            if debugger.check_sh2_execute_breakpoint(which, pc, opcode) {
-                let (debug_view, cartridge) = self.as_debug_view(cpu);
+            if debugger.check_sh2_execute_breakpoint(which, pc, opcode)
+                && let Some((debug_view, cartridge)) = self.as_debug_view(cpu)
+            {
+                log::info!("SH-2 {which:?} triggered execute breakpoint: PC={pc:08X}");
+
                 debugger.handle_sh2_breakpoint(which, cartridge, debug_view);
             }
         }
@@ -227,10 +257,17 @@ impl Sh2Debugger for DebugSh2BusView<'_> {
     fn check_interrupt(&mut self, interrupt_level: u8, cpu: &mut Sh2) {
         let which = self.which();
 
+        // SAFETY: Debugger was created from a mutable reference, and DebugSh2Bus is only accessible
+        // through a guard
         unsafe {
             let debugger = self.0.debugger.as_mut();
-            if debugger.check_sh2_interrupt_breakpoint(which, interrupt_level) {
-                let (debug_view, cartridge) = self.as_debug_view(cpu);
+            if debugger.check_sh2_interrupt_breakpoint(which, interrupt_level)
+                && let Some((debug_view, cartridge)) = self.as_debug_view(cpu)
+            {
+                log::info!(
+                    "SH-2 {which:?} triggered interrupt breakpoint, interrupt level {interrupt_level}"
+                );
+
                 debugger.handle_sh2_breakpoint(which, cartridge, debug_view);
             }
         }
