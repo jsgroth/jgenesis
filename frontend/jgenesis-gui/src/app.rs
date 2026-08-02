@@ -31,7 +31,7 @@ use egui_extras::{Column, TableBuilder};
 use emath::Pos2;
 use jgenesis_native_config::paths::{ConfigDirType, ConfigDirs};
 use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen};
-use jgenesis_native_driver::extensions::Console;
+use jgenesis_native_driver::extensions::{Console, SupportedExtensions};
 use jgenesis_native_driver::{NativeEmulatorError, SdlSubsystems, extensions};
 use nes_config::NesPalette;
 use rfd::FileDialog;
@@ -376,14 +376,18 @@ impl App {
     fn open_file(&mut self, console: Option<Console>) {
         let mut file_dialog = FileDialog::new();
 
-        file_dialog = match console {
+        match console {
             Some(console) => {
-                let extensions: Vec<_> =
-                    console.supported_extensions().iter().copied().chain(["zip", "7z"]).collect();
-                file_dialog.add_filter(console.display_str(), &extensions)
+                for SupportedExtensions { label, extensions } in console.supported_extensions() {
+                    let label = label.unwrap_or(console.display_str());
+                    file_dialog = file_dialog.add_filter(label, extensions);
+                }
             }
-            None => file_dialog.add_filter("Supported Files", &extensions::ALL_PLUS_ARCHIVES),
-        };
+            None => {
+                file_dialog =
+                    file_dialog.add_filter("Supported Files", &extensions::ALL_PLUS_ARCHIVES);
+            }
+        }
 
         file_dialog = file_dialog.add_filter("All Files", &["*"]);
 

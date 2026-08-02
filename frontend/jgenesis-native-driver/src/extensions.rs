@@ -146,6 +146,13 @@ pub struct ConsoleWithSize {
     pub file_size: u64,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct SupportedExtensions {
+    // Should display the console name if label is None
+    pub label: Option<&'static str>,
+    pub extensions: &'static [&'static str],
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumDisplay, EnumFromStr, EnumAll, CustomValueEnum)]
 pub enum Console {
     MasterSystem,
@@ -253,18 +260,29 @@ impl Console {
 
     #[inline]
     #[must_use]
-    pub fn supported_extensions(self) -> &'static [&'static str] {
+    pub fn supported_extensions(self) -> Vec<SupportedExtensions> {
+        fn single(extensions: &'static [&'static str]) -> Vec<SupportedExtensions> {
+            vec![SupportedExtensions { label: None, extensions }]
+        }
+
         match self {
-            Self::Sg1000 | Self::MasterSystem | Self::GameGear => &SMSGG,
-            Self::Genesis => GENESIS,
-            Self::SegaCd => SEGA_CD,
-            Self::Sega32X => SEGA_32X,
-            Self::SegaCd32X => &SEGA_CD_32X,
-            Self::Nes => NES,
-            Self::Snes => SNES,
-            Self::GameBoy | Self::GameBoyColor => &GB_GBC,
-            Self::GameBoyAdvance => GAME_BOY_ADVANCE,
-            Self::PcEngine => PC_ENGINE,
+            Self::Sg1000 | Self::MasterSystem | Self::GameGear => single(&SMSGG),
+            Self::Genesis => single(GENESIS),
+            Self::SegaCd => vec![
+                SupportedExtensions { label: None, extensions: SEGA_CD },
+                SupportedExtensions { label: Some("Genesis"), extensions: GENESIS },
+            ],
+            Self::Sega32X => single(SEGA_32X),
+            Self::SegaCd32X => vec![
+                SupportedExtensions { label: None, extensions: &SEGA_CD_32X },
+                SupportedExtensions { label: Some("Sega CD"), extensions: SEGA_CD },
+                SupportedExtensions { label: Some("Genesis/32X"), extensions: &GENESIS_32X },
+            ],
+            Self::Nes => single(NES),
+            Self::Snes => single(SNES),
+            Self::GameBoy | Self::GameBoyColor => single(&GB_GBC),
+            Self::GameBoyAdvance => single(GAME_BOY_ADVANCE),
+            Self::PcEngine => single(PC_ENGINE),
         }
     }
 

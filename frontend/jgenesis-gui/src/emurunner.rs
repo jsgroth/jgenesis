@@ -302,6 +302,7 @@ impl GuiEmulatorRunner {
             Ok(None) => return,
             Err(err) => {
                 log::error!("Error initializing emulator: {err}");
+                self.status.set(EmuRunnerStatus::Idle);
                 *self.emulator_error.borrow_mut() = Some(err);
                 self.egui_ctx.request_repaint();
                 return;
