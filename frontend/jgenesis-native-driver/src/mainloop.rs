@@ -18,7 +18,7 @@ pub use audio::AudioError;
 pub use create::SdlSubsystems;
 pub use gb::NativeGameBoyEmulator;
 pub use gba::NativeGbaEmulator;
-pub use genesis::{Native32XEmulator, NativeGenesisEmulator, NativeSegaCdEmulator};
+pub use genesis::NativeGenesisEmulator;
 pub use nes::NativeNesEmulator;
 pub use pce::NativePcEngineEmulator;
 pub use save::SaveWriteError;
@@ -193,7 +193,6 @@ pub struct NativeEmulator<Emulator: EmulatorTrait> {
     hotkey_state: HotkeyState<Emulator>,
     window_state: WindowState,
     fps_tracker: FpsTracker,
-    rom_path: PathBuf,
     video: Rc<RefCell<VideoSubsystem>>,
     event_pump: Rc<RefCell<EventPump>>,
     mouse_util: Rc<RefCell<MouseUtil>>,
@@ -401,8 +400,8 @@ where
     ) -> Self {
         NativeEmulatorArgs {
             create_emulator_fn,
-            change_disc_fn: |_emulator, _path| Ok(String::new()),
-            remove_disc_fn: |_emulator| {},
+            change_disc_fn: |_emulator, _path, _config| Ok(None),
+            remove_disc_fn: |_emulator| None,
             emulator_config,
             common_config,
             rom_extension,
@@ -523,7 +522,6 @@ where
             hotkey_state,
             window_state: WindowState::new(),
             fps_tracker: FpsTracker::new(),
-            rom_path: common_config.rom_file_path,
             video: sdl.video,
             event_pump: sdl.event_pump,
             mouse_util: sdl.mouse_util,
@@ -765,15 +763,17 @@ where
                     .add_modal(format!("Failed to load state from slot {slot}"), MODAL_DURATION);
                 log::error!("Failed to load state from slot {slot}: {err}");
             }
-            RunnerCommandResponse::ChangeDiscSucceeded { mut window_title } => {
-                window_title.retain(|c| (c as u8) != 0);
+            RunnerCommandResponse::ChangeDiscSucceeded { window_title } => {
+                if let Some(WindowTitle(mut window_title)) = window_title {
+                    window_title.retain(|c| (c as u8) != 0);
 
-                // SAFETY: This is not reassigning the window
-                unsafe {
-                    self.renderer
-                        .window_mut()
-                        .set_title(&window_title)
-                        .expect("Window title does not have any null characters");
+                    // SAFETY: This is not reassigning the window
+                    unsafe {
+                        self.renderer
+                            .window_mut()
+                            .set_title(&window_title)
+                            .expect("Window title does not have any null characters");
+                    }
                 }
             }
             RunnerCommandResponse::ChangeDiscFailed(err) => {
@@ -1123,5 +1123,6 @@ macro_rules! bincode_config {
     };
 }
 
+use crate::mainloop::create::WindowTitle;
 use bincode_config;
 use egui_sdl3_wgpu::FrameRunEffect;

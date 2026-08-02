@@ -1,0 +1,24 @@
+[package]
+name = "genesis-components"
+edition = "2024"
+version.workspace = true
+
+[dependencies]
+jgenesis-common = { workspace = true }
+jgenesis-proc-macros = { workspace = true }
+
+genesis-config = { workspace = true }
+
+m68000-emu = { workspace = true, features = ["bincode"] }
+z80-emu = { workspace = true, features = ["bincode"] }
+
+bincode = { workspace = true }
+crc = { workspace = true }
+regex = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]
+test-log = { workspace = true }
+
+[lints]
+workspace = true

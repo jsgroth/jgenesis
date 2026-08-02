@@ -9,13 +9,12 @@ mod lfo;
 mod phase;
 mod timer;
 
-use crate::GenesisEmulatorConfig;
 use crate::ym2612::envelope::EnvelopeGenerator;
 use crate::ym2612::lfo::LowFrequencyOscillator;
 use crate::ym2612::phase::PhaseGenerator;
 use crate::ym2612::timer::{TimerA, TimerB, TimerControl, TimerTickEffect};
 use bincode::{Decode, Encode};
-use genesis_config::Opn2BusyBehavior;
+use genesis_config::{GenesisEmulatorConfig, Opn2BusyBehavior};
 use jgenesis_common::num::GetBit;
 use std::sync::LazyLock;
 use std::{array, mem};

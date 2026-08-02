@@ -2,9 +2,12 @@ use gb_config::GbcColorCorrection;
 use gb_core::api::GameBoyEmulatorConfig;
 use gba_config::GbaColorCorrection;
 use gba_core::api::{GbaAudioConfig, GbaEmulatorConfig};
+use genesis_config::GenesisEmulatorConfig;
 use genesis_config::cheats::GenesisCheats;
-use genesis_config::{S32XVoidColor, S32XVoidColorType};
-use genesis_core::GenesisEmulatorConfig;
+use genesis_config::{
+    S32XVoidColor, S32XVoidColorType, Sega32XEmulatorConfig, SegaCdEmulatorConfig,
+};
+use genesis_core::api::GenesisHardware;
 use jgenesis_common::frontend::{ColorCorrection, FiniteF32};
 use jgenesis_native_config::common::{
     ConfigSavePath, HideMouseCursor, PauseEmulator, SavePath, WindowSize,
@@ -19,8 +22,6 @@ use jgenesis_proc_macros::ConfigDisplay;
 use jgenesis_renderer::config::{PreprocessShader, PrescaleMode, RendererConfig};
 use nes_core::api::NesEmulatorConfig;
 use pce_core::api::PceEmulatorConfig;
-use s32x_core::api::Sega32XEmulatorConfig;
-use segacd_core::api::SegaCdEmulatorConfig;
 use smsgg_config::cheats::SmsGgCheats;
 use smsgg_core::{SmsGgEmulatorConfig, SmsGgHardware};
 use snes_core::api::{CoprocessorRomFn, CoprocessorRoms, SnesEmulatorConfig};
@@ -81,10 +82,23 @@ pub struct SmsGgConfig {
 pub struct GenesisConfig {
     #[cfg_display(indent_nested)]
     pub common: CommonConfig,
+    // Disc path for Sega CD boot-from-cartridge (Mode 1)
+    // Cartridge path for boot-from-disc (Mode 2)
+    #[cfg_display(path)]
+    pub secondary_path: Option<PathBuf>,
     #[cfg_display(indent_nested)]
     pub inputs: GenesisInputConfig,
+    pub hardware: GenesisHardware,
     #[cfg_display(indent_nested)]
     pub emulator_config: GenesisEmulatorConfig,
+    #[cfg_display(path)]
+    pub scd_us_bios_path: Option<PathBuf>,
+    #[cfg_display(path)]
+    pub scd_eu_bios_path: Option<PathBuf>,
+    #[cfg_display(path)]
+    pub scd_jp_bios_path: Option<PathBuf>,
+    pub scd_per_region_bios: bool,
+    pub scd_run_without_disc: bool,
 }
 
 #[derive(Debug, Clone, ConfigDisplay)]
@@ -209,13 +223,13 @@ pub trait AppConfigExt {
     fn common_config(&self, path: PathBuf) -> CommonConfig;
 
     #[must_use]
-    fn genesis_config(&self, path: PathBuf, cheats: &GenesisCheats) -> Box<GenesisConfig>;
-
-    #[must_use]
-    fn sega_cd_config(&self, path: PathBuf, cheats: &GenesisCheats) -> Box<SegaCdConfig>;
-
-    #[must_use]
-    fn sega_32x_config(&self, path: PathBuf, cheats: &GenesisCheats) -> Box<Sega32XConfig>;
+    fn genesis_config(
+        &self,
+        path: PathBuf,
+        secondary_path: Option<PathBuf>,
+        hardware: Option<GenesisHardware>,
+        cheats: &GenesisCheats,
+    ) -> Box<GenesisConfig>;
 
     #[must_use]
     fn smsgg_config(
@@ -299,11 +313,55 @@ impl AppConfigExt for AppConfig {
         }
     }
 
-    fn genesis_config(&self, path: PathBuf, cheats: &GenesisCheats) -> Box<GenesisConfig> {
+    fn genesis_config(
+        &self,
+        path: PathBuf,
+        secondary_path: Option<PathBuf>,
+        hardware: Option<GenesisHardware>,
+        cheats: &GenesisCheats,
+    ) -> Box<GenesisConfig> {
         Box::new(GenesisConfig {
             common: self.common_config(path),
+            secondary_path,
             inputs: self.input.genesis.clone(),
+            hardware: hardware.unwrap_or(GenesisHardware::Standalone),
             emulator_config: GenesisEmulatorConfig {
+                sega_cd: SegaCdEmulatorConfig {
+                    pcm_interpolation: self.sega_cd.pcm_interpolation,
+                    enable_ram_cartridge: self.sega_cd.enable_ram_cartridge,
+                    load_disc_into_ram: self.sega_cd.load_disc_into_ram,
+                    disc_drive_speed: self.sega_cd.disc_drive_speed,
+                    sub_cpu_divider: self.sega_cd.sub_cpu_divider,
+                    pcm_lpf_enabled: self.sega_cd.pcm_lpf_enabled,
+                    pcm_lpf_cutoff: self.sega_cd.pcm_lpf_cutoff,
+                    apply_genesis_lpf_to_pcm: self.sega_cd.apply_genesis_lpf_to_pcm,
+                    apply_genesis_lpf_to_cd_da: self.sega_cd.apply_genesis_lpf_to_cd_da,
+                    pcm_enabled: self.sega_cd.pcm_enabled,
+                    cd_audio_enabled: self.sega_cd.cd_audio_enabled,
+                    pcm_volume_adjustment_db: self.sega_cd.pcm_volume_adjustment_db,
+                    cd_volume_adjustment_db: self.sega_cd.cd_volume_adjustment_db,
+                },
+                sega_32x: Sega32XEmulatorConfig {
+                    sh2_clock_multiplier: self.sega_32x.sh2_clock_multiplier,
+                    video_out: self.sega_32x.video_out,
+                    darken_genesis_colors: self.sega_32x.darken_genesis_colors,
+                    color_tint: self.sega_32x.color_tint,
+                    show_high_priority: self.sega_32x.show_high_priority,
+                    show_low_priority: self.sega_32x.show_low_priority,
+                    void_color: match self.sega_32x.void_color_type {
+                        S32XVoidColorType::PaletteRam => {
+                            S32XVoidColor::PaletteRam { idx: self.sega_32x.void_palette_index }
+                        }
+                        S32XVoidColorType::Direct => {
+                            let [r, g, b] = self.sega_32x.void_direct;
+                            S32XVoidColor::Direct { r, g, b, a: self.sega_32x.void_direct_priority }
+                        }
+                    },
+                    apply_genesis_lpf_to_pwm: self.sega_32x.apply_genesis_lpf_to_pwm,
+                    pwm_resampling: self.sega_32x.pwm_resampling,
+                    pwm_enabled: self.sega_32x.pwm_enabled,
+                    pwm_volume_adjustment_db: self.sega_32x.pwm_volume_adjustment_db,
+                },
                 forced_timing_mode: self.genesis.forced_timing_mode,
                 forced_region: self.genesis.forced_region,
                 allow_opposing_joypad_directions: self.genesis.allow_opposing_joypad_directions,
@@ -338,65 +396,11 @@ impl AppConfigExt for AppConfig {
                 psg_volume_adjustment_db: self.genesis.psg_volume_adjustment_db,
                 cheat_codes: cheats.to_memory_override_vec(),
             },
-        })
-    }
-
-    fn sega_cd_config(&self, path: PathBuf, cheats: &GenesisCheats) -> Box<SegaCdConfig> {
-        let genesis_config = *self.genesis_config(path, cheats);
-        let genesis_emu_config = genesis_config.emulator_config.clone();
-        Box::new(SegaCdConfig {
-            genesis: genesis_config,
-            bios_file_path: self.sega_cd.bios_path.clone(),
-            eu_bios_file_path: self.sega_cd.eu_bios_path.clone(),
-            jp_bios_file_path: self.sega_cd.jp_bios_path.clone(),
-            per_region_bios: self.sega_cd.per_region_bios,
-            run_without_disc: false,
-            emulator_config: SegaCdEmulatorConfig {
-                genesis: genesis_emu_config,
-                pcm_interpolation: self.sega_cd.pcm_interpolation,
-                enable_ram_cartridge: self.sega_cd.enable_ram_cartridge,
-                load_disc_into_ram: self.sega_cd.load_disc_into_ram,
-                disc_drive_speed: self.sega_cd.disc_drive_speed,
-                sub_cpu_divider: self.sega_cd.sub_cpu_divider,
-                pcm_lpf_enabled: self.sega_cd.pcm_lpf_enabled,
-                pcm_lpf_cutoff: self.sega_cd.pcm_lpf_cutoff,
-                apply_genesis_lpf_to_pcm: self.sega_cd.apply_genesis_lpf_to_pcm,
-                apply_genesis_lpf_to_cd_da: self.sega_cd.apply_genesis_lpf_to_cd_da,
-                pcm_enabled: self.sega_cd.pcm_enabled,
-                cd_audio_enabled: self.sega_cd.cd_audio_enabled,
-                pcm_volume_adjustment_db: self.sega_cd.pcm_volume_adjustment_db,
-                cd_volume_adjustment_db: self.sega_cd.cd_volume_adjustment_db,
-            },
-        })
-    }
-
-    fn sega_32x_config(&self, path: PathBuf, cheats: &GenesisCheats) -> Box<Sega32XConfig> {
-        let genesis_config = *self.genesis_config(path, cheats);
-        let genesis_emu_config = genesis_config.emulator_config.clone();
-        Box::new(Sega32XConfig {
-            genesis: genesis_config,
-            emulator_config: Sega32XEmulatorConfig {
-                genesis: genesis_emu_config,
-                sh2_clock_multiplier: self.sega_32x.sh2_clock_multiplier,
-                video_out: self.sega_32x.video_out,
-                darken_genesis_colors: self.sega_32x.darken_genesis_colors,
-                color_tint: self.sega_32x.color_tint,
-                show_high_priority: self.sega_32x.show_high_priority,
-                show_low_priority: self.sega_32x.show_low_priority,
-                void_color: match self.sega_32x.void_color_type {
-                    S32XVoidColorType::PaletteRam => {
-                        S32XVoidColor::PaletteRam { idx: self.sega_32x.void_palette_index }
-                    }
-                    S32XVoidColorType::Direct => {
-                        let [r, g, b] = self.sega_32x.void_direct;
-                        S32XVoidColor::Direct { r, g, b, a: self.sega_32x.void_direct_priority }
-                    }
-                },
-                apply_genesis_lpf_to_pwm: self.sega_32x.apply_genesis_lpf_to_pwm,
-                pwm_resampling: self.sega_32x.pwm_resampling,
-                pwm_enabled: self.sega_32x.pwm_enabled,
-                pwm_volume_adjustment_db: self.sega_32x.pwm_volume_adjustment_db,
-            },
+            scd_us_bios_path: self.sega_cd.bios_path.clone(),
+            scd_eu_bios_path: self.sega_cd.eu_bios_path.clone(),
+            scd_jp_bios_path: self.sega_cd.jp_bios_path.clone(),
+            scd_per_region_bios: self.sega_cd.per_region_bios,
+            scd_run_without_disc: false,
         })
     }
 

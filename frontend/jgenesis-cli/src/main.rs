@@ -8,6 +8,7 @@ use gba_config::GbaSaveMemory;
 use genesis_config::PcmInterpolation;
 use genesis_config::S32XVideoOut;
 use genesis_config::{GenesisAspectRatio, GenesisControllerType, GenesisRegion, Opn2BusyBehavior};
+use genesis_core::api::GenesisHardware;
 use jgenesis_common::frontend::{EmulatorTrait, TimingMode};
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::common::{ConfigSavePath, HideMouseCursor};
@@ -16,9 +17,9 @@ use jgenesis_native_config::paths::{ConfigDirs, ConfigWithPath};
 use jgenesis_native_driver::config::AppConfigExt;
 use jgenesis_native_driver::extensions::{Console, ConsoleWithSize};
 use jgenesis_native_driver::{
-    Native32XEmulator, NativeEmulator, NativeGameBoyEmulator, NativeGbaEmulator,
-    NativeGenesisEmulator, NativeNesEmulator, NativePcEngineEmulator, NativeSegaCdEmulator,
-    NativeSmsGgEmulator, NativeSnesEmulator, NativeTickEffect, SdlSubsystems,
+    NativeEmulator, NativeGameBoyEmulator, NativeGbaEmulator, NativeGenesisEmulator,
+    NativeNesEmulator, NativePcEngineEmulator, NativeSmsGgEmulator, NativeSnesEmulator,
+    NativeTickEffect, SdlSubsystems,
 };
 use jgenesis_proc_macros::{CustomValueEnum, EnumAll, EnumDisplay};
 use jgenesis_renderer::config::{
@@ -26,12 +27,13 @@ use jgenesis_renderer::config::{
 };
 use nes_config::{NesAspectRatio, NesAudioResampler, NesPalette};
 use smsgg_config::cheats::SmsGgCheats;
-use smsgg_config::{GgAspectRatio, SmsAspectRatio, SmsGgRegion, SmsModel, Sn76489Version};
+use smsgg_config::{GgAspectRatio, SmsAspectRatio, SmsGgRegion, SmsModel};
 use smsgg_core::SmsGgHardware;
 use snes_config::{AudioInterpolationMode, SnesAspectRatio};
 use std::fmt::Debug;
 use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use ti_sn76489::Sn76489Version;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumAll, EnumDisplay, CustomValueEnum)]
 enum Hardware {
@@ -41,6 +43,7 @@ enum Hardware {
     Genesis,
     SegaCd,
     Sega32X,
+    SegaCd32X,
     Nes,
     Snes,
     GameBoy,
@@ -72,9 +75,14 @@ struct Args {
     #[arg(long)]
     hardware: Option<Hardware>,
 
-    /// ROM file path
-    #[arg(short = 'f', long)]
-    file_path: PathBuf,
+    /// ROM file path. For platforms with multiple file inputs (e.g. Sega CD 32X), you can set this argument
+    /// multiple times, e.g. '-f /path/to/cartridge.32x -f /path/to/disc.cue'
+    #[arg(short = 'f', long = "file-path", required = true)]
+    file_paths: Vec<PathBuf>,
+
+    /// Secondary ROM file path, e.g. Sega CD disc image when the primary file is a cartridge ROM image
+    #[arg(long)]
+    secondary_file_path: Option<PathBuf>,
 
     /// Override default config file path (jgenesis-config.toml)
     #[arg(long = "config")]
@@ -599,9 +607,16 @@ macro_rules! apply_path_overrides {
 }
 
 impl Args {
-    fn fix_appimage_relative_paths(mut self) -> Self {
-        self.file_path = jgenesis_common::fix_appimage_relative_path(self.file_path);
+    fn primary_file_path(&self) -> &PathBuf {
+        // -f is a required arg so there will always be at least 1 path
+        self.file_paths.first().unwrap()
+    }
 
+    fn fix_appimage_relative_paths(mut self) -> Self {
+        self.file_paths =
+            self.file_paths.into_iter().map(jgenesis_common::fix_appimage_relative_path).collect();
+
+        fix_optional_relative_path(&mut self.secondary_file_path);
         fix_optional_relative_path(&mut self.config_path_override);
         fix_optional_relative_path(&mut self.custom_save_path);
         fix_optional_relative_path(&mut self.custom_state_path);
@@ -964,9 +979,10 @@ fn main() -> anyhow::Result<()> {
         }
         Hardware::GameGear => run_smsgg(sdl, args, config_with_path, SmsGgHardware::GameGear),
         Hardware::Sg1000 => run_smsgg(sdl, args, config_with_path, SmsGgHardware::Sg1000),
-        Hardware::Genesis => run_genesis(sdl, args, config_with_path),
-        Hardware::SegaCd => run_sega_cd(sdl, args, config_with_path),
-        Hardware::Sega32X => run_32x(sdl, args, config_with_path),
+        Hardware::Genesis => run_genesis(sdl, args, config_with_path, GenesisHardware::Standalone),
+        Hardware::SegaCd => run_genesis(sdl, args, config_with_path, GenesisHardware::SegaCd),
+        Hardware::Sega32X => run_genesis(sdl, args, config_with_path, GenesisHardware::Sega32X),
+        Hardware::SegaCd32X => run_genesis(sdl, args, config_with_path, GenesisHardware::SegaCd32X),
         Hardware::Nes => run_nes(sdl, args, config_with_path.config),
         Hardware::Snes => run_snes(sdl, args, config_with_path.config),
         Hardware::GameBoy => run_gb(sdl, args, config_with_path.config),
@@ -976,7 +992,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn guess_hardware(args: &Args) -> Hardware {
-    let file_path = Path::new(&args.file_path);
+    let file_path = args.primary_file_path();
 
     let console = Console::from_file(file_path)
         .map(|ConsoleWithSize { console, .. }| console)
@@ -995,6 +1011,7 @@ fn guess_hardware(args: &Args) -> Hardware {
         Console::Genesis => Hardware::Genesis,
         Console::SegaCd => Hardware::SegaCd,
         Console::Sega32X => Hardware::Sega32X,
+        Console::SegaCd32X => Hardware::SegaCd32X,
         Console::Nes => Hardware::Nes,
         Console::Snes => Hardware::Snes,
         Console::GameBoy | Console::GameBoyColor => Hardware::GameBoy,
@@ -1016,9 +1033,10 @@ fn run_smsgg(
     };
 
     let cheats: SmsGgCheats = config
-        .try_load_cheats_if_enabled(&path, &args.file_path, cheats_extension)
+        .try_load_cheats_if_enabled(&path, args.primary_file_path(), cheats_extension)
         .unwrap_or_default();
-    let mut smsgg_config = config.smsgg_config(args.file_path.clone(), Some(hardware), &cheats);
+    let mut smsgg_config =
+        config.smsgg_config(args.primary_file_path().clone(), Some(hardware), &cheats);
     smsgg_config.run_without_cartridge = args.sms_no_cartridge;
 
     let mut emulator = NativeSmsGgEmulator::create(sdl, smsgg_config)?;
@@ -1029,67 +1047,69 @@ fn run_genesis(
     sdl: SdlSubsystems,
     args: Args,
     ConfigWithPath { config, path }: ConfigWithPath,
+    hardware: GenesisHardware,
 ) -> anyhow::Result<()> {
-    let cheats = config
-        .try_load_cheats_if_enabled(&path, &args.file_path, Console::Genesis.standard_extension())
-        .unwrap_or_default();
-    let mut emulator =
-        NativeGenesisEmulator::create(sdl, config.genesis_config(args.file_path.clone(), &cheats))?;
-    run_emulator(&mut emulator, &args)
-}
+    let cheats_console = match hardware {
+        GenesisHardware::Standalone => Console::Genesis,
+        GenesisHardware::SegaCd => Console::SegaCd,
+        GenesisHardware::Sega32X => Console::Sega32X,
+        GenesisHardware::SegaCd32X => Console::SegaCd32X,
+    };
 
-fn run_sega_cd(
-    sdl: SdlSubsystems,
-    args: Args,
-    ConfigWithPath { config, path }: ConfigWithPath,
-) -> anyhow::Result<()> {
     let cheats = config
-        .try_load_cheats_if_enabled(&path, &args.file_path, Console::SegaCd.standard_extension())
+        .try_load_cheats_if_enabled(
+            &path,
+            args.primary_file_path(),
+            cheats_console.standard_extension(),
+        )
         .unwrap_or_default();
-    let mut scd_config = config.sega_cd_config(args.file_path.clone(), &cheats);
-    scd_config.run_without_disc = args.scd_no_disc;
 
-    let mut emulator = NativeSegaCdEmulator::create(sdl, scd_config)?;
-    run_emulator(&mut emulator, &args)
-}
+    let secondary_file_path = match hardware {
+        GenesisHardware::SegaCd | GenesisHardware::SegaCd32X => args.file_paths.get(1).cloned(),
+        GenesisHardware::Standalone | GenesisHardware::Sega32X => None,
+    };
 
-fn run_32x(
-    sdl: SdlSubsystems,
-    args: Args,
-    ConfigWithPath { config, path }: ConfigWithPath,
-) -> anyhow::Result<()> {
-    let cheats = config
-        .try_load_cheats_if_enabled(&path, &args.file_path, Console::Sega32X.standard_extension())
-        .unwrap_or_default();
-    let mut emulator =
-        Native32XEmulator::create(sdl, config.sega_32x_config(args.file_path.clone(), &cheats))?;
+    let mut genesis_config = config.genesis_config(
+        args.primary_file_path().clone(),
+        secondary_file_path,
+        Some(hardware),
+        &cheats,
+    );
+    genesis_config.scd_run_without_disc =
+        matches!(hardware, GenesisHardware::SegaCd | GenesisHardware::SegaCd32X)
+            && args.scd_no_disc;
+
+    let mut emulator = NativeGenesisEmulator::create(sdl, genesis_config)?;
     run_emulator(&mut emulator, &args)
 }
 
 fn run_nes(sdl: SdlSubsystems, args: Args, config: AppConfig) -> anyhow::Result<()> {
-    let mut emulator = NativeNesEmulator::create(sdl, config.nes_config(args.file_path.clone()))?;
+    let mut emulator =
+        NativeNesEmulator::create(sdl, config.nes_config(args.primary_file_path().clone()))?;
     run_emulator(&mut emulator, &args)
 }
 
 fn run_snes(sdl: SdlSubsystems, args: Args, config: AppConfig) -> anyhow::Result<()> {
-    let mut emulator = NativeSnesEmulator::create(sdl, config.snes_config(args.file_path.clone()))?;
+    let mut emulator =
+        NativeSnesEmulator::create(sdl, config.snes_config(args.primary_file_path().clone()))?;
     run_emulator(&mut emulator, &args)
 }
 
 fn run_gb(sdl: SdlSubsystems, args: Args, config: AppConfig) -> anyhow::Result<()> {
     let mut emulator =
-        NativeGameBoyEmulator::create(sdl, config.gb_config(args.file_path.clone()))?;
+        NativeGameBoyEmulator::create(sdl, config.gb_config(args.primary_file_path().clone()))?;
     run_emulator(&mut emulator, &args)
 }
 
 fn run_gba(sdl: SdlSubsystems, args: Args, config: AppConfig) -> anyhow::Result<()> {
-    let mut emulator = NativeGbaEmulator::create(sdl, config.gba_config(args.file_path.clone()))?;
+    let mut emulator =
+        NativeGbaEmulator::create(sdl, config.gba_config(args.primary_file_path().clone()))?;
     run_emulator(&mut emulator, &args)
 }
 
 fn run_pce(sdl: SdlSubsystems, args: Args, config: AppConfig) -> anyhow::Result<()> {
     let mut emulator =
-        NativePcEngineEmulator::create(sdl, config.pce_config(args.file_path.clone()))?;
+        NativePcEngineEmulator::create(sdl, config.pce_config(args.primary_file_path().clone()))?;
     run_emulator(&mut emulator, &args)
 }
 

@@ -1,8 +1,9 @@
 //! Code for handling Genesis controller input I/O registers
 
-use crate::GenesisEmulatorConfig;
 use bincode::{Decode, Encode};
-use genesis_config::{GenesisController, GenesisInputs, GenesisJoypadState, Xe1apJoypadState};
+use genesis_config::{
+    GenesisController, GenesisEmulatorConfig, GenesisInputs, GenesisJoypadState, Xe1apJoypadState,
+};
 use jgenesis_common::num::GetBit;
 use std::cmp;
 

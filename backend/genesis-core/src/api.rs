@@ -4,36 +4,33 @@ pub mod debug;
 
 use crate::api::debug::GenesisDebugger;
 use crate::audio::GenesisAudioResampler;
-use crate::cartridge::Cartridge;
-use crate::input::InputState;
-use crate::memory::debug::DebugMainBus;
-use crate::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
-use crate::timing::{CycleCounters, GenesisCycleCounters};
-use crate::vdp::{DarkenColors, Vdp, VdpConfig, VdpTickEffect};
-use crate::ym2612::Ym2612;
-use crate::{audio, timing, vdp};
+use crate::bus::GenesisBus;
+use crate::bus::debug::{Debug68000Bus, DebugZ80Bus};
 use bincode::{Decode, Encode};
-use genesis_config::{
-    GenParParams, GenesisAspectRatio, GenesisButton, GenesisInputs, GenesisRegion, Opn2BusyBehavior,
-};
+use cdrom::reader::CdRom;
+use genesis_components::GenesisEmulatorConfigExt;
+use genesis_components::cartridge::Cartridge;
+use genesis_components::vdp::{Vdp, VdpTickEffect};
+use genesis_config::{GenesisButton, GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorConfigTrait, EmulatorTrait, InputPoller, Modal, PartialClone,
-    RenderFrameOptions, Renderer, SaveWriter, TickEffect, TickResult, TimingMode,
+    AudioOutput, EmulatorTrait, InputPoller, Modal, PartialClone, RenderFrameOptions, Renderer,
+    SaveWriter, TickEffect, TickResult, TimingMode,
 };
-use jgenesis_proc_macros::ConfigDisplay;
 use m68000_emu::M68000;
-use smsgg_config::Sn76489Version;
-use smsgg_core::psg::{Sn76489, Sn76489TickEffect};
-use std::cmp;
-use std::fmt::{Debug, Display};
-use std::num::NonZeroU64;
+use s32x_core::api::Sega32X;
+use segacd_core::api::{SegaCd, SegaCdLoadError, SegaCdLoadResult};
+use std::fmt::{Debug, Display, Formatter};
 use thiserror::Error;
 use z80_emu::Z80;
 
-pub const SPRITE_LIMITS_MODAL_MESSAGE: &str = "Sprite limits are disabled; may cause glitches";
+const SRAM_EXTENSION: &str = "sav";
+const BACKUP_RAM_EXTENSION: &str = "bram";
+const RAM_CARTRIDGE_EXTENSION: &str = "ramc";
 
 #[derive(Debug, Error)]
 pub enum GenesisError<RErr, AErr, SErr> {
+    #[error("Sega CD disc error: {0}")]
+    SegaCd(#[from] SegaCdLoadError),
     #[error("Rendering error: {0}")]
     Render(RErr),
     #[error("Audio output error: {0}")]
@@ -44,225 +41,143 @@ pub enum GenesisError<RErr, AErr, SErr> {
 
 pub type GenesisResult<RErr, AErr, SErr> = Result<TickEffect, GenesisError<RErr, AErr, SErr>>;
 
-#[derive(Debug, Clone, Encode, Decode, ConfigDisplay)]
-pub struct GenesisEmulatorConfig {
-    pub forced_timing_mode: Option<TimingMode>,
-    pub forced_region: Option<GenesisRegion>,
-    pub allow_opposing_joypad_directions: bool,
-    pub auto_3_button_mode: bool,
-    pub aspect_ratio: GenesisAspectRatio,
-    pub force_square_pixels_in_h40: bool,
-    pub adjust_aspect_ratio_in_2x_resolution: bool,
-    pub anamorphic_widescreen: bool,
-    pub remove_sprite_limits: bool,
-    pub m68k_clock_divider: u64,
-    pub non_linear_color_scale: bool,
-    pub deinterlace: bool,
-    pub render_vertical_border: bool,
-    pub render_horizontal_border: bool,
-    pub plane_a_enabled: bool,
-    pub plane_b_enabled: bool,
-    pub sprites_enabled: bool,
-    pub window_enabled: bool,
-    pub quantize_ym2612_output: bool,
-    pub emulate_ym2612_ladder_effect: bool,
-    pub opn2_busy_behavior: Opn2BusyBehavior,
-    pub genesis_lpf_enabled: bool,
-    pub genesis_lpf_cutoff: u32,
-    pub ym2612_2nd_lpf_enabled: bool,
-    pub ym2612_2nd_lpf_cutoff: u32,
-    #[cfg_display(debug_fmt)]
-    pub ym2612_channels_enabled: [bool; 6],
-    pub ym2612_enabled: bool,
-    pub psg_enabled: bool,
-    pub ym2612_volume_adjustment_db: f64,
-    pub psg_volume_adjustment_db: f64,
-    #[cfg_display(skip)]
-    pub cheat_codes: Vec<(u32, u16)>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+pub enum GenesisHardware {
+    Standalone,
+    SegaCd,
+    Sega32X,
+    SegaCd32X,
 }
 
-impl Default for GenesisEmulatorConfig {
-    fn default() -> Self {
-        Self {
-            forced_timing_mode: None,
-            forced_region: None,
-            allow_opposing_joypad_directions: false,
-            auto_3_button_mode: true,
-            aspect_ratio: GenesisAspectRatio::default(),
-            force_square_pixels_in_h40: false,
-            adjust_aspect_ratio_in_2x_resolution: true,
-            anamorphic_widescreen: false,
-            remove_sprite_limits: false,
-            m68k_clock_divider: timing::NATIVE_M68K_DIVIDER,
-            non_linear_color_scale: true,
-            deinterlace: true,
-            render_vertical_border: false,
-            render_horizontal_border: false,
-            plane_a_enabled: true,
-            plane_b_enabled: true,
-            sprites_enabled: true,
-            window_enabled: true,
-            quantize_ym2612_output: true,
-            emulate_ym2612_ladder_effect: true,
-            opn2_busy_behavior: Opn2BusyBehavior::default(),
-            genesis_lpf_enabled: true,
-            genesis_lpf_cutoff: genesis_config::MODEL_1_VA2_LPF_CUTOFF,
-            ym2612_2nd_lpf_enabled: false,
-            ym2612_2nd_lpf_cutoff: genesis_config::MODEL_2_2ND_LPF_CUTOFF,
-            ym2612_channels_enabled: [true; 6],
-            ym2612_enabled: true,
-            psg_enabled: true,
-            ym2612_volume_adjustment_db: 0.0,
-            psg_volume_adjustment_db: 0.0,
-            cheat_codes: vec![],
+impl Display for GenesisHardware {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Standalone => write!(f, "Genesis"),
+            Self::SegaCd => write!(f, "Sega CD"),
+            Self::Sega32X => write!(f, "32X"),
+            Self::SegaCd32X => write!(f, "Sega CD 32X"),
         }
     }
 }
 
-impl GenesisEmulatorConfig {
+impl GenesisHardware {
     #[must_use]
-    pub fn to_vdp_config(&self, color_adjustment: DarkenColors) -> VdpConfig {
-        VdpConfig {
-            enforce_sprite_limits: !self.remove_sprite_limits,
-            non_linear_color_scale: self.non_linear_color_scale,
-            deinterlace: self.deinterlace,
-            render_vertical_border: self.render_vertical_border,
-            render_horizontal_border: self.render_horizontal_border,
-            plane_a_enabled: self.plane_a_enabled,
-            plane_b_enabled: self.plane_b_enabled,
-            sprites_enabled: self.sprites_enabled,
-            window_enabled: self.window_enabled,
-            color_adjustment,
-        }
+    #[inline]
+    pub fn has_sega_cd(self) -> bool {
+        matches!(self, Self::SegaCd | Self::SegaCd32X)
     }
 
     #[must_use]
-    #[allow(clippy::missing_panics_doc)]
-    pub fn clamped_m68k_divider(&self) -> NonZeroU64 {
-        let clamped_divider = self.m68k_clock_divider.clamp(1, timing::NATIVE_M68K_DIVIDER);
-        if clamped_divider != self.m68k_clock_divider {
-            log::warn!(
-                "Clamped M68K clock divider from {} to {clamped_divider}",
-                self.m68k_clock_divider
-            );
-        }
-        NonZeroU64::new(clamped_divider).unwrap()
-    }
-
-    #[must_use]
-    pub fn to_gen_par_params(&self) -> GenParParams {
-        GenParParams {
-            force_square_in_h40: self.force_square_pixels_in_h40,
-            adjust_for_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
-            anamorphic_widescreen: self.anamorphic_widescreen,
-        }
-    }
-}
-
-impl EmulatorConfigTrait for GenesisEmulatorConfig {
-    fn with_overclocking_disabled(&self) -> Self {
-        Self { m68k_clock_divider: timing::NATIVE_M68K_DIVIDER, ..self.clone() }
+    #[inline]
+    pub fn has_32x(self) -> bool {
+        matches!(self, Self::Sega32X | Self::SegaCd32X)
     }
 }
 
 #[derive(Debug, Encode, Decode, PartialClone)]
 pub struct GenesisEmulator {
-    #[partial_clone(partial)]
-    memory: Memory<Cartridge>,
     m68k: M68000,
     z80: Z80,
-    vdp: Vdp,
-    psg: Sn76489,
-    ym2612: Ym2612,
-    input: InputState,
+    #[partial_clone(partial)]
+    bus: GenesisBus,
     timing_mode: TimingMode,
-    main_bus_writes: MainBusWrites,
     audio_resampler: GenesisAudioResampler,
-    cycles: GenesisCycleCounters,
+    hardware: GenesisHardware,
     config: GenesisEmulatorConfig,
 }
 
-// This is a macro instead of a function so that it only mutably borrows the needed fields
-macro_rules! new_main_bus {
-    ($self:expr, m68k_reset: $m68k_reset:expr) => {
-        MainBus::new(
-            &mut $self.memory,
-            &mut $self.vdp,
-            &mut $self.psg,
-            &mut $self.ym2612,
-            &mut $self.input,
-            &mut $self.cycles,
-            $self.m68k.next_opcode(),
-            $self.timing_mode,
-            MainBusSignals { m68k_reset: $m68k_reset },
-            std::mem::take(&mut $self.main_bus_writes),
-        )
-    };
-}
-
 impl GenesisEmulator {
-    /// Initialize the emulator from the given ROM.
-    ///
     /// # Errors
     ///
-    /// Returns an error if unable to parse the ROM header.
-    #[must_use]
+    /// Propagates any errors encountered while initializing Sega CD (if Sega CD is enabled).
     pub fn create<S: SaveWriter>(
-        rom: Vec<u8>,
+        hardware: GenesisHardware,
+        cartridge_rom: Option<Vec<u8>>,
+        sega_cd_bios_rom: Option<Vec<u8>>,
+        mut disc: Option<CdRom>,
         config: GenesisEmulatorConfig,
         save_writer: &mut S,
-    ) -> Self {
-        let initial_ram = save_writer.load_bytes("sav").ok();
-        let cartridge = Cartridge::new(rom, initial_ram, config.forced_region, &config.cheat_codes);
-        let memory = Memory::new(cartridge, &config);
+    ) -> SegaCdLoadResult<Self> {
+        log::info!("Running with hardware {hardware}");
 
-        let timing_mode =
-            config.forced_timing_mode.unwrap_or_else(|| match memory.hardware_region() {
-                GenesisRegion::Europe => TimingMode::Pal,
-                GenesisRegion::Americas | GenesisRegion::Japan => TimingMode::Ntsc,
-            });
+        let sega_cd_present = hardware.has_sega_cd();
+        let s32x_present = hardware.has_32x();
+
+        let initial_ram = save_writer.load_bytes(SRAM_EXTENSION).ok();
+
+        let mut cartridge = cartridge_rom
+            .map(|rom| Cartridge::new(rom, initial_ram, config.forced_region, &config.cheat_codes));
+
+        let region = cartridge
+            .as_ref()
+            .map(Cartridge::region)
+            .or_else(|| {
+                let disc = disc.as_mut()?;
+                segacd_core::api::parse_disc_region(disc).ok()
+            })
+            .unwrap_or(GenesisRegion::Americas);
+
+        let timing_mode = config.forced_timing_mode.unwrap_or(match region {
+            GenesisRegion::Europe => TimingMode::Pal,
+            GenesisRegion::Americas | GenesisRegion::Japan => TimingMode::Ntsc,
+        });
 
         log::info!("Using timing / display mode {timing_mode}");
 
-        let z80 = Z80::new();
-        let vdp = Vdp::new(timing_mode, config.to_vdp_config(DarkenColors::No));
-        let psg = Sn76489::new(Sn76489Version::Standard);
-        let ym2612 = Ym2612::new(&config);
-        let input = InputState::new(&config, memory.medium().metadata().six_button_incompatible);
+        let sega_cd = if sega_cd_present {
+            let Some(bios_rom) = sega_cd_bios_rom else { return Err(SegaCdLoadError::MissingBios) };
 
-        // The Genesis does not allow TAS to lock the bus, so don't allow TAS writes
-        let m68k = M68000::builder().allow_tas_writes(false).build();
+            let backup_ram_extension = match &cartridge {
+                Some(_) => BACKUP_RAM_EXTENSION,
+                None => SRAM_EXTENSION,
+            };
+            let initial_backup_ram = save_writer.load_bytes(backup_ram_extension).ok();
 
-        let mut emulator = Self {
-            memory,
-            m68k,
-            z80,
-            vdp,
-            psg,
-            ym2612,
-            input,
-            timing_mode,
-            main_bus_writes: MainBusWrites::new(),
-            audio_resampler: GenesisAudioResampler::new(timing_mode, &config),
-            cycles: GenesisCycleCounters::new(config.clamped_m68k_divider()),
-            config,
+            let initial_ram_cartridge = save_writer.load_bytes(RAM_CARTRIDGE_EXTENSION).ok();
+
+            let sega_cd = SegaCd::new(
+                bios_rom,
+                disc,
+                timing_mode,
+                initial_backup_ram,
+                initial_ram_cartridge,
+                &config,
+            )?;
+            Some(sega_cd)
+        } else {
+            None
         };
 
-        // Reset CPU so that execution will start from the right place
-        emulator.m68k.execute_instruction(&mut new_main_bus!(emulator, m68k_reset: true));
+        // If 32X is present, let 32X own the cartridge instead of GenesisBus
+        let sega_32x = s32x_present.then(|| Sega32X::new(timing_mode, cartridge.take(), &config));
 
-        emulator
+        let bus = GenesisBus::new(timing_mode, cartridge, sega_cd, sega_32x, &config);
+
+        // The Genesis does not allow TAS to lock the bus, so don't allow TAS writes
+        let m68k = M68000::builder().allow_tas_writes(false).name("Main".into()).build();
+        let z80 = Z80::new();
+
+        let audio_resampler = GenesisAudioResampler::new(hardware, timing_mode, &config);
+
+        let mut emulator = Self { m68k, z80, bus, timing_mode, audio_resampler, hardware, config };
+
+        // Reset CPU so that execution will start from the right place
+        emulator.bus.m68k_reset = true;
+        emulator.m68k.execute_instruction(&mut emulator.bus);
+        emulator.bus.m68k_reset = false;
+
+        Ok(emulator)
     }
 
     #[must_use]
-    pub fn cartridge_title(&self) -> String {
-        self.memory.game_title()
+    pub fn game_title(&mut self) -> Option<String> {
+        self.bus.game_title()
     }
 
     #[inline]
     #[must_use]
     pub fn has_sram(&self) -> bool {
-        self.memory.is_external_ram_persistent()
+        self.bus.has_persistent_ram()
     }
 
     #[inline]
@@ -271,8 +186,36 @@ impl GenesisEmulator {
         self.timing_mode
     }
 
+    #[inline]
+    #[must_use]
+    pub fn hardware(&self) -> GenesisHardware {
+        self.hardware
+    }
+
+    pub fn remove_disc(&mut self) {
+        if let Some(sega_cd) = &mut self.bus.sega_cd {
+            sega_cd.remove_disc();
+        }
+    }
+
+    /// # Errors
+    ///
+    /// Propagates any CD-ROM read errors.
+    pub fn change_disc(&mut self, disc: CdRom) -> SegaCdLoadResult<()> {
+        if let Some(sega_cd) = &mut self.bus.sega_cd {
+            sega_cd.change_disc(disc)?;
+        }
+
+        Ok(())
+    }
+
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
-        render_frame(self.timing_mode, &self.vdp, &self.config, renderer)
+        match &mut self.bus.sega_32x {
+            Some(sega_32x) if sega_32x.adapter_enabled() => {
+                sega_32x.render_frame(&self.bus.vdp, renderer)
+            }
+            _ => render_frame(self.timing_mode, &self.bus.vdp, &self.config, renderer),
+        }
     }
 
     #[inline]
@@ -290,98 +233,103 @@ impl GenesisEmulator {
         I: InputPoller<GenesisInputs>,
         S: SaveWriter,
     {
-        self.input.set_inputs(*input_poller.poll());
+        self.bus.input.set_inputs(*input_poller.poll());
+        self.bus.m68k_opcode = self.m68k.next_opcode();
 
-        let mut bus = new_main_bus!(self, m68k_reset: false);
         let m68k_pc = self.m68k.pc();
-        let m68k_wait = bus.cycles.m68k_wait_cpu_cycles != 0;
+        let m68k_wait = self.bus.cycles.m68k_wait_cpu_cycles != 0;
         let m68k_cycles = if m68k_wait {
-            bus.cycles.take_m68k_wait_cpu_cycles()
+            self.bus.cycles.take_m68k_wait_cpu_cycles()
         } else if DEBUG && let Some(debugger) = &mut debugger {
-            let mut debug_bus =
-                DebugMainBus { bus: &mut bus, debugger: debugger.for_68k(&mut self.z80) };
+            let mut debug_bus = Debug68000Bus::new(&mut self.bus, &mut self.z80, debugger);
             self.m68k.execute_instruction(&mut debug_bus)
         } else {
-            self.m68k.execute_instruction(&mut bus)
+            self.m68k.execute_instruction(&mut self.bus)
         };
 
-        let elapsed_mclk_cycles = bus.cycles.record_68k_instruction(
+        let elapsed_mclk_cycles = self.bus.cycles.record_68k_instruction(
             m68k_pc,
             m68k_cycles,
             m68k_wait,
-            bus.vdp.should_halt_cpu(),
+            self.bus.vdp.should_halt_cpu(),
         );
 
-        while bus.cycles.should_tick_z80() {
-            if !bus.cycles.z80_halt {
+        while self.bus.cycles.should_tick_z80() {
+            if !self.bus.cycles.z80_halt {
                 if DEBUG && let Some(debugger) = &mut debugger {
-                    let mut debug_bus =
-                        DebugMainBus { bus: &mut bus, debugger: debugger.for_z80(&mut self.m68k) };
+                    let mut debug_bus = DebugZ80Bus::new(&mut self.bus, &mut self.m68k, debugger);
                     self.z80.tick(&mut debug_bus);
                 } else {
-                    self.z80.tick(&mut bus);
+                    self.z80.tick(&mut self.bus);
                 }
             }
-            bus.cycles.z80_cycle();
+            self.bus.cycles.z80_cycle();
         }
 
-        self.main_bus_writes = bus.pending_writes;
-
-        self.memory.medium_mut().tick(m68k_cycles);
-
-        self.input.tick(m68k_cycles);
-
-        while self.cycles.should_tick_psg() {
-            if self.psg.tick() == Sn76489TickEffect::Clocked {
-                // PSG only has mono output in the Genesis; stereo output is only for Game Gear
-                let (psg_sample, _) = self.psg.sample();
-                self.audio_resampler.collect_psg_sample(psg_sample);
-            }
-
-            self.cycles.psg_cycle();
-        }
-
-        let vdp_tick_effect = self.vdp.tick(elapsed_mclk_cycles, &mut self.memory);
-
-        self.cycles.maybe_sync_and_drain_ym2612(
-            vdp_tick_effect,
-            &mut self.ym2612,
-            |(sample_l, sample_r)| self.audio_resampler.collect_ym2612_sample(sample_l, sample_r),
-        );
+        let vdp_tick_effect = self.bus.tick_components::<DEBUG>(
+            m68k_cycles,
+            elapsed_mclk_cycles,
+            m68k_wait,
+            &mut self.audio_resampler,
+            debugger.as_mut().map(|debugger| debugger.with_cpus(&mut self.m68k, &mut self.z80)),
+        )?;
 
         self.audio_resampler.output_samples(audio_output).map_err(GenesisError::Audio)?;
 
-        let mut tick_effect = TickEffect::None;
         if vdp_tick_effect == VdpTickEffect::FrameComplete {
-            self.render_frame(renderer).map_err(GenesisError::Render)?;
-
-            if self.memory.is_external_ram_persistent()
-                && self.memory.get_and_clear_external_ram_dirty()
+            if let Some(sega_32x) = &mut self.bus.sega_32x
+                && sega_32x.adapter_enabled()
             {
-                let ram = self.memory.external_ram();
-                if !ram.is_empty() {
-                    save_writer.persist_bytes("sav", ram).map_err(GenesisError::Save)?;
-                }
+                sega_32x.composite_frame(&mut self.bus.vdp);
             }
 
-            tick_effect = TickEffect::FrameRendered;
+            self.render_frame(renderer).map_err(GenesisError::Render)?;
+
+            self.persist_save_files(save_writer).map_err(GenesisError::Save)?;
         }
 
-        check_for_long_dma_skip(&self.vdp, &mut self.cycles);
-
-        if !m68k_wait {
-            self.vdp.update_interrupt_latches();
-        }
-
-        self.main_bus_writes = new_main_bus!(self, m68k_reset: false).apply_writes();
-
-        Ok(tick_effect)
+        Ok(match vdp_tick_effect {
+            VdpTickEffect::FrameComplete => TickEffect::FrameRendered,
+            VdpTickEffect::None => TickEffect::None,
+        })
     }
 
+    fn persist_save_files<S: SaveWriter>(&mut self, save_writer: &mut S) -> Result<(), S::Err> {
+        if !self.bus.has_persistent_ram() || !self.bus.get_and_clear_persistent_ram_dirty() {
+            return Ok(());
+        }
+
+        if let Some(ram) = self.bus.cartridge().map(Cartridge::external_ram)
+            && !ram.is_empty()
+        {
+            save_writer.persist_bytes(SRAM_EXTENSION, ram)?;
+        }
+
+        if let Some(sega_cd) = &self.bus.sega_cd {
+            // Backup RAM is the primary save location for Sega CD games, so prefer .sav over .bram
+            // if there's no game cartridge
+            let backup_ram_extension = match self.bus.cartridge() {
+                Some(_) => BACKUP_RAM_EXTENSION,
+                None => SRAM_EXTENSION,
+            };
+            save_writer.persist_bytes(backup_ram_extension, sega_cd.backup_ram())?;
+
+            // RAM cartridge is only present when there's no game cartridge (there's only 1 slot)
+            if self.bus.cartridge().is_none() {
+                save_writer.persist_bytes(RAM_CARTRIDGE_EXTENSION, sega_cd.ram_cartridge())?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Similar to [`<Self as EmulatorTrait>::tick`] but runs with debugger hooks enabled.
+    ///
     /// # Errors
     ///
     /// This method will propagate any errors encountered while rendering frames or pushing audio
     /// samples.
+    #[inline]
     pub fn debug_tick<R, A, I, S>(
         &mut self,
         renderer: &mut R,
@@ -389,7 +337,7 @@ impl GenesisEmulator {
         input_poller: &mut I,
         save_writer: &mut S,
         debugger: &mut GenesisDebugger,
-    ) -> TickResult<GenesisError<R::Err, A::Err, S::Err>>
+    ) -> GenesisResult<R::Err, A::Err, S::Err>
     where
         R: Renderer,
         A: AudioOutput,
@@ -406,12 +354,7 @@ impl GenesisEmulator {
     }
 }
 
-/// Render the current VDP frame buffer.
-///
-/// # Errors
-///
-/// This function will propagate any error returned by the renderer.
-pub fn render_frame<R: Renderer>(
+fn render_frame<R: Renderer>(
     timing_mode: TimingMode,
     vdp: &Vdp,
     config: &GenesisEmulatorConfig,
@@ -423,7 +366,7 @@ pub fn render_frame<R: Renderer>(
         frame_size,
         config.to_gen_par_params(),
     );
-    let target_fps = target_framerate(vdp, timing_mode);
+    let target_fps = genesis_components::target_framerate(vdp, timing_mode);
 
     renderer.render_frame(
         vdp.frame_buffer(),
@@ -487,13 +430,8 @@ impl EmulatorTrait for GenesisEmulator {
     }
 
     fn reload_config(&mut self, config: &Self::Config) {
-        self.vdp.reload_config(config.to_vdp_config(DarkenColors::No));
-        self.ym2612.reload_config(config);
-        self.memory.reload_config(config);
-        self.memory.medium_mut().reload_config(config);
-        self.input.reload_config(config);
+        self.bus.reload_config(config);
         self.audio_resampler.reload_config(self.timing_mode, config);
-        self.cycles.update_m68k_divider(config.clamped_m68k_divider());
 
         self.config = config.clone();
     }
@@ -501,20 +439,47 @@ impl EmulatorTrait for GenesisEmulator {
     fn soft_reset(&mut self) {
         log::info!("Soft resetting console");
 
-        self.m68k.execute_instruction(&mut new_main_bus!(self, m68k_reset: true));
-        self.memory.reset_z80_signals();
-        self.ym2612.reset();
+        self.bus.reset();
+
+        self.bus.m68k_reset = true;
+        self.m68k.execute_instruction(&mut self.bus);
+        self.bus.m68k_reset = false;
     }
 
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
         log::info!("Hard resetting console");
 
-        let rom = self.memory.take_rom();
-        *self = GenesisEmulator::create(rom, self.config.clone(), save_writer);
+        let cartridge_rom = self.bus.cartridge_mut().map(Cartridge::take_rom);
+
+        let (sega_cd_bios, disc) = match self.bus.sega_cd.take().map(SegaCd::take_bios_and_disc) {
+            Some((bios_rom, disc)) => (Some(bios_rom), disc),
+            None => (None, None),
+        };
+
+        *self = GenesisEmulator::create(
+            self.hardware,
+            cartridge_rom,
+            sega_cd_bios,
+            disc,
+            self.config.clone(),
+            save_writer,
+        )
+        .expect("Hard reset should not error");
     }
 
     fn load_state(&mut self, mut state: Self::SaveState) {
-        state.memory.take_rom_from(&mut self.memory);
+        if let Some(state_cartridge) = state.bus.cartridge_mut()
+            && let Some(self_cartridge) = self.bus.cartridge_mut()
+        {
+            state_cartridge.take_rom_from(self_cartridge);
+        }
+
+        if let Some(state_sega_cd) = &mut state.bus.sega_cd
+            && let Some(self_sega_cd) = &mut self.bus.sega_cd
+        {
+            state_sega_cd.take_bios_and_disc_from(self_sega_cd);
+        }
+
         *self = state;
     }
 
@@ -523,7 +488,7 @@ impl EmulatorTrait for GenesisEmulator {
     }
 
     fn target_fps(&self) -> f64 {
-        target_framerate(&self.vdp, self.timing_mode)
+        genesis_components::target_framerate(&self.bus.vdp, self.timing_mode)
     }
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
@@ -534,60 +499,19 @@ impl EmulatorTrait for GenesisEmulator {
         let mut modals = Vec::new();
 
         if self.config.remove_sprite_limits
-            && self.memory.medium().metadata().sprite_limit_compatibility_issues
+            && (self
+                .bus
+                .cartridge
+                .as_ref()
+                .is_some_and(|cartridge| cartridge.metadata().sprite_limit_compatibility_issues)
+                || self.bus.sega_cd.as_ref().is_some_and(SegaCd::has_six_button_incompatible_game))
         {
-            modals.push(Modal { id: None, text: SPRITE_LIMITS_MODAL_MESSAGE.into() });
+            modals.push(Modal {
+                id: None,
+                text: genesis_components::SPRITE_LIMITS_MODAL_MESSAGE.into(),
+            });
         }
 
         modals
     }
-}
-
-#[inline]
-#[must_use]
-pub fn target_framerate(vdp: &Vdp, timing_mode: TimingMode) -> f64 {
-    let mclk_frequency = match timing_mode {
-        TimingMode::Ntsc => audio::NTSC_GENESIS_MCLK_FREQUENCY,
-        TimingMode::Pal => audio::PAL_GENESIS_MCLK_FREQUENCY,
-    };
-
-    mclk_frequency / (vdp::MCLK_CYCLES_PER_SCANLINE as f64) / vdp.average_scanlines_per_frame()
-}
-
-// If a long DMA is in progress (i.e. the DMA will not finish on this line), preemptively skip the
-// 68000 forward by a large number of mclk cycles (up to 1250).
-//
-// This function is public so that it can be used by the Sega CD core
-#[inline]
-pub fn check_for_long_dma_skip<const REFRESH_INTERVAL: u32>(
-    vdp: &Vdp,
-    cycles: &mut CycleCounters<REFRESH_INTERVAL>,
-) {
-    if !vdp.long_halting_dma_in_progress() {
-        return;
-    }
-
-    if !cycles.z80_halt {
-        // Don't advance for very long time slices if the Z80 is still active; doing so causes
-        // video/audio desync in Overdrive 2.
-        // 8 68K cycles is slightly less than 4 Z80 cycles
-        cycles.m68k_wait_cpu_cycles = 8;
-        return;
-    }
-
-    // Skip as close as possible to the end of the current scanline
-    let wait_cycles = cmp::max(
-        cycles.m68k_wait_cpu_cycles,
-        cmp::min(
-            cycles.max_wait_cpu_cycles,
-            (vdp::MCLK_CYCLES_PER_SCANLINE - vdp.scanline_mclk()) as u32
-                / cycles.m68k_divider_u32.get(),
-        ),
-    );
-    cycles.m68k_wait_cpu_cycles = wait_cycles;
-
-    log::trace!(
-        "Skipping {wait_cycles} 68000 CPU cycles in long DMA optimization, scanline mclk is {}",
-        vdp.scanline_mclk()
-    );
 }

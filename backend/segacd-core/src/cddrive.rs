@@ -3,17 +3,17 @@
 pub mod cdc;
 pub mod cdd;
 
-use crate::api::{SegaCdEmulatorConfig, SegaCdLoadResult};
+use crate::api::SegaCdLoadResult;
 use crate::cddrive::cdc::RchipDmaArgs;
 use crate::cddrive::cdd::CdModel;
-use crate::memory::wordram::WordRam;
 use crate::rf5c164::Rf5c164;
+use crate::wordram::WordRam;
 use crate::{api, memory};
 use bincode::{Decode, Encode};
 use cdc::Rchip;
 use cdd::CdDrive;
 use cdrom::reader::CdRom;
-use genesis_config::GenesisRegion;
+use genesis_config::{GenesisRegion, SegaCdEmulatorConfig};
 use jgenesis_proc_macros::PartialClone;
 use std::array;
 

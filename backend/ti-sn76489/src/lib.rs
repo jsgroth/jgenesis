@@ -2,8 +2,18 @@
 
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
-use smsgg_config::Sn76489Version;
+use jgenesis_proc_macros::{EnumAll, EnumDisplay};
 use std::{array, cmp};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum Sn76489Version {
+    #[default]
+    MasterSystem2,
+    Standard, // Sega-customized version used in SMS, Game Gear, Genesis
+    Discrete, // Stock TI version used in SG-1000
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum WaveOutput {

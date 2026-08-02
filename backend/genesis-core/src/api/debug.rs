@@ -3,87 +3,63 @@
 //! * [`GenesisDebugState`] contains all data needed for the frontend to render the debugger UI,
 //!   and it owns all of its data so it can be safely sent between threads
 //!
-//! * [`GenesisEmulatorDebugView`] contains mutable references to everything that the backend needs
+//! * [`GenesisDebugView`] contains mutable references to everything that the backend needs
 //!   to access in order to process debugger commands
 //!
 //! * [`GenesisDebugger`] stores current debugger backend state (e.g. breakpoints and current PCs)
 //!
 //! * [`GenesisDebugCommand`] is an enum of debugger commands that the UI can send to the backend
 //!
-//! [`GenesisEmulatorDebugView`] does not have a mutable reference to [`GenesisEmulator`] itself
-//! because the emulator needs to construct a [`GenesisEmulatorDebugView`] when a breakpoint is
+//! [`GenesisDebugView`] does not have a mutable reference to [`GenesisEmulator`] itself
+//! because the emulator needs to construct a [`GenesisDebugView`] when a breakpoint is
 //! tripped, at which point the debugger code has access to component mutable references but not
 //! the full emulator struct.
 //!
-//! The backend can create a [`GenesisEmulatorDebugView`] either from a [`GenesisEmulator`] value
+//! The backend can create a [`GenesisDebugView`] either from a [`GenesisEmulator`] value
 //! (done when processing debug commands between frames) or from mutable references to the individual
 //! components (done when handling a breakpoint).
 //!
-//! [`GenesisEmulatorDebugView`] then has a method to create a [`GenesisDebugState`] from itself by
+//! [`GenesisDebugView`] then has a method to create a [`GenesisDebugState`] from itself by
 //! cloning all of the data that [`GenesisDebugState`] needs to own. This is done once for frame
 //! during normal execution to periodically send updated emulator state to the UI, and it's done
 //! immediately upon handling a breakpoint so that the UI sees the emulator state at the exact
 //! point where the breakpoint tripped.
 //!
-//! [`GenesisDebuggerFor68k`] and [`GenesisDebuggerForZ80`] are structs that wrap a [`GenesisDebugger`]
-//! along with mutable references to components that are not on the named CPU's bus. For example,
-//! both the 68000 and Z80 CPUs are required to construct a [`GenesisEmulatorDebugView`], so
-//! [`GenesisDebuggerFor68k`] contains a mutable reference to the Z80 CPU struct (which is not on
-//! the 68000 bus).
-//!
-//! The Sega CD and 32X versions of this code work very similarly, though the 32X version is much
-//! messier due to the need to avoid putting any lifetime parameters on the SH-2 bus struct
-//! combined with the communication port catch-up code.
+//! [`GenesisDebuggerForSegaCd`] and [`s32x::GenesisDebuggerFor32X`] are structs that wrap a
+//! [`GenesisDebugger`] along with mutable references or pointers to components that are not on the
+//! named CPU's bus. The 32X version contains raw pointers due to the need to avoid putting lifetime
+//! parameters on the SH-2 bus struct, which requires [`s32x::GenesisDebuggerFor32X`] to have a static
+//! lifetime.
+
+pub mod s32x;
+
+#[cfg(test)]
+mod tests;
 
 use crate::GenesisEmulator;
-use crate::cartridge::Cartridge;
-use crate::memory::MainBusWrites;
-use crate::vdp::Vdp;
-use crate::vdp::debug::VdpDebugState;
-use crate::ym2612::Ym2612;
+use crate::bus::PendingWrites;
+use genesis_components::cartridge::Cartridge;
+use genesis_components::vdp::Vdp;
+use genesis_components::vdp::debug::VdpDebugState;
+use genesis_components::ym2612::Ym2612;
 use jgenesis_common::debug::{
     DebugBytesView, DebugMemoryView, DebugWordsView, EmptyDebugView, Endian,
 };
-use jgenesis_common::frontend::Color;
-use jgenesis_common::num::GetBit;
 use jgenesis_common::sync::SharedVarSender;
-use jgenesis_proc_macros::EnumAll;
 use m68000_emu::M68000;
-use smsgg_core::psg::Sn76489;
+use s32x_core::WhichCpu;
+use s32x_core::api::Sega32X;
+use segacd_core::api::debug::{
+    SegaCdDebugState, SegaCdDebugView, SegaCdDebugger, SegaCdMemoryArea,
+};
+use sh2_emu::bus::OpSizeEnum;
 use std::array;
+use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, SendError, Sender, TryRecvError};
 use std::sync::{Arc, mpsc};
+use ti_sn76489::Sn76489;
 use z80_emu::Z80;
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct CramEntry {
-    // Raw 16-bit CRAM value
-    pub value: u16,
-    // RGB888 color displayed by emulator
-    pub color: Color,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SpriteAttributeEntry {
-    pub tile_number: u16,
-    pub x: u16,
-    pub y: u16,
-    pub h_cells: u8,
-    pub v_cells: u8,
-    pub palette: u8,
-    pub priority: bool,
-    pub h_flip: bool,
-    pub v_flip: bool,
-    pub link: u8,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct CopySpriteAttributesResult {
-    pub sprite_table_len: u32,
-    pub top_left_x: u16,
-    pub top_left_y: u16,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAll)]
 pub enum GenesisMemoryArea {
@@ -95,18 +71,6 @@ pub enum GenesisMemoryArea {
     Vsram,
 }
 
-#[derive(Debug, Clone)]
-pub enum GenesisDebugCommand {
-    EditMemory(GenesisMemoryArea, usize, u8),
-    Update68kBreakpoints(M68000Breakpoints),
-    UpdateZ80Breakpoints(Vec<Z80Breakpoint>),
-    BreakPause68k,
-    BreakPauseZ80,
-    BreakResume,
-    BreakStep68k,
-    BreakStepZ80,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub enum DebugPendingWrite {
     Word { address: u32, value: u16 },
@@ -115,74 +79,21 @@ pub enum DebugPendingWrite {
 
 #[derive(Debug, Clone)]
 pub struct GenesisDebugState {
-    m68k: M68000,
-    z80: Z80,
-    cartridge: Option<Cartridge>,
-    working_ram: Box<[u16]>,
-    audio_ram: Box<[u8]>,
-    z80_bank_number: u32,
-    pending_writes: Vec<DebugPendingWrite>,
-    vdp: VdpDebugState,
-    ym2612: Ym2612,
-    psg: Sn76489,
+    pub sega_cd: Option<SegaCdDebugState>,
+    pub sega_32x: Option<Sega32XDebugState>,
+    pub m68k: M68000,
+    pub z80: Z80,
+    pub cartridge: Option<Cartridge>,
+    pub working_ram: Box<[u16]>,
+    pub audio_ram: Box<[u8]>,
+    pub z80_bank_number: u32,
+    pub pending_writes: Vec<DebugPendingWrite>,
+    pub vdp: VdpDebugState,
+    pub ym2612: Ym2612,
+    pub psg: Sn76489,
 }
 
 impl GenesisDebugState {
-    #[must_use]
-    pub fn m68k(&self) -> &M68000 {
-        &self.m68k
-    }
-
-    #[must_use]
-    pub fn z80(&self) -> &Z80 {
-        &self.z80
-    }
-
-    #[must_use]
-    pub fn cartridge(&self) -> Option<&Cartridge> {
-        self.cartridge.as_ref()
-    }
-
-    #[must_use]
-    pub fn cartridge_rom(&self) -> Option<&[u16]> {
-        self.cartridge.as_ref().map(Cartridge::debug_rom_view_shared)
-    }
-
-    #[must_use]
-    pub fn working_ram(&self) -> &[u16] {
-        self.working_ram.as_ref()
-    }
-
-    #[must_use]
-    pub fn audio_ram(&self) -> &[u8] {
-        self.audio_ram.as_ref()
-    }
-
-    #[must_use]
-    pub fn z80_bank_number(&self) -> u32 {
-        self.z80_bank_number
-    }
-
-    #[must_use]
-    pub fn pending_writes(&self) -> &[DebugPendingWrite] {
-        &self.pending_writes
-    }
-
-    #[must_use]
-    pub fn vdp(&self) -> &VdpDebugState {
-        &self.vdp
-    }
-
-    #[must_use]
-    pub fn ym2612(&self) -> &Ym2612 {
-        &self.ym2612
-    }
-
-    #[must_use]
-    pub fn psg(&self) -> &Sn76489 {
-        &self.psg
-    }
-
     #[must_use]
     pub fn memory_view(&mut self, memory_area: GenesisMemoryArea) -> Box<dyn DebugMemoryView + '_> {
         match memory_area {
@@ -203,128 +114,196 @@ impl GenesisDebugState {
     }
 }
 
-pub trait PhysicalMediumDebugView {
-    fn debug_cartridge(&mut self) -> Option<&mut Cartridge> {
-        None
-    }
+pub struct GenesisDebugView<'m68k, 'z80, 'genesis, 'scd, 's32x, 'cartridge> {
+    pub(crate) sega_cd: Option<SegaCdDebugView<'scd>>,
+    pub(crate) sega_32x: Option<Sega32XDebugView<'s32x>>,
+    pub(crate) m68k: &'m68k mut M68000,
+    pub(crate) z80: &'z80 mut Z80,
+    pub(crate) cartridge: Option<&'cartridge mut Cartridge>,
+    pub(crate) working_ram: &'genesis mut [u16],
+    pub(crate) audio_ram: &'genesis mut [u8],
+    pub(crate) z80_bank_number: u32,
+    pub(crate) pending_writes: &'genesis mut PendingWrites,
+    pub(crate) vdp: &'genesis mut Vdp,
+    pub(crate) ym2612: &'genesis mut Ym2612,
+    pub(crate) psg: &'genesis mut Sn76489,
 }
 
-pub struct GenesisMemoryDebugView<'a, MediumView> {
-    pub medium_view: MediumView,
-    pub working_ram: &'a mut [u16],
-    pub audio_ram: &'a mut [u8],
-    pub z80_bank_number: u32,
-}
-
-impl<MediumView: PhysicalMediumDebugView> GenesisMemoryDebugView<'_, MediumView> {
-    pub fn medium_view(&mut self) -> &mut MediumView {
-        &mut self.medium_view
-    }
-}
-
-pub struct BaseGenesisDebugView<'a, MediumView> {
-    pub m68k: &'a mut M68000,
-    pub z80: &'a mut Z80,
-    pub memory: GenesisMemoryDebugView<'a, MediumView>,
-    pub pending_writes: &'a MainBusWrites,
-    pub vdp: &'a mut Vdp,
-    pub ym2612: &'a mut Ym2612,
-    pub psg: &'a mut Sn76489,
-}
-
-impl<'a, MediumView: PhysicalMediumDebugView> BaseGenesisDebugView<'a, MediumView> {
-    pub fn new(
-        m68k: &'a mut M68000,
-        z80: &'a mut Z80,
-        memory: GenesisMemoryDebugView<'a, MediumView>,
-        main_bus_writes: &'a MainBusWrites,
-        vdp: &'a mut Vdp,
-        ym2612: &'a mut Ym2612,
-        psg: &'a mut Sn76489,
-    ) -> Self {
-        Self { m68k, z80, memory, pending_writes: main_bus_writes, vdp, ym2612, psg }
-    }
-
-    pub fn memory(&mut self) -> &mut GenesisMemoryDebugView<'a, MediumView> {
-        &mut self.memory
-    }
-
-    pub fn medium_view(&mut self) -> &mut MediumView {
-        &mut self.memory.medium_view
-    }
-
-    pub fn apply_memory_edit(&mut self, memory_area: GenesisMemoryArea, address: usize, value: u8) {
-        match memory_area {
-            GenesisMemoryArea::CartridgeRom => {
-                if let Some(cartridge) = self.memory.medium_view.debug_cartridge() {
-                    DebugWordsView(cartridge.debug_rom_view(), Endian::Big).write(address, value);
-                }
-            }
-            GenesisMemoryArea::WorkingRam => {
-                DebugWordsView(self.memory.working_ram, Endian::Big).write(address, value);
-            }
-            GenesisMemoryArea::AudioRam => {
-                DebugBytesView(self.memory.audio_ram).write(address, value);
-            }
-            GenesisMemoryArea::Vram => self.vdp.debug_vram_view().write(address, value),
-            GenesisMemoryArea::Cram => self.vdp.debug_cram_view().write(address, value),
-            GenesisMemoryArea::Vsram => self.vdp.debug_vsram_view().write(address, value),
-        }
-    }
-
-    pub fn to_debug_state(&mut self) -> GenesisDebugState {
+impl GenesisDebugView<'_, '_, '_, '_, '_, '_> {
+    pub fn to_debug_state(&self) -> GenesisDebugState {
         GenesisDebugState {
+            sega_cd: self.sega_cd.as_ref().map(SegaCdDebugView::to_debug_state),
+            sega_32x: self.sega_32x.as_ref().map(Sega32XDebugView::to_debug_state),
             m68k: self.m68k.clone(),
             z80: self.z80.clone(),
-            cartridge: self.memory.medium_view.debug_cartridge().map(|cartridge| cartridge.clone()),
-            working_ram: self.memory.working_ram.to_vec().into_boxed_slice(),
-            audio_ram: self.memory.audio_ram.to_vec().into_boxed_slice(),
-            z80_bank_number: self.memory.z80_bank_number,
-            pending_writes: main_bus_writes_to_debug(self.pending_writes),
+            cartridge: self.cartridge.as_ref().map(|cartridge| cartridge.deref().clone()),
+            working_ram: self.working_ram.to_vec().into_boxed_slice(),
+            audio_ram: self.audio_ram.to_vec().into_boxed_slice(),
+            z80_bank_number: self.z80_bank_number,
+            pending_writes: self.pending_writes.to_debug_vec(),
             vdp: self.vdp.to_debug_state(),
             ym2612: self.ym2612.clone(),
             psg: self.psg.clone(),
         }
     }
-}
 
-fn main_bus_writes_to_debug(main_bus_writes: &MainBusWrites) -> Vec<DebugPendingWrite> {
-    main_bus_writes
-        .word_writes()
-        .map(|(address, value)| DebugPendingWrite::Word { address, value })
-        .chain(
-            main_bus_writes
-                .byte_writes()
-                .map(|(address, value)| DebugPendingWrite::Byte { address, value }),
-        )
-        .collect()
-}
-
-pub struct CartridgeDebugView<'a> {
-    pub(crate) cartridge: &'a mut Cartridge,
-}
-
-impl PhysicalMediumDebugView for CartridgeDebugView<'_> {
-    fn debug_cartridge(&mut self) -> Option<&mut Cartridge> {
-        Some(self.cartridge)
-    }
-}
-
-pub type GenesisEmulatorDebugView<'a> = BaseGenesisDebugView<'a, CartridgeDebugView<'a>>;
-
-impl GenesisEmulator {
-    #[must_use]
-    pub fn as_debug_view(&mut self) -> GenesisEmulatorDebugView<'_> {
-        GenesisEmulatorDebugView {
-            m68k: &mut self.m68k,
-            z80: &mut self.z80,
-            memory: self.memory.as_debug_view(|cartridge| CartridgeDebugView { cartridge }),
-            pending_writes: &self.main_bus_writes,
-            vdp: &mut self.vdp,
-            ym2612: &mut self.ym2612,
-            psg: &mut self.psg,
+    pub(crate) fn apply_memory_edit(
+        &mut self,
+        memory_area: GenesisMemoryArea,
+        address: usize,
+        value: u8,
+    ) {
+        match memory_area {
+            GenesisMemoryArea::CartridgeRom => {
+                if let Some(cartridge) = self.cartridge.as_mut() {
+                    DebugWordsView(cartridge.debug_rom_view(), Endian::Big).write(address, value);
+                }
+            }
+            GenesisMemoryArea::WorkingRam => {
+                DebugWordsView(self.working_ram, Endian::Big).write(address, value);
+            }
+            GenesisMemoryArea::AudioRam => {
+                DebugBytesView(self.audio_ram).write(address, value);
+            }
+            GenesisMemoryArea::Vram => {
+                self.vdp.debug_vram_view().write(address, value);
+            }
+            GenesisMemoryArea::Cram => {
+                self.vdp.debug_cram_view().write(address, value);
+            }
+            GenesisMemoryArea::Vsram => {
+                self.vdp.debug_vsram_view().write(address, value);
+            }
         }
     }
+
+    pub(crate) fn apply_scd_memory_edit(
+        &mut self,
+        memory_area: SegaCdMemoryArea,
+        address: usize,
+        value: u8,
+    ) {
+        let Some(sega_cd) = &mut self.sega_cd else { return };
+        sega_cd.apply_memory_edit(memory_area, address, value);
+    }
+
+    pub(crate) fn apply_32x_memory_edit(
+        &mut self,
+        memory_area: S32XMemoryArea,
+        address: usize,
+        value: u8,
+    ) {
+        let Some(sega_32x) = &mut self.sega_32x else { return };
+        sega_32x.apply_memory_edit(memory_area, address, value);
+    }
+}
+
+impl GenesisEmulator {
+    pub fn as_debug_view(&mut self) -> GenesisDebugView<'_, '_, '_, '_, '_, '_> {
+        self.bus.as_debug_view(&mut self.m68k, &mut self.z80)
+    }
+}
+
+pub struct GenesisComponents<'genesis> {
+    pub(crate) working_ram: &'genesis mut [u16],
+    pub(crate) audio_ram: &'genesis mut [u8],
+    pub(crate) z80_bank_number: u32,
+    pub(crate) pending_writes: &'genesis mut PendingWrites,
+    pub(crate) vdp: &'genesis mut Vdp,
+    pub(crate) ym2612: &'genesis mut Ym2612,
+    pub(crate) psg: &'genesis mut Sn76489,
+}
+
+impl<'genesis> GenesisComponents<'genesis> {
+    pub fn as_debug_view<'m68k, 'z80, 'scd, 's32x, 'cartridge>(
+        &mut self,
+        m68k: &'m68k mut M68000,
+        z80: &'z80 mut Z80,
+        sega_cd: Option<SegaCdDebugView<'scd>>,
+        sega_32x: Option<Sega32XDebugView<'s32x>>,
+        cartridge: Option<&'cartridge mut Cartridge>,
+    ) -> GenesisDebugView<'m68k, 'z80, '_, 'scd, 's32x, 'cartridge> {
+        GenesisDebugView {
+            sega_cd,
+            sega_32x,
+            m68k,
+            z80,
+            cartridge,
+            working_ram: self.working_ram,
+            audio_ram: self.audio_ram,
+            z80_bank_number: self.z80_bank_number,
+            pending_writes: self.pending_writes,
+            vdp: self.vdp,
+            ym2612: self.ym2612,
+            psg: self.psg,
+        }
+    }
+
+    pub fn into_debug_view<'m68k, 'z80, 'scd, 's32x, 'cartridge>(
+        self,
+        m68k: &'m68k mut M68000,
+        z80: &'z80 mut Z80,
+        sega_cd: Option<SegaCdDebugView<'scd>>,
+        sega_32x: Option<Sega32XDebugView<'s32x>>,
+        cartridge: Option<&'cartridge mut Cartridge>,
+    ) -> GenesisDebugView<'m68k, 'z80, 'genesis, 'scd, 's32x, 'cartridge> {
+        GenesisDebugView {
+            sega_cd,
+            sega_32x,
+            m68k,
+            z80,
+            cartridge,
+            working_ram: self.working_ram,
+            audio_ram: self.audio_ram,
+            z80_bank_number: self.z80_bank_number,
+            pending_writes: self.pending_writes,
+            vdp: self.vdp,
+            ym2612: self.ym2612,
+            psg: self.psg,
+        }
+    }
+}
+
+// Macro so that it only borrows the needed GenesisBus fields
+macro_rules! genesis_components {
+    ($bus:expr) => {{
+        let (working_ram, audio_ram) = $bus.memory.debug_ram_view();
+
+        crate::api::debug::GenesisComponents {
+            working_ram,
+            audio_ram,
+            z80_bank_number: $bus.z80_bank.value(),
+            pending_writes: &mut $bus.pending_writes,
+            vdp: &mut $bus.vdp,
+            ym2612: &mut $bus.ym2612,
+            psg: &mut $bus.psg,
+        }
+    }};
+}
+
+pub(crate) use genesis_components;
+use jgenesis_common::num::GetBit;
+use jgenesis_proc_macros::EnumAll;
+use s32x_core::api::debug::{S32XMemoryArea, Sega32XDebugState, Sega32XDebugView};
+
+#[derive(Debug, Clone)]
+pub enum GenesisDebugCommand {
+    EditMemory(GenesisMemoryArea, usize, u8),
+    EditSegaCdMemory(SegaCdMemoryArea, usize, u8),
+    Edit32XMemory(S32XMemoryArea, usize, u8),
+    BreakResume,
+    BreakPause68k,
+    BreakStep68k,
+    BreakPauseZ80,
+    BreakStepZ80,
+    BreakPauseSub68k,
+    BreakStepSub68k,
+    BreakPauseSh2(WhichCpu),
+    BreakStepSh2(WhichCpu),
+    Update68kBreakpoints(M68000Breakpoints),
+    UpdateZ80Breakpoints(Vec<Z80Breakpoint>),
+    UpdateSub68kBreakpoints(M68000Breakpoints),
+    UpdateSh2Breakpoints(WhichCpu, Sh2Breakpoints),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -603,6 +582,18 @@ impl M68000BreakpointManager {
     }
 }
 
+fn check_break_step(step: &mut Option<u32>) -> bool {
+    let Some(remaining) = step else { return false };
+
+    *remaining -= 1;
+    if *remaining == 0 {
+        *step = None;
+        true
+    } else {
+        false
+    }
+}
+
 impl Default for M68000BreakpointManager {
     fn default() -> Self {
         Self::new()
@@ -780,10 +771,207 @@ impl Default for Z80BreakpointManager {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Sh2BreakStatus {
+    pub breaking: bool,
+    pub pc: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct S32XSh2BreakStatus {
+    pub master: Sh2BreakStatus,
+    pub slave: Sh2BreakStatus,
+}
+
+impl S32XSh2BreakStatus {
+    #[must_use]
+    pub fn get(&self, which: WhichCpu) -> Sh2BreakStatus {
+        match which {
+            WhichCpu::Master => self.master,
+            WhichCpu::Slave => self.slave,
+        }
+    }
+}
+
+pub struct Sh2BreakStatusAtomic {
+    pub breaking: [AtomicBool; 2],
+    pub break_pc: [AtomicU32; 2],
+}
+
+impl Sh2BreakStatusAtomic {
+    fn new() -> Self {
+        Self {
+            breaking: array::from_fn(|_| AtomicBool::new(false)),
+            break_pc: array::from_fn(|_| AtomicU32::new(0)),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GenesisCpu {
+pub struct Sh2Breakpoint {
+    pub start_address: u32,
+    pub end_address: u32,
+    pub read: bool,
+    pub write: bool,
+    pub execute: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Sh2Breakpoints {
+    pub memory: Vec<Sh2Breakpoint>,
+    pub interrupt: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct Sh2BreakpointsParsed {
+    read_byte: Vec<(u32, u32)>,
+    read_word: Vec<(u32, u32)>,
+    read_longword: Vec<(u32, u32)>,
+    write_byte: Vec<(u32, u32)>,
+    write_word: Vec<(u32, u32)>,
+    write_longword: Vec<(u32, u32)>,
+    execute: Vec<(u32, u32)>,
+    interrupt_bitset: u16,
+}
+
+impl Sh2BreakpointsParsed {
+    #[must_use]
+    pub fn new(breakpoints: &Sh2Breakpoints) -> Self {
+        let mut read_byte = Vec::new();
+        let mut read_word = Vec::new();
+        let mut read_longword = Vec::new();
+        let mut write_byte = Vec::new();
+        let mut write_word = Vec::new();
+        let mut write_longword = Vec::new();
+        let mut execute = Vec::new();
+
+        for &breakpoint in &breakpoints.memory {
+            if breakpoint.read {
+                read_byte.push((breakpoint.start_address, breakpoint.end_address));
+                read_word.push((breakpoint.start_address & !1, breakpoint.end_address & !1));
+                read_longword.push((breakpoint.start_address & !3, breakpoint.end_address & !3));
+            }
+
+            if breakpoint.write {
+                write_byte.push((breakpoint.start_address, breakpoint.end_address));
+                write_word.push((breakpoint.start_address & !1, breakpoint.end_address & !1));
+                write_longword.push((breakpoint.start_address & !3, breakpoint.end_address & !4));
+            }
+
+            if breakpoint.execute {
+                execute.push((breakpoint.start_address & !1, breakpoint.end_address & !1));
+            }
+        }
+
+        let interrupt_bitset =
+            breakpoints.interrupt.iter().map(|&level| 1 << (level & 15)).fold(0, |a, b| a | b);
+
+        Self {
+            read_byte,
+            read_word,
+            read_longword,
+            write_byte,
+            write_word,
+            write_longword,
+            execute,
+            interrupt_bitset,
+        }
+    }
+
+    #[must_use]
+    pub fn none() -> Self {
+        Self::new(&Sh2Breakpoints::default())
+    }
+
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
+    pub fn should_break_read(&self, address: u32, size: OpSizeEnum) -> bool {
+        let addresses = match size {
+            OpSizeEnum::Byte => &self.read_byte,
+            OpSizeEnum::Word => &self.read_word,
+            OpSizeEnum::Longword => &self.read_longword,
+        };
+        addresses.iter().any(|&(start, end)| (start..=end).contains(&address))
+    }
+
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
+    pub fn should_break_write(&self, address: u32, size: OpSizeEnum) -> bool {
+        let addresses = match size {
+            OpSizeEnum::Byte => &self.write_byte,
+            OpSizeEnum::Word => &self.write_word,
+            OpSizeEnum::Longword => &self.write_longword,
+        };
+        addresses.iter().any(|&(start, end)| (start..=end).contains(&address))
+    }
+
+    #[must_use]
+    pub fn should_break_execute(&self, address: u32) -> bool {
+        self.execute.iter().any(|&(start, end)| (start..=end).contains(&address))
+    }
+
+    #[must_use]
+    pub fn should_break_interrupt(&self, interrupt_level: u8) -> bool {
+        self.interrupt_bitset.bit(interrupt_level & 15)
+    }
+}
+
+struct Sh2BreakpointsManager {
+    breakpoints: [Sh2BreakpointsParsed; 2],
+    status: Arc<Sh2BreakStatusAtomic>,
+    step: Option<(WhichCpu, u32)>,
+}
+
+impl Sh2BreakpointsManager {
+    fn new() -> Self {
+        Self {
+            breakpoints: array::from_fn(|_| Sh2BreakpointsParsed::none()),
+            status: Arc::new(Sh2BreakStatusAtomic::new()),
+            step: None,
+        }
+    }
+
+    fn clear(&mut self) {
+        self.breakpoints.fill_with(Sh2BreakpointsParsed::none);
+        self.step = None;
+    }
+
+    fn set_break_status(&mut self, which: WhichCpu) {
+        self.status.breaking[which as usize].store(true, Ordering::Release);
+    }
+
+    fn clear_break_status(&mut self, which: WhichCpu) {
+        self.status.breaking[which as usize].store(false, Ordering::Release);
+    }
+
+    fn update_pc_and_check_execute(&mut self, which: WhichCpu, pc: u32) -> bool {
+        self.status.break_pc[which as usize].store(pc, Ordering::Relaxed);
+        self.breakpoints[which as usize].should_break_execute(pc)
+    }
+
+    fn check_break_step(&mut self, which: WhichCpu) -> bool {
+        let Some((step_which, step)) = &mut self.step else { return false };
+
+        if *step_which != which {
+            return false;
+        }
+
+        *step -= 1;
+        if *step == 0 {
+            self.step = None;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GenesisCpu {
     M68k,
     Z80,
+    Sub68k,
+    Sh2(WhichCpu),
 }
 
 pub struct GenesisDebugger {
@@ -791,12 +979,16 @@ pub struct GenesisDebugger {
     state_sender: SharedVarSender<GenesisDebugState>,
     m68k_breakpoints: M68000BreakpointManager,
     z80_breakpoints: Z80BreakpointManager,
+    sub_68k_breakpoints: M68000BreakpointManager,
+    sh2_breakpoints: Sh2BreakpointsManager,
 }
 
 pub struct GenesisDebuggerHandle {
     pub command_sender: Sender<GenesisDebugCommand>,
     pub m68k_break_status: Arc<M68000BreakStatusAtomic>,
     pub z80_break_status: Arc<Z80BreakStatusAtomic>,
+    pub sub_cpu_break_status: Arc<M68000BreakStatusAtomic>,
+    pub sh2_break_status: Arc<Sh2BreakStatusAtomic>,
 }
 
 impl GenesisDebugger {
@@ -809,44 +1001,31 @@ impl GenesisDebugger {
             state_sender,
             m68k_breakpoints: M68000BreakpointManager::new(),
             z80_breakpoints: Z80BreakpointManager::new(),
+            sub_68k_breakpoints: M68000BreakpointManager::new(),
+            sh2_breakpoints: Sh2BreakpointsManager::new(),
         };
 
         let handle = GenesisDebuggerHandle {
             command_sender,
             m68k_break_status: Arc::clone(&debugger.m68k_breakpoints.status),
             z80_break_status: Arc::clone(&debugger.z80_breakpoints.status),
+            sub_cpu_break_status: Arc::clone(&debugger.sub_68k_breakpoints.status),
+            sh2_break_status: Arc::clone(&debugger.sh2_breakpoints.status),
         };
 
         (debugger, handle)
     }
 
-    #[must_use]
-    pub fn m68k_breakpoints(&mut self) -> &mut M68000BreakpointManager {
-        &mut self.m68k_breakpoints
-    }
-
-    #[must_use]
-    pub fn z80_breakpoints(&mut self) -> &mut Z80BreakpointManager {
-        &mut self.z80_breakpoints
-    }
-
-    #[must_use]
-    pub fn check_68k_break_step(&mut self) -> bool {
-        self.m68k_breakpoints.check_break_step()
-    }
-
-    #[must_use]
-    pub fn check_z80_break_step(&mut self) -> bool {
-        self.z80_breakpoints.check_break_step()
-    }
-
-    pub fn process_commands(&mut self, debug_view: &mut GenesisEmulatorDebugView<'_>) {
+    pub fn process_commands(&mut self, debug_view: &mut GenesisDebugView<'_, '_, '_, '_, '_, '_>) {
         loop {
             match self.command_receiver.try_recv() {
                 Ok(command) => self.process_command(command, debug_view),
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
                     self.m68k_breakpoints.clear();
+                    self.z80_breakpoints.clear();
+                    self.sub_68k_breakpoints.clear();
+                    self.sh2_breakpoints.clear();
                     break;
                 }
             }
@@ -856,11 +1035,17 @@ impl GenesisDebugger {
     pub fn process_command(
         &mut self,
         command: GenesisDebugCommand,
-        debug_view: &mut GenesisEmulatorDebugView<'_>,
+        debug_view: &mut GenesisDebugView<'_, '_, '_, '_, '_, '_>,
     ) {
         match command {
             GenesisDebugCommand::EditMemory(memory_area, address, value) => {
                 debug_view.apply_memory_edit(memory_area, address, value);
+            }
+            GenesisDebugCommand::EditSegaCdMemory(memory_area, address, value) => {
+                debug_view.apply_scd_memory_edit(memory_area, address, value);
+            }
+            GenesisDebugCommand::Edit32XMemory(memory_area, address, value) => {
+                debug_view.apply_32x_memory_edit(memory_area, address, value);
             }
             GenesisDebugCommand::Update68kBreakpoints(breakpoints) => {
                 self.m68k_breakpoints.breakpoints = M68000BreakpointsParsed::new(&breakpoints);
@@ -868,22 +1053,37 @@ impl GenesisDebugger {
             GenesisDebugCommand::UpdateZ80Breakpoints(breakpoints) => {
                 self.z80_breakpoints.breakpoints = Z80Breakpoints::new(&breakpoints);
             }
+            GenesisDebugCommand::UpdateSub68kBreakpoints(breakpoints) => {
+                self.sub_68k_breakpoints.breakpoints = M68000BreakpointsParsed::new(&breakpoints);
+            }
+            GenesisDebugCommand::UpdateSh2Breakpoints(which, breakpoints) => {
+                self.sh2_breakpoints.breakpoints[which as usize] =
+                    Sh2BreakpointsParsed::new(&breakpoints);
+            }
             GenesisDebugCommand::BreakPause68k => {
                 self.m68k_breakpoints.step = Some(1);
             }
             GenesisDebugCommand::BreakPauseZ80 => {
                 self.z80_breakpoints.step = Some(1);
             }
+            GenesisDebugCommand::BreakPauseSub68k => {
+                self.sub_68k_breakpoints.step = Some(1);
+            }
+            GenesisDebugCommand::BreakPauseSh2(which) => {
+                self.sh2_breakpoints.step = Some((which, 1));
+            }
             GenesisDebugCommand::BreakResume
             | GenesisDebugCommand::BreakStep68k
-            | GenesisDebugCommand::BreakStepZ80 => {}
+            | GenesisDebugCommand::BreakStepZ80
+            | GenesisDebugCommand::BreakStepSub68k
+            | GenesisDebugCommand::BreakStepSh2(_) => {}
         }
     }
 
-    pub fn handle_breakpoint(
+    pub(crate) fn handle_breakpoint(
         &mut self,
         which: GenesisCpu,
-        debug_view: &mut GenesisEmulatorDebugView<'_>,
+        debug_view: &mut GenesisDebugView<'_, '_, '_, '_, '_, '_>,
     ) {
         self.state_sender.update(debug_view.to_debug_state());
 
@@ -894,10 +1094,18 @@ impl GenesisDebugger {
             GenesisCpu::Z80 => {
                 self.z80_breakpoints.set_break_status();
             }
+            GenesisCpu::Sub68k => {
+                self.sub_68k_breakpoints.set_break_status();
+            }
+            GenesisCpu::Sh2(which) => {
+                self.sh2_breakpoints.set_break_status(which);
+            }
         }
 
         self.m68k_breakpoints.step = None;
         self.z80_breakpoints.step = None;
+        self.sub_68k_breakpoints.step = None;
+        self.sh2_breakpoints.step = None;
 
         loop {
             match self.command_receiver.recv() {
@@ -910,11 +1118,23 @@ impl GenesisDebugger {
                     self.z80_breakpoints.step = Some(1 + u32::from(which != GenesisCpu::Z80));
                     break;
                 }
+                Ok(GenesisDebugCommand::BreakStepSub68k) => {
+                    self.sub_68k_breakpoints.step =
+                        Some(1 + u32::from(which != GenesisCpu::Sub68k));
+                    break;
+                }
+                Ok(GenesisDebugCommand::BreakStepSh2(sh2_which)) => {
+                    self.sh2_breakpoints.step =
+                        Some((sh2_which, 1 + u32::from(which != GenesisCpu::Sh2(sh2_which))));
+                    break;
+                }
                 Ok(command) => self.process_command(command, debug_view),
                 Err(_) => {
                     // Debugger window closed
                     self.m68k_breakpoints.clear();
                     self.z80_breakpoints.clear();
+                    self.sub_68k_breakpoints.clear();
+                    self.sh2_breakpoints.clear();
                     break;
                 }
             }
@@ -927,48 +1147,36 @@ impl GenesisDebugger {
             GenesisCpu::Z80 => {
                 self.z80_breakpoints.clear_break_status();
             }
+            GenesisCpu::Sub68k => {
+                self.sub_68k_breakpoints.clear_break_status();
+            }
+            GenesisCpu::Sh2(which) => {
+                self.sh2_breakpoints.clear_break_status(which);
+            }
         }
     }
 
-    pub fn for_68k<'slf, 'z80, 'ret>(
-        &'slf mut self,
-        z80: &'z80 mut Z80,
-    ) -> GenesisDebuggerFor68k<'ret>
-    where
-        'slf: 'ret,
-        'z80: 'ret,
-    {
-        GenesisDebuggerFor68k { debugger: self, z80 }
+    pub(crate) fn m68k_breakpoints(&mut self) -> &mut M68000BreakpointManager {
+        &mut self.m68k_breakpoints
     }
 
-    pub fn for_z80<'slf, 'm68k, 'ret>(
-        &'slf mut self,
-        m68k: &'m68k mut M68000,
-    ) -> GenesisDebuggerForZ80<'ret>
-    where
-        'slf: 'ret,
-        'm68k: 'ret,
-    {
-        GenesisDebuggerForZ80 { debugger: self, m68k }
+    pub(crate) fn z80_breakpoints(&mut self) -> &mut Z80BreakpointManager {
+        &mut self.z80_breakpoints
     }
-}
 
-fn check_break_step(step: &mut Option<u32>) -> bool {
-    let Some(remaining) = step else { return false };
-
-    *remaining -= 1;
-    if *remaining == 0 {
-        *step = None;
-        true
-    } else {
-        false
+    pub(crate) fn with_cpus<'cpus>(
+        &mut self,
+        m68k: &'cpus mut M68000,
+        z80: &'cpus mut Z80,
+    ) -> GenesisDebuggerWithCpus<'_, 'cpus> {
+        GenesisDebuggerWithCpus { debugger: self, m68k, z80 }
     }
 }
 
 impl GenesisDebuggerHandle {
     /// # Errors
     ///
-    /// Propagates any errors from the underlying MPSC [`Sender`]
+    /// Returns an error if the debugger backend has been closed.
     pub fn send_command(
         &self,
         command: GenesisDebugCommand,
@@ -985,14 +1193,96 @@ impl GenesisDebuggerHandle {
     pub fn z80_break_status(&self) -> Z80BreakStatus {
         self.z80_break_status.get()
     }
+
+    #[must_use]
+    pub fn sub_cpu_break_status(&self) -> M68000BreakStatus {
+        self.sub_cpu_break_status.get()
+    }
+
+    #[must_use]
+    pub fn sh2_break_status(&self) -> S32XSh2BreakStatus {
+        let master = self.sh2_break_status_one(WhichCpu::Master);
+        let slave = self.sh2_break_status_one(WhichCpu::Slave);
+
+        S32XSh2BreakStatus { master, slave }
+    }
+
+    fn sh2_break_status_one(&self, which: WhichCpu) -> Sh2BreakStatus {
+        let break_idx = which as usize;
+        let breaking = self.sh2_break_status.breaking[break_idx].load(Ordering::Acquire);
+        let pc = self.sh2_break_status.break_pc[break_idx].load(Ordering::Relaxed);
+        Sh2BreakStatus { breaking, pc }
+    }
 }
 
-pub struct GenesisDebuggerFor68k<'a> {
-    pub debugger: &'a mut GenesisDebugger,
-    pub z80: &'a mut Z80,
+pub(crate) struct GenesisDebuggerWithCpus<'debugger, 'cpus> {
+    debugger: &'debugger mut GenesisDebugger,
+    m68k: &'cpus mut M68000,
+    z80: &'cpus mut Z80,
 }
 
-pub struct GenesisDebuggerForZ80<'a> {
-    pub debugger: &'a mut GenesisDebugger,
-    pub m68k: &'a mut M68000,
+pub(crate) struct GenesisDebuggerForSegaCd<'debugger, 'genesis, 's32x> {
+    debugger: &'debugger mut GenesisDebugger,
+    m68k: &'debugger mut M68000,
+    z80: &'debugger mut Z80,
+    sega_32x: Option<&'s32x mut Sega32X>,
+    genesis_components: GenesisComponents<'genesis>,
+    cartridge: Option<&'genesis mut Cartridge>,
+}
+
+impl GenesisDebuggerWithCpus<'_, '_> {
+    pub(crate) fn for_sega_cd<'genesis, 's32x>(
+        &mut self,
+        sega_32x: Option<&'s32x mut Sega32X>,
+        genesis_components: GenesisComponents<'genesis>,
+        cartridge: Option<&'genesis mut Cartridge>,
+    ) -> GenesisDebuggerForSegaCd<'_, 'genesis, 's32x> {
+        GenesisDebuggerForSegaCd {
+            debugger: self.debugger,
+            m68k: self.m68k,
+            z80: self.z80,
+            sega_32x,
+            genesis_components,
+            cartridge,
+        }
+    }
+}
+
+impl SegaCdDebugger for GenesisDebuggerForSegaCd<'_, '_, '_> {
+    fn check_sub_read_breakpoint<const WORD: bool>(&mut self, address: u32) -> bool {
+        self.debugger.sub_68k_breakpoints.check_read::<WORD>(address)
+    }
+
+    fn check_sub_write_breakpoint<const WORD: bool>(&mut self, address: u32, _value: u16) -> bool {
+        self.debugger.sub_68k_breakpoints.check_write::<WORD>(address)
+    }
+
+    fn check_sub_execute_breakpoint(&mut self, pc: u32) -> bool {
+        let execute = self.debugger.sub_68k_breakpoints.update_pc_and_check_execute(pc);
+        let step = self.debugger.sub_68k_breakpoints.check_break_step();
+
+        execute || step
+    }
+
+    fn check_sub_interrupt_breakpoint(&mut self, interrupt_level: u8) -> bool {
+        self.debugger.sub_68k_breakpoints.check_interrupt(interrupt_level)
+    }
+
+    fn handle_sub_breakpoint(&mut self, debug_view: SegaCdDebugView<'_>) {
+        let (s32x_debug_view, s32x_cartridge) =
+            match self.sega_32x.as_mut().map(|sega_32x| sega_32x.as_debug_view()) {
+                Some((debug_view, cartridge)) => (Some(debug_view), cartridge),
+                None => (None, None),
+            };
+        let cartridge = s32x_cartridge.or(self.cartridge.as_deref_mut());
+
+        let mut genesis_debug_view = self.genesis_components.as_debug_view(
+            self.m68k,
+            self.z80,
+            Some(debug_view),
+            s32x_debug_view,
+            cartridge,
+        );
+        self.debugger.handle_breakpoint(GenesisCpu::Sub68k, &mut genesis_debug_view);
+    }
 }

@@ -3,10 +3,10 @@
 mod fixedpoint;
 
 use crate::graphics::fixedpoint::FixedPointDecimal;
-use crate::memory::wordram;
-use crate::memory::wordram::{Nibble, WordRam};
+use crate::wordram;
+use crate::wordram::{Nibble, WordRam};
 use bincode::{Decode, Encode};
-use jgenesis_common::num::{GetBit, U16Ext};
+use jgenesis_common::num::GetBit;
 use std::array;
 
 const SUB_CPU_DIVIDER: u32 = crate::api::DEFAULT_SUB_CPU_DIVIDER as u32;
@@ -157,133 +157,80 @@ impl GraphicsCoprocessor {
         }
     }
 
-    #[allow(clippy::match_same_arms)]
-    pub fn read_register_byte(&self, address: u32) -> u8 {
+    pub fn read_register(&self, address: u32) -> u16 {
         match address & 0x1FF {
-            0x0058 => {
-                // Stamp data size, high byte (in progress bit)
-                let in_progress = matches!(self.state, State::Processing { .. });
-                u8::from(in_progress) << 7
-            }
-            0x0059 => {
-                // Stamp data size, low byte
-                (u8::from(self.stamp_map_size.to_bit()) << 2)
-                    | (u8::from(self.stamp_size.to_bit()) << 1)
-                    | u8::from(self.stamp_map_repeats)
-            }
-            0x005A => {
-                // Stamp map base address, high byte
-                (self.stamp_map_base_address >> 10) as u8
-            }
-            0x005B => {
-                // Stamp map base address, low byte
-                (self.stamp_map_base_address >> 2) as u8
-            }
-            0x005D => {
-                // Image buffer V cell size (minus one)
-                (self.image_buffer_v_cell_size - 1) as u8
-            }
-            0x005E => {
-                // Image buffer start address, high byte
-                (self.image_buffer_start_address >> 10) as u8
-            }
-            0x005F => {
-                // Image buffer start address, low byte
-                (self.image_buffer_start_address >> 2) as u8
-            }
-            0x0061 => {
-                // Image buffer offset
-                (((self.image_buffer_v_offset) << 3) | self.image_buffer_h_offset) as u8
-            }
-            0x0062 => {
-                // Image buffer H dot size, high byte
-                (self.image_buffer_h_dot_size as u16).msb()
-            }
-            0x0063 => {
-                // Image buffer H dot size, low byte
-                (self.image_buffer_h_dot_size as u16).lsb()
-            }
-            0x0065 => {
-                // Image buffer V dot size
-                self.image_buffer_v_dot_size as u8
-            }
-            _ => 0x00,
-        }
-    }
-
-    #[allow(clippy::match_same_arms)]
-    pub fn read_register_word(&self, address: u32) -> u16 {
-        match address & 0x1FF {
-            0x0058 => {
+            0x058 | 0x059 => {
                 // Stamp data size
-                u16::from_be_bytes([
-                    self.read_register_byte(address),
-                    self.read_register_byte(address | 1),
-                ])
+                let in_progress = matches!(self.state, State::Processing { .. });
+
+                (u16::from(in_progress) << 15)
+                    | (u16::from(self.stamp_map_size.to_bit()) << 2)
+                    | (u16::from(self.stamp_size.to_bit()) << 1)
+                    | u16::from(self.stamp_map_repeats)
             }
-            0x005A => {
+            0x05A | 0x05B => {
                 // Stamp map base address
                 (self.stamp_map_base_address >> 2) as u16
             }
-            0x005C => {
-                // Image buffer V cell size (low byte only)
-                self.read_register_byte(address | 1).into()
+            0x05C | 0x05D => {
+                // Image buffer V cell size (minus one)
+                (self.image_buffer_v_cell_size - 1) as u16
             }
-            0x005E => {
+            0x05E | 0x05F => {
                 // Image buffer start address
                 (self.image_buffer_start_address >> 2) as u16
             }
-            0x0060 => {
-                // Image buffer offset (low byte only)
-                self.read_register_byte(address | 1).into()
+            0x060 | 0x061 => {
+                // Image buffer offset
+                (((self.image_buffer_v_offset) << 3) | self.image_buffer_h_offset) as u16
             }
-            0x0062 => {
+            0x062 | 0x063 => {
                 // Image buffer H dot size
                 self.image_buffer_h_dot_size as u16
             }
-            0x0064 => {
-                // Image buffer V dot size (low byte only)
-                self.read_register_byte(address | 1).into()
+            0x064 | 0x065 => {
+                // Image buffer V dot size
+                self.image_buffer_v_dot_size as u16
             }
-            _ => 0x0000,
+            _ => 0,
         }
     }
 
     #[allow(clippy::match_same_arms)]
     pub fn write_register_byte(&mut self, address: u32, value: u8) {
         match address & 0x1FF {
-            0x0059 => {
+            0x059 => {
                 // Stamp data size
                 self.stamp_map_size = StampMapSizeScreens::from_bit(value.bit(2));
                 self.stamp_size = StampSizeDots::from_bit(value.bit(1));
                 self.stamp_map_repeats = value.bit(0);
             }
-            0x005A..=0x005B => {
+            0x05A..=0x05B => {
                 // Stamp map base address (word access only)
                 self.write_register_word(address & !1, u16::from_le_bytes([value, value]));
             }
-            0x005D => {
+            0x05D => {
                 // Image buffer V cell size (minus one)
                 self.image_buffer_v_cell_size = ((value & 0x1F) + 1).into();
             }
-            0x005E..=0x005F => {
+            0x05E..=0x05F => {
                 // Image buffer start address (word access only)
                 self.write_register_word(address & !1, u16::from_le_bytes([value, value]));
             }
-            0x0061 => {
+            0x061 => {
                 // Image buffer offset
                 self.image_buffer_v_offset = u32::from(value >> 3) & 0x07;
                 self.image_buffer_h_offset = (value & 0x07).into();
             }
-            0x0062..=0x0063 => {
+            0x062..=0x063 => {
                 // Image buffer H dot size (word access only)
                 self.write_register_word(address & !1, u16::from_le_bytes([value, value]));
             }
-            0x0064..=0x0065 => {
+            0x064..=0x065 => {
                 // Image buffer V dot size (word access only)
                 self.write_register_word(address & !1, u16::from_le_bytes([value, value]));
             }
-            0x0066..=0x0067 => {
+            0x066..=0x067 => {
                 // Trace vector base address (word access only)
                 self.write_register_word(address & !1, u16::from_le_bytes([value, value]));
             }
@@ -294,35 +241,35 @@ impl GraphicsCoprocessor {
     #[allow(clippy::match_same_arms)]
     pub fn write_register_word(&mut self, address: u32, value: u16) {
         match address & 0x1FF {
-            0x0058 => {
+            0x058 => {
                 // Stamp data size (only low byte is writable)
                 self.write_register_byte(address | 1, value as u8);
             }
-            0x005A => {
+            0x05A => {
                 // Stamp map base address (bits 17-7)
                 self.stamp_map_base_address = u32::from(value & 0xFFE0) << 2;
             }
-            0x005C => {
+            0x05C => {
                 // Image buffer V cell size (only low byte is writable)
                 self.write_register_byte(address | 1, value as u8);
             }
-            0x005E => {
+            0x05E => {
                 // Image buffer start address (bits 17-5)
                 self.image_buffer_start_address = u32::from(value & 0xFFF8) << 2;
             }
-            0x0060 => {
+            0x060 => {
                 // Image buffer offset (only low byte is writable)
                 self.write_register_byte(address | 1, value as u8);
             }
-            0x0062 => {
+            0x062 => {
                 // Image buffer H dot size
                 self.image_buffer_h_dot_size = (value & 0x01FF).into();
             }
-            0x0064 => {
+            0x064 => {
                 // Image buffer V dot size
                 self.image_buffer_v_dot_size = (value & 0x00FF).into();
             }
-            0x0066 => {
+            0x066 => {
                 // Trace vector base address / begin graphics operation
                 self.trace_vector_base_address = u32::from(value & 0xFFFE) << 2;
 
@@ -338,9 +285,9 @@ impl GraphicsCoprocessor {
                 //   - Divide by 4 because there are 4 pixels per image buffer word
                 let h_dot_size = self.image_buffer_h_dot_size;
                 let v_dot_size = self.image_buffer_v_dot_size;
-                let estimated_mclk_cycles_per_line = 4 + 2 * h_dot_size + h_dot_size / 4;
+                let estimated_words_per_line = 4 + 2 * h_dot_size + h_dot_size / 4;
                 let estimated_mclk_cycles =
-                    SUB_CPU_DIVIDER * 3 * v_dot_size * estimated_mclk_cycles_per_line;
+                    SUB_CPU_DIVIDER * 3 * v_dot_size * estimated_words_per_line;
                 self.state = State::Processing {
                     mclk_cycles_remaining: estimated_mclk_cycles.into(),
                     operation_performed: false,

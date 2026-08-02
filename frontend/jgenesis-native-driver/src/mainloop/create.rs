@@ -1,7 +1,7 @@
 use crate::archive::{ArchiveEntry, ArchiveError};
 use crate::config::CommonConfig;
 use crate::input::Joysticks;
-use crate::mainloop::runner::{ChangeDiscFn, RemoveDiscFn};
+use crate::mainloop::runner::RunnerCommand;
 use crate::mainloop::save::FsSaveWriter;
 use crate::mainloop::{CreatedEmulator, NativeDebugFn, NativeEmulatorArgs, save};
 use crate::{NativeEmulator, NativeEmulatorError, NativeEmulatorResult, archive, extensions};
@@ -12,6 +12,7 @@ use sdl3::{AudioSubsystem, EventPump, VideoSubsystem};
 use std::cell::RefCell;
 use std::fmt::Display;
 use std::fs;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -65,6 +66,17 @@ pub struct ReadInputResult<T> {
     pub save_extension: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct WindowTitle(pub String);
+
+impl Deref for WindowTitle {
+    type Target = String;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 pub trait CreatableEmulator: EmulatorTrait + Sized {
     type NativeConfig: Display + Clone + Send + Sync + 'static;
 
@@ -115,7 +127,18 @@ pub trait CreatableEmulator: EmulatorTrait + Sized {
         vec![]
     }
 
-    fn disc_change_fns() -> Option<(ChangeDiscFn<Self>, RemoveDiscFn<Self>)> {
+    #[allow(unused_variables)]
+    fn change_disc(
+        &mut self,
+        disc_path: &Path,
+        config: &<Self as EmulatorTrait>::Config,
+    ) -> NativeEmulatorResult<Option<WindowTitle>> {
+        log::warn!("This backend does not support disc change");
+        Ok(None)
+    }
+
+    fn remove_disc(&mut self) -> Option<WindowTitle> {
+        log::warn!("This backend does not support disc change");
         None
     }
 
@@ -163,11 +186,8 @@ impl<Emulator: CreatableEmulator> NativeEmulator<Emulator> {
             Emulator::input_mappings(&config),
         )
         .with_initial_inputs(Emulator::initial_inputs(&config))
-        .with_turbo_mappings(Emulator::turbo_input_mappings(&config));
-
-        if let Some((change_disc_fn, remove_disc_fn)) = Emulator::disc_change_fns() {
-            args = args.with_disc_change_fns(change_disc_fn, remove_disc_fn);
-        }
+        .with_turbo_mappings(Emulator::turbo_input_mappings(&config))
+        .with_disc_change_fns(Emulator::change_disc, Emulator::remove_disc);
 
         if let Some(debug_fn) = Emulator::debug_fn() {
             args = args.with_debug_fn(debug_fn);
@@ -198,6 +218,24 @@ impl<Emulator: CreatableEmulator> NativeEmulator<Emulator> {
         );
 
         Emulator::reload_native_config(self, &config)
+    }
+
+    /// Remove a disc from the emulated system's drive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the runner thread has disconnected.
+    pub fn remove_disc(&mut self) -> NativeEmulatorResult<()> {
+        self.runner.send_command(RunnerCommand::RemoveDisc)
+    }
+
+    /// Change the disc in the emulated system's drive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the runner thread has disconnected.
+    pub fn change_disc(&mut self, disc_path: PathBuf) -> NativeEmulatorResult<()> {
+        self.runner.send_command(RunnerCommand::ChangeDisc(disc_path))
     }
 }
 
@@ -238,7 +276,7 @@ pub(crate) fn read_rom_file(
         fn open_file(
             self,
             archive_path: &Path,
-            read_fn: fn(&Path, &str) -> Result<Vec<u8>, ArchiveError>,
+            read_fn: fn(&Path, &str, usize) -> Result<Vec<u8>, ArchiveError>,
         ) -> NativeEmulatorResult<(Vec<u8>, String)> {
             let first_supported_file = self.first_supported_file.ok_or_else(|| {
                 NativeEmulatorError::Archive(ArchiveError::NoSupportedFiles {
@@ -246,7 +284,7 @@ pub(crate) fn read_rom_file(
                 })
             })?;
 
-            let contents = read_fn(archive_path, &first_supported_file.file_name)
+            let contents = read_fn(archive_path, &first_supported_file.file_name, usize::MAX)
                 .map_err(NativeEmulatorError::Archive)?;
             Ok((contents, first_supported_file.extension))
         }

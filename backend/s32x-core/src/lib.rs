@@ -1,15 +1,12 @@
 pub mod api;
-mod audio;
+pub mod audio;
 mod bootrom;
 mod bus;
-mod core;
 mod pwm;
 mod registers;
 mod vdp;
 
-pub use bus::WhichCpu;
-
-type GenesisVdp = genesis_core::vdp::Vdp;
+type GenesisVdp = genesis_components::vdp::Vdp;
 
 pub const SH2_CLOCK_MULTIPLIER: u64 = genesis_config::NATIVE_SH2_MULTIPLIER;
 
@@ -24,4 +21,21 @@ pub const SECURITY_PROGRAM_LEN: usize = 0x400;
 #[must_use]
 pub fn security_program() -> &'static [u8] {
     &bootrom::SH2_MASTER[0x36C..0x36C + SECURITY_PROGRAM_LEN]
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WhichCpu {
+    Master = 0,
+    Slave = 1,
+}
+
+impl WhichCpu {
+    #[inline]
+    #[must_use]
+    pub fn other(self) -> Self {
+        match self {
+            Self::Master => Self::Slave,
+            Self::Slave => Self::Master,
+        }
+    }
 }

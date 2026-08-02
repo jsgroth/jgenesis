@@ -8,8 +8,10 @@ mod save;
 use crate::audio::AudioQueue;
 use crate::config::{EmulatorChannel, EmulatorCommand, InputConfig, WebConfig, WebConfigRef};
 use bincode::{Decode, Encode};
+use cdrom::reader::CdRom;
 use gba_config::GbaInputs;
 use gba_core::api::GameBoyAdvanceEmulator;
+use genesis_core::api::GenesisHardware;
 use genesis_core::{GenesisEmulator, GenesisInputs};
 use jgenesis_common::audio::DynamicResamplingRate;
 use jgenesis_common::frontend::{
@@ -19,8 +21,6 @@ use jgenesis_common::frontend::{
 use jgenesis_renderer::renderer::{WgpuRenderer, WindowSize};
 use js_sys::Uint8Array;
 use rfd::AsyncFileDialog;
-use s32x_core::api::Sega32XEmulator;
-use segacd_core::api::SegaCdEmulator;
 use smsgg_config::SmsGgInputs;
 use smsgg_core::{SmsGgEmulator, SmsGgHardware};
 use snes_core::api::{CoprocessorRoms, SnesEmulator};
@@ -248,8 +248,6 @@ enum Emulator {
     None(RandomNoiseGenerator),
     SmsGg(SmsGgEmulator, SmsGgInputs),
     Genesis(GenesisEmulator, GenesisInputs),
-    SegaCd(SegaCdEmulator, GenesisInputs),
-    Sega32X(Sega32XEmulator, GenesisInputs),
     Snes(SnesEmulator, SnesInputs),
     Gba(GameBoyAdvanceEmulator, GbaInputs),
 }
@@ -278,8 +276,6 @@ impl Emulator {
             }
             Self::SmsGg(emulator, inputs) => run_emulator!(emulator, inputs),
             Self::Genesis(emulator, inputs) => run_emulator!(emulator, inputs),
-            Self::SegaCd(emulator, inputs) => run_emulator!(emulator, inputs),
-            Self::Sega32X(emulator, inputs) => run_emulator!(emulator, inputs),
             Self::Snes(emulator, inputs) => run_emulator!(emulator, inputs),
             Self::Gba(emulator, inputs) => run_emulator!(emulator, inputs),
         }
@@ -292,12 +288,6 @@ impl Emulator {
                 emulator.hard_reset(save_writer);
             }
             Self::Genesis(emulator, ..) => {
-                emulator.hard_reset(save_writer);
-            }
-            Self::SegaCd(emulator, ..) => {
-                emulator.hard_reset(save_writer);
-            }
-            Self::Sega32X(emulator, ..) => {
                 emulator.hard_reset(save_writer);
             }
             Self::Snes(emulator, ..) => {
@@ -314,8 +304,6 @@ impl Emulator {
             Self::None(..) => 30.0,
             Self::SmsGg(emulator, ..) => emulator.target_fps(),
             Self::Genesis(emulator, ..) => emulator.target_fps(),
-            Self::SegaCd(emulator, ..) => emulator.target_fps(),
-            Self::Sega32X(emulator, ..) => emulator.target_fps(),
             Self::Snes(emulator, ..) => emulator.target_fps(),
             Self::Gba(emulator, ..) => emulator.target_fps(),
         }
@@ -336,7 +324,7 @@ impl Emulator {
             Self::SmsGg(_, inputs) => {
                 input_config.smsgg.handle_input(*keycode, pressed, inputs);
             }
-            Self::Genesis(_, inputs) | Self::SegaCd(_, inputs) | Self::Sega32X(_, inputs) => {
+            Self::Genesis(_, inputs) => {
                 input_config.genesis.handle_input(*keycode, pressed, inputs);
             }
             Self::Snes(_, inputs) => {
@@ -355,13 +343,7 @@ impl Emulator {
                 emulator.reload_config(&config.smsgg.to_emulator_config());
             }
             Self::Genesis(emulator, ..) => {
-                emulator.reload_config(&config.genesis.to_emulator_config());
-            }
-            Self::SegaCd(emulator, ..) => {
-                emulator.reload_config(&config.to_sega_cd_config());
-            }
-            Self::Sega32X(emulator, ..) => {
-                emulator.reload_config(&config.to_32x_config());
+                emulator.reload_config(&config.to_genesis_config());
             }
             Self::Snes(emulator, ..) => {
                 emulator.reload_config(&config.snes.to_emulator_config());
@@ -376,9 +358,7 @@ impl Emulator {
         match self {
             Self::None(..) => "(No ROM loaded)".into(),
             Self::SmsGg(..) | Self::Gba(..) => current_file_name.into(),
-            Self::Genesis(emulator, ..) => emulator.cartridge_title(),
-            Self::SegaCd(emulator, ..) => emulator.disc_title().into(),
-            Self::Sega32X(emulator, ..) => emulator.cartridge_title(),
+            Self::Genesis(emulator, ..) => emulator.game_title().unwrap_or("(No title)".into()),
             Self::Snes(emulator, ..) => emulator.cartridge_title(),
         }
     }
@@ -388,8 +368,6 @@ impl Emulator {
             Self::None(..) => false,
             Self::SmsGg(emulator, ..) => emulator.has_sram(),
             Self::Genesis(emulator, ..) => emulator.has_sram(),
-            Self::SegaCd(..) => true,
-            Self::Sega32X(emulator, ..) => emulator.has_sram(),
             Self::Snes(emulator, ..) => emulator.has_sram(),
             Self::Gba(emulator, ..) => emulator.has_save_memory(),
         }
@@ -400,8 +378,6 @@ impl Emulator {
             Self::None(..) => {}
             Self::SmsGg(emulator, ..) => emulator.update_audio_output_frequency(output_frequency),
             Self::Genesis(emulator, ..) => emulator.update_audio_output_frequency(output_frequency),
-            Self::SegaCd(emulator, ..) => emulator.update_audio_output_frequency(output_frequency),
-            Self::Sega32X(emulator, ..) => emulator.update_audio_output_frequency(output_frequency),
             Self::Snes(emulator, ..) => emulator.update_audio_output_frequency(output_frequency),
             Self::Gba(emulator, ..) => emulator.update_audio_output_frequency(output_frequency),
         }
@@ -716,7 +692,7 @@ impl AppState {
                     match &self.emulator {
                         Emulator::None(..) => {}
                         Emulator::SmsGg(..) => input_config.smsgg.update_field(button, *keycode),
-                        Emulator::Genesis(..) | Emulator::SegaCd(..) | Emulator::Sega32X(..) => {
+                        Emulator::Genesis(..) => {
                             input_config.genesis.update_field(button, *keycode);
                         }
                         Emulator::Snes(..) => input_config.snes.update_field(button, *keycode),
@@ -947,43 +923,57 @@ fn open_emulator(
             );
             Ok(Emulator::SmsGg(emulator, SmsGgInputs::default()))
         }
-        "gen" | "md" | "bin" | "smd" => {
+        file_ext @ ("gen" | "md" | "bin" | "smd" | "chd" | "32x") => {
             let inputs = config_ref.borrow().inputs.genesis_inputs();
             js::showGenesisConfig(inputs.0, inputs.1);
 
-            let emulator = GenesisEmulator::create(
-                rom,
-                config_ref.borrow().genesis.to_emulator_config(),
-                save_writer,
-            );
-            Ok(Emulator::Genesis(emulator, GenesisInputs::default()))
-        }
-        "chd" => {
-            let Some(bios) = bios_rom else {
-                return Err(OpenEmulatorError::NoSegaCdBios);
+            let genesis_config = config_ref.borrow().to_genesis_config();
+
+            let emulator = match file_ext {
+                "chd" => {
+                    // Sega CD
+                    let Some(bios) = bios_rom else {
+                        return Err(OpenEmulatorError::NoSegaCdBios);
+                    };
+
+                    let mut disc = CdRom::open_chd_in_memory(rom)
+                        .map_err(|err| OpenEmulatorError::Other(err.into()))?;
+
+                    let hardware = if segacd_core::is_cd_32x_disc(&mut disc) {
+                        GenesisHardware::SegaCd32X
+                    } else {
+                        GenesisHardware::SegaCd
+                    };
+
+                    GenesisEmulator::create(
+                        hardware,
+                        None,
+                        Some(bios),
+                        Some(disc),
+                        genesis_config,
+                        save_writer,
+                    )
+                    .map_err(|err| OpenEmulatorError::Other(err.into()))?
+                }
+                _ => {
+                    // Genesis / 32X
+                    let hardware = match file_ext {
+                        "32x" => GenesisHardware::Sega32X,
+                        _ => GenesisHardware::Standalone,
+                    };
+                    GenesisEmulator::create(
+                        hardware,
+                        Some(rom),
+                        None,
+                        None,
+                        genesis_config,
+                        save_writer,
+                    )
+                    .map_err(|err| OpenEmulatorError::Other(err.into()))?
+                }
             };
 
-            let emulator = SegaCdEmulator::create_in_memory(
-                bios,
-                rom,
-                config_ref.borrow().to_sega_cd_config(),
-                save_writer,
-            )
-            .map_err(|err| OpenEmulatorError::Other(err.into()))?;
-
-            let inputs = config_ref.borrow().inputs.genesis_inputs();
-            js::showGenesisConfig(inputs.0, inputs.1);
-
-            Ok(Emulator::SegaCd(emulator, GenesisInputs::default()))
-        }
-        "32x" => {
-            let emulator =
-                Sega32XEmulator::create(rom, config_ref.borrow().to_32x_config(), save_writer);
-
-            let inputs = config_ref.borrow().inputs.genesis_inputs();
-            js::showGenesisConfig(inputs.0, inputs.1);
-
-            Ok(Emulator::Sega32X(emulator, GenesisInputs::default()))
+            Ok(Emulator::Genesis(emulator, GenesisInputs::default()))
         }
         "sfc" | "smc" => {
             let emulator = SnesEmulator::create(

@@ -1,16 +1,15 @@
 //! Sega CD's physical drive, which documentation refers to as the CDD
 
-use crate::api::{SegaCdEmulatorConfig, SegaCdLoadResult};
+use crate::api::SegaCdLoadResult;
 use crate::cddrive::cdc::{Rchip, RchipDmaArgs};
 use bincode::{Decode, Encode};
 use cdrom::cdtime::CdTime;
 use cdrom::cue::{Track, TrackType};
-use cdrom::reader::{CdRom, CdRomFileFormat};
-use genesis_config::GenesisRegion;
+use cdrom::reader::CdRom;
+use genesis_config::{GenesisRegion, SegaCdEmulatorConfig};
 use jgenesis_proc_macros::PartialClone;
 use regex::Regex;
 use std::cmp::Ordering;
-use std::path::Path;
 use std::sync::LazyLock;
 use std::{array, cmp};
 
@@ -892,7 +891,7 @@ impl CdDrive {
 
         // Skip sync bytes and sector header
         let first_data_sector = &self.sector_buffer[16..];
-        Ok(genesis_core::cartridge::is_six_button_incompatible(first_data_sector))
+        Ok(genesis_components::cartridge::is_six_button_incompatible(first_data_sector))
     }
 
     pub fn take_disc(&mut self) -> Option<CdRom> {
@@ -917,21 +916,10 @@ impl CdDrive {
         self.state = State::TrayOpening { auto_close: self.model == CdModel::Two };
     }
 
-    pub fn change_disc<P: AsRef<Path>>(
-        &mut self,
-        rom_path: P,
-        format: CdRomFileFormat,
-        load_disc_into_ram: bool,
-    ) -> SegaCdLoadResult<()> {
-        let cue_path = rom_path.as_ref();
+    pub fn change_disc(&mut self, disc: CdRom) {
+        log::info!("Changing disc");
 
-        log::info!("Changing disc to '{}'", cue_path.display());
-
-        self.disc = Some(if load_disc_into_ram {
-            CdRom::open_in_memory(cue_path, format)?
-        } else {
-            CdRom::open(cue_path, format)?
-        });
+        self.disc = Some(disc);
 
         // Only open the tray if running a Model 2 BIOS version.
         // Model 1 BIOS versions will usually crash if the tray opens without the BIOS first sending
@@ -939,8 +927,6 @@ impl CdDrive {
         if self.model == CdModel::Two {
             self.state = State::TrayOpening { auto_close: true };
         }
-
-        Ok(())
     }
 
     pub fn reload_config(&mut self, config: &SegaCdEmulatorConfig) {

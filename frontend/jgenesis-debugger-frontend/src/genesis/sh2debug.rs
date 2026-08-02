@@ -3,10 +3,12 @@ use crate::{AddressSet, non_selectable_label};
 use egui::style::ScrollStyle;
 use egui::{Align, Grid, Layout, RichText, TextEdit, Ui, Window};
 use egui_extras::{Column, TableBuilder};
-use s32x_core::WhichCpu;
-use s32x_core::api::debug::{
-    Sega32XDebugCommand, Sega32XDebugState, Sh2BreakStatus, Sh2Breakpoint, Sh2Breakpoints,
+use genesis_components::cartridge::Cartridge;
+use genesis_core::api::debug::{
+    GenesisDebugCommand, GenesisDebugState, Sh2BreakStatus, Sh2Breakpoint, Sh2Breakpoints,
 };
+use s32x_core::WhichCpu;
+use s32x_core::api::debug::Sega32XDebugState;
 use sh2_emu::{DisassembledInstruction, MemoryAccessSize, ReadType, Sh2};
 use std::ops::Range;
 use std::sync::mpsc::Sender;
@@ -44,7 +46,13 @@ impl DisassemblyArea {
         }
     }
 
-    fn read_address(self, address: u32, cpu: &Sh2, debug_state: &Sega32XDebugState) -> u16 {
+    fn read_address(
+        self,
+        address: u32,
+        cpu: &Sh2,
+        debug_state: &Sega32XDebugState,
+        cartridge: Option<&Cartridge>,
+    ) -> u16 {
         match self {
             Self::Sdram { cached } => {
                 if cached && let Some(word) = cpu.peek_cache(address) {
@@ -58,7 +66,7 @@ impl DisassemblyArea {
                     return word;
                 }
 
-                let Some(cartridge) = debug_state.genesis.cartridge() else { return 0 };
+                let Some(cartridge) = cartridge else { return 0 };
                 let cartridge_addr = address & 0x3FFFFF & !1;
                 cartridge.peek_word(cartridge_addr)
             }
@@ -193,9 +201,9 @@ impl WhichExt for WhichCpu {
 
 pub fn render_disassembly_window(
     ctx: &egui::Context,
-    debug_state: &mut Sega32XDebugState,
+    debug_state: &mut GenesisDebugState,
     window_state: &mut Sh2DebugWindowState,
-    command_sender: &Sender<Sega32XDebugCommand>,
+    command_sender: &Sender<GenesisDebugCommand>,
     break_status: Sh2BreakStatus,
 ) {
     let window_title = window_state.which.disassembly_window_title();
@@ -207,9 +215,11 @@ pub fn render_disassembly_window(
     }
     window_state.break_status_last_frame = break_status;
 
+    let Some(sega_32x) = &debug_state.sega_32x else { return };
+
     let sh2 = match window_state.which {
-        WhichCpu::Master => debug_state.sh2_master.clone(),
-        WhichCpu::Slave => debug_state.sh2_slave.clone(),
+        WhichCpu::Master => sega_32x.sh2_master.clone(),
+        WhichCpu::Slave => sega_32x.sh2_slave.clone(),
     };
 
     let default_pos = [50.0, crate::rand_window_pos()[1]];
@@ -231,22 +241,22 @@ pub fn render_disassembly_window(
 
 fn render_disasm_top_panel(
     state: &mut Sh2DebugWindowState,
-    command_sender: &Sender<Sega32XDebugCommand>,
+    command_sender: &Sender<GenesisDebugCommand>,
     window_title: &str,
     ui: &mut Ui,
 ) {
     egui::Panel::top(format!("{window_title}_top_panel")).show_inside(ui, |ui| {
         ui.horizontal(|ui| {
             if ui.button("Pause").clicked() {
-                let _ = command_sender.send(Sega32XDebugCommand::BreakPauseSh2(state.which));
+                let _ = command_sender.send(GenesisDebugCommand::BreakPauseSh2(state.which));
             }
 
             if ui.button("Resume").clicked() {
-                let _ = command_sender.send(Sega32XDebugCommand::BreakResume);
+                let _ = command_sender.send(GenesisDebugCommand::BreakResume);
             }
 
             if ui.button("Step").clicked() {
-                let _ = command_sender.send(Sega32XDebugCommand::BreakStepSh2(state.which));
+                let _ = command_sender.send(GenesisDebugCommand::BreakStepSh2(state.which));
             }
 
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
@@ -355,11 +365,14 @@ fn render_disasm_right_panel(
 
 fn render_disasm_central_panel(
     sh2: &Sh2,
-    debug_state: &mut Sega32XDebugState,
+    debug_state: &mut GenesisDebugState,
     state: &mut Sh2DebugWindowState,
     break_status: Sh2BreakStatus,
     ui: &mut Ui,
 ) {
+    let Some(sega_32x) = &mut debug_state.sega_32x else { return };
+    let cartridge = debug_state.cartridge.as_ref();
+
     let ctx = ui.ctx().clone();
 
     egui::CentralPanel::default().show_inside(ui, |ui| {
@@ -424,7 +437,7 @@ fn render_disasm_central_panel(
                     ui.add(non_selectable_label(text));
                 });
 
-                let opcode = disassembly_area.read_address(address, sh2, debug_state);
+                let opcode = disassembly_area.read_address(address, sh2, sega_32x, cartridge);
                 sh2_emu::disassemble_into(address, opcode, &mut disassembled);
 
                 row.col(|ui| {
@@ -443,7 +456,7 @@ fn render_disasm_central_panel(
                     let address = memory_access.resolve_address(size, sh2);
 
                     let value = DisassemblyArea::from_address(address).map(|area| {
-                        let word = area.read_address(address, sh2, debug_state);
+                        let word = area.read_address(address, sh2, sega_32x, cartridge);
                         match size {
                             MemoryAccessSize::Byte => {
                                 let byte = word.to_be_bytes()[(address & 1) as usize];
@@ -451,8 +464,12 @@ fn render_disasm_central_panel(
                             }
                             MemoryAccessSize::Word => format!("0x{word:04X}"),
                             MemoryAccessSize::Longword => {
-                                let low =
-                                    area.read_address(address.wrapping_add(2), sh2, debug_state);
+                                let low = area.read_address(
+                                    address.wrapping_add(2),
+                                    sh2,
+                                    sega_32x,
+                                    cartridge,
+                                );
                                 let longword = u32::from(low) | (u32::from(word) << 16);
                                 format!("0x{longword:08X}")
                             }
@@ -485,7 +502,7 @@ fn render_disasm_central_panel(
 pub fn render_breakpoints_window(
     ctx: &egui::Context,
     state: &mut Sh2DebugWindowState,
-    command_sender: &Sender<Sega32XDebugCommand>,
+    command_sender: &Sender<GenesisDebugCommand>,
 ) {
     let window_title = state.which.breakpoints_window_title();
     let response =
@@ -506,7 +523,7 @@ pub fn render_breakpoints_window(
             })
             .collect();
 
-        let _ = command_sender.send(Sega32XDebugCommand::UpdateSh2Breakpoints(
+        let _ = command_sender.send(GenesisDebugCommand::UpdateSh2Breakpoints(
             state.which,
             Sh2Breakpoints {
                 memory: memory_breakpoints,

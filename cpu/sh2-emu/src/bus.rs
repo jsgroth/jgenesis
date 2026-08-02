@@ -37,6 +37,14 @@ impl Display for AccessContext {
 
 pub struct OpSize;
 
+// For cases where size can't be passed as a const generic (e.g. dyn-compatible trait methods)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpSizeEnum {
+    Byte,
+    Word,
+    Longword,
+}
+
 impl OpSize {
     pub const BYTE: u8 = 0;
     pub const WORD: u8 = 1;
@@ -69,9 +77,23 @@ impl OpSize {
             _ => panic!("invalid size {SIZE}"),
         }
     }
+
+    /// # Panics
+    ///
+    /// Panics if `SIZE` is not a valid `OpSize` value
+    #[must_use]
+    #[inline(always)]
+    pub fn enum_value<const SIZE: u8>() -> OpSizeEnum {
+        match SIZE {
+            Self::BYTE => OpSizeEnum::Byte,
+            Self::WORD => OpSizeEnum::Word,
+            Self::LONGWORD => OpSizeEnum::Longword,
+            _ => panic!("invalid size {SIZE}"),
+        }
+    }
 }
 
-pub trait BusInterface {
+pub trait BusInterface: Sized {
     /// Debug view type; if not implemented, set to [`crate::debug::DummySh2Debugger`]
     type DebugView<'a>: Sh2Debugger
     where
@@ -134,24 +156,21 @@ pub trait BusInterface {
     fn debug_view(&mut self) -> Option<Self::DebugView<'_>> {
         None
     }
-}
 
-pub trait Sh2LookupTable<Bus: BusInterface> {
-    fn table<'a>() -> &'a OpcodeTable<Bus>;
+    fn opcode_table<'a>() -> &'a OpcodeTable<Self>;
 }
 
 #[macro_export]
-macro_rules! impl_sh2_lookup_table {
+macro_rules! impl_sh2_opcode_table {
     ($bus:ident) => {
-        impl $crate::bus::Sh2LookupTable<$bus> for $crate::Sh2 {
-            fn table<'a>() -> &'a $crate::OpcodeTable<$bus> {
-                static TABLE: ::std::sync::LazyLock<$crate::OpcodeTable<$bus>> =
-                    ::std::sync::LazyLock::new(|| $crate::OpcodeTable::new());
+        #[inline]
+        fn opcode_table<'a>() -> &'a $crate::OpcodeTable<$bus> {
+            static TABLE: ::std::sync::LazyLock<$crate::OpcodeTable<$bus>> =
+                ::std::sync::LazyLock::new(|| $crate::OpcodeTable::new());
 
-                &*TABLE
-            }
+            &*TABLE
         }
     };
 }
 
-pub use impl_sh2_lookup_table;
+pub use impl_sh2_opcode_table;

@@ -6,8 +6,8 @@ mod ym2612debug;
 mod z80debug;
 
 use crate::genesis::m68kdebug::{
-    M68kBreakCommand, M68kDebugWindowState, Main68kInterruptBreakpoints, SegaCdSubMemoryMap,
-    Sub68kInterruptBreakpoints,
+    Genesis68kMemoryMap, M68kBreakCommand, M68kDebugWindowState, Main68kInterruptBreakpoints,
+    SegaCdSubMemoryMap, Sub68kInterruptBreakpoints,
 };
 use crate::genesis::sh2debug::Sh2DebugWindowState;
 use crate::genesis::ym2612debug::Ym2612DebugWindowState;
@@ -21,15 +21,14 @@ use egui::{
     Stroke, StrokeKind, Ui, UiKind, Vec2, Window,
 };
 use egui_extras::{Column, TableBuilder};
+use genesis_components::debug::{CopySpriteAttributesResult, CramEntry, SpriteAttributeEntry};
+use genesis_components::vdp::{ColorModifier, DataPortLocation};
 use genesis_config::GenesisInputs;
 use genesis_core::GenesisEmulator;
 use genesis_core::api::debug::{
-    CopySpriteAttributesResult, CramEntry, GenesisDebugCommand, GenesisDebugState, GenesisDebugger,
-    GenesisDebuggerHandle, GenesisMemoryArea, SpriteAttributeEntry,
+    GenesisDebugCommand, GenesisDebugState, GenesisDebugger, GenesisDebuggerHandle,
+    GenesisMemoryArea,
 };
-use genesis_core::vdp::debug::VdpDebugState;
-use genesis_core::vdp::{ColorModifier, DataPortLocation};
-use genesis_core::ym2612::Ym2612;
 use jgenesis_common::debug::{DebugMemoryView, DebugViewWithWriteHook, Endian};
 use jgenesis_common::frontend::{
     AudioOutput, Color, InputPoller, Renderer, SaveWriter, TickEffect,
@@ -37,16 +36,9 @@ use jgenesis_common::frontend::{
 use jgenesis_common::num::GetBit;
 use jgenesis_common::sync::{SharedVarReceiver, SharedVarSender};
 use s32x_core::WhichCpu;
-use s32x_core::api::Sega32XEmulator;
-use s32x_core::api::debug::{
-    S32XMemoryArea, Sega32XDebugCommand, Sega32XDebugState, Sega32XDebugger, Sega32XDebuggerHandle,
-};
-use segacd_core::api::SegaCdEmulator;
-use segacd_core::api::debug::{
-    SegaCdDebugCommand, SegaCdDebugState, SegaCdDebugger, SegaCdDebuggerHandle, SegaCdMemoryArea,
-};
+use s32x_core::api::debug::{S32XMemoryArea, Sega32XDebugState};
+use segacd_core::api::debug::SegaCdMemoryArea;
 use sh2_emu::{CacheMode, DmaAddressMode, DmaTransferUnit, Sh2};
-use smsgg_core::psg::Sn76489;
 use std::collections::HashMap;
 use std::error::Error;
 use std::hash::Hash;
@@ -330,47 +322,18 @@ impl State {
     }
 }
 
-pub(crate) enum GenesisBasedDebugState<'a> {
-    Genesis(&'a mut GenesisDebugState, &'a GenesisDebuggerHandle),
-    SegaCd(&'a mut SegaCdDebugState, &'a SegaCdDebuggerHandle),
-    Sega32X(&'a mut Sega32XDebugState, &'a Sega32XDebuggerHandle),
+pub(crate) struct GenesisDebuggerFrontendState<'a> {
+    state: &'a mut GenesisDebugState,
+    debugger_handle: &'a GenesisDebuggerHandle,
 }
 
-macro_rules! match_each_state_variant {
-    ($self:expr, state => state.$method:ident($($param:tt)*)) => {
-        match $self {
-            Self::Genesis(state, ..) => state.$method($($param)*),
-            Self::SegaCd(state, ..) => state.genesis.$method($($param)*),
-            Self::Sega32X(state, ..) => state.genesis.$method($($param)*),
-        }
-    }
-}
-
-impl GenesisBasedDebugState<'_> {
-    fn vdp(&self) -> &VdpDebugState {
-        match_each_state_variant!(self, state => state.vdp())
-    }
-
-    fn ym2612(&self) -> &Ym2612 {
-        match_each_state_variant!(self, state => state.ym2612())
-    }
-
-    fn psg(&self) -> &Sn76489 {
-        match_each_state_variant!(self, state => state.psg())
-    }
-
+impl GenesisDebuggerFrontendState<'_> {
     fn has_memory(&self, memory_area: MemoryArea) -> bool {
-        match self {
-            Self::Genesis(..) => matches!(memory_area, MemoryArea::Genesis(_)),
-            Self::SegaCd(..) => match memory_area {
-                MemoryArea::Genesis(GenesisMemoryArea::CartridgeRom) | MemoryArea::Sega32X(_) => {
-                    false
-                }
-                MemoryArea::Genesis(_) | MemoryArea::SegaCd(_) => true,
-            },
-            Self::Sega32X(..) => {
-                matches!(memory_area, MemoryArea::Genesis(_) | MemoryArea::Sega32X(_))
-            }
+        match memory_area {
+            MemoryArea::Genesis(GenesisMemoryArea::CartridgeRom) => self.state.cartridge.is_some(),
+            MemoryArea::Genesis(_) => true,
+            MemoryArea::SegaCd(_) => self.state.sega_cd.is_some(),
+            MemoryArea::Sega32X(_) => self.state.sega_32x.is_some(),
         }
     }
 
@@ -378,40 +341,31 @@ impl GenesisBasedDebugState<'_> {
         &mut self,
         memory_area: MemoryArea,
     ) -> Option<Box<dyn DebugMemoryView + '_>> {
-        match (self, memory_area) {
-            (Self::Genesis(state, ..), MemoryArea::Genesis(area)) => Some(state.memory_view(area)),
-            (Self::SegaCd(state, ..), MemoryArea::Genesis(area)) => {
-                Some(state.genesis().memory_view(area))
+        match memory_area {
+            MemoryArea::Genesis(memory_area) => Some(self.state.memory_view(memory_area)),
+            MemoryArea::SegaCd(memory_area) => {
+                self.state.sega_cd.as_mut().map(|sega_cd| sega_cd.scd_memory_view(memory_area))
             }
-            (Self::SegaCd(state, ..), MemoryArea::SegaCd(area)) => {
-                Some(state.scd_memory_view(area))
+            MemoryArea::Sega32X(memory_area) => {
+                self.state.sega_32x.as_mut().map(|sega_32x| sega_32x.s32x_memory_view(memory_area))
             }
-            (Self::Sega32X(state, ..), MemoryArea::Genesis(area)) => {
-                Some(state.genesis().memory_view(area))
-            }
-            (Self::Sega32X(state, ..), MemoryArea::Sega32X(area)) => {
-                Some(state.s32x_memory_view(area))
-            }
-            (Self::Genesis(..), MemoryArea::SegaCd(_) | MemoryArea::Sega32X(_))
-            | (Self::SegaCd(..), MemoryArea::Sega32X(_))
-            | (Self::Sega32X(..), MemoryArea::SegaCd(_)) => None,
         }
     }
 }
 
 pub(crate) type GenesisDebugRenderFn =
-    dyn FnMut(DebugRenderContext<'_>, &mut GenesisBasedDebugState<'_>);
+    dyn FnMut(DebugRenderContext<'_>, GenesisDebuggerFrontendState<'_>);
 
 pub(crate) fn render_fn(
     memory_edit_hook: Box<dyn FnMut(MemoryArea, usize, u8)>,
 ) -> Box<GenesisDebugRenderFn> {
     let mut state = State::new(memory_edit_hook);
-    Box::new(move |ctx, emu_state| render(ctx, emu_state, &mut state))
+    Box::new(move |ctx, mut emu_state| render(ctx, &mut emu_state, &mut state))
 }
 
 fn render(
     ctx: DebugRenderContext<'_>,
-    mut debug_state: &mut GenesisBasedDebugState<'_>,
+    debug_state: &mut GenesisDebuggerFrontendState<'_>,
     state: &mut State,
 ) {
     Panel::top("gen_debug_top").show_inside(ctx.egui_ui, |ui| {
@@ -455,7 +409,7 @@ fn render(
                     ui.close_kind(UiKind::Menu);
                 }
 
-                if matches!(debug_state, GenesisBasedDebugState::Sega32X(..)) {
+                if debug_state.state.sega_32x.is_some() {
                     if ui.button("Master SH-2 Registers").clicked() {
                         state.master_sh2_registers_open = true;
                         crate::move_to_top(ui, MASTER_SH2_REGISTERS_WINDOW_TITLE);
@@ -513,9 +467,7 @@ fn render(
                     ui.close_kind(UiKind::Menu);
                 }
 
-                if matches!(debug_state, GenesisBasedDebugState::Sega32X(..))
-                    && ui.button("32X Palette RAM").clicked()
-                {
+                if debug_state.state.sega_32x.is_some() && ui.button("32X Palette RAM").clicked() {
                     state.s32x_palette.open = true;
                     crate::move_to_top(ui, S32X_PALETTE_WINDOW_TITLE);
                     ui.close_kind(UiKind::Menu);
@@ -523,56 +475,29 @@ fn render(
             });
 
             ui.menu_button("CPU Debuggers", |ui| {
-                if ui.button("68000 Disassembly").clicked() {
+                if ui.button("68000").clicked() {
                     state.m68k.open_disassembly_window(ui);
                     ui.close_kind(UiKind::Menu);
                 }
 
-                if ui.button("68000 Breakpoints").clicked() {
-                    state.m68k.open_breakpoints_window(ui);
+                if debug_state.state.sega_cd.is_some() && ui.button("Sub 68000").clicked() {
+                    state.m68k_sub.open_disassembly_window(ui);
                     ui.close_kind(UiKind::Menu);
                 }
 
-                if matches!(debug_state, GenesisBasedDebugState::SegaCd(..)) {
-                    if ui.button("Sub 68000 Disassembly").clicked() {
-                        state.m68k_sub.open_disassembly_window(ui);
-                        ui.close_kind(UiKind::Menu);
-                    }
-
-                    if ui.button("Sub 68000 Breakpoints").clicked() {
-                        state.m68k_sub.open_breakpoints_window(ui);
-                        ui.close_kind(UiKind::Menu);
-                    }
-                }
-
-                if ui.button("Z80 Disassembly").clicked() {
+                if ui.button("Z80").clicked() {
                     state.z80.open_disassembly_window(ui);
                     ui.close_kind(UiKind::Menu);
                 }
 
-                if ui.button("Z80 Breakpoints").clicked() {
-                    state.z80.open_breakpoints_window(ui);
-                    ui.close_kind(UiKind::Menu);
-                }
-
-                if matches!(debug_state, GenesisBasedDebugState::Sega32X(..)) {
-                    if ui.button("SH-2 Master Disassembly").clicked() {
+                if debug_state.state.sega_32x.is_some() {
+                    if ui.button("SH-2 Master").clicked() {
                         state.sh2_master.open_disassembly_window(ui);
                         ui.close_kind(UiKind::Menu);
                     }
 
-                    if ui.button("SH-2 Master Breakpoints").clicked() {
-                        state.sh2_master.open_breakpoints_window(ui);
-                        ui.close_kind(UiKind::Menu);
-                    }
-
-                    if ui.button("SH-2 Slave Disassembly").clicked() {
+                    if ui.button("SH-2 Slave").clicked() {
                         state.sh2_slave.open_disassembly_window(ui);
-                        ui.close_kind(UiKind::Menu);
-                    }
-
-                    if ui.button("SH-2 Slave Breakpoints").clicked() {
-                        state.sh2_slave.open_breakpoints_window(ui);
                         ui.close_kind(UiKind::Menu);
                     }
                 }
@@ -593,11 +518,11 @@ fn render(
 
     ym2612debug::render_debug_window(
         ctx.egui_ui,
-        debug_state.ym2612().debug_view(),
+        debug_state.state.ym2612.debug_view(),
         &mut state.ym2612,
     );
 
-    psgdebug::render_debug_window(ctx.egui_ui, debug_state.psg(), &mut state.psg_open);
+    psgdebug::render_debug_window(ctx.egui_ui, &debug_state.state.psg, &mut state.psg_open);
 
     let screen_width = crate::screen_width(ctx.egui_ui);
 
@@ -609,49 +534,42 @@ fn render(
     render_m68k_debug_windows(ctx.egui_ui, debug_state, state);
     render_z80_debug_windows(ctx.egui_ui, debug_state, state);
 
-    if let GenesisBasedDebugState::Sega32X(debug_state, debugger_handle) = &mut debug_state {
+    if let Some(sega_32x) = &mut debug_state.state.sega_32x {
         render_sh2_registers_window(
             ctx.egui_ui,
-            &mut debug_state.sh2_master,
+            &mut sega_32x.sh2_master,
             MASTER_SH2_REGISTERS_WINDOW_TITLE,
             &mut state.master_sh2_registers_open,
         );
         render_sh2_registers_window(
             ctx.egui_ui,
-            &mut debug_state.sh2_slave,
+            &mut sega_32x.sh2_slave,
             SLAVE_SH2_REGISTERS_WINDOW_TITLE,
             &mut state.slave_sh2_registers_open,
         );
 
-        render_32x_palette_window(ctx.egui_ui, debug_state, &mut state.s32x_palette);
+        render_32x_palette_window(ctx.egui_ui, sega_32x, &mut state.s32x_palette);
         render_32x_system_registers_window(
             ctx.egui_ui,
-            debug_state,
+            sega_32x,
             &mut state.s32x_system_registers_open,
         );
-        render_32x_vdp_registers_window(
-            ctx.egui_ui,
-            debug_state,
-            &mut state.s32x_vdp_registers_open,
-        );
-        render_32x_pwm_registers_window(
-            ctx.egui_ui,
-            debug_state,
-            &mut state.s32x_pwm_registers_open,
-        );
+        render_32x_vdp_registers_window(ctx.egui_ui, sega_32x, &mut state.s32x_vdp_registers_open);
+        render_32x_pwm_registers_window(ctx.egui_ui, sega_32x, &mut state.s32x_pwm_registers_open);
 
+        let debugger_handle = debug_state.debugger_handle;
         let break_status = debugger_handle.sh2_break_status();
 
         sh2debug::render_disassembly_window(
             ctx.egui_ui,
-            debug_state,
+            debug_state.state,
             &mut state.sh2_master,
             &debugger_handle.command_sender,
             break_status.get(WhichCpu::Master),
         );
         sh2debug::render_disassembly_window(
             ctx.egui_ui,
-            debug_state,
+            debug_state.state,
             &mut state.sh2_slave,
             &debugger_handle.command_sender,
             break_status.get(WhichCpu::Slave),
@@ -672,196 +590,96 @@ fn render(
 
 fn render_m68k_debug_windows(
     ctx: &egui::Context,
-    debug_state: &mut GenesisBasedDebugState<'_>,
+    debug_state: &mut GenesisDebuggerFrontendState<'_>,
     state: &mut State,
 ) {
-    match debug_state {
-        GenesisBasedDebugState::Genesis(debug_state, debugger_handle) => {
-            if let Some(memory_map) = m68kdebug::new_genesis_memory_map(debug_state) {
-                let m68k = debug_state.m68k();
-                m68kdebug::render_disassembly_window(
-                    ctx,
-                    m68k,
-                    memory_map,
-                    &mut state.m68k,
-                    debugger_handle.m68k_break_status(),
-                    Some(|command| {
-                        let genesis_cmd = match command {
-                            M68kBreakCommand::Pause => GenesisDebugCommand::BreakPause68k,
-                            M68kBreakCommand::Resume => GenesisDebugCommand::BreakResume,
-                            M68kBreakCommand::Step => GenesisDebugCommand::BreakStep68k,
-                        };
-                        let _ = debugger_handle.send_command(genesis_cmd);
-                    }),
-                );
+    let debugger_handle = debug_state.debugger_handle;
 
-                m68kdebug::render_breakpoints_window(ctx, &mut state.m68k, |breakpoints| {
-                    let _ = debugger_handle
-                        .send_command(GenesisDebugCommand::Update68kBreakpoints(breakpoints));
-                });
-            }
-        }
-        GenesisBasedDebugState::SegaCd(debug_state, debugger_handle) => {
-            let memory_map = m68kdebug::new_scd_main_memory_map(debug_state);
-            let m68k = debug_state.genesis.m68k();
-            m68kdebug::render_disassembly_window(
-                ctx,
-                m68k,
-                memory_map,
-                &mut state.m68k,
-                debugger_handle.main_cpu_break_status(),
-                Some(|command| {
-                    let scd_command = match command {
-                        M68kBreakCommand::Resume => SegaCdDebugCommand::BreakResume,
-                        M68kBreakCommand::Pause => SegaCdDebugCommand::BreakPauseMain68k,
-                        M68kBreakCommand::Step => SegaCdDebugCommand::BreakStepMain68k,
-                    };
-                    let _ = debugger_handle.send_command(scd_command);
-                }),
-            );
+    {
+        let main_memory_map = Genesis68kMemoryMap::new(debug_state.state);
 
-            let sub_memory_map = SegaCdSubMemoryMap::new(debug_state);
-            let sub_cpu = debug_state.sub_cpu();
-            m68kdebug::render_disassembly_window(
-                ctx,
-                sub_cpu,
-                sub_memory_map,
-                &mut state.m68k_sub,
-                debugger_handle.sub_cpu_break_status(),
-                Some(|command| {
-                    let scd_command = match command {
-                        M68kBreakCommand::Resume => SegaCdDebugCommand::BreakResume,
-                        M68kBreakCommand::Pause => SegaCdDebugCommand::BreakPauseSub68k,
-                        M68kBreakCommand::Step => SegaCdDebugCommand::BreakStepSub68k,
-                    };
-                    let _ = debugger_handle.send_command(scd_command);
-                }),
-            );
+        m68kdebug::render_disassembly_window(
+            ctx,
+            &debug_state.state.m68k,
+            &main_memory_map,
+            &mut state.m68k,
+            debugger_handle.m68k_break_status(),
+            Some(|command| {
+                let genesis_cmd = match command {
+                    M68kBreakCommand::Pause => GenesisDebugCommand::BreakPause68k,
+                    M68kBreakCommand::Resume => GenesisDebugCommand::BreakResume,
+                    M68kBreakCommand::Step => GenesisDebugCommand::BreakStep68k,
+                };
+                let _ = debugger_handle.send_command(genesis_cmd);
+            }),
+        );
 
-            m68kdebug::render_breakpoints_window(ctx, &mut state.m68k, |breakpoints| {
-                let _ = debugger_handle
-                    .send_command(SegaCdDebugCommand::UpdateMain68kBreakpoints(breakpoints));
-            });
+        m68kdebug::render_breakpoints_window(ctx, &mut state.m68k, |breakpoints| {
+            let _ = debugger_handle
+                .send_command(GenesisDebugCommand::Update68kBreakpoints(breakpoints));
+        });
+    }
 
-            m68kdebug::render_breakpoints_window(ctx, &mut state.m68k_sub, |breakpoints| {
-                let _ = debugger_handle
-                    .send_command(SegaCdDebugCommand::UpdateSub68kBreakpoints(breakpoints));
-            });
-        }
-        GenesisBasedDebugState::Sega32X(debug_state, debugger_handle) => {
-            if let Some(memory_map) = m68kdebug::new_32x_memory_map(debug_state) {
-                let m68k = debug_state.genesis.m68k();
+    if let Some(sega_cd) = &mut debug_state.state.sega_cd {
+        let sub_memory_map = SegaCdSubMemoryMap::new(sega_cd);
+        let sub_cpu = sega_cd.sub_cpu();
+        m68kdebug::render_disassembly_window(
+            ctx,
+            sub_cpu,
+            &sub_memory_map,
+            &mut state.m68k_sub,
+            debugger_handle.sub_cpu_break_status(),
+            Some(|command| {
+                let scd_command = match command {
+                    M68kBreakCommand::Resume => GenesisDebugCommand::BreakResume,
+                    M68kBreakCommand::Pause => GenesisDebugCommand::BreakPauseSub68k,
+                    M68kBreakCommand::Step => GenesisDebugCommand::BreakStepSub68k,
+                };
+                let _ = debugger_handle.send_command(scd_command);
+            }),
+        );
 
-                m68kdebug::render_disassembly_window(
-                    ctx,
-                    m68k,
-                    memory_map,
-                    &mut state.m68k,
-                    debugger_handle.m68k_break_status(),
-                    Some(|command| {
-                        let s32x_command = match command {
-                            M68kBreakCommand::Pause => Sega32XDebugCommand::BreakPause68k,
-                            M68kBreakCommand::Resume => Sega32XDebugCommand::BreakResume,
-                            M68kBreakCommand::Step => Sega32XDebugCommand::BreakStep68k,
-                        };
-                        let _ = debugger_handle.send_command(s32x_command);
-                    }),
-                );
-
-                m68kdebug::render_breakpoints_window(ctx, &mut state.m68k, |breakpoints| {
-                    let _ = debugger_handle
-                        .send_command(Sega32XDebugCommand::Update68kBreakpoints(breakpoints));
-                });
-            }
-        }
+        m68kdebug::render_breakpoints_window(ctx, &mut state.m68k_sub, |breakpoints| {
+            let _ = debugger_handle
+                .send_command(GenesisDebugCommand::UpdateSub68kBreakpoints(breakpoints));
+        });
     }
 }
 
 fn render_z80_debug_windows(
     ctx: &egui::Context,
-    debug_state: &mut GenesisBasedDebugState<'_>,
+    debug_state: &mut GenesisDebuggerFrontendState<'_>,
     state: &mut State,
 ) {
-    match debug_state {
-        GenesisBasedDebugState::Genesis(debug_state, debugger_handle) => {
-            if let Some(m68k_memory_map) = m68kdebug::new_genesis_memory_map(debug_state) {
-                z80debug::render_disassembly_window(
-                    ctx,
-                    debug_state.z80(),
-                    GenesisZ80MemoryMap::new(debug_state, &m68k_memory_map),
-                    &mut state.z80,
-                    debugger_handle.z80_break_status(),
-                    Some(|command| {
-                        let genesis_command = match command {
-                            Z80BreakCommand::Pause => GenesisDebugCommand::BreakPauseZ80,
-                            Z80BreakCommand::Resume => GenesisDebugCommand::BreakResume,
-                            Z80BreakCommand::Step => GenesisDebugCommand::BreakStepZ80,
-                        };
-                        let _ = debugger_handle.send_command(genesis_command);
-                    }),
-                );
-            }
+    let memory_map = Genesis68kMemoryMap::new(debug_state.state);
 
-            z80debug::render_breakpoints_window(ctx, &mut state.z80, |breakpoints| {
-                let _ = debugger_handle
-                    .send_command(GenesisDebugCommand::UpdateZ80Breakpoints(breakpoints));
-            });
-        }
-        GenesisBasedDebugState::SegaCd(debug_state, debugger_handle) => {
-            z80debug::render_disassembly_window(
-                ctx,
-                debug_state.genesis.z80(),
-                GenesisZ80MemoryMap::new(
-                    &debug_state.genesis,
-                    &m68kdebug::new_scd_main_memory_map(debug_state),
-                ),
-                &mut state.z80,
-                debugger_handle.z80_break_status(),
-                Some(|command| {
-                    let scd_command = match command {
-                        Z80BreakCommand::Resume => SegaCdDebugCommand::BreakResume,
-                        Z80BreakCommand::Pause => SegaCdDebugCommand::BreakPauseZ80,
-                        Z80BreakCommand::Step => SegaCdDebugCommand::BreakStepZ80,
-                    };
-                    let _ = debugger_handle.send_command(scd_command);
-                }),
-            );
+    let debugger_handle = debug_state.debugger_handle;
 
-            z80debug::render_breakpoints_window(ctx, &mut state.z80, |breakpoints| {
-                let _ = debugger_handle
-                    .send_command(SegaCdDebugCommand::UpdateZ80Breakpoints(breakpoints));
-            });
-        }
-        GenesisBasedDebugState::Sega32X(debug_state, debugger_handle) => {
-            if let Some(m68k_memory_map) = m68kdebug::new_32x_memory_map(debug_state) {
-                z80debug::render_disassembly_window(
-                    ctx,
-                    debug_state.genesis.z80(),
-                    GenesisZ80MemoryMap::new(&debug_state.genesis, &m68k_memory_map),
-                    &mut state.z80,
-                    debugger_handle.z80_break_status(),
-                    Some(|command| {
-                        let s32x_command = match command {
-                            Z80BreakCommand::Pause => Sega32XDebugCommand::BreakPauseZ80,
-                            Z80BreakCommand::Resume => Sega32XDebugCommand::BreakResume,
-                            Z80BreakCommand::Step => Sega32XDebugCommand::BreakStepZ80,
-                        };
-                        let _ = debugger_handle.send_command(s32x_command);
-                    }),
-                );
-            }
+    z80debug::render_disassembly_window(
+        ctx,
+        &debug_state.state.z80,
+        GenesisZ80MemoryMap::new(debug_state.state, &memory_map),
+        &mut state.z80,
+        debugger_handle.z80_break_status(),
+        Some(|command| {
+            let genesis_command = match command {
+                Z80BreakCommand::Pause => GenesisDebugCommand::BreakPauseZ80,
+                Z80BreakCommand::Resume => GenesisDebugCommand::BreakResume,
+                Z80BreakCommand::Step => GenesisDebugCommand::BreakStepZ80,
+            };
+            let _ = debugger_handle.send_command(genesis_command);
+        }),
+    );
 
-            z80debug::render_breakpoints_window(ctx, &mut state.z80, |breakpoints| {
-                let _ = debugger_handle
-                    .send_command(Sega32XDebugCommand::UpdateZ80Breakpoints(breakpoints));
-            });
-        }
-    }
+    z80debug::render_breakpoints_window(ctx, &mut state.z80, |breakpoints| {
+        let _ =
+            debugger_handle.send_command(GenesisDebugCommand::UpdateZ80Breakpoints(breakpoints));
+    });
 }
 
 fn render_memory_viewer_windows(
     egui_ctx: &egui::Context,
-    emu_state: &mut GenesisBasedDebugState<'_>,
+    emu_state: &mut GenesisDebuggerFrontendState<'_>,
     memory_viewer_states: &mut HashMap<MemoryArea, MemoryViewerState>,
     memory_edit_hook: &mut dyn FnMut(MemoryArea, usize, u8),
 ) {
@@ -918,7 +736,7 @@ fn format_display_color(color: Color) -> String {
 fn render_cram_window(
     ctx: &egui::Context,
     screen_width: f32,
-    emu_state: &mut GenesisBasedDebugState<'_>,
+    emu_state: &mut GenesisDebuggerFrontendState<'_>,
     state: &mut CramWindowState,
 ) {
     Window::new(CRAM_WINDOW_TITLE)
@@ -927,7 +745,7 @@ fn render_cram_window(
         .default_pos(CRAM_DEFAULT_POS)
         .default_size([screen_width * 0.95, 225.0])
         .show(ctx, |ui| {
-            emu_state.vdp().copy_cram(state.entry_buffer.as_mut_slice(), state.modifier);
+            emu_state.state.vdp.copy_cram(state.entry_buffer.as_mut_slice(), state.modifier);
             for (entry, color) in
                 iter::zip(state.entry_buffer.iter(), state.color_buffer.iter_mut())
             {
@@ -1044,7 +862,7 @@ fn paint_rect_and_advance_cursor(ui: &mut Ui, min: Pos2, size: Vec2, fill_color:
 fn render_vram_window(
     ctx: &egui::Context,
     screen_width: f32,
-    emu_state: &mut GenesisBasedDebugState<'_>,
+    emu_state: &mut GenesisDebuggerFrontendState<'_>,
     state: &mut VramWindowState,
 ) {
     Window::new(VRAM_WINDOW_TITLE)
@@ -1061,7 +879,7 @@ fn render_vram_window(
                 }
             });
 
-            emu_state.vdp().copy_vram(state.buffer.as_mut_slice(), state.palette, 64);
+            emu_state.state.vdp.copy_vram(state.buffer.as_mut_slice(), state.palette, 64);
 
             let mut height = ui.available_width() * 0.45;
             if height > ui.available_height() {
@@ -1081,7 +899,7 @@ fn render_vram_window(
 
 fn render_h_scroll_window(
     ctx: &egui::Context,
-    emu_state: &mut GenesisBasedDebugState<'_>,
+    emu_state: &mut GenesisDebuggerFrontendState<'_>,
     state: &mut HScrollWindowState,
 ) {
     Window::new(H_SCROLL_WINDOW_TITLE)
@@ -1090,7 +908,7 @@ fn render_h_scroll_window(
         .default_pos(crate::rand_window_pos())
         .default_width(200.0)
         .show(ctx, |ui| {
-            emu_state.vdp().copy_h_scroll(state.buffer.as_mut_slice());
+            emu_state.state.vdp.copy_h_scroll(state.buffer.as_mut_slice());
 
             crate::brighten_faint_bg_color(ui);
 
@@ -1134,7 +952,7 @@ fn render_h_scroll_window(
 
 fn render_sprite_attributes_window(
     ctx: &egui::Context,
-    emu_state: &mut GenesisBasedDebugState<'_>,
+    emu_state: &mut GenesisDebuggerFrontendState<'_>,
     state: &mut SpriteAttributesWindowState,
 ) {
     Window::new(SPRITE_ATTRIBUTES_WINDOW_TITLE)
@@ -1144,7 +962,7 @@ fn render_sprite_attributes_window(
         .default_width(500.0)
         .show(ctx, |ui| {
             let CopySpriteAttributesResult { sprite_table_len, top_left_x, top_left_y } =
-                emu_state.vdp().copy_sprite_attributes(state.buffer.as_mut_slice());
+                emu_state.state.vdp.copy_sprite_attributes(state.buffer.as_mut_slice());
 
             ui.checkbox(&mut state.adjust_coordinates, "Shift coordinates to top-left of screen");
 
@@ -1248,7 +1066,7 @@ fn render_sh2_registers_window(
     open: &mut bool,
 ) {
     // Roughly 23.01 MHz
-    const SH2_CLOCK_RATE: f64 = genesis_core::audio::NTSC_GENESIS_MCLK_FREQUENCY
+    const SH2_CLOCK_RATE: f64 = genesis_components::NTSC_GENESIS_MCLK_FREQUENCY
         / (genesis_config::NATIVE_M68K_DIVIDER as f64)
         * (genesis_config::NATIVE_SH2_MULTIPLIER as f64);
 
@@ -1474,17 +1292,17 @@ fn render_32x_palette_window(
 
 fn render_vdp_registers_window(
     ctx: &egui::Context,
-    emu_state: &mut GenesisBasedDebugState<'_>,
+    emu_state: &mut GenesisDebuggerFrontendState<'_>,
     open: &mut bool,
 ) {
     crate::render_registers_window(ctx, "VDP Registers", open, |ui| {
-        emu_state.vdp().dump_registers(crate::dump_registers_callback(ui));
+        emu_state.state.vdp.dump_registers(crate::dump_registers_callback(ui));
     });
 }
 
 fn render_vdp_state_window(
     ctx: &egui::Context,
-    emu_state: &mut GenesisBasedDebugState<'_>,
+    emu_state: &mut GenesisDebuggerFrontendState<'_>,
     open: &mut bool,
 ) {
     Window::new(VDP_STATE_WINDOW_TITLE)
@@ -1493,7 +1311,7 @@ fn render_vdp_state_window(
         .default_pos(crate::rand_window_pos())
         .show(ctx, |ui| {
             ScrollArea::vertical().show(ui, |ui| {
-                let state = emu_state.vdp().internal_state();
+                let state = emu_state.state.vdp.internal_state();
 
                 crate::render_registers_table(
                     ui,
@@ -1648,7 +1466,10 @@ impl DebuggerMainProcess for GenesisDebugMainProcess {
         ctx: DebugRenderContext<'_>,
     ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
         let Some(state) = self.state_receiver.get() else { return Ok(()) };
-        (self.render_fn)(ctx, &mut GenesisBasedDebugState::Genesis(state, &self.debugger_handle));
+        (self.render_fn)(
+            ctx,
+            GenesisDebuggerFrontendState { state, debugger_handle: &self.debugger_handle },
+        );
 
         Ok(())
     }
@@ -1681,216 +1502,6 @@ where
 
     let runner_process = GenesisDebugRunnerProcess { state_sender, debugger };
     let main_process = GenesisDebugMainProcess {
-        debugger_handle,
-        state_receiver,
-        render_fn: render_fn(memory_edit_hook),
-    };
-
-    (Box::new(runner_process), Box::new(main_process))
-}
-
-struct SegaCdDebugRunnerProcess {
-    state_sender: SharedVarSender<SegaCdDebugState>,
-    debugger: SegaCdDebugger,
-}
-
-impl<R, A, I, S> DebuggerRunnerProcess<SegaCdEmulator, R, A, I, S> for SegaCdDebugRunnerProcess
-where
-    R: Renderer,
-    A: AudioOutput,
-    I: InputPoller<GenesisInputs>,
-    S: SaveWriter,
-{
-    fn run(
-        &mut self,
-        emulator: &mut SegaCdEmulator,
-    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-        let mut debug_view = emulator.as_debug_view();
-        self.debugger.process_commands(&mut debug_view);
-        self.state_sender.update(debug_view.to_debug_state());
-
-        Ok(())
-    }
-
-    fn run_emulator_till_next_frame(
-        &mut self,
-        emulator: &mut SegaCdEmulator,
-        renderer: &mut R,
-        audio_output: &mut A,
-        input_poller: &mut I,
-        save_writer: &mut S,
-    ) -> RunTillNextResult<SegaCdEmulator, R::Err, A::Err, S::Err> {
-        while emulator.debug_tick(
-            renderer,
-            audio_output,
-            input_poller,
-            save_writer,
-            &mut self.debugger,
-        )? != TickEffect::FrameRendered
-        {}
-
-        Ok(())
-    }
-}
-
-struct SegaCdDebugMainProcess {
-    debugger_handle: SegaCdDebuggerHandle,
-    state_receiver: SharedVarReceiver<SegaCdDebugState>,
-    render_fn: Box<GenesisDebugRenderFn>,
-}
-
-impl DebuggerMainProcess for SegaCdDebugMainProcess {
-    fn run(
-        &mut self,
-        ctx: DebugRenderContext<'_>,
-    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-        let Some(state) = self.state_receiver.get() else { return Ok(()) };
-        (self.render_fn)(ctx, &mut GenesisBasedDebugState::SegaCd(state, &self.debugger_handle));
-
-        Ok(())
-    }
-}
-
-#[must_use]
-pub fn sega_cd_debug_fn<R, A, I, S>() -> DebuggerProcesses<SegaCdEmulator, R, A, I, S>
-where
-    R: Renderer,
-    A: AudioOutput,
-    I: InputPoller<GenesisInputs>,
-    S: SaveWriter,
-{
-    let (state_sender, state_receiver) = jgenesis_common::sync::new_shared_var();
-    let (debugger, debugger_handle) = SegaCdDebugger::new(state_sender.clone());
-
-    let memory_edit_hook = {
-        let debugger_handle = debugger_handle.clone();
-
-        Box::new(move |memory_area, address, value| match memory_area {
-            MemoryArea::Genesis(memory_area) => {
-                let _ = debugger_handle.send_command(SegaCdDebugCommand::EditGenesisMemory(
-                    memory_area,
-                    address,
-                    value,
-                ));
-            }
-            MemoryArea::SegaCd(memory_area) => {
-                let _ = debugger_handle.send_command(SegaCdDebugCommand::EditSegaCdMemory(
-                    memory_area,
-                    address,
-                    value,
-                ));
-            }
-            MemoryArea::Sega32X(_) => {}
-        })
-    };
-
-    let runner_process = SegaCdDebugRunnerProcess { state_sender, debugger };
-    let main_process = SegaCdDebugMainProcess {
-        debugger_handle,
-        state_receiver,
-        render_fn: render_fn(memory_edit_hook),
-    };
-
-    (Box::new(runner_process), Box::new(main_process))
-}
-
-struct Sega32XDebugRunnerProcess {
-    state_sender: SharedVarSender<Sega32XDebugState>,
-    debugger: Sega32XDebugger,
-}
-
-impl<R, A, I, S> DebuggerRunnerProcess<Sega32XEmulator, R, A, I, S> for Sega32XDebugRunnerProcess
-where
-    R: Renderer,
-    A: AudioOutput,
-    I: InputPoller<GenesisInputs>,
-    S: SaveWriter,
-{
-    fn run(
-        &mut self,
-        emulator: &mut Sega32XEmulator,
-    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-        let mut debug_view = emulator.as_debug_view();
-        self.debugger.process_commands(&mut debug_view);
-        self.state_sender.update(debug_view.to_debug_state());
-
-        Ok(())
-    }
-
-    fn run_emulator_till_next_frame(
-        &mut self,
-        emulator: &mut Sega32XEmulator,
-        renderer: &mut R,
-        audio_output: &mut A,
-        input_poller: &mut I,
-        save_writer: &mut S,
-    ) -> RunTillNextResult<Sega32XEmulator, R::Err, A::Err, S::Err> {
-        while emulator.debug_tick(
-            renderer,
-            audio_output,
-            input_poller,
-            save_writer,
-            &mut self.debugger,
-        )? != TickEffect::FrameRendered
-        {}
-
-        Ok(())
-    }
-}
-
-struct Sega32XDebugMainProcess {
-    debugger_handle: Sega32XDebuggerHandle,
-    state_receiver: SharedVarReceiver<Sega32XDebugState>,
-    render_fn: Box<GenesisDebugRenderFn>,
-}
-
-impl DebuggerMainProcess for Sega32XDebugMainProcess {
-    fn run(
-        &mut self,
-        ctx: DebugRenderContext<'_>,
-    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-        let Some(state) = self.state_receiver.get() else { return Ok(()) };
-        (self.render_fn)(ctx, &mut GenesisBasedDebugState::Sega32X(state, &self.debugger_handle));
-
-        Ok(())
-    }
-}
-
-#[must_use]
-pub fn sega_32x_debug_fn<R, A, I, S>() -> DebuggerProcesses<Sega32XEmulator, R, A, I, S>
-where
-    R: Renderer,
-    A: AudioOutput,
-    I: InputPoller<GenesisInputs>,
-    S: SaveWriter,
-{
-    let (state_sender, state_receiver) = jgenesis_common::sync::new_shared_var();
-    let (debugger, debugger_handle) = Sega32XDebugger::new(state_sender.clone());
-
-    let memory_edit_hook = {
-        let command_sender = debugger_handle.command_sender.clone();
-
-        Box::new(move |memory_area, address, value| match memory_area {
-            MemoryArea::Genesis(memory_area) => {
-                let _ = command_sender.send(Sega32XDebugCommand::EditGenesisMemory(
-                    memory_area,
-                    address,
-                    value,
-                ));
-            }
-            MemoryArea::Sega32X(memory_area) => {
-                let _ = command_sender.send(Sega32XDebugCommand::Edit32XMemory(
-                    memory_area,
-                    address,
-                    value,
-                ));
-            }
-            MemoryArea::SegaCd(_) => {}
-        })
-    };
-
-    let runner_process = Sega32XDebugRunnerProcess { state_sender, debugger };
-    let main_process = Sega32XDebugMainProcess {
         debugger_handle,
         state_receiver,
         render_fn: render_fn(memory_edit_hook),

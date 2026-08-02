@@ -6,26 +6,28 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+cdrom = { workspace = true }
 dsp = { workspace = true }
-jgenesis-proc-macros = { workspace = true }
 jgenesis-common = { workspace = true }
+jgenesis-proc-macros = { workspace = true }
 
 genesis-config = { workspace = true }
-smsgg-config = { workspace = true }
 
 m68000-emu = { workspace = true, features = ["bincode"] }
+sh2-emu = { workspace = true }
 z80-emu = { workspace = true, features = ["bincode"] }
 
-smsgg-core = { workspace = true }
+genesis-components = { workspace = true }
+segacd-core = { workspace = true }
+s32x-core = { workspace = true }
+ti-sn76489 = { workspace = true }
 
 bincode = { workspace = true }
-crc = { workspace = true }
 log = { workspace = true }
-regex = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-test-log = { workspace = true }
+s32x-core = { workspace = true, features = ["test-apis"] }
 
 [lints]
 workspace = true

@@ -913,10 +913,11 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
         // Windows+Vulkan
         //
         // Possibly related: https://github.com/gfx-rs/wgpu/issues/8354
-        let prefer_srgb_format = cfg_select! {
-            target_os = "windows" => adapter_info.backend != wgpu::Backend::Vulkan,
-            _ => true,
-        };
+        let prefer_srgb_format =
+            cfg_select! {
+                target_os = "windows" => adapter_info.backend != wgpu::Backend::Vulkan,
+                _ => true,
+            };
 
         let surface_format = surface_capabilities
             .formats

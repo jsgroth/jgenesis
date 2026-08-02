@@ -1,17 +1,16 @@
+use crate::debug::{CopySpriteAttributesResult, CramEntry, SpriteAttributeEntry};
 use crate::vdp;
+use crate::vdp::colors::ColorTables;
+use crate::vdp::registers::{DebugRegister, Registers};
+use crate::vdp::render::PatternGeneratorRowArgs;
 use crate::vdp::{
     CachedSpriteData, ColorModifier, ControlWriteFlag, Cram, DataPortLocation, DataPortMode,
     SpriteData, Vdp, Vram, Vsram, colors, render, sprites,
 };
 use jgenesis_common::debug::{DebugBytesView, DebugMemoryView, DebugWordsView, Endian};
-use std::ops::Range;
-
-use crate::api::debug::{CopySpriteAttributesResult, CramEntry, SpriteAttributeEntry};
-use crate::vdp::colors::ColorTables;
-use crate::vdp::registers::{DebugRegister, Registers};
-use crate::vdp::render::PatternGeneratorRowArgs;
 use jgenesis_common::frontend::Color;
 use jgenesis_common::num::U16Ext;
+use std::ops::Range;
 
 // Internal state that is mostly not directly readable by software, but can be useful for debugging
 #[derive(Debug, Clone)]

@@ -3,24 +3,23 @@ name = "s32x-core"
 version = { workspace = true }
 edition = "2024"
 
+[features]
+default = []
+test-apis = []
+
 [dependencies]
 dsp = { workspace = true }
 jgenesis-common = { workspace = true }
 jgenesis-proc-macros = { workspace = true }
 
 genesis-config = { workspace = true }
-smsgg-config = { workspace = true }
 
-m68000-emu = { workspace = true }
 sh2-emu = { workspace = true }
-z80-emu = { workspace = true }
 
-genesis-core = { workspace = true }
-smsgg-core = { workspace = true }
+genesis-components = { workspace = true }
 
 bincode = { workspace = true, features = ["derive"] }
 log = { workspace = true }
-thiserror = { workspace = true }
 
 [lints]
 workspace = true

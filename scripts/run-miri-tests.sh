@@ -13,3 +13,4 @@ cargo +nightly miri test -p jgenesis-common
 
 # 32X bus tests - uses raw pointers to avoid lifetime params on the 32X SH-2 bus struct
 cargo +nightly miri test -p s32x-core
+cargo +nightly miri test -p genesis-core

@@ -1,13 +1,14 @@
 use crate::archive;
 use crate::archive::{ArchiveEntry, ArchiveError};
-use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
-use std::collections::HashMap;
+use cdrom::reader::{CdRom, CdRomFileFormat};
+use jgenesis_proc_macros::{CustomValueEnum, EnumAll, EnumDisplay, EnumFromStr};
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs::File;
-use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::io::{BufReader, Read};
 use std::path::Path;
 use std::sync::LazyLock;
-use std::{fs, io};
+use std::{cmp, fs, io};
 
 pub const SG_1000: &[&str] = &["sg"];
 pub const MASTER_SYSTEM: &[&str] = &["sms"];
@@ -24,19 +25,31 @@ pub const PC_ENGINE: &[&str] = &["pce"];
 
 pub const SUPPORTED_ARCHIVES: &[&str] = &["zip", "7z"];
 
-pub static SMSGG: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
-    [SG_1000, MASTER_SYSTEM, GAME_GEAR]
-        .into_iter()
-        .flat_map(|system| system.iter().copied())
-        .collect()
-});
+const GENESIS_32X_HEADER_LEN: usize =
+    s32x_core::SECURITY_PROGRAM_CARTRIDGE_ADDR + s32x_core::SECURITY_PROGRAM_LEN;
 
-pub static GB_GBC: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
-    [GAME_BOY, GAME_BOY_COLOR].into_iter().flat_map(|system| system.iter().copied()).collect()
-});
+fn concat_extensions(iter: impl IntoIterator<Item = &'static [&'static str]>) -> Vec<&'static str> {
+    iter.into_iter()
+        .flat_map(|system| system.iter().copied())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+pub static SMSGG: LazyLock<Vec<&'static str>> =
+    LazyLock::new(|| concat_extensions([SG_1000, MASTER_SYSTEM, GAME_GEAR]));
+
+pub static GENESIS_32X: LazyLock<Vec<&'static str>> =
+    LazyLock::new(|| concat_extensions([GENESIS, SEGA_32X]));
+
+pub static SEGA_CD_32X: LazyLock<Vec<&'static str>> =
+    LazyLock::new(|| concat_extensions([GENESIS, SEGA_CD, SEGA_32X]));
+
+pub static GB_GBC: LazyLock<Vec<&'static str>> =
+    LazyLock::new(|| concat_extensions([GAME_BOY, GAME_BOY_COLOR]));
 
 pub static ALL_CARTRIDGE_BASED: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
-    [
+    concat_extensions([
         SG_1000,
         MASTER_SYSTEM,
         GAME_GEAR,
@@ -48,10 +61,7 @@ pub static ALL_CARTRIDGE_BASED: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
         GAME_BOY_COLOR,
         GAME_BOY_ADVANCE,
         PC_ENGINE,
-    ]
-    .into_iter()
-    .flat_map(|system| system.iter().copied())
-    .collect()
+    ])
 });
 
 pub static ALL: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
@@ -111,9 +121,8 @@ fn build_extension_lookup() -> HashMap<&'static str, Console> {
         (SG_1000, Console::Sg1000),
         (MASTER_SYSTEM, Console::MasterSystem),
         (GAME_GEAR, Console::GameGear),
-        (GENESIS, Console::Genesis),
+        // Exclude Genesis/32X because need to check the header for Sega CD support
         (SEGA_CD, Console::SegaCd),
-        (SEGA_32X, Console::Sega32X),
         (NES, Console::Nes),
         (SNES, Console::Snes),
         (GAME_BOY, Console::GameBoy),
@@ -137,7 +146,14 @@ pub struct ConsoleWithSize {
     pub file_size: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumDisplay, EnumFromStr, EnumAll)]
+#[derive(Debug, Clone, Copy)]
+pub struct SupportedExtensions {
+    // Should display the console name if label is None
+    pub label: Option<&'static str>,
+    pub extensions: &'static [&'static str],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumDisplay, EnumFromStr, EnumAll, CustomValueEnum)]
 pub enum Console {
     MasterSystem,
     GameGear,
@@ -145,6 +161,7 @@ pub enum Console {
     Genesis,
     SegaCd,
     Sega32X,
+    SegaCd32X,
     Nes,
     Snes,
     GameBoy,
@@ -158,16 +175,22 @@ impl Console {
     pub fn from_file(file_path: &Path) -> Option<ConsoleWithSize> {
         let extension = from_path(file_path)?;
         if let Some(&console) = EXTENSION_LOOKUP.get(&extension.as_str()) {
+            let console = match console {
+                Console::SegaCd if is_disc_sega_cd_32x(file_path) => Console::SegaCd32X,
+                _ => console,
+            };
+
+            let file_size = fs::metadata(file_path).ok()?.len();
+            return Some(ConsoleWithSize { console, file_size });
+        }
+
+        if GENESIS_32X.contains(&extension.as_str()) {
+            let console = guess_genesis_console_raw_file(file_path).ok()?;
             let file_size = fs::metadata(file_path).ok()?.len();
             return Some(ConsoleWithSize { console, file_size });
         }
 
         match extension.as_str() {
-            "bin" => {
-                let console = guess_bin_console_raw_file(file_path).ok()?;
-                let file_size = fs::metadata(file_path).ok()?.len();
-                Some(ConsoleWithSize { console, file_size })
-            }
             "zip" => Self::from_zip(file_path),
             "7z" => Self::from_7z(file_path),
             _ => None,
@@ -178,21 +201,23 @@ impl Console {
         let mut callback = ArchiveListCallback::new();
         archive::list_files_zip(zip_path, callback.as_fn_mut()).ok()?;
 
-        Self::from_list_callback(callback, |file_name| archive::read_file_zip(zip_path, file_name))
+        Self::from_list_callback(callback, |file_name, max_len| {
+            archive::read_file_zip(zip_path, file_name, max_len)
+        })
     }
 
     fn from_7z(sevenz_path: &Path) -> Option<ConsoleWithSize> {
         let mut callback = ArchiveListCallback::new();
         archive::list_files_7z(sevenz_path, callback.as_fn_mut()).ok()?;
 
-        Self::from_list_callback(callback, |file_name| {
-            archive::read_file_7z(sevenz_path, file_name)
+        Self::from_list_callback(callback, |file_name, max_len| {
+            archive::read_file_7z(sevenz_path, file_name, max_len)
         })
     }
 
     fn from_list_callback(
         callback: ArchiveListCallback,
-        read_file_fn: impl FnOnce(&str) -> Result<Vec<u8>, ArchiveError>,
+        read_file_fn: impl FnOnce(&str, usize) -> Result<Vec<u8>, ArchiveError>,
     ) -> Option<ConsoleWithSize> {
         if callback.contains_cue {
             return None;
@@ -203,9 +228,10 @@ impl Console {
             return Some(ConsoleWithSize { console, file_size: first_supported_file.size });
         }
 
-        if first_supported_file.extension.as_str() == "bin" {
-            let contents = read_file_fn(&first_supported_file.file_name).ok()?;
-            let console = guess_bin_console_archive(&contents);
+        if GENESIS_32X.contains(&first_supported_file.extension.as_str()) {
+            let header =
+                read_file_fn(&first_supported_file.file_name, GENESIS_32X_HEADER_LEN).ok()?;
+            let console = guess_genesis_console(&header);
             return Some(ConsoleWithSize { console, file_size: first_supported_file.size });
         }
 
@@ -222,6 +248,7 @@ impl Console {
             Self::Genesis => "Genesis",
             Self::SegaCd => "Sega CD",
             Self::Sega32X => "32X",
+            Self::SegaCd32X => "Sega CD 32X",
             Self::Nes => "NES",
             Self::Snes => "SNES",
             Self::GameBoy => "Game Boy",
@@ -233,17 +260,29 @@ impl Console {
 
     #[inline]
     #[must_use]
-    pub fn supported_extensions(self) -> &'static [&'static str] {
+    pub fn supported_extensions(self) -> Vec<SupportedExtensions> {
+        fn single(extensions: &'static [&'static str]) -> Vec<SupportedExtensions> {
+            vec![SupportedExtensions { label: None, extensions }]
+        }
+
         match self {
-            Self::Sg1000 | Self::MasterSystem | Self::GameGear => &SMSGG,
-            Self::Genesis => GENESIS,
-            Self::SegaCd => SEGA_CD,
-            Self::Sega32X => SEGA_32X,
-            Self::Nes => NES,
-            Self::Snes => SNES,
-            Self::GameBoy | Self::GameBoyColor => &GB_GBC,
-            Self::GameBoyAdvance => GAME_BOY_ADVANCE,
-            Self::PcEngine => PC_ENGINE,
+            Self::Sg1000 | Self::MasterSystem | Self::GameGear => single(&SMSGG),
+            Self::Genesis => single(GENESIS),
+            Self::SegaCd => vec![
+                SupportedExtensions { label: None, extensions: SEGA_CD },
+                SupportedExtensions { label: Some("Genesis"), extensions: GENESIS },
+            ],
+            Self::Sega32X => single(SEGA_32X),
+            Self::SegaCd32X => vec![
+                SupportedExtensions { label: None, extensions: &SEGA_CD_32X },
+                SupportedExtensions { label: Some("Sega CD"), extensions: SEGA_CD },
+                SupportedExtensions { label: Some("Genesis/32X"), extensions: &GENESIS_32X },
+            ],
+            Self::Nes => single(NES),
+            Self::Snes => single(SNES),
+            Self::GameBoy | Self::GameBoyColor => single(&GB_GBC),
+            Self::GameBoyAdvance => single(GAME_BOY_ADVANCE),
+            Self::PcEngine => single(PC_ENGINE),
         }
     }
 
@@ -251,45 +290,62 @@ impl Console {
     #[must_use]
     pub const fn standard_extension(self) -> &'static str {
         match self {
-            Console::MasterSystem => "sms",
-            Console::GameGear => "gg",
-            Console::Sg1000 => "sg",
-            Console::Genesis => "md",
-            Console::SegaCd => "scd", // Intentionally not CUE or CHD, too ambiguous
-            Console::Sega32X => "32x",
-            Console::Nes => "nes",
-            Console::Snes => "sfc",
-            Console::GameBoy => "gb",
-            Console::GameBoyColor => "gbc",
-            Console::GameBoyAdvance => "gba",
-            Console::PcEngine => "pce",
+            Self::MasterSystem => "sms",
+            Self::GameGear => "gg",
+            Self::Sg1000 => "sg",
+            Self::Genesis => "md",
+            Self::SegaCd | Self::SegaCd32X => "scd", // Intentionally not CUE or CHD, too ambiguous
+            Self::Sega32X => "32x",
+            Self::Nes => "nes",
+            Self::Snes => "sfc",
+            Self::GameBoy => "gb",
+            Self::GameBoyColor => "gbc",
+            Self::GameBoyAdvance => "gba",
+            Self::PcEngine => "pce",
         }
     }
 }
 
-fn guess_bin_console_raw_file(path: &Path) -> io::Result<Console> {
-    const SECURITY_PROGRAM_CARTRIDGE_ADDR: u64 = s32x_core::SECURITY_PROGRAM_CARTRIDGE_ADDR as u64;
-    const SECURITY_PROGRAM_LEN: usize = s32x_core::SECURITY_PROGRAM_LEN;
-
+// Assuming this is a path to a Genesis or 32X image, determine what hardware is supported/required
+fn guess_genesis_console_raw_file(path: &Path) -> io::Result<Console> {
     let file = File::open(path)?;
-    if file.metadata()?.len() < SECURITY_PROGRAM_CARTRIDGE_ADDR + SECURITY_PROGRAM_LEN as u64 {
-        return Ok(Console::Genesis);
-    }
+    let file_len = file.metadata()?.len();
+    let buffer_len = cmp::min(file_len as usize, GENESIS_32X_HEADER_LEN);
 
     let mut reader = BufReader::new(file);
-    reader.seek(SeekFrom::Start(SECURITY_PROGRAM_CARTRIDGE_ADDR))?;
-
-    let mut buffer = [0; SECURITY_PROGRAM_LEN];
+    let mut buffer = vec![0; buffer_len];
     reader.read_exact(&mut buffer)?;
 
-    Ok(if buffer == s32x_core::security_program() { Console::Sega32X } else { Console::Genesis })
+    Ok(guess_genesis_console(&buffer))
 }
 
-fn guess_bin_console_archive(file: &[u8]) -> Console {
+fn guess_genesis_console(header: &[u8]) -> Console {
     let start = s32x_core::SECURITY_PROGRAM_CARTRIDGE_ADDR;
     let end = start + s32x_core::SECURITY_PROGRAM_LEN;
-
     let contains_s32x_security_program =
-        file.len() >= end && &file[start..end] == s32x_core::security_program();
-    if contains_s32x_security_program { Console::Sega32X } else { Console::Genesis }
+        header.len() >= end && &header[start..end] == s32x_core::security_program();
+
+    // 'C' in the devices section indicates Sega CD support: https://plutiedev.com/rom-header#devices
+    let mut supports_sega_cd = header.len() >= 0x1A0 && header[0x190..0x1A0].contains(&b'C');
+
+    // Special case Flux (audio CD visualizer), header doesn't indicate Sega CD support
+    supports_sega_cd |= header.len() >= 0x18B && &header[0x180..0x18B] == b"GM T-70416-";
+
+    if supports_sega_cd && contains_s32x_security_program {
+        Console::SegaCd32X
+    } else if contains_s32x_security_program {
+        Console::Sega32X
+    } else if supports_sega_cd {
+        Console::SegaCd
+    } else {
+        Console::Genesis
+    }
+}
+
+// Assuming this is a path to a Sega CD disc image, check whether the game supports/requires 32X
+fn is_disc_sega_cd_32x(path: &Path) -> bool {
+    let Some(disc_format) = CdRomFileFormat::from_file_path(path) else { return false };
+    let Ok(mut disc) = CdRom::open(path, disc_format) else { return false };
+
+    segacd_core::is_cd_32x_disc(&mut disc)
 }

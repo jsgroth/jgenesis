@@ -8,9 +8,10 @@ use egui::{Context, Window};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::extensions::Console;
 use rfd::FileDialog;
-use smsgg_config::{GgAspectRatio, SmsAspectRatio, SmsGgRegion, SmsModel, Sn76489Version};
+use smsgg_config::{GgAspectRatio, SmsAspectRatio, SmsGgRegion, SmsModel};
 use std::num::NonZeroU32;
 use std::path::PathBuf;
+use ti_sn76489::Sn76489Version;
 
 impl App {
     pub(super) fn render_smsgg_general_settings(&mut self, ctx: &Context) {

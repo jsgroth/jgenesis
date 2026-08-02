@@ -4,7 +4,6 @@ use crate::audio::{AudioResampler, TimingModeExt};
 use crate::bus::Bus;
 use crate::input::InputState;
 use crate::memory::Memory;
-use crate::psg::{Sn76489, Sn76489TickEffect};
 use crate::vdp::{Vdp, VdpBuffer, VdpTickEffect, ViewportSize};
 use crate::{VdpVersion, vdp};
 use bincode::{Decode, Encode};
@@ -17,11 +16,12 @@ use jgenesis_common::frontend::{
 };
 use jgenesis_proc_macros::ConfigDisplay;
 use smsgg_config::{
-    GgAspectRatio, SmsAspectRatio, SmsGgButton, SmsGgInputs, SmsGgRegion, SmsModel, Sn76489Version,
+    GgAspectRatio, SmsAspectRatio, SmsGgButton, SmsGgInputs, SmsGgRegion, SmsModel,
 };
 use std::fmt::{Debug, Display};
 use std::num::NonZeroU32;
 use thiserror::Error;
+use ti_sn76489::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use ym_opll::Ym2413;
 use z80_emu::{InterruptMode, Z80};
 

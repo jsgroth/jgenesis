@@ -14,6 +14,7 @@ smsgg-config = { workspace = true }
 
 z80-emu = { workspace = true, features = ["bincode"] }
 
+ti-sn76489 = { workspace = true }
 ym-opll = { workspace = true }
 
 bincode = { workspace = true }

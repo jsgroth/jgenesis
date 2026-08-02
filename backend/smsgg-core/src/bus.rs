@@ -2,11 +2,11 @@
 
 use crate::input::InputState;
 use crate::memory::Memory;
-use crate::psg::Sn76489;
 use crate::vdp::Vdp;
 use crate::{SmsGgHardware, VdpVersion};
 use jgenesis_common::num::GetBit;
 use smsgg_config::SmsGgRegion;
+use ti_sn76489::Sn76489;
 use ym_opll::Ym2413;
 use z80_emu::debug::DummyZ80Debugger;
 use z80_emu::traits::{BusInterface, InterruptLine};

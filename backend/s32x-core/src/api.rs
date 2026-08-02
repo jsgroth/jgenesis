@@ -1,429 +1,595 @@
 //! 32X public interface and main loop
-//!
-//! At some point common code should probably be collapsed between the Genesis/SCD/32X crates
 
 pub mod debug;
 
-use crate::api::debug::{GenesisComponents, Sega32XDebugger};
-use crate::audio::Sega32XResampler;
-use crate::core::Sega32X;
+use crate::api::debug::Sega32XDebugger;
+use crate::bootrom::M68kVectors;
+use crate::bus::debug::DebugSh2Bus;
+use crate::bus::{Sega32XBus, Sh2Bus};
+use crate::registers::Access;
+use crate::{GenesisVdp, WhichCpu, bootrom};
 use bincode::{Decode, Encode};
-use genesis_config::{
-    GenesisButton, GenesisRegion, S32XColorTint, S32XPwmResampling, S32XVideoOut, S32XVoidColor,
-};
-use genesis_core::input::InputState;
-use genesis_core::memory::debug::DebugMainBus;
-use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
-use genesis_core::timing::GenesisCycleCounters;
-use genesis_core::vdp::{DarkenColors, Vdp, VdpTickEffect};
-use genesis_core::ym2612::Ym2612;
-use genesis_core::{GenesisEmulatorConfig, GenesisInputs};
-use jgenesis_common::frontend::{
-    AudioOutput, EmulatorConfigTrait, EmulatorTrait, InputPoller, Modal, PartialClone, Renderer,
-    SaveWriter, TickEffect, TickResult, TimingMode,
-};
-use jgenesis_proc_macros::ConfigDisplay;
-use m68000_emu::M68000;
-use smsgg_config::Sn76489Version;
-use smsgg_core::psg::{Sn76489, Sn76489TickEffect};
-use std::fmt::{Debug, Display};
+use genesis_components::GenesisEmulatorConfigExt;
+use genesis_components::cartridge::Cartridge;
+use genesis_components::vdp::BorderSize;
+use genesis_config::GenesisEmulatorConfig;
+use jgenesis_common::frontend::{FrameSize, Renderer, TimingMode};
+use jgenesis_common::num::{GetBit, U16Ext};
+use jgenesis_proc_macros::PartialClone;
+use sh2_emu::Sh2;
+#[cfg(feature = "test-apis")]
+use sh2_emu::bus::{AccessContext, BusInterface, OpSize};
+#[cfg(feature = "test-apis")]
+use sh2_emu::debug::Sh2Debugger;
+use std::cmp;
+use std::fmt::Debug;
 use std::num::NonZeroU64;
-use thiserror::Error;
-use z80_emu::Z80;
 
-#[derive(Debug, Error)]
-pub enum Sega32XError<RErr, AErr, SErr> {
-    #[error("Rendering error: {0}")]
-    Render(RErr),
-    #[error("Audio error: {0}")]
-    Audio(AErr),
-    #[error("Save write error: {0}")]
-    SaveWrite(SErr),
+const M68K_DIVIDER: u64 = genesis_config::NATIVE_M68K_DIVIDER;
+const SH2_MULTIPLIER: u64 = crate::SH2_CLOCK_MULTIPLIER;
+
+// Prefer to execute SH-2 instructions in longer chunks when possible for better performance
+pub(crate) const SH2_EXECUTION_SLICE_LEN: u64 = 50;
+
+pub trait Sega32XAudioOutput {
+    fn collect_pwm(&mut self, sample: (f64, f64));
+
+    fn update_pwm_source_frequency(&mut self, frequency: f64);
 }
 
-#[derive(Debug, Clone, Encode, Decode, ConfigDisplay)]
-pub struct Sega32XEmulatorConfig {
-    #[cfg_display(skip)]
-    pub genesis: GenesisEmulatorConfig,
-    pub sh2_clock_multiplier: NonZeroU64,
-    pub video_out: S32XVideoOut,
-    pub darken_genesis_colors: bool,
-    pub color_tint: S32XColorTint,
-    pub show_high_priority: bool,
-    pub show_low_priority: bool,
-    pub void_color: S32XVoidColor,
-    pub apply_genesis_lpf_to_pwm: bool,
-    pub pwm_resampling: S32XPwmResampling,
-    pub pwm_enabled: bool,
-    pub pwm_volume_adjustment_db: f64,
+#[derive(Debug, Clone, Copy)]
+pub struct GenesisVdpInfo {
+    pub scanline: u16,
+    pub scanline_mclk: u64,
+    pub frame_size: FrameSize,
+    pub border_size: BorderSize,
+    pub scanlines_in_current_frame: u16,
 }
 
-impl Default for Sega32XEmulatorConfig {
-    fn default() -> Self {
-        Self {
-            genesis: GenesisEmulatorConfig::default(),
-            sh2_clock_multiplier: NonZeroU64::new(crate::SH2_CLOCK_MULTIPLIER).unwrap(),
-            video_out: S32XVideoOut::default(),
-            darken_genesis_colors: true,
-            color_tint: S32XColorTint::default(),
-            show_high_priority: true,
-            show_low_priority: true,
-            void_color: S32XVoidColor::default(),
-            apply_genesis_lpf_to_pwm: true,
-            pwm_resampling: S32XPwmResampling::default(),
-            pwm_enabled: true,
-            pwm_volume_adjustment_db: 0.0,
-        }
-    }
-}
-
-impl Sega32XEmulatorConfig {
-    fn genesis_color_adjustment(&self) -> DarkenColors {
-        if self.darken_genesis_colors { DarkenColors::Yes } else { DarkenColors::No }
-    }
-}
-
-impl EmulatorConfigTrait for Sega32XEmulatorConfig {
-    fn with_overclocking_disabled(&self) -> Self {
-        Self {
-            genesis: self.genesis.with_overclocking_disabled(),
-            sh2_clock_multiplier: NonZeroU64::new(crate::SH2_CLOCK_MULTIPLIER).unwrap(),
-            ..*self
-        }
-    }
-}
-
-macro_rules! new_main_bus {
-    ($self:expr, m68k_reset: $m68k_reset:expr) => {
-        MainBus::new(
-            &mut $self.memory,
-            &mut $self.vdp,
-            &mut $self.psg,
-            &mut $self.ym2612,
-            &mut $self.input,
-            &mut $self.cycles,
-            $self.m68k.next_opcode(),
-            $self.timing_mode,
-            MainBusSignals { m68k_reset: $m68k_reset },
-            std::mem::take(&mut $self.main_bus_writes),
-        )
-    };
-}
-
-#[derive(Debug, PartialClone, Encode, Decode)]
-pub struct Sega32XEmulator {
-    m68k: M68000,
-    z80: Z80,
-    vdp: Vdp,
-    ym2612: Ym2612,
-    psg: Sn76489,
+#[derive(Debug, Clone, Encode, Decode, PartialClone)]
+pub struct Sega32X {
+    sh2_master: Sh2,
+    sh2_slave: Sh2,
+    mclk_counter: u64,
+    global_cycles: u64,
+    master_cycles: u64,
+    slave_cycles: u64,
+    sh2_clock_multiplier: Option<NonZeroU64>,
     #[partial_clone(partial)]
-    memory: Memory<Sega32X>,
-    input: InputState,
-    audio_resampler: Sega32XResampler,
-    main_bus_writes: MainBusWrites,
-    cycles: GenesisCycleCounters,
-    region: GenesisRegion,
+    bus: Sega32XBus,
+    m68k_vectors: Box<M68kVectors>,
     timing_mode: TimingMode,
-    config: Sega32XEmulatorConfig,
+    config: GenesisEmulatorConfig,
 }
 
-impl Sega32XEmulator {
-    pub fn create<S: SaveWriter>(
-        rom: Vec<u8>,
-        config: Sega32XEmulatorConfig,
-        save_writer: &mut S,
+impl Sega32X {
+    #[must_use]
+    pub fn new(
+        timing_mode: TimingMode,
+        cartridge: Option<Cartridge>,
+        config: &GenesisEmulatorConfig,
     ) -> Self {
-        let initial_cartridge_ram = save_writer.load_bytes("sav").ok();
-        let s32x = Sega32X::new(rom, initial_cartridge_ram, &config);
-
-        let region = s32x.region;
-        let timing_mode = s32x.timing_mode;
-
-        log::info!("Running with region {region:?} and timing mode {timing_mode:?}");
-
-        let m68k = M68000::builder().allow_tas_writes(false).build();
-        let z80 = Z80::new();
-        let vdp =
-            Vdp::new(timing_mode, config.genesis.to_vdp_config(config.genesis_color_adjustment()));
-        let ym2612 = Ym2612::new(&config.genesis);
-        let psg = Sn76489::new(Sn76489Version::Standard);
-
-        let memory = Memory::new(s32x, &config.genesis);
-
-        let input = InputState::new(
-            &config.genesis,
-            memory.medium().cartridge().metadata().six_button_incompatible,
-        );
-
-        let mut emulator = Self {
-            m68k,
-            z80,
-            vdp,
-            ym2612,
-            psg,
-            memory,
-            input,
-            audio_resampler: Sega32XResampler::new(timing_mode, &config),
-            main_bus_writes: MainBusWrites::new(),
-            cycles: GenesisCycleCounters::new(config.genesis.clamped_m68k_divider()),
-            region,
+        Self {
+            sh2_master: Sh2::new("Master".into()),
+            sh2_slave: Sh2::new("Slave".into()),
+            mclk_counter: 0,
+            global_cycles: 0,
+            master_cycles: 0,
+            slave_cycles: 0,
+            sh2_clock_multiplier: none_if_default_multiplier(config.sega_32x.sh2_clock_multiplier),
+            bus: Sega32XBus::new(timing_mode, cartridge, &config.sega_32x),
+            m68k_vectors: Box::new(bootrom::new_m68k_vectors()),
             timing_mode,
-            config,
-        };
-
-        emulator.m68k.execute_instruction(&mut new_main_bus!(emulator, m68k_reset: true));
-
-        emulator
+            config: config.clone(),
+        }
     }
 
     #[inline]
-    fn tick_inner<const DEBUG: bool, R, A, I, S>(
+    pub fn tick<const DEBUG: bool>(
         &mut self,
-        renderer: &mut R,
-        audio_output: &mut A,
-        input_poller: &mut I,
-        save_writer: &mut S,
-        mut debugger: Option<&mut Sega32XDebugger>,
-    ) -> TickResult<Sega32XError<R::Err, A::Err, S::Err>>
-    where
-        R: Renderer,
-        A: AudioOutput,
-        I: InputPoller<GenesisInputs>,
-        S: SaveWriter,
-    {
-        self.input.set_inputs(*input_poller.poll());
+        mut total_mclk_cycles: u64,
+        vdp_info: GenesisVdpInfo,
+        audio_output: &mut impl Sega32XAudioOutput,
+        debugger: &mut impl Sega32XDebugger,
+    ) {
+        while total_mclk_cycles > 0 {
+            // If an SH-2 is stalled on a cartridge ROM access, it unstalls when RV=0
+            self.bus.stalled_on_cartridge_access &= self.bus.registers.dma.rom_to_vram;
 
-        let mut bus = new_main_bus!(self, m68k_reset: false);
-        let m68k_wait = bus.cycles.m68k_wait_cpu_cycles != 0;
-        let m68k_cycles = if m68k_wait {
-            bus.cycles.take_m68k_wait_cpu_cycles()
-        } else if DEBUG && let Some(debugger) = &mut debugger {
-            let mut debug_bus =
-                DebugMainBus { bus: &mut bus, debugger: debugger.for_68k(&mut self.z80) };
-            self.m68k.execute_instruction(&mut debug_bus)
+            let h_interrupt_enabled = self.bus.registers.either_h_interrupt_enabled();
+            let mclk_till_next_vdp_event =
+                self.bus.vdp.mclk_cycles_until_next_event(h_interrupt_enabled);
+            debug_assert_ne!(mclk_till_next_vdp_event, 0);
+
+            let mclk_cycles = cmp::min(mclk_till_next_vdp_event, total_mclk_cycles);
+            total_mclk_cycles -= mclk_cycles;
+
+            self.mclk_counter += mclk_cycles;
+            let (elapsed_sh2_cycles, elapsed_pwm_cycles) = match self.sh2_clock_multiplier {
+                Some(multiplier) => {
+                    let multiplier = multiplier.get();
+                    let elapsed_sh2_cycles = self.mclk_counter / M68K_DIVIDER * multiplier;
+                    let elapsed_pwm_cycles = elapsed_sh2_cycles / multiplier * SH2_MULTIPLIER;
+                    self.mclk_counter -= elapsed_sh2_cycles * M68K_DIVIDER / multiplier;
+
+                    (elapsed_sh2_cycles, elapsed_pwm_cycles)
+                }
+                None => {
+                    let elapsed_sh2_cycles = self.mclk_counter / M68K_DIVIDER * SH2_MULTIPLIER;
+                    self.mclk_counter -= elapsed_sh2_cycles * M68K_DIVIDER / SH2_MULTIPLIER;
+
+                    (elapsed_sh2_cycles, elapsed_sh2_cycles)
+                }
+            };
+
+            self.global_cycles += elapsed_sh2_cycles;
+
+            // SH-2s
+            self.execute_cpus::<DEBUG>(debugger);
+
+            // SH-2/SH7604 peripherals (WDT, SCI)
+            let mut peripherals_bus = Sh2Bus::create(&mut self.bus, WhichCpu::Master, 0, 0, None);
+            self.sh2_master.tick_peripherals(elapsed_pwm_cycles, &mut *peripherals_bus);
+
+            peripherals_bus.which = WhichCpu::Slave;
+            self.sh2_slave.tick_peripherals(elapsed_pwm_cycles, &mut *peripherals_bus);
+
+            // 32X VDP
+            self.bus.vdp.tick(mclk_cycles, &mut self.bus.registers, vdp_info);
+
+            // PWM chip
+            self.bus.pwm.tick(elapsed_pwm_cycles, &mut self.bus.registers, audio_output);
+        }
+
+        debug_assert_eq!(self.bus.vdp.scanline(), vdp_info.scanline);
+        debug_assert_eq!(self.bus.vdp.scanline_mclk(), vdp_info.scanline_mclk);
+    }
+
+    fn execute_cpus<const DEBUG: bool>(&mut self, debugger: &mut impl Sega32XDebugger) {
+        if self.bus.stalled_on_cartridge_access {
+            self.slave_cycles = self.global_cycles;
+            self.master_cycles = self.global_cycles;
+            return;
+        }
+
+        // Slave SH-2
+        let mut slave_bus = Sh2Bus::create(
+            &mut self.bus,
+            WhichCpu::Slave,
+            self.slave_cycles,
+            self.global_cycles,
+            Some((&mut self.sh2_master, &mut self.master_cycles)),
+        );
+
+        self.slave_cycles = if DEBUG {
+            let mut debug_bus = DebugSh2Bus::create(slave_bus, debugger);
+            while debug_bus.cycle_counter() < debug_bus.cycle_limit() {
+                self.sh2_slave.execute(SH2_EXECUTION_SLICE_LEN, &mut *debug_bus);
+            }
+            debug_bus.cycle_counter()
         } else {
-            self.m68k.execute_instruction(&mut bus)
+            while slave_bus.cycle_counter < slave_bus.cycle_limit {
+                self.sh2_slave.execute(SH2_EXECUTION_SLICE_LEN, &mut *slave_bus);
+            }
+            slave_bus.cycle_counter
         };
 
-        let mclk_cycles = u64::from(m68k_cycles) * bus.cycles.m68k_divider.get();
-        bus.cycles.increment_mclk_counters(mclk_cycles, bus.vdp.should_halt_cpu());
+        // Master SH-2
+        let mut master_bus = Sh2Bus::create(
+            &mut self.bus,
+            WhichCpu::Master,
+            self.master_cycles,
+            self.global_cycles,
+            Some((&mut self.sh2_slave, &mut self.slave_cycles)),
+        );
+        self.master_cycles = if DEBUG {
+            let mut debug_bus = DebugSh2Bus::create(master_bus, debugger);
+            while debug_bus.cycle_counter() < debug_bus.cycle_limit() {
+                self.sh2_master.execute(SH2_EXECUTION_SLICE_LEN, &mut *debug_bus);
+            }
+            debug_bus.cycle_counter()
+        } else {
+            while master_bus.cycle_counter < master_bus.cycle_limit {
+                self.sh2_master.execute(SH2_EXECUTION_SLICE_LEN, &mut *master_bus);
+            }
+            master_bus.cycle_counter
+        };
+    }
 
-        while bus.cycles.should_tick_z80() {
-            if !bus.cycles.z80_halt {
-                if DEBUG && let Some(debugger) = &mut debugger {
-                    let mut debug_bus =
-                        DebugMainBus { bus: &mut bus, debugger: debugger.for_z80(&mut self.m68k) };
-                    self.z80.tick(&mut debug_bus);
-                } else {
-                    self.z80.tick(&mut bus);
+    #[cfg(feature = "test-apis")]
+    pub fn simulate_bus_interactions<const DEBUG: bool>(
+        &mut self,
+        debugger: &mut impl Sega32XDebugger,
+        which: WhichCpu,
+        reads: &[u32],
+        writes: &[(u32, u32)],
+    ) {
+        self.global_cycles = 0;
+        self.master_cycles = 0;
+        self.slave_cycles = 0;
+
+        let (sh2, other_sh2, other_cycles) = match which {
+            WhichCpu::Master => (&mut self.sh2_master, &mut self.sh2_slave, &mut self.slave_cycles),
+            WhichCpu::Slave => (&mut self.sh2_slave, &mut self.sh2_master, &mut self.master_cycles),
+        };
+
+        let mut bus = Sh2Bus::create(&mut self.bus, which, 0, 50, Some((other_sh2, other_cycles)));
+        bus.cycle_limit = 100;
+
+        if DEBUG {
+            let mut debug_bus = DebugSh2Bus::create(bus, debugger);
+            Self::simulate_bus_interactions_inner(&mut *debug_bus, reads, writes, sh2);
+        } else {
+            Self::simulate_bus_interactions_inner(&mut *bus, reads, writes, sh2);
+        }
+    }
+
+    #[cfg(feature = "test-apis")]
+    fn simulate_bus_interactions_inner<Bus: BusInterface>(
+        bus: &mut Bus,
+        reads: &[u32],
+        writes: &[(u32, u32)],
+        sh2: &mut Sh2,
+    ) {
+        for &address in reads {
+            if let Some(mut debug_view) = bus.debug_view() {
+                debug_view.check_read::<{ OpSize::WORD }>(address, sh2);
+                debug_view.apply_read::<{ OpSize::WORD }>(address, AccessContext::Fetch, sh2);
+            } else {
+                bus.read::<{ OpSize::WORD }>(address, AccessContext::Fetch);
+            }
+        }
+
+        for &(address, value) in writes {
+            if let Some(mut debug_view) = bus.debug_view() {
+                debug_view.check_write::<{ OpSize::WORD }>(address, value, sh2);
+                debug_view.apply_write::<{ OpSize::WORD }>(
+                    address,
+                    value,
+                    AccessContext::Fetch,
+                    sh2,
+                );
+            } else {
+                bus.write::<{ OpSize::WORD }>(address, value, AccessContext::Fetch);
+            }
+        }
+    }
+
+    pub fn reload_config(&mut self, config: &GenesisEmulatorConfig) {
+        self.sh2_clock_multiplier =
+            none_if_default_multiplier(config.sega_32x.sh2_clock_multiplier);
+        self.bus.vdp.reload_config(&config.sega_32x);
+
+        if let Some(cartridge) = &mut self.bus.cartridge {
+            cartridge.reload_config(config);
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.bus.registers.reset();
+    }
+
+    // ADEN bit in $A15100
+    #[must_use]
+    #[inline]
+    pub fn adapter_enabled(&self) -> bool {
+        self.bus.registers.adapter_enabled
+    }
+
+    // RV bit in $A15106
+    #[must_use]
+    #[inline]
+    pub fn rom_to_vram_dma(&self) -> bool {
+        self.bus.registers.dma.rom_to_vram
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn cartridge(&self) -> Option<&Cartridge> {
+        self.bus.cartridge.as_ref()
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn cartridge_mut(&mut self) -> Option<&mut Cartridge> {
+        self.bus.cartridge.as_mut()
+    }
+
+    // Reads from $000000-$3FFFFF while the 32X adapter is enabled
+    #[must_use]
+    #[inline]
+    #[allow(clippy::missing_panics_doc)]
+    pub fn m68k_read_cartridge<const WORD: bool>(&mut self, address: u32, open_bus: u16) -> u16 {
+        if address < 0x000100 {
+            // 68K vector ROM + HINT vector
+            return if WORD {
+                let address = address as usize;
+                u16::from_be_bytes(self.m68k_vectors[address..address + 2].try_into().unwrap())
+            } else {
+                self.m68k_vectors[address as usize].into()
+            };
+        }
+
+        let open_bus_read =
+            move || if WORD { open_bus } else { open_bus.be_byte(address & 1).into() };
+
+        if !self.rom_to_vram_dma() {
+            // $000100-$3FFFFF is not accessible on the Genesis side while RV=0
+            log::warn!("68000 invalid cartridge read while RV=0: {address:06X}");
+            return open_bus_read();
+        }
+
+        let Some(cartridge) = &mut self.bus.cartridge else {
+            return open_bus_read();
+        };
+
+        cartridge.read::<WORD>(address, open_bus)
+    }
+
+    // Writes to $000000-$3FFFFF while the 32X adapter is enabled
+    #[inline]
+    pub fn m68k_write_cartridge<const WORD: bool>(&mut self, address: u32, value: u16) {
+        if (0x70..0x74).contains(&address) {
+            // HINT vector is R/W
+            if WORD {
+                self.m68k_vectors[address as usize] = value.msb();
+                self.m68k_vectors[(address + 1) as usize] = value.lsb();
+            } else {
+                self.m68k_vectors[address as usize] = value as u8;
+            }
+            return;
+        }
+
+        if !self.rom_to_vram_dma() {
+            // $000100-$3FFFFF is not accessible on the Genesis side while RV=0
+            log::warn!("68000 invalid cartridge write while RV=0: {address:06X} {value:04X}");
+            return;
+        }
+
+        let Some(cartridge) = &mut self.bus.cartridge else { return };
+
+        cartridge.write::<WORD>(address, value);
+    }
+
+    // Reads from $800000-$9FFFFF while the 32X adapter is enabled
+    #[must_use]
+    #[inline]
+    pub fn m68k_read_memory<const WORD: bool>(&mut self, address: u32, open_bus: u16) -> u16 {
+        match address {
+            0x840000..=0x87FFFF => {
+                // Frame buffer
+                match self.bus.registers.vdp_access {
+                    Access::M68k => {
+                        let word = self.bus.vdp.read_frame_buffer(address);
+                        if WORD { word } else { word.be_byte(address & 1).into() }
+                    }
+                    Access::Sh2 => {
+                        log::warn!("Frame buffer 68000 read with FM=1: {address:06X}");
+                        0xFFFF
+                    }
                 }
             }
-            bus.cycles.z80_cycle();
-        }
-
-        self.main_bus_writes = bus.take_writes();
-
-        let pwm_resampler = self.audio_resampler.pwm_resampler_mut();
-        if DEBUG && let Some(debugger) = debugger {
-            let (sega_32x, genesis_memory) = self.memory.medium_mut_with_ram();
-            sega_32x.tick_debug(
-                mclk_cycles,
-                pwm_resampler,
-                GenesisComponents::new(
-                    &mut self.vdp,
-                    &mut self.ym2612,
-                    &mut self.psg,
-                    &self.main_bus_writes,
-                ),
-                debugger.for_sh2(&mut self.m68k, &mut self.z80, genesis_memory),
-            );
-        } else {
-            self.memory.medium_mut().tick(
-                mclk_cycles,
-                pwm_resampler,
-                GenesisComponents::new(
-                    &mut self.vdp,
-                    &mut self.ym2612,
-                    &mut self.psg,
-                    &self.main_bus_writes,
-                ),
-            );
-        }
-
-        self.input.tick(m68k_cycles);
-
-        while self.cycles.should_tick_psg() {
-            if self.psg.tick() == Sn76489TickEffect::Clocked {
-                // PSG output is mono in Genesis; stereo output is only for Game Gear
-                let (psg_sample, _) = self.psg.sample();
-                self.audio_resampler.collect_psg_sample(psg_sample);
+            0x880000..=0x8FFFFF
+                if !self.rom_to_vram_dma()
+                    && let Some(cartridge) = &mut self.bus.cartridge =>
+            {
+                // First 512KB of cartridge
+                let rom_addr = address & 0x7FFFF;
+                cartridge.read::<WORD>(rom_addr, open_bus)
             }
-            self.cycles.psg_cycle();
-        }
-
-        let vdp_tick_effect = self.vdp.tick(mclk_cycles, &mut self.memory);
-
-        self.cycles.maybe_sync_and_drain_ym2612(
-            vdp_tick_effect,
-            &mut self.ym2612,
-            |(sample_l, sample_r)| self.audio_resampler.collect_ym2612_sample(sample_l, sample_r),
-        );
-
-        self.audio_resampler.output_samples(audio_output).map_err(Sega32XError::Audio)?;
-
-        let mut tick_effect = TickEffect::None;
-        if vdp_tick_effect == VdpTickEffect::FrameComplete {
-            self.memory.medium_mut().vdp().composite_frame(&mut self.vdp);
-            self.render_frame(renderer).map_err(Sega32XError::Render)?;
-
-            let cartridge = self.memory.medium_mut().cartridge_mut();
-            if cartridge.get_and_clear_ram_dirty() {
-                save_writer
-                    .persist_bytes("sav", cartridge.external_ram())
-                    .map_err(Sega32XError::SaveWrite)?;
+            0x900000..=0x9FFFFF
+                if !self.rom_to_vram_dma()
+                    && let Some(cartridge) = &mut self.bus.cartridge =>
+            {
+                // Mappable 1MB cartridge bank
+                let rom_addr =
+                    (u32::from(self.bus.registers.m68k_rom_bank) << 20) | (address & 0xFFFFF);
+                cartridge.read::<WORD>(rom_addr, open_bus)
             }
+            _ => {
+                if (0x880000..=0x9FFFFF).contains(&address) && self.rom_to_vram_dma() {
+                    log::warn!("68000 invalid cartridge read while RV=1: {address:06X}");
+                }
 
-            tick_effect = TickEffect::FrameRendered;
+                if WORD { open_bus } else { open_bus.be_byte(address & 1).into() }
+            }
         }
+    }
 
-        debug_assert_eq!(self.vdp.scanline(), self.memory.medium_mut().vdp().scanline());
-        debug_assert_eq!(self.vdp.scanline_mclk(), self.memory.medium_mut().vdp().scanline_mclk());
-
-        if !m68k_wait {
-            self.vdp.update_interrupt_latches();
+    // Writes to $800000-$9FFFFF while the 32X adapter is enabled
+    #[inline]
+    pub fn m68k_write_memory<const WORD: bool>(&mut self, address: u32, value: u16) {
+        match address {
+            0x840000..=0x85FFFF => {
+                // Frame buffer
+                match self.bus.registers.vdp_access {
+                    Access::M68k => {
+                        if WORD {
+                            self.bus.vdp.write_frame_buffer_word(address, value);
+                        } else {
+                            self.bus.vdp.write_frame_buffer_byte(address, value as u8);
+                        }
+                    }
+                    Access::Sh2 => {
+                        log::warn!("Frame buffer 68000 write with FM=1: {address:06X} {value:04X}");
+                    }
+                }
+            }
+            0x860000..=0x87FFFF => {
+                // Frame buffer overwrite image
+                match self.bus.registers.vdp_access {
+                    Access::M68k => {
+                        if WORD {
+                            self.bus.vdp.frame_buffer_overwrite_word(address, value);
+                        } else {
+                            // No difference between normal and overwrite writes for byte-size
+                            self.bus.vdp.write_frame_buffer_byte(address, value as u8);
+                        }
+                    }
+                    Access::Sh2 => {
+                        log::warn!("Frame buffer 68000 write with FM=1: {address:06X} {value:04X}");
+                    }
+                }
+            }
+            0x880000..=0x8FFFFF
+                if !self.rom_to_vram_dma()
+                    && let Some(cartridge) = &mut self.bus.cartridge =>
+            {
+                // First 512KB of cartridge
+                let rom_addr = address & 0x7FFFF;
+                cartridge.write::<WORD>(rom_addr, value);
+            }
+            0x900000..=0x9FFFFF
+                if !self.rom_to_vram_dma()
+                    && let Some(cartridge) = &mut self.bus.cartridge =>
+            {
+                // Mappable 1MB cartridge bank
+                let rom_addr =
+                    (u32::from(self.bus.registers.m68k_rom_bank) << 20) | (address & 0xFFFFF);
+                cartridge.write::<WORD>(rom_addr, value);
+            }
+            _ => {
+                if (0x880000..=0x9FFFFF).contains(&address) && self.rom_to_vram_dma() {
+                    log::warn!(
+                        "68000 invalid cartridge write while RV=1: {address:06X} {value:04X}"
+                    );
+                }
+            }
         }
-
-        self.main_bus_writes = new_main_bus!(self, m68k_reset: false).apply_writes();
-
-        Ok(tick_effect)
     }
 
+    // Reads from $A15000-$A15FFF (32X registers and 32X CRAM)
     #[must_use]
-    pub fn cartridge_title(&self) -> String {
-        self.memory.medium().cartridge().program_title().into()
-    }
-
     #[inline]
-    #[must_use]
-    pub fn has_sram(&self) -> bool {
-        self.memory.medium().cartridge().is_ram_persistent()
+    pub fn m68k_read_register<const WORD: bool>(&mut self, address: u32, open_bus: u16) -> u16 {
+        let word = match address {
+            0xA15100..=0xA1512F => {
+                // 32X system registers
+                self.bus.registers.m68k_read(address & !1)
+            }
+            0xA15130..=0xA1513F => {
+                // PWM
+                self.bus.pwm.read_register(address & !1)
+            }
+            0xA15180..=0xA1518F => {
+                // 32X VDP
+                match self.bus.registers.vdp_access {
+                    Access::M68k => self.bus.vdp.read_register(address & !1),
+                    Access::Sh2 => {
+                        log::warn!("68000 VDP register read while FM=1: {address:06X}");
+                        !0
+                    }
+                }
+            }
+            0xA15200..=0xA153FF => {
+                // 32X CRAM
+                match self.bus.registers.vdp_access {
+                    Access::M68k => self.bus.vdp.read_cram(address & !1),
+                    Access::Sh2 => {
+                        log::warn!("68000 CRAM read while FM=1: {address:06X}");
+                        !0
+                    }
+                }
+            }
+            _ => open_bus,
+        };
+
+        if WORD { word } else { word.be_byte(address & 1).into() }
     }
 
+    // Writes to $A15000-$A15FFF (32X registers and 32X CRAM)
     #[inline]
-    #[must_use]
-    pub fn timing_mode(&self) -> TimingMode {
-        self.timing_mode
+    pub fn m68k_write_register<const WORD: bool>(&mut self, address: u32, value: u16) {
+        match address {
+            0xA15100..=0xA1512F => {
+                // 32X system registers
+                if WORD {
+                    self.bus.registers.m68k_write(address, value);
+                } else {
+                    self.bus.registers.m68k_write_byte(address, value as u8);
+                }
+            }
+            0xA15130..=0xA1513F => {
+                // PWM
+                if WORD {
+                    self.bus.pwm.m68k_write_register(address, value);
+                } else {
+                    let mut word = self.bus.pwm.read_register(address & !1);
+                    if !address.bit(0) {
+                        word.set_msb(value as u8);
+                    } else {
+                        word.set_lsb(value as u8);
+                    }
+                    self.bus.pwm.m68k_write_register(address & !1, word);
+                }
+            }
+            0xA15180..=0xA1518F => {
+                // 32X VDP
+                match self.bus.registers.vdp_access {
+                    Access::M68k => {
+                        if WORD {
+                            self.bus.vdp.write_register(address, value);
+                        } else {
+                            self.bus.vdp.write_register_byte(address, value as u8);
+                        }
+                    }
+                    Access::Sh2 => {
+                        log::warn!(
+                            "68000 VDP register write while FM=1: {address:06X} {value:04X}"
+                        );
+                    }
+                }
+            }
+            0xA15200..=0xA153FF => {
+                // 32X CRAM
+                match self.bus.registers.vdp_access {
+                    Access::M68k => {
+                        if WORD {
+                            self.bus.vdp.write_cram(address, value);
+                        } else {
+                            let mut word = self.bus.vdp.read_cram(address & !1);
+                            if !address.bit(0) {
+                                word.set_msb(value as u8);
+                            } else {
+                                word.set_lsb(value as u8);
+                            }
+                            self.bus.vdp.write_cram(address & !1, word);
+                        }
+                    }
+                    Access::Sh2 => {
+                        log::warn!("68000 CRAM write while FM=1: {address:06X} {value:04X}");
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 
-    fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
-        let frame_size = self.vdp.frame_size();
-        let aspect_ratio = self.config.genesis.aspect_ratio.to_pixel_aspect_ratio(
+    pub fn composite_frame(&mut self, genesis_vdp: &mut GenesisVdp) {
+        self.bus.vdp.composite_frame(genesis_vdp);
+    }
+
+    /// # Errors
+    ///
+    /// Propagates any rendering errors.
+    pub fn render_frame<R: Renderer>(
+        &mut self,
+        genesis_vdp: &GenesisVdp,
+        renderer: &mut R,
+    ) -> Result<(), R::Err> {
+        let frame_size = genesis_vdp.frame_size();
+        let aspect_ratio = self.config.aspect_ratio.to_pixel_aspect_ratio(
             self.timing_mode,
             frame_size,
-            self.config.genesis.to_gen_par_params(),
+            self.config.to_gen_par_params(),
         );
-        self.memory.medium_mut().vdp().render_frame(&self.vdp, aspect_ratio, renderer)
+        self.bus.vdp.render_frame(genesis_vdp, aspect_ratio, renderer)
     }
 }
 
-impl EmulatorTrait for Sega32XEmulator {
-    type Button = GenesisButton;
-    type Inputs = GenesisInputs;
-    type Config = Sega32XEmulatorConfig;
-    type SaveState = Self;
-
-    type Err<
-        RErr: Debug + Display + Send + Sync + 'static,
-        AErr: Debug + Display + Send + Sync + 'static,
-        SErr: Debug + Display + Send + Sync + 'static,
-    > = Sega32XError<RErr, AErr, SErr>;
-
-    fn tick<R, A, I, S>(
-        &mut self,
-        renderer: &mut R,
-        audio_output: &mut A,
-        input_poller: &mut I,
-        save_writer: &mut S,
-    ) -> TickResult<Self::Err<R::Err, A::Err, S::Err>>
-    where
-        R: Renderer,
-        A: AudioOutput,
-        I: InputPoller<Self::Inputs>,
-        S: SaveWriter,
-    {
-        self.tick_inner::<false, _, _, _, _>(
-            renderer,
-            audio_output,
-            input_poller,
-            save_writer,
-            None,
-        )
-    }
-
-    fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>
-    where
-        R: Renderer,
-    {
-        self.render_frame(renderer)
-    }
-
-    fn reload_config(&mut self, config: &Self::Config) {
-        self.vdp.reload_config(config.genesis.to_vdp_config(config.genesis_color_adjustment()));
-        self.ym2612.reload_config(&config.genesis);
-        self.memory.medium_mut().reload_config(config);
-        self.input.reload_config(&config.genesis);
-        self.audio_resampler.reload_config(self.timing_mode, config);
-        self.cycles.update_m68k_divider(config.genesis.clamped_m68k_divider());
-
-        self.config = config.clone();
-    }
-
-    fn soft_reset(&mut self) {
-        log::info!("Soft resetting console");
-
-        self.m68k.execute_instruction(&mut new_main_bus!(self, m68k_reset: true));
-        self.memory.reset_z80_signals();
-        self.ym2612.reset();
-
-        self.memory.medium_mut().reset();
-    }
-
-    fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
-        let rom = self.memory.medium_mut().cartridge_mut().take_rom();
-
-        *self = Self::create(rom, self.config.clone(), save_writer);
-    }
-
-    fn load_state(&mut self, mut state: Self::SaveState) {
-        state.memory.medium_mut().take_rom_from(self.memory.medium_mut());
-        *self = state;
-    }
-
-    fn to_save_state(&self) -> Self::SaveState {
-        self.partial_clone()
-    }
-
-    fn target_fps(&self) -> f64 {
-        genesis_core::target_framerate(&self.vdp, self.timing_mode)
-    }
-
-    fn update_audio_output_frequency(&mut self, output_frequency: u64) {
-        self.audio_resampler.update_output_frequency(output_frequency);
-    }
-
-    fn startup_modals(&self) -> Vec<Modal> {
-        let mut modals = Vec::new();
-
-        if self.config.genesis.remove_sprite_limits
-            && self.memory.medium().cartridge().metadata().sprite_limit_compatibility_issues
-        {
-            modals.push(Modal {
-                id: None,
-                text: genesis_core::api::SPRITE_LIMITS_MODAL_MESSAGE.into(),
-            });
-        }
-
-        modals
+fn none_if_default_multiplier(multiplier: NonZeroU64) -> Option<NonZeroU64> {
+    match multiplier.get() {
+        SH2_MULTIPLIER => None,
+        _ => Some(multiplier),
     }
 }

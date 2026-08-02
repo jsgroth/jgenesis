@@ -19,16 +19,6 @@ pub const GAME_GEAR_LCD_ASPECT_RATIO: f64 = 1.2;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum Sn76489Version {
-    #[default]
-    MasterSystem2,
-    Standard, // Sega-customized version used in SMS, Game Gear, Genesis
-    Discrete, // Stock TI version used in SG-1000
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum SmsModel {
     Sms1,
     #[default]

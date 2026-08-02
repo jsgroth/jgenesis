@@ -1,5 +1,6 @@
 use crate::config::CommonConfig;
 use crate::mainloop::audio::{SdlAudioOutput, SdlAudioOutputHandle};
+use crate::mainloop::create::WindowTitle;
 use crate::mainloop::input::{ThreadedInputPoller, ThreadedInputPollerHandle};
 use crate::mainloop::render::{
     RecvFrameError, ThreadedRenderer, ThreadedRendererError, ThreadedRendererHandle,
@@ -15,7 +16,7 @@ use jgenesis_common::frontend::{
 use jgenesis_debugger_frontend::DebuggerRunnerProcess;
 use jgenesis_native_config::common::WindowSize;
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, mpsc};
@@ -23,11 +24,13 @@ use std::thread;
 use std::time::Duration;
 use thiserror::Error;
 
-// Returns new window title (if Ok)
-pub type ChangeDiscFn<Emulator> =
-    fn(&mut Emulator, PathBuf) -> Result<String, Box<dyn Error + Send + Sync + 'static>>;
+pub type ChangeDiscFn<Emulator> = fn(
+    &mut Emulator,
+    &Path,
+    &<Emulator as EmulatorTrait>::Config,
+) -> NativeEmulatorResult<Option<WindowTitle>>;
 
-pub type RemoveDiscFn<Emulator> = fn(&mut Emulator);
+pub type RemoveDiscFn<Emulator> = fn(&mut Emulator) -> Option<WindowTitle>;
 
 pub enum RunnerCommand<Emulator: EmulatorTrait> {
     Terminate,
@@ -52,8 +55,8 @@ pub enum RunnerCommandResponse {
     LoadStateSucceeded { slot: usize },
     SaveStateFailed { slot: usize, err: NativeEmulatorError },
     LoadStateFailed { slot: usize, err: NativeEmulatorError },
-    ChangeDiscSucceeded { window_title: String },
-    ChangeDiscFailed(Box<dyn Error + Send + Sync + 'static>),
+    ChangeDiscSucceeded { window_title: Option<WindowTitle> },
+    ChangeDiscFailed(NativeEmulatorError),
 }
 
 pub type NativeDebuggerRunnerProcess<Emulator> = dyn DebuggerRunnerProcess<
@@ -458,7 +461,7 @@ fn handle_command<Emulator: EmulatorTrait>(
             change_disc(state, path)?;
         }
         RunnerCommand::RemoveDisc => {
-            (state.remove_disc_fn)(&mut state.emulator);
+            remove_disc(state)?;
         }
         RunnerCommand::StepFrame => {
             state.step_frame = true;
@@ -600,7 +603,7 @@ fn change_disc<Emulator: EmulatorTrait>(
     state: &mut RunnerThreadState<Emulator>,
     path: PathBuf,
 ) -> Result<(), CommandError> {
-    let result = (state.change_disc_fn)(&mut state.emulator, path.clone());
+    let result = (state.change_disc_fn)(&mut state.emulator, &path, &state.emulator_config);
 
     if result.is_ok() {
         state.rom_path.clone_from(&path);
@@ -616,4 +619,15 @@ fn change_disc<Emulator: EmulatorTrait>(
     };
 
     state.response_sender.send(message).map_err(|_| CommandError::LostConnection)
+}
+
+fn remove_disc<Emulator: EmulatorTrait>(
+    state: &mut RunnerThreadState<Emulator>,
+) -> Result<(), CommandError> {
+    let window_title = (state.remove_disc_fn)(&mut state.emulator);
+
+    state
+        .response_sender
+        .send(RunnerCommandResponse::ChangeDiscSucceeded { window_title })
+        .map_err(|_| CommandError::LostConnection)
 }

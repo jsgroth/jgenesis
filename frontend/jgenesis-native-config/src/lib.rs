@@ -93,6 +93,8 @@ impl Default for ListFilters {
 pub struct RecentOpen {
     pub console: String,
     pub path: PathBuf,
+    #[serde(default)]
+    pub secondary_paths: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay)]

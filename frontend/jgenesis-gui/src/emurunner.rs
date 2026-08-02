@@ -1,12 +1,13 @@
 use crate::app::ActiveCheats;
 use genesis_config::cheats::GenesisCheats;
+use genesis_core::api::GenesisHardware;
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_driver::config::AppConfigExt;
 use jgenesis_native_driver::extensions::Console;
 use jgenesis_native_driver::{
-    Native32XEmulator, NativeEmulatorError, NativeEmulatorResult, NativeGameBoyEmulator,
-    NativeGbaEmulator, NativeGenesisEmulator, NativeNesEmulator, NativeSegaCdEmulator,
-    NativeSmsGgEmulator, NativeSnesEmulator, NativeTickEffect, SaveStateMetadata,
+    NativeEmulatorError, NativeEmulatorResult, NativeGameBoyEmulator, NativeGbaEmulator,
+    NativeGenesisEmulator, NativeNesEmulator, NativeSmsGgEmulator, NativeSnesEmulator,
+    NativeTickEffect, SaveStateMetadata,
 };
 use jgenesis_native_driver::{NativePcEngineEmulator, SdlSubsystems};
 use jgenesis_proc_macros::MatchEachVariantMacro;
@@ -27,6 +28,7 @@ pub enum EmuRunnerStatus {
     RunningGenesis,
     RunningSegaCd,
     Running32X,
+    RunningSegaCd32X,
     RunningNes,
     RunningSnes,
     RunningGameBoy,
@@ -42,12 +44,20 @@ impl EmuRunnerStatus {
                 | Self::RunningGenesis
                 | Self::RunningSegaCd
                 | Self::Running32X
+                | Self::RunningSegaCd32X
                 | Self::RunningNes
                 | Self::RunningSnes
                 | Self::RunningGameBoy
                 | Self::RunningGba
                 | Self::RunningGameGear
                 | Self::RunningPcEngine
+        )
+    }
+
+    pub fn is_running_genesis(self) -> bool {
+        matches!(
+            self,
+            Self::RunningGenesis | Self::RunningSegaCd | Self::Running32X | Self::RunningSegaCd32X
         )
     }
 
@@ -59,6 +69,10 @@ impl EmuRunnerStatus {
         matches!(self, Self::RunningGameGear | Self::RunningGameBoy | Self::RunningGba)
     }
 
+    pub fn is_running_disc_based(self) -> bool {
+        matches!(self, Self::RunningSegaCd | Self::RunningSegaCd32X)
+    }
+
     pub fn running_console(self) -> Option<Console> {
         match self {
             Self::RunningSms => Some(Console::MasterSystem),
@@ -66,6 +80,7 @@ impl EmuRunnerStatus {
             Self::RunningGenesis => Some(Console::Genesis),
             Self::RunningSegaCd => Some(Console::SegaCd),
             Self::Running32X => Some(Console::Sega32X),
+            Self::RunningSegaCd32X => Some(Console::SegaCd32X),
             Self::RunningNes => Some(Console::Nes),
             Self::RunningSnes => Some(Console::Snes),
             Self::RunningGameBoy => Some(Console::GameBoy),
@@ -86,7 +101,7 @@ impl ConsoleExt for Console {
             Self::MasterSystem | Self::Sg1000 => EmuRunnerStatus::RunningSms,
             Self::GameGear => EmuRunnerStatus::RunningGameGear,
             Self::Genesis => EmuRunnerStatus::RunningGenesis,
-            Self::SegaCd => EmuRunnerStatus::RunningSegaCd,
+            Self::SegaCd | Self::SegaCd32X => EmuRunnerStatus::RunningSegaCd,
             Self::Sega32X => EmuRunnerStatus::Running32X,
             Self::Nes => EmuRunnerStatus::RunningNes,
             Self::Snes => EmuRunnerStatus::RunningSnes,
@@ -99,7 +114,7 @@ impl ConsoleExt for Console {
 
 #[derive(Debug, Clone)]
 pub enum EmulatorRunInput {
-    OpenFile(PathBuf),
+    OpenFile { file_path: PathBuf, secondary_paths: Vec<PathBuf> },
     RunBios,
 }
 
@@ -111,7 +126,7 @@ pub enum EmuRunnerCommand {
         cheats: Arc<ActiveCheats>,
         input: EmulatorRunInput,
     },
-    ReloadConfig(Box<AppConfig>, Arc<ActiveCheats>, PathBuf),
+    ReloadConfig(Box<AppConfig>, Arc<ActiveCheats>),
     StopEmulator,
     SoftReset,
     HardReset,
@@ -208,8 +223,8 @@ impl GuiEmulatorRunner {
                 EmuRunnerCommand::Run { console, config, cheats, input } => {
                     self.launch_emulator(console, config, cheats, input);
                 }
-                EmuRunnerCommand::ReloadConfig(config, cheats, path) => {
-                    self.do_with_emulator(|emulator| emulator.reload_config(config, cheats, path));
+                EmuRunnerCommand::ReloadConfig(config, cheats) => {
+                    self.do_with_emulator(|emulator| emulator.reload_config(config, cheats));
                 }
                 EmuRunnerCommand::StopEmulator => {
                     self.stop_emulator();
@@ -268,10 +283,15 @@ impl GuiEmulatorRunner {
         }
 
         let emulator = match input {
-            EmulatorRunInput::OpenFile(file_path) => {
-                GenericEmulator::create(self.sdl.clone(), console, config, cheats, file_path)
-                    .map(Some)
-            }
+            EmulatorRunInput::OpenFile { file_path, secondary_paths } => GenericEmulator::create(
+                self.sdl.clone(),
+                console,
+                config,
+                cheats,
+                file_path,
+                secondary_paths,
+            )
+            .map(Some),
             EmulatorRunInput::RunBios => {
                 GenericEmulator::create_run_bios(self.sdl.clone(), console, config)
             }
@@ -282,6 +302,7 @@ impl GuiEmulatorRunner {
             Ok(None) => return,
             Err(err) => {
                 log::error!("Error initializing emulator: {err}");
+                self.status.set(EmuRunnerStatus::Idle);
                 *self.emulator_error.borrow_mut() = Some(err);
                 self.egui_ctx.request_repaint();
                 return;
@@ -351,12 +372,29 @@ impl GuiEmulatorRunnerHandle {
     }
 }
 
+fn console_to_smsgg_hardware(console: Console) -> Option<SmsGgHardware> {
+    match console {
+        Console::MasterSystem => Some(SmsGgHardware::MasterSystem),
+        Console::GameGear => Some(SmsGgHardware::GameGear),
+        Console::Sg1000 => Some(SmsGgHardware::Sg1000),
+        _ => None,
+    }
+}
+
+fn console_to_genesis_hardware(console: Console) -> Option<GenesisHardware> {
+    match console {
+        Console::Genesis => Some(GenesisHardware::Standalone),
+        Console::SegaCd => Some(GenesisHardware::SegaCd),
+        Console::Sega32X => Some(GenesisHardware::Sega32X),
+        Console::SegaCd32X => Some(GenesisHardware::SegaCd32X),
+        _ => None,
+    }
+}
+
 #[derive(MatchEachVariantMacro)]
 enum GenericEmulator {
     SmsGg(Box<NativeSmsGgEmulator>),
     Genesis(Box<NativeGenesisEmulator>),
-    SegaCd(Box<NativeSegaCdEmulator>),
-    Sega32X(Box<Native32XEmulator>),
     Nes(Box<NativeNesEmulator>),
     Snes(Box<NativeSnesEmulator>),
     GameBoy(Box<NativeGameBoyEmulator>),
@@ -371,36 +409,30 @@ impl GenericEmulator {
         config: Box<AppConfig>,
         cheats: Arc<ActiveCheats>,
         path: PathBuf,
+        secondary_paths: Vec<PathBuf>,
     ) -> NativeEmulatorResult<Self> {
         let emulator = match console {
-            Console::MasterSystem => Self::SmsGg(Box::new(NativeSmsGgEmulator::create(
-                sdl,
-                config.smsgg_config(
-                    path,
-                    Some(SmsGgHardware::MasterSystem),
-                    cheats.smsgg_or_default(),
-                ),
-            )?)),
-            Console::GameGear => Self::SmsGg(Box::new(NativeSmsGgEmulator::create(
-                sdl,
-                config.smsgg_config(path, Some(SmsGgHardware::GameGear), cheats.smsgg_or_default()),
-            )?)),
-            Console::Sg1000 => Self::SmsGg(Box::new(NativeSmsGgEmulator::create(
-                sdl,
-                config.smsgg_config(path, Some(SmsGgHardware::Sg1000), cheats.smsgg_or_default()),
-            )?)),
-            Console::Genesis => Self::Genesis(Box::new(NativeGenesisEmulator::create(
-                sdl,
-                config.genesis_config(path, cheats.genesis_or_default()),
-            )?)),
-            Console::SegaCd => Self::SegaCd(Box::new(NativeSegaCdEmulator::create(
-                sdl,
-                config.sega_cd_config(path, cheats.genesis_or_default()),
-            )?)),
-            Console::Sega32X => Self::Sega32X(Box::new(Native32XEmulator::create(
-                sdl,
-                config.sega_32x_config(path, cheats.genesis_or_default()),
-            )?)),
+            Console::MasterSystem | Console::GameGear | Console::Sg1000 => {
+                Self::SmsGg(Box::new(NativeSmsGgEmulator::create(
+                    sdl,
+                    config.smsgg_config(
+                        path,
+                        console_to_smsgg_hardware(console),
+                        cheats.smsgg_or_default(),
+                    ),
+                )?))
+            }
+            Console::Genesis | Console::SegaCd | Console::Sega32X | Console::SegaCd32X => {
+                Self::Genesis(Box::new(NativeGenesisEmulator::create(
+                    sdl,
+                    config.genesis_config(
+                        path,
+                        secondary_paths.first().cloned(),
+                        console_to_genesis_hardware(console),
+                        cheats.genesis_or_default(),
+                    ),
+                )?))
+            }
             Console::Nes => {
                 Self::Nes(Box::new(NativeNesEmulator::create(sdl, config.nes_config(path))?))
             }
@@ -451,12 +483,20 @@ impl GenericEmulator {
 
                 Self::SmsGg(Box::new(NativeSmsGgEmulator::create(sdl, gg_config)?))
             }
-            Console::SegaCd => {
-                let mut scd_config =
-                    config.sega_cd_config(PathBuf::new(), &GenesisCheats::default());
-                scd_config.run_without_disc = true;
+            Console::SegaCd | Console::SegaCd32X => {
+                let hardware = match console {
+                    Console::SegaCd32X => GenesisHardware::SegaCd32X,
+                    _ => GenesisHardware::SegaCd,
+                };
+                let mut genesis_config = config.genesis_config(
+                    PathBuf::new(),
+                    None,
+                    Some(hardware),
+                    &GenesisCheats::default(),
+                );
+                genesis_config.scd_run_without_disc = true;
 
-                Self::SegaCd(Box::new(NativeSegaCdEmulator::create(sdl, scd_config)?))
+                Self::Genesis(Box::new(NativeGenesisEmulator::create(sdl, genesis_config)?))
             }
             _ => return Ok(None),
         };
@@ -468,21 +508,19 @@ impl GenericEmulator {
         &mut self,
         config: Box<AppConfig>,
         cheats: Arc<ActiveCheats>,
-        path: PathBuf,
     ) -> NativeEmulatorResult<()> {
+        let path = PathBuf::new();
+
         match self {
             Self::SmsGg(emulator) => {
                 emulator.reload_config(config.smsgg_config(path, None, cheats.smsgg_or_default()))
             }
-            Self::Genesis(emulator) => {
-                emulator.reload_config(config.genesis_config(path, cheats.genesis_or_default()))
-            }
-            Self::SegaCd(emulator) => {
-                emulator.reload_config(config.sega_cd_config(path, cheats.genesis_or_default()))
-            }
-            Self::Sega32X(emulator) => {
-                emulator.reload_config(config.sega_32x_config(path, cheats.genesis_or_default()))
-            }
+            Self::Genesis(emulator) => emulator.reload_config(config.genesis_config(
+                path,
+                None,
+                None,
+                cheats.genesis_or_default(),
+            )),
             Self::Nes(emulator) => emulator.reload_config(config.nes_config(path)),
             Self::Snes(emulator) => emulator.reload_config(config.snes_config(path)),
             Self::GameBoy(emulator) => emulator.reload_config(config.gb_config(path)),
@@ -493,19 +531,11 @@ impl GenericEmulator {
     }
 
     fn remove_disc(&mut self) -> NativeEmulatorResult<()> {
-        if let Self::SegaCd(emulator) = self {
-            emulator.remove_disc()?;
-        }
-
-        Ok(())
+        match_each_variant!(self, emulator => emulator.remove_disc())
     }
 
     fn change_disc(&mut self, path: PathBuf) -> NativeEmulatorResult<()> {
-        if let Self::SegaCd(emulator) = self {
-            emulator.change_disc(path)?;
-        }
-
-        Ok(())
+        match_each_variant!(self, emulator => emulator.change_disc(path))
     }
 
     fn run(

@@ -22,11 +22,13 @@ snes-config = { workspace = true, features = ["clap"] }
 
 jgenesis-common = { workspace = true, features = ["clap"] }
 jgenesis-native-config = { workspace = true, features = ["clap"] }
-jgenesis-native-driver = { workspace = true, features = ["clap"] }
+jgenesis-native-driver = { workspace = true }
 jgenesis-proc-macros = { workspace = true }
 jgenesis-renderer = { workspace = true, features = ["clap"] }
 
+genesis-core = { workspace = true }
 smsgg-core = { workspace = true }
+ti-sn76489 = { workspace = true, features = ["clap"] }
 
 anyhow = { workspace = true }
 clap = { workspace = true }

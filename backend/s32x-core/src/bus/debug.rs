@@ -1,81 +1,104 @@
-use crate::api::debug::{
-    DebugWhichCpu, GenesisComponents, Sega32XDebugger, Sega32XDebuggerFor68k,
-    Sega32XDebuggerForSh2, Sega32XDebuggerForSh2Raw, Sega32XDebuggerForZ80,
-    Sega32XEmulatorDebugView, Sega32XMediumView, Sh2BreakpointsParsed,
-};
-use crate::bus::{OtherCpu, Sh2Bus, WhichCpu};
-use crate::core::{Sega32X, Sega32XBus};
-use genesis_core::api::debug::{BaseGenesisDebugView, GenesisMemoryDebugView};
-use genesis_core::memory::MainBus;
-use genesis_core::memory::debug::{MainBus68kDebugger, MainBusZ80Debugger};
-use m68000_emu::M68000;
+use crate::WhichCpu;
+use crate::api::debug::{Sega32XDebugView, Sega32XDebugger};
+use crate::bus::{OtherCpu, Sh2Bus, Sh2BusGuard};
+use genesis_components::cartridge::Cartridge;
 use sh2_emu::Sh2;
 use sh2_emu::bus::{AccessContext, BusInterface, OpSize};
 use sh2_emu::debug::Sh2Debugger;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
-use z80_emu::Z80;
+use std::{cmp, ptr};
 
-pub(crate) struct DebugSh2Bus {
-    pub(crate) bus: Sh2Bus,
-    pub(crate) debugger: Sega32XDebuggerForSh2Raw,
-    pub(crate) other_sh2: Option<NonNull<Sh2>>,
+pub struct DebugSh2Bus {
+    bus: Sh2Bus,
+    debugger: NonNull<dyn Sega32XDebugger>,
+    other_sh2: *mut Sh2,
 }
 
 impl DebugSh2Bus {
-    pub(crate) fn create<'bus, 'other, 'debug, 'genram, 'gencomp>(
-        s32x_bus: &'bus mut Sega32XBus,
-        which: WhichCpu,
-        cycle_counter: u64,
-        cycle_limit: u64,
-        other_sh2: Option<(&'other mut Sh2, &'other mut u64)>,
-        genesis_components: GenesisComponents<'gencomp>,
-        debugger: &'debug mut Sega32XDebuggerForSh2<'genram>,
-    ) -> DebugSh2BusGuard<'bus, 'other, 'debug, 'genram, 'gencomp> {
-        unsafe {
-            DebugSh2BusGuard {
-                bus: Self {
-                    bus: Sh2Bus {
-                        s32x_bus: s32x_bus.into(),
-                        other_sh2: other_sh2.map(|(cpu, cycle_counter)| OtherCpu {
-                            cpu: cpu.into(),
-                            cycle_counter: cycle_counter.into(),
-                        }),
-                        which,
-                        cycle_counter,
-                        cycle_limit,
-                        debugger: None,
-                    },
-                    debugger: debugger.as_raw(genesis_components),
-                    other_sh2: None,
-                },
-                _bus_marker: PhantomData,
-                _other_marker: PhantomData,
-                _debug_marker: PhantomData,
-                _genram_marker: PhantomData,
-                _genvdp_marker: PhantomData,
-            }
-        }
-    }
-
     pub fn cycle_counter(&self) -> u64 {
         self.bus.cycle_counter
     }
+
+    pub fn cycle_limit(&self) -> u64 {
+        self.bus.cycle_limit
+    }
+
+    fn maybe_sync_other_cpu(&mut self, address: u32, cpu: &mut Sh2) {
+        if !self.bus.need_to_sync_other(address) {
+            return;
+        }
+
+        let Some(OtherCpu { cpu: other_cpu, cycle_counter: other_cycle_counter }) =
+            &mut self.bus.other_sh2
+        else {
+            return;
+        };
+
+        let cycle_limit = cmp::min(self.bus.cycle_counter, self.bus.cycle_limit);
+
+        // SAFETY: Similar to Sh2Bus::maybe_sync_other_cpu but also attaches a pointer to the
+        // current CPU, created from a mutable reference here. The current CPU and the original bus
+        // are not used while the other CPU is executing against the debug bus.
+        unsafe {
+            let mut other_bus = Self {
+                bus: Sh2Bus {
+                    s32x_bus: self.bus.s32x_bus,
+                    other_sh2: None,
+                    which: self.bus.which.other(),
+                    cycle_counter: other_cycle_counter.read(),
+                    cycle_limit,
+                },
+                debugger: self.debugger,
+                other_sh2: ptr::from_mut(cpu),
+            };
+
+            while other_bus.bus.cycle_counter < cycle_limit {
+                other_cpu.as_mut().execute(crate::api::SH2_EXECUTION_SLICE_LEN, &mut other_bus);
+            }
+            other_cycle_counter.write(other_bus.bus.cycle_counter);
+        }
+    }
 }
 
-sh2_emu::impl_sh2_lookup_table!(DebugSh2Bus);
-
-pub(crate) struct DebugSh2BusGuard<'bus, 'other, 'debug, 'genram, 'genvdp> {
+pub struct DebugSh2BusGuard<'debug, 'bus, 'cartridge, 'other> {
     bus: DebugSh2Bus,
-    _bus_marker: PhantomData<&'bus ()>,
-    _other_marker: PhantomData<&'other ()>,
     _debug_marker: PhantomData<&'debug ()>,
-    _genram_marker: PhantomData<&'genram ()>,
-    _genvdp_marker: PhantomData<&'genvdp ()>,
+    _bus_marker: PhantomData<&'bus ()>,
+    _cartridge_marker: PhantomData<&'cartridge ()>,
+    _other_marker: PhantomData<&'other ()>,
 }
 
-impl Deref for DebugSh2BusGuard<'_, '_, '_, '_, '_> {
+impl DebugSh2Bus {
+    #[inline]
+    pub fn create<'debug, 'bus, 'cartridge, 'other, Debugger: Sega32XDebugger>(
+        bus_guard: Sh2BusGuard<'bus, 'cartridge, 'other>,
+        debugger: &'debug mut Debugger,
+    ) -> DebugSh2BusGuard<'debug, 'bus, 'cartridge, 'other> {
+        // SAFETY: Consumes an Sh2BusGuard to get the inner bus, and returns another guard that has
+        // the same lifetimes plus the debugger lifetime.
+        // Converts the debugger mutable reference to a raw pointer here and uses the debugger
+        // lifetime to ensure that the caller cannot access the debugger until after this guard is
+        // dropped.
+        let debugger: &mut dyn Sega32XDebugger = debugger;
+        let debug_bus = DebugSh2Bus {
+            bus: bus_guard.bus,
+            debugger: debugger.into(),
+            other_sh2: ptr::null_mut(),
+        };
+
+        DebugSh2BusGuard {
+            bus: debug_bus,
+            _debug_marker: PhantomData,
+            _bus_marker: PhantomData,
+            _cartridge_marker: PhantomData,
+            _other_marker: PhantomData,
+        }
+    }
+}
+
+impl Deref for DebugSh2BusGuard<'_, '_, '_, '_> {
     type Target = DebugSh2Bus;
 
     fn deref(&self) -> &Self::Target {
@@ -83,108 +106,82 @@ impl Deref for DebugSh2BusGuard<'_, '_, '_, '_, '_> {
     }
 }
 
-impl DerefMut for DebugSh2BusGuard<'_, '_, '_, '_, '_> {
+impl DerefMut for DebugSh2BusGuard<'_, '_, '_, '_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.bus
     }
 }
 
-pub(crate) struct Sh2BusDebugView<'a>(&'a mut DebugSh2Bus);
+pub struct DebugSh2BusView<'bus>(&'bus mut DebugSh2Bus);
 
-impl<'a> Sh2BusDebugView<'a> {
-    fn as_32x_debug_view_and_debugger<'view, 'slf, 'cpu>(
+impl DebugSh2BusView<'_> {
+    fn which(&self) -> WhichCpu {
+        self.0.bus.which
+    }
+
+    fn as_debug_view<'slf, 'cpu, 'ret>(
         &'slf mut self,
         cpu: &'cpu mut Sh2,
-    ) -> (Sega32XEmulatorDebugView<'view>, &'slf mut Sega32XDebugger)
+    ) -> Option<(Sega32XDebugView<'ret>, Option<&'slf mut Cartridge>)>
     where
-        'cpu: 'view,
-        'slf: 'view,
-        'a: 'view,
+        'slf: 'ret,
+        'cpu: 'ret,
     {
-        unsafe {
-            let mut other_sh2 = match self.0.bus.other_sh2 {
-                Some(OtherCpu { cpu, .. }) => cpu,
-                None => self
-                    .0
-                    .other_sh2
-                    .expect("other_sh2 is None on both inner bus and debug bus; this is a bug"),
-            };
-            let other_sh2 = other_sh2.as_mut();
+        let s32x_bus = unsafe { self.0.bus.s32x_bus.as_mut() };
 
-            let (sh2_master, sh2_slave) = match self.0.bus.which {
-                WhichCpu::Master => (cpu, other_sh2),
-                WhichCpu::Slave => (other_sh2, cpu),
-            };
+        // SAFETY: other_sh2 is only set on DebugSh2Bus when created in DebugSh2Bus::maybe_sync_other_cpu
+        // above, where it is created from a mutable reference. Otherwise this pulls the other SH-2
+        // out of the inner Sh2Bus, which is only ever set in Sh2Bus::create.
+        let other_sh2 = unsafe {
+            if !self.0.other_sh2.is_null() {
+                self.0.other_sh2.as_mut().unwrap()
+            } else if let Some(other_sh2) = self.0.bus.other_sh2.as_mut() {
+                other_sh2.cpu.as_mut()
+            } else {
+                // This _shouldn't_ ever happen, but don't crash if it does
+                log::error!(
+                    "Invalid debugger state; no pointer to other SH-2 while {:?} is executing",
+                    self.0.bus.which
+                );
+                return None;
+            }
+        };
 
-            let s32x_bus = self.0.bus.s32x_bus.as_mut();
+        let (sh2_master, sh2_slave) = match self.0.bus.which {
+            WhichCpu::Master => (cpu, other_sh2),
+            WhichCpu::Slave => (other_sh2, cpu),
+        };
 
-            let debug_view = Sega32XEmulatorDebugView {
-                genesis: BaseGenesisDebugView::new(
-                    self.0.debugger.m68k.as_mut(),
-                    self.0.debugger.z80.as_mut(),
-                    GenesisMemoryDebugView {
-                        medium_view: Sega32XMediumView {
-                            cartridge: &mut s32x_bus.cartridge,
-                            sdram: s32x_bus.sdram.as_mut_slice(),
-                            sh2_master,
-                            sh2_slave,
-                            system_registers: &mut s32x_bus.registers,
-                            s32x_vdp: &mut s32x_bus.vdp,
-                            pwm: &mut s32x_bus.pwm,
-                        },
-                        working_ram: self.0.debugger.working_ram.as_mut(),
-                        audio_ram: self.0.debugger.audio_ram.as_mut(),
-                        z80_bank_number: self.0.debugger.z80_bank_number,
-                    },
-                    self.0.debugger.main_pending_writes.as_ref(),
-                    self.0.debugger.vdp.as_mut(),
-                    self.0.debugger.ym2612.as_mut(),
-                    self.0.debugger.psg.as_mut(),
-                ),
-            };
+        let debug_view = Sega32XDebugView {
+            sdram: s32x_bus.sdram.as_mut_slice(),
+            sh2_master,
+            sh2_slave,
+            system_registers: &mut s32x_bus.registers,
+            vdp: &mut s32x_bus.vdp,
+            pwm: &mut s32x_bus.pwm,
+        };
 
-            let debugger = self.0.debugger.debugger.as_mut();
+        let cartridge = s32x_bus.cartridge.as_mut();
 
-            (debug_view, debugger)
-        }
-    }
-
-    fn breakpoints(&self) -> &Sh2BreakpointsParsed {
-        unsafe { self.0.debugger.debugger.as_ref().sh2_breakpoints(self.0.bus.which) }
-    }
-
-    fn check_break_step(&mut self, which: WhichCpu) -> bool {
-        unsafe { self.0.debugger.debugger.as_mut().check_sh2_break_step(which) }
-    }
-
-    fn handle_breakpoint(&mut self, cpu: &mut Sh2) {
-        let which = self.0.bus.which;
-        let (mut debug_view, debugger) = self.as_32x_debug_view_and_debugger(cpu);
-        debugger.handle_breakpoint(DebugWhichCpu::Sh2(which), &mut debug_view);
-    }
-
-    fn with_debugger_on_inner_bus<T>(
-        &mut self,
-        cpu: &mut Sh2,
-        op: impl FnOnce(&mut Sh2Bus) -> T,
-    ) -> T {
-        self.0.bus.debugger = Some((self.0.debugger.clone(), cpu.into()));
-        let value = op(&mut self.0.bus);
-        self.0.bus.debugger = None;
-
-        value
+        Some((debug_view, cartridge))
     }
 }
 
-impl Sh2Debugger for Sh2BusDebugView<'_> {
+impl Sh2Debugger for DebugSh2BusView<'_> {
     fn check_read<const SIZE: u8>(&mut self, address: u32, cpu: &mut Sh2) {
-        if self.breakpoints().should_break_read::<SIZE>(address) {
-            log::info!(
-                "[{:?}] {address:08X} {} read triggered breakpoint",
-                self.0.bus.which,
-                OpSize::display::<SIZE>()
-            );
-            self.handle_breakpoint(cpu);
+        let which = self.which();
+
+        // SAFETY: Debugger was created from a mutable reference, and DebugSh2Bus is only accessible
+        // through a guard
+        unsafe {
+            let debugger = self.0.debugger.as_mut();
+            if debugger.check_sh2_read_breakpoint(which, address, OpSize::enum_value::<SIZE>())
+                && let Some((debug_view, cartridge)) = self.as_debug_view(cpu)
+            {
+                log::info!("SH-2 {which:?} triggered read breakpoint: {address:08X}");
+
+                debugger.handle_sh2_breakpoint(which, cartridge, debug_view);
+            }
         }
     }
 
@@ -194,17 +191,28 @@ impl Sh2Debugger for Sh2BusDebugView<'_> {
         ctx: AccessContext,
         cpu: &mut Sh2,
     ) -> u32 {
-        self.with_debugger_on_inner_bus(cpu, |bus| bus.read::<SIZE>(address, ctx))
+        self.0.maybe_sync_other_cpu(address, cpu);
+        self.0.bus.read::<SIZE>(address, ctx)
     }
 
     fn check_write<const SIZE: u8>(&mut self, address: u32, value: u32, cpu: &mut Sh2) {
-        if self.breakpoints().should_break_write::<SIZE>(address) {
-            log::info!(
-                "[{:?}] {address:08X} {} write {value:08X} triggered breakpoint",
-                self.0.bus.which,
-                OpSize::display::<SIZE>()
-            );
-            self.handle_breakpoint(cpu);
+        let which = self.which();
+
+        // SAFETY: Debugger was created from a mutable reference, and DebugSh2Bus is only accessible
+        // through a guard
+        unsafe {
+            let debugger = self.0.debugger.as_mut();
+            if debugger.check_sh2_write_breakpoint(
+                which,
+                address,
+                value,
+                OpSize::enum_value::<SIZE>(),
+            ) && let Some((debug_view, cartridge)) = self.as_debug_view(cpu)
+            {
+                log::info!("SH-2 {which:?} triggered write breakpoint: {address:08X} {value:08X}");
+
+                debugger.handle_sh2_breakpoint(which, cartridge, debug_view);
+            }
         }
     }
 
@@ -215,7 +223,8 @@ impl Sh2Debugger for Sh2BusDebugView<'_> {
         ctx: AccessContext,
         cpu: &mut Sh2,
     ) {
-        self.with_debugger_on_inner_bus(cpu, |bus| bus.write::<SIZE>(address, value, ctx));
+        self.0.maybe_sync_other_cpu(address, cpu);
+        self.0.bus.write::<SIZE>(address, value, ctx);
     }
 
     fn apply_read_cache_line(
@@ -224,46 +233,52 @@ impl Sh2Debugger for Sh2BusDebugView<'_> {
         ctx: AccessContext,
         cpu: &mut Sh2,
     ) -> [u16; 8] {
-        self.with_debugger_on_inner_bus(cpu, |bus| bus.read_cache_line(address, ctx))
+        self.0.maybe_sync_other_cpu(address, cpu);
+        self.0.bus.read_cache_line(address, ctx)
     }
 
-    fn check_execute(&mut self, pc: u32, _opcode: u16, cpu: &mut Sh2) {
-        let which = self.0.bus.which;
+    fn check_execute(&mut self, pc: u32, opcode: u16, cpu: &mut Sh2) {
+        let which = self.which();
 
-        let break_execute =
-            unsafe { self.0.debugger.debugger.as_mut().update_sh2_pc_and_check_execute(which, pc) };
+        // SAFETY: Debugger was created from a mutable reference, and DebugSh2Bus is only accessible
+        // through a guard
+        unsafe {
+            let debugger = self.0.debugger.as_mut();
+            if debugger.check_sh2_execute_breakpoint(which, pc, opcode)
+                && let Some((debug_view, cartridge)) = self.as_debug_view(cpu)
+            {
+                log::info!("SH-2 {which:?} triggered execute breakpoint: PC={pc:08X}");
 
-        let break_step = self.check_break_step(which);
-
-        if break_execute {
-            log::info!("[{which:?}] PC={pc:08X} triggered execute breakpoint");
-        }
-
-        if break_step || break_execute {
-            self.handle_breakpoint(cpu);
+                debugger.handle_sh2_breakpoint(which, cartridge, debug_view);
+            }
         }
     }
 
     fn check_interrupt(&mut self, interrupt_level: u8, cpu: &mut Sh2) {
-        let which = self.0.bus.which;
+        let which = self.which();
 
-        let break_interrupt = unsafe {
-            self.0
-                .debugger
-                .debugger
-                .as_mut()
-                .sh2_breakpoints(which)
-                .should_break_interrupt(interrupt_level)
-        };
-        if break_interrupt {
-            log::info!("[{which:?}] triggered interrupt breakpoint (level {interrupt_level})");
-            self.handle_breakpoint(cpu);
+        // SAFETY: Debugger was created from a mutable reference, and DebugSh2Bus is only accessible
+        // through a guard
+        unsafe {
+            let debugger = self.0.debugger.as_mut();
+            if debugger.check_sh2_interrupt_breakpoint(which, interrupt_level)
+                && let Some((debug_view, cartridge)) = self.as_debug_view(cpu)
+            {
+                log::info!(
+                    "SH-2 {which:?} triggered interrupt breakpoint, interrupt level {interrupt_level}"
+                );
+
+                debugger.handle_sh2_breakpoint(which, cartridge, debug_view);
+            }
         }
     }
 }
 
 impl BusInterface for DebugSh2Bus {
-    type DebugView<'a> = Sh2BusDebugView<'a>;
+    type DebugView<'a>
+        = DebugSh2BusView<'a>
+    where
+        Self: 'a;
 
     fn read<const SIZE: u8>(&mut self, address: u32, ctx: AccessContext) -> u32 {
         self.bus.read::<SIZE>(address, ctx)
@@ -314,278 +329,8 @@ impl BusInterface for DebugSh2Bus {
     }
 
     fn debug_view(&mut self) -> Option<Self::DebugView<'_>> {
-        Some(Sh2BusDebugView(self))
-    }
-}
-
-impl MainBus68kDebugger<Sega32X> for Sega32XDebuggerFor68k<'_> {
-    fn check_read_breakpoint<const WORD: bool>(&mut self, address: u32) -> bool {
-        self.debugger.m68k_breakpoints().check_read::<WORD>(address)
+        Some(DebugSh2BusView(self))
     }
 
-    fn check_write_breakpoint<const WORD: bool>(&mut self, address: u32) -> bool {
-        self.debugger.m68k_breakpoints().check_write::<WORD>(address)
-    }
-
-    fn check_execute_breakpoint(&mut self, pc: u32) -> bool {
-        self.debugger.m68k_breakpoints().update_pc_and_check_execute(pc)
-    }
-
-    fn check_interrupt_breakpoint(&mut self, interrupt_level: u8) -> bool {
-        self.debugger.m68k_breakpoints().check_interrupt(interrupt_level)
-    }
-
-    fn check_break_step(&mut self) -> bool {
-        self.debugger.check_68k_break_step()
-    }
-
-    fn handle_breakpoint<const REFRESH_INTERVAL: u32>(
-        &mut self,
-        cpu: &mut M68000,
-        bus: &mut MainBus<'_, Sega32X, REFRESH_INTERVAL>,
-    ) {
-        let mut debug_view = Sega32XEmulatorDebugView {
-            genesis: BaseGenesisDebugView {
-                m68k: cpu,
-                z80: self.z80,
-                memory: bus.memory.as_debug_view(Sega32X::as_debug_view),
-                pending_writes: &bus.pending_writes,
-                vdp: bus.vdp,
-                ym2612: bus.ym2612,
-                psg: bus.psg,
-            },
-        };
-        self.debugger.handle_breakpoint(DebugWhichCpu::M68k, &mut debug_view);
-    }
-}
-
-impl MainBusZ80Debugger<Sega32X> for Sega32XDebuggerForZ80<'_> {
-    fn check_read_breakpoint(&mut self, address: u16) -> bool {
-        self.debugger.z80_breakpoints().check_read(address)
-    }
-
-    fn check_write_breakpoint(&mut self, address: u16) -> bool {
-        self.debugger.z80_breakpoints().check_write(address)
-    }
-
-    fn check_execute_breakpoint(&mut self, pc: u16) -> bool {
-        self.debugger.z80_breakpoints().update_pc_and_check_execute(pc)
-    }
-
-    fn check_break_step(&mut self) -> bool {
-        self.debugger.check_z80_break_step()
-    }
-
-    fn handle_breakpoint<const REFRESH_INTERVAL: u32>(
-        &mut self,
-        cpu: &mut Z80,
-        bus: &mut MainBus<'_, Sega32X, REFRESH_INTERVAL>,
-    ) {
-        let mut debug_view = Sega32XEmulatorDebugView {
-            genesis: BaseGenesisDebugView {
-                m68k: self.m68k,
-                z80: cpu,
-                memory: bus.memory.as_debug_view(Sega32X::as_debug_view),
-                pending_writes: &bus.pending_writes,
-                vdp: bus.vdp,
-                ym2612: bus.ym2612,
-                psg: bus.psg,
-            },
-        };
-        self.debugger.handle_breakpoint(DebugWhichCpu::Z80, &mut debug_view);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::GenesisVdp;
-    use crate::api::Sega32XEmulatorConfig;
-    use crate::api::debug::{S32XMemoryArea, Sega32XDebugCommand, Sh2Breakpoint, Sh2Breakpoints};
-    use crate::core::SerialInterface;
-    use crate::pwm::PwmChip;
-    use crate::registers::SystemRegisters;
-    use crate::vdp::Vdp;
-    use genesis_core::GenesisEmulatorConfig;
-    use genesis_core::api::debug::GenesisMemoryArea;
-    use genesis_core::cartridge::Cartridge;
-    use genesis_core::memory::MainBusWrites;
-    use genesis_core::memory::debug::GenesisMemory;
-    use genesis_core::vdp::DarkenColors;
-    use genesis_core::ym2612::Ym2612;
-    use jgenesis_common::boxedarray::BoxedWordArray;
-    use jgenesis_common::frontend::TimingMode;
-    use m68000_emu::M68000;
-    use smsgg_config::Sn76489Version;
-    use smsgg_core::psg::Sn76489;
-    use z80_emu::Z80;
-
-    const COMM_PORT_0: u32 = 0x20004020;
-
-    // Meant to be run through miri:
-    //   $ cargo +nightly miri test -p s32x-core memory_model
-    //
-    // This test is not exhaustive but should hit most of the major code paths that use unsafe blocks.
-    #[test]
-    fn check_for_memory_model_violations() {
-        let emu_config = Sega32XEmulatorConfig::default();
-
-        let (state_sender, _state_receiver) = jgenesis_common::sync::new_shared_var();
-        let (mut debugger, debugger_handle) = Sega32XDebugger::new(state_sender);
-
-        let mut s32x_bus = Sega32XBus {
-            cartridge: Cartridge::new(vec![0xFF; 1024], None, None, &[]),
-            vdp: Vdp::new(TimingMode::Ntsc, &emu_config),
-            pwm: PwmChip::new(TimingMode::Ntsc),
-            registers: SystemRegisters::new(),
-            sdram: BoxedWordArray::new(),
-            serial: SerialInterface::default(),
-        };
-
-        let mut sh2_master = Sh2::new("Master".into());
-        let mut sh2_slave = Sh2::new("Slave".into());
-        let mut sh2_slave_cycles = 0;
-
-        let mut bus = Sh2Bus::create(
-            &mut s32x_bus,
-            WhichCpu::Master,
-            0,
-            1024,
-            Some((&mut sh2_slave, &mut sh2_slave_cycles)),
-        );
-
-        for _ in 0..10 {
-            sh2_master.execute(50, &mut *bus);
-        }
-
-        bus.read_word(COMM_PORT_0, AccessContext::Fetch);
-
-        bus.cycle_counter = 0;
-        bus.other_sh2 = None;
-
-        for _ in 0..10 {
-            sh2_master.execute(50, &mut *bus);
-        }
-
-        bus.read_word(COMM_PORT_0, AccessContext::Fetch);
-
-        sh2_slave_cycles = 0;
-
-        let mut m68k = M68000::default();
-        let mut z80 = Z80::new();
-        let mut genesis_vdp =
-            GenesisVdp::new(TimingMode::Ntsc, emu_config.genesis.to_vdp_config(DarkenColors::Yes));
-        let mut ym2612 = Ym2612::new(&GenesisEmulatorConfig::default());
-        let mut psg = Sn76489::new(Sn76489Version::default());
-        let mut working_ram = vec![0; 64 * 1024];
-        let mut audio_ram = vec![0; 8 * 1024];
-        let main_pending_writes = MainBusWrites::new();
-
-        let mut debugger_for_sh2 = debugger.for_sh2(
-            &mut m68k,
-            &mut z80,
-            GenesisMemory {
-                working_ram: working_ram.as_mut_slice(),
-                audio_ram: audio_ram.as_mut_slice(),
-                z80_bank_number: 0,
-            },
-        );
-        let mut debug_bus = DebugSh2Bus::create(
-            &mut s32x_bus,
-            WhichCpu::Master,
-            0,
-            1024,
-            Some((&mut sh2_slave, &mut sh2_slave_cycles)),
-            GenesisComponents {
-                vdp: &mut genesis_vdp,
-                ym2612: &mut ym2612,
-                psg: &mut psg,
-                main_pending_writes: &main_pending_writes,
-            },
-            &mut debugger_for_sh2,
-        );
-
-        for _ in 0..10 {
-            sh2_master.execute(50, &mut *debug_bus);
-        }
-
-        debug_bus.debug_view().unwrap().apply_read::<{ OpSize::WORD }>(
-            COMM_PORT_0,
-            AccessContext::Fetch,
-            &mut sh2_master,
-        );
-
-        {
-            let mut debug_view = debug_bus.debug_view().unwrap();
-            let (mut s32x_debug_view, debugger) =
-                debug_view.as_32x_debug_view_and_debugger(&mut sh2_master);
-
-            debugger_handle
-                .send_command(Sega32XDebugCommand::Edit32XMemory(
-                    S32XMemoryArea::PaletteRam,
-                    0,
-                    0xFF,
-                ))
-                .unwrap();
-            debugger.process_commands(&mut s32x_debug_view);
-        }
-
-        // Run SH-2 again after debugger interaction
-        debug_bus.bus.bus.cycle_counter = 0;
-        unsafe {
-            debug_bus.bus.bus.other_sh2.as_mut().unwrap().cycle_counter.write(0);
-        }
-
-        for _ in 0..10 {
-            sh2_master.execute(50, &mut *debug_bus);
-        }
-
-        debug_bus.debug_view().unwrap().apply_read::<{ OpSize::WORD }>(
-            COMM_PORT_0,
-            AccessContext::Fetch,
-            &mut sh2_master,
-        );
-
-        debugger_handle
-            .send_command(Sega32XDebugCommand::UpdateSh2Breakpoints(
-                WhichCpu::Master,
-                Sh2Breakpoints {
-                    memory: vec![Sh2Breakpoint {
-                        start_address: COMM_PORT_0,
-                        end_address: COMM_PORT_0,
-                        read: true,
-                        write: true,
-                        execute: true,
-                    }],
-                    interrupt: vec![],
-                },
-            ))
-            .unwrap();
-
-        {
-            let mut debug_view = debug_bus.debug_view().unwrap();
-            let (mut s32x_debug_view, debugger) =
-                debug_view.as_32x_debug_view_and_debugger(&mut sh2_master);
-            debugger.process_commands(&mut s32x_debug_view);
-        }
-
-        for memory_area in GenesisMemoryArea::ALL {
-            debugger_handle
-                .send_command(Sega32XDebugCommand::EditGenesisMemory(memory_area, 0, 0))
-                .unwrap();
-        }
-
-        for memory_area in S32XMemoryArea::ALL {
-            debugger_handle
-                .send_command(Sega32XDebugCommand::Edit32XMemory(memory_area, 0, 0))
-                .unwrap();
-        }
-
-        debugger_handle.send_command(Sega32XDebugCommand::BreakResume).unwrap();
-
-        debug_bus
-            .debug_view()
-            .unwrap()
-            .check_read::<{ OpSize::WORD }>(COMM_PORT_0, &mut sh2_master);
-    }
+    sh2_emu::impl_sh2_opcode_table!(DebugSh2Bus);
 }

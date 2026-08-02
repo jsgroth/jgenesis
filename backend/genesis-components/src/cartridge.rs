@@ -1,10 +1,8 @@
-use crate::GenesisEmulatorConfig;
 use crate::cartridge::external::ExternalMemory;
-use crate::memory::PhysicalMedium;
 use crate::svp::Svp;
 use bincode::{Decode, Encode};
 use crc::Crc;
-use genesis_config::GenesisRegion;
+use genesis_config::{GenesisEmulatorConfig, GenesisRegion};
 use jgenesis_common::cheats::CheatWordOverrides;
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
@@ -514,6 +512,93 @@ impl Cartridge {
     }
 
     #[inline]
+    pub fn read<const WORD: bool>(&mut self, address: u32, open_bus: u16) -> u16 {
+        if WORD {
+            self.read_word(address, open_bus)
+        } else {
+            self.read_byte(address, open_bus).into()
+        }
+    }
+
+    #[inline]
+    pub fn read_byte(&mut self, address: u32, open_bus: u16) -> u8 {
+        if let Some(cheat) = self.cheat_overrides.get(address) {
+            return cheat.to_be_bytes()[(address & 1) as usize];
+        }
+
+        self.mapper
+            .read_byte(address, &self.rom, &self.external)
+            .unwrap_or_else(|| open_bus.to_be_bytes()[(address & 1) as usize])
+    }
+
+    #[inline]
+    pub fn read_word(&mut self, address: u32, open_bus: u16) -> u16 {
+        if let Some(cheat) = self.cheat_overrides.get(address) {
+            return cheat;
+        }
+
+        self.mapper.read_word(address, &self.rom, &self.external).unwrap_or(open_bus)
+    }
+
+    #[inline]
+    pub fn read_word_for_dma(&mut self, address: u32, open_bus: &mut u16) -> u16 {
+        // SVP cartridge memory has the same delay issue as Sega CD word RAM; Virtua Racing sets
+        // DMA source address 2 higher than the "correct" address
+        match &mut self.mapper {
+            Mapper::Svp(svp) => mem::replace(open_bus, svp.m68k_read(address, &self.rom.0)),
+            _ => {
+                *open_bus = self.read_word(address, *open_bus);
+                *open_bus
+            }
+        }
+    }
+
+    #[inline]
+    pub fn write<const WORD: bool>(&mut self, address: u32, value: u16) {
+        if WORD {
+            self.write_word(address, value);
+        } else {
+            self.write_byte(address, value as u8);
+        }
+    }
+
+    #[inline]
+    pub fn write_byte(&mut self, address: u32, value: u8) {
+        match address {
+            0x000000..=0x7FFFFF => {
+                self.mapper.write_byte(address, value, &mut self.external);
+            }
+            0xA13000..=0xA15FFF => {
+                self.mapper.write_register_byte(address, value);
+            }
+            _ => {
+                log::debug!("Write to invalid cartridge address: {address:06X} {value:02X}");
+            }
+        }
+    }
+
+    #[inline]
+    pub fn write_word(&mut self, address: u32, value: u16) {
+        match address {
+            0x000000..=0x7FFFFF => {
+                self.mapper.write_word(address, value, &mut self.external);
+            }
+            0xA13000..=0xA15FFF => {
+                self.mapper.write_register_word(address, value);
+            }
+            _ => {
+                log::debug!("Write to invalid cartridge address: {address:06X} {value:04X}");
+            }
+        }
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn region(&self) -> GenesisRegion {
+        self.forced_region.unwrap_or(self.metadata.region)
+    }
+
+    #[inline]
     pub fn tick(&mut self, m68k_cycles: u32) {
         if let Mapper::Svp(svp) = &mut self.mapper {
             svp.tick(&self.rom.0, m68k_cycles);
@@ -753,78 +838,4 @@ pub fn is_six_button_incompatible(rom: &[u8]) -> bool {
 
     let serial_number = &rom[0x180..0x18B];
     SERIAL_NUMBERS.contains(&serial_number)
-}
-
-impl PhysicalMedium for Cartridge {
-    #[inline]
-    fn read_byte(&mut self, address: u32, open_bus: u16) -> u8 {
-        if let Some(cheat) = self.cheat_overrides.get(address) {
-            return cheat.to_be_bytes()[(address & 1) as usize];
-        }
-
-        self.mapper
-            .read_byte(address, &self.rom, &self.external)
-            .unwrap_or_else(|| open_bus.to_be_bytes()[(address & 1) as usize])
-    }
-
-    #[inline]
-    fn read_word(&mut self, address: u32, open_bus: u16) -> u16 {
-        if let Some(cheat) = self.cheat_overrides.get(address) {
-            return cheat;
-        }
-
-        self.mapper.read_word(address, &self.rom, &self.external).unwrap_or(open_bus)
-    }
-
-    #[inline]
-    fn read_word_for_dma(&mut self, address: u32, open_bus: &mut u16) -> u16 {
-        // SVP cartridge memory has the same delay issue as Sega CD word RAM; Virtua Racing sets
-        // DMA source address 2 higher than the "correct" address
-        match &mut self.mapper {
-            Mapper::Svp(svp) => mem::replace(open_bus, svp.m68k_read(address, &self.rom.0)),
-            _ => {
-                *open_bus = self.read_word(address, *open_bus);
-                *open_bus
-            }
-        }
-    }
-
-    #[inline]
-    fn write_byte(&mut self, address: u32, value: u8) {
-        match address {
-            0x000000..=0x7FFFFF => {
-                self.mapper.write_byte(address, value, &mut self.external);
-            }
-            0xA13000..=0xA15FFF => {
-                self.mapper.write_register_byte(address, value);
-            }
-            _ => {
-                log::debug!("Write to invalid cartridge address: {address:06X} {value:02X}");
-            }
-        }
-    }
-
-    #[inline]
-    fn write_word(&mut self, address: u32, value: u16) {
-        match address {
-            0x000000..=0x7FFFFF => {
-                self.mapper.write_word(address, value, &mut self.external);
-            }
-            0xA13000..=0xA15FFF => {
-                self.mapper.write_register_word(address, value);
-            }
-            _ => {
-                log::debug!("Write to invalid cartridge address: {address:06X} {value:04X}");
-            }
-        }
-    }
-
-    #[inline]
-    fn region(&self) -> GenesisRegion {
-        self.forced_region.unwrap_or(self.metadata.region)
-    }
-
-    fn clone_cartridge(&self) -> Option<Cartridge> {
-        Some(self.clone())
-    }
 }

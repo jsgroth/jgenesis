@@ -84,6 +84,10 @@ impl DebuggerWindow {
     /// Propagates any errors encountered while rendering.
     pub fn update(&mut self) -> Result<FrameRunEffect, DebuggerError> {
         let effect = self.frame.run(|ui, ctx| {
+            // Workaround for https://github.com/emilk/egui/issues/8092
+            #[cfg(debug_assertions)]
+            ui.global_style_mut(|style| style.debug.warn_if_rect_changes_id = false);
+
             let debug_ctx = DebugRenderContext {
                 egui_ui: ui,
                 device: ctx.device,

@@ -73,6 +73,8 @@ pub trait U16Ext {
     fn set_lsb(&mut self, value: u8);
 
     fn set_msb(&mut self, value: u8);
+
+    fn be_byte(self, i: u32) -> u8;
 }
 
 impl U16Ext for u16 {
@@ -94,6 +96,12 @@ impl U16Ext for u16 {
     #[inline(always)]
     fn set_msb(&mut self, value: u8) {
         *self = (*self & 0x00FF) | (u16::from(value) << 8);
+    }
+
+    #[inline(always)]
+    fn be_byte(self, i: u32) -> u8 {
+        debug_assert!(i <= 1);
+        (self >> (8 * (i ^ 1))) as u8
     }
 }
 

@@ -1,16 +1,18 @@
 //! 32X memory mapping for the 68000 and SH-2s
 
-pub(crate) mod debug;
+pub mod debug;
 
-use crate::api::debug::Sega32XDebuggerForSh2Raw;
-use crate::bootrom;
-use crate::bus::debug::DebugSh2Bus;
-use crate::core::{Sega32X, Sega32XBus};
-use crate::registers::Access;
-use genesis_config::GenesisRegion;
-use genesis_core::cartridge::Cartridge;
-use genesis_core::memory::PhysicalMedium;
+use crate::pwm::PwmChip;
+use crate::registers::{Access, SystemRegisters};
+use crate::vdp::Vdp;
+use crate::{WhichCpu, bootrom};
+use bincode::{Decode, Encode};
+use genesis_components::cartridge::Cartridge;
+use genesis_config::Sega32XEmulatorConfig;
+use jgenesis_common::boxedarray::BoxedWordArray;
+use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::{GetBit, U16Ext};
+use jgenesis_proc_macros::PartialClone;
 use sh2_emu::Sh2;
 use sh2_emu::bus::{AccessContext, BusInterface, OpSize};
 use sh2_emu::debug::DummySh2Debugger;
@@ -19,410 +21,43 @@ use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
 use std::{array, cmp};
 
+const SDRAM_LEN_WORDS: usize = 256 * 1024 / 2;
 const SDRAM_MASK: u32 = 0x3FFFF;
 
-// $000000-$0000FF: 256-byte fixed vector ROM (except for HINT vector which is R/W)
-const M68K_VECTORS_START: u32 = 0x000000;
-const M68K_VECTORS_END: u32 = 0x0000FF;
-
-const H_INT_VECTOR_START: u32 = 0x000070;
-const H_INT_VECTOR_END: u32 = 0x000073;
-
-// $000100-$3FFFFF: Cartridge
-const M68K_CARTRIDGE_START: u32 = 0x000100;
-const M68K_CARTRIDGE_END: u32 = 0x3FFFFF;
-
-// $400000-$7FFFFF: Sega CD if connected (?)
-const M68K_SEGA_CD_START: u32 = 0x400000;
-const M68K_SEGA_CD_END: u32 = 0x7FFFFF;
-
-// $840000-$85FFFF: Frame buffer
-const M68K_FRAME_BUFFER_START: u32 = 0x840000;
-const M68K_FRAME_BUFFER_END: u32 = 0x85FFFF;
-
-// $860000-$87FFFF: Frame buffer overwrite image
-const M68K_OVERWRITE_IMAGE_START: u32 = 0x860000;
-const M68K_OVERWRITE_IMAGE_END: u32 = 0x87FFFF;
-
-// $880000-$8FFFFF: First 512KB of cartridge memory
-const M68K_FIRST_CART_BANK_START: u32 = 0x880000;
-const M68K_FIRST_CART_BANK_END: u32 = 0x8FFFFF;
-
-// $900000-$9FFFFF: Mappable 1MB cartridge bank
-const M68K_MAPPABLE_CART_BANK_START: u32 = 0x900000;
-const M68K_MAPPABLE_CART_BANK_END: u32 = 0x9FFFFF;
-
-// $A130EC-$A130EF: 32X ID ("MARS")
-const M68K_32X_ID_START: u32 = 0xA130EC;
-const M68K_32X_ID_END: u32 = 0xA130EF;
-const M68K_32X_ID: [u8; 4] = *b"MARS";
-
-// $A130F0-$A130FF: Cartridge registers
-const M68K_CART_REGISTERS_START: u32 = 0xA130F0;
-const M68K_CART_REGISTERS_END: u32 = 0xA130FF;
-
-// $A15100-$A1512F: 32X system registers
-const M68K_SYSTEM_REGISTERS_START: u32 = 0xA15100;
-const M68K_SYSTEM_REGISTERS_END: u32 = 0xA1512F;
-
-// $A15130-$A1513F: PWM registers
-const M68K_PWM_START: u32 = 0xA15130;
-const M68K_PWM_END: u32 = 0xA1513F;
-
-// $A15180-$A1518F: VDP registers
-const M68K_VDP_START: u32 = 0xA15180;
-const M68K_VDP_END: u32 = 0xA1518F;
-
-// $A15200-$A153FF: VDP palette RAM
-const M68K_CRAM_START: u32 = 0xA15200;
-const M68K_CRAM_END: u32 = 0xA153FF;
-
-impl Sega32X {
-    fn h_int_vector(&self) -> u32 {
-        u32::from_be_bytes(
-            self.m68k_vectors[H_INT_VECTOR_START as usize..(H_INT_VECTOR_START + 4) as usize]
-                .try_into()
-                .unwrap(),
-        )
-    }
+#[derive(Debug, Clone, Default, Encode, Decode)]
+pub struct SerialInterface {
+    pub master_to_slave: Option<u8>,
+    pub slave_to_master: Option<u8>,
 }
 
-macro_rules! word_to_byte {
-    ($address:expr, $($op:tt)*) => {
-        {
-            let word = $($op)*($address & !1);
-            if !$address.bit(0) { word.msb() } else { word.lsb() }
-        }
-    }
+#[derive(Debug, Clone, Encode, Decode, PartialClone)]
+pub struct Sega32XBus {
+    #[partial_clone(partial)]
+    pub cartridge: Option<Cartridge>,
+    pub vdp: Vdp,
+    pub pwm: PwmChip,
+    pub registers: SystemRegisters,
+    pub sdram: BoxedWordArray<SDRAM_LEN_WORDS>,
+    pub serial: SerialInterface,
+    pub stalled_on_cartridge_access: bool,
 }
 
-// 68000 memory map
-impl PhysicalMedium for Sega32X {
-    fn read_byte(&mut self, address: u32, open_bus: u16) -> u8 {
-        match address {
-            M68K_VECTORS_START..=M68K_VECTORS_END => {
-                // Hardcoded vectors when 32X is enabled, first 256 bytes of ROM otherwise
-                if self.s32x_bus.registers.adapter_enabled {
-                    self.m68k_vectors[address as usize]
-                } else {
-                    self.s32x_bus.cartridge.read_byte(address, open_bus)
-                }
-            }
-            M68K_CARTRIDGE_START..=M68K_CARTRIDGE_END => {
-                // ROM (only accessible when 32X is disabled or ROM-to-VRAM DMA is enabled)
-                // TODO is this right? some games read from ROM without setting RV=1; allow them to go through
-                if self.s32x_bus.registers.adapter_enabled
-                    && !self.s32x_bus.registers.dma.rom_to_vram_dma
-                {
-                    log::warn!("ROM byte read with RV=0: {address:06X}");
-                }
-                self.s32x_bus.cartridge.read_byte(address, open_bus)
-            }
-            M68K_FRAME_BUFFER_START..=M68K_OVERWRITE_IMAGE_END => {
-                if self.s32x_bus.registers.vdp_access == Access::M68k {
-                    word_to_byte!(address, self.s32x_bus.vdp.read_frame_buffer)
-                } else {
-                    log::warn!("Frame buffer byte read with FM=1: {address:06X}");
-                    0xFF
-                }
-            }
-            M68K_FIRST_CART_BANK_START..=M68K_FIRST_CART_BANK_END => {
-                // First 512KB of ROM
-                self.s32x_bus.cartridge.read_byte(address & 0x7FFFF, open_bus)
-            }
-            M68K_MAPPABLE_CART_BANK_START..=M68K_MAPPABLE_CART_BANK_END => {
-                // Mappable 1MB ROM bank
-                let rom_addr =
-                    (u32::from(self.s32x_bus.registers.m68k_rom_bank) << 20) | (address & 0xFFFFF);
-                self.s32x_bus.cartridge.read_byte(rom_addr, open_bus)
-            }
-            M68K_CART_REGISTERS_START..=M68K_CART_REGISTERS_END => {
-                self.s32x_bus.cartridge.read_byte(address, open_bus)
-            }
-            M68K_SYSTEM_REGISTERS_START..=M68K_SYSTEM_REGISTERS_END => {
-                // System registers
-                log::trace!("M68K read byte {address:06X}");
-                word_to_byte!(address, self.s32x_bus.registers.m68k_read)
-            }
-            M68K_VDP_START..=M68K_VDP_END => {
-                // 32X VDP registers
-                log::trace!("M68K read byte {address:06X}");
-                if self.s32x_bus.registers.vdp_access == Access::M68k {
-                    word_to_byte!(address, self.s32x_bus.vdp.read_register)
-                } else {
-                    log::warn!("VDP register byte read while FM=1: {address:06X}");
-                    0xFF
-                }
-            }
-            M68K_PWM_START..=M68K_PWM_END => {
-                word_to_byte!(address, self.s32x_bus.pwm.read_register)
-            }
-            M68K_CRAM_START..=M68K_CRAM_END => {
-                word_to_byte!(address, self.s32x_bus.vdp.read_cram)
-            }
-            M68K_32X_ID_START..=M68K_32X_ID_END => M68K_32X_ID[(address & 3) as usize],
-            // TODO Sega CD is mapped here if connected?
-            M68K_SEGA_CD_START..=M68K_SEGA_CD_END => {
-                log::debug!("Byte read from Sega CD address: {address:06X}");
-                0
-            }
-            _ => {
-                log::warn!("M68K byte read from unexpected address: {address:06X}");
-                open_bus.to_be_bytes()[(address & 1) as usize]
-            }
-        }
-    }
+impl Sega32XBus {
+    pub fn new(
+        timing_mode: TimingMode,
+        cartridge: Option<Cartridge>,
+        config: &Sega32XEmulatorConfig,
+    ) -> Self {
+        let cartridge_present = cartridge.is_some();
 
-    fn read_word(&mut self, address: u32, open_bus: u16) -> u16 {
-        match address {
-            M68K_VECTORS_START..=M68K_VECTORS_END => {
-                // Hardcoded vectors when 32X is enabled, first 256 bytes of ROM otherwise
-                if self.s32x_bus.registers.adapter_enabled {
-                    let address = (address & !1) as usize;
-                    u16::from_be_bytes(self.m68k_vectors[address..address + 2].try_into().unwrap())
-                } else {
-                    self.s32x_bus.cartridge.read_word(address, open_bus)
-                }
-            }
-            M68K_CARTRIDGE_START..=M68K_CARTRIDGE_END => {
-                // ROM (only accessible when 32X is disabled or ROM-to-VRAM DMA is enabled)
-                // TODO is this right? some games read from ROM without setting RV=1; allow them to go through
-                if self.s32x_bus.registers.adapter_enabled
-                    && !self.s32x_bus.registers.dma.rom_to_vram_dma
-                {
-                    log::warn!("ROM word read with RV=0: {address:06X}");
-                }
-                self.s32x_bus.cartridge.read_word(address, open_bus)
-            }
-            M68K_FRAME_BUFFER_START..=M68K_OVERWRITE_IMAGE_END => {
-                if self.s32x_bus.registers.vdp_access == Access::M68k {
-                    self.s32x_bus.vdp.read_frame_buffer(address)
-                } else {
-                    log::warn!("Frame buffer word read with FM=1: {address:06X}");
-                    0xFFFF
-                }
-            }
-            M68K_FIRST_CART_BANK_START..=M68K_FIRST_CART_BANK_END => {
-                // First 512KB of ROM
-                self.s32x_bus.cartridge.read_word(address & 0x7FFFF, open_bus)
-            }
-            M68K_MAPPABLE_CART_BANK_START..=M68K_MAPPABLE_CART_BANK_END => {
-                // Mappable 1MB ROM bank
-                let rom_addr =
-                    (u32::from(self.s32x_bus.registers.m68k_rom_bank) << 20) | (address & 0xFFFFF);
-                self.s32x_bus.cartridge.read_word(rom_addr, open_bus)
-            }
-            M68K_SYSTEM_REGISTERS_START..=M68K_SYSTEM_REGISTERS_END => {
-                // System registers
-                log::trace!("M68K read word {address:06X}");
-                self.s32x_bus.registers.m68k_read(address)
-            }
-            M68K_VDP_START..=M68K_VDP_END => {
-                // 32X VDP registers
-                log::trace!("M68K read word {address:06X}");
-                if self.s32x_bus.registers.vdp_access == Access::M68k {
-                    self.s32x_bus.vdp.read_register(address)
-                } else {
-                    log::warn!("VDP register word read with FM=1: {address:06X}");
-                    0xFFFF
-                }
-            }
-            M68K_PWM_START..=M68K_PWM_END => {
-                // PWM registers
-                self.s32x_bus.pwm.read_register(address)
-            }
-            M68K_CRAM_START..=M68K_CRAM_END => {
-                // 32X CRAM
-                if self.s32x_bus.registers.vdp_access == Access::M68k {
-                    self.s32x_bus.vdp.read_cram(address)
-                } else {
-                    log::warn!("CRAM word read with FM=1: {address:06X}");
-                    0xFFFF
-                }
-            }
-            M68K_32X_ID_START..=M68K_32X_ID_END => {
-                if !address.bit(1) {
-                    u16::from_be_bytes(M68K_32X_ID[0..2].try_into().unwrap())
-                } else {
-                    u16::from_be_bytes(M68K_32X_ID[2..4].try_into().unwrap())
-                }
-            }
-            M68K_SEGA_CD_START..=M68K_SEGA_CD_END => {
-                // TODO Sega CD is mapped here if plugged in
-                log::debug!("Invalid word read {address:06X}");
-                0
-            }
-            _ => {
-                log::error!("M68K word read from unexpected address {address:06X}");
-                open_bus
-            }
-        }
-    }
-
-    fn read_word_for_dma(&mut self, address: u32, open_bus: &mut u16) -> u16 {
-        if !self.s32x_bus.registers.dma.rom_to_vram_dma {
-            // TODO should these reads be blocked?
-            log::debug!("Cartridge read for DMA with RV=0 {address:06X}");
-        }
-
-        if !(0x000000..=0x3FFFFF).contains(&address) {
-            log::warn!("VDP DMA read from an invalid address {address:06X}");
-            return *open_bus;
-        }
-
-        *open_bus = self.s32x_bus.cartridge.read_word(address, *open_bus);
-        *open_bus
-    }
-
-    fn write_byte(&mut self, address: u32, value: u8) {
-        match address {
-            H_INT_VECTOR_START..=H_INT_VECTOR_END => {
-                self.m68k_vectors[address as usize] = value;
-                log::trace!("68000 HINT vector: {:06X}", self.h_int_vector());
-            }
-            M68K_CARTRIDGE_START..=M68K_CARTRIDGE_END => {
-                self.s32x_bus.cartridge.write_byte(address, value);
-            }
-            M68K_FRAME_BUFFER_START..=M68K_OVERWRITE_IMAGE_END => {
-                if self.s32x_bus.registers.vdp_access == Access::M68k {
-                    self.s32x_bus.vdp.write_frame_buffer_byte(address, value);
-                } else {
-                    log::warn!("Frame buffer write with FM=1: {address:06X} {value:02X}");
-                }
-            }
-            M68K_CART_REGISTERS_START..=M68K_CART_REGISTERS_END => {
-                self.s32x_bus.cartridge.write_byte(address, value);
-            }
-            M68K_SYSTEM_REGISTERS_START..=M68K_SYSTEM_REGISTERS_END => {
-                log::trace!("M68K write byte {address:06X} {value:02X}");
-                self.s32x_bus.registers.m68k_write_byte(address, value);
-            }
-            M68K_VDP_START..=M68K_VDP_END => {
-                log::trace!("M68K write byte {address:06X} {value:02X}");
-
-                if self.s32x_bus.registers.vdp_access == Access::M68k {
-                    self.s32x_bus.vdp.write_register_byte(address, value);
-                } else {
-                    log::warn!("VDP register write with FM=1: {address:06X} {value:02X}");
-                }
-            }
-            M68K_FIRST_CART_BANK_START..=M68K_FIRST_CART_BANK_END => {
-                self.s32x_bus.cartridge.write_byte(address & 0x7FFFF, value);
-            }
-            M68K_MAPPABLE_CART_BANK_START..=M68K_MAPPABLE_CART_BANK_END => {
-                let rom_addr =
-                    (u32::from(self.s32x_bus.registers.m68k_rom_bank) << 20) | (address & 0xFFFFF);
-                self.s32x_bus.cartridge.write_byte(rom_addr, value);
-            }
-            M68K_PWM_START..=M68K_PWM_END => {
-                let mut word = self.s32x_bus.pwm.read_register(address & !1);
-                if !address.bit(0) {
-                    word.set_msb(value);
-                } else {
-                    word.set_lsb(value);
-                }
-                self.s32x_bus.pwm.m68k_write_register(address & !1, word);
-            }
-            M68K_VECTORS_START..=M68K_VECTORS_END | M68K_SEGA_CD_START..=M68K_SEGA_CD_END => {
-                log::debug!("M68K write to vector ROM address {address:06X} {value:02X}");
-            }
-            _ => log::warn!("M68K write byte to invalid address: {address:06X} {value:02X}"),
-        }
-    }
-
-    fn write_word(&mut self, address: u32, value: u16) {
-        match address {
-            H_INT_VECTOR_START..=H_INT_VECTOR_END => {
-                self.m68k_vectors[address as usize] = value.msb();
-                self.m68k_vectors[(address + 1) as usize] = value.lsb();
-                log::trace!("68000 HINT vector: {:06X}", self.h_int_vector());
-            }
-            M68K_FRAME_BUFFER_START..=M68K_FRAME_BUFFER_END => {
-                if self.s32x_bus.registers.vdp_access == Access::M68k {
-                    self.s32x_bus.vdp.write_frame_buffer_word(address, value);
-                } else {
-                    log::warn!("Frame buffer write with FM=1: {address:06X} {value:04X}");
-                }
-            }
-            M68K_OVERWRITE_IMAGE_START..=M68K_OVERWRITE_IMAGE_END => {
-                if self.s32x_bus.registers.vdp_access == Access::M68k {
-                    self.s32x_bus.vdp.frame_buffer_overwrite_word(address, value);
-                } else {
-                    log::warn!(
-                        "Frame buffer overwrite image write with FM=1: {address:06X} {value:04X}"
-                    );
-                }
-            }
-            M68K_SYSTEM_REGISTERS_START..=M68K_SYSTEM_REGISTERS_END => {
-                // System registers
-                log::trace!("M68K write word {address:06X} {value:04X}");
-                self.s32x_bus.registers.m68k_write(address, value);
-            }
-            M68K_PWM_START..=M68K_PWM_END => {
-                // PWM registers
-                log::trace!("M68K PWM register write {address:06X} {value:04X}");
-                self.s32x_bus.pwm.m68k_write_register(address, value);
-            }
-            M68K_VDP_START..=M68K_VDP_END => {
-                // VDP registers
-                log::trace!("M68K write word {address:06X} {value:04X}");
-                if self.s32x_bus.registers.vdp_access == Access::M68k {
-                    self.s32x_bus.vdp.write_register(address, value);
-                } else {
-                    log::warn!("VDP register write with FM=1: {address:06X} {value:04X}");
-                }
-            }
-            M68K_CRAM_START..=M68K_CRAM_END => {
-                if self.s32x_bus.registers.vdp_access == Access::M68k {
-                    self.s32x_bus.vdp.write_cram(address, value);
-                } else {
-                    log::warn!("CRAM write with FM=1: {address:06X} {value:04X}");
-                }
-            }
-            M68K_CARTRIDGE_START..=M68K_CARTRIDGE_END => {
-                self.s32x_bus.cartridge.write_word(address, value);
-            }
-            M68K_FIRST_CART_BANK_START..=M68K_FIRST_CART_BANK_END => {
-                self.s32x_bus.cartridge.write_word(address & 0x7FFFF, value);
-            }
-            M68K_MAPPABLE_CART_BANK_START..=M68K_MAPPABLE_CART_BANK_END => {
-                let cart_addr =
-                    (u32::from(self.s32x_bus.registers.m68k_rom_bank) << 20) | (address & 0xFFFFF);
-                self.s32x_bus.cartridge.write_word(cart_addr, value);
-            }
-            M68K_CART_REGISTERS_START..=M68K_CART_REGISTERS_END => {
-                self.s32x_bus.cartridge.write_word(address, value);
-            }
-            // TODO Sega CD is $400000-$7FFFFF if plugged in
-            M68K_VECTORS_START..=M68K_VECTORS_END | M68K_SEGA_CD_START..=M68K_SEGA_CD_END => {
-                log::debug!("M68K write to invalid address {address:06X} {value:04X}");
-            }
-            _ => log::warn!("M68K write word to invalid address: {address:06X} {value:04X}"),
-        }
-    }
-
-    fn region(&self) -> GenesisRegion {
-        self.region
-    }
-
-    fn clone_cartridge(&self) -> Option<Cartridge> {
-        Some(self.s32x_bus.cartridge.clone())
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WhichCpu {
-    Master = 0,
-    Slave = 1,
-}
-
-impl WhichCpu {
-    #[inline]
-    #[must_use]
-    pub fn other(self) -> Self {
-        match self {
-            Self::Master => Self::Slave,
-            Self::Slave => Self::Master,
+        Self {
+            cartridge,
+            vdp: Vdp::new(timing_mode, config),
+            pwm: PwmChip::new(timing_mode),
+            registers: SystemRegisters::new(cartridge_present),
+            sdram: BoxedWordArray::new(),
+            serial: SerialInterface::default(),
+            stalled_on_cartridge_access: false,
         }
     }
 }
@@ -439,18 +74,16 @@ pub struct Sh2Bus {
     pub which: WhichCpu,
     pub cycle_counter: u64,
     pub cycle_limit: u64,
-    debugger: Option<(Sega32XDebuggerForSh2Raw, NonNull<Sh2>)>,
 }
 
-sh2_emu::impl_sh2_lookup_table!(Sh2Bus);
-
-pub struct Sh2BusGuard<'bus, 'other> {
+pub struct Sh2BusGuard<'bus, 'cartridge, 'other> {
     bus: Sh2Bus,
     _bus_marker: PhantomData<&'bus ()>,
+    _cartridge_marker: PhantomData<&'cartridge ()>,
     _other_marker: PhantomData<&'other ()>,
 }
 
-impl Deref for Sh2BusGuard<'_, '_> {
+impl Deref for Sh2BusGuard<'_, '_, '_> {
     type Target = Sh2Bus;
 
     fn deref(&self) -> &Self::Target {
@@ -458,7 +91,7 @@ impl Deref for Sh2BusGuard<'_, '_> {
     }
 }
 
-impl DerefMut for Sh2BusGuard<'_, '_> {
+impl DerefMut for Sh2BusGuard<'_, '_, '_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.bus
     }
@@ -589,29 +222,26 @@ fn sh2_vdp_cycles<const SIZE: u8>() -> u64 {
 }
 
 impl Sh2Bus {
-    pub fn create<'bus, 'other>(
+    #[inline]
+    pub fn create<'bus, 'cartridge, 'other>(
         s32x_bus: &'bus mut Sega32XBus,
         which: WhichCpu,
         cycle_counter: u64,
         cycle_limit: u64,
         other_sh2: Option<(&'other mut Sh2, &'other mut u64)>,
-    ) -> Sh2BusGuard<'bus, 'other> {
+    ) -> Sh2BusGuard<'bus, 'cartridge, 'other> {
         // SAFETY: Sh2Bus contains raw pointers that are created from mutable references here. The
         // returned bus is only accessible through a guard so that the caller cannot reborrow or
         // move the underlying values until after dropping the guard.
+        let other_sh2 = other_sh2.map(|(other_cpu, other_cycles)| OtherCpu {
+            cpu: other_cpu.into(),
+            cycle_counter: other_cycles.into(),
+        });
+
         Sh2BusGuard {
-            bus: Sh2Bus {
-                s32x_bus: s32x_bus.into(),
-                other_sh2: other_sh2.map(|(other_cpu, other_cycles)| OtherCpu {
-                    cpu: other_cpu.into(),
-                    cycle_counter: other_cycles.into(),
-                }),
-                which,
-                cycle_counter,
-                cycle_limit,
-                debugger: None,
-            },
+            bus: Sh2Bus { s32x_bus: s32x_bus.into(), other_sh2, which, cycle_counter, cycle_limit },
             _bus_marker: PhantomData,
+            _cartridge_marker: PhantomData,
             _other_marker: PhantomData,
         }
     }
@@ -635,13 +265,20 @@ impl Sh2Bus {
     // the slave SH-2. After the slave SH-2 sees a specific value from the master SH-2, it
     // writes to the communication port twice in quick succession, and the master SH-2 must
     // read the first value before it's overwritten
-    fn sync_if_comm_port_accessed(&mut self, address: u32) {
-        // $00004020-$0000402F are the communication ports
-        if !(0x4020..0x4030).contains(&address) {
+    fn need_to_sync_other(&self, address: u32) -> bool {
+        (0x4020..0x4030).contains(&address) && self.other_sh2.is_some()
+    }
+
+    fn maybe_sync_other_cpu(&mut self, address: u32) {
+        if !self.need_to_sync_other(address) {
             return;
         }
 
-        let Some(OtherCpu { mut cpu, cycle_counter }) = self.other_sh2 else { return };
+        let Some(OtherCpu { cpu: mut other_cpu, cycle_counter: other_cycle_counter }) =
+            self.other_sh2
+        else {
+            return;
+        };
 
         // SAFETY: All raw pointers used here were created from mutable references and are
         // guaranteed non-null.
@@ -652,32 +289,15 @@ impl Sh2Bus {
             let mut bus = Sh2Bus {
                 s32x_bus: self.s32x_bus,
                 which: self.which.other(),
-                cycle_counter: cycle_counter.read(),
+                cycle_counter: other_cycle_counter.read(),
                 cycle_limit: limit,
                 other_sh2: None,
-                debugger: None,
             };
 
-            match &mut self.debugger {
-                Some((debugger, debug_other_sh2)) => {
-                    let mut debug_bus = DebugSh2Bus {
-                        bus,
-                        debugger: debugger.clone(),
-                        other_sh2: Some(*debug_other_sh2),
-                    };
-
-                    while debug_bus.cycle_counter() < limit {
-                        cpu.as_mut().execute(crate::core::SH2_EXECUTION_SLICE_LEN, &mut debug_bus);
-                    }
-                    cycle_counter.write(debug_bus.cycle_counter());
-                }
-                None => {
-                    while bus.cycle_counter < bus.cycle_limit {
-                        cpu.as_mut().execute(crate::core::SH2_EXECUTION_SLICE_LEN, &mut bus);
-                    }
-                    cycle_counter.write(bus.cycle_counter);
-                }
+            while bus.cycle_counter < bus.cycle_limit {
+                other_cpu.as_mut().execute(crate::api::SH2_EXECUTION_SLICE_LEN, &mut bus);
             }
+            other_cycle_counter.write(bus.cycle_counter);
         }
     }
 
@@ -694,7 +314,7 @@ impl Sh2Bus {
                     OpSize::display::<SIZE>()
                 );
 
-                self.sync_if_comm_port_accessed(address);
+                self.maybe_sync_other_cpu(address);
 
                 let which = self.which;
                 sh2_read_register::<SIZE>(address, |address| {
@@ -766,37 +386,37 @@ impl Sh2Bus {
     }
 
     // $02000000-$03FFFFFF: Cartridge
-    fn read_02<const SIZE: u8>(&mut self, address: u32, ctx: AccessContext) -> u32 {
+    fn read_02<const SIZE: u8>(&mut self, address: u32) -> u32 {
+        // SH-2s stall if they access the cartridge while RV=1
+        self.s32x_bus().stalled_on_cartridge_access |= self.s32x_bus().registers.dma.rom_to_vram;
+
+        if self.s32x_bus().registers.dma.rom_to_vram {
+            log::debug!("SH-2 {:?} accessed ROM {address:08X} while RV=1", self.which);
+        }
+
         self.cycle_counter += if SIZE == OpSize::LONGWORD {
             2 * (1 + SH2_CARTRIDGE_CYCLES)
         } else {
             1 + SH2_CARTRIDGE_CYCLES
         };
 
-        if address & 0x400000 == 0 {
-            // Cartridge
-            match SIZE {
-                OpSize::BYTE => self.s32x_bus().cartridge.read_byte(address & 0x3FFFFF, !0).into(),
-                OpSize::WORD => self.s32x_bus().cartridge.read_word(address & 0x3FFFFF, !0).into(),
-                OpSize::LONGWORD => {
-                    let rom_addr = address & 0x3FFFFF & !3;
-                    let high: u32 = self.s32x_bus().cartridge.read_word(rom_addr, !0).into();
-                    let low: u32 = self.s32x_bus().cartridge.read_word(rom_addr | 2, !0).into();
-                    low | (high << 16)
-                }
-                _ => invalid_size!(SIZE),
-            }
-        } else {
-            // Not sure what these addresses are; Doom 32X Resurrection reads from them
-            // Sega CD maybe?
-            log::debug!(
-                "SH-2 {:?} Invalid address {} read {address:08X}, ctx: {ctx}",
-                self.which,
-                OpSize::display::<SIZE>()
-            );
-
+        let Some(cartridge) = &mut self.s32x_bus().cartridge else {
             // TODO open bus?
-            0
+            return !0;
+        };
+
+        // Only A21-A0 are connected to the cartridge on the SH-2 side
+        let cartridge_addr = address & 0x3FFFFF;
+
+        match SIZE {
+            OpSize::BYTE => cartridge.read_byte(cartridge_addr, !0).into(),
+            OpSize::WORD => cartridge.read_word(cartridge_addr, !0).into(),
+            OpSize::LONGWORD => {
+                let high: u32 = cartridge.read_word(cartridge_addr, !0).into();
+                let low: u32 = cartridge.read_word(cartridge_addr | 2, !0).into();
+                low | (high << 16)
+            }
+            _ => invalid_size!(SIZE),
         }
     }
 
@@ -854,7 +474,7 @@ impl Sh2Bus {
                     OpSize::display::<SIZE>()
                 );
 
-                self.sync_if_comm_port_accessed(address);
+                self.maybe_sync_other_cpu(address);
 
                 let which = self.which;
                 sh2_write_register::<SIZE>(
@@ -931,39 +551,6 @@ impl Sh2Bus {
         }
     }
 
-    // $02000000-$03FFFFFF: Cartridge
-    fn write_02<const SIZE: u8>(&mut self, address: u32, value: u32, ctx: AccessContext) {
-        self.cycle_counter += if SIZE == OpSize::LONGWORD {
-            2 * (1 + SH2_CARTRIDGE_CYCLES)
-        } else {
-            1 + SH2_CARTRIDGE_CYCLES
-        };
-
-        if address & 0x400000 == 0 {
-            match SIZE {
-                OpSize::BYTE => {
-                    self.s32x_bus().cartridge.write_byte(address & 0x3FFFFF, value as u8);
-                }
-                OpSize::WORD => {
-                    self.s32x_bus().cartridge.write_word(address & 0x3FFFFF, value as u16);
-                }
-                OpSize::LONGWORD => {
-                    let rom_addr = address & 0x3FFFFF & !3;
-                    self.s32x_bus().cartridge.write_word(rom_addr, (value >> 16) as u16);
-                    self.s32x_bus().cartridge.write_word(rom_addr | 2, value as u16);
-                }
-                _ => invalid_size!(SIZE),
-            }
-        } else {
-            // TODO Sega CD?
-            log::debug!(
-                "SH-2 {:?} invalid {} write {address:08X} {value:08X}, ctx: {ctx}",
-                self.which,
-                OpSize::display::<SIZE>()
-            );
-        }
-    }
-
     // $04000000-$05FFFFFF: Frame buffer
     fn write_04<const SIZE: u8>(&mut self, address: u32, value: u32, ctx: AccessContext) {
         if self.s32x_bus().registers.vdp_access != Access::Sh2 {
@@ -1034,21 +621,21 @@ impl BusInterface for Sh2Bus {
     fn read<const SIZE: u8>(&mut self, address: u32, ctx: AccessContext) -> u32 {
         const BYTE_FNS: [fn(&mut Sh2Bus, u32, AccessContext) -> u32; 4] = [
             |bus, address, ctx| bus.read_00::<{ OpSize::BYTE }>(address, ctx),
-            |bus, address, ctx| bus.read_02::<{ OpSize::BYTE }>(address, ctx),
+            |bus, address, _ctx| bus.read_02::<{ OpSize::BYTE }>(address),
             |bus, address, ctx| bus.read_04::<{ OpSize::BYTE }>(address, ctx),
             |bus, address, ctx| bus.read_06::<{ OpSize::BYTE }>(address, ctx),
         ];
 
         const WORD_FNS: [fn(&mut Sh2Bus, u32, AccessContext) -> u32; 4] = [
             |bus, address, ctx| bus.read_00::<{ OpSize::WORD }>(address, ctx),
-            |bus, address, ctx| bus.read_02::<{ OpSize::WORD }>(address, ctx),
+            |bus, address, _ctx| bus.read_02::<{ OpSize::WORD }>(address),
             |bus, address, ctx| bus.read_04::<{ OpSize::WORD }>(address, ctx),
             |bus, address, ctx| bus.read_06::<{ OpSize::WORD }>(address, ctx),
         ];
 
         const LONGWORD_FNS: [fn(&mut Sh2Bus, u32, AccessContext) -> u32; 4] = [
             |bus, address, ctx| bus.read_00::<{ OpSize::LONGWORD }>(address, ctx),
-            |bus, address, ctx| bus.read_02::<{ OpSize::LONGWORD }>(address, ctx),
+            |bus, address, _ctx| bus.read_02::<{ OpSize::LONGWORD }>(address),
             |bus, address, ctx| bus.read_04::<{ OpSize::LONGWORD }>(address, ctx),
             |bus, address, ctx| bus.read_06::<{ OpSize::LONGWORD }>(address, ctx),
         ];
@@ -1080,21 +667,21 @@ impl BusInterface for Sh2Bus {
     fn write<const SIZE: u8>(&mut self, address: u32, value: u32, ctx: AccessContext) {
         const BYTE_FNS: [fn(&mut Sh2Bus, u32, u32, AccessContext); 4] = [
             |bus, address, value, ctx| bus.write_00::<{ OpSize::BYTE }>(address, value, ctx),
-            |bus, address, value, ctx| bus.write_02::<{ OpSize::BYTE }>(address, value, ctx),
+            |_, _, _, _| {}, // SH-2s cannot write to the cartridge
             |bus, address, value, ctx| bus.write_04::<{ OpSize::BYTE }>(address, value, ctx),
             |bus, address, value, ctx| bus.write_06::<{ OpSize::BYTE }>(address, value, ctx),
         ];
 
         const WORD_FNS: [fn(&mut Sh2Bus, u32, u32, AccessContext); 4] = [
             |bus, address, value, ctx| bus.write_00::<{ OpSize::WORD }>(address, value, ctx),
-            |bus, address, value, ctx| bus.write_02::<{ OpSize::WORD }>(address, value, ctx),
+            |_, _, _, _| {}, // SH-2s cannot write to the cartridge
             |bus, address, value, ctx| bus.write_04::<{ OpSize::WORD }>(address, value, ctx),
             |bus, address, value, ctx| bus.write_06::<{ OpSize::WORD }>(address, value, ctx),
         ];
 
         const LONGWORD_FNS: [fn(&mut Sh2Bus, u32, u32, AccessContext); 4] = [
             |bus, address, value, ctx| bus.write_00::<{ OpSize::LONGWORD }>(address, value, ctx),
-            |bus, address, value, ctx| bus.write_02::<{ OpSize::LONGWORD }>(address, value, ctx),
+            |_, _, _, _| {}, // SH-2s cannot write to the cartridge
             |bus, address, value, ctx| bus.write_04::<{ OpSize::LONGWORD }>(address, value, ctx),
             |bus, address, value, ctx| bus.write_06::<{ OpSize::LONGWORD }>(address, value, ctx),
         ];
@@ -1165,6 +752,8 @@ impl BusInterface for Sh2Bus {
     fn should_stop_execution(&self) -> bool {
         self.cycle_counter >= self.cycle_limit
     }
+
+    sh2_emu::impl_sh2_opcode_table!(Sh2Bus);
 }
 
 #[inline]

@@ -1,6 +1,6 @@
 use crate::vdp::registers::Registers;
 use crate::vdp::{ColorTables, Cram, FrameBufferRam, Vdp, VdpConfig, u16_to_rgb};
-use genesis_core::api::debug::CramEntry;
+use genesis_components::debug::CramEntry;
 use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
 
 #[derive(Debug, Clone)]

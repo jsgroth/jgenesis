@@ -16,7 +16,7 @@ mod registers;
 mod sci;
 mod wdt;
 
-use crate::bus::{AccessContext, BusInterface, Sh2LookupTable};
+use crate::bus::{AccessContext, BusInterface};
 use crate::cache::CpuCache;
 use crate::debug::{BusDebugExt, Sh2Debugger};
 use crate::divu::DivisionUnit;
@@ -102,10 +102,7 @@ impl Sh2 {
     ///
     /// Will not execute any instructions if a reset is performed or an interrupt is handled.
     #[inline]
-    pub fn execute<Bus: BusInterface>(&mut self, mut ticks: u64, bus: &mut Bus)
-    where
-        Self: Sh2LookupTable<Bus>,
-    {
+    pub fn execute<Bus: BusInterface>(&mut self, mut ticks: u64, bus: &mut Bus) {
         if ticks == 0 {
             return;
         }
@@ -196,10 +193,7 @@ impl Sh2 {
     }
 
     #[inline(always)]
-    fn execute_single_instruction<Bus: BusInterface>(&mut self, bus: &mut Bus)
-    where
-        Self: Sh2LookupTable<Bus>,
-    {
+    fn execute_single_instruction<Bus: BusInterface>(&mut self, bus: &mut Bus) {
         let pc = self.registers.pc;
         let opcode = self.read_opcode(pc, bus);
 
@@ -229,7 +223,7 @@ impl Sh2 {
             log::trace!("  SR={:?}", self.registers.sr);
         }
 
-        let opcode_table = <Self as Sh2LookupTable<Bus>>::table();
+        let opcode_table = Bus::opcode_table();
         opcode_table.decode(opcode)(self, opcode, bus);
         bus.increment_cycle_counter(1);
     }

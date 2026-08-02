@@ -11,7 +11,6 @@ mod sprites;
 #[cfg(test)]
 mod tests;
 
-use crate::memory::{Memory, PhysicalMedium};
 use crate::vdp::colors::ColorTables;
 use crate::vdp::cramdots::CramDotBuffer;
 use crate::vdp::fifo::{VdpFifo, VdpFifoEntry, VramWriteSize};
@@ -532,6 +531,10 @@ struct HVCounter {
     internal_v: u8,
     hv_counter: u16,
     vblank_flag: bool,
+}
+
+pub trait VdpBusView {
+    fn read_word_for_dma(&mut self, address: u32) -> u16;
 }
 
 type Vram = [u8; VRAM_LEN];
@@ -1282,10 +1285,10 @@ impl Vdp {
 
     #[allow(clippy::missing_panics_doc)]
     #[must_use]
-    pub fn tick<Medium: PhysicalMedium>(
+    pub fn tick(
         &mut self,
         master_clock_cycles: u64,
-        memory: &mut Memory<Medium>,
+        memory: &mut impl VdpBusView,
     ) -> VdpTickEffect {
         // The longest 68k instruction (DIVS (xxx).l, Dn) takes 172 68k cycles / 1204 mclk cycles
         assert!(
@@ -1311,33 +1314,29 @@ impl Vdp {
         tick_effect
     }
 
-    fn advance_to_pixel<Medium: PhysicalMedium>(
-        &mut self,
-        end_pixel: u16,
-        memory: &mut Memory<Medium>,
-    ) {
+    fn advance_to_pixel(&mut self, end_pixel: u16, memory: &mut impl VdpBusView) {
         let check_access_slots = self.control_port.dma_active || !self.fifo.is_empty();
         match (self.registers.horizontal_display_size, check_access_slots) {
             (HorizontalDisplaySize::ThirtyTwoCell, false) => {
                 self.advance_to_pixel_no_slot_check::<false>(end_pixel);
             }
             (HorizontalDisplaySize::ThirtyTwoCell, true) => {
-                self.advance_to_pixel_check_slots::<false, _>(end_pixel, memory);
+                self.advance_to_pixel_check_slots::<false>(end_pixel, memory);
             }
             (HorizontalDisplaySize::FortyCell, false) => {
                 self.advance_to_pixel_no_slot_check::<true>(end_pixel);
             }
             (HorizontalDisplaySize::FortyCell, true) => {
-                self.advance_to_pixel_check_slots::<true, _>(end_pixel, memory);
+                self.advance_to_pixel_check_slots::<true>(end_pixel, memory);
             }
         }
     }
 
     #[inline]
-    fn advance_to_pixel_check_slots<const H40: bool, Medium: PhysicalMedium>(
+    fn advance_to_pixel_check_slots<const H40: bool>(
         &mut self,
         end_pixel: u16,
-        memory: &mut Memory<Medium>,
+        memory: &mut impl VdpBusView,
     ) {
         // Slower loop - check for access slots for DMA/FIFO progress
         let access_slots = if H40 { H40_ACCESS_SLOTS } else { H32_ACCESS_SLOTS };
@@ -1425,11 +1424,11 @@ impl Vdp {
         }
     }
 
-    fn progress_memory_to_vram_dma<Medium: PhysicalMedium>(
+    fn progress_memory_to_vram_dma(
         &mut self,
         slot_idx: u8,
         refresh_slots: &[bool; 256],
-        memory: &mut Memory<Medium>,
+        memory: &mut impl VdpBusView,
     ) {
         if !self.control_port.dma_active || self.registers.dma_mode != DmaMode::MemoryToVram {
             return;
