@@ -250,7 +250,7 @@ impl Frame {
     #[allow(clippy::missing_panics_doc)]
     pub fn run(
         &mut self,
-        mut render_fn: impl FnMut(&mut Ui, FrameContext<'_>),
+        render_fn: &mut dyn FnMut(&mut Ui, FrameContext<'_>),
     ) -> Result<FrameRunEffect, FrameRunError> {
         // Painting at least 3 times before waiting seems to avoid a black screen at window open on some platforms
         // Maybe some sort of triple buffering in the graphics driver

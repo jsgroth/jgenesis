@@ -1129,7 +1129,7 @@ where
     }
 
     loop {
-        match emulator.run(|_event| {})? {
+        match emulator.run(&mut |_event| {})? {
             Some(NativeTickEffect::PowerOff | NativeTickEffect::Exit) => return Ok(()),
             None => {}
         }

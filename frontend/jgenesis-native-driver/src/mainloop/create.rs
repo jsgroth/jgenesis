@@ -153,6 +153,7 @@ impl<Emulator: CreatableEmulator> NativeEmulator<Emulator> {
     /// # Errors
     ///
     /// Propagates any errors encountered creating or initializing the emulator.
+    #[inline(never)] // Bloats compile times and binary size
     pub fn create(
         sdl: SdlSubsystems,
         config: Box<Emulator::NativeConfig>,

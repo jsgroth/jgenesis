@@ -189,7 +189,7 @@ impl GuiEmulatorRunner {
         (runner, handle)
     }
 
-    pub fn run(&mut self, sdl_event_handler: impl FnMut(&sdl3::event::Event)) {
+    pub fn run(&mut self, sdl_event_handler: &mut dyn FnMut(&sdl3::event::Event)) {
         self.process_commands();
 
         let Some(emulator) = &mut self.emulator else {
@@ -254,7 +254,7 @@ impl GuiEmulatorRunner {
         }
     }
 
-    fn drain_sdl_events(&mut self, mut sdl_event_handler: impl FnMut(&sdl3::event::Event)) {
+    fn drain_sdl_events(&mut self, sdl_event_handler: &mut dyn FnMut(&sdl3::event::Event)) {
         assert!(
             self.emulator.is_none(),
             "drain_sdl_events() should never be called while an emulator is running"
@@ -372,25 +372,6 @@ impl GuiEmulatorRunnerHandle {
     }
 }
 
-fn console_to_smsgg_hardware(console: Console) -> Option<SmsGgHardware> {
-    match console {
-        Console::MasterSystem => Some(SmsGgHardware::MasterSystem),
-        Console::GameGear => Some(SmsGgHardware::GameGear),
-        Console::Sg1000 => Some(SmsGgHardware::Sg1000),
-        _ => None,
-    }
-}
-
-fn console_to_genesis_hardware(console: Console) -> Option<GenesisHardware> {
-    match console {
-        Console::Genesis => Some(GenesisHardware::Standalone),
-        Console::SegaCd => Some(GenesisHardware::SegaCd),
-        Console::Sega32X => Some(GenesisHardware::Sega32X),
-        Console::SegaCd32X => Some(GenesisHardware::SegaCd32X),
-        _ => None,
-    }
-}
-
 #[derive(MatchEachVariantMacro)]
 enum GenericEmulator {
     SmsGg(Box<NativeSmsGgEmulator>),
@@ -406,7 +387,7 @@ impl GenericEmulator {
     fn create(
         sdl: SdlSubsystems,
         console: Console,
-        config: Box<AppConfig>,
+        mut config: Box<AppConfig>,
         cheats: Arc<ActiveCheats>,
         path: PathBuf,
         secondary_paths: Vec<PathBuf>,
@@ -417,7 +398,7 @@ impl GenericEmulator {
                     sdl,
                     config.smsgg_config(
                         path,
-                        console_to_smsgg_hardware(console),
+                        console.to_smsgg_hardware(),
                         cheats.smsgg_or_default(),
                     ),
                 )?))
@@ -428,7 +409,7 @@ impl GenericEmulator {
                     config.genesis_config(
                         path,
                         secondary_paths.first().cloned(),
-                        console_to_genesis_hardware(console),
+                        console.to_genesis_hardware(),
                         cheats.genesis_or_default(),
                     ),
                 )?))
@@ -440,6 +421,17 @@ impl GenericEmulator {
                 Self::Snes(Box::new(NativeSnesEmulator::create(sdl, config.snes_config(path))?))
             }
             Console::GameBoy | Console::GameBoyColor => {
+                // TODO this should be an arg to gb_config() somehow
+                match console {
+                    Console::GameBoy => {
+                        config.game_boy.force_dmg_mode = true;
+                    }
+                    Console::GameBoyColor => {
+                        config.game_boy.force_cgb_mode = true;
+                    }
+                    _ => {}
+                }
+
                 Self::GameBoy(Box::new(NativeGameBoyEmulator::create(sdl, config.gb_config(path))?))
             }
             Console::GameBoyAdvance => Self::GameBoyAdvance(Box::new(NativeGbaEmulator::create(
@@ -540,7 +532,7 @@ impl GenericEmulator {
 
     fn run(
         &mut self,
-        sdl_event_handler: impl FnMut(&sdl3::event::Event),
+        sdl_event_handler: &mut dyn FnMut(&sdl3::event::Event),
     ) -> NativeEmulatorResult<Option<NativeTickEffect>> {
         match_each_variant!(self, emulator => emulator.run(sdl_event_handler))
     }

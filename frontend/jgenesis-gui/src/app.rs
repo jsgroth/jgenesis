@@ -322,6 +322,7 @@ pub struct LoadAtStartup {
     pub file_paths: Vec<PathBuf>,
     pub console: Option<Console>,
     pub load_state_slot: Option<usize>,
+    pub config_overrides: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -341,6 +342,7 @@ pub struct App {
     emu_runner: GuiEmulatorRunnerHandle,
     rom_list_thread: RomListThreadHandle,
     load_at_startup: Option<LoadAtStartup>,
+    config_overrides: Vec<String>,
     joysticks: Rc<RefCell<Joysticks>>,
 }
 
@@ -369,6 +371,7 @@ impl App {
             emu_runner,
             rom_list_thread,
             load_at_startup,
+            config_overrides: vec![],
             joysticks: Rc::clone(&sdl.joysticks),
         }
     }
@@ -480,9 +483,14 @@ impl App {
 
         self.load_cheats_for_game(console, &path);
 
+        let mut config = self.config.clone();
+        if let Err(err) = config.apply_overrides(&self.config_overrides) {
+            log::error!("Error applying config overrides: {err}");
+        }
+
         self.emu_runner.push_command(EmuRunnerCommand::Run {
             console,
-            config: Box::new(self.config.clone()),
+            config: Box::new(config),
             cheats: Arc::clone(self.active_cheats()),
             input: EmulatorRunInput::OpenFile { file_path: path, secondary_paths },
         });
@@ -600,11 +608,6 @@ impl App {
 
             ui.menu_button("Open Using", |ui| {
                 for console in Console::ALL {
-                    if console == Console::GameBoyColor {
-                        // Game Boy backend doesn't support GB vs. GBC boot option via API parameters,
-                        // only via config
-                        continue;
-                    }
                     self.render_open_using_button(console, ui);
                 }
             });
@@ -1291,8 +1294,13 @@ impl App {
     }
 
     fn reload_config(&mut self) {
+        let mut config = self.config.clone();
+        if let Err(err) = config.apply_overrides(&self.config_overrides) {
+            log::error!("Error applying config overrides: {err}");
+        }
+
         self.emu_runner.push_command(EmuRunnerCommand::ReloadConfig(
-            Box::new(self.config.clone()),
+            Box::new(config),
             Arc::clone(self.active_cheats()),
         ));
     }
@@ -1382,6 +1390,8 @@ impl App {
     fn check_load_at_startup(&mut self) {
         let Some(load_at_startup) = self.load_at_startup.take() else { return };
         let Some(primary_path) = load_at_startup.file_paths.first() else { return };
+
+        self.config_overrides.clone_from(&load_at_startup.config_overrides);
 
         let console = load_at_startup
             .console
