@@ -43,23 +43,23 @@ jobs:
 
     - name: Build
       run: |
-        cargo build
+        cargo build --all
 
     - name: Build with unstable cores enabled
       run: |
-        cargo build --features unstable-cores
+        cargo build --all --features unstable-cores
 
     - name: Check Clippy warnings
       run: |
-        cargo clippy -- -D warnings
+        cargo clippy --all -- -D warnings
 
     - name: Run tests
       run: |
-        cargo test
+        cargo test --all
 
     - name: Run tests with unstable cores enabled
       run: |
-        cargo test --features unstable-cores
+        cargo test --all --features unstable-cores
   miri:
     runs-on: ubuntu-latest
 
@@ -139,7 +139,7 @@ jobs:
 
       - name: Cache cargo-packager binary
         id: packager-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/cargo-packager
           key: ${{ runner.os }}-${{ steps.get-packager-version.outputs.version }}
@@ -153,17 +153,11 @@ jobs:
         run: |
           RUST_LOG=debug cargo packager --profile release-lto -f appimage
 
-      - name: Upload CLI AppImage
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-x86_64-cli-appimage
-          path: target/release-lto/jgenesis-cli_${{ env.JGENESIS_VERSION }}_x86_64.AppImage
-
       - name: Upload GUI AppImage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          name: linux-x86_64-gui-appimage
-          path: target/release-lto/jgenesis-gui_${{ env.JGENESIS_VERSION }}_x86_64.AppImage
+          name: linux-x86_64-appimage
+          path: target/release-lto/jgenesis_${{ env.JGENESIS_VERSION }}_x86_64.AppImage
   windows-release:
     runs-on: ubuntu-latest
 
@@ -207,15 +201,10 @@ jobs:
           wget https://github.com/microsoft/DirectXShaderCompiler/releases/download/$DXC_RELEASE_TAG/$DXC_ZIP_FILE && \
           unzip $DXC_ZIP_FILE
 
-      - name: Build CLI release
-        run: |
-          RUSTFLAGS="-C target-cpu=x86-64-v2 -Z tune-cpu=x86-64-v3" \
-          cargo +nightly build --profile release-lto --target x86_64-pc-windows-gnu -p jgenesis-cli
-
       - name: Build GUI release
         run: |
           RUSTFLAGS="-C target-cpu=x86-64-v2 -Z tune-cpu=x86-64-v3" \
-          cargo +nightly build --profile release-lto --target x86_64-pc-windows-gnu -p jgenesis-gui
+          cargo +nightly build --profile release-lto --target x86_64-pc-windows-gnu
 
       - name: Compress binaries
         run: |
@@ -226,17 +215,10 @@ jobs:
           mv sdl3/LICENSE.txt ./LICENSE-SDL3.txt && \
           mv dxcompiler/bin/x64/dxcompiler.dll ./ && \
           mv dxcompiler/LICENSE* ./ && \
-          zip -r jgenesis-${JGENESIS_VERSION}-cli-windows-x86_64.zip LICENSE* README-SDL3.md *.dll jgenesis-cli.exe && \
-          zip -r jgenesis-${JGENESIS_VERSION}-gui-windows-x86_64.zip LICENSE* README-SDL3.md *.dll jgenesis-gui.exe
-
-      - name: Upload CLI binaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-x86_64-cli-exe
-          path: jgenesis-${{ env.JGENESIS_VERSION }}-cli-windows-x86_64.zip
+          zip -r jgenesis-${JGENESIS_VERSION}-windows-x86_64.zip LICENSE* README-SDL3.md *.dll jgenesis.exe
 
       - name: Upload GUI binaries
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          name: windows-x86_64-gui-exe
-          path: jgenesis-${{ env.JGENESIS_VERSION }}-gui-windows-x86_64.zip
+          name: windows-x86_64-exe
+          path: jgenesis-${{ env.JGENESIS_VERSION }}-windows-x86_64.zip
