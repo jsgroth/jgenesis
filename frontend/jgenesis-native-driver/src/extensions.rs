@@ -1,7 +1,9 @@
 use crate::archive;
 use crate::archive::{ArchiveEntry, ArchiveError};
 use cdrom::reader::{CdRom, CdRomFileFormat};
+use genesis_core::api::GenesisHardware;
 use jgenesis_proc_macros::{CustomValueEnum, EnumAll, EnumDisplay, EnumFromStr};
+use smsgg_core::SmsGgHardware;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs::File;
@@ -302,6 +304,29 @@ impl Console {
             Self::GameBoyColor => "gbc",
             Self::GameBoyAdvance => "gba",
             Self::PcEngine => "pce",
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn to_smsgg_hardware(self) -> Option<SmsGgHardware> {
+        match self {
+            Self::MasterSystem => Some(SmsGgHardware::MasterSystem),
+            Self::GameGear => Some(SmsGgHardware::GameGear),
+            Self::Sg1000 => Some(SmsGgHardware::Sg1000),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn to_genesis_hardware(self) -> Option<GenesisHardware> {
+        match self {
+            Self::Genesis => Some(GenesisHardware::Standalone),
+            Self::SegaCd => Some(GenesisHardware::SegaCd),
+            Self::Sega32X => Some(GenesisHardware::Sega32X),
+            Self::SegaCd32X => Some(GenesisHardware::SegaCd32X),
+            _ => None,
         }
     }
 }

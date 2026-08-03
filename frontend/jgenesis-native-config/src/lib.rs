@@ -117,6 +117,20 @@ pub enum SaveCheatsError {
     UnableToDeterminePath { config_path: String, rom_file_path: String },
 }
 
+#[derive(Debug, Error)]
+pub enum ConfigOverrideError {
+    #[error("invalid config override value: '{0}'")]
+    InvalidFormat(String),
+    #[error("invalid config override value: '{config_override}', '{path_segment}' is a table")]
+    IntermediateTable { config_override: String, path_segment: String },
+    #[error("invalid config override value: '{0}', cannot override table or array fields")]
+    EndIsTableOrArray(String),
+    #[error("TOML serialization error: {0}")]
+    TomlSerialize(#[from] toml::ser::Error),
+    #[error("TOML deserialization error: {0}")]
+    TomlDeserialize(#[from] toml::de::Error),
+}
+
 #[deserialize_default_on_error]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -251,6 +265,89 @@ impl AppConfig {
 
         Ok(())
     }
+
+    /// Apply config overrides to an [`AppConfig`] in place. Input strings should be TOML path/value
+    /// pairs in the format `a.b.c=value` (with an arbitrary number of path segments). String values
+    /// should not be quoted.
+    ///
+    /// Does not support setting array or table fields, and does not support arrays as part of the path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a config override is clearly invalid, e.g. it tries to set a table field
+    /// to a bool. Will _not_ return an error if an override sets a non-existent field.
+    ///
+    /// `self` is not modified when this function returns an error.
+    #[allow(clippy::missing_panics_doc)]
+    pub fn apply_overrides(
+        &mut self,
+        overrides: &[impl AsRef<str>],
+    ) -> Result<(), ConfigOverrideError> {
+        if overrides.is_empty() {
+            return Ok(());
+        }
+
+        let mut document: toml::Table = toml::from_str(&toml::to_string(self)?)?;
+
+        for config_override in overrides {
+            let config_override = config_override.as_ref();
+
+            let Some((path, value)) = config_override.split_once('=') else {
+                return Err(ConfigOverrideError::InvalidFormat(config_override.into()));
+            };
+
+            let path_segments: Vec<_> =
+                path.split('.').filter(|segment| !segment.is_empty()).collect();
+            if path_segments.is_empty() {
+                return Err(ConfigOverrideError::InvalidFormat(config_override.into()));
+            }
+
+            let mut table = &mut document;
+            for &segment in &path_segments[..path_segments.len() - 1] {
+                match table.get(segment) {
+                    Some(toml::Value::Table(_)) => {}
+                    Some(_) => {
+                        // Intermediate path segment points to a non-table value
+                        return Err(ConfigOverrideError::IntermediateTable {
+                            config_override: config_override.into(),
+                            path_segment: segment.into(),
+                        });
+                    }
+                    None => {
+                        table.insert(segment.into(), toml::Value::Table(toml::Table::new()));
+                    }
+                }
+
+                table = table.get_mut(segment).unwrap().as_table_mut().unwrap();
+            }
+
+            let last_segment = *path_segments.last().unwrap();
+            if table
+                .get(last_segment)
+                .is_some_and(|item| matches!(item, toml::Value::Array(_) | toml::Value::Table(_)))
+            {
+                return Err(ConfigOverrideError::EndIsTableOrArray(config_override.into()));
+            }
+
+            let parsed_value = if let Ok(bool_value) = value.parse::<bool>() {
+                toml::Value::Boolean(bool_value)
+            } else if let Ok(int_value) = value.parse::<i64>() {
+                toml::Value::Integer(int_value)
+            } else if let Ok(float_value) = value.parse::<f64>() {
+                toml::Value::Float(float_value)
+            } else {
+                toml::Value::String(value.into())
+            };
+
+            log::info!("Overriding setting '{path}' to {parsed_value:?}");
+
+            table.insert(last_segment.into(), parsed_value);
+        }
+
+        *self = toml::from_str(&toml::to_string(&document)?)?;
+
+        Ok(())
+    }
 }
 
 impl Default for AppConfig {
@@ -292,5 +389,88 @@ mod tests {
         let config: AppConfig =
             toml::from_str("").expect("Failed to deserialize empty string into AppConfig");
         assert_eq!(config, AppConfig::default());
+    }
+
+    #[test]
+    fn config_override_basic() {
+        let mut config = AppConfig::default();
+        config.genesis.remove_sprite_limits = false;
+
+        assert!(config.apply_overrides(&["genesis.remove_sprite_limits=true"]).is_ok());
+        assert!(config.genesis.remove_sprite_limits);
+    }
+
+    #[test]
+    fn config_override_deeper_nesting() {
+        let mut config = AppConfig::default();
+        assert_ne!(config.nes.overscan.left, 128);
+
+        assert!(config.apply_overrides(&["nes.overscan.left=128"]).is_ok());
+        assert_eq!(config.nes.overscan.left, 128);
+    }
+
+    #[test]
+    fn try_to_set_table_field() {
+        let mut config = AppConfig::default();
+        assert!(!config.genesis.anamorphic_widescreen);
+        config.genesis.anamorphic_widescreen = true;
+
+        assert!(config.apply_overrides(&["genesis=0"]).is_err());
+        assert!(config.genesis.anamorphic_widescreen);
+    }
+
+    #[test]
+    fn try_to_set_array_field() {
+        let mut config = AppConfig::default();
+        config.genesis.ym2612_channels_enabled = [true, false, true, false, true, false];
+
+        assert!(config.apply_overrides(&["genesis.ym2612_channels_enabled=true"]).is_err());
+        assert_eq!(config.genesis.ym2612_channels_enabled, [true, false, true, false, true, false]);
+    }
+
+    #[test]
+    fn override_no_equals() {
+        let mut config = AppConfig::default();
+        assert!(!config.genesis.anamorphic_widescreen);
+        config.genesis.anamorphic_widescreen = true;
+
+        assert!(config.apply_overrides(&["genesis"]).is_err());
+        assert!(config.genesis.anamorphic_widescreen);
+    }
+
+    #[test]
+    fn override_empty_string() {
+        let mut config = AppConfig::default();
+        assert!(config.apply_overrides(&[""]).is_err());
+        assert_eq!(config, AppConfig::default());
+    }
+
+    #[test]
+    fn override_empty_path() {
+        let mut config = AppConfig::default();
+        assert!(config.apply_overrides(&["=asdf"]).is_err());
+        assert_eq!(config, AppConfig::default());
+    }
+
+    #[test]
+    fn config_not_modified_when_later_errors() {
+        let mut config = AppConfig::default();
+        config.genesis.remove_sprite_limits = false;
+
+        assert!(
+            config
+                .apply_overrides(&["genesis.remove_sprite_limits=true", "genesis=fdsa"],)
+                .is_err()
+        );
+        assert!(!config.genesis.remove_sprite_limits);
+    }
+
+    #[test]
+    fn intermediate_path_not_table() {
+        let mut config = AppConfig::default();
+        config.common.mute_audio = true;
+
+        assert!(config.apply_overrides(&["common.mute_audio.hello=false"]).is_err());
+        assert!(config.common.mute_audio);
     }
 }

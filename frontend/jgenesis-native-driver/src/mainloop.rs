@@ -548,9 +548,10 @@ where
     ///
     /// This method will propagate any errors encountered when rendering frames, pushing audio
     /// samples, or writing save files.
+    #[inline(never)] // Bloats compile times and binary size
     pub fn run(
         &mut self,
-        mut sdl_event_handler: impl FnMut(&Event),
+        sdl_event_handler: &mut dyn FnMut(&Event),
     ) -> NativeEmulatorResult<Option<NativeTickEffect>> {
         self.runner.try_recv_error()?;
 
