@@ -6,6 +6,7 @@ members = [
     "backend/*",
     "frontend/*",
 ]
+default-members = ["frontend/jgenesis-gui"]
 resolver = "3"
 
 [workspace.package]
