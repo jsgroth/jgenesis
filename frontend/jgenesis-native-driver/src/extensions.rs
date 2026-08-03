@@ -351,7 +351,10 @@ fn guess_genesis_console(header: &[u8]) -> Console {
         header.len() >= end && &header[start..end] == s32x_core::security_program();
 
     // 'C' in the devices section indicates Sega CD support: https://plutiedev.com/rom-header#devices
-    let mut supports_sega_cd = header.len() >= 0x1A0 && header[0x190..0x1A0].contains(&b'C');
+    // Exclude J-Cart games (have device string 'OJKRPTBVFCA')
+    let mut supports_sega_cd = header.len() >= 0x1A0
+        && header[0x190..0x1A0].contains(&b'C')
+        && &header[0x190..0x19B] != b"OJKRPTBVFCA";
 
     // Special case Flux (audio CD visualizer), header doesn't indicate Sega CD support
     supports_sega_cd |= header.len() >= 0x18B && &header[0x180..0x18B] == b"GM T-70416-";
