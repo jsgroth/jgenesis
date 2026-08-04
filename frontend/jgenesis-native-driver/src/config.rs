@@ -565,6 +565,7 @@ impl AppConfigExt for AppConfig {
             inputs: self.input.pc_engine.clone(),
             emulator_config: PceEmulatorConfig {
                 region: self.pc_engine.region,
+                cpu_fast_clock_divider: self.pc_engine.cpu_fast_clock_divider,
                 aspect_ratio: self.pc_engine.aspect_ratio,
                 palette: self.pc_engine.palette,
                 crop_overscan: self.pc_engine.crop_overscan,

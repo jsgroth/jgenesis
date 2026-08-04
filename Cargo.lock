@@ -2091,6 +2091,7 @@ dependencies = [
  "nes-config",
  "nes-core",
  "pce-config",
+ "pce-core",
  "polonius-the-crab 0.5.0",
  "regex",
  "rfd",

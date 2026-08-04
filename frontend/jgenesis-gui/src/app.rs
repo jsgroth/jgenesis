@@ -147,6 +147,7 @@ enum OpenWindow {
     SmsGgOverclock,
     GenesisOverclock,
     SnesOverclock,
+    PceOverclock,
     About,
 }
 
@@ -196,6 +197,7 @@ impl OpenWindow {
             OpenWindow::SmsGgOverclock => "SMS/GG Overclocking Settings",
             OpenWindow::GenesisOverclock => "Genesis Overclocking Settings",
             OpenWindow::SnesOverclock => "SNES Overclocking Settings",
+            OpenWindow::PceOverclock => "PCE Overclocking Settings",
             OpenWindow::About => "About",
         }
     }
@@ -970,6 +972,7 @@ impl App {
                 ("SMS / Game Gear / SG", OpenWindow::SmsGgOverclock),
                 ("Genesis / Sega CD / 32X", OpenWindow::GenesisOverclock),
                 ("SNES", OpenWindow::SnesOverclock),
+                ("PC Engine", OpenWindow::PceOverclock),
             ] {
                 if ui.button(label).clicked() {
                     self.state.open_window(ui.ctx(), window);
@@ -1183,6 +1186,7 @@ impl App {
                 OpenWindow::SmsGgOverclock => self.render_smsgg_overclock_settings(ctx),
                 OpenWindow::GenesisOverclock => self.render_genesis_overclock_settings(ctx),
                 OpenWindow::SnesOverclock => self.render_snes_overclock_settings(ctx),
+                OpenWindow::PceOverclock => self.render_pce_overclock_settings(ctx),
                 OpenWindow::About => self.render_about(ctx),
             }
         }

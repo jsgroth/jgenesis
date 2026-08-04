@@ -15,7 +15,9 @@ use pce_config::{
     PceAspectRatio, PceAudioResampler, PceButton, PceInputDevice, PceInputs, PcePaletteType,
     PceRegion,
 };
+use std::cmp;
 use std::fmt::{Debug, Display};
+use std::num::NonZeroU64;
 use thiserror::Error;
 
 // Roughly 21.47 MHz
@@ -24,6 +26,7 @@ pub const MASTER_CLOCK_FREQUENCY: f64 = 236.25e6 / 11.0;
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct PceEmulatorConfig {
     pub region: PceRegion,
+    pub cpu_fast_clock_divider: NonZeroU64,
     pub aspect_ratio: PceAspectRatio,
     pub palette: PcePaletteType,
     pub crop_overscan: bool,
@@ -37,6 +40,13 @@ pub struct PceEmulatorConfig {
 }
 
 impl EmulatorConfigTrait for PceEmulatorConfig {}
+
+impl PceEmulatorConfig {
+    #[must_use]
+    pub fn clamped_cpu_fast_divider(&self) -> u64 {
+        cmp::min(pce_config::NATIVE_FAST_CPU_DIVIDER, self.cpu_fast_clock_divider.get())
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum PceError<RErr, AErr, SErr> {
@@ -74,7 +84,7 @@ impl PcEngineEmulator {
             cpu: Huc6280::new(),
             video: VideoSubsystem::new(config),
             psg: Huc6280Psg::new(config),
-            memory: Memory::new(),
+            memory: Memory::new(&config),
             cartridge: HuCard::new(rom, initial_sram),
             input_state: InputState::new(config),
             config,
@@ -199,6 +209,7 @@ impl EmulatorTrait for PcEngineEmulator {
     fn reload_config(&mut self, config: &Self::Config) {
         self.config = *config;
 
+        self.memory.reload_config(config);
         self.video.reload_config(*config);
         self.psg.reload_config(*config);
         self.input_state.reload_config(*config);

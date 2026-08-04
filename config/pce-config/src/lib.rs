@@ -2,6 +2,8 @@ use bincode::{Decode, Encode};
 use jgenesis_common::define_controller_inputs;
 use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 
+pub const NATIVE_FAST_CPU_DIVIDER: u64 = 3;
+
 pub const TURBO_TAP_GAMEPADS: u8 = 5;
 
 define_controller_inputs! {

@@ -1,3 +1,4 @@
+use crate::api::PceEmulatorConfig;
 use bincode::{Decode, Encode};
 use crc::Crc;
 use huc6280_emu::bus::{ClockSpeed, InterruptLines};
@@ -329,19 +330,6 @@ impl Timer {
     }
 }
 
-trait ClockSpeedExt {
-    fn mclk_divider(self) -> u64;
-}
-
-impl ClockSpeedExt for ClockSpeed {
-    fn mclk_divider(self) -> u64 {
-        match self {
-            Self::Low => 12, // ~1.79 MHz
-            Self::High => 3, // ~7.16 MHz
-        }
-    }
-}
-
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct CpuRegisters {
     clock_speed: ClockSpeed,
@@ -470,11 +458,16 @@ impl CpuRegisters {
 pub struct Memory {
     working_ram: BoxedByteArray<WORKING_RAM_LEN>,
     cpu_registers: CpuRegisters,
+    cpu_fast_clock_divider: u64,
 }
 
 impl Memory {
-    pub fn new() -> Self {
-        Self { working_ram: BoxedByteArray::new_random(), cpu_registers: CpuRegisters::new() }
+    pub fn new(config: &PceEmulatorConfig) -> Self {
+        Self {
+            working_ram: BoxedByteArray::new_random(),
+            cpu_registers: CpuRegisters::new(),
+            cpu_fast_clock_divider: config.clamped_cpu_fast_divider(),
+        }
     }
 
     pub fn read_working_ram(&self, address: u32) -> u8 {
@@ -486,7 +479,10 @@ impl Memory {
     }
 
     pub fn cpu_clock_divider(&self) -> u64 {
-        self.cpu_registers.clock_speed.mclk_divider()
+        match self.cpu_registers.clock_speed {
+            ClockSpeed::Low => 12,                           // ~1.79 MHz
+            ClockSpeed::High => self.cpu_fast_clock_divider, // ~7.16 MHz when not overclocking
+        }
     }
 
     pub fn set_clock_speed(&mut self, speed: ClockSpeed) {
@@ -500,5 +496,9 @@ impl Memory {
 
     pub fn interrupt_lines(&self) -> InterruptLines {
         self.cpu_registers.interrupt_lines()
+    }
+
+    pub fn reload_config(&mut self, config: &PceEmulatorConfig) {
+        self.cpu_fast_clock_divider = config.clamped_cpu_fast_divider();
     }
 }

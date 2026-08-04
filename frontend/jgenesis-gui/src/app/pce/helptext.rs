@@ -46,3 +46,11 @@ pub const AUDIO_RESAMPLER: HelpText = HelpText {
         "Windowed sinc interpolation is much higher quality but is fairly CPU-intensive.",
     ],
 };
+
+pub const CPU_OVERCLOCK: HelpText = HelpText {
+    heading: "CPU Overclocking",
+    text: &[
+        "Optionally overclock the CPU when it is running at high speed (normally ~7.16 MHz), which it almost always is.",
+        "This can reduce slowdown in games but may cause major glitches.",
+    ],
+};

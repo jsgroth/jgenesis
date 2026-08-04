@@ -1,8 +1,10 @@
 mod helptext;
 
+use crate::app::widgets::{ClockModifier, OverclockSlider};
 use crate::app::{App, OpenWindow};
 use egui::{Context, Window};
 use pce_config::{PceAspectRatio, PceAudioResampler, PcePaletteType, PceRegion};
+use std::num::NonZeroU64;
 
 impl App {
     pub(super) fn render_pce_general_settings(&mut self, ctx: &Context) {
@@ -131,6 +133,32 @@ impl App {
             });
 
             self.state.help_text.insert(WINDOW, helptext::AUDIO_RESAMPLER);
+            self.render_help_text(ui, WINDOW);
+        });
+        if !open {
+            self.state.open_windows.remove(&WINDOW);
+        }
+    }
+
+    pub(super) fn render_pce_overclock_settings(&mut self, ctx: &Context) {
+        const WINDOW: OpenWindow = OpenWindow::PceOverclock;
+
+        let mut open = true;
+        Window::new(WINDOW.title()).open(&mut open).show(ctx, |ui| {
+            let range = NonZeroU64::new(1).unwrap()
+                ..=NonZeroU64::new(pce_config::NATIVE_FAST_CPU_DIVIDER).unwrap();
+
+            ui.add(OverclockSlider {
+                label: "CPU High-Speed Clock Divider",
+                current_value: &mut self.config.pc_engine.cpu_fast_clock_divider,
+                range,
+                master_clock: pce_core::api::MASTER_CLOCK_FREQUENCY,
+                default_divider: pce_config::NATIVE_FAST_CPU_DIVIDER as f64,
+                modifier: ClockModifier::Divider,
+            });
+
+            self.state.help_text.insert(WINDOW, helptext::CPU_OVERCLOCK);
+
             self.render_help_text(ui, WINDOW);
         });
         if !open {

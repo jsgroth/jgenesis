@@ -24,6 +24,7 @@ jgenesis-proc-macros = { workspace = true }
 genesis-components = { workspace = true }
 genesis-core = { workspace = true }
 nes-core = { workspace = true }
+pce-core = { workspace = true }
 segacd-core = { workspace = true }
 smsgg-core = { workspace = true }
 snes-core = { workspace = true }
