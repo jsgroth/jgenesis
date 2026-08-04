@@ -82,6 +82,8 @@ pub enum NesError<RErr, AErr, SErr> {
 pub enum NesInitializationError {
     #[error("Error loading cartridge ROM: {0}")]
     CartridgeLoad(#[from] CartridgeFileError),
+    #[error("ROM image was empty")]
+    EmptyRom,
 }
 
 #[derive(Debug, Clone, Encode, Decode, PartialClone)]
@@ -111,6 +113,10 @@ impl NesEmulator {
         config: NesEmulatorConfig,
         save_writer: &mut S,
     ) -> Result<Self, NesInitializationError> {
+        if rom_bytes.is_empty() {
+            return Err(NesInitializationError::EmptyRom);
+        }
+
         let sav_bytes = save_writer.load_bytes("sav").ok();
         let mapper = cartridge::from_ines_file(&rom_bytes, sav_bytes, config.forced_timing_mode)?;
         let timing_mode = mapper.timing_mode();

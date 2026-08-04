@@ -429,6 +429,10 @@ pub enum CartridgeFileError {
     #[error("cartridge header specifies both volatile and non-volatile PRG RAM")]
     MultiplePrgRamTypes,
     #[error(
+        "ROM is not large enough to hold an iNES header; expected at least 16 bytes, was {file_size} bytes"
+    )]
+    TooSmallForHeader { file_size: u32 },
+    #[error(
         "Invalid PRG/CHR ROM size in ROM header: file size is {file_size} bytes, PRG ROM size is {prg_rom_size} bytes, CHR ROM size is {chr_rom_size} bytes"
     )]
     InvalidRomSize { file_size: u32, prg_rom_size: u32, chr_rom_size: u32 },
@@ -469,6 +473,12 @@ pub struct INesHeader {
 
 impl INesHeader {
     fn parse_from_file(file_bytes: &[u8]) -> Result<INesHeader, CartridgeFileError> {
+        if file_bytes.len() < 16 {
+            return Err(CartridgeFileError::TooSmallForHeader {
+                file_size: file_bytes.len() as u32,
+            });
+        }
+
         let header = &file_bytes[..16];
 
         // All iNES headers should begin with this 4-byte sequence, which is "NES" followed by the

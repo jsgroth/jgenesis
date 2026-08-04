@@ -32,6 +32,8 @@ pub enum GameBoyLoadError {
     UnsupportedMapperByte(u8),
     #[error("Incorrect boot ROM size; expected {expected} bytes, was {actual} bytes")]
     InvalidBootRomSize { actual: usize, expected: usize },
+    #[error("ROM image too small; expected at least {expected} bytes, was {size} bytes")]
+    RomTooSmall { size: usize, expected: usize },
 }
 
 #[derive(Debug, Error)]

@@ -157,6 +157,13 @@ impl Cartridge {
         initial_sram: Option<Vec<u8>>,
         save_writer: &mut S,
     ) -> Result<Self, GameBoyLoadError> {
+        // Every ROM image should have at least 0x150 bytes because cartridge header is at $0100-$014F
+        const MIN_ROM_LEN: usize = 0x0150;
+
+        if rom.len() < MIN_ROM_LEN {
+            return Err(GameBoyLoadError::RomTooSmall { size: rom.len(), expected: MIN_ROM_LEN });
+        }
+
         // Cartridge type is always at $0147 in ROM
         let mapper_byte = rom[0x0147];
         let is_mbc2 = mapper_byte == 0x05 || mapper_byte == 0x06;

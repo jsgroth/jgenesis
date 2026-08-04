@@ -143,7 +143,10 @@ impl SmsGgEmulator {
         log::info!("VDP version: {vdp_version:?}");
         log::info!("PSG version: {psg_version:?}");
 
-        let rom = rom.unwrap_or_else(|| vec![0xFF; 0x8000]);
+        let rom = match rom {
+            Some(rom) if !rom.is_empty() => rom,
+            _ => vec![0xFF; 0x8000],
+        };
         let memory = Memory::new(rom, bios_rom, cartridge_ram, hardware, &config);
         let vdp = Vdp::new(vdp_version, &config);
         let psg = Sn76489::new(psg_version);

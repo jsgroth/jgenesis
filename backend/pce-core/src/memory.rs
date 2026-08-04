@@ -6,7 +6,7 @@ use jgenesis_common::boxedarray::BoxedByteArray;
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use std::ops::Deref;
-use std::{cmp, mem};
+use std::{cmp, iter, mem};
 
 const WORKING_RAM_LEN: usize = 8 * 1024;
 
@@ -178,6 +178,11 @@ impl HuCard {
 }
 
 fn mirror_hucard_rom(mut rom: Vec<u8>) -> Vec<u8> {
+    if rom.is_empty() {
+        // Nothing really reasonable to do here; just make the entire cartridge read 0xFF
+        rom.extend(iter::repeat_n(0xFF, 256 * 1024));
+    }
+
     let mut new_rom = if rom.len() == 384 * 1024 {
         // 384KB HuCards contain two ROM chips, a 256KB chip and a 128KB chip, mapped like so:
         //   $000000-$07FFFF (banks $00-$3F): First 256KB of ROM, mirrored 2x
@@ -208,7 +213,7 @@ fn mirror_hucard_rom(mut rom: Vec<u8>) -> Vec<u8> {
             rom.reserve(1024 * 1024 - rom.capacity());
         }
 
-        for i in 0..256 * 1024 {
+        for i in 256 * 1024..512 * 1024 {
             rom.push(rom[i]);
         }
 

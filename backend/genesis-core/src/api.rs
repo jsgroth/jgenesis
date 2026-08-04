@@ -92,13 +92,18 @@ impl GenesisEmulator {
     /// Propagates any errors encountered while initializing Sega CD (if Sega CD is enabled).
     pub fn create<S: SaveWriter>(
         hardware: GenesisHardware,
-        cartridge_rom: Option<Vec<u8>>,
+        mut cartridge_rom: Option<Vec<u8>>,
         sega_cd_bios_rom: Option<Vec<u8>>,
         mut disc: Option<CdRom>,
         config: GenesisEmulatorConfig,
         save_writer: &mut S,
     ) -> SegaCdLoadResult<Self> {
         log::info!("Running with hardware {hardware}");
+
+        if cartridge_rom.as_ref().is_some_and(Vec::is_empty) {
+            // Later code assumes cartridge ROM is non-empty if Some
+            cartridge_rom = None;
+        }
 
         let sega_cd_present = hardware.has_sega_cd();
         let s32x_present = hardware.has_32x();
