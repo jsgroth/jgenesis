@@ -39,7 +39,14 @@ pub struct PceEmulatorConfig {
     pub allow_simultaneous_run_select: bool,
 }
 
-impl EmulatorConfigTrait for PceEmulatorConfig {}
+impl EmulatorConfigTrait for PceEmulatorConfig {
+    fn with_overclocking_disabled(&self) -> Self {
+        Self {
+            cpu_fast_clock_divider: NonZeroU64::new(pce_config::NATIVE_FAST_CPU_DIVIDER).unwrap(),
+            ..*self
+        }
+    }
+}
 
 impl PceEmulatorConfig {
     #[must_use]
