@@ -72,7 +72,7 @@ impl CdController {
         &mut self,
         mclk_cycles: u64,
         word_ram: &mut WordRam,
-        prg_ram: &mut [u8; memory::PRG_RAM_LEN],
+        prg_ram: &mut [u16; memory::PRG_RAM_LEN_WORDS],
         prg_ram_accessible: bool,
         pcm: &mut Rf5c164,
         mut audio_callback: impl FnMut(f64, f64),

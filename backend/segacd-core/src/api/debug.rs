@@ -2,7 +2,7 @@ use crate::WordRam;
 use crate::api::SegaCd;
 use crate::cddrive::cdc::Rchip;
 use crate::rf5c164::Rf5c164;
-use jgenesis_common::debug::{DebugBytesView, DebugMemoryView};
+use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
 use jgenesis_proc_macros::EnumAll;
 use m68000_emu::M68000;
 
@@ -18,8 +18,8 @@ pub enum SegaCdMemoryArea {
 #[derive(Debug, Clone)]
 pub struct SegaCdDebugState {
     sub_cpu: M68000,
-    bios_rom: Box<[u8]>,
-    prg_ram: Box<[u8]>,
+    bios_rom: Box<[u16]>,
+    prg_ram: Box<[u16]>,
     word_ram: WordRam,
     pcm: Rf5c164,
     cdc: Rchip,
@@ -33,12 +33,12 @@ impl SegaCdDebugState {
     }
 
     #[must_use]
-    pub fn bios_rom(&self) -> &[u8] {
+    pub fn bios_rom(&self) -> &[u16] {
         &self.bios_rom
     }
 
     #[must_use]
-    pub fn prg_ram(&self) -> &[u8] {
+    pub fn prg_ram(&self) -> &[u16] {
         &self.prg_ram
     }
 
@@ -58,8 +58,8 @@ impl SegaCdDebugState {
         memory_area: SegaCdMemoryArea,
     ) -> Box<dyn DebugMemoryView + '_> {
         match memory_area {
-            SegaCdMemoryArea::BiosRom => Box::new(DebugBytesView(&mut self.bios_rom)),
-            SegaCdMemoryArea::PrgRam => Box::new(DebugBytesView(&mut self.prg_ram)),
+            SegaCdMemoryArea::BiosRom => Box::new(DebugWordsView(&mut self.bios_rom, Endian::Big)),
+            SegaCdMemoryArea::PrgRam => Box::new(DebugWordsView(&mut self.prg_ram, Endian::Big)),
             SegaCdMemoryArea::WordRam => Box::new(self.word_ram.debug_view()),
             SegaCdMemoryArea::PcmRam => Box::new(self.pcm.debug_ram_view()),
             SegaCdMemoryArea::CdcRam => Box::new(self.cdc.debug_ram_view()),
@@ -69,8 +69,8 @@ impl SegaCdDebugState {
 
 pub struct SegaCdDebugView<'scd> {
     pub(crate) sub_cpu: &'scd mut M68000,
-    pub(crate) bios_rom: &'scd mut [u8],
-    pub(crate) prg_ram: &'scd mut [u8],
+    pub(crate) bios_rom: &'scd mut [u16],
+    pub(crate) prg_ram: &'scd mut [u16],
     pub(crate) word_ram: &'scd mut WordRam,
     pub(crate) pcm: &'scd mut Rf5c164,
     pub(crate) cdc: &'scd mut Rchip,
@@ -94,10 +94,10 @@ impl SegaCdDebugView<'_> {
     pub fn apply_memory_edit(&mut self, memory_area: SegaCdMemoryArea, address: usize, value: u8) {
         match memory_area {
             SegaCdMemoryArea::BiosRom => {
-                DebugBytesView(self.bios_rom).write(address, value);
+                DebugWordsView(self.bios_rom, Endian::Big).write(address, value);
             }
             SegaCdMemoryArea::PrgRam => {
-                DebugBytesView(self.prg_ram).write(address, value);
+                DebugWordsView(self.prg_ram, Endian::Big).write(address, value);
             }
             SegaCdMemoryArea::WordRam => {
                 self.word_ram.debug_view().write(address, value);

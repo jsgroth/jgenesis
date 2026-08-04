@@ -197,10 +197,6 @@ pub trait M68kDebugMemoryMap {
     }
 }
 
-fn read_u16(memory: &[u8], address: usize) -> u16 {
-    u16::from_be_bytes([memory[address], memory[address + 1]])
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct Genesis68kMemoryMap<'a> {
     pub cartridge: Option<&'a Cartridge>,
@@ -213,8 +209,8 @@ pub struct Genesis68kMemoryMap<'a> {
 
 #[derive(Debug, Clone, Copy)]
 pub struct SegaCd68kMemoryMap<'a> {
-    pub bios_rom: &'a [u8],
-    pub prg_ram: &'a [u8],
+    pub bios_rom: &'a [u16],
+    pub prg_ram: &'a [u16],
     pub word_ram: &'a WordRam,
     pub prg_ram_base_addr: usize,
 }
@@ -223,11 +219,10 @@ impl SegaCd68kMemoryMap<'_> {
     fn peek(&self, address: u32) -> u16 {
         if address & 0x200000 == 0 {
             if address & 0x20000 == 0 {
-                let bios_addr = (address & 0x1FFFF) as usize;
-                u16::from_be_bytes([self.bios_rom[bios_addr], self.bios_rom[bios_addr + 1]])
+                self.bios_rom[((address & 0x1FFFF) >> 1) as usize]
             } else {
                 let prg_ram_addr = self.prg_ram_base_addr | (address & 0x1FFFF) as usize;
-                u16::from_be_bytes([self.prg_ram[prg_ram_addr], self.prg_ram[prg_ram_addr + 1]])
+                self.prg_ram[prg_ram_addr >> 1]
             }
         } else {
             let msb = self.word_ram.main_cpu_read_ram(address);
@@ -346,7 +341,7 @@ impl M68kDebugMemoryMap for Genesis68kMemoryMap<'_> {
 }
 
 pub struct SegaCdSubMemoryMap<'a> {
-    prg_ram: &'a [u8],
+    prg_ram: &'a [u16],
     word_ram: &'a WordRam,
 }
 
@@ -361,7 +356,7 @@ impl M68kDebugMemoryMap for SegaCdSubMemoryMap<'_> {
         let address = address & 0x0FFFFF;
 
         let word = match address {
-            0x00000..=0x7FFFF => read_u16(self.prg_ram, address as usize),
+            0x00000..=0x7FFFF => self.prg_ram[(address >> 1) as usize],
             0x80000..=0xBFFFF => {
                 let msb = self.word_ram.sub_cpu_peek_ram(address);
                 let lsb = self.word_ram.sub_cpu_peek_ram(address + 1);

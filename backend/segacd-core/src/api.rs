@@ -192,11 +192,9 @@ impl SegaCd {
         if address & 0x200000 == 0 {
             // BIOS ROM / PRG RAM
             if WORD {
-                let msb = self.bus.main_read_bios_prg_ram(address);
-                let lsb = self.bus.main_read_bios_prg_ram(address + 1);
-                u16::from_be_bytes([msb, lsb])
+                self.bus.main_read_bios_prg_ram(address)
             } else {
-                self.bus.main_read_bios_prg_ram(address).into()
+                self.bus.main_read_bios_prg_ram(address & !1).be_byte(address & 1).into()
             }
         } else {
             // Word RAM
@@ -214,12 +212,7 @@ impl SegaCd {
     pub fn main_write_memory<const WORD: bool>(&mut self, address: u32, value: u16) {
         if address & 0x200000 == 0 {
             // BIOS ROM / PRG RAM
-            if WORD {
-                self.bus.main_write_bios_prg_ram(address, value.msb());
-                self.bus.main_write_bios_prg_ram(address + 1, value.lsb());
-            } else {
-                self.bus.main_write_bios_prg_ram(address, value as u8);
-            }
+            self.bus.main_write_bios_prg_ram::<WORD>(address, value);
         } else {
             // Word RAM
             if WORD {
@@ -312,7 +305,7 @@ impl SegaCd {
     }
 
     #[must_use]
-    pub fn take_bios_and_disc(self) -> (Vec<u8>, Option<CdRom>) {
+    pub fn take_bios_and_disc(self) -> (Vec<u16>, Option<CdRom>) {
         self.bus.take_bios_and_disc()
     }
 

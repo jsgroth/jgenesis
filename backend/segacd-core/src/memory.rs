@@ -6,7 +6,7 @@ use std::array;
 use std::ops::Deref;
 
 pub const BIOS_LEN: usize = 128 * 1024;
-pub const PRG_RAM_LEN: usize = 512 * 1024;
+pub const PRG_RAM_LEN_WORDS: usize = 512 * 1024 / 2;
 pub const BACKUP_RAM_LEN: usize = 8 * 1024;
 pub const RAM_CARTRIDGE_LEN: usize = 128 * 1024;
 
@@ -85,10 +85,10 @@ impl SegaCdRegisters {
 }
 
 #[derive(Debug, Clone, Default, FakeEncode, FakeDecode)]
-pub struct Bios(pub Box<[u8]>);
+pub struct Bios(pub Box<[u16]>);
 
 impl Deref for Bios {
-    type Target = Box<[u8]>;
+    type Target = Box<[u16]>;
 
     fn deref(&self) -> &Self::Target {
         &self.0

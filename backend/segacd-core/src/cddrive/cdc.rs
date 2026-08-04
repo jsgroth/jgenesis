@@ -72,7 +72,7 @@ impl Default for DeviceDestination {
 
 pub struct RchipDmaArgs<'a> {
     pub word_ram: &'a mut WordRam,
-    pub prg_ram: &'a mut [u8; memory::PRG_RAM_LEN],
+    pub prg_ram: &'a mut [u16; memory::PRG_RAM_LEN_WORDS],
     pub prg_ram_accessible: bool,
     pub pcm: &'a mut Rf5c164,
 }
@@ -720,8 +720,7 @@ impl Rchip {
 
                     match self.device_destination {
                         DeviceDestination::PrgRam => {
-                            prg_ram[dma_address as usize] = msb;
-                            prg_ram[((dma_address + 1) & dma_address_mask) as usize] = lsb;
+                            prg_ram[(dma_address >> 1) as usize] = u16::from_be_bytes([msb, lsb]);
                         }
                         DeviceDestination::WordRam => {
                             word_ram.dma_write(dma_address, msb);

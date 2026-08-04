@@ -461,6 +461,9 @@ impl EmulatorTrait for GenesisEmulator {
             None => (None, None),
         };
 
+        let sega_cd_bios =
+            sega_cd_bios.map(|bios| bios.into_iter().flat_map(u16::to_be_bytes).collect());
+
         *self = GenesisEmulator::create(
             self.hardware,
             cartridge_rom,

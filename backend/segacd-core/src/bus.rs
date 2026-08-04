@@ -4,13 +4,13 @@ use crate::cddrive::cdd::{CdDrive, CdModel};
 use crate::cddrive::{CdController, cdc};
 use crate::font::FontRegisters;
 use crate::graphics::GraphicsCoprocessor;
-use crate::memory::{BACKUP_RAM_LEN, Bios, PRG_RAM_LEN, RAM_CARTRIDGE_LEN, SegaCdRegisters};
+use crate::memory::{BACKUP_RAM_LEN, Bios, PRG_RAM_LEN_WORDS, RAM_CARTRIDGE_LEN, SegaCdRegisters};
 use crate::rf5c164::Rf5c164;
 use crate::{ScdCpu, WordRam, api, backupram};
 use bincode::{Decode, Encode};
 use cdrom::reader::CdRom;
 use genesis_config::{GenesisEmulatorConfig, GenesisRegion};
-use jgenesis_common::boxedarray::BoxedByteArray;
+use jgenesis_common::boxedarray::{BoxedByteArray, BoxedWordArray};
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::PartialClone;
 use m68000_emu::BusInterface;
@@ -41,7 +41,7 @@ pub struct SegaCdBus {
     bios: Bios,
     #[partial_clone(partial)]
     disc_drive: CdController,
-    prg_ram: BoxedByteArray<PRG_RAM_LEN>,
+    prg_ram: BoxedWordArray<PRG_RAM_LEN_WORDS>,
     word_ram: WordRam,
     backup_ram: BoxedByteArray<BACKUP_RAM_LEN>,
     enable_ram_cartridge: bool,
@@ -85,9 +85,9 @@ impl SegaCdBus {
         Ok(Self {
             graphics_coprocessor: GraphicsCoprocessor::new(),
             pcm: Rf5c164::new(&config.sega_cd),
-            bios: Bios(bios.into_boxed_slice()),
+            bios: Bios(bytes_to_words_be(bios).into_boxed_slice()),
             disc_drive: CdController::new(disc, cd_model, &config.sega_cd),
-            prg_ram: BoxedByteArray::new(),
+            prg_ram: BoxedWordArray::new(),
             word_ram: WordRam::new(),
             backup_ram: backup_ram.into(),
             enable_ram_cartridge: config.sega_cd.enable_ram_cartridge,
@@ -159,33 +159,32 @@ impl SegaCdBus {
     }
 
     // $000000-$1FFFFF: BIOS at $000000-$01FFFF, PRG RAM at $020000-$03FFFF, mirrored repeatedly
-    pub fn main_read_bios_prg_ram(&self, address: u32) -> u8 {
+    pub fn main_read_bios_prg_ram(&self, address: u32) -> u16 {
         if address & 0x20000 == 0 {
             // BIOS ROM
             // HINT vector ($000070-$000073) should read out the register value
             match address & 0x1FFFF {
-                0x70 | 0x71 => 0xFF,
-                0x72 => self.registers.h_interrupt_vector.msb(),
-                0x73 => self.registers.h_interrupt_vector.lsb(),
-                bios_addr => self.bios[bios_addr as usize],
+                0x70 | 0x71 => 0xFFFF,
+                0x72 | 0x73 => self.registers.h_interrupt_vector,
+                bios_addr => self.bios[(bios_addr >> 1) as usize],
             }
         } else {
             // PRG RAM
             let prg_ram_addr = self.registers.main_prg_ram_addr(address);
-            self.prg_ram[prg_ram_addr as usize]
+            self.prg_ram[(prg_ram_addr >> 1) as usize]
         }
     }
 
     // $000000-$1FFFFF: BIOS at $000000-$01FFFF, PRG RAM at $020000-$03FFFF, mirrored repeatedly
-    pub fn main_write_bios_prg_ram(&mut self, address: u32, value: u8) {
+    pub fn main_write_bios_prg_ram<const WORD: bool>(&mut self, address: u32, value: u16) {
         if address & 0x20000 != 0 {
             // PRG RAM
             let prg_ram_addr = self.registers.main_prg_ram_addr(address);
-            self.write_prg_ram(prg_ram_addr, value, ScdCpu::Main);
+            self.write_prg_ram::<WORD>(prg_ram_addr, value, ScdCpu::Main);
         } // else BIOS ROM, ignore
     }
 
-    fn write_prg_ram(&mut self, address: u32, value: u8, cpu: ScdCpu) {
+    fn write_prg_ram<const WORD: bool>(&mut self, address: u32, value: u16, cpu: ScdCpu) {
         if cpu == ScdCpu::Main && !(self.registers.sub_cpu_busreq || self.registers.sub_cpu_reset) {
             // The Genesis hardware cannot write to PRG RAM while the sub CPU is on the bus.
             // Dungeon Explorer depends on this or the Z80 will trash PRG RAM while the sub CPU is using it
@@ -201,7 +200,13 @@ impl SegaCdBus {
         // PRG RAM write protection only applies to the Sub CPU.
         // The JP V2.00 BIOS freezes if Main CPU writes to PRG RAM are not always allowed through
         if cpu == ScdCpu::Main || address >= write_protection_boundary {
-            self.prg_ram[address as usize] = value;
+            if WORD {
+                self.prg_ram[(address >> 1) as usize] = value;
+            } else if !address.bit(0) {
+                self.prg_ram[(address >> 1) as usize].set_msb(value as u8);
+            } else {
+                self.prg_ram[(address >> 1) as usize].set_lsb(value as u8);
+            }
         }
     }
 
@@ -700,13 +705,8 @@ impl SegaCdBus {
         match address {
             0x00000..=0x7FFFF => {
                 // PRG RAM
-                if WORD {
-                    let msb = self.prg_ram[address as usize];
-                    let lsb = self.prg_ram[(address + 1) as usize];
-                    u16::from_be_bytes([msb, lsb])
-                } else {
-                    self.prg_ram[address as usize].into()
-                }
+                let word = self.prg_ram[(address >> 1) as usize];
+                if WORD { word } else { word.be_byte(address & 1).into() }
             }
             0x80000..=0xDFFFF => {
                 // Word RAM
@@ -753,12 +753,7 @@ impl SegaCdBus {
         match address {
             0x00000..=0x7FFFF => {
                 // PRG RAM
-                if WORD {
-                    self.write_prg_ram(address, value.msb(), ScdCpu::Sub);
-                    self.write_prg_ram(address + 1, value.lsb(), ScdCpu::Sub);
-                } else {
-                    self.write_prg_ram(address, value as u8, ScdCpu::Sub);
-                }
+                self.write_prg_ram::<WORD>(address, value, ScdCpu::Sub);
             }
             0x80000..=0xDFFFF => {
                 // Word RAM
@@ -886,7 +881,7 @@ impl SegaCdBus {
         self.ram_cartridge.as_slice()
     }
 
-    pub fn take_bios_and_disc(mut self) -> (Vec<u8>, Option<CdRom>) {
+    pub fn take_bios_and_disc(mut self) -> (Vec<u16>, Option<CdRom>) {
         let bios_rom = self.bios.0.into_vec();
         let disc = self.disc_drive.take_disc();
 
@@ -992,4 +987,8 @@ fn guess_cd_model(bios: &[u8]) -> CdModel {
     // Official BIOS versions have the version number at the end of the serial number, e.g.:
     //   "BR 000003-1.10" (Model 1 V1.10)
     if &bios[0x18A..0x18C] == b"1." { CdModel::One } else { CdModel::Two }
+}
+
+fn bytes_to_words_be(bytes: Vec<u8>) -> Vec<u16> {
+    bytes.as_chunks::<2>().0.iter().map(|&chunk| u16::from_be_bytes(chunk)).collect()
 }
