@@ -17,9 +17,8 @@ impl Serialize for NesPalette {
         S: Serializer,
     {
         let mut bytes = [0_u8; 512 * 3];
-        for (i, chunk) in bytes.chunks_exact_mut(3).enumerate() {
-            let (r, g, b) = self.0[i];
-            chunk.copy_from_slice(&[r, g, b]);
+        for (i, [r, g, b]) in bytes.as_chunks_mut::<3>().0.iter_mut().enumerate() {
+            (*r, *g, *b) = self.0[i];
         }
 
         let s = BASE64_ENCODER.encode(bytes);

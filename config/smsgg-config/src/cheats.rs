@@ -135,17 +135,17 @@ fn decode_pro_action_replay(code: &str) -> Option<ByteCheatCodeU16Address> {
         return None;
     }
 
-    let address;
-    let value;
-    if bytes.len() == 8 {
-        address = u16::from_str_radix(code.get(2..6)?, 16).ok()?;
-        value = u8::from_str_radix(code.get(6..)?, 16).ok()?;
+    let (address, value) = if bytes.len() == 8 {
+        let address = u16::from_str_radix(code.get(2..6)?, 16).ok()?;
+        let value = u8::from_str_radix(code.get(6..)?, 16).ok()?;
+        (address, value)
     } else {
         // Skip 5th char
-        address = (u16::from_str_radix(code.get(2..4)?, 16).ok()? << 8)
+        let address = (u16::from_str_radix(code.get(2..4)?, 16).ok()? << 8)
             | u16::from_str_radix(code.get(5..7)?, 16).ok()?;
-        value = u8::from_str_radix(code.get(7..)?, 16).ok()?;
-    }
+        let value = u8::from_str_radix(code.get(7..)?, 16).ok()?;
+        (address, value)
+    };
 
     Some(ByteCheatCodeU16Address { address, value, reference: None })
 }

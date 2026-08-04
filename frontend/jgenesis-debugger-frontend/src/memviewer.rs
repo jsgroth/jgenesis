@@ -263,9 +263,9 @@ fn render_central_panel(
                             Endian::Little => u16::from_le_bytes,
                         };
 
-                        for (i, chunk) in data.chunks_exact(2).enumerate() {
+                        for (i, &chunk) in data.as_chunks::<2>().0.iter().enumerate() {
                             if address + 2 * i + 1 < memory_len {
-                                let word = to_bytes(chunk.try_into().unwrap());
+                                let word = to_bytes(chunk);
 
                                 row.col(|ui| {
                                     let mut text = RichText::new(format!("{word:04X}")).monospace();
@@ -286,9 +286,9 @@ fn render_central_panel(
                             Endian::Little => u32::from_le_bytes,
                         };
 
-                        for (i, chunk) in data.chunks_exact(4).enumerate() {
+                        for (i, &chunk) in data.as_chunks::<4>().0.iter().enumerate() {
                             if address + 4 * i + 3 < memory_len {
-                                let longword = to_bytes(chunk.try_into().unwrap());
+                                let longword = to_bytes(chunk);
 
                                 row.col(|ui| {
                                     let mut text =

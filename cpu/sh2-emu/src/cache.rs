@@ -313,7 +313,7 @@ impl CpuCache {
     }
 
     pub fn purge_all(&mut self) {
-        for way in self.ways.iter_mut() {
+        for way in self.ways.as_mut() {
             way.valid_bits = 0;
         }
 
@@ -325,7 +325,7 @@ impl CpuCache {
         // Invalidates a single cache line
         let idx = cache_entry_index(address);
         let mask = !(1 << idx);
-        for way in self.ways.iter_mut() {
+        for way in self.ways.as_mut() {
             way.valid_bits &= mask;
         }
 

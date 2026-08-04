@@ -352,8 +352,10 @@ fn convert_st018_rom(rom: &[u8]) -> Result<(Box<ProgramRom>, Box<DataRom>), St01
     }
 
     let program_rom: Vec<_> = rom[..4 * PROGRAM_ROM_LEN_WORDS]
-        .chunks_exact(4)
-        .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|&chunk| u32::from_le_bytes(chunk))
         .collect();
     let program_rom: Box<ProgramRom> = program_rom.into_boxed_slice().try_into().unwrap();
 

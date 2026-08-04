@@ -363,14 +363,14 @@ enum Endianness {
 }
 
 impl Endianness {
-    fn chunk_to_u16(self, chunk: &[u8]) -> u16 {
+    fn chunk_to_u16(self, chunk: [u8; 2]) -> u16 {
         match self {
-            Self::Little => u16::from_le_bytes([chunk[0], chunk[1]]),
-            Self::Big => u16::from_be_bytes([chunk[0], chunk[1]]),
+            Self::Little => u16::from_le_bytes(chunk),
+            Self::Big => u16::from_be_bytes(chunk),
         }
     }
 
-    fn chunk_to_u32(self, chunk: &[u8]) -> u32 {
+    fn chunk_to_u32(self, chunk: [u8; 3]) -> u32 {
         match self {
             Self::Little => u32::from_le_bytes([chunk[0], chunk[1], chunk[2], 0]),
             Self::Big => u32::from_be_bytes([0, chunk[0], chunk[1], chunk[2]]),
@@ -392,18 +392,18 @@ fn convert_rom(rom: &[u8], variant: Upd77c25Variant) -> (Vec<u32>, Vec<u16>) {
 
 // Convert program ROM from bytes to 24-bit opcodes
 fn convert_program_rom(program_rom: &[u8], endianness: Endianness) -> Vec<u32> {
-    program_rom.chunks_exact(3).map(|chunk| endianness.chunk_to_u32(chunk)).collect()
+    program_rom.as_chunks::<3>().0.iter().map(|&chunk| endianness.chunk_to_u32(chunk)).collect()
 }
 
 // Convert data ROM from bytes to 16-bit words
 fn convert_to_u16(bytes: &[u8], endianness: Endianness) -> Vec<u16> {
-    bytes.chunks_exact(2).map(|chunk| endianness.chunk_to_u16(chunk)).collect()
+    bytes.as_chunks::<2>().0.iter().map(|&chunk| endianness.chunk_to_u16(chunk)).collect()
 }
 
 // All program ROMs used for this chip contain the opcode $97C00x in the first 4 opcodes, where
 // x is 4 times the opcode number
 fn detect_program_rom_endianness(program_rom: &[u8]) -> Endianness {
-    for (i, chunk) in program_rom.chunks_exact(3).enumerate().take(4) {
+    for (i, &chunk) in program_rom.as_chunks::<3>().0.iter().enumerate().take(4) {
         if chunk == [(i << 2) as u8, 0xC0, 0x97] {
             return Endianness::Little;
         }

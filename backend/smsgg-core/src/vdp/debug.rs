@@ -14,8 +14,10 @@ impl Vdp {
             SmsGgHardware::GameGear => {
                 let colors_iter = self
                     .color_ram
-                    .chunks_exact(2)
-                    .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]));
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|&chunk| u16::from_le_bytes(chunk));
 
                 for (out_color, cram_color) in out.iter_mut().zip(colors_iter) {
                     *out_color = gg_color_to_rgb(cram_color);

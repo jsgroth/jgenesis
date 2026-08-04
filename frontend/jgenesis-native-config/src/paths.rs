@@ -57,7 +57,7 @@ impl ConfigDirs {
         if self.emulator_dir.as_ref().is_some_and(|emulator_dir| {
             let portable_txt_path = emulator_dir.join(PORTABLE_TXT_FILE_NAME);
             portable_txt_path.exists()
-                && portable_txt_path.metadata().ok().is_some_and(|metadata| metadata.is_file())
+                && portable_txt_path.metadata().is_ok_and(|metadata| metadata.is_file())
         }) {
             // portable.txt exists; default to storing settings in emulator directory
             return ConfigDirType::EmulatorDirectory;

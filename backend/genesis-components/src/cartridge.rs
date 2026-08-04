@@ -719,7 +719,7 @@ fn ensure_big_endian(mut rom: Vec<u8>) -> Vec<u8> {
     if &rom[0x100..0x104] == "ESAG".as_bytes() {
         log::info!("Byteswapping ROM because it appears to be little-endian");
 
-        for chunk in rom.chunks_exact_mut(2) {
+        for chunk in rom.as_chunks_mut::<2>().0 {
             chunk.swap(0, 1);
         }
     }

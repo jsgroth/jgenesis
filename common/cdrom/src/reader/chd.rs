@@ -236,7 +236,7 @@ impl<F: Read + Seek> ChdFile<F> {
         if track_type == TrackType::Audio {
             // CHD audio tracks decompress into big-endian audio samples for some reason. Swap all
             // the bytes to make them little-endian to match the CD-DA format
-            for chunk in out[..crate::BYTES_PER_SECTOR as usize].chunks_exact_mut(2) {
+            for chunk in out[..crate::BYTES_PER_SECTOR as usize].as_chunks_mut::<2>().0 {
                 chunk.swap(0, 1);
             }
         }

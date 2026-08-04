@@ -1126,14 +1126,15 @@ impl Ppu {
 
     fn green_swap_line(&mut self) {
         let scanline_addr = (self.state.scanline * SCREEN_WIDTH) as usize;
-        for chunk in self.frame_buffer.0[scanline_addr..scanline_addr + SCREEN_WIDTH as usize]
-            .chunks_exact_mut(2)
+        for [c0, c1] in self.frame_buffer.0[scanline_addr..scanline_addr + SCREEN_WIDTH as usize]
+            .as_chunks_mut::<2>()
+            .0
         {
-            let g0 = chunk[0] & (0x1F << 5);
-            let g1 = chunk[1] & (0x1F << 5);
+            let g0 = *c0 & (0x1F << 5);
+            let g1 = *c1 & (0x1F << 5);
 
-            chunk[0] = (chunk[0] & !(0x1F << 5)) | g1;
-            chunk[1] = (chunk[1] & !(0x1F << 5)) | g0;
+            *c0 = (*c0 & !(0x1F << 5)) | g1;
+            *c1 = (*c1 & !(0x1F << 5)) | g0;
         }
     }
 
