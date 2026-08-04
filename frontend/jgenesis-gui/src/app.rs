@@ -346,6 +346,7 @@ pub struct App {
     load_at_startup: Option<LoadAtStartup>,
     config_overrides: Vec<String>,
     joysticks: Rc<RefCell<Joysticks>>,
+    cjk_fonts_loaded: bool,
 }
 
 impl App {
@@ -375,6 +376,7 @@ impl App {
             load_at_startup,
             config_overrides: vec![],
             joysticks: Rc::clone(&sdl.joysticks),
+            cjk_fonts_loaded: false,
         }
     }
 
@@ -1116,7 +1118,7 @@ impl App {
             }
 
             if prev_list_filters != self.config.list_filters {
-                self.refresh_filtered_rom_list();
+                self.refresh_filtered_rom_list(ui);
             }
         });
 
@@ -1128,13 +1130,13 @@ impl App {
                 .desired_width(350.0);
             if ui.add(textedit).changed() {
                 self.state.title_match_lowercase = Rc::from(self.state.title_match.to_lowercase());
-                self.refresh_filtered_rom_list();
+                self.refresh_filtered_rom_list(ui);
             }
 
             if ui.button("Clear").clicked() {
                 self.state.title_match.clear();
                 self.state.title_match_lowercase = Rc::from(String::new());
-                self.refresh_filtered_rom_list();
+                self.refresh_filtered_rom_list(ui);
             }
         });
     }
@@ -1309,16 +1311,20 @@ impl App {
         ));
     }
 
-    fn refresh_filtered_rom_list(&mut self) {
-        let rom_list = self.state.rom_list.lock().unwrap();
+    fn refresh_filtered_rom_list(&mut self, ctx: &Context) {
+        {
+            let rom_list = self.state.rom_list.lock().unwrap();
 
-        self.state.filtered_rom_list = self
-            .config
-            .list_filters
-            .apply(&rom_list, &self.state.title_match_lowercase)
-            .cloned()
-            .collect::<Vec<_>>()
-            .into();
+            self.state.filtered_rom_list = self
+                .config
+                .list_filters
+                .apply(&rom_list, &self.state.title_match_lowercase)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into();
+        }
+
+        self.check_rom_list_for_cjk(ctx);
     }
 
     fn update_window_size_in_config(&mut self, ctx: &Context) {
@@ -1338,7 +1344,7 @@ impl App {
 
         if self.state.rom_list_refresh_needed && !self.rom_list_thread.any_scans_in_progress() {
             self.state.rom_list_refresh_needed = false;
-            self.refresh_filtered_rom_list();
+            self.refresh_filtered_rom_list(ui);
         }
 
         if self.state.rendered_first_frame {
@@ -1375,6 +1381,9 @@ impl App {
 
             nes::update_palette_textures(ui, &self.state.nes_palette, &self.config.nes.palette);
         }
+
+        self.check_recent_opens_for_cjk(ui);
+        self.check_cheat_names_for_cjk(ui);
 
         self.state.rendered_first_frame = true;
     }
@@ -1417,6 +1426,46 @@ impl App {
 
         self.state.close_on_emulator_exit = true;
     }
+
+    fn check_rom_list_for_cjk(&mut self, ctx: &Context) {
+        self.load_cjk_fonts_if_needed(ctx, |app, predicate| {
+            app.state
+                .filtered_rom_list
+                .iter()
+                .find_map(|metadata| predicate(&metadata.file_name_no_ext))
+        });
+    }
+
+    fn check_recent_opens_for_cjk(&mut self, ctx: &Context) {
+        self.load_cjk_fonts_if_needed(ctx, |app, predicate| {
+            app.state
+                .recent_open_list
+                .iter()
+                .find_map(|metadata| predicate(&metadata.file_name_no_ext))
+        });
+    }
+
+    fn load_cjk_fonts_if_needed(
+        &mut self,
+        ctx: &Context,
+        // Not ideal API but avoids lifetime issues that arise with a function that takes a &Self
+        // and returns an iterator
+        find_cjk_string: impl FnOnce(&Self, fn(&str) -> Option<String>) -> Option<String>,
+    ) {
+        if self.cjk_fonts_loaded {
+            return;
+        }
+
+        let any_cjk_string =
+            find_cjk_string(self, |s| s.chars().any(is_cjk_character).then(|| s.into()));
+
+        if let Some(cjk_string) = any_cjk_string {
+            log::info!("Loading CJK fonts due to displayed CJK string: '{cjk_string}'");
+
+            egui_system_fonts::add_auto(ctx, egui_system_fonts::FontStyle::Sans);
+            self.cjk_fonts_loaded = true;
+        }
+    }
 }
 
 fn should_reload_config(prev_config: &AppConfig, new_config: &AppConfig) -> bool {
@@ -1454,6 +1503,19 @@ fn format_time_nanos(time_nanos: u128) -> Option<String> {
         format_description::parse_borrowed::<2>("[year]-[month]-[day] [hour]:[minute]:[second]")
             .unwrap();
     local_date_time.format(&format).ok()
+}
+
+fn is_cjk_character(c: char) -> bool {
+    const RANGES: &[(char, char)] = &[
+        ('\u{2E80}', '\u{D7FF}'), // Various CJK character and punctuation sets (mostly)
+        ('\u{F900}', '\u{FAFF}'), // CJK Compatibility Ideographs
+        ('\u{FE30}', '\u{FE4F}'), // CJK Compatibility Forms
+        ('\u{1AFF0}', '\u{1B16F}'), // Kana Extensions/Supplements
+        ('\u{20000}', '\u{2FA1F}'), // CJK Unified Ideographs Extensions, CJK Compatibility Ideographs Supplement
+        ('\u{30000}', '\u{33479}'), // CJK Unified Ideographs Extensions
+    ];
+
+    RANGES.iter().any(|&(start, end)| (start..=end).contains(&c))
 }
 
 #[cfg(test)]

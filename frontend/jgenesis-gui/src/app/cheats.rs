@@ -260,6 +260,18 @@ impl App {
         }
     }
 
+    pub(super) fn check_cheat_names_for_cjk(&mut self, ctx: &Context) {
+        self.load_cjk_fonts_if_needed(ctx, |app, predicate| match app.active_cheats().as_ref() {
+            ActiveCheats::None => None,
+            ActiveCheats::SmsGg(cheats) => {
+                cheats.cheats.iter().find_map(|cheat| predicate(&cheat.name))
+            }
+            ActiveCheats::Genesis(cheats) => {
+                cheats.cheats.iter().find_map(|cheat| predicate(&cheat.name))
+            }
+        });
+    }
+
     pub(super) fn load_cheats_for_game(&mut self, console: Console, rom_file_path: &Path) {
         match CheatConsole::from_console(console) {
             Some(CheatConsole::Genesis) => {

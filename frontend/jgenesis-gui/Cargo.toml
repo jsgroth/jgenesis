@@ -47,6 +47,7 @@ anyhow = { workspace = true }
 clap = { workspace = true }
 egui = { workspace = true }
 egui_extras = { workspace = true }
+egui-system-fonts = { workspace = true }
 emath = { workspace = true }
 env_logger = { workspace = true }
 image = { workspace = true, features = ["png"] }
