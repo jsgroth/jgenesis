@@ -407,7 +407,7 @@ impl App {
             Some(console @ (Console::SegaCd | Console::SegaCd32X)) => {
                 let mut secondary_paths = vec![];
                 if CdRomFileFormat::from_file_path(&path).is_none() {
-                    let disc_path = Self::open_sega_cd_secondary_path_dialog();
+                    let disc_path = Self::open_sega_cd_secondary_path_dialog(&path);
                     if let Some(disc_path) = disc_path {
                         secondary_paths.push(disc_path);
                     }
@@ -431,12 +431,17 @@ impl App {
         );
     }
 
-    fn open_sega_cd_secondary_path_dialog() -> Option<PathBuf> {
+    fn open_sega_cd_secondary_path_dialog(primary_path: &Path) -> Option<PathBuf> {
         // Sega CD is attached but the main file is not a CD-ROM image; prompt to load a disc
-        FileDialog::new()
+        let mut file_dialog = FileDialog::new()
             .set_title("Sega CD Disc Image")
-            .add_filter("cue/chd", extensions::SEGA_CD)
-            .pick_file()
+            .add_filter("cue/chd", extensions::SEGA_CD);
+
+        if let Some(primary_parent) = primary_path.parent() {
+            file_dialog = file_dialog.set_directory(primary_parent);
+        }
+
+        file_dialog.pick_file()
     }
 
     fn launch_emulator_auto(&mut self, path: PathBuf, console: Option<Console>) {
@@ -455,7 +460,7 @@ impl App {
         let mut secondary_paths = vec![];
         if matches!(console, Console::SegaCd | Console::SegaCd32X)
             && CdRomFileFormat::from_file_path(&path).is_none()
-            && let Some(secondary_path) = Self::open_sega_cd_secondary_path_dialog()
+            && let Some(secondary_path) = Self::open_sega_cd_secondary_path_dialog(&path)
         {
             secondary_paths.push(secondary_path);
         }
