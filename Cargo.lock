@@ -219,7 +219,7 @@ dependencies = [
 
 [[package]]
 name = "arm7tdmi-emu"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "jgenesis-common",
@@ -571,7 +571,7 @@ dependencies = [
 
 [[package]]
 name = "cdrom"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "chd",
@@ -1096,7 +1096,7 @@ dependencies = [
 
 [[package]]
 name = "dsp"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "log",
@@ -1134,7 +1134,7 @@ dependencies = [
 
 [[package]]
 name = "egui-sdl3-wgpu"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arboard",
  "egui",
@@ -1559,7 +1559,7 @@ dependencies = [
 
 [[package]]
 name = "gb-config"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "clap",
@@ -1570,7 +1570,7 @@ dependencies = [
 
 [[package]]
 name = "gb-core"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "dsp",
@@ -1584,7 +1584,7 @@ dependencies = [
 
 [[package]]
 name = "gba-config"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "clap",
@@ -1595,7 +1595,7 @@ dependencies = [
 
 [[package]]
 name = "gba-core"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arm7tdmi-emu",
  "bincode",
@@ -1622,7 +1622,7 @@ dependencies = [
 
 [[package]]
 name = "genesis-components"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "crc",
@@ -1638,7 +1638,7 @@ dependencies = [
 
 [[package]]
 name = "genesis-config"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "clap",
@@ -1652,7 +1652,7 @@ dependencies = [
 
 [[package]]
 name = "genesis-core"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "cdrom",
@@ -1914,7 +1914,7 @@ checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
 name = "huc6280-emu"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "jgenesis-common",
@@ -1924,7 +1924,7 @@ dependencies = [
 
 [[package]]
 name = "huc6280-test-runner"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "clap",
  "env_logger",
@@ -2056,7 +2056,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "jgenesis-common"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "bytemuck",
@@ -2072,7 +2072,7 @@ dependencies = [
 
 [[package]]
 name = "jgenesis-debugger-frontend"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bytemuck",
  "egui",
@@ -2108,7 +2108,7 @@ dependencies = [
 
 [[package]]
 name = "jgenesis-gui"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "cdrom",
@@ -2152,7 +2152,7 @@ dependencies = [
 
 [[package]]
 name = "jgenesis-native-config"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "clap",
  "directories",
@@ -2177,7 +2177,7 @@ dependencies = [
 
 [[package]]
 name = "jgenesis-native-driver"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "cdrom",
@@ -2218,7 +2218,7 @@ dependencies = [
 
 [[package]]
 name = "jgenesis-proc-macros"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "jgenesis-common",
@@ -2233,7 +2233,7 @@ dependencies = [
 
 [[package]]
 name = "jgenesis-renderer"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bytemuck",
  "clap",
@@ -2251,7 +2251,7 @@ dependencies = [
 
 [[package]]
 name = "jgenesis-web"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "bincode",
@@ -2589,7 +2589,7 @@ dependencies = [
 
 [[package]]
 name = "m68000-emu"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "jgenesis-common",
@@ -2599,7 +2599,7 @@ dependencies = [
 
 [[package]]
 name = "m68000-test-runner"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "clap",
  "env_logger",
@@ -2706,7 +2706,7 @@ dependencies = [
 
 [[package]]
 name = "mos6502-emu"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "jgenesis-common",
@@ -2714,7 +2714,7 @@ dependencies = [
 
 [[package]]
 name = "mos6502-test-runner"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2794,7 +2794,7 @@ dependencies = [
 
 [[package]]
 name = "nes-config"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "base64",
  "bincode",
@@ -2806,7 +2806,7 @@ dependencies = [
 
 [[package]]
 name = "nes-core"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "crc",
@@ -3424,7 +3424,7 @@ dependencies = [
 
 [[package]]
 name = "pce-config"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "clap",
@@ -3435,7 +3435,7 @@ dependencies = [
 
 [[package]]
 name = "pce-core"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "crc",
@@ -4159,7 +4159,7 @@ dependencies = [
 
 [[package]]
 name = "s32x-core"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "dsp",
@@ -4303,7 +4303,7 @@ dependencies = [
 
 [[package]]
 name = "segacd-core"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "cdrom",
@@ -4401,7 +4401,7 @@ dependencies = [
 
 [[package]]
 name = "sh2-emu"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "jgenesis-common",
@@ -4615,7 +4615,7 @@ checksum = "4aaa7368fcf4852a4c2dd92df0cace6a71f2091ca0a23391ce7f3a31833f1523"
 
 [[package]]
 name = "smsgg-config"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "clap",
@@ -4627,7 +4627,7 @@ dependencies = [
 
 [[package]]
 name = "smsgg-core"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "crc",
@@ -4645,7 +4645,7 @@ dependencies = [
 
 [[package]]
 name = "snes-config"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "clap",
@@ -4656,7 +4656,7 @@ dependencies = [
 
 [[package]]
 name = "snes-coprocessors"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arm7tdmi-emu",
  "bincode",
@@ -4671,7 +4671,7 @@ dependencies = [
 
 [[package]]
 name = "snes-core"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "crc",
@@ -4689,7 +4689,7 @@ dependencies = [
 
 [[package]]
 name = "spc700-emu"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "jgenesis-common",
@@ -4698,7 +4698,7 @@ dependencies = [
 
 [[package]]
 name = "spc700-test-runner"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "clap",
  "env_logger",
@@ -4898,7 +4898,7 @@ dependencies = [
 
 [[package]]
 name = "ti-sn76489"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "clap",
@@ -5516,7 +5516,7 @@ dependencies = [
 
 [[package]]
 name = "wdc65816-emu"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "jgenesis-common",
@@ -5525,7 +5525,7 @@ dependencies = [
 
 [[package]]
 name = "wdc65816-test-runner"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "clap",
  "env_logger",
@@ -6103,7 +6103,7 @@ checksum = "e01738255b5a16e78bbb83e7fbba0a1e7dd506905cfc53f4622d89015a03fbb5"
 
 [[package]]
 name = "ym-opll"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "jgenesis-common",
@@ -6112,7 +6112,7 @@ dependencies = [
 
 [[package]]
 name = "z80-emu"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "jgenesis-common",
@@ -6122,7 +6122,7 @@ dependencies = [
 
 [[package]]
 name = "z80-test-runner"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "env_logger",
  "z80-emu",
