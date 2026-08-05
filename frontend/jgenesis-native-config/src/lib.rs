@@ -10,7 +10,7 @@ pub mod pce;
 pub mod smsgg;
 pub mod snes;
 
-pub use migration::{current_config_version, migrate_config, migrate_config_str};
+pub use migration::{migrate_config, migrate_config_str};
 
 use crate::common::{CheatPath, CommonAppConfig};
 use crate::gb::GameBoyAppConfig;
@@ -90,6 +90,19 @@ impl Default for ListFilters {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RomSearchDirectory {
+    pub path: PathBuf,
+    pub recursive: bool,
+}
+
+impl RomSearchDirectory {
+    #[must_use]
+    pub fn new(path: PathBuf) -> Self {
+        Self { path, recursive: false }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecentOpen {
     pub console: String,
     pub path: PathBuf,
@@ -149,7 +162,7 @@ pub struct AppConfig {
     pub input: InputAppConfig,
     // TODO move GUI-specific config/state somewhere else - separate file?
     pub list_filters: ListFilters,
-    pub rom_search_dirs: Vec<String>,
+    pub rom_search_dirs: Vec<RomSearchDirectory>,
     pub recent_open_list: Vec<RecentOpen>,
     pub egui_theme: EguiTheme,
     pub gui_window_width: f32,
@@ -353,7 +366,7 @@ impl AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            config_version: Some(current_config_version().into()),
+            config_version: Some(migration::current_config_version().into()),
             common: CommonAppConfig::default(),
             smsgg: SmsGgAppConfig::default(),
             genesis: GenesisAppConfig::default(),

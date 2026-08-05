@@ -1,8 +1,8 @@
 mod old_default_nes_palette;
 
-use crate::AppConfig;
 use crate::input::GenericInput;
 use crate::input::mappings::HotkeyConfig;
+use crate::{AppConfig, RomSearchDirectory};
 use nes_config::NesPalette;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -60,11 +60,6 @@ impl FromStr for SemVer {
             _ => Err(err_fn()),
         }
     }
-}
-
-#[must_use]
-pub const fn current_config_version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
 }
 
 pub fn migrate_config_str(config_str: &mut String) {
@@ -144,12 +139,19 @@ pub fn migrate_config_str(config_str: &mut String) {
     }
 }
 
+pub(crate) const fn current_config_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
 #[must_use]
 pub fn migrate_config(config: &AppConfig, config_str: &str) -> Option<AppConfig> {
+    const MIN_VERSION_NO_MIGRATION: SemVer = SemVer::new(0, 14, 0);
+
     if config
         .config_version
         .as_ref()
-        .is_some_and(|version| version.as_str() == current_config_version())
+        .and_then(|version| SemVer::from_str(version).ok())
+        .is_some_and(|version| version >= MIN_VERSION_NO_MIGRATION)
     {
         return None;
     }
@@ -177,6 +179,10 @@ pub fn migrate_config(config: &AppConfig, config_str: &str) -> Option<AppConfig>
 
     if old_version < SemVer::new(0, 11, 4) {
         migrate_config_0_11_4(&mut new_config, config_str);
+    }
+
+    if old_version < SemVer::new(0, 14, 0) {
+        migrate_config_0_14_0(&mut new_config, config_str);
     }
 
     new_config.config_version = Some(current_config_version().into());
@@ -294,6 +300,26 @@ fn migrate_config_0_11_4(config: &mut AppConfig, config_str: &str) {
     if old_config.nes.palette == old_default_nes_palette::PALETTE {
         log::info!("Detected old default NES palette; changing to new default");
         config.nes.palette = NesPalette::default();
+    }
+}
+
+fn migrate_config_0_14_0(config: &mut AppConfig, config_str: &str) {
+    // rom_search_dirs field changed from Vec<String> to Vec<RomSearchDirectory>
+    #[derive(Deserialize)]
+    struct OldConfig {
+        rom_search_dirs: Vec<String>,
+    }
+
+    let Ok(old_config) = toml::from_str::<OldConfig>(config_str) else { return };
+
+    if !old_config.rom_search_dirs.is_empty() && config.rom_search_dirs.is_empty() {
+        log::info!("Converting rom_search_dirs to new config format");
+
+        config.rom_search_dirs = old_config
+            .rom_search_dirs
+            .into_iter()
+            .map(|path| RomSearchDirectory { path: path.into(), recursive: false })
+            .collect();
     }
 }
 

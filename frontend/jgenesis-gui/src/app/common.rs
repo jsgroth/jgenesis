@@ -711,20 +711,40 @@ impl App {
 
                         ui.add_space(5.0);
 
+                        let mut changed = false;
+                        let mut to_remove: Option<usize> = None;
+
                         Grid::new("rom_search_dirs").show(ui, |ui| {
+                            ui.heading("Path");
+                            ui.heading("Recursive");
+                            ui.heading("");
+                            ui.end_row();
+
                             for (i, rom_search_dir) in
-                                self.config.rom_search_dirs.clone().into_iter().enumerate()
+                                self.config.rom_search_dirs.iter_mut().enumerate()
                             {
-                                ui.label(&rom_search_dir);
+                                ui.label(rom_search_dir.path.to_string_lossy());
+
+                                changed |= ui.checkbox(&mut rom_search_dir.recursive, "").changed();
 
                                 if ui.button("Remove").clicked() {
-                                    self.config.rom_search_dirs.remove(i);
-                                    self.request_rom_list_scan();
+                                    to_remove = Some(i);
                                 }
 
                                 ui.end_row();
                             }
                         });
+
+                        if let Some(to_remove) = to_remove
+                            && to_remove < self.config.rom_search_dirs.len()
+                        {
+                            self.config.rom_search_dirs.remove(to_remove);
+                            changed = true;
+                        }
+
+                        if changed {
+                            self.request_rom_list_scan();
+                        }
 
                         if ui.button("Add").clicked() {
                             self.add_rom_search_directory();

@@ -1,5 +1,5 @@
 use crate::app::Console;
-use jgenesis_native_config::RecentOpen;
+use jgenesis_native_config::{RecentOpen, RomSearchDirectory};
 use jgenesis_native_driver::extensions;
 use jgenesis_native_driver::extensions::ConsoleWithSize;
 use regex::Regex;
@@ -20,28 +20,12 @@ pub struct RomMetadata {
     pub file_size: u64,
 }
 
-pub fn build(rom_search_dirs: &[String]) -> Vec<RomMetadata> {
-    let mut metadata: Vec<_> = rom_search_dirs
-        .iter()
-        .flat_map(|rom_search_dir| {
-            fs::read_dir(Path::new(rom_search_dir))
-                .map(|read_dir| {
-                    read_dir
-                        .filter_map(|dir_entry| {
-                            let dir_entry = dir_entry.ok()?;
-                            let metadata = dir_entry.metadata().ok()?;
-                            if !metadata.is_file() {
-                                return None;
-                            }
-
-                            let file_name = dir_entry.file_name().to_string_lossy().to_string();
-                            process_file(&file_name, &dir_entry.path())
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default()
-        })
-        .collect();
+pub fn build(rom_search_dirs: &[RomSearchDirectory]) -> Vec<RomMetadata> {
+    let mut searched = HashSet::new();
+    let mut metadata = Vec::new();
+    for rom_search_dir in rom_search_dirs {
+        search_dir(&rom_search_dir.path, rom_search_dir.recursive, &mut searched, &mut metadata);
+    }
 
     // Remove any files that are referenced in .cue files
     let cd_bin_file_names = metadata
@@ -67,16 +51,41 @@ pub fn build(rom_search_dirs: &[String]) -> Vec<RomMetadata> {
     metadata
 }
 
-pub fn read_metadata(path: &Path) -> Option<RomMetadata> {
-    let file_name = path.file_name().and_then(OsStr::to_str)?;
-    process_file(file_name, path)
+fn search_dir(
+    path: &Path,
+    recursive: bool,
+    searched: &mut HashSet<PathBuf>,
+    output: &mut Vec<RomMetadata>,
+) {
+    if !searched.insert(path.into()) {
+        // Prevent potential infinite loops due to symlinks, or avoid double-searching a path if
+        // it's contained within multiple search paths
+        return;
+    }
+
+    let Ok(read_dir) = path.read_dir() else { return };
+
+    for dir_entry in read_dir {
+        let Ok(dir_entry) = dir_entry else { continue };
+        let Ok(metadata) = dir_entry.metadata() else { continue };
+        let entry_path = dir_entry.path();
+
+        if metadata.is_file() {
+            let file_name = dir_entry.file_name();
+            if let Some(rom_metadata) = process_file(&file_name.to_string_lossy(), &entry_path) {
+                output.push(rom_metadata);
+            }
+        } else if recursive && metadata.is_dir() {
+            search_dir(&entry_path, recursive, searched, output);
+        }
+    }
 }
 
 fn process_file(file_name: &str, path: &Path) -> Option<RomMetadata> {
     let ConsoleWithSize { console, file_size: raw_file_size } = Console::from_file(path)?;
 
     let file_name_no_ext = Path::new(file_name).with_extension("").to_string_lossy().to_string();
-    let extension = extensions::from_path(file_name)?;
+    let extension = extensions::from_path(path)?;
 
     let file_size = match extension.as_str() {
         "cue" => sega_cd_file_size(path).ok()?,
@@ -109,6 +118,11 @@ fn parse_bin_file_names(cue_contents: &str) -> impl Iterator<Item = &str> {
     cue_contents
         .lines()
         .filter_map(|line| LINE_RE.captures(line).map(|captures| captures.get(1).unwrap().as_str()))
+}
+
+pub fn read_metadata(path: &Path) -> Option<RomMetadata> {
+    let file_name = path.file_name().and_then(OsStr::to_str)?;
+    process_file(file_name, path)
 }
 
 pub fn from_recent_opens(recent_opens: &[RecentOpen]) -> Vec<RomMetadata> {
@@ -168,13 +182,14 @@ pub fn find_all_disc_paths(path: &Path) -> Vec<(String, PathBuf)> {
 
 #[derive(Debug)]
 pub struct RomListThreadHandle {
-    scan_requests_sender: Sender<Vec<String>>,
+    scan_requests_sender: Sender<Vec<RomSearchDirectory>>,
     scan_request_counter: Arc<AtomicU32>,
 }
 
 impl RomListThreadHandle {
     pub fn spawn(rom_list: Arc<Mutex<Vec<RomMetadata>>>, egui_ctx: egui::Context) -> Self {
-        let (scan_requests_sender, scan_requests_receiver) = mpsc::channel::<Vec<String>>();
+        let (scan_requests_sender, scan_requests_receiver) =
+            mpsc::channel::<Vec<RomSearchDirectory>>();
         let scan_request_counter = Arc::new(AtomicU32::new(0));
         let scan_request_counter_handle = Arc::clone(&scan_request_counter);
 
@@ -191,7 +206,7 @@ impl RomListThreadHandle {
         Self { scan_requests_sender, scan_request_counter: scan_request_counter_handle }
     }
 
-    pub fn request_scan(&self, scan_request: Vec<String>) {
+    pub fn request_scan(&self, scan_request: Vec<RomSearchDirectory>) {
         self.scan_request_counter.fetch_add(1, Ordering::SeqCst);
         self.scan_requests_sender.send(scan_request).unwrap();
     }

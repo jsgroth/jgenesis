@@ -30,7 +30,7 @@ use egui::{
 use egui_extras::{Column, TableBuilder};
 use emath::Pos2;
 use jgenesis_native_config::paths::{ConfigDirType, ConfigDirs};
-use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen};
+use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen, RomSearchDirectory};
 use jgenesis_native_driver::extensions::{Console, SupportedExtensions};
 use jgenesis_native_driver::{NativeEmulatorError, SdlSubsystems, extensions};
 use nes_config::NesPalette;
@@ -399,7 +399,7 @@ impl App {
         file_dialog = file_dialog.add_filter("All Files", &["*"]);
 
         if let Some(dir) = self.config.rom_search_dirs.first() {
-            file_dialog = file_dialog.set_directory(Path::new(dir));
+            file_dialog = file_dialog.set_directory(&dir.path);
         }
         let Some(path) = file_dialog.pick_file() else { return };
 
@@ -507,9 +507,8 @@ impl App {
 
     fn add_rom_search_directory(&mut self) {
         let Some(dir) = FileDialog::new().pick_folder() else { return };
-        let Some(dir) = dir.to_str() else { return };
 
-        self.config.rom_search_dirs.push(dir.into());
+        self.config.rom_search_dirs.push(RomSearchDirectory::new(dir));
         self.request_rom_list_scan();
     }
 
