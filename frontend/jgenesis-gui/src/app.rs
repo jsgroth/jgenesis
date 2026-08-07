@@ -31,7 +31,7 @@ use egui_extras::{Column, TableBuilder};
 use emath::Pos2;
 use jgenesis_native_config::paths::{ConfigDirType, ConfigDirs};
 use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen, RomSearchDirectory};
-use jgenesis_native_driver::extensions::{Console, SupportedExtensions};
+use jgenesis_native_driver::extensions::Console;
 use jgenesis_native_driver::{NativeEmulatorError, SdlSubsystems, extensions};
 use nes_config::NesPalette;
 use rfd::FileDialog;
@@ -385,9 +385,9 @@ impl App {
 
         match console {
             Some(console) => {
-                for SupportedExtensions { label, extensions } in console.supported_extensions() {
-                    let label = label.unwrap_or(console.display_str());
-                    file_dialog = file_dialog.add_filter(label, extensions);
+                for extensions in console.supported_extensions() {
+                    let label = extensions.label.unwrap_or(console.display_str());
+                    file_dialog = file_dialog.add_filter(label, &extensions.to_list());
                 }
             }
             None => {

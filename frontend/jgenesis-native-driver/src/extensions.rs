@@ -4,6 +4,7 @@ use cdrom::reader::{CdRom, CdRomFileFormat};
 use genesis_core::api::GenesisHardware;
 use jgenesis_proc_macros::{CustomValueEnum, EnumAll, EnumDisplay, EnumFromStr};
 use smsgg_core::SmsGgHardware;
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs::File;
@@ -152,7 +153,19 @@ pub struct ConsoleWithSize {
 pub struct SupportedExtensions {
     // Should display the console name if label is None
     pub label: Option<&'static str>,
-    pub extensions: &'static [&'static str],
+    extensions: &'static [&'static str],
+    include_archives: bool,
+}
+
+impl SupportedExtensions {
+    #[must_use]
+    pub fn to_list(self) -> Cow<'static, [&'static str]> {
+        if self.include_archives {
+            self.extensions.iter().copied().chain(["zip", "7z"]).collect()
+        } else {
+            self.extensions.into()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumDisplay, EnumFromStr, EnumAll, CustomValueEnum)]
@@ -264,21 +277,37 @@ impl Console {
     #[must_use]
     pub fn supported_extensions(self) -> Vec<SupportedExtensions> {
         fn single(extensions: &'static [&'static str]) -> Vec<SupportedExtensions> {
-            vec![SupportedExtensions { label: None, extensions }]
+            vec![SupportedExtensions { label: None, extensions, include_archives: true }]
         }
 
         match self {
             Self::Sg1000 | Self::MasterSystem | Self::GameGear => single(&SMSGG),
             Self::Genesis => single(GENESIS),
             Self::SegaCd => vec![
-                SupportedExtensions { label: None, extensions: SEGA_CD },
-                SupportedExtensions { label: Some("Genesis"), extensions: GENESIS },
+                SupportedExtensions { label: None, extensions: SEGA_CD, include_archives: false },
+                SupportedExtensions {
+                    label: Some("Genesis"),
+                    extensions: GENESIS,
+                    include_archives: true,
+                },
             ],
             Self::Sega32X => single(SEGA_32X),
             Self::SegaCd32X => vec![
-                SupportedExtensions { label: None, extensions: &SEGA_CD_32X },
-                SupportedExtensions { label: Some("Sega CD"), extensions: SEGA_CD },
-                SupportedExtensions { label: Some("Genesis/32X"), extensions: &GENESIS_32X },
+                SupportedExtensions {
+                    label: None,
+                    extensions: &SEGA_CD_32X,
+                    include_archives: true,
+                },
+                SupportedExtensions {
+                    label: Some("Sega CD"),
+                    extensions: SEGA_CD,
+                    include_archives: false,
+                },
+                SupportedExtensions {
+                    label: Some("Genesis/32X"),
+                    extensions: &GENESIS_32X,
+                    include_archives: true,
+                },
             ],
             Self::Nes => single(NES),
             Self::Snes => single(SNES),
