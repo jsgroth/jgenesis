@@ -820,6 +820,17 @@ pub struct WindowSize {
     pub pixel_density: f32,
 }
 
+trait PresentModeExt: Copy {
+    fn always_supported(self) -> bool;
+}
+
+impl PresentModeExt for wgpu::PresentMode {
+    fn always_supported(self) -> bool {
+        // AutoVsync and AutoNoVsync present modes are guaranteed to always work due to fallback behavior
+        matches!(self, Self::AutoVsync | Self::AutoNoVsync)
+    }
+}
+
 pub struct WgpuRenderer<Window> {
     surface: wgpu::Surface<'static>,
     surface_config: wgpu::SurfaceConfiguration,
@@ -905,7 +916,9 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
         let surface_capabilities = surface.get_capabilities(&adapter);
 
         let present_mode = config.vsync_mode.to_wgpu_present_mode();
-        if !surface_capabilities.present_modes.contains(&present_mode) {
+        if !present_mode.always_supported()
+            && !surface_capabilities.present_modes.contains(&present_mode)
+        {
             return Err(RendererError::UnsupportedPresentMode {
                 desired: present_mode,
                 available: surface_capabilities.present_modes.clone(),
@@ -981,7 +994,9 @@ impl<Window> WgpuRenderer<Window> {
         let prev_surface_config = self.surface_config.clone();
 
         let present_mode = config.vsync_mode.to_wgpu_present_mode();
-        if self.surface_capabilities.present_modes.contains(&present_mode) {
+        if present_mode.always_supported()
+            || self.surface_capabilities.present_modes.contains(&present_mode)
+        {
             self.surface_config.present_mode = present_mode;
         } else {
             log::error!(
@@ -1023,7 +1038,9 @@ impl<Window> WgpuRenderer<Window> {
             };
             log::debug!("Changing wgpu present mode to {desired_present_mode:?}");
 
-            if self.surface_capabilities.present_modes.contains(&desired_present_mode) {
+            if desired_present_mode.always_supported()
+                || self.surface_capabilities.present_modes.contains(&desired_present_mode)
+            {
                 self.surface.configure(
                     &self.device,
                     &wgpu::SurfaceConfiguration {
