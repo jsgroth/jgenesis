@@ -670,9 +670,13 @@ pub enum RendererError {
     #[error("Failed to obtain wgpu adapter")]
     WgpuRequestAdapter(#[from] wgpu::RequestAdapterError),
     #[error(
-        "wgpu adapter does not support present mode {desired:?}; supported modes are {available:?}"
+        "wgpu adapter does not support present mode {desired:?} (from VSync mode {vsync_mode:?}); supported modes are {available:?}"
     )]
-    UnsupportedPresentMode { desired: wgpu::PresentMode, available: Vec<wgpu::PresentMode> },
+    UnsupportedPresentMode {
+        desired: wgpu::PresentMode,
+        available: Vec<wgpu::PresentMode>,
+        vsync_mode: VSyncMode,
+    },
     #[cfg(feature = "ttf")]
     #[error("Error preparing text to render: {0}")]
     GlyphonPrepare(#[from] glyphon::PrepareError),
@@ -905,6 +909,7 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             return Err(RendererError::UnsupportedPresentMode {
                 desired: present_mode,
                 available: surface_capabilities.present_modes.clone(),
+                vsync_mode: config.vsync_mode,
             });
         }
 

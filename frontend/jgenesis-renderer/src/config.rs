@@ -98,7 +98,7 @@ impl VSyncMode {
     pub(crate) fn to_wgpu_present_mode(self) -> wgpu::PresentMode {
         match self {
             Self::Enabled => wgpu::PresentMode::Fifo,
-            Self::Disabled => wgpu::PresentMode::Immediate,
+            Self::Disabled => wgpu::PresentMode::AutoNoVsync,
             Self::Fast => wgpu::PresentMode::Mailbox,
         }
     }
