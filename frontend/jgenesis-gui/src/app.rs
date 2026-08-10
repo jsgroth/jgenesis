@@ -337,6 +337,7 @@ pub struct ConfigInfo {
 
 pub struct App {
     config: AppConfig,
+    last_saved_config: AppConfig,
     state: AppState,
     config_path: PathBuf,
     config_dirs: ConfigDirs,
@@ -365,8 +366,11 @@ impl App {
         let rom_list_thread = RomListThreadHandle::spawn(Arc::clone(&state.rom_list), ctx);
         rom_list_thread.request_scan(config.rom_search_dirs.clone());
 
+        let last_saved_config = config.clone();
+
         Self {
             config,
+            last_saved_config,
             state,
             config_path: config_info.config_path,
             config_dirs: config_info.config_dirs,
@@ -1358,8 +1362,6 @@ impl App {
         let gui_focused = ui.input(|input| input.raw.focused);
         self.emu_runner.update_gui_focused(gui_focused);
 
-        let prev_config = self.config.clone();
-
         self.check_emulator_error(ui);
         self.check_input_collection(ui);
         self.check_for_close_on_emu_exit(ui);
@@ -1373,8 +1375,8 @@ impl App {
 
         self.update_window_size_in_config(ui);
 
-        if prev_config != self.config {
-            if should_reload_config(&prev_config, &self.config) {
+        if self.config != self.last_saved_config {
+            if should_reload_config(&self.config, &self.last_saved_config) {
                 self.reload_config();
             }
 
@@ -1384,6 +1386,8 @@ impl App {
             }
 
             nes::update_palette_textures(ui, &self.state.nes_palette, &self.config.nes.palette);
+
+            self.last_saved_config = self.config.clone();
         }
 
         self.check_recent_opens_for_cjk(ui);
