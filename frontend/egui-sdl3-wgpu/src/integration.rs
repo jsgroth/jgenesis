@@ -177,13 +177,26 @@ impl Frame {
 
         let surface_capabilities = surface.get_capabilities(&adapter);
 
-        // egui prefers non-sRGB-aware surface formats
-        let surface_format = surface_capabilities
+        // Exclude formats with non-empty required features because some platforms claim to support
+        // RGBA16 surface formats when they actually do not
+        let supported_formats: Vec<_> = surface_capabilities
             .formats
             .iter()
             .copied()
+            .filter(|&format| format.required_features().is_empty())
+            .collect();
+
+        // egui prefers non-sRGB-aware surface formats
+        let surface_format = supported_formats
+            .iter()
+            .copied()
             .find(|&format| !format.is_srgb())
+            .or(supported_formats.first().copied())
             .unwrap_or(surface_capabilities.formats[0]);
+
+        log::info!(
+            "Creating frame for window '{window_title}' with surface format {surface_format:?}"
+        );
 
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
