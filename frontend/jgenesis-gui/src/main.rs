@@ -1,4 +1,4 @@
-use clap::{CommandFactory, Parser};
+use clap::Parser;
 use egui_sdl3_wgpu::{FrameOptions, FrameRunEffect};
 use env_logger::Env;
 use image::{DynamicImage, ImageFormat};
@@ -89,42 +89,28 @@ impl Args {
     }
 
     fn validate_or_exit(&self) {
+        fn exit_with_message(message: &str) -> ! {
+            <Args as clap::Args>::augment_args(clap::Command::new(env!("CARGO_BIN_NAME")))
+                .error(clap::error::ErrorKind::ValueValidation, message)
+                .exit()
+        }
+
         let file_path_present = !self.startup_file_paths.is_empty();
 
         if self.console.is_some() && !file_path_present {
-            Self::command()
-                .error(
-                    clap::error::ErrorKind::ValueValidation,
-                    "--hardware can only be used with the -f / --file-path arg",
-                )
-                .exit();
+            exit_with_message("--hardware can only be used with the -f / --file-path arg");
         }
 
         if self.load_save_state.is_some() && !file_path_present {
-            Self::command()
-                .error(
-                    clap::error::ErrorKind::ValueValidation,
-                    "--load-save-state can only be used with the -f / --file-path arg",
-                )
-                .exit();
+            exit_with_message("--load-save-state can only be used with the -f / --file-path arg");
         }
 
         if self.no_gui && !file_path_present {
-            Self::command()
-                .error(
-                    clap::error::ErrorKind::ValueValidation,
-                    "--no-gui can only be used with the -f / --file-path arg",
-                )
-                .exit();
+            exit_with_message("--no-gui can only be used with the -f / --file-path arg");
         }
 
         if !self.config_overrides.is_empty() && !file_path_present {
-            Self::command()
-                .error(
-                    clap::error::ErrorKind::ValueValidation,
-                    "--config-override can only be used with the -f / --file-path arg",
-                )
-                .exit();
+            exit_with_message("--config-override can only be used with the -f / --file-path arg");
         }
     }
 }
