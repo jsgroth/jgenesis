@@ -63,13 +63,14 @@ struct Args {
 impl Args {
     fn fix_appimage_relative_paths(mut self) -> Self {
         if let Some(config_path) = self.config_path {
-            self.config_path = Some(jgenesis_common::fix_appimage_relative_path(config_path));
+            self.config_path =
+                Some(jgenesis_common::fix_appimage_relative_path(&config_path).into_owned());
         }
 
         self.startup_file_paths = self
             .startup_file_paths
             .into_iter()
-            .map(jgenesis_common::fix_appimage_relative_path)
+            .map(|path| jgenesis_common::fix_appimage_relative_path(&path).into_owned())
             .collect();
 
         self

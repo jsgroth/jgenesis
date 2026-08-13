@@ -1,7 +1,6 @@
-use crate::app::Console;
 use jgenesis_native_config::{RecentOpen, RomSearchDirectory};
 use jgenesis_native_driver::extensions;
-use jgenesis_native_driver::extensions::ConsoleWithSize;
+use jgenesis_native_driver::extensions::{Console, ConsoleWithSize};
 use regex::Regex;
 use std::collections::HashSet;
 use std::ffi::OsStr;
@@ -24,7 +23,8 @@ pub fn build(rom_search_dirs: &[RomSearchDirectory]) -> Vec<RomMetadata> {
     let mut searched = HashSet::new();
     let mut metadata = Vec::new();
     for rom_search_dir in rom_search_dirs {
-        search_dir(&rom_search_dir.path, rom_search_dir.recursive, &mut searched, &mut metadata);
+        let search_path = jgenesis_common::fix_appimage_relative_path(&rom_search_dir.path);
+        search_dir(&search_path, rom_search_dir.recursive, &mut searched, &mut metadata);
     }
 
     // Remove any files that are referenced in .cue files
@@ -57,7 +57,9 @@ fn search_dir(
     searched: &mut HashSet<PathBuf>,
     output: &mut Vec<RomMetadata>,
 ) {
-    if !searched.insert(path.into()) {
+    let Ok(canonical_path) = path.canonicalize() else { return };
+
+    if !searched.insert(canonical_path) {
         // Prevent potential infinite loops due to symlinks, or avoid double-searching a path if
         // it's contained within multiple search paths
         return;

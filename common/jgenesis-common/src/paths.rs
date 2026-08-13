@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::env;
 use std::path::{Path, PathBuf};
 
@@ -19,13 +20,13 @@ pub const fn is_appimage_build() -> bool {
 /// Returns the input path untouched if the input path is absolute or this is not an AppImage build.
 #[inline]
 #[must_use]
-pub fn fix_appimage_relative_path(path: PathBuf) -> PathBuf {
+pub fn fix_appimage_relative_path(path: &Path) -> Cow<'_, Path> {
     if !is_appimage_build() || path.is_absolute() {
-        return path;
+        return path.into();
     }
 
-    let Ok(owd) = env::var("OWD") else { return path };
-    let converted = Path::new(&owd).join(&path);
+    let Ok(owd) = env::var("OWD") else { return path.into() };
+    let converted = Path::new(&owd).join(path);
 
     log::info!(
         "Converted relative path '{}' to absolute path '{}'",
@@ -33,7 +34,7 @@ pub fn fix_appimage_relative_path(path: PathBuf) -> PathBuf {
         converted.display()
     );
 
-    converted
+    converted.into()
 }
 
 /// Directory containing the emulator executable
