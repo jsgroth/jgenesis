@@ -13,6 +13,7 @@ pub enum Xe1apTransferState {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Xe1apState {
     pub joypad: Xe1apJoypadState,
+    latched: Xe1apJoypadState,
     transfer_state: Xe1apTransferState,
     transfer_counter: u8,
     transfer_ack: bool,
@@ -42,6 +43,7 @@ impl Xe1apState {
     pub fn new(joypad: Xe1apJoypadState) -> Self {
         Self {
             joypad,
+            latched: joypad,
             transfer_state: Xe1apTransferState::Idle,
             transfer_counter: 0,
             transfer_ack: true,
@@ -54,6 +56,7 @@ impl Xe1apState {
         let th = pins.th();
         if self.last_th && !th {
             // TH 1->0 transition begins a new transfer
+            self.latched = self.joypad;
             self.transfer_state = Xe1apTransferState::Active;
             self.transfer_counter = 0;
             self.transfer_ack = true;
@@ -90,25 +93,25 @@ impl Xe1apState {
         match self.transfer_counter {
             0 => {
                 // E1, E2, Start, Select
-                pins.input_d3(!self.joypad.e1);
-                pins.input_d2(!self.joypad.e2);
-                pins.input_d1(!self.joypad.start);
-                pins.input_d0(!self.joypad.select);
+                pins.input_d3(!self.latched.e1);
+                pins.input_d2(!self.latched.e2);
+                pins.input_d1(!self.latched.start);
+                pins.input_d0(!self.latched.select);
             }
             1 => {
                 // A|A', B|B', C, D
-                pins.input_d3(!(self.joypad.a || self.joypad.ap));
-                pins.input_d2(!(self.joypad.b || self.joypad.bp));
-                pins.input_d1(!self.joypad.c);
-                pins.input_d0(!self.joypad.d);
+                pins.input_d3(!(self.latched.a || self.latched.ap));
+                pins.input_d2(!(self.latched.b || self.latched.bp));
+                pins.input_d1(!self.latched.c);
+                pins.input_d0(!self.latched.d);
             }
             2 => {
                 // Analog stick X, high nibble
-                pins.input_data_nibble(self.joypad.analog_x >> 4);
+                pins.input_data_nibble(self.latched.analog_x >> 4);
             }
             3 => {
                 // Analog stick Y, high nibble
-                pins.input_data_nibble(self.joypad.analog_y >> 4);
+                pins.input_data_nibble(self.latched.analog_y >> 4);
             }
             4 => {
                 // Always 0s
@@ -116,15 +119,15 @@ impl Xe1apState {
             }
             5 => {
                 // Analog slider, high nibble
-                pins.input_data_nibble(self.joypad.slider >> 4);
+                pins.input_data_nibble(self.latched.slider >> 4);
             }
             6 => {
                 // Analog stick X, low nibble
-                pins.input_data_nibble(self.joypad.analog_x & 0x0F);
+                pins.input_data_nibble(self.latched.analog_x & 0x0F);
             }
             7 => {
                 // Analog stick Y, low nibble
-                pins.input_data_nibble(self.joypad.analog_y & 0x0F);
+                pins.input_data_nibble(self.latched.analog_y & 0x0F);
             }
             8 => {
                 // Always 0s
@@ -132,7 +135,7 @@ impl Xe1apState {
             }
             9 => {
                 // Analog slider, low nibble
-                pins.input_data_nibble(self.joypad.slider & 0x0F);
+                pins.input_data_nibble(self.latched.slider & 0x0F);
             }
             10 => {
                 // Always 1s
@@ -140,10 +143,10 @@ impl Xe1apState {
             }
             11 => {
                 // A, B, A', B'
-                pins.input_d3(!self.joypad.a);
-                pins.input_d2(!self.joypad.b);
-                pins.input_d1(!self.joypad.ap);
-                pins.input_d0(!self.joypad.bp);
+                pins.input_d3(!self.latched.a);
+                pins.input_d2(!self.latched.b);
+                pins.input_d1(!self.latched.ap);
+                pins.input_d0(!self.latched.bp);
             }
             _ => panic!(
                 "XE-1AP transfer counter should always be <= 11, was {}",
