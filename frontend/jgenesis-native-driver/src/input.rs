@@ -98,7 +98,7 @@ pub enum GenericButton<Button> {
 pub enum InputEvent<Button> {
     Button { button: Button, player: Player, pressed: bool },
     AnalogValueChange { button: Button, player: Player, value: i16 },
-    MouseMotion { x: f32, y: f32, display_info: DisplayInfo },
+    MouseMotion { position: (f32, f32), delta: (f32, f32), display_info: DisplayInfo },
     MouseLeave,
     Hotkey { hotkey: Hotkey, pressed: bool },
 }
@@ -658,11 +658,13 @@ where
             {
                 self.state.handle_input(GenericInput::Mouse(mouse_btn), false);
             }
-            Event::MouseMotion { x, y, window_id, .. } if window_id == emulator_window_id => {
+            Event::MouseMotion { x, y, xrel, yrel, window_id, .. }
+                if window_id == emulator_window_id =>
+            {
                 if let Some(display_info) = display_info {
                     self.state.input_events.borrow_mut().push(InputEvent::MouseMotion {
-                        x,
-                        y,
+                        position: (x, y),
+                        delta: (xrel, yrel),
                         display_info,
                     });
                 }

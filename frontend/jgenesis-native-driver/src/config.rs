@@ -51,6 +51,7 @@ pub struct CommonConfig {
     pub load_recent_state_at_launch: bool,
     pub launch_in_fullscreen: bool,
     pub initial_window_size: NonZeroU8,
+    pub mouse_sensitivity: f64,
     pub axis_deadzone: i16,
     #[cfg_display(indent_nested)]
     pub hotkey_config: HotkeyConfig,
@@ -305,6 +306,7 @@ impl AppConfigExt for AppConfig {
             load_recent_state_at_launch: self.common.load_recent_state_at_launch,
             launch_in_fullscreen: self.common.launch_in_fullscreen,
             initial_window_size: self.common.initial_window_size,
+            mouse_sensitivity: self.input.mouse_sensitivity,
             axis_deadzone: self.input.axis_deadzone,
             hotkey_config: self.input.hotkeys.clone(),
             pause_emulator: self.common.pause_emulator,

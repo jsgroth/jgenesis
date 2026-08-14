@@ -329,8 +329,22 @@ impl App {
         let mut open = true;
         Window::new(OpenWindow::GeneralInput.title()).open(&mut open).show(ctx, |ui| {
             ui.horizontal(|ui| {
+                ui.label("Emulated mouse sensitivity:");
+                ui.add(Slider::new(&mut self.config.input.mouse_sensitivity, 0.0..=10.0));
+
+                if ui.button("Default").clicked() {
+                    self.config.input.mouse_sensitivity =
+                        InputAppConfig::default().mouse_sensitivity;
+                }
+            });
+
+            ui.horizontal(|ui| {
                 ui.label("Gamepad joystick axis deadzone:");
                 ui.add(Slider::new(&mut self.config.input.axis_deadzone, 0..=i16::MAX));
+
+                if ui.button("Default").clicked() {
+                    self.config.input.axis_deadzone = InputAppConfig::default().axis_deadzone;
+                }
             });
         });
         if !open {
@@ -448,6 +462,10 @@ impl App {
             LazyLock::new(|| genesis_buttons(Player::One, GenesisButton::is_gamepad));
         static P2_GAMEPAD: LazyLock<Vec<GenericButton>> =
             LazyLock::new(|| genesis_buttons(Player::Two, GenesisButton::is_gamepad));
+        static P1_MOUSE: LazyLock<Vec<GenericButton>> =
+            LazyLock::new(|| genesis_buttons(Player::One, GenesisButton::is_mouse));
+        static P2_MOUSE: LazyLock<Vec<GenericButton>> =
+            LazyLock::new(|| genesis_buttons(Player::Two, GenesisButton::is_mouse));
         static P1_XE1AP: LazyLock<Vec<GenericButton>> =
             LazyLock::new(|| genesis_buttons(Player::One, GenesisButton::is_xe1ap));
         static P2_XE1AP: LazyLock<Vec<GenericButton>> =
@@ -470,6 +488,7 @@ impl App {
                                 for (value, label) in [
                                     (GenesisControllerType::ThreeButton, "3-button"),
                                     (GenesisControllerType::SixButton, "6-button"),
+                                    (GenesisControllerType::MegaMouse, "Mega Mouse"),
                                     (GenesisControllerType::Xe1ap, "XE-1 AP"),
                                     (GenesisControllerType::None, "None"),
                                 ] {
@@ -499,12 +518,18 @@ impl App {
 
             Grid::new("genesis_inputs").spacing([50.0, 5.0]).show(ui, |ui| {
                 let (p1_heading, p1_buttons) = match p1_type {
+                    GenesisControllerType::ThreeButton
+                    | GenesisControllerType::SixButton
+                    | GenesisControllerType::None => ("Player 1 - Gamepad", &P1_GAMEPAD),
+                    GenesisControllerType::MegaMouse => ("Player 1 - Mega Mouse", &P1_MOUSE),
                     GenesisControllerType::Xe1ap => ("Player 1 - XE-1 AP", &P1_XE1AP),
-                    _ => ("Player 1 - Gamepad", &P1_GAMEPAD),
                 };
                 let (p2_heading, p2_buttons) = match p2_type {
+                    GenesisControllerType::ThreeButton
+                    | GenesisControllerType::SixButton
+                    | GenesisControllerType::None => ("Player 2 - Gamepad", &P2_GAMEPAD),
+                    GenesisControllerType::MegaMouse => ("Player 2 - Mega Mouse", &P2_MOUSE),
                     GenesisControllerType::Xe1ap => ("Player 2 - XE-1 AP", &P2_XE1AP),
-                    _ => ("Player 2 - Gamepad", &P2_GAMEPAD),
                 };
 
                 ui.heading(p1_heading);
@@ -1413,7 +1438,9 @@ impl HotkeyExt for Hotkey {
 
         match self {
             PowerOff | Exit | ToggleFullscreen | SoftReset | HardReset | Pause | StepFrame
-            | FastForward | Rewind | ToggleOverclocking | OpenDebugger => HotkeyCategory::General,
+            | FastForward | Rewind | CancelMouseInput | ToggleOverclocking | OpenDebugger => {
+                HotkeyCategory::General
+            }
             SaveState | LoadState | NextSaveStateSlot | PrevSaveStateSlot | SaveStateSlot0
             | SaveStateSlot1 | SaveStateSlot2 | SaveStateSlot3 | SaveStateSlot4
             | SaveStateSlot5 | SaveStateSlot6 | SaveStateSlot7 | SaveStateSlot8

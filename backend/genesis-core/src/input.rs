@@ -1,9 +1,11 @@
 //! Code for handling Genesis controller input I/O registers
 
 mod gamepad;
+mod mouse;
 mod xe1ap;
 
 use crate::input::gamepad::{SixButtonState, ThreeButtonState};
+use crate::input::mouse::MegaMouseState;
 use crate::input::xe1ap::Xe1apState;
 use bincode::{Decode, Encode};
 use genesis_config::{GenesisController, GenesisEmulatorConfig, GenesisInputs};
@@ -74,6 +76,14 @@ impl Pins {
         self.pins.bit(Self::TH)
     }
 
+    fn tr(self) -> bool {
+        self.pins.bit(Self::TR)
+    }
+
+    fn tl(self) -> bool {
+        self.pins.bit(Self::TL)
+    }
+
     impl_set_input_pin!(input_th, TH);
     impl_set_input_pin!(input_tr, TR);
     impl_set_input_pin!(input_tl, TL);
@@ -117,6 +127,7 @@ fn update_pins_no_controller(pins: &mut Pins) {
 enum ControllerState {
     ThreeButton(ThreeButtonState),
     SixButton(SixButtonState),
+    MegaMouse(MegaMouseState),
     Xe1ap(Xe1apState),
     None,
 }
@@ -130,6 +141,7 @@ impl ControllerState {
                 Self::ThreeButton(ThreeButtonState::new(joypad))
             }
             GenesisController::SixButton(joypad) => Self::SixButton(SixButtonState::new(joypad)),
+            GenesisController::MegaMouse(joypad) => Self::MegaMouse(MegaMouseState::new(joypad)),
             GenesisController::Xe1ap(joypad) => Self::Xe1ap(Xe1apState::new(joypad)),
             GenesisController::None => Self::None,
         }
@@ -141,6 +153,9 @@ impl ControllerState {
                 state.joypad = joypad;
             }
             (Self::SixButton(state), GenesisController::SixButton(joypad)) => {
+                state.joypad = joypad;
+            }
+            (Self::MegaMouse(state), GenesisController::MegaMouse(joypad)) => {
                 state.joypad = joypad;
             }
             (Self::Xe1ap(state), GenesisController::Xe1ap(joypad)) => {
@@ -158,6 +173,7 @@ impl ControllerState {
         match self {
             Self::ThreeButton(state) => state.update_pins(pins),
             Self::SixButton(state) => state.update_pins(pins),
+            Self::MegaMouse(state) => state.update_pins(pins),
             Self::Xe1ap(state) => state.update_pins(pins),
             Self::None => update_pins_no_controller(pins),
         }
@@ -166,6 +182,7 @@ impl ControllerState {
     fn tick(&mut self, m68k_cycles: u32, pins: &mut Pins) {
         match self {
             Self::SixButton(state) => state.tick(m68k_cycles, pins),
+            Self::MegaMouse(state) => state.tick(m68k_cycles, pins),
             Self::Xe1ap(state) => state.tick(m68k_cycles, pins),
             Self::ThreeButton(_) | Self::None => {}
         }
@@ -195,7 +212,7 @@ impl GenesisControllerExt for GenesisController {
             Self::ThreeButton(joypad) | Self::SixButton(joypad) => {
                 *joypad = joypad.with_allow_opposing_directions(allow_opposing_directions);
             }
-            Self::Xe1ap(_) | Self::None => {}
+            Self::MegaMouse(_) | Self::Xe1ap(_) | Self::None => {}
         }
 
         self
@@ -303,13 +320,13 @@ impl InputState {
 
     #[must_use]
     pub fn read_p1_data(&self) -> u8 {
-        log::debug!("P1 DATA read");
+        log::debug!("P1 DATA read: {:02X}", self.p1_pins.pins);
         self.p1_pins.pins
     }
 
     #[must_use]
     pub fn read_p2_data(&self) -> u8 {
-        log::debug!("P2 DATA read");
+        log::debug!("P2 DATA read: {:02X}", self.p2_pins.pins);
         self.p2_pins.pins
     }
 

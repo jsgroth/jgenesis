@@ -168,6 +168,7 @@ pub enum GenesisControllerType {
     ThreeButton,
     #[default]
     SixButton,
+    MegaMouse,
     Xe1ap,
     None,
 }
@@ -264,6 +265,10 @@ define_controller_inputs! {
         Mode -> mode "Mode",
     },
     non_gamepad_buttons: [
+        MegaMouseLeft "Left Button",
+        MegaMouseRight "Right Button",
+        MegaMouseMiddle "Middle Button",
+        MegaMouseStart "Start",
         Xe1apAnalogLeft "Stick - Left",
         Xe1apAnalogRight "Stick - Right",
         Xe1apAnalogUp "Stick - Up",
@@ -285,6 +290,7 @@ define_controller_inputs! {
 }
 
 impl GenesisButton {
+    #[inline]
     #[must_use]
     pub fn is_gamepad(self) -> bool {
         matches!(
@@ -304,6 +310,19 @@ impl GenesisButton {
         )
     }
 
+    #[inline]
+    #[must_use]
+    pub fn is_mouse(self) -> bool {
+        matches!(
+            self,
+            Self::MegaMouseLeft
+                | Self::MegaMouseRight
+                | Self::MegaMouseMiddle
+                | Self::MegaMouseStart
+        )
+    }
+
+    #[inline]
     #[must_use]
     pub fn is_xe1ap(self) -> bool {
         matches!(
@@ -325,6 +344,28 @@ impl GenesisButton {
                 | Self::Xe1apStart
                 | Self::Xe1apSelect
         )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+pub struct MegaMouseJoypadState {
+    pub x: i16,
+    pub y: i16,
+    pub left: bool,
+    pub right: bool,
+    pub middle: bool,
+    pub start: bool,
+}
+
+impl MegaMouseJoypadState {
+    pub fn set_button(&mut self, button: GenesisButton, pressed: bool) {
+        match button {
+            GenesisButton::MegaMouseLeft => self.left = pressed,
+            GenesisButton::MegaMouseRight => self.right = pressed,
+            GenesisButton::MegaMouseMiddle => self.middle = pressed,
+            GenesisButton::MegaMouseStart => self.start = pressed,
+            _ => {}
+        }
     }
 }
 
@@ -472,6 +513,7 @@ fn xe1ap_digital_to_analog(negative: bool, positive: bool) -> u8 {
 pub enum GenesisController {
     ThreeButton(GenesisJoypadState),
     SixButton(GenesisJoypadState),
+    MegaMouse(MegaMouseJoypadState),
     Xe1ap(Xe1apJoypadState),
     None,
 }
@@ -482,6 +524,7 @@ impl GenesisController {
         match controller_type {
             GenesisControllerType::ThreeButton => Self::ThreeButton(GenesisJoypadState::default()),
             GenesisControllerType::SixButton => Self::SixButton(GenesisJoypadState::default()),
+            GenesisControllerType::MegaMouse => Self::MegaMouse(MegaMouseJoypadState::default()),
             GenesisControllerType::Xe1ap => Self::Xe1ap(Xe1apJoypadState::default()),
             GenesisControllerType::None => Self::None,
         }
@@ -490,6 +533,7 @@ impl GenesisController {
     pub fn set_field(&mut self, button: GenesisButton, pressed: bool) {
         match self {
             Self::ThreeButton(state) | Self::SixButton(state) => state.set_button(button, pressed),
+            Self::MegaMouse(state) => state.set_button(button, pressed),
             Self::Xe1ap(state) => state.set_button(button, pressed),
             Self::None => {}
         }
@@ -506,6 +550,7 @@ impl GenesisController {
         match self {
             Self::ThreeButton(_) => GenesisControllerType::ThreeButton,
             Self::SixButton(_) => GenesisControllerType::SixButton,
+            Self::MegaMouse(_) => GenesisControllerType::MegaMouse,
             Self::Xe1ap(_) => GenesisControllerType::Xe1ap,
             Self::None => GenesisControllerType::None,
         }
@@ -531,6 +576,7 @@ impl Default for GenesisInputs {
 }
 
 impl MappableInputs<GenesisButton> for GenesisInputs {
+    #[inline]
     fn set_field(&mut self, button: GenesisButton, player: Player, pressed: bool) {
         match player {
             Player::One => self.p1.set_field(button, pressed),
@@ -539,12 +585,38 @@ impl MappableInputs<GenesisButton> for GenesisInputs {
         }
     }
 
+    #[inline]
     fn set_analog(&mut self, button: GenesisButton, player: Player, value: i16) {
         match player {
             Player::One => self.p1.set_analog(button, value),
             Player::Two => self.p2.set_analog(button, value),
             _ => {}
         }
+    }
+
+    #[inline]
+    fn update_mouse_velocity(&mut self, velocity: (f64, f64)) {
+        // Mouse axis values are signed 9-bit
+        const I9_MIN: i16 = -(1 << 8);
+        const I9_MAX: i16 = (1 << 8) - 1;
+
+        fn f64_to_i9(value: f64) -> i16 {
+            (value * -f64::from(I9_MIN)).round().clamp(I9_MIN.into(), I9_MAX.into()) as i16
+        }
+
+        for controller in [&mut self.p1, &mut self.p2] {
+            if let GenesisController::MegaMouse(state) = controller {
+                state.x = f64_to_i9(velocity.0);
+                state.y = f64_to_i9(-velocity.1); // Y axis is inverted compared to a PC mouse
+            }
+        }
+    }
+
+    #[inline]
+    fn needs_relative_mouse_mode(&self) -> bool {
+        [&self.p1, &self.p2]
+            .into_iter()
+            .any(|controller| matches!(controller, GenesisController::MegaMouse(_)))
     }
 }
 

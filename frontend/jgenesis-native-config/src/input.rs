@@ -252,6 +252,7 @@ pub enum Hotkey {
     StepFrame,
     FastForward,
     Rewind,
+    CancelMouseInput,
     ToggleOverclocking,
     OpenDebugger,
     SaveState,
@@ -297,6 +298,7 @@ pub enum CompactHotkey {
     StepFrame,
     FastForward,
     Rewind,
+    CancelMouseInput,
     ToggleOverclocking,
     OpenDebugger,
 }
@@ -319,6 +321,7 @@ impl Hotkey {
             Self::StepFrame => CompactHotkey::StepFrame,
             Self::FastForward => CompactHotkey::FastForward,
             Self::Rewind => CompactHotkey::Rewind,
+            Self::CancelMouseInput => CompactHotkey::CancelMouseInput,
             Self::ToggleOverclocking => CompactHotkey::ToggleOverclocking,
             Self::OpenDebugger => CompactHotkey::OpenDebugger,
             Self::SaveStateSlot0 => CompactHotkey::SaveStateSlot(0),
@@ -346,7 +349,7 @@ impl Hotkey {
 }
 
 #[deserialize_default_on_error]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct InputAppConfig {
     pub smsgg: SmsGgInputConfig,
@@ -357,6 +360,7 @@ pub struct InputAppConfig {
     pub game_boy_advance: GbaInputConfig,
     pub pc_engine: PceInputConfig,
     pub hotkeys: HotkeyConfig,
+    pub mouse_sensitivity: f64,
     pub axis_deadzone: i16,
 }
 
@@ -373,6 +377,7 @@ impl Default for InputAppConfig {
             game_boy_advance: GbaInputConfig::default(),
             pc_engine: PceInputConfig::default(),
             hotkeys: HotkeyConfig::default(),
+            mouse_sensitivity: 1.0,
             axis_deadzone: DEFAULT_AXIS_DEADZONE,
         }
     }

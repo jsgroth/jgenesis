@@ -305,7 +305,17 @@ pub trait MappableInputs<Button> {
     #[allow(unused_variables)]
     fn handle_mouse_motion(&mut self, x: f32, y: f32, display_info: DisplayInfo) {}
 
+    // Values are in arbitrary units, clamped to [-1, +1]
+    #[allow(unused_variables)]
+    fn update_mouse_velocity(&mut self, velocity: (f64, f64)) {}
+
     fn handle_mouse_leave(&mut self) {}
+
+    // Should return true when emulating a peripheral that needs relative mouse mode, e.g. an
+    // emulated mouse
+    fn needs_relative_mouse_mode(&self) -> bool {
+        false
+    }
 
     #[allow(unused_variables)]
     fn modal_for_input(&self, button: Button, player: Player, pressed: bool) -> Option<Modal> {

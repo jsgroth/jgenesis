@@ -296,6 +296,10 @@ define_controller_mapping!(GenesisControllerMapping, GenesisButton, [
     z: Z,
     start: Start,
     mode: Mode,
+    mega_mouse_left: MegaMouseLeft,
+    mega_mouse_right: MegaMouseRight,
+    mega_mouse_middle: MegaMouseMiddle,
+    mega_mouse_start: MegaMouseStart,
     xe1ap_analog_left: Xe1apAnalogLeft,
     xe1ap_analog_right: Xe1apAnalogRight,
     xe1ap_analog_up: Xe1apAnalogUp,
@@ -330,6 +334,10 @@ impl GenesisControllerMapping {
             z: key_input!(E),
             start: key_input!(Return),
             mode: key_input!(RShift),
+            mega_mouse_left: Some(vec![GenericInput::Mouse(MouseButton::Left)]),
+            mega_mouse_right: Some(vec![GenericInput::Mouse(MouseButton::Right)]),
+            mega_mouse_middle: Some(vec![GenericInput::Mouse(MouseButton::Middle)]),
+            mega_mouse_start: key_input!(Return),
             xe1ap_analog_left: None,
             xe1ap_analog_right: None,
             xe1ap_analog_up: None,
@@ -364,6 +372,10 @@ impl GenesisControllerMapping {
             z: key_input!(O),
             start: key_input!(Return),
             mode: key_input!(RShift),
+            mega_mouse_left: Some(vec![GenericInput::Mouse(MouseButton::Left)]),
+            mega_mouse_right: Some(vec![GenericInput::Mouse(MouseButton::Right)]),
+            mega_mouse_middle: Some(vec![GenericInput::Mouse(MouseButton::Middle)]),
+            mega_mouse_start: key_input!(Return),
             xe1ap_analog_left: None,
             xe1ap_analog_right: None,
             xe1ap_analog_up: None,
@@ -388,13 +400,20 @@ impl GenesisControllerMapping {
             GenesisButton::ALL.into_iter().filter(|&button| button.is_gamepad()).collect()
         });
 
+        static MOUSE_BUTTONS: LazyLock<Vec<GenesisButton>> = LazyLock::new(|| {
+            GenesisButton::ALL.into_iter().filter(|&button| button.is_mouse()).collect()
+        });
+
         static XE1AP_BUTTONS: LazyLock<Vec<GenesisButton>> = LazyLock::new(|| {
             GenesisButton::ALL.into_iter().filter(|&button| button.is_xe1ap()).collect()
         });
 
         match controller_type {
+            GenesisControllerType::MegaMouse => self.clone_from(other, &MOUSE_BUTTONS),
             GenesisControllerType::Xe1ap => self.clone_from(other, &XE1AP_BUTTONS),
-            _ => self.clone_from(other, &GAMEPAD_BUTTONS),
+            GenesisControllerType::ThreeButton
+            | GenesisControllerType::SixButton
+            | GenesisControllerType::None => self.clone_from(other, &GAMEPAD_BUTTONS),
         }
     }
 }
@@ -1154,6 +1173,7 @@ define_hotkey_mapping!(
     step_frame: StepFrame "Step to next frame" default N,
     fast_forward: FastForward "Fast forward" default Tab,
     rewind: Rewind "Rewind" default Grave,
+    cancel_mouse_input: CancelMouseInput "Cancel mouse input" default O,
     toggle_overclocking: ToggleOverclocking "Toggle overclocking enabled" default Semicolon,
     open_debugger: OpenDebugger "Open memory viewer" default Apostrophe,
     save_state_slot_0: SaveStateSlot0 "Save state to slot 0" default none,

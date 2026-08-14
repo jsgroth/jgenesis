@@ -4,6 +4,7 @@ mod gb;
 mod gba;
 mod genesis;
 mod input;
+mod mouse;
 mod nes;
 mod pce;
 mod render;
@@ -190,6 +191,7 @@ pub struct NativeEmulator<Emulator: EmulatorTrait> {
     audio_output_handle: SdlAudioOutputHandle,
     input_mapper: InputMapper<Emulator::Button>,
     inputs: Emulator::Inputs,
+    mouse_velocity: MouseVelocityTracker,
     hotkey_state: HotkeyState<Emulator>,
     window_state: WindowState,
     fps_tracker: FpsTracker,
@@ -205,6 +207,8 @@ impl<Emulator: EmulatorTrait> NativeEmulator<Emulator> {
         self.renderer.reload_config(config.renderer_config);
 
         self.audio_output_handle.reload_config(config)?;
+
+        self.mouse_velocity.set_mouse_sensitivity(config.mouse_sensitivity);
 
         self.hotkey_state.hide_mouse_cursor = config.hide_mouse_cursor;
 
@@ -519,6 +523,7 @@ where
             audio_output_handle,
             input_mapper,
             inputs: initial_inputs,
+            mouse_velocity: MouseVelocityTracker::new(common_config.mouse_sensitivity),
             hotkey_state,
             window_state: WindowState::new(),
             fps_tracker: FpsTracker::new(),
@@ -583,6 +588,24 @@ where
                 Event::Window { win_event, window_id, .. } => {
                     if let Some(effect) = self.handle_window_event(&win_event, window_id)? {
                         return Ok(Some(effect));
+                    }
+                }
+                Event::MouseButtonDown { window_id, .. }
+                    if window_id == self.renderer.window_id()
+                        && self.inputs.needs_relative_mouse_mode()
+                        && !self.hotkey_state.paused =>
+                {
+                    let mouse_util = self.mouse_util.borrow();
+                    let window = self.renderer.window();
+
+                    if !mouse_util.relative_mouse_mode(window) {
+                        mouse_util.set_relative_mouse_mode(window, true);
+
+                        self.renderer.add_or_update_modal(
+                            Some("relative_mouse".into()),
+                            "Mouse input enabled".into(),
+                            MODAL_DURATION,
+                        );
                     }
                 }
                 Event::MouseMotion { window_id, .. } => {
@@ -715,8 +738,11 @@ where
                 InputEvent::AnalogValueChange { button, player, value } => {
                     self.inputs.set_analog(button, player, value);
                 }
-                InputEvent::MouseMotion { x, y, display_info } => {
+                InputEvent::MouseMotion { position: (x, y), delta, display_info } => {
                     self.inputs.handle_mouse_motion(x, y, display_info);
+                    self.mouse_velocity.record_motion(delta);
+
+                    self.inputs.update_mouse_velocity(self.mouse_velocity.current());
                 }
                 InputEvent::MouseLeave => {
                     self.inputs.handle_mouse_leave();
@@ -735,6 +761,10 @@ where
                 }
             }
         }
+
+        // Need to periodically update velocity because SDL only generates mouse events when the
+        // mouse is actively moving
+        self.inputs.update_mouse_velocity(self.mouse_velocity.current());
 
         self.runner.update_inputs(&self.inputs);
 
@@ -935,12 +965,18 @@ where
             CompactHotkey::PrevSaveStateSlot => self.prev_save_state_slot(),
             CompactHotkey::Pause => {
                 self.hotkey_state.paused = !self.hotkey_state.paused;
+                if self.hotkey_state.paused {
+                    self.mouse_util.borrow().set_relative_mouse_mode(self.renderer.window(), false);
+                }
             }
             CompactHotkey::StepFrame => {
                 self.runner.send_command(RunnerCommand::StepFrame)?;
             }
             CompactHotkey::FastForward => self.set_fast_forwarding(true)?,
             CompactHotkey::Rewind => self.set_rewinding(true)?,
+            CompactHotkey::CancelMouseInput => {
+                self.mouse_util.borrow().set_relative_mouse_mode(self.renderer.window(), false);
+            }
             CompactHotkey::ToggleOverclocking => self.toggle_overclocking()?,
             CompactHotkey::OpenDebugger => self.open_memory_viewer()?,
         }
@@ -1125,5 +1161,6 @@ macro_rules! bincode_config {
 }
 
 use crate::mainloop::create::WindowTitle;
+use crate::mainloop::mouse::MouseVelocityTracker;
 use bincode_config;
 use egui_sdl3_wgpu::FrameRunEffect;

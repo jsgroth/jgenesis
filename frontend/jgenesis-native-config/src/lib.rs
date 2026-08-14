@@ -366,7 +366,7 @@ impl AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            config_version: Some(migration::current_config_version().into()),
+            config_version: None,
             common: CommonAppConfig::default(),
             smsgg: SmsGgAppConfig::default(),
             genesis: GenesisAppConfig::default(),

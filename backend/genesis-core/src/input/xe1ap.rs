@@ -82,8 +82,8 @@ impl Xe1apState {
         log::debug!(
             "XE-1AP pins update: data={:04b}, TL={}, TR={}, counter={}",
             pins.pins & 0x0F,
-            u8::from(pins.pins.bit(Pins::TL)),
-            u8::from(pins.pins.bit(Pins::TR)),
+            u8::from(pins.tl()),
+            u8::from(pins.tr()),
             self.transfer_counter
         );
     }
