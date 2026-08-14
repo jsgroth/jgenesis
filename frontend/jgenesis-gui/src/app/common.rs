@@ -2,7 +2,7 @@ mod helptext;
 
 use crate::app::widgets::{NumericTextEdit, SavePathSelect};
 use crate::app::{App, OpenWindow, widgets};
-use egui::{Color32, Context, Grid, Slider, Ui, Window};
+use egui::{Color32, Context, Grid, Slider, TextEdit, Ui, Window};
 use jgenesis_native_config::EguiTheme;
 use jgenesis_native_config::common::{CheatPath, HideMouseCursor, PauseEmulator};
 use jgenesis_native_config::paths::{ConfigDirType, ConfigWithPath};
@@ -10,6 +10,7 @@ use jgenesis_renderer::config::{
     AntiDitherShader, FilterMode, FrameRotation, NtscShaderConfig, PreprocessShader,
     PrescaleFactor, VSyncMode, WgpuBackend, WgpuPowerPreference,
 };
+use rfd::FileDialog;
 use std::num::{NonZeroU8, NonZeroU32};
 
 impl App {
@@ -716,6 +717,7 @@ impl App {
 
                         Grid::new("rom_search_dirs").show(ui, |ui| {
                             ui.heading("Path");
+                            ui.heading("");
                             ui.heading("Recursive");
                             ui.heading("");
                             ui.end_row();
@@ -723,9 +725,36 @@ impl App {
                             for (i, rom_search_dir) in
                                 self.config.rom_search_dirs.iter_mut().enumerate()
                             {
-                                ui.label(rom_search_dir.path.to_string_lossy());
+                                match rom_search_dir.path.to_str() {
+                                    Some(path_str) => {
+                                        let mut path_str = path_str.to_string();
+                                        if ui
+                                            .add(
+                                                TextEdit::singleline(&mut path_str)
+                                                    .clip_text(false),
+                                            )
+                                            .changed()
+                                        {
+                                            rom_search_dir.path = path_str.into();
+                                            changed = true;
+                                        }
+                                    }
+                                    None => {
+                                        ui.label(rom_search_dir.path.display().to_string());
+                                    }
+                                }
 
-                                changed |= ui.checkbox(&mut rom_search_dir.recursive, "").changed();
+                                if ui.button("Browse...").clicked()
+                                    && let Some(path) = FileDialog::new().pick_folder()
+                                {
+                                    rom_search_dir.path = path;
+                                    changed = true;
+                                }
+
+                                ui.centered_and_justified(|ui| {
+                                    changed |=
+                                        ui.checkbox(&mut rom_search_dir.recursive, "").changed();
+                                });
 
                                 if ui.button("Remove").clicked() {
                                     to_remove = Some(i);
