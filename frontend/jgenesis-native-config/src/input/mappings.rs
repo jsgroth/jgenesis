@@ -617,6 +617,10 @@ define_controller_mapping!(SnesControllerMapping, SnesButton, [
     r: R,
     start: Start,
     select: Select,
+    super_scope_fire: SuperScopeFire,
+    super_scope_cursor: SuperScopeCursor,
+    super_scope_pause: SuperScopePause,
+    super_scope_turbo_toggle: SuperScopeTurboToggle,
 ]);
 
 impl SnesControllerMapping {
@@ -635,6 +639,10 @@ impl SnesControllerMapping {
             r: key_input!(C),
             start: key_input!(Return),
             select: key_input!(RShift),
+            super_scope_fire: Some(vec![GenericInput::Mouse(MouseButton::Left)]),
+            super_scope_cursor: Some(vec![GenericInput::Mouse(MouseButton::Right)]),
+            super_scope_pause: Some(vec![GenericInput::Mouse(MouseButton::Middle)]),
+            super_scope_turbo_toggle: key_input!(T),
         }
     }
 
@@ -653,25 +661,32 @@ impl SnesControllerMapping {
             r: key_input!(O),
             start: key_input!(Return),
             select: key_input!(RShift),
+            super_scope_fire: Some(vec![GenericInput::Mouse(MouseButton::Left)]),
+            super_scope_cursor: Some(vec![GenericInput::Mouse(MouseButton::Right)]),
+            super_scope_pause: Some(vec![GenericInput::Mouse(MouseButton::Middle)]),
+            super_scope_turbo_toggle: key_input!(T),
         }
     }
-}
 
-define_controller_mapping!(SnesSuperScopeMapping, SnesButton, [
-    fire: SuperScopeFire,
-    cursor: SuperScopeCursor,
-    pause: SuperScopePause,
-    turbo_toggle: SuperScopeTurboToggle,
-]);
-
-impl SnesSuperScopeMapping {
     #[must_use]
-    pub fn mouse() -> Self {
+    pub fn super_scope_only() -> Self {
         Self {
-            fire: Some(vec![GenericInput::Mouse(MouseButton::Left)]),
-            cursor: Some(vec![GenericInput::Mouse(MouseButton::Right)]),
-            pause: Some(vec![GenericInput::Mouse(MouseButton::Middle)]),
-            turbo_toggle: key_input!(T),
+            up: None,
+            left: None,
+            right: None,
+            down: None,
+            a: None,
+            b: None,
+            x: None,
+            y: None,
+            l: None,
+            r: None,
+            start: None,
+            select: None,
+            super_scope_fire: Some(vec![GenericInput::Mouse(MouseButton::Left)]),
+            super_scope_cursor: Some(vec![GenericInput::Mouse(MouseButton::Right)]),
+            super_scope_pause: Some(vec![GenericInput::Mouse(MouseButton::Middle)]),
+            super_scope_turbo_toggle: key_input!(T),
         }
     }
 }
@@ -687,8 +702,6 @@ pub struct SnesInputMapping {
     pub p1_turbo: SnesControllerMapping,
     #[cfg_display(indent_nested)]
     pub p2_turbo: SnesControllerMapping,
-    #[cfg_display(indent_nested)]
-    pub super_scope: SnesSuperScopeMapping,
 }
 
 impl SnesInputMapping {
@@ -697,7 +710,6 @@ impl SnesInputMapping {
     pub fn to_mapping_vec<'a>(&'a self, out: &mut ButtonMappingVec<'a, SnesButton>) {
         self.p1.to_mapping_vec(Player::One, out);
         self.p2.to_mapping_vec(Player::Two, out);
-        self.super_scope.to_mapping_vec(Player::One, out);
     }
 }
 
@@ -709,11 +721,13 @@ pub enum SnesControllerType {
     #[default]
     Gamepad,
     SuperScope,
+    None,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
 #[serde(default)]
 pub struct SnesInputConfig {
+    pub p1_type: SnesControllerType,
     pub p2_type: SnesControllerType,
     #[cfg_display(indent_nested)]
     pub mapping_1: SnesInputMapping,
@@ -730,17 +744,17 @@ impl SnesInputConfig {
 fn default_snes_mapping_1() -> SnesInputMapping {
     SnesInputMapping {
         p1: SnesControllerMapping::keyboard_arrows(),
-        p2: SnesControllerMapping::default(),
+        p2: SnesControllerMapping::super_scope_only(),
         p1_turbo: SnesControllerMapping::default(),
         p2_turbo: SnesControllerMapping::default(),
-        super_scope: SnesSuperScopeMapping::mouse(),
     }
 }
 
 impl Default for SnesInputConfig {
     fn default() -> Self {
         Self {
-            p2_type: SnesControllerType::default(),
+            p1_type: SnesControllerType::Gamepad,
+            p2_type: SnesControllerType::None,
             mapping_1: default_snes_mapping_1(),
             mapping_2: SnesInputMapping::default(),
         }

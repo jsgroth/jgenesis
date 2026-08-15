@@ -14,7 +14,6 @@ use jgenesis_native_config::input::mappings::{
     GenesisControllerMapping, GenesisInputMapping, HotkeyMapping, NesControllerMapping,
     NesControllerType, NesInputMapping, NesZapperMapping, SmsGgControllerMapping,
     SmsGgInputMapping, SnesControllerMapping, SnesControllerType, SnesInputMapping,
-    SnesSuperScopeMapping,
 };
 use jgenesis_native_config::input::mappings::{PceInputMapping, PceJoypadMapping};
 use jgenesis_native_config::input::{GenericInput, Hotkey};
@@ -271,14 +270,7 @@ fn access_snes_value(
     turbo: bool,
     config: &mut InputAppConfig,
 ) -> Option<&mut Option<Vec<GenericInput>>> {
-    let mut mapping_config = mapping.snes(config);
-
-    polonius!(|mapping_config| -> Option<&'polonius mut Option<Vec<GenericInput>>> {
-        if let Some(value) = mapping_config.super_scope.access_value(button) {
-            polonius_return!(Some(value));
-        }
-    });
-
+    let mapping_config = mapping.snes(config);
     let player_config = mapping_config.player_mapping(player, turbo)?;
     player_config.access_value(button)
 }
@@ -749,32 +741,55 @@ impl App {
     }
 
     pub(super) fn render_snes_input_settings(&mut self, ctx: &Context) {
-        static P1_BUTTONS: LazyLock<Vec<GenericButton>> = LazyLock::new(|| {
+        fn snes_buttons(player: Player, filter: fn(SnesButton) -> bool) -> Vec<GenericButton> {
             SnesButton::ALL
                 .into_iter()
-                .filter_map(|button| {
-                    button
-                        .to_super_scope()
-                        .is_none()
-                        .then_some(GenericButton::Snes(button, Player::One))
-                })
+                .filter_map(|button| filter(button).then_some(GenericButton::Snes(button, player)))
                 .collect()
-        });
-        static P2_BUTTONS: LazyLock<Vec<GenericButton>> = LazyLock::new(|| {
-            SnesButton::ALL
-                .into_iter()
-                .filter_map(|button| {
-                    button
-                        .to_super_scope()
-                        .is_none()
-                        .then_some(GenericButton::Snes(button, Player::Two))
-                })
-                .collect()
-        });
+        }
+
+        static P1_GAMEPAD_BUTTONS: LazyLock<Vec<GenericButton>> =
+            LazyLock::new(|| snes_buttons(Player::One, SnesButton::is_gamepad));
+        static P2_GAMEPAD_BUTTONS: LazyLock<Vec<GenericButton>> =
+            LazyLock::new(|| snes_buttons(Player::Two, SnesButton::is_gamepad));
+        static P1_SUPER_SCOPE_BUTTONS: LazyLock<Vec<GenericButton>> =
+            LazyLock::new(|| snes_buttons(Player::One, SnesButton::is_super_scope));
+        static P2_SUPER_SCOPE_BUTTONS: LazyLock<Vec<GenericButton>> =
+            LazyLock::new(|| snes_buttons(Player::Two, SnesButton::is_super_scope));
 
         let mut open = true;
         Window::new(OpenWindow::SnesInput.title()).open(&mut open).show(ctx, |ui| {
             self.disable_if_waiting_for_input(ui);
+
+            ui.horizontal(|ui| {
+                for (heading, field) in [
+                    ("Player 1 controller type", &mut self.config.input.snes.p1_type),
+                    ("Player 2 controller type", &mut self.config.input.snes.p2_type),
+                ] {
+                    ui.group(|ui| {
+                        ui.vertical(|ui| {
+                            ui.label(heading);
+
+                            ui.horizontal(|ui| {
+                                for (label, value) in [
+                                    ("Gamepad", SnesControllerType::Gamepad),
+                                    ("Super Scope", SnesControllerType::SuperScope),
+                                    ("None", SnesControllerType::None),
+                                ] {
+                                    ui.radio_value(field, value, label);
+                                }
+                            });
+                        });
+                    });
+                }
+            });
+
+            if self.config.input.snes.p1_type == SnesControllerType::SuperScope {
+                ui.colored_label(
+                    Color32::RED,
+                    "Super Scope only works properly in controller port 2",
+                );
+            }
 
             ui.checkbox(
                 &mut self.config.snes.allow_opposing_joypad_directions,
@@ -785,17 +800,34 @@ impl App {
             let mapping = self.render_mapping_set_selector(OpenWindow::SnesInput, ui);
             ui.separator();
 
+            let (p1_heading, p1_buttons) = match self.config.input.snes.p1_type {
+                SnesControllerType::Gamepad | SnesControllerType::None => {
+                    ("Player 1 - Gamepad", &P1_GAMEPAD_BUTTONS)
+                }
+                SnesControllerType::SuperScope => {
+                    ("Player 1 - Super Scope", &P1_SUPER_SCOPE_BUTTONS)
+                }
+            };
+            let (p2_heading, p2_buttons) = match self.config.input.snes.p2_type {
+                SnesControllerType::Gamepad | SnesControllerType::None => {
+                    ("Player 2 - Gamepad", &P2_GAMEPAD_BUTTONS)
+                }
+                SnesControllerType::SuperScope => {
+                    ("Player 2 - Super Scope", &P2_SUPER_SCOPE_BUTTONS)
+                }
+            };
+
             Grid::new("snes_inputs").spacing([50.0, 5.0]).show(ui, |ui| {
-                ui.heading("Player 1");
-                ui.heading("Player 2");
+                ui.heading(p1_heading);
+                ui.heading(p2_heading);
                 ui.end_row();
 
-                self.render_input_buttons("snes_p1_inputs", mapping, &P1_BUTTONS, ui);
-                self.render_input_buttons("snes_p2_inputs", mapping, &P2_BUTTONS, ui);
+                self.render_input_buttons("snes_p1_inputs", mapping, p1_buttons, ui);
+                self.render_input_buttons("snes_p2_inputs", mapping, p2_buttons, ui);
                 ui.end_row();
 
-                self.render_configure_all_button(&P1_BUTTONS, mapping, ui);
-                self.render_configure_all_button(&P2_BUTTONS, mapping, ui);
+                self.render_configure_all_button(p1_buttons, mapping, ui);
+                self.render_configure_all_button(p2_buttons, mapping, ui);
                 ui.end_row();
             });
 
@@ -831,65 +863,6 @@ impl App {
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::SnesInput);
-        }
-    }
-
-    pub(super) fn render_snes_peripheral_settings(&mut self, ctx: &Context) {
-        static SUPER_SCOPE_BUTTONS: LazyLock<Vec<GenericButton>> = LazyLock::new(|| {
-            SnesButton::ALL
-                .into_iter()
-                .filter_map(|button| {
-                    button.to_super_scope().map(|_| GenericButton::Snes(button, Player::One))
-                })
-                .collect()
-        });
-
-        let mut open = true;
-        Window::new(OpenWindow::SnesPeripherals.title()).open(&mut open).show(ctx, |ui| {
-            self.disable_if_waiting_for_input(ui);
-
-            ui.group(|ui| {
-                ui.label("Player 2 device");
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.config.input.snes.p2_type,
-                        SnesControllerType::Gamepad,
-                        "Gamepad",
-                    );
-                    ui.radio_value(
-                        &mut self.config.input.snes.p2_type,
-                        SnesControllerType::SuperScope,
-                        "Super Scope",
-                    );
-                });
-            });
-
-            ui.separator();
-            let mapping = self.render_mapping_set_selector(OpenWindow::SnesPeripherals, ui);
-            ui.separator();
-
-            ui.heading("Super Scope");
-
-            ui.add_space(5.0);
-
-            self.render_input_buttons("super_scope_inputs", mapping, &SUPER_SCOPE_BUTTONS, ui);
-
-            ui.add_space(15.0);
-
-            let mapping_config = mapping.snes(&mut self.config.input);
-            ui.horizontal(|ui| {
-                if ui.button("Restore Defaults").clicked() {
-                    mapping_config.super_scope = SnesSuperScopeMapping::mouse();
-                }
-
-                if ui.button("Clear All").clicked() {
-                    mapping_config.super_scope = SnesSuperScopeMapping::default();
-                }
-            });
-        });
-        if !open {
-            self.state.open_windows.remove(&OpenWindow::SnesPeripherals);
         }
     }
 

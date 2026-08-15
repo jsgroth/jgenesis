@@ -1,13 +1,14 @@
 mod old_default_nes_palette;
+mod v0_10;
+mod v0_11;
+mod v0_12;
+mod v0_13;
+mod v0_14;
+mod v0_8;
 
-use crate::input::GenericInput;
-use crate::input::mappings::{GenesisControllerMapping, HotkeyConfig};
-use crate::{AppConfig, RomSearchDirectory};
-use nes_config::NesPalette;
-use serde::{Deserialize, Serialize};
+use crate::AppConfig;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
-use std::path::PathBuf;
 use std::str::FromStr;
 use toml_edit::DocumentMut;
 
@@ -67,72 +68,8 @@ pub fn migrate_config_str(config_str: &mut String) {
 
     let mut changed = false;
 
-    if let Some((_, common_value)) = document.get_key_value_mut("common")
-        && let Some(common) = common_value.as_table_like_mut()
-    {
-        // v0.12.0: Removed OpenGL wgpu backend option
-        if let Some((_, wgpu_backend)) = common.get_key_value_mut("wgpu_backend")
-            && wgpu_backend.as_str() == Some("OpenGl")
-        {
-            log::info!("OpenGL wgpu backend option no longer exists; changing to Auto");
-
-            *wgpu_backend = toml_edit::value("Auto");
-            changed = true;
-        }
-
-        // v0.12.0: Moved anti-dither shaders from preprocess_shader to their own config field
-        if let Some((_, preprocess_shader)) = common.get_key_value_mut("preprocess_shader") {
-            match preprocess_shader.as_str() {
-                Some("AntiDitherWeak") => {
-                    *preprocess_shader = toml_edit::value("None");
-                    common.insert("anti_dither_shader", toml_edit::value("Weak"));
-
-                    changed = true;
-                }
-                Some("AntiDitherStrong") => {
-                    *preprocess_shader = toml_edit::value("None");
-                    common.insert("anti_dither_shader", toml_edit::value("Strong"));
-
-                    changed = true;
-                }
-                _ => {}
-            }
-        }
-
-        // v0.12.0: Changed scanlines from an enum to a bool+f64 pair
-        if let Some((_, scanlines)) = common.get_key_value_mut("scanlines") {
-            match scanlines.as_str() {
-                Some("Dim") => {
-                    *scanlines = toml_edit::Item::None;
-                    common.insert("scanlines_enabled", toml_edit::value(true));
-                    common.insert("scanlines_brightness", toml_edit::value(0.5));
-
-                    changed = true;
-                }
-                Some("Black") => {
-                    *scanlines = toml_edit::Item::None;
-                    common.insert("scanlines_enabled", toml_edit::value(true));
-                    common.insert("scanlines_brightness", toml_edit::value(0.0));
-
-                    changed = true;
-                }
-                _ => {}
-            }
-        }
-    }
-
-    // v0.13.0: NES allow_opposing_joypad_inputs -> allow_opposing_joypad_directions
-    if let Some((_, nes_value)) = document.get_key_value_mut("nes")
-        && let Some(nes_config) = nes_value.as_table_like_mut()
-        && let Some((_, allow_opposing_inputs_value)) =
-            nes_config.get_key_value_mut("allow_opposing_joypad_inputs")
-        && let Some(allow_opposing_inputs) = allow_opposing_inputs_value.as_bool()
-        && nes_config.get_key_value("allow_opposing_joypad_directions").is_none()
-    {
-        nes_config
-            .insert("allow_opposing_joypad_directions", toml_edit::value(allow_opposing_inputs));
-        changed = true;
-    }
+    changed |= v0_12::migrate_document(&mut document);
+    changed |= v0_13::migrate_document(&mut document);
 
     if changed {
         *config_str = document.to_string();
@@ -166,23 +103,23 @@ pub fn migrate_config(config: &AppConfig, config_str: &str) -> Option<AppConfig>
 
     let mut new_config = config.clone();
     if old_version < SemVer::new(0, 8, 3) {
-        migrate_config_0_8_3(&mut new_config, config_str);
+        v0_8::migrate_config_0_8_3(&mut new_config, config_str);
     }
 
     if old_version < SemVer::new(0, 8, 4) {
-        migrate_config_0_8_4(&mut new_config);
+        v0_8::migrate_config_0_8_4(&mut new_config);
     }
 
     if old_version < SemVer::new(0, 10, 2) {
-        migrate_config_0_10_2(&mut new_config, config_str);
+        v0_10::migrate_config_0_10_2(&mut new_config, config_str);
     }
 
     if old_version < SemVer::new(0, 11, 4) {
-        migrate_config_0_11_4(&mut new_config, config_str);
+        v0_11::migrate_config_0_11_4(&mut new_config, config_str);
     }
 
     if old_version < SemVer::new(0, 14, 0) {
-        migrate_config_0_14_0(&mut new_config, config_str);
+        v0_14::migrate_config_0_14_0(&mut new_config, config_str);
     }
 
     new_config.config_version = Some(current_config_version().into());
@@ -190,247 +127,12 @@ pub fn migrate_config(config: &AppConfig, config_str: &str) -> Option<AppConfig>
     Some(new_config)
 }
 
-fn migrate_config_0_8_3(config: &mut AppConfig, config_str: &str) {
-    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-    struct OldHotkeyMapping {
-        #[serde(default)]
-        pub quit: Option<Vec<GenericInput>>,
-    }
-
-    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-    struct OldHotkeyConfig {
-        #[serde(default)]
-        pub mapping_1: OldHotkeyMapping,
-        #[serde(default)]
-        pub mapping_2: OldHotkeyMapping,
-    }
-
-    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-    struct OldInputConfig {
-        #[serde(default)]
-        pub hotkeys: OldHotkeyConfig,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    struct OldAppConfig {
-        #[serde(default)]
-        pub input: OldInputConfig,
-    }
-
-    // Quit hotkey renamed to PowerOff
-    if let Ok(mut old_config) = toml::from_str::<OldAppConfig>(config_str) {
-        if let Some(mapping) = old_config.input.hotkeys.mapping_1.quit.take() {
-            log::info!(
-                "Migrating hotkey mapping #1 for 'quit' to 'power_off': ({})",
-                stringify_mapping(&mapping)
-            );
-            config.input.hotkeys.mapping_1.power_off = Some(mapping);
-        }
-
-        if let Some(mapping) = old_config.input.hotkeys.mapping_2.quit.take() {
-            log::info!(
-                "Migrating hotkey mapping #2 for 'quit' to 'power_off': ({})",
-                stringify_mapping(&mapping)
-            );
-            config.input.hotkeys.mapping_2.power_off = Some(mapping);
-        }
-    }
-
-    // New hotkey Exit
-    if config.input.hotkeys.mapping_1.exit.is_none() {
-        let default = HotkeyConfig::default();
-        if let Some(mapping) = default.mapping_1.exit {
-            log::info!(
-                "Setting default mapping for new 'exit' hotkey: ({})",
-                stringify_mapping(&mapping)
-            );
-            config.input.hotkeys.mapping_1.exit = Some(mapping);
-        }
-    }
-}
-
-fn stringify_mapping(mapping: &[GenericInput]) -> String {
-    let strings: Vec<_> = mapping.iter().map(GenericInput::to_string).collect();
-    strings.join(" + ")
-}
-
-fn migrate_config_0_8_4(config: &mut AppConfig) {
-    // New hotkey ToggleOverclocking
-    config.input.hotkeys.mapping_1.toggle_overclocking =
-        HotkeyConfig::default().mapping_1.toggle_overclocking;
-}
-
-fn migrate_config_0_10_2(config: &mut AppConfig, config_str: &str) {
-    // smsgg.bios_path -> smsgg.sms_bios_path
-    // smsgg.boot_from_bios -> smsgg.sms_boot_from_bios
-
-    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-    struct OldSmsGgConfig {
-        bios_path: Option<PathBuf>,
-        boot_from_bios: bool,
-    }
-
-    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-    struct OldAppConfig {
-        smsgg: OldSmsGgConfig,
-    }
-
-    let Ok(old_config) = toml::from_str::<OldAppConfig>(config_str) else { return };
-
-    config.smsgg.sms_bios_path = old_config.smsgg.bios_path;
-    config.smsgg.sms_boot_from_bios = old_config.smsgg.boot_from_bios;
-}
-
-fn migrate_config_0_11_4(config: &mut AppConfig, config_str: &str) {
-    // NES default palette changed; change it if currently configured to use the old default
-    // nes.palette
-
-    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-    struct LimitedNesConfig {
-        palette: NesPalette,
-    }
-
-    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-    struct LimitedAppConfig {
-        nes: LimitedNesConfig,
-    }
-
-    let Ok(old_config) = toml::from_str::<LimitedAppConfig>(config_str) else { return };
-
-    if old_config.nes.palette == old_default_nes_palette::PALETTE {
-        log::info!("Detected old default NES palette; changing to new default");
-        config.nes.palette = NesPalette::default();
-    }
-}
-
-fn migrate_config_0_14_0(config: &mut AppConfig, config_str: &str) {
-    // rom_search_dirs field changed from Vec<String> to Vec<RomSearchDirectory>
-    migrate_0_14_0_rom_search_dirs(config, config_str);
-
-    // New buttons/hotkeys for Mega Mouse
-    migrate_0_14_0_mega_mouse_inputs(config);
-}
-
-fn migrate_0_14_0_rom_search_dirs(config: &mut AppConfig, config_str: &str) {
-    #[derive(Deserialize)]
-    struct OldConfig {
-        rom_search_dirs: Vec<String>,
-    }
-
-    let Ok(old_config) = toml::from_str::<OldConfig>(config_str) else { return };
-
-    if !old_config.rom_search_dirs.is_empty() && config.rom_search_dirs.is_empty() {
-        log::info!("Converting rom_search_dirs to new config format");
-
-        config.rom_search_dirs = old_config
-            .rom_search_dirs
-            .into_iter()
-            .map(|path| RomSearchDirectory { path: path.into(), recursive: false })
-            .collect();
-    }
-}
-
-fn migrate_0_14_0_mega_mouse_inputs(config: &mut AppConfig) {
-    let defaults = GenesisControllerMapping::keyboard_wasd();
-    for (mapping, default) in [
-        (&mut config.input.genesis.mapping_1.p1.mega_mouse_left, defaults.mega_mouse_left),
-        (&mut config.input.genesis.mapping_1.p1.mega_mouse_right, defaults.mega_mouse_right),
-        (&mut config.input.genesis.mapping_1.p1.mega_mouse_middle, defaults.mega_mouse_middle),
-        (&mut config.input.genesis.mapping_1.p1.mega_mouse_start, defaults.mega_mouse_start),
-        (
-            &mut config.input.hotkeys.mapping_1.cancel_mouse_input,
-            HotkeyConfig::default().mapping_1.cancel_mouse_input,
-        ),
-    ] {
-        if mapping.is_none() {
-            *mapping = default;
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use jgenesis_renderer::config::{AntiDitherShader, PreprocessShader, WgpuBackend};
-
-    #[test]
-    fn v0_10_2() {
-        const OLD_STR: &str = "
-[smsgg]
-boot_from_bios = true
-bios_path = \"/path/to/bios.sms\"
-";
-
-        let mut config = AppConfig::default();
-        migrate_config_0_10_2(&mut config, OLD_STR);
-        assert!(config.smsgg.sms_boot_from_bios);
-        assert_eq!(config.smsgg.sms_bios_path, Some("/path/to/bios.sms".into()));
-    }
 
     #[test]
     fn migrate_empty_string_does_not_panic() {
         migrate_config_str(&mut String::new());
-    }
-
-    #[test]
-    fn v0_12_0_opengl() {
-        const OLD_STR: &str = "
-[common]
-wgpu_backend = \"OpenGl\"
-";
-
-        let mut config_str = OLD_STR.to_owned();
-        migrate_config_str(&mut config_str);
-        let config: AppConfig = toml::from_str(&config_str).expect("Failed to parse config");
-        assert_eq!(config.common.wgpu_backend, WgpuBackend::Auto);
-    }
-
-    fn v0_12_0_anti_dither(preprocess_str: &str, expected_anti_dither: AntiDitherShader) {
-        let mut config_str = format!(
-            "
-[common]
-preprocess_shader = \"{preprocess_str}\"
-"
-        );
-
-        migrate_config_str(&mut config_str);
-        let config: AppConfig = toml::from_str(&config_str).expect("Failed to parse config");
-        assert_eq!(config.common.anti_dither_shader, expected_anti_dither);
-        assert_eq!(config.common.preprocess_shader, PreprocessShader::None);
-    }
-
-    #[test]
-    fn v0_12_0_anti_dither_weak() {
-        v0_12_0_anti_dither("AntiDitherWeak", AntiDitherShader::Weak);
-    }
-
-    #[test]
-    fn v0_12_0_anti_dither_strong() {
-        v0_12_0_anti_dither("AntiDitherStrong", AntiDitherShader::Strong);
-    }
-
-    fn v0_12_0_scanlines(prev_enum_value: &str, expected_brightness: f64) {
-        let mut config_str = format!(
-            "
-[common]
-scanlines = \"{prev_enum_value}\"
-        "
-        );
-
-        migrate_config_str(&mut config_str);
-
-        let config: AppConfig = toml::from_str(&config_str).expect("Failed to parse config");
-        assert!(config.common.scanlines_enabled);
-        assert_eq!(config.common.scanlines_brightness, expected_brightness);
-    }
-
-    #[test]
-    fn v0_12_0_scanlines_dim() {
-        v0_12_0_scanlines("Dim", 0.5);
-    }
-
-    #[test]
-    fn v0_12_0_scanlines_black() {
-        v0_12_0_scanlines("Black", 0.0);
     }
 }

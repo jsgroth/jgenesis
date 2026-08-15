@@ -1,9 +1,8 @@
 use crate::api::SnesEmulatorConfig;
-use crate::input::{SnesInputDevice, SnesInputs, SnesJoypadStateExt, SuperScopeState};
+use crate::input::{SnesController, SnesInputs, SnesJoypadStateExt, SuperScopeState};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use snes_config::SnesJoypadState;
-use std::mem;
 
 const AUTO_JOYPAD_DURATION_MCLK: u64 = 4224;
 
@@ -60,12 +59,83 @@ impl SuperScopeRegister {
     }
 
     fn to_register_word(self) -> u16 {
-        (u16::from(self.fire) << 15)
-            | (u16::from(self.cursor) << 14)
-            | (u16::from(self.turbo) << 13)
-            | (u16::from(self.pause) << 12)
-            | (u16::from(self.offscreen) << 9)
-            | 0x00FF
+        u16::from(self.fire)
+            | (u16::from(self.cursor) << 1)
+            | (u16::from(self.turbo) << 2)
+            | (u16::from(self.pause) << 3)
+            | (u16::from(self.offscreen) << 6)
+            | 0xFF00 // ID bits, always 1
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+struct ControllerPort {
+    auto_joypad_inputs: u16,
+    manual_joypad_inputs: u16,
+    super_scope_register: SuperScopeRegister,
+    last_strobe_inputs: SnesController,
+}
+
+impl ControllerPort {
+    fn new() -> Self {
+        Self {
+            auto_joypad_inputs: 0,
+            manual_joypad_inputs: 0,
+            super_scope_register: SuperScopeRegister::default(),
+            last_strobe_inputs: SnesController::None,
+        }
+    }
+
+    fn strobe(&mut self, current_inputs: SnesController) {
+        // Instead of explicitly clearing Super Scope state for non-Super Scope controllers, clear
+        // it at the beginning of every strobe and let Super Scope set it again
+        let mut super_scope_register = self.super_scope_register;
+        self.super_scope_register = SuperScopeRegister::default();
+
+        self.manual_joypad_inputs = match current_inputs {
+            SnesController::Gamepad(joypad) => joypad.to_register_word(),
+            SnesController::SuperScope(super_scope) => {
+                let word = super_scope_register.to_register_word();
+
+                let last_strobe_state = match self.last_strobe_inputs {
+                    SnesController::SuperScope(state) => state,
+                    _ => SuperScopeState::default(),
+                };
+
+                super_scope_register.update(super_scope, last_strobe_state);
+                self.super_scope_register = super_scope_register;
+
+                word
+            }
+            SnesController::None => {
+                // All bits read 0 when no controller is connected
+                // Some games use this for controller detection (e.g. Donkey Kong Country)
+                0
+            }
+        };
+
+        self.last_strobe_inputs = current_inputs;
+    }
+
+    fn next_manual_bit(&mut self) -> bool {
+        let next_bit = self.manual_joypad_inputs.bit(0);
+        self.manual_joypad_inputs =
+            (self.manual_joypad_inputs >> 1) | (u16::from(self.end_of_input_bit()) << 15);
+        next_bit
+    }
+
+    fn end_of_input_bit(&self) -> bool {
+        // Reading past end of inputs produces 1s if a controller is connected, 0s if not
+        !matches!(self.last_strobe_inputs, SnesController::None)
+    }
+
+    fn do_auto_read(&mut self) -> u16 {
+        // Auto joypad read always reads out 16 bits serially, earliest in most significant bits
+        let mut auto_read_inputs = 0;
+        for _ in 0..16 {
+            auto_read_inputs = (auto_read_inputs << 1) | u16::from(self.next_manual_bit());
+        }
+        auto_read_inputs
     }
 }
 
@@ -75,11 +145,9 @@ pub struct InputState {
     auto_joypad_p1_inputs: u16,
     auto_joypad_p2_inputs: u16,
     strobe: bool,
-    manual_joypad_p1_inputs: u16,
-    manual_joypad_p2_inputs: u16,
-    current_inputs: SnesInputs,
-    last_strobe_inputs: SnesInputs,
-    super_scope_register: SuperScopeRegister,
+    p1: ControllerPort,
+    p2: ControllerPort,
+    inputs: SnesInputs,
     allow_opposing_directions: bool,
 }
 
@@ -90,46 +158,21 @@ impl InputState {
             auto_joypad_p1_inputs: SnesJoypadState::default().to_register_word(),
             auto_joypad_p2_inputs: SnesJoypadState::default().to_register_word(),
             strobe: false,
-            manual_joypad_p1_inputs: SnesJoypadState::default().to_register_word(),
-            manual_joypad_p2_inputs: SnesJoypadState::default().to_register_word(),
-            current_inputs: SnesInputs::default(),
-            last_strobe_inputs: SnesInputs::default(),
-            super_scope_register: SuperScopeRegister::default(),
+            p1: ControllerPort::new(),
+            p2: ControllerPort::new(),
+            inputs: SnesInputs::default(),
             allow_opposing_directions: config.allow_opposing_joypad_directions,
         }
     }
 
     pub fn set_strobe(&mut self, strobe: bool) {
         if !self.strobe && strobe {
-            self.manual_joypad_p1_inputs = self
-                .current_inputs
-                .p1
-                .with_allow_opposing_directions(self.allow_opposing_directions)
-                .to_register_word();
-            self.manual_joypad_p2_inputs = match self.current_inputs.p2 {
-                SnesInputDevice::Controller(joypad_state) => {
-                    self.super_scope_register = SuperScopeRegister::default();
-
-                    joypad_state
-                        .with_allow_opposing_directions(self.allow_opposing_directions)
-                        .to_register_word()
-                }
-                SnesInputDevice::SuperScope(super_scope_state) => {
-                    // Read out the bits before updating them; otherwise the SNES will read Fire=1 on the frame before
-                    // the PPU latches H/V
-                    let word = self.super_scope_register.to_register_word();
-
-                    let last_strobe_state = match self.last_strobe_inputs.p2 {
-                        SnesInputDevice::SuperScope(last_state) => last_state,
-                        SnesInputDevice::Controller(_) => SuperScopeState::default(),
-                    };
-                    self.super_scope_register.update(super_scope_state, last_strobe_state);
-
-                    word
-                }
-            };
-
-            self.last_strobe_inputs = self.current_inputs;
+            self.p1.strobe(
+                self.inputs.p1.with_allow_opposing_directions(self.allow_opposing_directions),
+            );
+            self.p2.strobe(
+                self.inputs.p2.with_allow_opposing_directions(self.allow_opposing_directions),
+            );
         }
 
         self.strobe = strobe;
@@ -148,15 +191,11 @@ impl InputState {
     }
 
     pub fn next_manual_p1_bit(&mut self) -> bool {
-        let bit = self.manual_joypad_p1_inputs.bit(15);
-        self.manual_joypad_p1_inputs = (self.manual_joypad_p1_inputs << 1) | 0x0001;
-        bit
+        self.p1.next_manual_bit()
     }
 
     pub fn next_manual_p2_bit(&mut self) -> bool {
-        let bit = self.manual_joypad_p2_inputs.bit(15);
-        self.manual_joypad_p2_inputs = (self.manual_joypad_p2_inputs << 1) | 0x0001;
-        bit
+        self.p2.next_manual_bit()
     }
 
     pub fn start_auto_joypad_read(&mut self) {
@@ -164,7 +203,7 @@ impl InputState {
     }
 
     pub fn tick(&mut self, master_cycles_elapsed: u64, inputs: SnesInputs) {
-        self.current_inputs = inputs;
+        self.inputs = inputs;
 
         if self.auto_read_cycles_remaining != 0 {
             self.progress_auto_joypad_read(master_cycles_elapsed);
@@ -181,21 +220,18 @@ impl InputState {
             self.set_strobe(true);
             self.set_strobe(false);
 
-            // Drain the manual joypad read registers into the auto joypad read registers
-            // Donkey Kong Country depends on the manual joypad read registers reading out 1s after
-            // auto joypad read finishes
-            self.auto_joypad_p1_inputs = mem::replace(&mut self.manual_joypad_p1_inputs, !0);
-            self.auto_joypad_p2_inputs = mem::replace(&mut self.manual_joypad_p2_inputs, !0);
+            self.auto_joypad_p1_inputs = self.p1.do_auto_read();
+            self.auto_joypad_p2_inputs = self.p2.do_auto_read();
         }
     }
 
     pub fn hv_latch(&self) -> Option<(u16, u16)> {
+        // Super Scope can only trigger HV latching behavior when plugged into port 2
+        let super_scope_register = self.p2.super_scope_register;
+
         // Super Scope latches the PPU at H=X+40, V=Y+1 when Fire or Cursor is set
-        (self.super_scope_register.fire || self.super_scope_register.cursor)
-            .then(|| {
-                let (x, y) = self.super_scope_register.position?;
-                Some((x + 40, y + 1))
-            })
+        (super_scope_register.fire || super_scope_register.cursor)
+            .then(|| super_scope_register.position.map(|(x, y)| (x + 40, y + 1)))
             .flatten()
     }
 

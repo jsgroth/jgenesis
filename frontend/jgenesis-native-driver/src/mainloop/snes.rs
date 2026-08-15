@@ -9,17 +9,18 @@ use jgenesis_native_config::common::WindowSize;
 use jgenesis_native_config::input::mappings::{ButtonMappingVec, SnesControllerType};
 use snes_config::SnesJoypadState;
 use snes_core::api::SnesEmulator;
-use snes_core::input::{SnesInputDevice, SnesInputs, SuperScopeState};
+use snes_core::input::{SnesController, SnesInputs, SuperScopeState};
 
 trait SnesControllerTypeExt {
-    fn to_input_device(self) -> SnesInputDevice;
+    fn to_controller(self) -> SnesController;
 }
 
 impl SnesControllerTypeExt for SnesControllerType {
-    fn to_input_device(self) -> SnesInputDevice {
+    fn to_controller(self) -> SnesController {
         match self {
-            Self::Gamepad => SnesInputDevice::Controller(SnesJoypadState::default()),
-            Self::SuperScope => SnesInputDevice::SuperScope(SuperScopeState::default()),
+            Self::Gamepad => SnesController::Gamepad(SnesJoypadState::default()),
+            Self::SuperScope => SnesController::SuperScope(SuperScopeState::default()),
+            Self::None => SnesController::None,
         }
     }
 }
@@ -72,13 +73,17 @@ impl CreatableEmulator for SnesEmulator {
         emulator: &mut NativeEmulator<Self>,
         config: &Self::NativeConfig,
     ) -> NativeEmulatorResult<()> {
-        emulator.inputs.p2 = config.inputs.p2_type.to_input_device();
+        emulator.inputs.p1 = config.inputs.p1_type.to_controller();
+        emulator.inputs.p2 = config.inputs.p2_type.to_controller();
 
         Ok(())
     }
 
     fn initial_inputs(config: &Self::NativeConfig) -> Self::Inputs {
-        SnesInputs { p1: SnesJoypadState::default(), p2: config.inputs.p2_type.to_input_device() }
+        SnesInputs {
+            p1: config.inputs.p1_type.to_controller(),
+            p2: config.inputs.p2_type.to_controller(),
+        }
     }
 
     fn input_mappings(config: &Self::NativeConfig) -> ButtonMappingVec<'_, Self::Button> {

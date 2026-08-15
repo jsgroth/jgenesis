@@ -137,7 +137,6 @@ enum OpenWindow {
     NesInput,
     NesPeripherals,
     SnesInput,
-    SnesPeripherals,
     GameBoyInput,
     GbaInput,
     GbaPeripherals,
@@ -187,7 +186,6 @@ impl OpenWindow {
             OpenWindow::NesInput => "NES Input Settings",
             OpenWindow::NesPeripherals => "NES Peripheral Settings",
             OpenWindow::SnesInput => "SNES Input Settings",
-            OpenWindow::SnesPeripherals => "SNES Peripheral Settings",
             OpenWindow::GameBoyInput => "Game Boy Input Settings",
             OpenWindow::GbaInput => "GBA Input Settings",
             OpenWindow::GbaPeripherals => "GBA Peripheral Settings",
@@ -919,17 +917,10 @@ impl App {
                 }
             });
 
-            ui.menu_button("SNES", |ui| {
-                if ui.button("Gamepads").clicked() {
-                    self.state.open_window(ui.ctx(), OpenWindow::SnesInput);
-                    ui.close_kind(UiKind::Menu);
-                }
-
-                if ui.button("Peripherals").clicked() {
-                    self.state.open_window(ui.ctx(), OpenWindow::SnesPeripherals);
-                    ui.close_kind(UiKind::Menu);
-                }
-            });
+            if ui.button("SNES").clicked() {
+                self.state.open_window(ui.ctx(), OpenWindow::SnesInput);
+                ui.close_kind(UiKind::Menu);
+            }
 
             if ui.button("Game Boy").clicked() {
                 self.state.open_window(ui.ctx(), OpenWindow::GameBoyInput);
@@ -1186,7 +1177,6 @@ impl App {
                 OpenWindow::NesInput => self.render_nes_input_settings(ctx),
                 OpenWindow::NesPeripherals => self.render_nes_peripheral_settings(ctx),
                 OpenWindow::SnesInput => self.render_snes_input_settings(ctx),
-                OpenWindow::SnesPeripherals => self.render_snes_peripheral_settings(ctx),
                 OpenWindow::GameBoyInput => self.render_gb_input_settings(ctx),
                 OpenWindow::GbaInput => self.render_gba_input_settings(ctx),
                 OpenWindow::GbaPeripherals => self.render_gba_peripheral_settings(ctx),

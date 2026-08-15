@@ -10,18 +10,18 @@ pub(crate) trait SnesJoypadStateExt: Sized + Copy {
 
 impl SnesJoypadStateExt for SnesJoypadState {
     fn to_register_word(self) -> u16 {
-        (u16::from(self.b) << 15)
-            | (u16::from(self.y) << 14)
-            | (u16::from(self.select) << 13)
-            | (u16::from(self.start) << 12)
-            | (u16::from(self.up) << 11)
-            | (u16::from(self.down) << 10)
-            | (u16::from(self.left) << 9)
-            | (u16::from(self.right) << 8)
-            | (u16::from(self.a) << 7)
-            | (u16::from(self.x) << 6)
-            | (u16::from(self.l) << 5)
-            | (u16::from(self.r) << 4)
+        u16::from(self.b)
+            | (u16::from(self.y) << 1)
+            | (u16::from(self.select) << 2)
+            | (u16::from(self.start) << 3)
+            | (u16::from(self.up) << 4)
+            | (u16::from(self.down) << 5)
+            | (u16::from(self.left) << 6)
+            | (u16::from(self.right) << 7)
+            | (u16::from(self.a) << 8)
+            | (u16::from(self.x) << 9)
+            | (u16::from(self.l) << 10)
+            | (u16::from(self.r) << 11)
     }
 }
 
@@ -67,68 +67,89 @@ impl SuperScopeState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-pub enum SnesInputDevice {
-    Controller(SnesJoypadState),
+pub enum SnesController {
+    Gamepad(SnesJoypadState),
     SuperScope(SuperScopeState),
+    None,
 }
 
-impl Default for SnesInputDevice {
-    fn default() -> Self {
-        Self::Controller(SnesJoypadState::default())
+impl SnesController {
+    pub fn set_field(&mut self, button: SnesButton, pressed: bool) {
+        match self {
+            Self::Gamepad(state) => state.set_button(button, pressed),
+            Self::SuperScope(state) => {
+                if let Some(super_scope_button) = button.to_super_scope() {
+                    state.set_button(super_scope_button, pressed);
+                }
+            }
+            Self::None => {}
+        }
+    }
+
+    #[must_use]
+    pub fn with_allow_opposing_directions(self, allow_opposing_directions: bool) -> Self {
+        match self {
+            Self::Gamepad(joypad) => {
+                Self::Gamepad(joypad.with_allow_opposing_directions(allow_opposing_directions))
+            }
+            Self::SuperScope(_) | Self::None => self,
+        }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub struct SnesInputs {
-    pub p1: SnesJoypadState,
-    pub p2: SnesInputDevice,
+    pub p1: SnesController,
+    pub p2: SnesController,
+}
+
+impl Default for SnesInputs {
+    fn default() -> Self {
+        Self { p1: SnesController::Gamepad(SnesJoypadState::default()), p2: SnesController::None }
+    }
 }
 
 impl MappableInputs<SnesButton> for SnesInputs {
     #[inline]
     fn set_field(&mut self, button: SnesButton, player: Player, pressed: bool) {
-        if let Some(super_scope_button) = button.to_super_scope() {
-            if let SnesInputDevice::SuperScope(super_scope_state) = &mut self.p2 {
-                super_scope_state.set_button(super_scope_button, pressed);
-            }
-            return;
-        }
-
         match player {
-            Player::One => {
-                self.p1.set_button(button, pressed);
-            }
-            Player::Two => {
-                if let SnesInputDevice::Controller(joypad_state) = &mut self.p2 {
-                    joypad_state.set_button(button, pressed);
-                }
-            }
+            Player::One => self.p1.set_field(button, pressed),
+            Player::Two => self.p2.set_field(button, pressed),
             _ => {}
         }
     }
 
     #[inline]
     fn handle_mouse_motion(&mut self, x: f32, y: f32, display_info: DisplayInfo) {
-        if let SnesInputDevice::SuperScope(super_scope_state) = &mut self.p2 {
-            super_scope_state.position =
-                jgenesis_common::input::viewport_position_to_frame_position(x, y, display_info);
-            log::debug!("Set Super Scope position to {:?}", super_scope_state.position);
+        for controller in [&mut self.p1, &mut self.p2] {
+            if let SnesController::SuperScope(super_scope_state) = controller {
+                super_scope_state.position =
+                    jgenesis_common::input::viewport_position_to_frame_position(x, y, display_info);
+                log::debug!("Set Super Scope position to {:?}", super_scope_state.position);
+            }
         }
     }
 
     #[inline]
     fn handle_mouse_leave(&mut self) {
-        if let SnesInputDevice::SuperScope(super_scope_state) = &mut self.p2 {
-            super_scope_state.position = None;
+        for controller in [&mut self.p1, &mut self.p2] {
+            if let SnesController::SuperScope(super_scope_state) = controller {
+                super_scope_state.position = None;
+            }
         }
     }
 
-    fn modal_for_input(&self, button: SnesButton, _player: Player, pressed: bool) -> Option<Modal> {
+    fn modal_for_input(&self, button: SnesButton, player: Player, pressed: bool) -> Option<Modal> {
         if button != SnesButton::SuperScopeTurboToggle || !pressed {
             return None;
         }
 
-        let SnesInputDevice::SuperScope(super_scope_state) = self.p2 else { return None };
+        let controller = match player {
+            Player::One => &self.p1,
+            Player::Two => &self.p2,
+            _ => return None,
+        };
+        let SnesController::SuperScope(super_scope_state) = controller else { return None };
 
         let text =
             format!("Super Scope Turbo: {}", if super_scope_state.turbo { "On" } else { "Off" });

@@ -103,6 +103,32 @@ impl SnesButton {
             _ => None,
         }
     }
+
+    #[inline]
+    #[must_use]
+    pub fn is_gamepad(self) -> bool {
+        matches!(
+            self,
+            Self::Up
+                | Self::Left
+                | Self::Right
+                | Self::Down
+                | Self::A
+                | Self::B
+                | Self::X
+                | Self::Y
+                | Self::L
+                | Self::R
+                | Self::Start
+                | Self::Select
+        )
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn is_super_scope(self) -> bool {
+        self.to_super_scope().is_some()
+    }
 }
 
 impl SuperScopeButton {
