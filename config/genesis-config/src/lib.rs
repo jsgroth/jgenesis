@@ -3,7 +3,7 @@ pub mod cheats;
 use bincode::{Decode, Encode};
 use jgenesis_common::define_controller_inputs;
 use jgenesis_common::frontend::{
-    EmulatorConfigTrait, FiniteF64, FrameSize, MappableInputs, TimingMode,
+    DisplayInfo, EmulatorConfigTrait, FiniteF64, FrameSize, MappableInputs, TimingMode,
 };
 use jgenesis_common::input::Player;
 use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay, EnumFromStr};
@@ -349,8 +349,9 @@ impl GenesisButton {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub struct MegaMouseJoypadState {
-    pub x: i16,
-    pub y: i16,
+    // Absolute position values are meaningless, only differences between positions are meaningful
+    pub x_position: FiniteF64,
+    pub y_position: FiniteF64,
     pub left: bool,
     pub right: bool,
     pub middle: bool,
@@ -595,19 +596,20 @@ impl MappableInputs<GenesisButton> for GenesisInputs {
     }
 
     #[inline]
-    fn update_mouse_velocity(&mut self, velocity: (f64, f64)) {
-        // Mouse axis values are signed 9-bit
-        const I9_MIN: i16 = -(1 << 8);
-        const I9_MAX: i16 = (1 << 8) - 1;
-
-        fn f64_to_i9(value: f64) -> i16 {
-            (value * -f64::from(I9_MIN)).round().clamp(I9_MIN.into(), I9_MAX.into()) as i16
-        }
-
+    fn handle_mouse_motion(
+        &mut self,
+        _position: (f32, f32),
+        (dx, dy): (f32, f32),
+        _display_info: DisplayInfo,
+    ) {
         for controller in [&mut self.p1, &mut self.p2] {
             if let GenesisController::MegaMouse(state) = controller {
-                state.x = f64_to_i9(velocity.0);
-                state.y = f64_to_i9(-velocity.1); // Y axis is inverted compared to a PC mouse
+                if let Ok(dx) = FiniteF64::try_from(f64::from(dx)) {
+                    state.x_position += dx;
+                }
+                if let Ok(dy) = FiniteF64::try_from(f64::from(dy)) {
+                    state.y_position += dy;
+                }
             }
         }
     }
@@ -629,6 +631,7 @@ pub struct GenesisEmulatorConfig {
     pub forced_timing_mode: Option<TimingMode>,
     pub forced_region: Option<GenesisRegion>,
     pub allow_opposing_joypad_directions: bool,
+    pub mega_mouse_sensitivity: f64,
     pub auto_3_button_mode: bool,
     pub aspect_ratio: GenesisAspectRatio,
     pub force_square_pixels_in_h40: bool,
@@ -669,6 +672,7 @@ impl Default for GenesisEmulatorConfig {
             forced_timing_mode: None,
             forced_region: None,
             allow_opposing_joypad_directions: false,
+            mega_mouse_sensitivity: 1.0,
             auto_3_button_mode: true,
             aspect_ratio: GenesisAspectRatio::default(),
             force_square_pixels_in_h40: false,

@@ -360,7 +360,6 @@ pub struct InputAppConfig {
     pub game_boy_advance: GbaInputConfig,
     pub pc_engine: PceInputConfig,
     pub hotkeys: HotkeyConfig,
-    pub mouse_sensitivity: f64,
     pub axis_deadzone: i16,
 }
 
@@ -377,7 +376,6 @@ impl Default for InputAppConfig {
             game_boy_advance: GbaInputConfig::default(),
             pc_engine: PceInputConfig::default(),
             hotkeys: HotkeyConfig::default(),
-            mouse_sensitivity: 1.0,
             axis_deadzone: DEFAULT_AXIS_DEADZONE,
         }
     }

@@ -4,7 +4,6 @@ mod gb;
 mod gba;
 mod genesis;
 mod input;
-mod mouse;
 mod nes;
 mod pce;
 mod render;
@@ -32,6 +31,7 @@ use crate::config::CommonConfig;
 use crate::fpstracker::FpsTracker;
 use crate::input::{InputEvent, InputMapper, Joysticks};
 use crate::mainloop::audio::{SdlAudioOutput, SdlAudioOutputHandle};
+use crate::mainloop::create::WindowTitle;
 use crate::mainloop::input::ThreadedInputPoller;
 use crate::mainloop::render::{RecvFrameError, ThreadedRenderer};
 use crate::mainloop::runner::{
@@ -40,6 +40,7 @@ use crate::mainloop::runner::{
 };
 use crate::mainloop::save::FsSaveWriter;
 use bincode::error::{DecodeError, EncodeError};
+use egui_sdl3_wgpu::FrameRunEffect;
 use gb_core::api::GameBoyLoadError;
 use gba_core::api::GbaLoadError;
 use genesis_config::GenesisRegion;
@@ -191,7 +192,6 @@ pub struct NativeEmulator<Emulator: EmulatorTrait> {
     audio_output_handle: SdlAudioOutputHandle,
     input_mapper: InputMapper<Emulator::Button>,
     inputs: Emulator::Inputs,
-    mouse_velocity: MouseVelocityTracker,
     hotkey_state: HotkeyState<Emulator>,
     window_state: WindowState,
     fps_tracker: FpsTracker,
@@ -207,8 +207,6 @@ impl<Emulator: EmulatorTrait> NativeEmulator<Emulator> {
         self.renderer.reload_config(config.renderer_config);
 
         self.audio_output_handle.reload_config(config)?;
-
-        self.mouse_velocity.set_mouse_sensitivity(config.mouse_sensitivity);
 
         self.hotkey_state.hide_mouse_cursor = config.hide_mouse_cursor;
 
@@ -523,7 +521,6 @@ where
             audio_output_handle,
             input_mapper,
             inputs: initial_inputs,
-            mouse_velocity: MouseVelocityTracker::new(common_config.mouse_sensitivity),
             hotkey_state,
             window_state: WindowState::new(),
             fps_tracker: FpsTracker::new(),
@@ -738,11 +735,8 @@ where
                 InputEvent::AnalogValueChange { button, player, value } => {
                     self.inputs.set_analog(button, player, value);
                 }
-                InputEvent::MouseMotion { position: (x, y), delta, display_info } => {
-                    self.inputs.handle_mouse_motion(x, y, display_info);
-                    self.mouse_velocity.record_motion(delta);
-
-                    self.inputs.update_mouse_velocity(self.mouse_velocity.current());
+                InputEvent::MouseMotion { position, delta, display_info } => {
+                    self.inputs.handle_mouse_motion(position, delta, display_info);
                 }
                 InputEvent::MouseLeave => {
                     self.inputs.handle_mouse_leave();
@@ -761,10 +755,6 @@ where
                 }
             }
         }
-
-        // Need to periodically update velocity because SDL only generates mouse events when the
-        // mouse is actively moving
-        self.inputs.update_mouse_velocity(self.mouse_velocity.current());
 
         self.runner.update_inputs(&self.inputs);
 
@@ -1160,7 +1150,4 @@ macro_rules! bincode_config {
     };
 }
 
-use crate::mainloop::create::WindowTitle;
-use crate::mainloop::mouse::MouseVelocityTracker;
 use bincode_config;
-use egui_sdl3_wgpu::FrameRunEffect;

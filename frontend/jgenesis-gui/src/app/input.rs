@@ -8,6 +8,7 @@ use gb_config::GameBoyButton;
 use gba_config::GbaButton;
 use genesis_config::{GenesisButton, GenesisControllerType};
 use jgenesis_common::input::Player;
+use jgenesis_native_config::genesis::GenesisAppConfig;
 use jgenesis_native_config::input::InputAppConfig;
 use jgenesis_native_config::input::mappings::{
     GameBoyInputMapping, GbaInputMapping, GbaJoypadMapping, GbaSolarMapping,
@@ -321,16 +322,6 @@ impl App {
         let mut open = true;
         Window::new(OpenWindow::GeneralInput.title()).open(&mut open).show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label("Emulated mouse sensitivity:");
-                ui.add(Slider::new(&mut self.config.input.mouse_sensitivity, 0.0..=10.0));
-
-                if ui.button("Default").clicked() {
-                    self.config.input.mouse_sensitivity =
-                        InputAppConfig::default().mouse_sensitivity;
-                }
-            });
-
-            ui.horizontal(|ui| {
                 ui.label("Gamepad joystick axis deadzone:");
                 ui.add(Slider::new(&mut self.config.input.axis_deadzone, 0..=i16::MAX));
 
@@ -492,6 +483,8 @@ impl App {
                 }
             });
 
+            ui.add_space(3.0);
+
             ui.checkbox(
                 &mut self.config.genesis.allow_opposing_joypad_directions,
                 ALLOW_OPPOSING_DIRECTIONS_LABEL,
@@ -500,6 +493,19 @@ impl App {
                 &mut self.config.genesis.auto_3_button_mode,
                 "Automatically force 3-button mode in 6-button-incompatible games",
             );
+
+            ui.add_space(3.0);
+
+            ui.horizontal(|ui| {
+                ui.label("Mega Mouse sensitivity:");
+                ui.add(Slider::new(&mut self.config.genesis.mega_mouse_sensitivity, 0.0..=10.0));
+
+                if ui.button("Default").clicked() {
+                    self.config.genesis.mega_mouse_sensitivity =
+                        GenesisAppConfig::default().mega_mouse_sensitivity;
+                }
+            });
+
             ui.separator();
 
             let mapping = self.render_mapping_set_selector(OpenWindow::GenesisInput, ui);

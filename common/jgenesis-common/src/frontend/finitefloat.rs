@@ -2,7 +2,7 @@
 
 use bincode::{Decode, Encode};
 use std::fmt::{Display, Formatter};
-use std::ops::{Mul, MulAssign};
+use std::ops::{Add, AddAssign, Mul, MulAssign};
 
 macro_rules! define_finite_float {
     ($name:ident, $ft:ty, $ut:ty) => {
@@ -16,6 +16,13 @@ macro_rules! define_finite_float {
             #[must_use]
             pub fn get(self) -> $ft {
                 <$ft>::from_bits(self.0)
+            }
+        }
+
+        impl Default for $name {
+            #[inline]
+            fn default() -> Self {
+                Self::ZERO
             }
         }
 
@@ -43,9 +50,28 @@ macro_rules! define_finite_float {
             }
         }
 
+        impl Add for $name {
+            type Output = Self;
+
+            #[inline]
+            fn add(self, rhs: Self) -> Self::Output {
+                let lhs = <$ft>::from(self);
+                let rhs = <$ft>::from(rhs);
+                Self((lhs + rhs).to_bits())
+            }
+        }
+
+        impl AddAssign for $name {
+            #[inline]
+            fn add_assign(&mut self, rhs: Self) {
+                *self = *self + rhs;
+            }
+        }
+
         impl Mul for $name {
             type Output = Self;
 
+            #[inline]
             fn mul(self, rhs: Self) -> Self::Output {
                 let lhs = <$ft>::from(self);
                 let rhs = <$ft>::from(rhs);
@@ -54,6 +80,7 @@ macro_rules! define_finite_float {
         }
 
         impl MulAssign for $name {
+            #[inline]
             fn mul_assign(&mut self, rhs: Self) {
                 *self = *self * rhs;
             }

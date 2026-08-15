@@ -80,7 +80,12 @@ impl MappableInputs<NesButton> for NesInputs {
     }
 
     #[inline]
-    fn handle_mouse_motion(&mut self, x: f32, y: f32, display_info: DisplayInfo) {
+    fn handle_mouse_motion(
+        &mut self,
+        (x, y): (f32, f32),
+        _delta: (f32, f32),
+        display_info: DisplayInfo,
+    ) {
         if let NesInputDevice::Zapper(zapper_state) = &mut self.p2 {
             zapper_state.position =
                 jgenesis_common::input::viewport_position_to_frame_position(x, y, display_info);

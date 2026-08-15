@@ -51,7 +51,6 @@ pub struct CommonConfig {
     pub load_recent_state_at_launch: bool,
     pub launch_in_fullscreen: bool,
     pub initial_window_size: NonZeroU8,
-    pub mouse_sensitivity: f64,
     pub axis_deadzone: i16,
     #[cfg_display(indent_nested)]
     pub hotkey_config: HotkeyConfig,
@@ -306,7 +305,6 @@ impl AppConfigExt for AppConfig {
             load_recent_state_at_launch: self.common.load_recent_state_at_launch,
             launch_in_fullscreen: self.common.launch_in_fullscreen,
             initial_window_size: self.common.initial_window_size,
-            mouse_sensitivity: self.input.mouse_sensitivity,
             axis_deadzone: self.input.axis_deadzone,
             hotkey_config: self.input.hotkeys.clone(),
             pause_emulator: self.common.pause_emulator,
@@ -367,6 +365,7 @@ impl AppConfigExt for AppConfig {
                 forced_timing_mode: self.genesis.forced_timing_mode,
                 forced_region: self.genesis.forced_region,
                 allow_opposing_joypad_directions: self.genesis.allow_opposing_joypad_directions,
+                mega_mouse_sensitivity: self.genesis.mega_mouse_sensitivity,
                 auto_3_button_mode: self.genesis.auto_3_button_mode,
                 aspect_ratio: self.genesis.aspect_ratio,
                 force_square_pixels_in_h40: self.genesis.force_square_pixels_in_h40,

@@ -120,7 +120,12 @@ impl MappableInputs<SnesButton> for SnesInputs {
     }
 
     #[inline]
-    fn handle_mouse_motion(&mut self, x: f32, y: f32, display_info: DisplayInfo) {
+    fn handle_mouse_motion(
+        &mut self,
+        (x, y): (f32, f32),
+        _delta: (f32, f32),
+        display_info: DisplayInfo,
+    ) {
         for controller in [&mut self.p1, &mut self.p2] {
             if let SnesController::SuperScope(super_scope_state) = controller {
                 super_scope_state.position =

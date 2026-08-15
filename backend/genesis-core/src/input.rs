@@ -133,7 +133,7 @@ enum ControllerState {
 }
 
 impl ControllerState {
-    fn new(controller: GenesisController) -> Self {
+    fn new(controller: GenesisController, mega_mouse_sensitivity: f64) -> Self {
         log::debug!("Creating new controller state for type {:?}", controller.controller_type());
 
         match controller {
@@ -141,13 +141,15 @@ impl ControllerState {
                 Self::ThreeButton(ThreeButtonState::new(joypad))
             }
             GenesisController::SixButton(joypad) => Self::SixButton(SixButtonState::new(joypad)),
-            GenesisController::MegaMouse(joypad) => Self::MegaMouse(MegaMouseState::new(joypad)),
+            GenesisController::MegaMouse(joypad) => {
+                Self::MegaMouse(MegaMouseState::new(joypad, mega_mouse_sensitivity))
+            }
             GenesisController::Xe1ap(joypad) => Self::Xe1ap(Xe1apState::new(joypad)),
             GenesisController::None => Self::None,
         }
     }
 
-    fn update_inputs(&mut self, controller: GenesisController) {
+    fn update_inputs(&mut self, controller: GenesisController, mega_mouse_sensitivity: f64) {
         match (self, controller) {
             (Self::ThreeButton(state), GenesisController::ThreeButton(joypad)) => {
                 state.joypad = joypad;
@@ -164,7 +166,7 @@ impl ControllerState {
             (Self::None, GenesisController::None) => {}
             // Controller type changed; reset state
             (state, controller) => {
-                *state = Self::new(controller);
+                *state = Self::new(controller, mega_mouse_sensitivity);
             }
         }
     }
@@ -223,6 +225,7 @@ impl GenesisControllerExt for GenesisController {
 pub struct InputState {
     inputs: GenesisInputs,
     allow_opposing_joypad_directions: bool,
+    mega_mouse_sensitivity: f64,
     auto_3_button_mode: bool,
     six_button_incompatible_game: bool,
     p1_state: ControllerState,
@@ -251,10 +254,11 @@ impl InputState {
         let mut input_state = Self {
             inputs: GenesisInputs::default(),
             allow_opposing_joypad_directions: config.allow_opposing_joypad_directions,
+            mega_mouse_sensitivity: config.mega_mouse_sensitivity,
             auto_3_button_mode: config.auto_3_button_mode,
             six_button_incompatible_game,
-            p1_state: ControllerState::new(GenesisController::None),
-            p2_state: ControllerState::new(GenesisController::None),
+            p1_state: ControllerState::new(GenesisController::None, config.mega_mouse_sensitivity),
+            p2_state: ControllerState::new(GenesisController::None, config.mega_mouse_sensitivity),
             p1_pins: Pins::new(),
             p2_pins: Pins::new(),
             ext_pins: Pins::new(),
@@ -287,7 +291,7 @@ impl InputState {
             .p1
             .with_auto_3_button(auto_3_button)
             .with_allow_opposing_directions(self.allow_opposing_joypad_directions);
-        self.p1_state.update_inputs(p1_inputs);
+        self.p1_state.update_inputs(p1_inputs, self.mega_mouse_sensitivity);
         self.p1_state.update_pins(&mut self.p1_pins);
 
         let p2_inputs = self
@@ -295,10 +299,11 @@ impl InputState {
             .p2
             .with_auto_3_button(auto_3_button)
             .with_allow_opposing_directions(self.allow_opposing_joypad_directions);
-        self.p2_state.update_inputs(p2_inputs);
+        self.p2_state.update_inputs(p2_inputs, self.mega_mouse_sensitivity);
         self.p2_state.update_pins(&mut self.p2_pins);
     }
 
+    #[allow(clippy::float_cmp)] // Compared float values come from config, not a calculation
     pub fn reload_config(&mut self, config: &GenesisEmulatorConfig) {
         macro_rules! update_fields_if_changed {
             ($first:ident $(, $rest:ident)* $(,)?) => {
@@ -315,7 +320,17 @@ impl InputState {
             }
         }
 
-        update_fields_if_changed!(allow_opposing_joypad_directions, auto_3_button_mode);
+        for state in [&mut self.p1_state, &mut self.p2_state] {
+            if let ControllerState::MegaMouse(mouse) = state {
+                mouse.set_sensitivity(config.mega_mouse_sensitivity);
+            }
+        }
+
+        update_fields_if_changed!(
+            allow_opposing_joypad_directions,
+            mega_mouse_sensitivity,
+            auto_3_button_mode
+        );
     }
 
     #[must_use]

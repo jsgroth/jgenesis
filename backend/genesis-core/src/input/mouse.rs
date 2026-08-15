@@ -12,6 +12,9 @@ const TL_CHANGE_WAIT_CYCLES: u32 = 76; // Roughly 10 μs
 pub struct MegaMouseState {
     pub joypad: MegaMouseJoypadState,
     latched: MegaMouseJoypadState,
+    latched_x: i16,
+    latched_y: i16,
+    sensitivity: f64,
     counter: u8,
     tl: bool,
     clock_frozen: bool,
@@ -22,10 +25,13 @@ pub struct MegaMouseState {
 }
 
 impl MegaMouseState {
-    pub fn new(joypad: MegaMouseJoypadState) -> Self {
+    pub fn new(joypad: MegaMouseJoypadState, sensitivity: f64) -> Self {
         Self {
             joypad,
             latched: joypad,
+            latched_x: 0,
+            latched_y: 0,
+            sensitivity,
             counter: 0,
             tl: true,
             clock_frozen: false,
@@ -70,7 +76,7 @@ impl MegaMouseState {
             // clear to me why that delay happens so I'm not emulating it
         } else if th_changed {
             // TH 1->0 transition begins a transfer
-            self.latched = self.joypad;
+            self.latch_inputs();
             self.counter = 1;
 
             // If previous state was TH=1 TR=0, the clock freezes until the mouse is reset (based on test ROM)
@@ -104,8 +110,8 @@ impl MegaMouseState {
                 // Axis sign and overflow bits (overflow not emulated)
                 pins.input_d3(false); // Y overflow
                 pins.input_d2(false); // X overflow
-                pins.input_d1(self.latched.y < 0);
-                pins.input_d0(self.latched.x < 0);
+                pins.input_d1(self.latched_y < 0);
+                pins.input_d0(self.latched_x < 0);
             }
             5 => {
                 // Buttons
@@ -116,25 +122,40 @@ impl MegaMouseState {
             }
             6 => {
                 // X axis, high nibble
-                pins.input_data_nibble((self.latched.x as u8) >> 4);
+                pins.input_data_nibble((self.latched_x as u8) >> 4);
             }
             7 => {
                 // X axis, low nibble
-                pins.input_data_nibble((self.latched.x as u8) & 0xF);
+                pins.input_data_nibble((self.latched_x as u8) & 0xF);
             }
             8 => {
                 // Y axis, high nibble
-                pins.input_data_nibble((self.latched.y as u8) >> 4);
+                pins.input_data_nibble((self.latched_y as u8) >> 4);
             }
             9 => {
                 // Y axis, low nibble
-                pins.input_data_nibble((self.latched.y as u8) & 0xF);
+                pins.input_data_nibble((self.latched_y as u8) & 0xF);
             }
             _ => panic!(
                 "invalid Mega Mouse counter value {}, should be <= {MAX_COUNTER}",
                 self.counter
             ),
         }
+    }
+
+    fn latch_inputs(&mut self) {
+        fn f64_to_i9(value: f64) -> i16 {
+            // Mega Mouse axis values are signed 9-bit
+            // Arbitrarily multiply by 0.3 because using full pixel values is way too sensitive
+            (0.3 * value).round().clamp(-256.0, 255.0) as i16
+        }
+
+        let dx = self.sensitivity * (self.joypad.x_position.get() - self.latched.x_position.get());
+        let dy = self.sensitivity * (self.joypad.y_position.get() - self.latched.y_position.get());
+        self.latched = self.joypad;
+
+        self.latched_x = f64_to_i9(dx);
+        self.latched_y = f64_to_i9(-dy); // Mega Mouse Y axis is inverted (+ is up, - is down)
     }
 
     pub fn tick(&mut self, m68k_cycles: u32, pins: &mut Pins) {
@@ -158,5 +179,9 @@ impl MegaMouseState {
         }
 
         self.update_pins(pins);
+    }
+
+    pub fn set_sensitivity(&mut self, sensitivity: f64) {
+        self.sensitivity = sensitivity;
     }
 }
