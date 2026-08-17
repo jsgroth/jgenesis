@@ -8,7 +8,6 @@ use crate::bus::GenesisBus;
 use crate::bus::debug::{Debug68000Bus, DebugZ80Bus};
 use bincode::{Decode, Encode};
 use cdrom::reader::CdRom;
-use genesis_components::GenesisEmulatorConfigExt;
 use genesis_components::cartridge::Cartridge;
 use genesis_components::vdp::{Vdp, VdpTickEffect};
 use genesis_config::{GenesisButton, GenesisEmulatorConfig, GenesisInputs, GenesisRegion};

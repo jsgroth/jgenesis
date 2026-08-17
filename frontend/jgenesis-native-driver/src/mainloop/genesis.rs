@@ -5,7 +5,6 @@ use crate::mainloop::{CreatedEmulator, NativeDebugFn, NativeEmulatorError, creat
 use crate::{NativeEmulator, NativeEmulatorResult, extensions};
 use cdrom::reader::CdRom;
 use cdrom::reader::CdRomFileFormat;
-use genesis_components::GenesisEmulatorConfigExt;
 use genesis_config::{GenesisController, GenesisInputs, GenesisRegion};
 use genesis_core::GenesisEmulator;
 use genesis_core::api::GenesisHardware;
@@ -114,16 +113,14 @@ impl CreatableEmulator for GenesisEmulator {
         let default_window_size = if config.hardware.has_32x() {
             WindowSize::new_32x(
                 config.common.initial_window_size,
-                config.emulator_config.aspect_ratio,
                 emulator.timing_mode(),
-                config.emulator_config.to_gen_par_params(),
+                &config.emulator_config,
             )
         } else {
             WindowSize::new_genesis(
                 config.common.initial_window_size,
-                config.emulator_config.aspect_ratio,
                 emulator.timing_mode(),
-                config.emulator_config.to_gen_par_params(),
+                &config.emulator_config,
             )
         };
 

@@ -9,7 +9,6 @@ use crate::bus::{Sega32XBus, Sh2Bus};
 use crate::registers::Access;
 use crate::{GenesisVdp, WhichCpu, bootrom};
 use bincode::{Decode, Encode};
-use genesis_components::GenesisEmulatorConfigExt;
 use genesis_components::cartridge::Cartridge;
 use genesis_components::vdp::BorderSize;
 use genesis_config::GenesisEmulatorConfig;

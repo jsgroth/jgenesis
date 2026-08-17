@@ -1,4 +1,4 @@
-use genesis_config::{GenParParams, GenesisAspectRatio};
+use genesis_config::{GenesisAspectRatio, GenesisEmulatorConfig};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::{EnumAll, EnumDisplay, deserialize_default_on_error};
 use jgenesis_renderer::config::{
@@ -37,6 +37,9 @@ impl WindowSize {
 
     const GENESIS_HEIGHT: f64 = 224.0;
     const GENESIS_WIDTH_H40: f64 = 320.0;
+    const GENESIS_H_BORDER_H40: f64 = 27.0;
+    const GENESIS_NTSC_V_BORDER: f64 = 19.0;
+    const GENESIS_PAL_V_BORDER: f64 = 70.0;
 
     const NES_NTSC_HEIGHT: f64 = 224.0;
     const NES_PAL_HEIGHT: f64 = 240.0;
@@ -88,54 +91,67 @@ impl WindowSize {
     #[must_use]
     pub fn new_genesis(
         size: NonZeroU8,
-        aspect_ratio: GenesisAspectRatio,
         timing_mode: TimingMode,
-        params: GenParParams,
+        config: &GenesisEmulatorConfig,
     ) -> Self {
         Self::new(
-            Self::genesis_width(aspect_ratio, timing_mode, params),
-            Self::GENESIS_HEIGHT,
+            Self::genesis_width(timing_mode, config),
+            Self::genesis_height(timing_mode, config),
             size,
         )
     }
 
-    fn genesis_width(
-        aspect_ratio: GenesisAspectRatio,
-        timing_mode: TimingMode,
-        params: GenParParams,
-    ) -> f64 {
-        let mut h40_width = if params.force_square_in_h40 {
-            Self::GENESIS_WIDTH_H40
-        } else {
+    fn genesis_width(timing_mode: TimingMode, config: &GenesisEmulatorConfig) -> f64 {
+        let mut h40_width = Self::GENESIS_WIDTH_H40;
+
+        if config.render_horizontal_border {
+            h40_width += Self::GENESIS_H_BORDER_H40;
+        }
+
+        if !config.force_square_pixels_in_h40 {
             let h40_par =
-                aspect_ratio.to_h40_pixel_aspect_ratio(timing_mode).unwrap_or_else(|| {
+                config.aspect_ratio.to_h40_pixel_aspect_ratio(timing_mode).unwrap_or_else(|| {
                     GenesisAspectRatio::default()
                         .to_h40_pixel_aspect_ratio(timing_mode)
                         .unwrap_or(1.0)
                 });
-            Self::GENESIS_WIDTH_H40 * h40_par
-        };
+            h40_width *= h40_par;
+        }
 
-        if params.anamorphic_widescreen {
+        if config.anamorphic_widescreen {
             h40_width *= 4.0 / 3.0;
         }
 
         h40_width
     }
 
+    fn genesis_height(timing_mode: TimingMode, config: &GenesisEmulatorConfig) -> f64 {
+        let mut height = Self::GENESIS_HEIGHT;
+
+        if config.render_vertical_border {
+            height += match timing_mode {
+                TimingMode::Ntsc => Self::GENESIS_NTSC_V_BORDER,
+                TimingMode::Pal => Self::GENESIS_PAL_V_BORDER,
+            };
+        }
+
+        height
+    }
+
     #[must_use]
     pub fn new_32x(
         size: NonZeroU8,
-        aspect_ratio: GenesisAspectRatio,
         timing_mode: TimingMode,
-        params: GenParParams,
+        config: &GenesisEmulatorConfig,
     ) -> Self {
         // Make 32X window a little wider than Genesis by default so that the frame won't shrink if a
         // game switches to H32 mode while the renderer has forced integer height scaling enabled
-        let genesis_width = Self::genesis_width(aspect_ratio, timing_mode, params);
+        let genesis_width = Self::genesis_width(timing_mode, config);
         let width = genesis_width * 323.25 / 320.0;
 
-        Self::new(width, Self::GENESIS_HEIGHT, size)
+        let height = Self::genesis_height(timing_mode, config);
+
+        Self::new(width, height, size)
     }
 
     #[must_use]

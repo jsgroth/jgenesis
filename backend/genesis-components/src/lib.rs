@@ -6,7 +6,7 @@ pub mod vdp;
 pub mod ym2612;
 
 use crate::vdp::{DarkenColors, Vdp, VdpConfig};
-use genesis_config::{GenParParams, GenesisEmulatorConfig};
+use genesis_config::GenesisEmulatorConfig;
 use jgenesis_common::frontend::TimingMode;
 
 pub const NTSC_GENESIS_MCLK_FREQUENCY: f64 = 53_693_175.0;
@@ -17,9 +17,6 @@ pub const SPRITE_LIMITS_MODAL_MESSAGE: &str = "Sprite limits are disabled; may c
 pub trait GenesisEmulatorConfigExt {
     #[must_use]
     fn to_vdp_config(&self, s32x_present: bool) -> VdpConfig;
-
-    #[must_use]
-    fn to_gen_par_params(&self) -> GenParParams;
 }
 
 impl GenesisEmulatorConfigExt for GenesisEmulatorConfig {
@@ -39,14 +36,6 @@ impl GenesisEmulatorConfigExt for GenesisEmulatorConfig {
             } else {
                 DarkenColors::No
             },
-        }
-    }
-
-    fn to_gen_par_params(&self) -> GenParParams {
-        GenParParams {
-            force_square_in_h40: self.force_square_pixels_in_h40,
-            adjust_for_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
-            anamorphic_widescreen: self.anamorphic_widescreen,
         }
     }
 }

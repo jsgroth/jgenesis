@@ -718,6 +718,16 @@ impl GenesisEmulatorConfig {
         }
         NonZeroU64::new(clamped_divider).unwrap()
     }
+
+    #[inline]
+    #[must_use]
+    pub fn to_gen_par_params(&self) -> GenParParams {
+        GenParParams {
+            force_square_in_h40: self.force_square_pixels_in_h40,
+            adjust_for_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
+            anamorphic_widescreen: self.anamorphic_widescreen,
+        }
+    }
 }
 
 impl EmulatorConfigTrait for GenesisEmulatorConfig {
