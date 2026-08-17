@@ -617,6 +617,8 @@ define_controller_mapping!(SnesControllerMapping, SnesButton, [
     r: R,
     start: Start,
     select: Select,
+    mouse_left: MouseLeft,
+    mouse_right: MouseRight,
     super_scope_fire: SuperScopeFire,
     super_scope_cursor: SuperScopeCursor,
     super_scope_pause: SuperScopePause,
@@ -639,6 +641,8 @@ impl SnesControllerMapping {
             r: key_input!(C),
             start: key_input!(Return),
             select: key_input!(RShift),
+            mouse_left: Some(vec![GenericInput::Mouse(MouseButton::Left)]),
+            mouse_right: Some(vec![GenericInput::Mouse(MouseButton::Right)]),
             super_scope_fire: Some(vec![GenericInput::Mouse(MouseButton::Left)]),
             super_scope_cursor: Some(vec![GenericInput::Mouse(MouseButton::Right)]),
             super_scope_pause: Some(vec![GenericInput::Mouse(MouseButton::Middle)]),
@@ -661,6 +665,8 @@ impl SnesControllerMapping {
             r: key_input!(O),
             start: key_input!(Return),
             select: key_input!(RShift),
+            mouse_left: Some(vec![GenericInput::Mouse(MouseButton::Left)]),
+            mouse_right: Some(vec![GenericInput::Mouse(MouseButton::Right)]),
             super_scope_fire: Some(vec![GenericInput::Mouse(MouseButton::Left)]),
             super_scope_cursor: Some(vec![GenericInput::Mouse(MouseButton::Right)]),
             super_scope_pause: Some(vec![GenericInput::Mouse(MouseButton::Middle)]),
@@ -683,6 +689,8 @@ impl SnesControllerMapping {
             r: None,
             start: None,
             select: None,
+            mouse_left: None,
+            mouse_right: None,
             super_scope_fire: Some(vec![GenericInput::Mouse(MouseButton::Left)]),
             super_scope_cursor: Some(vec![GenericInput::Mouse(MouseButton::Right)]),
             super_scope_pause: Some(vec![GenericInput::Mouse(MouseButton::Middle)]),
@@ -720,6 +728,7 @@ impl SnesInputMapping {
 pub enum SnesControllerType {
     #[default]
     Gamepad,
+    Mouse,
     SuperScope,
     None,
 }

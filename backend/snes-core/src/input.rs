@@ -1,5 +1,5 @@
 use bincode::{Decode, Encode};
-use jgenesis_common::frontend::{DisplayInfo, MappableInputs, Modal};
+use jgenesis_common::frontend::{DisplayInfo, FiniteF64, MappableInputs, Modal};
 use jgenesis_common::input::Player;
 use snes_config::{SnesButton, SnesJoypadState, SuperScopeButton};
 
@@ -22,6 +22,26 @@ impl SnesJoypadStateExt for SnesJoypadState {
             | (u16::from(self.x) << 9)
             | (u16::from(self.l) << 10)
             | (u16::from(self.r) << 11)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+pub struct SnesMouseState {
+    // Absolute position values are meaningless, only differences between positions are meaningful
+    pub x_position: FiniteF64,
+    pub y_position: FiniteF64,
+    pub left: bool,
+    pub right: bool,
+}
+
+impl SnesMouseState {
+    #[inline]
+    pub fn set_button(&mut self, button: SnesButton, pressed: bool) {
+        match button {
+            SnesButton::MouseLeft => self.left = pressed,
+            SnesButton::MouseRight => self.right = pressed,
+            _ => {}
+        }
     }
 }
 
@@ -69,6 +89,7 @@ impl SuperScopeState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum SnesController {
     Gamepad(SnesJoypadState),
+    Mouse(SnesMouseState),
     SuperScope(SuperScopeState),
     None,
 }
@@ -77,6 +98,7 @@ impl SnesController {
     pub fn set_field(&mut self, button: SnesButton, pressed: bool) {
         match self {
             Self::Gamepad(state) => state.set_button(button, pressed),
+            Self::Mouse(state) => state.set_button(button, pressed),
             Self::SuperScope(state) => {
                 if let Some(super_scope_button) = button.to_super_scope() {
                     state.set_button(super_scope_button, pressed);
@@ -92,7 +114,7 @@ impl SnesController {
             Self::Gamepad(joypad) => {
                 Self::Gamepad(joypad.with_allow_opposing_directions(allow_opposing_directions))
             }
-            Self::SuperScope(_) | Self::None => self,
+            Self::Mouse(_) | Self::SuperScope(_) | Self::None => self,
         }
     }
 }
@@ -123,14 +145,29 @@ impl MappableInputs<SnesButton> for SnesInputs {
     fn handle_mouse_motion(
         &mut self,
         (x, y): (f32, f32),
-        _delta: (f32, f32),
+        (dx, dy): (f32, f32),
         display_info: DisplayInfo,
     ) {
         for controller in [&mut self.p1, &mut self.p2] {
-            if let SnesController::SuperScope(super_scope_state) = controller {
-                super_scope_state.position =
-                    jgenesis_common::input::viewport_position_to_frame_position(x, y, display_info);
-                log::debug!("Set Super Scope position to {:?}", super_scope_state.position);
+            match controller {
+                SnesController::Mouse(mouse_state) => {
+                    if let Ok(dx) = FiniteF64::try_from(f64::from(dx)) {
+                        mouse_state.x_position += dx;
+                    }
+                    if let Ok(dy) = FiniteF64::try_from(f64::from(dy)) {
+                        mouse_state.y_position += dy;
+                    }
+                }
+                SnesController::SuperScope(super_scope_state) => {
+                    super_scope_state.position =
+                        jgenesis_common::input::viewport_position_to_frame_position(
+                            x,
+                            y,
+                            display_info,
+                        );
+                    log::debug!("Set Super Scope position to {:?}", super_scope_state.position);
+                }
+                _ => {}
             }
         }
     }
@@ -142,6 +179,13 @@ impl MappableInputs<SnesButton> for SnesInputs {
                 super_scope_state.position = None;
             }
         }
+    }
+
+    #[inline]
+    fn needs_relative_mouse_mode(&self) -> bool {
+        [self.p1, self.p2]
+            .into_iter()
+            .any(|controller| matches!(controller, SnesController::Mouse(_)))
     }
 
     fn modal_for_input(&self, button: SnesButton, player: Player, pressed: bool) -> Option<Modal> {

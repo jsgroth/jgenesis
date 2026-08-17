@@ -75,6 +75,8 @@ define_controller_inputs! {
         Select -> select "Select",
     },
     non_gamepad_buttons: [
+        MouseLeft "Left Button",
+        MouseRight "Right Button",
         SuperScopeFire "Fire",
         SuperScopeCursor "Cursor",
         SuperScopePause "Pause",
@@ -122,6 +124,12 @@ impl SnesButton {
                 | Self::Start
                 | Self::Select
         )
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn is_mouse(self) -> bool {
+        matches!(self, Self::MouseLeft | Self::MouseRight)
     }
 
     #[inline]

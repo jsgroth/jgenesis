@@ -1,5 +1,5 @@
 use crate::input::GenericInput;
-use crate::input::mappings::{GenesisControllerMapping, HotkeyConfig};
+use crate::input::mappings::{GenesisControllerMapping, HotkeyConfig, SnesControllerMapping};
 use crate::{AppConfig, RomSearchDirectory};
 use serde::Deserialize;
 
@@ -7,8 +7,8 @@ pub fn migrate_config_0_14_0(config: &mut AppConfig, config_str: &str) {
     // rom_search_dirs field changed from Vec<String> to Vec<RomSearchDirectory>
     migrate_0_14_0_rom_search_dirs(config, config_str);
 
-    // New buttons/hotkeys for Mega Mouse
-    migrate_0_14_0_mega_mouse_inputs(config);
+    // New buttons/hotkeys for Mega Mouse and SNES Mouse
+    migrate_0_14_0_mouse_inputs(config);
 
     // SNES Super Scope input config format changed
     migrate_0_14_0_super_scope_inputs(config, config_str);
@@ -33,13 +33,21 @@ fn migrate_0_14_0_rom_search_dirs(config: &mut AppConfig, config_str: &str) {
     }
 }
 
-fn migrate_0_14_0_mega_mouse_inputs(config: &mut AppConfig) {
+fn migrate_0_14_0_mouse_inputs(config: &mut AppConfig) {
     let defaults = GenesisControllerMapping::keyboard_wasd();
     for (mapping, default) in [
         (&mut config.input.genesis.mapping_1.p1.mega_mouse_left, defaults.mega_mouse_left),
         (&mut config.input.genesis.mapping_1.p1.mega_mouse_right, defaults.mega_mouse_right),
         (&mut config.input.genesis.mapping_1.p1.mega_mouse_middle, defaults.mega_mouse_middle),
         (&mut config.input.genesis.mapping_1.p1.mega_mouse_start, defaults.mega_mouse_start),
+        (
+            &mut config.input.snes.mapping_1.p1.mouse_left,
+            SnesControllerMapping::default().mouse_left,
+        ),
+        (
+            &mut config.input.snes.mapping_1.p1.mouse_right,
+            SnesControllerMapping::default().mouse_right,
+        ),
         (
             &mut config.input.hotkeys.mapping_1.cancel_mouse_input,
             HotkeyConfig::default().mapping_1.cancel_mouse_input,

@@ -475,6 +475,7 @@ impl AppConfigExt for AppConfig {
                 audio_60hz_hack: self.snes.audio_60hz_hack,
                 gsu_overclock_factor: self.snes.gsu_overclock_factor,
                 allow_opposing_joypad_directions: self.snes.allow_opposing_joypad_directions,
+                mouse_sensitivity: self.snes.mouse_sensitivity,
             },
             dsp1_rom_path: self.snes.dsp1_rom_path.clone(),
             dsp2_rom_path: self.snes.dsp2_rom_path.clone(),

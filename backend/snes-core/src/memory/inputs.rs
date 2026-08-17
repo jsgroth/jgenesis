@@ -1,10 +1,104 @@
 use crate::api::SnesEmulatorConfig;
-use crate::input::{SnesController, SnesInputs, SnesJoypadStateExt, SuperScopeState};
+use crate::input::{
+    SnesController, SnesInputs, SnesJoypadStateExt, SnesMouseState, SuperScopeState,
+};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use snes_config::SnesJoypadState;
 
 const AUTO_JOYPAD_DURATION_MCLK: u64 = 4224;
+
+#[derive(Debug, Clone, Copy, Encode, Decode)]
+struct MouseRegister {
+    sensitivity: u8,
+    last_x: f64,
+    last_y: f64,
+    x_direction: bool,
+    x_magnitude: u8,
+    y_direction: bool,
+    y_magnitude: u8,
+    left: bool,
+    right: bool,
+}
+
+impl Default for MouseRegister {
+    fn default() -> Self {
+        Self {
+            sensitivity: 0,
+            last_x: 0.0,
+            last_y: 0.0,
+            x_direction: false,
+            x_magnitude: 0,
+            y_direction: false,
+            y_magnitude: 0,
+            left: false,
+            right: false,
+        }
+    }
+}
+
+impl MouseRegister {
+    fn update(&mut self, mouse: SnesMouseState, config_sensitivity: f64) {
+        // According to the manual, 0 is "slow", 1 is "normal", 2 is "fast"
+        // Normal and fast speeds have an exponential curve where the reported movement values
+        // increase more rapidly at higher speeds, but presumably any half-decent PC mouse already
+        // works that way, so instead of trying to emulate that just apply a fixed multiplier to dx/dy values
+        const SENSITIVITY_MULTIPLIERS: [f64; 3] = [0.75, 1.0, 1.5];
+
+        fn mouse_axis_to_magnitude(value: f64) -> u8 {
+            // Mouse magnitude values are unsigned 7-bit
+            // Multiplying by 0.2 is arbitrary, mouse feels way too sensitive without that
+            (0.2 * value).abs().round().clamp(0.0, 127.0) as u8
+        }
+
+        let sensitivity = config_sensitivity * SENSITIVITY_MULTIPLIERS[self.sensitivity as usize];
+
+        let dx = sensitivity * (mouse.x_position.get() - self.last_x);
+        let dy = sensitivity * (mouse.y_position.get() - self.last_y);
+        self.last_x = mouse.x_position.get();
+        self.last_y = mouse.y_position.get();
+
+        self.left = mouse.left;
+        self.right = mouse.right;
+
+        self.x_magnitude = mouse_axis_to_magnitude(dx);
+        self.y_magnitude = mouse_axis_to_magnitude(dy);
+
+        // Supposedly the direction bits are sticky and only change when magnitude is non-zero
+        if self.x_magnitude != 0 {
+            self.x_direction = dx < 0.0; // 0 = right, 1 = left
+        }
+        if self.y_magnitude != 0 {
+            self.y_direction = dy < 0.0; // 0 = down, 1 = up
+        }
+    }
+
+    fn increment_sensitivity(&mut self) {
+        // Sensitivity is always 0-2
+        self.sensitivity = (self.sensitivity + 1) % 3;
+        log::debug!("SNES mouse sensitivity set to {}", self.sensitivity);
+    }
+
+    fn to_register_bits(self) -> u32 {
+        fn reverse_bits_u2(value: u8) -> u8 {
+            ((value & 1) << 1) | ((value & 2) >> 1)
+        }
+
+        fn reverse_bits_u7(value: u8) -> u8 {
+            value.reverse_bits() >> 1
+        }
+
+        // First 8 bits are always 0
+        (u32::from(self.right) << 8)
+        | (u32::from(self.left) << 9)
+        | (u32::from(reverse_bits_u2(self.sensitivity)) << 10)
+        | (1 << 15) // Bits 12-15 are always mouse ID (0, 0, 0, 1)
+        | (u32::from(self.y_direction) << 16)
+        | (u32::from(reverse_bits_u7(self.y_magnitude)) << 17)
+        | (u32::from(self.x_direction) << 24)
+        | (u32::from(reverse_bits_u7(self.x_magnitude)) << 25)
+    }
+}
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 struct SuperScopeRegister {
@@ -68,59 +162,88 @@ impl SuperScopeRegister {
     }
 }
 
+fn register_word_to_u32(word: u16) -> u32 {
+    // Controllers with 16 bits always read out constant 1s afterwards
+    u32::from(word) | (0xFFFF << 16)
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 struct ControllerPort {
     auto_joypad_inputs: u16,
-    manual_joypad_inputs: u16,
+    manual_joypad_inputs: u32,
+    mouse_register: MouseRegister,
+    mouse_sensitivity: f64,
     super_scope_register: SuperScopeRegister,
     last_strobe_inputs: SnesController,
 }
 
 impl ControllerPort {
-    fn new() -> Self {
+    fn new(config: &SnesEmulatorConfig) -> Self {
         Self {
             auto_joypad_inputs: 0,
             manual_joypad_inputs: 0,
+            mouse_register: MouseRegister::default(),
+            mouse_sensitivity: config.mouse_sensitivity,
             super_scope_register: SuperScopeRegister::default(),
             last_strobe_inputs: SnesController::None,
         }
     }
 
-    fn strobe(&mut self, current_inputs: SnesController) {
-        // Instead of explicitly clearing Super Scope state for non-Super Scope controllers, clear
-        // it at the beginning of every strobe and let Super Scope set it again
-        let mut super_scope_register = self.super_scope_register;
-        self.super_scope_register = SuperScopeRegister::default();
+    fn update_strobe(&mut self, strobe: bool, current_inputs: SnesController) {
+        if !matches!(current_inputs, SnesController::Mouse(_)) {
+            self.mouse_register = MouseRegister::default();
+        }
 
-        self.manual_joypad_inputs = match current_inputs {
-            SnesController::Gamepad(joypad) => joypad.to_register_word(),
+        if !matches!(current_inputs, SnesController::SuperScope(_)) {
+            self.super_scope_register = SuperScopeRegister::default();
+        }
+
+        match current_inputs {
+            SnesController::Gamepad(joypad) => {
+                // Gamepads only reset on strobe 1->0 transitions
+                if !strobe {
+                    self.manual_joypad_inputs = register_word_to_u32(joypad.to_register_word());
+                }
+            }
+            SnesController::Mouse(mouse) => {
+                // Not sure the mouse actually works this way, but only update mouse state
+                // on strobe 1->0 transitions because of how mouse movement is tracked and latched
+                if !strobe {
+                    self.mouse_register.update(mouse, self.mouse_sensitivity);
+                    self.manual_joypad_inputs = self.mouse_register.to_register_bits();
+                }
+            }
             SnesController::SuperScope(super_scope) => {
-                let word = super_scope_register.to_register_word();
+                self.manual_joypad_inputs =
+                    register_word_to_u32(self.super_scope_register.to_register_word());
 
                 let last_strobe_state = match self.last_strobe_inputs {
                     SnesController::SuperScope(state) => state,
                     _ => SuperScopeState::default(),
                 };
 
-                super_scope_register.update(super_scope, last_strobe_state);
-                self.super_scope_register = super_scope_register;
-
-                word
+                self.super_scope_register.update(super_scope, last_strobe_state);
             }
             SnesController::None => {
                 // All bits read 0 when no controller is connected
                 // Some games use this for controller detection (e.g. Donkey Kong Country)
-                0
+                self.manual_joypad_inputs = 0;
             }
-        };
+        }
 
         self.last_strobe_inputs = current_inputs;
     }
 
-    fn next_manual_bit(&mut self) -> bool {
+    fn next_manual_bit(&mut self, strobe: bool) -> bool {
+        if strobe && matches!(self.last_strobe_inputs, SnesController::Mouse(_)) {
+            // Reading from the mouse while strobe=1 increments sensitivity
+            self.mouse_register.increment_sensitivity();
+            return false;
+        }
+
         let next_bit = self.manual_joypad_inputs.bit(0);
         self.manual_joypad_inputs =
-            (self.manual_joypad_inputs >> 1) | (u16::from(self.end_of_input_bit()) << 15);
+            (self.manual_joypad_inputs >> 1) | (u32::from(self.end_of_input_bit()) << 31);
         next_bit
     }
 
@@ -133,7 +256,7 @@ impl ControllerPort {
         // Auto joypad read always reads out 16 bits serially, earliest in most significant bits
         let mut auto_read_inputs = 0;
         for _ in 0..16 {
-            auto_read_inputs = (auto_read_inputs << 1) | u16::from(self.next_manual_bit());
+            auto_read_inputs = (auto_read_inputs << 1) | u16::from(self.next_manual_bit(false));
         }
         auto_read_inputs
     }
@@ -158,19 +281,21 @@ impl InputState {
             auto_joypad_p1_inputs: SnesJoypadState::default().to_register_word(),
             auto_joypad_p2_inputs: SnesJoypadState::default().to_register_word(),
             strobe: false,
-            p1: ControllerPort::new(),
-            p2: ControllerPort::new(),
+            p1: ControllerPort::new(config),
+            p2: ControllerPort::new(config),
             inputs: SnesInputs::default(),
             allow_opposing_directions: config.allow_opposing_joypad_directions,
         }
     }
 
     pub fn set_strobe(&mut self, strobe: bool) {
-        if !self.strobe && strobe {
-            self.p1.strobe(
+        if strobe != self.strobe {
+            self.p1.update_strobe(
+                strobe,
                 self.inputs.p1.with_allow_opposing_directions(self.allow_opposing_directions),
             );
-            self.p2.strobe(
+            self.p2.update_strobe(
+                strobe,
                 self.inputs.p2.with_allow_opposing_directions(self.allow_opposing_directions),
             );
         }
@@ -191,11 +316,11 @@ impl InputState {
     }
 
     pub fn next_manual_p1_bit(&mut self) -> bool {
-        self.p1.next_manual_bit()
+        self.p1.next_manual_bit(self.strobe)
     }
 
     pub fn next_manual_p2_bit(&mut self) -> bool {
-        self.p2.next_manual_bit()
+        self.p2.next_manual_bit(self.strobe)
     }
 
     pub fn start_auto_joypad_read(&mut self) {
@@ -237,5 +362,7 @@ impl InputState {
 
     pub fn reload_config(&mut self, config: &SnesEmulatorConfig) {
         self.allow_opposing_directions = config.allow_opposing_joypad_directions;
+        self.p1.mouse_sensitivity = config.mouse_sensitivity;
+        self.p2.mouse_sensitivity = config.mouse_sensitivity;
     }
 }

@@ -39,6 +39,7 @@ pub struct SnesEmulatorConfig {
     pub audio_60hz_hack: bool,
     pub gsu_overclock_factor: NonZeroU64,
     pub allow_opposing_joypad_directions: bool,
+    pub mouse_sensitivity: f64,
 }
 
 impl EmulatorConfigTrait for SnesEmulatorConfig {
@@ -57,6 +58,7 @@ impl Default for SnesEmulatorConfig {
             audio_60hz_hack: false,
             gsu_overclock_factor: NonZeroU64::new(1).unwrap(),
             allow_opposing_joypad_directions: false,
+            mouse_sensitivity: 1.0,
         }
     }
 }

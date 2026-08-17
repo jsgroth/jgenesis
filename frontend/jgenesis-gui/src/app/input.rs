@@ -18,6 +18,7 @@ use jgenesis_native_config::input::mappings::{
 };
 use jgenesis_native_config::input::mappings::{PceInputMapping, PceJoypadMapping};
 use jgenesis_native_config::input::{GenericInput, Hotkey};
+use jgenesis_native_config::snes::SnesAppConfig;
 use nes_config::NesButton;
 use pce_config::{PceButton, PceInputDevice};
 use polonius_the_crab::{polonius, polonius_return};
@@ -758,6 +759,10 @@ impl App {
             LazyLock::new(|| snes_buttons(Player::One, SnesButton::is_gamepad));
         static P2_GAMEPAD_BUTTONS: LazyLock<Vec<GenericButton>> =
             LazyLock::new(|| snes_buttons(Player::Two, SnesButton::is_gamepad));
+        static P1_MOUSE_BUTTONS: LazyLock<Vec<GenericButton>> =
+            LazyLock::new(|| snes_buttons(Player::One, SnesButton::is_mouse));
+        static P2_MOUSE_BUTTONS: LazyLock<Vec<GenericButton>> =
+            LazyLock::new(|| snes_buttons(Player::Two, SnesButton::is_mouse));
         static P1_SUPER_SCOPE_BUTTONS: LazyLock<Vec<GenericButton>> =
             LazyLock::new(|| snes_buttons(Player::One, SnesButton::is_super_scope));
         static P2_SUPER_SCOPE_BUTTONS: LazyLock<Vec<GenericButton>> =
@@ -779,6 +784,7 @@ impl App {
                             ui.horizontal(|ui| {
                                 for (label, value) in [
                                     ("Gamepad", SnesControllerType::Gamepad),
+                                    ("Mouse", SnesControllerType::Mouse),
                                     ("Super Scope", SnesControllerType::SuperScope),
                                     ("None", SnesControllerType::None),
                                 ] {
@@ -797,10 +803,24 @@ impl App {
                 );
             }
 
+            ui.add_space(3.0);
+
             ui.checkbox(
                 &mut self.config.snes.allow_opposing_joypad_directions,
                 ALLOW_OPPOSING_DIRECTIONS_LABEL,
             );
+
+            ui.add_space(3.0);
+
+            ui.horizontal(|ui| {
+                ui.label("Mouse sensitivity:");
+                ui.add(Slider::new(&mut self.config.snes.mouse_sensitivity, 0.0..=10.0));
+
+                if ui.button("Default").clicked() {
+                    self.config.snes.mouse_sensitivity = SnesAppConfig::default().mouse_sensitivity;
+                }
+            });
+
             ui.separator();
 
             let mapping = self.render_mapping_set_selector(OpenWindow::SnesInput, ui);
@@ -810,6 +830,7 @@ impl App {
                 SnesControllerType::Gamepad | SnesControllerType::None => {
                     ("Player 1 - Gamepad", &P1_GAMEPAD_BUTTONS)
                 }
+                SnesControllerType::Mouse => ("Player 1 - Mouse", &P1_MOUSE_BUTTONS),
                 SnesControllerType::SuperScope => {
                     ("Player 1 - Super Scope", &P1_SUPER_SCOPE_BUTTONS)
                 }
@@ -818,6 +839,7 @@ impl App {
                 SnesControllerType::Gamepad | SnesControllerType::None => {
                     ("Player 2 - Gamepad", &P2_GAMEPAD_BUTTONS)
                 }
+                SnesControllerType::Mouse => ("Player 2 - Mouse", &P2_MOUSE_BUTTONS),
                 SnesControllerType::SuperScope => {
                     ("Player 2 - Super Scope", &P2_SUPER_SCOPE_BUTTONS)
                 }

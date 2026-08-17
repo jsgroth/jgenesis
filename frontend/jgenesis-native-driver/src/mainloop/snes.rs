@@ -9,7 +9,7 @@ use jgenesis_native_config::common::WindowSize;
 use jgenesis_native_config::input::mappings::{ButtonMappingVec, SnesControllerType};
 use snes_config::SnesJoypadState;
 use snes_core::api::SnesEmulator;
-use snes_core::input::{SnesController, SnesInputs, SuperScopeState};
+use snes_core::input::{SnesController, SnesInputs, SnesMouseState, SuperScopeState};
 
 trait SnesControllerTypeExt {
     fn to_controller(self) -> SnesController;
@@ -19,8 +19,24 @@ impl SnesControllerTypeExt for SnesControllerType {
     fn to_controller(self) -> SnesController {
         match self {
             Self::Gamepad => SnesController::Gamepad(SnesJoypadState::default()),
+            Self::Mouse => SnesController::Mouse(SnesMouseState::default()),
             Self::SuperScope => SnesController::SuperScope(SuperScopeState::default()),
             Self::None => SnesController::None,
+        }
+    }
+}
+
+trait SnesControllerExt {
+    fn to_type(self) -> SnesControllerType;
+}
+
+impl SnesControllerExt for SnesController {
+    fn to_type(self) -> SnesControllerType {
+        match self {
+            Self::Gamepad(_) => SnesControllerType::Gamepad,
+            Self::Mouse(_) => SnesControllerType::Mouse,
+            Self::SuperScope(_) => SnesControllerType::SuperScope,
+            Self::None => SnesControllerType::None,
         }
     }
 }
@@ -73,8 +89,14 @@ impl CreatableEmulator for SnesEmulator {
         emulator: &mut NativeEmulator<Self>,
         config: &Self::NativeConfig,
     ) -> NativeEmulatorResult<()> {
-        emulator.inputs.p1 = config.inputs.p1_type.to_controller();
-        emulator.inputs.p2 = config.inputs.p2_type.to_controller();
+        for (inputs, controller_type) in [
+            (&mut emulator.inputs.p1, config.inputs.p1_type),
+            (&mut emulator.inputs.p2, config.inputs.p2_type),
+        ] {
+            if inputs.to_type() != controller_type {
+                *inputs = controller_type.to_controller();
+            }
+        }
 
         Ok(())
     }

@@ -8,7 +8,7 @@ use std::path::PathBuf;
 const DEFAULT_GSU_OVERCLOCK: NonZeroU64 = NonZeroU64::new(1).unwrap();
 
 #[deserialize_default_on_error]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SnesAppConfig {
     pub forced_timing_mode: Option<TimingMode>,
@@ -18,6 +18,7 @@ pub struct SnesAppConfig {
     pub audio_60hz_hack: bool,
     pub gsu_overclock_factor: NonZeroU64,
     pub allow_opposing_joypad_directions: bool,
+    pub mouse_sensitivity: f64,
     pub dsp1_rom_path: Option<PathBuf>,
     pub dsp2_rom_path: Option<PathBuf>,
     pub dsp3_rom_path: Option<PathBuf>,
@@ -37,6 +38,7 @@ impl Default for SnesAppConfig {
             audio_60hz_hack: false,
             gsu_overclock_factor: DEFAULT_GSU_OVERCLOCK,
             allow_opposing_joypad_directions: false,
+            mouse_sensitivity: 1.0,
             dsp1_rom_path: None,
             dsp2_rom_path: None,
             dsp3_rom_path: None,

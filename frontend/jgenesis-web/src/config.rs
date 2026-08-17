@@ -202,6 +202,7 @@ impl SnesWebConfig {
             audio_60hz_hack: true,
             gsu_overclock_factor: NonZeroU64::new(1).unwrap(),
             allow_opposing_joypad_directions: false,
+            mouse_sensitivity: 1.0,
         }
     }
 }
