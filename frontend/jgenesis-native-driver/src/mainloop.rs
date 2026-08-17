@@ -13,6 +13,7 @@ mod save;
 mod smsgg;
 mod snes;
 mod state;
+mod window;
 
 pub use audio::AudioError;
 pub use create::SdlSubsystems;
@@ -39,6 +40,7 @@ use crate::mainloop::runner::{
     RunnerThreadHandle,
 };
 use crate::mainloop::save::FsSaveWriter;
+use crate::mainloop::window::RendererExt;
 use bincode::error::{DecodeError, EncodeError};
 use egui_sdl3_wgpu::FrameRunEffect;
 use gb_core::api::GameBoyLoadError;
@@ -50,12 +52,11 @@ use jgenesis_native_config::EguiTheme;
 use jgenesis_native_config::common::{HideMouseCursor, WindowSize};
 use jgenesis_native_config::input::mappings::ButtonMappingVec;
 use jgenesis_native_config::input::{CompactHotkey, Hotkey};
-use jgenesis_renderer::renderer;
 use jgenesis_renderer::renderer::{RendererError, WgpuRenderer};
 use nes_core::api::NesInitializationError;
 use sdl3::event::{Event, WindowEvent};
 use sdl3::mouse::MouseUtil;
-use sdl3::video::{FullscreenType, Window, WindowBuildError};
+use sdl3::video::{Window, WindowBuildError};
 use sdl3::{EventPump, IntegerOrSdlError, VideoSubsystem};
 use segacd_core::api::SegaCdLoadError;
 use snes_core::api::SnesLoadError;
@@ -71,46 +72,6 @@ use std::time::Duration;
 use thiserror::Error;
 
 const MODAL_DURATION: Duration = Duration::from_secs(3);
-
-trait RendererExt {
-    fn focus(&mut self);
-
-    fn window_id(&self) -> u32;
-
-    fn is_fullscreen(&self) -> bool;
-
-    // Returns new fullscreen state
-    fn toggle_fullscreen(&mut self) -> Result<bool, sdl3::Error>;
-}
-
-impl RendererExt for WgpuRenderer<Window> {
-    fn focus(&mut self) {
-        // SAFETY: This is not reassigning the window
-        unsafe {
-            self.window_mut().raise();
-        }
-    }
-
-    fn window_id(&self) -> u32 {
-        self.window().id()
-    }
-
-    fn is_fullscreen(&self) -> bool {
-        matches!(self.window().fullscreen_state(), FullscreenType::Desktop | FullscreenType::True)
-    }
-
-    fn toggle_fullscreen(&mut self) -> Result<bool, sdl3::Error> {
-        // SAFETY: This is not reassigning the window
-        unsafe {
-            let window = self.window_mut();
-            let currently_fullscreen = window.fullscreen_state() != FullscreenType::Off;
-            let new_fullscreen = !currently_fullscreen;
-            window.set_fullscreen(new_fullscreen)?;
-
-            Ok(new_fullscreen)
-        }
-    }
-}
 
 type NativeDebugFn<Emulator> = DebugFn<
     Emulator,
@@ -497,7 +458,7 @@ where
 
         let initial_window_size = common_config.window_size.unwrap_or(runner.default_window_size());
 
-        let window = create_window(
+        let window = window::create(
             &sdl.video.borrow(),
             runner.initial_window_title(),
             initial_window_size.width,
@@ -505,7 +466,7 @@ where
             common_config.launch_in_fullscreen,
         )?;
 
-        let window_size = sdl_window_size(&window);
+        let window_size = window::size(&window);
         let renderer = pollster::block_on(WgpuRenderer::new(
             window,
             window_size,
@@ -713,7 +674,7 @@ where
             | WindowEvent::Maximized
                 if window_id == self.renderer.window_id() =>
             {
-                let window_size = sdl_window_size(self.renderer.window());
+                let window_size = window::size(self.renderer.window());
                 self.renderer.handle_resize(window_size);
             }
             _ => {}
@@ -788,13 +749,9 @@ where
                 if let Some(WindowTitle(mut window_title)) = window_title {
                     window_title.retain(|c| (c as u8) != 0);
 
-                    // SAFETY: This is not reassigning the window
-                    unsafe {
-                        self.renderer
-                            .window_mut()
-                            .set_title(&window_title)
-                            .expect("Window title does not have any null characters");
-                    }
+                    self.renderer
+                        .set_window_title(&window_title)
+                        .expect("Window title does not have any null characters");
                 }
             }
             RunnerCommandResponse::ChangeDiscFailed(err) => {
@@ -1101,44 +1058,6 @@ fn file_name_no_ext<P: AsRef<Path>>(path: P) -> NativeEmulatorResult<String> {
         .file_name()
         .map(|file_name| file_name.to_string_lossy().into_owned())
         .ok_or_else(|| NativeEmulatorError::ParseFileName(path.as_ref().display().to_string()))
-}
-
-fn create_window(
-    video: &VideoSubsystem,
-    title: &str,
-    width: u32,
-    height: u32,
-    fullscreen: bool,
-) -> NativeEmulatorResult<Window> {
-    let display_scale = video
-        .get_primary_display()
-        .ok()
-        .and_then(|display| display.get_content_scale().ok())
-        .unwrap_or(1.0);
-
-    let mut window_builder = video.window(
-        title,
-        (width as f32 * display_scale).round() as u32,
-        (height as f32 * display_scale).round() as u32,
-    );
-    window_builder.metal_view();
-    window_builder.high_pixel_density();
-    window_builder.resizable();
-    window_builder.position_centered();
-
-    if fullscreen {
-        window_builder.fullscreen();
-    }
-
-    let window = window_builder.build()?;
-    Ok(window)
-}
-
-fn sdl_window_size(window: &Window) -> renderer::WindowSize {
-    let (width, height) = window.size_in_pixels();
-    let pixel_density = window.pixel_density();
-
-    renderer::WindowSize { width, height, pixel_density }
 }
 
 macro_rules! bincode_config {
