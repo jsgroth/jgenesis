@@ -41,6 +41,7 @@ pollster = { workspace = true }
 regex = { workspace = true }
 rustc-hash = { workspace = true }
 sdl3 = { workspace = true }
+sdl3-sys = { workspace = true }
 sevenz-rust = { workspace = true }
 thiserror = { workspace = true }
 zip = { workspace = true }

@@ -40,7 +40,7 @@ use crate::mainloop::runner::{
     RunnerThreadHandle,
 };
 use crate::mainloop::save::FsSaveWriter;
-use crate::mainloop::window::RendererExt;
+use crate::mainloop::window::{AtomicWindowSize, CreateWindowArgs, RendererExt};
 use bincode::error::{DecodeError, EncodeError};
 use egui_sdl3_wgpu::FrameRunEffect;
 use gb_core::api::GameBoyLoadError;
@@ -67,6 +67,7 @@ use std::fmt::Debug;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::Duration;
 use thiserror::Error;
@@ -150,6 +151,7 @@ pub struct NativeEmulator<Emulator: EmulatorTrait> {
     config: Emulator::Config,
     common_config: CommonConfig,
     renderer: WgpuRenderer<Window>,
+    window_size: Arc<AtomicWindowSize>,
     audio_output_handle: SdlAudioOutputHandle,
     input_mapper: InputMapper<Emulator::Button>,
     inputs: Emulator::Inputs,
@@ -163,9 +165,13 @@ pub struct NativeEmulator<Emulator: EmulatorTrait> {
 
 impl<Emulator: EmulatorTrait> NativeEmulator<Emulator> {
     fn reload_common_config(&mut self, config: &CommonConfig) -> Result<(), AudioError> {
+        let borderless_changed = config.borderless_window != self.common_config.borderless_window;
         self.common_config = config.clone();
 
         self.renderer.reload_config(config.renderer_config);
+        if borderless_changed {
+            self.renderer.update_borderless(config.borderless_window, &self.window_size);
+        }
 
         self.audio_output_handle.reload_config(config)?;
 
@@ -458,12 +464,15 @@ where
 
         let initial_window_size = common_config.window_size.unwrap_or(runner.default_window_size());
 
-        let window = window::create(
+        let (window, atomic_window_size) = window::create(
             &sdl.video.borrow(),
-            runner.initial_window_title(),
-            initial_window_size.width,
-            initial_window_size.height,
-            common_config.launch_in_fullscreen,
+            CreateWindowArgs {
+                title: runner.initial_window_title(),
+                width: initial_window_size.width,
+                height: initial_window_size.height,
+                fullscreen: common_config.launch_in_fullscreen,
+                borderless: common_config.borderless_window,
+            },
         )?;
 
         let window_size = window::size(&window);
@@ -479,6 +488,7 @@ where
             config: emulator_config,
             common_config: common_config.clone(),
             renderer,
+            window_size: atomic_window_size,
             audio_output_handle,
             input_mapper,
             inputs: initial_inputs,
@@ -676,6 +686,7 @@ where
             {
                 let window_size = window::size(self.renderer.window());
                 self.renderer.handle_resize(window_size);
+                self.window_size.update(window_size);
             }
             _ => {}
         }
@@ -932,8 +943,10 @@ where
     }
 
     fn toggle_fullscreen(&mut self) -> NativeEmulatorResult<()> {
-        let fullscreen =
-            self.renderer.toggle_fullscreen().map_err(NativeEmulatorError::SdlSetFullscreen)?;
+        let fullscreen = self
+            .renderer
+            .toggle_fullscreen(self.common_config.borderless_window, &self.window_size)
+            .map_err(NativeEmulatorError::SdlSetFullscreen)?;
 
         // Don't wait for mouse motion to hide cursor when entering fullscreen
         if fullscreen {

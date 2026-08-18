@@ -2205,6 +2205,7 @@ dependencies = [
  "rustc-hash 2.1.2",
  "s32x-core",
  "sdl3",
+ "sdl3-sys",
  "segacd-core",
  "sevenz-rust",
  "smsgg-config",

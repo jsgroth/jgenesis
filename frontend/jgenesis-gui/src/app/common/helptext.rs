@@ -13,6 +13,15 @@ pub const INITIAL_WINDOW_SIZE: HelpText = HelpText {
     ],
 };
 
+pub const BORDERLESS_WINDOW: HelpText = HelpText {
+    heading: "Borderless Window",
+    text: &[
+        "If enabled, make the emulator window borderless (no window decorations). This has no effect when in fullscreen mode.",
+        "When this is enabled, you can click inside the window to drag it.",
+        "This setting is incompatible with mouse input mappings due to the click-to-drag behavior.",
+    ],
+};
+
 pub const WGPU_BACKEND: HelpText = HelpText {
     heading: "wgpu Backend",
     text: &[

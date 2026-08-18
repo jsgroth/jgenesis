@@ -22,6 +22,7 @@ impl App {
             widgets::render_vertical_scroll_area(ui, |ui| {
                 self.render_fullscreen_settings(ui, WINDOW);
                 self.render_window_size_setting(ui, WINDOW);
+                self.render_borderless_setting(ui, WINDOW);
                 self.render_integer_height_scaling_settings(ui, WINDOW);
                 self.render_wgpu_backend_setting(ui, WINDOW);
                 self.render_wgpu_power_preference_setting(ui, WINDOW);
@@ -84,6 +85,15 @@ impl App {
             .interact_rect;
         if ui.rect_contains_pointer(rect) {
             self.state.help_text.insert(window, helptext::INITIAL_WINDOW_SIZE);
+        }
+    }
+
+    fn render_borderless_setting(&mut self, ui: &mut Ui, window: OpenWindow) {
+        let rect = ui
+            .checkbox(&mut self.config.common.borderless_window, "Borderless window")
+            .interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(window, helptext::BORDERLESS_WINDOW);
         }
     }
 

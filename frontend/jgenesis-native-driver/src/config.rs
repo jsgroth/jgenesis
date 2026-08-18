@@ -50,6 +50,7 @@ pub struct CommonConfig {
     pub rewind_buffer_length_seconds: u64,
     pub load_recent_state_at_launch: bool,
     pub launch_in_fullscreen: bool,
+    pub borderless_window: bool,
     pub initial_window_size: NonZeroU8,
     pub axis_deadzone: i16,
     #[cfg_display(indent_nested)]
@@ -304,6 +305,7 @@ impl AppConfigExt for AppConfig {
             rewind_buffer_length_seconds: self.common.rewind_buffer_length_seconds,
             load_recent_state_at_launch: self.common.load_recent_state_at_launch,
             launch_in_fullscreen: self.common.launch_in_fullscreen,
+            borderless_window: self.common.borderless_window,
             initial_window_size: self.common.initial_window_size,
             axis_deadzone: self.input.axis_deadzone,
             hotkey_config: self.input.hotkeys.clone(),
