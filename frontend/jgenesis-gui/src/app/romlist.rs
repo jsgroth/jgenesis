@@ -127,10 +127,10 @@ pub fn read_metadata(path: &Path) -> Option<RomMetadata> {
     process_file(file_name, path)
 }
 
-pub fn from_recent_opens(recent_opens: &[RecentOpen]) -> Vec<RomMetadata> {
+pub fn from_recent_opens(recent_opens: &[RecentOpen]) -> Vec<Option<RomMetadata>> {
     recent_opens
         .iter()
-        .filter_map(|RecentOpen { console, path: path_str, .. }| {
+        .map(|RecentOpen { console, path: path_str, .. }| {
             let console = Console::from_str(console).ok()?;
             let path = Path::new(path_str);
             let file_name_no_ext =

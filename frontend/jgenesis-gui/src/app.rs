@@ -236,7 +236,7 @@ struct AppState {
     rom_list: Arc<Mutex<Vec<RomMetadata>>>,
     filtered_rom_list: Rc<[RomMetadata]>,
     rom_list_refresh_needed: bool,
-    recent_open_list: Vec<RomMetadata>,
+    recent_open_list: Vec<Option<RomMetadata>>,
     disc_change_options: Vec<(String, PathBuf)>,
     title_match: String,
     title_match_lowercase: Rc<str>,
@@ -584,6 +584,8 @@ impl App {
                     for (i, recent_open) in
                         self.state.recent_open_list.clone().into_iter().enumerate()
                     {
+                        let Some(recent_open) = recent_open else { continue };
+
                         let label = format!(
                             "{} [{}]",
                             recent_open.file_name_no_ext,
@@ -1439,6 +1441,7 @@ impl App {
             app.state
                 .recent_open_list
                 .iter()
+                .filter_map(Option::as_ref)
                 .find_map(|metadata| predicate(&metadata.file_name_no_ext))
         });
     }
