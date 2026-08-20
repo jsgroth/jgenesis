@@ -2,7 +2,6 @@ mod helptext;
 
 use crate::app::widgets::{BiosErrorStrings, OptionalPathSelector, RenderErrorEffect};
 use crate::app::{App, OpenWindow, widgets};
-use crate::emurunner::EmuRunnerStatus;
 use egui::{Context, Slider, Ui, Window};
 use gb_config::{GbAspectRatio, GbAudioResampler, GbPalette, GbcColorCorrection};
 use jgenesis_native_config::gb::GameBoyAppConfig;
@@ -30,79 +29,76 @@ impl App {
 
                 ui.add_space(5.0);
 
-                let running_gb = self.emu_runner.status() != EmuRunnerStatus::RunningGameBoy;
-                ui.add_enabled_ui(running_gb, |ui| {
+                let rect = ui
+                    .checkbox(
+                        &mut self.config.game_boy.force_dmg_mode,
+                        "Force Game Boy mode in software with Game Boy Color support",
+                    )
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::FORCE_DMG_MODE);
+                }
+
+                let rect = ui
+                    .checkbox(
+                        &mut self.config.game_boy.force_cgb_mode,
+                        "Force Game Boy Color mode in Game Boy-only software (requires GBC boot ROM)",
+                    )
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::FORCE_CGB_MODE);
+                }
+
+                ui.add_space(5.0);
+
+                let rect = ui
+                    .checkbox(
+                        &mut self.config.game_boy.dmg_boot_rom,
+                        "Boot from boot ROM in Game Boy mode",
+                    )
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::BOOT_ROM);
+                }
+
+                // CGB boot ROM is required for CGB's DMG compatibility mode
+                self.config.game_boy.cgb_boot_rom |= self.config.game_boy.force_cgb_mode;
+
+                ui.add_enabled_ui(!self.config.game_boy.force_cgb_mode, |ui| {
                     let rect = ui
                         .checkbox(
-                            &mut self.config.game_boy.force_dmg_mode,
-                            "Force DMG mode in software with CGB support",
+                            &mut self.config.game_boy.cgb_boot_rom,
+                            "Boot from boot ROM in Game Boy Color mode",
                         )
-                        .interact_rect;
-                    if ui.rect_contains_pointer(rect) {
-                        self.state.help_text.insert(WINDOW, helptext::FORCE_DMG_MODE);
-                    }
-
-                    let rect = ui
-                        .checkbox(
-                            &mut self.config.game_boy.force_cgb_mode,
-                            "Force CGB mode in DMG-only software (requires CGB boot ROM)",
-                        )
-                        .interact_rect;
-                    if ui.rect_contains_pointer(rect) {
-                        self.state.help_text.insert(WINDOW, helptext::FORCE_CGB_MODE);
-                    }
-
-                    // Require CGB boot ROM when forcing CGB mode
-                    self.config.game_boy.cgb_boot_rom |= self.config.game_boy.force_cgb_mode;
-
-                    ui.add_space(5.0);
-
-                    let rect = ui
-                        .checkbox(
-                            &mut self.config.game_boy.dmg_boot_rom,
-                            "Boot from boot ROM in DMG mode",
-                        )
-                        .interact_rect;
-                    if ui.rect_contains_pointer(rect) {
-                        self.state.help_text.insert(WINDOW, helptext::BOOT_ROM);
-                    }
-
-                    ui.add_enabled_ui(!self.config.game_boy.force_cgb_mode, |ui| {
-                        let rect = ui
-                            .checkbox(
-                                &mut self.config.game_boy.cgb_boot_rom,
-                                "Boot from boot ROM in CGB mode",
-                            )
-                            .interact_rect;
-                        if ui.rect_contains_pointer(rect) {
-                            self.state.help_text.insert(WINDOW, helptext::BOOT_ROM);
-                        }
-                    });
-
-                    ui.add_space(5.0);
-
-                    let rect = ui
-                        .add(OptionalPathSelector::new(
-                            "DMG boot ROM",
-                            &mut self.config.game_boy.dmg_boot_rom_path,
-                            || pick_boot_rom_path("gb"),
-                        ))
-                        .interact_rect;
-                    if ui.rect_contains_pointer(rect) {
-                        self.state.help_text.insert(WINDOW, helptext::BOOT_ROM);
-                    }
-
-                    let rect = ui
-                        .add(OptionalPathSelector::new(
-                            "CGB boot ROM",
-                            &mut self.config.game_boy.cgb_boot_rom_path,
-                            || pick_boot_rom_path("gbc"),
-                        ))
                         .interact_rect;
                     if ui.rect_contains_pointer(rect) {
                         self.state.help_text.insert(WINDOW, helptext::BOOT_ROM);
                     }
                 });
+
+                ui.add_space(5.0);
+
+                let rect = ui
+                    .add(OptionalPathSelector::new(
+                        "Game Boy boot ROM",
+                        &mut self.config.game_boy.dmg_boot_rom_path,
+                        || pick_boot_rom_path("gb"),
+                    ))
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::BOOT_ROM);
+                }
+
+                let rect = ui
+                    .add(OptionalPathSelector::new(
+                        "Game Boy Color boot ROM",
+                        &mut self.config.game_boy.cgb_boot_rom_path,
+                        || pick_boot_rom_path("gbc"),
+                    ))
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::BOOT_ROM);
+                }
 
                 self.render_help_text(ui, WINDOW);
             },

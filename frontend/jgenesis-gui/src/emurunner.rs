@@ -387,7 +387,7 @@ impl GenericEmulator {
     fn create(
         sdl: SdlSubsystems,
         console: Console,
-        mut config: Box<AppConfig>,
+        config: Box<AppConfig>,
         cheats: Arc<ActiveCheats>,
         path: PathBuf,
         secondary_paths: Vec<PathBuf>,
@@ -421,17 +421,6 @@ impl GenericEmulator {
                 Self::Snes(Box::new(NativeSnesEmulator::create(sdl, config.snes_config(path))?))
             }
             Console::GameBoy | Console::GameBoyColor => {
-                // TODO this should be an arg to gb_config() somehow
-                match console {
-                    Console::GameBoy => {
-                        config.game_boy.force_dmg_mode = true;
-                    }
-                    Console::GameBoyColor => {
-                        config.game_boy.force_cgb_mode = true;
-                    }
-                    _ => {}
-                }
-
                 Self::GameBoy(Box::new(NativeGameBoyEmulator::create(sdl, config.gb_config(path))?))
             }
             Console::GameBoyAdvance => Self::GameBoyAdvance(Box::new(NativeGbaEmulator::create(

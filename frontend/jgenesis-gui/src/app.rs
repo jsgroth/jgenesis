@@ -620,6 +620,11 @@ impl App {
 
             ui.menu_button("Open Using", |ui| {
                 for console in Console::ALL {
+                    if console == Console::GameBoyColor {
+                        // Don't allow Open Using > GBC until the GB/GBC forcing logic is less awful
+                        continue;
+                    }
+
                     self.render_open_using_button(console, ui);
                 }
             });

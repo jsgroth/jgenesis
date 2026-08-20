@@ -69,7 +69,7 @@ pub fn enum_all(input: TokenStream) -> TokenStream {
 /// uses the variant name directly.
 ///
 /// This macro requires that the [`EnumAll`] and [`EnumDisplay`] macros are also used.
-#[proc_macro_derive(CustomValueEnum)]
+#[proc_macro_derive(CustomValueEnum, attributes(value_enum))]
 pub fn custom_value_enum(input: TokenStream) -> TokenStream {
     enums::custom_value_enum(input)
 }

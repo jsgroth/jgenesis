@@ -1,18 +1,18 @@
 use crate::app::HelpText;
 
 pub const FORCE_DMG_MODE: HelpText = HelpText {
-    heading: "Force DMG Mode",
+    heading: "Force GB Mode",
     text: &[
-        "Force the emulator to present as an original Game Boy even when loading Game Boy Color games.",
+        "Force the emulator to operate as an original Game Boy even when loading Game Boy Color games.",
         "Some games support both GB and GBC, and some GBC games show unique lockout graphics when run on GB.",
     ],
 };
 
 pub const FORCE_CGB_MODE: HelpText = HelpText {
-    heading: "Force CGB Mode",
+    heading: "Force GBC Mode",
     text: &[
         "Force the emulator to operate as a Game Boy Color even when loading games with no GBC functionality.",
-        "Requires a CGB boot ROM in order to initialize the compatibility palettes.",
+        "Requires a GBC boot ROM in order to initialize the compatibility palettes.",
     ],
 };
 
@@ -28,7 +28,7 @@ pub const BOOT_ROM: HelpText = HelpText {
     heading: "Boot ROM",
     text: &[
         "Optionally boot from a boot ROM instead of booting directly into the game.",
-        "Boot ROMs are configured separately for DMG (Game Boy) and CGB (Game Boy Color).",
+        "Boot ROMs are configured separately for Game Boy and Game Boy Color.",
     ],
 };
 

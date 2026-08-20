@@ -85,9 +85,16 @@ pub enum BackgroundTileMap {
     One,
 }
 
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct BootRoms {
     pub dmg: Option<Vec<u8>>,
     pub cgb: Option<Vec<u8>>,
+}
+
+impl BootRoms {
+    fn take(&mut self) -> Self {
+        Self { dmg: self.dmg.take(), cgb: self.cgb.take() }
+    }
 }
 
 #[derive(Debug, Clone, Encode, Decode, PartialClone)]
@@ -108,6 +115,8 @@ pub struct GameBoyEmulator {
     rgba_buffer: RgbaFrameBuffer,
     config: GameBoyEmulatorConfig,
     frame_count: u64,
+    // Kept around to enable hard reset
+    boot_roms: BootRoms,
 }
 
 impl GameBoyEmulator {
@@ -141,8 +150,8 @@ impl GameBoyEmulator {
         log::info!("Running with hardware mode {hardware_mode}, software type {software_type}");
 
         let boot_rom = match hardware_mode {
-            HardwareMode::Dmg => boot_roms.dmg,
-            HardwareMode::Cgb => boot_roms.cgb,
+            HardwareMode::Dmg => boot_roms.dmg.clone(),
+            HardwareMode::Cgb => boot_roms.cgb.clone(),
         };
         let boot_rom_present = boot_rom.is_some();
 
@@ -170,6 +179,7 @@ impl GameBoyEmulator {
             rgba_buffer: RgbaFrameBuffer::default(),
             config,
             frame_count: 0,
+            boot_roms,
         })
     }
 
@@ -299,13 +309,7 @@ impl EmulatorTrait for GameBoyEmulator {
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
         let rom = self.cartridge.take_rom();
 
-        let boot_rom = self.memory.clone_boot_rom();
-        let boot_roms = match self.hardware_mode {
-            HardwareMode::Dmg => BootRoms { dmg: boot_rom, cgb: None },
-            HardwareMode::Cgb => BootRoms { dmg: None, cgb: boot_rom },
-        };
-
-        *self = Self::create(rom, boot_roms, self.config, save_writer)
+        *self = Self::create(rom, self.boot_roms.take(), self.config, save_writer)
             .expect("Hard reset should never fail to load cartridge");
     }
 

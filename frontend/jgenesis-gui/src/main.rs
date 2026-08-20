@@ -330,19 +330,8 @@ fn run_snes(
 }
 
 fn run_gb(
-    RunEmulatorArgs { sdl, mut config, console, primary_path, load_state_slot, .. }: RunEmulatorArgs<'_>,
+    RunEmulatorArgs { sdl, config, primary_path, load_state_slot, .. }: RunEmulatorArgs<'_>,
 ) -> anyhow::Result<()> {
-    // TODO this should be an arg to gb_config() somehow
-    match console {
-        Console::GameBoy => {
-            config.game_boy.force_dmg_mode = true;
-        }
-        Console::GameBoyColor => {
-            config.game_boy.force_cgb_mode = true;
-        }
-        _ => {}
-    }
-
     let emulator = NativeGameBoyEmulator::create(sdl, config.gb_config(primary_path.clone()))?;
     run_emulator_no_gui(emulator, load_state_slot)
 }

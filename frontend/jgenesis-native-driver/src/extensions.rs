@@ -180,6 +180,7 @@ pub enum Console {
     Nes,
     Snes,
     GameBoy,
+    #[value_enum(skip)]
     GameBoyColor,
     GameBoyAdvance,
     PcEngine,

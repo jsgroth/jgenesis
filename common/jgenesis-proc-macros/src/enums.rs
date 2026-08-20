@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{Data, DeriveInput, Fields};
+use syn::{Attribute, Data, DeriveInput, Fields};
 
 pub fn enum_display(input: TokenStream) -> TokenStream {
     let ast: DeriveInput = syn::parse(input).expect("unable to parse input");
@@ -119,21 +119,64 @@ pub fn custom_value_enum(input: TokenStream) -> TokenStream {
 
     let type_ident = &input.ident;
 
+    let Data::Enum(data) = &input.data else {
+        panic!("CustomValueEnum only supports enums");
+    };
+
+    let included_fields: Vec<_> = data
+        .variants
+        .iter()
+        .filter_map(|variant| {
+            let skip = value_enum_should_skip(&variant.attrs);
+            (!skip).then_some(&variant.ident)
+        })
+        .collect();
+
     let expanded = quote! {
         impl ::clap::ValueEnum for #type_ident {
             fn value_variants<'a>() -> &'a [Self] {
-                &Self::ALL
+                const ALL: &[#type_ident] = &[
+                    #(#type_ident::#included_fields,)*
+                ];
+
+                ALL
             }
 
             fn to_possible_value(&self) -> ::std::option::Option<::clap::builder::PossibleValue> {
-                ::std::option::Option::Some(
-                    ::clap::builder::PossibleValue::new(self.to_str())
-                )
+                match self {
+                    #(
+                        Self::#included_fields => ::std::option::Option::Some(
+                            ::clap::builder::PossibleValue::new(self.to_str())
+                        ),
+                    )*
+                    _ => ::std::option::Option::None
+                }
             }
         }
     };
 
     expanded.into()
+}
+
+fn value_enum_should_skip(attrs: &[Attribute]) -> bool {
+    attrs.iter().any(|attr| {
+        if !attr.path().is_ident("value_enum") {
+            return false;
+        }
+
+        let mut skip = false;
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("skip") {
+                skip = true;
+                Ok(())
+            } else {
+                Err(meta.error("Invalid value_enum meta"))
+            }
+        })
+        .expect("Failed to parse value_enum attribute");
+
+        skip
+    })
 }
 
 pub fn match_each_variant_macro(input: TokenStream) -> TokenStream {

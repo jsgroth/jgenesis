@@ -142,10 +142,6 @@ impl Memory {
         log::debug!("BANK write: {value:02X} (boot ROM mapped: {})", self.boot_rom_mapped);
     }
 
-    pub fn clone_boot_rom(&mut self) -> Option<Vec<u8>> {
-        self.boot_rom_present.then(|| self.boot_rom.to_vec())
-    }
-
     pub fn boot_rom_mapped(&self) -> bool {
         self.boot_rom_mapped
     }
