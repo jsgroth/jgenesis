@@ -754,11 +754,16 @@ impl App {
                                     }
                                 }
 
-                                if ui.button("Browse...").clicked()
-                                    && let Some(path) = FileDialog::new().pick_folder()
-                                {
-                                    rom_search_dir.path = path;
-                                    changed = true;
+                                if ui.button("Browse...").clicked() {
+                                    let mut file_dialog = FileDialog::new();
+                                    if let Some(current_parent) = rom_search_dir.path.parent() {
+                                        file_dialog = file_dialog.set_directory(current_parent);
+                                    }
+
+                                    if let Some(path) = file_dialog.pick_folder() {
+                                        rom_search_dir.path = path;
+                                        changed = true;
+                                    }
                                 }
 
                                 ui.centered_and_justified(|ui| {
