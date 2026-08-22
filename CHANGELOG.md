@@ -1,3 +1,56 @@
+# 0.14.0
+
+## New Features
+* (**Genesis**) Sega CD 32X is now supported (Sega CD + 32X together)
+  * The emulator will automatically run in CD 32X mode if you load a Sega CD disc where the game header indicates 32X support, or you can open the File > Open Using menu and select Sega CD 32X
+* (**Genesis**) Sega CD "Mode 1" (boot from cartridge) is now supported, both with and without 32X
+  * If you load a Genesis or 32X cartridge where the game header indicates Sega CD support, the application will open a file dialog prompting for a path to the Sega CD disc image; if you cancel this out then it will run with no disc in the drive
+  * This behavior also works via File > Open Using > Sega CD (32X) as long you load the Genesis/32X cartridge first
+* (**Genesis**) Added support for the Mega Mouse controller, supported by a few dozen games across Genesis and Sega CD
+  * The emulator window will now capture mouse input if you click on it while either controller is configured to be a Mega Mouse; you can cancel this out using the Pause hotkey or the new "Cancel mouse input" hotkey (default O)
+* (**SNES**) Added support for the mouse controller (same note as above regarding mouse input)
+* (**PC Engine**) Added support for overclocking the CPU to 1.5x or 3x speed (#138)
+* Added an option to make the emulator window borderless in windowed mode (#698)
+  * Note that this is incompatible with mouse emulation and mouse input mappings due to how it makes the window draggable and resizable while borderless
+* Search directories for the game list can now be searched recursively (i.e. also search in subdirectories); you can configure this for each directory individually in Settings > Paths
+* Added a few additional command line arguments for use when running from a shell or launcher:
+  * `--no-gui` suppresses the GUI window and only opens the game specified with `-f` / `--file-path`
+  * `--hardware` allows you to explicitly specify an emulated system rather than relying on auto-detection
+  * `--config-override` allows you to override (most) individual settings without permanently modifying the settings file
+
+## Improvements
+* Input configuration now behaves the same way regardless of whether an emulator is running; no more "use the emulator window to configure input"
+* On Linux + Wayland, improved scaling behavior for the emulator and debugger windows on high DPI displays (they were very blurry before)
+* Audio buffer underruns should now produce slightly less awful noises, particularly for 32X (e.g. when fast forwarding at a higher rate than the emulator can manage)
+* The VSync Disabled option now falls back to functioning as Fast VSync (i.e. mailbox presentation) on platforms that don't support fully disabling VSync
+* In the debugger window, copy/paste is now integrated with the OS clipboard rather than only copying to / pasting from application memory
+* Reduced latency when launching a game and performing input configuration
+
+## Fixes
+* (**Genesis**) The Z80 and the YM2612 are now synchronized more closely; this fixes occasional audio crackling in _Battletoads_ when YM2612 busy flag emulation is enabled (which it is by default)
+* (**Genesis**) The YM2612 DAC channel is now initialized to the center sample value (128) instead of 0; this fixes erroneous audio pops in _Fantastic Dizzy_
+* (**Genesis**) The logic to determine initial window size now takes into account whether horizontal/vertical border rendering is enabled, which prevents large vertical black bars in PAL mode with borders (#699)
+* (**Genesis**) When emulating the XE-1 AP controller, inputs are now latched when a data transfer begins so that analog axis values cannot potentially change between nibbles
+* (**Genesis**) Improved accuracy of CPU waitstate timings when the Z80 accesses the 68000 side of the bus
+* (**32X**) Fixed logic for how the 32X VDP determines whether Genesis VDP pixels are transparent (#688)
+* (**32X**) Fixed the emulator incorrectly rendering only the Genesis frame if the 32X VDP ended the frame in blank mode, even if it was not in blank mode for the entire frame (#692)
+* (**32X**) Fixed incorrect logic for how the 32X horizontal interrupt interval works (#686)
+* (**32X**) Fixed the VDP screen shift register incorrectly only applying in packed pixel mode (#693)
+* (**32X**) Added emulation for the hardware bug where the VDP screen shift register does nothing on lines where the low byte of the frame buffer line address is 0xFF
+* (**32X**) Fixed SH-2 DMA running _way_ too slow in some cases (this bug broke multiple CD 32X games)
+* (**32X**) Improved accuracy of VDP register latch timing and VDP interrupt timing (#686)
+* (**32X**) The SH-2s are no longer allowed to write to the cartridge (e.g. to store save data), since they cannot on actual hardware
+* (**32X**) The RV bit is now properly emulated (controls access to the cartridge between Genesis and 32X)
+* Fixed every system other than SNES and GBA crashing the application if you tried to load an empty or very small ROM file
+* Fixed entries in the File > Open Recent menu potentially loading a different game in the list if the list contained any paths to files that don't exist (or no longer exist)
+* Fixed CJK characters in game titles or cheat names displaying as empty boxes even if you have a CJK system font installed (#691)
+  * Loading CJK fonts _significantly_ increases the application's RAM usage (by roughly 150-200 MB), so they are only loaded if needed to display a CJK character
+* Fixed the "hide mouse cursor over emulator window" option also annoyingly applying to the debugger window
+
+## Removed Features
+* There is no longer a separate `jgenesis-cli` executable; the new single `jgenesis` executable (formerly `jgenesis-gui`) should now support all functionality that the CLI supported
+
+
 # 0.13.1
 
 ## New Features
