@@ -255,6 +255,8 @@ impl Sega32X {
     }
 
     pub fn reload_config(&mut self, config: &GenesisEmulatorConfig) {
+        self.config = config.clone();
+
         self.sh2_clock_multiplier =
             none_if_default_multiplier(config.sega_32x.sh2_clock_multiplier);
         self.bus.vdp.reload_config(&config.sega_32x);
