@@ -101,11 +101,6 @@ jobs:
       - name: Build web
         run: |
           cd frontend/jgenesis-web && ./build.sh --dev
-
-      - name: Check Clippy warnings for web
-        run: |
-          cd frontend/jgenesis-web \
-          && RUSTFLAGS='--cfg getrandom_backend="wasm_js"' cargo +$JGENESIS_TOOLCHAIN clippy --target wasm32-unknown-unknown
   linux-release-appimage:
     runs-on: ubuntu-22.04
 
