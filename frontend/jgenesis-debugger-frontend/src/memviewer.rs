@@ -104,8 +104,8 @@ pub fn render(ctx: &Context, memory: &mut dyn DebugMemoryView, state: &mut Memor
     Window::new(&state.window_title)
         .open(&mut open)
         .constrain(false)
-        .default_pos(crate::rand_window_pos())
-        .default_width(650.0)
+        .default_pos([50.0, crate::rand_window_pos()[1]])
+        .default_width(800.0)
         .show(ctx, |ui| {
             render_right_panel(memory, state, ui);
             render_central_panel(memory, state, memory_len, ui);
@@ -219,9 +219,11 @@ fn render_central_panel(
 
         let mut builder = TableBuilder::new(ui)
             .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
-            .column(Column::auto().at_least(60.0))
-            .columns(Column::auto().at_least(column_width), num_columns)
-            .column(Column::remainder().at_least(10.0));
+            .column(Column::auto().at_least(60.0)) // Address
+            .columns(Column::auto().at_least(column_width), num_columns) // Byte/word/longword values
+            .column(Column::exact(10.0)) // Spacing
+            .column(Column::auto().at_least(125.0)) // ASCII representation
+            .column(Column::remainder().at_least(10.0)); // Spacing
 
         if let Some(address) = state.goto_address.take() {
             builder =
@@ -305,6 +307,24 @@ fn render_central_panel(
                         }
                     }
                 }
+
+                // Empty column for spacing
+                row.col(|_ui| {});
+
+                row.col(|ui| {
+                    let ascii_text = data
+                        .into_iter()
+                        .map(|byte| {
+                            if byte.is_ascii() && !byte.is_ascii_control() {
+                                byte as char
+                            } else {
+                                '.'
+                            }
+                        })
+                        .collect::<String>();
+
+                    ui.label(RichText::new(ascii_text).monospace());
+                });
 
                 // Hack to make scroll bar not overlap the rightmost data column
                 row.col(|_ui| {});
