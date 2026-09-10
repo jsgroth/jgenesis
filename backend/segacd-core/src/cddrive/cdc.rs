@@ -6,6 +6,7 @@ use crate::memory;
 use crate::rf5c164::Rf5c164;
 use crate::wordram::{WordRam, WordRamMode};
 use bincode::{Decode, Encode};
+use jgenesis_common::boxedarray::BoxedByteArray;
 use jgenesis_common::debug::{DebugBytesView, DebugMemoryView};
 use jgenesis_common::num::{GetBit, U16Ext};
 
@@ -94,7 +95,7 @@ impl RchipDmaArgs<'_> {
 // Sega CD documentation refers to this chip as the CDC.
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Rchip {
-    buffer_ram: Box<[u8; BUFFER_RAM_LEN]>,
+    buffer_ram: BoxedByteArray<BUFFER_RAM_LEN>,
     device_destination: DeviceDestination,
     host_data_buffer: Option<u16>,
     register_address: u8,
@@ -127,7 +128,7 @@ pub struct Rchip {
 impl Rchip {
     pub(super) fn new() -> Self {
         Self {
-            buffer_ram: vec![0; BUFFER_RAM_LEN].into_boxed_slice().try_into().unwrap(),
+            buffer_ram: BoxedByteArray::new(),
             device_destination: DeviceDestination::default(),
             host_data_buffer: None,
             register_address: 0,

@@ -2,6 +2,7 @@
 
 use bincode::{Decode, Encode};
 use genesis_config::GenesisEmulatorConfig;
+use jgenesis_common::boxedarray::{BoxedByteArray, BoxedWordArray};
 use jgenesis_common::cheats::CheatWordOverrides;
 use jgenesis_common::num::{GetBit, U16Ext};
 
@@ -12,8 +13,8 @@ type RamCheatOverrides = CheatWordOverrides<0xFF0000, 0xFFFFFF>;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Memory {
-    main_ram: Box<[u16; MAIN_RAM_LEN_WORDS]>,
-    audio_ram: Box<[u8; AUDIO_RAM_LEN]>,
+    main_ram: BoxedWordArray<MAIN_RAM_LEN_WORDS>,
+    audio_ram: BoxedByteArray<AUDIO_RAM_LEN>,
     ram_cheat_overrides: RamCheatOverrides,
 }
 
@@ -22,8 +23,8 @@ impl Memory {
     #[must_use]
     pub fn new(config: &GenesisEmulatorConfig) -> Self {
         Self {
-            main_ram: vec![0; MAIN_RAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
-            audio_ram: vec![0; AUDIO_RAM_LEN].into_boxed_slice().try_into().unwrap(),
+            main_ram: BoxedWordArray::new(),
+            audio_ram: BoxedByteArray::new(),
             ram_cheat_overrides: RamCheatOverrides::new(&config.cheat_codes),
         }
     }

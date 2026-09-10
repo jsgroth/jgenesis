@@ -2,6 +2,7 @@
 
 use bincode::{Decode, Encode};
 use genesis_config::{PcmInterpolation, SegaCdEmulatorConfig};
+use jgenesis_common::boxedarray::BoxedByteArray;
 use jgenesis_common::debug::{DebugBytesView, DebugMemoryView};
 use jgenesis_common::num::{GetBit, U16Ext};
 use std::array;
@@ -203,7 +204,7 @@ fn sign_magnitude_to_pcm(sample: u8) -> i8 {
 pub struct Rf5c164 {
     enabled: bool,
     channels: [Channel; 8],
-    waveform_ram: Box<WaveformRam>,
+    waveform_ram: BoxedByteArray<WAVEFORM_RAM_LEN>,
     waveform_ram_bank: u8,
     selected_channel: u8,
     divider: u64,
@@ -215,7 +216,7 @@ impl Rf5c164 {
         Self {
             enabled: false,
             channels: array::from_fn(|_| Channel::default()),
-            waveform_ram: vec![0; WAVEFORM_RAM_LEN].into_boxed_slice().try_into().unwrap(),
+            waveform_ram: BoxedByteArray::new(),
             waveform_ram_bank: 0,
             selected_channel: 0,
             divider: RF5C164_DIVIDER,

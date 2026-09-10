@@ -15,9 +15,9 @@ pub struct VdpDebugState {
 impl Vdp {
     pub fn to_debug_state(&self) -> VdpDebugState {
         VdpDebugState {
-            frame_buffer_0: self.frame_buffer_0.clone(),
-            frame_buffer_1: self.frame_buffer_1.clone(),
-            cram: self.cram.clone(),
+            frame_buffer_0: self.frame_buffer_0.clone().into(),
+            frame_buffer_1: self.frame_buffer_1.clone().into(),
+            cram: self.cram.clone().into(),
             registers: self.registers.clone(),
             config: self.config.clone(),
         }

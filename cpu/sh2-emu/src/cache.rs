@@ -16,6 +16,7 @@
 
 use crate::debug::CacheDebugState;
 use bincode::{Decode, Encode};
+use jgenesis_common::boxedarray::BoxedWordArray;
 use jgenesis_common::debug::{DebugMemoryView, DebugWordsView, Endian};
 use jgenesis_common::num::{GetBit, U16Ext};
 use std::array;
@@ -93,18 +94,18 @@ impl CacheMode {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct CpuCache {
     // Store cache as u16s because the most common fetches are opcodes which are 16-bit
-    ram: Box<[u16; CACHE_RAM_LEN_WORDS]>,
+    ram: BoxedWordArray<CACHE_RAM_LEN_WORDS>,
     ways: Box<[Way; WAYS]>,
-    lru_bits: Box<[u8; CACHE_ENTRIES]>,
+    lru_bits: [u8; CACHE_ENTRIES],
     control: CacheControlRegister,
 }
 
 impl CpuCache {
     pub fn new() -> Self {
         Self {
-            ram: vec![0; CACHE_RAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
+            ram: BoxedWordArray::new(),
             ways: Box::new(array::from_fn(|_| Way::new())),
-            lru_bits: Box::new(array::from_fn(|_| 0)),
+            lru_bits: array::from_fn(|_| 0),
             control: CacheControlRegister::default(),
         }
     }

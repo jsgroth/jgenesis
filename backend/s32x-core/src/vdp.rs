@@ -10,7 +10,7 @@ use crate::vdp::registers::{FrameBufferMode, Registers, SelectedFrameBuffer, Ver
 use bincode::{Decode, Encode};
 use genesis_components::vdp::BorderSize;
 use genesis_config::{S32XColorTint, S32XVideoOut, S32XVoidColor, Sega32XEmulatorConfig};
-use jgenesis_common::boxedarray::BoxedColorArray;
+use jgenesis_common::boxedarray::{Boxed2DWordArray, BoxedColorArray, BoxedWordArray};
 use jgenesis_common::frontend::{
     Color, CompositeParams, FiniteF64, FrameSize, RenderFrameOptions, Renderer,
     SamplesPerColorCycle, TimingMode,
@@ -60,19 +60,6 @@ const H32_H_OFFSET: u32 = 13;
 
 type FrameBufferRam = [u16; FRAME_BUFFER_LEN_WORDS];
 type Cram = [u16; CRAM_LEN_WORDS];
-
-type RenderedFrame = [[u16; FRAME_WIDTH as usize]; V30_FRAME_HEIGHT as usize];
-
-fn new_frame_buffer() -> Box<FrameBufferRam> {
-    vec![0; FRAME_BUFFER_LEN_WORDS].into_boxed_slice().try_into().unwrap()
-}
-
-fn new_rendered_frame() -> Box<RenderedFrame> {
-    vec![[0; FRAME_WIDTH as usize]; V30_FRAME_HEIGHT as usize]
-        .into_boxed_slice()
-        .try_into()
-        .unwrap()
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum WhichFrameBuffer {
@@ -144,13 +131,13 @@ impl VdpConfig {
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Vdp {
-    frame_buffer_0: Box<FrameBufferRam>,
-    frame_buffer_1: Box<FrameBufferRam>,
-    rendered_frame: Box<RenderedFrame>,
+    frame_buffer_0: BoxedWordArray<FRAME_BUFFER_LEN_WORDS>,
+    frame_buffer_1: BoxedWordArray<FRAME_BUFFER_LEN_WORDS>,
+    rendered_frame: Boxed2DWordArray<{ V30_FRAME_HEIGHT as usize }, { FRAME_WIDTH as usize }>,
     // 1280x224 or 1280x240 (not including borders)
     // Needed for when a game enables H32 mode on the Genesis side (NFL Quarterback Club does this)
     expanded_frame_buffer: BoxedColorArray<EXPANDED_FRAME_BUFFER_LEN>,
-    cram: Box<Cram>,
+    cram: BoxedWordArray<CRAM_LEN_WORDS>,
     registers: Registers,
     // Per documentation, the VDP latches registers for rendering once per line beginning shortly
     // after the start of HBlank
@@ -190,11 +177,11 @@ macro_rules! back_frame_buffer_mut {
 impl Vdp {
     pub fn new(timing_mode: TimingMode, config: &Sega32XEmulatorConfig) -> Self {
         Self {
-            frame_buffer_0: new_frame_buffer(),
-            frame_buffer_1: new_frame_buffer(),
-            rendered_frame: new_rendered_frame(),
+            frame_buffer_0: BoxedWordArray::new(),
+            frame_buffer_1: BoxedWordArray::new(),
+            rendered_frame: Boxed2DWordArray::new(),
             expanded_frame_buffer: BoxedColorArray::new(),
-            cram: vec![0; CRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
+            cram: BoxedWordArray::new(),
             registers: Registers::default(),
             latched: Registers::default(),
             state: State::new(),
