@@ -1,5 +1,8 @@
 //! Code for loading and reading CD-ROM images in CHD format
 
+#[cfg(test)]
+mod tests;
+
 use crate::cdtime::CdTime;
 use crate::cue::{CueSheet, Track, TrackMode, TrackType};
 use crate::reader::{SECTOR_HEADER_LEN, synthesize_data_header};
@@ -21,7 +24,7 @@ impl FromStr for PregapType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "MODE1" => Ok(Self::Mode1),
+            "MODE1" | "VMODE1" | "VMODE1_RAW" => Ok(Self::Mode1),
             "VAUDIO" => Ok(Self::Audio),
             _ => Err(format!("unrecognized PGTYPE: {s}")),
         }
@@ -29,6 +32,7 @@ impl FromStr for PregapType {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 struct CdMetadata {
     track_number: u8,
     mode: TrackMode,

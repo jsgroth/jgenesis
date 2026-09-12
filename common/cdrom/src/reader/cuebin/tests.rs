@@ -147,3 +147,194 @@ fn multi_file() {
         );
     }
 }
+
+// Based on an image of Ys IV: The Dawn of Ys
+const PCE_SAMPLE: &str = r#"
+FILE "Test (Track 01).bin" BINARY
+  TRACK 01 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 02).bin" BINARY
+  TRACK 02 MODE1/2352
+    INDEX 00 00:00:00
+    INDEX 01 00:02:74
+FILE "Test (Track 03).bin" BINARY
+  TRACK 03 AUDIO
+    INDEX 00 00:00:00
+    INDEX 01 00:02:00
+FILE "Test (Track 04).bin" BINARY
+  TRACK 04 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 05).bin" BINARY
+  TRACK 05 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 06).bin" BINARY
+  TRACK 06 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 07).bin" BINARY
+  TRACK 07 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 08).bin" BINARY
+  TRACK 08 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 09).bin" BINARY
+  TRACK 09 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 10).bin" BINARY
+  TRACK 10 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 11).bin" BINARY
+  TRACK 11 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 12).bin" BINARY
+  TRACK 12 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 13).bin" BINARY
+  TRACK 13 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 14).bin" BINARY
+  TRACK 14 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 15).bin" BINARY
+  TRACK 15 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 16).bin" BINARY
+  TRACK 16 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 17).bin" BINARY
+  TRACK 17 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 18).bin" BINARY
+  TRACK 18 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 19).bin" BINARY
+  TRACK 19 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 20).bin" BINARY
+  TRACK 20 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 21).bin" BINARY
+  TRACK 21 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 22).bin" BINARY
+  TRACK 22 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 23).bin" BINARY
+  TRACK 23 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 24).bin" BINARY
+  TRACK 24 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 25).bin" BINARY
+  TRACK 25 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 26).bin" BINARY
+  TRACK 26 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 27).bin" BINARY
+  TRACK 27 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 28).bin" BINARY
+  TRACK 28 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 29).bin" BINARY
+  TRACK 29 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 30).bin" BINARY
+  TRACK 30 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 31).bin" BINARY
+  TRACK 31 AUDIO
+    INDEX 01 00:00:00
+FILE "Test (Track 32).bin" BINARY
+  TRACK 32 MODE1/2352
+    INDEX 00 00:00:00
+    INDEX 01 00:02:74
+"#;
+
+#[test]
+fn pce_cue() {
+    let files = CueParser::new().parse(PCE_SAMPLE).unwrap();
+    assert_eq!(files.len(), 32);
+
+    assert_eq!(
+        files[0],
+        ParsedFile {
+            file_name: "Test (Track 01).bin".into(),
+            file_type: FileType::Binary,
+            tracks: vec![ParsedTrack {
+                number: 1,
+                mode: TrackMode::Audio,
+                pregap_len: None,
+                pause_start: None,
+                track_start: CdTime::ZERO,
+            }]
+        },
+        "Track 1 parsed"
+    );
+
+    assert_eq!(
+        files[1],
+        ParsedFile {
+            file_name: "Test (Track 02).bin".into(),
+            file_type: FileType::Binary,
+            tracks: vec![ParsedTrack {
+                number: 2,
+                mode: TrackMode::Mode1,
+                pregap_len: None,
+                pause_start: Some(CdTime::ZERO),
+                track_start: CdTime::new(0, 2, 74),
+            }],
+        },
+        "Track 2 parsed"
+    );
+
+    assert_eq!(
+        files[2],
+        ParsedFile {
+            file_name: "Test (Track 03).bin".into(),
+            file_type: FileType::Binary,
+            tracks: vec![ParsedTrack {
+                number: 3,
+                mode: TrackMode::Audio,
+                pregap_len: None,
+                pause_start: Some(CdTime::ZERO),
+                track_start: CdTime::new(0, 2, 0),
+            }]
+        },
+        "Track 3 parsed"
+    );
+
+    for track in 4..=31 {
+        assert_eq!(
+            files[(track - 1) as usize],
+            ParsedFile {
+                file_name: format!("Test (Track {track:02}).bin"),
+                file_type: FileType::Binary,
+                tracks: vec![ParsedTrack {
+                    number: track,
+                    mode: TrackMode::Audio,
+                    pregap_len: None,
+                    pause_start: None,
+                    track_start: CdTime::ZERO,
+                }],
+            },
+            "Track {track} parsed"
+        );
+    }
+
+    assert_eq!(
+        files[31],
+        ParsedFile {
+            file_name: "Test (Track 32).bin".into(),
+            file_type: FileType::Binary,
+            tracks: vec![ParsedTrack {
+                number: 32,
+                mode: TrackMode::Mode1,
+                pregap_len: None,
+                pause_start: Some(CdTime::ZERO),
+                track_start: CdTime::new(0, 2, 74),
+            }]
+        },
+        "Track 32 parsed"
+    );
+}

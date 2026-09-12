@@ -15,7 +15,7 @@ use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::LazyLock;
-use std::{fs, io, mem};
+use std::{env, fs, io, mem};
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct TrackMetadata {
@@ -465,7 +465,12 @@ fn to_cue_sheet(
 
     cue::finalize_track_list(&mut tracks);
 
-    log::trace!("Parsed cue sheet:\n{tracks:#?}");
+    // This is gross but I don't want cdrom to depend on env_logger just for the validator tool
+    if env::var("JGENESIS_PRINT_CUE").is_ok_and(|var| !var.is_empty()) {
+        println!("Parsed cue sheet:\n{tracks:#?}");
+    } else {
+        log::debug!("Parsed cue sheet:\n{tracks:#?}");
+    }
 
     assert!(
         cue::tracks_are_continuous(&tracks),
