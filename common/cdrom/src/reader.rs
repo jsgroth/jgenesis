@@ -2,29 +2,27 @@
 
 mod chd;
 mod cuebin;
-mod seekvec;
 
 use crate::cdtime::CdTime;
 use crate::cue::{CueSheet, TrackMode, TrackType};
 use crate::reader::chd::ChdFile;
 use crate::reader::cuebin::CdBinFiles;
-use crate::reader::seekvec::SeekableVec;
 use crate::{CdRomError, CdRomResult};
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::ffi::OsStr;
 use std::fs;
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, Cursor};
 use std::path::Path;
 
 const SECTOR_HEADER_LEN: u64 = 16;
 
 type CdBinFsFiles = CdBinFiles<File>;
-type CdBinMemoryFiles = CdBinFiles<SeekableVec>;
+type CdBinMemoryFiles = CdBinFiles<Cursor<Vec<u8>>>;
 
 type ChdFsFile = ChdFile<BufReader<File>>;
-type ChdMemoryFile = ChdFile<SeekableVec>;
+type ChdMemoryFile = ChdFile<Cursor<Vec<u8>>>;
 
 #[derive(Debug, FakeEncode, FakeDecode)]
 enum CdRomReader {
@@ -157,7 +155,7 @@ impl CdRom {
     pub fn open_cue_bin_in_memory<P: AsRef<Path>>(cue_path: P) -> CdRomResult<Self> {
         let (bin_files, cue_sheet) = CdBinFiles::create(cue_path, |path| {
             let bin_bytes = fs::read(path)?;
-            Ok(SeekableVec::new(bin_bytes))
+            Ok(Cursor::new(bin_bytes))
         })?;
 
         Ok(Self { reader: CdRomReader::CueBinMemory(bin_files), cue_sheet })
@@ -169,8 +167,7 @@ impl CdRom {
     ///
     /// Will return an error if the CHD or CD-ROM metadata appears invalid.
     pub fn open_chd_in_memory(chd_bytes: Vec<u8>) -> CdRomResult<Self> {
-        let seekable_vec = SeekableVec::new(chd_bytes);
-        let (chd_file, cue_sheet) = ChdFile::open(seekable_vec)?;
+        let (chd_file, cue_sheet) = ChdFile::open(Cursor::new(chd_bytes))?;
 
         Ok(Self { cue_sheet, reader: CdRomReader::ChdMemory(chd_file) })
     }
