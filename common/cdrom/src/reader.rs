@@ -42,22 +42,22 @@ impl CdRomReader {
     fn read_sector(
         &mut self,
         track_number: u8,
-        relative_time: CdTime,
+        absolute_time: CdTime,
         relative_sector_number: u32,
         out: &mut [u8],
     ) -> CdRomResult<()> {
         match self {
             Self::CueBin(bin_files) => {
-                bin_files.read_sector(track_number, relative_time, relative_sector_number, out)
+                bin_files.read_sector(track_number, absolute_time, relative_sector_number, out)
             }
             Self::CueBinMemory(bin_files) => {
-                bin_files.read_sector(track_number, relative_time, relative_sector_number, out)
+                bin_files.read_sector(track_number, absolute_time, relative_sector_number, out)
             }
             Self::ChdFs(chd_file) => {
-                chd_file.read_sector(track_number, relative_time, relative_sector_number, out)
+                chd_file.read_sector(track_number, absolute_time, relative_sector_number, out)
             }
             Self::ChdMemory(chd_file) => {
-                chd_file.read_sector(track_number, relative_time, relative_sector_number, out)
+                chd_file.read_sector(track_number, absolute_time, relative_sector_number, out)
             }
         }
     }
@@ -194,13 +194,15 @@ impl CdRom {
         out: &mut [u8],
     ) -> CdRomResult<()> {
         let track = self.cue_sheet.track(track_number);
+        let absolute_time = relative_time + track.start_time;
+
         if relative_time < track.pregap_len
             || relative_time >= track.end_time - track.postgap_len - track.start_time
         {
             // Reading data in pregap or postgap that does not exist in the file
             match track.track_type {
                 TrackType::Data => {
-                    write_fake_data_pregap(track.mode, relative_time, out);
+                    write_fake_data_pregap(track.mode, absolute_time, out);
                 }
                 TrackType::Audio => {
                     // Fill with all 0s
@@ -211,7 +213,7 @@ impl CdRom {
         }
 
         let relative_sector_number = (relative_time - track.pregap_len).to_sector_number();
-        self.reader.read_sector(track_number, relative_time, relative_sector_number, out)?;
+        self.reader.read_sector(track_number, absolute_time, relative_sector_number, out)?;
 
         Ok(())
     }

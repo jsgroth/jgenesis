@@ -4,7 +4,7 @@
 mod tests;
 
 use crate::cdtime::CdTime;
-use crate::cue::{CueSheet, Track, TrackMode, TrackType};
+use crate::cue::{CueSheet, Track, TrackMode};
 use crate::reader::{SECTOR_HEADER_LEN, synthesize_data_header};
 use crate::{CdRomError, CdRomResult, cue};
 use bincode::{Decode, Encode};
@@ -82,7 +82,7 @@ impl<F: Read + Seek> CdBinFiles<F> {
     pub fn read_sector(
         &mut self,
         track_number: u8,
-        relative_time: CdTime,
+        absolute_time: CdTime,
         relative_sector_number: u32,
         out: &mut [u8],
     ) -> CdRomResult<()> {
@@ -104,7 +104,7 @@ impl<F: Read + Seek> CdBinFiles<F> {
             TrackMode::Mode1DataOnly => {
                 // 2048-byte sectors
                 out[..SECTOR_HEADER_LEN as usize]
-                    .copy_from_slice(&synthesize_data_header(metadata.mode, relative_time));
+                    .copy_from_slice(&synthesize_data_header(metadata.mode, absolute_time));
                 track_file
                     .read_exact(
                         &mut out[SECTOR_HEADER_LEN as usize..(SECTOR_HEADER_LEN + 2048) as usize],
@@ -133,6 +133,7 @@ struct ParsedTrack {
     mode: TrackMode,
     pregap_len: Option<CdTime>,
     pause_start: Option<CdTime>,
+    postgap_len: Option<CdTime>,
     track_start: CdTime,
 }
 
@@ -171,6 +172,7 @@ struct CueParser {
     last_track_number: Option<u8>,
     pregap_len: Option<CdTime>,
     pause_start: Option<CdTime>,
+    postgap_len: Option<CdTime>,
     track_start: Option<CdTime>,
 }
 
@@ -184,6 +186,7 @@ impl CueParser {
             last_track_number: None,
             pregap_len: None,
             pause_start: None,
+            postgap_len: None,
             track_start: None,
         }
     }
@@ -199,6 +202,8 @@ impl CueParser {
                 self.parse_index_line(line)?;
             } else if trimmed.starts_with("PREGAP ") {
                 self.parse_pregap_line(line)?;
+            } else if trimmed.starts_with("POSTGAP ") {
+                self.parse_postgap_line(line)?;
             }
         }
 
@@ -306,6 +311,23 @@ impl CueParser {
         Ok(())
     }
 
+    fn parse_postgap_line(&mut self, line: &str) -> CdRomResult<()> {
+        static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"POSTGAP ([^ ]*)").unwrap());
+
+        let captures =
+            RE.captures(line).ok_or_else(|| CdRomError::CueInvalidPregapLine(line.into()))?;
+        let postgap_len = captures
+            .get(1)
+            .unwrap()
+            .as_str()
+            .parse::<CdTime>()
+            .map_err(|_| CdRomError::CueInvalidPostgapLine(line.into()))?;
+
+        self.postgap_len = Some(postgap_len);
+
+        Ok(())
+    }
+
     fn push_file(&mut self) -> CdRomResult<()> {
         self.push_track()?;
 
@@ -354,6 +376,7 @@ impl CueParser {
             mode: track_mode,
             pregap_len: self.pregap_len.take(),
             pause_start: self.pause_start.take(),
+            postgap_len: self.postgap_len.take(),
             track_start,
         });
 
@@ -406,12 +429,12 @@ fn to_cue_sheet(
             let track = &parsed_tracks[i];
 
             let track_type = track.mode.to_type();
-            let pregap_len = match track_type {
-                TrackType::Data => {
-                    // Data tracks always have a 2-second pregap
+            let pregap_len = match track.number {
+                1 => {
+                    // Track 1 always has a 2-second pregap; 00:02:00 should be first user data sector of track 1
                     CdTime::new(0, 2, 0)
                 }
-                TrackType::Audio => track.pregap_len.unwrap_or(CdTime::ZERO),
+                _ => track.pregap_len.unwrap_or(CdTime::ZERO),
             };
             let pause_len = track
                 .pause_start
@@ -436,7 +459,7 @@ fn to_cue_sheet(
                 next_track.pause_start.unwrap_or(next_track.track_start)
             };
 
-            let postgap_len = track_type.default_postgap_len();
+            let postgap_len = track.postgap_len.unwrap_or(CdTime::ZERO);
 
             let padded_track_len =
                 pregap_len + pause_len + (data_end_time - track.track_start) + postgap_len;

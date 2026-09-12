@@ -11,25 +11,6 @@ use chd::Chd;
 use chd::iter::LendingIterator;
 use std::fmt::{Debug, Formatter};
 use std::io::{Read, Seek};
-use std::str::FromStr;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PregapType {
-    Mode1,
-    Audio,
-}
-
-impl FromStr for PregapType {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "MODE1" | "VMODE1" | "VMODE1_RAW" => Ok(Self::Mode1),
-            "VAUDIO" => Ok(Self::Audio),
-            _ => Err(format!("unrecognized PGTYPE: {s}")),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
@@ -38,7 +19,6 @@ struct CdMetadata {
     mode: TrackMode,
     frames: u32,
     pregap_frames: u32,
-    pregap_type: Option<PregapType>,
 }
 
 impl CdMetadata {
@@ -51,7 +31,6 @@ impl CdMetadata {
         let mut track_mode: Option<TrackMode> = None;
         let mut frames: Option<u32> = None;
         let mut pregap_frames: u32 = 0;
-        let mut pregap_type: Option<PregapType> = None;
         for token in text.split(' ') {
             let Some((key, value)) = token.split_once(':') else { continue };
 
@@ -66,7 +45,6 @@ impl CdMetadata {
                 },
                 "FRAMES" => frames = Some(value.parse().ok()?),
                 "PREGAP" => pregap_frames = value.parse().ok()?,
-                "PGTYPE" => pregap_type = Some(value.parse().ok()?),
                 _ => {}
             }
         }
@@ -76,7 +54,6 @@ impl CdMetadata {
             mode: track_mode?,
             frames: frames?,
             pregap_frames,
-            pregap_type,
         })
     }
 }
@@ -118,18 +95,20 @@ impl<F: Read + Seek> ChdFile<F> {
         let mut current_frame = 0;
         for cd_metadata in cd_metadata_list {
             let track_type = cd_metadata.mode.to_type();
-            let pregap_len = match track_type {
-                TrackType::Data => {
-                    // Data tracks always have a 2-second pregap
+
+            let pregap_len = match cd_metadata.track_number {
+                1 => {
+                    // Track 1 always has a 2-second pregap; 00:02:00 should be first user data sector of track 1
                     CdTime::new(0, 2, 0)
                 }
-                TrackType::Audio => CdTime::from_frames(cd_metadata.pregap_frames),
+                _ => CdTime::ZERO,
             };
 
-            let postgap_len = track_type.default_postgap_len();
+            // CHD pregaps exist as data within the image, so count these frames as "pause" time
+            let pause_len = CdTime::from_frames(cd_metadata.pregap_frames);
 
             let track_len = CdTime::from_frames(cd_metadata.frames);
-            let padded_track_len = pregap_len + track_len + postgap_len;
+            let padded_track_len = pregap_len + track_len;
 
             tracks.push(Track {
                 number: cd_metadata.track_number,
@@ -138,17 +117,8 @@ impl<F: Read + Seek> ChdFile<F> {
                 start_time: current_start_time,
                 end_time: current_start_time + padded_track_len,
                 pregap_len,
-                pause_len: match track_type {
-                    TrackType::Audio
-                        if cd_metadata
-                            .pregap_type
-                            .is_none_or(|pgtype| pgtype == PregapType::Audio) =>
-                    {
-                        pregap_len
-                    }
-                    _ => CdTime::ZERO,
-                },
-                postgap_len,
+                pause_len,
+                postgap_len: CdTime::ZERO,
             });
             track_start_frames.push(current_frame);
 
@@ -189,7 +159,7 @@ impl<F: Read + Seek> ChdFile<F> {
     pub fn read_sector(
         &mut self,
         track_number: u8,
-        relative_time: CdTime,
+        absolute_time: CdTime,
         relative_sector_number: u32,
         out: &mut [u8],
     ) -> CdRomResult<()> {
@@ -222,7 +192,7 @@ impl<F: Read + Seek> ChdFile<F> {
             TrackMode::Mode1DataOnly => {
                 // 2048-byte sectors
                 out[..SECTOR_HEADER_LEN as usize]
-                    .copy_from_slice(&synthesize_data_header(track_mode, relative_time));
+                    .copy_from_slice(&synthesize_data_header(track_mode, absolute_time));
                 out[SECTOR_HEADER_LEN as usize..(SECTOR_HEADER_LEN + 2048) as usize]
                     .copy_from_slice(
                         &self.decompressed_buffer[hunk_offset_bytes..hunk_offset_bytes + 2048],

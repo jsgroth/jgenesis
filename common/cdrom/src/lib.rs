@@ -23,6 +23,8 @@ pub enum CdRomError {
     CueInvalidIndexLine(String),
     #[error("Invalid/unsupported PREGAP line in CUE file: {0}")]
     CueInvalidPregapLine(String),
+    #[error("Invalid/unsupported POSTGAP line in CUE file: {0}")]
+    CueInvalidPostgapLine(String),
     #[error("Unable to get file metadata for file '{path}': {source}")]
     FsMetadata {
         path: String,

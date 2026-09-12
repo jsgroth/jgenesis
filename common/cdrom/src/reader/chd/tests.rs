@@ -57,13 +57,7 @@ fn pce_metadata() {
 
     assert_eq!(
         metadata_parsed[0],
-        CdMetadata {
-            track_number: 1,
-            mode: TrackMode::Audio,
-            frames: FRAMES[0],
-            pregap_frames: 0,
-            pregap_type: Some(PregapType::Mode1),
-        },
+        CdMetadata { track_number: 1, mode: TrackMode::Audio, frames: FRAMES[0], pregap_frames: 0 },
         "Track 1 parsed"
     );
 
@@ -74,7 +68,6 @@ fn pce_metadata() {
             mode: TrackMode::Mode1,
             frames: FRAMES[1],
             pregap_frames: 224,
-            pregap_type: Some(PregapType::Mode1),
         },
         "Track 2 parsed"
     );
@@ -86,7 +79,6 @@ fn pce_metadata() {
             mode: TrackMode::Audio,
             frames: FRAMES[2],
             pregap_frames: 150,
-            pregap_type: Some(PregapType::Audio),
         },
         "Track 3 parsed"
     );
@@ -99,7 +91,6 @@ fn pce_metadata() {
                 mode: TrackMode::Audio,
                 frames: FRAMES[(track - 1) as usize],
                 pregap_frames: 0,
-                pregap_type: Some(PregapType::Mode1),
             },
             "Track {track} parsed"
         );
@@ -112,7 +103,6 @@ fn pce_metadata() {
             mode: TrackMode::Mode1,
             frames: FRAMES[31],
             pregap_frames: 224,
-            pregap_type: Some(PregapType::Mode1),
         },
         "Track 32 parsed"
     );

@@ -10,17 +10,6 @@ pub enum TrackType {
     Audio,
 }
 
-impl TrackType {
-    #[must_use]
-    pub(crate) fn default_postgap_len(self) -> CdTime {
-        match self {
-            // Data tracks always have a 2-second postgap
-            Self::Data => CdTime::new(0, 2, 0),
-            Self::Audio => CdTime::ZERO,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum TrackMode {
     Mode1,
@@ -147,6 +136,8 @@ pub(crate) fn tracks_are_continuous(tracks: &[Track]) -> bool {
 }
 
 pub(crate) fn finalize_track_list(tracks: &mut [Track]) {
+    tracks.sort_by_key(|track| track.number);
+
     // The final track always has a 2-second postgap
     let last_track = tracks.last_mut().unwrap();
     if last_track.postgap_len == CdTime::ZERO {

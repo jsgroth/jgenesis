@@ -1,5 +1,5 @@
 use cdrom::cdtime::CdTime;
-use cdrom::cue::TrackType;
+use cdrom::cue::{Track, TrackType};
 use cdrom::reader::{CdRom, CdRomFileFormat};
 use std::env;
 use std::error::Error;
@@ -27,16 +27,20 @@ fn validate(mut disc: CdRom) -> Result<(), Box<dyn Error>> {
 
     for track_number in 1..=last_track_number {
         let track = disc.cue().track(track_number);
-        let track_type = track.track_type;
-        let start_time = track.start_time;
-        let end_time = track.end_time;
+        let &Track { track_type, start_time, end_time, .. } = track;
+
+        // In data tracks, sector MSF addresses should be valid for at least the 2 seconds leading
+        // up to effective start time (INDEX 01 in CUE files). Sectors before this may not have
+        // valid addresses but that's fine
+        let data_address_valid_threshold =
+            track.effective_start_time().saturating_sub(CdTime::new(0, 2, 0));
 
         let mut time = start_time;
         while time < end_time {
             let relative_time = time - start_time;
             disc.read_sector(track_number, relative_time, &mut sector_buffer)?;
 
-            if track_type == TrackType::Data {
+            if track_type == TrackType::Data && time >= data_address_valid_threshold {
                 // First 12 sector bytes are sync, next 3 bytes are MSF time
                 let header_msf = CdTime::new(
                     bcd_to_binary(sector_buffer[12]),

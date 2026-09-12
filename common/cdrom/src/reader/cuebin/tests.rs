@@ -26,6 +26,7 @@ fn single_file_standard_space() {
                     mode: TrackMode::Mode1,
                     pregap_len: None,
                     pause_start: None,
+                    postgap_len: None,
                     track_start: CdTime::new(0, 0, 0),
                 },
                 ParsedTrack {
@@ -33,6 +34,7 @@ fn single_file_standard_space() {
                     mode: TrackMode::Audio,
                     pregap_len: Some(CdTime::new(0, 2, 0)),
                     pause_start: None,
+                    postgap_len: None,
                     track_start: CdTime::new(13, 10, 11),
                 },
                 ParsedTrack {
@@ -40,6 +42,7 @@ fn single_file_standard_space() {
                     mode: TrackMode::Audio,
                     pregap_len: None,
                     pause_start: Some(CdTime::new(13, 14, 25)),
+                    postgap_len: None,
                     track_start: CdTime::new(13, 16, 25),
                 }
             ]
@@ -73,6 +76,7 @@ fn single_file_more_space() {
                     mode: TrackMode::Mode1,
                     pregap_len: None,
                     pause_start: None,
+                    postgap_len: None,
                     track_start: CdTime::new(0, 0, 0),
                 },
                 ParsedTrack {
@@ -80,6 +84,7 @@ fn single_file_more_space() {
                     mode: TrackMode::Audio,
                     pregap_len: None,
                     pause_start: Some(CdTime::new(1, 31, 14)),
+                    postgap_len: None,
                     track_start: CdTime::new(1, 33, 14),
                 },
                 ParsedTrack {
@@ -87,6 +92,7 @@ fn single_file_more_space() {
                     mode: TrackMode::Audio,
                     pregap_len: None,
                     pause_start: Some(CdTime::new(1, 38, 14)),
+                    postgap_len: None,
                     track_start: CdTime::new(1, 40, 14),
                 }
             ]
@@ -123,6 +129,7 @@ fn multi_file() {
                 mode: TrackMode::Mode1,
                 pregap_len: None,
                 pause_start: None,
+                postgap_len: None,
                 track_start: CdTime::new(0, 0, 0),
             }]
         }
@@ -141,6 +148,7 @@ fn multi_file() {
                     mode: TrackMode::Audio,
                     pregap_len: None,
                     pause_start: Some(CdTime::new(0, 0, 0)),
+                    postgap_len: None,
                     track_start: CdTime::new(0, 2, 0),
                 }]
             }
@@ -266,6 +274,7 @@ fn pce_cue() {
                 mode: TrackMode::Audio,
                 pregap_len: None,
                 pause_start: None,
+                postgap_len: None,
                 track_start: CdTime::ZERO,
             }]
         },
@@ -282,6 +291,7 @@ fn pce_cue() {
                 mode: TrackMode::Mode1,
                 pregap_len: None,
                 pause_start: Some(CdTime::ZERO),
+                postgap_len: None,
                 track_start: CdTime::new(0, 2, 74),
             }],
         },
@@ -298,6 +308,7 @@ fn pce_cue() {
                 mode: TrackMode::Audio,
                 pregap_len: None,
                 pause_start: Some(CdTime::ZERO),
+                postgap_len: None,
                 track_start: CdTime::new(0, 2, 0),
             }]
         },
@@ -315,6 +326,7 @@ fn pce_cue() {
                     mode: TrackMode::Audio,
                     pregap_len: None,
                     pause_start: None,
+                    postgap_len: None,
                     track_start: CdTime::ZERO,
                 }],
             },
@@ -332,6 +344,7 @@ fn pce_cue() {
                 mode: TrackMode::Mode1,
                 pregap_len: None,
                 pause_start: Some(CdTime::ZERO),
+                postgap_len: None,
                 track_start: CdTime::new(0, 2, 74),
             }]
         },
