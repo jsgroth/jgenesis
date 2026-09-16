@@ -18,6 +18,7 @@ pub const MASTER_SYSTEM: &[&str] = &["sms"];
 pub const GAME_GEAR: &[&str] = &["gg"];
 pub const GENESIS: &[&str] = &["gen", "md", "bin", "smd"];
 pub const SEGA_CD: &[&str] = &["cue", "chd"];
+pub const M3U: &[&str] = &["m3u"];
 pub const SEGA_32X: &[&str] = &["32x", "bin"];
 pub const NES: &[&str] = &["nes"];
 pub const SNES: &[&str] = &["sfc", "smc"];
@@ -46,7 +47,10 @@ pub static GENESIS_32X: LazyLock<Vec<&'static str>> =
     LazyLock::new(|| concat_extensions([GENESIS, SEGA_32X]));
 
 pub static SEGA_CD_32X: LazyLock<Vec<&'static str>> =
-    LazyLock::new(|| concat_extensions([GENESIS, SEGA_CD, SEGA_32X]));
+    LazyLock::new(|| concat_extensions([GENESIS, SEGA_CD, M3U, SEGA_32X]));
+
+pub static SEGA_CD_WITH_PLAYLISTS: LazyLock<Vec<&'static str>> =
+    LazyLock::new(|| concat_extensions([SEGA_CD, M3U]));
 
 pub static GB_GBC: LazyLock<Vec<&'static str>> =
     LazyLock::new(|| concat_extensions([GAME_BOY, GAME_BOY_COLOR]));
@@ -68,7 +72,7 @@ pub static ALL_CARTRIDGE_BASED: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
 });
 
 pub static ALL: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
-    ALL_CARTRIDGE_BASED.clone().into_iter().chain(SEGA_CD.iter().copied()).collect()
+    ALL_CARTRIDGE_BASED.clone().into_iter().chain(SEGA_CD_WITH_PLAYLISTS.iter().copied()).collect()
 });
 
 pub static ALL_PLUS_ARCHIVES: LazyLock<Vec<&'static str>> =
@@ -190,6 +194,14 @@ impl Console {
     #[must_use]
     pub fn from_file(file_path: &Path) -> Option<ConsoleWithSize> {
         let extension = from_path(file_path)?;
+
+        if extension == "m3u" {
+            let disc_paths = crate::m3u::parse(file_path).ok()?;
+            let first_disc = disc_paths.first()?;
+
+            return Self::from_file(first_disc);
+        }
+
         if let Some(&console) = EXTENSION_LOOKUP.get(&extension.as_str()) {
             let console = match console {
                 Console::SegaCd if is_disc_sega_cd_32x(file_path) => Console::SegaCd32X,
@@ -285,7 +297,11 @@ impl Console {
             Self::Sg1000 | Self::MasterSystem | Self::GameGear => single(&SMSGG),
             Self::Genesis => single(GENESIS),
             Self::SegaCd => vec![
-                SupportedExtensions { label: None, extensions: SEGA_CD, include_archives: false },
+                SupportedExtensions {
+                    label: None,
+                    extensions: &SEGA_CD_WITH_PLAYLISTS,
+                    include_archives: false,
+                },
                 SupportedExtensions {
                     label: Some("Genesis"),
                     extensions: GENESIS,
@@ -301,7 +317,7 @@ impl Console {
                 },
                 SupportedExtensions {
                     label: Some("Sega CD"),
-                    extensions: SEGA_CD,
+                    extensions: &SEGA_CD_WITH_PLAYLISTS,
                     include_archives: false,
                 },
                 SupportedExtensions {

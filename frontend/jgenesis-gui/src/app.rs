@@ -32,7 +32,7 @@ use emath::Pos2;
 use jgenesis_native_config::paths::{ConfigDirType, ConfigDirs};
 use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen, RomSearchDirectory};
 use jgenesis_native_driver::extensions::Console;
-use jgenesis_native_driver::{NativeEmulatorError, SdlSubsystems, extensions};
+use jgenesis_native_driver::{NativeEmulatorError, SdlSubsystems, extensions, m3u};
 use nes_config::NesPalette;
 use rfd::FileDialog;
 use std::cell::RefCell;
@@ -408,7 +408,7 @@ impl App {
         match console {
             Some(console @ (Console::SegaCd | Console::SegaCd32X)) => {
                 let mut secondary_paths = vec![];
-                if CdRomFileFormat::from_file_path(&path).is_none() {
+                if !m3u::is_m3u(&path) && CdRomFileFormat::from_file_path(&path).is_none() {
                     let disc_path = Self::open_sega_cd_secondary_path_dialog(&path);
                     if let Some(disc_path) = disc_path {
                         secondary_paths.push(disc_path);
@@ -461,6 +461,7 @@ impl App {
 
         let mut secondary_paths = vec![];
         if matches!(console, Console::SegaCd | Console::SegaCd32X)
+            && !m3u::is_m3u(&path)
             && CdRomFileFormat::from_file_path(&path).is_none()
             && let Some(secondary_path) = Self::open_sega_cd_secondary_path_dialog(&path)
         {
@@ -471,6 +472,29 @@ impl App {
     }
 
     fn launch_emulator(&mut self, path: PathBuf, secondary_paths: Vec<PathBuf>, console: Console) {
+        let playlist_paths = if m3u::is_m3u(&path) {
+            match m3u::parse(&path) {
+                Ok(paths) => Some(paths),
+                Err(err) => {
+                    log::error!("Unable to read M3U playlist '{}': {err}", path.display());
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+
+        let emulator_path = playlist_paths
+            .as_ref()
+            .and_then(|paths| paths.first())
+            .cloned()
+            .unwrap_or_else(|| path.clone());
+
+        let emulator_secondary_paths = if playlist_paths.is_some() {
+            vec![]
+        } else {
+            secondary_paths.clone()
+        };
         self.state.current_file_path.clone_from(&path);
         self.state.current_secondary_file_paths.clone_from(&secondary_paths);
 
@@ -503,7 +527,10 @@ impl App {
             console,
             config: Box::new(config),
             cheats: Arc::clone(self.active_cheats()),
-            input: EmulatorRunInput::OpenFile { file_path: path, secondary_paths },
+            input: EmulatorRunInput::OpenFile {
+                file_path: emulator_path,
+                secondary_paths: emulator_secondary_paths,
+            },
         });
     }
 

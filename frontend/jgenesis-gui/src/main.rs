@@ -8,7 +8,7 @@ use jgenesis_gui::app::{App, ConfigInfo, LoadAtStartup};
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::paths::{ConfigDirType, ConfigDirs, ConfigWithPath};
 use jgenesis_native_driver::config::AppConfigExt;
-use jgenesis_native_driver::extensions::Console;
+use jgenesis_native_driver::{extensions::Console, m3u};
 use jgenesis_native_driver::{
     NativeEmulator, NativeGameBoyEmulator, NativeGbaEmulator, NativeGenesisEmulator,
     NativeNesEmulator, NativePcEngineEmulator, NativeSmsGgEmulator, NativeSnesEmulator,
@@ -239,8 +239,24 @@ fn run_no_gui(
         log::error!("Error applying config overrides: {err}");
     }
 
-    let primary_path = load_at_startup.file_paths.first().unwrap();
-    let secondary_paths = &load_at_startup.file_paths[1..];
+	let requested_primary_path = load_at_startup.file_paths.first().unwrap();
+
+	let playlist_paths = if m3u::is_m3u(requested_primary_path) {
+		Some(m3u::parse(requested_primary_path)?)
+	} else {
+		None
+	};
+
+    let primary_path = playlist_paths
+        .as_ref()
+        .and_then(|paths| paths.first())
+        .unwrap_or(requested_primary_path);
+
+    let secondary_paths = if playlist_paths.is_some() {
+        &[]
+    } else {
+        &load_at_startup.file_paths[1..]
+    };
 
     let console = load_at_startup
         .console
@@ -248,7 +264,7 @@ fn run_no_gui(
         .unwrap_or_else(|| {
             log::error!(
                 "Unable to determine console for file '{}'; defaulting to Genesis",
-                primary_path.display()
+                requested_primary_path.display()
             );
             Console::Genesis
         });

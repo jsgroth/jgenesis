@@ -1,5 +1,5 @@
 use jgenesis_native_config::{RecentOpen, RomSearchDirectory};
-use jgenesis_native_driver::extensions;
+use jgenesis_native_driver::{extensions, m3u};
 use jgenesis_native_driver::extensions::{Console, ConsoleWithSize};
 use regex::Regex;
 use std::collections::HashSet;
@@ -148,6 +148,18 @@ pub fn from_recent_opens(recent_opens: &[RecentOpen]) -> Vec<Option<RomMetadata>
 }
 
 pub fn find_all_disc_paths(path: &Path) -> Vec<(String, PathBuf)> {
+    if m3u::is_m3u(path) {
+        return m3u::parse(path)
+            .map(|paths| {
+                paths
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, path)| (format!("Disc {}", index + 1), path))
+                    .collect()
+            })
+            .unwrap_or_default();
+    }
+
     static DISC_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" \(Disc (\d)\)").unwrap());
 
     let Some(path_name_str) = path.file_name().and_then(OsStr::to_str) else { return Vec::new() };
