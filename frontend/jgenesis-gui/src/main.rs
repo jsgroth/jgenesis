@@ -239,13 +239,13 @@ fn run_no_gui(
         log::error!("Error applying config overrides: {err}");
     }
 
-	let requested_primary_path = load_at_startup.file_paths.first().unwrap();
+    let requested_primary_path = load_at_startup.file_paths.first().unwrap();
 
-	let playlist_paths = if m3u::is_m3u(requested_primary_path) {
-		Some(m3u::parse(requested_primary_path)?)
-	} else {
-		None
-	};
+    let playlist_paths = if m3u::is_m3u(requested_primary_path) {
+        Some(m3u::parse(requested_primary_path)?)
+    } else {
+        None
+    };
 
     let primary_path = playlist_paths
         .as_ref()
