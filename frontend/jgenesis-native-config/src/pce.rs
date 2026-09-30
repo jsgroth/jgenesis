@@ -1,5 +1,7 @@
 use jgenesis_proc_macros::deserialize_default_on_error;
-use pce_config::{PceAspectRatio, PceInputDevice, PcePaletteType, PcePsgResampler, PceRegion};
+use pce_config::{
+    PceAspectRatio, PceInputDevice, PcePaletteType, PcePsgResampler, PceRegion, PceSystemCardModel,
+};
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU64;
 use std::path::PathBuf;
@@ -11,6 +13,7 @@ pub struct PcEngineAppConfig {
     pub cd_bios_path: Option<PathBuf>,
     pub load_disc_into_ram: bool,
     pub region: PceRegion,
+    pub system_card_model: PceSystemCardModel,
     pub cpu_fast_clock_divider: NonZeroU64,
     pub aspect_ratio: PceAspectRatio,
     pub palette: PcePaletteType,
@@ -29,6 +32,7 @@ impl Default for PcEngineAppConfig {
             cd_bios_path: None,
             load_disc_into_ram: false,
             region: PceRegion::default(),
+            system_card_model: PceSystemCardModel::default(),
             cpu_fast_clock_divider: NonZeroU64::new(pce_config::NATIVE_FAST_CPU_DIVIDER).unwrap(),
             aspect_ratio: PceAspectRatio::default(),
             palette: PcePaletteType::default(),

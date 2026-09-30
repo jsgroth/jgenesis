@@ -6,7 +6,7 @@ use crate::app::widgets::{
 use crate::app::{App, OpenWindow, widgets};
 use egui::{Context, Window};
 use jgenesis_native_driver::extensions::Console;
-use pce_config::{PceAspectRatio, PcePaletteType, PcePsgResampler, PceRegion};
+use pce_config::{PceAspectRatio, PcePaletteType, PcePsgResampler, PceRegion, PceSystemCardModel};
 use rfd::FileDialog;
 use std::num::NonZeroU64;
 use std::path::PathBuf;
@@ -38,6 +38,29 @@ impl App {
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::REGION);
+            }
+
+            let rect = ui
+                .group(|ui| {
+                    ui.label("CD-ROM² System Card model");
+
+                    ui.horizontal(|ui| {
+                        for (value, label) in [
+                            (PceSystemCardModel::Base, "System Card"),
+                            (PceSystemCardModel::Super, "Super System Card"),
+                        ] {
+                            ui.radio_value(
+                                &mut self.config.pc_engine.system_card_model,
+                                value,
+                                label,
+                            );
+                        }
+                    });
+                })
+                .response
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::SYSTEM_CARD_MODEL);
             }
 
             ui.add_space(5.0);

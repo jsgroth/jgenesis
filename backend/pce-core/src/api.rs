@@ -19,7 +19,7 @@ use jgenesis_common::frontend::{
 use jgenesis_proc_macros::ConfigDisplay;
 use pce_config::{
     PceAspectRatio, PceButton, PceInputDevice, PceInputs, PcePaletteType, PcePsgResampler,
-    PceRegion,
+    PceRegion, PceSystemCardModel,
 };
 use std::cmp;
 use std::fmt::{Debug, Display};
@@ -33,6 +33,7 @@ pub const MASTER_CLOCK_FREQUENCY: f64 = 21_477_272.0;
 pub struct PceEmulatorConfig {
     pub load_disc_into_ram: bool,
     pub region: PceRegion,
+    pub system_card_model: PceSystemCardModel,
     pub cpu_fast_clock_divider: NonZeroU64,
     pub aspect_ratio: PceAspectRatio,
     pub palette: PcePaletteType,
@@ -107,7 +108,12 @@ impl PcEngineEmulator {
             video: VideoSubsystem::new(config),
             psg: Huc6280Psg::new(),
             memory: Memory::new(&config),
-            cartridge: HuCard::new(hucard_rom, initial_sav.clone()),
+            cartridge: HuCard::new(
+                hucard_rom,
+                initial_sav.clone(),
+                cd_hardware_present,
+                config.system_card_model,
+            ),
             // TODO support running with CD-ROM hardware present but no disc in drive
             cd: disc.map(|disc| CdRomController::new(Some(disc), initial_sav)),
             input_state: InputState::new(config, cd_hardware_present),

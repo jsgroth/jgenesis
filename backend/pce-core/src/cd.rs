@@ -12,6 +12,7 @@ use crate::api;
 use crate::audio::PceAudioResampler;
 use crate::cd::adpcm::AdpcmChip;
 use crate::cd::scsi::ScsiCdDrive;
+use crate::memory::HuCard;
 pub use adpcm::ADPCM_SAMPLE_RATE;
 use bincode::{Decode, Encode};
 use cdrom::CdRomError;
@@ -284,8 +285,18 @@ impl CdRomController {
     }
 
     // $1800-$1BFF in page $FF
-    pub fn read_register(&mut self, address: u32, irq2_pending: &mut bool) -> u8 {
+    pub fn read_register(
+        &mut self,
+        address: u32,
+        cartridge: &HuCard,
+        irq2_pending: &mut bool,
+    ) -> u8 {
         log::trace!("CD-ROM register read: {:04X}", address & 0x1FFF);
+
+        if cartridge.is_super_system_card() && (0x18C0..0x18C4).contains(&(address & 0x1FFF)) {
+            // Some sort of version ID, Super System Card BIOS relies on this for hardware detection
+            return [0x00, 0xAA, 0x55, 0x03][(address & 3) as usize];
+        }
 
         let value = match address & 0x3FF {
             0x0 => {
@@ -346,7 +357,10 @@ impl CdRomController {
             0xA..=0xE => self.read_adpcm_register(address),
             0xF => self.fader.read(),
             _ => {
-                log::warn!("Unhandled CD-ROM register read {:04X}", address & 0x1FFF);
+                // Super System Card reads from $18C1 and $18C5 during hardware detection, don't log those
+                if !(0x18C0..0x18C8).contains(&(address & 0x1FFF)) {
+                    log::warn!("Unhandled CD-ROM register read {:04X}", address & 0x1FFF);
+                }
                 0xFF
             }
         };
@@ -435,7 +449,13 @@ impl CdRomController {
                 self.fader.write(value);
             }
             _ => {
-                log::warn!("Unhandled CD-ROM register write {:04X} {value:02X}", address & 0x1FFF);
+                // Super System Card writes to $18C0 during hardware detection, don't log those
+                if !(0x18C0..0x18C8).contains(&(address & 0x1FFF)) {
+                    log::warn!(
+                        "Unhandled CD-ROM register write {:04X} {value:02X}",
+                        address & 0x1FFF
+                    );
+                }
             }
         }
 

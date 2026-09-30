@@ -59,9 +59,11 @@ impl Bus<'_> {
             0x1800..=0x1BFF => {
                 // CD-ROM registers
                 match &mut self.cd {
-                    Some(cd) => {
-                        cd.read_register(address, self.memory.cpu_registers().irq2_pending_mut())
-                    }
+                    Some(cd) => cd.read_register(
+                        address,
+                        self.cartridge,
+                        self.memory.cpu_registers().irq2_pending_mut(),
+                    ),
                     None => 0xFF,
                 }
             }

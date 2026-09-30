@@ -572,6 +572,7 @@ impl AppConfigExt for AppConfig {
             emulator_config: PceEmulatorConfig {
                 load_disc_into_ram: self.pc_engine.load_disc_into_ram,
                 region: self.pc_engine.region,
+                system_card_model: self.pc_engine.system_card_model,
                 cpu_fast_clock_divider: self.pc_engine.cpu_fast_clock_divider,
                 aspect_ratio: self.pc_engine.aspect_ratio,
                 palette: self.pc_engine.palette,

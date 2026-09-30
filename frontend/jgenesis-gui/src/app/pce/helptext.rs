@@ -8,6 +8,14 @@ pub const REGION: HelpText = HelpText {
     ],
 };
 
+pub const SYSTEM_CARD_MODEL: HelpText = HelpText {
+    heading: "CD-ROM² System Card Model",
+    text: &[
+        "Configure the CD-ROM² System Card model to emulate when running disc-based games.",
+        "Super System Card is backwards compatible with base CD-ROM² games, so the only reason to change this is if you want to see how Super games handle being run on a base system.",
+    ],
+};
+
 pub const CD_BIOS: HelpText = HelpText {
     heading: "CD-ROM² System Card",
     text: &[

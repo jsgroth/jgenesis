@@ -6,10 +6,12 @@ use jgenesis_common::boxedarray::BoxedByteArray;
 use jgenesis_common::debug::{DebugBytesView, DebugMemoryView};
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
+use pce_config::PceSystemCardModel;
 use std::ops::Deref;
 use std::{cmp, iter, mem};
 
 const WORKING_RAM_LEN: usize = 8 * 1024;
+const SUPER_SYSTEM_CARD_RAM_LEN: usize = 192 * 1024;
 
 const POPULOUS_SRAM_LEN: usize = 32 * 1024;
 
@@ -37,6 +39,8 @@ impl Deref for Rom {
 enum Mapper {
     // Standard linear ROM mapping in all banks
     None,
+    // ROM in banks $00-$3F, 192KB of RAM in banks $68-$7F
+    SuperSystemCard { ram: BoxedByteArray<SUPER_SYSTEM_CARD_RAM_LEN> },
     // Standard linear ROM mapping in banks $00-$3F, 32KB of SRAM mapped to $40-$43
     Populous { sram: BoxedByteArray<POPULOUS_SRAM_LEN>, sram_dirty: bool },
     // First 512KB of ROM in banks $00-$3F, mappable 512KB ROM bank in banks $40-$7F
@@ -44,7 +48,12 @@ enum Mapper {
 }
 
 impl Mapper {
-    fn guess_from_rom(rom: &[u8], initial_sram: Option<Vec<u8>>) -> Self {
+    fn guess_from_rom(
+        rom: &[u8],
+        initial_sram: Option<Vec<u8>>,
+        cd_present: bool,
+        system_card_model: PceSystemCardModel,
+    ) -> Self {
         const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 
         let checksum = CRC.checksum(rom);
@@ -73,8 +82,16 @@ impl Mapper {
                 Self::StreetFighter2 { rom_bank: 1 }
             }
             _ => {
-                log::info!("Using standard mapper");
-                Self::None
+                if cd_present
+                    && system_card_model == PceSystemCardModel::Super
+                    && rom.len() <= 512 * 1024
+                {
+                    log::info!("Using Super System Card");
+                    Self::SuperSystemCard { ram: BoxedByteArray::new_random() }
+                } else {
+                    log::info!("Using standard mapper");
+                    Self::None
+                }
             }
         }
     }
@@ -94,6 +111,12 @@ impl Mapper {
                     let banked_addr = (rom_bank << 19) | (address & 0x7FFFF);
                     read_rom_safely(rom, banked_addr)
                 }
+                _ => panic!("Invalid ROM address {address:06X}"),
+            },
+            Self::SuperSystemCard { ram } => match address {
+                0x000000..=0x07FFFF => read_rom_safely(rom, address),
+                0x080000..=0x0CFFFF => 0xFF, // Unused?
+                0x0D0000..=0x0FFFFF => ram[(address - 0x0D0000) as usize],
                 _ => panic!("Invalid ROM address {address:06X}"),
             },
         }
@@ -116,6 +139,11 @@ impl Mapper {
                     *rom_bank = (address & 3) + 1;
                 }
             }
+            Self::SuperSystemCard { ram } => {
+                if (0x0D0000..=0x0FFFFF).contains(&address) {
+                    ram[(address - 0x0D0000) as usize] = value;
+                }
+            }
         }
     }
 }
@@ -133,10 +161,15 @@ pub struct HuCard {
 }
 
 impl HuCard {
-    pub fn new(mut rom: Vec<u8>, initial_sram: Option<Vec<u8>>) -> Self {
+    pub fn new(
+        mut rom: Vec<u8>,
+        initial_sram: Option<Vec<u8>>,
+        cd_present: bool,
+        system_card_model: PceSystemCardModel,
+    ) -> Self {
         rom = mirror_hucard_rom(rom);
 
-        let mapper = Mapper::guess_from_rom(&rom, initial_sram);
+        let mapper = Mapper::guess_from_rom(&rom, initial_sram, cd_present, system_card_model);
 
         Self { rom: Rom(rom.into_boxed_slice()), mapper }
     }
@@ -147,6 +180,10 @@ impl HuCard {
 
     pub fn write(&mut self, address: u32, value: u8) {
         self.mapper.write(address, value);
+    }
+
+    pub fn is_super_system_card(&self) -> bool {
+        matches!(self.mapper, Mapper::SuperSystemCard { .. })
     }
 
     pub fn clone_rom(&self) -> Vec<u8> {
