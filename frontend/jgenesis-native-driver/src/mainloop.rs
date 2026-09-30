@@ -280,6 +280,8 @@ pub enum NativeEmulatorError {
         source: io::Error,
     },
     #[error("{0}")]
+    CdRomRead(#[from] CdRomError),
+    #[error("{0}")]
     SegaCdDisc(#[from] SegaCdLoadError),
     #[error("{0}")]
     NesLoad(#[from] NesInitializationError),
@@ -299,6 +301,14 @@ pub enum NativeEmulatorError {
     GbaBiosLoad(io::Error),
     #[error("Failed to initialize GBA emulator: {0}")]
     GbaLoad(#[from] GbaLoadError),
+    #[error("PC Engine CD-ROM BIOS is required for PCE CD emulation")]
+    PceCdNoBios,
+    #[error("Error reading PCE CD BIOS from '{path}': {source}")]
+    PceCdBiosRead {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
     #[error("I/O error opening save state file '{path}': {source}")]
     StateFileOpen {
         path: String,
@@ -1083,3 +1093,4 @@ macro_rules! bincode_config {
 }
 
 use bincode_config;
+use cdrom::CdRomError;

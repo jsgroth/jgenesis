@@ -5,6 +5,7 @@ use crate::mainloop::runner::RunnerCommand;
 use crate::mainloop::save::FsSaveWriter;
 use crate::mainloop::{CreatedEmulator, NativeDebugFn, NativeEmulatorArgs, save};
 use crate::{NativeEmulator, NativeEmulatorError, NativeEmulatorResult, archive, extensions};
+use cdrom::reader::{CdRom, CdRomFileFormat};
 use jgenesis_common::frontend::{EmulatorTrait, SaveWriter};
 use jgenesis_native_config::input::mappings::ButtonMappingVec;
 use sdl3::mouse::MouseUtil;
@@ -316,4 +317,19 @@ pub(crate) fn read_rom_file(
     }?;
 
     Ok(ReadRomResult { input: contents, rom_path: path.into(), save_extension: extension })
+}
+
+pub(crate) fn read_cdrom_image(path: &Path, open_in_memory: bool) -> NativeEmulatorResult<CdRom> {
+    let disc_format = CdRomFileFormat::from_file_path(path).unwrap_or_else(|| {
+        log::warn!("Unable to determine CD-ROM image format; assuming CUE/BIN");
+        CdRomFileFormat::CueBin
+    });
+
+    let disc = if open_in_memory {
+        CdRom::open_in_memory(path, disc_format)
+    } else {
+        CdRom::open(path, disc_format)
+    };
+
+    disc.map_err(NativeEmulatorError::CdRomRead)
 }

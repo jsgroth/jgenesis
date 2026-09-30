@@ -71,12 +71,24 @@ impl CdTime {
     ///
     /// # Panics
     ///
-    /// This function will panic if `sector_number` is greater than `360_000`, which is the number
-    /// of sectors in an 80-minute CD.
+    /// This function will panic if `sector_number` is greater than 360,000, the number of sectors
+    /// in an 80-minute CD.
     #[must_use]
     pub fn from_sector_number(sector_number: u32) -> Self {
-        // All Sega CD sector numbers are less than 360,000 (80 minutes)
-        assert!(sector_number < Self::MAX_SECTORS, "Invalid sector number: {sector_number}");
+        Self::from_sector_number_checked(sector_number)
+            .unwrap_or_else(|| panic!("Invalid sector number: {sector_number}"))
+    }
+
+    /// Convert an absolute sector number to a `CdTime` value.
+    ///
+    /// Returns `None` if `sector_number` is greater than 360,000, the number of sectors in an
+    /// 80-minute CD.
+    #[must_use]
+    pub fn from_sector_number_checked(sector_number: u32) -> Option<Self> {
+        // All Sega CD + PCE sector numbers are less than 360,000 (80 minutes)
+        if sector_number >= Self::MAX_SECTORS {
+            return None;
+        }
 
         let frames = sector_number % u32::from(Self::FRAMES_PER_SECOND);
         let seconds = (sector_number / u32::from(Self::FRAMES_PER_SECOND))
@@ -84,7 +96,7 @@ impl CdTime {
         let minutes = sector_number
             / (u32::from(Self::FRAMES_PER_SECOND) * u32::from(Self::SECONDS_PER_MINUTE));
 
-        Self::new(minutes as u8, seconds as u8, frames as u8)
+        Some(Self::new(minutes as u8, seconds as u8, frames as u8))
     }
 
     #[must_use]

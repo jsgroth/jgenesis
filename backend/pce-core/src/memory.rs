@@ -3,6 +3,7 @@ use bincode::{Decode, Encode};
 use crc::Crc;
 use huc6280_emu::bus::{ClockSpeed, InterruptLines};
 use jgenesis_common::boxedarray::BoxedByteArray;
+use jgenesis_common::debug::{DebugBytesView, DebugMemoryView};
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use std::ops::Deref;
@@ -174,6 +175,10 @@ impl HuCard {
         if let Mapper::Populous { sram_dirty, .. } = &mut self.mapper {
             *sram_dirty = false;
         }
+    }
+
+    pub fn debug_rom_view(&mut self) -> impl DebugMemoryView {
+        DebugBytesView(&mut self.rom.0)
     }
 }
 
@@ -376,6 +381,10 @@ impl CpuRegisters {
         &mut self.irq1_pending
     }
 
+    pub fn irq2_pending_mut(&mut self) -> &mut bool {
+        &mut self.irq2_pending
+    }
+
     pub fn step_timer_to(&mut self, cycles: u64) {
         self.timer.step_to(cycles, &mut self.tiq_pending);
     }
@@ -505,5 +514,9 @@ impl Memory {
 
     pub fn reload_config(&mut self, config: &PceEmulatorConfig) {
         self.cpu_fast_clock_divider = config.clamped_cpu_fast_divider();
+    }
+
+    pub fn debug_working_ram_view(&mut self) -> impl DebugMemoryView {
+        DebugBytesView(self.working_ram.as_mut_slice())
     }
 }

@@ -4,6 +4,7 @@ version = { workspace = true }
 edition = "2024"
 
 [dependencies]
+cdrom = { workspace = true }
 dsp = { workspace = true }
 jgenesis-common = { workspace = true }
 jgenesis-proc-macros = { workspace = true }

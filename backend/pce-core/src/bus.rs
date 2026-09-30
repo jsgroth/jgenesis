@@ -1,7 +1,10 @@
+use crate::audio::PceAudioResampler;
+use crate::cd::CdRomController;
 use crate::input::InputState;
 use crate::memory::{HuCard, Memory};
 use crate::psg::Huc6280Psg;
 use crate::video::VideoSubsystem;
+use cdrom::CdRomError;
 use huc6280_emu::bus::{BusInterface, ClockSpeed, InterruptLines};
 
 pub struct Bus<'a> {
@@ -9,8 +12,11 @@ pub struct Bus<'a> {
     pub video: &'a mut VideoSubsystem,
     pub psg: &'a mut Huc6280Psg,
     pub cartridge: &'a mut HuCard,
+    pub cd: Option<&'a mut CdRomController>,
     pub input: &'a mut InputState,
     pub cycle_counter: &'a mut u64,
+    pub audio_resampler: &'a mut PceAudioResampler,
+    pub cd_error: &'a mut Option<CdRomError>,
 }
 
 impl Bus<'_> {
@@ -20,6 +26,13 @@ impl Bus<'_> {
         // TODO it's really not necessary to sync everything at every CPU cycle
         self.video.step_to(*self.cycle_counter, self.memory.cpu_registers().irq1_pending_mut());
         self.memory.cpu_registers().step_timer_to(*self.cycle_counter);
+
+        if let Some(cd) = &mut self.cd
+            && let Err(err) =
+                cd.step_to(*self.cycle_counter, self.memory.cpu_registers().irq2_pending_mut())
+        {
+            *self.cd_error = Some(err);
+        }
     }
 
     #[allow(clippy::match_same_arms)]
@@ -43,7 +56,15 @@ impl Bus<'_> {
                 self.memory.cpu_registers().update_io_buffer(value, !0)
             }
             0x1400..=0x17FF => self.memory.cpu_registers().read_interrupt_register(address),
-            0x1800..=0x1BFF => 0xFF, // CD-ROM
+            0x1800..=0x1BFF => {
+                // CD-ROM registers
+                match &mut self.cd {
+                    Some(cd) => {
+                        cd.read_register(address, self.memory.cpu_registers().irq2_pending_mut())
+                    }
+                    None => 0xFF,
+                }
+            }
             0x1C00..=0x1FFF => 0xFF, // Unused
             _ => unreachable!("value & 0x1FFF is always <= 0x1FFF"),
         }
@@ -65,7 +86,7 @@ impl Bus<'_> {
             ),
             0x0400..=0x07FF => self.video.write_vce(address, value),
             0x0800..=0x0BFF => {
-                self.psg.step_to(*self.cycle_counter);
+                self.psg.step_to(*self.cycle_counter, self.audio_resampler);
                 self.psg.write(address, value);
                 self.memory.cpu_registers().update_io_buffer(value, !0);
             }
@@ -83,7 +104,16 @@ impl Bus<'_> {
             0x1400..=0x17FF => {
                 self.memory.cpu_registers().write_interrupt_register(address, value);
             }
-            0x1800..=0x1BFF => {} // CD-ROM
+            0x1800..=0x1BFF => {
+                // CD-ROM registers
+                if let Some(cd) = &mut self.cd {
+                    cd.write_register(
+                        address,
+                        value,
+                        self.memory.cpu_registers().irq2_pending_mut(),
+                    );
+                }
+            }
             0x1C00..=0x1FFF => {} // Unused
             _ => unreachable!("value & 0x1FFF is always <= 0x1FFF"),
         }
@@ -100,7 +130,15 @@ impl BusInterface for Bus<'_> {
 
         match address {
             0x000000..=0x0FFFFF => self.cartridge.read(address),
-            0x100000..=0x1EFFFF => 0xFF, // CD-ROM
+            0x100000..=0x10FFFF => match &self.cd {
+                Some(cd) => cd.read_working_ram(address),
+                None => 0xFF,
+            },
+            0x110000..=0x1EDFFF => 0xFF, // Unused?
+            0x1EE000..=0x1EFFFF => match &self.cd {
+                Some(cd) => cd.read_backup_ram(address),
+                None => 0xFF,
+            },
             0x1F0000..=0x1F7FFF => self.memory.read_working_ram(address),
             0x1F8000..=0x1FDFFF => 0xFF, // Unused memory
             0x1FE000..=0x1FFFFF => self.read_io(address),
@@ -117,7 +155,17 @@ impl BusInterface for Bus<'_> {
 
         match address {
             0x000000..=0x0FFFFF => self.cartridge.write(address, value),
-            0x100000..=0x1EFFFF => {} // CD-ROM
+            0x100000..=0x10FFFF => {
+                if let Some(cd) = &mut self.cd {
+                    cd.write_working_ram(address, value);
+                }
+            }
+            0x110000..=0x1EDFFF => {} // Unused?
+            0x1EE000..=0x1EFFFF => {
+                if let Some(cd) = &mut self.cd {
+                    cd.write_backup_ram(address, value);
+                }
+            }
             0x1F0000..=0x1F7FFF => self.memory.write_working_ram(address, value),
             0x1F8000..=0x1FDFFF => {} // Unused memory
             0x1FE000..=0x1FFFFF => self.write_io(address, value),

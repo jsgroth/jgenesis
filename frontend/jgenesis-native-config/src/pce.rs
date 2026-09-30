@@ -1,19 +1,22 @@
 use jgenesis_proc_macros::deserialize_default_on_error;
-use pce_config::{PceAspectRatio, PceAudioResampler, PceInputDevice, PcePaletteType, PceRegion};
+use pce_config::{PceAspectRatio, PceInputDevice, PcePaletteType, PcePsgResampler, PceRegion};
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU64;
+use std::path::PathBuf;
 
 #[deserialize_default_on_error]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PcEngineAppConfig {
+    pub cd_bios_path: Option<PathBuf>,
+    pub load_disc_into_ram: bool,
     pub region: PceRegion,
     pub cpu_fast_clock_divider: NonZeroU64,
     pub aspect_ratio: PceAspectRatio,
     pub palette: PcePaletteType,
     pub crop_overscan: bool,
     pub remove_sprite_limits: bool,
-    pub audio_resampler: PceAudioResampler,
+    pub audio_resampler: PcePsgResampler,
     pub input_device: PceInputDevice,
     pub turbo_tap_connected: [bool; pce_config::TURBO_TAP_GAMEPADS as usize],
     pub allow_opposing_joypad_directions: bool,
@@ -23,13 +26,15 @@ pub struct PcEngineAppConfig {
 impl Default for PcEngineAppConfig {
     fn default() -> Self {
         Self {
+            cd_bios_path: None,
+            load_disc_into_ram: false,
             region: PceRegion::default(),
             cpu_fast_clock_divider: NonZeroU64::new(pce_config::NATIVE_FAST_CPU_DIVIDER).unwrap(),
             aspect_ratio: PceAspectRatio::default(),
             palette: PcePaletteType::default(),
             crop_overscan: true,
             remove_sprite_limits: false,
-            audio_resampler: PceAudioResampler::default(),
+            audio_resampler: PcePsgResampler::default(),
             input_device: PceInputDevice::default(),
             turbo_tap_connected: [true, true, false, false, false],
             allow_opposing_joypad_directions: false,

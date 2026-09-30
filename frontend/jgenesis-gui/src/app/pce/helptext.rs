@@ -8,6 +8,21 @@ pub const REGION: HelpText = HelpText {
     ],
 };
 
+pub const CD_BIOS: HelpText = HelpText {
+    heading: "CD-ROM² System Card",
+    text: &[
+        "Path to a PC Engine CD-ROM² or TurboGrafx CD System Card ROM. This is required for CD-ROM² emulation.",
+    ],
+};
+
+pub const LOAD_DISC_INTO_RAM: HelpText = HelpText {
+    heading: "Load CD-ROM Images into RAM",
+    text: &[
+        "If enabled, load CD-ROM images fully into host RAM when starting a disc-based game.",
+        "This increases RAM usage but removes the need for the emulator to read from disk during emulation.",
+    ],
+};
+
 pub const ASPECT_RATIO: HelpText = HelpText {
     heading: "Aspect Ratio",
     text: &[
@@ -39,8 +54,8 @@ pub const REMOVE_SPRITE_LIMITS: HelpText = HelpText {
     ],
 };
 
-pub const AUDIO_RESAMPLER: HelpText = HelpText {
-    heading: "Audio Resampling Algorithm",
+pub const PSG_AUDIO_RESAMPLER: HelpText = HelpText {
+    heading: "PSG Audio Resampling Algorithm",
     text: &[
         "Choose the algorithm used to resample PSG audio output to the emulator's output sample rate.",
         "Windowed sinc interpolation is much higher quality but is fairly CPU-intensive.",

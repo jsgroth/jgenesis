@@ -27,6 +27,7 @@ impl PceJoypadStateExt for PceJoypadState {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct InputState {
     region: PceRegion,
+    cd_hardware_present: bool,
     input_device: PceInputDevice,
     turbo_tap_connected: [bool; TURBO_TAP_GAMEPADS as usize],
     inputs: PceInputs,
@@ -39,9 +40,10 @@ pub struct InputState {
 }
 
 impl InputState {
-    pub fn new(config: PceEmulatorConfig) -> Self {
+    pub fn new(config: PceEmulatorConfig, cd_hardware_present: bool) -> Self {
         Self {
             region: config.region,
+            cd_hardware_present,
             input_device: config.input_device,
             turbo_tap_connected: config.turbo_tap_connected,
             inputs: PceInputs::default(),
@@ -76,10 +78,10 @@ impl InputState {
             PceInputDevice::TurboTap => self.read_turbo_tap(),
         };
 
-        // Bit 7: CD-ROM present (1 = not attached)
         // Bits 5 and 4 always read 1
+        let cd_bit = u8::from(!self.cd_hardware_present);
         let region_bit = u8::from(self.region == PceRegion::PcEngine);
-        let value = (1 << 7) | (region_bit << 6) | (1 << 5) | (1 << 4) | controller_data;
+        let value = (cd_bit << 7) | (region_bit << 6) | (1 << 5) | (1 << 4) | controller_data;
 
         log::trace!(
             "I/O port read; SEL={} CLR={}, value={value:02X}",

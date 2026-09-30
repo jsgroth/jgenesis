@@ -1243,6 +1243,7 @@ impl App {
                     }
                 }
                 NativeEmulatorError::GbaNoBios => self.render_gba_bios_error(ctx, &mut open),
+                NativeEmulatorError::PceCdNoBios => self.render_pce_bios_error(ctx, &mut open),
                 _ => Self::render_generic_error_window(ctx, err, &mut open),
             };
 

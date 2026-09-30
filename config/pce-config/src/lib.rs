@@ -68,7 +68,7 @@ pub enum PcePaletteType {
 )]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
-pub enum PceAudioResampler {
+pub enum PcePsgResampler {
     #[default]
     WindowedSinc,
     LowPassNearestNeighbor,

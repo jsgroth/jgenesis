@@ -1,12 +1,8 @@
 //! The wavetable PSG built into the HuC6280
 
-mod resampler;
-
 use crate::api;
-use crate::api::PceEmulatorConfig;
-use crate::psg::resampler::PsgResampler;
+use crate::audio::PceAudioResampler;
 use bincode::{Decode, Encode};
-use jgenesis_common::frontend::AudioOutput;
 use jgenesis_common::num::{GetBit, U16Ext};
 use std::sync::LazyLock;
 use std::{array, mem};
@@ -263,37 +259,31 @@ pub struct Huc6280Psg {
     l_main_amplitude: u8,
     r_main_amplitude: u8,
     lfo: LowFrequencyOscillator,
-    resampler: PsgResampler,
-    output_frequency: u64,
     cycles: u64,
     volume: VolumeUpdateState,
 }
 
 impl Huc6280Psg {
-    pub fn new(config: PceEmulatorConfig) -> Self {
-        let output_frequency = 48000;
-
+    pub fn new() -> Self {
         Self {
             channels: array::from_fn(|idx| PsgChannel::new(idx as u8)),
             selected_channel: 0,
             l_main_amplitude: 0,
             r_main_amplitude: 0,
             lfo: LowFrequencyOscillator::new(),
-            resampler: PsgResampler::new(config.audio_resampler, output_frequency),
-            output_frequency,
             cycles: 0,
             volume: VolumeUpdateState::new(),
         }
     }
 
-    pub fn step_to(&mut self, cycles: u64) {
+    pub fn step_to(&mut self, cycles: u64, resampler: &mut PceAudioResampler) {
         while self.cycles < cycles {
-            self.clock();
+            self.clock(resampler);
             self.cycles += PSG_CLOCK_DIVIDER;
         }
     }
 
-    pub fn clock(&mut self) {
+    pub fn clock(&mut self, resampler: &mut PceAudioResampler) {
         let mut sample_l = 0.0;
         let mut sample_r = 0.0;
 
@@ -328,32 +318,10 @@ impl Huc6280Psg {
             }
         }
 
-        self.resampler.collect([sample_l, sample_r]);
+        resampler.collect_psg([sample_l, sample_r]);
 
         if self.volume.active {
             self.progress_volume_update();
-        }
-    }
-
-    pub fn drain_output_buffer<A: AudioOutput>(
-        &mut self,
-        audio_output: &mut A,
-    ) -> Result<(), A::Err> {
-        while let Some([sample_l, sample_r]) = self.resampler.output_buffer_pop_front() {
-            audio_output.push_sample(sample_l, sample_r)?;
-        }
-
-        Ok(())
-    }
-
-    pub fn update_output_frequency(&mut self, output_frequency: u64) {
-        self.resampler.update_output_frequency(output_frequency as f64);
-        self.output_frequency = output_frequency;
-    }
-
-    pub fn reload_config(&mut self, config: PceEmulatorConfig) {
-        if config.audio_resampler != self.resampler.resampler_impl() {
-            self.resampler = PsgResampler::new(config.audio_resampler, self.output_frequency);
         }
     }
 

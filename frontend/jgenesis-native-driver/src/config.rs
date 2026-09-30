@@ -217,6 +217,8 @@ pub struct PcEngineConfig {
     pub inputs: PceInputConfig,
     #[cfg_display(indent_nested)]
     pub emulator_config: PceEmulatorConfig,
+    #[cfg_display(path)]
+    pub cd_bios_path: Option<PathBuf>,
 }
 
 pub trait AppConfigExt {
@@ -568,18 +570,20 @@ impl AppConfigExt for AppConfig {
             common: self.common_config(path),
             inputs: self.input.pc_engine.clone(),
             emulator_config: PceEmulatorConfig {
+                load_disc_into_ram: self.pc_engine.load_disc_into_ram,
                 region: self.pc_engine.region,
                 cpu_fast_clock_divider: self.pc_engine.cpu_fast_clock_divider,
                 aspect_ratio: self.pc_engine.aspect_ratio,
                 palette: self.pc_engine.palette,
                 crop_overscan: self.pc_engine.crop_overscan,
                 remove_sprite_limits: self.pc_engine.remove_sprite_limits,
-                audio_resampler: self.pc_engine.audio_resampler,
+                psg_audio_resampler: self.pc_engine.audio_resampler,
                 input_device: self.pc_engine.input_device,
                 turbo_tap_connected: self.pc_engine.turbo_tap_connected,
                 allow_opposing_joypad_directions: self.pc_engine.allow_opposing_joypad_directions,
                 allow_simultaneous_run_select: self.pc_engine.allow_simultaneous_run_select,
             },
+            cd_bios_path: self.pc_engine.cd_bios_path.clone(),
         })
     }
 }

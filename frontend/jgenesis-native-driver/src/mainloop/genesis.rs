@@ -11,7 +11,6 @@ use genesis_core::api::GenesisHardware;
 use jgenesis_common::frontend::{EmulatorTrait, SaveWriter};
 use jgenesis_native_config::common::WindowSize;
 use jgenesis_native_config::input::mappings::ButtonMappingVec;
-use segacd_core::api::SegaCdLoadError;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -95,9 +94,10 @@ impl CreatableEmulator for GenesisEmulator {
         save_writer: &mut impl SaveWriter,
     ) -> NativeEmulatorResult<CreatedEmulator<Self>> {
         let disc = match &input.input.disc_path {
-            Some(path) => {
-                Some(read_sega_cd_disc(path, config.emulator_config.sega_cd.load_disc_into_ram)?)
-            }
+            Some(path) => Some(create::read_cdrom_image(
+                path,
+                config.emulator_config.sega_cd.load_disc_into_ram,
+            )?),
             None => None,
         };
 
@@ -163,7 +163,7 @@ impl CreatableEmulator for GenesisEmulator {
         disc_path: &Path,
         config: &<Self as EmulatorTrait>::Config,
     ) -> NativeEmulatorResult<Option<WindowTitle>> {
-        let disc = read_sega_cd_disc(disc_path, config.sega_cd.load_disc_into_ram)?;
+        let disc = create::read_cdrom_image(disc_path, config.sega_cd.load_disc_into_ram)?;
 
         log::info!("Changing to disc read from path '{}'", disc_path.display());
 
@@ -210,21 +210,6 @@ fn generate_window_title(emulator: &mut GenesisEmulator, hardware: GenesisHardwa
         c.is_ascii_alphanumeric() || c.is_ascii_whitespace() || c.is_ascii_punctuation()
     });
     format!("{system_name} - {game_title}")
-}
-
-fn read_sega_cd_disc(path: &Path, open_in_memory: bool) -> NativeEmulatorResult<CdRom> {
-    let disc_format = CdRomFileFormat::from_file_path(path).unwrap_or_else(|| {
-        log::warn!("Unable to determine CD-ROM image format; assuming CUE/BIN");
-        CdRomFileFormat::CueBin
-    });
-
-    let disc = if open_in_memory {
-        CdRom::open_in_memory(path, disc_format)
-    } else {
-        CdRom::open(path, disc_format)
-    };
-
-    disc.map_err(|err| NativeEmulatorError::SegaCdDisc(SegaCdLoadError::CdRom(err)))
 }
 
 fn determine_scd_bios_path(config: &GenesisConfig) -> (GenesisRegion, Option<PathBuf>) {
