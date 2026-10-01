@@ -776,6 +776,8 @@ impl Vdc {
         self.state.h_counter = 0;
         self.state.h_mode_start_dot = 0;
 
+        log::trace!("Latched horizontal state (line {scanline}): {:?}", self.state.h_latch);
+
         self.state.line_divider = dot_clock_divider;
 
         self.state.scanline = scanline;
@@ -796,6 +798,8 @@ impl Vdc {
                 self.state.v_counter = 0;
                 self.state.v_mode_start_line = 0;
                 self.state.vblank_irq_this_frame = false;
+
+                log::trace!("Latched vertical state: {:?}", self.state.v_latch);
             }
             _ => {
                 self.state.v_counter += 1;
@@ -814,18 +818,7 @@ impl Vdc {
                             }
                         }
                         VerticalMode::BottomBorder => {
-                            if self.state.dma.sat_triggered || self.registers.sat_dma_repeat {
-                                self.state.dma.start_sat();
-                                self.state.dma.sat_triggered = false;
-
-                                log::trace!("Starting VRAM-to-SAT DMA on line {scanline}");
-                            }
-
-                            if self.state.dma.vram_triggered {
-                                self.state.dma.start_vram();
-
-                                log::trace!("Starting VRAM-to-VRAM DMA on line {scanline}");
-                            }
+                            self.trigger_dmas();
 
                             self.set_irq(VdcIrq::VBlank);
 
@@ -841,8 +834,27 @@ impl Vdc {
 
         if !self.state.vblank_irq_this_frame && scanline == lines_per_frame - 2 {
             // VDC supposedly always generates a VBlank IRQ when the VCE asserts VSYNC if it didn't
-            // already generate one earlier in the frame
+            // already generate one earlier in the frame (happens when VDS+VDW is too large)
             self.set_irq(VdcIrq::VBlank);
+
+            // If VBlank IRQ didn't trigger earlier in the frame, the VDC also didn't run the DMA
+            // trigger logic, so do that now (e.g. Asuka 120% story scenes)
+            self.trigger_dmas();
+        }
+    }
+
+    fn trigger_dmas(&mut self) {
+        if self.state.dma.sat_triggered || self.registers.sat_dma_repeat {
+            self.state.dma.start_sat();
+            self.state.dma.sat_triggered = false;
+
+            log::trace!("Starting VRAM-to-SAT DMA on line {}", self.state.scanline);
+        }
+
+        if self.state.dma.vram_triggered {
+            self.state.dma.start_vram();
+
+            log::trace!("Starting VRAM-to-VRAM DMA on line {}", self.state.scanline);
         }
     }
 
