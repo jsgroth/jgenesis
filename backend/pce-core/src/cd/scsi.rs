@@ -1,5 +1,7 @@
 //! Code for emulating the CD-ROM² add-on's SCSI CD-ROM drive
 
+mod seektime;
+
 use crate::cd::{CdInterruptFlags, CdInterruptType};
 use bincode::{Decode, Encode};
 use cdrom::CdRomError;
@@ -16,7 +18,6 @@ const CD_FREQUENCY: u64 = 44100;
 const SAMPLES_PER_SECTOR: u32 = 588;
 
 const PREPARE_READ_CYCLES: u32 = 6 * SAMPLES_PER_SECTOR;
-const MIN_SEEK_CYCLES: u32 = 7 * SAMPLES_PER_SECTOR;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub struct ScsiBusSignals {
@@ -386,7 +387,8 @@ impl ScsiCdDrive {
                         AudioPlaybackMode::PlayLoop => {
                             log::debug!("Looping audio back to {}", self.audio_start_time);
 
-                            let seek_cycles = estimate_seek_cycles(new_time, self.audio_start_time);
+                            let seek_cycles =
+                                seektime::estimate_clocks(new_time, self.audio_start_time);
                             DriveState::Seeking {
                                 from: new_time,
                                 to: self.audio_start_time,
@@ -744,7 +746,7 @@ impl ScsiCdDrive {
                 mode,
             }
         } else {
-            let seek_cycles = estimate_seek_cycles(current_time, seek_time);
+            let seek_cycles = seektime::estimate_clocks(current_time, seek_time);
             DriveState::Seeking {
                 from: current_time,
                 to: seek_time,
@@ -1067,33 +1069,20 @@ fn bcd_to_binary(value: u8) -> u8 {
     (value & 0x0F) + 10 * (value >> 4)
 }
 
-// Assume that it takes 1.5 seconds to seek across a 74-minute disc
-// (Probably not accurate, this is based on Sega CD)
-const SEEK_CYCLES_MULTIPLIER: f64 = (44100.0 * 1.5) / (74.0 * 60.0 * 75.0);
-const RECIPROCAL_SEEK_MULTIPLIER: f64 = 1.0 / SEEK_CYCLES_MULTIPLIER;
-
-fn estimate_seek_cycles(from: CdTime, to: CdTime) -> u32 {
-    let difference = if from < to { to - from } else { from - to };
-    let diff_frames = difference.to_sector_number();
-
-    let seek_cycles = f64::from(diff_frames) * SEEK_CYCLES_MULTIPLIER;
-    cmp::max(MIN_SEEK_CYCLES, seek_cycles.ceil() as u32)
-}
-
 fn estimate_mid_seek_time(current: CdTime, to: CdTime, cycles_remaining: u32) -> CdTime {
-    let frames_remaining = (f64::from(cycles_remaining) * RECIPROCAL_SEEK_MULTIPLIER).ceil() as u32;
+    if cycles_remaining == 1 {
+        return current;
+    }
 
-    let target_frame = to.to_sector_number();
-    let new_current_frame = if current < to {
-        target_frame.saturating_sub(frames_remaining)
+    // TODO this is not accurate, seeking is non-linear, but mid-seek current time is only used if
+    // a game interrupts a seek with another command
+    let diff = if current < to { to - current } else { current - to };
+    let diff_frames = diff.to_sector_number();
+
+    let elapsed_frames = (f64::from(diff_frames) / f64::from(cycles_remaining)).round() as u32;
+    if current < to {
+        current + CdTime::from_sector_number(elapsed_frames)
     } else {
-        cmp::min(current.to_sector_number(), target_frame + frames_remaining)
-    };
-
-    debug_assert!(
-        new_current_frame <= current.to_sector_number()
-            || new_current_frame <= to.to_sector_number()
-    );
-
-    CdTime::from_sector_number(new_current_frame)
+        current.saturating_sub(CdTime::from_sector_number(elapsed_frames))
+    }
 }
