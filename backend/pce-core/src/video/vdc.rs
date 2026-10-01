@@ -944,7 +944,9 @@ impl Vdc {
             (self.vram[tile_addr + tile_row], self.vram[tile_addr + tile_row + 8])
         } else {
             // Tiles 2048-4095 are supposedly filled with "garbage"
-            (0xFFFF, 0xFFFF)
+            // Presumably in actual hardware they're some sort of open bus, but for simplicity
+            // just make them fully transparent tiles
+            (0, 0)
         };
 
         if self.state.h_latch.vram_access_width == VramAccessWidth::Four {
@@ -1222,7 +1224,14 @@ impl Vdc {
                 &self.vram[tile_addr..tile_addr + 64]
             } else {
                 // Tiles 512-1023 supposedly contain "garbage"
-                &[0xFFFF; 64]
+                //
+                // Games sometimes display sprites with these tile numbers and expect them to be
+                // either fully transparent or to contain a specific color, e.g. Shin Megami Tensei
+                // title screen animation (briefly has an onscreen sprite with tile number 512)
+                //
+                // Presumably in actual hardware these are some sort of open bus, but for simplicity
+                // just make them fully transparent
+                &[0; 64]
             };
 
             let tile_row = sprite.tile_row as usize;
