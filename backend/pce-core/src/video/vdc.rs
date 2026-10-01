@@ -59,6 +59,12 @@ pub const RASTER_COMPARE_INCREMENT_OFFSET: u16 = 8;
 // 14 lines of top blanking before active display, 4 lines of bottom blanking + 3 lines of VSYNC after
 pub const ACTIVE_DISPLAY_LINES: Range<u16> = 14..256;
 
+// Unclear exactly when BYR/BXR/CR are latched, but it appears to happen before the VCE HSYNC forces
+// the VDC into HDS phase, and it appears to happen at a fixed point independent of the current dot
+// clock divider; let's say it happens 100 mclks before HDS (25 dots / 33.3~ dots / 50 dots
+// depending on divider)
+pub const SCROLL_LATCH_MCLK: u32 = (MCLK_CYCLES_PER_SCANLINE - 100) as u32;
+
 // Large enough to fit video output at H1365px, after removing overscan
 pub const FRAME_BUFFER_WIDTH: usize = (2 * MAX_WIDTH_DIV_2) as usize;
 // There are always 242 lines of active display, regardless of vertical display settings
@@ -311,7 +317,6 @@ pub struct LatchedHorizontalState {
     pub h_display_start: u16,
     pub h_display_width: u16,
     pub h_display_end: u16,
-    pub bg_x_scroll: u16,
     pub vram_access_width: VramAccessWidth,
     pub sprite_access_width: SpriteAccessWidth,
 }
@@ -323,7 +328,6 @@ impl LatchedHorizontalState {
             h_display_start: registers.h_display_start,
             h_display_width: registers.h_display_width,
             h_display_end: registers.h_display_end,
-            bg_x_scroll: registers.bg_x_scroll,
             vram_access_width: registers.vram_access_width,
             sprite_access_width: registers.sprite_access_width,
         }
@@ -449,6 +453,7 @@ pub enum PendingCpuAccess {
 pub struct VdcState {
     pub scanline: u16,
     pub scanline_dot: u16,
+    pub scanline_mclk: u32,
     pub h_latch: LatchedHorizontalState,
     pub v_latch: LatchedVerticalState,
     pub h_mode: HorizontalMode,
@@ -457,6 +462,7 @@ pub struct VdcState {
     pub h_mode_start_dot: u16,
     pub v_counter: u16,
     pub v_mode_start_line: u16,
+    pub latched_bg_x_scroll: u16,
     pub bg_y_counter: u16,
     pub bg_y_scroll_written: bool,
     pub dma: DmaState,
@@ -486,6 +492,7 @@ impl VdcState {
         Self {
             scanline: 0,
             scanline_dot: 0,
+            scanline_mclk: 0,
             h_latch: LatchedHorizontalState::latch(registers),
             v_latch: LatchedVerticalState::latch(registers),
             h_mode: HorizontalMode::LeftBorder,
@@ -494,6 +501,7 @@ impl VdcState {
             h_mode_start_dot: 0,
             v_counter: 0,
             v_mode_start_line: 0,
+            latched_bg_x_scroll: 0,
             bg_y_counter: 0,
             bg_y_scroll_written: false,
             dma: DmaState::new(),
@@ -649,6 +657,15 @@ impl Vdc {
                 self.state.sprite_collision_irq_dot = None;
             }
 
+            let prev_scanline_mclk = self.state.scanline_mclk;
+            self.state.scanline_mclk += vce.dot_clock_divider() as u32;
+            if prev_scanline_mclk < SCROLL_LATCH_MCLK
+                && self.state.scanline_mclk >= SCROLL_LATCH_MCLK
+            {
+                // TODO BXR and CR are latched slightly later than BYR in actual hardware
+                self.latch_scroll_registers();
+            }
+
             self.state.h_counter += 1;
             if self.state.h_counter >= h_mode_length {
                 self.state.h_counter = 0;
@@ -705,6 +722,20 @@ impl Vdc {
         }
     }
 
+    fn latch_scroll_registers(&mut self) {
+        if self.state.bg_y_scroll_written {
+            log::trace!("Latching new BYR value {}", self.registers.bg_y_scroll);
+            self.state.bg_y_counter = self.registers.bg_y_scroll;
+            self.state.bg_y_scroll_written = false;
+        }
+        self.state.bg_y_counter = self.state.bg_y_counter.wrapping_add(1);
+
+        self.state.latched_bg_x_scroll = self.registers.bg_x_scroll;
+
+        self.registers.bg_enabled = self.registers.bg_enabled_pending;
+        self.registers.sprites_enabled = self.registers.sprites_enabled_pending;
+    }
+
     pub fn start_new_line(&mut self, scanline: u16, vce: &Vce) {
         if self.state.h_mode == HorizontalMode::ActiveDisplay {
             if self.state.h_counter
@@ -749,12 +780,7 @@ impl Vdc {
 
         self.state.scanline = scanline;
         self.state.scanline_dot = 0;
-
-        if self.state.bg_y_scroll_written {
-            self.state.bg_y_counter = self.registers.bg_y_scroll;
-            self.state.bg_y_scroll_written = false;
-        }
-        self.state.bg_y_counter = self.state.bg_y_counter.wrapping_add(1);
+        self.state.scanline_mclk = 0;
 
         if ACTIVE_DISPLAY_LINES.contains(&scanline) {
             let frame_buffer_row = scanline - ACTIVE_DISPLAY_LINES.start;
@@ -763,43 +789,52 @@ impl Vdc {
 
         self.state.frame_complete |= scanline == ACTIVE_DISPLAY_LINES.end;
 
-        if scanline != 0 {
-            self.state.v_counter += 1;
-            if self.state.v_counter >= self.state.v_mode.length(self.state.v_latch) {
+        match scanline {
+            0 => {
+                self.state.v_latch = LatchedVerticalState::latch(&self.registers);
+                self.state.v_mode = VerticalMode::TopBorder;
                 self.state.v_counter = 0;
-                self.state.v_mode = self.state.v_mode.next();
-                self.state.v_mode_start_line = self.state.scanline;
+                self.state.v_mode_start_line = 0;
+                self.state.vblank_irq_this_frame = false;
+            }
+            _ => {
+                self.state.v_counter += 1;
+                if self.state.v_counter >= self.state.v_mode.length(self.state.v_latch) {
+                    self.state.v_counter = 0;
+                    self.state.v_mode = self.state.v_mode.next();
+                    self.state.v_mode_start_line = self.state.scanline;
 
-                match self.state.v_mode {
-                    VerticalMode::ActiveDisplay => {
-                        self.state.bg_y_counter = self.registers.bg_y_scroll;
+                    match self.state.v_mode {
+                        VerticalMode::ActiveDisplay => {
+                            self.state.bg_y_counter = self.registers.bg_y_scroll;
 
-                        if !self.state.v_latch.burst_mode {
-                            // DMAs cannot run during active display when not in burst mode
-                            self.state.dma.halt();
+                            if !self.state.v_latch.burst_mode {
+                                // DMAs cannot run during active display when not in burst mode
+                                self.state.dma.halt();
+                            }
                         }
+                        VerticalMode::BottomBorder => {
+                            if self.state.dma.sat_triggered || self.registers.sat_dma_repeat {
+                                self.state.dma.start_sat();
+                                self.state.dma.sat_triggered = false;
+
+                                log::trace!("Starting VRAM-to-SAT DMA on line {scanline}");
+                            }
+
+                            if self.state.dma.vram_triggered {
+                                self.state.dma.start_vram();
+
+                                log::trace!("Starting VRAM-to-VRAM DMA on line {scanline}");
+                            }
+
+                            self.set_irq(VdcIrq::VBlank);
+
+                            self.state.vblank_irq_this_frame = true;
+
+                            self.state.sprite_collision_irq_dot = None;
+                        }
+                        _ => {}
                     }
-                    VerticalMode::BottomBorder => {
-                        if self.state.dma.sat_triggered || self.registers.sat_dma_repeat {
-                            self.state.dma.start_sat();
-                            self.state.dma.sat_triggered = false;
-
-                            log::trace!("Starting VRAM-to-SAT DMA on line {scanline}");
-                        }
-
-                        if self.state.dma.vram_triggered {
-                            self.state.dma.start_vram();
-
-                            log::trace!("Starting VRAM-to-VRAM DMA on line {scanline}");
-                        }
-
-                        self.set_irq(VdcIrq::VBlank);
-
-                        self.state.vblank_irq_this_frame = true;
-
-                        self.state.sprite_collision_irq_dot = None;
-                    }
-                    _ => {}
                 }
             }
         }
@@ -809,14 +844,6 @@ impl Vdc {
             // already generate one earlier in the frame
             self.set_irq(VdcIrq::VBlank);
         }
-    }
-
-    pub fn start_new_frame(&mut self) {
-        self.state.v_latch = LatchedVerticalState::latch(&self.registers);
-        self.state.v_mode = VerticalMode::TopBorder;
-        self.state.v_counter = 0;
-        self.state.v_mode_start_line = 0;
-        self.state.vblank_irq_this_frame = false;
     }
 
     pub fn frame_complete(&self) -> bool {
@@ -878,7 +905,7 @@ impl Vdc {
         let screen_width_tiles = self.registers.virtual_screen_width.to_tiles();
         let screen_height_tiles = self.registers.virtual_screen_height.to_tiles();
 
-        let bg_x_scroll = self.state.h_latch.bg_x_scroll;
+        let bg_x_scroll = self.state.latched_bg_x_scroll;
         let bg_y_counter = self.state.bg_y_counter;
 
         let mut bg_tile_x = (bg_x_scroll / 8) & (screen_width_tiles - 1);

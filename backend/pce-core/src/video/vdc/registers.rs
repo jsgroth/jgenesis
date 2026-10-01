@@ -137,6 +137,8 @@ pub struct VdcRegisters {
     pub sprite_collision_irq_enabled: bool,
     pub bg_enabled: bool,
     pub sprites_enabled: bool,
+    pub bg_enabled_pending: bool,
+    pub sprites_enabled_pending: bool,
     pub vram_address_increment: u16,
     // $06: RCR (Raster compare register)
     pub raster_compare: u16,
@@ -193,6 +195,8 @@ impl VdcRegisters {
             sprite_collision_irq_enabled: false,
             bg_enabled: false,
             sprites_enabled: false,
+            bg_enabled_pending: false,
+            sprites_enabled_pending: false,
             vram_address_increment: 1,
             raster_compare: !0,
             bg_x_scroll: 0,
@@ -329,12 +333,15 @@ impl Vdc {
                         self.registers.sprite_overflow_irq_enabled = value.bit(1);
                         self.registers.raster_compare_irq_enabled = value.bit(2);
                         self.registers.vblank_irq_enabled = value.bit(3);
-                        self.registers.sprites_enabled = value.bit(6);
-                        self.registers.bg_enabled = value.bit(7);
+                        self.registers.sprites_enabled_pending = value.bit(6);
+                        self.registers.bg_enabled_pending = value.bit(7);
 
                         log::trace!("CR Low write: {value:02X}");
-                        log::trace!("  BG enabled: {}", self.registers.bg_enabled);
-                        log::trace!("  Sprites enabled: {}", self.registers.sprites_enabled);
+                        log::trace!("  BG enabled: {}", self.registers.bg_enabled_pending);
+                        log::trace!(
+                            "  Sprites enabled: {}",
+                            self.registers.sprites_enabled_pending
+                        );
                         log::trace!("  VBlank IRQ enabled: {}", self.registers.vblank_irq_enabled);
                         log::trace!(
                             "  Raster compare IRQ enabled: {}",
