@@ -686,8 +686,8 @@ impl App {
                 ui.menu_button("Load State", |ui| {
                     ui.set_min_width(200.0);
 
-                    for slot in 0..jgenesis_native_driver::SAVE_STATE_SLOTS {
-                        match save_state_metadata.times_nanos[slot] {
+                    for (slot, time_nanos) in save_state_metadata.times_nanos.iter().enumerate() {
+                        match *time_nanos {
                             Some(time_nanos) => {
                                 let formatted_time = format_time_nanos(time_nanos)
                                     .unwrap_or_else(|| "Unknown".into());
@@ -710,8 +710,8 @@ impl App {
                 ui.menu_button("Save State", |ui| {
                     ui.set_min_width(200.0);
 
-                    for slot in 0..jgenesis_native_driver::SAVE_STATE_SLOTS {
-                        let label = match save_state_metadata.times_nanos[slot] {
+                    for (slot, time_nanos) in save_state_metadata.times_nanos.iter().enumerate() {
+                        let label = match *time_nanos {
                             Some(time_nanos) => {
                                 let formatted_time = format_time_nanos(time_nanos)
                                     .unwrap_or_else(|| "Unknown".into());

@@ -728,8 +728,7 @@ fn check_for_long_dma_skip(vdp: &Vdp, cycles: &mut CycleCounters) {
         cycles.m68k_wait_cpu_cycles,
         cmp::min(
             cycles.max_wait_cpu_cycles,
-            (vdp::MCLK_CYCLES_PER_SCANLINE - vdp.scanline_mclk()) as u32
-                / cycles.m68k_divider_u32.get(),
+            (vdp::MCLK_CYCLES_PER_SCANLINE - vdp.scanline_mclk()) as u32 / cycles.m68k_divider_u32,
         ),
     );
     cycles.m68k_wait_cpu_cycles = wait_cycles;

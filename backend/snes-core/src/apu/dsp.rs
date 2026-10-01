@@ -613,8 +613,8 @@ impl EchoFilter {
     }
 
     fn write_echo_enabled(&mut self, eon: u8) {
-        for i in 0..8 {
-            self.echo_enabled[i] = eon.bit(i as u8);
+        for (i, echo_enabled) in self.echo_enabled.iter_mut().enumerate() {
+            *echo_enabled = eon.bit(i as u8);
         }
     }
 
@@ -992,15 +992,15 @@ impl AudioDsp {
                 }
                 0x4C => {
                     // Key on flags
-                    for voice in 0..8 {
-                        self.voices[voice].write_key_on(value.bit(voice as u8));
+                    for (i, voice) in self.voices.iter_mut().enumerate() {
+                        voice.write_key_on(value.bit(i as u8));
                     }
                     log::trace!("  Key on: {value:02X}");
                 }
                 0x5C => {
                     // Key off flags
-                    for voice in 0..8 {
-                        self.voices[voice].write_key_off(value.bit(voice as u8));
+                    for (i, voice) in self.voices.iter_mut().enumerate() {
+                        voice.write_key_off(value.bit(i as u8));
                     }
                     log::trace!("  Key off: {value:02X}");
                 }
@@ -1030,15 +1030,15 @@ impl AudioDsp {
                 }
                 0x2D => {
                     // Pitch modulation enable flags (voices 1-7 only)
-                    for voice in 1..8 {
-                        self.voices[voice].pitch_modulation_enabled = value.bit(voice as u8);
+                    for (i, voice) in self.voices.iter_mut().enumerate().skip(1) {
+                        voice.pitch_modulation_enabled = value.bit(i as u8);
                     }
                     log::trace!("  Pitch modulation enabled: {value:02X}");
                 }
                 0x3D => {
                     // Output noise flags
-                    for voice in 0..8 {
-                        self.voices[voice].output_noise = value.bit(voice as u8);
+                    for (i, voice) in self.voices.iter_mut().enumerate() {
+                        voice.output_noise = value.bit(i as u8);
                     }
                     log::trace!("  Output noise: {value:02X}");
                 }

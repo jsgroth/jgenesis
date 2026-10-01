@@ -922,11 +922,10 @@ impl App {
                 ui.label("Enabled YM2612 channels");
 
                 ui.horizontal(|ui| {
-                    for i in 0..6 {
-                        ui.checkbox(
-                            &mut self.config.genesis.ym2612_channels_enabled[i],
-                            (i + 1).to_string(),
-                        );
+                    for (i, channel_enabled) in
+                        self.config.genesis.ym2612_channels_enabled.iter_mut().enumerate()
+                    {
+                        ui.checkbox(channel_enabled, (i + 1).to_string());
                     }
                 });
 
