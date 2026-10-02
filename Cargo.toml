@@ -26,7 +26,6 @@ directories = "6"
 egui = "0.34"
 egui_extras = "0.34"
 egui-system-fonts = "0.34"
-egui-wgpu = "0.34"
 emath = "0.34"
 env_logger = "0.11"
 flate2 = "1"
@@ -74,6 +73,13 @@ winit = "0.30"
 # Build-only dependencies
 naga = "29"
 
+# Dependencies needed only by egui-wgpu fork
+ahash = "0.8"
+document-features = "0.2"
+epaint = "0.34"
+profiling = "1"
+type-map = "0.5"
+
 # Workspace common libraries
 cdrom = { path = "common/cdrom" }
 dsp = { path = "common/dsp" }
@@ -116,6 +122,7 @@ ym-opll = { path = "backend/ym-opll" }
 
 # Workspace frontend libraries
 egui-sdl3-wgpu = { path = "frontend/egui-sdl3-wgpu" }
+egui-wgpu = { path = "frontend/egui-wgpu-fork" }
 jgenesis-debugger-frontend = { path = "frontend/jgenesis-debugger-frontend" }
 jgenesis-native-config = { path = "frontend/jgenesis-native-config" }
 jgenesis-native-driver = { path = "frontend/jgenesis-native-driver" }

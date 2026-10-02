@@ -55,6 +55,8 @@ See [BUILD.md](BUILD.md)
 
 All code in this repository is licensed under the [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.en.html) unless explicitly stated otherwise at the top of the file (for example, some shader files are MIT-licensed).
 
+As an exception, code in the `frontend/egui-wgpu-fork/` folder was originally forked from [egui](https://crates.io/crates/egui) and retains its original dual licenses of MIT + Apache 2.0.
+
 ## Screenshots
 
 ![Screenshot from 2023-08-27 22-47-13](https://github.com/jsgroth/jgenesis/assets/1137683/d2ec2bc6-de7d-4ff1-98c5-10a0c4db7391)
