@@ -268,8 +268,9 @@ impl Vdc {
         if self.selected_register == 0x02 && byte == WordByte::High {
             debug_assert!(self.state.pending_cpu_access.is_none());
 
-            self.state.pending_cpu_access =
-                Some(PendingCpuAccess::Read { address: self.registers.vram_read_address });
+            self.set_pending_cpu_access(PendingCpuAccess::Read {
+                address: self.registers.vram_read_address,
+            });
             self.increment_vram_read_address();
         }
 
@@ -300,8 +301,9 @@ impl Vdc {
                 if byte == WordByte::High {
                     debug_assert!(self.state.pending_cpu_access.is_none());
 
-                    self.state.pending_cpu_access =
-                        Some(PendingCpuAccess::Read { address: self.registers.vram_read_address });
+                    self.set_pending_cpu_access(PendingCpuAccess::Read {
+                        address: self.registers.vram_read_address,
+                    });
                     self.increment_vram_read_address();
                 }
             }
@@ -317,7 +319,7 @@ impl Vdc {
                         debug_assert!(self.state.pending_cpu_access.is_none());
 
                         let word = u16::from_le_bytes([self.registers.vram_write_latch, value]);
-                        self.state.pending_cpu_access = Some(PendingCpuAccess::Write {
+                        self.set_pending_cpu_access(PendingCpuAccess::Write {
                             address: self.registers.vram_write_address,
                             value: word,
                         });
@@ -595,5 +597,15 @@ impl Vdc {
                 );
             }
         }
+    }
+
+    fn set_pending_cpu_access(&mut self, value: PendingCpuAccess) {
+        self.state.pending_cpu_access = Some(value);
+
+        // There's apparently a short delay before CPU accesses are applied, which can stall the CPU
+        // if it accesses too rapidly in a short time.
+        // Any value smaller than 6 here causes broken cutscenes in Popful Mail
+        // TODO does this apply always (as currently implemented) or only during non-burst active display?
+        self.state.cpu_access_latency_dots = 6;
     }
 }

@@ -484,6 +484,7 @@ pub struct VdcState {
     pub raster_compare_counter: u16,
     pub frame_complete: bool,
     pub pending_cpu_access: Option<PendingCpuAccess>,
+    pub cpu_access_latency_dots: u8,
     pub sprite_fetch_dots_this_line: u64,
 }
 
@@ -519,6 +520,7 @@ impl VdcState {
             raster_compare_counter: RASTER_COMPARE_DISPLAY_START,
             frame_complete: false,
             pending_cpu_access: None,
+            cpu_access_latency_dots: 0,
             sprite_fetch_dots_this_line: 0,
         }
     }
@@ -601,6 +603,9 @@ impl Vdc {
 
         // TODO this is very inefficient
         for _ in 0..dots {
+            self.state.cpu_access_latency_dots =
+                self.state.cpu_access_latency_dots.saturating_sub(1);
+
             // DMA always takes priority over CPU VRAM access
             // SAT DMA probably takes priority over VRAM copy DMA?
             if self.state.dma.sat_active {
@@ -1074,6 +1079,11 @@ impl Vdc {
     }
 
     fn can_perform_cpu_access(&self) -> bool {
+        if self.state.cpu_access_latency_dots != 0 {
+            // Not enough time has progressed since the CPU initiated the access
+            return false;
+        }
+
         if self.state.dma.vram_active || self.state.dma.sat_active {
             // CPU cannot access VRAM during DMA
             return false;
@@ -1222,10 +1232,6 @@ impl Vdc {
 
         self.sprite_line_buffer.fill(SpritePixel::TRANSPARENT);
         self.state.sprite_fetch_dots_this_line = 0;
-
-        if !self.registers.sprites_enabled {
-            return;
-        }
 
         // TODO this is not quite right if the game changes HDS or the dot clock divider during the right border or HSync
         let sprite_fetch_cycles = {
