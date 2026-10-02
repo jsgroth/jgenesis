@@ -38,6 +38,7 @@ where
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone)]
 pub enum WgpuSetup {
     /// Construct a wgpu setup using some predefined settings & heuristics.

@@ -335,7 +335,7 @@ impl RenderingPipeline {
                 module: &shaders.render,
                 entry_point: None,
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[Vertex::buffer_layout()],
+                buffers: &[Some(Vertex::buffer_layout())],
             },
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleStrip,
@@ -542,7 +542,7 @@ impl RenderingPipeline {
         queue.submit(iter::once(encoder.finish()));
 
         frame_time_tracker.sync();
-        output.present();
+        queue.present(output);
 
         Ok(if suboptimal_surface { RenderResult::SuboptimalSurface } else { RenderResult::None })
     }
@@ -887,6 +887,7 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
                 power_preference: config.wgpu_power_preference.to_wgpu(),
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
+                apply_limit_buckets: false,
             })
             .await?;
 
@@ -952,6 +953,7 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
+            color_space: wgpu::SurfaceColorSpace::Auto,
             width: window_size.width,
             height: window_size.height,
             present_mode,

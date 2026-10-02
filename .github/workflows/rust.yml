@@ -157,7 +157,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      SDL_VERSION: 3.4.10
+      SDL_VERSION: 3.4.16
       DXC_RELEASE_TAG: v1.9.2602.24
       DXC_ZIP_FILE: dxc_2026_05_27.zip
 

@@ -16,7 +16,7 @@ version = "0.14.1"
 # Third-party dependencies
 anyhow = "1"
 arboard = "3"
-base64 = "0.22"
+base64 = "0.23"
 bincode = "2"
 bytemuck = { version = "1", features = ["derive"] }
 chd = "0.3"
@@ -30,22 +30,22 @@ emath = "0.34"
 env_logger = "0.11"
 flate2 = "1"
 getrandom = "0.4"
-glyphon = "0.11"
+glyphon = "0.12"
 image = "0.25"
 log = "0.4"
-multiversion = "0.8"
+multiversion = "0.9"
 num = "0.4"
 open = "5"
-pollster = "0.4"
-polonius-the-crab = "0.5"
+pollster = "1"
+polonius-the-crab = "0.6"
 rand = "0.10"
 raw-window-handle = "0.6"
 rayon = "1"
 regex = "1"
 rfd = "0.17"
 rustc-hash = "2"
-sdl3 = { version = "0.18", features = ["raw-window-handle"] }
-sdl3-sys = { version = "0.6" }
+sdl3 = { version = "0.20", features = ["raw-window-handle"] }
+sdl3-sys = { version = "0.7" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sevenz-rust = "0.6"
@@ -56,9 +56,9 @@ time = "0.3"
 tinyvec = "1"
 toml = "1"
 toml_edit = "0.25"
-wgpu = "29"
+wgpu = "30"
 zip = "8"
-zstd = "0.13"
+zstd = "0.14"
 
 # WASM-only dependencies
 console_error_panic_hook = "0.1"
@@ -71,6 +71,7 @@ web-time = "1"
 winit = "0.30"
 
 # Build-only dependencies
+# Naga v30.0.1 doesn't compile with features = ["glsl-in", "wgsl-out"] but bug is fixed on trunk so next version should
 naga = "29"
 
 # Dependencies needed only by egui-wgpu fork
