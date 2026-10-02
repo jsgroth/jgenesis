@@ -61,9 +61,11 @@ pub const ACTIVE_DISPLAY_LINES: Range<u16> = 14..256;
 
 // Unclear exactly when BYR/BXR/CR are latched, but it appears to happen before the VCE HSYNC forces
 // the VDC into HDS phase, and it appears to happen at a fixed point independent of the current dot
-// clock divider; let's say it happens 100 mclks before HDS (25 dots / 33.3~ dots / 50 dots
-// depending on divider)
-pub const SCROLL_LATCH_MCLK: u32 = (MCLK_CYCLES_PER_SCANLINE - 100) as u32;
+// clock divider.
+// Setting this too late breaks Shin Megami Tensei (highly sensitive to BYR latch timing), setting
+// it too early breaks Seiya Monogatari (highly sensitive to BXR latch timing)
+pub const Y_SCROLL_LATCH_MCLK: u32 = (MCLK_CYCLES_PER_SCANLINE - 16) as u32;
+pub const X_SCROLL_LATCH_MCLK: u32 = Y_SCROLL_LATCH_MCLK + 8;
 
 // Large enough to fit video output at H1365px, after removing overscan
 pub const FRAME_BUFFER_WIDTH: usize = (2 * MAX_WIDTH_DIV_2) as usize;
@@ -664,11 +666,16 @@ impl Vdc {
 
             let prev_scanline_mclk = self.state.scanline_mclk;
             self.state.scanline_mclk += vce.dot_clock_divider() as u32;
-            if prev_scanline_mclk < SCROLL_LATCH_MCLK
-                && self.state.scanline_mclk >= SCROLL_LATCH_MCLK
+            if prev_scanline_mclk < Y_SCROLL_LATCH_MCLK
+                && self.state.scanline_mclk >= Y_SCROLL_LATCH_MCLK
             {
-                // TODO BXR and CR are latched slightly later than BYR in actual hardware
-                self.latch_scroll_registers();
+                self.latch_y_scroll();
+            }
+            if prev_scanline_mclk < X_SCROLL_LATCH_MCLK
+                && self.state.scanline_mclk >= X_SCROLL_LATCH_MCLK
+            {
+                log::trace!("Latching BXR {}", self.registers.bg_x_scroll);
+                self.state.latched_bg_x_scroll = self.registers.bg_x_scroll;
             }
 
             self.state.h_counter += 1;
@@ -727,18 +734,13 @@ impl Vdc {
         }
     }
 
-    fn latch_scroll_registers(&mut self) {
+    fn latch_y_scroll(&mut self) {
         if self.state.bg_y_scroll_written {
             log::trace!("Latching new BYR value {}", self.registers.bg_y_scroll);
             self.state.bg_y_counter = self.registers.bg_y_scroll;
             self.state.bg_y_scroll_written = false;
         }
         self.state.bg_y_counter = self.state.bg_y_counter.wrapping_add(1);
-
-        self.state.latched_bg_x_scroll = self.registers.bg_x_scroll;
-
-        self.registers.bg_enabled = self.registers.bg_enabled_pending;
-        self.registers.sprites_enabled = self.registers.sprites_enabled_pending;
     }
 
     pub fn start_new_line(&mut self, scanline: u16, vce: &Vce) {
@@ -780,6 +782,9 @@ impl Vdc {
         self.state.h_mode = HorizontalMode::LeftBorder;
         self.state.h_counter = 0;
         self.state.h_mode_start_dot = 0;
+
+        self.registers.bg_enabled = self.registers.bg_enabled_pending;
+        self.registers.sprites_enabled = self.registers.sprites_enabled_pending;
 
         log::trace!("Latched horizontal state (line {scanline}): {:?}", self.state.h_latch);
 
