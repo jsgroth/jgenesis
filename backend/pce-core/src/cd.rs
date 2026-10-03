@@ -10,9 +10,9 @@ mod scsi;
 
 use crate::api;
 use crate::audio::PceAudioResampler;
+use crate::cartridge::HuCard;
 use crate::cd::adpcm::AdpcmChip;
 use crate::cd::scsi::ScsiCdDrive;
-use crate::memory::HuCard;
 pub use adpcm::ADPCM_SAMPLE_RATE;
 use bincode::{Decode, Encode};
 use cdrom::CdRomError;

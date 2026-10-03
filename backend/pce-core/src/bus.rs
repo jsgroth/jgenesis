@@ -1,7 +1,8 @@
 use crate::audio::PceAudioResampler;
+use crate::cartridge::HuCard;
 use crate::cd::CdRomController;
 use crate::input::InputState;
-use crate::memory::{HuCard, Memory};
+use crate::memory::Memory;
 use crate::psg::Huc6280Psg;
 use crate::video::VideoSubsystem;
 use cdrom::CdRomError;
