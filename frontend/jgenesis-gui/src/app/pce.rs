@@ -48,6 +48,7 @@ impl App {
                         for (value, label) in [
                             (PceSystemCardModel::Base, "System Card"),
                             (PceSystemCardModel::Super, "Super System Card"),
+                            (PceSystemCardModel::Arcade, "Arcade Card"),
                         ] {
                             ui.radio_value(
                                 &mut self.config.pc_engine.system_card_model,

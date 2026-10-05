@@ -1,3 +1,6 @@
+mod arcadecard;
+
+use crate::cartridge::arcadecard::ArcadeCard;
 use bincode::{Decode, Encode};
 use crc::Crc;
 use jgenesis_common::boxedarray::BoxedByteArray;
@@ -34,6 +37,9 @@ enum Mapper {
     None,
     // ROM in banks $00-$3F, 192KB of RAM in banks $68-$7F
     SuperSystemCard { ram: BoxedByteArray<SUPER_SYSTEM_CARD_RAM_LEN> },
+    // Super System Card plus 2MB additional RAM, accessible through ports in banks $40-$43
+    // Also has a number of registers mapped to bank $FF offsets $1A00-$1AFF
+    ArcadeCard(ArcadeCard),
     // Standard linear ROM mapping in banks $00-$3F, 32KB of SRAM mapped to $40-$43
     Populous { sram: BoxedByteArray<POPULOUS_SRAM_LEN>, sram_dirty: bool },
     // First 512KB of ROM in banks $00-$3F, mappable 512KB ROM bank in banks $40-$7F
@@ -75,21 +81,29 @@ impl Mapper {
                 Self::StreetFighter2 { rom_bank: 1 }
             }
             _ => {
-                if cd_present
-                    && system_card_model == PceSystemCardModel::Super
-                    && rom.len() <= 512 * 1024
-                {
-                    log::info!("Using Super System Card");
-                    Self::SuperSystemCard { ram: BoxedByteArray::new_random() }
-                } else {
-                    log::info!("Using standard mapper");
-                    Self::None
+                // CD-ROM² System Cards only map ROM to banks $00-$3F, so any ROM larger than 512KB
+                // can't be a valid System Card BIOS ROM; use regular cartridge mapping instead
+                let should_use_system_card = cd_present && rom.len() <= 512 * 1024;
+
+                match system_card_model {
+                    PceSystemCardModel::Super if should_use_system_card => {
+                        log::info!("Using Super System Card");
+                        Self::SuperSystemCard { ram: BoxedByteArray::new_random() }
+                    }
+                    PceSystemCardModel::Arcade if should_use_system_card => {
+                        log::info!("Using Arcade Card");
+                        Self::ArcadeCard(ArcadeCard::new())
+                    }
+                    _ => {
+                        log::info!("Using standard mapper");
+                        Self::None
+                    }
                 }
             }
         }
     }
 
-    fn read(&self, address: u32, rom: &[u8]) -> u8 {
+    fn read(&mut self, address: u32, rom: &[u8]) -> u8 {
         debug_assert!(address <= 0x0FFFFF);
 
         match self {
@@ -98,10 +112,10 @@ impl Mapper {
                 0x40..=0x43 => sram[(address & 0x7FFF) as usize],
                 _ => read_rom_safely(rom, address),
             },
-            &Self::StreetFighter2 { rom_bank } => match address {
+            Self::StreetFighter2 { rom_bank } => match address {
                 0x000000..=0x07FFFF => read_rom_safely(rom, address),
                 0x080000..=0x0FFFFF => {
-                    let banked_addr = (rom_bank << 19) | (address & 0x7FFFF);
+                    let banked_addr = (*rom_bank << 19) | (address & 0x7FFFF);
                     read_rom_safely(rom, banked_addr)
                 }
                 _ => panic!("Invalid ROM address {address:06X}"),
@@ -112,6 +126,7 @@ impl Mapper {
                 0x0D0000..=0x0FFFFF => ram[(address - 0x0D0000) as usize],
                 _ => panic!("Invalid ROM address {address:06X}"),
             },
+            Self::ArcadeCard(card) => card.read(address, rom),
         }
     }
 
@@ -137,6 +152,29 @@ impl Mapper {
                     ram[(address - 0x0D0000) as usize] = value;
                 }
             }
+            Self::ArcadeCard(card) => card.write(address, value),
+        }
+    }
+
+    fn read_cd_register(&mut self, address: u32) -> Option<u8> {
+        let address = address & 0x1FFF;
+
+        if (0x18C0..=0x18C3).contains(&address)
+            && matches!(self, Self::SuperSystemCard { .. } | Self::ArcadeCard(_))
+        {
+            // Some sort of version ID, Super System Card BIOS relies on this for hardware detection
+            return Some([0x00, 0xAA, 0x55, 0x03][(address & 3) as usize]);
+        }
+
+        match self {
+            Self::ArcadeCard(card) => card.read_cd_register(address),
+            _ => None,
+        }
+    }
+
+    fn write_cd_register(&mut self, address: u32, value: u8) {
+        if let Self::ArcadeCard(card) = self {
+            card.write_cd_register(address, value);
         }
     }
 }
@@ -167,16 +205,24 @@ impl HuCard {
         Self { rom: Rom(rom.into_boxed_slice()), mapper }
     }
 
-    pub fn read(&self, address: u32) -> u8 {
+    // Pages $00-$7F
+    pub fn read(&mut self, address: u32) -> u8 {
         self.mapper.read(address, &self.rom)
     }
 
+    // Pages $00-$7F
     pub fn write(&mut self, address: u32, value: u8) {
         self.mapper.write(address, value);
     }
 
-    pub fn is_super_system_card(&self) -> bool {
-        matches!(self.mapper, Mapper::SuperSystemCard { .. })
+    // $1800-$1BFF in page $FF (used by CD-ROM² System Cards)
+    pub fn read_cd_register(&mut self, address: u32) -> Option<u8> {
+        self.mapper.read_cd_register(address)
+    }
+
+    // $1800-$1BFF in page $FF (used by CD-ROM² System Cards)
+    pub fn write_cd_register(&mut self, address: u32, value: u8) {
+        self.mapper.write_cd_register(address, value);
     }
 
     pub fn clone_rom(&self) -> Vec<u8> {
@@ -209,6 +255,21 @@ impl HuCard {
 
     pub fn debug_rom_view(&mut self) -> impl DebugMemoryView {
         DebugBytesView(&mut self.rom.0)
+    }
+
+    pub fn debug_super_syscard_ram_view(&mut self) -> Option<Box<dyn DebugMemoryView + '_>> {
+        match &mut self.mapper {
+            Mapper::SuperSystemCard { ram } => Some(Box::new(DebugBytesView(ram.as_mut_slice()))),
+            Mapper::ArcadeCard(card) => Some(Box::new(card.debug_super_ram_view())),
+            _ => None,
+        }
+    }
+
+    pub fn debug_arcade_ram_view(&mut self) -> Option<Box<dyn DebugMemoryView + '_>> {
+        match &mut self.mapper {
+            Mapper::ArcadeCard(card) => Some(Box::new(card.debug_arcade_ram_view())),
+            _ => None,
+        }
     }
 }
 

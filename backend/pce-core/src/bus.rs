@@ -58,15 +58,18 @@ impl Bus<'_> {
             }
             0x1400..=0x17FF => self.memory.cpu_registers().read_interrupt_register(address),
             0x1800..=0x1BFF => {
-                // CD-ROM registers
-                match &mut self.cd {
-                    Some(cd) => cd.read_register(
-                        address,
-                        self.cartridge,
-                        self.memory.cpu_registers().irq2_pending_mut(),
-                    ),
-                    None => 0xFF,
-                }
+                // CD-ROM registers (including Super System Card / Arcade Card registers)
+                self.cartridge
+                    .read_cd_register(address)
+                    .or_else(|| {
+                        self.cd.as_mut().map(|cd| {
+                            cd.read_register(
+                                address,
+                                self.memory.cpu_registers().irq2_pending_mut(),
+                            )
+                        })
+                    })
+                    .unwrap_or(0xFF)
             }
             0x1C00..=0x1FFF => 0xFF, // Unused
             _ => unreachable!("value & 0x1FFF is always <= 0x1FFF"),
@@ -108,7 +111,9 @@ impl Bus<'_> {
                 self.memory.cpu_registers().write_interrupt_register(address, value);
             }
             0x1800..=0x1BFF => {
-                // CD-ROM registers
+                // CD-ROM registers (including Arcade Card registers)
+                self.cartridge.write_cd_register(address, value);
+
                 if let Some(cd) = &mut self.cd {
                     cd.write_register(
                         address,

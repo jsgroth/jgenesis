@@ -10,7 +10,6 @@ mod scsi;
 
 use crate::api;
 use crate::audio::PceAudioResampler;
-use crate::cartridge::HuCard;
 use crate::cd::adpcm::AdpcmChip;
 use crate::cd::scsi::ScsiCdDrive;
 pub use adpcm::ADPCM_SAMPLE_RATE;
@@ -285,18 +284,9 @@ impl CdRomController {
     }
 
     // $1800-$1BFF in page $FF
-    pub fn read_register(
-        &mut self,
-        address: u32,
-        cartridge: &HuCard,
-        irq2_pending: &mut bool,
-    ) -> u8 {
+    #[allow(clippy::match_same_arms)]
+    pub fn read_register(&mut self, address: u32, irq2_pending: &mut bool) -> u8 {
         log::trace!("CD-ROM register read: {:04X}", address & 0x1FFF);
-
-        if cartridge.is_super_system_card() && (0x18C0..0x18C4).contains(&(address & 0x1FFF)) {
-            // Some sort of version ID, Super System Card BIOS relies on this for hardware detection
-            return [0x00, 0xAA, 0x55, 0x03][(address & 3) as usize];
-        }
 
         let value = match address & 0x3FF {
             0x0 => {
@@ -356,11 +346,18 @@ impl CdRomController {
             }
             0xA..=0xE => self.read_adpcm_register(address),
             0xF => self.fader.read(),
+            0x0C0..=0x0C7 => {
+                // Super CD-ROM² / Super System Card hardware version
+                // If cartridge didn't respond, act like no Super hardware is present
+                0xFF
+            }
+            0x200..=0x2FF => {
+                // Arcade Card registers/version
+                // If cartridge didn't respond, act like no Arcade Card is present
+                0xFF
+            }
             _ => {
-                // Super System Card reads from $18C1 and $18C5 during hardware detection, don't log those
-                if !(0x18C0..0x18C8).contains(&(address & 0x1FFF)) {
-                    log::warn!("Unhandled CD-ROM register read {:04X}", address & 0x1FFF);
-                }
+                log::warn!("Unhandled CD-ROM register read {:04X}", address & 0x1FFF);
                 0xFF
             }
         };
@@ -373,6 +370,7 @@ impl CdRomController {
     }
 
     // $1800-$1BFF in page $FF
+    #[allow(clippy::match_same_arms)]
     pub fn write_register(&mut self, address: u32, value: u8, irq2_pending: &mut bool) {
         log::trace!("CD-ROM register write: {:04X} {value:02X}", address & 0x1FFF);
 
@@ -448,14 +446,16 @@ impl CdRomController {
                 // Fader control
                 self.fader.write(value);
             }
+            0x0C0..=0x0C7 => {
+                // Super CD-ROM² / Super System Card hardware version
+                // Super System Card BIOS writes to these addresses during hardware detection for
+                // some reason
+            }
+            0x200..=0x2FF => {
+                // Arcade Card registers; ignore (assume cartridge responded if Arcade Card is present)
+            }
             _ => {
-                // Super System Card writes to $18C0 during hardware detection, don't log those
-                if !(0x18C0..0x18C8).contains(&(address & 0x1FFF)) {
-                    log::warn!(
-                        "Unhandled CD-ROM register write {:04X} {value:02X}",
-                        address & 0x1FFF
-                    );
-                }
+                log::warn!("Unhandled CD-ROM register write {:04X} {value:02X}", address & 0x1FFF);
             }
         }
 

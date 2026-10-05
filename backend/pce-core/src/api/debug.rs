@@ -8,6 +8,8 @@ pub enum PceMemoryArea {
     WorkingRam,
     CdRomRam,
     AdpcmRam,
+    SuperSystemCardRam,
+    ArcadeCardRam,
 }
 
 impl PceMemoryArea {
@@ -18,6 +20,8 @@ impl PceMemoryArea {
             Self::WorkingRam => "Working RAM",
             Self::CdRomRam => "CD-ROM Working RAM",
             Self::AdpcmRam => "ADPCM RAM",
+            Self::SuperSystemCardRam => "Super System Card RAM",
+            Self::ArcadeCardRam => "Arcade Card RAM",
         }
     }
 }
@@ -38,6 +42,8 @@ impl PcEngineEmulator {
                 Some(cd) => Some(Box::new(cd.debug_adpcm_ram_view())),
                 None => None,
             },
+            PceMemoryArea::SuperSystemCardRam => self.cartridge.debug_super_syscard_ram_view(),
+            PceMemoryArea::ArcadeCardRam => self.cartridge.debug_arcade_ram_view(),
         }
     }
 }

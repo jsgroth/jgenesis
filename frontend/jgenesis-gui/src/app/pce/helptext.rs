@@ -12,7 +12,8 @@ pub const SYSTEM_CARD_MODEL: HelpText = HelpText {
     heading: "CD-ROM² System Card Model",
     text: &[
         "Configure the CD-ROM² System Card model to emulate when running disc-based games.",
-        "Super System Card is backwards compatible with base CD-ROM² games, so the only reason to change this is if you want to see how Super games handle being run on a base system.",
+        "The Arcade Card has the highest compatibility. Many games require at least a Super System Card.",
+        "The Super System Card and Arcade Card require a Super-compatible BIOS version (v3.0).",
     ],
 };
 

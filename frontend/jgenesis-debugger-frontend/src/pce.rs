@@ -74,21 +74,28 @@ fn render(ctx: DebugRenderContext<'_>, emulator: &mut PcEngineEmulator, state: &
 
     update_palette_textures(ctx.egui_ui, emulator, state);
 
-    Window::new("BG Palettes").resizable(true).default_width(400.0).show(ctx.egui_ui, |ui| {
-        let size = clamp_palette_image_size(ui.available_size());
+    Window::new("BG Palettes").resizable(true).default_width(400.0).default_pos([25.0, 25.0]).show(
+        ctx.egui_ui,
+        |ui| {
+            let size = clamp_palette_image_size(ui.available_size());
 
-        if let Some(bg_palettes_texture) = state.bg_palettes_texture {
-            ui.image((bg_palettes_texture, size));
-        }
-    });
+            if let Some(bg_palettes_texture) = state.bg_palettes_texture {
+                ui.image((bg_palettes_texture, size));
+            }
+        },
+    );
 
-    Window::new("Sprite Palettes").resizable(true).default_width(400.0).show(ctx.egui_ui, |ui| {
-        let size = clamp_palette_image_size(ui.available_size());
+    Window::new("Sprite Palettes")
+        .resizable(true)
+        .default_width(400.0)
+        .default_pos([450.0, 25.0])
+        .show(ctx.egui_ui, |ui| {
+            let size = clamp_palette_image_size(ui.available_size());
 
-        if let Some(sprite_palettes_texture) = state.sprite_palettes_texture {
-            ui.image((sprite_palettes_texture, size));
-        }
-    });
+            if let Some(sprite_palettes_texture) = state.sprite_palettes_texture {
+                ui.image((sprite_palettes_texture, size));
+            }
+        });
 
     Window::new("VRAM").resizable(true).show(ctx.egui_ui, |ui| {
         update_vram_texture(ui, emulator, state);

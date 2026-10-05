@@ -47,8 +47,9 @@ pub enum PceRegion {
 #[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum PceSystemCardModel {
     Base,
-    #[default]
     Super,
+    #[default]
+    Arcade,
 }
 
 #[derive(
