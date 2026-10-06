@@ -743,15 +743,19 @@ impl Vdc {
 
     pub fn start_new_line(&mut self, scanline: u16, vce: &Vce) {
         if self.state.h_mode == HorizontalMode::ActiveDisplay {
-            if self.state.h_counter
-                < self.state.h_latch.h_display_width.saturating_sub(RASTER_COMPARE_INCREMENT_OFFSET)
-            {
+            let raster_compare_increment_dot =
+                self.state.h_latch.h_display_width.saturating_sub(RASTER_COMPARE_INCREMENT_OFFSET);
+            if (8..raster_compare_increment_dot).contains(&self.state.h_counter) {
                 // If active display began but the raster compare increment didn't happen, do it at the
                 // line change
                 //
                 // D&D: Order of the Griffon depends on this else there will be a glitchy line under
                 // the character portraits; it depends on the increment happening twice in one line
                 // when it changes the dot clock divider from 4 to 3
+                //
+                // Beyond Shadowgate, Camp California, and Shapeshifter depend on _not_ doing this
+                // if still in the first 8 dots of active display. This is probably working around
+                // a timing bug somewhere else
                 self.increment_raster_compare_counter();
             }
 
