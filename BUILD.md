@@ -75,7 +75,7 @@ RUSTFLAGS="-C target-cpu=native" cargo build --profile release-lto
 
 `-C target-cpu=native` is not recommended for shared or distributed builds because the binaries may contain instructions that are only supported on recent CPUs, e.g. AVX-512 instructions. For shared/distributed builds it is better to use a specific CPU target such as `-C target-cpu=x86-64-v3` (allows the compiler to use AVX2, FMA, LZCNT, etc).
 
-On Linux, the following command will build AppImage packages (requires a nightly Rust toolchain and [cargo-packager](https://github.com/crabnebula-dev/cargo-packager)):
+On Linux, the following command will build AppImage packages (requires [cargo-packager](https://github.com/crabnebula-dev/cargo-packager)):
 
 ```shell
 cargo packager --profile release-lto -f appimage

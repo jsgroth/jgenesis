@@ -111,10 +111,6 @@ jobs:
         run: |
           rustup update
 
-      - name: Install latest nightly Rust toolchain
-        run: |
-          rustup toolchain add nightly --component rustfmt --component rust-src
-
       # https://github.com/libsdl-org/SDL/blob/main/docs/README-linux.md#build-dependencies
       - name: Install SDL3 system dependencies
         run: |
@@ -168,10 +164,6 @@ jobs:
         run: |
           rustup update
 
-      - name: Install latest nightly Rust toolchain
-        run: |
-          rustup toolchain add nightly --component rustfmt --component rust-src
-
       - name: Install mingw32
         run: |
           sudo apt-get update && sudo apt-get install -y mingw-w64
@@ -179,10 +171,6 @@ jobs:
       - name: Install Windows x64 Rust build target (stable)
         run: |
           rustup target add x86_64-pc-windows-gnu
-
-      - name: Install Windows x64 Rust build target (nightly)
-        run: |
-          rustup target add --toolchain nightly x86_64-pc-windows-gnu
 
       - name: Download & extract Windows SDL3 libraries
         run: |
@@ -198,8 +186,8 @@ jobs:
 
       - name: Build GUI release
         run: |
-          RUSTFLAGS="-C target-cpu=x86-64-v2 -Z tune-cpu=x86-64-v3" \
-          cargo +nightly build --profile release-lto --target x86_64-pc-windows-gnu
+          RUSTFLAGS="-C target-cpu=x86-64-v2" \
+          cargo build --profile release-lto --target x86_64-pc-windows-gnu
 
       - name: Compress binaries
         run: |

@@ -62,12 +62,11 @@ toml = { workspace = true }
 
 [package.metadata.packager]
 icons = ["../256x256.png"]
-# Nightly toolchain used because of -Ztune-cpu codegen arg
 # Statically link SDL3 because otherwise the AppImage fails to build when building SDL3 from source
 before-packaging-command = """
-RUSTFLAGS='-C target-cpu=x86-64-v2 -Z tune-cpu=x86-64-v3' \
+RUSTFLAGS='-C target-cpu=x86-64-v2' \
 JGENESIS_APPIMAGE_BUILD=1 \
-cargo +nightly build --profile release-lto --features sdl3-static-link"""
+cargo build --profile release-lto --features sdl3-static-link"""
 
 [package.metadata.packager.appimage]
 # Including any Wayland-related libraries in the AppImage package can cause the app to fail to start on some distros,
