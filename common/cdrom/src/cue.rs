@@ -95,6 +95,10 @@ impl CueSheet {
         &self.tracks[(track_number - 1) as usize]
     }
 
+    pub fn tracks_iter(&self) -> impl Iterator<Item = &Track> {
+        self.tracks.iter()
+    }
+
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
     pub fn last_track(&self) -> &Track {

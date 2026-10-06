@@ -32,5 +32,10 @@ pub fn is_cd_32x_disc(disc: &mut CdRom) -> bool {
         return false;
     }
 
+    is_cd_32x_first_sector(&sector_buffer)
+}
+
+#[must_use]
+pub fn is_cd_32x_first_sector(sector_buffer: &[u8; cdrom::BYTES_PER_SECTOR as usize]) -> bool {
     &sector_buffer[0x110..0x118] == b"SEGA 32X"
 }

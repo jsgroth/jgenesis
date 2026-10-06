@@ -437,7 +437,7 @@ impl App {
         // Sega CD is attached but the main file is not a CD-ROM image; prompt to load a disc
         let mut file_dialog = FileDialog::new()
             .set_title("Sega CD Disc Image")
-            .add_filter("cue/chd", extensions::SEGA_CD);
+            .add_filter("cue/chd", extensions::CD_ROM);
 
         if let Some(primary_parent) = primary_path.parent() {
             file_dialog = file_dialog.set_directory(primary_parent);

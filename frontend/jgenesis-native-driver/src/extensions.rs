@@ -1,5 +1,7 @@
 use crate::archive;
 use crate::archive::{ArchiveEntry, ArchiveError};
+use cdrom::cdtime::CdTime;
+use cdrom::cue::TrackType;
 use cdrom::reader::{CdRom, CdRomFileFormat};
 use genesis_core::api::GenesisHardware;
 use jgenesis_proc_macros::{CustomValueEnum, EnumAll, EnumDisplay, EnumFromStr};
@@ -17,14 +19,15 @@ pub const SG_1000: &[&str] = &["sg"];
 pub const MASTER_SYSTEM: &[&str] = &["sms"];
 pub const GAME_GEAR: &[&str] = &["gg"];
 pub const GENESIS: &[&str] = &["gen", "md", "bin", "smd"];
-pub const SEGA_CD: &[&str] = &["cue", "chd"];
 pub const SEGA_32X: &[&str] = &["32x", "bin"];
 pub const NES: &[&str] = &["nes"];
 pub const SNES: &[&str] = &["sfc", "smc"];
 pub const GAME_BOY: &[&str] = &["gb"];
 pub const GAME_BOY_COLOR: &[&str] = &["gbc"];
 pub const GAME_BOY_ADVANCE: &[&str] = &["gba", "bin"];
-pub const PC_ENGINE: &[&str] = &["pce"];
+pub const PC_ENGINE_HUCARD: &[&str] = &["pce"];
+
+pub const CD_ROM: &[&str] = &["cue", "chd"];
 
 pub const SUPPORTED_ARCHIVES: &[&str] = &["zip", "7z"];
 
@@ -46,10 +49,13 @@ pub static GENESIS_32X: LazyLock<Vec<&'static str>> =
     LazyLock::new(|| concat_extensions([GENESIS, SEGA_32X]));
 
 pub static SEGA_CD_32X: LazyLock<Vec<&'static str>> =
-    LazyLock::new(|| concat_extensions([GENESIS, SEGA_CD, SEGA_32X]));
+    LazyLock::new(|| concat_extensions([GENESIS, CD_ROM, SEGA_32X]));
 
 pub static GB_GBC: LazyLock<Vec<&'static str>> =
     LazyLock::new(|| concat_extensions([GAME_BOY, GAME_BOY_COLOR]));
+
+pub static PC_ENGINE_ALL: LazyLock<Vec<&'static str>> =
+    LazyLock::new(|| concat_extensions([PC_ENGINE_HUCARD, CD_ROM]));
 
 pub static ALL_CARTRIDGE_BASED: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
     concat_extensions([
@@ -63,12 +69,12 @@ pub static ALL_CARTRIDGE_BASED: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
         GAME_BOY,
         GAME_BOY_COLOR,
         GAME_BOY_ADVANCE,
-        PC_ENGINE,
+        PC_ENGINE_HUCARD,
     ])
 });
 
 pub static ALL: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
-    ALL_CARTRIDGE_BASED.clone().into_iter().chain(SEGA_CD.iter().copied()).collect()
+    ALL_CARTRIDGE_BASED.clone().into_iter().chain(CD_ROM.iter().copied()).collect()
 });
 
 pub static ALL_PLUS_ARCHIVES: LazyLock<Vec<&'static str>> =
@@ -125,13 +131,13 @@ fn build_extension_lookup() -> HashMap<&'static str, Console> {
         (MASTER_SYSTEM, Console::MasterSystem),
         (GAME_GEAR, Console::GameGear),
         // Exclude Genesis/32X because need to check the header for Sega CD support
-        (SEGA_CD, Console::SegaCd),
+        // Exclude CD-ROM images because need to check for Sega CD vs. PC Engine
         (NES, Console::Nes),
         (SNES, Console::Snes),
         (GAME_BOY, Console::GameBoy),
         (GAME_BOY_COLOR, Console::GameBoyColor),
         (GAME_BOY_ADVANCE, Console::GameBoyAdvance),
-        (PC_ENGINE, Console::PcEngine),
+        (PC_ENGINE_HUCARD, Console::PcEngine),
     ]
     .into_iter()
     .flat_map(|(extensions, console)| extensions.iter().map(move |&extension| (extension, console)))
@@ -191,11 +197,12 @@ impl Console {
     pub fn from_file(file_path: &Path) -> Option<ConsoleWithSize> {
         let extension = from_path(file_path)?;
         if let Some(&console) = EXTENSION_LOOKUP.get(&extension.as_str()) {
-            let console = match console {
-                Console::SegaCd if is_disc_sega_cd_32x(file_path) => Console::SegaCd32X,
-                _ => console,
-            };
+            let file_size = fs::metadata(file_path).ok()?.len();
+            return Some(ConsoleWithSize { console, file_size });
+        }
 
+        if CD_ROM.contains(&extension.as_str()) {
+            let console = guess_cdrom_console(file_path);
             let file_size = fs::metadata(file_path).ok()?.len();
             return Some(ConsoleWithSize { console, file_size });
         }
@@ -285,7 +292,7 @@ impl Console {
             Self::Sg1000 | Self::MasterSystem | Self::GameGear => single(&SMSGG),
             Self::Genesis => single(GENESIS),
             Self::SegaCd => vec![
-                SupportedExtensions { label: None, extensions: SEGA_CD, include_archives: false },
+                SupportedExtensions { label: None, extensions: CD_ROM, include_archives: false },
                 SupportedExtensions {
                     label: Some("Genesis"),
                     extensions: GENESIS,
@@ -301,7 +308,7 @@ impl Console {
                 },
                 SupportedExtensions {
                     label: Some("Sega CD"),
-                    extensions: SEGA_CD,
+                    extensions: CD_ROM,
                     include_archives: false,
                 },
                 SupportedExtensions {
@@ -314,7 +321,23 @@ impl Console {
             Self::Snes => single(SNES),
             Self::GameBoy | Self::GameBoyColor => single(&GB_GBC),
             Self::GameBoyAdvance => single(GAME_BOY_ADVANCE),
-            Self::PcEngine => single(PC_ENGINE),
+            Self::PcEngine => vec![
+                SupportedExtensions {
+                    label: None,
+                    extensions: &PC_ENGINE_ALL,
+                    include_archives: true,
+                },
+                SupportedExtensions {
+                    label: Some("PCE HuCard"),
+                    extensions: PC_ENGINE_HUCARD,
+                    include_archives: true,
+                },
+                SupportedExtensions {
+                    label: Some("CD-ROM"),
+                    extensions: CD_ROM,
+                    include_archives: false,
+                },
+            ],
         }
     }
 
@@ -400,10 +423,66 @@ fn guess_genesis_console(header: &[u8]) -> Console {
     }
 }
 
-// Assuming this is a path to a Sega CD disc image, check whether the game supports/requires 32X
-fn is_disc_sega_cd_32x(path: &Path) -> bool {
-    let Some(disc_format) = CdRomFileFormat::from_file_path(path) else { return false };
-    let Ok(mut disc) = CdRom::open(path, disc_format) else { return false };
+fn guess_cdrom_console(path: &Path) -> Console {
+    const DEFAULT: Console = Console::SegaCd;
 
-    segacd_core::is_cd_32x_disc(&mut disc)
+    fn sega_cd_with_32x_check(sector_buffer: &[u8; cdrom::BYTES_PER_SECTOR as usize]) -> Console {
+        if segacd_core::is_cd_32x_first_sector(sector_buffer) {
+            Console::SegaCd32X
+        } else {
+            Console::SegaCd
+        }
+    }
+
+    let Some(disc_format) = CdRomFileFormat::from_file_path(path) else { return DEFAULT };
+    let Ok(mut disc) = CdRom::open(path, disc_format) else { return DEFAULT };
+
+    let Some(first_data_track) =
+        disc.cue().tracks_iter().find(|track| track.track_type == TrackType::Data)
+    else {
+        return DEFAULT;
+    };
+
+    // Every Sega CD game has track 1 as a data track (BIOS wouldn't boot it otherwise)
+    // PC Engine games usually have track 1 as audio and track 2 as data, but not always
+    if first_data_track.number != 1 {
+        return Console::PcEngine;
+    }
+
+    // Every Sega CD game disc should have the string "SEGADISCSYSTEM" or "SEGADATADISC" at the
+    // very beginning of the first data sector
+    let mut first_sector = [0; cdrom::BYTES_PER_SECTOR as usize];
+    if disc.read_sector(1, CdTime::SECTOR_0_START, &mut first_sector).is_err() {
+        return DEFAULT;
+    }
+
+    for s in [b"SEGADISCSYSTEM" as &[u8], b"SEGADATADISC" as &[u8]] {
+        if &first_sector[16..16 + s.len()] == s {
+            return sega_cd_with_32x_check(&first_sector);
+        }
+    }
+
+    // Every PC Engine game should have the ID string "PC Engine CD-ROM SYSTEM" at the beginning of
+    // the second data sector
+    let mut second_sector = [0; cdrom::BYTES_PER_SECTOR as usize];
+    if disc
+        .read_sector(1, CdTime::SECTOR_0_START + CdTime::new(0, 0, 1), &mut second_sector)
+        .is_err()
+    {
+        return sega_cd_with_32x_check(&first_sector);
+    }
+
+    // First 32 bytes of the second sector are IPL data, ID should be right after that
+    let pce_id = b"PC Engine CD-ROM SYSTEM";
+    if &second_sector[16 + 32..16 + 32 + pce_id.len()] == pce_id {
+        return Console::PcEngine;
+    }
+
+    // Doesn't have either console's ID string; just assume Sega CD I guess?
+    log::warn!(
+        "Unable to reliably guess console for CD-ROM image at '{}'; defaulting to Sega CD",
+        path.display()
+    );
+
+    sega_cd_with_32x_check(&first_sector)
 }

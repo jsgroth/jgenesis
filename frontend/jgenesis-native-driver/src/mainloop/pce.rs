@@ -51,16 +51,15 @@ impl CreatableEmulator for PcEngineEmulator {
             }
             None => {
                 // No disc, assume HuCard game
-                create::read_rom_file(&config.common.rom_file_path, extensions::PC_ENGINE).map(
-                    |read_rom_result| ReadInputResult {
+                create::read_rom_file(&config.common.rom_file_path, extensions::PC_ENGINE_HUCARD)
+                    .map(|read_rom_result| ReadInputResult {
                         input: PceCreateInput {
                             cartridge_rom: read_rom_result.input,
                             disc_path: None,
                         },
                         rom_path: read_rom_result.rom_path,
                         save_extension: read_rom_result.save_extension,
-                    },
-                )
+                    })
             }
         }
     }
