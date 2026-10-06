@@ -462,12 +462,7 @@ impl ScsiCdDrive {
             return;
         }
 
-        if self.signals.sel
-            && matches!(
-                self.phase,
-                ScsiBusPhase::Command | ScsiBusPhase::ProcessingCommand | ScsiBusPhase::Status
-            )
-        {
+        if self.signals.sel && self.phase != ScsiBusPhase::BusFree {
             // Setting SEL=1 mid-command seems to cause the drive to stop driving all bus signals,
             // or at least that's what games seem to expect?
             self.set_phase(ScsiBusPhase::BusFree);
@@ -579,6 +574,10 @@ impl ScsiCdDrive {
 
         log::debug!("SCSI bus phase changed to {phase:?}");
 
+        if phase != ScsiBusPhase::DataIn {
+            self.abort_data_read();
+        }
+
         match phase {
             ScsiBusPhase::BusFree => {
                 self.signals.bsy = false;
@@ -621,6 +620,30 @@ impl ScsiCdDrive {
                 self.signals.msg = true;
                 self.signals.c_d = true;
                 self.signals.i_o = true;
+            }
+        }
+    }
+
+    fn abort_data_read(&mut self) {
+        match self.drive_state {
+            DriveState::Reading { time, sectors_remaining }
+            | DriveState::PreparingToRead {
+                time,
+                mode: SeekMode::Data { length: sectors_remaining },
+                ..
+            }
+            | DriveState::Seeking {
+                from: time,
+                mode: SeekMode::Data { length: sectors_remaining },
+                ..
+            } => {
+                log::debug!(
+                    "Aborting in-progress read at {time}, had {sectors_remaining} sectors remaining"
+                );
+                self.drive_state = DriveState::Paused(time);
+            }
+            _ => {
+                // Drive is not reading or preparing to read, leave it alone
             }
         }
     }
