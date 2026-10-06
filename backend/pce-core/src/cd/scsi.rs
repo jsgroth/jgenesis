@@ -336,14 +336,20 @@ impl ScsiCdDrive {
 
                 if !self.data_in_bytes.is_empty() {
                     log::debug!(
-                        "DATA IN buffer not empty; {} bytes remaining",
+                        "DATA IN buffer not empty; {} bytes remaining, restarting read at {time}",
                         self.data_in_bytes.len()
                     );
 
                     // If the game has not yet drained the previous sector, restart the read at the
-                    // current position (+1 frame to force a seek to happen)
-                    self.drive_state = DriveState::Paused(time + CdTime::new(0, 0, 1));
-                    self.start_seek(time, SeekMode::Data { length: sectors_remaining });
+                    // current position.
+                    // Timing is based on Sherlock Holmes which depends on this delay for
+                    // video/audio sync in cutscenes
+                    self.drive_state = DriveState::Seeking {
+                        from: time + CdTime::new(0, 0, 1),
+                        to: time,
+                        cycles_remaining: 12000,
+                        mode: SeekMode::Data { length: sectors_remaining },
+                    };
                     return Ok(());
                 }
 
