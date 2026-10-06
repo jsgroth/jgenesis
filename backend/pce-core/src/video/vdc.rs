@@ -463,7 +463,6 @@ pub struct VdcState {
     pub h_counter: u16,
     pub h_mode_start_dot: u16,
     pub v_counter: u16,
-    pub v_mode_start_line: u16,
     pub latched_bg_x_scroll: u16,
     pub bg_y_counter: u16,
     pub bg_y_scroll_written: bool,
@@ -503,7 +502,6 @@ impl VdcState {
             h_counter: 0,
             h_mode_start_dot: 0,
             v_counter: 0,
-            v_mode_start_line: 0,
             latched_bg_x_scroll: 0,
             bg_y_counter: 0,
             bg_y_scroll_written: false,
@@ -801,55 +799,61 @@ impl Vdc {
 
         self.state.frame_complete |= scanline == ACTIVE_DISPLAY_LINES.end;
 
-        match scanline {
-            0 => {
-                self.state.v_latch = LatchedVerticalState::latch(&self.registers);
-                self.state.v_mode = VerticalMode::TopBorder;
+        if scanline == lines_per_frame - 3 {
+            // VCE VSYNC, start new frame
+            // Some games depend on starting in VSW phase instead of VDS / top border (e.g. Sherlock
+            // Holmes, sets VSW to 0x1C / 29 lines)
+            self.state.v_latch = LatchedVerticalState::latch(&self.registers);
+            self.state.v_mode = VerticalMode::VSync;
+            self.state.v_counter = 0;
+
+            log::trace!("Latched vertical state: {:?}", self.state.v_latch);
+        } else {
+            self.state.v_counter += 1;
+            if self.state.v_counter >= self.state.v_mode.length(self.state.v_latch) {
                 self.state.v_counter = 0;
-                self.state.v_mode_start_line = 0;
-                self.state.vblank_irq_this_frame = false;
+                self.state.v_mode = self.state.v_mode.next();
 
-                log::trace!("Latched vertical state: {:?}", self.state.v_latch);
-            }
-            _ => {
-                self.state.v_counter += 1;
-                if self.state.v_counter >= self.state.v_mode.length(self.state.v_latch) {
-                    self.state.v_counter = 0;
-                    self.state.v_mode = self.state.v_mode.next();
-                    self.state.v_mode_start_line = self.state.scanline;
+                match self.state.v_mode {
+                    VerticalMode::ActiveDisplay => {
+                        log::trace!("Starting V active display on line {scanline}");
 
-                    match self.state.v_mode {
-                        VerticalMode::ActiveDisplay => {
-                            self.state.bg_y_counter = self.registers.bg_y_scroll;
+                        self.state.bg_y_counter = self.registers.bg_y_scroll;
 
-                            if !self.state.v_latch.burst_mode {
-                                // DMAs cannot run during active display when not in burst mode
-                                self.state.dma.halt();
-                            }
+                        if !self.state.v_latch.burst_mode {
+                            // DMAs cannot run during active display when not in burst mode
+                            self.state.dma.halt();
                         }
-                        VerticalMode::BottomBorder => {
-                            self.trigger_dmas();
-
-                            self.set_irq(VdcIrq::VBlank);
-
-                            self.state.vblank_irq_this_frame = true;
-
-                            self.state.sprite_collision_irq_dot = None;
-                        }
-                        _ => {}
                     }
+                    VerticalMode::BottomBorder => {
+                        log::trace!("Ending V active display on line {scanline}");
+
+                        self.trigger_dmas();
+
+                        self.set_irq(VdcIrq::VBlank);
+
+                        self.state.vblank_irq_this_frame = true;
+
+                        self.state.sprite_collision_irq_dot = None;
+                    }
+                    _ => {}
                 }
             }
         }
 
-        if !self.state.vblank_irq_this_frame && scanline == lines_per_frame - 2 {
-            // VDC supposedly always generates a VBlank IRQ when the VCE asserts VSYNC if it didn't
-            // already generate one earlier in the frame (happens when VDS+VDW is too large)
-            self.set_irq(VdcIrq::VBlank);
+        if scanline == lines_per_frame - 2 {
+            if !self.state.vblank_irq_this_frame {
+                // VDC supposedly always generates a VBlank IRQ shortly after the VCE asserts VSYNC
+                // if it didn't already generate one earlier in the frame (happens when VDS+VDW is
+                // too large)
+                self.set_irq(VdcIrq::VBlank);
 
-            // If VBlank IRQ didn't trigger earlier in the frame, the VDC also didn't run the DMA
-            // trigger logic, so do that now (e.g. Asuka 120% story scenes)
-            self.trigger_dmas();
+                // If VBlank IRQ didn't trigger earlier in the frame, the VDC also didn't run the DMA
+                // trigger logic, so do that now (e.g. Asuka 120% story scenes)
+                self.trigger_dmas();
+            }
+
+            self.state.vblank_irq_this_frame = false;
         }
     }
 
