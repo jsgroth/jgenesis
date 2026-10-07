@@ -1,11 +1,12 @@
 //! The wavetable PSG built into the HuC6280
 
 use crate::api;
+use crate::api::PceEmulatorConfig;
 use crate::audio::PceAudioResampler;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, U16Ext};
 use std::sync::LazyLock;
-use std::{array, mem};
+use std::{array, iter, mem};
 
 // Roughly 3.58 MHz
 pub const PSG_CLOCK_DIVIDER: u64 = 6;
@@ -252,9 +253,16 @@ impl VolumeUpdateState {
     }
 }
 
+impl PceEmulatorConfig {
+    fn channels_muted(&self) -> [bool; 6] {
+        self.psg_channels_enabled.map(|enabled| !enabled)
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Huc6280Psg {
     channels: [PsgChannel; 6],
+    channels_muted: [bool; 6],
     selected_channel: u8,
     l_main_amplitude: u8,
     r_main_amplitude: u8,
@@ -264,9 +272,10 @@ pub struct Huc6280Psg {
 }
 
 impl Huc6280Psg {
-    pub fn new() -> Self {
+    pub fn new(config: &PceEmulatorConfig) -> Self {
         Self {
             channels: array::from_fn(|idx| PsgChannel::new(idx as u8)),
+            channels_muted: config.channels_muted(),
             selected_channel: 0,
             l_main_amplitude: 0,
             r_main_amplitude: 0,
@@ -289,12 +298,16 @@ impl Huc6280Psg {
 
         let channel_2_sample = self.channels[1].on.then_some(self.channels[1].current_sample);
 
-        for channel in &mut self.channels {
+        for (channel, channel_muted) in iter::zip(&mut self.channels, self.channels_muted) {
             if !channel.on {
                 continue;
             }
 
             channel.clock(&mut self.lfo, channel_2_sample);
+
+            if channel_muted {
+                continue;
+            }
 
             // Per the official manual, total attenuation of 45 dB or higher results in silence
             // Attenuation is in steps of 1.5 dB, so 30 = 45 dB
@@ -522,5 +535,9 @@ impl Huc6280Psg {
             10..=15 => {} // Invalid addresses
             _ => unreachable!("value & 0xF is always <= 15"),
         }
+    }
+
+    pub fn reload_config(&mut self, config: &PceEmulatorConfig) {
+        self.channels_muted = config.channels_muted();
     }
 }

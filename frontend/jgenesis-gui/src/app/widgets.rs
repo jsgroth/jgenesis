@@ -1,7 +1,9 @@
 use crate::app::RESERVED_HELP_TEXT_HEIGHT;
 use egui::scroll_area::ScrollAreaOutput;
 use egui::style::ScrollStyle;
-use egui::{Context, Response, ScrollArea, Slider, TextEdit, Ui, Widget, WidgetText, Window};
+use egui::{
+    Color32, Context, Response, ScrollArea, Slider, TextEdit, Ui, Widget, WidgetText, Window,
+};
 use jgenesis_native_config::common::ConfigSavePath;
 use jgenesis_native_driver::extensions::Console;
 use rfd::FileDialog;
@@ -254,4 +256,83 @@ impl<Num: emath::Numeric> Widget for OverclockSlider<'_, Num> {
         })
         .response
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct VolumeAdjustmentState {
+    pub text: String,
+    pub invalid: bool,
+}
+
+impl Default for VolumeAdjustmentState {
+    fn default() -> Self {
+        Self { text: "0.0".into(), invalid: false }
+    }
+}
+
+impl VolumeAdjustmentState {
+    pub fn from_config_value(value: f64) -> Self {
+        let text = format!("{value:.1}");
+
+        Self { text, invalid: false }
+    }
+}
+
+pub struct VolumeAdjustmentWidget<'a> {
+    pub label: &'a str,
+    pub config_value: &'a mut f64,
+    pub state: &'a mut VolumeAdjustmentState,
+}
+
+impl<'a> VolumeAdjustmentWidget<'a> {
+    pub fn new(
+        label: &'a str,
+        config_value: &'a mut f64,
+        state: &'a mut VolumeAdjustmentState,
+    ) -> Self {
+        Self { label, config_value, state }
+    }
+
+    pub fn ui(&mut self, ui: &mut Ui) {
+        ui.horizontal(|ui| {
+            ui.add(
+                NumericTextEdit::new(
+                    &mut self.state.text,
+                    self.config_value,
+                    &mut self.state.invalid,
+                )
+                .desired_width(40.0)
+                .with_validation(f64::is_finite),
+            );
+
+            ui.label(self.label);
+        });
+    }
+}
+
+pub fn render_volume_adjustments<const VALUES: usize>(
+    mut values: [VolumeAdjustmentWidget<'_>; VALUES],
+    ui: &mut Ui,
+) -> Response {
+    ui.group(|ui| {
+        ui.label("Volume adjustments (dB) (+/-)");
+        ui.add_space(2.0);
+
+        for value in &mut values {
+            value.ui(ui);
+        }
+
+        if ui.button("Clear all").clicked() {
+            for value in &mut values {
+                *value.config_value = 0.0;
+                *value.state = VolumeAdjustmentState::default();
+            }
+        }
+
+        let any_invalid = values.iter().any(|value| value.state.invalid);
+        if any_invalid {
+            ui.colored_label(Color32::RED, "Values must be numbers");
+        }
+    })
+    .response
 }

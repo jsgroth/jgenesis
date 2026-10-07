@@ -2,14 +2,39 @@ mod helptext;
 
 use crate::app::widgets::{
     BiosErrorStrings, ClockModifier, OptionalPathSelector, OverclockSlider, RenderErrorEffect,
+    VolumeAdjustmentState, VolumeAdjustmentWidget,
 };
 use crate::app::{App, OpenWindow, widgets};
 use egui::{Context, Window};
+use jgenesis_native_config::AppConfig;
 use jgenesis_native_driver::extensions::Console;
 use pce_config::{PceAspectRatio, PcePaletteType, PcePsgResampler, PceRegion, PceSystemCardModel};
 use rfd::FileDialog;
 use std::num::NonZeroU64;
 use std::path::PathBuf;
+
+#[derive(Debug, Clone, Default)]
+pub struct PceVolumeState {
+    psg: VolumeAdjustmentState,
+    cd_da: VolumeAdjustmentState,
+    adpcm: VolumeAdjustmentState,
+}
+
+impl PceVolumeState {
+    pub fn from_config(config: &AppConfig) -> Self {
+        Self {
+            psg: VolumeAdjustmentState::from_config_value(
+                config.pc_engine.psg_volume_adjustment_db,
+            ),
+            cd_da: VolumeAdjustmentState::from_config_value(
+                config.pc_engine.cd_da_volume_adjustment_db,
+            ),
+            adpcm: VolumeAdjustmentState::from_config_value(
+                config.pc_engine.adpcm_volume_adjustment_db,
+            ),
+        }
+    }
+}
 
 impl App {
     pub(super) fn render_pce_general_settings(&mut self, ctx: &Context) {
@@ -174,22 +199,112 @@ impl App {
 
         let mut open = true;
         Window::new(WINDOW.title()).open(&mut open).show(ctx, |ui| {
-            ui.group(|ui| {
-                ui.label("PSG audio resampling algorithm");
+            let rect = widgets::render_volume_adjustments(
+                [
+                    VolumeAdjustmentWidget::new(
+                        "HuC6280 PSG",
+                        &mut self.config.pc_engine.psg_volume_adjustment_db,
+                        &mut self.state.pce_volume.psg,
+                    ),
+                    VolumeAdjustmentWidget::new(
+                        "(CD-ROM²) CD-DA playback",
+                        &mut self.config.pc_engine.cd_da_volume_adjustment_db,
+                        &mut self.state.pce_volume.cd_da,
+                    ),
+                    VolumeAdjustmentWidget::new(
+                        "(CD-ROM²) ADPCM chip",
+                        &mut self.config.pc_engine.adpcm_volume_adjustment_db,
+                        &mut self.state.pce_volume.adpcm,
+                    ),
+                ],
+                ui,
+            )
+            .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::VOLUME_ADJUSTMENTS);
+            }
 
-                ui.radio_value(
-                    &mut self.config.pc_engine.audio_resampler,
-                    PcePsgResampler::WindowedSinc,
-                    "Windowed sinc interpolation (Higher quality)",
-                );
-                ui.radio_value(
-                    &mut self.config.pc_engine.audio_resampler,
-                    PcePsgResampler::LowPassNearestNeighbor,
-                    "Low-pass filter + nearest neighbor (Faster)",
-                );
-            });
+            let rect = ui
+                .group(|ui| {
+                    ui.label("Enabled sound sources");
 
-            self.state.help_text.insert(WINDOW, helptext::PSG_AUDIO_RESAMPLER);
+                    for (value, label) in [
+                        (&mut self.config.pc_engine.psg_enabled, "HuC6280 PSG"),
+                        (&mut self.config.pc_engine.cd_da_enabled, "(CD-ROM²) CD-DA playback"),
+                        (&mut self.config.pc_engine.adpcm_enabled, "(CD-ROM²) ADPCM chip"),
+                    ] {
+                        ui.checkbox(value, label);
+                    }
+                })
+                .response
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::SOUND_SOURCES);
+            }
+
+            let rect = ui
+                .group(|ui| {
+                    ui.label("Enabled PSG channels");
+
+                    ui.horizontal(|ui| {
+                        for (i, channel_enabled) in
+                            self.config.pc_engine.psg_channels_enabled.iter_mut().enumerate()
+                        {
+                            ui.checkbox(channel_enabled, (i + 1).to_string());
+                        }
+                    });
+
+                    ui.horizontal(|ui| {
+                        if ui.button("Enable all").clicked() {
+                            self.config.pc_engine.psg_channels_enabled.fill(true);
+                        }
+
+                        if ui.button("Disable all").clicked() {
+                            self.config.pc_engine.psg_channels_enabled.fill(false);
+                        }
+                    });
+                })
+                .response
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::ENABLED_PSG_CHANNELS);
+            }
+
+            ui.add_space(3.0);
+
+            let rect = ui
+                .checkbox(
+                    &mut self.config.pc_engine.quantize_adpcm_output,
+                    "(CD-ROM²) Quantize ADPCM output",
+                )
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::QUANTIZE_ADPCM_OUTPUT);
+            }
+
+            ui.add_space(3.0);
+
+            let rect = ui
+                .group(|ui| {
+                    ui.label("PSG audio resampling algorithm");
+
+                    ui.radio_value(
+                        &mut self.config.pc_engine.audio_resampler,
+                        PcePsgResampler::WindowedSinc,
+                        "Windowed sinc interpolation (Higher quality)",
+                    );
+                    ui.radio_value(
+                        &mut self.config.pc_engine.audio_resampler,
+                        PcePsgResampler::LowPassNearestNeighbor,
+                        "Low-pass filter + nearest neighbor (Faster)",
+                    );
+                })
+                .response
+                .interact_rect;
+
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::PSG_AUDIO_RESAMPLER);
+            }
             self.render_help_text(ui, WINDOW);
         });
         if !open {

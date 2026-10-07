@@ -79,22 +79,48 @@ impl PsgResampler {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
+struct VolumeMultipliers {
+    psg: f64,
+    cd_da: f64,
+    adpcm: f64,
+}
+
+impl VolumeMultipliers {
+    fn from_config(config: &PceEmulatorConfig) -> Self {
+        Self {
+            psg: f64::from(config.psg_enabled)
+                * decibels_to_linear(config.psg_volume_adjustment_db),
+            cd_da: f64::from(config.cd_da_enabled)
+                * decibels_to_linear(config.cd_da_volume_adjustment_db),
+            adpcm: f64::from(config.adpcm_enabled)
+                * decibels_to_linear(config.adpcm_volume_adjustment_db),
+        }
+    }
+}
+
+fn decibels_to_linear(db: f64) -> f64 {
+    10.0_f64.powf(db / 20.0)
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct PceAudioResampler {
     psg: PsgResampler,
     cd_da: QualitySincResampler<2>,
     adpcm: QualitySincResampler<1>,
     cd_present: bool,
     output_frequency: u64,
+    volumes: VolumeMultipliers,
 }
 
 impl PceAudioResampler {
-    pub fn new(psg_resampler: PcePsgResampler, cd_present: bool, output_frequency: u64) -> Self {
+    pub fn new(config: &PceEmulatorConfig, cd_present: bool, output_frequency: u64) -> Self {
         Self {
-            psg: PsgResampler::new(psg_resampler, output_frequency),
+            psg: PsgResampler::new(config.psg_audio_resampler, output_frequency),
             cd_da: QualitySincResampler::new(CD_DA_FREQUENCY, output_frequency as f64),
             adpcm: QualitySincResampler::new(cd::ADPCM_SAMPLE_RATE, output_frequency as f64),
             cd_present,
             output_frequency,
+            volumes: VolumeMultipliers::from_config(config),
         }
     }
 
@@ -140,7 +166,10 @@ impl PceAudioResampler {
                 if self.cd_present { self.adpcm.output_buffer_pop_front().unwrap() } else { [0.0] };
 
             let mixed_sample: [f64; 2] = array::from_fn(|i| {
-                (psg_sample[i] + cd_da_sample[i] + adpcm_sample).clamp(-1.0, 1.0)
+                (psg_sample[i] * self.volumes.psg
+                    + cd_da_sample[i] * self.volumes.cd_da
+                    + adpcm_sample * self.volumes.adpcm)
+                    .clamp(-1.0, 1.0)
             });
             audio_output.push_sample(mixed_sample[0], mixed_sample[1])?;
         }
@@ -160,5 +189,7 @@ impl PceAudioResampler {
         if config.psg_audio_resampler != self.psg.resampler_impl() {
             self.psg = PsgResampler::new(config.psg_audio_resampler, self.output_frequency);
         }
+
+        self.volumes = VolumeMultipliers::from_config(config);
     }
 }

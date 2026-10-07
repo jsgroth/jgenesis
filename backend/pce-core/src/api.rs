@@ -40,7 +40,16 @@ pub struct PceEmulatorConfig {
     pub palette: PcePaletteType,
     pub crop_overscan: bool,
     pub remove_sprite_limits: bool,
+    pub quantize_adpcm_output: bool,
     pub psg_audio_resampler: PcePsgResampler,
+    #[cfg_display(debug_fmt)]
+    pub psg_channels_enabled: [bool; 6],
+    pub psg_enabled: bool,
+    pub cd_da_enabled: bool,
+    pub adpcm_enabled: bool,
+    pub psg_volume_adjustment_db: f64,
+    pub cd_da_volume_adjustment_db: f64,
+    pub adpcm_volume_adjustment_db: f64,
     pub input_device: PceInputDevice,
     #[cfg_display(debug_fmt)]
     pub turbo_tap_connected: [bool; pce_config::TURBO_TAP_GAMEPADS as usize],
@@ -107,7 +116,7 @@ impl PcEngineEmulator {
         let mut emulator = Self {
             cpu: Huc6280::new(),
             video: VideoSubsystem::new(config),
-            psg: Huc6280Psg::new(),
+            psg: Huc6280Psg::new(&config),
             memory: Memory::new(&config),
             cartridge: HuCard::new(
                 hucard_rom,
@@ -116,13 +125,9 @@ impl PcEngineEmulator {
                 config.system_card_model,
             ),
             // TODO support running with CD-ROM hardware present but no disc in drive
-            cd: disc.map(|disc| CdRomController::new(Some(disc), initial_sav)),
+            cd: disc.map(|disc| CdRomController::new(Some(disc), initial_sav, &config)),
             input_state: InputState::new(config, cd_hardware_present),
-            audio_resampler: PceAudioResampler::new(
-                config.psg_audio_resampler,
-                cd_hardware_present,
-                48000,
-            ),
+            audio_resampler: PceAudioResampler::new(&config, cd_hardware_present, 48000),
             config,
             cycle_counter: 0,
             last_psg_sync_cycles: 0,
@@ -284,8 +289,13 @@ impl EmulatorTrait for PcEngineEmulator {
 
         self.memory.reload_config(config);
         self.video.reload_config(*config);
+        self.psg.reload_config(config);
         self.audio_resampler.reload_config(config);
         self.input_state.reload_config(*config);
+
+        if let Some(cd) = &mut self.cd {
+            cd.reload_config(config);
+        }
     }
 
     fn soft_reset(&mut self) {

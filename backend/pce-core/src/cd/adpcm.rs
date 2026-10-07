@@ -5,6 +5,7 @@
 mod msm5205;
 
 use crate::api;
+use crate::api::PceEmulatorConfig;
 use crate::cd::adpcm::msm5205::Msm5205;
 use crate::cd::scsi::ScsiCdDrive;
 use crate::cd::{CdEvent, CdEventWithTime, CdInterruptFlags, CdInterruptType, CdRomController};
@@ -95,10 +96,10 @@ pub struct AdpcmChip {
 }
 
 impl AdpcmChip {
-    pub fn new() -> Self {
+    pub fn new(config: &PceEmulatorConfig) -> Self {
         Self {
             ram: BoxedByteArray::new(),
-            msm5205: Msm5205::new(),
+            msm5205: Msm5205::new(config.quantize_adpcm_output),
             msm5205_divider: MSM5205_MAX_DIVIDER,
             sample_rate_nibble: 0,
             sample_rate_byte: 0,
@@ -286,6 +287,10 @@ impl AdpcmChip {
     // Signed 12-bit samples, 32087.5 Hz sample rate
     pub fn drain_audio_samples(&mut self) -> impl Iterator<Item = i16> {
         self.output_samples.drain(..)
+    }
+
+    pub fn reload_config(&mut self, config: &PceEmulatorConfig) {
+        self.msm5205.set_quantize_output(config.quantize_adpcm_output);
     }
 }
 

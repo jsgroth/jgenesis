@@ -9,6 +9,7 @@ mod adpcm;
 mod scsi;
 
 use crate::api;
+use crate::api::PceEmulatorConfig;
 use crate::audio::PceAudioResampler;
 use crate::cd::adpcm::AdpcmChip;
 use crate::cd::scsi::ScsiCdDrive;
@@ -218,7 +219,11 @@ pub struct CdRomController {
 }
 
 impl CdRomController {
-    pub fn new(disc: Option<CdRom>, initial_backup_ram: Option<Vec<u8>>) -> Self {
+    pub fn new(
+        disc: Option<CdRom>,
+        initial_backup_ram: Option<Vec<u8>>,
+        config: &PceEmulatorConfig,
+    ) -> Self {
         let mut backup_ram = BoxedByteArray::new();
 
         match initial_backup_ram {
@@ -234,7 +239,7 @@ impl CdRomController {
 
         Self {
             scsi: ScsiCdDrive::new(disc),
-            adpcm: AdpcmChip::new(),
+            adpcm: AdpcmChip::new(config),
             fader: Fader::new(),
             working_ram: BoxedByteArray::new(),
             backup_ram,
@@ -549,6 +554,10 @@ impl CdRomController {
 
     pub fn take_disc_from(&mut self, other: &mut Self) {
         self.scsi.take_disc_from(&mut other.scsi);
+    }
+
+    pub fn reload_config(&mut self, config: &PceEmulatorConfig) {
+        self.adpcm.reload_config(config);
     }
 
     pub fn debug_working_ram_view(&mut self) -> impl DebugMemoryView {

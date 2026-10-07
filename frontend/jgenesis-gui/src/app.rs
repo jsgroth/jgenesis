@@ -45,6 +45,7 @@ use std::sync::{Arc, Mutex};
 use time::{OffsetDateTime, UtcOffset, format_description};
 
 use crate::app::inputcollect::InputCollectionState;
+use crate::app::pce::PceVolumeState;
 use cdrom::reader::CdRomFileFormat;
 pub(crate) use cheats::ActiveCheats;
 pub(crate) use input::GenericButton;
@@ -230,6 +231,7 @@ struct AppState {
     audio_gain_invalid: bool,
     nes_palette: NesPaletteState,
     genesis_volume: GenesisVolumeState,
+    pce_volume: PceVolumeState,
     s32x_priority: S32XPriorityState,
     overscan: OverscanState,
     input_collection: Option<InputCollectionState>,
@@ -269,6 +271,7 @@ impl AppState {
             audio_gain_invalid: false,
             nes_palette: NesPaletteState::create(ctx, &NesPalette::default()),
             genesis_volume: GenesisVolumeState::default(),
+            pce_volume: PceVolumeState::default(),
             s32x_priority: S32XPriorityState::default(),
             overscan: OverscanState::default(),
             input_collection: None,
@@ -306,6 +309,7 @@ impl AppState {
         self.audio_gain_invalid = false;
         self.nes_palette = NesPaletteState::create(ctx, &config.nes.palette);
         self.genesis_volume = GenesisVolumeState::from_config(config);
+        self.pce_volume = PceVolumeState::from_config(config);
         self.s32x_priority = S32XPriorityState::from_config(&config.sega_32x);
         self.overscan = config.nes.overscan().into();
         self.recent_open_list = romlist::from_recent_opens(&config.recent_open_list);

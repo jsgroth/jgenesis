@@ -40,15 +40,16 @@ static STEP_TABLE: LazyLock<[[i16; 8]; STEP_TABLE_LEN]> = LazyLock::new(|| {
 pub struct Msm5205 {
     predictor: u16, // Unsigned 12-bit accumulator
     step_index: i8,
+    quantize_output: bool,
 }
 
 impl Msm5205 {
-    pub fn new() -> Self {
-        Self { predictor: 0x800, step_index: 0 }
+    pub fn new(quantize_output: bool) -> Self {
+        Self { predictor: 0x800, step_index: 0, quantize_output }
     }
 
     pub fn decode_start(&mut self) {
-        *self = Self::new();
+        *self = Self::new(self.quantize_output);
     }
 
     pub fn decode_nibble(&mut self, nibble: u8) {
@@ -66,8 +67,16 @@ impl Msm5205 {
 
     // Signed 12-bit
     pub fn current_sample(&self) -> i16 {
-        // Per MSM5205 datasheet, its DAC is only 10 bits; mask out the lowest 2
-        let sample_unsigned = (self.predictor & !3) as i16;
+        // Per MSM5205 datasheet, its DAC is only 10 bits; mask out the lowest 2 (if accurate
+        // quantization is enabled)
+        let mut sample_unsigned = self.predictor as i16;
+        if self.quantize_output {
+            sample_unsigned &= !3;
+        }
         sample_unsigned - 0x800
+    }
+
+    pub fn set_quantize_output(&mut self, quantize_output: bool) {
+        self.quantize_output = quantize_output;
     }
 }

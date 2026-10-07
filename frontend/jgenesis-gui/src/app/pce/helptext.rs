@@ -63,6 +63,32 @@ pub const REMOVE_SPRITE_LIMITS: HelpText = HelpText {
     ],
 };
 
+pub const ENABLED_PSG_CHANNELS: HelpText = HelpText {
+    heading: "Enabled YM2612 Channels",
+    text: &["Enable or disable individual PSG audio channels."],
+};
+
+pub const SOUND_SOURCES: HelpText = HelpText {
+    heading: "Sound Sources",
+    text: &["Enable or disable specific sound sources in final audio mixing."],
+};
+
+pub const VOLUME_ADJUSTMENTS: HelpText = HelpText {
+    heading: "Volume Adjustments",
+    text: &[
+        "Adjust the volume of individual sound sources.",
+        "Values can be positive or negative. Positive values increase volume and negative values decrease volume.",
+    ],
+};
+
+pub const QUANTIZE_ADPCM_OUTPUT: HelpText = HelpText {
+    heading: "Quantize ADPCM Output",
+    text: &[
+        "If enabled, quantize ADPCM output samples from 12-bit to 10-bit.",
+        "Enabling this is more accurate to actual hardware (which has a 10-bit DAC) but makes ADPCM audio slightly noisier.",
+    ],
+};
+
 pub const PSG_AUDIO_RESAMPLER: HelpText = HelpText {
     heading: "PSG Audio Resampling Algorithm",
     text: &[
