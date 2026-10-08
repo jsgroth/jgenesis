@@ -1,4 +1,7 @@
 //! Code for emulating the CD-ROM² add-on's SCSI CD-ROM drive
+//!
+//! All delay timings for SCSI bus phase changes are based on krikzz's tcd-verificator tests. There
+//! are likely additional delays beyond what is emulated, and some of the delays may not be accurate
 
 mod seektime;
 
@@ -47,6 +50,24 @@ enum ScsiBusPhase {
     MessageIn,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+enum PhaseChange {
+    EnterCommand,
+    EnterStatus(ScsiStatus, SenseKey),
+    EnterDataIn,
+    EnterMessageIn,
+    EnterBusFree,
+    SetReqSignal,
+}
+
+#[derive(Debug, Clone, Copy, Encode, Decode)]
+struct PhaseChangeWithCycles(PhaseChange, u64);
+
+#[inline]
+const fn micros_to_mclks(microseconds: f64) -> u64 {
+    (microseconds * 1e-6 * MCLK_FREQUENCY as f64).ceil() as u64
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ScsiCommand {
     // Standard SCSI commands
@@ -88,7 +109,7 @@ impl ScsiCommand {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum ScsiStatus {
     Good = 0,
     CheckCondition = 1,
@@ -158,6 +179,7 @@ pub struct ScsiCdDrive {
     disc: Option<CdRom>,
     signals: ScsiBusSignals,
     phase: ScsiBusPhase,
+    pending_phase_change: Option<PhaseChangeWithCycles>,
     data_bus: u8,
     command_bytes: Vec<u8>,
     data_in_bytes: VecDeque<u8>,
@@ -179,6 +201,7 @@ impl ScsiCdDrive {
             disc,
             signals: ScsiBusSignals::default(),
             phase: ScsiBusPhase::BusFree,
+            pending_phase_change: None,
             data_bus: 0,
             command_bytes: Vec::with_capacity(10),
             data_in_bytes: VecDeque::with_capacity(2048),
@@ -203,6 +226,19 @@ impl ScsiCdDrive {
         mclk_elapsed: u64,
         irqs_pending: &mut CdInterruptFlags,
     ) -> Result<(), CdRomError> {
+        if let Some(PhaseChangeWithCycles(change, cycles_remaining)) =
+            &mut self.pending_phase_change
+        {
+            *cycles_remaining = cycles_remaining.saturating_sub(mclk_elapsed);
+            if *cycles_remaining == 0 {
+                let change = *change;
+                self.pending_phase_change = None;
+                self.apply_phase_change(change);
+
+                self.update_irq_flags(irqs_pending);
+            }
+        }
+
         self.cd_cycle_product += mclk_elapsed * CD_FREQUENCY;
         while self.cd_cycle_product >= MCLK_FREQUENCY {
             self.cd_cycle_product -= MCLK_FREQUENCY;
@@ -215,6 +251,37 @@ impl ScsiCdDrive {
     // Signed 16-bit samples, 44100 Hz sample rate
     pub fn drain_audio_samples(&mut self) -> impl Iterator<Item = (i16, i16)> {
         self.audio_samples.drain(..)
+    }
+
+    fn set_pending_phase_change(&mut self, change: PhaseChange, cycles: u64) {
+        if self.pending_phase_change.is_none() {
+            self.pending_phase_change = Some(PhaseChangeWithCycles(change, cycles));
+        }
+    }
+
+    fn apply_phase_change(&mut self, change: PhaseChange) {
+        match change {
+            PhaseChange::EnterCommand => {
+                self.set_phase(ScsiBusPhase::Command);
+                self.command_bytes.clear();
+            }
+            PhaseChange::EnterStatus(status, sense_key) => {
+                self.enter_status_phase(status, sense_key);
+            }
+            PhaseChange::EnterDataIn => {
+                self.enter_data_in_phase();
+            }
+            PhaseChange::EnterMessageIn => {
+                self.set_phase(ScsiBusPhase::MessageIn);
+                self.data_bus = 0; // Command complete message code
+            }
+            PhaseChange::EnterBusFree => {
+                self.set_phase(ScsiBusPhase::BusFree);
+            }
+            PhaseChange::SetReqSignal => {
+                self.signals.req = true;
+            }
+        }
     }
 
     fn clock_44100hz(&mut self, irqs_pending: &mut CdInterruptFlags) -> Result<(), CdRomError> {
@@ -456,6 +523,20 @@ impl ScsiCdDrive {
         self.update_state(irqs_pending);
     }
 
+    pub fn dma_ack_handshake(&mut self, irqs_pending: &mut CdInterruptFlags) {
+        self.set_ack(true, irqs_pending);
+        self.set_ack(false, irqs_pending);
+
+        // Set REQ=1 immediately after ADPCM DMA consumes a byte (if it wasn't the last byte);
+        // required by tcd-verificator DMA timing tests (DMA consumes bytes faster than the drive
+        // would normally set REQ=1, and also the test expects to be able to see REQ=1 from the CPU
+        // while a DMA is active)
+        if self.pending_phase_change.is_some_and(|change| change.0 == PhaseChange::SetReqSignal) {
+            self.signals.req = true;
+            self.pending_phase_change = None;
+        }
+    }
+
     pub fn set_rst(&mut self, rst: bool, irqs_pending: &mut CdInterruptFlags) {
         self.signals.rst = rst;
         self.update_state(irqs_pending);
@@ -503,8 +584,7 @@ impl ScsiCdDrive {
 
     fn update_state_bus_free(&mut self) {
         if self.signals.sel {
-            self.set_phase(ScsiBusPhase::Command);
-            self.command_bytes.clear();
+            self.set_pending_phase_change(PhaseChange::EnterCommand, micros_to_mclks(300.0));
         }
     }
 
@@ -525,7 +605,16 @@ impl ScsiCdDrive {
 
                 if self.command_bytes.len() < command.length() {
                     // Need more bytes from initiator
-                    self.signals.req = true;
+                    let delay_micros = if self.command_bytes.len() == 1 {
+                        // Longer delay when setting REQ=1 after the first byte received, per tcd-verificator
+                        180.0
+                    } else {
+                        18.0
+                    };
+                    self.set_pending_phase_change(
+                        PhaseChange::SetReqSignal,
+                        micros_to_mclks(delay_micros),
+                    );
                 } else {
                     // Command fully received
                     self.process_command(command);
@@ -538,28 +627,41 @@ impl ScsiCdDrive {
         if self.signals.req && self.signals.ack {
             self.signals.req = false;
         } else if !self.signals.req && !self.signals.ack {
-            self.set_phase(ScsiBusPhase::MessageIn);
-            self.data_bus = 0; // Command complete message code
+            self.set_pending_phase_change(PhaseChange::EnterMessageIn, micros_to_mclks(18.0));
         }
     }
 
     fn update_state_data_in(&mut self) {
-        if self.signals.req && self.signals.ack {
+        let req = self.signals.req
+            || self
+                .pending_phase_change
+                .is_some_and(|change| change.0 == PhaseChange::SetReqSignal);
+
+        if req && self.signals.ack {
             self.signals.req = false;
-        } else if !self.signals.req && !self.signals.ack {
+            self.pending_phase_change = None;
+        } else if !req && !self.signals.ack {
+            self.pending_phase_change = None;
+
             match self.data_in_bytes.pop_front() {
                 Some(byte) => {
                     self.data_bus = byte;
-                    self.signals.req = true;
+                    self.set_pending_phase_change(PhaseChange::SetReqSignal, micros_to_mclks(18.0));
 
                     log::trace!("DATA IN phase, {} bytes remaining", self.data_in_bytes.len());
                 }
                 None => match self.drive_state {
                     DriveState::Reading { .. }
                     | DriveState::PreparingToRead { mode: SeekMode::Data { .. }, .. }
-                    | DriveState::Seeking { mode: SeekMode::Data { .. }, .. } => {}
+                    | DriveState::Seeking { mode: SeekMode::Data { .. }, .. } => {
+                        // Stay in DATA IN phase with REQ=0 until the next sector comes in
+                    }
                     _ => {
-                        self.enter_status_phase(ScsiStatus::Good, SenseKey::NoSense);
+                        // No more sectors, switch to STATUS phase
+                        self.set_pending_phase_change(
+                            PhaseChange::EnterStatus(ScsiStatus::Good, SenseKey::NoSense),
+                            micros_to_mclks(180.0),
+                        );
                     }
                 },
             }
@@ -570,7 +672,8 @@ impl ScsiCdDrive {
         if self.signals.req && self.signals.ack {
             self.signals.req = false;
         } else if !self.signals.req && !self.signals.ack {
-            self.set_phase(ScsiBusPhase::BusFree);
+            // Too long of a delay until BUS FREE confuses some games, e.g. Seiya Monogatari
+            self.set_pending_phase_change(PhaseChange::EnterBusFree, micros_to_mclks(18.0));
         }
     }
 
@@ -1039,8 +1142,6 @@ impl ScsiCdDrive {
             return self.enter_status_phase(ScsiStatus::CheckCondition, SenseKey::NotReady);
         };
 
-        // TODO this command shouldn't execute instantly
-
         let cue = disc.cue();
 
         self.data_in_bytes.clear();
@@ -1091,6 +1192,8 @@ impl ScsiCdDrive {
         log::debug!("Read TOC data bytes: {:02X?}", self.data_in_bytes);
 
         self.enter_data_in_phase();
+        self.signals.req = false;
+        self.set_pending_phase_change(PhaseChange::SetReqSignal, micros_to_mclks(200.0));
     }
 
     pub fn take_disc(&mut self) -> Option<CdRom> {

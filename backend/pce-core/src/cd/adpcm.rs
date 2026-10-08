@@ -31,7 +31,9 @@ const ADPCM_RAM_LEN: usize = 64 * 1024;
 // TODO validate these timings; these values are just copied from Mednafen
 const READ_MCLK_CYCLES: u64 = 19 * 3;
 const WRITE_MCLK_CYCLES: u64 = 11 * 3;
-const DMA_WRITE_MCLK_CYCLES: u64 = 10 * 3;
+
+// Based on tcd-verificator DMA timing tests
+const DMA_WRITE_MCLK_CYCLES: u64 = 25 * 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 struct AdpcmControl(u8);
@@ -413,18 +415,21 @@ impl CdRomController {
         self.adpcm.update_irq_flags(&mut self.irqs_pending);
     }
 
+    #[allow(clippy::nonminimal_bool)] // I think the suggestion makes the logic less readable
     pub(super) fn try_progress_adpcm_dma(&mut self, cycles: u64) {
         if self.adpcm.dma_control & 3 == 0 {
             // DMA is not enabled
             return;
         }
 
-        if !self.scsi.signals().data_in_phase() {
+        let signals = self.scsi.signals();
+        if !signals.data_in_phase() {
+            // DMA control bit 0 is automatically cleared when DATA IN phase ends (disables DMA if
+            // bit 1 is not also set)
             self.adpcm.dma_control &= !1;
-            if self.adpcm.dma_control & 3 == 0 {
-                // DMA was only enabled during DATA IN phase, and it's not DATA IN anymore
-                return;
-            }
+
+            // Not in DATA IN phase, no data available
+            return;
         }
 
         if self.is_event_pending(CdEvent::AdpcmRamWrite) {
@@ -432,8 +437,7 @@ impl CdRomController {
             return;
         }
 
-        let signals = self.scsi.signals();
-        if !(signals.data_in_phase() && signals.req && !signals.ack) {
+        if !(signals.req && !signals.ack) {
             // Next byte is not ready to read
             return;
         }
@@ -442,8 +446,7 @@ impl CdRomController {
         self.adpcm.write_buffer = self.scsi.data_bus();
         self.trigger_event_at(CdEvent::AdpcmRamWrite, cycles + DMA_WRITE_MCLK_CYCLES);
 
-        self.scsi.set_ack(true, &mut self.irqs_pending);
-        self.trigger_event_at(CdEvent::AckAutoClear, cycles + super::ACK_CLEAR_MCLK_CYCLES);
+        self.scsi.dma_ack_handshake(&mut self.irqs_pending);
     }
 
     pub(super) fn tick_adpcm(&mut self, elapsed_mclk: u64) {

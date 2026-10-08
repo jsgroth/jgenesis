@@ -346,7 +346,7 @@ impl CdRomController {
                 let value = self.scsi.data_bus();
 
                 let signals = self.scsi.signals();
-                if signals.data_in_phase() && signals.req && !signals.ack {
+                if signals.data_in_phase() && !signals.ack {
                     self.scsi.set_ack(true, &mut self.irqs_pending);
                     self.trigger_event_after(CdEvent::AckAutoClear, ACK_CLEAR_MCLK_CYCLES);
                 }
