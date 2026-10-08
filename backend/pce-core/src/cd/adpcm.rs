@@ -8,12 +8,11 @@ use crate::api;
 use crate::api::PceEmulatorConfig;
 use crate::cd::adpcm::msm5205::Msm5205;
 use crate::cd::scsi::ScsiCdDrive;
-use crate::cd::{CdEvent, CdEventWithTime, CdInterruptFlags, CdInterruptType, CdRomController};
+use crate::cd::{CdEvent, CdInterruptFlags, CdInterruptType, CdRomController};
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::BoxedByteArray;
 use jgenesis_common::debug::{DebugBytesView, DebugMemoryView};
 use jgenesis_common::num::{GetBit, U16Ext};
-use std::cmp::Reverse;
 use std::collections::VecDeque;
 
 // Nominally 32000 Hz, but runs slightly faster in actual hardware according to:
@@ -81,7 +80,7 @@ pub struct AdpcmChip {
     address_buffer: u16,
     read_address: u16,
     write_address: u16,
-    length: u16,
+    length: u32, // Per tcd-verificator ADPCM tests, length is a 17-bit value
     end_flag: bool,
     half_flag: bool,
     read_buffer: u8,
@@ -90,6 +89,7 @@ pub struct AdpcmChip {
     dma_control: u8,
     playing: bool,
     playing_odd_nibble: bool,
+    playing_at_reset: bool,
     sample_buffer: u8,
     cycle_product_scaled: u64,
     output_samples: VecDeque<i16>,
@@ -115,6 +115,7 @@ impl AdpcmChip {
             dma_control: 0,
             playing: false,
             playing_odd_nibble: false,
+            playing_at_reset: false,
             sample_buffer: 0,
             cycle_product_scaled: 0,
             output_samples: VecDeque::with_capacity((ADPCM_SAMPLE_RATE as usize) / 60),
@@ -145,7 +146,7 @@ impl AdpcmChip {
 
         // Length is constantly latched if control bit 4 = 1, unlike read/write addresses
         if self.control.latch_length() {
-            self.length = self.address_buffer;
+            self.length = self.address_buffer.into();
         }
 
         log::trace!(
@@ -177,12 +178,6 @@ impl AdpcmChip {
         let prev_control = self.control;
         self.control = AdpcmControl(value);
 
-        if self.control.reset() {
-            self.reset();
-            log::debug!("ADPCM reset");
-            return;
-        }
-
         self.playing &= self.control.play();
         if !self.playing && self.control.play() {
             self.playing = true;
@@ -190,8 +185,14 @@ impl AdpcmChip {
             self.msm5205.decode_start();
         }
 
+        if self.control.reset() {
+            self.reset();
+            log::debug!("ADPCM reset");
+            return;
+        }
+
         if self.control.latch_length() {
-            self.length = self.address_buffer;
+            self.length = self.address_buffer.into();
             self.end_flag = false;
         }
 
@@ -228,6 +229,8 @@ impl AdpcmChip {
         self.end_flag = false;
         self.read_buffer = 0;
         self.write_buffer = 0;
+
+        self.playing_at_reset = self.playing;
         self.playing = false;
     }
 
@@ -270,7 +273,7 @@ impl AdpcmChip {
             self.read_address = self.read_address.wrapping_add(1);
 
             if !self.control.latch_length() {
-                self.length = self.length.wrapping_sub(1);
+                self.length = self.length.wrapping_sub(1) & 0x1FFFF;
             }
         }
 
@@ -324,9 +327,14 @@ impl CdRomController {
     fn read_adpcm_status(&self) -> u8 {
         let read_pending = self.is_event_pending(CdEvent::AdpcmRamRead);
         let write_pending = self.is_event_pending(CdEvent::AdpcmRamWrite);
+        let playing = if self.adpcm.control.reset() {
+            self.adpcm.playing_at_reset
+        } else {
+            self.adpcm.playing
+        };
 
         (u8::from(read_pending) << 7)
-            | (u8::from(self.adpcm.playing) << 3)
+            | (u8::from(playing) << 3)
             | (u8::from(write_pending) << 2)
             | u8::from(self.adpcm.end_flag)
     }
@@ -354,9 +362,8 @@ impl CdRomController {
         }
 
         if self.adpcm.control.reset() {
-            self.events.retain(|&Reverse(CdEventWithTime(event, ..))| {
-                !matches!(event, CdEvent::AdpcmRamRead | CdEvent::AdpcmRamWrite)
-            });
+            self.remove_event(CdEvent::AdpcmRamRead);
+            self.remove_event(CdEvent::AdpcmRamWrite);
         }
 
         self.adpcm.update_irq_flags(&mut self.irqs_pending);
@@ -372,16 +379,19 @@ impl CdRomController {
     pub(super) fn process_adpcm_ram_read(&mut self) {
         self.adpcm.read_buffer = self.adpcm.ram[self.adpcm.read_address as usize];
         self.adpcm.read_address = self.adpcm.read_address.wrapping_add(1);
-        self.adpcm.half_flag = self.adpcm.length < 0x8000;
 
+        let mut force_half_off = false;
         if !self.adpcm.control.latch_length() {
             if self.adpcm.length != 0 {
                 self.adpcm.length -= 1;
             } else {
                 self.adpcm.end_flag = true;
-                self.adpcm.half_flag = false;
+                force_half_off = true;
             }
         }
+
+        // Reads set half flag after length decrement
+        self.adpcm.half_flag = self.adpcm.length < 0x8000 && !force_half_off;
 
         self.adpcm.update_irq_flags(&mut self.irqs_pending);
     }
@@ -389,10 +399,13 @@ impl CdRomController {
     pub(super) fn process_adpcm_ram_write(&mut self, cycles: u64) {
         self.adpcm.ram[self.adpcm.write_address as usize] = self.adpcm.write_buffer;
         self.adpcm.write_address = self.adpcm.write_address.wrapping_add(1);
+
+        // Writes set half flag before length increment
         self.adpcm.half_flag = self.adpcm.length < 0x8000;
 
         if !self.adpcm.control.latch_length() {
-            self.adpcm.length = self.adpcm.length.saturating_add(1);
+            self.adpcm.end_flag |= self.adpcm.length == 0;
+            self.adpcm.length = (self.adpcm.length + 1) & 0x1FFFF;
         }
 
         self.try_progress_adpcm_dma(cycles);

@@ -22,8 +22,7 @@ use jgenesis_common::debug::{DebugBytesView, DebugMemoryView};
 use jgenesis_common::define_bit_enum;
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{EnumAll, PartialClone};
-use std::cmp::{Ordering, Reverse};
-use std::collections::BinaryHeap;
+use std::cmp::Ordering;
 
 // CD-ROM² unit always has 64KB of working RAM; any additional RAM is part of the System Card
 const WORKING_RAM_LEN: usize = 64 * 1024;
@@ -211,10 +210,11 @@ pub struct CdRomController {
     backup_ram_enabled: bool,
     cd_da_read_channel: AudioChannel,
     cd_da_read_sample: i16,
+    cd_da_read_wait_cycles: u64,
     irqs_enabled: u8,
     irqs_pending: CdInterruptFlags,
     cycle_counter: u64,
-    events: BinaryHeap<Reverse<CdEventWithTime>>,
+    events: Vec<CdEventWithTime>,
     last_1804_write: u8, // Only bit 1 is meaningful (SCSI RST) but all bits are R/W
 }
 
@@ -247,10 +247,11 @@ impl CdRomController {
             backup_ram_enabled: false,
             cd_da_read_channel: AudioChannel::Right,
             cd_da_read_sample: 0,
+            cd_da_read_wait_cycles: 0,
             irqs_enabled: 0,
             irqs_pending: CdInterruptFlags(0),
             cycle_counter: 0,
-            events: BinaryHeap::with_capacity(CdEvent::ALL.len()),
+            events: Vec::with_capacity(CdEvent::ALL.len()),
             last_1804_write: 0,
         }
     }
@@ -334,6 +335,9 @@ impl CdRomController {
                 // Read subchannel
                 // TODO
                 log::warn!("Subchannel FIFO read ($1807); not implemented");
+
+                self.irqs_pending.clear(CdInterruptType::Subchannel);
+
                 0xFF
             }
             0x8 => {
@@ -421,6 +425,7 @@ impl CdRomController {
                     self.irqs_enabled.bit(ADPCM_HALF_IRQ_BIT)
                 );
             }
+            0x3 => {} // Read-only
             0x4 => {
                 // SCSI RST signal
                 self.scsi.set_rst(value.bit(1), &mut self.irqs_pending);
@@ -430,15 +435,23 @@ impl CdRomController {
             }
             0x5 => {
                 // Writing to this register updates the readable CD-DA sample; value is ignored
-                self.cd_da_read_channel = self.cd_da_read_channel.other();
+                if self.cd_da_read_wait_cycles == 0 {
+                    // After each write, the drive ignores successive $1805 writes until a certain
+                    // amount of time has passed (tcd-verificator reg 1803 tests).
+                    // 1000 mclks is roughly in the middle of the range of values that makes the test pass
+                    self.cd_da_read_wait_cycles = 1000;
 
-                let current_sample = self.scsi.current_audio_sample();
-                // TODO channels might be backwards relative to the readable bit in $1803
-                self.cd_da_read_sample = match self.cd_da_read_channel {
-                    AudioChannel::Left => current_sample.0,
-                    AudioChannel::Right => current_sample.1,
-                };
+                    self.cd_da_read_channel = self.cd_da_read_channel.other();
+
+                    let current_sample = self.scsi.current_audio_sample();
+                    // TODO channels might be backwards relative to the readable bit in $1803
+                    self.cd_da_read_sample = match self.cd_da_read_channel {
+                        AudioChannel::Left => current_sample.0,
+                        AudioChannel::Right => current_sample.1,
+                    };
+                }
             }
+            0x6 => {} // Read-only
             0x7 => {
                 // Enable/disable backup RAM
                 self.backup_ram_enabled = value.bit(7);
@@ -472,7 +485,7 @@ impl CdRomController {
     }
 
     fn is_event_pending(&self, event: CdEvent) -> bool {
-        self.events.iter().any(|&Reverse(CdEventWithTime(heap_event, ..))| heap_event == event)
+        self.events.iter().any(|&CdEventWithTime(queued_event, ..)| queued_event == event)
     }
 
     fn trigger_event_at(&mut self, event: CdEvent, cycles: u64) {
@@ -480,11 +493,16 @@ impl CdRomController {
             return;
         }
 
-        self.events.push(Reverse(CdEventWithTime(event, cycles)));
+        self.events.push(CdEventWithTime(event, cycles));
+        self.events.sort_by(|a, b| a.cmp(b).reverse());
     }
 
     fn trigger_event_after(&mut self, event: CdEvent, cycles: u64) {
         self.trigger_event_at(event, self.cycle_counter + cycles);
+    }
+
+    fn remove_event(&mut self, event: CdEvent) {
+        self.events.retain(|&CdEventWithTime(queued_event, _)| queued_event != event);
     }
 
     pub fn step_to(
@@ -502,8 +520,10 @@ impl CdRomController {
         self.tick_adpcm(elapsed_mclk);
         self.fader.tick(elapsed_mclk);
 
-        while let Some(&Reverse(CdEventWithTime(event, event_cycles))) = self.events.peek()
-            && event_cycles >= self.cycle_counter
+        self.cd_da_read_wait_cycles = self.cd_da_read_wait_cycles.saturating_sub(elapsed_mclk);
+
+        while let Some(&CdEventWithTime(event, event_cycles)) = self.events.last()
+            && self.cycle_counter >= event_cycles
         {
             self.events.pop();
 

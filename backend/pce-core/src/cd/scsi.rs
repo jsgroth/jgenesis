@@ -224,6 +224,14 @@ impl ScsiCdDrive {
             self.clock_75hz()?;
         }
 
+        // Set subchannel IRQ flag every 6 sample clocks while the drive is reading
+        // (98 subchannel bytes per sector)
+        if self.divider_75hz % 6 == 1
+            && matches!(self.drive_state, DriveState::Reading { .. } | DriveState::Playing { .. })
+        {
+            irqs_pending.set(CdInterruptType::Subchannel);
+        }
+
         match &mut self.drive_state {
             DriveState::Seeking { from, to, cycles_remaining, mode, .. } => {
                 *cycles_remaining -= 1;
@@ -1074,6 +1082,10 @@ impl ScsiCdDrive {
                 return self
                     .enter_status_phase(ScsiStatus::CheckCondition, SenseKey::IllegalRequest);
             }
+        }
+
+        while self.data_in_bytes.len() < 4 {
+            self.data_in_bytes.push_back(0);
         }
 
         log::debug!("Read TOC data bytes: {:02X?}", self.data_in_bytes);
