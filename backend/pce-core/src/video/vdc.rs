@@ -62,9 +62,9 @@ pub const ACTIVE_DISPLAY_LINES: Range<u16> = 14..256;
 // Unclear exactly when BYR/BXR/CR are latched, but it appears to happen before the VCE HSYNC forces
 // the VDC into HDS phase, and it appears to happen at a fixed point independent of the current dot
 // clock divider.
-// Setting this too late breaks Shin Megami Tensei (highly sensitive to BYR latch timing), setting
-// it too early breaks Seiya Monogatari (highly sensitive to BXR latch timing)
-pub const Y_SCROLL_LATCH_MCLK: u32 = (MCLK_CYCLES_PER_SCANLINE - 16) as u32;
+// Setting this too late breaks Shin Megami Tensei (BYR), setting it too early breaks Seiya
+// Monogatari (BXR) and River City Ransom (BYR)
+pub const Y_SCROLL_LATCH_MCLK: u32 = (MCLK_CYCLES_PER_SCANLINE - 12) as u32;
 pub const X_SCROLL_LATCH_MCLK: u32 = Y_SCROLL_LATCH_MCLK + 8;
 
 // Large enough to fit video output at H1365px, after removing overscan
