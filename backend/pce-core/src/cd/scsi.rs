@@ -523,20 +523,6 @@ impl ScsiCdDrive {
         self.update_state(irqs_pending);
     }
 
-    pub fn dma_ack_handshake(&mut self, irqs_pending: &mut CdInterruptFlags) {
-        self.set_ack(true, irqs_pending);
-        self.set_ack(false, irqs_pending);
-
-        // Set REQ=1 immediately after ADPCM DMA consumes a byte (if it wasn't the last byte);
-        // required by tcd-verificator DMA timing tests (DMA consumes bytes faster than the drive
-        // would normally set REQ=1, and also the test expects to be able to see REQ=1 from the CPU
-        // while a DMA is active)
-        if self.pending_phase_change.is_some_and(|change| change.0 == PhaseChange::SetReqSignal) {
-            self.signals.req = true;
-            self.pending_phase_change = None;
-        }
-    }
-
     pub fn set_rst(&mut self, rst: bool, irqs_pending: &mut CdInterruptFlags) {
         self.signals.rst = rst;
         self.update_state(irqs_pending);
@@ -632,21 +618,13 @@ impl ScsiCdDrive {
     }
 
     fn update_state_data_in(&mut self) {
-        let req = self.signals.req
-            || self
-                .pending_phase_change
-                .is_some_and(|change| change.0 == PhaseChange::SetReqSignal);
-
-        if req && self.signals.ack {
+        if self.signals.req && self.signals.ack {
             self.signals.req = false;
-            self.pending_phase_change = None;
-        } else if !req && !self.signals.ack {
-            self.pending_phase_change = None;
-
+        } else if !self.signals.req && !self.signals.ack {
             match self.data_in_bytes.pop_front() {
                 Some(byte) => {
                     self.data_bus = byte;
-                    self.set_pending_phase_change(PhaseChange::SetReqSignal, micros_to_mclks(18.0));
+                    self.signals.req = true;
 
                     log::trace!("DATA IN phase, {} bytes remaining", self.data_in_bytes.len());
                 }

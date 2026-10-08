@@ -446,7 +446,8 @@ impl CdRomController {
         self.adpcm.write_buffer = self.scsi.data_bus();
         self.trigger_event_at(CdEvent::AdpcmRamWrite, cycles + DMA_WRITE_MCLK_CYCLES);
 
-        self.scsi.dma_ack_handshake(&mut self.irqs_pending);
+        self.scsi.set_ack(true, &mut self.irqs_pending);
+        self.scsi.set_ack(false, &mut self.irqs_pending);
     }
 
     pub(super) fn tick_adpcm(&mut self, elapsed_mclk: u64) {
