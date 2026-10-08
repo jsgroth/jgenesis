@@ -879,21 +879,25 @@ impl ScsiCdDrive {
 
     fn start_seek(&mut self, seek_time: CdTime, mode: SeekMode) {
         let current_time = self.drive_state.current_time();
-        self.drive_state = if seek_time == current_time {
-            DriveState::PreparingToRead {
-                time: seek_time,
-                cycles_remaining: PREPARE_READ_CYCLES,
-                mode,
-            }
-        } else {
-            let seek_cycles = seektime::estimate_clocks(current_time, seek_time);
-            DriveState::Seeking {
-                from: current_time,
-                to: seek_time,
-                cycles_remaining: seek_cycles,
-                mode,
-            }
-        };
+
+        // Only potentially skip seek for audio playback
+        // Skipping for data reads breaks cutscenes in Gulliver Boy
+        self.drive_state =
+            if mode == SeekMode::Audio && self.drive_state == DriveState::AudioPaused(seek_time) {
+                DriveState::PreparingToRead {
+                    time: seek_time,
+                    cycles_remaining: PREPARE_READ_CYCLES,
+                    mode,
+                }
+            } else {
+                let seek_cycles = seektime::estimate_clocks(current_time, seek_time);
+                DriveState::Seeking {
+                    from: current_time,
+                    to: seek_time,
+                    cycles_remaining: seek_cycles,
+                    mode,
+                }
+            };
 
         self.audio_playback_state = None;
 
