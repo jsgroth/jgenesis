@@ -105,6 +105,11 @@ pub const PSG_VERSION: HelpText = HelpText {
     ],
 };
 
+pub const ENABLED_PSG_CHANNELS: HelpText = HelpText {
+    heading: "Enabled PSG Channels",
+    text: &["Enable or disable individual PSG audio channels."],
+};
+
 pub const SMS_FM_UNIT: HelpText = HelpText {
     heading: "SMS FM Sound Unit",
     text: &[

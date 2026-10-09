@@ -57,6 +57,8 @@ pub struct SmsGgEmulatorConfig {
     pub sms_crop_left_border: bool,
     pub gg_frame_blending: bool,
     pub gg_use_sms_resolution: bool,
+    #[cfg_display(debug_fmt)]
+    pub psg_channels_enabled: [bool; 4],
     pub fm_sound_unit_enabled: bool,
     pub z80_divider: NonZeroU32,
     pub allow_opposing_joypad_directions: bool,
@@ -149,7 +151,7 @@ impl SmsGgEmulator {
         };
         let memory = Memory::new(rom, bios_rom, cartridge_ram, hardware, &config);
         let vdp = Vdp::new(vdp_version, &config);
-        let psg = Sn76489::new(psg_version);
+        let psg = Sn76489::new(psg_version, config.psg_channels_enabled);
         let input = InputState::new(config.region(&memory), &config);
 
         log::info!("Region in cartridge header: {:?}", memory.guess_cartridge_region());
@@ -386,6 +388,7 @@ impl EmulatorTrait for SmsGgEmulator {
         self.vdp.update_config(self.vdp_version, config);
 
         self.psg.set_version(determine_psg_version(hardware, config));
+        self.psg.set_channels_enabled(config.psg_channels_enabled);
 
         self.memory.update_config(config);
 
@@ -410,7 +413,7 @@ impl EmulatorTrait for SmsGgEmulator {
         init_z80(&mut self.z80);
 
         self.vdp = Vdp::new(self.vdp_version, &self.config);
-        self.psg = Sn76489::new(self.psg.version());
+        self.psg = Sn76489::new(self.psg.version(), self.psg.channels_enabled());
         self.input = InputState::new(self.input.region(), &self.config);
 
         self.ym2413 =

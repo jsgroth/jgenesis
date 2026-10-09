@@ -4,7 +4,7 @@ use crate::app::widgets::{
     BiosErrorStrings, ClockModifier, NumericTextEdit, OptionalPathSelector, OverclockSlider,
     RenderErrorEffect, VolumeAdjustmentState, VolumeAdjustmentWidget,
 };
-use crate::app::{App, Console, OpenWindow, widgets};
+use crate::app::{App, Console, OpenWindow, smsgg, widgets};
 use egui::style::ScrollStyle;
 use egui::{Context, Slider, Ui, Window};
 use genesis_config::{GenesisAspectRatio, GenesisRegion, Opn2BusyBehavior, S32XPwmResampling};
@@ -560,6 +560,16 @@ impl App {
 
                 ui.add_space(5.0);
                 self.render_ym2612_channels_enabled(ui);
+
+                ui.add_space(5.0);
+                let rect = smsgg::render_psg_channels_enabled(
+                    &mut self.config.genesis.psg_channels_enabled,
+                    ui,
+                )
+                .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::ENABLED_PSG_CHANNELS);
+                }
 
                 ui.add_space(5.0);
                 self.render_opn2_busy_flag_setting(ui);

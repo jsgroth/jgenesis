@@ -180,7 +180,7 @@ impl GenesisBus {
 
         let memory = Memory::new(config);
         let vdp = Vdp::new(timing_mode, config.to_vdp_config(sega_32x.is_some()));
-        let psg = Sn76489::new(Sn76489Version::Standard);
+        let psg = Sn76489::new(Sn76489Version::Standard, config.psg_channels_enabled);
         let ym2612 = Ym2612::new(config);
 
         let six_button_incompatible = {
@@ -353,6 +353,7 @@ impl GenesisBus {
         self.memory.reload_config(config);
         self.vdp.reload_config(config.to_vdp_config(self.sega_32x.is_some()));
         self.ym2612.reload_config(config);
+        self.psg.set_channels_enabled(config.psg_channels_enabled);
         self.input.reload_config(config);
         self.cycles.update_m68k_divider(config.clamped_m68k_divider());
     }

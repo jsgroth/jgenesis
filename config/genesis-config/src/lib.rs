@@ -656,6 +656,8 @@ pub struct GenesisEmulatorConfig {
     pub ym2612_2nd_lpf_cutoff: u32,
     #[cfg_display(debug_fmt)]
     pub ym2612_channels_enabled: [bool; 6],
+    #[cfg_display(debug_fmt)]
+    pub psg_channels_enabled: [bool; 4],
     pub ym2612_enabled: bool,
     pub psg_enabled: bool,
     pub ym2612_volume_adjustment_db: f64,
@@ -696,6 +698,7 @@ impl Default for GenesisEmulatorConfig {
             ym2612_2nd_lpf_enabled: false,
             ym2612_2nd_lpf_cutoff: MODEL_2_2ND_LPF_CUTOFF,
             ym2612_channels_enabled: [true; 6],
+            psg_channels_enabled: [true; 4],
             ym2612_enabled: true,
             psg_enabled: true,
             ym2612_volume_adjustment_db: 0.0,

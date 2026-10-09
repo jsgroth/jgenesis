@@ -296,13 +296,14 @@ pub struct Sn76489 {
     latched_register: Register,
     stereo_control: StereoControl,
     divider: u8,
+    channels_enabled: [bool; 4],
 }
 
 const SN76489_DIVIDER: u8 = 16;
 
 impl Sn76489 {
     #[must_use]
-    pub fn new(version: Sn76489Version) -> Self {
+    pub fn new(version: Sn76489Version, channels_enabled: [bool; 4]) -> Self {
         Self {
             version,
             square_wave_channels: array::from_fn(|_| SquareWaveGenerator::new()),
@@ -310,6 +311,7 @@ impl Sn76489 {
             latched_register: Register::Tone0,
             stereo_control: StereoControl::default(),
             divider: SN76489_DIVIDER,
+            channels_enabled,
         }
     }
 
@@ -402,7 +404,6 @@ impl Sn76489 {
 
     #[must_use]
     pub fn sample(&self) -> (f64, f64) {
-        // TODO rewrite to use integer arithmetic as much as possible
         let volume_table = match self.version {
             Sn76489Version::MasterSystem2 => &SMS2_ATTENUATION_TO_VOLUME,
             Sn76489Version::Standard | Sn76489Version::Discrete => &ATTENUATION_TO_VOLUME,
@@ -411,15 +412,28 @@ impl Sn76489 {
         let square_samples = self.square_wave_channels.map(|channel| channel.sample(volume_table));
         let noise_sample = self.noise_channel.sample(volume_table);
 
-        let sample_l = (f64::from(self.stereo_control.square_0_l) * square_samples[0]
-            + f64::from(self.stereo_control.square_1_l) * square_samples[1]
-            + f64::from(self.stereo_control.square_2_l) * square_samples[2]
-            + f64::from(self.stereo_control.noise_l) * noise_sample)
+        let enabled_l = [
+            self.stereo_control.square_0_l && self.channels_enabled[0],
+            self.stereo_control.square_1_l && self.channels_enabled[1],
+            self.stereo_control.square_2_l && self.channels_enabled[2],
+            self.stereo_control.noise_l && self.channels_enabled[3],
+        ];
+        let enabled_r = [
+            self.stereo_control.square_0_r && self.channels_enabled[0],
+            self.stereo_control.square_1_r && self.channels_enabled[1],
+            self.stereo_control.square_2_r && self.channels_enabled[2],
+            self.stereo_control.noise_r && self.channels_enabled[3],
+        ];
+
+        let sample_l = (f64::from(enabled_l[0]) * square_samples[0]
+            + f64::from(enabled_l[1]) * square_samples[1]
+            + f64::from(enabled_l[2]) * square_samples[2]
+            + f64::from(enabled_l[3]) * noise_sample)
             / 4.0;
-        let sample_r = (f64::from(self.stereo_control.square_0_r) * square_samples[0]
-            + f64::from(self.stereo_control.square_1_r) * square_samples[1]
-            + f64::from(self.stereo_control.square_2_r) * square_samples[2]
-            + f64::from(self.stereo_control.noise_r) * noise_sample)
+        let sample_r = (f64::from(enabled_r[0]) * square_samples[0]
+            + f64::from(enabled_r[1]) * square_samples[1]
+            + f64::from(enabled_r[2]) * square_samples[2]
+            + f64::from(enabled_r[3]) * noise_sample)
             / 4.0;
 
         (sample_l, sample_r)
@@ -448,5 +462,14 @@ impl Sn76489 {
     #[must_use]
     pub fn noise_attenuation(&self) -> u8 {
         self.noise_channel.attenuation
+    }
+
+    #[must_use]
+    pub fn channels_enabled(&self) -> [bool; 4] {
+        self.channels_enabled
+    }
+
+    pub fn set_channels_enabled(&mut self, channels_enabled: [bool; 4]) {
+        self.channels_enabled = channels_enabled;
     }
 }

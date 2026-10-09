@@ -4,7 +4,7 @@ use crate::app::widgets::{
     BiosErrorStrings, ClockModifier, OptionalPathSelector, OverclockSlider, RenderErrorEffect,
 };
 use crate::app::{App, OpenWindow, widgets};
-use egui::{Context, Window};
+use egui::{Context, Response, Ui, Window};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::extensions::Console;
 use rfd::FileDialog;
@@ -301,6 +301,12 @@ impl App {
                 self.state.help_text.insert(WINDOW, helptext::PSG_VERSION);
             }
 
+            let rect = render_psg_channels_enabled(&mut self.config.smsgg.psg_channels_enabled, ui)
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::ENABLED_PSG_CHANNELS);
+            }
+
             let rect = ui
                 .add_enabled_ui(!self.emu_runner.status().is_running_smsgg(), |ui| {
                     ui.checkbox(
@@ -382,6 +388,33 @@ impl App {
             || pick_bios_path("gg"),
         )
     }
+}
+
+pub(super) fn render_psg_channels_enabled(
+    psg_channels_enabled: &mut [bool; 4],
+    ui: &mut Ui,
+) -> Response {
+    ui.group(|ui| {
+        ui.label("Enabled PSG channels");
+
+        ui.horizontal(|ui| {
+            for (i, channel_enabled) in psg_channels_enabled[..=2].iter_mut().enumerate() {
+                ui.checkbox(channel_enabled, format!("Tone {i}"));
+            }
+            ui.checkbox(&mut psg_channels_enabled[3], "Noise");
+        });
+
+        ui.horizontal(|ui| {
+            if ui.button("Enable all").clicked() {
+                psg_channels_enabled.fill(true);
+            }
+
+            if ui.button("Disable all").clicked() {
+                psg_channels_enabled.fill(false);
+            }
+        });
+    })
+    .response
 }
 
 fn pick_bios_path(default_extension: &str) -> Option<PathBuf> {

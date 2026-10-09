@@ -255,6 +255,11 @@ pub const ENABLED_YM2612_CHANNELS: HelpText = HelpText {
     text: &["Enable or disable individual YM2612 audio channels."],
 };
 
+pub const ENABLED_PSG_CHANNELS: HelpText = HelpText {
+    heading: "Enabled PSG Channels",
+    text: &["Enable or disable individual PSG audio channels."],
+};
+
 pub const SOUND_SOURCES: HelpText = HelpText {
     heading: "Sound Sources",
     text: &["Enable or disable specific sound sources in final audio mixing."],
