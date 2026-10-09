@@ -932,6 +932,7 @@ impl ScsiCdDrive {
         };
 
         let Some(end_time) = Self::parse_audio_position_time(&self.command_bytes, disc) else {
+            log::debug!("No audio end time parsed, returning illegal request status");
             return self.enter_status_phase(ScsiStatus::CheckCondition, SenseKey::IllegalRequest);
         };
 
@@ -986,7 +987,8 @@ impl ScsiCdDrive {
                 // Beginning of track specified in byte 2
                 let track_number = cmp::max(1, bcd_to_binary(command[2]));
                 if track_number > disc.cue().last_track().number {
-                    return None;
+                    // Tenshi no Uta 2 expects end position of last_track+1 to play to end of disc
+                    return Some(disc.cue().last_track().end_time);
                 }
 
                 Some(disc.cue().track(track_number).effective_start_time())
