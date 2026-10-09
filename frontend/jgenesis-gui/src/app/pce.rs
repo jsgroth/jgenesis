@@ -104,6 +104,16 @@ impl App {
 
             let rect = ui
                 .checkbox(
+                    &mut self.config.pc_engine.always_emulate_cd_rom,
+                    "Always emulate CD-ROM² add-on",
+                )
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::ALWAYS_EMULATE_CD_ROM);
+            }
+
+            let rect = ui
+                .checkbox(
                     &mut self.config.pc_engine.load_disc_into_ram,
                     "(CD-ROM²) Load CD-ROM images into host RAM",
                 )

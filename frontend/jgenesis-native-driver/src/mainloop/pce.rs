@@ -1,14 +1,14 @@
 use crate::config::{CommonConfig, PcEngineConfig};
-use crate::mainloop::create::{CreatableEmulator, ReadInputResult};
+use crate::mainloop::create::{CreatableEmulator, ReadInputResult, WindowTitle};
 use crate::mainloop::{CreatedEmulator, NativeDebugFn, create, file_name_no_ext};
 use crate::{NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
 use cdrom::reader::CdRomFileFormat;
-use jgenesis_common::frontend::SaveWriter;
+use jgenesis_common::frontend::{EmulatorTrait, SaveWriter};
 use jgenesis_native_config::common::WindowSize;
 use jgenesis_native_config::input::mappings::ButtonMappingVec;
 use pce_core::api::PcEngineEmulator;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const CD_SAVE_EXTENSION: &str = "pcecd";
 
@@ -110,6 +110,24 @@ impl CreatableEmulator for PcEngineEmulator {
 
     fn turbo_input_mappings(config: &Self::NativeConfig) -> ButtonMappingVec<'_, Self::Button> {
         config.inputs.to_turbo_mapping_vec()
+    }
+
+    fn change_disc(
+        &mut self,
+        disc_path: &Path,
+        config: &<Self as EmulatorTrait>::Config,
+    ) -> NativeEmulatorResult<Option<WindowTitle>> {
+        let disc = create::read_cdrom_image(disc_path, config.load_disc_into_ram)?;
+        PcEngineEmulator::change_disc(self, disc);
+
+        let rom_title = file_name_no_ext(disc_path)?;
+        let window_title = format!("pce - {rom_title}");
+        Ok(Some(WindowTitle(window_title)))
+    }
+
+    fn remove_disc(&mut self) -> Option<WindowTitle> {
+        PcEngineEmulator::remove_disc(self);
+        Some(WindowTitle("pce - (no disc)".into()))
     }
 
     fn debug_fn() -> Option<NativeDebugFn<Self>> {

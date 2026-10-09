@@ -70,7 +70,7 @@ impl EmuRunnerStatus {
     }
 
     pub fn is_running_disc_based(self) -> bool {
-        matches!(self, Self::RunningSegaCd | Self::RunningSegaCd32X)
+        matches!(self, Self::RunningSegaCd | Self::RunningSegaCd32X | Self::RunningPcEngine)
     }
 
     pub fn running_console(self) -> Option<Console> {

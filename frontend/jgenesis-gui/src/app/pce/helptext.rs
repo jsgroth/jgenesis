@@ -24,6 +24,14 @@ pub const CD_BIOS: HelpText = HelpText {
     ],
 };
 
+pub const ALWAYS_EMULATE_CD_ROM: HelpText = HelpText {
+    heading: "Always Emulate CD-ROM²",
+    text: &[
+        "If enabled, always emulate the CD-ROM² add-on, even when running HuCard-based games.",
+        "This makes no difference most of the time, but some HuCard games will store save data in CD-ROM² backup RAM if they detect it.",
+    ],
+};
+
 pub const LOAD_DISC_INTO_RAM: HelpText = HelpText {
     heading: "Load CD-ROM Images into RAM",
     text: &[

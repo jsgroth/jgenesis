@@ -1180,6 +1180,19 @@ impl ScsiCdDrive {
         self.set_pending_phase_change(PhaseChange::SetReqSignal, micros_to_mclks(200.0));
     }
 
+    pub fn change_disc(&mut self, disc: CdRom) {
+        self.disc = Some(disc);
+        self.drive_state = DriveState::Paused(CdTime::ZERO);
+
+        if matches!(
+            self.phase,
+            ScsiBusPhase::Command | ScsiBusPhase::ProcessingCommand | ScsiBusPhase::DataIn
+        ) {
+            // TODO what actually happens here?
+            self.enter_status_phase(ScsiStatus::CheckCondition, SenseKey::MediumError);
+        }
+    }
+
     pub fn take_disc(&mut self) -> Option<CdRom> {
         self.disc.take()
     }

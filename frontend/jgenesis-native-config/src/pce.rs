@@ -12,6 +12,7 @@ use std::path::PathBuf;
 pub struct PcEngineAppConfig {
     pub cd_bios_path: Option<PathBuf>,
     pub load_disc_into_ram: bool,
+    pub always_emulate_cd_rom: bool,
     pub region: PceRegion,
     pub system_card_model: PceSystemCardModel,
     pub cpu_fast_clock_divider: NonZeroU64,
@@ -39,6 +40,7 @@ impl Default for PcEngineAppConfig {
         Self {
             cd_bios_path: None,
             load_disc_into_ram: false,
+            always_emulate_cd_rom: false,
             region: PceRegion::default(),
             system_card_model: PceSystemCardModel::default(),
             cpu_fast_clock_divider: NonZeroU64::new(pce_config::NATIVE_FAST_CPU_DIVIDER).unwrap(),

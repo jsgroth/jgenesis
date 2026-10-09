@@ -33,6 +33,7 @@ pub const MASTER_CLOCK_FREQUENCY: f64 = 21_477_272.0;
 #[derive(Debug, Clone, Copy, Encode, Decode, ConfigDisplay)]
 pub struct PceEmulatorConfig {
     pub load_disc_into_ram: bool,
+    pub always_emulate_cd_rom: bool,
     pub region: PceRegion,
     pub system_card_model: PceSystemCardModel,
     pub cpu_fast_clock_divider: NonZeroU64,
@@ -110,8 +111,8 @@ impl PcEngineEmulator {
         save_writer: &mut S,
     ) -> Self {
         let initial_sav = save_writer.load_bytes("sav").ok();
-        // TODO support running with CD-ROM drive present but no disc in drive
-        let cd_hardware_present = disc.is_some();
+        let disc_present = disc.is_some();
+        let cd_hardware_present = config.always_emulate_cd_rom || disc_present;
 
         let mut emulator = Self {
             cpu: Huc6280::new(),
@@ -121,11 +122,10 @@ impl PcEngineEmulator {
             cartridge: HuCard::new(
                 hucard_rom,
                 initial_sav.clone(),
-                cd_hardware_present,
+                disc_present,
                 config.system_card_model,
             ),
-            // TODO support running with CD-ROM hardware present but no disc in drive
-            cd: disc.map(|disc| CdRomController::new(Some(disc), initial_sav, &config)),
+            cd: cd_hardware_present.then(|| CdRomController::new(disc, initial_sav, &config)),
             input_state: InputState::new(config, cd_hardware_present),
             audio_resampler: PceAudioResampler::new(&config, cd_hardware_present, 48000),
             config,
@@ -146,6 +146,18 @@ impl PcEngineEmulator {
         });
 
         emulator
+    }
+
+    pub fn change_disc(&mut self, disc: CdRom) {
+        if let Some(cd) = &mut self.cd {
+            cd.change_disc(disc);
+        }
+    }
+
+    pub fn remove_disc(&mut self) {
+        if let Some(cd) = &mut self.cd {
+            cd.remove_disc();
+        }
     }
 
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
@@ -253,22 +265,18 @@ impl EmulatorTrait for PcEngineEmulator {
             self.flush_audio(audio_output).map_err(PceError::Audio)?;
             self.render_frame(renderer).map_err(PceError::Render)?;
 
-            if self.cartridge.is_sram_dirty() {
-                self.cartridge.clear_sram_dirty();
-
-                if let Some(sram) = self.cartridge.sram() {
-                    // TODO use a different extension when CD-ROM is present? do any System Cards
-                    // have battery-backed RAM?
+            // Populous is the only HuCard game with builtin SRAM, and it doesn't use CD-ROM² backup
+            // RAM, so don't bother serializing both; just prefer cartridge SRAM if present
+            if let Some(sram) = self.cartridge.sram() {
+                if self.cartridge.is_sram_dirty() {
                     save_writer.persist_bytes("sav", sram).map_err(PceError::SaveWrite)?;
+                    self.cartridge.clear_sram_dirty();
                 }
-            }
-
-            if let Some(cd) = &mut self.cd
+            } else if let Some(cd) = &mut self.cd
                 && cd.backup_ram_dirty()
             {
-                cd.clear_backup_ram_dirty();
-
                 save_writer.persist_bytes("sav", cd.backup_ram()).map_err(PceError::SaveWrite)?;
+                cd.clear_backup_ram_dirty();
             }
 
             Ok(TickEffect::FrameRendered)

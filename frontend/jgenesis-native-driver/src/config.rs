@@ -571,6 +571,7 @@ impl AppConfigExt for AppConfig {
             inputs: self.input.pc_engine.clone(),
             emulator_config: PceEmulatorConfig {
                 load_disc_into_ram: self.pc_engine.load_disc_into_ram,
+                always_emulate_cd_rom: self.pc_engine.always_emulate_cd_rom,
                 region: self.pc_engine.region,
                 system_card_model: self.pc_engine.system_card_model,
                 cpu_fast_clock_divider: self.pc_engine.cpu_fast_clock_divider,

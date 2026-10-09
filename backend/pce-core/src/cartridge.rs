@@ -50,7 +50,7 @@ impl Mapper {
     fn guess_from_rom(
         rom: &[u8],
         initial_sram: Option<Vec<u8>>,
-        cd_present: bool,
+        disc_present: bool,
         system_card_model: PceSystemCardModel,
     ) -> Self {
         const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
@@ -83,7 +83,7 @@ impl Mapper {
             _ => {
                 // CD-ROM² System Cards only map ROM to banks $00-$3F, so any ROM larger than 512KB
                 // can't be a valid System Card BIOS ROM; use regular cartridge mapping instead
-                let should_use_system_card = cd_present && rom.len() <= 512 * 1024;
+                let should_use_system_card = disc_present && rom.len() <= 512 * 1024;
 
                 match system_card_model {
                     PceSystemCardModel::Super if should_use_system_card => {
@@ -195,12 +195,12 @@ impl HuCard {
     pub fn new(
         mut rom: Vec<u8>,
         initial_sram: Option<Vec<u8>>,
-        cd_present: bool,
+        disc_present: bool,
         system_card_model: PceSystemCardModel,
     ) -> Self {
         rom = mirror_hucard_rom(rom);
 
-        let mapper = Mapper::guess_from_rom(&rom, initial_sram, cd_present, system_card_model);
+        let mapper = Mapper::guess_from_rom(&rom, initial_sram, disc_present, system_card_model);
 
         Self { rom: Rom(rom.into_boxed_slice()), mapper }
     }

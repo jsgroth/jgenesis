@@ -576,6 +576,14 @@ impl CdRomController {
         self.scsi.take_disc_from(&mut other.scsi);
     }
 
+    pub fn change_disc(&mut self, disc: CdRom) {
+        self.scsi.change_disc(disc);
+    }
+
+    pub fn remove_disc(&mut self) {
+        self.scsi.take_disc();
+    }
+
     pub fn reload_config(&mut self, config: &PceEmulatorConfig) {
         self.adpcm.reload_config(config);
     }
