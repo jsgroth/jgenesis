@@ -88,6 +88,15 @@ impl RasterLine {
     }
 }
 
+/// Whether the current display configuration is the invalid V30 + NTSC combination.
+///
+/// Issue #429: enabling V30 (240-line) mode on NTSC hardware does not produce valid video output
+/// on real hardware. When this returns true the VDP renders a blank screen.
+#[must_use]
+pub fn is_invalid_v30_ntsc(timing_mode: TimingMode, v_display_size: VerticalDisplaySize) -> bool {
+    timing_mode == TimingMode::Ntsc && v_display_size == VerticalDisplaySize::ThirtyCell
+}
+
 impl Vdp {
     pub(super) fn render_scanline(&mut self, scanline: u16, starting_pixel: u16) {
         if starting_pixel
@@ -187,6 +196,24 @@ impl Vdp {
             self.fill_frame_buffer_row(frame_buffer_row, starting_pixel, bg_color);
 
             // Clear sprite pixel buffer in case display is enabled during active display
+            if interlaced_odd_line {
+                self.interlaced_sprite_buffers.pixels.fill(TilePixel::default());
+            } else {
+                self.sprite_buffers.pixels.fill(TilePixel::default());
+            }
+
+            return;
+        }
+
+        // Issue #429: V30 (240-line) mode does not produce valid video output on NTSC hardware
+        // (blank screen or garbage depending on the TV). Render a blank screen using the backdrop
+        // color instead of attempting to render the 240-line frame.
+        if is_invalid_v30_ntsc(self.timing_mode, self.latched_registers.vertical_display_size) {
+            let Some(frame_buffer_row) = frame_buffer_row else { return };
+
+            let bg_color = self.backdrop_color();
+            self.fill_frame_buffer_row(frame_buffer_row, starting_pixel, bg_color);
+
             if interlaced_odd_line {
                 self.interlaced_sprite_buffers.pixels.fill(TilePixel::default());
             } else {
@@ -1134,4 +1161,18 @@ fn determine_pixel_color<const SHADOW_HIGHLIGHT: bool>(
     };
 
     (fallback_color, modifier)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jgenesis_common::frontend::TimingMode;
+
+    #[test]
+    fn v30_ntsc_is_invalid_v28_and_pal_are_valid() {
+        assert!(is_invalid_v30_ntsc(TimingMode::Ntsc, VerticalDisplaySize::ThirtyCell));
+        assert!(!is_invalid_v30_ntsc(TimingMode::Ntsc, VerticalDisplaySize::TwentyEightCell));
+        assert!(!is_invalid_v30_ntsc(TimingMode::Pal, VerticalDisplaySize::ThirtyCell));
+        assert!(!is_invalid_v30_ntsc(TimingMode::Pal, VerticalDisplaySize::TwentyEightCell));
+    }
 }

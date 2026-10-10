@@ -185,7 +185,14 @@ impl Cartridge {
                 0x03 => 32 * 1024,
                 0x04 => 128 * 1024,
                 0x05 => 64 * 1024,
-                _ => return Err(GameBoyLoadError::InvalidSramByte(sram_len_byte)),
+                _ => {
+                    // Issues #415/#416: some pirate/bootleg ROMs contain an invalid SRAM size
+                    // byte. Default to 8KB with a warning instead of refusing to load the ROM.
+                    log::warn!(
+                        "Cartridge header contains invalid SRAM size byte ${sram_len_byte:02X}; defaulting to 8KB"
+                    );
+                    8 * 1024
+                }
             }
         };
 
@@ -309,5 +316,80 @@ impl Cartridge {
         if let Mapper::Huc3(huc3) = &mut self.mapper {
             huc3.tick_cpu();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jgenesis_common::frontend::SaveWriter;
+    use std::fmt::{Display, Formatter};
+
+    #[derive(Debug)]
+    struct NullSaveError;
+
+    impl Display for NullSaveError {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(f, "null save writer")
+        }
+    }
+
+    struct NullSaveWriter;
+
+    impl SaveWriter for NullSaveWriter {
+        type Err = NullSaveError;
+
+        fn load_bytes(&mut self, _extension: &str) -> Result<Vec<u8>, Self::Err> {
+            Err(NullSaveError)
+        }
+
+        fn persist_bytes(&mut self, _extension: &str, _bytes: &[u8]) -> Result<(), Self::Err> {
+            Ok(())
+        }
+
+        fn load_serialized<D: bincode::Decode<()>>(
+            &mut self,
+            _extension: &str,
+        ) -> Result<D, Self::Err> {
+            Err(NullSaveError)
+        }
+
+        fn persist_serialized<E: bincode::Encode>(
+            &mut self,
+            _extension: &str,
+            _data: E,
+        ) -> Result<(), Self::Err> {
+            Ok(())
+        }
+    }
+
+    fn minimal_mbc1_rom(sram_byte: u8) -> Box<[u8]> {
+        let mut rom = vec![0_u8; 32 * 1024];
+        rom[0x0147] = 0x01; // MBC1
+        rom[0x0149] = sram_byte;
+        rom.into_boxed_slice()
+    }
+
+    #[test]
+    fn invalid_sram_byte_falls_back_to_8kb() {
+        // Issues #415/#416: pirate ROMs with an invalid SRAM size byte should still load
+        let rom = minimal_mbc1_rom(0xFF);
+        let mut save_writer = NullSaveWriter;
+        let cartridge =
+            Cartridge::create(rom, None, &mut save_writer).expect("invalid SRAM byte should load");
+        assert_eq!(cartridge.sram().len(), 8 * 1024);
+    }
+
+    #[test]
+    fn valid_sram_byte_still_works() {
+        let rom = minimal_mbc1_rom(0x02);
+        let mut save_writer = NullSaveWriter;
+        let cartridge = Cartridge::create(rom, None, &mut save_writer).unwrap();
+        assert_eq!(cartridge.sram().len(), 8 * 1024);
+
+        let rom = minimal_mbc1_rom(0x00);
+        let mut save_writer = NullSaveWriter;
+        let cartridge = Cartridge::create(rom, None, &mut save_writer).unwrap();
+        assert_eq!(cartridge.sram().len(), 0);
     }
 }

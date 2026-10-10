@@ -436,6 +436,8 @@ pub enum CartridgeFileError {
         "Invalid PRG/CHR ROM size in ROM header: file size is {file_size} bytes, PRG ROM size is {prg_rom_size} bytes, CHR ROM size is {chr_rom_size} bytes"
     )]
     InvalidRomSize { file_size: u32, prg_rom_size: u32, chr_rom_size: u32 },
+    // Retained for backwards compatibility; timing mode byte 0x03 (Dendy) now falls back to PAL
+    // with a warning (issue #85) instead of returning an error.
     #[error("unsupported timing mode byte: {byte}")]
     UnsupportedTimingMode { byte: u8 },
 }
@@ -551,9 +553,14 @@ impl INesHeader {
                     0x00 | 0x02 => TimingMode::Ntsc,
                     0x01 => TimingMode::Pal,
                     0x03 => {
-                        return Err(CartridgeFileError::UnsupportedTimingMode {
-                            byte: timing_mode_byte,
-                        });
+                        // Issue #85: timing mode 3 is Dendy (a PAL-like 50Hz Famiclone timing with
+                        // extra post-render scanlines) which is not emulated. Fall back to PAL
+                        // timing with a warning instead of refusing to load the ROM, so pirate /
+                        // homebrew ROMs with this header value at least boot.
+                        log::warn!(
+                            "NES 2.0 timing mode byte 0x03 (Dendy) is not emulated; falling back to PAL timing"
+                        );
+                        TimingMode::Pal
                     }
                     _ => unreachable!("value & 0x03 should always be 0x00/0x01/0x02/0x03"),
                 }
@@ -827,4 +834,44 @@ pub(crate) fn from_ines_file(
     log::info!("Has 4-screen nametable VRAM: {}", header.has_four_screen_vram);
 
     Ok(mapper)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jgenesis_common::frontend::TimingMode;
+
+    fn minimal_nes20_rom(timing_byte: u8) -> Vec<u8> {
+        // Mapper 0, 16KB PRG ROM, 8KB CHR ROM, NES 2.0 header
+        let mut header = [0_u8; 16];
+        header[0..4].copy_from_slice(b"NES\x1A");
+        header[4] = 1; // 1x16KB PRG
+        header[5] = 1; // 1x8KB CHR
+        header[6] = 0x00;
+        header[7] = 0x08; // NES 2.0 identifier, mapper high nibble 0
+        header[8] = 0x00;
+        header[12] = timing_byte;
+        let mut rom = Vec::from(header);
+        rom.extend(vec![0_u8; 16 * 1024 + 8 * 1024]);
+        rom
+    }
+
+    #[test]
+    fn dendy_timing_byte_falls_back_to_pal() {
+        // Issue #85: timing mode byte 3 (Dendy) should not fail to load
+        let rom = minimal_nes20_rom(0x03);
+        let header = INesHeader::parse_from_file(&rom).expect("Dendy header should parse");
+        assert_eq!(header.timing_mode, TimingMode::Pal);
+    }
+
+    #[test]
+    fn ntsc_and_pal_timing_bytes_still_parse() {
+        let ntsc = minimal_nes20_rom(0x00);
+        let header = INesHeader::parse_from_file(&ntsc).unwrap();
+        assert_eq!(header.timing_mode, TimingMode::Ntsc);
+
+        let pal = minimal_nes20_rom(0x01);
+        let header = INesHeader::parse_from_file(&pal).unwrap();
+        assert_eq!(header.timing_mode, TimingMode::Pal);
+    }
 }
