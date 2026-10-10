@@ -26,6 +26,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum GameBoyLoadError {
+    // Retained for backwards compatibility; invalid SRAM size bytes now fall back to 8KB with a
+    // warning (issues #415/#416) instead of returning an error.
     #[error("ROM header contains invalid SRAM size byte: ${0:02X}")]
     InvalidSramByte(u8),
     #[error("ROM header contains unsupported mapper byte: ${0:02X}")]

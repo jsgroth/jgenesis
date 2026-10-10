@@ -219,6 +219,10 @@ struct AppState {
     error_window_open: bool,
     prescale_width_raw: u32,
     prescale_height_raw: u32,
+    window_width_text: String,
+    window_width_invalid: bool,
+    window_height_text: String,
+    window_height_invalid: bool,
     ff_multiplier_text: String,
     ff_multiplier_invalid: bool,
     rewind_buffer_len_text: String,
@@ -259,6 +263,10 @@ impl AppState {
             error_window_open: false,
             prescale_width_raw: 1,
             prescale_height_raw: 1,
+            window_width_text: String::new(),
+            window_width_invalid: false,
+            window_height_text: String::new(),
+            window_height_invalid: false,
             ff_multiplier_text: String::new(),
             ff_multiplier_invalid: false,
             rewind_buffer_len_text: String::new(),
@@ -297,6 +305,12 @@ impl AppState {
     fn update_config_derived_fields(&mut self, config: &AppConfig, ctx: &Context) {
         self.prescale_width_raw = config.common.prescale_width.get();
         self.prescale_height_raw = config.common.prescale_height.get();
+        self.window_width_text =
+            config.common.window_width.map(|w| w.to_string()).unwrap_or_default();
+        self.window_width_invalid = false;
+        self.window_height_text =
+            config.common.window_height.map(|h| h.to_string()).unwrap_or_default();
+        self.window_height_invalid = false;
         self.ff_multiplier_text = config.common.fast_forward_multiplier.to_string();
         self.ff_multiplier_invalid = false;
         self.rewind_buffer_len_text = config.common.rewind_buffer_length_seconds.to_string();

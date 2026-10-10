@@ -725,6 +725,16 @@ impl Vdp {
                 self.state.pixel,
             );
 
+            // Issue #429: V30 mode does not work with NTSC timing on real hardware
+            if prev_v_display_size != VerticalDisplaySize::ThirtyCell
+                && self.registers.vertical_display_size == VerticalDisplaySize::ThirtyCell
+                && self.timing_mode == TimingMode::Ntsc
+            {
+                log::warn!(
+                    "V30 (240-line) display mode is not supported with NTSC timing; rendering blank screen"
+                );
+            }
+
             // Mark vertical border "forgotten" if V size was switched from V30 to V28 between lines 224-239
             // This has a few effects:
             // - The HINT counter continues to tick down every line throughout VBlank instead of getting reset

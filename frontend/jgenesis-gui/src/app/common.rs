@@ -86,6 +86,90 @@ impl App {
         if ui.rect_contains_pointer(rect) {
             self.state.help_text.insert(window, helptext::INITIAL_WINDOW_SIZE);
         }
+
+        // Issue #699: expose the existing custom fixed window size config (window_width /
+        // window_height, previously only settable by manually editing the config file) in the UI.
+        let mut use_custom_size =
+            self.config.common.window_width.is_some() || self.config.common.window_height.is_some();
+        let rect = ui.checkbox(&mut use_custom_size, "Use custom fixed window size").interact_rect;
+        if ui.rect_contains_pointer(rect) {
+            self.state.help_text.insert(window, helptext::CUSTOM_WINDOW_SIZE);
+        }
+        if use_custom_size
+            != (self.config.common.window_width.is_some()
+                || self.config.common.window_height.is_some())
+        {
+            if use_custom_size {
+                // Default to 1280x720 when newly enabled
+                if self.config.common.window_width.is_none() {
+                    self.config.common.window_width = Some(1280);
+                    self.state.window_width_text = "1280".to_string();
+                    self.state.window_width_invalid = false;
+                }
+                if self.config.common.window_height.is_none() {
+                    self.config.common.window_height = Some(720);
+                    self.state.window_height_text = "720".to_string();
+                    self.state.window_height_invalid = false;
+                }
+            } else {
+                self.config.common.window_width = None;
+                self.config.common.window_height = None;
+                self.state.window_width_text.clear();
+                self.state.window_height_text.clear();
+                self.state.window_width_invalid = false;
+                self.state.window_height_invalid = false;
+            }
+        }
+
+        if use_custom_size {
+            ui.horizontal(|ui| {
+                if self.config.common.window_width.is_none() {
+                    self.config.common.window_width = Some(1280);
+                    self.state.window_width_text = "1280".to_string();
+                }
+                let width = self.config.common.window_width.as_mut().unwrap();
+                ui.add(
+                    NumericTextEdit::new(
+                        &mut self.state.window_width_text,
+                        width,
+                        &mut self.state.window_width_invalid,
+                    )
+                    .with_validation(|value| (100..=7680).contains(&value))
+                    .desired_width(60.0),
+                );
+                ui.label("Window width (px)");
+            });
+            if self.state.window_width_invalid {
+                ui.colored_label(
+                    Color32::RED,
+                    "Window width must be an integer between 100 and 7680",
+                );
+            }
+
+            ui.horizontal(|ui| {
+                if self.config.common.window_height.is_none() {
+                    self.config.common.window_height = Some(720);
+                    self.state.window_height_text = "720".to_string();
+                }
+                let height = self.config.common.window_height.as_mut().unwrap();
+                ui.add(
+                    NumericTextEdit::new(
+                        &mut self.state.window_height_text,
+                        height,
+                        &mut self.state.window_height_invalid,
+                    )
+                    .with_validation(|value| (100..=4320).contains(&value))
+                    .desired_width(60.0),
+                );
+                ui.label("Window height (px)");
+            });
+            if self.state.window_height_invalid {
+                ui.colored_label(
+                    Color32::RED,
+                    "Window height must be an integer between 100 and 4320",
+                );
+            }
+        }
     }
 
     fn render_borderless_setting(&mut self, ui: &mut Ui, window: OpenWindow) {

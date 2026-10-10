@@ -13,6 +13,15 @@ pub const INITIAL_WINDOW_SIZE: HelpText = HelpText {
     ],
 };
 
+pub const CUSTOM_WINDOW_SIZE: HelpText = HelpText {
+    heading: "Custom Fixed Window Size",
+    text: &[
+        "If enabled, always open the emulator window at this exact width and height in pixels, ignoring the automatic size calculation.",
+        "Useful if you prefer a specific window size (e.g. to account for overscan borders) and want it to persist across games.",
+        "Changing this setting will only take effect after opening a new game.",
+    ],
+};
+
 pub const BORDERLESS_WINDOW: HelpText = HelpText {
     heading: "Borderless Window",
     text: &[
