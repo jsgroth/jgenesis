@@ -6,6 +6,7 @@ use sdl3::audio::{AudioCallback, AudioFormat, AudioSpec, AudioStream, AudioStrea
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::Thread;
 use std::time::Duration;
@@ -88,6 +89,8 @@ pub struct SdlAudioOutputHandle {
     audio_subsystem: Rc<RefCell<AudioSubsystem>>,
     audio_stream: AudioStreamWithCallback<AudioQueueCallback>,
     callback_state: Arc<Mutex<AudioCallbackState>>,
+    capture_buffer: Arc<Mutex<Vec<(f32, f32)>>>,
+    capturing: Arc<AtomicBool>,
     output_frequency: u64,
 }
 
@@ -95,6 +98,8 @@ pub struct SdlAudioOutput {
     callback_state: Arc<Mutex<AudioCallbackState>>,
     muted: bool,
     audio_buffer: Vec<(f32, f32)>,
+    capture_buffer: Arc<Mutex<Vec<(f32, f32)>>>,
+    capturing: Arc<AtomicBool>,
     audio_sync: bool,
     audio_sync_threshold: u32,
     dynamic_resampling_ratio_enabled: bool,
@@ -140,6 +145,18 @@ impl SdlAudioOutputHandle {
         Ok(())
     }
 
+    pub fn capture_buffer(&self) -> Arc<Mutex<Vec<(f32, f32)>>> {
+        Arc::clone(&self.capture_buffer)
+    }
+
+    pub fn start_capture(&self) {
+        self.capturing.store(true, Ordering::Release);
+    }
+
+    pub fn end_capture(&self) {
+        self.capturing.store(false, Ordering::Release);
+    }
+
     pub fn set_emulator_thread(&self, thread: Thread) {
         self.callback_state.lock().unwrap().emulator_thread = thread;
     }
@@ -152,12 +169,18 @@ impl SdlAudioOutput {
     ) -> AudioResult<(Self, SdlAudioOutputHandle)> {
         let callback_state = Arc::new(Mutex::new(AudioCallbackState::new(config)));
 
+        let capture_buffer =
+            Arc::new(Mutex::new(Vec::with_capacity(config.audio_output_frequency as usize)));
+        let capturing = Arc::new(AtomicBool::new(false));
+
         let audio_stream =
             open_audio_stream(&audio_subsystem.borrow(), config, Arc::clone(&callback_state))?;
 
         let audio_output = Self {
             muted: config.mute_audio,
             callback_state: Arc::clone(&callback_state),
+            capture_buffer: Arc::clone(&capture_buffer),
+            capturing: Arc::clone(&capturing),
             audio_buffer: Vec::with_capacity(INTERNAL_AUDIO_BUFFER_LEN),
             audio_sync: config.audio_sync,
             audio_sync_threshold: audio_sync_threshold(config),
@@ -177,6 +200,8 @@ impl SdlAudioOutput {
             audio_subsystem,
             audio_stream,
             callback_state,
+            capture_buffer,
+            capturing,
             output_frequency: config.audio_output_frequency,
         };
 
@@ -205,8 +230,13 @@ impl SdlAudioOutput {
         self.speed_multiplier = speed_multiplier;
     }
 
+    fn dynamic_resampling_ratio_enabled(&self) -> bool {
+        // Force dynamic ratio off when capturing audio; file formats expect constant sample rate
+        self.dynamic_resampling_ratio_enabled && !self.capturing.load(Ordering::Acquire)
+    }
+
     pub fn adjust_dynamic_resampling_ratio(&mut self) {
-        if !self.dynamic_resampling_ratio_enabled {
+        if !self.dynamic_resampling_ratio_enabled() {
             return;
         }
 
@@ -215,7 +245,7 @@ impl SdlAudioOutput {
     }
 
     pub fn output_frequency(&self) -> u64 {
-        if self.dynamic_resampling_ratio_enabled {
+        if self.dynamic_resampling_ratio_enabled() {
             self.dynamic_resampling_rate.current_output_frequency().into()
         } else {
             self.output_frequency
@@ -271,6 +301,10 @@ impl AudioOutput for SdlAudioOutput {
 
         if self.audio_buffer.len() < INTERNAL_AUDIO_BUFFER_LEN {
             return Ok(());
+        }
+
+        if self.capturing.load(Ordering::Acquire) {
+            self.capture_buffer.lock().unwrap().extend_from_slice(&self.audio_buffer);
         }
 
         let queue_threshold = self.audio_sync_threshold as usize;

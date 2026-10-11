@@ -1,4 +1,5 @@
 mod audio;
+mod capture;
 mod create;
 mod gb;
 mod gba;
@@ -16,6 +17,7 @@ mod state;
 mod window;
 
 pub use audio::AudioError;
+pub use capture::AudioCaptureFormat;
 pub use create::SdlSubsystems;
 pub use gb::NativeGameBoyEmulator;
 pub use gba::NativeGbaEmulator;
@@ -32,6 +34,7 @@ use crate::config::CommonConfig;
 use crate::fpstracker::FpsTracker;
 use crate::input::{InputEvent, InputMapper, Joysticks};
 use crate::mainloop::audio::{SdlAudioOutput, SdlAudioOutputHandle};
+use crate::mainloop::capture::CaptureThreadHandle;
 use crate::mainloop::create::WindowTitle;
 use crate::mainloop::input::ThreadedInputPoller;
 use crate::mainloop::render::{RecvFrameError, ThreadedRenderer};
@@ -42,6 +45,7 @@ use crate::mainloop::runner::{
 use crate::mainloop::save::FsSaveWriter;
 use crate::mainloop::window::{AtomicWindowSize, CreateWindowArgs, RendererExt};
 use bincode::error::{DecodeError, EncodeError};
+use cdrom::CdRomError;
 use egui_sdl3_wgpu::FrameRunEffect;
 use gb_core::api::GameBoyLoadError;
 use gba_core::api::GbaLoadError;
@@ -158,6 +162,7 @@ pub struct NativeEmulator<Emulator: EmulatorTrait> {
     hotkey_state: HotkeyState<Emulator>,
     window_state: WindowState,
     fps_tracker: FpsTracker,
+    capture_thread: Option<CaptureThreadHandle>,
     video: Rc<RefCell<VideoSubsystem>>,
     event_pump: Rc<RefCell<EventPump>>,
     mouse_util: Rc<RefCell<MouseUtil>>,
@@ -174,6 +179,18 @@ impl<Emulator: EmulatorTrait> NativeEmulator<Emulator> {
         }
 
         self.audio_output_handle.reload_config(config)?;
+
+        if let Some(capture_thread) = &self.capture_thread
+            && let Err(err) =
+                capture_thread.check_audio_sample_rate(config.audio_output_frequency as u32)
+        {
+            log::error!("Error in capture thread: {err}");
+            self.renderer.add_modal(
+                "Audio capture terminated due to sample rate change".into(),
+                MODAL_DURATION,
+            );
+            self.end_audio_capture();
+        }
 
         self.hotkey_state.hide_mouse_cursor = config.hide_mouse_cursor;
 
@@ -505,6 +522,7 @@ where
             hotkey_state,
             window_state: WindowState::new(),
             fps_tracker: FpsTracker::new(),
+            capture_thread: None,
             video: sdl.video,
             event_pump: sdl.event_pump,
             mouse_util: sdl.mouse_util,
@@ -624,6 +642,15 @@ where
                 return Err(NativeEmulatorError::LostRunnerConnection);
             }
             Err(RecvFrameError::Recv(RecvTimeoutError::Timeout)) => {}
+        }
+
+        if let Some(capture_thread) = &self.capture_thread
+            && let Err(err) = capture_thread.check_status()
+        {
+            log::error!("Error in capture thread: {err}");
+            self.renderer
+                .add_modal("Audio capture terminated with I/O error".into(), MODAL_DURATION);
+            self.end_audio_capture();
         }
 
         if let Some(debugger_window) = &mut self.hotkey_state.debugger_window {
@@ -836,24 +863,6 @@ where
         self.runner.send_command(RunnerCommand::LoadState { slot })
     }
 
-    /// # Errors
-    ///
-    /// Returns an error if runner thread has disconnected or if there is an error rendering the
-    /// frame to the viewport.
-    pub fn force_render(&mut self) -> NativeEmulatorResult<()> {
-        self.runner.send_command(RunnerCommand::ForceRender)?;
-
-        match self.runner.try_recv_frame(&mut self.renderer, Duration::from_millis(10)) {
-            Ok(()) | Err(RecvFrameError::Recv(_)) => {}
-            Err(RecvFrameError::LostConnection) => {
-                return Err(NativeEmulatorError::LostRunnerConnection);
-            }
-            Err(RecvFrameError::Render(err)) => return Err(NativeEmulatorError::Render(err)),
-        }
-
-        Ok(())
-    }
-
     /// Try to load the most recent save state.
     ///
     /// If there are no save states or the most recent save state is invalid, this method will log
@@ -884,6 +893,43 @@ where
     #[allow(clippy::missing_panics_doc)]
     pub fn save_state_metadata(&self) -> SaveStateMetadata {
         self.runner.save_state_metadata().lock().unwrap().clone()
+    }
+
+    pub fn start_audio_capture(&mut self, output_path: PathBuf, format: AudioCaptureFormat) {
+        if let Some(capture_thread) = self.capture_thread.take() {
+            capture_thread.end_capture();
+        }
+
+        self.capture_thread = Some(capture::spawn_thread(
+            output_path,
+            self.audio_output_handle.capture_buffer(),
+            self.common_config.audio_output_frequency as u32,
+            format,
+        ));
+        self.audio_output_handle.start_capture();
+
+        self.renderer.add_or_update_modal(
+            Some("audio_capture".into()),
+            "Beginning audio capture".into(),
+            MODAL_DURATION,
+        );
+    }
+
+    pub fn end_audio_capture(&mut self) {
+        self.audio_output_handle.end_capture();
+
+        if let Some(capture_thread) = self.capture_thread.take() {
+            capture_thread.end_capture();
+            self.renderer.add_or_update_modal(
+                Some("audio_capture".into()),
+                "Ended audio capture".into(),
+                MODAL_DURATION,
+            );
+        }
+    }
+
+    pub fn is_capturing_audio(&self) -> bool {
+        self.capture_thread.is_some()
     }
 
     pub fn update_gui_focused(&mut self, gui_focused: bool) {
@@ -1072,6 +1118,7 @@ impl<Emulator: EmulatorTrait> Drop for NativeEmulator<Emulator> {
     fn drop(&mut self) {
         let _ = self.runner.send_command(RunnerCommand::Terminate);
         self.mouse_util.borrow().show_cursor(true);
+        self.end_audio_capture();
     }
 }
 
@@ -1093,4 +1140,3 @@ macro_rules! bincode_config {
 }
 
 use bincode_config;
-use cdrom::CdRomError;

@@ -1,3 +1,4 @@
+mod capture;
 mod cheats;
 mod common;
 mod gb;
@@ -32,7 +33,7 @@ use emath::Pos2;
 use jgenesis_native_config::paths::{ConfigDirType, ConfigDirs};
 use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen, RomSearchDirectory};
 use jgenesis_native_driver::extensions::Console;
-use jgenesis_native_driver::{NativeEmulatorError, SdlSubsystems, extensions};
+use jgenesis_native_driver::{AudioCaptureFormat, NativeEmulatorError, SdlSubsystems, extensions};
 use nes_config::NesPalette;
 use rfd::FileDialog;
 use std::cell::RefCell;
@@ -148,6 +149,7 @@ enum OpenWindow {
     GenesisOverclock,
     SnesOverclock,
     PceOverclock,
+    RecordAudio,
     About,
 }
 
@@ -197,6 +199,7 @@ impl OpenWindow {
             OpenWindow::GenesisOverclock => "Genesis Overclocking Settings",
             OpenWindow::SnesOverclock => "SNES Overclocking Settings",
             OpenWindow::PceOverclock => "PCE Overclocking Settings",
+            OpenWindow::RecordAudio => "Audio Recording",
             OpenWindow::About => "About",
         }
     }
@@ -234,6 +237,7 @@ struct AppState {
     pce_volume: PceVolumeState,
     s32x_priority: S32XPriorityState,
     overscan: OverscanState,
+    audio_capture_format: AudioCaptureFormat,
     input_collection: Option<InputCollectionState>,
     rom_list: Arc<Mutex<Vec<RomMetadata>>>,
     filtered_rom_list: Rc<[RomMetadata]>,
@@ -274,6 +278,7 @@ impl AppState {
             pce_volume: PceVolumeState::default(),
             s32x_priority: S32XPriorityState::default(),
             overscan: OverscanState::default(),
+            audio_capture_format: AudioCaptureFormat::default(),
             input_collection: None,
             rom_list: Arc::new(Mutex::new(vec![])),
             filtered_rom_list: vec![].into(),
@@ -557,6 +562,7 @@ impl App {
                     self.render_input_menu(ui);
                     self.render_cheats_menu_button(ui);
                     self.render_overclock_menu(ui);
+                    self.render_recording_menu(ui);
                     self.render_help_menu(ui);
                 });
             });
@@ -994,6 +1000,15 @@ impl App {
         });
     }
 
+    fn render_recording_menu(&mut self, ui: &mut Ui) {
+        ui.menu_button("Recording", |ui| {
+            if ui.button("Audio").clicked() {
+                self.state.open_window(ui.ctx(), OpenWindow::RecordAudio);
+                ui.close_kind(UiKind::Menu);
+            }
+        });
+    }
+
     fn render_help_menu(&mut self, ui: &mut Ui) {
         ui.menu_button("Help", |ui| {
             if ui.button("About").clicked() {
@@ -1198,6 +1213,7 @@ impl App {
                 OpenWindow::GenesisOverclock => self.render_genesis_overclock_settings(ctx),
                 OpenWindow::SnesOverclock => self.render_snes_overclock_settings(ctx),
                 OpenWindow::PceOverclock => self.render_pce_overclock_settings(ctx),
+                OpenWindow::RecordAudio => self.render_audio_recording_window(ctx),
                 OpenWindow::About => self.render_about(ctx),
             }
         }

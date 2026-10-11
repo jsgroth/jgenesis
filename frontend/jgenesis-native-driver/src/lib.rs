@@ -6,10 +6,10 @@ pub mod input;
 mod mainloop;
 
 pub use mainloop::{
-    AudioError, NativeEmulator, NativeEmulatorError, NativeEmulatorResult, NativeGameBoyEmulator,
-    NativeGbaEmulator, NativeGenesisEmulator, NativeNesEmulator, NativePcEngineEmulator,
-    NativeSmsGgEmulator, NativeSnesEmulator, NativeTickEffect, SAVE_STATE_SLOTS, SaveStateMetadata,
-    SaveWriteError, SdlSubsystems,
+    AudioCaptureFormat, AudioError, NativeEmulator, NativeEmulatorError, NativeEmulatorResult,
+    NativeGameBoyEmulator, NativeGbaEmulator, NativeGenesisEmulator, NativeNesEmulator,
+    NativePcEngineEmulator, NativeSmsGgEmulator, NativeSnesEmulator, NativeTickEffect,
+    SAVE_STATE_SLOTS, SaveStateMetadata, SaveWriteError, SdlSubsystems,
 };
 use sdl3::VideoSubsystem;
 

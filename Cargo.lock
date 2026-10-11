@@ -2126,6 +2126,7 @@ dependencies = [
  "anyhow",
  "cdrom",
  "clap",
+ "directories",
  "egui",
  "egui-sdl3-wgpu",
  "egui-system-fonts",

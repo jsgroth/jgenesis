@@ -43,7 +43,6 @@ pub enum RunnerCommand<Emulator: EmulatorTrait> {
     Rewind { enabled: bool },
     SaveState { slot: usize },
     LoadState { slot: usize },
-    ForceRender,
     ReloadConfig(Box<(CommonConfig, Emulator::Config)>),
     StartDebugger(Box<NativeDebuggerRunnerProcess<Emulator>>),
     StopDebugger,
@@ -485,9 +484,6 @@ fn handle_command<Emulator: EmulatorTrait>(
         }
         RunnerCommand::LoadState { slot } => {
             load_state(state, slot)?;
-        }
-        RunnerCommand::ForceRender => {
-            state.emulator.force_render(&mut state.renderer)?;
         }
         RunnerCommand::ReloadConfig(configs) => {
             state.reload_configs(configs.0, configs.1).map_err(CommandError::ReloadConfig)?;

@@ -45,6 +45,7 @@ egui-sdl3-wgpu = { workspace = true }
 
 anyhow = { workspace = true }
 clap = { workspace = true }
+directories = { workspace = true }
 egui = { workspace = true }
 egui_extras = { workspace = true }
 egui-system-fonts = { workspace = true }

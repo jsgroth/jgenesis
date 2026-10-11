@@ -5,9 +5,9 @@ use jgenesis_native_config::AppConfig;
 use jgenesis_native_driver::config::AppConfigExt;
 use jgenesis_native_driver::extensions::Console;
 use jgenesis_native_driver::{
-    NativeEmulatorError, NativeEmulatorResult, NativeGameBoyEmulator, NativeGbaEmulator,
-    NativeGenesisEmulator, NativeNesEmulator, NativeSmsGgEmulator, NativeSnesEmulator,
-    NativeTickEffect, SaveStateMetadata,
+    AudioCaptureFormat, NativeEmulatorError, NativeEmulatorResult, NativeGameBoyEmulator,
+    NativeGbaEmulator, NativeGenesisEmulator, NativeNesEmulator, NativeSmsGgEmulator,
+    NativeSnesEmulator, NativeTickEffect, SaveStateMetadata,
 };
 use jgenesis_native_driver::{NativePcEngineEmulator, SdlSubsystems};
 use jgenesis_proc_macros::MatchEachVariantMacro;
@@ -137,6 +137,8 @@ pub enum EmuRunnerCommand {
     LoadState {
         slot: usize,
     },
+    StartAudioCapture(PathBuf, AudioCaptureFormat),
+    EndAudioCapture,
     SegaCdRemoveDisc,
     SegaCdChangeDisc(PathBuf),
 }
@@ -148,6 +150,7 @@ pub struct GuiEmulatorRunner {
     egui_ctx: egui::Context,
     status: Rc<Cell<EmuRunnerStatus>>,
     exit_signal: Rc<Cell<bool>>,
+    capturing_audio: Rc<Cell<bool>>,
     gui_focused: Rc<Cell<bool>>,
     save_state_metadata: Rc<RefCell<SaveStateMetadata>>,
     queued_commands: Rc<RefCell<Vec<EmuRunnerCommand>>>,
@@ -157,6 +160,7 @@ pub struct GuiEmulatorRunnerHandle {
     emulator_error: Rc<RefCell<Option<NativeEmulatorError>>>,
     status: Rc<Cell<EmuRunnerStatus>>,
     exit_signal: Rc<Cell<bool>>,
+    capturing_audio: Rc<Cell<bool>>,
     gui_focused: Rc<Cell<bool>>,
     save_state_metadata: Rc<RefCell<SaveStateMetadata>>,
     queued_commands: Rc<RefCell<Vec<EmuRunnerCommand>>>,
@@ -172,6 +176,7 @@ impl GuiEmulatorRunner {
             egui_ctx,
             status: Rc::new(Cell::new(EmuRunnerStatus::WaitingForFirstCommand)),
             exit_signal: Rc::new(Cell::new(false)),
+            capturing_audio: Rc::new(Cell::new(false)),
             gui_focused: Rc::new(Cell::new(true)),
             save_state_metadata: Rc::new(RefCell::new(SaveStateMetadata::default())),
             queued_commands: Rc::new(RefCell::new(Vec::new())),
@@ -181,6 +186,7 @@ impl GuiEmulatorRunner {
             emulator_error: Rc::clone(&runner.emulator_error),
             status: Rc::clone(&runner.status),
             exit_signal: Rc::clone(&runner.exit_signal),
+            capturing_audio: Rc::clone(&runner.capturing_audio),
             gui_focused: Rc::clone(&runner.gui_focused),
             save_state_metadata: Rc::clone(&runner.save_state_metadata),
             queued_commands: Rc::clone(&runner.queued_commands),
@@ -191,6 +197,9 @@ impl GuiEmulatorRunner {
 
     pub fn run(&mut self, sdl_event_handler: &mut dyn FnMut(&sdl3::event::Event)) {
         self.process_commands();
+
+        self.capturing_audio
+            .set(self.emulator.as_ref().is_some_and(GenericEmulator::is_capturing_audio));
 
         let Some(emulator) = &mut self.emulator else {
             self.drain_sdl_events(sdl_event_handler);
@@ -243,6 +252,16 @@ impl GuiEmulatorRunner {
                 }
                 EmuRunnerCommand::LoadState { slot } => {
                     self.do_with_emulator(|emulator| emulator.load_state(slot));
+                }
+                EmuRunnerCommand::StartAudioCapture(output_path, format) => {
+                    if let Some(emulator) = &mut self.emulator {
+                        emulator.start_audio_capture(output_path, format);
+                    }
+                }
+                EmuRunnerCommand::EndAudioCapture => {
+                    if let Some(emulator) = &mut self.emulator {
+                        emulator.end_audio_capture();
+                    }
                 }
                 EmuRunnerCommand::SegaCdRemoveDisc => {
                     self.do_with_emulator(GenericEmulator::remove_disc);
@@ -359,6 +378,11 @@ impl GuiEmulatorRunnerHandle {
     #[must_use]
     pub fn exit_signal(&self) -> bool {
         self.exit_signal.get()
+    }
+
+    #[must_use]
+    pub fn is_capturing_audio(&self) -> bool {
+        self.capturing_audio.get()
     }
 
     pub fn push_command(&self, command: EmuRunnerCommand) {
@@ -548,6 +572,18 @@ impl GenericEmulator {
 
     fn save_state_metadata(&self) -> SaveStateMetadata {
         match_each_variant!(self, emulator => emulator.save_state_metadata())
+    }
+
+    fn start_audio_capture(&mut self, output_path: PathBuf, format: AudioCaptureFormat) {
+        match_each_variant!(self, emulator => emulator.start_audio_capture(output_path, format));
+    }
+
+    fn end_audio_capture(&mut self) {
+        match_each_variant!(self, emulator => emulator.end_audio_capture());
+    }
+
+    fn is_capturing_audio(&self) -> bool {
+        match_each_variant!(self, emulator => emulator.is_capturing_audio())
     }
 
     fn update_gui_focused(&mut self, gui_focused: bool) {
