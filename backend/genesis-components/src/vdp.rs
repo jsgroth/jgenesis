@@ -20,7 +20,7 @@ use crate::vdp::registers::{
     PAL_V28_TOP_BORDER, PAL_V30_BOTTOM_BORDER, PAL_V30_TOP_BORDER, RIGHT_BORDER, Registers,
     VerticalDisplaySize, VerticalScrollMode, VramSizeKb,
 };
-use crate::vdp::render::RasterLine;
+use crate::vdp::render::{BgPlane, RasterLine};
 use crate::vdp::sprites::{SpriteBuffers, SpriteState};
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::{BoxedByteArray, BoxedColorArray, BoxedWordArray};
@@ -808,29 +808,71 @@ impl Vdp {
             _ => return,
         };
 
-        // If this write occurred during active display, re-render the current scanline starting from the current pixel
-        if changed {
-            self.maybe_render_partial_line();
+        if !changed {
+            return;
         }
+
+        // If this write occurred during active display, re-render the current scanline starting
+        // from the first affected pixel
+        let pixel = self.state.pixel;
+        let rendering_start = self.registers.horizontal_display_size.rendering_begin_h();
+        if pixel < rendering_start {
+            return;
+        }
+
+        let scroll_nt_partial_render_pixel = |plane: BgPlane| {
+            debug_assert!(pixel >= rendering_start);
+
+            // Within each 16-pixel BG fetch cycle, the plane A nametable fetch is at pixel 0 and
+            // plane B is at pixel 8.
+            // Writes to the nametable address registers can only affect pixels after the next
+            // nametable fetch
+            let relative_pixel = pixel - rendering_start;
+            let current_fetch_cycle_start = relative_pixel / 16 * 16;
+            let first_affected_pixel =
+                if plane == BgPlane::A || (plane == BgPlane::B && relative_pixel % 16 >= 8) {
+                    // Write won't affect pixels until the next column
+                    current_fetch_cycle_start + 16
+                } else {
+                    // Write affects this column
+                    current_fetch_cycle_start
+                };
+
+            let h_scroll = match plane {
+                BgPlane::A => self.latched_h_scroll.0,
+                BgPlane::B => self.latched_h_scroll.1,
+            };
+            // TODO +16 is to correct for a probable error in how "rendering start" is defined
+            // Right now it's actually when column 0 is fetched, not column -1
+            rendering_start + first_affected_pixel + (h_scroll % 16) + 16
+        };
+
+        let partial_render_pixel = match register_number {
+            // Scroll A / window nametable address
+            2 | 3 => scroll_nt_partial_render_pixel(BgPlane::A),
+            // Scroll B nametable address
+            4 => scroll_nt_partial_render_pixel(BgPlane::B),
+            _ => pixel,
+        };
+
+        self.maybe_render_partial_line(partial_render_pixel);
     }
 
-    fn maybe_render_partial_line(&mut self) {
+    fn maybe_render_partial_line(&mut self, from_pixel: u16) {
         if self.state.scanline >= self.latched_registers.vertical_display_size.active_scanlines() {
             return;
         }
 
+        // TODO I think this is 16 pixels off but needs more testing; if changed, potentially remove the +16 in the above function
         let active_display_range = self.registers.horizontal_display_size.active_display_h_range();
-        if active_display_range.contains(&self.state.pixel) {
+        if active_display_range.contains(&from_pixel) {
             log::trace!(
                 "Re-rendering line {} from pixel {} (frame pixel {})",
                 self.state.scanline,
-                self.state.pixel,
-                self.state.pixel.saturating_sub(active_display_range.start)
+                from_pixel,
+                from_pixel - active_display_range.start
             );
-            self.render_scanline(
-                self.state.scanline,
-                self.state.pixel.saturating_sub(active_display_range.start),
-            );
+            self.render_scanline(self.state.scanline, from_pixel - active_display_range.start);
         }
     }
 
@@ -1102,7 +1144,7 @@ impl Vdp {
         }
 
         if render_partial_line {
-            self.maybe_render_partial_line();
+            self.maybe_render_partial_line(self.state.pixel);
         }
     }
 

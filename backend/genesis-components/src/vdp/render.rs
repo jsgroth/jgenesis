@@ -10,7 +10,7 @@ use jgenesis_common::num::GetBit;
 use std::{array, cmp};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BgPlane {
+pub enum BgPlane {
     A,
     B,
 }
