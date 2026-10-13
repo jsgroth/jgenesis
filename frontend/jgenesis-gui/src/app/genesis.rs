@@ -621,7 +621,7 @@ impl App {
                 .add(OverclockSlider {
                     label: "32X SH-2 clock multiplier",
                     current_value: &mut self.config.sega_32x.sh2_clock_multiplier,
-                    range: NonZeroU64::new(3).unwrap()..=NonZeroU64::new(10).unwrap(),
+                    range: NonZeroU64::new(1).unwrap()..=NonZeroU64::new(10).unwrap(),
                     master_clock: genesis_components::NTSC_GENESIS_MCLK_FREQUENCY / 7.0,
                     default_divider: genesis_config::NATIVE_SH2_MULTIPLIER as f64,
                     modifier: ClockModifier::Multiplier,
