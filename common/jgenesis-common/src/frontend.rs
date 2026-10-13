@@ -79,6 +79,8 @@ pub enum Rotation {
 pub struct DisplayInfo {
     pub frame_size: FrameSize,
     pub display_area: DisplayArea,
+    pub pixel_aspect_ratio: Option<FiniteF64>,
+    pub target_fps: f64,
     pub rotation: Rotation,
 }
 

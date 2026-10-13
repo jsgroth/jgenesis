@@ -2197,6 +2197,7 @@ dependencies = [
  "cdrom",
  "clap",
  "egui-sdl3-wgpu",
+ "flate2",
  "gb-config",
  "gb-core",
  "gba-config",

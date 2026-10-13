@@ -17,7 +17,7 @@ mod state;
 mod window;
 
 pub use audio::AudioError;
-pub use capture::AudioCaptureFormat;
+pub use capture::{AudioCaptureFormat, CaptureType, VideoCaptureCodec, VideoCaptureCodecType};
 pub use create::SdlSubsystems;
 pub use gb::NativeGameBoyEmulator;
 pub use gba::NativeGbaEmulator;
@@ -34,7 +34,7 @@ use crate::config::CommonConfig;
 use crate::fpstracker::FpsTracker;
 use crate::input::{InputEvent, InputMapper, Joysticks};
 use crate::mainloop::audio::{SdlAudioOutput, SdlAudioOutputHandle};
-use crate::mainloop::capture::CaptureThreadHandle;
+use crate::mainloop::capture::{CaptureThreadHandle, StartCapture};
 use crate::mainloop::create::WindowTitle;
 use crate::mainloop::input::ThreadedInputPoller;
 use crate::mainloop::render::{RecvFrameError, ThreadedRenderer};
@@ -56,7 +56,9 @@ use jgenesis_native_config::EguiTheme;
 use jgenesis_native_config::common::{HideMouseCursor, WindowSize};
 use jgenesis_native_config::input::mappings::ButtonMappingVec;
 use jgenesis_native_config::input::{CompactHotkey, Hotkey};
-use jgenesis_renderer::renderer::{RendererError, WgpuRenderer};
+use jgenesis_renderer::renderer::{
+    CaptureAbortReason, ReadCapturedFrameError, RendererError, WgpuRenderer,
+};
 use nes_core::api::NesInitializationError;
 use sdl3::event::{Event, WindowEvent};
 use sdl3::mouse::MouseUtil;
@@ -162,6 +164,7 @@ pub struct NativeEmulator<Emulator: EmulatorTrait> {
     hotkey_state: HotkeyState<Emulator>,
     window_state: WindowState,
     fps_tracker: FpsTracker,
+    pending_capture_start: Option<(CaptureType, AudioCaptureFormat, PathBuf)>,
     capture_thread: Option<CaptureThreadHandle>,
     video: Rc<RefCell<VideoSubsystem>>,
     event_pump: Rc<RefCell<EventPump>>,
@@ -189,7 +192,7 @@ impl<Emulator: EmulatorTrait> NativeEmulator<Emulator> {
                 "Audio capture terminated due to sample rate change".into(),
                 MODAL_DURATION,
             );
-            self.end_audio_capture();
+            self.end_capture();
         }
 
         self.hotkey_state.hide_mouse_cursor = config.hide_mouse_cursor;
@@ -522,6 +525,7 @@ where
             hotkey_state,
             window_state: WindowState::new(),
             fps_tracker: FpsTracker::new(),
+            pending_capture_start: None,
             capture_thread: None,
             video: sdl.video,
             event_pump: sdl.event_pump,
@@ -625,12 +629,16 @@ where
             self.handle_runner_cmd_response(response);
         }
 
+        self.consume_captured_video_frame();
+
         match self.runner.try_recv_frame(&mut self.renderer, Duration::from_millis(5)) {
             Ok(()) => {
                 self.input_mapper.frame_complete();
                 if let Some(effect) = self.process_input_events()? {
                     return Ok(Some(effect));
                 }
+
+                self.start_capture_if_pending();
 
                 self.fps_tracker.record_frame();
             }
@@ -650,7 +658,7 @@ where
             log::error!("Error in capture thread: {err}");
             self.renderer
                 .add_modal("Audio capture terminated with I/O error".into(), MODAL_DURATION);
-            self.end_audio_capture();
+            self.end_capture();
         }
 
         if let Some(debugger_window) = &mut self.hotkey_state.debugger_window {
@@ -895,41 +903,124 @@ where
         self.runner.save_state_metadata().lock().unwrap().clone()
     }
 
-    pub fn start_audio_capture(&mut self, output_path: PathBuf, format: AudioCaptureFormat) {
-        if let Some(capture_thread) = self.capture_thread.take() {
-            capture_thread.end_capture();
+    // Queue capturing to start after the next frame render
+    pub fn start_capture(
+        &mut self,
+        output_path: PathBuf,
+        audio_format: AudioCaptureFormat,
+        capture_type: CaptureType,
+    ) {
+        if self.capture_thread.is_some() {
+            self.end_capture();
         }
+
+        self.pending_capture_start = Some((capture_type, audio_format, output_path));
+    }
+
+    // Actually start capturing (if capture is pending)
+    fn start_capture_if_pending(&mut self) {
+        let Some((capture_type, audio_format, output_path)) = self.pending_capture_start.take()
+        else {
+            return;
+        };
+
+        let start_capture = match capture_type {
+            CaptureType::Video(codec) => {
+                let Some(display_info) = self.renderer.current_display_info() else {
+                    log::error!(
+                        "Unable to start capture because renderer is not fully initialized"
+                    );
+                    self.renderer.add_modal(
+                        format!("Failed to initialize {} capture", capture_type.type_str()),
+                        MODAL_DURATION,
+                    );
+                    return;
+                };
+
+                // TODO should query renderer for captured frame size (pre/post shader capture)
+                StartCapture::Video {
+                    codec,
+                    frame_size: display_info.frame_size,
+                    pixel_aspect_ratio: display_info.pixel_aspect_ratio,
+                    fps: display_info.target_fps,
+                }
+            }
+            CaptureType::Audio => StartCapture::Audio,
+        };
 
         self.capture_thread = Some(capture::spawn_thread(
             output_path,
             self.audio_output_handle.capture_buffer(),
             self.common_config.audio_output_frequency as u32,
-            format,
+            audio_format,
+            start_capture,
         ));
+
         self.audio_output_handle.start_capture();
+        if capture_type.is_video() {
+            self.renderer.start_capture();
+        }
 
         self.renderer.add_or_update_modal(
-            Some("audio_capture".into()),
-            "Beginning audio capture".into(),
+            Some("capture".into()),
+            format!("Beginning {} capture", capture_type.type_str()),
             MODAL_DURATION,
         );
     }
 
-    pub fn end_audio_capture(&mut self) {
+    pub fn end_capture(&mut self) {
         self.audio_output_handle.end_capture();
+        self.renderer.end_capture();
 
         if let Some(capture_thread) = self.capture_thread.take() {
+            let capture_type_str = capture_thread.capture_type().type_str();
             capture_thread.end_capture();
             self.renderer.add_or_update_modal(
-                Some("audio_capture".into()),
-                "Ended audio capture".into(),
+                Some("capture".into()),
+                format!("Ended {capture_type_str} capture"),
                 MODAL_DURATION,
             );
         }
     }
 
-    pub fn is_capturing_audio(&self) -> bool {
-        self.capture_thread.is_some()
+    pub fn is_capturing(&self) -> Option<CaptureType> {
+        self.capture_thread.as_ref().map(CaptureThreadHandle::capture_type)
+    }
+
+    fn consume_captured_video_frame(&mut self) {
+        let mut end_video_capture = false;
+
+        if let Some(capture_thread) = &mut self.capture_thread
+            && let Some(mut callback) = capture_thread.video_capture_callback()
+        {
+            match self.renderer.read_captured_frame(&mut callback) {
+                Ok(()) | Err(ReadCapturedFrameError::NoFrameReady) => {}
+                Err(ReadCapturedFrameError::NotCapturing) => {
+                    end_video_capture = true;
+                }
+                Err(ReadCapturedFrameError::CaptureAborted(reason)) => {
+                    log::error!("Capture aborted: {reason}");
+                    end_video_capture = true;
+
+                    let modal_msg = match reason {
+                        CaptureAbortReason::FrameSizeChanged { .. } => {
+                            "Aborting video capture due to resolution change"
+                        }
+                        CaptureAbortReason::FrameRateChanged { .. } => {
+                            "Aborting video capture due to frame rate change"
+                        }
+                        CaptureAbortReason::UnexpectedTextureFormat(_) => {
+                            "Aborting video capture due to internal error"
+                        }
+                    };
+                    self.renderer.add_modal(modal_msg.into(), MODAL_DURATION);
+                }
+            }
+        }
+
+        if end_video_capture {
+            self.end_capture();
+        }
     }
 
     pub fn update_gui_focused(&mut self, gui_focused: bool) {
@@ -1118,7 +1209,7 @@ impl<Emulator: EmulatorTrait> Drop for NativeEmulator<Emulator> {
     fn drop(&mut self) {
         let _ = self.runner.send_command(RunnerCommand::Terminate);
         self.mouse_util.borrow().show_cursor(true);
-        self.end_audio_capture();
+        self.end_capture();
     }
 }
 

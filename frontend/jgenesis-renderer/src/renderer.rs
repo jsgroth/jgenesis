@@ -1,14 +1,17 @@
+mod capture;
 mod ntsc;
 mod shaders;
 
 use crate::config;
 use crate::config::{FrameRotation, PreprocessShader, RendererConfig, VSyncMode};
+use crate::renderer::capture::{CaptureState, CapturingShader};
 use crate::renderer::ntsc::{NtscShader, NtscShaderVariant};
 use crate::renderer::shaders::{
     BlurShader, ColorCorrectionShader, FrameBlendShader, PrescaleShader, UpscaleShader,
 };
 #[cfg(feature = "ttf")]
 use crate::ttf;
+pub use capture::{CaptureAbortReason, ReadCapturedFrameCallback, ReadCapturedFrameError};
 use jgenesis_common::frontend::{
     Color, DisplayArea, DisplayInfo, FiniteF64, FrameSize, RenderFrameOptions,
     RenderFrameOptionsHashable, Renderer,
@@ -134,6 +137,7 @@ impl RenderingPipeline {
         options: RenderFrameOptions,
         surface_config: &wgpu::SurfaceConfiguration,
         renderer_config: RendererConfig,
+        capture_state: Option<&mut CaptureState>,
     ) -> Self {
         fn current_output_texture(
             pipeline: &[Box<dyn PipelineShader>],
@@ -175,6 +179,7 @@ impl RenderingPipeline {
         //   3. NTSC composite / Upscaling / Horizontal blur
         //   4. Frame blending
         //   5. Prescale / Scanlines
+        // If capturing is enabled, capture after color correction
         let mut shader_pipeline: Vec<Box<dyn PipelineShader>> = Vec::new();
 
         macro_rules! current_output_texture {
@@ -192,6 +197,19 @@ impl RenderingPipeline {
         ) {
             log::debug!("Adding color correction shader");
             shader_pipeline.push(Box::new(color_correction_shader));
+        }
+
+        // Video capture
+        if let Some(capture_state) = capture_state {
+            match CapturingShader::new(&current_output_texture!(), capture_state.buffers()) {
+                Ok(shader) => {
+                    log::debug!("Adding video capture shader");
+                    shader_pipeline.push(Box::new(shader));
+                }
+                Err(abort_reason) => {
+                    capture_state.abort(abort_reason);
+                }
+            }
         }
 
         // Anti-dither
@@ -759,6 +777,7 @@ impl RenderingPipelines {
     fn get_or_insert(
         &mut self,
         frame_size: FrameSize,
+        target_fps: f64,
         options: RenderFrameOptions,
         create_fn: impl FnOnce() -> RenderingPipeline,
     ) -> &mut RenderingPipeline {
@@ -768,6 +787,8 @@ impl RenderingPipelines {
         self.last_display_info = Some(DisplayInfo {
             frame_size,
             display_area: pipeline.display_area,
+            pixel_aspect_ratio: options.pixel_aspect_ratio,
+            target_fps,
             rotation: pipeline.rotation.into(),
         });
 
@@ -847,6 +868,7 @@ pub struct WgpuRenderer<Window> {
     speed_multiplier: u64,
     force_sync_off: bool,
     frame_time_tracker: FrameTimeTracker,
+    capture_state: Option<CaptureState>,
     // SAFETY: The surface must not outlive the window it was created from, thus the window must be
     // declared after the surface
     window: Window,
@@ -985,6 +1007,7 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             speed_multiplier: 1,
             force_sync_off: false,
             frame_time_tracker: FrameTimeTracker::new(config.frame_time_sync),
+            capture_state: None,
             window,
             window_size,
         })
@@ -1138,6 +1161,62 @@ impl<Window> WgpuRenderer<Window> {
     pub fn reload(&mut self) {
         self.reload_config(self.renderer_config);
     }
+
+    pub fn start_capture(&mut self) {
+        let Some(display_info) = self.pipelines.last_display_info else {
+            // TODO ???
+            return;
+        };
+
+        // TODO post-shader capture
+        self.capture_state = Some(CaptureState::create(
+            &self.device,
+            wgpu::Extent3d {
+                width: display_info.frame_size.width,
+                height: display_info.frame_size.height,
+                depth_or_array_layers: 1,
+            },
+            wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST,
+        ));
+
+        // Need to recreate pipelines with capturing
+        self.pipelines.clear();
+    }
+
+    /// End video capture; does nothing if capture is not active
+    pub fn end_capture(&mut self) {
+        if self.capture_state.take().is_some() {
+            // Need to recreate pipelines without capturing
+            self.pipelines.clear();
+        }
+    }
+
+    /// Consume and read a captured video frame.
+    ///
+    /// If a frame is captured or capturing, will invoke the callback with the frame data and
+    /// return `Ok(())`. Otherwise returns an error.
+    ///
+    /// If a frame is capturing but not ready yet, will block until it is ready.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no frame is captured/capturing, video capture is not running, or if
+    /// video capture was aborted due to a resolution or frame rate change.
+    pub fn read_captured_frame(
+        &mut self,
+        callback: &mut impl ReadCapturedFrameCallback,
+    ) -> Result<(), ReadCapturedFrameError> {
+        let Some(capture_state) = &self.capture_state else {
+            return Err(ReadCapturedFrameError::NotCapturing);
+        };
+
+        if let Some(abort_reason) = capture_state.aborted() {
+            self.end_capture();
+            return Err(ReadCapturedFrameError::CaptureAborted(abort_reason));
+        }
+
+        capture_state.read_captured_frame(&self.device, callback)
+    }
 }
 
 impl<Window> Renderer for WgpuRenderer<Window> {
@@ -1169,7 +1248,20 @@ impl<Window> Renderer for WgpuRenderer<Window> {
 
         self.frame_time_tracker.set_target_fps(target_fps);
 
-        let pipeline = self.pipelines.get_or_insert(frame_size, options, || {
+        if let Some(capture_state) = &mut self.capture_state {
+            capture_state.reset_capturing_state(&self.device);
+
+            if let Some(display_info) = self.pipelines.last_display_info
+                && (display_info.target_fps - target_fps).abs() > 1e-3
+            {
+                capture_state.abort(CaptureAbortReason::FrameRateChanged {
+                    from: display_info.target_fps,
+                    to: target_fps,
+                });
+            }
+        }
+
+        let pipeline = self.pipelines.get_or_insert(frame_size, target_fps, options, || {
             log::info!(
                 "Creating render pipeline for frame size {frame_size:?} and pixel aspect ratio {}",
                 pixel_aspect_ratio_display(options.pixel_aspect_ratio)
@@ -1184,6 +1276,7 @@ impl<Window> Renderer for WgpuRenderer<Window> {
                 options,
                 &self.surface_config,
                 self.renderer_config,
+                self.capture_state.as_mut(),
             )
         });
 
@@ -1212,6 +1305,10 @@ impl<Window> Renderer for WgpuRenderer<Window> {
                 log::debug!("Skipping frame because surface is occluded");
             }
             Err(err) => return Err(err),
+        }
+
+        if let Some(capture_state) = &self.capture_state {
+            capture_state.map_buffer_async();
         }
 
         Ok(())

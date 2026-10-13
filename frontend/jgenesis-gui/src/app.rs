@@ -33,7 +33,7 @@ use emath::Pos2;
 use jgenesis_native_config::paths::{ConfigDirType, ConfigDirs};
 use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen, RomSearchDirectory};
 use jgenesis_native_driver::extensions::Console;
-use jgenesis_native_driver::{AudioCaptureFormat, NativeEmulatorError, SdlSubsystems, extensions};
+use jgenesis_native_driver::{NativeEmulatorError, SdlSubsystems, extensions};
 use nes_config::NesPalette;
 use rfd::FileDialog;
 use std::cell::RefCell;
@@ -45,6 +45,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use time::{OffsetDateTime, UtcOffset, format_description};
 
+use crate::app::capture::CaptureAppState;
 use crate::app::inputcollect::InputCollectionState;
 use crate::app::pce::PceVolumeState;
 use cdrom::reader::CdRomFileFormat;
@@ -149,6 +150,7 @@ enum OpenWindow {
     GenesisOverclock,
     SnesOverclock,
     PceOverclock,
+    RecordVideo,
     RecordAudio,
     About,
 }
@@ -199,6 +201,7 @@ impl OpenWindow {
             OpenWindow::GenesisOverclock => "Genesis Overclocking Settings",
             OpenWindow::SnesOverclock => "SNES Overclocking Settings",
             OpenWindow::PceOverclock => "PCE Overclocking Settings",
+            OpenWindow::RecordVideo => "Video Recording",
             OpenWindow::RecordAudio => "Audio Recording",
             OpenWindow::About => "About",
         }
@@ -237,7 +240,7 @@ struct AppState {
     pce_volume: PceVolumeState,
     s32x_priority: S32XPriorityState,
     overscan: OverscanState,
-    audio_capture_format: AudioCaptureFormat,
+    capture: CaptureAppState,
     input_collection: Option<InputCollectionState>,
     rom_list: Arc<Mutex<Vec<RomMetadata>>>,
     filtered_rom_list: Rc<[RomMetadata]>,
@@ -278,7 +281,7 @@ impl AppState {
             pce_volume: PceVolumeState::default(),
             s32x_priority: S32XPriorityState::default(),
             overscan: OverscanState::default(),
-            audio_capture_format: AudioCaptureFormat::default(),
+            capture: CaptureAppState::new(),
             input_collection: None,
             rom_list: Arc::new(Mutex::new(vec![])),
             filtered_rom_list: vec![].into(),
@@ -1002,6 +1005,11 @@ impl App {
 
     fn render_recording_menu(&mut self, ui: &mut Ui) {
         ui.menu_button("Recording", |ui| {
+            if ui.button("Video").clicked() {
+                self.state.open_window(ui.ctx(), OpenWindow::RecordVideo);
+                ui.close_kind(UiKind::Menu);
+            }
+
             if ui.button("Audio").clicked() {
                 self.state.open_window(ui.ctx(), OpenWindow::RecordAudio);
                 ui.close_kind(UiKind::Menu);
@@ -1213,6 +1221,7 @@ impl App {
                 OpenWindow::GenesisOverclock => self.render_genesis_overclock_settings(ctx),
                 OpenWindow::SnesOverclock => self.render_snes_overclock_settings(ctx),
                 OpenWindow::PceOverclock => self.render_pce_overclock_settings(ctx),
+                OpenWindow::RecordVideo => self.render_video_recording_window(ctx),
                 OpenWindow::RecordAudio => self.render_audio_recording_window(ctx),
                 OpenWindow::About => self.render_about(ctx),
             }

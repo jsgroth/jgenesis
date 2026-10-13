@@ -24,26 +24,7 @@ impl WaveWriter {
     }
 
     pub fn write_audio_chunk(&mut self, samples: &[(f32, f32)]) -> io::Result<()> {
-        match self.format {
-            AudioCaptureFormat::I16 => {
-                for &(sample_l, sample_r) in samples {
-                    for sample in [sample_l, sample_r] {
-                        let sample =
-                            (sample * 32768.0).round().clamp(i16::MIN.into(), i16::MAX.into())
-                                as i16;
-                        self.writer.write_all(&sample.to_le_bytes())?;
-                    }
-                }
-            }
-            AudioCaptureFormat::F32 => {
-                for &(sample_l, sample_r) in samples {
-                    self.writer.write_all(&sample_l.to_le_bytes())?;
-                    self.writer.write_all(&sample_r.to_le_bytes())?;
-                }
-            }
-        }
-
-        Ok(())
+        self.format.encode_samples(samples, &mut self.writer)
     }
 
     pub fn finish(self) -> io::Result<()> {

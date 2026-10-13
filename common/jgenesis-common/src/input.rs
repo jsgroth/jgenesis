@@ -15,7 +15,7 @@ pub enum Player {
 pub fn viewport_position_to_frame_position(
     x: f32,
     y: f32,
-    DisplayInfo { frame_size, display_area, rotation }: DisplayInfo,
+    DisplayInfo { frame_size, display_area, rotation, .. }: DisplayInfo,
 ) -> Option<(u16, u16)> {
     let display_left = display_area.x as f32;
     let display_right = display_left + display_area.width as f32;
