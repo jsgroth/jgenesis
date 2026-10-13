@@ -1,15 +1,18 @@
 use crate::app::{App, OpenWindow};
-use crate::emurunner::EmuRunnerCommand;
+use crate::emurunner::{EmuRunnerCommand, EmuRunnerStatus};
 use directories::UserDirs;
-use egui::{Context, Slider, Ui, Window};
+use egui::{Color32, Context, Slider, Ui, Window};
 use jgenesis_native_driver::{
     AudioCaptureFormat, CaptureType, VideoCaptureCodec, VideoCaptureCodecType,
 };
+use jgenesis_renderer::config::PreprocessShader;
+use jgenesis_renderer::renderer::RendererCaptureOutput;
 use rfd::FileDialog;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 pub struct CaptureAppState {
+    renderer_capture_output: RendererCaptureOutput,
     video_codec_type: VideoCaptureCodecType,
     video_compression_level: u32,
     audio_format: AudioCaptureFormat,
@@ -19,6 +22,7 @@ pub struct CaptureAppState {
 impl CaptureAppState {
     pub fn new() -> Self {
         Self {
+            renderer_capture_output: RendererCaptureOutput::default(),
             video_codec_type: VideoCaptureCodecType::default(),
             video_compression_level: 3,
             audio_format: AudioCaptureFormat::default(),
@@ -45,6 +49,38 @@ impl App {
             let emu_running = self.emu_runner.status().is_running();
 
             ui.add_enabled_ui(!capturing_video, |ui| {
+                ui.group(|ui| {
+                    ui.label("Video capture type");
+
+                    for (value, label) in [
+                        (
+                            RendererCaptureOutput::ConsoleNative,
+                            "Direct console output (console native resolution)",
+                        ),
+                        (
+                            RendererCaptureOutput::Emulator,
+                            "Final emulator output (emulator window resolution)",
+                        ),
+                    ] {
+                        ui.radio_value(
+                            &mut self.state.capture.renderer_capture_output,
+                            value,
+                            label,
+                        );
+                    }
+                });
+
+                if self.state.capture.renderer_capture_output
+                    == RendererCaptureOutput::ConsoleNative
+                    && self.emu_runner.status() == EmuRunnerStatus::RunningNes
+                    && self.config.common.preprocess_shader == PreprocessShader::NtscComposite
+                {
+                    ui.colored_label(
+                        Color32::RED,
+                        "Direct console output recording does not work correctly with NES + NTSC composite shader; record emulator output or select a different shader",
+                    );
+                }
+
                 ui.group(|ui| {
                     ui.label("Video codec");
 
@@ -89,6 +125,7 @@ impl App {
                         ) {
                             self.emu_runner.push_command(EmuRunnerCommand::StartVideoCapture(
                                 path.clone(),
+                                self.state.capture.renderer_capture_output,
                                 self.state.capture.video_codec(),
                                 self.state.capture.audio_format,
                             ));

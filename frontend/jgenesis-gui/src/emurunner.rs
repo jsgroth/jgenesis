@@ -12,6 +12,7 @@ use jgenesis_native_driver::{
 };
 use jgenesis_native_driver::{NativePcEngineEmulator, SdlSubsystems};
 use jgenesis_proc_macros::MatchEachVariantMacro;
+use jgenesis_renderer::renderer::RendererCaptureOutput;
 use smsgg_config::cheats::SmsGgCheats;
 use smsgg_core::SmsGgHardware;
 use std::cell::{Cell, Ref, RefCell};
@@ -138,7 +139,7 @@ pub enum EmuRunnerCommand {
     LoadState {
         slot: usize,
     },
-    StartVideoCapture(PathBuf, VideoCaptureCodec, AudioCaptureFormat),
+    StartVideoCapture(PathBuf, RendererCaptureOutput, VideoCaptureCodec, AudioCaptureFormat),
     StartAudioCapture(PathBuf, AudioCaptureFormat),
     EndCapture,
     SegaCdRemoveDisc,
@@ -254,11 +255,16 @@ impl GuiEmulatorRunner {
                 EmuRunnerCommand::LoadState { slot } => {
                     self.do_with_emulator(|emulator| emulator.load_state(slot));
                 }
-                EmuRunnerCommand::StartVideoCapture(output_path, codec, audio_format) => {
+                EmuRunnerCommand::StartVideoCapture(
+                    output_path,
+                    renderer_capture_output,
+                    codec,
+                    audio_format,
+                ) => {
                     if let Some(emulator) = &mut self.emulator {
                         emulator.start_capture(
                             output_path,
-                            CaptureType::Video(codec),
+                            CaptureType::Video(renderer_capture_output, codec),
                             audio_format,
                         );
                     }

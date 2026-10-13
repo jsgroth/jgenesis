@@ -50,7 +50,7 @@ use egui_sdl3_wgpu::FrameRunEffect;
 use gb_core::api::GameBoyLoadError;
 use gba_core::api::GbaLoadError;
 use genesis_config::GenesisRegion;
-use jgenesis_common::frontend::{EmulatorConfigTrait, EmulatorTrait, MappableInputs};
+use jgenesis_common::frontend::{EmulatorConfigTrait, EmulatorTrait, FrameSize, MappableInputs};
 use jgenesis_debugger_frontend::{DebugFn, DebuggerWindow};
 use jgenesis_native_config::EguiTheme;
 use jgenesis_native_config::common::{HideMouseCursor, WindowSize};
@@ -925,8 +925,9 @@ where
         };
 
         let start_capture = match capture_type {
-            CaptureType::Video(codec) => {
-                let Some(display_info) = self.renderer.current_display_info() else {
+            CaptureType::Video(renderer_capture_output, codec) => {
+                let Some(frame_info) = self.renderer.capture_frame_info(renderer_capture_output)
+                else {
                     log::error!(
                         "Unable to start capture because renderer is not fully initialized"
                     );
@@ -937,12 +938,11 @@ where
                     return;
                 };
 
-                // TODO should query renderer for captured frame size (pre/post shader capture)
                 StartCapture::Video {
                     codec,
-                    frame_size: display_info.frame_size,
-                    pixel_aspect_ratio: display_info.pixel_aspect_ratio,
-                    fps: display_info.target_fps,
+                    frame_size: FrameSize { width: frame_info.size.0, height: frame_info.size.1 },
+                    pixel_aspect_ratio: frame_info.pixel_aspect_ratio,
+                    fps: frame_info.fps,
                 }
             }
             CaptureType::Audio => StartCapture::Audio,
@@ -954,11 +954,12 @@ where
             self.common_config.audio_output_frequency as u32,
             audio_format,
             start_capture,
+            capture_type,
         ));
 
         self.audio_output_handle.start_capture();
-        if capture_type.is_video() {
-            self.renderer.start_capture();
+        if let CaptureType::Video(renderer_capture_output, ..) = capture_type {
+            self.renderer.start_capture(renderer_capture_output);
         }
 
         self.renderer.add_or_update_modal(

@@ -4,7 +4,7 @@ mod wav;
 use crate::mainloop::capture::avi::AviWriter;
 use crate::mainloop::capture::wav::WaveWriter;
 use jgenesis_common::frontend::{Color, FiniteF64, FrameSize};
-use jgenesis_renderer::renderer::ReadCapturedFrameCallback;
+use jgenesis_renderer::renderer::{ReadCapturedFrameCallback, RendererCaptureOutput};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, SyncSender, TryRecvError};
@@ -102,19 +102,19 @@ enum CaptureThreadResponse {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaptureType {
-    Video(VideoCaptureCodec),
+    Video(RendererCaptureOutput, VideoCaptureCodec),
     Audio,
 }
 
 impl CaptureType {
     #[must_use]
     pub fn is_video(self) -> bool {
-        matches!(self, Self::Video(_))
+        matches!(self, Self::Video(..))
     }
 
     pub(crate) fn type_str(self) -> &'static str {
         match self {
-            Self::Video(_) => "video",
+            Self::Video(..) => "video",
             Self::Audio => "audio",
         }
     }
@@ -129,15 +129,6 @@ pub enum StartCapture {
         fps: f64,
     },
     Audio,
-}
-
-impl StartCapture {
-    pub fn capture_type(self) -> CaptureType {
-        match self {
-            Self::Video { codec, .. } => CaptureType::Video(codec),
-            Self::Audio => CaptureType::Audio,
-        }
-    }
 }
 
 enum CaptureWriter {
@@ -172,8 +163,13 @@ pub struct CaptureThreadHandle {
 }
 
 impl CaptureThread {
-    fn run(self, start_capture: StartCapture, response_sender: Sender<CaptureThreadResponse>) {
-        let capture_type_str = start_capture.capture_type().type_str();
+    fn run(
+        self,
+        start_capture: StartCapture,
+        capture_type: CaptureType,
+        response_sender: Sender<CaptureThreadResponse>,
+    ) {
+        let capture_type_str = capture_type.type_str();
         log::info!("Beginning {capture_type_str} capture to file '{}'", self.output_path.display());
 
         let writer = match self.create_writer(start_capture) {
@@ -409,6 +405,7 @@ pub fn spawn_thread(
     audio_sample_rate: u32,
     audio_format: AudioCaptureFormat,
     start_capture: StartCapture,
+    capture_type: CaptureType,
 ) -> CaptureThreadHandle {
     let (command_sender, command_receiver) = mpsc::channel();
     let (response_sender, response_receiver) = mpsc::channel();
@@ -442,7 +439,7 @@ pub fn spawn_thread(
     };
 
     let handle = CaptureThreadHandle {
-        capture_type: start_capture.capture_type(),
+        capture_type,
         video_buffer_sender: handle_video_sender,
         video_buffer_receiver: handle_video_receiver,
         frame_size,
@@ -451,7 +448,7 @@ pub fn spawn_thread(
         response_receiver,
     };
 
-    thread::spawn(move || thread.run(start_capture, response_sender));
+    thread::spawn(move || thread.run(start_capture, capture_type, response_sender));
 
     handle
 }
