@@ -245,6 +245,16 @@ impl Display for SavePath {
     Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumAll,
 )]
 #[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum ApplyPatches {
+    No,
+    #[default]
+    Yes,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumAll,
+)]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum PauseEmulator {
     #[default]
     Never,
@@ -320,6 +330,7 @@ pub struct CommonAppConfig {
     pub custom_save_path: PathBuf,
     pub state_path: ConfigSavePath,
     pub custom_state_path: PathBuf,
+    pub apply_patches: bool,
     pub window_width: Option<u32>,
     pub window_height: Option<u32>,
     pub launch_in_fullscreen: bool,
@@ -376,6 +387,7 @@ impl Default for CommonAppConfig {
             custom_save_path: default_custom_save_path(),
             state_path: ConfigSavePath::default(),
             custom_state_path: default_custom_state_path(),
+            apply_patches: true,
             window_width: None,
             window_height: None,
             launch_in_fullscreen: false,

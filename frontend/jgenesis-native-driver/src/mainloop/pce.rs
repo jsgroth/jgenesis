@@ -1,5 +1,5 @@
 use crate::config::{CommonConfig, PcEngineConfig};
-use crate::mainloop::create::{CreatableEmulator, ReadInputResult, WindowTitle};
+use crate::mainloop::create::{CreatableEmulator, ReadInputResult, RomPatchResult, WindowTitle};
 use crate::mainloop::{CreatedEmulator, NativeDebugFn, create, file_name_no_ext};
 use crate::{NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
 use cdrom::reader::CdRomFileFormat;
@@ -47,19 +47,22 @@ impl CreatableEmulator for PcEngineEmulator {
                     },
                     rom_path: config.common.rom_file_path.clone(),
                     save_extension: CD_SAVE_EXTENSION.into(),
+                    patch_result: RomPatchResult::None,
                 })
             }
             None => {
                 // No disc, assume HuCard game
-                create::read_rom_file(&config.common.rom_file_path, extensions::PC_ENGINE_HUCARD)
-                    .map(|read_rom_result| ReadInputResult {
-                        input: PceCreateInput {
-                            cartridge_rom: read_rom_result.input,
-                            disc_path: None,
-                        },
-                        rom_path: read_rom_result.rom_path,
-                        save_extension: read_rom_result.save_extension,
-                    })
+                create::read_rom_file(
+                    &config.common.rom_file_path,
+                    extensions::PC_ENGINE_HUCARD,
+                    config.common.apply_patches,
+                )
+                .map(|read_rom_result| ReadInputResult {
+                    input: PceCreateInput { cartridge_rom: read_rom_result.input, disc_path: None },
+                    rom_path: read_rom_result.rom_path,
+                    save_extension: read_rom_result.save_extension,
+                    patch_result: read_rom_result.patch_result,
+                })
             }
         }
     }

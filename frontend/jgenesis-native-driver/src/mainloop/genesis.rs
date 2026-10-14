@@ -1,6 +1,6 @@
 use crate::config::{CommonConfig, GenesisConfig};
 use crate::extensions::Console;
-use crate::mainloop::create::{CreatableEmulator, ReadInputResult, WindowTitle};
+use crate::mainloop::create::{CreatableEmulator, ReadInputResult, RomPatchResult, WindowTitle};
 use crate::mainloop::{CreatedEmulator, NativeDebugFn, NativeEmulatorError, create};
 use crate::{NativeEmulator, NativeEmulatorResult, extensions};
 use cdrom::reader::CdRom;
@@ -30,8 +30,13 @@ impl CreatableEmulator for GenesisEmulator {
     fn read_create_input(
         config: &Self::NativeConfig,
     ) -> NativeEmulatorResult<ReadInputResult<Self::CreateInput>> {
-        let read_cartridge_input =
-            || create::read_rom_file(&config.common.rom_file_path, &extensions::GENESIS_32X);
+        let read_cartridge_input = || {
+            create::read_rom_file(
+                &config.common.rom_file_path,
+                &extensions::GENESIS_32X,
+                config.common.apply_patches,
+            )
+        };
 
         let mut rom_path = config.common.rom_file_path.clone();
 
@@ -77,6 +82,11 @@ impl CreatableEmulator for GenesisEmulator {
             None => Console::SegaCd.standard_extension().to_owned(),
         };
 
+        let patch_result = cartridge_input
+            .as_ref()
+            .map(|input| input.patch_result)
+            .unwrap_or(RomPatchResult::None);
+
         Ok(ReadInputResult {
             input: GenesisCreateInput {
                 cartridge_rom: cartridge_input.map(|input| input.input),
@@ -85,6 +95,7 @@ impl CreatableEmulator for GenesisEmulator {
             },
             rom_path,
             save_extension,
+            patch_result,
         })
     }
 

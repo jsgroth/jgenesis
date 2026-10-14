@@ -4,7 +4,7 @@ use std::fs;
 use crate::mainloop::{CreatedEmulator, NativeDebugFn, create, file_name_no_ext};
 use crate::{NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
 
-use crate::mainloop::create::{CreatableEmulator, ReadInputResult};
+use crate::mainloop::create::{CreatableEmulator, ReadInputResult, RomPatchResult};
 use jgenesis_common::frontend::SaveWriter;
 use jgenesis_native_config::common::WindowSize;
 use jgenesis_native_config::input::mappings::ButtonMappingVec;
@@ -83,9 +83,14 @@ impl CreatableEmulator for SmsGgEmulator {
                 input: bios_rom,
                 rom_path: bios_path.clone(),
                 save_extension: hardware.standard_extension().into(),
+                patch_result: RomPatchResult::None,
             })
         } else {
-            create::read_rom_file(&config.common.rom_file_path, &extensions::SMSGG)
+            create::read_rom_file(
+                &config.common.rom_file_path,
+                &extensions::SMSGG,
+                config.common.apply_patches,
+            )
         }
     }
 

@@ -107,6 +107,7 @@ impl ListFiltersExt for ListFilters {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum OpenWindow {
+    General,
     SmsGgGeneral,
     GenesisGeneral,
     NesGeneral,
@@ -158,6 +159,7 @@ enum OpenWindow {
 impl OpenWindow {
     fn title(self) -> &'static str {
         match self {
+            OpenWindow::General => "General Settings",
             OpenWindow::SmsGgGeneral => "SMS/GG General Settings",
             OpenWindow::GenesisGeneral => "Genesis General Settings",
             OpenWindow::NesGeneral => "NES General Settings",
@@ -815,6 +817,13 @@ impl App {
 
     fn render_settings_menu(&mut self, ui: &mut Ui) {
         ui.menu_button("Settings", |ui| {
+            if ui.button("General").clicked() {
+                self.state.open_window(ui.ctx(), OpenWindow::General);
+                ui.close_kind(UiKind::Menu);
+            }
+
+            ui.separator();
+
             for (label, window) in [
                 ("SMS / Game Gear / SG", OpenWindow::SmsGgGeneral),
                 ("Genesis / Sega CD / 32X", OpenWindow::GenesisGeneral),
@@ -1178,6 +1187,7 @@ impl App {
         let open_windows: Vec<_> = self.state.open_windows.iter().copied().collect();
         for open_window in open_windows {
             match open_window {
+                OpenWindow::General => self.render_general_settings(ctx),
                 OpenWindow::SmsGgGeneral => self.render_smsgg_general_settings(ctx),
                 OpenWindow::GenesisGeneral => self.render_genesis_general_settings(ctx),
                 OpenWindow::NesGeneral => self.render_nes_general_settings(ctx),

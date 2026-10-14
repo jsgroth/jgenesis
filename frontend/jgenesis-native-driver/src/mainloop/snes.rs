@@ -50,7 +50,11 @@ impl CreatableEmulator for SnesEmulator {
     fn read_create_input(
         config: &Self::NativeConfig,
     ) -> NativeEmulatorResult<ReadInputResult<Self::CreateInput>> {
-        create::read_rom_file(&config.common.rom_file_path, extensions::SNES)
+        create::read_rom_file(
+            &config.common.rom_file_path,
+            extensions::SNES,
+            config.common.apply_patches,
+        )
     }
 
     fn create(

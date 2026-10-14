@@ -3,10 +3,12 @@ use crate::config::CommonConfig;
 use crate::input::Joysticks;
 use crate::mainloop::runner::RunnerCommand;
 use crate::mainloop::save::FsSaveWriter;
-use crate::mainloop::{CreatedEmulator, NativeDebugFn, NativeEmulatorArgs, save};
+use crate::mainloop::{CreatedEmulator, MODAL_DURATION, NativeDebugFn, NativeEmulatorArgs, save};
 use crate::{NativeEmulator, NativeEmulatorError, NativeEmulatorResult, archive, extensions};
 use cdrom::reader::{CdRom, CdRomFileFormat};
 use jgenesis_common::frontend::{EmulatorTrait, SaveWriter};
+use jgenesis_common::patch::{BpsError, IpsError};
+use jgenesis_native_config::common::ApplyPatches;
 use jgenesis_native_config::input::mappings::ButtonMappingVec;
 use sdl3::mouse::MouseUtil;
 use sdl3::{AudioSubsystem, EventPump, VideoSubsystem};
@@ -60,11 +62,21 @@ impl SdlSubsystems {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum RomPatchResult {
+    None,
+    IpsSuccess,
+    IpsError(IpsError),
+    BpsSuccess,
+    BpsError(BpsError),
+}
+
 #[derive(Clone)]
 pub struct ReadInputResult<T> {
     pub input: T,
     pub rom_path: PathBuf,
     pub save_extension: String,
+    pub patch_result: RomPatchResult,
 }
 
 #[derive(Debug, Clone)]
@@ -172,6 +184,7 @@ impl<Emulator: CreatableEmulator> NativeEmulator<Emulator> {
         )?;
 
         let save_extension = input.save_extension.clone();
+        let patch_result = input.patch_result;
 
         let create_emulator_fn = {
             let config = config.clone();
@@ -195,7 +208,29 @@ impl<Emulator: CreatableEmulator> NativeEmulator<Emulator> {
             args = args.with_debug_fn(debug_fn);
         }
 
-        Self::new(sdl, args)
+        let mut emulator = Self::new(sdl, args)?;
+
+        match patch_result {
+            RomPatchResult::None => {}
+            RomPatchResult::IpsSuccess => {
+                log::info!("Successfully applied IPS patch");
+                emulator.renderer.add_modal("Applied IPS patch".into(), MODAL_DURATION);
+            }
+            RomPatchResult::IpsError(err) => {
+                log::error!("Failed to apply IPS patch: {err}");
+                emulator.renderer.add_modal("Failed to apply IPS patch".into(), MODAL_DURATION);
+            }
+            RomPatchResult::BpsSuccess => {
+                log::info!("Successfully applied BPS patch");
+                emulator.renderer.add_modal("Applied BPS patch".into(), MODAL_DURATION);
+            }
+            RomPatchResult::BpsError(err) => {
+                log::error!("Failed to apply BPS patch: {err}");
+                emulator.renderer.add_modal("Failed to apply BPS patch".into(), MODAL_DURATION);
+            }
+        }
+
+        Ok(emulator)
     }
 
     /// Reload configuration.
@@ -243,9 +278,12 @@ impl<Emulator: CreatableEmulator> NativeEmulator<Emulator> {
 
 pub type ReadRomResult = ReadInputResult<Vec<u8>>;
 
+type ArchiveReadFn = fn(&Path, &str, usize) -> Result<Vec<u8>, ArchiveError>;
+
 pub(crate) fn read_rom_file(
     path: &Path,
     supported_extensions: &[&str],
+    apply_patches: ApplyPatches,
 ) -> NativeEmulatorResult<ReadRomResult> {
     struct NameWithExtension {
         file_name: String,
@@ -255,6 +293,7 @@ pub(crate) fn read_rom_file(
     #[derive(Default)]
     struct ArchiveListCallback {
         first_supported_file: Option<NameWithExtension>,
+        potential_patch_files: Vec<String>,
     }
 
     impl ArchiveListCallback {
@@ -263,11 +302,17 @@ pub(crate) fn read_rom_file(
             supported_extensions: &'ext [&str],
         ) -> impl FnMut(ArchiveEntry<'_>) + use<'_, 'ext> {
             |entry| {
+                let Some(extension) = extensions::from_path(entry.file_name) else { return };
+
+                if matches!(extension.as_str(), "ips" | "bps") {
+                    self.potential_patch_files.push(entry.file_name.into());
+                    return;
+                }
+
                 if self.first_supported_file.is_some() {
                     return;
                 }
 
-                let Some(extension) = extensions::from_path(entry.file_name) else { return };
                 if supported_extensions.contains(&extension.as_str()) {
                     self.first_supported_file =
                         Some(NameWithExtension { file_name: entry.file_name.into(), extension });
@@ -278,45 +323,68 @@ pub(crate) fn read_rom_file(
         fn open_file(
             self,
             archive_path: &Path,
-            read_fn: fn(&Path, &str, usize) -> Result<Vec<u8>, ArchiveError>,
-        ) -> NativeEmulatorResult<(Vec<u8>, String)> {
+            apply_patches: ApplyPatches,
+            read_fn: ArchiveReadFn,
+        ) -> NativeEmulatorResult<(Vec<u8>, String, RomPatchResult)> {
             let first_supported_file = self.first_supported_file.ok_or_else(|| {
                 NativeEmulatorError::Archive(ArchiveError::NoSupportedFiles {
                     path: archive_path.display().to_string(),
                 })
             })?;
 
-            let contents = read_fn(archive_path, &first_supported_file.file_name, usize::MAX)
+            let mut contents = read_fn(archive_path, &first_supported_file.file_name, usize::MAX)
                 .map_err(NativeEmulatorError::Archive)?;
-            Ok((contents, first_supported_file.extension))
+
+            let rom_patch_result = match apply_patches {
+                ApplyPatches::Yes => apply_patch_from_archive(
+                    &mut contents,
+                    archive_path,
+                    &first_supported_file.file_name,
+                    &self.potential_patch_files,
+                    read_fn,
+                ),
+                ApplyPatches::No => RomPatchResult::None,
+            };
+
+            Ok((contents, first_supported_file.extension, rom_patch_result))
         }
     }
 
     let extension = extensions::from_path(path).unwrap_or_default();
-    let (contents, extension) = match extension.as_str() {
+    let (contents, extension, patch_result) = match extension.as_str() {
         "zip" => {
             let mut callback = ArchiveListCallback::default();
             archive::list_files_zip(path, callback.as_fn_mut(supported_extensions))
                 .map_err(NativeEmulatorError::Archive)?;
-            callback.open_file(path, archive::read_file_zip)
+            callback.open_file(path, apply_patches, archive::read_file_zip)
         }
         "7z" => {
             let mut callback = ArchiveListCallback::default();
             archive::list_files_7z(path, callback.as_fn_mut(supported_extensions))
                 .map_err(NativeEmulatorError::Archive)?;
-            callback.open_file(path, archive::read_file_7z)
+            callback.open_file(path, apply_patches, archive::read_file_7z)
         }
         _ => {
-            let contents = fs::read(path).map_err(|source| NativeEmulatorError::RomRead {
+            let mut contents = fs::read(path).map_err(|source| NativeEmulatorError::RomRead {
                 path: path.display().to_string(),
                 source,
             })?;
 
-            Ok((contents, extension))
+            let patch_result = match apply_patches {
+                ApplyPatches::Yes => apply_patch_from_fs(&mut contents, path),
+                ApplyPatches::No => RomPatchResult::None,
+            };
+
+            Ok((contents, extension, patch_result))
         }
     }?;
 
-    Ok(ReadRomResult { input: contents, rom_path: path.into(), save_extension: extension })
+    Ok(ReadRomResult {
+        input: contents,
+        rom_path: path.into(),
+        save_extension: extension,
+        patch_result,
+    })
 }
 
 pub(crate) fn read_cdrom_image(path: &Path, open_in_memory: bool) -> NativeEmulatorResult<CdRom> {
@@ -332,4 +400,65 @@ pub(crate) fn read_cdrom_image(path: &Path, open_in_memory: bool) -> NativeEmula
     };
 
     disc.map_err(NativeEmulatorError::CdRomRead)
+}
+
+fn apply_patch_from_fs(rom: &mut Vec<u8>, rom_path: &Path) -> RomPatchResult {
+    let bps_path = rom_path.with_extension("bps");
+    if let Ok(bps) = fs::read(bps_path) {
+        return apply_bps_patch(rom, &bps);
+    }
+
+    let ips_path = rom_path.with_extension("ips");
+    if let Ok(ips) = fs::read(ips_path) {
+        return apply_ips_patch(rom, &ips);
+    }
+
+    RomPatchResult::None
+}
+
+fn apply_bps_patch(rom: &mut Vec<u8>, bps: &[u8]) -> RomPatchResult {
+    match jgenesis_common::patch::apply_bps(rom, bps) {
+        Ok(patched) => {
+            *rom = patched;
+            RomPatchResult::BpsSuccess
+        }
+        Err(err) => RomPatchResult::BpsError(err),
+    }
+}
+
+fn apply_ips_patch(rom: &mut Vec<u8>, ips: &[u8]) -> RomPatchResult {
+    match jgenesis_common::patch::apply_ips(rom, ips) {
+        Ok(patched) => {
+            *rom = patched;
+            RomPatchResult::IpsSuccess
+        }
+        Err(err) => RomPatchResult::IpsError(err),
+    }
+}
+
+fn apply_patch_from_archive(
+    rom: &mut Vec<u8>,
+    archive_path: &Path,
+    file_name: &str,
+    potential_patch_files: &[String],
+    read_fn: ArchiveReadFn,
+) -> RomPatchResult {
+    let bps_name = Path::new(file_name).with_extension("bps");
+    let bps_name = bps_name.to_string_lossy();
+    if potential_patch_files.iter().any(|patch_file| patch_file.as_str() == bps_name.as_ref())
+        && let Ok(bps) = read_fn(archive_path, &bps_name, usize::MAX)
+    {
+        return apply_bps_patch(rom, &bps);
+    }
+
+    let ips_name = Path::new(file_name).with_extension("ips");
+    let ips_name = ips_name.to_string_lossy();
+    if potential_patch_files.iter().any(|patch_file| patch_file.as_str() == ips_name.as_ref())
+        && let Ok(ips) = read_fn(archive_path, &ips_name, usize::MAX)
+    {
+        return apply_ips_patch(rom, &ips);
+    }
+
+    // Fall back to looking for patches outside of the archive with the same name as the archive
+    apply_patch_from_fs(rom, archive_path)
 }

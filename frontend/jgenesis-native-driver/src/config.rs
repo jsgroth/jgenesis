@@ -10,7 +10,7 @@ use genesis_config::{
 use genesis_core::api::GenesisHardware;
 use jgenesis_common::frontend::{ColorCorrection, FiniteF32};
 use jgenesis_native_config::common::{
-    ConfigSavePath, HideMouseCursor, PauseEmulator, SavePath, WindowSize,
+    ApplyPatches, ConfigSavePath, HideMouseCursor, PauseEmulator, SavePath, WindowSize,
 };
 use jgenesis_native_config::input::mappings::PceInputConfig;
 use jgenesis_native_config::input::mappings::{
@@ -42,6 +42,7 @@ pub struct CommonConfig {
     pub audio_gain_db: f64,
     pub save_path: SavePath,
     pub state_path: SavePath,
+    pub apply_patches: ApplyPatches,
     #[cfg_display(debug_fmt)]
     pub window_size: Option<WindowSize>,
     #[cfg_display(indent_nested)]
@@ -279,6 +280,11 @@ impl AppConfigExt for AppConfig {
             audio_gain_db: self.common.audio_gain_db,
             save_path: save_path(self.common.save_path, &self.common.custom_save_path),
             state_path: save_path(self.common.state_path, &self.common.custom_state_path),
+            apply_patches: if self.common.apply_patches {
+                ApplyPatches::Yes
+            } else {
+                ApplyPatches::No
+            },
             window_size: self.common.window_size(),
             renderer_config: RendererConfig {
                 wgpu_backend: self.common.wgpu_backend,

@@ -18,7 +18,11 @@ impl CreatableEmulator for GameBoyAdvanceEmulator {
     fn read_create_input(
         config: &Self::NativeConfig,
     ) -> NativeEmulatorResult<ReadInputResult<Self::CreateInput>> {
-        create::read_rom_file(&config.common.rom_file_path, extensions::GAME_BOY_ADVANCE)
+        create::read_rom_file(
+            &config.common.rom_file_path,
+            extensions::GAME_BOY_ADVANCE,
+            config.common.apply_patches,
+        )
     }
 
     fn create(

@@ -1,5 +1,14 @@
 use crate::app::HelpText;
 
+pub const APPLY_PATCHES: HelpText = HelpText {
+    heading: "Automatically Apply Patches",
+    text: &[
+        "If enabled, automatically apply BPS and IPS patch files when loading a game. This does not modify any files on disk.",
+        "The emulator will apply patch files if they are in the same directory as the game file and have the same base filename, with the extension .bps or .ips.",
+        "This setting has no effect on disc-based games.",
+    ],
+};
+
 pub const FULLSCREEN: HelpText = HelpText {
     heading: "Fullscreen",
     text: &["If enabled, launch fullscreen instead of windowed."],

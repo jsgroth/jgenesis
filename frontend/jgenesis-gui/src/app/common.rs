@@ -14,6 +14,24 @@ use rfd::FileDialog;
 use std::num::{NonZeroU8, NonZeroU32};
 
 impl App {
+    pub(super) fn render_general_settings(&mut self, ctx: &Context) {
+        const WINDOW: OpenWindow = OpenWindow::General;
+
+        let mut open = true;
+        Window::new(WINDOW.title()).open(&mut open).show(ctx, |ui| {
+            ui.checkbox(
+                &mut self.config.common.apply_patches,
+                "Automatically apply BPS/IPS patches",
+            );
+
+            self.state.help_text.insert(WINDOW, helptext::APPLY_PATCHES);
+            self.render_help_text(ui, WINDOW);
+        });
+        if !open {
+            self.state.open_windows.remove(&WINDOW);
+        }
+    }
+
     pub(super) fn render_common_video_settings(&mut self, ctx: &Context) {
         const WINDOW: OpenWindow = OpenWindow::CommonVideo;
 
