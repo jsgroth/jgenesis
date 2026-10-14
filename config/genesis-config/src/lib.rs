@@ -793,7 +793,7 @@ impl EmulatorConfigTrait for SegaCdEmulatorConfig {
 
 #[derive(Debug, Clone, Encode, Decode, ConfigDisplay)]
 pub struct Sega32XEmulatorConfig {
-    pub sh2_clock_multiplier: NonZeroU64,
+    pub sh2_clock_multiplier: f64,
     pub video_out: S32XVideoOut,
     pub darken_genesis_colors: bool,
     pub color_tint: S32XColorTint,
@@ -809,7 +809,7 @@ pub struct Sega32XEmulatorConfig {
 impl Default for Sega32XEmulatorConfig {
     fn default() -> Self {
         Self {
-            sh2_clock_multiplier: NonZeroU64::new(NATIVE_SH2_MULTIPLIER).unwrap(),
+            sh2_clock_multiplier: NATIVE_SH2_MULTIPLIER as f64,
             video_out: S32XVideoOut::default(),
             darken_genesis_colors: true,
             color_tint: S32XColorTint::default(),
@@ -826,7 +826,7 @@ impl Default for Sega32XEmulatorConfig {
 
 impl EmulatorConfigTrait for Sega32XEmulatorConfig {
     fn with_overclocking_disabled(&self) -> Self {
-        Self { sh2_clock_multiplier: NonZeroU64::new(NATIVE_SH2_MULTIPLIER).unwrap(), ..*self }
+        Self { sh2_clock_multiplier: NATIVE_SH2_MULTIPLIER as f64, ..*self }
     }
 }
 

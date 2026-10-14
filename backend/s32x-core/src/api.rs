@@ -27,6 +27,9 @@ use std::num::NonZeroU64;
 const M68K_DIVIDER: u64 = genesis_config::NATIVE_M68K_DIVIDER;
 const SH2_MULTIPLIER: u64 = crate::SH2_CLOCK_MULTIPLIER;
 
+// Used with non-default multiplier values so that multipliers can be fractional
+const SH2_MULTIPLIER_SCALE: u64 = 4;
+
 // Prefer to execute SH-2 instructions in longer chunks when possible for better performance
 pub(crate) const SH2_EXECUTION_SLICE_LEN: u64 = 50;
 
@@ -75,7 +78,7 @@ impl Sega32X {
             global_cycles: 0,
             master_cycles: 0,
             slave_cycles: 0,
-            sh2_clock_multiplier: none_if_default_multiplier(config.sega_32x.sh2_clock_multiplier),
+            sh2_clock_multiplier: scale_sh2_multiplier(config.sega_32x.sh2_clock_multiplier),
             bus: Sega32XBus::new(timing_mode, cartridge, &config.sega_32x),
             m68k_vectors: Box::new(bootrom::new_m68k_vectors()),
             timing_mode,
@@ -107,9 +110,12 @@ impl Sega32X {
             let (elapsed_sh2_cycles, elapsed_pwm_cycles) = match self.sh2_clock_multiplier {
                 Some(multiplier) => {
                     let multiplier = multiplier.get();
-                    let elapsed_sh2_cycles = self.mclk_counter / M68K_DIVIDER * multiplier;
-                    let elapsed_pwm_cycles = elapsed_sh2_cycles / multiplier * SH2_MULTIPLIER;
-                    self.mclk_counter -= elapsed_sh2_cycles * M68K_DIVIDER / multiplier;
+                    let elapsed_sh2_cycles =
+                        self.mclk_counter / (M68K_DIVIDER * SH2_MULTIPLIER_SCALE) * multiplier;
+                    let elapsed_pwm_cycles =
+                        elapsed_sh2_cycles / multiplier * SH2_MULTIPLIER * SH2_MULTIPLIER_SCALE;
+                    self.mclk_counter -=
+                        elapsed_sh2_cycles * M68K_DIVIDER * SH2_MULTIPLIER_SCALE / multiplier;
 
                     (elapsed_sh2_cycles, elapsed_pwm_cycles)
                 }
@@ -257,8 +263,7 @@ impl Sega32X {
     pub fn reload_config(&mut self, config: &GenesisEmulatorConfig) {
         self.config = config.clone();
 
-        self.sh2_clock_multiplier =
-            none_if_default_multiplier(config.sega_32x.sh2_clock_multiplier);
+        self.sh2_clock_multiplier = scale_sh2_multiplier(config.sega_32x.sh2_clock_multiplier);
         self.bus.vdp.reload_config(&config.sega_32x);
 
         if let Some(cartridge) = &mut self.bus.cartridge {
@@ -588,9 +593,17 @@ impl Sega32X {
     }
 }
 
-fn none_if_default_multiplier(multiplier: NonZeroU64) -> Option<NonZeroU64> {
-    match multiplier.get() {
-        SH2_MULTIPLIER => None,
-        _ => Some(multiplier),
+// Returns None if multiplier is the default (3) or invalid
+fn scale_sh2_multiplier(multiplier: f64) -> Option<NonZeroU64> {
+    if !multiplier.is_finite() || multiplier <= 0.0 {
+        return None;
+    }
+
+    let multiplier_scaled = (SH2_MULTIPLIER_SCALE as f64 * multiplier).round() as u64;
+
+    if multiplier_scaled == SH2_MULTIPLIER_SCALE * SH2_MULTIPLIER {
+        None
+    } else {
+        NonZeroU64::new(multiplier_scaled)
     }
 }

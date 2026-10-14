@@ -334,6 +334,7 @@ impl App {
                 label: "CPU High-Speed Clock Divider",
                 current_value: &mut self.config.pc_engine.cpu_fast_clock_divider,
                 range,
+                step: 1.0,
                 master_clock: pce_core::api::MASTER_CLOCK_FREQUENCY,
                 default_divider: pce_config::NATIVE_FAST_CPU_DIVIDER as f64,
                 modifier: ClockModifier::Divider,

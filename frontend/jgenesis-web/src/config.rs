@@ -462,7 +462,7 @@ impl WebConfig {
         };
 
         let sega_32x_config = Sega32XEmulatorConfig {
-            sh2_clock_multiplier: NonZeroU64::new(genesis_config::NATIVE_SH2_MULTIPLIER).unwrap(),
+            sh2_clock_multiplier: genesis_config::NATIVE_SH2_MULTIPLIER as f64,
             video_out: S32XVideoOut::default(),
             darken_genesis_colors: true,
             color_tint: S32XColorTint::default(),

@@ -138,7 +138,7 @@ impl Default for SegaCdAppConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Sega32XAppConfig {
-    pub sh2_clock_multiplier: NonZeroU64,
+    pub sh2_clock_multiplier: f64,
     pub video_out: S32XVideoOut,
     pub apply_genesis_lpf_to_pwm: bool,
     pub darken_genesis_colors: bool,
@@ -157,7 +157,7 @@ pub struct Sega32XAppConfig {
 impl Default for Sega32XAppConfig {
     fn default() -> Self {
         Self {
-            sh2_clock_multiplier: NonZeroU64::new(genesis_config::NATIVE_SH2_MULTIPLIER).unwrap(),
+            sh2_clock_multiplier: genesis_config::NATIVE_SH2_MULTIPLIER as f64,
             video_out: S32XVideoOut::default(),
             apply_genesis_lpf_to_pwm: true,
             darken_genesis_colors: true,

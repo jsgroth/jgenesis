@@ -222,6 +222,7 @@ pub struct OverclockSlider<'a, Num> {
     pub label: &'a str,
     pub current_value: &'a mut Num,
     pub range: RangeInclusive<Num>,
+    pub step: f64,
     pub master_clock: f64,
     pub default_divider: f64,
     pub modifier: ClockModifier,
@@ -232,7 +233,14 @@ impl<Num: emath::Numeric> Widget for OverclockSlider<'_, Num> {
         ui.group(|ui| {
             ui.label(self.label);
 
-            ui.add(Slider::new(self.current_value, self.range));
+            ui.horizontal(|ui| {
+                ui.style_mut().spacing.slider_width = 200.0;
+                ui.add(Slider::new(self.current_value, self.range).step_by(self.step));
+
+                if ui.button("Default").clicked() {
+                    *self.current_value = Num::from_f64(self.default_divider);
+                }
+            });
 
             let current_divider = self.current_value.to_f64();
 

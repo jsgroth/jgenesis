@@ -336,6 +336,7 @@ impl App {
                 label: "Z80 clock divider",
                 current_value: &mut self.config.smsgg.z80_divider,
                 range: NonZeroU32::new(1).unwrap()..=NonZeroU32::new(15).unwrap(),
+                step: 1.0,
                 master_clock: smsgg_core::audio::NTSC_MCLK_FREQUENCY,
                 default_divider: smsgg_core::NATIVE_Z80_DIVIDER.into(),
                 modifier: ClockModifier::Divider,
