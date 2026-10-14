@@ -36,6 +36,20 @@ static REQUIRED_TEXTURE_USAGES: LazyLock<wgpu::TextureUsages> = LazyLock::new(||
         | wgpu::TextureUsages::STORAGE_BINDING
 });
 
+const PREFERRED_SURFACE_FORMATS_SRGB: [wgpu::TextureFormat; 4] = [
+    wgpu::TextureFormat::Bgra8UnormSrgb,
+    wgpu::TextureFormat::Rgba8UnormSrgb,
+    wgpu::TextureFormat::Bgra8Unorm,
+    wgpu::TextureFormat::Rgba8Unorm,
+];
+
+const PREFERRED_SURFACE_FORMATS_NON_SRGB: [wgpu::TextureFormat; 4] = [
+    wgpu::TextureFormat::Bgra8Unorm,
+    wgpu::TextureFormat::Rgba8Unorm,
+    wgpu::TextureFormat::Bgra8UnormSrgb,
+    wgpu::TextureFormat::Rgba8UnormSrgb,
+];
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct Vertex {
@@ -777,6 +791,8 @@ pub enum RendererError {
     WgpuSurfaceLost,
     #[error("Failed to obtain wgpu adapter")]
     WgpuRequestAdapter(#[from] wgpu::RequestAdapterError),
+    #[error("wgpu surface with {backend:?} adapter supports no texture formats")]
+    WgpuNoSupportedSurfaceFormats { backend: wgpu::Backend },
     #[error(
         "wgpu adapter does not support present mode {desired:?} (from VSync mode {vsync_mode:?}); supported modes are {available:?}"
     )]
@@ -1027,6 +1043,11 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             .await?;
 
         let surface_capabilities = surface.get_capabilities(&adapter);
+        if surface_capabilities.formats.is_empty() {
+            return Err(RendererError::WgpuNoSupportedSurfaceFormats {
+                backend: adapter_info.backend,
+            });
+        }
 
         let present_mode = config.vsync_mode.to_wgpu_present_mode();
         if !present_mode.always_supported()
@@ -1050,15 +1071,15 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
                 _ => true,
             };
 
-        let surface_format = surface_capabilities
-            .formats
-            .iter()
-            .copied()
-            .find(|format| format.is_srgb() == prefer_srgb_format)
-            .unwrap_or_else(|| {
-                log::warn!("wgpu adapter does not support any surface formats with is_srgb={prefer_srgb_format}; defaulting to first format in this list: {:?}", surface_capabilities.formats);
-                surface_capabilities.formats[0]
-            });
+        let preferred_surface_formats = if prefer_srgb_format {
+            PREFERRED_SURFACE_FORMATS_SRGB
+        } else {
+            PREFERRED_SURFACE_FORMATS_NON_SRGB
+        };
+        let surface_format = preferred_surface_formats
+            .into_iter()
+            .find(|&format| surface_capabilities.formats.contains(&format))
+            .unwrap_or(surface_capabilities.formats[0]);
 
         log::info!("Configuring wgpu surface with texture format {surface_format:?}");
 

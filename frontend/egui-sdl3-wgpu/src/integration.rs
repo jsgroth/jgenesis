@@ -12,6 +12,14 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use thiserror::Error;
 
+// egui prefers non-sRGB-aware texture formats, so check for those first
+const PREFERRED_SURFACE_FORMATS: [wgpu::TextureFormat; 4] = [
+    wgpu::TextureFormat::Bgra8Unorm,
+    wgpu::TextureFormat::Rgba8Unorm,
+    wgpu::TextureFormat::Bgra8UnormSrgb,
+    wgpu::TextureFormat::Rgba8UnormSrgb,
+];
+
 pub struct FrameContext<'frame> {
     pub device: &'frame wgpu::Device,
     pub queue: &'frame wgpu::Queue,
@@ -63,6 +71,8 @@ pub enum FrameCreateError {
     WgpuRequestAdapter(#[from] wgpu::RequestAdapterError),
     #[error("Error obtaining wgpu device and queue: {0}")]
     WgpuRequestDevice(#[from] wgpu::RequestDeviceError),
+    #[error("wgpu surface with {backend:?} adapter supports no texture formats")]
+    WgpuNoSupportedSurfaceFormats { backend: wgpu::Backend },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,22 +187,15 @@ impl Frame {
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))?;
 
         let surface_capabilities = surface.get_capabilities(&adapter);
+        if surface_capabilities.formats.is_empty() {
+            return Err(FrameCreateError::WgpuNoSupportedSurfaceFormats {
+                backend: adapter.get_info().backend,
+            });
+        }
 
-        // Exclude formats with non-empty required features because some platforms claim to support
-        // RGBA16 surface formats when they actually do not
-        let supported_formats: Vec<_> = surface_capabilities
-            .formats
-            .iter()
-            .copied()
-            .filter(|&format| format.required_features().is_empty())
-            .collect();
-
-        // egui prefers non-sRGB-aware surface formats
-        let surface_format = supported_formats
-            .iter()
-            .copied()
-            .find(|&format| !format.is_srgb())
-            .or(supported_formats.first().copied())
+        let surface_format = PREFERRED_SURFACE_FORMATS
+            .into_iter()
+            .find(|&format| surface_capabilities.formats.contains(&format))
             .unwrap_or(surface_capabilities.formats[0]);
 
         log::info!(
