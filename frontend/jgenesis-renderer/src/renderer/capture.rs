@@ -176,13 +176,7 @@ impl CaptureState {
             return Err(ReadCapturedFrameError::NoFrameReady);
         }
 
-        let buffer = match self.buffers.buffer.get_mapped_range(..) {
-            Ok(buffer) => buffer,
-            Err(err) => {
-                log::error!("Error mapping capture buffer for read: {err}");
-                return Err(ReadCapturedFrameError::NoFrameReady);
-            }
-        };
+        let buffer = self.buffers.buffer.get_mapped_range(..);
 
         callback
             .copy_buffer(bytemuck::cast_slice(buffer.as_ref()), self.buffers.padded_width as usize);
