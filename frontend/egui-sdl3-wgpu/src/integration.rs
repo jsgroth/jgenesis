@@ -180,7 +180,6 @@ impl Frame {
             power_preference: options.wgpu_power_preference,
             force_fallback_adapter: false,
             compatible_surface: Some(&surface),
-            apply_limit_buckets: false,
         }))?;
 
         let (device, queue) =
@@ -205,7 +204,6 @@ impl Frame {
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
-            color_space: wgpu::SurfaceColorSpace::Auto,
             width,
             height,
             present_mode: options.wgpu_present_mode,
@@ -391,7 +389,7 @@ impl Frame {
         }
 
         self.queue.submit(iter::once(encoder.finish()));
-        self.queue.present(output);
+        output.present();
 
         for id in &full_output.textures_delta.free {
             self.egui_renderer.free_texture(id);
