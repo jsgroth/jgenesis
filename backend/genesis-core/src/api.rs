@@ -506,12 +506,11 @@ impl EmulatorTrait for GenesisEmulator {
         let mut modals = Vec::new();
 
         if self.config.remove_sprite_limits
-            && (self
+            && self
                 .bus
                 .cartridge
                 .as_ref()
                 .is_some_and(|cartridge| cartridge.metadata().sprite_limit_compatibility_issues)
-                || self.bus.sega_cd.as_ref().is_some_and(SegaCd::has_six_button_incompatible_game))
         {
             modals.push(Modal {
                 id: None,
