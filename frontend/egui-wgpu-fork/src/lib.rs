@@ -107,6 +107,7 @@ async fn request_adapter(
             // * fails if there's no software rasterizer available
             // * can achieve the same with `native_adapter_selector`
             force_fallback_adapter: false,
+            apply_limit_buckets: false,
         })
         .await
         .inspect_err(|_err| {

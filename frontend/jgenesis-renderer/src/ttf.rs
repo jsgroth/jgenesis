@@ -81,7 +81,7 @@ impl ModalRenderer {
                 module: &shader,
                 entry_point: None,
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[Vertex::LAYOUT],
+                buffers: &[Some(Vertex::LAYOUT)],
             },
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -182,8 +182,8 @@ impl ModalRenderer {
         let mut text_areas = Vec::with_capacity(self.modals.len());
         let mut line_top = BORDER_OFFSET;
         for (modal, buffer) in self.modals.iter().zip(self.buffers.iter_mut()) {
-            buffer.set_size(&mut self.font_system, Some(width as f32), Some(height as f32));
-            buffer.set_text(&mut self.font_system, &modal.text, &font_attrs, Shaping::Basic, None);
+            buffer.set_size(Some(width as f32), Some(height as f32));
+            buffer.set_text(&modal.text, &font_attrs, Shaping::Basic, None);
             buffer.shape_until_scroll(&mut self.font_system, false);
 
             text_areas.push(TextArea {
