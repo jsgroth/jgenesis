@@ -51,7 +51,7 @@ impl Default for FrameOptions {
             install_egui_image_loaders: false,
             icon: None,
             wgpu_backends: wgpu::Backends::PRIMARY,
-            wgpu_power_preference: wgpu::PowerPreference::None,
+            wgpu_power_preference: wgpu::PowerPreference::HighPerformance,
             wgpu_present_mode: wgpu::PresentMode::AutoNoVsync,
         }
     }
@@ -138,6 +138,8 @@ impl Frame {
         video: &VideoSubsystem,
         options: FrameOptions,
     ) -> Result<Self, FrameCreateError> {
+        log::info!("Frame::new() begin for window '{window_title}'");
+
         let display_scale_factor = try_get_primary_display_scale(video).unwrap_or(1.0);
         let window_width = (options.window_width as f32 * display_scale_factor).round() as u32;
         let window_height = (options.window_height as f32 * display_scale_factor).round() as u32;
@@ -152,6 +154,8 @@ impl Frame {
             window_builder.resizable();
         }
 
+        log::info!("Creating SDL3 window");
+
         let mut window = window_builder.build()?;
 
         if let Some(icon) = &options.icon {
@@ -164,10 +168,23 @@ impl Frame {
             video.text_input().start(&window);
         }
 
+        log::info!("Window created with size {width}x{height}, creating wgpu instance");
+
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: options.wgpu_backends,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
+
+        log::info!("Instance created, available adapters:");
+        for adapter in pollster::block_on(instance.enumerate_adapters(options.wgpu_backends)) {
+            let info = adapter.get_info();
+            log::info!("  {}", info.name);
+            log::info!("    Backend: {:?}", info.backend);
+            log::info!("    Driver name: {}", info.driver);
+            log::info!("    Driver info: {}", info.driver_info);
+        }
+
+        log::info!("Creating wgpu surface from window");
 
         // SAFETY: The surface must not outlive the window
         let surface = unsafe {
@@ -176,6 +193,8 @@ impl Frame {
             )?)
         }?;
 
+        log::info!("Surface created, requesting wgpu adapter");
+
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: options.wgpu_power_preference,
             force_fallback_adapter: false,
@@ -183,8 +202,17 @@ impl Frame {
             apply_limit_buckets: false,
         }))?;
 
+        log::info!(
+            "Adapter obtained for backend {:?}: {}",
+            adapter.get_info().backend,
+            adapter.get_info().name
+        );
+        log::info!("Requesting wgpu device");
+
         let (device, queue) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))?;
+
+        log::info!("Obtained device, picking a surface texture format");
 
         let surface_capabilities = surface.get_capabilities(&adapter);
         if surface_capabilities.formats.is_empty() {
