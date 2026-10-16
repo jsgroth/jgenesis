@@ -51,7 +51,7 @@ impl Default for FrameOptions {
             install_egui_image_loaders: false,
             icon: None,
             wgpu_backends: wgpu::Backends::PRIMARY,
-            wgpu_power_preference: wgpu::PowerPreference::None,
+            wgpu_power_preference: wgpu::PowerPreference::HighPerformance,
             wgpu_present_mode: wgpu::PresentMode::AutoNoVsync,
         }
     }
