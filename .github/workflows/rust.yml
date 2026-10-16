@@ -96,7 +96,7 @@ jobs:
 
       - name: Install wasm-pack
         run: |
-          cargo install wasm-pack
+          cargo install wasm-pack --locked
 
       - name: Build web
         run: |
@@ -138,7 +138,7 @@ jobs:
       - name: Install cargo-packager
         if: steps.packager-cache.outputs.cache-hit != 'true'
         run: |
-          cargo install cargo-packager --version ${{ steps.get-packager-version.outputs.version }}
+          cargo install cargo-packager --locked --version ${{ steps.get-packager-version.outputs.version }}
 
       - name: Build AppImage packages
         run: |
