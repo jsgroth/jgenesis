@@ -796,6 +796,11 @@ impl Vdc {
         self.state.scanline_dot = 0;
         self.state.scanline_mclk = 0;
 
+        if scanline == 0 {
+            self.state.v_latch = LatchedVerticalState::latch(&self.registers);
+            log::trace!("Latched vertical state: {:?}", self.state.v_latch);
+        }
+
         if ACTIVE_DISPLAY_LINES.contains(&scanline) {
             let frame_buffer_row = scanline - ACTIVE_DISPLAY_LINES.start;
             self.frame_buffer.line_dividers[frame_buffer_row as usize] = dot_clock_divider;
@@ -807,11 +812,8 @@ impl Vdc {
             // VCE VSYNC, start new frame
             // Some games depend on starting in VSW phase instead of VDS / top border (e.g. Sherlock
             // Holmes, sets VSW to 0x1C / 29 lines)
-            self.state.v_latch = LatchedVerticalState::latch(&self.registers);
             self.state.v_mode = VerticalMode::VSync;
             self.state.v_counter = 0;
-
-            log::trace!("Latched vertical state: {:?}", self.state.v_latch);
         } else {
             self.state.v_counter += 1;
             if self.state.v_counter >= self.state.v_mode.length(self.state.v_latch) {
