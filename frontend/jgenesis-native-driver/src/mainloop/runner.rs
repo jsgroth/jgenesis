@@ -16,7 +16,7 @@ use jgenesis_common::frontend::{
 use jgenesis_debugger_frontend::DebuggerRunnerProcess;
 use std::error::Error;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
@@ -65,6 +65,32 @@ pub type NativeDebuggerRunnerProcess<Emulator> = dyn DebuggerRunnerProcess<
         FsSaveWriter,
     >;
 
+struct AtomicWindowSize {
+    size: AtomicU64,
+}
+
+impl AtomicWindowSize {
+    fn new(initial_size: WindowSize) -> Self {
+        Self { size: AtomicU64::new(Self::size_to_u64(initial_size)) }
+    }
+
+    fn get(&self) -> WindowSize {
+        Self::u64_to_size(self.size.load(Ordering::Acquire))
+    }
+
+    fn set(&self, size: WindowSize) {
+        self.size.store(Self::size_to_u64(size), Ordering::Release);
+    }
+
+    fn size_to_u64(size: WindowSize) -> u64 {
+        u64::from(size.width) | (u64::from(size.height) << 32)
+    }
+
+    fn u64_to_size(size: u64) -> WindowSize {
+        WindowSize { width: size as u32, height: (size >> 32) as u32 }
+    }
+}
+
 struct RunnerThreadState<Emulator: EmulatorTrait> {
     emulator: Emulator,
     renderer: ThreadedRenderer,
@@ -76,6 +102,7 @@ struct RunnerThreadState<Emulator: EmulatorTrait> {
     command_receiver: Receiver<RunnerCommand<Emulator>>,
     response_sender: Sender<RunnerCommandResponse>,
     error_sender: Sender<Box<dyn Error + Send + Sync + 'static>>,
+    suggested_window_size: Arc<AtomicWindowSize>,
     rom_path: PathBuf,
     rom_extension: String,
     base_save_state_path: PathBuf,
@@ -153,6 +180,7 @@ pub struct RunnerSpawnArgs<'a, Emulator: EmulatorTrait> {
 pub struct RunnerThreadHandle<Emulator: EmulatorTrait> {
     initial_window_title: String,
     default_window_size: WindowSize,
+    suggested_window_size: Arc<AtomicWindowSize>,
     startup_modals: Vec<Modal>,
     renderer_handle: ThreadedRendererHandle,
     input_poller_handle: ThreadedInputPollerHandle<Emulator::Inputs>,
@@ -190,6 +218,10 @@ pub fn spawn<Emulator: EmulatorTrait>(
     let (response_sender, response_receiver) = mpsc::channel();
     let (error_sender, error_receiver) = mpsc::channel();
 
+    // Value doesn't matter, thread will replace it before this function returns
+    let suggested_window_size =
+        Arc::new(AtomicWindowSize::new(WindowSize { width: 320, height: 224 }));
+
     let paused = Arc::new(AtomicBool::new(false));
 
     let (renderer, renderer_handle) = ThreadedRenderer::new();
@@ -203,6 +235,7 @@ pub fn spawn<Emulator: EmulatorTrait>(
     )));
 
     let runner_handle = {
+        let suggested_window_size = Arc::clone(&suggested_window_size);
         let paused = Arc::clone(&paused);
         let save_state_metadata = Arc::clone(&save_state_metadata);
 
@@ -211,9 +244,12 @@ pub fn spawn<Emulator: EmulatorTrait>(
         thread::spawn(move || match create_emulator_fn(&mut save_writer) {
             Ok(CreatedEmulator { emulator, window_title }) => {
                 let startup_modals = emulator.startup_modals();
+
                 let initial_window_size = emulator
                     .suggested_window_size()
                     .to_window_size(common_config.initial_window_size);
+                suggested_window_size.set(initial_window_size);
+
                 init_sender.send(Ok((window_title, initial_window_size, startup_modals))).unwrap();
 
                 let state_saver_thread = state::spawn_state_saver_thread();
@@ -233,6 +269,7 @@ pub fn spawn<Emulator: EmulatorTrait>(
                     command_receiver,
                     response_sender,
                     error_sender,
+                    suggested_window_size,
                     rom_path,
                     rom_extension,
                     base_save_state_path: save_state_path,
@@ -263,6 +300,7 @@ pub fn spawn<Emulator: EmulatorTrait>(
     Ok(RunnerThreadHandle {
         initial_window_title,
         default_window_size,
+        suggested_window_size,
         startup_modals,
         renderer_handle,
         input_poller_handle,
@@ -342,6 +380,10 @@ impl<Emulator: EmulatorTrait> RunnerThreadHandle<Emulator> {
         self.default_window_size
     }
 
+    pub fn suggested_window_size(&self) -> WindowSize {
+        self.suggested_window_size.get()
+    }
+
     pub fn startup_modals(&self) -> &[Modal] {
         &self.startup_modals
     }
@@ -384,6 +426,13 @@ fn run_thread<Emulator: EmulatorTrait>(mut state: RunnerThreadState<Emulator>) {
         }
 
         state.step_frame = false;
+
+        let suggested_window_size = state.emulator.suggested_window_size();
+        if !suggested_window_size.fallback_aspect_ratio {
+            state
+                .suggested_window_size
+                .set(suggested_window_size.to_window_size(state.common_config.initial_window_size));
+        }
 
         if rewinding
             && let Err(err) = state.rewinder.tick(

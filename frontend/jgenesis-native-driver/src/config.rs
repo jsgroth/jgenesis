@@ -44,7 +44,8 @@ pub struct CommonConfig {
     pub state_path: SavePath,
     pub apply_patches: ApplyPatches,
     #[cfg_display(debug_fmt)]
-    pub window_size: Option<WindowSize>,
+    pub forced_window_size: Option<WindowSize>,
+    pub auto_resize_window: bool,
     #[cfg_display(indent_nested)]
     pub renderer_config: RendererConfig,
     pub fast_forward_multiplier: u64,
@@ -285,7 +286,8 @@ impl AppConfigExt for AppConfig {
             } else {
                 ApplyPatches::No
             },
-            window_size: self.common.window_size(),
+            forced_window_size: self.common.window_size(),
+            auto_resize_window: self.common.auto_resize_window,
             renderer_config: RendererConfig {
                 wgpu_backend: self.common.wgpu_backend,
                 wgpu_power_preference: self.common.wgpu_power_preference,

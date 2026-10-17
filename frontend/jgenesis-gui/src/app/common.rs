@@ -4,7 +4,7 @@ use crate::app::widgets::{NumericTextEdit, SavePathSelect};
 use crate::app::{App, OpenWindow, widgets};
 use egui::{Color32, Context, Grid, Slider, TextEdit, Ui, Window};
 use jgenesis_native_config::EguiTheme;
-use jgenesis_native_config::common::{CheatPath, HideMouseCursor, PauseEmulator};
+use jgenesis_native_config::common::{CheatPath, HideMouseCursor, PauseEmulator, WindowSizeMode};
 use jgenesis_native_config::paths::{ConfigDirType, ConfigWithPath};
 use jgenesis_renderer::config::{
     AntiDitherShader, FilterMode, FrameRotation, NtscShaderConfig, PreprocessShader,
@@ -36,19 +36,20 @@ impl App {
         const WINDOW: OpenWindow = OpenWindow::CommonVideo;
 
         let mut open = true;
-        Window::new(WINDOW.title()).open(&mut open).resizable(false).show(ctx, |ui| {
-            widgets::render_vertical_scroll_area(ui, |ui| {
-                self.render_fullscreen_settings(ui, WINDOW);
-                self.render_window_size_setting(ui, WINDOW);
-                self.render_borderless_setting(ui, WINDOW);
-                self.render_integer_height_scaling_settings(ui, WINDOW);
-                self.render_wgpu_backend_setting(ui, WINDOW);
-                self.render_wgpu_power_preference_setting(ui, WINDOW);
-                self.render_frame_rotation_setting(ui, WINDOW);
-            });
+        Window::new(WINDOW.title()).open(&mut open).default_width(400.0).resizable(false).show(
+            ctx,
+            |ui| {
+                widgets::render_vertical_scroll_area(ui, |ui| {
+                    self.render_window_settings(ui, WINDOW);
+                    self.render_integer_height_scaling_settings(ui, WINDOW);
+                    self.render_wgpu_backend_setting(ui, WINDOW);
+                    self.render_wgpu_power_preference_setting(ui, WINDOW);
+                    self.render_frame_rotation_setting(ui, WINDOW);
+                });
 
-            self.render_help_text(ui, WINDOW);
-        });
+                self.render_help_text(ui, WINDOW);
+            },
+        );
         if !open {
             self.state.open_windows.remove(&WINDOW);
         }
@@ -74,45 +75,128 @@ impl App {
         }
     }
 
-    fn render_fullscreen_settings(&mut self, ui: &mut Ui, window: OpenWindow) {
-        let rect = ui
-            .checkbox(&mut self.config.common.launch_in_fullscreen, "Launch in fullscreen")
-            .interact_rect;
-        if ui.rect_contains_pointer(rect) {
-            self.state.help_text.insert(window, helptext::FULLSCREEN);
-        }
-    }
+    fn render_window_settings(&mut self, ui: &mut Ui, window: OpenWindow) {
+        const MIN_SIZE_SCALE: NonZeroU8 = NonZeroU8::new(1).unwrap();
+        const MAX_SIZE_SCALE: NonZeroU8 = NonZeroU8::new(10).unwrap();
+        const MAX_SIZE_DIMENSION: u32 = 8192;
 
-    fn render_window_size_setting(&mut self, ui: &mut Ui, window: OpenWindow) {
-        const MIN_SIZE: NonZeroU8 = NonZeroU8::new(1).unwrap();
-        const MAX_SIZE: NonZeroU8 = NonZeroU8::new(10).unwrap();
+        ui.group(|ui| {
+            ui.label("Emulator window");
 
-        let rect = ui
-            .horizontal(|ui| {
-                ui.label("Initial window size:");
+            let rect = ui
+                .checkbox(&mut self.config.common.launch_in_fullscreen, "Launch in fullscreen")
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(window, helptext::FULLSCREEN);
+            }
 
-                ui.add(
-                    Slider::new(&mut self.config.common.initial_window_size, MIN_SIZE..=MAX_SIZE)
-                        .custom_formatter(|n, _| {
-                            let n = n as u8;
-                            format!("{n}x")
-                        }),
-                );
-            })
-            .response
-            .interact_rect;
-        if ui.rect_contains_pointer(rect) {
-            self.state.help_text.insert(window, helptext::INITIAL_WINDOW_SIZE);
-        }
-    }
+            let rect = ui
+                .checkbox(&mut self.config.common.borderless_window, "Borderless window")
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(window, helptext::BORDERLESS_WINDOW);
+            }
 
-    fn render_borderless_setting(&mut self, ui: &mut Ui, window: OpenWindow) {
-        let rect = ui
-            .checkbox(&mut self.config.common.borderless_window, "Borderless window")
-            .interact_rect;
-        if ui.rect_contains_pointer(rect) {
-            self.state.help_text.insert(window, helptext::BORDERLESS_WINDOW);
-        }
+            ui.add_enabled_ui(self.config.common.window_size_mode == WindowSizeMode::Auto, |ui| {
+                let rect = ui
+                    .horizontal(|ui| {
+                        ui.label("Window size scale:");
+
+                        ui.add(
+                            Slider::new(
+                                &mut self.config.common.initial_window_size,
+                                MIN_SIZE_SCALE..=MAX_SIZE_SCALE,
+                            )
+                            .custom_formatter(|n, _| {
+                                let n = n as u8;
+                                format!("{n}x")
+                            }),
+                        );
+                    })
+                    .response
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(window, helptext::INITIAL_WINDOW_SIZE);
+                }
+
+                let rect = ui
+                    .checkbox(
+                        &mut self.config.common.auto_resize_window,
+                        "Automatically resize on aspect ratio and resolution changes",
+                    )
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(window, helptext::AUTO_RESIZE_WINDOW);
+                }
+            });
+
+            let rect = ui
+                .horizontal(|ui| {
+                    ui.label("Window size:");
+
+                    ui.radio_value(
+                        &mut self.config.common.window_size_mode,
+                        WindowSizeMode::Auto,
+                        "Auto",
+                    );
+                    ui.radio_value(
+                        &mut self.config.common.window_size_mode,
+                        WindowSizeMode::Manual,
+                        "Manual",
+                    );
+                })
+                .response
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(window, helptext::WINDOW_SIZE_MODE);
+            }
+
+            let rect = ui
+                .add_enabled_ui(
+                    self.config.common.window_size_mode == WindowSizeMode::Manual,
+                    |ui| {
+                        let validate_window_size = |value: u32| (1..=MAX_SIZE_DIMENSION).contains(&value);
+
+                        ui.horizontal(|ui| {
+                            ui.label("Width:");
+                            ui.add(
+                                NumericTextEdit::new(
+                                    &mut self.state.window_width_text,
+                                    &mut self.config.common.window_width,
+                                    &mut self.state.window_width_invalid,
+                                )
+                                .desired_width(50.0)
+                                .with_validation(validate_window_size),
+                            );
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label("Height:");
+                            ui.add(
+                                NumericTextEdit::new(
+                                    &mut self.state.window_height_text,
+                                    &mut self.config.common.window_height,
+                                    &mut self.state.window_height_invalid,
+                                )
+                                .desired_width(50.0)
+                                .with_validation(validate_window_size),
+                            );
+                        });
+
+                        if self.state.window_width_invalid || self.state.window_height_invalid {
+                            ui.colored_label(
+                                Color32::RED,
+                                format!("Window width and height must be in the range 1-{MAX_SIZE_DIMENSION}"),
+                            );
+                        }
+                    },
+                )
+                .response
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(window, helptext::MANUAL_WINDOW_SIZE);
+            }
+        });
     }
 
     fn render_wgpu_backend_setting(&mut self, ui: &mut Ui, window: OpenWindow) {

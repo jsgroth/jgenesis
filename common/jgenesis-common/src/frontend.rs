@@ -340,10 +340,20 @@ impl<Inputs> InputPoller<Inputs> for ConstantInputPoller<'_, Inputs> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WindowSize {
     pub width: u32,
     pub height: u32,
+}
+
+impl WindowSize {
+    #[must_use]
+    pub fn clamp_dimensions(self, max_dimension: u32) -> Self {
+        Self {
+            width: self.width.clamp(1, max_dimension),
+            height: self.height.clamp(1, max_dimension),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

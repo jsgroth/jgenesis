@@ -1,8 +1,9 @@
 use crate::NativeEmulatorResult;
+use jgenesis_common::frontend::WindowSize;
 use jgenesis_renderer::renderer;
 use jgenesis_renderer::renderer::WgpuRenderer;
-use sdl3::VideoSubsystem;
 use sdl3::video::{FullscreenType, HitTestResult, Window};
+use sdl3::{IntegerOrSdlError, VideoSubsystem};
 use std::ffi::NulError;
 use std::ptr;
 use std::sync::Arc;
@@ -70,6 +71,8 @@ pub trait RendererExt {
     ///
     /// Returns an error if the title contains any null characters.
     fn set_window_title(&mut self, title: &str) -> Result<(), NulError>;
+
+    fn set_window_size(&mut self, size: WindowSize) -> Result<(), IntegerOrSdlError>;
 }
 
 impl RendererExt for WgpuRenderer<Window> {
@@ -127,6 +130,11 @@ impl RendererExt for WgpuRenderer<Window> {
         // SAFETY: This is not reassigning the window
         unsafe { self.window_mut().set_title(title) }
     }
+
+    fn set_window_size(&mut self, size: WindowSize) -> Result<(), IntegerOrSdlError> {
+        // SAFETY: This is not reassigning the window
+        unsafe { self.window_mut().set_size(size.width, size.height) }
+    }
 }
 
 pub struct CreateWindowArgs<'a> {
@@ -180,6 +188,20 @@ pub fn size(window: &Window) -> renderer::WindowSize {
     let pixel_density = window.pixel_density();
 
     renderer::WindowSize { width, height, pixel_density }
+}
+
+pub fn scale_size(size: WindowSize, renderer: &WgpuRenderer<Window>) -> WindowSize {
+    let window = renderer.window();
+
+    let window_display_scale: f64 = window.display_scale().into();
+    let pixel_density: f64 = window.pixel_density().into();
+    let content_scale = window_display_scale / pixel_density;
+
+    let scaled = WindowSize {
+        width: (f64::from(size.width) * content_scale).round() as u32,
+        height: (f64::from(size.height) * content_scale).round() as u32,
+    };
+    scaled.clamp_dimensions(renderer.max_texture_dimension_2d())
 }
 
 fn update_window_hit_test(

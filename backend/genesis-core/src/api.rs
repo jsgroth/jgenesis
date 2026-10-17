@@ -539,6 +539,7 @@ impl EmulatorTrait for GenesisEmulator {
         if self.hardware.has_32x() {
             // Make 32X window a little wider than Genesis by default so that the frame won't shrink if a
             // game switches to H32 mode while the renderer has forced integer height scaling enabled
+            // TODO would be better to only do this when the extra width is used, but that logic is messy
             width *= 323.25 / 320.0;
         }
 

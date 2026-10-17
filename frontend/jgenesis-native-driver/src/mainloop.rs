@@ -50,7 +50,9 @@ use egui_sdl3_wgpu::FrameRunEffect;
 use gb_core::api::GameBoyLoadError;
 use gba_core::api::GbaLoadError;
 use genesis_config::GenesisRegion;
-use jgenesis_common::frontend::{EmulatorConfigTrait, EmulatorTrait, FrameSize, MappableInputs};
+use jgenesis_common::frontend::{
+    EmulatorConfigTrait, EmulatorTrait, FrameSize, MappableInputs, WindowSize,
+};
 use jgenesis_debugger_frontend::{DebugFn, DebuggerWindow};
 use jgenesis_native_config::EguiTheme;
 use jgenesis_native_config::common::HideMouseCursor;
@@ -158,6 +160,7 @@ pub struct NativeEmulator<Emulator: EmulatorTrait> {
     common_config: CommonConfig,
     renderer: WgpuRenderer<Window>,
     window_size: Arc<AtomicWindowSize>,
+    last_auto_resize: WindowSize,
     audio_output_handle: SdlAudioOutputHandle,
     input_mapper: InputMapper<Emulator::Button>,
     inputs: Emulator::Inputs,
@@ -174,11 +177,28 @@ pub struct NativeEmulator<Emulator: EmulatorTrait> {
 impl<Emulator: EmulatorTrait> NativeEmulator<Emulator> {
     fn reload_common_config(&mut self, config: &CommonConfig) -> Result<(), AudioError> {
         let borderless_changed = config.borderless_window != self.common_config.borderless_window;
+        let forced_window_size_changed =
+            config.forced_window_size != self.common_config.forced_window_size;
+        let window_size_unforced =
+            config.forced_window_size.is_none() && self.common_config.forced_window_size.is_some();
         self.common_config = config.clone();
 
         self.renderer.reload_config(config.renderer_config);
         if borderless_changed {
             self.renderer.update_borderless(config.borderless_window, &self.window_size);
+        }
+
+        if forced_window_size_changed && let Some(size) = config.forced_window_size {
+            let scaled_size = window::scale_size(size, &self.renderer);
+
+            // Force auto-resize to run if window size is later unforced
+            self.last_auto_resize = scaled_size;
+
+            if let Err(err) = self.renderer.set_window_size(scaled_size) {
+                log::error!("Error changing window size: {err}");
+            }
+        } else if window_size_unforced {
+            self.handle_auto_resize();
         }
 
         self.audio_output_handle.reload_config(config)?;
@@ -491,7 +511,14 @@ where
             save_writer,
         })?;
 
-        let initial_window_size = common_config.window_size.unwrap_or(runner.default_window_size());
+        let mut initial_window_size =
+            common_config.forced_window_size.unwrap_or(runner.default_window_size());
+
+        if let Some(max_dimension) = pollster::block_on(
+            jgenesis_renderer::try_get_max_texture_dimension_2d(common_config.renderer_config),
+        ) {
+            initial_window_size = initial_window_size.clamp_dimensions(max_dimension);
+        }
 
         let (window, atomic_window_size) = window::create(
             &sdl.video.borrow(),
@@ -518,6 +545,7 @@ where
             common_config: common_config.clone(),
             renderer,
             window_size: atomic_window_size,
+            last_auto_resize: WindowSize { width: window_size.width, height: window_size.height },
             audio_output_handle,
             input_mapper,
             inputs: initial_inputs,
@@ -637,8 +665,11 @@ where
                     return Ok(Some(effect));
                 }
 
-                self.start_capture_if_pending();
+                if self.common_config.auto_resize_window {
+                    self.handle_auto_resize();
+                }
 
+                self.start_capture_if_pending();
                 self.fps_tracker.record_frame();
             }
             Err(RecvFrameError::Render(err)) => return Err(NativeEmulatorError::Render(err)),
@@ -687,6 +718,35 @@ where
         }
     }
 
+    fn handle_auto_resize(&mut self) {
+        if self.common_config.forced_window_size.is_some() {
+            return;
+        }
+
+        let (current_window_width, current_window_height) = self.renderer.window().size_in_pixels();
+        let current_size =
+            WindowSize { width: current_window_width, height: current_window_height };
+
+        let suggested_window_size = self.runner.suggested_window_size();
+        let scaled_suggested_size = window::scale_size(suggested_window_size, &self.renderer);
+
+        if scaled_suggested_size == self.last_auto_resize || scaled_suggested_size == current_size {
+            return;
+        }
+
+        self.last_auto_resize = scaled_suggested_size;
+
+        log::info!(
+            "Changing window size from {current_window_width}x{current_window_height} to {}x{}",
+            scaled_suggested_size.width,
+            scaled_suggested_size.height
+        );
+
+        if let Err(err) = self.renderer.set_window_size(scaled_suggested_size) {
+            log::error!("Error changing window size: {err}");
+        }
+    }
+
     fn stop_debugger(&mut self) -> NativeEmulatorResult<()> {
         self.hotkey_state.debugger_window = None;
         self.window_state.debugger_focused = false;
@@ -729,7 +789,7 @@ where
                 if window_id == self.renderer.window_id() =>
             {
                 let window_size = window::size(self.renderer.window());
-                self.renderer.handle_resize(window_size);
+                self.renderer.handle_resize(window_size)?;
                 self.window_size.update(window_size);
             }
             _ => {}

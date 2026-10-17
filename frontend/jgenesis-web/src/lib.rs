@@ -713,7 +713,9 @@ impl AppState {
                 elwt.exit();
             }
             WindowEvent::Resized(_) => {
-                self.renderer.handle_resize(CANVAS_SIZE);
+                if let Err(err) = self.renderer.handle_resize(CANVAS_SIZE) {
+                    log::error!("Error handling window resize event: {err}");
+                }
 
                 // Show cursor only when not fullscreen
                 js::setCursorVisible(self.renderer.window().fullscreen().is_none());

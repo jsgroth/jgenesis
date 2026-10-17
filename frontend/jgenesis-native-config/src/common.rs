@@ -17,6 +17,16 @@ const DEFAULT_SCANLINES_BRIGHTNESS: f64 = 0.5;
 const DEFAULT_FAST_FORWARD_MULTIPLIER: u64 = 2;
 const DEFAULT_REWIND_BUFFER_LENGTH: u64 = 10;
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumAll,
+)]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum WindowSizeMode {
+    #[default]
+    Auto,
+    Manual,
+}
+
 #[derive(Debug, Clone)]
 pub enum SavePath {
     RomFolder,
@@ -129,8 +139,10 @@ pub struct CommonAppConfig {
     pub state_path: ConfigSavePath,
     pub custom_state_path: PathBuf,
     pub apply_patches: bool,
-    pub window_width: Option<u32>,
-    pub window_height: Option<u32>,
+    pub window_width: u32,
+    pub window_height: u32,
+    pub window_size_mode: WindowSizeMode,
+    pub auto_resize_window: bool,
     pub launch_in_fullscreen: bool,
     pub borderless_window: bool,
     pub initial_window_size: NonZeroU8,
@@ -161,12 +173,13 @@ pub struct CommonAppConfig {
 }
 
 impl CommonAppConfig {
-    #[inline]
     #[must_use]
     pub fn window_size(&self) -> Option<WindowSize> {
-        match (self.window_width, self.window_height) {
-            (Some(width), Some(height)) => Some(WindowSize { width, height }),
-            _ => None,
+        match self.window_size_mode {
+            WindowSizeMode::Auto => None,
+            WindowSizeMode::Manual => {
+                Some(WindowSize { width: self.window_width, height: self.window_height })
+            }
         }
     }
 }
@@ -186,8 +199,10 @@ impl Default for CommonAppConfig {
             state_path: ConfigSavePath::default(),
             custom_state_path: default_custom_state_path(),
             apply_patches: true,
-            window_width: None,
-            window_height: None,
+            window_width: 878,
+            window_height: 672,
+            window_size_mode: WindowSizeMode::default(),
+            auto_resize_window: true,
             launch_in_fullscreen: false,
             borderless_window: false,
             initial_window_size: DEFAULT_INITIAL_WINDOW_SIZE,

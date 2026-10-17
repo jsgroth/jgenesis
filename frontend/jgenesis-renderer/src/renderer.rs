@@ -147,7 +147,6 @@ impl RenderingPipeline {
     #[allow(clippy::too_many_arguments)]
     fn create(
         device: &wgpu::Device,
-        limits: &wgpu::Limits,
         shaders: &Shaders,
         window_size: WindowSize,
         frame_size: FrameSize,
@@ -162,6 +161,8 @@ impl RenderingPipeline {
         ) -> Arc<wgpu::Texture> {
             Arc::clone(pipeline.last().map_or(input, |shader| shader.output_texture()))
         }
+
+        let limits = device.limits();
 
         let input_texture = Arc::new(device.create_texture(&wgpu::TextureDescriptor {
             label: "input_texture".into(),
@@ -324,7 +325,7 @@ impl RenderingPipeline {
             options.pixel_aspect_ratio,
             &current_output_texture!(),
             device,
-            limits,
+            &limits,
             shaders,
         ) {
             log::debug!("Adding prescale/scanlines shader");
@@ -781,6 +782,10 @@ pub enum RendererError {
     WindowHandleError(#[from] HandleError),
     #[error("Error creating wgpu surface: {0}")]
     WgpuCreateSurface(#[from] wgpu::CreateSurfaceError),
+    #[error(
+        "surface size of {width}x{height} exceeds maximum supported size of {max_dimension}x{max_dimension}"
+    )]
+    WgpuSurfaceTooLarge { width: u32, height: u32, max_dimension: u32 },
     #[error("Error requesting wgpu device: {0}")]
     WgpuRequestDevice(#[from] wgpu::RequestDeviceError),
     #[error("Timeout obtaining wgpu surface texture")]
@@ -963,7 +968,6 @@ pub struct WgpuRenderer<Window> {
     surface_config: wgpu::SurfaceConfiguration,
     surface_capabilities: wgpu::SurfaceCapabilities,
     device: wgpu::Device,
-    device_limits: wgpu::Limits,
     queue: wgpu::Queue,
     shaders: Shaders,
     renderer_config: RendererConfig,
@@ -1042,6 +1046,17 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             })
             .await?;
 
+        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
+        if window_size.width > max_texture_dimension_2d
+            || window_size.height > max_texture_dimension_2d
+        {
+            return Err(RendererError::WgpuSurfaceTooLarge {
+                width: window_size.width,
+                height: window_size.height,
+                max_dimension: max_texture_dimension_2d,
+            });
+        }
+
         let surface_capabilities = surface.get_capabilities(&adapter);
         if surface_capabilities.formats.is_empty() {
             return Err(RendererError::WgpuNoSupportedSurfaceFormats {
@@ -1096,7 +1111,6 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
         };
         surface.configure(&device, &surface_config);
 
-        let device_limits = device.limits();
         let shaders = Shaders::create(&device);
 
         #[cfg(feature = "ttf")]
@@ -1107,7 +1121,6 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             surface_config,
             surface_capabilities,
             device,
-            device_limits,
             queue,
             shaders,
             renderer_config: config,
@@ -1191,10 +1204,26 @@ impl<Window> WgpuRenderer<Window> {
             self.renderer_config.frame_time_sync && !force_sync_off;
     }
 
-    pub fn handle_resize(&mut self, size: WindowSize) {
+    /// Call when the window is resized.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the window size exceeds the maximum allowed size in either dimension.
+    /// This is guaranteed to be at least 8192x8192, and in practice is 16384x16384 on most modern
+    /// platforms.
+    pub fn handle_resize(&mut self, size: WindowSize) -> Result<(), RendererError> {
         if self.window_size == size {
             // No change
-            return;
+            return Ok(());
+        }
+
+        let max_texture_dimension_2d = self.device.limits().max_texture_dimension_2d;
+        if size.width > max_texture_dimension_2d || size.height > max_texture_dimension_2d {
+            return Err(RendererError::WgpuSurfaceTooLarge {
+                width: size.width,
+                height: size.height,
+                max_dimension: max_texture_dimension_2d,
+            });
         }
 
         self.window_size = size;
@@ -1205,6 +1234,8 @@ impl<Window> WgpuRenderer<Window> {
 
         // Force render pipeline to be recreated on the next render_frame() call
         self.pipelines.clear();
+
+        Ok(())
     }
 
     /// Obtain a shared reference to the window.
@@ -1235,6 +1266,11 @@ impl<Window> WgpuRenderer<Window> {
 
     pub fn config(&self) -> &RendererConfig {
         &self.renderer_config
+    }
+
+    #[must_use]
+    pub fn max_texture_dimension_2d(&self) -> u32 {
+        self.device.limits().max_texture_dimension_2d
     }
 
     /// Obtain the last rendered frame size and the current display area within the window.
@@ -1397,7 +1433,6 @@ impl<Window> Renderer for WgpuRenderer<Window> {
 
             RenderingPipeline::create(
                 &self.device,
-                &self.device_limits,
                 &self.shaders,
                 self.window_size,
                 frame_size,
