@@ -5,7 +5,6 @@ use crate::{NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extension
 use gba_config::{GbaInputs, SolarSensorState};
 use gba_core::api::GameBoyAdvanceEmulator;
 use jgenesis_common::frontend::SaveWriter;
-use jgenesis_native_config::common::WindowSize;
 use jgenesis_native_config::input::mappings::ButtonMappingVec;
 use std::fs;
 
@@ -46,9 +45,7 @@ impl CreatableEmulator for GameBoyAdvanceEmulator {
         let rom_title = file_name_no_ext(&input.rom_path)?;
         let window_title = format!("gba - {rom_title}");
 
-        let default_window_size = WindowSize::new_gba(config.common.initial_window_size);
-
-        Ok(CreatedEmulator { emulator, window_title, default_window_size })
+        Ok(CreatedEmulator { emulator, window_title })
     }
 
     fn common_config(config: &Self::NativeConfig) -> &CommonConfig {

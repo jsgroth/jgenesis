@@ -10,10 +10,12 @@ use bincode::{Decode, Encode};
 use cdrom::reader::CdRom;
 use genesis_components::cartridge::Cartridge;
 use genesis_components::vdp::{Vdp, VdpTickEffect};
-use genesis_config::{GenesisButton, GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
+use genesis_config::{
+    GenesisAspectRatio, GenesisButton, GenesisEmulatorConfig, GenesisInputs, GenesisRegion,
+};
 use jgenesis_common::frontend::{
     AudioOutput, EmulatorTrait, InputPoller, Modal, PartialClone, RenderFrameOptions, Renderer,
-    SaveWriter, TickEffect, TickResult, TimingMode,
+    SaveWriter, SuggestedWindowSize, TickEffect, TickResult, TimingMode,
 };
 use m68000_emu::M68000;
 use s32x_core::api::Sega32X;
@@ -519,5 +521,39 @@ impl EmulatorTrait for GenesisEmulator {
         }
 
         modals
+    }
+
+    fn suggested_window_size(&self) -> SuggestedWindowSize {
+        let frame_size = self.bus.vdp.frame_size();
+        let par_params = self.config.to_gen_par_params();
+        let aspect_ratio = self.config.aspect_ratio.to_pixel_aspect_ratio(
+            self.timing_mode,
+            frame_size,
+            par_params,
+        );
+        let aspect_ratio_with_fallback = aspect_ratio.or(GenesisAspectRatio::default()
+            .to_pixel_aspect_ratio(self.timing_mode, frame_size, par_params));
+
+        let mut width: f64 = frame_size.width.into();
+
+        if self.hardware.has_32x() {
+            // Make 32X window a little wider than Genesis by default so that the frame won't shrink if a
+            // game switches to H32 mode while the renderer has forced integer height scaling enabled
+            width *= 323.25 / 320.0;
+        }
+
+        if let Some(aspect_ratio) = aspect_ratio_with_fallback {
+            width *= aspect_ratio.get();
+        }
+
+        let mut height: f64 = frame_size.height.into();
+
+        if frame_size.height >= 448 {
+            // In interlaced mode; cut suggested window size dimensions in half
+            width *= 0.5;
+            height *= 0.5;
+        }
+
+        SuggestedWindowSize { width, height, fallback_aspect_ratio: aspect_ratio.is_none() }
     }
 }

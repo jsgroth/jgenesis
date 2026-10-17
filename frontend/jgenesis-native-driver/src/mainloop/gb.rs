@@ -4,7 +4,6 @@ use crate::mainloop::{CreatedEmulator, NativeDebugFn, create, file_name_no_ext};
 use crate::{NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
 use gb_core::api::{BootRoms, GameBoyEmulator};
 use jgenesis_common::frontend::SaveWriter;
-use jgenesis_native_config::common::WindowSize;
 use jgenesis_native_config::input::mappings::ButtonMappingVec;
 use std::fs;
 use std::path::PathBuf;
@@ -48,9 +47,7 @@ impl CreatableEmulator for GameBoyEmulator {
         let rom_title = file_name_no_ext(&input.rom_path)?;
         let window_title = format!("gb - {rom_title}");
 
-        let default_window_size = WindowSize::new_gb(config.common.initial_window_size);
-
-        Ok(CreatedEmulator { emulator, window_title, default_window_size })
+        Ok(CreatedEmulator { emulator, window_title })
     }
 
     fn common_config(config: &Self::NativeConfig) -> &CommonConfig {

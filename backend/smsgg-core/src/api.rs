@@ -12,7 +12,7 @@ use jgenesis_common::cheats::ByteCheatCodeU16Address;
 use jgenesis_common::frontend::{
     AudioOutput, Color, CompositeParams, EmulatorConfigTrait, EmulatorTrait, FrameSize,
     InputPoller, PartialClone, RenderFrameOptions, Renderer, SamplesPerColorCycle, SaveWriter,
-    TickEffect, TimingMode,
+    SuggestedWindowSize, TickEffect, TimingMode,
 };
 use jgenesis_proc_macros::ConfigDisplay;
 use smsgg_config::{
@@ -207,25 +207,30 @@ impl SmsGgEmulator {
             self.frame_buffer.as_mut_slice(),
         );
 
+        renderer.render_frame(
+            self.frame_buffer.as_slice(),
+            self.frame_size(),
+            self.target_fps(),
+            self.config.render_options(self.vdp_version.hardware()),
+        )
+    }
+
+    fn frame_size(&self) -> FrameSize {
         let viewport = self.vdp.viewport();
-        let frame_width = if self.config.sms_crop_left_border {
+
+        let width = if self.config.sms_crop_left_border {
             viewport.width_without_border().into()
         } else {
             viewport.width.into()
         };
-        let frame_height = if self.config.sms_crop_vertical_border {
+
+        let height = if self.config.sms_crop_vertical_border {
             viewport.height_without_border().into()
         } else {
             viewport.height.into()
         };
 
-        let frame_size = FrameSize { width: frame_width, height: frame_height };
-        renderer.render_frame(
-            self.frame_buffer.as_slice(),
-            frame_size,
-            self.target_fps(),
-            self.config.render_options(self.vdp_version.hardware()),
-        )
+        FrameSize { width, height }
     }
 
     pub fn copy_cram(&self, out: &mut [Color]) {
@@ -449,6 +454,33 @@ impl EmulatorTrait for SmsGgEmulator {
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
         self.audio_resampler.update_output_frequency(output_frequency);
+    }
+
+    fn suggested_window_size(&self) -> SuggestedWindowSize {
+        let frame_size = self.frame_size();
+        let aspect_ratio = match self.hardware() {
+            SmsGgHardware::MasterSystem | SmsGgHardware::Sg1000 => {
+                self.config.sms_aspect_ratio.to_pixel_aspect_ratio()
+            }
+            SmsGgHardware::GameGear => self.config.gg_aspect_ratio.to_pixel_aspect_ratio(),
+        };
+        let aspect_ratio_with_fallback = aspect_ratio.or(match self.hardware() {
+            SmsGgHardware::MasterSystem | SmsGgHardware::Sg1000 => {
+                SmsAspectRatio::default().to_pixel_aspect_ratio()
+            }
+            SmsGgHardware::GameGear => GgAspectRatio::default().to_pixel_aspect_ratio(),
+        });
+
+        let mut width: f64 = frame_size.width.into();
+        if let Some(aspect_ratio) = aspect_ratio_with_fallback {
+            width *= aspect_ratio.get();
+        }
+
+        SuggestedWindowSize {
+            width,
+            height: frame_size.height.into(),
+            fallback_aspect_ratio: aspect_ratio.is_none(),
+        }
     }
 }
 

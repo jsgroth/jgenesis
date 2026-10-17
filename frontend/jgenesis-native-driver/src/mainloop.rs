@@ -53,7 +53,7 @@ use genesis_config::GenesisRegion;
 use jgenesis_common::frontend::{EmulatorConfigTrait, EmulatorTrait, FrameSize, MappableInputs};
 use jgenesis_debugger_frontend::{DebugFn, DebuggerWindow};
 use jgenesis_native_config::EguiTheme;
-use jgenesis_native_config::common::{HideMouseCursor, WindowSize};
+use jgenesis_native_config::common::HideMouseCursor;
 use jgenesis_native_config::input::mappings::ButtonMappingVec;
 use jgenesis_native_config::input::{CompactHotkey, Hotkey};
 use jgenesis_renderer::renderer::{
@@ -360,7 +360,6 @@ pub type NativeEmulatorResult<T> = Result<T, NativeEmulatorError>;
 pub struct CreatedEmulator<Emulator: EmulatorTrait> {
     pub emulator: Emulator,
     pub window_title: String,
-    pub default_window_size: WindowSize,
 }
 
 pub(crate) type CreateEmulatorFn<Emulator> = dyn FnOnce(&mut FsSaveWriter) -> Result<CreatedEmulator<Emulator>, NativeEmulatorError>

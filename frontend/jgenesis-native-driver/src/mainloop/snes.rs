@@ -5,7 +5,6 @@ use crate::{NativeEmulator, NativeEmulatorResult, extensions};
 
 use crate::mainloop::create::{CreatableEmulator, ReadInputResult};
 use jgenesis_common::frontend::SaveWriter;
-use jgenesis_native_config::common::WindowSize;
 use jgenesis_native_config::input::mappings::{ButtonMappingVec, SnesControllerType};
 use snes_config::SnesJoypadState;
 use snes_core::api::SnesEmulator;
@@ -73,12 +72,7 @@ impl CreatableEmulator for SnesEmulator {
         let cartridge_title = emulator.cartridge_title();
         let window_title = format!("snes - {cartridge_title}");
 
-        let default_window_size = WindowSize::new_snes(
-            config.common.initial_window_size,
-            config.emulator_config.aspect_ratio,
-        );
-
-        Ok(CreatedEmulator { emulator, window_title, default_window_size })
+        Ok(CreatedEmulator { emulator, window_title })
     }
 
     fn common_config(config: &Self::NativeConfig) -> &CommonConfig {

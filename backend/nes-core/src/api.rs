@@ -11,7 +11,7 @@ use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
     AudioOutput, Color, CompositeParams, EmulatorConfigTrait, EmulatorTrait, FrameSize,
     InputPoller, NtscPerFrameParams, PartialClone, RenderFrameOptions, Renderer,
-    SamplesPerColorCycle, SaveWriter, TickEffect, TickResult, TimingMode,
+    SamplesPerColorCycle, SaveWriter, SuggestedWindowSize, TickEffect, TickResult, TimingMode,
 };
 use jgenesis_proc_macros::ConfigDisplay;
 use std::fmt::{Debug, Display};
@@ -215,17 +215,7 @@ impl NesEmulator {
             self.config.emulate_ntsc_output,
         );
 
-        let visible_screen_height = display_mode.visible_screen_height();
-        let frame_size = FrameSize {
-            width: ppu::SCREEN_WIDTH
-                .saturating_sub(overscan.left)
-                .saturating_sub(overscan.right)
-                .into(),
-            height: visible_screen_height
-                .saturating_sub(overscan.top)
-                .saturating_sub(overscan.bottom)
-                .into(),
-        };
+        let frame_size = self.frame_size();
 
         if frame_size.width == 0 || frame_size.height == 0 {
             log::error!("Overscan values are too large, entire frame was cropped: {overscan}");
@@ -257,6 +247,27 @@ impl NesEmulator {
                 ..RenderFrameOptions::default()
             },
         )
+    }
+
+    fn frame_size(&self) -> FrameSize {
+        let overscan = self.config.overscan;
+        let display_mode = if !self.config.ntsc_crop_vertical_overscan {
+            TimingMode::Pal
+        } else {
+            self.bus.mapper().timing_mode()
+        };
+        let visible_screen_height = display_mode.visible_screen_height();
+
+        FrameSize {
+            width: ppu::SCREEN_WIDTH
+                .saturating_sub(overscan.left)
+                .saturating_sub(overscan.right)
+                .into(),
+            height: visible_screen_height
+                .saturating_sub(overscan.top)
+                .saturating_sub(overscan.bottom)
+                .into(),
+        }
     }
 
     fn push_audio_sample(&mut self) {
@@ -405,6 +416,30 @@ impl EmulatorTrait for NesEmulator {
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
         self.audio_resampler.update_output_frequency(output_frequency);
+    }
+
+    fn suggested_window_size(&self) -> SuggestedWindowSize {
+        let frame_size = self.frame_size();
+
+        if frame_size.width == 0 || frame_size.height == 0 {
+            // Overscan cropped entire frame
+            return SuggestedWindowSize { width: 1.0, height: 1.0, fallback_aspect_ratio: true };
+        }
+
+        let aspect_ratio = self.config.aspect_ratio.to_pixel_aspect_ratio();
+        let aspect_ratio_with_fallback = NesAspectRatio::default().to_pixel_aspect_ratio();
+
+        let mut width: f64 = frame_size.width.into();
+
+        if let Some(aspect_ratio) = aspect_ratio_with_fallback {
+            width *= aspect_ratio.get();
+        }
+
+        SuggestedWindowSize {
+            width,
+            height: frame_size.height.into(),
+            fallback_aspect_ratio: aspect_ratio.is_none(),
+        }
     }
 }
 

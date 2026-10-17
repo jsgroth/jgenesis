@@ -8,9 +8,9 @@ use genesis_config::{
     S32XVoidColor, S32XVoidColorType, Sega32XEmulatorConfig, SegaCdEmulatorConfig,
 };
 use genesis_core::api::GenesisHardware;
-use jgenesis_common::frontend::{ColorCorrection, FiniteF32};
+use jgenesis_common::frontend::{ColorCorrection, FiniteF32, WindowSize};
 use jgenesis_native_config::common::{
-    ApplyPatches, ConfigSavePath, HideMouseCursor, PauseEmulator, SavePath, WindowSize,
+    ApplyPatches, ConfigSavePath, HideMouseCursor, PauseEmulator, SavePath,
 };
 use jgenesis_native_config::input::mappings::PceInputConfig;
 use jgenesis_native_config::input::mappings::{

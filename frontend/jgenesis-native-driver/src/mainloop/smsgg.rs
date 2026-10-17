@@ -6,7 +6,6 @@ use crate::{NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extension
 
 use crate::mainloop::create::{CreatableEmulator, ReadInputResult, RomPatchResult};
 use jgenesis_common::frontend::SaveWriter;
-use jgenesis_native_config::common::WindowSize;
 use jgenesis_native_config::input::mappings::ButtonMappingVec;
 use smsgg_core::{SmsGgEmulator, SmsGgHardware};
 use std::path::PathBuf;
@@ -143,18 +142,7 @@ impl CreatableEmulator for SmsGgEmulator {
             SmsGgHardware::Sg1000 => format!("sg1000 - {rom_title}"),
         };
 
-        let default_window_size = match hardware {
-            SmsGgHardware::MasterSystem | SmsGgHardware::Sg1000 => WindowSize::new_sms(
-                config.common.initial_window_size,
-                config.emulator_config.sms_aspect_ratio,
-            ),
-            SmsGgHardware::GameGear => WindowSize::new_game_gear(
-                config.common.initial_window_size,
-                config.emulator_config.gg_aspect_ratio,
-            ),
-        };
-
-        Ok(CreatedEmulator { emulator, window_title, default_window_size })
+        Ok(CreatedEmulator { emulator, window_title })
     }
 
     fn common_config(config: &Self::NativeConfig) -> &CommonConfig {

@@ -17,8 +17,8 @@ use jgenesis_common::frontend::FrameSize;
 use jgenesis_common::num::GetBit;
 use std::ops::Range;
 
-const SCREEN_WIDTH: usize = 160;
-const SCREEN_HEIGHT: usize = 144;
+pub const SCREEN_WIDTH: usize = 160;
+pub const SCREEN_HEIGHT: usize = 144;
 
 pub const FRAME_BUFFER_LEN: usize = SCREEN_WIDTH * SCREEN_HEIGHT;
 

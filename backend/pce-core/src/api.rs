@@ -15,7 +15,7 @@ use cdrom::reader::CdRom;
 use huc6280_emu::Huc6280;
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, FiniteF64, InputPoller, PartialClone,
-    RenderFrameOptions, Renderer, SaveWriter, TickEffect, TickResult,
+    RenderFrameOptions, Renderer, SaveWriter, SuggestedWindowSize, TickEffect, TickResult,
 };
 use jgenesis_proc_macros::ConfigDisplay;
 use pce_config::{
@@ -71,6 +71,20 @@ impl PceEmulatorConfig {
     #[must_use]
     pub fn clamped_cpu_fast_divider(&self) -> u64 {
         cmp::min(pce_config::NATIVE_FAST_CPU_DIVIDER, self.cpu_fast_clock_divider.get())
+    }
+}
+
+trait PceAspectRatioExt {
+    fn to_pixel_aspect_ratio(self, ntsc_aspect_ratio: FiniteF64) -> Option<FiniteF64>;
+}
+
+impl PceAspectRatioExt for PceAspectRatio {
+    fn to_pixel_aspect_ratio(self, ntsc_aspect_ratio: FiniteF64) -> Option<FiniteF64> {
+        match self {
+            PceAspectRatio::Ntsc => Some(ntsc_aspect_ratio),
+            PceAspectRatio::SquarePixels => Some(FiniteF64::ONE),
+            PceAspectRatio::Stretched => None,
+        }
     }
 }
 
@@ -163,11 +177,8 @@ impl PcEngineEmulator {
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
         self.video.render_rgba8_frame_buffer();
 
-        let aspect_ratio = match self.config.aspect_ratio {
-            PceAspectRatio::Ntsc => Some(self.video.ntsc_aspect_ratio()),
-            PceAspectRatio::SquarePixels => Some(FiniteF64::ONE),
-            PceAspectRatio::Stretched => None,
-        };
+        let aspect_ratio =
+            self.config.aspect_ratio.to_pixel_aspect_ratio(self.video.ntsc_aspect_ratio());
 
         renderer.render_frame(
             self.video.frame_buffer(),
@@ -339,5 +350,26 @@ impl EmulatorTrait for PcEngineEmulator {
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
         self.audio_resampler.update_output_frequency(output_frequency);
+    }
+
+    fn suggested_window_size(&self) -> SuggestedWindowSize {
+        let frame_size = self.video.frame_size();
+
+        let ntsc_aspect_ratio = self.video.ntsc_aspect_ratio();
+        let aspect_ratio = self.config.aspect_ratio.to_pixel_aspect_ratio(ntsc_aspect_ratio);
+        let aspect_ratio_with_fallback =
+            aspect_ratio.or(PceAspectRatio::default().to_pixel_aspect_ratio(ntsc_aspect_ratio));
+
+        let mut width: f64 = frame_size.width.into();
+
+        if let Some(aspect_ratio) = aspect_ratio_with_fallback {
+            width *= aspect_ratio.get();
+        }
+
+        SuggestedWindowSize {
+            width,
+            height: frame_size.height.into(),
+            fallback_aspect_ratio: aspect_ratio.is_none(),
+        }
     }
 }

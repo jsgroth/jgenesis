@@ -4,7 +4,6 @@ use crate::mainloop::{CreatedEmulator, NativeDebugFn, create, file_name_no_ext};
 use crate::{NativeEmulator, NativeEmulatorError, NativeEmulatorResult, extensions};
 use cdrom::reader::CdRomFileFormat;
 use jgenesis_common::frontend::{EmulatorTrait, SaveWriter};
-use jgenesis_native_config::common::WindowSize;
 use jgenesis_native_config::input::mappings::ButtonMappingVec;
 use pce_core::api::PcEngineEmulator;
 use std::fs;
@@ -90,13 +89,7 @@ impl CreatableEmulator for PcEngineEmulator {
         let rom_title = file_name_no_ext(&input.rom_path)?;
         let window_title = format!("pce - {rom_title}");
 
-        let default_window_size = WindowSize::new_pce(
-            config.common.initial_window_size,
-            config.emulator_config.aspect_ratio,
-            config.emulator_config.crop_overscan,
-        );
-
-        Ok(CreatedEmulator { emulator, window_title, default_window_size })
+        Ok(CreatedEmulator { emulator, window_title })
     }
 
     fn common_config(config: &Self::NativeConfig) -> &CommonConfig {

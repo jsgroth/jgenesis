@@ -8,7 +8,6 @@ use nes_core::input::{NesInputDevice, NesInputs, ZapperState};
 
 use crate::mainloop::create::{CreatableEmulator, ReadInputResult};
 use jgenesis_common::frontend::SaveWriter;
-use jgenesis_native_config::common::WindowSize;
 use jgenesis_native_config::input::mappings::{ButtonMappingVec, NesControllerType};
 use nes_config::NesJoypadState;
 
@@ -51,14 +50,7 @@ impl CreatableEmulator for NesEmulator {
         let rom_title = file_name_no_ext(&input.rom_path)?;
         let window_title = format!("nes - {rom_title}");
 
-        let default_window_size = WindowSize::new_nes(
-            config.common.initial_window_size,
-            config.emulator_config.aspect_ratio,
-            emulator.timing_mode(),
-            config.emulator_config.ntsc_crop_vertical_overscan,
-        );
-
-        Ok(CreatedEmulator { emulator, window_title, default_window_size })
+        Ok(CreatedEmulator { emulator, window_title })
     }
 
     fn common_config(config: &Self::NativeConfig) -> &CommonConfig {

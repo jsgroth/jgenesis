@@ -21,7 +21,8 @@ use bincode::{Decode, Encode};
 use gba_config::{GbaAspectRatio, GbaAudioInterpolation, GbaButton, GbaInputs, GbaSaveMemory};
 use jgenesis_common::frontend::{
     AudioOutput, Color, ColorCorrection, EmulatorConfigTrait, EmulatorTrait, InputPoller,
-    PartialClone, RenderFrameOptions, Renderer, SaveWriter, TickEffect, TickResult,
+    PartialClone, RenderFrameOptions, Renderer, SaveWriter, SuggestedWindowSize, TickEffect,
+    TickResult,
 };
 use jgenesis_proc_macros::ConfigDisplay;
 use std::fmt::{Debug, Display};
@@ -417,5 +418,14 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
         self.bus.apu.update_output_frequency(output_frequency);
         self.stop_state.output_frequency = output_frequency;
+    }
+
+    fn suggested_window_size(&self) -> SuggestedWindowSize {
+        // Only GBA aspect ratio options are square pixels and stretched
+        SuggestedWindowSize {
+            width: ppu::SCREEN_WIDTH.into(),
+            height: ppu::SCREEN_HEIGHT.into(),
+            fallback_aspect_ratio: self.config.aspect_ratio.to_pixel_aspect_ratio().is_none(),
+        }
     }
 }

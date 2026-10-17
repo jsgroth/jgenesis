@@ -9,7 +9,6 @@ use genesis_config::{GenesisController, GenesisInputs, GenesisRegion};
 use genesis_core::GenesisEmulator;
 use genesis_core::api::GenesisHardware;
 use jgenesis_common::frontend::{EmulatorTrait, SaveWriter};
-use jgenesis_native_config::common::WindowSize;
 use jgenesis_native_config::input::mappings::ButtonMappingVec;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -121,23 +120,9 @@ impl CreatableEmulator for GenesisEmulator {
             save_writer,
         )?;
 
-        let default_window_size = if config.hardware.has_32x() {
-            WindowSize::new_32x(
-                config.common.initial_window_size,
-                emulator.timing_mode(),
-                &config.emulator_config,
-            )
-        } else {
-            WindowSize::new_genesis(
-                config.common.initial_window_size,
-                emulator.timing_mode(),
-                &config.emulator_config,
-            )
-        };
-
         let window_title = generate_window_title(&mut emulator, config.hardware);
 
-        Ok(CreatedEmulator { emulator, window_title, default_window_size })
+        Ok(CreatedEmulator { emulator, window_title })
     }
 
     fn common_config(config: &Self::NativeConfig) -> &CommonConfig {

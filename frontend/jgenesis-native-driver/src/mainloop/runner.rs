@@ -11,10 +11,9 @@ use crate::mainloop::state::{SaveStatePaths, StateSaverThreadHandle};
 use crate::mainloop::{CreateEmulatorFn, CreatedEmulator, save, state};
 use crate::{NativeEmulatorError, NativeEmulatorResult, SaveStateMetadata};
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorTrait, Modal, Renderer, SaveWriter, TickEffect,
+    AudioOutput, EmulatorTrait, Modal, Renderer, SaveWriter, TickEffect, WindowSize,
 };
 use jgenesis_debugger_frontend::DebuggerRunnerProcess;
-use jgenesis_native_config::common::WindowSize;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -210,9 +209,12 @@ pub fn spawn<Emulator: EmulatorTrait>(
         let common_config = common_config.clone();
 
         thread::spawn(move || match create_emulator_fn(&mut save_writer) {
-            Ok(CreatedEmulator { emulator, window_title, default_window_size }) => {
+            Ok(CreatedEmulator { emulator, window_title }) => {
                 let startup_modals = emulator.startup_modals();
-                init_sender.send(Ok((window_title, default_window_size, startup_modals))).unwrap();
+                let initial_window_size = emulator
+                    .suggested_window_size()
+                    .to_window_size(common_config.initial_window_size);
+                init_sender.send(Ok((window_title, initial_window_size, startup_modals))).unwrap();
 
                 let state_saver_thread = state::spawn_state_saver_thread();
 
