@@ -13,6 +13,10 @@ use std::time::Duration;
 use std::{cmp, io, iter, mem, thread};
 use thiserror::Error;
 
+// Roughly 3.8GB
+// AVI and WAV files can't be larger than 4GB, so end recording a little before hitting that
+const FILE_SIZE_LIMIT: u32 = 4_080_218_931;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VideoCaptureCodec {
     None,
@@ -86,6 +90,10 @@ pub enum CaptureError {
     Io(#[from] io::Error),
     #[error("audio sample rate changed from {from} Hz to {to} Hz")]
     AudioSampleRateChanged { from: u32, to: u32 },
+    #[error("AVI file is too large")]
+    AviFileTooLarge,
+    #[error("WAV file is too large")]
+    WavFileTooLarge,
     #[error("capture thread unexpectedly disconnected")]
     ThreadDisconnected,
 }
@@ -98,6 +106,8 @@ enum CaptureThreadCommand {
 #[derive(Debug)]
 enum CaptureThreadResponse {
     IoError(io::Error),
+    AviFileTooLarge,
+    WavFileTooLarge,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -181,7 +191,7 @@ impl CaptureThread {
             }
         };
 
-        match self.run_inner(writer) {
+        match self.run_inner(writer, &response_sender) {
             Ok(()) => {
                 log::info!("Ended {capture_type_str} capture");
             }
@@ -215,7 +225,11 @@ impl CaptureThread {
         Ok(writer)
     }
 
-    fn run_inner(mut self, mut writer: CaptureWriter) -> io::Result<()> {
+    fn run_inner(
+        mut self,
+        mut writer: CaptureWriter,
+        response_sender: &Sender<CaptureThreadResponse>,
+    ) -> io::Result<()> {
         loop {
             match self.command_receiver.recv_timeout(Duration::from_millis(1)) {
                 Ok(command) => {
@@ -250,6 +264,21 @@ impl CaptureThread {
 
             if let CaptureWriter::Audio(wave_writer) = &mut writer {
                 self.drain_captured_audio(|samples| wave_writer.write_audio_chunk(samples))?;
+            }
+
+            match &writer {
+                CaptureWriter::Video(avi_writer) => {
+                    if avi_writer.current_file_len() > FILE_SIZE_LIMIT {
+                        let _ = response_sender.send(CaptureThreadResponse::AviFileTooLarge);
+                        return self.finish(writer);
+                    }
+                }
+                CaptureWriter::Audio(wave_writer) => {
+                    if wave_writer.current_file_len() > FILE_SIZE_LIMIT {
+                        let _ = response_sender.send(CaptureThreadResponse::WavFileTooLarge);
+                        return self.finish(writer);
+                    }
+                }
             }
         }
     }
@@ -377,6 +406,8 @@ impl CaptureThreadHandle {
     pub fn check_status(&self) -> Result<(), CaptureError> {
         match self.response_receiver.try_recv() {
             Ok(CaptureThreadResponse::IoError(err)) => Err(CaptureError::Io(err)),
+            Ok(CaptureThreadResponse::WavFileTooLarge) => Err(CaptureError::WavFileTooLarge),
+            Ok(CaptureThreadResponse::AviFileTooLarge) => Err(CaptureError::AviFileTooLarge),
             Err(TryRecvError::Empty) => Ok(()),
             Err(TryRecvError::Disconnected) => Err(CaptureError::ThreadDisconnected),
         }

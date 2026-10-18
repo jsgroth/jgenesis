@@ -245,6 +245,10 @@ impl AviWriter {
     pub fn finish(self) -> io::Result<()> {
         finalize_avi_file(self.writer, &self.index, self.frame_count, self.sample_count)
     }
+
+    pub fn current_file_len(&self) -> u32 {
+        self.current_index_offset + 396
+    }
 }
 
 fn write_avi_header(

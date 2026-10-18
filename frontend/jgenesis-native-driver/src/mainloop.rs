@@ -34,7 +34,7 @@ use crate::config::CommonConfig;
 use crate::fpstracker::FpsTracker;
 use crate::input::{InputEvent, InputMapper, Joysticks};
 use crate::mainloop::audio::{SdlAudioOutput, SdlAudioOutputHandle};
-use crate::mainloop::capture::{CaptureThreadHandle, StartCapture};
+use crate::mainloop::capture::{CaptureError, CaptureThreadHandle, StartCapture};
 use crate::mainloop::create::WindowTitle;
 use crate::mainloop::input::ThreadedInputPoller;
 use crate::mainloop::render::{RecvFrameError, ThreadedRenderer};
@@ -686,8 +686,19 @@ where
             && let Err(err) = capture_thread.check_status()
         {
             log::error!("Error in capture thread: {err}");
-            self.renderer
-                .add_modal("Audio capture terminated with I/O error".into(), MODAL_DURATION);
+
+            let modal_text = match err {
+                CaptureError::Io(_) | CaptureError::ThreadDisconnected => {
+                    "Capture failed due to I/O error"
+                }
+                CaptureError::AviFileTooLarge => "Aborting capture due to AVI file size",
+                CaptureError::WavFileTooLarge => "Aborting capture due to WAV file size",
+                CaptureError::AudioSampleRateChanged { .. } => {
+                    "Aborting capture due to audio sample rate change"
+                }
+            };
+            self.renderer.add_modal(modal_text.into(), MODAL_DURATION);
+
             self.end_capture();
         }
 

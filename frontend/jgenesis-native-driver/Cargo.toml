@@ -36,7 +36,7 @@ jgenesis-renderer = { workspace = true, features = ["serde", "ttf"] }
 
 bincode = { workspace = true }
 clap = { workspace = true }
-flate2 = { workspace = true }
+flate2 = { workspace = true, features = ["zlib-rs"] }
 log = { workspace = true }
 pollster = { workspace = true }
 regex = { workspace = true }

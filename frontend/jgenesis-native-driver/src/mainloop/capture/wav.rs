@@ -7,6 +7,7 @@ use std::path::Path;
 pub struct WaveWriter {
     writer: BufWriter<File>,
     format: AudioCaptureFormat,
+    sample_count: u32,
 }
 
 impl WaveWriter {
@@ -20,15 +21,20 @@ impl WaveWriter {
 
         write_wav_header(&mut writer, sample_rate, format)?;
 
-        Ok(Self { writer, format })
+        Ok(Self { writer, format, sample_count: 0 })
     }
 
     pub fn write_audio_chunk(&mut self, samples: &[(f32, f32)]) -> io::Result<()> {
+        self.sample_count += samples.len() as u32;
         self.format.encode_samples(samples, &mut self.writer)
     }
 
     pub fn finish(self) -> io::Result<()> {
         finalize_wav_file(self.writer)
+    }
+
+    pub fn current_file_len(&self) -> u32 {
+        44 + 2 * self.format.bytes_per_sample() * self.sample_count
     }
 }
 
