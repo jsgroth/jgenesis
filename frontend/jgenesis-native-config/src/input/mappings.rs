@@ -991,6 +991,10 @@ define_controller_mapping!(PceJoypadMapping, PceButton, [
     down: Down,
     button1: Button1,
     button2: Button2,
+    button3: Button3,
+    button4: Button4,
+    button5: Button5,
+    button6: Button6,
     run: Run,
     select: Select,
 ]);
@@ -1005,6 +1009,10 @@ impl PceJoypadMapping {
             down: key_input!(Down),
             button1: key_input!(A),
             button2: key_input!(S),
+            button3: key_input!(D),
+            button4: key_input!(E),
+            button5: key_input!(W),
+            button6: key_input!(Q),
             run: key_input!(Return),
             select: key_input!(RShift),
         }
@@ -1019,6 +1027,10 @@ impl PceJoypadMapping {
             down: key_input!(D),
             button1: key_input!(L),
             button2: key_input!(K),
+            button3: key_input!(J),
+            button4: key_input!(U),
+            button5: key_input!(I),
+            button6: key_input!(O),
             run: key_input!(Return),
             select: key_input!(RShift),
         }

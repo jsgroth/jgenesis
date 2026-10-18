@@ -301,6 +301,10 @@ impl Frame {
             .take_raw_input(now.duration_since(self.start_time).unwrap_or_default().as_secs_f64());
 
         let full_output = self.platform.context().run_ui(egui_input, |ui| {
+            // Workaround for https://github.com/emilk/egui/issues/8092
+            #[cfg(debug_assertions)]
+            ui.global_style_mut(|style| style.debug.warn_if_rect_changes_id = false);
+
             let frame_ctx = FrameContext {
                 device: &self.device,
                 queue: &self.queue,

@@ -14,6 +14,10 @@ define_controller_inputs! {
         Down -> down "Down",
         Button1 -> button1 "Button I",
         Button2 -> button2 "Button II",
+        Button3 -> button3 "Button III",
+        Button4 -> button4 "Button IV",
+        Button5 -> button5 "Button V",
+        Button6 -> button6 "Button VI",
         Run -> run "Run",
         Select -> select "Select",
     },
@@ -26,6 +30,14 @@ define_controller_inputs! {
             p4: Player::Four,
             p5: Player::Five,
         }
+    }
+}
+
+impl PceButton {
+    #[inline]
+    #[must_use]
+    pub fn is_six_button_only(self) -> bool {
+        matches!(self, Self::Button3 | Self::Button4 | Self::Button5 | Self::Button6)
     }
 }
 
@@ -91,8 +103,20 @@ pub enum PcePsgResampler {
 )]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum PceGamepadType {
+    #[default]
+    TwoButton,
+    SixButton,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr, EnumAll,
+)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum PceInputDevice {
     #[default]
     TwoButtonGamepad,
+    SixButtonGamepad,
     TurboTap,
 }

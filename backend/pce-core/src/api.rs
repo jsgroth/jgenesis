@@ -19,8 +19,8 @@ use jgenesis_common::frontend::{
 };
 use jgenesis_proc_macros::ConfigDisplay;
 use pce_config::{
-    PceAspectRatio, PceButton, PceInputDevice, PceInputs, PcePaletteType, PcePsgResampler,
-    PceRegion, PceSystemCardModel,
+    PceAspectRatio, PceButton, PceGamepadType, PceInputDevice, PceInputs, PcePaletteType,
+    PcePsgResampler, PceRegion, PceSystemCardModel,
 };
 use std::cmp;
 use std::fmt::{Debug, Display};
@@ -54,6 +54,8 @@ pub struct PceEmulatorConfig {
     pub input_device: PceInputDevice,
     #[cfg_display(debug_fmt)]
     pub turbo_tap_connected: [bool; pce_config::TURBO_TAP_GAMEPADS as usize],
+    #[cfg_display(debug_fmt)]
+    pub turbo_tap_gamepad_types: [PceGamepadType; pce_config::TURBO_TAP_GAMEPADS as usize],
     pub allow_opposing_joypad_directions: bool,
     pub allow_simultaneous_run_select: bool,
 }

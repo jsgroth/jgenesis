@@ -600,6 +600,7 @@ impl AppConfigExt for AppConfig {
                 adpcm_volume_adjustment_db: self.pc_engine.adpcm_volume_adjustment_db,
                 input_device: self.pc_engine.input_device,
                 turbo_tap_connected: self.pc_engine.turbo_tap_connected,
+                turbo_tap_gamepad_types: self.pc_engine.turbo_tap_gamepad_types,
                 allow_opposing_joypad_directions: self.pc_engine.allow_opposing_joypad_directions,
                 allow_simultaneous_run_select: self.pc_engine.allow_simultaneous_run_select,
             },

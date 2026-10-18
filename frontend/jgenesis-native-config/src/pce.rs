@@ -1,8 +1,10 @@
 use jgenesis_proc_macros::deserialize_default_on_error;
 use pce_config::{
-    PceAspectRatio, PceInputDevice, PcePaletteType, PcePsgResampler, PceRegion, PceSystemCardModel,
+    PceAspectRatio, PceGamepadType, PceInputDevice, PcePaletteType, PcePsgResampler, PceRegion,
+    PceSystemCardModel,
 };
 use serde::{Deserialize, Serialize};
+use std::array;
 use std::num::NonZeroU64;
 use std::path::PathBuf;
 
@@ -31,6 +33,7 @@ pub struct PcEngineAppConfig {
     pub adpcm_volume_adjustment_db: f64,
     pub input_device: PceInputDevice,
     pub turbo_tap_connected: [bool; pce_config::TURBO_TAP_GAMEPADS as usize],
+    pub turbo_tap_gamepad_types: [PceGamepadType; pce_config::TURBO_TAP_GAMEPADS as usize],
     pub allow_opposing_joypad_directions: bool,
     pub allow_simultaneous_run_select: bool,
 }
@@ -59,6 +62,7 @@ impl Default for PcEngineAppConfig {
             adpcm_volume_adjustment_db: 0.0,
             input_device: PceInputDevice::default(),
             turbo_tap_connected: [true, true, false, false, false],
+            turbo_tap_gamepad_types: array::from_fn(|_| PceGamepadType::default()),
             allow_opposing_joypad_directions: false,
             allow_simultaneous_run_select: false,
         }

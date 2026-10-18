@@ -20,7 +20,7 @@ use jgenesis_native_config::input::mappings::{PceInputMapping, PceJoypadMapping}
 use jgenesis_native_config::input::{GenericInput, Hotkey};
 use jgenesis_native_config::snes::SnesAppConfig;
 use nes_config::NesButton;
-use pce_config::{PceButton, PceInputDevice};
+use pce_config::{PceButton, PceGamepadType, PceInputDevice};
 use polonius_the_crab::{polonius, polonius_return};
 use smsgg_config::SmsGgButton;
 use snes_config::SnesButton;
@@ -196,9 +196,15 @@ impl GenericButton {
             Self::Gba(button @ (GbaButton::A | GbaButton::B | GbaButton::L | GbaButton::R)) => {
                 access_gba_value(mapping, button, true, config)
             }
-            Self::Pce(button @ (PceButton::Button1 | PceButton::Button2), player) => {
-                access_pce_value(mapping, button, player, true, config)
-            }
+            Self::Pce(
+                button @ (PceButton::Button1
+                | PceButton::Button2
+                | PceButton::Button3
+                | PceButton::Button4
+                | PceButton::Button5
+                | PceButton::Button6),
+                player,
+            ) => access_pce_value(mapping, button, player, true, config),
             _ => None,
         }
     }
@@ -1100,7 +1106,8 @@ impl App {
 
                 ui.horizontal(|ui| {
                     for (value, label) in [
-                        (PceInputDevice::TwoButtonGamepad, "Gamepad"),
+                        (PceInputDevice::TwoButtonGamepad, "2-button gamepad"),
+                        (PceInputDevice::SixButtonGamepad, "6-button gamepad"),
                         (PceInputDevice::TurboTap, "Turbo Tap"),
                     ] {
                         ui.radio_value(&mut self.config.pc_engine.input_device, value, label);
@@ -1155,15 +1162,35 @@ impl App {
             let using_turbo_tap = self.config.pc_engine.input_device == PceInputDevice::TurboTap;
             if !using_turbo_tap {
                 self.state.pce_selected_player_idx = 0;
+                self.config.pc_engine.turbo_tap_gamepad_types[0] =
+                    match self.config.pc_engine.input_device {
+                        PceInputDevice::TwoButtonGamepad => PceGamepadType::TwoButton,
+                        PceInputDevice::SixButtonGamepad => PceGamepadType::SixButton,
+                        PceInputDevice::TurboTap => unreachable!("already checked in if"),
+                    };
             }
 
-            ui.add_enabled_ui(using_turbo_tap, |ui| {
-                ComboBox::new("pce_player_combo", "").show_index(
-                    ui,
-                    &mut self.state.pce_selected_player_idx,
-                    5,
-                    |player_idx| format!("Player {}", player_idx + 1),
-                );
+            ui.horizontal(|ui| {
+                ui.add_enabled_ui(using_turbo_tap, |ui| {
+                    ComboBox::new("pce_player_combo", "").show_index(
+                        ui,
+                        &mut self.state.pce_selected_player_idx,
+                        5,
+                        |player_idx| format!("Player {}", player_idx + 1),
+                    );
+
+                    for (value, label) in [
+                        (PceGamepadType::TwoButton, "2-button"),
+                        (PceGamepadType::SixButton, "6-button"),
+                    ] {
+                        ui.radio_value(
+                            &mut self.config.pc_engine.turbo_tap_gamepad_types
+                                [self.state.pce_selected_player_idx],
+                            value,
+                            label,
+                        );
+                    }
+                });
             });
             ui.add_space(5.0);
 
@@ -1171,8 +1198,19 @@ impl App {
                 [self.state.pce_selected_player_idx];
 
             Grid::new("pce_inputs").spacing([50.0, 5.0]).show(ui, |ui| {
+                let six_button = match self.config.pc_engine.input_device {
+                    PceInputDevice::TwoButtonGamepad => false,
+                    PceInputDevice::SixButtonGamepad => true,
+                    PceInputDevice::TurboTap => {
+                        self.config.pc_engine.turbo_tap_gamepad_types
+                            [self.state.pce_selected_player_idx]
+                            == PceGamepadType::SixButton
+                    }
+                };
+
                 let buttons = PceButton::ALL
                     .into_iter()
+                    .filter(|&button| six_button || !button.is_six_button_only())
                     .map(|button| GenericButton::Pce(button, player))
                     .collect::<Vec<_>>();
 
