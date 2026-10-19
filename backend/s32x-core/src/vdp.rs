@@ -960,14 +960,8 @@ impl Vdp {
         mut aspect_ratio: Option<FiniteF64>,
         renderer: &mut R,
     ) -> Result<(), R::Err> {
-        let mut frame_size = genesis_vdp.frame_size();
-
-        frame_size.width =
-            determine_expanded_buffer_width::<H32>(frame_size, genesis_vdp.border_size());
-
-        let gen_pixel_width = genesis_expanded_pixel_width::<H32>();
-        aspect_ratio = aspect_ratio
-            .map(|par| par * FiniteF64::try_from(1.0 / f64::from(gen_pixel_width)).unwrap());
+        let frame_size = self.frame_size(genesis_vdp);
+        aspect_ratio = self.pixel_aspect_ratio(aspect_ratio);
 
         let target_fps =
             genesis_components::target_framerate(genesis_vdp, genesis_vdp.timing_mode());
@@ -988,6 +982,34 @@ impl Vdp {
 
     pub fn reload_config(&mut self, config: &Sega32XEmulatorConfig) {
         self.config = VdpConfig::from_emu_config(config);
+    }
+
+    pub fn frame_size(&self, genesis_vdp: &GenesisVdp) -> FrameSize {
+        let mut frame_size = genesis_vdp.frame_size();
+
+        frame_size.width = match self.state.next_render_buffer {
+            WhichFrameBuffer::Genesis => return frame_size,
+            WhichFrameBuffer::ExpandedH32 => {
+                determine_expanded_buffer_width::<true>(frame_size, genesis_vdp.border_size())
+            }
+            WhichFrameBuffer::ExpandedH40 => {
+                determine_expanded_buffer_width::<false>(frame_size, genesis_vdp.border_size())
+            }
+        };
+
+        frame_size
+    }
+
+    pub fn pixel_aspect_ratio(&self, genesis_aspect_ratio: Option<FiniteF64>) -> Option<FiniteF64> {
+        let aspect_ratio = genesis_aspect_ratio?;
+
+        let gen_pixel_width = match self.state.next_render_buffer {
+            WhichFrameBuffer::Genesis => return Some(aspect_ratio),
+            WhichFrameBuffer::ExpandedH32 => genesis_expanded_pixel_width::<true>(),
+            WhichFrameBuffer::ExpandedH40 => genesis_expanded_pixel_width::<false>(),
+        };
+
+        Some(aspect_ratio * FiniteF64::try_from(1.0 / f64::from(gen_pixel_width)).unwrap())
     }
 }
 

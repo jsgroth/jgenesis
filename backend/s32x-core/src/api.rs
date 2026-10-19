@@ -12,7 +12,7 @@ use bincode::{Decode, Encode};
 use genesis_components::cartridge::Cartridge;
 use genesis_components::vdp::BorderSize;
 use genesis_config::GenesisEmulatorConfig;
-use jgenesis_common::frontend::{FrameSize, Renderer, TimingMode};
+use jgenesis_common::frontend::{FiniteF64, FrameSize, Renderer, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::PartialClone;
 use sh2_emu::Sh2;
@@ -590,6 +590,23 @@ impl Sega32X {
             self.config.to_gen_par_params(),
         );
         self.bus.vdp.render_frame(genesis_vdp, aspect_ratio, renderer)
+    }
+
+    #[must_use]
+    pub fn suggested_window_size(
+        &self,
+        genesis_vdp: &GenesisVdp,
+        aspect_ratio: Option<FiniteF64>,
+    ) -> (f64, f64) {
+        let frame_size = self.bus.vdp.frame_size(genesis_vdp);
+        let aspect_ratio = self.bus.vdp.pixel_aspect_ratio(aspect_ratio);
+
+        let mut width: f64 = frame_size.width.into();
+        if let Some(aspect_ratio) = aspect_ratio {
+            width *= aspect_ratio.get();
+        }
+
+        (width, frame_size.height.into())
     }
 }
 

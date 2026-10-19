@@ -535,19 +535,19 @@ impl EmulatorTrait for GenesisEmulator {
             .to_pixel_aspect_ratio(self.timing_mode, frame_size, par_params));
 
         let mut width: f64 = frame_size.width.into();
-
-        if self.hardware.has_32x() {
-            // Make 32X window a little wider than Genesis by default so that the frame won't shrink if a
-            // game switches to H32 mode while the renderer has forced integer height scaling enabled
-            // TODO would be better to only do this when the extra width is used, but that logic is messy
-            width *= 323.25 / 320.0;
-        }
-
-        if let Some(aspect_ratio) = aspect_ratio_with_fallback {
-            width *= aspect_ratio.get();
-        }
-
         let mut height: f64 = frame_size.height.into();
+
+        match &self.bus.sega_32x {
+            Some(sega_32x) => {
+                (width, height) =
+                    sega_32x.suggested_window_size(&self.bus.vdp, aspect_ratio_with_fallback);
+            }
+            None => {
+                if let Some(aspect_ratio) = aspect_ratio_with_fallback {
+                    width *= aspect_ratio.get();
+                }
+            }
+        }
 
         if frame_size.height >= 448 {
             // In interlaced mode; cut suggested window size dimensions in half
