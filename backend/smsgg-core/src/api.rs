@@ -119,7 +119,6 @@ pub struct SmsGgEmulator {
     config: SmsGgEmulatorConfig,
     vdp_mclk_counter: u32,
     psg_mclk_counter: u32,
-    frame_count: u64,
     reset_frames_remaining: u32,
 }
 
@@ -176,7 +175,6 @@ impl SmsGgEmulator {
             config,
             vdp_mclk_counter: 0,
             psg_mclk_counter: 0,
-            frame_count: 0,
             reset_frames_remaining: 0,
         }
     }
@@ -362,11 +360,7 @@ impl EmulatorTrait for SmsGgEmulator {
                 self.input.set_reset(self.reset_frames_remaining != 0);
                 self.reset_frames_remaining = self.reset_frames_remaining.saturating_sub(1);
 
-                self.frame_count += 1;
-                if self.frame_count.is_multiple_of(60)
-                    && self.memory.cartridge_has_battery()
-                    && self.memory.cartridge_ram_dirty()
-                {
+                if self.memory.cartridge_has_battery() && self.memory.cartridge_ram_dirty() {
                     self.memory.clear_cartridge_ram_dirty();
                     save_writer
                         .persist_bytes("sav", self.memory.cartridge_ram())
@@ -428,7 +422,6 @@ impl EmulatorTrait for SmsGgEmulator {
 
         self.vdp_mclk_counter = 0;
         self.psg_mclk_counter = 0;
-        self.frame_count = 0;
         self.reset_frames_remaining = 0;
     }
 

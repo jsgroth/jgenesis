@@ -375,13 +375,11 @@ impl EmulatorTrait for SnesEmulator {
                 let checksum = CRC.checksum(sram);
                 if checksum != self.last_sram_checksum {
                     save_writer.persist_bytes("sav", sram).map_err(SnesError::SaveWrite)?;
-                    self.memory
-                        .write_auxiliary_save_files(save_writer)
-                        .map_err(SnesError::SaveWrite)?;
-
                     self.last_sram_checksum = checksum;
                 }
             }
+
+            self.memory.write_auxiliary_save_files(save_writer).map_err(SnesError::SaveWrite)?;
 
             self.frame_count += 1;
             tick_effect = TickEffect::FrameRendered;

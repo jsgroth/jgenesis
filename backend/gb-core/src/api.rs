@@ -266,15 +266,12 @@ impl EmulatorTrait for GameBoyEmulator {
 
             self.cartridge.update_rtc_time();
 
-            if self.cartridge.has_battery()
-                && self.frame_count % 60 == 30
-                && self.cartridge.get_and_clear_sram_dirty()
-            {
+            if self.cartridge.has_battery() && self.cartridge.get_and_clear_sram_dirty() {
                 let sram = self.cartridge.sram();
                 save_writer.persist_bytes("sav", sram).map_err(GameBoyError::SaveWrite)?;
-
-                self.cartridge.save_rtc_state(save_writer).map_err(GameBoyError::SaveWrite)?;
             }
+
+            self.cartridge.save_rtc_state(save_writer).map_err(GameBoyError::SaveWrite)?;
 
             self.frame_count += 1;
 

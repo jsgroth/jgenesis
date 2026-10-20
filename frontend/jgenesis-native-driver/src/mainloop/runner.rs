@@ -126,7 +126,7 @@ impl<Emulator: EmulatorTrait> RunnerThreadState<Emulator> {
             &self.rom_extension,
         )?;
 
-        self.save_writer.update_path(save_path);
+        self.save_writer.update_path(save_path).map_err(NativeEmulatorError::SaveWrite)?;
 
         if save_state_path != self.base_save_state_path {
             self.save_state_paths = state::init_paths(&save_state_path)?;
@@ -426,6 +426,11 @@ fn run_thread<Emulator: EmulatorTrait>(mut state: RunnerThreadState<Emulator>) {
         }
 
         state.step_frame = false;
+
+        if let Err(err) = state.save_writer.flush_old_writes() {
+            let _ = state.error_sender.send(err.into());
+            return;
+        }
 
         let suggested_window_size = state.emulator.suggested_window_size();
         if !suggested_window_size.fallback_aspect_ratio {
