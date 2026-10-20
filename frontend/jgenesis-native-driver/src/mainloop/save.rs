@@ -231,6 +231,11 @@ impl FsSaveWriter {
             return Ok(());
         }
 
+        if let Some(mut buffer) = self.buffered_writes.remove(extension) {
+            buffer.clear();
+            self.free_buffers.push(buffer);
+        }
+
         self.flush_file(extension, now, write_fn)
     }
 
@@ -489,6 +494,42 @@ mod tests {
         // Clean up
         let _ = fs::remove_file(sav_file);
         let _ = fs::remove_file(rtc_file);
+
+        Ok(())
+    }
+
+    #[test]
+    fn save_buffering_2() -> Result<(), Box<dyn Error>> {
+        let sav_file = env::temp_dir().join("test_save_buffering_2.sav");
+
+        let _ = fs::remove_file(&sav_file);
+
+        let mut writer = FsSaveWriter::new(sav_file.clone());
+
+        // Make sure a write is buffered
+        writer.persist_bytes("sav", &[1, 2, 3, 4])?;
+        writer.persist_bytes("sav", &[5, 6, 7, 8])?;
+        assert_eq!(fs::read(&sav_file)?, vec![1, 2, 3, 4]);
+        assert_eq!(writer.load_bytes("sav")?, vec![5, 6, 7, 8]);
+
+        // Force the next write to flush
+        writer
+            .last_write_times
+            .insert("sav".into(), Instant::now() - FsSaveWriter::FLUSH_OLD_THRESHOLD);
+
+        // Write should go to disk
+        writer.persist_bytes("sav", &[9, 10, 11, 12])?;
+        assert_eq!(fs::read(&sav_file)?, vec![9, 10, 11, 12]);
+
+        // Previous write should not still be buffered
+        assert_eq!(writer.load_bytes("sav")?, vec![9, 10, 11, 12]);
+
+        // Check once more after dropping writer
+        drop(writer);
+        assert_eq!(fs::read(&sav_file)?, vec![9, 10, 11, 12]);
+
+        // Clean up
+        let _ = fs::remove_file(sav_file);
 
         Ok(())
     }
