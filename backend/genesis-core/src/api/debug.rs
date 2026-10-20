@@ -64,6 +64,7 @@ use z80_emu::Z80;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAll)]
 pub enum GenesisMemoryArea {
     CartridgeRom,
+    CartridgeSram,
     WorkingRam,
     AudioRam,
     Vram,
@@ -101,6 +102,13 @@ impl GenesisDebugState {
                 Some(cartridge) => {
                     Box::new(DebugWordsView(cartridge.debug_rom_view(), Endian::Big))
                 }
+                None => Box::new(EmptyDebugView),
+            },
+            GenesisMemoryArea::CartridgeSram => match self.cartridge.as_mut() {
+                Some(cartridge) => match cartridge.debug_ram_view() {
+                    Some(view) => Box::new(view),
+                    None => Box::new(EmptyDebugView),
+                },
                 None => Box::new(EmptyDebugView),
             },
             GenesisMemoryArea::WorkingRam => {
@@ -157,6 +165,13 @@ impl GenesisDebugView<'_, '_, '_, '_, '_, '_> {
             GenesisMemoryArea::CartridgeRom => {
                 if let Some(cartridge) = self.cartridge.as_mut() {
                     DebugWordsView(cartridge.debug_rom_view(), Endian::Big).write(address, value);
+                }
+            }
+            GenesisMemoryArea::CartridgeSram => {
+                if let Some(cartridge) = self.cartridge.as_mut()
+                    && let Some(mut view) = cartridge.debug_ram_view()
+                {
+                    view.write(address, value);
                 }
             }
             GenesisMemoryArea::WorkingRam => {

@@ -462,6 +462,10 @@ impl<State: EepromState + Debug, const N: usize> EepromChip<State, N> {
     pub fn get_memory(&self) -> &[u8] {
         &self.memory
     }
+
+    pub fn get_memory_mut(&mut self) -> &mut [u8] {
+        &mut self.memory
+    }
 }
 
 pub type X24C01Chip = EepromChip<X24C01State, 128>;

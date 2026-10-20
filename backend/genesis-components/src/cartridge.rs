@@ -4,6 +4,7 @@ use bincode::{Decode, Encode};
 use crc::Crc;
 use genesis_config::{GenesisEmulatorConfig, GenesisRegion};
 use jgenesis_common::cheats::CheatWordOverrides;
+use jgenesis_common::debug::DebugBytesView;
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use regex::Regex;
@@ -661,8 +662,8 @@ impl Cartridge {
     }
 
     #[must_use]
-    pub fn debug_rom_view_shared(&self) -> &[u16] {
-        self.rom.0.as_ref()
+    pub fn debug_ram_view(&mut self) -> Option<DebugBytesView<'_>> {
+        self.external.debug_ram_view()
     }
 }
 
