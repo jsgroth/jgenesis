@@ -1153,6 +1153,7 @@ where
             CompactHotkey::CancelMouseInput => {
                 self.mouse_util.borrow().set_relative_mouse_mode(self.renderer.window(), false);
             }
+            CompactHotkey::EndCapture => self.end_capture(),
             CompactHotkey::ToggleOverclocking => self.toggle_overclocking()?,
             CompactHotkey::OpenDebugger => self.open_memory_viewer()?,
         }

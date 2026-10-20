@@ -1209,6 +1209,7 @@ define_hotkey_mapping!(
     fast_forward: FastForward "Fast forward" default Tab,
     rewind: Rewind "Rewind" default Grave,
     cancel_mouse_input: CancelMouseInput "Cancel mouse input" default O,
+    end_capture: EndCapture "End video/audio recording" default none,
     toggle_overclocking: ToggleOverclocking "Toggle overclocking enabled" default Semicolon,
     open_debugger: OpenDebugger "Open memory viewer" default Apostrophe,
     save_state_slot_0: SaveStateSlot0 "Save state to slot 0" default none,

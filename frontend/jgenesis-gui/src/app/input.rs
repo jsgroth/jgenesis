@@ -1477,9 +1477,8 @@ impl HotkeyExt for Hotkey {
 
         match self {
             PowerOff | Exit | ToggleFullscreen | SoftReset | HardReset | Pause | StepFrame
-            | FastForward | Rewind | CancelMouseInput | ToggleOverclocking | OpenDebugger => {
-                HotkeyCategory::General
-            }
+            | FastForward | Rewind | CancelMouseInput | EndCapture | ToggleOverclocking
+            | OpenDebugger => HotkeyCategory::General,
             SaveState | LoadState | NextSaveStateSlot | PrevSaveStateSlot | SaveStateSlot0
             | SaveStateSlot1 | SaveStateSlot2 | SaveStateSlot3 | SaveStateSlot4
             | SaveStateSlot5 | SaveStateSlot6 | SaveStateSlot7 | SaveStateSlot8
