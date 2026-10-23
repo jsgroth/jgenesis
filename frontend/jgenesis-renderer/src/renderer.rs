@@ -194,10 +194,11 @@ impl RenderingPipeline {
         // Pipeline shaders (all optional):
         //   1. Color correction
         //   2. Anti-dither
-        //   3. NTSC composite / Upscaling / Horizontal blur
-        //   4. Frame blending
+        //   3. Frame blending
+        //   4. NTSC composite / Upscaling / Horizontal blur
         //   5. Prescale / Scanlines
-        // If capturing is enabled, capture after color correction
+        // If capturing is enabled, capture after frame blending (console native output) or after
+        // final shader (final emulator output)
         let mut shader_pipeline: Vec<Box<dyn PipelineShader>> = Vec::new();
 
         macro_rules! current_output_texture {
@@ -217,6 +218,29 @@ impl RenderingPipeline {
             shader_pipeline.push(Box::new(color_correction_shader));
         }
 
+        // Anti-dither
+        if !renderer_config.preprocess_shader.exclude_anti_dither()
+            && let Some(anti_dither_shader) = BlurShader::create_anti_dither(
+                renderer_config.anti_dither_shader,
+                device,
+                &current_output_texture!(),
+                shaders,
+            )
+        {
+            log::debug!("Adding anti-dither shader");
+            shader_pipeline.push(Box::new(anti_dither_shader));
+        }
+
+        // Frame blending
+        if options.frame_blending {
+            log::debug!("Adding frame blending shader");
+            shader_pipeline.push(Box::new(FrameBlendShader::create(
+                current_output_texture!(),
+                device,
+                shaders,
+            )));
+        }
+
         // Video capture (console native)
         if let Some(capture_state) = &mut capture_state
             && capture_state.output() == RendererCaptureOutput::ConsoleNative
@@ -230,19 +254,6 @@ impl RenderingPipeline {
                     capture_state.abort(abort_reason);
                 }
             }
-        }
-
-        // Anti-dither
-        if !renderer_config.preprocess_shader.exclude_anti_dither()
-            && let Some(anti_dither_shader) = BlurShader::create_anti_dither(
-                renderer_config.anti_dither_shader,
-                device,
-                &current_output_texture!(),
-                shaders,
-            )
-        {
-            log::debug!("Adding anti-dither shader");
-            shader_pipeline.push(Box::new(anti_dither_shader));
         }
 
         // NTSC composite
@@ -305,16 +316,6 @@ impl RenderingPipeline {
         {
             log::debug!("Adding MMPX-Enhanced shader");
             shader_pipeline.push(Box::new(mmpx_enhanced_shader));
-        }
-
-        // Frame blending
-        if options.frame_blending {
-            log::debug!("Adding frame blending shader");
-            shader_pipeline.push(Box::new(FrameBlendShader::create(
-                current_output_texture!(),
-                device,
-                shaders,
-            )));
         }
 
         // Prescaling / Scanlines
