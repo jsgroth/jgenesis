@@ -135,6 +135,16 @@ impl VdpBusView for VdpView<'_> {
                     *self.open_bus
                 }
             }
+            0x400000..=0x7FFFFF if let Some(sega_cd) = &mut self.sega_cd => {
+                let has_cartridge = self.cartridge.is_some()
+                    || self.sega_32x.as_ref().is_some_and(|s32x| s32x.cartridge().is_some());
+                if has_cartridge {
+                    // Sega CD [32X] Mode 1
+                    sega_cd.read_word_for_dma(address, self.open_bus)
+                } else {
+                    *self.open_bus
+                }
+            }
             0xE00000..=0xFFFFFF => self.memory.read_main_ram_word(address),
             _ => *self.open_bus,
         }
