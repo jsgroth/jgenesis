@@ -42,14 +42,18 @@ impl CaptureAppState {
 
 impl App {
     pub fn render_video_recording_window(&mut self, ctx: &Context) {
+        const WINDOW: OpenWindow = OpenWindow::RecordVideo;
+
         let mut open = true;
-        Window::new(OpenWindow::RecordVideo.title()).open(&mut open).show(ctx, |ui| {
-            let capturing_any = self.emu_runner.capturing().is_some();
-            let capturing_video = self.emu_runner.capturing().is_some_and(CaptureType::is_video);
+        Window::new(WINDOW.title()).open(&mut open).show(ctx, |ui| {
+            let (capturing_any, capturing_video) = {
+                let capturing = self.emu_runner.capturing();
+                (capturing.is_some(), capturing.is_some_and(CaptureType::is_video))
+            };
             let emu_running = self.emu_runner.status().is_running();
 
             ui.add_enabled_ui(!capturing_video, |ui| {
-                ui.group(|ui| {
+                let rect = ui.group(|ui| {
                     ui.label("Video capture type");
 
                     for (value, label) in [
@@ -68,7 +72,10 @@ impl App {
                             label,
                         );
                     }
-                });
+                }).response.interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::VIDEO_CAPTURE_TYPE);
+                }
 
                 if self.state.capture.renderer_capture_output
                     == RendererCaptureOutput::ConsoleNative
@@ -81,7 +88,7 @@ impl App {
                     );
                 }
 
-                ui.group(|ui| {
+                let rect = ui.group(|ui| {
                     ui.label("Video codec");
 
                     for (value, label) in [
@@ -104,10 +111,16 @@ impl App {
                             });
                         },
                     );
-                });
+                }).response.interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::VIDEO_CODEC);
+                }
             });
 
-            render_audio_format_selector(capturing_any, &mut self.state.capture.audio_format, ui);
+            let rect = render_audio_format_selector(capturing_any, &mut self.state.capture.audio_format, ui).interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::AUDIO_FORMAT);
+            }
 
             ui.add_space(5.0);
 
@@ -143,20 +156,34 @@ impl App {
             });
 
             render_recording_to(capturing_video, self.state.capture.recording_path.as_ref(), ui);
+
+            self.render_help_text(ui, WINDOW);
         });
         if !open {
-            self.state.open_windows.remove(&OpenWindow::RecordVideo);
+            self.state.open_windows.remove(&WINDOW);
         }
     }
 
     pub fn render_audio_recording_window(&mut self, ctx: &Context) {
+        const WINDOW: OpenWindow = OpenWindow::RecordAudio;
+
         let mut open = true;
-        Window::new(OpenWindow::RecordAudio.title()).open(&mut open).show(ctx, |ui| {
-            let capturing_any = self.emu_runner.capturing().is_some();
-            let capturing_audio = self.emu_runner.capturing() == Some(CaptureType::Audio);
+        Window::new(WINDOW.title()).open(&mut open).show(ctx, |ui| {
+            let (capturing_any, capturing_audio) = {
+                let capturing = self.emu_runner.capturing();
+                (capturing.is_some(), capturing == Some(CaptureType::Audio))
+            };
             let emu_running = self.emu_runner.status().is_running();
 
-            render_audio_format_selector(capturing_any, &mut self.state.capture.audio_format, ui);
+            let rect = render_audio_format_selector(
+                capturing_any,
+                &mut self.state.capture.audio_format,
+                ui,
+            )
+            .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::AUDIO_FORMAT);
+            }
 
             ui.add_space(5.0);
 
@@ -190,14 +217,20 @@ impl App {
             });
 
             render_recording_to(capturing_audio, self.state.capture.recording_path.as_ref(), ui);
+
+            self.render_help_text(ui, WINDOW);
         });
         if !open {
-            self.state.open_windows.remove(&OpenWindow::RecordAudio);
+            self.state.open_windows.remove(&WINDOW);
         }
     }
 }
 
-fn render_audio_format_selector(capturing_any: bool, format: &mut AudioCaptureFormat, ui: &mut Ui) {
+fn render_audio_format_selector(
+    capturing_any: bool,
+    format: &mut AudioCaptureFormat,
+    ui: &mut Ui,
+) -> egui::Response {
     ui.add_enabled_ui(!capturing_any, |ui| {
         ui.group(|ui| {
             ui.label("Audio sample format");
@@ -209,7 +242,8 @@ fn render_audio_format_selector(capturing_any: bool, format: &mut AudioCaptureFo
                 ui.radio_value(format, value, label);
             }
         });
-    });
+    })
+    .response
 }
 
 fn save_file_for_recording(
@@ -249,4 +283,32 @@ fn render_recording_to(recording: bool, path: Option<&PathBuf>, ui: &mut Ui) {
             ui.label("(Not recording)");
         }
     });
+}
+
+mod helptext {
+    use crate::app::HelpText;
+
+    pub const VIDEO_CAPTURE_TYPE: HelpText = HelpText {
+        heading: "Video Capture Type",
+        text: &[
+            "Direct console output produces significantly smaller files, but does not include shader effects and will automatically end recording if the console's output resolution changes.",
+            "Final emulator output does not have those issues, but (depending on resolution) it produces massively larger files and can be very intensive in both CPU and GPU.",
+        ],
+    };
+
+    pub const VIDEO_CODEC: HelpText = HelpText {
+        heading: "Video Codec",
+        text: &[
+            "What codec to use for encoding video frames.",
+            "Higher compression levels produce smaller files but are much more CPU-intensive. All compression levels are lossless.",
+        ],
+    };
+
+    pub const AUDIO_FORMAT: HelpText = HelpText {
+        heading: "Audio Sample Format",
+        text: &[
+            "What format to use for encoding audio samples.",
+            "32-bit float is what the emulator generates internally, but 16-bit integer produces significantly smaller files and should make no audible difference.",
+        ],
+    };
 }
