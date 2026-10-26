@@ -8,12 +8,12 @@ use jgenesis_gui::app::{App, ConfigInfo, LoadAtStartup};
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::paths::{ConfigDirType, ConfigDirs, ConfigWithPath};
 use jgenesis_native_driver::config::AppConfigExt;
-use jgenesis_native_driver::{extensions::Console, m3u};
 use jgenesis_native_driver::{
     NativeEmulator, NativeGameBoyEmulator, NativeGbaEmulator, NativeGenesisEmulator,
     NativeNesEmulator, NativePcEngineEmulator, NativeSmsGgEmulator, NativeSnesEmulator,
     NativeTickEffect, SdlSubsystems,
 };
+use jgenesis_native_driver::{extensions::Console, m3u};
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
@@ -247,16 +247,11 @@ fn run_no_gui(
         None
     };
 
-    let primary_path = playlist_paths
-        .as_ref()
-        .and_then(|paths| paths.first())
-        .unwrap_or(requested_primary_path);
+    let primary_path =
+        playlist_paths.as_ref().and_then(|paths| paths.first()).unwrap_or(requested_primary_path);
 
-    let secondary_paths = if playlist_paths.is_some() {
-        &[]
-    } else {
-        &load_at_startup.file_paths[1..]
-    };
+    let secondary_paths =
+        if playlist_paths.is_some() { &[] } else { &load_at_startup.file_paths[1..] };
 
     let console = load_at_startup
         .console

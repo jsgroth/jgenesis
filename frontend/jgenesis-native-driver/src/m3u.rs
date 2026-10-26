@@ -2,10 +2,14 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+#[must_use]
 pub fn is_m3u(path: &Path) -> bool {
     path.extension().and_then(|ext| ext.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case("m3u"))
 }
 
+/// # Errors
+///
+/// Returns an error if there is an I/O error reading the file or if the M3U playlist is invalid.
 pub fn parse(path: &Path) -> io::Result<Vec<PathBuf>> {
     let contents = fs::read_to_string(path)?;
     let parent = path.parent().unwrap_or_else(|| Path::new(""));
@@ -51,21 +55,16 @@ mod tests {
         fs::create_dir_all(&temp_dir).unwrap();
 
         let playlist_path = temp_dir.join("game.m3u");
-        fs::write(
-            &playlist_path,
-            "#EXTM3U\n\nDisc 1\\Game (Disc 1).cue\n# Comment\nDisc 2\\Game (Disc 2).cue\n",
-        )
-        .unwrap();
+        let disc_1_path: String =
+            Path::new("Disc 1").join("Game (Disc 1).cue").to_string_lossy().into();
+        let disc_2_path: String =
+            Path::new("Disc 2").join("Game (Disc 2).cue").to_string_lossy().into();
+        fs::write(&playlist_path, &format!("#EXTM3U\n\n{disc_1_path}\n# Comment\n{disc_2_path}\n"))
+            .unwrap();
 
         let paths = parse(&playlist_path).unwrap();
 
-        assert_eq!(
-            paths,
-            vec![
-                temp_dir.join("Disc 1").join("Game (Disc 1).cue"),
-                temp_dir.join("Disc 2").join("Game (Disc 2).cue"),
-            ]
-        );
+        assert_eq!(paths, vec![temp_dir.join(disc_1_path), temp_dir.join(disc_2_path)]);
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
@@ -77,11 +76,12 @@ mod tests {
         fs::create_dir_all(&temp_dir).unwrap();
 
         let playlist_path = temp_dir.join("game.m3u");
-        fs::write(&playlist_path, "\u{feff}Disc 1\\Game.cue\r\n").unwrap();
+        let disc_path: String = Path::new("Disc 1").join("Game.cue").to_string_lossy().into();
+        fs::write(&playlist_path, format!("\u{feff}{disc_path}\r\n")).unwrap();
 
         let paths = parse(&playlist_path).unwrap();
 
-        assert_eq!(paths, vec![temp_dir.join("Disc 1").join("Game.cue")]);
+        assert_eq!(paths, vec![temp_dir.join(disc_path)]);
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

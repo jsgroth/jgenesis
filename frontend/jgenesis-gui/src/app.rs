@@ -490,11 +490,8 @@ impl App {
             .cloned()
             .unwrap_or_else(|| path.clone());
 
-        let emulator_secondary_paths = if playlist_paths.is_some() {
-            vec![]
-        } else {
-            secondary_paths.clone()
-        };
+        let emulator_secondary_paths =
+            if playlist_paths.is_some() { vec![] } else { secondary_paths.clone() };
         self.state.current_file_path.clone_from(&path);
         self.state.current_secondary_file_paths.clone_from(&secondary_paths);
 
