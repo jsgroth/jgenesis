@@ -1,14 +1,20 @@
+mod capture;
 mod ntsc;
 mod shaders;
 
 use crate::config;
 use crate::config::{FrameRotation, PreprocessShader, RendererConfig, VSyncMode};
+use crate::renderer::capture::{
+    CaptureState, ConsoleCapturingShader, EmulatorCapturingShader, EmulatorCapturingShaderArgs,
+};
 use crate::renderer::ntsc::{NtscShader, NtscShaderVariant};
 use crate::renderer::shaders::{
     BlurShader, ColorCorrectionShader, FrameBlendShader, PrescaleShader, UpscaleShader,
 };
 #[cfg(feature = "ttf")]
 use crate::ttf;
+pub use capture::{CaptureAbortReason, ReadCapturedFrameCallback, ReadCapturedFrameError};
+pub use capture::{CaptureFrameInfo, RendererCaptureOutput};
 use jgenesis_common::frontend::{
     Color, DisplayArea, DisplayInfo, FiniteF64, FrameSize, RenderFrameOptions,
     RenderFrameOptionsHashable, Renderer,
@@ -29,6 +35,20 @@ static REQUIRED_TEXTURE_USAGES: LazyLock<wgpu::TextureUsages> = LazyLock::new(||
         | wgpu::TextureUsages::TEXTURE_BINDING
         | wgpu::TextureUsages::STORAGE_BINDING
 });
+
+const PREFERRED_SURFACE_FORMATS_SRGB: [wgpu::TextureFormat; 4] = [
+    wgpu::TextureFormat::Bgra8UnormSrgb,
+    wgpu::TextureFormat::Rgba8UnormSrgb,
+    wgpu::TextureFormat::Bgra8Unorm,
+    wgpu::TextureFormat::Rgba8Unorm,
+];
+
+const PREFERRED_SURFACE_FORMATS_NON_SRGB: [wgpu::TextureFormat; 4] = [
+    wgpu::TextureFormat::Bgra8Unorm,
+    wgpu::TextureFormat::Rgba8Unorm,
+    wgpu::TextureFormat::Bgra8UnormSrgb,
+    wgpu::TextureFormat::Rgba8UnormSrgb,
+];
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -112,7 +132,7 @@ struct RenderingPipeline {
     input_texture: Arc<wgpu::Texture>,
     shader_pipeline: Vec<Box<dyn PipelineShader>>,
     vertex_buffer: wgpu::Buffer,
-    render_bind_group: wgpu::BindGroup,
+    render_bind_group: Arc<wgpu::BindGroup>,
     render_pipeline: wgpu::RenderPipeline,
     multisample_output: Option<wgpu::Texture>,
 }
@@ -127,13 +147,13 @@ impl RenderingPipeline {
     #[allow(clippy::too_many_arguments)]
     fn create(
         device: &wgpu::Device,
-        limits: &wgpu::Limits,
         shaders: &Shaders,
         window_size: WindowSize,
         frame_size: FrameSize,
         options: RenderFrameOptions,
         surface_config: &wgpu::SurfaceConfiguration,
         renderer_config: RendererConfig,
+        mut capture_state: Option<&mut CaptureState>,
     ) -> Self {
         fn current_output_texture(
             pipeline: &[Box<dyn PipelineShader>],
@@ -141,6 +161,8 @@ impl RenderingPipeline {
         ) -> Arc<wgpu::Texture> {
             Arc::clone(pipeline.last().map_or(input, |shader| shader.output_texture()))
         }
+
+        let limits = device.limits();
 
         let input_texture = Arc::new(device.create_texture(&wgpu::TextureDescriptor {
             label: "input_texture".into(),
@@ -172,9 +194,11 @@ impl RenderingPipeline {
         // Pipeline shaders (all optional):
         //   1. Color correction
         //   2. Anti-dither
-        //   3. NTSC composite / Upscaling / Horizontal blur
-        //   4. Frame blending
+        //   3. Frame blending
+        //   4. NTSC composite / Upscaling / Horizontal blur
         //   5. Prescale / Scanlines
+        // If capturing is enabled, capture after frame blending (console native output) or after
+        // final shader (final emulator output)
         let mut shader_pipeline: Vec<Box<dyn PipelineShader>> = Vec::new();
 
         macro_rules! current_output_texture {
@@ -205,6 +229,31 @@ impl RenderingPipeline {
         {
             log::debug!("Adding anti-dither shader");
             shader_pipeline.push(Box::new(anti_dither_shader));
+        }
+
+        // Frame blending
+        if options.frame_blending {
+            log::debug!("Adding frame blending shader");
+            shader_pipeline.push(Box::new(FrameBlendShader::create(
+                current_output_texture!(),
+                device,
+                shaders,
+            )));
+        }
+
+        // Video capture (console native)
+        if let Some(capture_state) = &mut capture_state
+            && capture_state.output() == RendererCaptureOutput::ConsoleNative
+        {
+            match ConsoleCapturingShader::new(&current_output_texture!(), capture_state.buffers()) {
+                Ok(shader) => {
+                    log::debug!("Adding video capture shader (console native output)");
+                    shader_pipeline.push(Box::new(shader));
+                }
+                Err(abort_reason) => {
+                    capture_state.abort(abort_reason);
+                }
+            }
         }
 
         // NTSC composite
@@ -269,16 +318,6 @@ impl RenderingPipeline {
             shader_pipeline.push(Box::new(mmpx_enhanced_shader));
         }
 
-        // Frame blending
-        if options.frame_blending {
-            log::debug!("Adding frame blending shader");
-            shader_pipeline.push(Box::new(FrameBlendShader::create(
-                current_output_texture!(),
-                device,
-                shaders,
-            )));
-        }
-
         // Prescaling / Scanlines
         if let Some(prescale_shader) = PrescaleShader::create(
             renderer_config,
@@ -287,7 +326,7 @@ impl RenderingPipeline {
             options.pixel_aspect_ratio,
             &current_output_texture!(),
             device,
-            limits,
+            &limits,
             shaders,
         ) {
             log::debug!("Adding prescale/scanlines shader");
@@ -324,50 +363,28 @@ impl RenderingPipeline {
             })
         });
 
-        // If surface format is not sRGB-aware, fragment shader needs to perform gamma encoding
-        // since the frame texture view is always sRGB-aware
-        let encode_to_srgb = !surface_config.format.is_srgb();
-
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: "render_pipeline".into(),
-            layout: None,
-            vertex: wgpu::VertexState {
-                module: &shaders.render,
-                entry_point: None,
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[Vertex::buffer_layout()],
-            },
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleStrip,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                unclipped_depth: false,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: if multisample { 4 } else { 1 },
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shaders.render,
-                entry_point: None,
-                compilation_options: wgpu::PipelineCompilationOptions {
-                    constants: &[("encode_to_srgb", encode_to_srgb.into())],
-                    ..wgpu::PipelineCompilationOptions::default()
-                },
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: surface_config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        let render_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: "render_bind_group_layout".into(),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
 
         let filter_mode = renderer_config.filter_mode.to_wgpu_filter_mode();
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -384,9 +401,9 @@ impl RenderingPipeline {
             ..wgpu::SamplerDescriptor::default()
         });
 
-        let render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let render_bind_group = Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: "render_bind_group".into(),
-            layout: &render_pipeline.get_bind_group_layout(0),
+            layout: &render_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -397,20 +414,53 @@ impl RenderingPipeline {
                     resource: wgpu::BindingResource::Sampler(&sampler),
                 },
             ],
-        });
+        }));
 
-        let mut vertices = match options.pixel_aspect_ratio {
-            Some(_) => compute_vertices(window_size.width, window_size.height, display_area),
-            None => VERTICES.into(),
-        };
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: "render_pipeline_layout".into(),
+                bind_group_layouts: &[Some(&render_bind_group_layout)],
+                immediate_size: 0,
+            });
 
-        apply_frame_rotation(&mut vertices, renderer_config.frame_rotation);
+        let render_pipeline = create_render_pipeline(
+            device,
+            shaders,
+            &render_pipeline_layout,
+            surface_config.format,
+            multisample,
+        );
 
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: "vertex_buffer".into(),
-            contents: bytemuck::cast_slice(&vertices),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::VERTEX,
-        });
+        let vertex_buffer = create_render_vertex_buffer(
+            device,
+            &renderer_config,
+            options,
+            window_size,
+            display_area,
+        );
+
+        // Video capture (emulator)
+        // Fine to add to shader pipeline here because the capture shader's "output" texture is just its input
+        if let Some(capture_state) = capture_state
+            && capture_state.output() == RendererCaptureOutput::Emulator
+        {
+            log::debug!("Adding video capture shader (emulator output)");
+            let shader = EmulatorCapturingShader::new(
+                device,
+                shaders,
+                EmulatorCapturingShaderArgs {
+                    input_texture: Arc::clone(&render_input_texture),
+                    buffers: Arc::clone(capture_state.buffers()),
+                    render_bind_group: Arc::clone(&render_bind_group),
+                    render_pipeline_layout: &render_pipeline_layout,
+                    frame_size,
+                    config: &renderer_config,
+                    options,
+                    multisample,
+                },
+            );
+            shader_pipeline.push(Box::new(shader));
+        }
 
         Self {
             frame_size,
@@ -527,7 +577,7 @@ impl RenderingPipeline {
                 ..wgpu::RenderPassDescriptor::default()
             });
 
-            render_pass.set_bind_group(0, &self.render_bind_group, &[]);
+            render_pass.set_bind_group(0, &*self.render_bind_group, &[]);
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
 
@@ -542,10 +592,31 @@ impl RenderingPipeline {
         queue.submit(iter::once(encoder.finish()));
 
         frame_time_tracker.sync();
-        output.present();
+        queue.present(output);
 
         Ok(if suboptimal_surface { RenderResult::SuboptimalSurface } else { RenderResult::None })
     }
+}
+
+fn create_render_vertex_buffer(
+    device: &wgpu::Device,
+    renderer_config: &RendererConfig,
+    options: RenderFrameOptions,
+    window_size: WindowSize,
+    display_area: DisplayArea,
+) -> wgpu::Buffer {
+    let mut vertices = match options.pixel_aspect_ratio {
+        Some(_) => compute_vertices(window_size.width, window_size.height, display_area),
+        None => VERTICES.into(),
+    };
+
+    apply_frame_rotation(&mut vertices, renderer_config.frame_rotation);
+
+    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: "vertex_buffer".into(),
+        contents: bytemuck::cast_slice(&vertices),
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::VERTEX,
+    })
 }
 
 fn compute_vertices(
@@ -647,6 +718,59 @@ fn apply_frame_rotation(vertices: &mut Vec<Vertex>, rotation: FrameRotation) {
     }
 }
 
+fn create_render_pipeline(
+    device: &wgpu::Device,
+    shaders: &Shaders,
+    layout: &wgpu::PipelineLayout,
+    surface_format: wgpu::TextureFormat,
+    multisample: bool,
+) -> wgpu::RenderPipeline {
+    // If surface format is not sRGB-aware, fragment shader needs to perform gamma encoding
+    // since the frame texture view is always sRGB-aware
+    let encode_to_srgb = !surface_format.is_srgb();
+
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: "render_pipeline".into(),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: &shaders.render,
+            entry_point: None,
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            buffers: &[Some(Vertex::buffer_layout())],
+        },
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleStrip,
+            strip_index_format: None,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: None,
+            unclipped_depth: false,
+            polygon_mode: wgpu::PolygonMode::Fill,
+            conservative: false,
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState {
+            count: if multisample { 4 } else { 1 },
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shaders.render,
+            entry_point: None,
+            compilation_options: wgpu::PipelineCompilationOptions {
+                constants: &[("encode_to_srgb", encode_to_srgb.into())],
+                ..wgpu::PipelineCompilationOptions::default()
+            },
+            targets: &[Some(wgpu::ColorTargetState {
+                format: surface_format,
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
 #[derive(Debug, Error)]
 pub enum RendererError {
     #[error(
@@ -659,6 +783,10 @@ pub enum RendererError {
     WindowHandleError(#[from] HandleError),
     #[error("Error creating wgpu surface: {0}")]
     WgpuCreateSurface(#[from] wgpu::CreateSurfaceError),
+    #[error(
+        "surface size of {width}x{height} exceeds maximum supported size of {max_dimension}x{max_dimension}"
+    )]
+    WgpuSurfaceTooLarge { width: u32, height: u32, max_dimension: u32 },
     #[error("Error requesting wgpu device: {0}")]
     WgpuRequestDevice(#[from] wgpu::RequestDeviceError),
     #[error("Timeout obtaining wgpu surface texture")]
@@ -669,6 +797,8 @@ pub enum RendererError {
     WgpuSurfaceLost,
     #[error("Failed to obtain wgpu adapter")]
     WgpuRequestAdapter(#[from] wgpu::RequestAdapterError),
+    #[error("wgpu surface with {backend:?} adapter supports no texture formats")]
+    WgpuNoSupportedSurfaceFormats { backend: wgpu::Backend },
     #[error(
         "wgpu adapter does not support present mode {desired:?} (from VSync mode {vsync_mode:?}); supported modes are {available:?}"
     )]
@@ -759,6 +889,7 @@ impl RenderingPipelines {
     fn get_or_insert(
         &mut self,
         frame_size: FrameSize,
+        target_fps: f64,
         options: RenderFrameOptions,
         create_fn: impl FnOnce() -> RenderingPipeline,
     ) -> &mut RenderingPipeline {
@@ -768,6 +899,8 @@ impl RenderingPipelines {
         self.last_display_info = Some(DisplayInfo {
             frame_size,
             display_area: pipeline.display_area,
+            pixel_aspect_ratio: options.pixel_aspect_ratio,
+            target_fps,
             rotation: pipeline.rotation.into(),
         });
 
@@ -836,7 +969,6 @@ pub struct WgpuRenderer<Window> {
     surface_config: wgpu::SurfaceConfiguration,
     surface_capabilities: wgpu::SurfaceCapabilities,
     device: wgpu::Device,
-    device_limits: wgpu::Limits,
     queue: wgpu::Queue,
     shaders: Shaders,
     renderer_config: RendererConfig,
@@ -847,6 +979,7 @@ pub struct WgpuRenderer<Window> {
     speed_multiplier: u64,
     force_sync_off: bool,
     frame_time_tracker: FrameTimeTracker,
+    capture_state: Option<CaptureState>,
     // SAFETY: The surface must not outlive the window it was created from, thus the window must be
     // declared after the surface
     window: Window,
@@ -887,6 +1020,7 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
                 power_preference: config.wgpu_power_preference.to_wgpu(),
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
+                apply_limit_buckets: false,
             })
             .await?;
 
@@ -913,7 +1047,23 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             })
             .await?;
 
+        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
+        if window_size.width > max_texture_dimension_2d
+            || window_size.height > max_texture_dimension_2d
+        {
+            return Err(RendererError::WgpuSurfaceTooLarge {
+                width: window_size.width,
+                height: window_size.height,
+                max_dimension: max_texture_dimension_2d,
+            });
+        }
+
         let surface_capabilities = surface.get_capabilities(&adapter);
+        if surface_capabilities.formats.is_empty() {
+            return Err(RendererError::WgpuNoSupportedSurfaceFormats {
+                backend: adapter_info.backend,
+            });
+        }
 
         let present_mode = config.vsync_mode.to_wgpu_present_mode();
         if !present_mode.always_supported()
@@ -936,21 +1086,22 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             _ => true,
         };
 
-        let surface_format = surface_capabilities
-            .formats
-            .iter()
-            .copied()
-            .find(|format| format.is_srgb() == prefer_srgb_format)
-            .unwrap_or_else(|| {
-                log::warn!("wgpu adapter does not support any surface formats with is_srgb={prefer_srgb_format}; defaulting to first format in this list: {:?}", surface_capabilities.formats);
-                surface_capabilities.formats[0]
-            });
+        let preferred_surface_formats = if prefer_srgb_format {
+            PREFERRED_SURFACE_FORMATS_SRGB
+        } else {
+            PREFERRED_SURFACE_FORMATS_NON_SRGB
+        };
+        let surface_format = preferred_surface_formats
+            .into_iter()
+            .find(|&format| surface_capabilities.formats.contains(&format))
+            .unwrap_or(surface_capabilities.formats[0]);
 
         log::info!("Configuring wgpu surface with texture format {surface_format:?}");
 
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
+            color_space: wgpu::SurfaceColorSpace::Auto,
             width: window_size.width,
             height: window_size.height,
             present_mode,
@@ -960,7 +1111,6 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
         };
         surface.configure(&device, &surface_config);
 
-        let device_limits = device.limits();
         let shaders = Shaders::create(&device);
 
         #[cfg(feature = "ttf")]
@@ -971,7 +1121,6 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             surface_config,
             surface_capabilities,
             device,
-            device_limits,
             queue,
             shaders,
             renderer_config: config,
@@ -982,6 +1131,7 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             speed_multiplier: 1,
             force_sync_off: false,
             frame_time_tracker: FrameTimeTracker::new(config.frame_time_sync),
+            capture_state: None,
             window,
             window_size,
         })
@@ -1054,10 +1204,26 @@ impl<Window> WgpuRenderer<Window> {
             self.renderer_config.frame_time_sync && !force_sync_off;
     }
 
-    pub fn handle_resize(&mut self, size: WindowSize) {
+    /// Call when the window is resized.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the window size exceeds the maximum allowed size in either dimension.
+    /// This is guaranteed to be at least 8192x8192, and in practice is 16384x16384 on most modern
+    /// platforms.
+    pub fn handle_resize(&mut self, size: WindowSize) -> Result<(), RendererError> {
         if self.window_size == size {
             // No change
-            return;
+            return Ok(());
+        }
+
+        let max_texture_dimension_2d = self.device.limits().max_texture_dimension_2d;
+        if size.width > max_texture_dimension_2d || size.height > max_texture_dimension_2d {
+            return Err(RendererError::WgpuSurfaceTooLarge {
+                width: size.width,
+                height: size.height,
+                max_dimension: max_texture_dimension_2d,
+            });
         }
 
         self.window_size = size;
@@ -1068,6 +1234,8 @@ impl<Window> WgpuRenderer<Window> {
 
         // Force render pipeline to be recreated on the next render_frame() call
         self.pipelines.clear();
+
+        Ok(())
     }
 
     /// Obtain a shared reference to the window.
@@ -1100,6 +1268,11 @@ impl<Window> WgpuRenderer<Window> {
         &self.renderer_config
     }
 
+    #[must_use]
+    pub fn max_texture_dimension_2d(&self) -> u32 {
+        self.device.limits().max_texture_dimension_2d
+    }
+
     /// Obtain the last rendered frame size and the current display area within the window.
     ///
     /// May return None if rendering config was just changed or initialized and a frame has not yet been rendered with
@@ -1107,6 +1280,27 @@ impl<Window> WgpuRenderer<Window> {
     #[must_use]
     pub fn current_display_info(&self) -> Option<DisplayInfo> {
         self.pipelines.last_display_info
+    }
+
+    #[must_use]
+    pub fn capture_frame_info(
+        &self,
+        capture_output: RendererCaptureOutput,
+    ) -> Option<CaptureFrameInfo> {
+        let display_info = self.current_display_info()?;
+
+        Some(match capture_output {
+            RendererCaptureOutput::ConsoleNative => CaptureFrameInfo {
+                size: (display_info.frame_size.width, display_info.frame_size.height),
+                pixel_aspect_ratio: display_info.pixel_aspect_ratio,
+                fps: display_info.target_fps,
+            },
+            RendererCaptureOutput::Emulator => CaptureFrameInfo {
+                size: (self.window_size.width, self.window_size.height),
+                pixel_aspect_ratio: None,
+                fps: display_info.target_fps,
+            },
+        })
     }
 
     pub fn reset_interframe_state(&mut self) {
@@ -1134,6 +1328,58 @@ impl<Window> WgpuRenderer<Window> {
 
     pub fn reload(&mut self) {
         self.reload_config(self.renderer_config);
+    }
+
+    pub fn start_capture(&mut self, capture_output: RendererCaptureOutput) {
+        let Some(display_info) = self.pipelines.last_display_info else {
+            // TODO ???
+            return;
+        };
+
+        self.capture_state = Some(CaptureState::create(
+            &self.device,
+            capture_output,
+            display_info.frame_size,
+            self.window_size,
+        ));
+
+        // Need to recreate pipelines with capturing
+        self.pipelines.clear();
+    }
+
+    /// End video capture; does nothing if capture is not active
+    pub fn end_capture(&mut self) {
+        if self.capture_state.take().is_some() {
+            // Need to recreate pipelines without capturing
+            self.pipelines.clear();
+        }
+    }
+
+    /// Consume and read a captured video frame.
+    ///
+    /// If a frame is captured or capturing, will invoke the callback with the frame data and
+    /// return `Ok(())`. Otherwise returns an error.
+    ///
+    /// If a frame is capturing but not ready yet, will block until it is ready.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no frame is captured/capturing, video capture is not running, or if
+    /// video capture was aborted due to a resolution or frame rate change.
+    pub fn read_captured_frame(
+        &mut self,
+        callback: &mut impl ReadCapturedFrameCallback,
+    ) -> Result<(), ReadCapturedFrameError> {
+        let Some(capture_state) = &self.capture_state else {
+            return Err(ReadCapturedFrameError::NotCapturing);
+        };
+
+        if let Some(abort_reason) = capture_state.aborted() {
+            self.end_capture();
+            return Err(ReadCapturedFrameError::CaptureAborted(abort_reason));
+        }
+
+        capture_state.read_captured_frame(&self.device, callback)
     }
 }
 
@@ -1166,7 +1412,20 @@ impl<Window> Renderer for WgpuRenderer<Window> {
 
         self.frame_time_tracker.set_target_fps(target_fps);
 
-        let pipeline = self.pipelines.get_or_insert(frame_size, options, || {
+        if let Some(capture_state) = &mut self.capture_state {
+            capture_state.reset_capturing_state(&self.device);
+
+            if let Some(display_info) = self.pipelines.last_display_info
+                && (display_info.target_fps - target_fps).abs() > 1e-3
+            {
+                capture_state.abort(CaptureAbortReason::FrameRateChanged {
+                    from: display_info.target_fps,
+                    to: target_fps,
+                });
+            }
+        }
+
+        let pipeline = self.pipelines.get_or_insert(frame_size, target_fps, options, || {
             log::info!(
                 "Creating render pipeline for frame size {frame_size:?} and pixel aspect ratio {}",
                 pixel_aspect_ratio_display(options.pixel_aspect_ratio)
@@ -1174,13 +1433,13 @@ impl<Window> Renderer for WgpuRenderer<Window> {
 
             RenderingPipeline::create(
                 &self.device,
-                &self.device_limits,
                 &self.shaders,
                 self.window_size,
                 frame_size,
                 options,
                 &self.surface_config,
                 self.renderer_config,
+                self.capture_state.as_mut(),
             )
         });
 
@@ -1209,6 +1468,10 @@ impl<Window> Renderer for WgpuRenderer<Window> {
                 log::debug!("Skipping frame because surface is occluded");
             }
             Err(err) => return Err(err),
+        }
+
+        if let Some(capture_state) = &self.capture_state {
+            capture_state.map_buffer_async();
         }
 
         Ok(())

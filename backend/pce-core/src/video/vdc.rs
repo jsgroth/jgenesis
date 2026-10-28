@@ -59,6 +59,14 @@ pub const RASTER_COMPARE_INCREMENT_OFFSET: u16 = 8;
 // 14 lines of top blanking before active display, 4 lines of bottom blanking + 3 lines of VSYNC after
 pub const ACTIVE_DISPLAY_LINES: Range<u16> = 14..256;
 
+// Unclear exactly when BYR/BXR/CR are latched, but it appears to happen before the VCE HSYNC forces
+// the VDC into HDS phase, and it appears to happen at a fixed point independent of the current dot
+// clock divider.
+// Setting this too late breaks Shin Megami Tensei (BYR), setting it too early breaks Seiya
+// Monogatari (BXR) and River City Ransom (BYR)
+pub const Y_SCROLL_LATCH_MCLK: u32 = (MCLK_CYCLES_PER_SCANLINE - 12) as u32;
+pub const X_SCROLL_LATCH_MCLK: u32 = Y_SCROLL_LATCH_MCLK + 8;
+
 // Large enough to fit video output at H1365px, after removing overscan
 pub const FRAME_BUFFER_WIDTH: usize = (2 * MAX_WIDTH_DIV_2) as usize;
 // There are always 242 lines of active display, regardless of vertical display settings
@@ -311,7 +319,6 @@ pub struct LatchedHorizontalState {
     pub h_display_start: u16,
     pub h_display_width: u16,
     pub h_display_end: u16,
-    pub bg_x_scroll: u16,
     pub vram_access_width: VramAccessWidth,
     pub sprite_access_width: SpriteAccessWidth,
 }
@@ -323,7 +330,6 @@ impl LatchedHorizontalState {
             h_display_start: registers.h_display_start,
             h_display_width: registers.h_display_width,
             h_display_end: registers.h_display_end,
-            bg_x_scroll: registers.bg_x_scroll,
             vram_access_width: registers.vram_access_width,
             sprite_access_width: registers.sprite_access_width,
         }
@@ -449,6 +455,7 @@ pub enum PendingCpuAccess {
 pub struct VdcState {
     pub scanline: u16,
     pub scanline_dot: u16,
+    pub scanline_mclk: u32,
     pub h_latch: LatchedHorizontalState,
     pub v_latch: LatchedVerticalState,
     pub h_mode: HorizontalMode,
@@ -456,7 +463,7 @@ pub struct VdcState {
     pub h_counter: u16,
     pub h_mode_start_dot: u16,
     pub v_counter: u16,
-    pub v_mode_start_line: u16,
+    pub latched_bg_x_scroll: u16,
     pub bg_y_counter: u16,
     pub bg_y_scroll_written: bool,
     pub dma: DmaState,
@@ -478,6 +485,7 @@ pub struct VdcState {
     pub raster_compare_counter: u16,
     pub frame_complete: bool,
     pub pending_cpu_access: Option<PendingCpuAccess>,
+    pub cpu_access_latency_dots: u8,
     pub sprite_fetch_dots_this_line: u64,
 }
 
@@ -486,6 +494,7 @@ impl VdcState {
         Self {
             scanline: 0,
             scanline_dot: 0,
+            scanline_mclk: 0,
             h_latch: LatchedHorizontalState::latch(registers),
             v_latch: LatchedVerticalState::latch(registers),
             h_mode: HorizontalMode::LeftBorder,
@@ -493,7 +502,7 @@ impl VdcState {
             h_counter: 0,
             h_mode_start_dot: 0,
             v_counter: 0,
-            v_mode_start_line: 0,
+            latched_bg_x_scroll: 0,
             bg_y_counter: 0,
             bg_y_scroll_written: false,
             dma: DmaState::new(),
@@ -511,6 +520,7 @@ impl VdcState {
             raster_compare_counter: RASTER_COMPARE_DISPLAY_START,
             frame_complete: false,
             pending_cpu_access: None,
+            cpu_access_latency_dots: 0,
             sprite_fetch_dots_this_line: 0,
         }
     }
@@ -593,6 +603,9 @@ impl Vdc {
 
         // TODO this is very inefficient
         for _ in 0..dots {
+            self.state.cpu_access_latency_dots =
+                self.state.cpu_access_latency_dots.saturating_sub(1);
+
             // DMA always takes priority over CPU VRAM access
             // SAT DMA probably takes priority over VRAM copy DMA?
             if self.state.dma.sat_active {
@@ -647,6 +660,20 @@ impl Vdc {
             {
                 self.set_irq(VdcIrq::SpriteCollision);
                 self.state.sprite_collision_irq_dot = None;
+            }
+
+            let prev_scanline_mclk = self.state.scanline_mclk;
+            self.state.scanline_mclk += vce.dot_clock_divider() as u32;
+            if prev_scanline_mclk < Y_SCROLL_LATCH_MCLK
+                && self.state.scanline_mclk >= Y_SCROLL_LATCH_MCLK
+            {
+                self.latch_y_scroll();
+            }
+            if prev_scanline_mclk < X_SCROLL_LATCH_MCLK
+                && self.state.scanline_mclk >= X_SCROLL_LATCH_MCLK
+            {
+                log::trace!("Latching BXR {}", self.registers.bg_x_scroll);
+                self.state.latched_bg_x_scroll = self.registers.bg_x_scroll;
             }
 
             self.state.h_counter += 1;
@@ -705,17 +732,30 @@ impl Vdc {
         }
     }
 
+    fn latch_y_scroll(&mut self) {
+        if self.state.bg_y_scroll_written {
+            log::trace!("Latching new BYR value {}", self.registers.bg_y_scroll);
+            self.state.bg_y_counter = self.registers.bg_y_scroll;
+            self.state.bg_y_scroll_written = false;
+        }
+        self.state.bg_y_counter = self.state.bg_y_counter.wrapping_add(1);
+    }
+
     pub fn start_new_line(&mut self, scanline: u16, vce: &Vce) {
         if self.state.h_mode == HorizontalMode::ActiveDisplay {
-            if self.state.h_counter
-                < self.state.h_latch.h_display_width.saturating_sub(RASTER_COMPARE_INCREMENT_OFFSET)
-            {
+            let raster_compare_increment_dot =
+                self.state.h_latch.h_display_width.saturating_sub(RASTER_COMPARE_INCREMENT_OFFSET);
+            if (8..raster_compare_increment_dot).contains(&self.state.h_counter) {
                 // If active display began but the raster compare increment didn't happen, do it at the
                 // line change
                 //
                 // D&D: Order of the Griffon depends on this else there will be a glitchy line under
                 // the character portraits; it depends on the increment happening twice in one line
                 // when it changes the dot clock divider from 4 to 3
+                //
+                // Beyond Shadowgate, Camp California, and Shapeshifter depend on _not_ doing this
+                // if still in the first 8 dots of active display. This is probably working around
+                // a timing bug somewhere else
                 self.increment_raster_compare_counter();
             }
 
@@ -745,16 +785,21 @@ impl Vdc {
         self.state.h_counter = 0;
         self.state.h_mode_start_dot = 0;
 
+        self.registers.bg_enabled = self.registers.bg_enabled_pending;
+        self.registers.sprites_enabled = self.registers.sprites_enabled_pending;
+
+        log::trace!("Latched horizontal state (line {scanline}): {:?}", self.state.h_latch);
+
         self.state.line_divider = dot_clock_divider;
 
         self.state.scanline = scanline;
         self.state.scanline_dot = 0;
+        self.state.scanline_mclk = 0;
 
-        if self.state.bg_y_scroll_written {
-            self.state.bg_y_counter = self.registers.bg_y_scroll;
-            self.state.bg_y_scroll_written = false;
+        if scanline == 0 {
+            self.state.v_latch = LatchedVerticalState::latch(&self.registers);
+            log::trace!("Latched vertical state: {:?}", self.state.v_latch);
         }
-        self.state.bg_y_counter = self.state.bg_y_counter.wrapping_add(1);
 
         if ACTIVE_DISPLAY_LINES.contains(&scanline) {
             let frame_buffer_row = scanline - ACTIVE_DISPLAY_LINES.start;
@@ -763,15 +808,22 @@ impl Vdc {
 
         self.state.frame_complete |= scanline == ACTIVE_DISPLAY_LINES.end;
 
-        if scanline != 0 {
+        if scanline == lines_per_frame - 3 {
+            // VCE VSYNC, start new frame
+            // Some games depend on starting in VSW phase instead of VDS / top border (e.g. Sherlock
+            // Holmes, sets VSW to 0x1C / 29 lines)
+            self.state.v_mode = VerticalMode::VSync;
+            self.state.v_counter = 0;
+        } else {
             self.state.v_counter += 1;
             if self.state.v_counter >= self.state.v_mode.length(self.state.v_latch) {
                 self.state.v_counter = 0;
                 self.state.v_mode = self.state.v_mode.next();
-                self.state.v_mode_start_line = self.state.scanline;
 
                 match self.state.v_mode {
                     VerticalMode::ActiveDisplay => {
+                        log::trace!("Starting V active display on line {scanline}");
+
                         self.state.bg_y_counter = self.registers.bg_y_scroll;
 
                         if !self.state.v_latch.burst_mode {
@@ -780,18 +832,9 @@ impl Vdc {
                         }
                     }
                     VerticalMode::BottomBorder => {
-                        if self.state.dma.sat_triggered || self.registers.sat_dma_repeat {
-                            self.state.dma.start_sat();
-                            self.state.dma.sat_triggered = false;
+                        log::trace!("Ending V active display on line {scanline}");
 
-                            log::trace!("Starting VRAM-to-SAT DMA on line {scanline}");
-                        }
-
-                        if self.state.dma.vram_triggered {
-                            self.state.dma.start_vram();
-
-                            log::trace!("Starting VRAM-to-VRAM DMA on line {scanline}");
-                        }
+                        self.trigger_dmas();
 
                         self.set_irq(VdcIrq::VBlank);
 
@@ -804,19 +847,35 @@ impl Vdc {
             }
         }
 
-        if !self.state.vblank_irq_this_frame && scanline == lines_per_frame - 2 {
-            // VDC supposedly always generates a VBlank IRQ when the VCE asserts VSYNC if it didn't
-            // already generate one earlier in the frame
-            self.set_irq(VdcIrq::VBlank);
+        if scanline == lines_per_frame - 2 {
+            if !self.state.vblank_irq_this_frame {
+                // VDC supposedly always generates a VBlank IRQ shortly after the VCE asserts VSYNC
+                // if it didn't already generate one earlier in the frame (happens when VDS+VDW is
+                // too large)
+                self.set_irq(VdcIrq::VBlank);
+
+                // If VBlank IRQ didn't trigger earlier in the frame, the VDC also didn't run the DMA
+                // trigger logic, so do that now (e.g. Asuka 120% story scenes)
+                self.trigger_dmas();
+            }
+
+            self.state.vblank_irq_this_frame = false;
         }
     }
 
-    pub fn start_new_frame(&mut self) {
-        self.state.v_latch = LatchedVerticalState::latch(&self.registers);
-        self.state.v_mode = VerticalMode::TopBorder;
-        self.state.v_counter = 0;
-        self.state.v_mode_start_line = 0;
-        self.state.vblank_irq_this_frame = false;
+    fn trigger_dmas(&mut self) {
+        if self.state.dma.sat_triggered || self.registers.sat_dma_repeat {
+            self.state.dma.start_sat();
+            self.state.dma.sat_triggered = false;
+
+            log::trace!("Starting VRAM-to-SAT DMA on line {}", self.state.scanline);
+        }
+
+        if self.state.dma.vram_triggered {
+            self.state.dma.start_vram();
+
+            log::trace!("Starting VRAM-to-VRAM DMA on line {}", self.state.scanline);
+        }
     }
 
     pub fn frame_complete(&self) -> bool {
@@ -878,7 +937,7 @@ impl Vdc {
         let screen_width_tiles = self.registers.virtual_screen_width.to_tiles();
         let screen_height_tiles = self.registers.virtual_screen_height.to_tiles();
 
-        let bg_x_scroll = self.state.h_latch.bg_x_scroll;
+        let bg_x_scroll = self.state.latched_bg_x_scroll;
         let bg_y_counter = self.state.bg_y_counter;
 
         let mut bg_tile_x = (bg_x_scroll / 8) & (screen_width_tiles - 1);
@@ -944,7 +1003,9 @@ impl Vdc {
             (self.vram[tile_addr + tile_row], self.vram[tile_addr + tile_row + 8])
         } else {
             // Tiles 2048-4095 are supposedly filled with "garbage"
-            (0xFFFF, 0xFFFF)
+            // Presumably in actual hardware they're some sort of open bus, but for simplicity
+            // just make them fully transparent tiles
+            (0, 0)
         };
 
         if self.state.h_latch.vram_access_width == VramAccessWidth::Four {
@@ -1033,6 +1094,11 @@ impl Vdc {
     }
 
     fn can_perform_cpu_access(&self) -> bool {
+        if self.state.cpu_access_latency_dots != 0 {
+            // Not enough time has progressed since the CPU initiated the access
+            return false;
+        }
+
         if self.state.dma.vram_active || self.state.dma.sat_active {
             // CPU cannot access VRAM during DMA
             return false;
@@ -1182,10 +1248,6 @@ impl Vdc {
         self.sprite_line_buffer.fill(SpritePixel::TRANSPARENT);
         self.state.sprite_fetch_dots_this_line = 0;
 
-        if !self.registers.sprites_enabled {
-            return;
-        }
-
         // TODO this is not quite right if the game changes HDS or the dot clock divider during the right border or HSync
         let sprite_fetch_cycles = {
             let dots_per_line = MCLK_CYCLES_PER_SCANLINE / u64::from(self.state.line_divider);
@@ -1222,7 +1284,14 @@ impl Vdc {
                 &self.vram[tile_addr..tile_addr + 64]
             } else {
                 // Tiles 512-1023 supposedly contain "garbage"
-                &[0xFFFF; 64]
+                //
+                // Games sometimes display sprites with these tile numbers and expect them to be
+                // either fully transparent or to contain a specific color, e.g. Shin Megami Tensei
+                // title screen animation (briefly has an onscreen sprite with tile number 512)
+                //
+                // Presumably in actual hardware these are some sort of open bus, but for simplicity
+                // just make them fully transparent
+                &[0; 64]
             };
 
             let tile_row = sprite.tile_row as usize;

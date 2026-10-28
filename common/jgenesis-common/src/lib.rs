@@ -6,6 +6,7 @@ pub mod frontend;
 pub mod input;
 pub mod macros;
 pub mod num;
+pub mod patch;
 pub mod paths;
 pub mod rom;
 pub mod sync;

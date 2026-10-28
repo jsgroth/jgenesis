@@ -1,12 +1,17 @@
-use crate::{DebugRenderContext, DebugRenderFn};
-use egui::{Context, Grid, Vec2, Window};
+use crate::memviewer::MemoryViewerState;
+use crate::{DebugRenderContext, DebugRenderFn, memviewer};
+use egui::{Context, Grid, Panel, Vec2, Window};
+use jgenesis_common::debug::Endian;
 use jgenesis_common::frontend::Color;
 use pce_core::api::PcEngineEmulator;
+use pce_core::api::debug::PceMemoryArea;
+use std::collections::HashMap;
 
 const VRAM_TEXTURE_WIDTH: usize = 64;
 const VRAM_TEXTURE_HEIGHT: usize = 32;
 
 struct State {
+    memory_viewer_states: HashMap<PceMemoryArea, MemoryViewerState>,
     palettes_buffer: Vec<Color>,
     bg_palettes_texture: Option<egui::TextureId>,
     sprite_palettes_texture: Option<egui::TextureId>,
@@ -19,6 +24,12 @@ struct State {
 impl State {
     fn new() -> Self {
         Self {
+            memory_viewer_states: PceMemoryArea::ALL
+                .into_iter()
+                .map(|memory_area| {
+                    (memory_area, MemoryViewerState::new(memory_area.name(), Endian::Little))
+                })
+                .collect(),
             palettes_buffer: vec![Color::default(); 512],
             bg_palettes_texture: None,
             sprite_palettes_texture: None,
@@ -33,30 +44,58 @@ impl State {
     }
 }
 
-#[must_use]
 pub fn render_fn() -> Box<DebugRenderFn<PcEngineEmulator>> {
     let mut state = State::new();
     Box::new(move |ctx, emulator| render(ctx, emulator, &mut state))
 }
 
 fn render(ctx: DebugRenderContext<'_>, emulator: &mut PcEngineEmulator, state: &mut State) {
+    Panel::top("pce_debug_top_panel").show_inside(ctx.egui_ui, |ui| {
+        ui.menu_button("Memory Viewers", |ui| {
+            for memory_area in PceMemoryArea::ALL {
+                if emulator.debug_memory_view(memory_area).is_none() {
+                    continue;
+                }
+
+                if ui.button(memory_area.name()).clicked()
+                    && let Some(memviewer_state) = state.memory_viewer_states.get_mut(&memory_area)
+                {
+                    memviewer_state.open_window(ui);
+                }
+            }
+        });
+    });
+
+    for (&memory_area, memviewer_state) in &mut state.memory_viewer_states {
+        if let Some(mut memory_view) = emulator.debug_memory_view(memory_area) {
+            memviewer::render(ctx.egui_ui, &mut *memory_view, memviewer_state);
+        }
+    }
+
     update_palette_textures(ctx.egui_ui, emulator, state);
 
-    Window::new("BG Palettes").resizable(true).default_width(400.0).show(ctx.egui_ui, |ui| {
-        let size = clamp_palette_image_size(ui.available_size());
+    Window::new("BG Palettes").resizable(true).default_width(400.0).default_pos([25.0, 25.0]).show(
+        ctx.egui_ui,
+        |ui| {
+            let size = clamp_palette_image_size(ui.available_size());
 
-        if let Some(bg_palettes_texture) = state.bg_palettes_texture {
-            ui.image((bg_palettes_texture, size));
-        }
-    });
+            if let Some(bg_palettes_texture) = state.bg_palettes_texture {
+                ui.image((bg_palettes_texture, size));
+            }
+        },
+    );
 
-    Window::new("Sprite Palettes").resizable(true).default_width(400.0).show(ctx.egui_ui, |ui| {
-        let size = clamp_palette_image_size(ui.available_size());
+    Window::new("Sprite Palettes")
+        .resizable(true)
+        .default_width(400.0)
+        .default_pos([450.0, 25.0])
+        .show(ctx.egui_ui, |ui| {
+            let size = clamp_palette_image_size(ui.available_size());
 
-        if let Some(sprite_palettes_texture) = state.sprite_palettes_texture {
-            ui.image((sprite_palettes_texture, size));
-        }
-    });
+            if let Some(sprite_palettes_texture) = state.sprite_palettes_texture {
+                ui.image((sprite_palettes_texture, size));
+            }
+        });
 
     Window::new("VRAM").resizable(true).show(ctx.egui_ui, |ui| {
         update_vram_texture(ui, emulator, state);

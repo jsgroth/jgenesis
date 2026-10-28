@@ -419,7 +419,7 @@ impl Mapper {
 pub enum CartridgeFileError {
     #[error("I/O error: {source}")]
     Io {
-        #[from]
+        #[source]
         source: io::Error,
     },
     #[error("invalid or unsupported file format")]

@@ -5,6 +5,7 @@ mod metadata;
 use crate::cartridge::eeprom::{X24C01Chip, X24C02Chip, X24C08Chip, X24C16Chip, X24C64Chip};
 use crate::cartridge::external::metadata::{EepromMetadata, EepromType};
 use bincode::{Decode, Encode};
+use jgenesis_common::debug::DebugBytesView;
 use jgenesis_common::num::GetBit;
 use std::ops::Range;
 
@@ -257,6 +258,10 @@ impl Eeprom {
     fn get_memory(&self) -> &[u8] {
         match_each_eeprom!(self, chip => chip.get_memory())
     }
+
+    fn get_memory_mut(&mut self) -> &mut [u8] {
+        match_each_eeprom!(self, chip => chip.get_memory_mut())
+    }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -397,6 +402,15 @@ impl ExternalMemory {
                 let end = [sda_in_addr, sda_out_addr, scl_addr].into_iter().max().unwrap();
                 start..end + 1
             }
+        }
+    }
+
+    #[must_use]
+    pub fn debug_ram_view(&mut self) -> Option<DebugBytesView<'_>> {
+        match self {
+            Self::None => None,
+            Self::Ram(ram) => Some(DebugBytesView(&mut ram.ram)),
+            Self::Eeprom { chip, .. } => Some(DebugBytesView(chip.get_memory_mut())),
         }
     }
 }

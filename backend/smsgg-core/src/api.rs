@@ -12,7 +12,7 @@ use jgenesis_common::cheats::ByteCheatCodeU16Address;
 use jgenesis_common::frontend::{
     AudioOutput, Color, CompositeParams, EmulatorConfigTrait, EmulatorTrait, FrameSize,
     InputPoller, PartialClone, RenderFrameOptions, Renderer, SamplesPerColorCycle, SaveWriter,
-    TickEffect, TimingMode,
+    SuggestedWindowSize, TickEffect, TimingMode,
 };
 use jgenesis_proc_macros::ConfigDisplay;
 use smsgg_config::{
@@ -57,6 +57,8 @@ pub struct SmsGgEmulatorConfig {
     pub sms_crop_left_border: bool,
     pub gg_frame_blending: bool,
     pub gg_use_sms_resolution: bool,
+    #[cfg_display(debug_fmt)]
+    pub psg_channels_enabled: [bool; 4],
     pub fm_sound_unit_enabled: bool,
     pub z80_divider: NonZeroU32,
     pub allow_opposing_joypad_directions: bool,
@@ -117,7 +119,6 @@ pub struct SmsGgEmulator {
     config: SmsGgEmulatorConfig,
     vdp_mclk_counter: u32,
     psg_mclk_counter: u32,
-    frame_count: u64,
     reset_frames_remaining: u32,
 }
 
@@ -149,7 +150,7 @@ impl SmsGgEmulator {
         };
         let memory = Memory::new(rom, bios_rom, cartridge_ram, hardware, &config);
         let vdp = Vdp::new(vdp_version, &config);
-        let psg = Sn76489::new(psg_version);
+        let psg = Sn76489::new(psg_version, config.psg_channels_enabled);
         let input = InputState::new(config.region(&memory), &config);
 
         log::info!("Region in cartridge header: {:?}", memory.guess_cartridge_region());
@@ -174,7 +175,6 @@ impl SmsGgEmulator {
             config,
             vdp_mclk_counter: 0,
             psg_mclk_counter: 0,
-            frame_count: 0,
             reset_frames_remaining: 0,
         }
     }
@@ -205,25 +205,30 @@ impl SmsGgEmulator {
             self.frame_buffer.as_mut_slice(),
         );
 
+        renderer.render_frame(
+            self.frame_buffer.as_slice(),
+            self.frame_size(),
+            self.target_fps(),
+            self.config.render_options(self.vdp_version.hardware()),
+        )
+    }
+
+    fn frame_size(&self) -> FrameSize {
         let viewport = self.vdp.viewport();
-        let frame_width = if self.config.sms_crop_left_border {
+
+        let width = if self.config.sms_crop_left_border {
             viewport.width_without_border().into()
         } else {
             viewport.width.into()
         };
-        let frame_height = if self.config.sms_crop_vertical_border {
+
+        let height = if self.config.sms_crop_vertical_border {
             viewport.height_without_border().into()
         } else {
             viewport.height.into()
         };
 
-        let frame_size = FrameSize { width: frame_width, height: frame_height };
-        renderer.render_frame(
-            self.frame_buffer.as_slice(),
-            frame_size,
-            self.target_fps(),
-            self.config.render_options(self.vdp_version.hardware()),
-        )
+        FrameSize { width, height }
     }
 
     pub fn copy_cram(&self, out: &mut [Color]) {
@@ -355,11 +360,7 @@ impl EmulatorTrait for SmsGgEmulator {
                 self.input.set_reset(self.reset_frames_remaining != 0);
                 self.reset_frames_remaining = self.reset_frames_remaining.saturating_sub(1);
 
-                self.frame_count += 1;
-                if self.frame_count.is_multiple_of(60)
-                    && self.memory.cartridge_has_battery()
-                    && self.memory.cartridge_ram_dirty()
-                {
+                if self.memory.cartridge_has_battery() && self.memory.cartridge_ram_dirty() {
                     self.memory.clear_cartridge_ram_dirty();
                     save_writer
                         .persist_bytes("sav", self.memory.cartridge_ram())
@@ -386,6 +387,7 @@ impl EmulatorTrait for SmsGgEmulator {
         self.vdp.update_config(self.vdp_version, config);
 
         self.psg.set_version(determine_psg_version(hardware, config));
+        self.psg.set_channels_enabled(config.psg_channels_enabled);
 
         self.memory.update_config(config);
 
@@ -410,7 +412,7 @@ impl EmulatorTrait for SmsGgEmulator {
         init_z80(&mut self.z80);
 
         self.vdp = Vdp::new(self.vdp_version, &self.config);
-        self.psg = Sn76489::new(self.psg.version());
+        self.psg = Sn76489::new(self.psg.version(), self.psg.channels_enabled());
         self.input = InputState::new(self.input.region(), &self.config);
 
         self.ym2413 =
@@ -420,7 +422,6 @@ impl EmulatorTrait for SmsGgEmulator {
 
         self.vdp_mclk_counter = 0;
         self.psg_mclk_counter = 0;
-        self.frame_count = 0;
         self.reset_frames_remaining = 0;
     }
 
@@ -446,6 +447,33 @@ impl EmulatorTrait for SmsGgEmulator {
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
         self.audio_resampler.update_output_frequency(output_frequency);
+    }
+
+    fn suggested_window_size(&self) -> SuggestedWindowSize {
+        let frame_size = self.frame_size();
+        let aspect_ratio = match self.hardware() {
+            SmsGgHardware::MasterSystem | SmsGgHardware::Sg1000 => {
+                self.config.sms_aspect_ratio.to_pixel_aspect_ratio()
+            }
+            SmsGgHardware::GameGear => self.config.gg_aspect_ratio.to_pixel_aspect_ratio(),
+        };
+        let aspect_ratio_with_fallback = aspect_ratio.or(match self.hardware() {
+            SmsGgHardware::MasterSystem | SmsGgHardware::Sg1000 => {
+                SmsAspectRatio::default().to_pixel_aspect_ratio()
+            }
+            SmsGgHardware::GameGear => GgAspectRatio::default().to_pixel_aspect_ratio(),
+        });
+
+        let mut width: f64 = frame_size.width.into();
+        if let Some(aspect_ratio) = aspect_ratio_with_fallback {
+            width *= aspect_ratio.get();
+        }
+
+        SuggestedWindowSize {
+            width,
+            height: frame_size.height.into(),
+            fallback_aspect_ratio: aspect_ratio.is_none(),
+        }
     }
 }
 

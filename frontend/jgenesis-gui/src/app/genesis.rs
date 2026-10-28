@@ -2,11 +2,11 @@ mod helptext;
 
 use crate::app::widgets::{
     BiosErrorStrings, ClockModifier, NumericTextEdit, OptionalPathSelector, OverclockSlider,
-    RenderErrorEffect,
+    RenderErrorEffect, VolumeAdjustmentState, VolumeAdjustmentWidget,
 };
-use crate::app::{App, Console, OpenWindow, widgets};
+use crate::app::{App, Console, OpenWindow, smsgg, widgets};
 use egui::style::ScrollStyle;
-use egui::{Color32, Context, Slider, Ui, Window};
+use egui::{Context, Slider, Ui, Window};
 use genesis_config::{GenesisAspectRatio, GenesisRegion, Opn2BusyBehavior, S32XPwmResampling};
 use genesis_config::{PcmInterpolation, S32XColorTint};
 use genesis_config::{S32XVideoOut, S32XVoidColorType};
@@ -36,65 +36,27 @@ impl S32XPriorityState {
     }
 }
 
+#[derive(Debug, Clone, Default)]
 pub struct GenesisVolumeState {
-    pub ym2612_text: String,
-    pub ym2612_invalid: bool,
-    pub psg_text: String,
-    pub psg_invalid: bool,
-    pub pcm_text: String,
-    pub pcm_invalid: bool,
-    pub cd_text: String,
-    pub cd_invalid: bool,
-    pub pwm_text: String,
-    pub pwm_invalid: bool,
-}
-
-impl Default for GenesisVolumeState {
-    fn default() -> Self {
-        let zero_str = "0.0".to_string();
-
-        Self {
-            ym2612_text: zero_str.clone(),
-            ym2612_invalid: false,
-            psg_text: zero_str.clone(),
-            psg_invalid: false,
-            pcm_text: zero_str.clone(),
-            pcm_invalid: false,
-            cd_text: zero_str.clone(),
-            cd_invalid: false,
-            pwm_text: zero_str,
-            pwm_invalid: false,
-        }
-    }
+    pub ym2612: VolumeAdjustmentState,
+    pub psg: VolumeAdjustmentState,
+    pub pcm: VolumeAdjustmentState,
+    pub cd: VolumeAdjustmentState,
+    pub pwm: VolumeAdjustmentState,
 }
 
 impl GenesisVolumeState {
     pub fn from_config(config: &AppConfig) -> Self {
         Self {
-            ym2612_text: fmt_volume(config.genesis.ym2612_volume_adjustment_db),
-            ym2612_invalid: false,
-            psg_text: fmt_volume(config.genesis.psg_volume_adjustment_db),
-            psg_invalid: false,
-            pcm_text: fmt_volume(config.sega_cd.pcm_volume_adjustment_db),
-            pcm_invalid: false,
-            cd_text: fmt_volume(config.sega_cd.cd_volume_adjustment_db),
-            cd_invalid: false,
-            pwm_text: fmt_volume(config.sega_32x.pwm_volume_adjustment_db),
-            pwm_invalid: false,
+            ym2612: VolumeAdjustmentState::from_config_value(
+                config.genesis.ym2612_volume_adjustment_db,
+            ),
+            psg: VolumeAdjustmentState::from_config_value(config.genesis.psg_volume_adjustment_db),
+            pcm: VolumeAdjustmentState::from_config_value(config.sega_cd.pcm_volume_adjustment_db),
+            cd: VolumeAdjustmentState::from_config_value(config.sega_cd.cd_volume_adjustment_db),
+            pwm: VolumeAdjustmentState::from_config_value(config.sega_32x.pwm_volume_adjustment_db),
         }
     }
-
-    fn any_invalid(&self) -> bool {
-        self.ym2612_invalid
-            || self.psg_invalid
-            || self.pcm_invalid
-            || self.cd_invalid
-            || self.pwm_invalid
-    }
-}
-
-fn fmt_volume(volume_adjustment: f64) -> String {
-    format!("{volume_adjustment:.1}")
 }
 
 impl App {
@@ -600,6 +562,16 @@ impl App {
                 self.render_ym2612_channels_enabled(ui);
 
                 ui.add_space(5.0);
+                let rect = smsgg::render_psg_channels_enabled(
+                    &mut self.config.genesis.psg_channels_enabled,
+                    ui,
+                )
+                .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::ENABLED_PSG_CHANNELS);
+                }
+
+                ui.add_space(5.0);
                 self.render_opn2_busy_flag_setting(ui);
             });
 
@@ -620,6 +592,7 @@ impl App {
                     label: "Genesis 68000 clock divider",
                     current_value: &mut self.config.genesis.m68k_clock_divider,
                     range: 1..=7,
+                    step: 1.0,
                     master_clock: genesis_components::NTSC_GENESIS_MCLK_FREQUENCY,
                     default_divider: genesis_config::NATIVE_M68K_DIVIDER as f64,
                     modifier: ClockModifier::Divider,
@@ -635,6 +608,7 @@ impl App {
                     label: "Sega CD sub 68000 clock divider",
                     current_value: &mut self.config.sega_cd.sub_cpu_divider,
                     range: NonZeroU64::new(1).unwrap()..=NonZeroU64::new(4).unwrap(),
+                    step: 1.0,
                     master_clock: segacd_core::api::SEGA_CD_MASTER_CLOCK_RATE as f64,
                     default_divider: segacd_core::api::DEFAULT_SUB_CPU_DIVIDER as f64,
                     modifier: ClockModifier::Divider,
@@ -649,7 +623,8 @@ impl App {
                 .add(OverclockSlider {
                     label: "32X SH-2 clock multiplier",
                     current_value: &mut self.config.sega_32x.sh2_clock_multiplier,
-                    range: NonZeroU64::new(3).unwrap()..=NonZeroU64::new(10).unwrap(),
+                    range: 1.0..=10.0,
+                    step: 0.25,
                     master_clock: genesis_components::NTSC_GENESIS_MCLK_FREQUENCY / 7.0,
                     default_divider: genesis_config::NATIVE_SH2_MULTIPLIER as f64,
                     modifier: ClockModifier::Multiplier,
@@ -922,11 +897,10 @@ impl App {
                 ui.label("Enabled YM2612 channels");
 
                 ui.horizontal(|ui| {
-                    for i in 0..6 {
-                        ui.checkbox(
-                            &mut self.config.genesis.ym2612_channels_enabled[i],
-                            (i + 1).to_string(),
-                        );
+                    for (i, channel_enabled) in
+                        self.config.genesis.ym2612_channels_enabled.iter_mut().enumerate()
+                    {
+                        ui.checkbox(channel_enabled, (i + 1).to_string());
                     }
                 });
 
@@ -976,64 +950,38 @@ impl App {
     }
 
     fn render_volume_adjustments(&mut self, ui: &mut Ui) {
-        let rect = ui
-            .group(|ui| {
-                ui.label("Volume adjustments (dB) (+/-)");
-
-                ui.add_space(2.0);
-
-                render_volume_adjustment(
+        let rect = widgets::render_volume_adjustments(
+            [
+                VolumeAdjustmentWidget::new(
                     "YM2612 FM synth chip",
-                    &mut self.state.genesis_volume.ym2612_text,
-                    &mut self.state.genesis_volume.ym2612_invalid,
                     &mut self.config.genesis.ym2612_volume_adjustment_db,
-                    ui,
-                );
-                render_volume_adjustment(
+                    &mut self.state.genesis_volume.ym2612,
+                ),
+                VolumeAdjustmentWidget::new(
                     "SN76489 PSG chip",
-                    &mut self.state.genesis_volume.psg_text,
-                    &mut self.state.genesis_volume.psg_invalid,
                     &mut self.config.genesis.psg_volume_adjustment_db,
-                    ui,
-                );
-                render_volume_adjustment(
+                    &mut self.state.genesis_volume.psg,
+                ),
+                VolumeAdjustmentWidget::new(
                     "(Sega CD) RF5C164 PCM chip",
-                    &mut self.state.genesis_volume.pcm_text,
-                    &mut self.state.genesis_volume.pcm_invalid,
                     &mut self.config.sega_cd.pcm_volume_adjustment_db,
-                    ui,
-                );
-                render_volume_adjustment(
+                    &mut self.state.genesis_volume.pcm,
+                ),
+                VolumeAdjustmentWidget::new(
                     "(Sega CD) CD-DA playback",
-                    &mut self.state.genesis_volume.cd_text,
-                    &mut self.state.genesis_volume.cd_invalid,
                     &mut self.config.sega_cd.cd_volume_adjustment_db,
-                    ui,
-                );
-                render_volume_adjustment(
+                    &mut self.state.genesis_volume.cd,
+                ),
+                VolumeAdjustmentWidget::new(
                     "(32X) PWM chip",
-                    &mut self.state.genesis_volume.pwm_text,
-                    &mut self.state.genesis_volume.pwm_invalid,
                     &mut self.config.sega_32x.pwm_volume_adjustment_db,
-                    ui,
-                );
+                    &mut self.state.genesis_volume.pwm,
+                ),
+            ],
+            ui,
+        )
+        .interact_rect;
 
-                if ui.button("Clear all").clicked() {
-                    self.config.genesis.ym2612_volume_adjustment_db = 0.0;
-                    self.config.genesis.psg_volume_adjustment_db = 0.0;
-                    self.config.sega_cd.pcm_volume_adjustment_db = 0.0;
-                    self.config.sega_cd.cd_volume_adjustment_db = 0.0;
-                    self.config.sega_32x.pwm_volume_adjustment_db = 0.0;
-
-                    self.state.genesis_volume = GenesisVolumeState::from_config(&self.config);
-                }
-
-                if self.state.genesis_volume.any_invalid() {
-                    ui.colored_label(Color32::RED, "Values must be numbers");
-                }
-            })
-            .response
-            .interact_rect;
         if ui.rect_contains_pointer(rect) {
             self.state.help_text.insert(OpenWindow::GenesisAudio, helptext::VOLUME_ADJUSTMENTS);
         }
@@ -1068,24 +1016,6 @@ impl App {
             pick_scd_bios_path,
         )
     }
-}
-
-fn render_volume_adjustment(
-    label: &str,
-    text: &mut String,
-    invalid: &mut bool,
-    value: &mut f64,
-    ui: &mut Ui,
-) {
-    ui.horizontal(|ui| {
-        ui.add(
-            NumericTextEdit::new(text, value, invalid)
-                .desired_width(40.0)
-                .with_validation(f64::is_finite),
-        );
-
-        ui.label(label);
-    });
 }
 
 fn pick_scd_bios_path() -> Option<PathBuf> {

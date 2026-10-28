@@ -96,7 +96,7 @@ jobs:
 
       - name: Install wasm-pack
         run: |
-          cargo install wasm-pack
+          cargo install wasm-pack --locked
 
       - name: Build web
         run: |
@@ -110,10 +110,6 @@ jobs:
       - name: Install latest stable Rust toolchain
         run: |
           rustup update
-
-      - name: Install latest nightly Rust toolchain
-        run: |
-          rustup toolchain add nightly --component rustfmt --component rust-src
 
       # https://github.com/libsdl-org/SDL/blob/main/docs/README-linux.md#build-dependencies
       - name: Install SDL3 system dependencies
@@ -142,7 +138,7 @@ jobs:
       - name: Install cargo-packager
         if: steps.packager-cache.outputs.cache-hit != 'true'
         run: |
-          cargo install cargo-packager --version ${{ steps.get-packager-version.outputs.version }}
+          cargo install cargo-packager --locked --version ${{ steps.get-packager-version.outputs.version }}
 
       - name: Build AppImage packages
         run: |
@@ -157,7 +153,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      SDL_VERSION: 3.4.10
+      SDL_VERSION: 3.4.16
       DXC_RELEASE_TAG: v1.9.2602.24
       DXC_ZIP_FILE: dxc_2026_05_27.zip
 
@@ -168,10 +164,6 @@ jobs:
         run: |
           rustup update
 
-      - name: Install latest nightly Rust toolchain
-        run: |
-          rustup toolchain add nightly --component rustfmt --component rust-src
-
       - name: Install mingw32
         run: |
           sudo apt-get update && sudo apt-get install -y mingw-w64
@@ -179,10 +171,6 @@ jobs:
       - name: Install Windows x64 Rust build target (stable)
         run: |
           rustup target add x86_64-pc-windows-gnu
-
-      - name: Install Windows x64 Rust build target (nightly)
-        run: |
-          rustup target add --toolchain nightly x86_64-pc-windows-gnu
 
       - name: Download & extract Windows SDL3 libraries
         run: |
@@ -198,8 +186,8 @@ jobs:
 
       - name: Build GUI release
         run: |
-          RUSTFLAGS="-C target-cpu=x86-64-v2 -Z tune-cpu=x86-64-v3" \
-          cargo +nightly build --profile release-lto --target x86_64-pc-windows-gnu
+          RUSTFLAGS="-C target-cpu=x86-64-v2" \
+          cargo build --profile release-lto --target x86_64-pc-windows-gnu
 
       - name: Compress binaries
         run: |

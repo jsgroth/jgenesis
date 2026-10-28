@@ -74,7 +74,8 @@ pub struct Vce {
 impl Vce {
     pub fn new() -> Self {
         Self {
-            cram: BoxedWordArray::new(),
+            // D&D Order of the Griffon depends on CRAM being randomized (password screen)
+            cram: BoxedWordArray::new_random(),
             dot_clock_divider: DotClockDivider::default(),
             extra_line_per_frame: false,
             greyscale: false,

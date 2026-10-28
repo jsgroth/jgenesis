@@ -379,10 +379,16 @@ impl Sh7604Registers {
     }
 }
 
-// The SH7604 manual says there's a 3-12 cycle latency on FRT accesses, though it's unclear whether
-// this applies to only FRC or to all FRT registers.
-// Applying to all registers fixes some timing issues around line 224 HINT and VINT
-const FRT_WAIT_CYCLES: u64 = 7;
+// Based on 32X Technical Bulletin #32
+const BSC_CYCLES: u64 = 3;
+const DMAC_CYCLES: u64 = 3;
+const DIV_CYCLES: u64 = 3;
+const UBC_CYCLES: u64 = 3;
+const INTC_CYCLES: u64 = 4;
+const MDC_CYCLES: u64 = 4;
+const FRT_CYCLES: u64 = 11;
+const WDT_CYCLES: u64 = 11;
+const SCI_CYCLES: u64 = 11;
 
 impl Sh2 {
     #[allow(clippy::match_same_arms)]
@@ -393,31 +399,37 @@ impl Sh2 {
     ) -> u8 {
         log::trace!("[{}] Internal register byte read: {address:08X}", self.name);
 
+        macro_rules! with_cycles {
+            ($cycles:expr, $action:expr) => {{
+                bus.increment_cycle_counter($cycles);
+                $action
+            }};
+        }
+
         match address {
             0xFFFFFC17 => {
                 // Cosmic Carnage constantly accesses this address - not sure what it's supposed to be
                 0
             }
-            0xFFFFFE00..=0xFFFFFE05 => self.serial.read_register(address),
+            0xFFFFFE00..=0xFFFFFE05 => with_cycles!(SCI_CYCLES, self.serial.read_register(address)),
             0xFFFFFE10..=0xFFFFFE19 => {
-                bus.increment_cycle_counter(FRT_WAIT_CYCLES);
-                self.free_run_timer.read_register(address)
+                with_cycles!(FRT_CYCLES, self.free_run_timer.read_register(address))
             }
-            0xFFFFFE60 => self.sh7604.interrupts.read_iprb().msb(),
-            0xFFFFFE61 => self.sh7604.interrupts.read_iprb().lsb(),
-            0xFFFFFE62 => self.sh7604.interrupts.read_vcra().msb(),
-            0xFFFFFE63 => self.sh7604.interrupts.read_vcra().lsb(),
-            0xFFFFFE64 => self.sh7604.interrupts.read_vcrb().msb(),
-            0xFFFFFE65 => self.sh7604.interrupts.read_vcrb().lsb(),
-            0xFFFFFE80 => self.watchdog_timer.read_control(),
-            0xFFFFFE81 => self.watchdog_timer.read_counter(),
-            0xFFFFFE92 => self.cache.read_control(),
+            0xFFFFFE60 => with_cycles!(INTC_CYCLES, self.sh7604.interrupts.read_iprb().msb()),
+            0xFFFFFE61 => with_cycles!(INTC_CYCLES, self.sh7604.interrupts.read_iprb().lsb()),
+            0xFFFFFE62 => with_cycles!(INTC_CYCLES, self.sh7604.interrupts.read_vcra().msb()),
+            0xFFFFFE63 => with_cycles!(INTC_CYCLES, self.sh7604.interrupts.read_vcra().lsb()),
+            0xFFFFFE64 => with_cycles!(INTC_CYCLES, self.sh7604.interrupts.read_vcrb().msb()),
+            0xFFFFFE65 => with_cycles!(INTC_CYCLES, self.sh7604.interrupts.read_vcrb().lsb()),
+            0xFFFFFE80 => with_cycles!(WDT_CYCLES, self.watchdog_timer.read_control()),
+            0xFFFFFE81 => with_cycles!(WDT_CYCLES, self.watchdog_timer.read_counter()),
+            0xFFFFFE92 => with_cycles!(MDC_CYCLES, self.cache.read_control()),
             // Unmapped addresses; some games access them for unknown reasons
             0xFFFFFE93..=0xFFFFFE9F => 0,
-            0xFFFFFEE2 => self.sh7604.interrupts.read_ipra().msb(),
-            0xFFFFFEE3 => self.sh7604.interrupts.read_ipra().lsb(),
-            0xFFFFFEE4 => self.sh7604.interrupts.read_vcrwdt().msb(),
-            0xFFFFFEE5 => self.sh7604.interrupts.read_vcrwdt().lsb(),
+            0xFFFFFEE2 => with_cycles!(INTC_CYCLES, self.sh7604.interrupts.read_ipra().msb()),
+            0xFFFFFEE3 => with_cycles!(INTC_CYCLES, self.sh7604.interrupts.read_ipra().lsb()),
+            0xFFFFFEE4 => with_cycles!(INTC_CYCLES, self.sh7604.interrupts.read_vcrwdt().msb()),
+            0xFFFFFEE5 => with_cycles!(INTC_CYCLES, self.sh7604.interrupts.read_vcrwdt().lsb()),
             _ => {
                 log::warn!("[{}] Unexpected internal register byte read: {address:08X}", self.name);
                 0
@@ -425,21 +437,40 @@ impl Sh2 {
         }
     }
 
-    pub(super) fn read_internal_register_word(&self, address: u32) -> u16 {
+    pub(super) fn read_internal_register_word(
+        &self,
+        address: u32,
+        bus: &mut impl BusInterface,
+    ) -> u16 {
         log::trace!("[{}] Internal register word read: {address:08X}", self.name);
 
+        macro_rules! with_cycles {
+            ($cycles:expr, $action:expr) => {{
+                bus.increment_cycle_counter($cycles);
+                $action
+            }};
+        }
+
         match address {
-            0xFFFFFE60 => self.sh7604.interrupts.read_iprb(),
-            0xFFFFFE62 => self.sh7604.interrupts.read_vcra(),
-            0xFFFFFE64 => self.sh7604.interrupts.read_vcrb(),
-            0xFFFFFEE2 => self.sh7604.interrupts.read_ipra(),
-            0xFFFFFEE4 => self.sh7604.interrupts.read_vcrwdt(),
-            0xFFFFFF08 => (self.divu.read_control() >> 16) as u16,
-            0xFFFFFF0A => self.divu.read_control() as u16,
-            0xFFFFFF40 => self.sh7604.break_registers.read_break_address_a_high(),
-            0xFFFFFF42 => self.sh7604.break_registers.read_break_address_a_low(),
-            0xFFFFFF60 => self.sh7604.break_registers.read_break_address_b_high(),
-            0xFFFFFF62 => self.sh7604.break_registers.read_break_address_b_low(),
+            0xFFFFFE60 => with_cycles!(INTC_CYCLES, self.sh7604.interrupts.read_iprb()),
+            0xFFFFFE62 => with_cycles!(INTC_CYCLES, self.sh7604.interrupts.read_vcra()),
+            0xFFFFFE64 => with_cycles!(INTC_CYCLES, self.sh7604.interrupts.read_vcrb()),
+            0xFFFFFEE2 => with_cycles!(INTC_CYCLES, self.sh7604.interrupts.read_ipra()),
+            0xFFFFFEE4 => with_cycles!(INTC_CYCLES, self.sh7604.interrupts.read_vcrwdt()),
+            0xFFFFFF08 => with_cycles!(DIV_CYCLES, (self.divu.read_control() >> 16) as u16),
+            0xFFFFFF0A => with_cycles!(DIV_CYCLES, self.divu.read_control() as u16),
+            0xFFFFFF40 => {
+                with_cycles!(UBC_CYCLES, self.sh7604.break_registers.read_break_address_a_high())
+            }
+            0xFFFFFF42 => {
+                with_cycles!(UBC_CYCLES, self.sh7604.break_registers.read_break_address_a_low())
+            }
+            0xFFFFFF60 => {
+                with_cycles!(UBC_CYCLES, self.sh7604.break_registers.read_break_address_b_high())
+            }
+            0xFFFFFF62 => {
+                with_cycles!(UBC_CYCLES, self.sh7604.break_registers.read_break_address_b_low())
+            }
             _ => {
                 log::warn!("[{}] Unexpected internal register word read: {address:08X}", self.name);
                 0
@@ -447,19 +478,32 @@ impl Sh2 {
         }
     }
 
-    pub(super) fn read_internal_register_longword(&mut self, address: u32) -> u32 {
+    pub(super) fn read_internal_register_longword(
+        &mut self,
+        address: u32,
+        bus: &mut impl BusInterface,
+    ) -> u32 {
         log::trace!("[{}] Internal register longword read: {address:08X}", self.name);
 
+        macro_rules! with_cycles {
+            ($cycles:expr, $action:expr) => {{
+                bus.increment_cycle_counter($cycles);
+                $action
+            }};
+        }
+
         match address {
-            0xFFFFFF00..=0xFFFFFF1F => self.divu.read_register(address),
+            0xFFFFFF00..=0xFFFFFF1F => with_cycles!(DIV_CYCLES, self.divu.read_register(address)),
             // Break registers; break functionality is not implemented but some games use the registers as R/W storage
-            0xFFFFFF40 => self.sh7604.break_registers.break_address_a,
-            0xFFFFFF60 => self.sh7604.break_registers.break_address_b,
-            0xFFFFFF80..=0xFFFFFF9F | 0xFFFFFFB0 => self.dmac.read_register(address),
-            0xFFFFFFA0 => self.sh7604.interrupts.dma0_vector.into(),
-            0xFFFFFFA8 => self.sh7604.interrupts.dma1_vector.into(),
+            0xFFFFFF40 => with_cycles!(UBC_CYCLES, self.sh7604.break_registers.break_address_a),
+            0xFFFFFF60 => with_cycles!(UBC_CYCLES, self.sh7604.break_registers.break_address_b),
+            0xFFFFFF80..=0xFFFFFF9F | 0xFFFFFFB0 => {
+                with_cycles!(DMAC_CYCLES, self.dmac.read_register(address))
+            }
+            0xFFFFFFA0 => with_cycles!(DMAC_CYCLES, self.sh7604.interrupts.dma0_vector.into()),
+            0xFFFFFFA8 => with_cycles!(DMAC_CYCLES, self.sh7604.interrupts.dma1_vector.into()),
             // Bus control register; not emulated, 32X games only ever write this value to it before reading
-            0xFFFFFFE0 => 0xA55A0001,
+            0xFFFFFFE0 => with_cycles!(BSC_CYCLES, 0xA55A0001),
             _ => {
                 log::warn!(
                     "[{}] Unexpected internal register longword read: {address:08X}",
@@ -479,23 +523,42 @@ impl Sh2 {
     ) {
         log::trace!("[{}] Internal register byte write: {address:08X} {value:02X}", self.name);
 
+        macro_rules! with_cycles {
+            ($cycles:expr, $action:expr) => {{
+                bus.increment_cycle_counter($cycles);
+                $action;
+            }};
+        }
+
         match address {
             // Cosmic Carnage constantly accesses this address - not sure what it's supposed to be
             0xFFFFFC17 => {}
-            0xFFFFFE00..=0xFFFFFE05 => self.serial.write_register(address, value),
-            0xFFFFFE10..=0xFFFFFE19 => {
-                bus.increment_cycle_counter(FRT_WAIT_CYCLES);
-                self.free_run_timer.write_register(address, value);
+            0xFFFFFE00..=0xFFFFFE05 => {
+                with_cycles!(SCI_CYCLES, self.serial.write_register(address, value));
             }
-            0xFFFFFE60 => self.sh7604.interrupts.write_iprb_high(value),
+            0xFFFFFE10..=0xFFFFFE19 => {
+                with_cycles!(FRT_CYCLES, self.free_run_timer.write_register(address, value));
+            }
+            0xFFFFFE60 => {
+                with_cycles!(INTC_CYCLES, self.sh7604.interrupts.write_iprb_high(value));
+            }
             // IPRB low byte; does not do anything
-            0xFFFFFE61 => {}
-            0xFFFFFE62 => self.sh7604.interrupts.write_vcra_high(value),
-            0xFFFFFE63 => self.sh7604.interrupts.write_vcra_low(value),
-            0xFFFFFE64 => self.sh7604.interrupts.write_vcrb_high(value),
-            0xFFFFFE65 => self.sh7604.interrupts.write_vcrb_low(value),
+            0xFFFFFE61 => with_cycles!(INTC_CYCLES, {}),
+            0xFFFFFE62 => {
+                with_cycles!(INTC_CYCLES, self.sh7604.interrupts.write_vcra_high(value));
+            }
+            0xFFFFFE63 => {
+                with_cycles!(INTC_CYCLES, self.sh7604.interrupts.write_vcra_low(value));
+            }
+            0xFFFFFE64 => {
+                with_cycles!(INTC_CYCLES, self.sh7604.interrupts.write_vcrb_high(value));
+            }
+            0xFFFFFE65 => {
+                with_cycles!(INTC_CYCLES, self.sh7604.interrupts.write_vcrb_low(value));
+            }
             // DMA request/response selection control registers; unusual only if a non-zero value is written
             0xFFFFFE71 | 0xFFFFFE72 => {
+                bus.increment_cycle_counter(DMAC_CYCLES);
                 if value != 0 {
                     log::warn!(
                         "[{}] Unexpected DRCR0/DRCR1 write: {address:08X} {value:02X}",
@@ -503,14 +566,24 @@ impl Sh2 {
                     );
                 }
             }
-            0xFFFFFE91 => log_standby_control_write(value, &self.name),
-            0xFFFFFE92 => self.cache.write_control(value),
+            0xFFFFFE91 => {
+                with_cycles!(MDC_CYCLES, log_standby_control_write(value, &self.name));
+            }
+            0xFFFFFE92 => with_cycles!(MDC_CYCLES, self.cache.write_control(value)),
             // Unmapped addresses; some games access them for unknown reasons
             0xFFFFFE93..=0xFFFFFE9F => {}
-            0xFFFFFEE2 => self.sh7604.interrupts.write_ipra_high(value),
-            0xFFFFFEE3 => self.sh7604.interrupts.write_ipra_low(value),
-            0xFFFFFEE4 => self.sh7604.interrupts.write_vcrwdt_high(value),
-            0xFFFFFEE5 => self.sh7604.interrupts.write_vcrwdt_low(value),
+            0xFFFFFEE2 => {
+                with_cycles!(INTC_CYCLES, self.sh7604.interrupts.write_ipra_high(value));
+            }
+            0xFFFFFEE3 => {
+                with_cycles!(INTC_CYCLES, self.sh7604.interrupts.write_ipra_low(value));
+            }
+            0xFFFFFEE4 => {
+                with_cycles!(INTC_CYCLES, self.sh7604.interrupts.write_vcrwdt_high(value));
+            }
+            0xFFFFFEE5 => {
+                with_cycles!(INTC_CYCLES, self.sh7604.interrupts.write_vcrwdt_low(value));
+            }
             _ => log::warn!(
                 "[{}] Unexpected internal register byte write: {address:08X} {value:02X}",
                 self.name
@@ -520,25 +593,49 @@ impl Sh2 {
         self.update_internal_interrupt_level();
     }
 
-    pub(super) fn write_internal_register_word(&mut self, address: u32, value: u16) {
+    pub(super) fn write_internal_register_word(
+        &mut self,
+        address: u32,
+        value: u16,
+        bus: &mut impl BusInterface,
+    ) {
         log::trace!("[{}] Internal register word write: {address:08X} {value:04X}", self.name);
+
+        macro_rules! with_cycles {
+            ($cycles:expr, $action:expr) => {{
+                bus.increment_cycle_counter($cycles);
+                $action;
+            }};
+        }
 
         match address {
             // Writing to this address sets SDRAM 16-bit CAS latency; ignore
             0xFFFF8446 => {}
-            0xFFFFFE60 => self.sh7604.interrupts.write_iprb(value),
-            0xFFFFFE62 => self.sh7604.interrupts.write_vcra(value),
-            0xFFFFFE64 => self.sh7604.interrupts.write_vcrb(value),
-            0xFFFFFE80 => self.watchdog_timer.write_control(value),
-            0xFFFFFE92 => self.cache.write_control(value as u8),
-            0xFFFFFEE2 => self.sh7604.interrupts.write_ipra(value),
-            0xFFFFFEE4 => self.sh7604.interrupts.write_vcrwdt(value),
+            0xFFFFFE60 => with_cycles!(INTC_CYCLES, self.sh7604.interrupts.write_iprb(value)),
+            0xFFFFFE62 => with_cycles!(INTC_CYCLES, self.sh7604.interrupts.write_vcra(value)),
+            0xFFFFFE64 => with_cycles!(INTC_CYCLES, self.sh7604.interrupts.write_vcrb(value)),
+            0xFFFFFE80 => with_cycles!(WDT_CYCLES, self.watchdog_timer.write_control(value)),
+            0xFFFFFE92 => with_cycles!(MDC_CYCLES, self.cache.write_control(value as u8)),
+            0xFFFFFEE2 => with_cycles!(INTC_CYCLES, self.sh7604.interrupts.write_ipra(value)),
+            0xFFFFFEE4 => with_cycles!(INTC_CYCLES, self.sh7604.interrupts.write_vcrwdt(value)),
             // DIVU control register is writable 16-bit
-            0xFFFFFF08 => self.divu.write_register(address, value.into()),
-            0xFFFFFF40 => self.sh7604.break_registers.write_break_address_a_high(value),
-            0xFFFFFF42 => self.sh7604.break_registers.write_break_address_a_low(value),
-            0xFFFFFF60 => self.sh7604.break_registers.write_break_address_b_high(value),
-            0xFFFFFF62 => self.sh7604.break_registers.write_break_address_b_low(value),
+            0xFFFFFF08 => with_cycles!(DIV_CYCLES, self.divu.write_register(address, value.into())),
+            0xFFFFFF40 => with_cycles!(
+                UBC_CYCLES,
+                self.sh7604.break_registers.write_break_address_a_high(value)
+            ),
+            0xFFFFFF42 => with_cycles!(
+                UBC_CYCLES,
+                self.sh7604.break_registers.write_break_address_a_low(value)
+            ),
+            0xFFFFFF60 => with_cycles!(
+                UBC_CYCLES,
+                self.sh7604.break_registers.write_break_address_b_high(value)
+            ),
+            0xFFFFFF62 => with_cycles!(
+                UBC_CYCLES,
+                self.sh7604.break_registers.write_break_address_b_low(value)
+            ),
             _ => log::warn!(
                 "[{}] Unexpected internal register word write: {address:08X} {value:04X}",
                 self.name
@@ -549,21 +646,47 @@ impl Sh2 {
     }
 
     #[allow(clippy::match_same_arms)]
-    pub(super) fn write_internal_register_longword(&mut self, address: u32, value: u32) {
+    pub(super) fn write_internal_register_longword(
+        &mut self,
+        address: u32,
+        value: u32,
+        bus: &mut impl BusInterface,
+    ) {
         log::trace!("[{}] Internal register longword write: {address:08X} {value:08X}", self.name);
 
+        macro_rules! with_cycles {
+            ($cycles:expr, $action:expr) => {{
+                bus.increment_cycle_counter($cycles);
+                $action;
+            }};
+        }
+
         match address {
-            0xFFFFFF00..=0xFFFFFF1F => self.divu.write_register(address, value),
-            0xFFFFFF40 => self.sh7604.break_registers.write_break_address_a(value),
+            0xFFFFFF00..=0xFFFFFF1F => {
+                with_cycles!(DIV_CYCLES, self.divu.write_register(address, value));
+            }
+            0xFFFFFF40 => {
+                with_cycles!(UBC_CYCLES, self.sh7604.break_registers.write_break_address_a(value));
+            }
             // Break bus cycle register A; ignore
-            0xFFFFFF48 => {}
-            0xFFFFFF60 => self.sh7604.break_registers.write_break_address_b(value),
+            0xFFFFFF48 => with_cycles!(UBC_CYCLES, {}),
+            0xFFFFFF60 => {
+                with_cycles!(UBC_CYCLES, self.sh7604.break_registers.write_break_address_b(value));
+            }
             // Break bus cycle register B; ignore
-            0xFFFFFF68 => {}
-            0xFFFFFF80..=0xFFFFFF9F | 0xFFFFFFB0 => self.dmac.write_register(address, value),
-            0xFFFFFFA0 => self.sh7604.interrupts.write_vcrdma0(value),
-            0xFFFFFFA8 => self.sh7604.interrupts.write_vcrdma1(value),
-            0xFFFFFFE0..=0xFFFFFFFF => log_bus_control_write(address, value),
+            0xFFFFFF68 => with_cycles!(UBC_CYCLES, {}),
+            0xFFFFFF80..=0xFFFFFF9F | 0xFFFFFFB0 => {
+                with_cycles!(DMAC_CYCLES, self.dmac.write_register(address, value));
+            }
+            0xFFFFFFA0 => {
+                with_cycles!(DMAC_CYCLES, self.sh7604.interrupts.write_vcrdma0(value));
+            }
+            0xFFFFFFA8 => {
+                with_cycles!(DMAC_CYCLES, self.sh7604.interrupts.write_vcrdma1(value));
+            }
+            0xFFFFFFE0..=0xFFFFFFFF => {
+                with_cycles!(BSC_CYCLES, log_bus_control_write(address, value));
+            }
             _ => log::warn!(
                 "[{}] Unexpected internal register longword write: {address:08X} {value:08X}",
                 self.name

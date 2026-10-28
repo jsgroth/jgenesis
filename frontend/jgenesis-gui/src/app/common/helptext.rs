@@ -1,15 +1,45 @@
 use crate::app::HelpText;
 
+pub const APPLY_PATCHES: HelpText = HelpText {
+    heading: "Automatically Apply Patches",
+    text: &[
+        "If enabled, automatically apply BPS and IPS patch files when loading a game. This does not modify any files on disk.",
+        "The emulator will apply patch files if they are in the same directory as the game file and have the same base filename, with the extension .bps or .ips.",
+        "This setting has no effect on disc-based games.",
+    ],
+};
+
 pub const FULLSCREEN: HelpText = HelpText {
     heading: "Fullscreen",
     text: &["If enabled, launch fullscreen instead of windowed."],
 };
 
 pub const INITIAL_WINDOW_SIZE: HelpText = HelpText {
-    heading: "Initial Window Size",
+    heading: "Window Size Scale",
+    text: &["Window size, as a multiple of the console's native resolution."],
+};
+
+pub const AUTO_RESIZE_WINDOW: HelpText = HelpText {
+    heading: "Automatically Resize Window",
     text: &[
-        "Initial window size when not running in fullscreen, as a multiple of the console's native resolution.",
-        "Changing this setting will only take effect after opening a new game.",
+        "If enabled, automatically resize the window when aspect ratio changes or when the emulated console changes its output resolution.",
+        "This setting has no effect when the window is fullscreen or maximized.",
+    ],
+};
+
+pub const WINDOW_SIZE_MODE: HelpText = HelpText {
+    heading: "Window Size",
+    text: &[
+        "Whether to size the emulator window automatically or specify a manual size.",
+        "This setting has no effect when the window is fullscreen.",
+    ],
+};
+
+pub const MANUAL_WINDOW_SIZE: HelpText = HelpText {
+    heading: "Manual Window Size",
+    text: &[
+        "Manually configure the emulator window size.",
+        "This setting has no effect when the window is fullscreen.",
     ],
 };
 

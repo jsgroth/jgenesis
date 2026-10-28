@@ -1,15 +1,10 @@
-use genesis_config::{GenesisAspectRatio, GenesisEmulatorConfig};
-use jgenesis_common::frontend::TimingMode;
+use jgenesis_common::frontend::WindowSize;
 use jgenesis_proc_macros::{EnumAll, EnumDisplay, deserialize_default_on_error};
 use jgenesis_renderer::config::{
     AntiDitherShader, FilterMode, FrameRotation, NtscShaderConfig, PreprocessShader,
     PrescaleFactor, VSyncMode, WgpuBackend, WgpuPowerPreference,
 };
-use nes_config::NesAspectRatio;
-use pce_config::PceAspectRatio;
 use serde::{Deserialize, Serialize};
-use smsgg_config::{GgAspectRatio, SmsAspectRatio};
-use snes_config::SnesAspectRatio;
 use std::fmt::{Display, Formatter};
 use std::num::{NonZeroU8, NonZeroU32};
 use std::path::PathBuf;
@@ -22,201 +17,14 @@ const DEFAULT_SCANLINES_BRIGHTNESS: f64 = 0.5;
 const DEFAULT_FAST_FORWARD_MULTIPLIER: u64 = 2;
 const DEFAULT_REWIND_BUFFER_LENGTH: u64 = 10;
 
-#[derive(Debug, Clone, Copy)]
-pub struct WindowSize {
-    pub width: u32,
-    pub height: u32,
-}
-
-impl WindowSize {
-    const SMS_HEIGHT: f64 = 192.0;
-    const SMS_WIDTH: f64 = 256.0;
-
-    const GG_HEIGHT: f64 = 144.0;
-    const GG_WIDTH: f64 = 160.0;
-
-    const GENESIS_HEIGHT: f64 = 224.0;
-    const GENESIS_WIDTH_H40: f64 = 320.0;
-    const GENESIS_H_BORDER_H40: f64 = 27.0;
-    const GENESIS_NTSC_V_BORDER: f64 = 19.0;
-    const GENESIS_PAL_V_BORDER: f64 = 70.0;
-
-    const NES_NTSC_HEIGHT: f64 = 224.0;
-    const NES_PAL_HEIGHT: f64 = 240.0;
-    const NES_WIDTH: f64 = 256.0;
-
-    const SNES_HEIGHT: f64 = 224.0;
-    const SNES_WIDTH: f64 = 256.0;
-
-    const GB_HEIGHT: f64 = 144.0;
-    const GB_WIDTH: f64 = 160.0;
-
-    const GBA_HEIGHT: f64 = 160.0;
-    const GBA_WIDTH: f64 = 240.0;
-
-    const PCE_WIDTH_WITH_OVERSCAN: f64 = 282.0;
-    const PCE_WIDTH_WITHOUT_OVERSCAN: f64 = 256.0;
-    const PCE_HEIGHT_WITH_OVERSCAN: f64 = 242.0;
-    const PCE_HEIGHT_WITHOUT_OVERSCAN: f64 = 224.0;
-
-    #[must_use]
-    pub fn new(native_width: f64, native_height: f64, size: NonZeroU8) -> Self {
-        let size: f64 = size.get().into();
-
-        let width = (native_width * size).ceil() as u32;
-        let height = (native_height * size).ceil() as u32;
-        Self { width, height }
-    }
-
-    #[must_use]
-    pub fn new_sms(size: NonZeroU8, aspect_ratio: SmsAspectRatio) -> Self {
-        let pixel_aspect_ratio = aspect_ratio.to_pixel_aspect_ratio_f64().unwrap_or_else(|| {
-            SmsAspectRatio::default().to_pixel_aspect_ratio_f64().unwrap_or(1.0)
-        });
-        let width = Self::SMS_WIDTH * pixel_aspect_ratio;
-
-        Self::new(width, Self::SMS_HEIGHT, size)
-    }
-
-    #[must_use]
-    pub fn new_game_gear(size: NonZeroU8, aspect_ratio: GgAspectRatio) -> Self {
-        let pixel_aspect_ratio = aspect_ratio
-            .to_pixel_aspect_ratio_f64()
-            .unwrap_or_else(|| GgAspectRatio::default().to_pixel_aspect_ratio_f64().unwrap_or(1.0));
-        let width = Self::GG_WIDTH * pixel_aspect_ratio;
-
-        Self::new(width, Self::GG_HEIGHT, size)
-    }
-
-    #[must_use]
-    pub fn new_genesis(
-        size: NonZeroU8,
-        timing_mode: TimingMode,
-        config: &GenesisEmulatorConfig,
-    ) -> Self {
-        Self::new(
-            Self::genesis_width(timing_mode, config),
-            Self::genesis_height(timing_mode, config),
-            size,
-        )
-    }
-
-    fn genesis_width(timing_mode: TimingMode, config: &GenesisEmulatorConfig) -> f64 {
-        let mut h40_width = Self::GENESIS_WIDTH_H40;
-
-        if config.render_horizontal_border {
-            h40_width += Self::GENESIS_H_BORDER_H40;
-        }
-
-        if !config.force_square_pixels_in_h40 {
-            let h40_par =
-                config.aspect_ratio.to_h40_pixel_aspect_ratio(timing_mode).unwrap_or_else(|| {
-                    GenesisAspectRatio::default()
-                        .to_h40_pixel_aspect_ratio(timing_mode)
-                        .unwrap_or(1.0)
-                });
-            h40_width *= h40_par;
-        }
-
-        if config.anamorphic_widescreen {
-            h40_width *= 4.0 / 3.0;
-        }
-
-        h40_width
-    }
-
-    fn genesis_height(timing_mode: TimingMode, config: &GenesisEmulatorConfig) -> f64 {
-        let mut height = Self::GENESIS_HEIGHT;
-
-        if config.render_vertical_border {
-            height += match timing_mode {
-                TimingMode::Ntsc => Self::GENESIS_NTSC_V_BORDER,
-                TimingMode::Pal => Self::GENESIS_PAL_V_BORDER,
-            };
-        }
-
-        height
-    }
-
-    #[must_use]
-    pub fn new_32x(
-        size: NonZeroU8,
-        timing_mode: TimingMode,
-        config: &GenesisEmulatorConfig,
-    ) -> Self {
-        // Make 32X window a little wider than Genesis by default so that the frame won't shrink if a
-        // game switches to H32 mode while the renderer has forced integer height scaling enabled
-        let genesis_width = Self::genesis_width(timing_mode, config);
-        let width = genesis_width * 323.25 / 320.0;
-
-        let height = Self::genesis_height(timing_mode, config);
-
-        Self::new(width, height, size)
-    }
-
-    #[must_use]
-    pub fn new_nes(
-        size: NonZeroU8,
-        aspect_ratio: NesAspectRatio,
-        timing_mode: TimingMode,
-        ntsc_crop_v_overscan: bool,
-    ) -> Self {
-        let pixel_aspect_ratio = aspect_ratio.to_pixel_aspect_ratio_f64().unwrap_or_else(|| {
-            NesAspectRatio::default().to_pixel_aspect_ratio_f64().unwrap_or(1.0)
-        });
-        let width = Self::NES_WIDTH * pixel_aspect_ratio;
-
-        let height = match timing_mode {
-            TimingMode::Ntsc if ntsc_crop_v_overscan => Self::NES_NTSC_HEIGHT,
-            _ => Self::NES_PAL_HEIGHT,
-        };
-
-        Self::new(width, height, size)
-    }
-
-    #[must_use]
-    pub fn new_snes(size: NonZeroU8, aspect_ratio: SnesAspectRatio) -> Self {
-        let pixel_aspect_ratio = aspect_ratio.to_pixel_aspect_ratio_f64().unwrap_or_else(|| {
-            SnesAspectRatio::default().to_pixel_aspect_ratio_f64().unwrap_or(1.0)
-        });
-        let width = Self::SNES_WIDTH * pixel_aspect_ratio;
-
-        Self::new(width, Self::SNES_HEIGHT, size)
-    }
-
-    #[must_use]
-    pub fn new_gb(size: NonZeroU8) -> Self {
-        // Only GB aspect ratio options are square pixels and stretched
-        Self::new(Self::GB_WIDTH, Self::GB_HEIGHT, size)
-    }
-
-    #[must_use]
-    pub fn new_gba(size: NonZeroU8) -> Self {
-        Self::new(Self::GBA_WIDTH, Self::GBA_HEIGHT, size)
-    }
-
-    #[must_use]
-    pub fn new_pce(size: NonZeroU8, aspect_ratio: PceAspectRatio, crop_overscan: bool) -> Self {
-        let (mut width, height) = if crop_overscan {
-            (Self::PCE_WIDTH_WITHOUT_OVERSCAN, Self::PCE_HEIGHT_WITHOUT_OVERSCAN)
-        } else {
-            (Self::PCE_WIDTH_WITH_OVERSCAN, Self::PCE_HEIGHT_WITH_OVERSCAN)
-        };
-
-        if aspect_ratio == PceAspectRatio::Ntsc {
-            width *= 8.0 / 7.0;
-        }
-
-        Self::new(width, height, size)
-    }
-
-    #[must_use]
-    pub fn scale(self, scale_factor: f32) -> Self {
-        Self {
-            width: (self.width as f32 * scale_factor).round() as u32,
-            height: (self.height as f32 * scale_factor).round() as u32,
-        }
-    }
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumAll,
+)]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum WindowSizeMode {
+    #[default]
+    Auto,
+    Manual,
 }
 
 #[derive(Debug, Clone)]
@@ -239,6 +47,16 @@ impl Display for SavePath {
             Self::Custom(path) => write!(f, "{}", path.display()),
         }
     }
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumAll,
+)]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum ApplyPatches {
+    No,
+    #[default]
+    Yes,
 }
 
 #[derive(
@@ -320,8 +138,11 @@ pub struct CommonAppConfig {
     pub custom_save_path: PathBuf,
     pub state_path: ConfigSavePath,
     pub custom_state_path: PathBuf,
-    pub window_width: Option<u32>,
-    pub window_height: Option<u32>,
+    pub apply_patches: bool,
+    pub window_width: u32,
+    pub window_height: u32,
+    pub window_size_mode: WindowSizeMode,
+    pub auto_resize_window: bool,
     pub launch_in_fullscreen: bool,
     pub borderless_window: bool,
     pub initial_window_size: NonZeroU8,
@@ -352,12 +173,13 @@ pub struct CommonAppConfig {
 }
 
 impl CommonAppConfig {
-    #[inline]
     #[must_use]
     pub fn window_size(&self) -> Option<WindowSize> {
-        match (self.window_width, self.window_height) {
-            (Some(width), Some(height)) => Some(WindowSize { width, height }),
-            _ => None,
+        match self.window_size_mode {
+            WindowSizeMode::Auto => None,
+            WindowSizeMode::Manual => {
+                Some(WindowSize { width: self.window_width, height: self.window_height })
+            }
         }
     }
 }
@@ -376,8 +198,11 @@ impl Default for CommonAppConfig {
             custom_save_path: default_custom_save_path(),
             state_path: ConfigSavePath::default(),
             custom_state_path: default_custom_state_path(),
-            window_width: None,
-            window_height: None,
+            apply_patches: true,
+            window_width: 878,
+            window_height: 672,
+            window_size_mode: WindowSizeMode::default(),
+            auto_resize_window: true,
             launch_in_fullscreen: false,
             borderless_window: false,
             initial_window_size: DEFAULT_INITIAL_WINDOW_SIZE,

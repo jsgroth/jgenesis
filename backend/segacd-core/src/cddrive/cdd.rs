@@ -992,6 +992,7 @@ fn write_time_to_status(time: CdTime, status: &mut [u8; 10]) {
     status[7] = time.frames % 10;
 }
 
+// TODO this is not accurate, seek times do not scale linearly with sector difference
 fn estimate_seek_clocks(current_time: CdTime, seek_time: CdTime) -> u8 {
     let diff =
         if current_time >= seek_time { current_time - seek_time } else { seek_time - current_time };

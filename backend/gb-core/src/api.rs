@@ -18,7 +18,8 @@ use bincode::{Decode, Encode};
 use gb_config::{GameBoyButton, GameBoyInputs, GbAspectRatio, GbAudioResampler, GbPalette};
 use jgenesis_common::frontend::{
     AudioOutput, Color, ColorCorrection, EmulatorConfigTrait, EmulatorTrait, InputPoller,
-    PartialClone, RenderFrameOptions, Renderer, SaveWriter, TickEffect, TickResult,
+    PartialClone, RenderFrameOptions, Renderer, SaveWriter, SuggestedWindowSize, TickEffect,
+    TickResult,
 };
 use jgenesis_proc_macros::ConfigDisplay;
 use std::fmt::{Debug, Display};
@@ -265,15 +266,12 @@ impl EmulatorTrait for GameBoyEmulator {
 
             self.cartridge.update_rtc_time();
 
-            if self.cartridge.has_battery()
-                && self.frame_count % 60 == 30
-                && self.cartridge.get_and_clear_sram_dirty()
-            {
+            if self.cartridge.has_battery() && self.cartridge.get_and_clear_sram_dirty() {
                 let sram = self.cartridge.sram();
                 save_writer.persist_bytes("sav", sram).map_err(GameBoyError::SaveWrite)?;
-
-                self.cartridge.save_rtc_state(save_writer).map_err(GameBoyError::SaveWrite)?;
             }
+
+            self.cartridge.save_rtc_state(save_writer).map_err(GameBoyError::SaveWrite)?;
 
             self.frame_count += 1;
 
@@ -334,5 +332,14 @@ impl EmulatorTrait for GameBoyEmulator {
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
         self.apu.update_output_frequency(output_frequency);
+    }
+
+    fn suggested_window_size(&self) -> SuggestedWindowSize {
+        // Only GB aspect ratio options are square pixels and stretched
+        SuggestedWindowSize {
+            width: ppu::SCREEN_WIDTH as f64,
+            height: ppu::SCREEN_HEIGHT as f64,
+            fallback_aspect_ratio: self.config.aspect_ratio.to_pixel_aspect_ratio().is_none(),
+        }
     }
 }

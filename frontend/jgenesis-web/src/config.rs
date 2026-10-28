@@ -108,6 +108,7 @@ impl SmsGgWebConfig {
             sms_crop_vertical_border: self.sms_crop_vertical_border,
             gg_frame_blending: false,
             gg_use_sms_resolution: false,
+            psg_channels_enabled: [true; 4],
             fm_sound_unit_enabled: self.fm_unit_enabled,
             z80_divider: NonZeroU32::new(smsgg_core::NATIVE_Z80_DIVIDER).unwrap(),
             allow_opposing_joypad_directions: false,
@@ -177,6 +178,7 @@ impl GenesisWebConfig {
             ym2612_2nd_lpf_enabled: false,
             ym2612_2nd_lpf_cutoff: genesis_config::MODEL_2_2ND_LPF_CUTOFF,
             ym2612_channels_enabled: [true; 6],
+            psg_channels_enabled: [true; 4],
             ym2612_enabled: true,
             psg_enabled: true,
             ym2612_volume_adjustment_db: 0.0,
@@ -460,7 +462,7 @@ impl WebConfig {
         };
 
         let sega_32x_config = Sega32XEmulatorConfig {
-            sh2_clock_multiplier: NonZeroU64::new(genesis_config::NATIVE_SH2_MULTIPLIER).unwrap(),
+            sh2_clock_multiplier: genesis_config::NATIVE_SH2_MULTIPLIER as f64,
             video_out: S32XVideoOut::default(),
             darken_genesis_colors: true,
             color_tint: S32XColorTint::default(),

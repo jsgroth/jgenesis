@@ -311,7 +311,7 @@ impl Sh2 {
                 0
             }
             6 => self.cache.read_data_array_u16(address),
-            7 => self.read_internal_register_word(address),
+            7 => self.read_internal_register_word(address, bus),
             _ => unreachable!("u32 >> 29 is always 0-7"),
         }
     }
@@ -361,7 +361,7 @@ impl Sh2 {
                 0
             }
             6 => self.cache.read_data_array_u32(address),
-            7 => self.read_internal_register_longword(address),
+            7 => self.read_internal_register_longword(address, bus),
             _ => unreachable!("u32 >> 29 is always 0-7"),
         }
     }
@@ -421,7 +421,7 @@ impl Sh2 {
                 );
             }
             6 => self.cache.write_data_array_u16(address, value),
-            7 => self.write_internal_register_word(address, value),
+            7 => self.write_internal_register_word(address, value, bus),
             _ => unreachable!("u32 >> 29 is always 0-7"),
         }
     }
@@ -456,7 +456,7 @@ impl Sh2 {
                 );
             }
             6 => self.cache.write_data_array_u32(address, value),
-            7 => self.write_internal_register_longword(address, value),
+            7 => self.write_internal_register_longword(address, value, bus),
             _ => unreachable!("u32 >> 29 is always 0-7"),
         }
     }

@@ -8,6 +8,38 @@ pub const REGION: HelpText = HelpText {
     ],
 };
 
+pub const SYSTEM_CARD_MODEL: HelpText = HelpText {
+    heading: "CD-ROM² System Card Model",
+    text: &[
+        "Configure the CD-ROM² System Card model to emulate when running disc-based games.",
+        "The Arcade Card has the highest compatibility. Many games require at least a Super System Card.",
+        "The Super System Card and Arcade Card require a Super-compatible BIOS version (v3.0).",
+    ],
+};
+
+pub const CD_BIOS: HelpText = HelpText {
+    heading: "CD-ROM² System Card",
+    text: &[
+        "Path to a PC Engine CD-ROM² or TurboGrafx CD System Card ROM. This is required for CD-ROM² emulation.",
+    ],
+};
+
+pub const ALWAYS_EMULATE_CD_ROM: HelpText = HelpText {
+    heading: "Always Emulate CD-ROM²",
+    text: &[
+        "If enabled, always emulate the CD-ROM² add-on, even when running HuCard-based games.",
+        "This makes no difference most of the time, but some HuCard games will store save data in CD-ROM² backup RAM if they detect it.",
+    ],
+};
+
+pub const LOAD_DISC_INTO_RAM: HelpText = HelpText {
+    heading: "Load CD-ROM Images into RAM",
+    text: &[
+        "If enabled, load CD-ROM images fully into host RAM when starting a disc-based game.",
+        "This increases RAM usage but removes the need for the emulator to read from disk during emulation.",
+    ],
+};
+
 pub const ASPECT_RATIO: HelpText = HelpText {
     heading: "Aspect Ratio",
     text: &[
@@ -39,8 +71,34 @@ pub const REMOVE_SPRITE_LIMITS: HelpText = HelpText {
     ],
 };
 
-pub const AUDIO_RESAMPLER: HelpText = HelpText {
-    heading: "Audio Resampling Algorithm",
+pub const ENABLED_PSG_CHANNELS: HelpText = HelpText {
+    heading: "Enabled YM2612 Channels",
+    text: &["Enable or disable individual PSG audio channels."],
+};
+
+pub const SOUND_SOURCES: HelpText = HelpText {
+    heading: "Sound Sources",
+    text: &["Enable or disable specific sound sources in final audio mixing."],
+};
+
+pub const VOLUME_ADJUSTMENTS: HelpText = HelpText {
+    heading: "Volume Adjustments",
+    text: &[
+        "Adjust the volume of individual sound sources.",
+        "Values can be positive or negative. Positive values increase volume and negative values decrease volume.",
+    ],
+};
+
+pub const QUANTIZE_ADPCM_OUTPUT: HelpText = HelpText {
+    heading: "Quantize ADPCM Output",
+    text: &[
+        "If enabled, quantize ADPCM output samples from 12-bit to 10-bit.",
+        "Enabling this is more accurate to actual hardware (which has a 10-bit DAC) but makes ADPCM audio slightly noisier.",
+    ],
+};
+
+pub const PSG_AUDIO_RESAMPLER: HelpText = HelpText {
+    heading: "PSG Audio Resampling Algorithm",
     text: &[
         "Choose the algorithm used to resample PSG audio output to the emulator's output sample rate.",
         "Windowed sinc interpolation is much higher quality but is fairly CPU-intensive.",

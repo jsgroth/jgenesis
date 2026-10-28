@@ -656,6 +656,8 @@ pub struct GenesisEmulatorConfig {
     pub ym2612_2nd_lpf_cutoff: u32,
     #[cfg_display(debug_fmt)]
     pub ym2612_channels_enabled: [bool; 6],
+    #[cfg_display(debug_fmt)]
+    pub psg_channels_enabled: [bool; 4],
     pub ym2612_enabled: bool,
     pub psg_enabled: bool,
     pub ym2612_volume_adjustment_db: f64,
@@ -696,6 +698,7 @@ impl Default for GenesisEmulatorConfig {
             ym2612_2nd_lpf_enabled: false,
             ym2612_2nd_lpf_cutoff: MODEL_2_2ND_LPF_CUTOFF,
             ym2612_channels_enabled: [true; 6],
+            psg_channels_enabled: [true; 4],
             ym2612_enabled: true,
             psg_enabled: true,
             ym2612_volume_adjustment_db: 0.0,
@@ -790,7 +793,7 @@ impl EmulatorConfigTrait for SegaCdEmulatorConfig {
 
 #[derive(Debug, Clone, Encode, Decode, ConfigDisplay)]
 pub struct Sega32XEmulatorConfig {
-    pub sh2_clock_multiplier: NonZeroU64,
+    pub sh2_clock_multiplier: f64,
     pub video_out: S32XVideoOut,
     pub darken_genesis_colors: bool,
     pub color_tint: S32XColorTint,
@@ -806,7 +809,7 @@ pub struct Sega32XEmulatorConfig {
 impl Default for Sega32XEmulatorConfig {
     fn default() -> Self {
         Self {
-            sh2_clock_multiplier: NonZeroU64::new(NATIVE_SH2_MULTIPLIER).unwrap(),
+            sh2_clock_multiplier: NATIVE_SH2_MULTIPLIER as f64,
             video_out: S32XVideoOut::default(),
             darken_genesis_colors: true,
             color_tint: S32XColorTint::default(),
@@ -823,7 +826,7 @@ impl Default for Sega32XEmulatorConfig {
 
 impl EmulatorConfigTrait for Sega32XEmulatorConfig {
     fn with_overclocking_disabled(&self) -> Self {
-        Self { sh2_clock_multiplier: NonZeroU64::new(NATIVE_SH2_MULTIPLIER).unwrap(), ..*self }
+        Self { sh2_clock_multiplier: NATIVE_SH2_MULTIPLIER as f64, ..*self }
     }
 }
 

@@ -253,6 +253,7 @@ pub enum Hotkey {
     FastForward,
     Rewind,
     CancelMouseInput,
+    EndCapture,
     ToggleOverclocking,
     OpenDebugger,
     SaveState,
@@ -299,6 +300,7 @@ pub enum CompactHotkey {
     FastForward,
     Rewind,
     CancelMouseInput,
+    EndCapture,
     ToggleOverclocking,
     OpenDebugger,
 }
@@ -322,6 +324,7 @@ impl Hotkey {
             Self::FastForward => CompactHotkey::FastForward,
             Self::Rewind => CompactHotkey::Rewind,
             Self::CancelMouseInput => CompactHotkey::CancelMouseInput,
+            Self::EndCapture => CompactHotkey::EndCapture,
             Self::ToggleOverclocking => CompactHotkey::ToggleOverclocking,
             Self::OpenDebugger => CompactHotkey::OpenDebugger,
             Self::SaveStateSlot0 => CompactHotkey::SaveStateSlot(0),

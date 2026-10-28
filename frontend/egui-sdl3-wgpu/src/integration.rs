@@ -12,6 +12,14 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use thiserror::Error;
 
+// egui prefers non-sRGB-aware texture formats, so check for those first
+const PREFERRED_SURFACE_FORMATS: [wgpu::TextureFormat; 4] = [
+    wgpu::TextureFormat::Bgra8Unorm,
+    wgpu::TextureFormat::Rgba8Unorm,
+    wgpu::TextureFormat::Bgra8UnormSrgb,
+    wgpu::TextureFormat::Rgba8UnormSrgb,
+];
+
 pub struct FrameContext<'frame> {
     pub device: &'frame wgpu::Device,
     pub queue: &'frame wgpu::Queue,
@@ -43,7 +51,7 @@ impl Default for FrameOptions {
             install_egui_image_loaders: false,
             icon: None,
             wgpu_backends: wgpu::Backends::PRIMARY,
-            wgpu_power_preference: wgpu::PowerPreference::None,
+            wgpu_power_preference: wgpu::PowerPreference::HighPerformance,
             wgpu_present_mode: wgpu::PresentMode::AutoNoVsync,
         }
     }
@@ -63,6 +71,8 @@ pub enum FrameCreateError {
     WgpuRequestAdapter(#[from] wgpu::RequestAdapterError),
     #[error("Error obtaining wgpu device and queue: {0}")]
     WgpuRequestDevice(#[from] wgpu::RequestDeviceError),
+    #[error("wgpu surface with {backend:?} adapter supports no texture formats")]
+    WgpuNoSupportedSurfaceFormats { backend: wgpu::Backend },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -170,28 +180,22 @@ impl Frame {
             power_preference: options.wgpu_power_preference,
             force_fallback_adapter: false,
             compatible_surface: Some(&surface),
+            apply_limit_buckets: false,
         }))?;
 
         let (device, queue) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))?;
 
         let surface_capabilities = surface.get_capabilities(&adapter);
+        if surface_capabilities.formats.is_empty() {
+            return Err(FrameCreateError::WgpuNoSupportedSurfaceFormats {
+                backend: adapter.get_info().backend,
+            });
+        }
 
-        // Exclude formats with non-empty required features because some platforms claim to support
-        // RGBA16 surface formats when they actually do not
-        let supported_formats: Vec<_> = surface_capabilities
-            .formats
-            .iter()
-            .copied()
-            .filter(|&format| format.required_features().is_empty())
-            .collect();
-
-        // egui prefers non-sRGB-aware surface formats
-        let surface_format = supported_formats
-            .iter()
-            .copied()
-            .find(|&format| !format.is_srgb())
-            .or(supported_formats.first().copied())
+        let surface_format = PREFERRED_SURFACE_FORMATS
+            .into_iter()
+            .find(|&format| surface_capabilities.formats.contains(&format))
             .unwrap_or(surface_capabilities.formats[0]);
 
         log::info!(
@@ -201,6 +205,7 @@ impl Frame {
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
+            color_space: wgpu::SurfaceColorSpace::Auto,
             width,
             height,
             present_mode: options.wgpu_present_mode,
@@ -296,6 +301,10 @@ impl Frame {
             .take_raw_input(now.duration_since(self.start_time).unwrap_or_default().as_secs_f64());
 
         let full_output = self.platform.context().run_ui(egui_input, |ui| {
+            // Workaround for https://github.com/emilk/egui/issues/8092
+            #[cfg(debug_assertions)]
+            ui.global_style_mut(|style| style.debug.warn_if_rect_changes_id = false);
+
             let frame_ctx = FrameContext {
                 device: &self.device,
                 queue: &self.queue,
@@ -386,7 +395,7 @@ impl Frame {
         }
 
         self.queue.submit(iter::once(encoder.finish()));
-        output.present();
+        self.queue.present(output);
 
         for id in &full_output.textures_delta.free {
             self.egui_renderer.free_texture(id);

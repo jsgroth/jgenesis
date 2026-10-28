@@ -8,9 +8,9 @@ use genesis_config::{
     S32XVoidColor, S32XVoidColorType, Sega32XEmulatorConfig, SegaCdEmulatorConfig,
 };
 use genesis_core::api::GenesisHardware;
-use jgenesis_common::frontend::{ColorCorrection, FiniteF32};
+use jgenesis_common::frontend::{ColorCorrection, FiniteF32, WindowSize};
 use jgenesis_native_config::common::{
-    ConfigSavePath, HideMouseCursor, PauseEmulator, SavePath, WindowSize,
+    ApplyPatches, ConfigSavePath, HideMouseCursor, PauseEmulator, SavePath,
 };
 use jgenesis_native_config::input::mappings::PceInputConfig;
 use jgenesis_native_config::input::mappings::{
@@ -42,8 +42,10 @@ pub struct CommonConfig {
     pub audio_gain_db: f64,
     pub save_path: SavePath,
     pub state_path: SavePath,
+    pub apply_patches: ApplyPatches,
     #[cfg_display(debug_fmt)]
-    pub window_size: Option<WindowSize>,
+    pub forced_window_size: Option<WindowSize>,
+    pub auto_resize_window: bool,
     #[cfg_display(indent_nested)]
     pub renderer_config: RendererConfig,
     pub fast_forward_multiplier: u64,
@@ -217,6 +219,8 @@ pub struct PcEngineConfig {
     pub inputs: PceInputConfig,
     #[cfg_display(indent_nested)]
     pub emulator_config: PceEmulatorConfig,
+    #[cfg_display(path)]
+    pub cd_bios_path: Option<PathBuf>,
 }
 
 pub trait AppConfigExt {
@@ -277,7 +281,13 @@ impl AppConfigExt for AppConfig {
             audio_gain_db: self.common.audio_gain_db,
             save_path: save_path(self.common.save_path, &self.common.custom_save_path),
             state_path: save_path(self.common.state_path, &self.common.custom_state_path),
-            window_size: self.common.window_size(),
+            apply_patches: if self.common.apply_patches {
+                ApplyPatches::Yes
+            } else {
+                ApplyPatches::No
+            },
+            forced_window_size: self.common.window_size(),
+            auto_resize_window: self.common.auto_resize_window,
             renderer_config: RendererConfig {
                 wgpu_backend: self.common.wgpu_backend,
                 wgpu_power_preference: self.common.wgpu_power_preference,
@@ -393,6 +403,7 @@ impl AppConfigExt for AppConfig {
                 ym2612_2nd_lpf_enabled: self.genesis.ym2612_2nd_lpf_enabled,
                 ym2612_2nd_lpf_cutoff: self.genesis.ym2612_2nd_lpf_cutoff,
                 ym2612_channels_enabled: self.genesis.ym2612_channels_enabled,
+                psg_channels_enabled: self.genesis.psg_channels_enabled,
                 ym2612_enabled: self.genesis.ym2612_enabled,
                 psg_enabled: self.genesis.psg_enabled,
                 ym2612_volume_adjustment_db: self.genesis.ym2612_volume_adjustment_db,
@@ -429,6 +440,7 @@ impl AppConfigExt for AppConfig {
                 sms_crop_left_border: self.smsgg.sms_crop_left_border,
                 gg_frame_blending: self.smsgg.gg_frame_blending,
                 gg_use_sms_resolution: self.smsgg.gg_use_sms_resolution,
+                psg_channels_enabled: self.smsgg.psg_channels_enabled,
                 fm_sound_unit_enabled: self.smsgg.fm_sound_unit_enabled,
                 z80_divider: self.smsgg.z80_divider,
                 allow_opposing_joypad_directions: self.smsgg.allow_opposing_joypad_directions,
@@ -568,18 +580,31 @@ impl AppConfigExt for AppConfig {
             common: self.common_config(path),
             inputs: self.input.pc_engine.clone(),
             emulator_config: PceEmulatorConfig {
+                load_disc_into_ram: self.pc_engine.load_disc_into_ram,
+                always_emulate_cd_rom: self.pc_engine.always_emulate_cd_rom,
                 region: self.pc_engine.region,
+                system_card_model: self.pc_engine.system_card_model,
                 cpu_fast_clock_divider: self.pc_engine.cpu_fast_clock_divider,
                 aspect_ratio: self.pc_engine.aspect_ratio,
                 palette: self.pc_engine.palette,
                 crop_overscan: self.pc_engine.crop_overscan,
                 remove_sprite_limits: self.pc_engine.remove_sprite_limits,
-                audio_resampler: self.pc_engine.audio_resampler,
+                quantize_adpcm_output: self.pc_engine.quantize_adpcm_output,
+                psg_audio_resampler: self.pc_engine.audio_resampler,
+                psg_channels_enabled: self.pc_engine.psg_channels_enabled,
+                psg_enabled: self.pc_engine.psg_enabled,
+                cd_da_enabled: self.pc_engine.cd_da_enabled,
+                adpcm_enabled: self.pc_engine.adpcm_enabled,
+                psg_volume_adjustment_db: self.pc_engine.psg_volume_adjustment_db,
+                cd_da_volume_adjustment_db: self.pc_engine.cd_da_volume_adjustment_db,
+                adpcm_volume_adjustment_db: self.pc_engine.adpcm_volume_adjustment_db,
                 input_device: self.pc_engine.input_device,
                 turbo_tap_connected: self.pc_engine.turbo_tap_connected,
+                turbo_tap_gamepad_types: self.pc_engine.turbo_tap_gamepad_types,
                 allow_opposing_joypad_directions: self.pc_engine.allow_opposing_joypad_directions,
                 allow_simultaneous_run_select: self.pc_engine.allow_simultaneous_run_select,
             },
+            cd_bios_path: self.pc_engine.cd_bios_path.clone(),
         })
     }
 }

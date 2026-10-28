@@ -13,7 +13,8 @@ use bincode::{Decode, Encode};
 use crc::Crc;
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorConfigTrait, EmulatorTrait, InputPoller, NtscPerFrameParams,
-    PartialClone, RenderFrameOptions, Renderer, SaveWriter, TickEffect, TimingMode,
+    PartialClone, RenderFrameOptions, Renderer, SaveWriter, SuggestedWindowSize, TickEffect,
+    TimingMode,
 };
 use jgenesis_proc_macros::{ConfigDisplay, FakeDecode, FakeEncode};
 use snes_config::{AudioInterpolationMode, SnesAspectRatio, SnesButton};
@@ -374,13 +375,11 @@ impl EmulatorTrait for SnesEmulator {
                 let checksum = CRC.checksum(sram);
                 if checksum != self.last_sram_checksum {
                     save_writer.persist_bytes("sav", sram).map_err(SnesError::SaveWrite)?;
-                    self.memory
-                        .write_auxiliary_save_files(save_writer)
-                        .map_err(SnesError::SaveWrite)?;
-
                     self.last_sram_checksum = checksum;
                 }
             }
+
+            self.memory.write_auxiliary_save_files(save_writer).map_err(SnesError::SaveWrite)?;
 
             self.frame_count += 1;
             tick_effect = TickEffect::FrameRendered;
@@ -473,5 +472,28 @@ impl EmulatorTrait for SnesEmulator {
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
         self.audio_resampler.update_output_frequency(output_frequency);
+    }
+
+    fn suggested_window_size(&self) -> SuggestedWindowSize {
+        let frame_size = self.ppu.frame_size();
+        let aspect_ratio = self.aspect_ratio.to_pixel_aspect_ratio(frame_size);
+        let aspect_ratio_with_fallback =
+            SnesAspectRatio::default().to_pixel_aspect_ratio(frame_size);
+
+        let mut width = frame_size.width.into();
+
+        if let Some(aspect_ratio) = aspect_ratio_with_fallback {
+            width *= aspect_ratio.get();
+        }
+
+        let mut height: f64 = frame_size.height.into();
+
+        if frame_size.height >= 448 {
+            // In interlaced mode; cut suggested window size dimensions in half
+            width *= 0.5;
+            height *= 0.5;
+        }
+
+        SuggestedWindowSize { width, height, fallback_aspect_ratio: aspect_ratio.is_none() }
     }
 }

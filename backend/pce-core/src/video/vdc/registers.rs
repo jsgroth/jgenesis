@@ -137,6 +137,8 @@ pub struct VdcRegisters {
     pub sprite_collision_irq_enabled: bool,
     pub bg_enabled: bool,
     pub sprites_enabled: bool,
+    pub bg_enabled_pending: bool,
+    pub sprites_enabled_pending: bool,
     pub vram_address_increment: u16,
     // $06: RCR (Raster compare register)
     pub raster_compare: u16,
@@ -193,6 +195,8 @@ impl VdcRegisters {
             sprite_collision_irq_enabled: false,
             bg_enabled: false,
             sprites_enabled: false,
+            bg_enabled_pending: false,
+            sprites_enabled_pending: false,
             vram_address_increment: 1,
             raster_compare: !0,
             bg_x_scroll: 0,
@@ -264,8 +268,9 @@ impl Vdc {
         if self.selected_register == 0x02 && byte == WordByte::High {
             debug_assert!(self.state.pending_cpu_access.is_none());
 
-            self.state.pending_cpu_access =
-                Some(PendingCpuAccess::Read { address: self.registers.vram_read_address });
+            self.set_pending_cpu_access(PendingCpuAccess::Read {
+                address: self.registers.vram_read_address,
+            });
             self.increment_vram_read_address();
         }
 
@@ -296,8 +301,9 @@ impl Vdc {
                 if byte == WordByte::High {
                     debug_assert!(self.state.pending_cpu_access.is_none());
 
-                    self.state.pending_cpu_access =
-                        Some(PendingCpuAccess::Read { address: self.registers.vram_read_address });
+                    self.set_pending_cpu_access(PendingCpuAccess::Read {
+                        address: self.registers.vram_read_address,
+                    });
                     self.increment_vram_read_address();
                 }
             }
@@ -313,7 +319,7 @@ impl Vdc {
                         debug_assert!(self.state.pending_cpu_access.is_none());
 
                         let word = u16::from_le_bytes([self.registers.vram_write_latch, value]);
-                        self.state.pending_cpu_access = Some(PendingCpuAccess::Write {
+                        self.set_pending_cpu_access(PendingCpuAccess::Write {
                             address: self.registers.vram_write_address,
                             value: word,
                         });
@@ -329,12 +335,15 @@ impl Vdc {
                         self.registers.sprite_overflow_irq_enabled = value.bit(1);
                         self.registers.raster_compare_irq_enabled = value.bit(2);
                         self.registers.vblank_irq_enabled = value.bit(3);
-                        self.registers.sprites_enabled = value.bit(6);
-                        self.registers.bg_enabled = value.bit(7);
+                        self.registers.sprites_enabled_pending = value.bit(6);
+                        self.registers.bg_enabled_pending = value.bit(7);
 
                         log::trace!("CR Low write: {value:02X}");
-                        log::trace!("  BG enabled: {}", self.registers.bg_enabled);
-                        log::trace!("  Sprites enabled: {}", self.registers.sprites_enabled);
+                        log::trace!("  BG enabled: {}", self.registers.bg_enabled_pending);
+                        log::trace!(
+                            "  Sprites enabled: {}",
+                            self.registers.sprites_enabled_pending
+                        );
                         log::trace!("  VBlank IRQ enabled: {}", self.registers.vblank_irq_enabled);
                         log::trace!(
                             "  Raster compare IRQ enabled: {}",
@@ -588,5 +597,15 @@ impl Vdc {
                 );
             }
         }
+    }
+
+    fn set_pending_cpu_access(&mut self, value: PendingCpuAccess) {
+        self.state.pending_cpu_access = Some(value);
+
+        // There's apparently a short delay before CPU accesses are applied, which can stall the CPU
+        // if it accesses too rapidly in a short time.
+        // Any value smaller than 6 here causes broken cutscenes in Popful Mail
+        // TODO does this apply always (as currently implemented) or only during non-burst active display?
+        self.state.cpu_access_latency_dots = 6;
     }
 }

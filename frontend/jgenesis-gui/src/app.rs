@@ -1,3 +1,4 @@
+mod capture;
 mod cheats;
 mod common;
 mod gb;
@@ -44,7 +45,9 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use time::{OffsetDateTime, UtcOffset, format_description};
 
+use crate::app::capture::CaptureAppState;
 use crate::app::inputcollect::InputCollectionState;
+use crate::app::pce::PceVolumeState;
 use cdrom::reader::CdRomFileFormat;
 pub(crate) use cheats::ActiveCheats;
 pub(crate) use input::GenericButton;
@@ -104,6 +107,7 @@ impl ListFiltersExt for ListFilters {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum OpenWindow {
+    General,
     SmsGgGeneral,
     GenesisGeneral,
     NesGeneral,
@@ -147,12 +151,15 @@ enum OpenWindow {
     GenesisOverclock,
     SnesOverclock,
     PceOverclock,
+    RecordVideo,
+    RecordAudio,
     About,
 }
 
 impl OpenWindow {
     fn title(self) -> &'static str {
         match self {
+            OpenWindow::General => "General Settings",
             OpenWindow::SmsGgGeneral => "SMS/GG General Settings",
             OpenWindow::GenesisGeneral => "Genesis General Settings",
             OpenWindow::NesGeneral => "NES General Settings",
@@ -196,6 +203,8 @@ impl OpenWindow {
             OpenWindow::GenesisOverclock => "Genesis Overclocking Settings",
             OpenWindow::SnesOverclock => "SNES Overclocking Settings",
             OpenWindow::PceOverclock => "PCE Overclocking Settings",
+            OpenWindow::RecordVideo => "Video Recording",
+            OpenWindow::RecordAudio => "Audio Recording",
             OpenWindow::About => "About",
         }
     }
@@ -218,6 +227,10 @@ struct AppState {
     error_window_open: bool,
     prescale_width_raw: u32,
     prescale_height_raw: u32,
+    window_width_text: String,
+    window_width_invalid: bool,
+    window_height_text: String,
+    window_height_invalid: bool,
     ff_multiplier_text: String,
     ff_multiplier_invalid: bool,
     rewind_buffer_len_text: String,
@@ -230,8 +243,10 @@ struct AppState {
     audio_gain_invalid: bool,
     nes_palette: NesPaletteState,
     genesis_volume: GenesisVolumeState,
+    pce_volume: PceVolumeState,
     s32x_priority: S32XPriorityState,
     overscan: OverscanState,
+    capture: CaptureAppState,
     input_collection: Option<InputCollectionState>,
     rom_list: Arc<Mutex<Vec<RomMetadata>>>,
     filtered_rom_list: Rc<[RomMetadata]>,
@@ -257,6 +272,10 @@ impl AppState {
             error_window_open: false,
             prescale_width_raw: 1,
             prescale_height_raw: 1,
+            window_width_text: String::new(),
+            window_width_invalid: false,
+            window_height_text: String::new(),
+            window_height_invalid: false,
             ff_multiplier_text: String::new(),
             ff_multiplier_invalid: false,
             rewind_buffer_len_text: String::new(),
@@ -269,8 +288,10 @@ impl AppState {
             audio_gain_invalid: false,
             nes_palette: NesPaletteState::create(ctx, &NesPalette::default()),
             genesis_volume: GenesisVolumeState::default(),
+            pce_volume: PceVolumeState::default(),
             s32x_priority: S32XPriorityState::default(),
             overscan: OverscanState::default(),
+            capture: CaptureAppState::new(),
             input_collection: None,
             rom_list: Arc::new(Mutex::new(vec![])),
             filtered_rom_list: vec![].into(),
@@ -294,6 +315,10 @@ impl AppState {
     fn update_config_derived_fields(&mut self, config: &AppConfig, ctx: &Context) {
         self.prescale_width_raw = config.common.prescale_width.get();
         self.prescale_height_raw = config.common.prescale_height.get();
+        self.window_width_text = config.common.window_width.to_string();
+        self.window_width_invalid = false;
+        self.window_height_text = config.common.window_height.to_string();
+        self.window_height_invalid = false;
         self.ff_multiplier_text = config.common.fast_forward_multiplier.to_string();
         self.ff_multiplier_invalid = false;
         self.rewind_buffer_len_text = config.common.rewind_buffer_length_seconds.to_string();
@@ -306,6 +331,7 @@ impl AppState {
         self.audio_gain_invalid = false;
         self.nes_palette = NesPaletteState::create(ctx, &config.nes.palette);
         self.genesis_volume = GenesisVolumeState::from_config(config);
+        self.pce_volume = PceVolumeState::from_config(config);
         self.s32x_priority = S32XPriorityState::from_config(&config.sega_32x);
         self.overscan = config.nes.overscan().into();
         self.recent_open_list = romlist::from_recent_opens(&config.recent_open_list);
@@ -437,7 +463,7 @@ impl App {
         // Sega CD is attached but the main file is not a CD-ROM image; prompt to load a disc
         let mut file_dialog = FileDialog::new()
             .set_title("Sega CD Disc Image")
-            .add_filter("cue/chd", extensions::SEGA_CD);
+            .add_filter("cue/chd", extensions::CD_ROM);
 
         if let Some(primary_parent) = primary_path.parent() {
             file_dialog = file_dialog.set_directory(primary_parent);
@@ -577,6 +603,7 @@ impl App {
                     self.render_input_menu(ui);
                     self.render_cheats_menu_button(ui);
                     self.render_overclock_menu(ui);
+                    self.render_recording_menu(ui);
                     self.render_help_menu(ui);
                 });
             });
@@ -710,8 +737,8 @@ impl App {
                 ui.menu_button("Load State", |ui| {
                     ui.set_min_width(200.0);
 
-                    for slot in 0..jgenesis_native_driver::SAVE_STATE_SLOTS {
-                        match save_state_metadata.times_nanos[slot] {
+                    for (slot, time_nanos) in save_state_metadata.times_nanos.iter().enumerate() {
+                        match *time_nanos {
                             Some(time_nanos) => {
                                 let formatted_time = format_time_nanos(time_nanos)
                                     .unwrap_or_else(|| "Unknown".into());
@@ -734,8 +761,8 @@ impl App {
                 ui.menu_button("Save State", |ui| {
                     ui.set_min_width(200.0);
 
-                    for slot in 0..jgenesis_native_driver::SAVE_STATE_SLOTS {
-                        let label = match save_state_metadata.times_nanos[slot] {
+                    for (slot, time_nanos) in save_state_metadata.times_nanos.iter().enumerate() {
+                        let label = match *time_nanos {
                             Some(time_nanos) => {
                                 let formatted_time = format_time_nanos(time_nanos)
                                     .unwrap_or_else(|| "Unknown".into());
@@ -826,6 +853,13 @@ impl App {
 
     fn render_settings_menu(&mut self, ui: &mut Ui) {
         ui.menu_button("Settings", |ui| {
+            if ui.button("General").clicked() {
+                self.state.open_window(ui.ctx(), OpenWindow::General);
+                ui.close_kind(UiKind::Menu);
+            }
+
+            ui.separator();
+
             for (label, window) in [
                 ("SMS / Game Gear / SG", OpenWindow::SmsGgGeneral),
                 ("Genesis / Sega CD / 32X", OpenWindow::GenesisGeneral),
@@ -1014,6 +1048,20 @@ impl App {
         });
     }
 
+    fn render_recording_menu(&mut self, ui: &mut Ui) {
+        ui.menu_button("Recording", |ui| {
+            if ui.button("Video").clicked() {
+                self.state.open_window(ui.ctx(), OpenWindow::RecordVideo);
+                ui.close_kind(UiKind::Menu);
+            }
+
+            if ui.button("Audio").clicked() {
+                self.state.open_window(ui.ctx(), OpenWindow::RecordAudio);
+                ui.close_kind(UiKind::Menu);
+            }
+        });
+    }
+
     fn render_help_menu(&mut self, ui: &mut Ui) {
         ui.menu_button("Help", |ui| {
             if ui.button("About").clicked() {
@@ -1175,6 +1223,7 @@ impl App {
         let open_windows: Vec<_> = self.state.open_windows.iter().copied().collect();
         for open_window in open_windows {
             match open_window {
+                OpenWindow::General => self.render_general_settings(ctx),
                 OpenWindow::SmsGgGeneral => self.render_smsgg_general_settings(ctx),
                 OpenWindow::GenesisGeneral => self.render_genesis_general_settings(ctx),
                 OpenWindow::NesGeneral => self.render_nes_general_settings(ctx),
@@ -1218,6 +1267,8 @@ impl App {
                 OpenWindow::GenesisOverclock => self.render_genesis_overclock_settings(ctx),
                 OpenWindow::SnesOverclock => self.render_snes_overclock_settings(ctx),
                 OpenWindow::PceOverclock => self.render_pce_overclock_settings(ctx),
+                OpenWindow::RecordVideo => self.render_video_recording_window(ctx),
+                OpenWindow::RecordAudio => self.render_audio_recording_window(ctx),
                 OpenWindow::About => self.render_about(ctx),
             }
         }
@@ -1267,6 +1318,7 @@ impl App {
                     }
                 }
                 NativeEmulatorError::GbaNoBios => self.render_gba_bios_error(ctx, &mut open),
+                NativeEmulatorError::PceCdNoBios => self.render_pce_bios_error(ctx, &mut open),
                 _ => Self::render_generic_error_window(ctx, err, &mut open),
             };
 

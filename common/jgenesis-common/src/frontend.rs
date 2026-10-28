@@ -9,6 +9,7 @@ use std::borrow::Cow;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
+use std::num::NonZeroU8;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable, Encode, Decode)]
@@ -79,6 +80,8 @@ pub enum Rotation {
 pub struct DisplayInfo {
     pub frame_size: FrameSize,
     pub display_area: DisplayArea,
+    pub pixel_aspect_ratio: Option<FiniteF64>,
+    pub target_fps: f64,
     pub rotation: Rotation,
 }
 
@@ -337,6 +340,42 @@ impl<Inputs> InputPoller<Inputs> for ConstantInputPoller<'_, Inputs> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowSize {
+    pub width: u32,
+    pub height: u32,
+}
+
+impl WindowSize {
+    #[must_use]
+    pub fn clamp_dimensions(self, max_dimension: u32) -> Self {
+        Self {
+            width: self.width.clamp(1, max_dimension),
+            height: self.height.clamp(1, max_dimension),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SuggestedWindowSize {
+    pub width: f64,
+    pub height: f64,
+    // If true, aspect ratio is currently set to None/stretched, and width/height are based on a fallback aspect ratio
+    pub fallback_aspect_ratio: bool,
+}
+
+impl SuggestedWindowSize {
+    #[must_use]
+    pub fn to_window_size(self, size: NonZeroU8) -> WindowSize {
+        let scale: f64 = size.get().into();
+
+        WindowSize {
+            width: (self.width * scale).ceil() as u32,
+            height: (self.height * scale).ceil() as u32,
+        }
+    }
+}
+
 pub trait EmulatorConfigTrait: Clone + Send + Sync + 'static {
     #[must_use]
     fn with_overclocking_disabled(&self) -> Self {
@@ -403,4 +442,7 @@ pub trait EmulatorTrait: 'static {
     fn startup_modals(&self) -> Vec<Modal> {
         vec![]
     }
+
+    // Suggested window size at 1x scale, based on current frame size and aspect ratio
+    fn suggested_window_size(&self) -> SuggestedWindowSize;
 }

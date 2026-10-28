@@ -5,9 +5,8 @@ use jgenesis_native_config::input::{
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use sdl3::event::{Event, WindowEvent};
-use sdl3::joystick::{HatState, Joystick};
+use sdl3::joystick::{HatState, Joystick, JoystickId};
 use sdl3::keyboard::{Keycode, Scancode};
-use sdl3::sys::everything::SDL_JoystickID;
 use sdl3::{IntegerOrSdlError, JoystickSubsystem};
 use std::array;
 use std::cell::RefCell;
@@ -116,7 +115,7 @@ impl Deref for InitialAxisDirections {
 pub struct Joysticks {
     subsystem: JoystickSubsystem,
     open_joysticks: Vec<(Joystick, InitialAxisDirections)>,
-    joystick_id_to_device_id: FxHashMap<u32, u32>,
+    joystick_id_to_device_id: FxHashMap<JoystickId, u32>,
     device_id_to_idx: FxHashMap<u32, usize>,
 }
 
@@ -147,12 +146,15 @@ impl Joysticks {
     }
 
     #[allow(clippy::missing_errors_doc)]
-    pub fn handle_device_added(&mut self, joystick_id: u32) -> Result<(), IntegerOrSdlError> {
+    pub fn handle_device_added(
+        &mut self,
+        joystick_id: JoystickId,
+    ) -> Result<(), IntegerOrSdlError> {
         if self.joystick_id_to_device_id.contains_key(&joystick_id) {
             return Ok(());
         }
 
-        let joystick = self.subsystem.open(SDL_JoystickID(joystick_id))?;
+        let joystick = self.subsystem.open(joystick_id)?;
 
         let name = joystick.name();
 
@@ -169,7 +171,7 @@ impl Joysticks {
     }
 
     #[allow(clippy::missing_errors_doc)]
-    pub fn handle_device_removed(&mut self, joystick_id: u32) -> Result<(), sdl3::Error> {
+    pub fn handle_device_removed(&mut self, joystick_id: JoystickId) -> Result<(), sdl3::Error> {
         let device_id = self.joystick_id_to_device_id.get(&joystick_id).copied();
 
         self.open_joysticks.retain(|(joystick, _)| joystick.id() != joystick_id);
@@ -190,12 +192,12 @@ impl Joysticks {
         let joystick_ids = self.subsystem.joysticks()?;
         for (device_id, joystick_id) in joystick_ids.into_iter().enumerate() {
             let Some(idx) =
-                self.open_joysticks.iter().position(|(joystick, _)| joystick.id() == joystick_id.0)
+                self.open_joysticks.iter().position(|(joystick, _)| joystick.id() == joystick_id)
             else {
                 continue;
             };
 
-            self.joystick_id_to_device_id.insert(joystick_id.0, device_id as u32);
+            self.joystick_id_to_device_id.insert(joystick_id, device_id as u32);
             self.device_id_to_idx.insert(device_id as u32, idx);
         }
 
@@ -203,7 +205,7 @@ impl Joysticks {
     }
 
     #[must_use]
-    pub fn map_to_device_id(&mut self, instance_id: u32) -> Option<u32> {
+    pub fn map_to_device_id(&mut self, instance_id: JoystickId) -> Option<u32> {
         self.joystick_id_to_device_id.get(&instance_id).copied()
     }
 

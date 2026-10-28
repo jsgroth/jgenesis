@@ -88,7 +88,8 @@ pub fn list_files_zip(
 
     for i in 0..archive.len() {
         let entry = archive.by_index(i).map_err(zip_err_fn)?;
-        callback(ArchiveEntry { file_name: entry.name(), size: entry.size() });
+        let file_name = entry.name().map_err(zip_err_fn)?;
+        callback(ArchiveEntry { file_name: file_name.as_ref(), size: entry.size() });
     }
 
     Ok(())
@@ -225,14 +226,20 @@ pub fn first_supported_file_in_zip(
     let reader = BufReader::new(file);
     let mut archive = ZipArchive::new(reader).map_err(zip_err_fn)?;
 
-    if archive.file_names().any(|file_name| extension_matches(file_name, "cue")) {
+    if archive
+        .file_names()
+        .filter_map(Result::ok)
+        .any(|file_name| extension_matches(&file_name, "cue"))
+    {
         // Archive contains a .cue file; assume it's a CD-ROM image
         return Ok(None);
     }
 
     let mut first_file_name_with_ext: Option<(String, String)> = None;
     for file_name in archive.file_names() {
-        let Some(extension) = extensions::from_path(file_name) else {
+        let file_name = file_name.map_err(zip_err_fn)?;
+
+        let Some(extension) = extensions::from_path(file_name.as_ref()) else {
             continue;
         };
 

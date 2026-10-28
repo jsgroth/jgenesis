@@ -135,6 +135,16 @@ impl VdpBusView for VdpView<'_> {
                     *self.open_bus
                 }
             }
+            0x400000..=0x7FFFFF if let Some(sega_cd) = &mut self.sega_cd => {
+                let has_cartridge = self.cartridge.is_some()
+                    || self.sega_32x.as_ref().is_some_and(|s32x| s32x.cartridge().is_some());
+                if has_cartridge {
+                    // Sega CD [32X] Mode 1
+                    sega_cd.read_word_for_dma(address, self.open_bus)
+                } else {
+                    *self.open_bus
+                }
+            }
             0xE00000..=0xFFFFFF => self.memory.read_main_ram_word(address),
             _ => *self.open_bus,
         }
@@ -180,7 +190,7 @@ impl GenesisBus {
 
         let memory = Memory::new(config);
         let vdp = Vdp::new(timing_mode, config.to_vdp_config(sega_32x.is_some()));
-        let psg = Sn76489::new(Sn76489Version::Standard);
+        let psg = Sn76489::new(Sn76489Version::Standard, config.psg_channels_enabled);
         let ym2612 = Ym2612::new(config);
 
         let six_button_incompatible = {
@@ -353,6 +363,7 @@ impl GenesisBus {
         self.memory.reload_config(config);
         self.vdp.reload_config(config.to_vdp_config(self.sega_32x.is_some()));
         self.ym2612.reload_config(config);
+        self.psg.set_channels_enabled(config.psg_channels_enabled);
         self.input.reload_config(config);
         self.cycles.update_m68k_divider(config.clamped_m68k_divider());
     }
@@ -728,8 +739,7 @@ fn check_for_long_dma_skip(vdp: &Vdp, cycles: &mut CycleCounters) {
         cycles.m68k_wait_cpu_cycles,
         cmp::min(
             cycles.max_wait_cpu_cycles,
-            (vdp::MCLK_CYCLES_PER_SCANLINE - vdp.scanline_mclk()) as u32
-                / cycles.m68k_divider_u32.get(),
+            (vdp::MCLK_CYCLES_PER_SCANLINE - vdp.scanline_mclk()) as u32 / cycles.m68k_divider_u32,
         ),
     );
     cycles.m68k_wait_cpu_cycles = wait_cycles;

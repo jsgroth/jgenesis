@@ -10,10 +10,12 @@ use bincode::{Decode, Encode};
 use cdrom::reader::CdRom;
 use genesis_components::cartridge::Cartridge;
 use genesis_components::vdp::{Vdp, VdpTickEffect};
-use genesis_config::{GenesisButton, GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
+use genesis_config::{
+    GenesisAspectRatio, GenesisButton, GenesisEmulatorConfig, GenesisInputs, GenesisRegion,
+};
 use jgenesis_common::frontend::{
     AudioOutput, EmulatorTrait, InputPoller, Modal, PartialClone, RenderFrameOptions, Renderer,
-    SaveWriter, TickEffect, TickResult, TimingMode,
+    SaveWriter, SuggestedWindowSize, TickEffect, TickResult, TimingMode,
 };
 use m68000_emu::M68000;
 use s32x_core::api::Sega32X;
@@ -506,12 +508,11 @@ impl EmulatorTrait for GenesisEmulator {
         let mut modals = Vec::new();
 
         if self.config.remove_sprite_limits
-            && (self
+            && self
                 .bus
                 .cartridge
                 .as_ref()
                 .is_some_and(|cartridge| cartridge.metadata().sprite_limit_compatibility_issues)
-                || self.bus.sega_cd.as_ref().is_some_and(SegaCd::has_six_button_incompatible_game))
         {
             modals.push(Modal {
                 id: None,
@@ -520,5 +521,40 @@ impl EmulatorTrait for GenesisEmulator {
         }
 
         modals
+    }
+
+    fn suggested_window_size(&self) -> SuggestedWindowSize {
+        let frame_size = self.bus.vdp.frame_size();
+        let par_params = self.config.to_gen_par_params();
+        let aspect_ratio = self.config.aspect_ratio.to_pixel_aspect_ratio(
+            self.timing_mode,
+            frame_size,
+            par_params,
+        );
+        let aspect_ratio_with_fallback = aspect_ratio.or(GenesisAspectRatio::default()
+            .to_pixel_aspect_ratio(self.timing_mode, frame_size, par_params));
+
+        let mut width: f64 = frame_size.width.into();
+        let mut height: f64 = frame_size.height.into();
+
+        match &self.bus.sega_32x {
+            Some(sega_32x) => {
+                (width, height) =
+                    sega_32x.suggested_window_size(&self.bus.vdp, aspect_ratio_with_fallback);
+            }
+            None => {
+                if let Some(aspect_ratio) = aspect_ratio_with_fallback {
+                    width *= aspect_ratio.get();
+                }
+            }
+        }
+
+        if frame_size.height >= 448 {
+            // In interlaced mode; cut suggested window size dimensions in half
+            width *= 0.5;
+            height *= 0.5;
+        }
+
+        SuggestedWindowSize { width, height, fallback_aspect_ratio: aspect_ratio.is_none() }
     }
 }

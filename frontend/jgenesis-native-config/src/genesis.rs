@@ -41,6 +41,7 @@ pub struct GenesisAppConfig {
     pub ym2612_2nd_lpf_enabled: bool,
     pub ym2612_2nd_lpf_cutoff: u32,
     pub ym2612_channels_enabled: [bool; 6],
+    pub psg_channels_enabled: [bool; 4],
     pub ym2612_enabled: bool,
     pub psg_enabled: bool,
     pub ym2612_volume_adjustment_db: f64,
@@ -77,6 +78,7 @@ impl Default for GenesisAppConfig {
             ym2612_2nd_lpf_enabled: false,
             ym2612_2nd_lpf_cutoff: genesis_config::MODEL_2_2ND_LPF_CUTOFF,
             ym2612_channels_enabled: [true; 6],
+            psg_channels_enabled: [true; 4],
             ym2612_enabled: true,
             psg_enabled: true,
             ym2612_volume_adjustment_db: 0.0,
@@ -136,7 +138,7 @@ impl Default for SegaCdAppConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Sega32XAppConfig {
-    pub sh2_clock_multiplier: NonZeroU64,
+    pub sh2_clock_multiplier: f64,
     pub video_out: S32XVideoOut,
     pub apply_genesis_lpf_to_pwm: bool,
     pub darken_genesis_colors: bool,
@@ -155,7 +157,7 @@ pub struct Sega32XAppConfig {
 impl Default for Sega32XAppConfig {
     fn default() -> Self {
         Self {
-            sh2_clock_multiplier: NonZeroU64::new(genesis_config::NATIVE_SH2_MULTIPLIER).unwrap(),
+            sh2_clock_multiplier: genesis_config::NATIVE_SH2_MULTIPLIER as f64,
             video_out: S32XVideoOut::default(),
             apply_genesis_lpf_to_pwm: true,
             darken_genesis_colors: true,

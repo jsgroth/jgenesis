@@ -147,7 +147,6 @@ impl VideoSubsystem {
             self.state.scanline += 1;
             if self.state.scanline >= lines_per_frame {
                 self.state.scanline = 0;
-                self.vdc.start_new_frame();
                 self.state.frame_start_cycles = self.state.cycles - self.state.scanline_mclk;
             }
 

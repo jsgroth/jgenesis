@@ -1,4 +1,5 @@
 mod audio;
+mod capture;
 mod create;
 mod gb;
 mod gba;
@@ -16,6 +17,7 @@ mod state;
 mod window;
 
 pub use audio::AudioError;
+pub use capture::{AudioCaptureFormat, CaptureType, VideoCaptureCodec, VideoCaptureCodecType};
 pub use create::SdlSubsystems;
 pub use gb::NativeGameBoyEmulator;
 pub use gba::NativeGbaEmulator;
@@ -32,6 +34,7 @@ use crate::config::CommonConfig;
 use crate::fpstracker::FpsTracker;
 use crate::input::{InputEvent, InputMapper, Joysticks};
 use crate::mainloop::audio::{SdlAudioOutput, SdlAudioOutputHandle};
+use crate::mainloop::capture::{CaptureError, CaptureThreadHandle, StartCapture};
 use crate::mainloop::create::WindowTitle;
 use crate::mainloop::input::ThreadedInputPoller;
 use crate::mainloop::render::{RecvFrameError, ThreadedRenderer};
@@ -42,17 +45,22 @@ use crate::mainloop::runner::{
 use crate::mainloop::save::FsSaveWriter;
 use crate::mainloop::window::{AtomicWindowSize, CreateWindowArgs, RendererExt};
 use bincode::error::{DecodeError, EncodeError};
+use cdrom::CdRomError;
 use egui_sdl3_wgpu::FrameRunEffect;
 use gb_core::api::GameBoyLoadError;
 use gba_core::api::GbaLoadError;
 use genesis_config::GenesisRegion;
-use jgenesis_common::frontend::{EmulatorConfigTrait, EmulatorTrait, MappableInputs};
+use jgenesis_common::frontend::{
+    EmulatorConfigTrait, EmulatorTrait, FrameSize, MappableInputs, WindowSize,
+};
 use jgenesis_debugger_frontend::{DebugFn, DebuggerWindow};
 use jgenesis_native_config::EguiTheme;
-use jgenesis_native_config::common::{HideMouseCursor, WindowSize};
+use jgenesis_native_config::common::HideMouseCursor;
 use jgenesis_native_config::input::mappings::ButtonMappingVec;
 use jgenesis_native_config::input::{CompactHotkey, Hotkey};
-use jgenesis_renderer::renderer::{RendererError, WgpuRenderer};
+use jgenesis_renderer::renderer::{
+    CaptureAbortReason, ReadCapturedFrameError, RendererError, WgpuRenderer,
+};
 use nes_core::api::NesInitializationError;
 use sdl3::event::{Event, WindowEvent};
 use sdl3::mouse::MouseUtil;
@@ -152,12 +160,15 @@ pub struct NativeEmulator<Emulator: EmulatorTrait> {
     common_config: CommonConfig,
     renderer: WgpuRenderer<Window>,
     window_size: Arc<AtomicWindowSize>,
+    last_auto_resize: WindowSize,
     audio_output_handle: SdlAudioOutputHandle,
     input_mapper: InputMapper<Emulator::Button>,
     inputs: Emulator::Inputs,
     hotkey_state: HotkeyState<Emulator>,
     window_state: WindowState,
     fps_tracker: FpsTracker,
+    pending_capture_start: Option<(CaptureType, AudioCaptureFormat, PathBuf)>,
+    capture_thread: Option<CaptureThreadHandle>,
     video: Rc<RefCell<VideoSubsystem>>,
     event_pump: Rc<RefCell<EventPump>>,
     mouse_util: Rc<RefCell<MouseUtil>>,
@@ -166,6 +177,10 @@ pub struct NativeEmulator<Emulator: EmulatorTrait> {
 impl<Emulator: EmulatorTrait> NativeEmulator<Emulator> {
     fn reload_common_config(&mut self, config: &CommonConfig) -> Result<(), AudioError> {
         let borderless_changed = config.borderless_window != self.common_config.borderless_window;
+        let forced_window_size_changed =
+            config.forced_window_size != self.common_config.forced_window_size;
+        let window_size_unforced =
+            config.forced_window_size.is_none() && self.common_config.forced_window_size.is_some();
         self.common_config = config.clone();
 
         self.renderer.reload_config(config.renderer_config);
@@ -173,7 +188,32 @@ impl<Emulator: EmulatorTrait> NativeEmulator<Emulator> {
             self.renderer.update_borderless(config.borderless_window, &self.window_size);
         }
 
+        if forced_window_size_changed && let Some(size) = config.forced_window_size {
+            let scaled_size = window::scale_size(size, &self.renderer);
+
+            // Force auto-resize to run if window size is later unforced
+            self.last_auto_resize = scaled_size;
+
+            if let Err(err) = self.renderer.set_window_size(scaled_size) {
+                log::error!("Error changing window size: {err}");
+            }
+        } else if window_size_unforced {
+            self.handle_auto_resize();
+        }
+
         self.audio_output_handle.reload_config(config)?;
+
+        if let Some(capture_thread) = &self.capture_thread
+            && let Err(err) =
+                capture_thread.check_audio_sample_rate(config.audio_output_frequency as u32)
+        {
+            log::error!("Error in capture thread: {err}");
+            self.renderer.add_modal(
+                "Audio capture terminated due to sample rate change".into(),
+                MODAL_DURATION,
+            );
+            self.end_capture();
+        }
 
         self.hotkey_state.hide_mouse_cursor = config.hide_mouse_cursor;
 
@@ -280,6 +320,8 @@ pub enum NativeEmulatorError {
         source: io::Error,
     },
     #[error("{0}")]
+    CdRomRead(#[from] CdRomError),
+    #[error("{0}")]
     SegaCdDisc(#[from] SegaCdLoadError),
     #[error("{0}")]
     NesLoad(#[from] NesInitializationError),
@@ -299,6 +341,14 @@ pub enum NativeEmulatorError {
     GbaBiosLoad(io::Error),
     #[error("Failed to initialize GBA emulator: {0}")]
     GbaLoad(#[from] GbaLoadError),
+    #[error("PC Engine CD-ROM BIOS is required for PCE CD emulation")]
+    PceCdNoBios,
+    #[error("Error reading PCE CD BIOS from '{path}': {source}")]
+    PceCdBiosRead {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
     #[error("I/O error opening save state file '{path}': {source}")]
     StateFileOpen {
         path: String,
@@ -330,7 +380,6 @@ pub type NativeEmulatorResult<T> = Result<T, NativeEmulatorError>;
 pub struct CreatedEmulator<Emulator: EmulatorTrait> {
     pub emulator: Emulator,
     pub window_title: String,
-    pub default_window_size: WindowSize,
 }
 
 pub(crate) type CreateEmulatorFn<Emulator> = dyn FnOnce(&mut FsSaveWriter) -> Result<CreatedEmulator<Emulator>, NativeEmulatorError>
@@ -462,7 +511,14 @@ where
             save_writer,
         })?;
 
-        let initial_window_size = common_config.window_size.unwrap_or(runner.default_window_size());
+        let mut initial_window_size =
+            common_config.forced_window_size.unwrap_or(runner.default_window_size());
+
+        if let Some(max_dimension) = pollster::block_on(
+            jgenesis_renderer::try_get_max_texture_dimension_2d(common_config.renderer_config),
+        ) {
+            initial_window_size = initial_window_size.clamp_dimensions(max_dimension);
+        }
 
         let (window, atomic_window_size) = window::create(
             &sdl.video.borrow(),
@@ -489,12 +545,15 @@ where
             common_config: common_config.clone(),
             renderer,
             window_size: atomic_window_size,
+            last_auto_resize: WindowSize { width: window_size.width, height: window_size.height },
             audio_output_handle,
             input_mapper,
             inputs: initial_inputs,
             hotkey_state,
             window_state: WindowState::new(),
             fps_tracker: FpsTracker::new(),
+            pending_capture_start: None,
+            capture_thread: None,
             video: sdl.video,
             event_pump: sdl.event_pump,
             mouse_util: sdl.mouse_util,
@@ -597,6 +656,8 @@ where
             self.handle_runner_cmd_response(response);
         }
 
+        self.consume_captured_video_frame();
+
         match self.runner.try_recv_frame(&mut self.renderer, Duration::from_millis(5)) {
             Ok(()) => {
                 self.input_mapper.frame_complete();
@@ -604,6 +665,11 @@ where
                     return Ok(Some(effect));
                 }
 
+                if self.common_config.auto_resize_window {
+                    self.handle_auto_resize();
+                }
+
+                self.start_capture_if_pending();
                 self.fps_tracker.record_frame();
             }
             Err(RecvFrameError::Render(err)) => return Err(NativeEmulatorError::Render(err)),
@@ -614,6 +680,26 @@ where
                 return Err(NativeEmulatorError::LostRunnerConnection);
             }
             Err(RecvFrameError::Recv(RecvTimeoutError::Timeout)) => {}
+        }
+
+        if let Some(capture_thread) = &self.capture_thread
+            && let Err(err) = capture_thread.check_status()
+        {
+            log::error!("Error in capture thread: {err}");
+
+            let modal_text = match err {
+                CaptureError::Io(_) | CaptureError::ThreadDisconnected => {
+                    "Capture failed due to I/O error"
+                }
+                CaptureError::AviFileTooLarge => "Aborting capture due to AVI file size",
+                CaptureError::WavFileTooLarge => "Aborting capture due to WAV file size",
+                CaptureError::AudioSampleRateChanged { .. } => {
+                    "Aborting capture due to audio sample rate change"
+                }
+            };
+            self.renderer.add_modal(modal_text.into(), MODAL_DURATION);
+
+            self.end_capture();
         }
 
         if let Some(debugger_window) = &mut self.hotkey_state.debugger_window {
@@ -640,6 +726,35 @@ where
             );
         } else {
             mouse_util.show_cursor(true);
+        }
+    }
+
+    fn handle_auto_resize(&mut self) {
+        if self.common_config.forced_window_size.is_some() {
+            return;
+        }
+
+        let (current_window_width, current_window_height) = self.renderer.window().size_in_pixels();
+        let current_size =
+            WindowSize { width: current_window_width, height: current_window_height };
+
+        let suggested_window_size = self.runner.suggested_window_size();
+        let scaled_suggested_size = window::scale_size(suggested_window_size, &self.renderer);
+
+        if scaled_suggested_size == self.last_auto_resize || scaled_suggested_size == current_size {
+            return;
+        }
+
+        self.last_auto_resize = scaled_suggested_size;
+
+        log::info!(
+            "Changing window size from {current_window_width}x{current_window_height} to {}x{}",
+            scaled_suggested_size.width,
+            scaled_suggested_size.height
+        );
+
+        if let Err(err) = self.renderer.set_window_size(scaled_suggested_size) {
+            log::error!("Error changing window size: {err}");
         }
     }
 
@@ -685,7 +800,7 @@ where
                 if window_id == self.renderer.window_id() =>
             {
                 let window_size = window::size(self.renderer.window());
-                self.renderer.handle_resize(window_size);
+                self.renderer.handle_resize(window_size)?;
                 self.window_size.update(window_size);
             }
             _ => {}
@@ -826,24 +941,6 @@ where
         self.runner.send_command(RunnerCommand::LoadState { slot })
     }
 
-    /// # Errors
-    ///
-    /// Returns an error if runner thread has disconnected or if there is an error rendering the
-    /// frame to the viewport.
-    pub fn force_render(&mut self) -> NativeEmulatorResult<()> {
-        self.runner.send_command(RunnerCommand::ForceRender)?;
-
-        match self.runner.try_recv_frame(&mut self.renderer, Duration::from_millis(10)) {
-            Ok(()) | Err(RecvFrameError::Recv(_)) => {}
-            Err(RecvFrameError::LostConnection) => {
-                return Err(NativeEmulatorError::LostRunnerConnection);
-            }
-            Err(RecvFrameError::Render(err)) => return Err(NativeEmulatorError::Render(err)),
-        }
-
-        Ok(())
-    }
-
     /// Try to load the most recent save state.
     ///
     /// If there are no save states or the most recent save state is invalid, this method will log
@@ -874,6 +971,127 @@ where
     #[allow(clippy::missing_panics_doc)]
     pub fn save_state_metadata(&self) -> SaveStateMetadata {
         self.runner.save_state_metadata().lock().unwrap().clone()
+    }
+
+    // Queue capturing to start after the next frame render
+    pub fn start_capture(
+        &mut self,
+        output_path: PathBuf,
+        audio_format: AudioCaptureFormat,
+        capture_type: CaptureType,
+    ) {
+        if self.capture_thread.is_some() {
+            self.end_capture();
+        }
+
+        self.pending_capture_start = Some((capture_type, audio_format, output_path));
+    }
+
+    // Actually start capturing (if capture is pending)
+    fn start_capture_if_pending(&mut self) {
+        let Some((capture_type, audio_format, output_path)) = self.pending_capture_start.take()
+        else {
+            return;
+        };
+
+        let start_capture = match capture_type {
+            CaptureType::Video(renderer_capture_output, codec) => {
+                let Some(frame_info) = self.renderer.capture_frame_info(renderer_capture_output)
+                else {
+                    log::error!(
+                        "Unable to start capture because renderer is not fully initialized"
+                    );
+                    self.renderer.add_modal(
+                        format!("Failed to initialize {} capture", capture_type.type_str()),
+                        MODAL_DURATION,
+                    );
+                    return;
+                };
+
+                StartCapture::Video {
+                    codec,
+                    frame_size: FrameSize { width: frame_info.size.0, height: frame_info.size.1 },
+                    pixel_aspect_ratio: frame_info.pixel_aspect_ratio,
+                    fps: frame_info.fps,
+                }
+            }
+            CaptureType::Audio => StartCapture::Audio,
+        };
+
+        self.capture_thread = Some(capture::spawn_thread(
+            output_path,
+            self.audio_output_handle.capture_buffer(),
+            self.common_config.audio_output_frequency as u32,
+            audio_format,
+            start_capture,
+            capture_type,
+        ));
+
+        self.audio_output_handle.start_capture();
+        if let CaptureType::Video(renderer_capture_output, ..) = capture_type {
+            self.renderer.start_capture(renderer_capture_output);
+        }
+
+        self.renderer.add_or_update_modal(
+            Some("capture".into()),
+            format!("Beginning {} capture", capture_type.type_str()),
+            MODAL_DURATION,
+        );
+    }
+
+    pub fn end_capture(&mut self) {
+        self.audio_output_handle.end_capture();
+        self.renderer.end_capture();
+
+        if let Some(capture_thread) = self.capture_thread.take() {
+            let capture_type_str = capture_thread.capture_type().type_str();
+            capture_thread.end_capture();
+            self.renderer.add_or_update_modal(
+                Some("capture".into()),
+                format!("Ended {capture_type_str} capture"),
+                MODAL_DURATION,
+            );
+        }
+    }
+
+    pub fn is_capturing(&self) -> Option<CaptureType> {
+        self.capture_thread.as_ref().map(CaptureThreadHandle::capture_type)
+    }
+
+    fn consume_captured_video_frame(&mut self) {
+        let mut end_video_capture = false;
+
+        if let Some(capture_thread) = &mut self.capture_thread
+            && let Some(mut callback) = capture_thread.video_capture_callback()
+        {
+            match self.renderer.read_captured_frame(&mut callback) {
+                Ok(()) | Err(ReadCapturedFrameError::NoFrameReady) => {}
+                Err(ReadCapturedFrameError::NotCapturing) => {
+                    end_video_capture = true;
+                }
+                Err(ReadCapturedFrameError::CaptureAborted(reason)) => {
+                    log::error!("Capture aborted: {reason}");
+                    end_video_capture = true;
+
+                    let modal_msg = match reason {
+                        CaptureAbortReason::FrameSizeChanged { .. } => {
+                            "Aborting video capture due to resolution change"
+                        }
+                        CaptureAbortReason::FrameRateChanged { .. } => {
+                            "Aborting video capture due to frame rate change"
+                        }
+                        CaptureAbortReason::UnexpectedTextureFormat(_) => {
+                            "Aborting video capture due to internal error"
+                        }
+                    };
+                    self.renderer.add_modal(modal_msg.into(), MODAL_DURATION);
+                }
+            }
+        }
+
+        if end_video_capture {
+            self.end_capture();
+        }
     }
 
     pub fn update_gui_focused(&mut self, gui_focused: bool) {
@@ -935,6 +1153,7 @@ where
             CompactHotkey::CancelMouseInput => {
                 self.mouse_util.borrow().set_relative_mouse_mode(self.renderer.window(), false);
             }
+            CompactHotkey::EndCapture => self.end_capture(),
             CompactHotkey::ToggleOverclocking => self.toggle_overclocking()?,
             CompactHotkey::OpenDebugger => self.open_memory_viewer()?,
         }
@@ -1062,6 +1281,7 @@ impl<Emulator: EmulatorTrait> Drop for NativeEmulator<Emulator> {
     fn drop(&mut self) {
         let _ = self.runner.send_command(RunnerCommand::Terminate);
         self.mouse_util.borrow().show_cursor(true);
+        self.end_capture();
     }
 }
 

@@ -43,6 +43,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::hash::Hash;
 use std::iter;
+use std::sync::LazyLock;
 
 const CRAM_WINDOW_TITLE: &str = "CRAM";
 const VRAM_WINDOW_TITLE: &str = "VRAM";
@@ -73,31 +74,21 @@ pub(crate) enum MemoryArea {
     Sega32X(S32XMemoryArea),
 }
 
-impl MemoryArea {
-    const ALL: &'static [Self] = &[
-        Self::Genesis(GenesisMemoryArea::CartridgeRom),
-        Self::Genesis(GenesisMemoryArea::WorkingRam),
-        Self::Genesis(GenesisMemoryArea::AudioRam),
-        Self::Genesis(GenesisMemoryArea::Vram),
-        Self::Genesis(GenesisMemoryArea::Cram),
-        Self::Genesis(GenesisMemoryArea::Vsram),
-        Self::SegaCd(SegaCdMemoryArea::BiosRom),
-        Self::SegaCd(SegaCdMemoryArea::PrgRam),
-        Self::SegaCd(SegaCdMemoryArea::WordRam),
-        Self::SegaCd(SegaCdMemoryArea::PcmRam),
-        Self::SegaCd(SegaCdMemoryArea::CdcRam),
-        Self::Sega32X(S32XMemoryArea::Sdram),
-        Self::Sega32X(S32XMemoryArea::MasterSh2Cache),
-        Self::Sega32X(S32XMemoryArea::SlaveSh2Cache),
-        Self::Sega32X(S32XMemoryArea::FrameBuffer0),
-        Self::Sega32X(S32XMemoryArea::FrameBuffer1),
-        Self::Sega32X(S32XMemoryArea::PaletteRam),
-    ];
+static ALL_MEMORY_AREAS: LazyLock<Vec<MemoryArea>> = LazyLock::new(|| {
+    GenesisMemoryArea::ALL
+        .into_iter()
+        .map(MemoryArea::Genesis)
+        .chain(SegaCdMemoryArea::ALL.into_iter().map(MemoryArea::SegaCd))
+        .chain(S32XMemoryArea::ALL.into_iter().map(MemoryArea::Sega32X))
+        .collect()
+});
 
+impl MemoryArea {
     fn name(self) -> &'static str {
         match self {
             Self::Genesis(area) => match area {
                 GenesisMemoryArea::CartridgeRom => "Cartridge ROM",
+                GenesisMemoryArea::CartridgeSram => "Cartridge SRAM",
                 GenesisMemoryArea::WorkingRam => "Working RAM",
                 GenesisMemoryArea::AudioRam => "Audio RAM",
                 GenesisMemoryArea::Vram => "VRAM",
@@ -126,6 +117,7 @@ impl MemoryArea {
         match self {
             Self::Genesis(area) => match area {
                 GenesisMemoryArea::CartridgeRom => "rom.bin",
+                GenesisMemoryArea::CartridgeSram => "sram.bin",
                 GenesisMemoryArea::WorkingRam => "wram.bin",
                 GenesisMemoryArea::AudioRam => "audioram.bin",
                 GenesisMemoryArea::Vram => "vram.bin",
@@ -151,7 +143,7 @@ impl MemoryArea {
     }
 
     fn new_states() -> HashMap<Self, MemoryViewerState> {
-        Self::ALL
+        ALL_MEMORY_AREAS
             .iter()
             .map(|&area| {
                 (
@@ -328,9 +320,13 @@ pub(crate) struct GenesisDebuggerFrontendState<'a> {
 }
 
 impl GenesisDebuggerFrontendState<'_> {
-    fn has_memory(&self, memory_area: MemoryArea) -> bool {
+    fn has_memory(&mut self, memory_area: MemoryArea) -> bool {
         match memory_area {
             MemoryArea::Genesis(GenesisMemoryArea::CartridgeRom) => self.state.cartridge.is_some(),
+            MemoryArea::Genesis(GenesisMemoryArea::CartridgeSram) => {
+                self.state.cartridge.is_some()
+                    && self.state.memory_view(GenesisMemoryArea::CartridgeSram).len() != 0
+            }
             MemoryArea::Genesis(_) => true,
             MemoryArea::SegaCd(_) => self.state.sega_cd.is_some(),
             MemoryArea::Sega32X(_) => self.state.sega_32x.is_some(),
@@ -371,7 +367,7 @@ fn render(
     Panel::top("gen_debug_top").show_inside(ctx.egui_ui, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("Memory Viewers", |ui| {
-                for &memory_area in MemoryArea::ALL {
+                for &memory_area in &*ALL_MEMORY_AREAS {
                     if !debug_state.has_memory(memory_area) {
                         continue;
                     }

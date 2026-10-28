@@ -1,15 +1,12 @@
 //! The wavetable PSG built into the HuC6280
 
-mod resampler;
-
 use crate::api;
 use crate::api::PceEmulatorConfig;
-use crate::psg::resampler::PsgResampler;
+use crate::audio::PceAudioResampler;
 use bincode::{Decode, Encode};
-use jgenesis_common::frontend::AudioOutput;
 use jgenesis_common::num::{GetBit, U16Ext};
 use std::sync::LazyLock;
-use std::{array, mem};
+use std::{array, iter, mem};
 
 // Roughly 3.58 MHz
 pub const PSG_CLOCK_DIVIDER: u64 = 6;
@@ -256,55 +253,61 @@ impl VolumeUpdateState {
     }
 }
 
+impl PceEmulatorConfig {
+    fn channels_muted(&self) -> [bool; 6] {
+        self.psg_channels_enabled.map(|enabled| !enabled)
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Huc6280Psg {
     channels: [PsgChannel; 6],
+    channels_muted: [bool; 6],
     selected_channel: u8,
     l_main_amplitude: u8,
     r_main_amplitude: u8,
     lfo: LowFrequencyOscillator,
-    resampler: PsgResampler,
-    output_frequency: u64,
     cycles: u64,
     volume: VolumeUpdateState,
 }
 
 impl Huc6280Psg {
-    pub fn new(config: PceEmulatorConfig) -> Self {
-        let output_frequency = 48000;
-
+    pub fn new(config: &PceEmulatorConfig) -> Self {
         Self {
             channels: array::from_fn(|idx| PsgChannel::new(idx as u8)),
+            channels_muted: config.channels_muted(),
             selected_channel: 0,
             l_main_amplitude: 0,
             r_main_amplitude: 0,
             lfo: LowFrequencyOscillator::new(),
-            resampler: PsgResampler::new(config.audio_resampler, output_frequency),
-            output_frequency,
             cycles: 0,
             volume: VolumeUpdateState::new(),
         }
     }
 
-    pub fn step_to(&mut self, cycles: u64) {
+    pub fn step_to(&mut self, cycles: u64, resampler: &mut PceAudioResampler) {
         while self.cycles < cycles {
-            self.clock();
+            self.clock(resampler);
             self.cycles += PSG_CLOCK_DIVIDER;
         }
     }
 
-    pub fn clock(&mut self) {
+    pub fn clock(&mut self, resampler: &mut PceAudioResampler) {
         let mut sample_l = 0.0;
         let mut sample_r = 0.0;
 
         let channel_2_sample = self.channels[1].on.then_some(self.channels[1].current_sample);
 
-        for channel in &mut self.channels {
+        for (channel, channel_muted) in iter::zip(&mut self.channels, self.channels_muted) {
             if !channel.on {
                 continue;
             }
 
             channel.clock(&mut self.lfo, channel_2_sample);
+
+            if channel_muted {
+                continue;
+            }
 
             // Per the official manual, total attenuation of 45 dB or higher results in silence
             // Attenuation is in steps of 1.5 dB, so 30 = 45 dB
@@ -328,32 +331,10 @@ impl Huc6280Psg {
             }
         }
 
-        self.resampler.collect([sample_l, sample_r]);
+        resampler.collect_psg([sample_l, sample_r]);
 
         if self.volume.active {
             self.progress_volume_update();
-        }
-    }
-
-    pub fn drain_output_buffer<A: AudioOutput>(
-        &mut self,
-        audio_output: &mut A,
-    ) -> Result<(), A::Err> {
-        while let Some([sample_l, sample_r]) = self.resampler.output_buffer_pop_front() {
-            audio_output.push_sample(sample_l, sample_r)?;
-        }
-
-        Ok(())
-    }
-
-    pub fn update_output_frequency(&mut self, output_frequency: u64) {
-        self.resampler.update_output_frequency(output_frequency as f64);
-        self.output_frequency = output_frequency;
-    }
-
-    pub fn reload_config(&mut self, config: PceEmulatorConfig) {
-        if config.audio_resampler != self.resampler.resampler_impl() {
-            self.resampler = PsgResampler::new(config.audio_resampler, self.output_frequency);
         }
     }
 
@@ -554,5 +535,9 @@ impl Huc6280Psg {
             10..=15 => {} // Invalid addresses
             _ => unreachable!("value & 0xF is always <= 15"),
         }
+    }
+
+    pub fn reload_config(&mut self, config: &PceEmulatorConfig) {
+        self.channels_muted = config.channels_muted();
     }
 }
