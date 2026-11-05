@@ -2,7 +2,7 @@ use crate::app::ActiveCheats;
 use genesis_config::cheats::GenesisCheats;
 use genesis_core::api::GenesisHardware;
 use jgenesis_native_config::AppConfig;
-use jgenesis_native_driver::config::AppConfigExt;
+use jgenesis_native_driver::config::{AppConfigExt, GamePaths};
 use jgenesis_native_driver::extensions::Console;
 use jgenesis_native_driver::{
     AudioCaptureFormat, CaptureType, NativeEmulatorError, NativeEmulatorResult,
@@ -116,7 +116,7 @@ impl ConsoleExt for Console {
 
 #[derive(Debug, Clone)]
 pub enum EmulatorRunInput {
-    OpenFile { file_path: PathBuf, secondary_paths: Vec<PathBuf> },
+    OpenFile(GamePaths),
     RunBios,
 }
 
@@ -318,15 +318,9 @@ impl GuiEmulatorRunner {
         }
 
         let emulator = match input {
-            EmulatorRunInput::OpenFile { file_path, secondary_paths } => GenericEmulator::create(
-                self.sdl.clone(),
-                console,
-                config,
-                cheats,
-                file_path,
-                secondary_paths,
-            )
-            .map(Some),
+            EmulatorRunInput::OpenFile(paths) => {
+                GenericEmulator::create(self.sdl.clone(), console, config, cheats, paths).map(Some)
+            }
             EmulatorRunInput::RunBios => {
                 GenericEmulator::create_run_bios(self.sdl.clone(), console, config)
             }
@@ -429,15 +423,14 @@ impl GenericEmulator {
         console: Console,
         config: Box<AppConfig>,
         cheats: Arc<ActiveCheats>,
-        path: PathBuf,
-        secondary_paths: Vec<PathBuf>,
+        paths: GamePaths,
     ) -> NativeEmulatorResult<Self> {
         let emulator = match console {
             Console::MasterSystem | Console::GameGear | Console::Sg1000 => {
                 Self::SmsGg(Box::new(NativeSmsGgEmulator::create(
                     sdl,
                     config.smsgg_config(
-                        path,
+                        paths,
                         console.to_smsgg_hardware(),
                         cheats.smsgg_or_default(),
                     ),
@@ -447,29 +440,28 @@ impl GenericEmulator {
                 Self::Genesis(Box::new(NativeGenesisEmulator::create(
                     sdl,
                     config.genesis_config(
-                        path,
-                        secondary_paths.first().cloned(),
+                        paths,
                         console.to_genesis_hardware(),
                         cheats.genesis_or_default(),
                     ),
                 )?))
             }
             Console::Nes => {
-                Self::Nes(Box::new(NativeNesEmulator::create(sdl, config.nes_config(path))?))
+                Self::Nes(Box::new(NativeNesEmulator::create(sdl, config.nes_config(paths))?))
             }
             Console::Snes => {
-                Self::Snes(Box::new(NativeSnesEmulator::create(sdl, config.snes_config(path))?))
+                Self::Snes(Box::new(NativeSnesEmulator::create(sdl, config.snes_config(paths))?))
             }
-            Console::GameBoy | Console::GameBoyColor => {
-                Self::GameBoy(Box::new(NativeGameBoyEmulator::create(sdl, config.gb_config(path))?))
-            }
+            Console::GameBoy | Console::GameBoyColor => Self::GameBoy(Box::new(
+                NativeGameBoyEmulator::create(sdl, config.gb_config(paths))?,
+            )),
             Console::GameBoyAdvance => Self::GameBoyAdvance(Box::new(NativeGbaEmulator::create(
                 sdl,
-                config.gba_config(path),
+                config.gba_config(paths),
             )?)),
             Console::PcEngine => Self::PcEngine(Box::new(NativePcEngineEmulator::create(
                 sdl,
-                config.pce_config(path),
+                config.pce_config(paths),
             )?)),
         };
 
@@ -484,7 +476,7 @@ impl GenericEmulator {
         let emulator = match console {
             Console::MasterSystem => {
                 let mut sms_config = config.smsgg_config(
-                    PathBuf::new(),
+                    GamePaths::EMPTY,
                     Some(SmsGgHardware::MasterSystem),
                     &SmsGgCheats::default(),
                 );
@@ -495,7 +487,7 @@ impl GenericEmulator {
             }
             Console::GameGear => {
                 let mut gg_config = config.smsgg_config(
-                    PathBuf::new(),
+                    GamePaths::EMPTY,
                     Some(SmsGgHardware::GameGear),
                     &SmsGgCheats::default(),
                 );
@@ -510,8 +502,7 @@ impl GenericEmulator {
                     _ => GenesisHardware::SegaCd,
                 };
                 let mut genesis_config = config.genesis_config(
-                    PathBuf::new(),
-                    None,
+                    GamePaths::EMPTY,
                     Some(hardware),
                     &GenesisCheats::default(),
                 );
@@ -530,24 +521,24 @@ impl GenericEmulator {
         config: Box<AppConfig>,
         cheats: Arc<ActiveCheats>,
     ) -> NativeEmulatorResult<()> {
-        let path = PathBuf::new();
-
         match self {
-            Self::SmsGg(emulator) => {
-                emulator.reload_config(config.smsgg_config(path, None, cheats.smsgg_or_default()))
-            }
-            Self::Genesis(emulator) => emulator.reload_config(config.genesis_config(
-                path,
+            Self::SmsGg(emulator) => emulator.reload_config(config.smsgg_config(
+                GamePaths::EMPTY,
                 None,
+                cheats.smsgg_or_default(),
+            )),
+            Self::Genesis(emulator) => emulator.reload_config(config.genesis_config(
+                GamePaths::EMPTY,
                 None,
                 cheats.genesis_or_default(),
             )),
-            Self::Nes(emulator) => emulator.reload_config(config.nes_config(path)),
-            Self::Snes(emulator) => emulator.reload_config(config.snes_config(path)),
-            Self::GameBoy(emulator) => emulator.reload_config(config.gb_config(path)),
-            Self::GameBoyAdvance(emulator) => emulator.reload_config(config.gba_config(path)),
-
-            Self::PcEngine(emulator) => emulator.reload_config(config.pce_config(path)),
+            Self::Nes(emulator) => emulator.reload_config(config.nes_config(GamePaths::EMPTY)),
+            Self::Snes(emulator) => emulator.reload_config(config.snes_config(GamePaths::EMPTY)),
+            Self::GameBoy(emulator) => emulator.reload_config(config.gb_config(GamePaths::EMPTY)),
+            Self::GameBoyAdvance(emulator) => {
+                emulator.reload_config(config.gba_config(GamePaths::EMPTY))
+            }
+            Self::PcEngine(emulator) => emulator.reload_config(config.pce_config(GamePaths::EMPTY)),
         }
     }
 

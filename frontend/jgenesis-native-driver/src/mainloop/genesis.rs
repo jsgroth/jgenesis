@@ -68,7 +68,8 @@ impl CreatableEmulator for GenesisEmulator {
                 } else {
                     // Assume primary path is a cartridge ROM image
                     let cartridge_input = read_cartridge_input()?;
-                    (Some(cartridge_input), config.secondary_path.clone())
+                    let secondary_path = config.common.secondary_file_paths.first();
+                    (Some(cartridge_input), secondary_path.cloned())
                 }
             }
         } else {

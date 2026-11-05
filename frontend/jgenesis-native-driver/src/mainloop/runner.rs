@@ -104,6 +104,7 @@ struct RunnerThreadState<Emulator: EmulatorTrait> {
     error_sender: Sender<Box<dyn Error + Send + Sync + 'static>>,
     suggested_window_size: Arc<AtomicWindowSize>,
     rom_path: PathBuf,
+    override_save_path: Option<PathBuf>,
     rom_extension: String,
     base_save_state_path: PathBuf,
     save_state_paths: SaveStatePaths,
@@ -123,6 +124,7 @@ impl<Emulator: EmulatorTrait> RunnerThreadState<Emulator> {
             &self.common_config.save_path,
             &self.common_config.state_path,
             &self.rom_path,
+            self.override_save_path.as_ref(),
             &self.rom_extension,
         )?;
 
@@ -258,6 +260,8 @@ pub fn spawn<Emulator: EmulatorTrait>(
                     Rewinder::new(Duration::from_secs(common_config.rewind_buffer_length_seconds));
 
                 let rom_path = common_config.rom_file_path.clone();
+                let override_save_path = common_config.override_save_path.clone();
+
                 run_thread(RunnerThreadState {
                     emulator,
                     renderer,
@@ -271,6 +275,7 @@ pub fn spawn<Emulator: EmulatorTrait>(
                     error_sender,
                     suggested_window_size,
                     rom_path,
+                    override_save_path,
                     rom_extension,
                     base_save_state_path: save_state_path,
                     save_state_paths,

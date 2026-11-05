@@ -1,4 +1,5 @@
 use jgenesis_native_config::{RecentOpen, RomSearchDirectory};
+use jgenesis_native_driver::config::GamePaths;
 use jgenesis_native_driver::extensions::{Console, ConsoleWithSize};
 use jgenesis_native_driver::{extensions, m3u};
 use regex::Regex;
@@ -11,60 +12,44 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, LazyLock, Mutex, mpsc};
 use std::{fs, io, thread};
 
-#[derive(Debug, Clone)]
-pub struct GamePaths {
-    // Path opened from disk, possibly a playlist (e.g. M3U)
-    pub open_path: PathBuf,
-    // Paths to use when launching the emulator
-    pub emu_load_path: PathBuf,
-    pub emu_load_secondary_paths: Vec<PathBuf>,
-    pub disc_change_options: Vec<(String, PathBuf)>,
+#[must_use]
+pub fn new_game_paths(open_path: PathBuf, secondary_paths: Vec<PathBuf>) -> Option<GamePaths> {
+    match new_game_paths_inner(open_path.clone(), secondary_paths) {
+        Ok(paths) => Some(paths),
+        Err(err) => {
+            log::error!("Error opening paths for '{}': {err}", open_path.display());
+            None
+        }
+    }
 }
 
-impl GamePaths {
-    pub fn new(open_path: PathBuf, secondary_paths: Vec<PathBuf>) -> Option<Self> {
-        match Self::new_inner(open_path.clone(), secondary_paths) {
-            Ok(paths) => Some(paths),
-            Err(err) => {
-                log::error!("Error opening paths for '{}': {err}", open_path.display());
-                None
-            }
-        }
-    }
+fn new_game_paths_inner(
+    open_path: PathBuf,
+    secondary_paths: Vec<PathBuf>,
+) -> io::Result<GamePaths> {
+    let mut emu_load_path = open_path.clone();
+    let mut emu_load_secondary_paths = secondary_paths;
 
-    fn new_inner(open_path: PathBuf, secondary_paths: Vec<PathBuf>) -> io::Result<Self> {
-        let mut emu_load_path = open_path.clone();
-        let mut emu_load_secondary_paths = secondary_paths;
+    let disc_change_options = if m3u::is_m3u(&open_path) {
+        let playlist_entries = m3u::parse(&open_path)?;
+        emu_load_path = playlist_entries
+            .first()
+            .cloned()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "m3u playlist is empty"))?;
 
-        let disc_change_options = if m3u::is_m3u(&open_path) {
-            let playlist_entries = m3u::parse(&open_path)?;
-            emu_load_path = playlist_entries.first().cloned().ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidData, "m3u playlist is empty")
-            })?;
+        // Secondary paths don't make sense when loading from a playlist
+        emu_load_secondary_paths.clear();
 
-            // Secondary paths don't make sense when loading from a playlist
-            emu_load_secondary_paths.clear();
+        playlist_entries
+            .into_iter()
+            .enumerate()
+            .map(|(i, path)| (format!("Disc {}", i + 1), path))
+            .collect()
+    } else {
+        find_all_disc_paths(&open_path)
+    };
 
-            playlist_entries
-                .into_iter()
-                .enumerate()
-                .map(|(i, path)| (format!("Disc {}", i + 1), path))
-                .collect()
-        } else {
-            find_all_disc_paths(&open_path)
-        };
-
-        Ok(Self { open_path, emu_load_path, emu_load_secondary_paths, disc_change_options })
-    }
-
-    pub fn empty() -> Self {
-        Self {
-            open_path: PathBuf::new(),
-            emu_load_path: PathBuf::new(),
-            emu_load_secondary_paths: Vec::new(),
-            disc_change_options: Vec::new(),
-        }
-    }
+    Ok(GamePaths { open_path, emu_load_path, emu_load_secondary_paths, disc_change_options })
 }
 
 fn find_all_disc_paths(path: &Path) -> Vec<(String, PathBuf)> {
@@ -181,14 +166,15 @@ fn process_file(file_name: &str, path: &Path) -> Option<RomMetadata> {
     let extension = extensions::from_path(path)?;
 
     let file_size = match extension.as_str() {
-        "cue" => sega_cd_file_size(path).ok()?,
+        "cue" => cuebin_file_size(path).ok()?,
+        "m3u" => m3u_file_size(path).ok()?,
         _ => raw_file_size,
     };
 
     Some(RomMetadata { full_path: path.into(), file_name_no_ext, console, file_size })
 }
 
-fn sega_cd_file_size(cue_path: &Path) -> io::Result<u64> {
+fn cuebin_file_size(cue_path: &Path) -> io::Result<u64> {
     let cue_contents = fs::read_to_string(cue_path)?;
     let cue_directory =
         Path::new(cue_path).parent().expect("Valid file should always have a parent dir");
@@ -202,6 +188,24 @@ fn sega_cd_file_size(cue_path: &Path) -> io::Result<u64> {
             fs::metadata(full_path).map(|metadata| metadata.len())
         })
         .sum()
+}
+
+fn m3u_file_size(m3u_path: &Path) -> io::Result<u64> {
+    let entries = m3u::parse(m3u_path)?;
+
+    let mut total_size = 0;
+    for entry in entries {
+        match entry.extension().and_then(OsStr::to_str) {
+            Some("cue") => {
+                total_size += cuebin_file_size(&entry)?;
+            }
+            _ => {
+                total_size += fs::metadata(&entry)?.len();
+            }
+        }
+    }
+
+    Ok(total_size)
 }
 
 fn parse_bin_file_names(cue_contents: &str) -> impl Iterator<Item = &str> {
@@ -229,7 +233,8 @@ pub fn from_recent_opens(recent_opens: &[RecentOpen]) -> Vec<Option<RomMetadata>
             let metadata = fs::metadata(path).ok()?;
 
             let file_size = match extensions::from_path(path).as_deref() {
-                Some("cue") => sega_cd_file_size(path_str).ok()?,
+                Some("cue") => cuebin_file_size(path_str).ok()?,
+                Some("m3u") => m3u_file_size(path_str).ok()?,
                 _ => metadata.len(),
             };
 

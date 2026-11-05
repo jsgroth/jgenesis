@@ -17,7 +17,7 @@ use crate::app::cheats::{CheatConsole, CheatWindowState};
 use crate::app::genesis::{GenesisVolumeState, S32XPriorityState};
 use crate::app::input::InputMappingSet;
 use crate::app::nes::{NesPaletteState, OverscanState};
-use crate::app::romlist::{GamePaths, RomListThreadHandle, RomMetadata};
+use crate::app::romlist::{RomListThreadHandle, RomMetadata};
 use crate::app::snes::HandledError;
 use crate::app::widgets::RenderErrorEffect;
 use crate::emurunner::{
@@ -45,12 +45,15 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use time::{OffsetDateTime, UtcOffset, format_description};
 
+pub use romlist::new_game_paths;
+
 use crate::app::capture::CaptureAppState;
 use crate::app::inputcollect::InputCollectionState;
 use crate::app::pce::PceVolumeState;
 use cdrom::reader::CdRomFileFormat;
 pub(crate) use cheats::ActiveCheats;
 pub(crate) use input::GenericButton;
+use jgenesis_native_driver::config::GamePaths;
 use jgenesis_native_driver::input::Joysticks;
 
 const RESERVED_HELP_TEXT_HEIGHT: f32 = 150.0;
@@ -262,7 +265,7 @@ impl AppState {
     fn new(ctx: &Context) -> Self {
         Self {
             cheats: CheatWindowState::new(),
-            current_game_paths: GamePaths::empty(),
+            current_game_paths: GamePaths::EMPTY,
             current_disc_path: PathBuf::new(),
             open_windows: HashSet::new(),
             help_text: HashMap::new(),
@@ -432,18 +435,15 @@ impl App {
         match console {
             Some(console @ (Console::SegaCd | Console::SegaCd32X)) => {
                 let mut secondary_paths = vec![];
-                if !m3u::is_m3u(&path) && CdRomFileFormat::from_file_path(&path).is_none() {
-                    let disc_path = Self::open_sega_cd_secondary_path_dialog(&path);
-                    if let Some(disc_path) = disc_path {
-                        secondary_paths.push(disc_path);
-                    }
+                if let Some(disc_path) = Self::maybe_open_scd_secondary_path_dialog(&path) {
+                    secondary_paths.push(disc_path);
                 }
 
-                let Some(paths) = GamePaths::new(path, secondary_paths) else { return };
+                let Some(paths) = new_game_paths(path, secondary_paths) else { return };
                 self.launch_emulator(paths, console);
             }
             Some(console) => {
-                let Some(paths) = GamePaths::new(path, vec![]) else { return };
+                let Some(paths) = new_game_paths(path, vec![]) else { return };
                 self.launch_emulator(paths, console);
             }
             None => self.launch_emulator_auto(path, None),
@@ -454,7 +454,7 @@ impl App {
         let Some(recent_open) = self.config.recent_open_list.get(index) else { return };
         let Ok(console) = Console::from_str(&recent_open.console) else { return };
         let Some(paths) =
-            GamePaths::new(recent_open.path.clone(), recent_open.secondary_paths.clone())
+            new_game_paths(recent_open.path.clone(), recent_open.secondary_paths.clone())
         else {
             return;
         };
@@ -462,7 +462,12 @@ impl App {
         self.launch_emulator(paths, console);
     }
 
-    fn open_sega_cd_secondary_path_dialog(primary_path: &Path) -> Option<PathBuf> {
+    fn maybe_open_scd_secondary_path_dialog(primary_path: &Path) -> Option<PathBuf> {
+        if CdRomFileFormat::from_file_path(primary_path).is_some() || m3u::is_m3u(primary_path) {
+            // Path is to a CD-ROM image; don't open dialog
+            return None;
+        }
+
         // Sega CD is attached but the main file is not a CD-ROM image; prompt to load a disc
         let mut file_dialog = FileDialog::new()
             .set_title("Sega CD Disc Image")
@@ -490,14 +495,12 @@ impl App {
 
         let mut secondary_paths = vec![];
         if matches!(console, Console::SegaCd | Console::SegaCd32X)
-            && !m3u::is_m3u(&path)
-            && CdRomFileFormat::from_file_path(&path).is_none()
-            && let Some(secondary_path) = Self::open_sega_cd_secondary_path_dialog(&path)
+            && let Some(secondary_path) = Self::maybe_open_scd_secondary_path_dialog(&path)
         {
             secondary_paths.push(secondary_path);
         }
 
-        let Some(paths) = GamePaths::new(path, secondary_paths) else { return };
+        let Some(paths) = new_game_paths(path, secondary_paths) else { return };
         self.launch_emulator(paths, console);
     }
 
@@ -532,10 +535,7 @@ impl App {
             console,
             config: Box::new(config),
             cheats: Arc::clone(self.active_cheats()),
-            input: EmulatorRunInput::OpenFile {
-                file_path: paths.emu_load_path,
-                secondary_paths: paths.emu_load_secondary_paths,
-            },
+            input: EmulatorRunInput::OpenFile(paths),
         });
     }
 
@@ -1481,7 +1481,7 @@ impl App {
 
         let secondary_paths = &load_at_startup.file_paths[1..];
 
-        let Some(paths) = GamePaths::new(primary_path.clone(), secondary_paths.to_vec()) else {
+        let Some(paths) = new_game_paths(primary_path.clone(), secondary_paths.to_vec()) else {
             self.emu_runner.clear_waiting_for_first_command();
             return;
         };
