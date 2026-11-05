@@ -3,6 +3,7 @@ pub mod config;
 pub mod extensions;
 mod fpstracker;
 pub mod input;
+pub mod m3u;
 mod mainloop;
 
 pub use mainloop::{

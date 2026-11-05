@@ -29,10 +29,33 @@ use std::fs;
 use std::num::NonZeroU8;
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, Clone)]
+pub struct GamePaths {
+    // Path opened from disk, possibly a playlist (e.g. M3U)
+    pub open_path: PathBuf,
+    // Paths to use when launching the emulator
+    pub emu_load_path: PathBuf,
+    pub emu_load_secondary_paths: Vec<PathBuf>,
+    pub disc_change_options: Vec<(String, PathBuf)>,
+}
+
+impl GamePaths {
+    pub const EMPTY: Self = Self {
+        open_path: PathBuf::new(),
+        emu_load_path: PathBuf::new(),
+        emu_load_secondary_paths: Vec::new(),
+        disc_change_options: Vec::new(),
+    };
+}
+
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct CommonConfig {
     #[cfg_display(path)]
     pub rom_file_path: PathBuf,
+    #[cfg_display(path)]
+    pub override_save_path: Option<PathBuf>,
+    #[cfg_display(path)]
+    pub secondary_file_paths: Vec<PathBuf>,
     pub mute_audio: bool,
     pub audio_output_frequency: u64,
     pub audio_sync: bool,
@@ -85,10 +108,6 @@ pub struct SmsGgConfig {
 pub struct GenesisConfig {
     #[cfg_display(indent_nested)]
     pub common: CommonConfig,
-    // Disc path for Sega CD boot-from-cartridge (Mode 1)
-    // Cartridge path for boot-from-disc (Mode 2)
-    #[cfg_display(path)]
-    pub secondary_path: Option<PathBuf>,
     #[cfg_display(indent_nested)]
     pub inputs: GenesisInputConfig,
     pub hardware: GenesisHardware,
@@ -225,13 +244,12 @@ pub struct PcEngineConfig {
 
 pub trait AppConfigExt {
     #[must_use]
-    fn common_config(&self, path: PathBuf) -> CommonConfig;
+    fn common_config(&self, paths: GamePaths) -> CommonConfig;
 
     #[must_use]
     fn genesis_config(
         &self,
-        path: PathBuf,
-        secondary_path: Option<PathBuf>,
+        paths: GamePaths,
         hardware: Option<GenesisHardware>,
         cheats: &GenesisCheats,
     ) -> Box<GenesisConfig>;
@@ -239,29 +257,29 @@ pub trait AppConfigExt {
     #[must_use]
     fn smsgg_config(
         &self,
-        path: PathBuf,
+        paths: GamePaths,
         hardware: Option<SmsGgHardware>,
         cheats: &SmsGgCheats,
     ) -> Box<SmsGgConfig>;
 
     #[must_use]
-    fn nes_config(&self, path: PathBuf) -> Box<NesConfig>;
+    fn nes_config(&self, paths: GamePaths) -> Box<NesConfig>;
 
     #[must_use]
-    fn snes_config(&self, path: PathBuf) -> Box<SnesConfig>;
+    fn snes_config(&self, paths: GamePaths) -> Box<SnesConfig>;
 
     #[must_use]
-    fn gb_config(&self, path: PathBuf) -> Box<GameBoyConfig>;
+    fn gb_config(&self, paths: GamePaths) -> Box<GameBoyConfig>;
 
     #[must_use]
-    fn gba_config(&self, path: PathBuf) -> Box<GameBoyAdvanceConfig>;
+    fn gba_config(&self, paths: GamePaths) -> Box<GameBoyAdvanceConfig>;
 
     #[must_use]
-    fn pce_config(&self, path: PathBuf) -> Box<PcEngineConfig>;
+    fn pce_config(&self, paths: GamePaths) -> Box<PcEngineConfig>;
 }
 
 impl AppConfigExt for AppConfig {
-    fn common_config(&self, path: PathBuf) -> CommonConfig {
+    fn common_config(&self, paths: GamePaths) -> CommonConfig {
         fn save_path(path: ConfigSavePath, custom_path: &Path) -> SavePath {
             match path {
                 ConfigSavePath::RomFolder => SavePath::RomFolder,
@@ -270,8 +288,13 @@ impl AppConfigExt for AppConfig {
             }
         }
 
+        let override_save_path =
+            (paths.open_path != paths.emu_load_path).then_some(paths.open_path);
+
         CommonConfig {
-            rom_file_path: path,
+            rom_file_path: paths.emu_load_path,
+            override_save_path,
+            secondary_file_paths: paths.emu_load_secondary_paths,
             mute_audio: self.common.mute_audio,
             audio_output_frequency: self.common.audio_output_frequency,
             audio_sync: self.common.audio_sync,
@@ -327,14 +350,12 @@ impl AppConfigExt for AppConfig {
 
     fn genesis_config(
         &self,
-        path: PathBuf,
-        secondary_path: Option<PathBuf>,
+        paths: GamePaths,
         hardware: Option<GenesisHardware>,
         cheats: &GenesisCheats,
     ) -> Box<GenesisConfig> {
         Box::new(GenesisConfig {
-            common: self.common_config(path),
-            secondary_path,
+            common: self.common_config(paths),
             inputs: self.input.genesis.clone(),
             hardware: hardware.unwrap_or(GenesisHardware::Standalone),
             emulator_config: GenesisEmulatorConfig {
@@ -420,12 +441,12 @@ impl AppConfigExt for AppConfig {
 
     fn smsgg_config(
         &self,
-        path: PathBuf,
+        paths: GamePaths,
         hardware: Option<SmsGgHardware>,
         cheats: &SmsGgCheats,
     ) -> Box<SmsGgConfig> {
         Box::new(SmsGgConfig {
-            common: self.common_config(path),
+            common: self.common_config(paths),
             inputs: self.input.smsgg.clone(),
             hardware,
             emulator_config: SmsGgEmulatorConfig {
@@ -454,9 +475,9 @@ impl AppConfigExt for AppConfig {
         })
     }
 
-    fn nes_config(&self, path: PathBuf) -> Box<NesConfig> {
+    fn nes_config(&self, paths: GamePaths) -> Box<NesConfig> {
         Box::new(NesConfig {
-            common: self.common_config(path),
+            common: self.common_config(paths),
             inputs: self.input.nes.clone(),
             emulator_config: NesEmulatorConfig {
                 forced_timing_mode: self.nes.forced_timing_mode,
@@ -477,9 +498,9 @@ impl AppConfigExt for AppConfig {
         })
     }
 
-    fn snes_config(&self, path: PathBuf) -> Box<SnesConfig> {
+    fn snes_config(&self, paths: GamePaths) -> Box<SnesConfig> {
         Box::new(SnesConfig {
-            common: self.common_config(path),
+            common: self.common_config(paths),
             inputs: self.input.snes.clone(),
             emulator_config: SnesEmulatorConfig {
                 forced_timing_mode: self.snes.forced_timing_mode,
@@ -501,7 +522,7 @@ impl AppConfigExt for AppConfig {
         })
     }
 
-    fn gb_config(&self, path: PathBuf) -> Box<GameBoyConfig> {
+    fn gb_config(&self, paths: GamePaths) -> Box<GameBoyConfig> {
         let color_correction = match self.game_boy.gbc_color_correction {
             GbcColorCorrection::None => ColorCorrection::None,
             GbcColorCorrection::GbcLcd => ColorCorrection::GbcLcd {
@@ -513,7 +534,7 @@ impl AppConfigExt for AppConfig {
         };
 
         Box::new(GameBoyConfig {
-            common: self.common_config(path),
+            common: self.common_config(paths),
             inputs: self.input.game_boy.clone(),
             emulator_config: GameBoyEmulatorConfig {
                 force_dmg_mode: self.game_boy.force_dmg_mode,
@@ -535,7 +556,7 @@ impl AppConfigExt for AppConfig {
         })
     }
 
-    fn gba_config(&self, path: PathBuf) -> Box<GameBoyAdvanceConfig> {
+    fn gba_config(&self, paths: GamePaths) -> Box<GameBoyAdvanceConfig> {
         let color_correction = match self.game_boy_advance.color_correction {
             GbaColorCorrection::None => ColorCorrection::None,
             GbaColorCorrection::GbaLcd => ColorCorrection::GbaLcd {
@@ -546,7 +567,7 @@ impl AppConfigExt for AppConfig {
         };
 
         Box::new(GameBoyAdvanceConfig {
-            common: self.common_config(path),
+            common: self.common_config(paths),
             inputs: self.input.game_boy_advance.clone(),
             emulator_config: GbaEmulatorConfig {
                 skip_bios_animation: self.game_boy_advance.skip_bios_animation,
@@ -575,9 +596,9 @@ impl AppConfigExt for AppConfig {
         })
     }
 
-    fn pce_config(&self, path: PathBuf) -> Box<PcEngineConfig> {
+    fn pce_config(&self, paths: GamePaths) -> Box<PcEngineConfig> {
         Box::new(PcEngineConfig {
-            common: self.common_config(path),
+            common: self.common_config(paths),
             inputs: self.input.pc_engine.clone(),
             emulator_config: PceEmulatorConfig {
                 load_disc_into_ram: self.pc_engine.load_disc_into_ram,

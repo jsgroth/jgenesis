@@ -1,6 +1,7 @@
 use jgenesis_native_config::{RecentOpen, RomSearchDirectory};
-use jgenesis_native_driver::extensions;
+use jgenesis_native_driver::config::GamePaths;
 use jgenesis_native_driver::extensions::{Console, ConsoleWithSize};
+use jgenesis_native_driver::{extensions, m3u};
 use regex::Regex;
 use std::collections::HashSet;
 use std::ffi::OsStr;
@@ -10,6 +11,81 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, LazyLock, Mutex, mpsc};
 use std::{fs, io, thread};
+
+#[must_use]
+pub fn new_game_paths(open_path: PathBuf, secondary_paths: Vec<PathBuf>) -> Option<GamePaths> {
+    match new_game_paths_inner(open_path.clone(), secondary_paths) {
+        Ok(paths) => Some(paths),
+        Err(err) => {
+            log::error!("Error opening paths for '{}': {err}", open_path.display());
+            None
+        }
+    }
+}
+
+fn new_game_paths_inner(
+    open_path: PathBuf,
+    secondary_paths: Vec<PathBuf>,
+) -> io::Result<GamePaths> {
+    let mut emu_load_path = open_path.clone();
+    let mut emu_load_secondary_paths = secondary_paths;
+
+    let disc_change_options = if m3u::is_m3u(&open_path) {
+        let playlist_entries = m3u::parse(&open_path)?;
+        emu_load_path = playlist_entries
+            .first()
+            .cloned()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "m3u playlist is empty"))?;
+
+        // Secondary paths don't make sense when loading from a playlist
+        emu_load_secondary_paths.clear();
+
+        playlist_entries
+            .into_iter()
+            .enumerate()
+            .map(|(i, path)| (format!("Disc {}", i + 1), path))
+            .collect()
+    } else {
+        find_all_disc_paths(&open_path)
+    };
+
+    Ok(GamePaths { open_path, emu_load_path, emu_load_secondary_paths, disc_change_options })
+}
+
+fn find_all_disc_paths(path: &Path) -> Vec<(String, PathBuf)> {
+    static DISC_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" \(Disc (\d)\)").unwrap());
+
+    let Some(path_name_str) = path.file_name().and_then(OsStr::to_str) else { return Vec::new() };
+    let name_without_disc = DISC_RE.replace(path_name_str, "");
+    if name_without_disc.as_ref() == path_name_str {
+        return Vec::new();
+    }
+
+    let Some(parent) = path.parent() else { return Vec::new() };
+    let Ok(read_dir) = parent.read_dir() else { return Vec::new() };
+
+    let mut discs = Vec::new();
+
+    for entry in read_dir {
+        let Ok(entry) = entry else { continue };
+        let file_name = entry.file_name();
+        let Some(file_name) = file_name.to_str() else { continue };
+
+        if DISC_RE.replace(file_name, "") != name_without_disc.as_ref() {
+            continue;
+        }
+
+        let Some(captures) = DISC_RE.captures(file_name) else { continue };
+
+        let disc_number = captures.get(1).unwrap();
+        let disc_name = format!("Disc {}", disc_number.as_str());
+        discs.push((disc_name, entry.path()));
+    }
+
+    discs.sort_by(|a, b| a.0.cmp(&b.0));
+
+    discs
+}
 
 #[derive(Debug, Clone)]
 pub struct RomMetadata {
@@ -90,14 +166,15 @@ fn process_file(file_name: &str, path: &Path) -> Option<RomMetadata> {
     let extension = extensions::from_path(path)?;
 
     let file_size = match extension.as_str() {
-        "cue" => sega_cd_file_size(path).ok()?,
+        "cue" => cuebin_file_size(path).ok()?,
+        "m3u" => m3u_file_size(path).ok()?,
         _ => raw_file_size,
     };
 
     Some(RomMetadata { full_path: path.into(), file_name_no_ext, console, file_size })
 }
 
-fn sega_cd_file_size(cue_path: &Path) -> io::Result<u64> {
+fn cuebin_file_size(cue_path: &Path) -> io::Result<u64> {
     let cue_contents = fs::read_to_string(cue_path)?;
     let cue_directory =
         Path::new(cue_path).parent().expect("Valid file should always have a parent dir");
@@ -111,6 +188,24 @@ fn sega_cd_file_size(cue_path: &Path) -> io::Result<u64> {
             fs::metadata(full_path).map(|metadata| metadata.len())
         })
         .sum()
+}
+
+fn m3u_file_size(m3u_path: &Path) -> io::Result<u64> {
+    let entries = m3u::parse(m3u_path)?;
+
+    let mut total_size = 0;
+    for entry in entries {
+        match entry.extension().and_then(OsStr::to_str) {
+            Some("cue") => {
+                total_size += cuebin_file_size(&entry)?;
+            }
+            _ => {
+                total_size += fs::metadata(&entry)?.len();
+            }
+        }
+    }
+
+    Ok(total_size)
 }
 
 fn parse_bin_file_names(cue_contents: &str) -> impl Iterator<Item = &str> {
@@ -138,48 +233,14 @@ pub fn from_recent_opens(recent_opens: &[RecentOpen]) -> Vec<Option<RomMetadata>
             let metadata = fs::metadata(path).ok()?;
 
             let file_size = match extensions::from_path(path).as_deref() {
-                Some("cue") => sega_cd_file_size(path_str).ok()?,
+                Some("cue") => cuebin_file_size(path_str).ok()?,
+                Some("m3u") => m3u_file_size(path_str).ok()?,
                 _ => metadata.len(),
             };
 
             Some(RomMetadata { full_path: path_str.into(), file_name_no_ext, console, file_size })
         })
         .collect()
-}
-
-pub fn find_all_disc_paths(path: &Path) -> Vec<(String, PathBuf)> {
-    static DISC_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" \(Disc (\d)\)").unwrap());
-
-    let Some(path_name_str) = path.file_name().and_then(OsStr::to_str) else { return Vec::new() };
-    let name_without_disc = DISC_RE.replace(path_name_str, "");
-    if name_without_disc.as_ref() == path_name_str {
-        return Vec::new();
-    }
-
-    let Some(parent) = path.parent() else { return Vec::new() };
-    let Ok(read_dir) = parent.read_dir() else { return Vec::new() };
-
-    let mut discs = Vec::new();
-
-    for entry in read_dir {
-        let Ok(entry) = entry else { continue };
-        let file_name = entry.file_name();
-        let Some(file_name) = file_name.to_str() else { continue };
-
-        if DISC_RE.replace(file_name, "") != name_without_disc.as_ref() {
-            continue;
-        }
-
-        let Some(captures) = DISC_RE.captures(file_name) else { continue };
-
-        let disc_number = captures.get(1).unwrap();
-        let disc_name = format!("Disc {}", disc_number.as_str());
-        discs.push((disc_name, entry.path()));
-    }
-
-    discs.sort_by(|a, b| a.0.cmp(&b.0));
-
-    discs
 }
 
 #[derive(Debug)]

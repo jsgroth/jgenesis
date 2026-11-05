@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use clap::Parser;
 use egui_sdl3_wgpu::{FrameOptions, FrameRunEffect};
 use env_logger::Env;
@@ -7,7 +8,7 @@ use jgenesis_gui::GuiEmulatorRunner;
 use jgenesis_gui::app::{App, ConfigInfo, LoadAtStartup};
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::paths::{ConfigDirType, ConfigDirs, ConfigWithPath};
-use jgenesis_native_driver::config::AppConfigExt;
+use jgenesis_native_driver::config::{AppConfigExt, GamePaths};
 use jgenesis_native_driver::extensions::Console;
 use jgenesis_native_driver::{
     NativeEmulator, NativeGameBoyEmulator, NativeGbaEmulator, NativeGenesisEmulator,
@@ -225,8 +226,7 @@ struct RunEmulatorArgs<'a> {
     config: AppConfig,
     config_path: &'a Path,
     console: Console,
-    primary_path: PathBuf,
-    secondary_paths: &'a [PathBuf],
+    paths: GamePaths,
     load_state_slot: Option<usize>,
 }
 
@@ -241,10 +241,15 @@ fn run_no_gui(
 
     let primary_path = load_at_startup.file_paths.first().unwrap();
     let secondary_paths = &load_at_startup.file_paths[1..];
+    let Some(paths) =
+        jgenesis_gui::app::new_game_paths(primary_path.clone(), secondary_paths.to_vec())
+    else {
+        return Err(anyhow!("invalid game path: {}", primary_path.display()));
+    };
 
     let console = load_at_startup
         .console
-        .or_else(|| Console::from_file(primary_path).map(|console| console.console))
+        .or_else(|| Console::from_file(&paths.emu_load_path).map(|console| console.console))
         .unwrap_or_else(|| {
             log::error!(
                 "Unable to determine console for file '{}'; defaulting to Genesis",
@@ -258,8 +263,7 @@ fn run_no_gui(
         config,
         config_path: config_path.as_ref(),
         console,
-        primary_path: primary_path.clone(),
-        secondary_paths,
+        paths,
         load_state_slot: load_at_startup.load_state_slot,
     };
 
@@ -277,76 +281,67 @@ fn run_no_gui(
 }
 
 fn run_smsgg(
-    RunEmulatorArgs { sdl, config, config_path, console, primary_path, load_state_slot, .. }: RunEmulatorArgs<'_>,
+    RunEmulatorArgs { sdl, config, config_path, console, paths, load_state_slot }: RunEmulatorArgs<
+        '_,
+    >,
 ) -> anyhow::Result<()> {
     let cheats = config
-        .try_load_cheats_if_enabled(config_path, &primary_path, console.standard_extension())
+        .try_load_cheats_if_enabled(config_path, &paths.open_path, console.standard_extension())
         .unwrap_or_default();
     let emulator = NativeSmsGgEmulator::create(
         sdl,
-        config.smsgg_config(primary_path, console.to_smsgg_hardware(), &cheats),
+        config.smsgg_config(paths, console.to_smsgg_hardware(), &cheats),
     )?;
     run_emulator_no_gui(emulator, load_state_slot)
 }
 
 fn run_genesis(
-    RunEmulatorArgs {
-        sdl,
-        config,
-        config_path,
-        console,
-        primary_path,
-        secondary_paths,
-        load_state_slot,
-    }: RunEmulatorArgs<'_>,
+    RunEmulatorArgs { sdl, config, config_path, console, paths, load_state_slot }: RunEmulatorArgs<
+        '_,
+    >,
 ) -> anyhow::Result<()> {
     let cheats = config
-        .try_load_cheats_if_enabled(config_path, &primary_path, console.standard_extension())
+        .try_load_cheats_if_enabled(config_path, &paths.open_path, console.standard_extension())
         .unwrap_or_default();
     let emulator = NativeGenesisEmulator::create(
         sdl,
-        config.genesis_config(
-            primary_path,
-            secondary_paths.first().cloned(),
-            console.to_genesis_hardware(),
-            &cheats,
-        ),
+        config.genesis_config(paths, console.to_genesis_hardware(), &cheats),
     )?;
     run_emulator_no_gui(emulator, load_state_slot)
 }
 
 fn run_nes(
-    RunEmulatorArgs { sdl, config, primary_path, load_state_slot, .. }: RunEmulatorArgs<'_>,
+    RunEmulatorArgs { sdl, config, paths, load_state_slot, .. }: RunEmulatorArgs<'_>,
 ) -> anyhow::Result<()> {
-    let emulator = NativeNesEmulator::create(sdl, config.nes_config(primary_path))?;
+    let emulator = NativeNesEmulator::create(sdl, config.nes_config(paths))?;
     run_emulator_no_gui(emulator, load_state_slot)
 }
 
 fn run_snes(
-    RunEmulatorArgs { sdl, config, primary_path, load_state_slot, .. }: RunEmulatorArgs<'_>,
+    RunEmulatorArgs { sdl, config, paths, load_state_slot, .. }: RunEmulatorArgs<'_>,
 ) -> anyhow::Result<()> {
-    let emulator = NativeSnesEmulator::create(sdl, config.snes_config(primary_path))?;
+    let emulator = NativeSnesEmulator::create(sdl, config.snes_config(paths))?;
     run_emulator_no_gui(emulator, load_state_slot)
 }
 
 fn run_gb(
-    RunEmulatorArgs { sdl, config, primary_path, load_state_slot, .. }: RunEmulatorArgs<'_>,
+    RunEmulatorArgs { sdl, config, paths, load_state_slot, .. }: RunEmulatorArgs<'_>,
 ) -> anyhow::Result<()> {
-    let emulator = NativeGameBoyEmulator::create(sdl, config.gb_config(primary_path.clone()))?;
+    let emulator = NativeGameBoyEmulator::create(sdl, config.gb_config(paths))?;
     run_emulator_no_gui(emulator, load_state_slot)
 }
 
 fn run_gba(
-    RunEmulatorArgs { sdl, config, primary_path, load_state_slot, .. }: RunEmulatorArgs<'_>,
+    RunEmulatorArgs { sdl, config, paths, load_state_slot, .. }: RunEmulatorArgs<'_>,
 ) -> anyhow::Result<()> {
-    let emulator = NativeGbaEmulator::create(sdl, config.gba_config(primary_path))?;
+    let emulator = NativeGbaEmulator::create(sdl, config.gba_config(paths))?;
     run_emulator_no_gui(emulator, load_state_slot)
 }
 
 fn run_pce(
-    RunEmulatorArgs { sdl, config, primary_path, load_state_slot, .. }: RunEmulatorArgs<'_>,
+    RunEmulatorArgs { sdl, config, paths, load_state_slot, .. }: RunEmulatorArgs<'_>,
 ) -> anyhow::Result<()> {
-    let emulator = NativePcEngineEmulator::create(sdl, config.pce_config(primary_path))?;
+    let emulator = NativePcEngineEmulator::create(sdl, config.pce_config(paths))?;
     run_emulator_no_gui(emulator, load_state_slot)
 }
 

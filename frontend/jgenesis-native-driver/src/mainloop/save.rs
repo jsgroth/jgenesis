@@ -398,11 +398,12 @@ pub fn determine_save_paths(
     base_save_path: &SavePath,
     base_state_path: &SavePath,
     rom_path: &Path,
+    override_save_path: Option<impl AsRef<Path>>,
     rom_extension: &str,
 ) -> NativeEmulatorResult<DeterminedPaths> {
     let save_path = determine_path(
         base_save_path,
-        rom_path,
+        override_save_path.as_ref().map(AsRef::as_ref).unwrap_or(rom_path),
         rom_extension,
         "sav",
         SavePath::SAVE_SUBDIR,

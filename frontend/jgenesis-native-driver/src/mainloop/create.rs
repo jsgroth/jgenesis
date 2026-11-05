@@ -180,6 +180,7 @@ impl<Emulator: CreatableEmulator> NativeEmulator<Emulator> {
             &common_config.save_path,
             &common_config.state_path,
             &input.rom_path,
+            common_config.override_save_path.as_ref(),
             &input.save_extension,
         )?;
 

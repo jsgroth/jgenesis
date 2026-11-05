@@ -70,13 +70,15 @@ pub fn config_display(input: TokenStream) -> TokenStream {
                 format!("  {field_ident}: {{}}")
             };
 
-            let is_option = match &field.ty {
-                Type::Path(path) => {
-                    let first_segment = path.path.segments.iter().next();
-                    first_segment.is_some_and(|segment| segment.ident == "Option")
-                }
-                _ => false,
-            };
+            let mut is_option = false;
+            let mut is_vec = false;
+            if let Type::Path(path) = &field.ty
+                && let Some(first_segment) = path.path.segments.iter().next()
+            {
+                is_option = first_segment.ident == "Option";
+                is_vec = first_segment.ident == "Vec";
+            }
+
             let is_path = attrs.contains(&CfgDisplayAttr::Path);
 
             let format_invocation = if is_option {
@@ -91,6 +93,11 @@ pub fn config_display(input: TokenStream) -> TokenStream {
                 quote! {
                     self.#field_ident.as_ref().map(|f| format!(#fmt_string, #field_display))
                         .unwrap_or_else(|| #none_str.into())
+                }
+            } else if is_vec {
+                let vec_display = fmt_vec(field_ident, is_path);
+                quote! {
+                    format!(#fmt_string, #vec_display)
                 }
             } else if is_path {
                 quote! {
@@ -141,4 +148,32 @@ pub fn config_display(input: TokenStream) -> TokenStream {
     };
 
     expanded.into()
+}
+
+fn fmt_vec(field_ident: &proc_macro2::Ident, is_path: bool) -> proc_macro2::TokenStream {
+    let item_display = if is_path {
+        quote! { item.display() }
+    } else {
+        quote! { item }
+    };
+
+    quote! {
+        {
+            let mut s: ::std::string::String = "[".into();
+            let mut first = true;
+
+            for item in &self.#field_ident {
+                if first {
+                    first = false;
+                } else {
+                    s.push_str(", ");
+                }
+
+                s += &format!("{}", #item_display);
+            }
+
+            s.push(']');
+            s
+        }
+    }
 }

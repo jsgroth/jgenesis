@@ -28,6 +28,7 @@ pub const GAME_BOY_ADVANCE: &[&str] = &["gba", "bin"];
 pub const PC_ENGINE_HUCARD: &[&str] = &["pce"];
 
 pub const CD_ROM: &[&str] = &["cue", "chd"];
+pub const PLAYLISTS: &[&str] = &["m3u"];
 
 pub const SUPPORTED_ARCHIVES: &[&str] = &["zip", "7z"];
 
@@ -49,13 +50,16 @@ pub static GENESIS_32X: LazyLock<Vec<&'static str>> =
     LazyLock::new(|| concat_extensions([GENESIS, SEGA_32X]));
 
 pub static SEGA_CD_32X: LazyLock<Vec<&'static str>> =
-    LazyLock::new(|| concat_extensions([GENESIS, CD_ROM, SEGA_32X]));
+    LazyLock::new(|| concat_extensions([GENESIS, CD_ROM, PLAYLISTS, SEGA_32X]));
+
+pub static CD_ROM_WITH_PLAYLISTS: LazyLock<Vec<&'static str>> =
+    LazyLock::new(|| concat_extensions([CD_ROM, PLAYLISTS]));
 
 pub static GB_GBC: LazyLock<Vec<&'static str>> =
     LazyLock::new(|| concat_extensions([GAME_BOY, GAME_BOY_COLOR]));
 
 pub static PC_ENGINE_ALL: LazyLock<Vec<&'static str>> =
-    LazyLock::new(|| concat_extensions([PC_ENGINE_HUCARD, CD_ROM]));
+    LazyLock::new(|| concat_extensions([PC_ENGINE_HUCARD, CD_ROM, PLAYLISTS]));
 
 pub static ALL_CARTRIDGE_BASED: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
     concat_extensions([
@@ -74,7 +78,7 @@ pub static ALL_CARTRIDGE_BASED: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
 });
 
 pub static ALL: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
-    ALL_CARTRIDGE_BASED.clone().into_iter().chain(CD_ROM.iter().copied()).collect()
+    ALL_CARTRIDGE_BASED.clone().into_iter().chain(CD_ROM_WITH_PLAYLISTS.iter().copied()).collect()
 });
 
 pub static ALL_PLUS_ARCHIVES: LazyLock<Vec<&'static str>> =
@@ -196,6 +200,14 @@ impl Console {
     #[must_use]
     pub fn from_file(file_path: &Path) -> Option<ConsoleWithSize> {
         let extension = from_path(file_path)?;
+
+        if extension == "m3u" {
+            let disc_paths = crate::m3u::parse(file_path).ok()?;
+            let first_disc = disc_paths.first()?;
+
+            return Self::from_file(first_disc);
+        }
+
         if let Some(&console) = EXTENSION_LOOKUP.get(&extension.as_str()) {
             let file_size = fs::metadata(file_path).ok()?.len();
             return Some(ConsoleWithSize { console, file_size });
@@ -292,7 +304,11 @@ impl Console {
             Self::Sg1000 | Self::MasterSystem | Self::GameGear => single(&SMSGG),
             Self::Genesis => single(GENESIS),
             Self::SegaCd => vec![
-                SupportedExtensions { label: None, extensions: CD_ROM, include_archives: false },
+                SupportedExtensions {
+                    label: None,
+                    extensions: &CD_ROM_WITH_PLAYLISTS,
+                    include_archives: false,
+                },
                 SupportedExtensions {
                     label: Some("Genesis"),
                     extensions: GENESIS,
@@ -308,7 +324,7 @@ impl Console {
                 },
                 SupportedExtensions {
                     label: Some("Sega CD"),
-                    extensions: CD_ROM,
+                    extensions: &CD_ROM_WITH_PLAYLISTS,
                     include_archives: false,
                 },
                 SupportedExtensions {
@@ -334,7 +350,7 @@ impl Console {
                 },
                 SupportedExtensions {
                     label: Some("CD-ROM"),
-                    extensions: CD_ROM,
+                    extensions: &CD_ROM_WITH_PLAYLISTS,
                     include_archives: false,
                 },
             ],
