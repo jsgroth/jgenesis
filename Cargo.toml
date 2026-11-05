@@ -57,7 +57,7 @@ tinyvec = "1"
 toml = "1"
 toml_edit = "0.25"
 wgpu = "30"
-zip = "9"
+zip = "9.3"
 zstd = "0.14"
 
 # WASM-only dependencies
