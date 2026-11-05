@@ -17,7 +17,7 @@ use crate::app::cheats::{CheatConsole, CheatWindowState};
 use crate::app::genesis::{GenesisVolumeState, S32XPriorityState};
 use crate::app::input::InputMappingSet;
 use crate::app::nes::{NesPaletteState, OverscanState};
-use crate::app::romlist::{RomListThreadHandle, RomMetadata};
+use crate::app::romlist::{GamePaths, RomListThreadHandle, RomMetadata};
 use crate::app::snes::HandledError;
 use crate::app::widgets::RenderErrorEffect;
 use crate::emurunner::{
@@ -218,8 +218,8 @@ struct HelpText {
 
 struct AppState {
     cheats: CheatWindowState,
-    current_file_path: PathBuf,
-    current_secondary_file_paths: Vec<PathBuf>,
+    current_game_paths: GamePaths,
+    current_disc_path: PathBuf,
     open_windows: HashSet<OpenWindow>,
     help_text: HashMap<OpenWindow, HelpText>,
     input_mapping_sets: HashMap<OpenWindow, InputMappingSet>,
@@ -252,7 +252,6 @@ struct AppState {
     filtered_rom_list: Rc<[RomMetadata]>,
     rom_list_refresh_needed: bool,
     recent_open_list: Vec<Option<RomMetadata>>,
-    disc_change_options: Vec<(String, PathBuf)>,
     title_match: String,
     title_match_lowercase: Rc<str>,
     rendered_first_frame: bool,
@@ -263,8 +262,8 @@ impl AppState {
     fn new(ctx: &Context) -> Self {
         Self {
             cheats: CheatWindowState::new(),
-            current_file_path: PathBuf::new(),
-            current_secondary_file_paths: vec![],
+            current_game_paths: GamePaths::empty(),
+            current_disc_path: PathBuf::new(),
             open_windows: HashSet::new(),
             help_text: HashMap::new(),
             input_mapping_sets: HashMap::new(),
@@ -299,7 +298,6 @@ impl AppState {
             title_match: String::new(),
             title_match_lowercase: Rc::from(String::new()),
             recent_open_list: vec![],
-            disc_change_options: Vec::new(),
             rendered_first_frame: false,
             close_on_emulator_exit: false,
         }
@@ -441,9 +439,13 @@ impl App {
                     }
                 }
 
-                self.launch_emulator(path, secondary_paths, console);
+                let Some(paths) = GamePaths::new(path, secondary_paths) else { return };
+                self.launch_emulator(paths, console);
             }
-            Some(console) => self.launch_emulator(path, vec![], console),
+            Some(console) => {
+                let Some(paths) = GamePaths::new(path, vec![]) else { return };
+                self.launch_emulator(paths, console);
+            }
             None => self.launch_emulator_auto(path, None),
         }
     }
@@ -451,12 +453,13 @@ impl App {
     fn open_recent_file(&mut self, index: usize) {
         let Some(recent_open) = self.config.recent_open_list.get(index) else { return };
         let Ok(console) = Console::from_str(&recent_open.console) else { return };
+        let Some(paths) =
+            GamePaths::new(recent_open.path.clone(), recent_open.secondary_paths.clone())
+        else {
+            return;
+        };
 
-        self.launch_emulator(
-            recent_open.path.clone(),
-            recent_open.secondary_paths.clone(),
-            console,
-        );
+        self.launch_emulator(paths, console);
     }
 
     fn open_sega_cd_secondary_path_dialog(primary_path: &Path) -> Option<PathBuf> {
@@ -494,52 +497,31 @@ impl App {
             secondary_paths.push(secondary_path);
         }
 
-        self.launch_emulator(path, secondary_paths, console);
+        let Some(paths) = GamePaths::new(path, secondary_paths) else { return };
+        self.launch_emulator(paths, console);
     }
 
-    fn launch_emulator(&mut self, path: PathBuf, secondary_paths: Vec<PathBuf>, console: Console) {
-        let playlist_paths = if m3u::is_m3u(&path) {
-            match m3u::parse(&path) {
-                Ok(paths) => Some(paths),
-                Err(err) => {
-                    log::error!("Unable to read M3U playlist '{}': {err}", path.display());
-                    return;
-                }
-            }
-        } else {
-            None
-        };
-
-        let emulator_path = playlist_paths
-            .as_ref()
-            .and_then(|paths| paths.first())
-            .cloned()
-            .unwrap_or_else(|| path.clone());
-
-        let emulator_secondary_paths =
-            if playlist_paths.is_some() { vec![] } else { secondary_paths.clone() };
-        self.state.current_file_path.clone_from(&path);
-        self.state.current_secondary_file_paths.clone_from(&secondary_paths);
+    fn launch_emulator(&mut self, paths: GamePaths, console: Console) {
+        self.state.current_game_paths = paths.clone();
+        self.state.current_disc_path.clone_from(&paths.emu_load_path);
 
         // Update Open Recent contents
         let console_str = console.to_string();
         self.config
             .recent_open_list
-            .retain(|open| open.path != path || open.console != console_str);
+            .retain(|open| open.path != paths.open_path || open.console != console_str);
         self.config.recent_open_list.insert(
             0,
             RecentOpen {
                 console: console_str,
-                path: path.clone(),
-                secondary_paths: secondary_paths.clone(),
+                path: paths.open_path.clone(),
+                secondary_paths: paths.emu_load_secondary_paths.clone(),
             },
         );
         self.config.recent_open_list.truncate(10);
         self.state.recent_open_list = romlist::from_recent_opens(&self.config.recent_open_list);
 
-        self.state.disc_change_options = romlist::find_all_disc_paths(&path);
-
-        self.load_cheats_for_game(console, &path);
+        self.load_cheats_for_game(console, &paths.open_path);
 
         let mut config = self.config.clone();
         if let Err(err) = config.apply_overrides(&self.config_overrides) {
@@ -551,8 +533,8 @@ impl App {
             config: Box::new(config),
             cheats: Arc::clone(self.active_cheats()),
             input: EmulatorRunInput::OpenFile {
-                file_path: emulator_path,
-                secondary_paths: emulator_secondary_paths,
+                file_path: paths.emu_load_path,
+                secondary_paths: paths.emu_load_secondary_paths,
             },
         });
     }
@@ -700,7 +682,7 @@ impl App {
                                 cheats: Arc::new(ActiveCheats::None),
                                 input: EmulatorRunInput::RunBios,
                             });
-                            self.state.current_file_path.clear();
+                            self.state.current_disc_path.clear();
                             ui.close_kind(UiKind::Menu);
                         }
                     });
@@ -811,12 +793,14 @@ impl App {
 
                 ui.add_enabled_ui(emu_runner_status.is_running_disc_based(), |ui| {
                     ui.menu_button("Change Disc", |ui| {
-                        if !self.state.disc_change_options.is_empty() {
-                            for (name, path) in &self.state.disc_change_options {
-                                let enabled = path != &self.state.current_file_path;
+                        let disc_change_options =
+                            &self.state.current_game_paths.disc_change_options;
+                        if !disc_change_options.is_empty() {
+                            for (name, path) in disc_change_options {
+                                let enabled = path != &self.state.current_disc_path;
                                 ui.add_enabled_ui(enabled, |ui| {
                                     if ui.button(name).clicked() {
-                                        self.state.current_file_path.clone_from(path);
+                                        self.state.current_disc_path.clone_from(path);
                                         self.emu_runner.push_command(
                                             EmuRunnerCommand::SegaCdChangeDisc(path.clone()),
                                         );
@@ -832,7 +816,7 @@ impl App {
                             if let Some(path) =
                                 FileDialog::new().add_filter("cue/chd", &["cue", "chd"]).pick_file()
                             {
-                                self.state.current_file_path.clone_from(&path);
+                                self.state.current_disc_path.clone_from(&path);
                                 self.emu_runner
                                     .push_command(EmuRunnerCommand::SegaCdChangeDisc(path));
                             }
@@ -843,7 +827,7 @@ impl App {
 
                     if ui.button("Remove Disc").clicked() {
                         self.emu_runner.push_command(EmuRunnerCommand::SegaCdRemoveDisc);
-                        self.state.current_file_path.clear();
+                        self.state.current_disc_path.clear();
                         ui.close_kind(UiKind::Menu);
                     }
                 });
@@ -1328,11 +1312,7 @@ impl App {
 
             match render_effect {
                 RenderErrorEffect::LaunchEmulator(console) => {
-                    self.launch_emulator(
-                        self.state.current_file_path.clone(),
-                        self.state.current_secondary_file_paths.clone(),
-                        console,
-                    );
+                    self.launch_emulator(self.state.current_game_paths.clone(), console);
                 }
                 RenderErrorEffect::None => {}
             }
@@ -1486,6 +1466,7 @@ impl App {
         let Some(primary_path) = load_at_startup.file_paths.first() else { return };
 
         self.config_overrides.clone_from(&load_at_startup.config_overrides);
+        self.state.close_on_emulator_exit = true;
 
         let console = load_at_startup
             .console
@@ -1499,13 +1480,16 @@ impl App {
             });
 
         let secondary_paths = &load_at_startup.file_paths[1..];
-        self.launch_emulator(primary_path.clone(), secondary_paths.to_vec(), console);
+
+        let Some(paths) = GamePaths::new(primary_path.clone(), secondary_paths.to_vec()) else {
+            self.emu_runner.clear_waiting_for_first_command();
+            return;
+        };
+        self.launch_emulator(paths, console);
 
         if let Some(load_state_slot) = load_at_startup.load_state_slot {
             self.emu_runner.push_command(EmuRunnerCommand::LoadState { slot: load_state_slot });
         }
-
-        self.state.close_on_emulator_exit = true;
     }
 
     fn check_rom_list_for_cjk(&mut self, ctx: &Context) {

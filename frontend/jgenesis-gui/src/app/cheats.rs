@@ -243,7 +243,7 @@ impl App {
         if changed {
             if let Err(err) = self.config.save_cheats(
                 &self.config_path,
-                &self.state.current_file_path,
+                &self.state.current_game_paths.open_path,
                 console.standard_extension(),
                 &system_cheats,
             ) {

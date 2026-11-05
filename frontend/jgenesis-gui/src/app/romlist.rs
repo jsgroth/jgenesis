@@ -12,6 +12,97 @@ use std::sync::{Arc, LazyLock, Mutex, mpsc};
 use std::{fs, io, thread};
 
 #[derive(Debug, Clone)]
+pub struct GamePaths {
+    // Path opened from disk, possibly a playlist (e.g. M3U)
+    pub open_path: PathBuf,
+    // Paths to use when launching the emulator
+    pub emu_load_path: PathBuf,
+    pub emu_load_secondary_paths: Vec<PathBuf>,
+    pub disc_change_options: Vec<(String, PathBuf)>,
+}
+
+impl GamePaths {
+    pub fn new(open_path: PathBuf, secondary_paths: Vec<PathBuf>) -> Option<Self> {
+        match Self::new_inner(open_path.clone(), secondary_paths) {
+            Ok(paths) => Some(paths),
+            Err(err) => {
+                log::error!("Error opening paths for '{}': {err}", open_path.display());
+                None
+            }
+        }
+    }
+
+    fn new_inner(open_path: PathBuf, secondary_paths: Vec<PathBuf>) -> io::Result<Self> {
+        let mut emu_load_path = open_path.clone();
+        let mut emu_load_secondary_paths = secondary_paths;
+
+        let disc_change_options = if m3u::is_m3u(&open_path) {
+            let playlist_entries = m3u::parse(&open_path)?;
+            emu_load_path = playlist_entries.first().cloned().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, "m3u playlist is empty")
+            })?;
+
+            // Secondary paths don't make sense when loading from a playlist
+            emu_load_secondary_paths.clear();
+
+            playlist_entries
+                .into_iter()
+                .enumerate()
+                .map(|(i, path)| (format!("Disc {}", i + 1), path))
+                .collect()
+        } else {
+            find_all_disc_paths(&open_path)
+        };
+
+        Ok(Self { open_path, emu_load_path, emu_load_secondary_paths, disc_change_options })
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            open_path: PathBuf::new(),
+            emu_load_path: PathBuf::new(),
+            emu_load_secondary_paths: Vec::new(),
+            disc_change_options: Vec::new(),
+        }
+    }
+}
+
+fn find_all_disc_paths(path: &Path) -> Vec<(String, PathBuf)> {
+    static DISC_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" \(Disc (\d)\)").unwrap());
+
+    let Some(path_name_str) = path.file_name().and_then(OsStr::to_str) else { return Vec::new() };
+    let name_without_disc = DISC_RE.replace(path_name_str, "");
+    if name_without_disc.as_ref() == path_name_str {
+        return Vec::new();
+    }
+
+    let Some(parent) = path.parent() else { return Vec::new() };
+    let Ok(read_dir) = parent.read_dir() else { return Vec::new() };
+
+    let mut discs = Vec::new();
+
+    for entry in read_dir {
+        let Ok(entry) = entry else { continue };
+        let file_name = entry.file_name();
+        let Some(file_name) = file_name.to_str() else { continue };
+
+        if DISC_RE.replace(file_name, "") != name_without_disc.as_ref() {
+            continue;
+        }
+
+        let Some(captures) = DISC_RE.captures(file_name) else { continue };
+
+        let disc_number = captures.get(1).unwrap();
+        let disc_name = format!("Disc {}", disc_number.as_str());
+        discs.push((disc_name, entry.path()));
+    }
+
+    discs.sort_by(|a, b| a.0.cmp(&b.0));
+
+    discs
+}
+
+#[derive(Debug, Clone)]
 pub struct RomMetadata {
     pub full_path: PathBuf,
     pub file_name_no_ext: String,
@@ -145,53 +236,6 @@ pub fn from_recent_opens(recent_opens: &[RecentOpen]) -> Vec<Option<RomMetadata>
             Some(RomMetadata { full_path: path_str.into(), file_name_no_ext, console, file_size })
         })
         .collect()
-}
-
-pub fn find_all_disc_paths(path: &Path) -> Vec<(String, PathBuf)> {
-    static DISC_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" \(Disc (\d)\)").unwrap());
-
-    if m3u::is_m3u(path) {
-        return m3u::parse(path)
-            .map(|paths| {
-                paths
-                    .into_iter()
-                    .enumerate()
-                    .map(|(index, path)| (format!("Disc {}", index + 1), path))
-                    .collect()
-            })
-            .unwrap_or_default();
-    }
-
-    let Some(path_name_str) = path.file_name().and_then(OsStr::to_str) else { return Vec::new() };
-    let name_without_disc = DISC_RE.replace(path_name_str, "");
-    if name_without_disc.as_ref() == path_name_str {
-        return Vec::new();
-    }
-
-    let Some(parent) = path.parent() else { return Vec::new() };
-    let Ok(read_dir) = parent.read_dir() else { return Vec::new() };
-
-    let mut discs = Vec::new();
-
-    for entry in read_dir {
-        let Ok(entry) = entry else { continue };
-        let file_name = entry.file_name();
-        let Some(file_name) = file_name.to_str() else { continue };
-
-        if DISC_RE.replace(file_name, "") != name_without_disc.as_ref() {
-            continue;
-        }
-
-        let Some(captures) = DISC_RE.captures(file_name) else { continue };
-
-        let disc_number = captures.get(1).unwrap();
-        let disc_name = format!("Disc {}", disc_number.as_str());
-        discs.push((disc_name, entry.path()));
-    }
-
-    discs.sort_by(|a, b| a.0.cmp(&b.0));
-
-    discs
 }
 
 #[derive(Debug)]

@@ -131,7 +131,7 @@ impl App {
                         let video_dir = user_dirs.as_ref().and_then(UserDirs::video_dir);
 
                         if let Some(path) = save_file_for_recording(
-                            &self.state.current_file_path,
+                            &self.state.current_game_paths.open_path,
                             "avi",
                             video_dir,
                             "video.avi",
@@ -194,7 +194,7 @@ impl App {
                         let audio_dir = user_dirs.as_ref().and_then(UserDirs::audio_dir);
 
                         if let Some(path) = save_file_for_recording(
-                            &self.state.current_file_path,
+                            &self.state.current_game_paths.open_path,
                             "wav",
                             audio_dir,
                             "audio.wav",

@@ -350,7 +350,7 @@ impl Console {
                 },
                 SupportedExtensions {
                     label: Some("CD-ROM"),
-                    extensions: CD_ROM,
+                    extensions: &CD_ROM_WITH_PLAYLISTS,
                     include_archives: false,
                 },
             ],
