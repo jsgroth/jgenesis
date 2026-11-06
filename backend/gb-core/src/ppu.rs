@@ -28,6 +28,7 @@ pub const FRAME_SIZE: FrameSize =
 // 144 rendered lines + 10 VBlank lines
 pub const LINES_PER_FRAME: u8 = 154;
 pub const DOTS_PER_LINE: u16 = 456;
+pub const DOTS_PER_FRAME: u32 = (LINES_PER_FRAME as u32) * (DOTS_PER_LINE as u32);
 const OAM_SCAN_DOTS: u16 = 80;
 
 const MAX_SPRITES_PER_LINE: usize = 10;
@@ -83,6 +84,7 @@ struct State {
     skip_next_frame: bool,
     frame_complete: bool,
     powered_off_dots: u32,
+    dots_since_last_frame: u32,
 }
 
 impl State {
@@ -98,6 +100,7 @@ impl State {
             skip_next_frame: true,
             frame_complete: false,
             powered_off_dots: 0,
+            dots_since_last_frame: 0,
         }
     }
 
@@ -217,12 +220,17 @@ impl Ppu {
             }
 
             self.state.powered_off_dots += 1;
-            if self.state.powered_off_dots == u32::from(LINES_PER_FRAME) * u32::from(DOTS_PER_LINE)
-            {
-                // Force a blank frame render if the PPU is powered off for a full frame's worth of cycles
+            if self.state.powered_off_dots == DOTS_PER_FRAME {
+                // Show a blank frame if the PPU is powered off for a full frame's worth of cycles
+                // Some games depend on not clearing the frame buffer too much sooner than this, e.g. A Bug's Life (FMVs)
                 self.clear_frame_buffer();
-                self.state.frame_complete = true;
                 self.state.powered_off_dots = 0;
+            }
+
+            self.state.dots_since_last_frame += 1;
+            if self.state.dots_since_last_frame == DOTS_PER_FRAME {
+                self.state.frame_complete = true;
+                self.state.dots_since_last_frame = 0;
             }
 
             // Unlike TV-based systems, the PPU does not process at all when display is disabled
@@ -311,13 +319,13 @@ impl Ppu {
         }
 
         // TODO timing
+        self.state.dots_since_last_frame += 1;
         if self.state.scanline == SCREEN_HEIGHT as u8 && self.state.dot == 1 {
+            self.state.frame_complete = true;
+            self.state.dots_since_last_frame = 0;
+
             interrupt_registers.set_flag(InterruptType::VBlank);
-            if self.state.skip_next_frame {
-                self.state.skip_next_frame = false;
-            } else {
-                self.state.frame_complete = true;
-            }
+            self.state.skip_next_frame = false;
 
             // Obscure behavior: If the mode 2 STAT interrupt is enabled, it will trigger a STAT
             // interrupt on line 144 around the same time that VBlank starts.
@@ -327,6 +335,12 @@ impl Ppu {
             if !self.state.prev_stat_interrupt_line && self.registers.mode_2_interrupt_enabled {
                 interrupt_registers.set_flag(InterruptType::LcdStatus);
             }
+        } else if self.state.dots_since_last_frame == DOTS_PER_FRAME {
+            // Can happen when the PPU is re-enabled
+            // Fine to render a partial frame since rendering to frame buffer is skipped for first
+            // frame after re-enable
+            self.state.frame_complete = true;
+            self.state.dots_since_last_frame = 0;
         }
 
         let stat_interrupt_line = self.stat_interrupt_line(cgb_registers.speed);
@@ -352,9 +366,6 @@ impl Ppu {
             HardwareMode::Cgb => 0b11111_11111_11111,
         };
         self.frame_buffer.fill(fill_color);
-
-        // Signal that the frame should be displayed
-        self.state.frame_complete = true;
     }
 
     fn stat_interrupt_line(&self, cpu_speed: CpuSpeed) -> bool {
