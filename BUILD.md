@@ -39,6 +39,12 @@ If `sdl3-build-from-source` is disabled, SDL3 headers and libraries must be avai
 the `libsdl3-dev` package on Linux. If they are not in the system library path then you may need to use `RUSTFLAGS` to
 pass `-I` and `-L` arguments to the linker.
 
+## Windows SDK (Windows only)
+
+Building for Windows requires the Windows SDK or MinGW to build a resource bundle containing the application icon, see: <https://crates.io/crates/winresource>
+
+This is controlled by an enabled-by-default Cargo feature (`windows-icon`), so you can disable this functionality by building with the `--no-default-features` flag.
+
 ## DirectX Shader Compiler (Windows DX12 backend only)
 
 The DirectX 12 wgpu backend is currently configured in such a way that it requires DLLs for Microsoft's DirectX shader compiler. The latest release is available here: <https://github.com/microsoft/DirectXShaderCompiler/releases>

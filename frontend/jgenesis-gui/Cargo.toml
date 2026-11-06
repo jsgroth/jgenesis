@@ -10,8 +10,9 @@ name = "jgenesis"
 path = "src/main.rs"
 
 [features]
-default = ["sdl3-build-from-source"]
+default = ["sdl3-build-from-source", "windows-icon"]
 unstable-cores = []
+windows-icon = []
 
 sdl3-build-from-source = ["sdl3/build-from-source"]
 sdl3-static-link = ["sdl3/static-link"]
@@ -60,6 +61,9 @@ sdl3 = { workspace = true }
 serde = { workspace = true }
 time = { workspace = true, features = ["formatting", "local-offset"] }
 toml = { workspace = true }
+
+[build-dependencies]
+winresource = { workspace = true }
 
 [package.metadata.packager]
 icons = ["../256x256.png"]
