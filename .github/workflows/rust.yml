@@ -102,7 +102,7 @@ jobs:
         run: |
           cd frontend/jgenesis-web && ./build.sh --dev
   linux-release-appimage:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v6
@@ -150,7 +150,7 @@ jobs:
           name: linux-x86_64-appimage
           path: target/release-lto/jgenesis_${{ env.JGENESIS_VERSION }}_x86_64.AppImage
   windows-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
 
     env:
       SDL_VERSION: 3.4.16
