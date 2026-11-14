@@ -1219,7 +1219,6 @@ dependencies = [
  "profiling",
  "thiserror 2.0.21",
  "type-map",
- "web-time",
  "wgpu",
  "winit",
 ]
@@ -1695,7 +1694,6 @@ dependencies = [
  "log",
  "regex",
  "serde",
- "toml",
 ]
 
 [[package]]

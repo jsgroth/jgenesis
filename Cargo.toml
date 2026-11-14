@@ -38,6 +38,8 @@ num = "0.4"
 open = "5"
 pollster = "1"
 polonius-the-crab = "0.6"
+proc-macro2 = "1"
+quote = "1"
 rand = "0.10"
 raw-window-handle = "0.6"
 rayon = "1"
@@ -50,6 +52,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sevenz-rust = "0.6"
 smithay-clipboard = "0.7"
+syn = "3"
 test-log = "0.2"
 thiserror = "2"
 time = "0.3"
@@ -170,7 +173,9 @@ inherits = "profiling"
 lto = true
 
 [workspace.lints.rust]
-rust_2018_idioms = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+# Suppress because the get_set_bit feature causes a gazillion compiler warnings in nightly builds
+unstable_name_collisions = "allow"
 
 [workspace.lints.clippy]
 # Warn broadly on all/pedantic, allowing the broad warns to be overridden
