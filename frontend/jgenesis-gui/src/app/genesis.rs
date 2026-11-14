@@ -10,7 +10,6 @@ use egui::{Context, Slider, Ui, Window};
 use genesis_config::{GenesisAspectRatio, GenesisRegion, Opn2BusyBehavior, S32XPwmResampling};
 use genesis_config::{PcmInterpolation, S32XColorTint};
 use genesis_config::{S32XVideoOut, S32XVoidColorType};
-use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::genesis::Sega32XAppConfig;
 use rfd::FileDialog;
@@ -68,66 +67,74 @@ impl App {
             let emu_runner_status = self.emu_runner.status();
             let running_genesis = emu_runner_status.is_running_genesis();
 
-            let rect = ui
-                .group(|ui| {
-                    ui.add_enabled_ui(!running_genesis, |ui| {
-                        ui.label("Timing / display mode");
+            ui.group(|ui| {
+                ui.add_enabled_ui(!running_genesis, |ui| {
+                    let rect = ui
+                        .scope(|ui| {
+                            ui.label("Console region");
 
-                        ui.horizontal(|ui| {
-                            ui.radio_value(
-                                &mut self.config.genesis.forced_timing_mode,
-                                None,
-                                "Auto",
-                            );
-                            ui.radio_value(
-                                &mut self.config.genesis.forced_timing_mode,
-                                Some(TimingMode::Ntsc),
-                                "NTSC (60Hz)",
-                            );
-                            ui.radio_value(
-                                &mut self.config.genesis.forced_timing_mode,
-                                Some(TimingMode::Pal),
-                                "PAL (50Hz)",
-                            );
-                        });
-                    });
-                })
-                .response
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::TIMING_MODE);
-            }
+                            ui.horizontal(|ui| {
+                                for (value, label) in [
+                                    (None, "Auto"),
+                                    (Some(GenesisRegion::NtscUs), "NTSC US (60 Hz)"),
+                                    (Some(GenesisRegion::NtscJp), "NTSC JP (60 Hz)"),
+                                    (Some(GenesisRegion::Pal), "PAL (50 Hz)"),
+                                ] {
+                                    ui.radio_value(
+                                        &mut self.config.genesis.forced_region,
+                                        value,
+                                        label,
+                                    );
+                                }
+                            });
+                        })
+                        .response
+                        .interact_rect;
+                    if ui.rect_contains_pointer(rect) {
+                        self.state.help_text.insert(WINDOW, helptext::FORCED_REGION);
+                    }
 
-            let rect = ui
-                .group(|ui| {
-                    ui.add_enabled_ui(!running_genesis, |ui| {
-                        ui.label("Region");
+                    let rect = ui
+                        .scope(|ui| {
+                            let mut pretend_enabled =
+                                self.config.genesis.pretend_to_be_region.is_some();
+                            ui.checkbox(&mut pretend_enabled, "Pretend to be a different region");
+                            if pretend_enabled && self.config.genesis.pretend_to_be_region.is_none()
+                            {
+                                self.config.genesis.pretend_to_be_region =
+                                    Some(GenesisRegion::NtscUs);
+                            } else if !pretend_enabled {
+                                self.config.genesis.pretend_to_be_region = None;
+                            }
 
-                        ui.horizontal(|ui| {
-                            ui.radio_value(&mut self.config.genesis.forced_region, None, "Auto");
-                            ui.radio_value(
-                                &mut self.config.genesis.forced_region,
-                                Some(GenesisRegion::Americas),
-                                "Americas",
+                            ui.add_enabled_ui(
+                                self.config.genesis.pretend_to_be_region.is_some(),
+                                |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.add_space(20.0);
+
+                                        for (value, label) in [
+                                            (Some(GenesisRegion::NtscUs), "NTSC US"),
+                                            (Some(GenesisRegion::NtscJp), "NTSC JP"),
+                                            (Some(GenesisRegion::Pal), "PAL"),
+                                        ] {
+                                            ui.radio_value(
+                                                &mut self.config.genesis.pretend_to_be_region,
+                                                value,
+                                                label,
+                                            );
+                                        }
+                                    });
+                                },
                             );
-                            ui.radio_value(
-                                &mut self.config.genesis.forced_region,
-                                Some(GenesisRegion::Japan),
-                                "Japan",
-                            );
-                            ui.radio_value(
-                                &mut self.config.genesis.forced_region,
-                                Some(GenesisRegion::Europe),
-                                "Europe",
-                            );
-                        });
-                    });
-                })
-                .response
-                .interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::REGION);
-            }
+                        })
+                        .response
+                        .interact_rect;
+                    if ui.rect_contains_pointer(rect) {
+                        self.state.help_text.insert(WINDOW, helptext::PRETEND_REGION);
+                    }
+                });
+            });
 
             ui.add_space(5.0);
 
@@ -995,9 +1002,9 @@ impl App {
         region: GenesisRegion,
     ) -> RenderErrorEffect {
         let bios_path = match region {
-            GenesisRegion::Americas => &mut self.config.sega_cd.bios_path,
-            GenesisRegion::Europe => &mut self.config.sega_cd.eu_bios_path,
-            GenesisRegion::Japan => &mut self.config.sega_cd.jp_bios_path,
+            GenesisRegion::NtscUs => &mut self.config.sega_cd.bios_path,
+            GenesisRegion::NtscJp => &mut self.config.sega_cd.jp_bios_path,
+            GenesisRegion::Pal => &mut self.config.sega_cd.eu_bios_path,
         };
 
         widgets::render_bios_error(

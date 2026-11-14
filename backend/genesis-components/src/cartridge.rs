@@ -314,9 +314,6 @@ impl Mapper {
 pub trait GenesisRegionExt: Sized + Copy {
     #[must_use]
     fn from_rom(rom: &[u8]) -> Option<Self>;
-
-    #[must_use]
-    fn version_bit(self) -> bool;
 }
 
 impl GenesisRegionExt for GenesisRegion {
@@ -337,43 +334,43 @@ impl GenesisRegionExt for GenesisRegion {
         ];
 
         if DEFAULT_EUROPE_CHECKSUMS.contains(&CRC.checksum(rom)) {
-            return Some(GenesisRegion::Europe);
+            return Some(GenesisRegion::Pal);
         }
 
         // $100 contains the system name
         // If it's "SEGA GENESIS" instead of "SEGA MEGA DRIVE", ignore region string and assume US
         if &rom[0x100..0x100 + b"SEGA GENESIS".len()] == b"SEGA GENESIS" {
-            return Some(GenesisRegion::Americas);
+            return Some(GenesisRegion::NtscUs);
         }
 
         // Shadow Squadron / Stellar Assault (UE) reports its region as E in the header,
         // but it's NTSC-compatible; prefer Americas if region is not forced so it will run at
         // 60Hz instead of 50Hz
         if &rom[0x180..0x18E] == "GM MK-84509-00".as_bytes() {
-            return Some(GenesisRegion::Americas);
+            return Some(GenesisRegion::NtscUs);
         }
 
         if &rom[0x1F0..0x1F6] == b"EUROPE" {
             // Another World (E) has the string "EUROPE" in the region section; special case this
             // so that it's not detected as U (this game does not work with NTSC timings)
-            return Some(GenesisRegion::Europe);
+            return Some(GenesisRegion::Pal);
         }
 
         let region_bytes = &rom[0x1F0..0x1F3];
 
         // Prefer Americas if region code contains a 'U'
         if region_bytes.contains(&b'U') {
-            return Some(GenesisRegion::Americas);
+            return Some(GenesisRegion::NtscUs);
         }
 
         // Otherwise, prefer Japan if it contains a 'J'
         if region_bytes.contains(&b'J') {
-            return Some(GenesisRegion::Japan);
+            return Some(GenesisRegion::NtscJp);
         }
 
         // Finally, prefer Europe if it contains an 'E'
         if region_bytes.contains(&b'E') {
-            return Some(GenesisRegion::Europe);
+            return Some(GenesisRegion::Pal);
         }
 
         // If region code contains neither a 'U' nor a 'J', treat it as a hex char
@@ -381,22 +378,17 @@ impl GenesisRegionExt for GenesisRegion {
         let value = u8::from_str_radix(&c.to_string(), 16).ok()?;
         if value.bit(2) {
             // Bit 2 = Americas
-            Some(GenesisRegion::Americas)
+            Some(GenesisRegion::NtscUs)
         } else if value.bit(0) {
             // Bit 0 = Asia
-            Some(GenesisRegion::Japan)
+            Some(GenesisRegion::NtscJp)
         } else if value.bit(3) {
             // Bit 3 = Europe
-            Some(GenesisRegion::Europe)
+            Some(GenesisRegion::Pal)
         } else {
             // Invalid
             None
         }
-    }
-
-    #[inline]
-    fn version_bit(self) -> bool {
-        self != Self::Japan
     }
 }
 
@@ -444,8 +436,8 @@ impl Cartridge {
         let mut rom_bytes = ensure_rom_in_expected_format(rom_bytes);
 
         let region = GenesisRegion::from_rom(&rom_bytes).unwrap_or_else(|| {
-            log::warn!("Unable to determine cartridge region from ROM header; using Americas");
-            GenesisRegion::Americas
+            log::warn!("Unable to determine cartridge region from ROM header; using NTSC US");
+            GenesisRegion::NtscUs
         });
 
         log::info!("Cartridge region: {region:?}");
@@ -789,8 +781,8 @@ fn fix_quackshot_rev_a_rom(rom: Vec<u8>) -> Vec<u8> {
 #[allow(clippy::missing_panics_doc, clippy::items_after_statements)]
 pub fn parse_title_from_header(rom: &[u8], region: GenesisRegion) -> String {
     let addr = match region {
-        GenesisRegion::Americas | GenesisRegion::Europe => 0x0150,
-        GenesisRegion::Japan => 0x0120,
+        GenesisRegion::NtscUs | GenesisRegion::Pal => 0x0150,
+        GenesisRegion::NtscJp => 0x0120,
     };
     let bytes = &rom[addr..addr + 48];
     let title = bytes.iter().copied().map(|b| b as char).collect::<String>();

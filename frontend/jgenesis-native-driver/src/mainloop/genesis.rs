@@ -211,7 +211,7 @@ fn generate_window_title(emulator: &mut GenesisEmulator, hardware: GenesisHardwa
 
 fn determine_scd_bios_path(config: &GenesisConfig) -> (GenesisRegion, Option<PathBuf>) {
     if !config.scd_per_region_bios {
-        return (GenesisRegion::Americas, bios_path_for_region(config, GenesisRegion::Americas));
+        return (GenesisRegion::NtscUs, bios_path_for_region(config, GenesisRegion::NtscUs));
     }
 
     if let Some(region) = config.emulator_config.forced_region {
@@ -226,7 +226,7 @@ fn determine_scd_bios_path(config: &GenesisConfig) -> (GenesisRegion, Option<Pat
         })
         .unwrap_or_else(|| {
             log::error!("Unable to determine region of disc at '{}' for purposes of selecting BIOS path; defaulting to US", file_path.display());
-            GenesisRegion::Americas
+            GenesisRegion::NtscUs
         });
 
     (region, bios_path_for_region(config, region))
@@ -234,8 +234,8 @@ fn determine_scd_bios_path(config: &GenesisConfig) -> (GenesisRegion, Option<Pat
 
 fn bios_path_for_region(config: &GenesisConfig, region: GenesisRegion) -> Option<PathBuf> {
     match region {
-        GenesisRegion::Americas => config.scd_us_bios_path.clone(),
-        GenesisRegion::Europe => config.scd_eu_bios_path.clone(),
-        GenesisRegion::Japan => config.scd_jp_bios_path.clone(),
+        GenesisRegion::NtscUs => config.scd_us_bios_path.clone(),
+        GenesisRegion::NtscJp => config.scd_jp_bios_path.clone(),
+        GenesisRegion::Pal => config.scd_eu_bios_path.clone(),
     }
 }

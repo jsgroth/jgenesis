@@ -9,7 +9,10 @@ use crate::registers::SystemRegisters;
 use crate::vdp::registers::{FrameBufferMode, Registers, SelectedFrameBuffer, VerticalResolution};
 use bincode::{Decode, Encode};
 use genesis_components::vdp::BorderSize;
-use genesis_config::{S32XColorTint, S32XVideoOut, S32XVoidColor, Sega32XEmulatorConfig};
+use genesis_config::{
+    GenesisEmulatorConfig, GenesisRegion, S32XColorTint, S32XVideoOut, S32XVoidColor,
+    Sega32XEmulatorConfig,
+};
 use jgenesis_common::boxedarray::{Boxed2DWordArray, BoxedColorArray, BoxedWordArray};
 use jgenesis_common::frontend::{
     Color, CompositeParams, FiniteF64, FrameSize, RenderFrameOptions, Renderer,
@@ -144,6 +147,7 @@ pub struct Vdp {
     latched: Registers,
     state: State,
     timing_mode: TimingMode,
+    pretend_timing_mode: Option<TimingMode>,
     config: VdpConfig,
 }
 
@@ -175,7 +179,7 @@ macro_rules! back_frame_buffer_mut {
 }
 
 impl Vdp {
-    pub fn new(timing_mode: TimingMode, config: &Sega32XEmulatorConfig) -> Self {
+    pub fn new(timing_mode: TimingMode, config: &GenesisEmulatorConfig) -> Self {
         Self {
             frame_buffer_0: BoxedWordArray::new(),
             frame_buffer_1: BoxedWordArray::new(),
@@ -186,7 +190,8 @@ impl Vdp {
             latched: Registers::default(),
             state: State::new(),
             timing_mode,
-            config: VdpConfig::from_emu_config(config),
+            pretend_timing_mode: config.pretend_to_be_region.map(GenesisRegion::timing_mode),
+            config: VdpConfig::from_emu_config(&config.sega_32x),
         }
     }
 
@@ -499,7 +504,9 @@ impl Vdp {
 
     pub fn read_register(&self, address: u32) -> u16 {
         match address & 0xF {
-            0x0 => self.registers.read_display_mode(self.timing_mode),
+            0x0 => self
+                .registers
+                .read_display_mode(self.pretend_timing_mode.unwrap_or(self.timing_mode)),
             0x2 => self.registers.read_screen_shift(),
             0x4 => self.registers.read_auto_fill_length(),
             0x6 => self.registers.read_auto_fill_start_address(),
@@ -980,8 +987,9 @@ impl Vdp {
         )
     }
 
-    pub fn reload_config(&mut self, config: &Sega32XEmulatorConfig) {
-        self.config = VdpConfig::from_emu_config(config);
+    pub fn reload_config(&mut self, config: &GenesisEmulatorConfig) {
+        self.config = VdpConfig::from_emu_config(&config.sega_32x);
+        self.pretend_timing_mode = config.pretend_to_be_region.map(GenesisRegion::timing_mode);
     }
 
     pub fn frame_size(&self, genesis_vdp: &GenesisVdp) -> FrameSize {

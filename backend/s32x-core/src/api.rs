@@ -79,7 +79,7 @@ impl Sega32X {
             master_cycles: 0,
             slave_cycles: 0,
             sh2_clock_multiplier: scale_sh2_multiplier(config.sega_32x.sh2_clock_multiplier),
-            bus: Sega32XBus::new(timing_mode, cartridge, &config.sega_32x),
+            bus: Sega32XBus::new(timing_mode, cartridge, config),
             m68k_vectors: Box::new(bootrom::new_m68k_vectors()),
             timing_mode,
             config: config.clone(),
@@ -264,7 +264,7 @@ impl Sega32X {
         self.config = config.clone();
 
         self.sh2_clock_multiplier = scale_sh2_multiplier(config.sega_32x.sh2_clock_multiplier);
-        self.bus.vdp.reload_config(&config.sega_32x);
+        self.bus.vdp.reload_config(config);
 
         if let Some(cartridge) = &mut self.bus.cartridge {
             cartridge.reload_config(config);

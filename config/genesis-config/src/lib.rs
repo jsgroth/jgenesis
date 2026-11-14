@@ -126,27 +126,38 @@ impl GenesisAspectRatio {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum GenesisRegion {
-    Americas,
-    Japan,
-    Europe,
+    NtscUs,
+    NtscJp,
+    Pal,
 }
 
 impl GenesisRegion {
+    #[inline(always)]
     #[must_use]
-    pub fn short_name(self) -> &'static str {
+    pub const fn timing_mode(self) -> TimingMode {
         match self {
-            Self::Americas => "US",
-            Self::Europe => "EU",
-            Self::Japan => "JP",
+            Self::NtscUs | Self::NtscJp => TimingMode::Ntsc,
+            Self::Pal => TimingMode::Pal,
         }
     }
 
+    #[inline(always)]
+    #[must_use]
+    pub fn short_name(self) -> &'static str {
+        match self {
+            Self::NtscUs => "US",
+            Self::NtscJp => "JP",
+            Self::Pal => "EU",
+        }
+    }
+
+    #[inline(always)]
     #[must_use]
     pub fn long_name(self) -> &'static str {
         match self {
-            Self::Americas => "US",
-            Self::Europe => "Europe",
-            Self::Japan => "Japan",
+            Self::NtscUs => "US",
+            Self::NtscJp => "Japan",
+            Self::Pal => "Europe",
         }
     }
 }
@@ -628,8 +639,8 @@ pub struct GenesisEmulatorConfig {
     pub sega_cd: SegaCdEmulatorConfig,
     #[cfg_display(indent_nested)]
     pub sega_32x: Sega32XEmulatorConfig,
-    pub forced_timing_mode: Option<TimingMode>,
     pub forced_region: Option<GenesisRegion>,
+    pub pretend_to_be_region: Option<GenesisRegion>,
     pub allow_opposing_joypad_directions: bool,
     pub mega_mouse_sensitivity: f64,
     pub auto_3_button_mode: bool,
@@ -671,8 +682,8 @@ impl Default for GenesisEmulatorConfig {
         Self {
             sega_cd: SegaCdEmulatorConfig::default(),
             sega_32x: Sega32XEmulatorConfig::default(),
-            forced_timing_mode: None,
             forced_region: None,
+            pretend_to_be_region: None,
             allow_opposing_joypad_directions: false,
             mega_mouse_sensitivity: 1.0,
             auto_3_button_mode: true,

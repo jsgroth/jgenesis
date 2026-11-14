@@ -73,7 +73,7 @@ impl SegaCdBus {
             Some(disc) => api::parse_disc_region(disc)?,
             None => {
                 // Default to US if no disc provided
-                GenesisRegion::Americas
+                GenesisRegion::NtscUs
             }
         };
 

@@ -151,8 +151,8 @@ impl GenesisWebConfig {
         GenesisEmulatorConfig {
             sega_cd,
             sega_32x,
-            forced_timing_mode: None,
             forced_region: None,
+            pretend_to_be_region: None,
             allow_opposing_joypad_directions: false,
             mega_mouse_sensitivity: 1.0,
             auto_3_button_mode: true,

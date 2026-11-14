@@ -2,7 +2,7 @@ use crate::api::debug::{DebugPendingWrite, GenesisDebuggerWithCpus, genesis_comp
 use crate::input::InputState;
 use crate::timing::CycleCounters;
 use bincode::{Decode, Encode};
-use genesis_components::cartridge::{Cartridge, GenesisRegionExt};
+use genesis_components::cartridge::Cartridge;
 use genesis_components::memory::Memory;
 use genesis_components::vdp::{Vdp, VdpBusView, VdpTickEffect};
 use genesis_components::ym2612::Ym2612;
@@ -169,6 +169,7 @@ pub struct GenesisBus {
     pub pending_writes: PendingWrites,
     pub cycles: CycleCounters,
     pub timing_mode: TimingMode,
+    pub pretend_region: Option<GenesisRegion>,
     pub open_bus: u16,
     pub m68k_opcode: u16,
     pub m68k_reset: bool,
@@ -219,6 +220,7 @@ impl GenesisBus {
             pending_writes: PendingWrites::new(),
             cycles,
             timing_mode,
+            pretend_region: config.pretend_to_be_region,
             open_bus: 0,
             m68k_opcode: 0,
             m68k_reset: true,
@@ -366,6 +368,7 @@ impl GenesisBus {
         self.psg.set_channels_enabled(config.psg_channels_enabled);
         self.input.reload_config(config);
         self.cycles.update_m68k_divider(config.clamped_m68k_divider());
+        self.pretend_region = config.pretend_to_be_region;
     }
 
     pub fn reset(&mut self) {
@@ -622,17 +625,20 @@ impl GenesisBus {
 
     fn read_io_register(&mut self, address: u32) -> u8 {
         match address {
-            // Version register
             0xA10001 => {
+                // Version register
                 let region = self
-                    .cartridge()
-                    .map(Cartridge::region)
+                    .pretend_region
+                    .or_else(|| self.cartridge().map(Cartridge::region))
                     .or_else(|| self.sega_cd.as_ref().map(SegaCd::region))
-                    .unwrap_or(GenesisRegion::Americas);
+                    .unwrap_or(GenesisRegion::NtscUs);
 
-                // TODO version (lowest 4 bits) hardcoded to 0
-                (u8::from(region.version_bit()) << 7)
-                    | (u8::from(self.timing_mode == TimingMode::Pal) << 6)
+                let timing_mode =
+                    self.pretend_region.map(GenesisRegion::timing_mode).unwrap_or(self.timing_mode);
+
+                // Version (lowest 4 bits) hardcoded to 0
+                (u8::from(region != GenesisRegion::NtscJp) << 7)
+                    | (u8::from(timing_mode == TimingMode::Pal) << 6)
                     | (u8::from(self.sega_cd.is_none()) << 5)
             }
             0xA10003 => self.input.read_p1_data(),

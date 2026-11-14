@@ -6,7 +6,7 @@ pub mod vdp;
 pub mod ym2612;
 
 use crate::vdp::{DarkenColors, Vdp, VdpConfig};
-use genesis_config::GenesisEmulatorConfig;
+use genesis_config::{GenesisEmulatorConfig, GenesisRegion};
 use jgenesis_common::frontend::TimingMode;
 
 pub const NTSC_GENESIS_MCLK_FREQUENCY: f64 = 53_693_175.0;
@@ -36,6 +36,7 @@ impl GenesisEmulatorConfigExt for GenesisEmulatorConfig {
             } else {
                 DarkenColors::No
             },
+            pretend_timing_mode: self.pretend_to_be_region.map(GenesisRegion::timing_mode),
         }
     }
 }

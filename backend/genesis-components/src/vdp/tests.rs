@@ -14,6 +14,7 @@ fn new_vdp() -> Vdp {
             plane_b_enabled: true,
             window_enabled: true,
             sprites_enabled: true,
+            pretend_timing_mode: None,
         },
     )
 }

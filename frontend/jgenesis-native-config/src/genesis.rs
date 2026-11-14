@@ -2,7 +2,6 @@ use genesis_config::{
     GenesisAspectRatio, GenesisRegion, Opn2BusyBehavior, PcmInterpolation, S32XColorTint,
     S32XPwmResampling, S32XVideoOut, S32XVoidColorType,
 };
-use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::deserialize_default_on_error;
 use serde::{Deserialize, Serialize};
 use std::num::{NonZeroU16, NonZeroU64};
@@ -14,8 +13,8 @@ const DEFAULT_DRIVE_SPEED: NonZeroU16 = NonZeroU16::new(1).unwrap();
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GenesisAppConfig {
-    pub forced_timing_mode: Option<TimingMode>,
     pub forced_region: Option<GenesisRegion>,
+    pub pretend_to_be_region: Option<GenesisRegion>,
     pub allow_opposing_joypad_directions: bool,
     pub mega_mouse_sensitivity: f64,
     pub auto_3_button_mode: bool,
@@ -51,8 +50,8 @@ pub struct GenesisAppConfig {
 impl Default for GenesisAppConfig {
     fn default() -> Self {
         Self {
-            forced_timing_mode: None,
             forced_region: None,
+            pretend_to_be_region: None,
             allow_opposing_joypad_directions: false,
             mega_mouse_sensitivity: 1.0,
             auto_3_button_mode: true,

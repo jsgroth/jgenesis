@@ -8,7 +8,7 @@ use crate::vdp::Vdp;
 use crate::{WhichCpu, bootrom};
 use bincode::{Decode, Encode};
 use genesis_components::cartridge::Cartridge;
-use genesis_config::Sega32XEmulatorConfig;
+use genesis_config::GenesisEmulatorConfig;
 use jgenesis_common::boxedarray::BoxedWordArray;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::{GetBit, U16Ext};
@@ -46,7 +46,7 @@ impl Sega32XBus {
     pub fn new(
         timing_mode: TimingMode,
         cartridge: Option<Cartridge>,
-        config: &Sega32XEmulatorConfig,
+        config: &GenesisEmulatorConfig,
     ) -> Self {
         let cartridge_present = cartridge.is_some();
 

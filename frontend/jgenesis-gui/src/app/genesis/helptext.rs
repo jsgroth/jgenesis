@@ -1,18 +1,19 @@
 use crate::app::HelpText;
 
-pub const TIMING_MODE: HelpText = HelpText {
-    heading: "Timing Mode",
+pub const FORCED_REGION: HelpText = HelpText {
+    heading: "Console Region",
     text: &[
-        "Set timing mode to NTSC (60Hz) or PAL (50Hz).",
-        "The Auto setting will choose automatically based on the region in the cartridge header, preferring NTSC if both NTSC and PAL are supported.",
+        "Choose the console hardware region to emulate.",
+        "This affects whether the emulated console runs at 60 Hz or 50 Hz as well as the hardware region that it reports to games.",
+        "Auto chooses a region based on the cartridge header.",
     ],
 };
 
-pub const REGION: HelpText = HelpText {
-    heading: "Region",
+pub const PRETEND_REGION: HelpText = HelpText {
+    heading: "Pretend to Be Different Region",
     text: &[
-        "Configure the hardware region that the emulator will report to games.",
-        "The Auto setting will report the same region as the cartridge header. If multiple regions are supported, the preference order is US first then JP then EU.",
+        "If enabled, pretend to be a different hardware region than what the emulator is actually emulating.",
+        "This only affects the hardware region that the emulated console reports to games.",
     ],
 };
 

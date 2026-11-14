@@ -489,6 +489,7 @@ pub struct VdpConfig {
     pub sprites_enabled: bool,
     pub window_enabled: bool,
     pub color_adjustment: DarkenColors,
+    pub pretend_timing_mode: Option<TimingMode>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, EnumAll)]
@@ -1183,6 +1184,9 @@ impl Vdp {
         };
         let vint_flag = self.state.v_interrupt_pending || passed_vint;
 
+        let timing_mode = self.config.pretend_timing_mode.unwrap_or(self.timing_mode);
+        let pal_bit = timing_mode == TimingMode::Pal;
+
         let status = (u16::from(self.fifo.is_empty()) << 9)
             | (u16::from(self.fifo.is_full()) << 8)
             | (u16::from(vint_flag) << 7)
@@ -1192,7 +1196,7 @@ impl Vdp {
             | (u16::from(vblank_flag || !self.registers.display_enabled) << 3)
             | (u16::from(hblank_flag) << 2)
             | (u16::from(self.control_port.dma_active) << 1)
-            | u16::from(self.timing_mode == TimingMode::Pal);
+            | u16::from(pal_bit);
 
         // Reading status register clears the sprite overflow and collision flags
         self.sprite_state.clear_status_flags();

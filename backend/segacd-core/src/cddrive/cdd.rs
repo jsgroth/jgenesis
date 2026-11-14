@@ -866,8 +866,8 @@ impl CdDrive {
         disc.read_sector(1, CdTime::SECTOR_0_START, self.sector_buffer.as_mut())?;
 
         let title_bytes = match region {
-            GenesisRegion::Japan => &self.sector_buffer[0x130..0x160],
-            GenesisRegion::Americas | GenesisRegion::Europe => &self.sector_buffer[0x160..0x190],
+            GenesisRegion::NtscJp => &self.sector_buffer[0x130..0x160],
+            GenesisRegion::NtscUs | GenesisRegion::Pal => &self.sector_buffer[0x160..0x190],
         };
         let title: String = title_bytes
             .iter()

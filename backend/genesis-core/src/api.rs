@@ -121,12 +121,10 @@ impl GenesisEmulator {
                 let disc = disc.as_mut()?;
                 segacd_core::api::parse_disc_region(disc).ok()
             })
-            .unwrap_or(GenesisRegion::Americas);
+            .unwrap_or(GenesisRegion::NtscUs);
 
-        let timing_mode = config.forced_timing_mode.unwrap_or(match region {
-            GenesisRegion::Europe => TimingMode::Pal,
-            GenesisRegion::Americas | GenesisRegion::Japan => TimingMode::Ntsc,
-        });
+        let timing_mode =
+            config.forced_region.map(GenesisRegion::timing_mode).unwrap_or(region.timing_mode());
 
         log::info!("Using timing / display mode {timing_mode}");
 

@@ -4,6 +4,7 @@ mod v0_11;
 mod v0_12;
 mod v0_13;
 mod v0_14;
+mod v0_15;
 mod v0_8;
 
 use crate::AppConfig;
@@ -120,6 +121,10 @@ pub fn migrate_config(config: &AppConfig, config_str: &str) -> Option<AppConfig>
 
     if old_version < SemVer::new(0, 14, 0) {
         v0_14::migrate_config_0_14_0(&mut new_config, config_str);
+    }
+
+    if old_version < SemVer::new(0, 15, 0) {
+        v0_15::migrate_config_0_15_0(&mut new_config, config_str);
     }
 
     new_config.config_version = Some(current_config_version().into());
