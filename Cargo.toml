@@ -59,7 +59,7 @@ time = "0.3"
 tinyvec = "1"
 toml = "1"
 toml_edit = "0.25"
-wgpu = "30"
+wgpu = "30.0.2"
 zip = "9.3"
 zstd = "0.14"
 
@@ -74,8 +74,7 @@ web-time = "1"
 winit = "0.30"
 
 # Build-only dependencies
-# Naga v30.0.1 doesn't compile with features = ["glsl-in", "wgsl-out"] but bug is fixed on trunk so next version should
-naga = "29"
+naga = "30.0.2"
 winresource = "0.1"
 
 # Dependencies needed only by egui-wgpu fork
