@@ -779,11 +779,7 @@ fn render_cram_window(
 
                 let mut image_size =
                     ui.max_rect().size() - Vec2::new(0.0, modifier_resp.response.rect.height());
-                if image_size.y > image_size.x * 0.25 {
-                    image_size.y = image_size.x * 0.25;
-                } else {
-                    image_size.x = image_size.y * 4.0;
-                }
+                image_size = crate::clamp_image_size(image_size, [CRAM_COLS, CRAM_ROWS]);
 
                 let texture = crate::update_egui_texture(
                     ctx,
@@ -1222,12 +1218,7 @@ fn render_32x_palette_window(
             );
 
             CentralPanel::default().show_inside(ui, |ui| {
-                let mut image_size = ui.max_rect().size();
-                if image_size.y > image_size.x {
-                    image_size.y = image_size.x;
-                } else {
-                    image_size.x = image_size.y;
-                }
+                let image_size = crate::clamp_image_size(ui.max_rect().size(), [16, 16]);
 
                 let texture = crate::update_egui_texture(
                     ctx,

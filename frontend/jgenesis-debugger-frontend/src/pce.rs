@@ -1,6 +1,6 @@
 use crate::memviewer::MemoryViewerState;
 use crate::{DebugRenderContext, DebugRenderFn, memviewer};
-use egui::{Context, Grid, Panel, Vec2, Window};
+use egui::{Context, Grid, MenuBar, Panel, Vec2, Window};
 use jgenesis_common::debug::Endian;
 use jgenesis_common::frontend::Color;
 use pce_core::api::PcEngineEmulator;
@@ -51,18 +51,21 @@ pub fn render_fn() -> Box<DebugRenderFn<PcEngineEmulator>> {
 
 fn render(ctx: DebugRenderContext<'_>, emulator: &mut PcEngineEmulator, state: &mut State) {
     Panel::top("pce_debug_top_panel").show_inside(ctx.egui_ui, |ui| {
-        ui.menu_button("Memory Viewers", |ui| {
-            for memory_area in PceMemoryArea::ALL {
-                if emulator.debug_memory_view(memory_area).is_none() {
-                    continue;
-                }
+        MenuBar::new().ui(ui, |ui| {
+            ui.menu_button("Memory Viewers", |ui| {
+                for memory_area in PceMemoryArea::ALL {
+                    if emulator.debug_memory_view(memory_area).is_none() {
+                        continue;
+                    }
 
-                if ui.button(memory_area.name()).clicked()
-                    && let Some(memviewer_state) = state.memory_viewer_states.get_mut(&memory_area)
-                {
-                    memviewer_state.open_window(ui);
+                    if ui.button(memory_area.name()).clicked()
+                        && let Some(memviewer_state) =
+                            state.memory_viewer_states.get_mut(&memory_area)
+                    {
+                        memviewer_state.open_window(ui);
+                    }
                 }
-            }
+            });
         });
     });
 

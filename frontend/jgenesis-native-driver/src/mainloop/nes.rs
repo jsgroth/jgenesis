@@ -84,9 +84,7 @@ impl CreatableEmulator for NesEmulator {
 
     fn debug_fn() -> Option<NativeDebugFn<Self>> {
         Some(|| {
-            jgenesis_debugger_frontend::partial_clone_debug_fn(
-                jgenesis_debugger_frontend::nes::render_fn(),
-            )
+            jgenesis_debugger_frontend::clone_debug_fn(jgenesis_debugger_frontend::nes::render_fn())
         })
     }
 }

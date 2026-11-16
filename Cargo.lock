@@ -2083,7 +2083,6 @@ dependencies = [
  "bytemuck",
  "egui",
  "egui-sdl3-wgpu",
- "egui-wgpu",
  "egui_extras",
  "gb-core",
  "gba-core",
@@ -2108,7 +2107,6 @@ dependencies = [
  "snes-core",
  "thiserror 2.0.21",
  "ti-sn76489",
- "wgpu",
  "z80-emu",
 ]
 

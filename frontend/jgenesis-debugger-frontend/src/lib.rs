@@ -10,8 +10,8 @@ pub mod snes;
 
 use egui::epaint::ImageDelta;
 use egui::{
-    Button, Color32, ColorImage, Id, ImageData, LayerId, Order, Response, ScrollArea,
-    TextureFilter, TextureOptions, TextureWrapMode, ThemePreference, Ui, Widget, WidgetText,
+    Color32, ColorImage, Id, ImageData, LayerId, Order, ScrollArea, TextureFilter, TextureOptions,
+    TextureWrapMode, ThemePreference, Ui, WidgetText,
 };
 use egui_extras::{Column, TableBuilder};
 use egui_sdl3_wgpu::{FrameCreateError, FrameOptions, FrameRunEffect, FrameRunError};
@@ -42,9 +42,6 @@ pub enum DebuggerError {
 
 pub struct DebugRenderContext<'a> {
     egui_ui: &'a mut Ui,
-    device: &'a wgpu::Device,
-    queue: &'a wgpu::Queue,
-    renderer: &'a mut egui_wgpu::Renderer,
 }
 
 pub struct DebuggerWindow {
@@ -83,13 +80,8 @@ impl DebuggerWindow {
     ///
     /// Propagates any errors encountered while rendering.
     pub fn update(&mut self) -> Result<FrameRunEffect, DebuggerError> {
-        let effect = self.frame.run(&mut |ui, ctx| {
-            let debug_ctx = DebugRenderContext {
-                egui_ui: ui,
-                device: ctx.device,
-                queue: ctx.queue,
-                renderer: ctx.renderer,
-            };
+        let effect = self.frame.run(&mut |ui, _ctx| {
+            let debug_ctx = DebugRenderContext { egui_ui: ui };
             if let Err(err) = self.debugger_process.run(debug_ctx) {
                 log::error!("Error rendering debugger window: {err}");
             }
@@ -126,85 +118,6 @@ fn egui_theme_preference(egui_theme: EguiTheme) -> ThemePreference {
         EguiTheme::Dark => ThemePreference::Dark,
         EguiTheme::Light => ThemePreference::Light,
     }
-}
-
-fn create_texture(
-    label: &str,
-    width: u32,
-    height: u32,
-    device: &wgpu::Device,
-    renderer: &mut egui_wgpu::Renderer,
-) -> (wgpu::Texture, egui::TextureId) {
-    let wgpu_texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some(label),
-        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8UnormSrgb,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-        view_formats: &[],
-    });
-    let texture_view = wgpu_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-    let egui_texture =
-        renderer.register_native_texture(device, &texture_view, wgpu::FilterMode::Nearest);
-
-    (wgpu_texture, egui_texture)
-}
-
-struct SelectableButton<'a, T> {
-    label: WidgetText,
-    current_value: &'a mut T,
-    alternative: T,
-}
-
-impl<'a, T> SelectableButton<'a, T> {
-    fn new(label: impl Into<WidgetText>, current_value: &'a mut T, alternative: T) -> Self {
-        Self { label: label.into(), current_value, alternative }
-    }
-}
-
-impl<T: Copy + PartialEq> Widget for SelectableButton<'_, T> {
-    fn ui(self, ui: &mut Ui) -> Response {
-        let response =
-            Button::new(self.label).selected(*self.current_value == self.alternative).ui(ui);
-        if response.clicked() {
-            *self.current_value = self.alternative;
-        }
-        response
-    }
-}
-
-fn write_textures(
-    wgpu_texture: &wgpu::Texture,
-    egui_texture: egui::TextureId,
-    data: &[u8],
-    ctx: &mut DebugRenderContext<'_>,
-) {
-    ctx.queue.write_texture(
-        wgpu::TexelCopyTextureInfo {
-            texture: wgpu_texture,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        data,
-        wgpu::TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(wgpu_texture.width() * 4),
-            rows_per_image: None,
-        },
-        wgpu_texture.size(),
-    );
-
-    let texture_view = wgpu_texture.create_view(&wgpu::TextureViewDescriptor::default());
-    ctx.renderer.update_egui_texture_from_wgpu_texture(
-        ctx.device,
-        &texture_view,
-        wgpu::FilterMode::Nearest,
-        egui_texture,
-    );
 }
 
 fn update_egui_texture(
@@ -332,6 +245,12 @@ fn dump_registers_callback(ui: &mut Ui) -> impl FnMut(&str, &[(&str, &str)]) {
 // in a random position near-ish the top-left corner of the screen
 fn rand_window_pos() -> [f32; 2] {
     array::from_fn(|_| 100.0 + rand::random_range(-50.0..=50.0))
+}
+
+fn clamp_image_size(max_rect: egui::Vec2, texture_size: [usize; 2]) -> egui::Vec2 {
+    let ratio = (texture_size[0] as f32) / (texture_size[1] as f32);
+
+    egui::Vec2::new(max_rect.x.min(max_rect.y * ratio), max_rect.y.min(max_rect.x / ratio))
 }
 
 fn move_to_top(ctx: &egui::Context, id: impl Hash) {

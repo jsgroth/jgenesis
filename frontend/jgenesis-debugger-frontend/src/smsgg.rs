@@ -1,12 +1,22 @@
 use crate::{DebugRenderContext, DebugRenderFn};
-use egui::{Grid, Pos2, ScrollArea, Vec2, Window};
+use egui::{CentralPanel, MenuBar, Panel, UiKind, Window};
 use jgenesis_common::frontend::Color;
 use smsgg_core::SmsGgEmulator;
 
+const VRAM_WINDOW_TITLE: &str = "VRAM";
+const CRAM_WINDOW_TITLE: &str = "CRAM";
+const REGISTERS_WINDOW_TITLE: &str = "VDP Registers";
+
+const CRAM_TEXTURE_SIZE: [usize; 2] = [16, 2];
+const VRAM_TEXTURE_SIZE: [usize; 2] = [32 * 8, 16 * 8];
+
 struct State {
+    vram_open: bool,
+    cram_open: bool,
+    registers_open: bool,
     vram_palette: u8,
-    cram_texture: Option<(wgpu::Texture, egui::TextureId)>,
-    vram_texture: Option<(wgpu::Texture, egui::TextureId)>,
+    cram_texture: Option<egui::TextureId>,
+    vram_texture: Option<egui::TextureId>,
     cram_buffer: Box<[Color; 32]>,
     vram_buffer: Box<[Color; 512 * 64]>,
 }
@@ -14,6 +24,9 @@ struct State {
 impl State {
     fn new() -> Self {
         Self {
+            vram_open: true,
+            cram_open: true,
+            registers_open: false,
             vram_palette: 0,
             cram_texture: None,
             vram_texture: None,
@@ -28,106 +41,92 @@ pub fn render_fn() -> Box<DebugRenderFn<SmsGgEmulator>> {
     Box::new(move |ctx, emulator| render(ctx, emulator, &mut state))
 }
 
-fn render(mut ctx: DebugRenderContext<'_>, emulator: &mut SmsGgEmulator, state: &mut State) {
-    update_cram_texture(&mut ctx, emulator, state);
-    update_vram_texture(&mut ctx, emulator, state);
+fn render(ctx: DebugRenderContext<'_>, emulator: &mut SmsGgEmulator, state: &mut State) {
+    Panel::top("debug_top_panel").show_inside(ctx.egui_ui, |ui| {
+        MenuBar::new().ui(ui, |ui| {
+            ui.menu_button("Video Memory", |ui| {
+                if ui.button("VRAM").clicked() {
+                    state.vram_open = true;
+                    crate::move_to_top(ui.ctx(), VRAM_WINDOW_TITLE);
+                    ui.close_kind(UiKind::Menu);
+                }
 
-    let screen_width = crate::screen_width(ctx.egui_ui);
+                if ui.button("CRAM").clicked() {
+                    state.cram_open = true;
+                    crate::move_to_top(ui.ctx(), CRAM_WINDOW_TITLE);
+                    ui.close_kind(UiKind::Menu);
+                }
+            });
 
-    Window::new("CRAM").default_width(screen_width * 0.95).show(ctx.egui_ui, |ui| {
-        let mut height = ui.available_width() * 0.125;
-        if height > ui.available_height() {
-            height = ui.available_height();
-        }
-        let width = height * 8.0;
-
-        let cram_texture = state.cram_texture.as_ref().unwrap().1;
-        ui.image((cram_texture, Vec2::new(width, height)));
+            ui.menu_button("Register Viewers", |ui| {
+                if ui.button("VDP Registers").clicked() {
+                    state.registers_open = true;
+                    crate::move_to_top(ui.ctx(), REGISTERS_WINDOW_TITLE);
+                    ui.close_kind(UiKind::Menu);
+                }
+            });
+        });
     });
 
-    Window::new("VRAM").default_width(screen_width * 0.95).show(ctx.egui_ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.label("Palette");
+    Window::new(CRAM_WINDOW_TITLE)
+        .open(&mut state.cram_open)
+        .default_pos([10.0, 25.0])
+        .default_size([850.0, 125.0])
+        .show(ctx.egui_ui, |ui| {
+            CentralPanel::default().show_inside(ui, |ui| {
+                emulator.copy_cram(state.cram_buffer.as_mut());
 
-            ui.radio_value(&mut state.vram_palette, 0, "0");
-            ui.radio_value(&mut state.vram_palette, 1, "1");
+                let cram_texture = crate::update_egui_texture(
+                    ui.ctx(),
+                    CRAM_TEXTURE_SIZE,
+                    state.cram_buffer.as_ref(),
+                    &mut state.cram_texture,
+                );
+                let image_size = crate::clamp_image_size(ui.max_rect().size(), CRAM_TEXTURE_SIZE);
+                ui.image((cram_texture, image_size));
+            });
         });
 
-        ui.add_space(5.0);
-
-        let mut height = ui.available_width() * 0.5;
-        if height > ui.available_height() {
-            height = ui.available_height();
-        }
-        let width = height * 2.0;
-
-        let vram_texture = state.vram_texture.as_ref().unwrap().1;
-        ui.image((vram_texture, Vec2::new(width, height)));
-    });
-
-    Window::new("VDP Registers").default_open(false).default_pos(Pos2::new(5.0, 5.0)).show(
+    Window::new(VRAM_WINDOW_TITLE).open(&mut state.vram_open).default_size([850.0, 450.0]).show(
         ctx.egui_ui,
         |ui| {
-            ScrollArea::vertical().show(ui, |ui| {
-                Grid::new("smsgg_vdp_registers").num_columns(2).show(ui, |ui| {
-                    emulator.dump_vdp_registers(|register, fields| {
-                        ui.heading(format!("Register #{register}"));
-                        ui.end_row();
+            Panel::top("vram_panel_top").show_inside(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Palette");
 
-                        for &(name, value) in fields {
-                            ui.label(format!("  {name}:"));
-                            ui.label(value);
-                            ui.end_row();
-                        }
-                    });
+                    ui.radio_value(&mut state.vram_palette, 0, "0");
+                    ui.radio_value(&mut state.vram_palette, 1, "1");
                 });
+            });
+
+            CentralPanel::default().show_inside(ui, |ui| {
+                emulator.copy_vram(
+                    state.vram_buffer.as_mut(),
+                    state.vram_palette,
+                    VRAM_TEXTURE_SIZE[0] / 8,
+                );
+
+                let vram_texture = crate::update_egui_texture(
+                    ui.ctx(),
+                    VRAM_TEXTURE_SIZE,
+                    state.vram_buffer.as_ref(),
+                    &mut state.vram_texture,
+                );
+                let image_size = crate::clamp_image_size(ui.max_rect().size(), VRAM_TEXTURE_SIZE);
+                ui.image((vram_texture, image_size));
             });
         },
     );
-}
 
-fn update_cram_texture(
-    ctx: &mut DebugRenderContext<'_>,
-    emulator: &mut SmsGgEmulator,
-    state: &mut State,
-) {
-    emulator.copy_cram(state.cram_buffer.as_mut());
-
-    if state.cram_texture.is_none() {
-        let (wgpu_texture, egui_texture) =
-            crate::create_texture("debug_smsgg_cram", 16, 2, ctx.device, ctx.renderer);
-        state.cram_texture = Some((wgpu_texture, egui_texture));
-    }
-
-    let (wgpu_texture, egui_texture) = state.cram_texture.as_ref().unwrap();
-
-    crate::write_textures(
-        wgpu_texture,
-        *egui_texture,
-        bytemuck::cast_slice(state.cram_buffer.as_ref()),
-        ctx,
-    );
-}
-
-fn update_vram_texture(
-    ctx: &mut DebugRenderContext<'_>,
-    emulator: &mut SmsGgEmulator,
-    state: &mut State,
-) {
-    emulator.copy_vram(state.vram_buffer.as_mut(), state.vram_palette, 32);
-
-    if state.vram_texture.is_none() {
-        let (wgpu_texture, egui_texture) =
-            crate::create_texture("debug_smsgg_vram", 32 * 8, 16 * 8, ctx.device, ctx.renderer);
-        state.vram_texture = Some((wgpu_texture, egui_texture));
-    }
-
-    let (wgpu_texture, egui_texture) = state.vram_texture.as_ref().unwrap();
-
-    crate::write_textures(
-        wgpu_texture,
-        *egui_texture,
-        bytemuck::cast_slice(state.vram_buffer.as_ref()),
-        ctx,
+    crate::render_registers_window(
+        ctx.egui_ui.ctx(),
+        REGISTERS_WINDOW_TITLE,
+        &mut state.registers_open,
+        |ui| {
+            emulator.dump_vdp_registers(|register, fields| {
+                crate::render_registers_table(ui, &format!("Register #{register}"), fields);
+                ui.separator();
+            });
+        },
     );
 }

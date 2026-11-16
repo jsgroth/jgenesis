@@ -1,14 +1,23 @@
-use crate::{DebugRenderContext, DebugRenderFn, SelectableButton};
-use egui::{CentralPanel, ScrollArea, Vec2};
+use crate::{DebugRenderContext, DebugRenderFn};
+use egui::{CentralPanel, Grid, MenuBar, Panel, UiKind, Window};
 use jgenesis_common::frontend::Color;
 use snes_core::api::SnesEmulator;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum Tab {
-    Cgram,
-    #[default]
-    Vram,
-}
+const VRAM_WINDOW_TITLE: &str = "VRAM";
+const CGRAM_WINDOW_TITLE: &str = "CGRAM";
+
+const VRAM_2BPP_TEXTURE_SIZE: [usize; 2] = [64 * 8, 64 * 8];
+const VRAM_4BPP_TEXTURE_SIZE: [usize; 2] = [64 * 8, 32 * 8];
+const VRAM_8BPP_TEXTURE_SIZE: [usize; 2] = [32 * 8, 32 * 8];
+const VRAM_MODE_7_TEXTURE_SIZE: [usize; 2] = [16 * 8, 16 * 8];
+const CGRAM_TEXTURE_SIZE: [usize; 2] = [16, 16];
+
+const VRAM_2BPP_BUFFER_LEN: usize = VRAM_2BPP_TEXTURE_SIZE[0] * VRAM_2BPP_TEXTURE_SIZE[1];
+const VRAM_4BPP_BUFFER_LEN: usize = VRAM_4BPP_TEXTURE_SIZE[0] * VRAM_4BPP_TEXTURE_SIZE[1];
+const VRAM_8BPP_BUFFER_LEN: usize = VRAM_8BPP_TEXTURE_SIZE[0] * VRAM_8BPP_TEXTURE_SIZE[1];
+const VRAM_MODE_7_BUFFER_LEN: usize = VRAM_MODE_7_TEXTURE_SIZE[0] * VRAM_MODE_7_TEXTURE_SIZE[1];
+const MAX_VRAM_BUFFER_LEN: usize = VRAM_2BPP_BUFFER_LEN;
+const CGRAM_BUFFER_LEN: usize = CGRAM_TEXTURE_SIZE[0] * CGRAM_TEXTURE_SIZE[1];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum VramMode {
@@ -19,26 +28,25 @@ enum VramMode {
     Mode7,
 }
 
-const CGRAM_BUFFER_LEN: usize = 256;
-const VRAM_BUFFER_LEN: usize = 256 * 1024;
-
 struct State {
-    tab: Tab,
+    vram_open: bool,
+    cgram_open: bool,
     vram_mode: VramMode,
     vram_palette: u8,
-    cgram_texture: Option<(wgpu::Texture, egui::TextureId)>,
+    cgram_texture: Option<egui::TextureId>,
     cgram_buffer: Box<[Color; CGRAM_BUFFER_LEN]>,
-    vram_2bpp_texture: Option<(wgpu::Texture, egui::TextureId)>,
-    vram_4bpp_texture: Option<(wgpu::Texture, egui::TextureId)>,
-    vram_8bpp_texture: Option<(wgpu::Texture, egui::TextureId)>,
-    vram_mode7_texture: Option<(wgpu::Texture, egui::TextureId)>,
-    vram_buffer: Box<[Color; VRAM_BUFFER_LEN]>,
+    vram_2bpp_texture: Option<egui::TextureId>,
+    vram_4bpp_texture: Option<egui::TextureId>,
+    vram_8bpp_texture: Option<egui::TextureId>,
+    vram_mode7_texture: Option<egui::TextureId>,
+    vram_buffer: Box<[Color; MAX_VRAM_BUFFER_LEN]>,
 }
 
 impl State {
     fn new() -> Self {
         Self {
-            tab: Tab::default(),
+            vram_open: true,
+            cgram_open: true,
             vram_mode: VramMode::default(),
             vram_palette: 0,
             cgram_texture: None,
@@ -50,7 +58,7 @@ impl State {
             vram_4bpp_texture: None,
             vram_8bpp_texture: None,
             vram_mode7_texture: None,
-            vram_buffer: vec![Color::default(); VRAM_BUFFER_LEN]
+            vram_buffer: vec![Color::default(); MAX_VRAM_BUFFER_LEN]
                 .into_boxed_slice()
                 .try_into()
                 .unwrap(),
@@ -63,222 +71,161 @@ pub fn render_fn() -> Box<DebugRenderFn<SnesEmulator>> {
     Box::new(move |ctx, emulator| render(ctx, emulator, &mut state))
 }
 
-fn render(mut ctx: DebugRenderContext<'_>, emulator: &mut SnesEmulator, state: &mut State) {
-    update_cgram_texture(&mut ctx, emulator, state);
-    update_vram_texture(&mut ctx, emulator, state);
+fn render(ctx: DebugRenderContext<'_>, emulator: &mut SnesEmulator, state: &mut State) {
+    Panel::top("debug_top_panel").show_inside(ctx.egui_ui, |ui| {
+        MenuBar::new().ui(ui, |ui| {
+            ui.menu_button("Video Memory", |ui| {
+                if ui.button("VRAM").clicked() {
+                    state.vram_open = true;
+                    crate::move_to_top(ui.ctx(), VRAM_WINDOW_TITLE);
+                    ui.close_kind(UiKind::Menu);
+                }
 
-    let screen_width = crate::screen_width(ctx.egui_ui);
-
-    CentralPanel::default().show_inside(ctx.egui_ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.add(SelectableButton::new("VRAM", &mut state.tab, Tab::Vram));
-            ui.add(SelectableButton::new("CGRAM", &mut state.tab, Tab::Cgram));
+                if ui.button("CRAM").clicked() {
+                    state.cgram_open = true;
+                    crate::move_to_top(ui.ctx(), CGRAM_WINDOW_TITLE);
+                    ui.close_kind(UiKind::Menu);
+                }
+            });
         });
+    });
 
-        ui.add_space(15.0);
+    render_cgram_window(ctx.egui_ui.ctx(), emulator, state);
+    render_vram_window(ctx.egui_ui.ctx(), emulator, state);
+}
 
-        match state.tab {
-            Tab::Cgram => {
+fn render_cgram_window(ctx: &egui::Context, emulator: &mut SnesEmulator, state: &mut State) {
+    Window::new(CGRAM_WINDOW_TITLE)
+        .open(&mut state.cgram_open)
+        .default_pos([550.0, 25.0])
+        .default_size([350.0, 360.0])
+        .show(ctx, |ui| {
+            CentralPanel::default().show_inside(ui, |ui| {
+                emulator.copy_cgram(state.cgram_buffer.as_mut());
+
                 ui.vertical_centered(|ui| {
-                    let egui_texture = state.cgram_texture.as_ref().unwrap().1;
-                    ui.image((egui_texture, Vec2::new(screen_width * 0.65, screen_width * 0.65)));
+                    let texture = crate::update_egui_texture(
+                        ui.ctx(),
+                        CGRAM_TEXTURE_SIZE,
+                        state.cgram_buffer.as_ref(),
+                        &mut state.cgram_texture,
+                    );
+                    let image_size =
+                        crate::clamp_image_size(ui.max_rect().size(), CGRAM_TEXTURE_SIZE);
+                    ui.image((texture, image_size));
                 });
-            }
-            Tab::Vram => {
-                let original_vram_mode = state.vram_mode;
+            });
+        });
+}
 
+fn render_vram_window(ctx: &egui::Context, emulator: &mut SnesEmulator, state: &mut State) {
+    Window::new(VRAM_WINDOW_TITLE)
+        .open(&mut state.vram_open)
+        .default_pos([10.0, 25.0])
+        .default_size([525.0, 700.0])
+        .show(ctx, |ui| {
+            Panel::top("vram_top_panel").show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label("Mode:");
-                    ui.add(SelectableButton::new("2bpp", &mut state.vram_mode, VramMode::TwoBpp));
-                    ui.add(SelectableButton::new("4bpp", &mut state.vram_mode, VramMode::FourBpp));
-                    ui.add(SelectableButton::new("8bpp", &mut state.vram_mode, VramMode::EightBpp));
-                    ui.add(SelectableButton::new("Mode 7", &mut state.vram_mode, VramMode::Mode7));
+
+                    for (value, label) in [
+                        (VramMode::TwoBpp, "2bpp"),
+                        (VramMode::FourBpp, "4bpp"),
+                        (VramMode::EightBpp, "8bpp"),
+                        (VramMode::Mode7, "Mode 7"),
+                    ] {
+                        ui.radio_value(&mut state.vram_mode, value, label);
+                    }
                 });
 
                 ui.add_space(5.0);
 
-                ui.add_enabled_ui(
-                    matches!(state.vram_mode, VramMode::TwoBpp | VramMode::FourBpp),
-                    |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label("Palette:");
+                let paletted_mode = matches!(state.vram_mode, VramMode::TwoBpp | VramMode::FourBpp);
+                ui.add_enabled_ui(paletted_mode, |ui| {
+                    Grid::new("vram_palette_grid").num_columns(9).show(ui, |ui| {
+                        ui.label("Palette:");
 
-                            for bg_palette in 0..8 {
-                                ui.add(SelectableButton::new(
-                                    format!("BG{bg_palette}"),
-                                    &mut state.vram_palette,
-                                    bg_palette,
-                                ));
-                            }
+                        for i in 0..8 {
+                            ui.radio_value(&mut state.vram_palette, i, format!("BG{i}"));
+                        }
 
-                            for obj_palette in 0..8 {
-                                ui.add_enabled(
-                                    state.vram_mode == VramMode::FourBpp,
-                                    SelectableButton::new(
-                                        format!("OBJ{obj_palette}"),
-                                        &mut state.vram_palette,
-                                        obj_palette + 8,
-                                    ),
-                                );
-                            }
-                        });
-                    },
-                );
+                        ui.end_row();
 
-                ui.add_space(10.0);
+                        ui.label("");
 
-                ScrollArea::vertical().show(ui, |ui| match original_vram_mode {
+                        for i in 0..8 {
+                            ui.radio_value(&mut state.vram_palette, i + 8, format!("OBJ{i}"));
+                        }
+
+                        ui.end_row();
+                    });
+                });
+            });
+
+            CentralPanel::default().show_inside(ui, |ui| {
+                let (texture, texture_size) = match state.vram_mode {
                     VramMode::TwoBpp => {
-                        let egui_texture = state.vram_2bpp_texture.as_ref().unwrap().1;
-                        ui.image((egui_texture, Vec2::new(screen_width, screen_width)));
+                        emulator.copy_vram_2bpp(
+                            state.vram_buffer.as_mut(),
+                            state.vram_palette,
+                            VRAM_2BPP_TEXTURE_SIZE[0] / 8,
+                        );
+
+                        let texture = crate::update_egui_texture(
+                            ui.ctx(),
+                            VRAM_2BPP_TEXTURE_SIZE,
+                            &state.vram_buffer[..VRAM_2BPP_BUFFER_LEN],
+                            &mut state.vram_2bpp_texture,
+                        );
+                        (texture, VRAM_2BPP_TEXTURE_SIZE)
                     }
                     VramMode::FourBpp => {
-                        let egui_texture = state.vram_4bpp_texture.as_ref().unwrap().1;
-                        ui.image((egui_texture, Vec2::new(screen_width, screen_width * 0.5)));
+                        emulator.copy_vram_4bpp(
+                            state.vram_buffer.as_mut(),
+                            state.vram_palette,
+                            VRAM_4BPP_TEXTURE_SIZE[0] / 8,
+                        );
+
+                        let texture = crate::update_egui_texture(
+                            ui.ctx(),
+                            VRAM_4BPP_TEXTURE_SIZE,
+                            &state.vram_buffer[..VRAM_4BPP_BUFFER_LEN],
+                            &mut state.vram_4bpp_texture,
+                        );
+                        (texture, VRAM_4BPP_TEXTURE_SIZE)
                     }
                     VramMode::EightBpp => {
-                        let egui_texture = state.vram_8bpp_texture.as_ref().unwrap().1;
-                        ui.image((egui_texture, Vec2::new(screen_width, screen_width)));
+                        emulator.copy_vram_8bpp(
+                            state.vram_buffer.as_mut(),
+                            VRAM_8BPP_TEXTURE_SIZE[0] / 8,
+                        );
+
+                        let texture = crate::update_egui_texture(
+                            ui.ctx(),
+                            VRAM_8BPP_TEXTURE_SIZE,
+                            &state.vram_buffer[..VRAM_8BPP_BUFFER_LEN],
+                            &mut state.vram_8bpp_texture,
+                        );
+                        (texture, VRAM_8BPP_TEXTURE_SIZE)
                     }
                     VramMode::Mode7 => {
-                        let egui_texture = state.vram_mode7_texture.as_ref().unwrap().1;
-                        ui.image((egui_texture, Vec2::new(screen_width, screen_width)));
+                        emulator.copy_vram_mode7(
+                            state.vram_buffer.as_mut(),
+                            VRAM_MODE_7_TEXTURE_SIZE[0] / 8,
+                        );
+
+                        let texture = crate::update_egui_texture(
+                            ui.ctx(),
+                            VRAM_MODE_7_TEXTURE_SIZE,
+                            &state.vram_buffer[..VRAM_MODE_7_BUFFER_LEN],
+                            &mut state.vram_mode7_texture,
+                        );
+                        (texture, VRAM_MODE_7_TEXTURE_SIZE)
                     }
-                });
-            }
-        }
-    });
-}
+                };
 
-fn update_cgram_texture(
-    ctx: &mut DebugRenderContext<'_>,
-    emulator: &mut SnesEmulator,
-    state: &mut State,
-) {
-    emulator.copy_cgram(state.cgram_buffer.as_mut());
-
-    if state.cgram_texture.is_none() {
-        let (wgpu_texture, egui_texture) =
-            crate::create_texture("debug_snes_cgram", 16, 16, ctx.device, ctx.renderer);
-        state.cgram_texture = Some((wgpu_texture, egui_texture));
-    }
-
-    let (wgpu_texture, egui_texture) = state.cgram_texture.as_ref().unwrap();
-
-    crate::write_textures(
-        wgpu_texture,
-        *egui_texture,
-        bytemuck::cast_slice(state.cgram_buffer.as_ref()),
-        ctx,
-    );
-}
-
-fn update_vram_texture(
-    ctx: &mut DebugRenderContext<'_>,
-    emulator: &mut SnesEmulator,
-    state: &mut State,
-) {
-    match state.vram_mode {
-        VramMode::TwoBpp => update_vram_2bpp_texture(ctx, emulator, state),
-        VramMode::FourBpp => update_vram_4bpp_texture(ctx, emulator, state),
-        VramMode::EightBpp => update_vram_8bpp_texture(ctx, emulator, state),
-        VramMode::Mode7 => update_vram_mode7_texture(ctx, emulator, state),
-    }
-}
-
-fn update_vram_2bpp_texture(
-    ctx: &mut DebugRenderContext<'_>,
-    emulator: &mut SnesEmulator,
-    state: &mut State,
-) {
-    emulator.copy_vram_2bpp(state.vram_buffer.as_mut(), state.vram_palette, 64);
-
-    if state.vram_2bpp_texture.is_none() {
-        let (wgpu_texture, egui_texture) =
-            crate::create_texture("debug_snes_vram_2bpp", 64 * 8, 64 * 8, ctx.device, ctx.renderer);
-        state.vram_2bpp_texture = Some((wgpu_texture, egui_texture));
-    }
-
-    let (wgpu_texture, egui_texture) = state.vram_2bpp_texture.as_ref().unwrap();
-
-    crate::write_textures(
-        wgpu_texture,
-        *egui_texture,
-        bytemuck::cast_slice(state.vram_buffer.as_ref()),
-        ctx,
-    );
-}
-
-fn update_vram_4bpp_texture(
-    ctx: &mut DebugRenderContext<'_>,
-    emulator: &mut SnesEmulator,
-    state: &mut State,
-) {
-    emulator.copy_vram_4bpp(state.vram_buffer.as_mut(), state.vram_palette, 64);
-
-    if state.vram_4bpp_texture.is_none() {
-        let (wgpu_texture, egui_texture) =
-            crate::create_texture("debug_snes_vram_4bpp", 64 * 8, 32 * 8, ctx.device, ctx.renderer);
-        state.vram_4bpp_texture = Some((wgpu_texture, egui_texture));
-    }
-
-    let (wgpu_texture, egui_texture) = state.vram_4bpp_texture.as_ref().unwrap();
-
-    crate::write_textures(
-        wgpu_texture,
-        *egui_texture,
-        bytemuck::cast_slice(state.vram_buffer.as_ref()),
-        ctx,
-    );
-}
-
-fn update_vram_8bpp_texture(
-    ctx: &mut DebugRenderContext<'_>,
-    emulator: &mut SnesEmulator,
-    state: &mut State,
-) {
-    emulator.copy_vram_8bpp(state.vram_buffer.as_mut(), 32);
-
-    if state.vram_8bpp_texture.is_none() {
-        let (wgpu_texture, egui_texture) =
-            crate::create_texture("debug_snes_vram_8bpp", 32 * 8, 32 * 8, ctx.device, ctx.renderer);
-        state.vram_8bpp_texture = Some((wgpu_texture, egui_texture));
-    }
-
-    let (wgpu_texture, egui_texture) = state.vram_8bpp_texture.as_ref().unwrap();
-
-    crate::write_textures(
-        wgpu_texture,
-        *egui_texture,
-        bytemuck::cast_slice(state.vram_buffer.as_ref()),
-        ctx,
-    );
-}
-
-fn update_vram_mode7_texture(
-    ctx: &mut DebugRenderContext<'_>,
-    emulator: &mut SnesEmulator,
-    state: &mut State,
-) {
-    emulator.copy_vram_mode7(state.vram_buffer.as_mut(), 16);
-
-    if state.vram_mode7_texture.is_none() {
-        let (wgpu_texture, egui_texture) = crate::create_texture(
-            "debug_snes_vram_mode7",
-            16 * 8,
-            16 * 8,
-            ctx.device,
-            ctx.renderer,
-        );
-        state.vram_mode7_texture = Some((wgpu_texture, egui_texture));
-    }
-
-    let (wgpu_texture, egui_texture) = state.vram_mode7_texture.as_ref().unwrap();
-
-    crate::write_textures(
-        wgpu_texture,
-        *egui_texture,
-        bytemuck::cast_slice(state.vram_buffer.as_ref()),
-        ctx,
-    );
+                let image_size = crate::clamp_image_size(ui.max_rect().size(), texture_size);
+                ui.image((texture, image_size));
+            });
+        });
 }
