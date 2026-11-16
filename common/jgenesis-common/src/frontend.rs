@@ -432,7 +432,7 @@ pub trait EmulatorTrait: 'static {
 
     #[must_use]
     fn save_state_version() -> &'static str {
-        "0.14.0-1"
+        "0.15.0-0"
     }
 
     fn target_fps(&self) -> f64;
