@@ -773,13 +773,13 @@ impl App {
                 let supports_soft_reset = !(emu_runner_status.is_running_handheld()
                     || emu_runner_status == EmuRunnerStatus::RunningPcEngine);
                 ui.add_enabled_ui(supports_soft_reset, |ui| {
-                    if ui.button("Soft Reset").clicked() {
+                    if ui.button("Reset").clicked() {
                         self.emu_runner.push_command(EmuRunnerCommand::SoftReset);
                         ui.close_kind(UiKind::Menu);
                     }
                 });
 
-                if ui.button("Hard Reset").clicked() {
+                if ui.button("Power Cycle").clicked() {
                     self.emu_runner.push_command(EmuRunnerCommand::HardReset);
                     ui.close_kind(UiKind::Menu);
                 }
