@@ -8,6 +8,7 @@ use gb_config::GameBoyButton;
 use gba_config::GbaButton;
 use genesis_config::{GenesisButton, GenesisControllerType};
 use jgenesis_common::input::Player;
+use jgenesis_native_config::common::CommonAppConfig;
 use jgenesis_native_config::genesis::GenesisAppConfig;
 use jgenesis_native_config::input::InputAppConfig;
 use jgenesis_native_config::input::mappings::{
@@ -25,6 +26,7 @@ use polonius_the_crab::{polonius, polonius_return};
 use smsgg_config::SmsGgButton;
 use snes_config::SnesButton;
 use std::mem;
+use std::num::NonZeroU32;
 use std::sync::LazyLock;
 
 const ALLOW_OPPOSING_DIRECTIONS_LABEL: &str = "Allow simultaneous opposing gamepad directions";
@@ -326,16 +328,45 @@ fn access_hotkey(
 
 impl App {
     pub(super) fn render_general_input_settings(&mut self, ctx: &Context) {
-        let mut open = true;
-        Window::new(OpenWindow::GeneralInput.title()).open(&mut open).show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.label("Gamepad joystick axis deadzone:");
-                ui.add(Slider::new(&mut self.config.input.axis_deadzone, 0..=i16::MAX));
+        const WINDOW: OpenWindow = OpenWindow::GeneralInput;
 
+        let mut open = true;
+        Window::new(WINDOW.title()).open(&mut open).show(ctx, |ui| {
+            ui.spacing_mut().slider_width = 200.0;
+
+            Grid::new("general_input_grid").num_columns(3).show(ui, |ui| {
+                let rect1 = ui.label("Turbo toggle interval in frames:").interact_rect;
+                let rect2 = ui
+                    .add(Slider::new(
+                        &mut self.config.common.turbo_frame_interval,
+                        NonZeroU32::new(1).unwrap()..=NonZeroU32::new(30).unwrap(),
+                    ))
+                    .interact_rect;
+                if ui.button("Default").clicked() {
+                    self.config.common.turbo_frame_interval =
+                        CommonAppConfig::default().turbo_frame_interval;
+                }
+                ui.end_row();
+
+                if ui.rect_contains_pointer(rect1) || ui.rect_contains_pointer(rect2) {
+                    self.state.help_text.insert(WINDOW, helptext::TURBO_INTERVAL);
+                }
+
+                let rect1 = ui.label("Gamepad joystick axis deadzone:").interact_rect;
+                let rect2 = ui
+                    .add(Slider::new(&mut self.config.input.axis_deadzone, 0..=i16::MAX))
+                    .interact_rect;
                 if ui.button("Default").clicked() {
                     self.config.input.axis_deadzone = InputAppConfig::default().axis_deadzone;
                 }
+                ui.end_row();
+
+                if ui.rect_contains_pointer(rect1) || ui.rect_contains_pointer(rect2) {
+                    self.state.help_text.insert(WINDOW, helptext::AXIS_DEADZONE);
+                }
             });
+
+            self.render_help_text(ui, WINDOW);
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GeneralInput);

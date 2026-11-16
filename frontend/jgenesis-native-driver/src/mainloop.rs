@@ -96,6 +96,7 @@ struct HotkeyState<Emulator: EmulatorTrait> {
     save_state_slot: usize,
     paused: bool,
     fast_forwarding: bool,
+    turbo_frame_counter: u32,
     rewinding: bool,
     overclocking_enabled: bool,
     debugger_window: Option<DebuggerWindow>,
@@ -112,6 +113,7 @@ impl<Emulator: EmulatorTrait> HotkeyState<Emulator> {
             paused: false,
             fast_forwarding: false,
             rewinding: false,
+            turbo_frame_counter: 0,
             overclocking_enabled: true,
             debugger_window: None,
             egui_theme: common_config.egui_theme,
@@ -660,9 +662,16 @@ where
 
         match self.runner.try_recv_frame(&mut self.renderer, Duration::from_millis(5)) {
             Ok(()) => {
-                self.input_mapper.frame_complete();
-                if let Some(effect) = self.process_input_events()? {
-                    return Ok(Some(effect));
+                self.hotkey_state.turbo_frame_counter += 1;
+                if self.hotkey_state.turbo_frame_counter
+                    >= self.common_config.turbo_frame_interval.get()
+                {
+                    self.hotkey_state.turbo_frame_counter = 0;
+
+                    self.input_mapper.toggle_turbo_states();
+                    if let Some(effect) = self.process_input_events()? {
+                        return Ok(Some(effect));
+                    }
                 }
 
                 if self.common_config.auto_resize_window {

@@ -26,7 +26,7 @@ use smsgg_config::cheats::SmsGgCheats;
 use smsgg_core::{SmsGgEmulatorConfig, SmsGgHardware};
 use snes_core::api::{CoprocessorRomFn, CoprocessorRoms, SnesEmulatorConfig};
 use std::fs;
-use std::num::NonZeroU8;
+use std::num::{NonZeroU8, NonZeroU32};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
@@ -73,6 +73,7 @@ pub struct CommonConfig {
     pub renderer_config: RendererConfig,
     pub fast_forward_multiplier: u64,
     pub rewind_buffer_length_seconds: u64,
+    pub turbo_frame_interval: NonZeroU32,
     pub load_recent_state_at_launch: bool,
     pub launch_in_fullscreen: bool,
     pub borderless_window: bool,
@@ -336,6 +337,7 @@ impl AppConfigExt for AppConfig {
             },
             fast_forward_multiplier: self.common.fast_forward_multiplier,
             rewind_buffer_length_seconds: self.common.rewind_buffer_length_seconds,
+            turbo_frame_interval: self.common.turbo_frame_interval,
             load_recent_state_at_launch: self.common.load_recent_state_at_launch,
             launch_in_fullscreen: self.common.launch_in_fullscreen,
             borderless_window: self.common.borderless_window,

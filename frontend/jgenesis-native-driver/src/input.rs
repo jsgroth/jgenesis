@@ -720,7 +720,7 @@ where
         }
     }
 
-    pub fn frame_complete(&mut self) {
+    pub fn toggle_turbo_states(&mut self) {
         self.state.toggle_turbo_states();
     }
 
