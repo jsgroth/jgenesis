@@ -1,3 +1,50 @@
+# 0.15.0
+
+## New Features
+* (**PCE**) Added support for the PC Engine CD-ROM<sup>2</sup> / TurboGrafx CD add-on
+  * Disc-based games require a CD-ROM<sup>2</sup> System Card BIOS ROM
+  * Includes support for the Super System Card and Arcade Card, with an option to select which System Card to emulate
+  * Audio options allow enabling/disabling and adjusting volume of the 3 individual sound sources (PSG, CD-DA, ADPCM)
+* (**PCE**) Added support for emulating the 6-button controller
+* (**Genesis** / **SMS** / **Game Gear**) Added a new audio option to enable/disable individual PSG channels
+* (**Genesis**) Added a memory viewer for cartridge SRAM/EEPROM when running a game that has some
+* (**Genesis**) Added an option to make the emulator report a different hardware region to games than what it's actually emulating (#719)
+  * As part of this, the previous region and timing/display mode settings have been combined into a single console region setting
+* (**Sega CD**) Added support for loading M3U playlist files for multi-disc games (#623)
+* (**32X**) You can now underclock the SH-2 CPUs in addition to overclocking them, and you can now configure the clock multiplier in steps of 0.25 (#711)
+* Added support for automatically applying BPS and IPS patches in-memory during game load (#708)
+  * Patches are automatically loaded and applied if they are in the same folder as the game file and have the same base filename (e.g. `Game.md` and `Game.bps`)
+  * This is enabled by default, but you can disable it via a new option in Settings > General
+* Two new windowing options in Video > General:
+  * Added a new option to automatically resize the emulator window when you change aspect ratio settings or when the emulated console's aspect-corrected output resolution changes (e.g. because the game changed display settings)
+  * Added a new option to manually specify the emulator window size in pixels (#699)
+* Added an option in Input > General to configure the turbo input button toggle frequency in frames (previously it always toggled after every frame)
+* Added support for builtin AVI video recording and WAV audio recording via a new Recording menu
+* Memory viewers now display an ASCII text representation of memory contents alongside the hex values (#700)
+
+## Improvements
+* (**GB** / **GBC**) Somewhat improved video frame delivery timing when games disable and re-enable the display (should reduce video/audio sync issues when VSync is enabled)
+* When running a game that has battery-backed SRAM or other persistent memory, the save file is now flushed to disk at most once per minute or when you close the game
+* In the Emulation and Hotkeys menus, "Soft Reset" and "Hard Reset" have been renamed to "Reset" and "Power Cycle" respectively
+
+## Fixes
+* (**Genesis**) Improved timing around handling mid-scanline changes to VDP nametable address registers; this fixes glitchy lines on some screens in _Scooby Doo Mystery_ (#710)
+* (**Sega CD**) Fixed VDP DMAs from word RAM not working in Mode 1 (boot from cartridge); this fixes corrupted graphics in _Sonic Neon: The Trial_ (#717)
+* (**32X**) Slightly improved timing around accessing SH7604 internal I/O registers
+* (**PCE**) A bunch of VDC fixes that fixed bugs in various CD games:
+  * Adjusted timing of when BG X/Y scroll values are latched on each line
+  * The BG/sprite enabled bits in CR are now latched per line
+  * When a game sets VSW+VDS+VDW to the number of lines per frame or larger, the VDC now triggers DMAs at the same time that it triggers VBlank IRQ (previously DMAs were not running at all)
+  * Added a small latency to applying VRAM reads/writes from the CPU
+  * Fixed incorrect vertical screen alignment when a game sets VSW to anything other than 0x02 (3 lines)
+  * Adjusted timing around whether to increment the raster compare counter when a line ends during horizontal active display phase (happens when games set garbage horizontal display settings)
+* (**PCE**) VCE color RAM is now randomized at power-on; this fixes missing characters on the password screen in _Dungeons & Dragons: Order of the Griffon_
+
+# 0.14.1
+
+## Fixes
+* (**32X**) Fixed aspect ratio settings not taking effect immediately if changed while a game is running
+
 # 0.14.0
 
 ## New Features
