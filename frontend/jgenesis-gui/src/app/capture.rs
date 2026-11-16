@@ -77,6 +77,10 @@ impl App {
                     self.state.help_text.insert(WINDOW, helptext::VIDEO_CAPTURE_TYPE);
                 }
 
+                if self.state.capture.renderer_capture_output == RendererCaptureOutput::Emulator {
+                    ui.colored_label(Color32::RED, "Emulator output recording at high resolutions can be extremely slow and produce massive AVI files");
+                }
+
                 if self.state.capture.renderer_capture_output
                     == RendererCaptureOutput::ConsoleNative
                     && self.emu_runner.status() == EmuRunnerStatus::RunningNes
