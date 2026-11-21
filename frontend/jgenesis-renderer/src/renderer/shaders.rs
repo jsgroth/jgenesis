@@ -619,8 +619,8 @@ fn determine_prescale_factors(
         }
     };
 
-    let width_ratio = (target_width / f64::from(input_size.width)) as u32;
-    let height_ratio = (target_height / f64::from(input_size.height)) as u32;
+    let width_ratio = (target_width / f64::from(input_size.width) - 0.001).ceil() as u32;
+    let height_ratio = (target_height / f64::from(input_size.height) - 0.001).ceil() as u32;
     let prescale_width = clamp_prescale_factor(width_ratio, input_size.width, limits);
     let prescale_height = clamp_prescale_factor(height_ratio, input_size.height, limits);
 
@@ -913,19 +913,19 @@ mod tests {
     }
 
     #[test]
-    fn auto_prescale_round_down() {
+    fn auto_prescale_round_up() {
         let (width, height) = determine_prescale_factors(
             PrescaleMode::Auto,
             FrameSize { width: 320, height: 240 },
             None,
-            display_area(320 * 11 / 4, 240 * 7 / 4),
+            display_area(320 * 9 / 4, 240 * 5 / 4),
             FrameRotation::None,
             wgpu::Extent3d { width: 320, height: 240, depth_or_array_layers: 1 },
             &wgpu::Limits::default(),
         );
 
-        assert_eq!(width, 2);
-        assert_eq!(height, 1);
+        assert_eq!(width, 3);
+        assert_eq!(height, 2);
     }
 
     #[test]
@@ -933,15 +933,14 @@ mod tests {
         let (width, height) = determine_prescale_factors(
             PrescaleMode::Auto,
             FrameSize { width: 320, height: 240 },
-            Some(FiniteF64::try_from(0.9).unwrap()),
+            Some(FiniteF64::try_from(1.1).unwrap()),
             display_area(320 * 2 * 9 / 10, 240 * 2),
             FrameRotation::None,
             wgpu::Extent3d { width: 320, height: 240, depth_or_array_layers: 1 },
             &wgpu::Limits::default(),
         );
 
-        // Sub-1 pixel aspect ratio should drop prescale factor
-        assert_eq!(width, 1);
+        assert_eq!(width, 3);
         assert_eq!(height, 2);
     }
 
@@ -975,7 +974,7 @@ mod tests {
             &wgpu::Limits::default(),
         );
 
-        assert_eq!(width, 2);
+        assert_eq!(width, 3);
         assert_eq!(height, 5);
     }
 
@@ -985,13 +984,13 @@ mod tests {
             PrescaleMode::Auto,
             FrameSize { width: 200, height: 400 },
             None,
-            display_area(1000, 600),
+            display_area(1400, 600),
             FrameRotation::Clockwise,
             wgpu::Extent3d { width: 200, height: 400, depth_or_array_layers: 1 },
             &wgpu::Limits::default(),
         );
 
         assert_eq!(width, 3);
-        assert_eq!(height, 2);
+        assert_eq!(height, 4);
     }
 }
