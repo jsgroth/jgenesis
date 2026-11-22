@@ -17,7 +17,7 @@ Linux, Windows, and web (WASM) are officially supported. Other platforms may wor
   * Super Nintendo Entertainment System (SNES) / Super Famicom
   * Game Boy / Game Boy Color
   * Game Boy Advance
-  * PC Engine / TurboGrafx-16 (No CD-ROM<sup>2</sup> support yet)
+  * PC Engine / TurboGrafx-16, including CD-ROM<sup>2</sup> / TurboGrafx CD
 * GPU-based renderer with integer prescaling and optional linear interpolation
 * Configurable pixel aspect ratio for each console with several different options: accurate to original hardware/TVs, square pixels, and stretched to fill the window
 * Support for the Sega Master System FM sound unit expansion
@@ -59,19 +59,17 @@ As an exception, code in the `frontend/egui-wgpu-fork/` folder was originally fo
 
 ## Screenshots
 
-![Screenshot from 2023-08-27 22-47-13](https://github.com/jsgroth/jgenesis/assets/1137683/d2ec2bc6-de7d-4ff1-98c5-10a0c4db7391)
+![Sonic the Hedgehog 2](screenshots/sonic2.png)
 
-![Screenshot from 2023-08-27 22-53-09](https://github.com/jsgroth/jgenesis/assets/1137683/05a7c309-0706-4627-9b45-313f259cc494)
+![Alien Soldier](screenshots/alien-soldier.png)
 
-![Screenshot from 2023-09-27 19-36-19](https://github.com/jsgroth/jgenesis/assets/1137683/2684be78-c2db-4af3-81dc-4325eb25f440)
+![Lunar](screenshots/lunar.png)
 
-![Screenshot from 2023-09-29 17-12-35](https://github.com/jsgroth/jgenesis/assets/1137683/69ab2eb5-1a5f-42e3-abac-c660b5c359e7)
+![Popful Mail](screenshots/popful-mail.png)
 
-![Screenshot from 2023-11-06 21-42-49](https://github.com/jsgroth/jgenesis/assets/1137683/437bd22f-f1ec-43a2-9340-62c042d489de)
+![Magical Puzzle Popils](screenshots/magical-puzzle-popils.png)
 
-![Screenshot from 2023-08-27 22-45-06](https://github.com/jsgroth/jgenesis/assets/1137683/7d1567ce-39ba-4645-9aff-3c6d6e0afb80)
-
-![Screenshot from 2023-08-27 22-45-32](https://github.com/jsgroth/jgenesis/assets/1137683/90d96e18-57a8-4327-8d9d-385f55a718b3)
+![Final Fantasy 6](screenshots/ff6.png)
 
 ## Sources
 
@@ -144,4 +142,5 @@ As an exception, code in the `frontend/egui-wgpu-fork/` folder was originally fo
 * HuC6280 opcode matrix: <https://www.chrismcovell.com/PCEdev/HuC6280_opcodes.html>
 * TurboGrafx-16 Hardware Notes by Charles MacDonald: <https://www.romhacking.net/documents/302/>
 * [Screen Resolution, VDC Setup, and Sprite Limits](https://web.archive.org/web/20250903193836/https://pcengine.proboards.com/thread/639/screen-resolution-setup-sprite-limits)
-* [Mednafen](https://mednafen.github.io/) and [Mesen](https://mesen.ca/) as references for some poorly-documented edge case behaviors
+* [Mednafen](https://mednafen.github.io/) and [Mesen](https://mesen.ca/) as references for low-level CD-ROM<sup>2</sup> behavior and some poorly-documented VDC and timing edge cases
+* PCE CD seek time estimation: <https://github.com/pce-devel/PCECD_seek>
