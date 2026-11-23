@@ -196,6 +196,8 @@ fn run_with_gui(
         window_width: gui_width.round() as u32,
         window_height: gui_height.round() as u32,
         icon: Some(icon),
+        wgpu_backends: config_info.initial_config.common.wgpu_backend.to_wgpu(),
+        wgpu_power_preference: config_info.initial_config.common.wgpu_power_preference.to_wgpu(),
         ..FrameOptions::default()
     };
 

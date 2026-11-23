@@ -142,6 +142,10 @@ impl Frame {
         let window_width = (options.window_width as f32 * display_scale_factor).round() as u32;
         let window_height = (options.window_height as f32 * display_scale_factor).round() as u32;
 
+        log::info!(
+            "Creating window '{window_title}' with initial size {window_width}x{window_height}"
+        );
+
         let mut window_builder = video.window(window_title, window_width, window_height);
 
         window_builder.hidden();
@@ -164,10 +168,18 @@ impl Frame {
             video.text_input().start(&window);
         }
 
+        log::info!("Creating wgpu instance with backends {}", backends_str(options.wgpu_backends));
+
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: options.wgpu_backends,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
+
+        log::info!("Available adapters:");
+        for adapter in pollster::block_on(instance.enumerate_adapters(options.wgpu_backends)) {
+            let info = adapter.get_info();
+            log::info!("  {:?}: {}", info.backend, info.name);
+        }
 
         // SAFETY: The surface must not outlive the window
         let surface = unsafe {
@@ -175,6 +187,11 @@ impl Frame {
                 &window, &window,
             )?)
         }?;
+
+        log::info!(
+            "Requesting wgpu adapter with power preference {:?}",
+            options.wgpu_power_preference
+        );
 
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: options.wgpu_power_preference,
@@ -185,6 +202,13 @@ impl Frame {
 
         let (device, queue) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))?;
+
+        let adapter_info = device.adapter_info();
+        log::info!(
+            "Obtained wgpu device with backend {:?}: {}",
+            adapter_info.backend,
+            adapter_info.name
+        );
 
         let surface_capabilities = surface.get_capabilities(&adapter);
         if surface_capabilities.formats.is_empty() {
@@ -198,9 +222,7 @@ impl Frame {
             .find(|&format| surface_capabilities.formats.contains(&format))
             .unwrap_or(surface_capabilities.formats[0]);
 
-        log::info!(
-            "Creating frame for window '{window_title}' with surface format {surface_format:?}"
-        );
+        log::info!("Configuring wgpu surface with texture format {surface_format:?}");
 
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -528,4 +550,14 @@ fn set_window_icon(window: &mut Window, icon: &image::DynamicImage) -> Result<()
     window.set_icon(&surface);
 
     Ok(())
+}
+
+fn backends_str(backends: wgpu::Backends) -> String {
+    let backend_strs = wgpu::Backend::ALL
+        .into_iter()
+        .filter(|&backend| backends.bits() & (1 << backend as u32) != 0)
+        .map(wgpu::Backend::to_str)
+        .collect::<Vec<_>>();
+
+    format!("[{}]", backend_strs.join(", "))
 }
