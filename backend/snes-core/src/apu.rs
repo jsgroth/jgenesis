@@ -68,8 +68,10 @@ impl ApuRegisters {
 
         match register {
             0 => {
-                log::warn!("Unimplemented APU test register was read");
-                0x00
+                // Hardware test register
+                // Always reads 0x0A unless written to, and no official releases should ever write to it
+                log::debug!("Unimplemented APU test register was read");
+                0x0A
             }
             1 => {
                 // Control register
